@@ -116,12 +116,14 @@ const (
 	// being created and writes them as source rows here.
 	//
 	// Enforcement lives in two places. repository.Service.validateMoveAllowed
-	// refuses a MOVE into todo/in_progress while a blocker is unfinished, and
+	// refuses a MOVE into in_progress while a blocker is unfinished — todo is
+	// joining the queue, not starting work, so it is never refused there.
 	// board.WorkOrder parks the card on ResourceWorkOrder when the DISPATCHER is
 	// about to start a run on it anyway (a task created straight into todo, a
-	// reconciler sweep, a sweeper resume). The park is released by
-	// board.WorkOrderSweeper once every blocker reaches done/released — or
-	// disappears, because deleting a task cascades its relations away.
+	// reconciler sweep, a sweeper resume), which is what actually guards todo.
+	// The park is released by board.WorkOrderSweeper once every blocker reaches
+	// done/released — or disappears, because deleting a task cascades its
+	// relations away.
 	TaskRelationBlocks TaskRelationType = "blocks"
 	// TaskRelationDeployDependsOn is a shipping-order statement, not a planning
 	// one: the TARGET must be live in production before the SOURCE may be

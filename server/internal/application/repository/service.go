@@ -2158,7 +2158,11 @@ func (s *Service) validateMoveAllowed(ctx context.Context, taskID uuid.UUID, tar
 	if taskID == uuid.Nil {
 		return nil
 	}
-	if target != domain.TaskColumnInProgress && target != domain.TaskColumnTodo {
+	// todo is joining the queue, not starting the work; the real gate at
+	// dispatch time is board.WorkOrder, which already covers todo too. Only
+	// the transition into in_progress — work actually starting — is refused
+	// here.
+	if target != domain.TaskColumnInProgress {
 		return nil
 	}
 	if s.relations == nil {
