@@ -20,6 +20,7 @@ import {
   ValidationError,
   validateDiagnosticsRequest,
   validateLogsRequest,
+  validateOpenExternal,
   validateOverrides,
   validatePreferences,
   validatePreflightRequest,
@@ -85,6 +86,7 @@ export interface IpcServices {
   setPreferences(patch: HostPreferences): Promise<HostSettings>;
   chooseWorkspace(): Promise<HostWorkspaceChoice | null>;
   reveal(what: "workspace" | "previous-workspace" | "logs"): void;
+  openExternal(url: string): boolean;
 
   preflight(force: boolean): Promise<PreflightReport>;
   diagnostics(force: boolean): Promise<Diagnostics>;
@@ -214,6 +216,7 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.reveal, (payload) => {
     services.reveal(validateReveal(payload).what);
   });
+  cloud(CLOUD_CHANNELS.openExternal, (payload) => services.openExternal(validateOpenExternal(payload).url));
 
   cloud(CLOUD_CHANNELS.preflight, (payload) => services.preflight(validatePreflightRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.diagnostics, (payload) => services.diagnostics(validateDiagnosticsRequest(payload).force ?? false));

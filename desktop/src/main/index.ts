@@ -27,7 +27,7 @@ import { binDir, dataDir } from "./services/detect.js";
 import { FEED_DEBUG_ENV, UpdateService, resolveFeed, type UpdaterBackend } from "./services/updater.js";
 import { Supervisor } from "./supervisor/supervisor.js";
 import { AppTray, setLaunchAtLogin } from "./tray.js";
-import { Shell } from "./window.js";
+import { openExternally, Shell } from "./window.js";
 
 /**
  * The main process: wiring, and only wiring.
@@ -312,6 +312,8 @@ const services: IpcServices = {
       if (previous) reveal(previous);
     } else reveal(app.getPath("userData"));
   },
+
+  openExternal: (url) => openExternally(url),
 
   /**
    * The environment checklist. Answered from the last sweep unless the caller

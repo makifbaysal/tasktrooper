@@ -17,6 +17,7 @@
 import { CHILD_IDS, type ChildId, type UserSettings } from "./types.js";
 import type {
   DiagnosticsRequest,
+  OpenExternalRequest,
   PreflightRequest,
   RestartChildRequest,
   RevealRequest,
@@ -97,6 +98,17 @@ export function validateReveal(raw: unknown): RevealRequest {
     fail("reveal.what: expected workspace, previous-workspace or logs");
   }
   return { what };
+}
+
+/**
+ * A PR link, or any other external URL a task card wants opened. Only the
+ * shape is checked here — non-empty, no control characters; whether it is
+ * actually an `https:` link the OS should open is `openExternally`'s call in
+ * `main/window.ts`, the one place that decision is made.
+ */
+export function validateOpenExternal(raw: unknown): OpenExternalRequest {
+  const o = asRecord(raw, "openExternal");
+  return { url: asCleanNonEmpty(o.url, "openExternal.url") };
 }
 
 export function validateDiagnosticsRequest(raw: unknown): DiagnosticsRequest {

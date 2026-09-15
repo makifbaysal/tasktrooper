@@ -313,6 +313,7 @@ export const boardArea = {
       pullRequestNumber: "PR #{number}",
       pullRequestOpen: "Open the pull request",
       pullRequestMerged: "Merged as {sha}",
+      pullRequestLinkFailed: "That link could not be opened",
     },
   },
 };

@@ -406,12 +406,18 @@ function hardenCloudNavigation(
  * "run something".
  *
  * There is one place in this app where a URL becomes something the OS acts on,
- * and a second one would be a second thing to keep correct.
+ * and a second one would be a second thing to keep correct. Returns whether it
+ * actually asked the OS to open something, so a caller that owes the user an
+ * answer — the PR link on a task card, say — can say "that link is not one I
+ * can open" instead of doing nothing and looking hung.
  */
-export function openExternally(url: string): void {
+export function openExternally(url: string): boolean {
   try {
-    if (new URL(url).protocol === "https:") void shell.openExternal(url);
+    if (new URL(url).protocol !== "https:") return false;
+    void shell.openExternal(url);
+    return true;
   } catch {
     // Not a URL; there is nothing to open and nothing to say about it.
+    return false;
   }
 }

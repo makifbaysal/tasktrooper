@@ -108,6 +108,15 @@ export const CLOUD_CHANNELS = {
   reveal: "cloud:settings:reveal",
 
   /**
+   * A PR link on a task card, opened without ever routing through the hosted
+   * view's own navigation — see window.ts's `hardenCloudNavigation` for why
+   * that matters: a `target="_blank"` anchor asks THIS process to decide, and
+   * asking here means the answer can never be "the shell's loading screen,
+   * forever" the way a navigation gone wrong could.
+   */
+  openExternal: "cloud:open-external",
+
+  /**
    * The environment preflight — what this Mac can and cannot do, item by item,
    * with the sentence that fixes each one.
    *
@@ -142,6 +151,10 @@ export interface RestartChildRequest {
 export interface RevealRequest {
   /** A NAME, not a path — the main process supplies the path. */
   what: "workspace" | "previous-workspace" | "logs";
+}
+
+export interface OpenExternalRequest {
+  url: string;
 }
 
 export interface DiagnosticsRequest {

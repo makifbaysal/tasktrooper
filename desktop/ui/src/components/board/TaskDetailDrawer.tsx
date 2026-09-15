@@ -1,5 +1,5 @@
 import { Bot, Check, CircleStop, Clock, Cog, ExternalLink, FileText, FlaskConical, GitBranch, GitPullRequest, HelpCircle, History, Loader2, MessageSquare, MessagesSquare, Minus, Paperclip, Plus, Rocket, RotateCcw, User, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -59,6 +59,7 @@ import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
 import { useRunActivity } from "@/hooks/useRunActivity";
+import { desktopRunner } from "@/lib/desktop-bridge";
 import { subtaskActivityByKey } from "@/lib/sessionGraph";
 import {
   blockedResourceLabel,
@@ -360,6 +361,23 @@ export function TaskDetailDrawer({
 
   const handleColumn = (column: TaskColumn) => {
     patchTask({ column });
+  };
+
+  // Desktop only: `target="_blank"` normally hands this off to the OS, but a
+  // PR link asks the hosted view's own navigation to decide first — which is
+  // what used to leave the shell on its loading screen with no way back (see
+  // desktop/src/main/window.ts). Asking the shell directly, before the anchor
+  // gets a chance to navigate anywhere, is what makes that impossible: there
+  // is no in-between state for this click to get stuck in. In a plain browser
+  // there is no bridge, so the anchor's own `target="_blank"` still applies.
+  const handlePrClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    const url = task?.pr_url;
+    const runner = desktopRunner();
+    if (!url || !runner) return;
+    event.preventDefault();
+    void runner.openExternal(url).then((opened) => {
+      if (!opened) toast.error(t("boardArea.components.taskDetail.pullRequestLinkFailed"));
+    });
   };
 
   const handleType = (taskType: TaskType) => {
@@ -1238,10 +1256,11 @@ export function TaskDetailDrawer({
                       thing as its status or its assignee — and putting it in
                       the sidebar is also what lets the agents stop repeating
                       the link in comments: there is one place to look for it.
-                      The link opens in a new tab in the browser; inside the
-                      desktop shell the same target=_blank is handed to the
-                      user's default browser (the shell denies popups and calls
-                      shell.openExternal), so one anchor covers both. */}
+                      The link opens in a new tab in a plain browser; inside
+                      the desktop shell, handlePrClick intercepts the click and
+                      routes it through the bridge instead of letting the
+                      anchor's own navigation run — that native path is what
+                      used to leave the shell stuck on its loading screen. */}
                   {task.pr_url && (
                     <section className="space-y-2">
                       <Label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1252,6 +1271,7 @@ export function TaskDetailDrawer({
                         href={task.pr_url}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={handlePrClick}
                         className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                       >
                         <ExternalLink className="h-3 w-3" />

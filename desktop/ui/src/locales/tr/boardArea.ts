@@ -304,6 +304,7 @@ export const boardArea: BoardAreaDict = {
       pullRequestNumber: "PR #{number}",
       pullRequestOpen: "Pull request'i aç",
       pullRequestMerged: "{sha} olarak merge edildi",
+      pullRequestLinkFailed: "Bu link açılamadı",
     },
   },
 };

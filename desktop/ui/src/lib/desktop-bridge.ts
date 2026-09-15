@@ -251,6 +251,14 @@ export interface DesktopRunnerHost {
   chooseWorkspace(): Promise<DesktopWorkspaceChoice | null>;
   reveal(what: "workspace" | "previous-workspace" | "logs"): Promise<void>;
 
+  /**
+   * Open an external link — a task's PR — in the real browser instead of the
+   * hosted view navigating to it. Resolves false for a link the shell refuses
+   * to open (not `https:`) rather than throwing, since that is an answer this
+   * page can show a person.
+   */
+  openExternal(url: string): Promise<boolean>;
+
   diagnostics(force?: boolean): Promise<DesktopDiagnostics>;
   setOverrides(patch: DesktopOverrides): Promise<DesktopDiagnostics>;
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ValidationError, validateOverrides, validateRestartChild, validateReveal } from "./validate.js";
+import {
+  ValidationError,
+  validateOpenExternal,
+  validateOverrides,
+  validateRestartChild,
+  validateReveal,
+} from "./validate.js";
 
 /**
  * The three payloads that reach something with consequences: a child id that
@@ -39,6 +45,25 @@ describe("validateReveal", () => {
     expect(validateReveal({ what: "logs" }).what).toBe("logs");
     expect(() => validateReveal({ what: "/etc" })).toThrow(ValidationError);
     expect(() => validateReveal({ what: "~/Documents" })).toThrow(ValidationError);
+  });
+});
+
+describe("validateOpenExternal", () => {
+  it("accepts a non-empty url", () => {
+    expect(validateOpenExternal({ url: "https://github.com/org/repo/pull/1" })).toEqual({
+      url: "https://github.com/org/repo/pull/1",
+    });
+  });
+
+  it("refuses an empty, missing or non-string url", () => {
+    const refused: unknown[] = [undefined, null, {}, { url: "" }, { url: "  " }, { url: 3 }, { url: ["x"] }];
+    for (const payload of refused) {
+      expect(() => validateOpenExternal(payload), JSON.stringify(payload) ?? "undefined").toThrow(ValidationError);
+    }
+  });
+
+  it("refuses a url with a control character", () => {
+    expect(() => validateOpenExternal({ url: "https://example.com\n/evil" })).toThrow(ValidationError);
   });
 });
 

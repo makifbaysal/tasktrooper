@@ -85,6 +85,7 @@ const runner: DesktopRunnerHost = {
     call<HostSettings>(CLOUD_CHANNELS.settingsSetPreferences, patch),
   chooseWorkspace: () => call<HostWorkspaceChoice | null>(CLOUD_CHANNELS.chooseWorkspace),
   reveal: (what) => call<void>(CLOUD_CHANNELS.reveal, { what }),
+  openExternal: (url) => call<boolean>(CLOUD_CHANNELS.openExternal, { url }),
 
   preflight: (force?: boolean) => call<PreflightReport>(CLOUD_CHANNELS.preflight, { force }),
 

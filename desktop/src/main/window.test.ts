@@ -158,7 +158,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { HOME_ROUTE, Shell } = await import("./window.js");
+const { HOME_ROUTE, Shell, openExternally } = await import("./window.js");
 
 interface Harness {
   shell: InstanceType<typeof Shell>;
@@ -358,6 +358,31 @@ describe("the navigation boundary is unchanged", () => {
     let prevented = false;
     contents.emit("will-navigate", { preventDefault: () => (prevented = true) }, `${ORIGIN}/settings/llm`);
     expect(prevented).toBe(false);
+    expect(openedExternally).toEqual([]);
+  });
+});
+
+/**
+ * `openExternally`'s return value is what lets the PR-link bridge channel
+ * (`cloud:open-external`, `main/ipc.ts`) tell the page a link could not be
+ * opened instead of doing nothing and leaving the user wondering whether the
+ * click landed.
+ */
+describe("openExternally", () => {
+  it("opens an https URL and reports success", () => {
+    expect(openExternally("https://github.com/org/repo/pull/1")).toBe(true);
+    expect(openedExternally).toEqual(["https://github.com/org/repo/pull/1"]);
+  });
+
+  it("refuses a non-https URL without opening anything", () => {
+    expect(openExternally("http://example.com")).toBe(false);
+    expect(openExternally("javascript:alert(1)")).toBe(false);
+    expect(openedExternally).toEqual([]);
+  });
+
+  it("refuses a value that is not a URL at all", () => {
+    expect(openExternally("not a url")).toBe(false);
+    expect(openExternally("")).toBe(false);
     expect(openedExternally).toEqual([]);
   });
 });

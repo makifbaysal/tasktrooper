@@ -139,6 +139,15 @@ export interface DesktopRunnerHost {
   reveal(what: "workspace" | "previous-workspace" | "logs"): Promise<void>;
 
   /**
+   * Open an external link (a task's PR, say) in the user's real browser
+   * instead of asking the hosted view to navigate there — which is what used
+   * to leave the app stuck on its own loading screen with no way back.
+   * Resolves false, rather than rejecting, for a link that is not an
+   * `https:` URL: that is an answer the page can show, not an exception.
+   */
+  openExternal(url: string): Promise<boolean>;
+
+  /**
    * The environment checklist, and the whole of the setup screen's data.
    *
    * `force` re-runs every probe. It is what the "Check again" button calls
