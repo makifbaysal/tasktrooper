@@ -428,6 +428,120 @@ func TestProdDeploySkipDoesNotMarkSubmitted(t *testing.T) {
 	}
 }
 
+// A skipped prod deploy — no prod_deploy workflow mapped — still releases the
+// task (an unconfigured repo cannot be held hostage), but the card must say
+// plainly that nothing was actually verified, not read like a real deploy.
+func TestProdDeploySkipReleasesWithAWarningComment(t *testing.T) {
+	tasks := &fakeTaskUpdater{}
+	runner := NewPipelineRunner(PipelineRunnerDeps{Store: newFakePipelineStore(), Tasks: tasks})
+
+	repoID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnDone}
+	pipeline, err := runner.store.Create(context.Background(), domain.TaskPipeline{
+		TaskID: task.ID, RepositoryID: repoID, Trigger: domain.PipelineTriggerProdDeploy,
+	})
+	if err != nil {
+		t.Fatalf("create pipeline: %v", err)
+	}
+	jobs := []domain.TaskPipelineJob{{
+		PipelineID: pipeline.ID,
+		Name:       "no prod_deploy workflow configured",
+		Status:     domain.PipelineJobStatusSkipped,
+	}}
+
+	job := pipelineJob{Pipeline: pipeline, RepositoryID: repoID, Task: task}
+	if err := runner.finalize(context.Background(), job, pipeline, domain.PipelineStatusSkipped, jobs); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+
+	if len(tasks.calls) != 1 || tasks.calls[0].Column == nil || *tasks.calls[0].Column != domain.TaskColumnReleased {
+		t.Fatalf("a skipped prod deploy must still release the task, got %+v", tasks.calls)
+	}
+	if len(tasks.comments) != 1 {
+		t.Fatalf("comments = %d, want 1 — the skip has to reach the card", len(tasks.comments))
+	}
+	content := tasks.comments[0].Content
+	if !strings.Contains(content, "no prod_deploy workflow configured") {
+		t.Errorf("comment does not name the missing mapping: %q", content)
+	}
+	if !strings.Contains(content, "without a verified deploy") {
+		t.Errorf("comment does not say the deploy was not verified: %q", content)
+	}
+}
+
+// A successful prod deploy is the existing, unchanged behaviour: it releases
+// the task with its own message and adds no warning comment.
+func TestProdDeploySuccessReleasesWithoutAWarningComment(t *testing.T) {
+	tasks := &fakeTaskUpdater{}
+	runner := NewPipelineRunner(PipelineRunnerDeps{Store: newFakePipelineStore(), Tasks: tasks})
+
+	repoID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnDone}
+	pipeline, err := runner.store.Create(context.Background(), domain.TaskPipeline{
+		TaskID: task.ID, RepositoryID: repoID, Trigger: domain.PipelineTriggerProdDeploy,
+	})
+	if err != nil {
+		t.Fatalf("create pipeline: %v", err)
+	}
+	jobs := []domain.TaskPipelineJob{{
+		PipelineID: pipeline.ID,
+		Name:       "prod_deploy",
+		Status:     domain.PipelineJobStatusSuccess,
+	}}
+
+	job := pipelineJob{Pipeline: pipeline, RepositoryID: repoID, Task: task}
+	if err := runner.finalize(context.Background(), job, pipeline, domain.PipelineStatusSuccess, jobs); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+
+	if len(tasks.calls) != 1 || tasks.calls[0].Column == nil || *tasks.calls[0].Column != domain.TaskColumnReleased {
+		t.Fatalf("a successful prod deploy must release the task, got %+v", tasks.calls)
+	}
+	if len(tasks.comments) != 0 {
+		t.Fatalf("comments = %d, want 0 — a real deploy adds no skip warning: %+v", len(tasks.comments), tasks.comments)
+	}
+}
+
+// A skipped preprod deploy that falls through to release (prod not mapped
+// either) gets the same warning comment as a skipped prod deploy.
+func TestPreProdDeploySkipFallsThroughToReleaseWithAWarningComment(t *testing.T) {
+	tasks := &fakeTaskUpdater{}
+	runner := NewPipelineRunner(PipelineRunnerDeps{Store: newFakePipelineStore(), Tasks: tasks})
+
+	repoID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnDone}
+	pipeline, err := runner.store.Create(context.Background(), domain.TaskPipeline{
+		TaskID: task.ID, RepositoryID: repoID, Trigger: domain.PipelineTriggerPreProdDeploy,
+	})
+	if err != nil {
+		t.Fatalf("create pipeline: %v", err)
+	}
+	jobs := []domain.TaskPipelineJob{{
+		PipelineID: pipeline.ID,
+		Name:       "no preprod_deploy workflow configured",
+		Status:     domain.PipelineJobStatusSkipped,
+	}}
+
+	job := pipelineJob{Pipeline: pipeline, RepositoryID: repoID, Task: task}
+	if err := runner.finalize(context.Background(), job, pipeline, domain.PipelineStatusSkipped, jobs); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+
+	if len(tasks.calls) != 1 || tasks.calls[0].Column == nil || *tasks.calls[0].Column != domain.TaskColumnReleased {
+		t.Fatalf("a skipped preprod deploy with no prod mapping must still release the task, got %+v", tasks.calls)
+	}
+	if len(tasks.comments) != 1 {
+		t.Fatalf("comments = %d, want 1", len(tasks.comments))
+	}
+	content := tasks.comments[0].Content
+	if !strings.Contains(content, "no preprod_deploy workflow configured") {
+		t.Errorf("comment does not name the missing mapping: %q", content)
+	}
+	if !strings.Contains(content, "without a verified deploy") {
+		t.Errorf("comment does not say the deploy was not verified: %q", content)
+	}
+}
+
 // --- unconfigured QA gate ---------------------------------------------------
 
 type fakeQADispatcher struct {

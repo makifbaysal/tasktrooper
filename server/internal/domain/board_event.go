@@ -79,7 +79,10 @@ const (
 	// MoveReasonVerificationFailed: post-run build/vet checks still failed after
 	// the fix attempts, task bounced back to in_progress.
 	MoveReasonVerificationFailed = "verification_failed"
-	// MoveReasonDeployReleased: a successful prod/preprod deploy released the task.
+	// MoveReasonDeployReleased: a prod/preprod deploy pipeline opened the gate,
+	// releasing the task — either a real deploy succeeded, or no workflow is
+	// mapped for the repo and the pipeline was skipped. Which one happened is
+	// on the pipeline's status/provider, not on this reason code.
 	MoveReasonDeployReleased = "deploy_released"
 	// MoveReasonReconciled: the reconciler revived a task whose run died.
 	MoveReasonReconciled = "reconciled"

@@ -813,8 +813,17 @@ func (p *PipelineRunner) finalize(ctx context.Context, job pipelineJob, pipeline
 			// For a store target the prod workflow IS the submit for review,
 			// so hand the row to the release monitor before releasing.
 			p.markStoreSubmitted(finCtx, job.RepositoryID, jobs)
-			// A successful prod deploy releases the task.
-			p.moveTask(finCtx, job, domain.TaskColumnReleased, "Prod deploy succeeded — task released.")
+			if hasRealSuccessJob(jobs) {
+				// A successful prod deploy releases the task.
+				p.moveTask(finCtx, job, domain.TaskColumnReleased, "Prod deploy succeeded — task released.")
+			} else {
+				// Skipped: no prod_deploy workflow is mapped, so nothing
+				// actually built or shipped this task. The gate still opens
+				// (an unconfigured repo cannot be held hostage), but the card
+				// must say so instead of reading like a real deploy.
+				p.reportDeploySkip(finCtx, job, jobs)
+				p.moveTask(finCtx, job, domain.TaskColumnReleased, "No prod deploy workflow configured — task released without a verified deploy.")
+			}
 			// …and the change is live, which is when the post-deploy steps
 			// actually apply. Posted after the move so the two comments read in
 			// the order the operator does them.
@@ -826,8 +835,11 @@ func (p *PipelineRunner) finalize(ctx context.Context, job pipelineJob, pipeline
 				if _, derr := p.TriggerDeploy(finCtx, job.RepositoryID, job.Task, domain.PipelineTriggerProdDeploy); derr != nil {
 					log.Warn().Err(derr).Str("pipeline_id", pipeline.ID.String()).Msg("prod deploy dispatch after preprod failed")
 				}
-			} else {
+			} else if hasRealSuccessJob(jobs) {
 				p.moveTask(finCtx, job, domain.TaskColumnReleased, "Preprod deploy succeeded (prod not configured) — task released.")
+			} else {
+				p.reportDeploySkip(finCtx, job, jobs)
+				p.moveTask(finCtx, job, domain.TaskColumnReleased, "No preprod deploy workflow configured — task released without a verified deploy.")
 			}
 		case !isDeploy && p.qa != nil:
 			// The QA gate dispatches the reviewer. pipeline.GateReason is ""
@@ -992,6 +1004,31 @@ func (p *PipelineRunner) moveTask(ctx context.Context, job pipelineJob, col doma
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("release task move failed")
 	}
+}
+
+// reportDeploySkip comments on the task when a deploy pipeline released it
+// without ever running: the released column otherwise reads identically for
+// a real prod deploy and for a repo with no workflow mapped, and only this
+// comment tells the two apart.
+func (p *PipelineRunner) reportDeploySkip(ctx context.Context, job pipelineJob, jobs []domain.TaskPipelineJob) {
+	if p.tasks == nil {
+		return
+	}
+	note := "no deploy workflow configured"
+	if len(jobs) > 0 && strings.TrimSpace(jobs[0].Name) != "" {
+		note = jobs[0].Name
+	}
+	if _, err := p.tasks.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
+		AuthorType: "system",
+		Content:    deploySkipComment(note),
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("deploy skip comment failed")
+	}
+}
+
+func deploySkipComment(note string) string {
+	return "Released without a verified deploy: " + note + ", so nothing was actually built or shipped by CI for this task. " +
+		"Configure a deploy workflow mapping for this repository, or deploy and verify manually."
 }
 
 // finishNoChecks records a single skipped job and finalizes as SKIPPED so a
