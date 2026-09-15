@@ -45,6 +45,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/repodependency"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
@@ -124,6 +125,7 @@ type Handler struct {
 	storeOpsSvc       *storeops.Service
 	deployOpsSvc      *deployops.Service
 	hostingSvc        *hosting.Service
+	repoDependencySvc *repodependency.Service
 	vercelOpsSvc      *vercelops.Service
 	gcloudOpsSvc      *gcloudops.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
@@ -178,6 +180,7 @@ type Config struct {
 	StoreOpsSvc       *storeops.Service
 	DeployOpsSvc      *deployops.Service
 	HostingSvc        *hosting.Service
+	RepoDependencySvc *repodependency.Service
 	VercelOpsSvc      *vercelops.Service
 	GCloudOpsSvc      *gcloudops.Service
 	MCPToolServer     *mcpserver.Server
@@ -233,6 +236,7 @@ func NewHandler(cfg Config) *Handler {
 		storeOpsSvc:       cfg.StoreOpsSvc,
 		deployOpsSvc:      cfg.DeployOpsSvc,
 		hostingSvc:        cfg.HostingSvc,
+		repoDependencySvc: cfg.RepoDependencySvc,
 		vercelOpsSvc:      cfg.VercelOpsSvc,
 		gcloudOpsSvc:      cfg.GCloudOpsSvc,
 		mcpToolServer:     cfg.MCPToolServer,
@@ -283,6 +287,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 
 	h.registerSettingsRoutes(app)
 	h.registerHostingRoutes(app)
+	h.registerRepoDependencyRoutes(app)
 	h.registerVercelOpsRoutes(app)
 	h.registerMobileDeviceRoutes(app)
 	h.registerLLMProviderRoutes(app)
