@@ -332,12 +332,14 @@ func (s *Service) criteriaGate(ctx context.Context, taskID uuid.UUID, target dom
 		return nil
 	}
 	var open []string
+	var openCriteria []domain.CriteriaGateCriterion
 	for _, c := range items {
 		// A cancelled criterion is settled, not met: it carries a written
 		// reason, so it no longer owes the board an answer and must not hold
 		// the hand-off. See migration 131.
 		if !c.Settled() && !criterionApprovedByAReviewer(c) {
 			open = append(open, criterionRef(c))
+			openCriteria = append(openCriteria, domain.CriteriaGateCriterion{ID: c.ID, Text: c.Text})
 		}
 	}
 	if len(open) == 0 {
@@ -350,11 +352,12 @@ func (s *Service) criteriaGate(ctx context.Context, taskID uuid.UUID, target dom
 	// to call it produced exactly the dead end this sentence now avoids: the run
 	// answered that it had no such tool, ticked nothing, and the task sat where
 	// it was until a human noticed.
-	return fmt.Errorf("cannot move to %s: %d acceptance criteria incomplete: %s — "+
+	msg := fmt.Sprintf("cannot move to %s: %d acceptance criteria incomplete: %s — "+
 		"if you implemented them, tick each with set_criterion_completed; "+
 		"if one is deliberately not being done, cancel it with cancel_criterion and a reason; "+
 		"if you are reviewing (QA in ready_for_qa/in_qa, PM in pm_uat), record your verdict with review_criterion instead",
 		target, len(open), strings.Join(open, "; "))
+	return domain.NewCriteriaGateError(target, domain.CriteriaGateReasonIncomplete, openCriteria, msg)
 }
 
 // criterionRef renders a criterion the way a refusal has to name it: id first,
@@ -423,6 +426,7 @@ func (s *Service) criteriaReviewGate(ctx context.Context, taskID uuid.UUID, prev
 		return nil
 	}
 	var unchecked, rejected []string
+	var uncheckedCriteria, rejectedCriteria []domain.CriteriaGateCriterion
 	for _, c := range items {
 		// Nobody verifies a criterion that was cancelled: there is nothing to
 		// execute, and demanding a verdict on it would make QA either invent
@@ -434,15 +438,19 @@ func (s *Service) criteriaReviewGate(ctx context.Context, taskID uuid.UUID, prev
 		switch {
 		case verdict == nil:
 			unchecked = append(unchecked, criterionRef(c))
+			uncheckedCriteria = append(uncheckedCriteria, domain.CriteriaGateCriterion{ID: c.ID, Text: c.Text})
 		case !verdict.Approved:
 			rejected = append(rejected, fmt.Sprintf("%s (%s)", criterionRef(c), verdict.Note))
+			rejectedCriteria = append(rejectedCriteria, domain.CriteriaGateCriterion{ID: c.ID, Text: c.Text})
 		}
 	}
 	if len(rejected) > 0 {
-		return fmt.Errorf("cannot move to %s: %d acceptance criteria are rejected by %s: %s — move the task to need_revision instead, or re-verify and approve them (review_criterion)", target, len(rejected), role, strings.Join(rejected, "; "))
+		msg := fmt.Sprintf("cannot move to %s: %d acceptance criteria are rejected by %s: %s — move the task to need_revision instead, or re-verify and approve them (review_criterion)", target, len(rejected), role, strings.Join(rejected, "; "))
+		return domain.NewCriteriaGateError(target, domain.CriteriaGateReasonRejected, rejectedCriteria, msg)
 	}
 	if len(unchecked) > 0 {
-		return fmt.Errorf("cannot move to %s: %d acceptance criteria await your %s verdict: %s — call review_criterion with each id above, then retry the move", target, len(unchecked), role, strings.Join(unchecked, "; "))
+		msg := fmt.Sprintf("cannot move to %s: %d acceptance criteria await your %s verdict: %s — call review_criterion with each id above, then retry the move", target, len(unchecked), role, strings.Join(unchecked, "; "))
+		return domain.NewCriteriaGateError(target, domain.CriteriaGateReasonUnchecked, uncheckedCriteria, msg)
 	}
 	return nil
 }

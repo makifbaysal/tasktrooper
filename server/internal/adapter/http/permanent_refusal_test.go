@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	agentcliapp "github.com/makifbaysal/tasktrooper/server/internal/application/agentcli"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/llmprovider"
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
 // The number is the point. Each of these answered 500 with a correct, permanent
@@ -102,6 +104,108 @@ func TestHostExecutedRefusalDoesNotClaimTheServerHost(t *testing.T) {
 	if !strings.Contains(string(body), "Mac") {
 		t.Fatalf("the refusal should say where it does run: %s", string(body))
 	}
+}
+
+// A move blocked by open acceptance criteria used to reach the human mover as
+// the agent-facing sentence verbatim — task/criterion ids and all. The 400
+// must instead name the count and each criterion's own text, with no id in
+// sight, and still 400 (not 500) so the board can show it as a refusal, not a
+// crash.
+func TestCriteriaGateRefusalIsHumanReadable(t *testing.T) {
+	app := fiber.New()
+	criterionID := uuid.MustParse("a954ef75-9fe7-4b86-9ac4-f234a1b74569")
+	taskID := uuid.MustParse("97f5ff29-6e4c-4fca-801d-d579696e711d")
+
+	app.Get("/unchecked-single", func(c *fiber.Ctx) error {
+		err := domain.NewCriteriaGateError(
+			domain.TaskColumnPMUAT,
+			domain.CriteriaGateReasonUnchecked,
+			[]domain.CriteriaGateCriterion{{ID: criterionID, Text: "Given X, When Y, Then Z"}},
+			"cannot move to pm_uat: 1 acceptance criteria await your pm verdict: ["+criterionID.String()+"] Given X, When Y, Then Z — call review_criterion with each id above, then retry the move",
+		)
+		return badRequestErr(c, err)
+	})
+	app.Get("/unchecked-multi", func(c *fiber.Ctx) error {
+		err := domain.NewCriteriaGateError(
+			domain.TaskColumnPMUAT,
+			domain.CriteriaGateReasonUnchecked,
+			[]domain.CriteriaGateCriterion{
+				{ID: criterionID, Text: "First criterion"},
+				{ID: taskID, Text: "Second criterion"},
+			},
+			"cannot move to pm_uat: 2 acceptance criteria await your pm verdict: [...] — call review_criterion with each id above, then retry the move",
+		)
+		return badRequestErr(c, err)
+	})
+	app.Get("/rejected", func(c *fiber.Ctx) error {
+		err := domain.NewCriteriaGateError(
+			domain.TaskColumnDone,
+			domain.CriteriaGateReasonRejected,
+			[]domain.CriteriaGateCriterion{{ID: criterionID, Text: "Rejected criterion"}},
+			"cannot move to done: 1 acceptance criteria are rejected by qa: [...] — move the task to need_revision instead",
+		)
+		return badRequestErr(c, err)
+	})
+
+	t.Run("single unchecked criterion", func(t *testing.T) {
+		resp, err := app.Test(httptest.NewRequest("GET", "/unchecked-single", nil))
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != nethttp.StatusBadRequest {
+			t.Fatalf("status = %d, want 400: %s", resp.StatusCode, string(body))
+		}
+		message, typ, code := decodeCoded(t, body)
+		if typ != codeCriteriaNotApproved || code != codeCriteriaNotApproved {
+			t.Fatalf("type = %q / code = %q, want %q", typ, code, codeCriteriaNotApproved)
+		}
+		if strings.Contains(message, criterionID.String()) {
+			t.Fatalf("message must not contain the criterion id: %s", message)
+		}
+		if strings.Contains(message, taskID.String()) {
+			t.Fatalf("message must not contain the task id: %s", message)
+		}
+		if !strings.Contains(message, "Given X, When Y, Then Z") {
+			t.Fatalf("message must name the criterion: %s", message)
+		}
+		if !strings.Contains(message, "1") {
+			t.Fatalf("message must say how many criteria are open: %s", message)
+		}
+	})
+
+	t.Run("multiple unchecked criteria are counted and titled", func(t *testing.T) {
+		resp, err := app.Test(httptest.NewRequest("GET", "/unchecked-multi", nil))
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		message, _, _ := decodeCoded(t, body)
+		if !strings.Contains(message, "2") {
+			t.Fatalf("message must say 2 criteria are open: %s", message)
+		}
+		if !strings.Contains(message, "First criterion") || !strings.Contains(message, "Second criterion") {
+			t.Fatalf("message must list both criteria: %s", message)
+		}
+	})
+
+	t.Run("rejected criteria say so distinctly", func(t *testing.T) {
+		resp, err := app.Test(httptest.NewRequest("GET", "/rejected", nil))
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		message, _, _ := decodeCoded(t, body)
+		if !strings.Contains(message, "rejected") {
+			t.Fatalf("message must say the criterion was rejected: %s", message)
+		}
+		if strings.Contains(message, criterionID.String()) {
+			t.Fatalf("message must not contain the criterion id: %s", message)
+		}
+	})
 }
 
 // decodeCoded reads the two places a code appears. Both, always: tenant-manager
