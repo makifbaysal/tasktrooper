@@ -78,6 +78,9 @@ export const agentArea: AgentAreaDict = {
       revision_requested: "Revizyon istendi",
       pm_uat_failed: "PM UAT başarısız",
       human_uat_failed: "İnsan UAT başarısız",
+      qa_bug_found: "QA bug buldu",
+      qa_valid_scenario_confirmed: "Geçerli senaryo doğrulandı",
+      qa_invalid_scenario_confirmed: "Geçersiz senaryo doğrulandı",
     },
     changeType: {
       skill_created: "Skill eklendi",

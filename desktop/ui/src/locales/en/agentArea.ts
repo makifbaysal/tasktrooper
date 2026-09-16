@@ -78,6 +78,9 @@ export const agentArea = {
       revision_requested: "Revision requested",
       pm_uat_failed: "PM UAT failed",
       human_uat_failed: "Human UAT failed",
+      qa_bug_found: "QA bug found",
+      qa_valid_scenario_confirmed: "Valid scenario confirmed",
+      qa_invalid_scenario_confirmed: "Invalid scenario confirmed",
     },
     changeType: {
       skill_created: "Skill added",
