@@ -1516,6 +1516,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			if taskSpanStore != nil {
 				scoreTracker.SetSpans(taskSpanStore)
 			}
+			if testCaseStore != nil {
+				scoreTracker.SetTestCases(testCaseStore)
+			}
 			repositorySvc.SetScorer(scoreTracker)
 		}
 		if taskSpanStore != nil {

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -17,7 +18,7 @@ func NewTaskTestCaseStore(pool *DB) *TaskTestCaseStore {
 	return &TaskTestCaseStore{pool: pool}
 }
 
-const testCaseColumns = `id, task_id, criterion_id, title, category, status, expected, actual, evidence, notes, position, created_at, updated_at`
+const testCaseColumns = `id, task_id, criterion_id, title, category, status, expected, actual, evidence, notes, position, created_at, updated_at, scored_at`
 
 func (s *TaskTestCaseStore) ListByTask(ctx context.Context, taskID uuid.UUID) ([]domain.TaskTestCase, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -151,8 +152,18 @@ type testCaseRowScanner interface {
 func scanTestCase(row testCaseRowScanner) (domain.TaskTestCase, error) {
 	var c domain.TaskTestCase
 	if err := row.Scan(&c.ID, &c.TaskID, &c.CriterionID, &c.Title, &c.Category, &c.Status,
-		&c.Expected, &c.Actual, &c.Evidence, &c.Notes, &c.Position, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.Expected, &c.Actual, &c.Evidence, &c.Notes, &c.Position, &c.CreatedAt, &c.UpdatedAt, &c.ScoredAt); err != nil {
 		return domain.TaskTestCase{}, err
 	}
 	return c, nil
+}
+
+// MarkScored stamps the given cases as already turned into a performance
+// score event, so a later round or forward exit never counts them again.
+func (s *TaskTestCaseStore) MarkScored(ctx context.Context, ids []uuid.UUID, at time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE task_test_cases SET scored_at = $2 WHERE id = ANY($1)`, ids, at)
+	return err
 }

@@ -3,6 +3,7 @@ package board_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/board"
@@ -27,6 +28,28 @@ type fakeOwners struct{ owners map[string]uuid.UUID }
 
 func (f *fakeOwners) OwnersForTask(context.Context, uuid.UUID) (map[string]uuid.UUID, error) {
 	return f.owners, nil
+}
+
+type fakeTestCases struct {
+	items  []domain.TaskTestCase
+	marked []uuid.UUID
+}
+
+func (f *fakeTestCases) ListByTask(context.Context, uuid.UUID) ([]domain.TaskTestCase, error) {
+	return f.items, nil
+}
+
+func (f *fakeTestCases) MarkScored(_ context.Context, ids []uuid.UUID, _ time.Time) error {
+	f.marked = append(f.marked, ids...)
+	for i := range f.items {
+		for _, id := range ids {
+			if f.items[i].ID == id {
+				now := time.Now()
+				f.items[i].ScoredAt = &now
+			}
+		}
+	}
+	return nil
 }
 
 type ScorerSuite struct {
@@ -156,4 +179,139 @@ func (s *ScorerSuite) TestWithoutSpansFallsBackToAssignee() {
 
 	s.Require().Len(perf.applied, 1)
 	s.Equal(assignee, perf.applied[0].agentID)
+}
+
+func (s *ScorerSuite) TestQABugFoundOnRevisionCreditsQA() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tc := &fakeTestCases{items: []domain.TaskTestCase{
+		{ID: uuid.New(), Status: domain.TestCaseStatusFailed},
+		{ID: uuid.New(), Status: domain.TestCaseStatusFailed},
+		{ID: uuid.New(), Status: domain.TestCaseStatusPassed},
+	}}
+	tracker.SetTestCases(tc)
+
+	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+		domain.TaskColumnInQA, domain.TaskColumnNeedRevision)
+
+	var devDelta, qaDelta *recordedDelta
+	for i, a := range perf.applied {
+		switch a.agentID {
+		case s.dev:
+			devDelta = &perf.applied[i]
+		case s.qa:
+			qaDelta = &perf.applied[i]
+		}
+	}
+	s.Require().NotNil(devDelta)
+	s.Equal(domain.ScoreEventRevisionRequested, devDelta.eventType)
+	s.Require().NotNil(qaDelta)
+	s.Equal(domain.ScoreEventQABugFound, qaDelta.eventType)
+	s.Equal(domain.ScoreDeltaQABugFound*2, qaDelta.delta)
+	s.Len(tc.marked, 2)
+}
+
+func (s *ScorerSuite) TestQAForwardExitConfirmsValidAndInvalidScenarios() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tc := &fakeTestCases{items: []domain.TaskTestCase{
+		{ID: uuid.New(), Status: domain.TestCaseStatusPassed},
+		{ID: uuid.New(), Status: domain.TestCaseStatusPassed},
+		{ID: uuid.New(), Status: domain.TestCaseStatusPassed},
+		{ID: uuid.New(), Status: domain.TestCaseStatusInvalid},
+		{ID: uuid.New(), Status: domain.TestCaseStatusSkipped},
+	}}
+	tracker.SetTestCases(tc)
+
+	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+		domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+
+	s.Require().Len(perf.applied, 2)
+	got := map[string]float64{}
+	for _, a := range perf.applied {
+		s.Equal(s.qa, a.agentID)
+		got[a.eventType] = a.delta
+	}
+	s.Equal(domain.ScoreDeltaQAValidScenarioConfirmed*3, got[domain.ScoreEventQAValidScenarioConfirmed])
+	s.Equal(domain.ScoreDeltaQAInvalidScenarioConfirmed*1, got[domain.ScoreEventQAInvalidScenarioConfirmed])
+	s.Len(tc.marked, 5)
+}
+
+func (s *ScorerSuite) TestScoredTestCaseIsNeverCountedTwice() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	already := time.Now()
+	tc := &fakeTestCases{items: []domain.TaskTestCase{
+		{ID: uuid.New(), Status: domain.TestCaseStatusFailed, ScoredAt: &already},
+	}}
+	tracker.SetTestCases(tc)
+
+	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+		domain.TaskColumnInQA, domain.TaskColumnNeedRevision)
+
+	for _, a := range perf.applied {
+		s.NotEqual(domain.ScoreEventQABugFound, a.eventType)
+	}
+	s.Empty(tc.marked)
+}
+
+func (s *ScorerSuite) TestQARoundForwardExitDoneAlsoCredits() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tc := &fakeTestCases{items: []domain.TaskTestCase{
+		{ID: uuid.New(), Status: domain.TestCaseStatusPassed},
+	}}
+	tracker.SetTestCases(tc)
+
+	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+		domain.TaskColumnInQA, domain.TaskColumnDone)
+
+	var qaEvent *recordedDelta
+	for i, a := range perf.applied {
+		if a.eventType == domain.ScoreEventQAValidScenarioConfirmed {
+			qaEvent = &perf.applied[i]
+		}
+	}
+	s.Require().NotNil(qaEvent)
+	s.Equal(s.qa, qaEvent.agentID)
+}
+
+func (s *ScorerSuite) TestQARoundWithoutTestCaseStoreIsNoop() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+
+	s.NotPanics(func() {
+		tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+			domain.TaskColumnInQA, domain.TaskColumnNeedRevision)
+	})
+
+	for _, a := range perf.applied {
+		s.NotEqual(domain.ScoreEventQABugFound, a.eventType)
+	}
+}
+
+func (s *ScorerSuite) TestQABugFoundWithoutSpansSkipsSilently() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tc := &fakeTestCases{items: []domain.TaskTestCase{
+		{ID: uuid.New(), Status: domain.TestCaseStatusFailed},
+	}}
+	tracker.SetTestCases(tc)
+	assignee := uuid.New()
+
+	s.NotPanics(func() {
+		tracker.OnColumnTransition(context.Background(),
+			domain.BoardTask{ID: uuid.New(), AssigneeAgentID: &assignee},
+			domain.TaskColumnInQA, domain.TaskColumnNeedRevision)
+	})
+
+	for _, a := range perf.applied {
+		s.NotEqual(domain.ScoreEventQABugFound, a.eventType)
+	}
+	s.Empty(tc.marked)
 }

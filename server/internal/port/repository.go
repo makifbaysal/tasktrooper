@@ -275,6 +275,9 @@ type TaskTestCaseStore interface {
 	Get(ctx context.Context, id uuid.UUID) (domain.TaskTestCase, error)
 	Update(ctx context.Context, id uuid.UUID, item domain.TaskTestCaseInput) (domain.TaskTestCase, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	// MarkScored stamps cases as already turned into a performance score
+	// event, so a rework round or a later forward exit never counts them twice.
+	MarkScored(ctx context.Context, ids []uuid.UUID, at time.Time) error
 }
 
 type TaskRelationStore interface {

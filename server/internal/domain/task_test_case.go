@@ -78,6 +78,10 @@ type TaskTestCase struct {
 	Position  int       `json:"position"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// ScoredAt marks the moment this case's verdict was already turned into a
+	// performance score event, so a rework round or a later forward exit
+	// never counts the same case twice.
+	ScoredAt *time.Time `json:"scored_at,omitempty"`
 }
 
 type TaskTestCaseInput struct {

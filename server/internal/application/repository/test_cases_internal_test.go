@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -41,6 +42,8 @@ func (f *fakeTestCaseStore) Update(_ context.Context, id uuid.UUID, item domain.
 }
 
 func (f *fakeTestCaseStore) Delete(context.Context, uuid.UUID) error { return nil }
+
+func (f *fakeTestCaseStore) MarkScored(context.Context, []uuid.UUID, time.Time) error { return nil }
 
 func testCase(title string, status domain.TestCaseStatus) domain.TaskTestCase {
 	return domain.TaskTestCase{ID: uuid.New(), Title: title, Status: status, Category: domain.TestCaseCategoryOther}

@@ -17,6 +17,16 @@ const (
 	ScoreDeltaReviewEscape  float64 = -10.0
 	ScoreDeltaTaskCompleted float64 = +5.0
 	ScoreDeltaTaskReleased  float64 = +5.0
+	// ScoreDeltaQABugFound rewards QA for a bug it actually caught: a
+	// one-time credit per failed case, deliberately half of the developer's
+	// revision penalty so a round with a couple of bugs does not outweigh
+	// task_completed.
+	ScoreDeltaQABugFound float64 = +6.0
+	// ScoreDeltaQAValidScenarioConfirmed/ScoreDeltaQAInvalidScenarioConfirmed
+	// are charged per case when QA's round exits forward with a signed-off
+	// verdict; kept small so a whole round never outweighs a single event.
+	ScoreDeltaQAValidScenarioConfirmed   float64 = +1.0
+	ScoreDeltaQAInvalidScenarioConfirmed float64 = -1.0
 
 	ScoreEventRevisionRequested = "revision_requested"
 	ScoreEventPMUATFailed       = "pm_uat_failed"
@@ -25,7 +35,10 @@ const (
 	ScoreEventTaskReleased      = "task_released"
 	// ScoreEventReviewEscape marks a reviewing agent approving a change a human
 	// then rejected at the same review gate.
-	ScoreEventReviewEscape = "review_escape"
+	ScoreEventReviewEscape               = "review_escape"
+	ScoreEventQABugFound                 = "qa_bug_found"
+	ScoreEventQAValidScenarioConfirmed   = "qa_valid_scenario_confirmed"
+	ScoreEventQAInvalidScenarioConfirmed = "qa_invalid_scenario_confirmed"
 )
 
 type AgentPerformanceScore struct {

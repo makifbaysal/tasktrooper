@@ -1,0 +1,1 @@
+ALTER TABLE task_test_cases ADD COLUMN IF NOT EXISTS scored_at TIMESTAMPTZ;
