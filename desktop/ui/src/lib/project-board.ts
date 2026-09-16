@@ -110,6 +110,21 @@ export function blockedResourceLabel(resource: string): string {
 }
 
 /**
+ * Visible label for a work_order park: the blocker task keys themselves
+ * (blocked_question reads "waiting for T-12 (API migration) [in_progress] to
+ * finish"), not the generic resource wording — a human reading the board
+ * needs to know WHICH task it is waiting for without hovering the tooltip.
+ */
+export function workOrderBlockerLabel(blockedQuestion: string): string {
+  const keys = blockedQuestion.match(/[A-Za-z]+-\d+/g);
+  if (!keys || keys.length === 0) {
+    return blockedResourceLabel("work_order");
+  }
+  const [first, ...rest] = keys;
+  return rest.length > 0 ? `${first} +${rest.length}` : first;
+}
+
+/**
  * Coarse countdown to blocked_resume_at, the mirror image of BoardPage's
  * formatColumnAge and deliberately as coarse: the badge answers "roughly when
  * does this move again?", and a card that re-renders on every poll must not

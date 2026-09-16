@@ -41,6 +41,7 @@ import {
   taskPipelineCardIcon,
   taskPriorityLabel,
   taskTypeLabel,
+  workOrderBlockerLabel,
 } from "@/lib/project-board";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -396,7 +397,9 @@ export function BoardPage() {
                   }
                 >
                   <Clock className="h-3 w-3" />
-                  {blockedResourceLabel(task.blocked_resource)}
+                  {task.blocked_resource === "work_order"
+                    ? workOrderBlockerLabel(task.blocked_question || "")
+                    : blockedResourceLabel(task.blocked_resource)}
                   {task.blocked_resume_at ? ` · ~${formatResumeIn(task.blocked_resume_at)}` : ""}
                 </Badge>
               )}
