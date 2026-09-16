@@ -115,12 +115,14 @@ export function blockedResourceLabel(resource: string): string {
  * finish"), not the generic resource wording — a human reading the board
  * needs to know WHICH task it is waiting for without hovering the tooltip.
  *
- * Parsed structurally, not with a key-shaped regex over the whole string: a
- * blocker's TITLE is free text and routinely contains its own "T-9"-looking
- * tokens (this repo's own task titles reference other keys in prose), which a
- * blanket regex would pick up as an extra key. Each blocker segment is
- * "KEY (TITLE) [COLUMN]" (blockerLabels, server work_order.go), joined by
- * ", " — so the key is always the text before the segment's first " (".
+ * Parsed structurally, not by splitting on ", ": a blocker's TITLE is free
+ * text and can itself contain "T-9"-looking tokens or a literal ", " (both
+ * happen in this repo's real task titles), so neither a blanket key regex nor
+ * a bare comma split is safe. Each blocker segment is "KEY (TITLE) [COLUMN]"
+ * (blockerLabels, server work_order.go), and COLUMN is drawn from the fixed
+ * set of board column slugs — its closing "]" is the one boundary TITLE can't
+ * fake, so segments are found by scanning for "[column_slug]" and the key is
+ * read off the front of each segment, up to its first " (".
  */
 export function workOrderBlockerLabel(blockedQuestion: string): string {
   const trimmed = blockedQuestion.trim();
@@ -133,13 +135,16 @@ export function workOrderBlockerLabel(blockedQuestion: string): string {
   const end = trimmed.endsWith(suffix) ? trimmed.length - suffix.length : trimmed.length;
   const body = trimmed.slice(start, end);
 
-  const keys = body
-    .split(", ")
-    .map((segment) => {
-      const parenIndex = segment.indexOf(" (");
-      return (parenIndex >= 0 ? segment.slice(0, parenIndex) : segment).trim();
-    })
-    .filter(Boolean);
+  const segmentEnd = /\[[a-z0-9_]+\]/gi;
+  const keys: string[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = segmentEnd.exec(body)) !== null) {
+    const segment = body.slice(cursor, match.index + match[0].length);
+    const keyMatch = /^\s*,?\s*([^\s(]+)\s*\(/.exec(segment);
+    if (keyMatch) keys.push(keyMatch[1]);
+    cursor = match.index + match[0].length;
+  }
 
   if (keys.length === 0) {
     return blockedResourceLabel("work_order");

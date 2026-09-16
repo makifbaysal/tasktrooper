@@ -33,4 +33,18 @@ describe("workOrderBlockerLabel", () => {
       ),
     ).toBe("T-8 +1");
   });
+
+  it("does not miscount a single blocker whose title contains a literal comma", () => {
+    expect(
+      workOrderBlockerLabel("waiting for T-3 (Refactor, cleanup) [todo] to finish"),
+    ).toBe("T-3");
+  });
+
+  it("splits blockers correctly when an earlier title contains a literal comma", () => {
+    expect(
+      workOrderBlockerLabel(
+        "waiting for T-3 (Refactor, cleanup) [todo], T-15 (schema) [code_review] to finish",
+      ),
+    ).toBe("T-3 +1");
+  });
 });
