@@ -110,6 +110,66 @@ func (s *DispatcherSuite) TestUnreadableWorkOrderStopsTheDispatch() {
 	s.Empty(parker.parked, "an unreadable order is not a known block — parking it would state something nobody checked")
 }
 
+// reentrantCommenter reproduces the production wiring the recursion bug lived
+// in: Service.AddComment persists the comment then calls s.emit, which calls
+// Dispatcher.Dispatch synchronously for the same task — before the first
+// Dispatch call that triggered the comment has even returned. It also mirrors
+// Service.AddComment re-fetching the task from the store, so the re-entrant
+// call sees BlockedResource as it now stands after Park's write.
+type reentrantCommenter struct {
+	disp     *board.Dispatcher
+	task     domain.BoardTask
+	comments int
+}
+
+func (r *reentrantCommenter) AddComment(ctx context.Context, repositoryID, taskID uuid.UUID, _ domain.CreateTaskCommentRequest) (domain.TaskComment, error) {
+	r.comments++
+	if r.comments > 10 {
+		return domain.TaskComment{}, errTest("runaway recursion")
+	}
+	r.task.BlockedResource = domain.ResourceWorkOrder
+	if err := r.disp.Dispatch(ctx, board.DispatchInput{
+		RepositoryID: repositoryID,
+		Task:         r.task,
+		EventType:    domain.BoardEventTaskCommented,
+	}); err != nil {
+		return domain.TaskComment{}, err
+	}
+	return domain.TaskComment{}, nil
+}
+
+// The scenario the code review caught: a park's own comment re-enters
+// Dispatch for the same task while the column is still todo/in_progress, so
+// the gate is true again and would park a second time — commenting again —
+// without the already-parked guard in WorkOrder.Park.
+func (s *DispatcherSuite) TestParkCommentReenteringDispatchDoesNotRecurse() {
+	parker := &dispatchParker{}
+	taskID := uuid.New()
+	repositoryID := uuid.New()
+	task := domain.BoardTask{
+		ID: taskID, RepositoryID: repositoryID, Key: "T-2", Title: "web button",
+		Column: domain.TaskColumnTodo,
+	}
+	commenter := &reentrantCommenter{disp: s.disp, task: task}
+	workOrder := board.NewWorkOrder(&dispatchBlockerReader{
+		blockers: []domain.BoardTask{{
+			ID: uuid.New(), Key: "T-1", Title: "API migration", Column: domain.TaskColumnInProgress,
+		}},
+	}, parker)
+	workOrder.SetCommenter(commenter)
+	s.disp.SetWorkOrder(workOrder)
+
+	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+		RepositoryID: repositoryID,
+		Task:         task,
+		EventType:    domain.BoardEventTaskCreated,
+	})
+
+	s.Require().NoError(err)
+	s.Equal(1, commenter.comments, "the re-entrant Dispatch call must not park (and comment) again")
+	s.Equal([]uuid.UUID{taskID}, parker.parked, "parked exactly once")
+}
+
 // A build with no relation store dispatches exactly as it did before.
 func (s *DispatcherSuite) TestDispatchWithoutAWorkOrderGateIsUnchanged() {
 	repositoryID := uuid.New()

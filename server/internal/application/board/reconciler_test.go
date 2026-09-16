@@ -262,6 +262,25 @@ func (s *ReconcilerSuite) TestNeverStartedAssignedTaskIsDispatched() {
 	s.Equal(assignee, s.runner.jobs[0].Run.AgentID)
 }
 
+// A task parked on work_order stays in todo/in_progress with zero run
+// history (Park returns before any run is ever created), so without the
+// BlockedResource check this would look identical to a never-started task
+// and get re-dispatched — re-triggering the park's comment — on every sweep.
+func (s *ReconcilerSuite) TestWorkOrderParkedTaskNotRedispatched() {
+	assignee := uuid.New()
+	taskID := uuid.New()
+	s.tasks.tasks = []domain.BoardTask{{
+		ID:              taskID,
+		Column:          domain.TaskColumnTodo,
+		AssigneeAgentID: &assignee,
+		BlockedResource: domain.ResourceWorkOrder,
+	}}
+
+	s.rec.Run(context.Background())
+
+	s.Empty(s.runner.jobs, "a task parked on work_order is resumed by the sweeper, not the reconciler")
+}
+
 func (s *ReconcilerSuite) TestTaskWithRunHistoryNotDoubleDispatched() {
 	assignee := uuid.New()
 	taskID := uuid.New()

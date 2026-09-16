@@ -86,8 +86,20 @@ func (w *WorkOrder) Blockers(ctx context.Context, taskID uuid.UUID) ([]domain.Bo
 
 // Park marks the task as waiting on its blockers, in place — the task's
 // column does not change — and says on the card what it is waiting for.
+//
+// Already-parked is a no-op, not just an optimisation: the comment it posts
+// re-enters Dispatch for the same task.commented event (Service.AddComment
+// calls s.emit synchronously), and since the column never moves out of
+// {todo, in_progress} the work-order gate is true again on that re-entrant
+// call. Without this guard that recurses until the stack overflows — the old
+// BlockOnResource path was safe only because it moved the column out of the
+// gated set before the comment fired, and nothing replaces that here except
+// this check.
 func (w *WorkOrder) Park(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, blockers []domain.BoardTask) error {
 	if w == nil || w.tasks == nil {
+		return nil
+	}
+	if task.BlockedResource == domain.ResourceWorkOrder {
 		return nil
 	}
 	detail := "waiting for " + strings.Join(blockerLabels(blockers), ", ") + " to finish"

@@ -232,6 +232,13 @@ func (r *Reconciler) dispatchNeverStarted(ctx context.Context, tasks []domain.Bo
 			// isDispatchSuspendedColumn).
 			continue
 		}
+		if task.BlockedResource == domain.ResourceWorkOrder {
+			// Parked in place (todo/in_progress) rather than moved to
+			// TaskColumnBlocked, so it has zero task_agent_runs and would
+			// otherwise look never_dispatched on every sweep. The
+			// WorkOrderSweeper is what resumes it, not this loop.
+			continue
+		}
 		runs, err := r.runs.ListByTask(ctx, task.ID, maxConsecutiveFailedRuns)
 		if err != nil {
 			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("reconciler: list runs for task failed")

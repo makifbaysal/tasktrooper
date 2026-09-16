@@ -110,6 +110,27 @@ func TestWorkOrderParkNamesEveryBlockerOnTheCard(t *testing.T) {
 	assert.Contains(t, comments.contents[0], "T-1 (API migration)")
 }
 
+// The park comment re-enters Dispatch for the same task.commented event
+// (Service.AddComment calls s.emit synchronously), and since the column
+// never moves out of {todo, in_progress} the gate is true again on that
+// re-entrant call. Without this guard, Park would fire again from inside its
+// own comment and recurse until the stack overflows. A task whose
+// BlockedResource is already work_order is a re-entrant call, not a fresh
+// park, so it must be a no-op.
+func TestWorkOrderParkOnAnAlreadyParkedTaskIsANoOp(t *testing.T) {
+	task := workOrderTask(domain.TaskColumnTodo)
+	task.BlockedResource = domain.ResourceWorkOrder
+	parker := &stubResourceParker{}
+	comments := &stubWorkOrderCommenter{}
+	w := NewWorkOrder(&stubBlockerReader{}, parker)
+	w.SetCommenter(comments)
+
+	require.NoError(t, w.Park(context.Background(), task.RepositoryID, task, []domain.BoardTask{openBlocker()}))
+
+	assert.Empty(t, parker.parks, "already parked — no re-write of the same fields")
+	assert.Empty(t, comments.contents, "already parked — no re-entrant comment, that is the recursion trigger")
+}
+
 // A missing comment store costs the card a line of history and nothing else.
 func TestWorkOrderParkWorksWithoutACommenter(t *testing.T) {
 	task := workOrderTask(domain.TaskColumnTodo)
