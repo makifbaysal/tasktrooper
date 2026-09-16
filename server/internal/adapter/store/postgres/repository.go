@@ -1144,6 +1144,53 @@ func (s *BoardTaskStore) BlockOnResource(ctx context.Context, repositoryID, task
 	return domain.TaskColumn(previous), nil
 }
 
+// MarkWorkOrderWaiting parks a task on the work_order resource WITHOUT moving
+// board_column — the task stays exactly where it already is (todo or
+// in_progress). Everything else about the write mirrors BlockOnResource:
+// same columns except board_column/blocked_origin_column, same no-op-on-a-
+// missing-task behaviour.
+func (s *BoardTaskStore) MarkWorkOrderWaiting(ctx context.Context, repositoryID, taskID uuid.UUID, detail string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE board_tasks
+		SET blocked_question = $3,
+		    blocked_resource = $4,
+		    blocked_at       = now(),
+		    updated_at       = now()
+		WHERE id = $1 AND repository_id = $2
+	`, taskID, repositoryID, detail, domain.ResourceWorkOrder)
+	if err != nil {
+		return fmt.Errorf("mark board task waiting on work order: %w", err)
+	}
+	return nil
+}
+
+// ClearWorkOrderWaiting releases a work_order park set by MarkWorkOrderWaiting,
+// also without touching board_column — the column was never moved, so there is
+// nothing to restore it to.
+func (s *BoardTaskStore) ClearWorkOrderWaiting(ctx context.Context, taskID uuid.UUID) (domain.BoardTask, bool, error) {
+	row := s.pool.QueryRow(ctx, `
+		WITH cleared AS (
+			UPDATE board_tasks bt
+			SET blocked_question = NULL,
+			    blocked_resource = NULL,
+			    blocked_at       = NULL,
+			    updated_at       = now()
+			WHERE bt.id = $1 AND bt.blocked_resource = $2
+			RETURNING bt.id
+		)
+		`+boardTaskSelect+`
+		WHERE bt.id = (SELECT id FROM cleared)
+	`, taskID, domain.ResourceWorkOrder)
+	task, err := scanBoardTask(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.BoardTask{}, false, nil
+	}
+	if err != nil {
+		return domain.BoardTask{}, false, fmt.Errorf("clear work order wait: %w", err)
+	}
+	return task, true, nil
+}
+
 // TakeBlockedByResource claims the task that has waited longest on resource and
 // returns it with the block cleared, exactly as TakeBlockedBySession does for
 // an answered question — including the pre-UPDATE snapshot trick, so the caller

@@ -2223,11 +2223,15 @@ func (s *Service) validateMoveAllowed(ctx context.Context, taskID uuid.UUID, tar
 	if taskID == uuid.Nil {
 		return nil
 	}
-	// todo is joining the queue, not starting the work; the real gate at
-	// dispatch time is board.WorkOrder, which already covers todo too. Only
-	// the transition into in_progress — work actually starting — is refused
-	// here.
-	if target != domain.TaskColumnInProgress {
+	// Both are where work STARTS — the same pair board.workOrderGateApplies
+	// guards at dispatch time, and deliberately so: the move refusal and the
+	// dispatch park must not disagree about what "may this start" means. A
+	// task with an open blocker is parked in place (WorkOrder.Park) rather
+	// than refused when the DISPATCHER reaches it, but a human or an agent
+	// dragging the card there directly must be told no up front — the move
+	// guard is what makes that refusal happen instead of a silent park a
+	// moment later.
+	if target != domain.TaskColumnTodo && target != domain.TaskColumnInProgress {
 		return nil
 	}
 	if s.relations == nil {
@@ -2243,10 +2247,13 @@ func (s *Service) validateMoveAllowed(ctx context.Context, taskID uuid.UUID, tar
 		// sent an agent looking for a blocker the board never showed it, and a
 		// human dragging the card had nothing to open.
 		labels := make([]string, 0, len(blockers))
+		gateBlockers := make([]domain.WorkOrderGateBlocker, 0, len(blockers))
 		for _, b := range blockers {
 			labels = append(labels, domain.RelationLabel(b.Key, b.Title, b.ID)+" ["+string(b.Column)+"]")
+			gateBlockers = append(gateBlockers, domain.WorkOrderGateBlocker{Key: b.Key, Title: b.Title})
 		}
-		return fmt.Errorf("work order: this task is blocked until these are done: %s", strings.Join(labels, ", "))
+		return domain.NewWorkOrderGateError(target, gateBlockers,
+			fmt.Sprintf("work order: this task is blocked until these are done: %s", strings.Join(labels, ", ")))
 	}
 	return nil
 }

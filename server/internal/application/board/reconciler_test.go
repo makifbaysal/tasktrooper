@@ -78,6 +78,14 @@ func (f *fakeBoardTaskStore) BlockOnResource(context.Context, uuid.UUID, uuid.UU
 	return "", nil
 }
 
+func (f *fakeBoardTaskStore) MarkWorkOrderWaiting(context.Context, uuid.UUID, uuid.UUID, string) error {
+	return nil
+}
+
+func (f *fakeBoardTaskStore) ClearWorkOrderWaiting(context.Context, uuid.UUID) (domain.BoardTask, bool, error) {
+	return domain.BoardTask{}, false, nil
+}
+
 func (f *fakeBoardTaskStore) TakeBlockedByResource(context.Context, string) (domain.BoardTask, bool, error) {
 	return domain.BoardTask{}, false, nil
 }

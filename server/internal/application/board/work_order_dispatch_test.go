@@ -36,11 +36,9 @@ type dispatchParker struct {
 	parked []uuid.UUID
 }
 
-func (d *dispatchParker) BlockOnResource(_ context.Context, _, taskID uuid.UUID, resource, _ string) (domain.TaskColumn, error) {
-	if resource == domain.ResourceWorkOrder {
-		d.parked = append(d.parked, taskID)
-	}
-	return domain.TaskColumnTodo, nil
+func (d *dispatchParker) MarkWorkOrderWaiting(_ context.Context, _, taskID uuid.UUID, _ string) error {
+	d.parked = append(d.parked, taskID)
+	return nil
 }
 
 // A task created straight into `todo` with an open blocker never goes through a

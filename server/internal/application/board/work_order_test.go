@@ -48,12 +48,12 @@ type stubResourceParker struct {
 	err   error
 }
 
-func (s *stubResourceParker) BlockOnResource(_ context.Context, _, taskID uuid.UUID, resource, detail string) (domain.TaskColumn, error) {
+func (s *stubResourceParker) MarkWorkOrderWaiting(_ context.Context, _, taskID uuid.UUID, detail string) error {
 	if s.err != nil {
-		return "", s.err
+		return s.err
 	}
-	s.parks = append(s.parks, parkCall{taskID: taskID, resource: resource, detail: detail})
-	return domain.TaskColumnInProgress, nil
+	s.parks = append(s.parks, parkCall{taskID: taskID, resource: domain.ResourceWorkOrder, detail: detail})
+	return nil
 }
 
 type stubWorkOrderCommenter struct {
@@ -182,7 +182,7 @@ func (s *stubWorkOrderParkStore) ListBlockedByResource(_ context.Context, resour
 	return s.parked, nil
 }
 
-func (s *stubWorkOrderParkStore) TakeBlockedResourceTask(_ context.Context, _ string, taskID uuid.UUID) (domain.BoardTask, bool, error) {
+func (s *stubWorkOrderParkStore) ClearWorkOrderWaiting(_ context.Context, taskID uuid.UUID) (domain.BoardTask, bool, error) {
 	if s.takeMisses[taskID] {
 		return domain.BoardTask{}, false, nil
 	}

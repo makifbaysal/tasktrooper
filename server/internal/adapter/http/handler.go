@@ -1250,6 +1250,9 @@ func badRequestErr(c *fiber.Ctx, err error) error {
 	if handled, writeErr := criteriaGateBadRequest(c, err); handled {
 		return writeErr
 	}
+	if handled, writeErr := workOrderGateBadRequest(c, err); handled {
+		return writeErr
+	}
 	return badRequest(c, err.Error())
 }
 

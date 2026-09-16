@@ -20,9 +20,18 @@ type BlockerReader interface {
 }
 
 // ResourceParker parks a task on a named resource. port.BoardTaskStore,
-// narrowed.
+// narrowed. Used by the loop guards, which park on domain.ResourceHumanDecision
+// — a resource whose park DOES move board_column, unlike work_order's.
 type ResourceParker interface {
 	BlockOnResource(ctx context.Context, repositoryID, taskID uuid.UUID, resource, detail string) (domain.TaskColumn, error)
+}
+
+// WorkOrderParker marks a task waiting on the work_order resource.
+// port.BoardTaskStore, narrowed to the one write Park needs — the one that
+// does NOT move board_column, because a `blocks` wait is a wait on another
+// card on the same board, not on anything outside it.
+type WorkOrderParker interface {
+	MarkWorkOrderWaiting(ctx context.Context, repositoryID, taskID uuid.UUID, detail string) error
 }
 
 // WorkOrder is the enforcement of `blocks`.
@@ -38,16 +47,17 @@ type ResourceParker interface {
 // So the gate moved to where runs are actually started. It is a park rather
 // than a refusal because a refusal is invisible: the card would sit in `todo`
 // looking exactly like an unstarted one, with nobody able to say why no agent
-// picked it up. Parking states it — on the card, in the column, and in a
-// comment naming every blocker — and gives the release a mechanism
-// (WorkOrderSweeper) instead of leaving it to whoever next touches the task.
+// picked it up. Parking states it — on the card's badge and in a comment
+// naming every blocker, without moving the card out of todo/in_progress — and
+// gives the release a mechanism (WorkOrderSweeper) instead of leaving it to
+// whoever next touches the task.
 type WorkOrder struct {
 	relations BlockerReader
-	tasks     ResourceParker
+	tasks     WorkOrderParker
 	comments  TaskCommenter
 }
 
-func NewWorkOrder(relations BlockerReader, tasks ResourceParker) *WorkOrder {
+func NewWorkOrder(relations BlockerReader, tasks WorkOrderParker) *WorkOrder {
 	return &WorkOrder{relations: relations, tasks: tasks}
 }
 
@@ -74,17 +84,14 @@ func (w *WorkOrder) Blockers(ctx context.Context, taskID uuid.UUID) ([]domain.Bo
 	return w.relations.ListBlockingSources(ctx, taskID)
 }
 
-// Park moves the task to `blocked` with the work-order resource on it, and says
-// on the card what it is waiting for.
+// Park marks the task as waiting on its blockers, in place — the task's
+// column does not change — and says on the card what it is waiting for.
 func (w *WorkOrder) Park(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, blockers []domain.BoardTask) error {
 	if w == nil || w.tasks == nil {
 		return nil
 	}
 	detail := "waiting for " + strings.Join(blockerLabels(blockers), ", ") + " to finish"
-	// The pre-park column is dropped here on purpose: this park happens inside
-	// Dispatcher.Dispatch, which has already written the task.moved event for
-	// the move that reached it, so journalling a second one would double the row.
-	if _, err := w.tasks.BlockOnResource(ctx, repositoryID, task.ID, domain.ResourceWorkOrder, detail); err != nil {
+	if err := w.tasks.MarkWorkOrderWaiting(ctx, repositoryID, task.ID, detail); err != nil {
 		return err
 	}
 	if w.comments != nil {

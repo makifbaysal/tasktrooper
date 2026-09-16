@@ -222,6 +222,15 @@ type BoardTaskStore interface {
 	// and claims only the ones whose deploy has settled.
 	ListBlockedByResource(ctx context.Context, resource string, limit int) ([]domain.BoardTask, error)
 	TakeBlockedResourceTask(ctx context.Context, resource string, taskID uuid.UUID) (domain.BoardTask, bool, error)
+	// MarkWorkOrderWaiting / ClearWorkOrderWaiting are the work_order resource's
+	// own park pair, and the only one that does NOT move board_column. A `blocks`
+	// wait is not waiting on anything outside the board — the blocker is another
+	// card on the same board — so parking it into the shared `blocked` column
+	// would hide it from a todo/in_progress view for no reason the other four
+	// resources share. The task stays exactly where it was; only
+	// blocked_resource/blocked_question/blocked_at move.
+	MarkWorkOrderWaiting(ctx context.Context, repositoryID, taskID uuid.UUID, detail string) error
+	ClearWorkOrderWaiting(ctx context.Context, taskID uuid.UUID) (domain.BoardTask, bool, error)
 	// TakeQuotaResumable is the release half for the OTHER thing a task can
 	// park on: the local Claude Code subscription's usage limit
 	// (domain.ResourceClaudeCodeQuota). It cannot go through

@@ -239,6 +239,39 @@ func TestCriteriaGateRefusalIsHumanReadable(t *testing.T) {
 	})
 }
 
+// A manual drag into todo or in_progress with an open `blocks` relation must
+// answer a coded 400 naming the blocker, not the raw agent-facing sentence
+// stripped of nothing (there is no id in it to strip — RelationLabel already
+// renders key + title).
+func TestWorkOrderGateRefusalIsHumanReadable(t *testing.T) {
+	app := fiber.New()
+	app.Get("/todo", func(c *fiber.Ctx) error {
+		err := domain.NewWorkOrderGateError(
+			domain.TaskColumnTodo,
+			[]domain.WorkOrderGateBlocker{{Key: "T-1", Title: "API migration"}},
+			"work order: this task is blocked until these are done: T-1 (API migration) [in_progress]",
+		)
+		return badRequestErr(c, err)
+	})
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/todo", nil))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != nethttp.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", resp.StatusCode, string(body))
+	}
+	message, typ, code := decodeCoded(t, body)
+	if typ != codeTaskBlockedByDependency || code != codeTaskBlockedByDependency {
+		t.Fatalf("type = %q / code = %q, want %q", typ, code, codeTaskBlockedByDependency)
+	}
+	if !strings.Contains(message, "T-1 (API migration)") {
+		t.Fatalf("message must name the blocker: %s", message)
+	}
+}
+
 // decodeCoded reads the two places a code appears. Both, always: tenant-manager
 // used to write it at the top level and this server's own errors carry it in
 // error.type, and a client that learned one must not have to learn the other.

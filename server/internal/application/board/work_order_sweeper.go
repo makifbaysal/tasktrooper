@@ -4,10 +4,20 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
+
+// WorkOrderResourceLister is BlockedResourceLister's listing half plus the
+// work_order resource's own release, ClearWorkOrderWaiting — which, unlike
+// TakeBlockedResourceTask, does not restore board_column because this park
+// never moved it in the first place.
+type WorkOrderResourceLister interface {
+	ListBlockedByResource(ctx context.Context, resource string, limit int) ([]domain.BoardTask, error)
+	ClearWorkOrderWaiting(ctx context.Context, taskID uuid.UUID) (domain.BoardTask, bool, error)
+}
 
 // WorkOrderSweeperInterval is how often a task parked behind another task asks
 // whether that task has landed.
@@ -47,12 +57,12 @@ const workOrderSweepBatch = 100
 //	  with it again, and the dependent stays parked. The park is a standing
 //	  question, not a one-off verdict.
 type WorkOrderSweeper struct {
-	tasks      BlockedResourceLister
+	tasks      WorkOrderResourceLister
 	relations  BlockerReader
 	dispatcher *Dispatcher
 }
 
-func NewWorkOrderSweeper(tasks BlockedResourceLister, relations BlockerReader, dispatcher *Dispatcher) *WorkOrderSweeper {
+func NewWorkOrderSweeper(tasks WorkOrderResourceLister, relations BlockerReader, dispatcher *Dispatcher) *WorkOrderSweeper {
 	return &WorkOrderSweeper{tasks: tasks, relations: relations, dispatcher: dispatcher}
 }
 
@@ -117,7 +127,7 @@ func (s *WorkOrderSweeper) resumeIfClear(ctx context.Context, parked domain.Boar
 	if len(blockers) > 0 {
 		return
 	}
-	task, ok, err := s.tasks.TakeBlockedResourceTask(ctx, domain.ResourceWorkOrder, parked.ID)
+	task, ok, err := s.tasks.ClearWorkOrderWaiting(ctx, parked.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", parked.ID.String()).Msg("work order sweeper: claiming a parked task failed")
 		return

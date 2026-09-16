@@ -56,6 +56,11 @@ const codeUnknownAgentCLIFlavor = "unknown_agent_cli_flavor"
 // not yet settled. See criteriaGateBadRequest.
 const codeCriteriaNotApproved = "criteria_not_approved"
 
+// codeTaskBlockedByDependency: a manual move into todo or in_progress was
+// refused because the task still has an open `blocks` relation. See
+// workOrderGateBadRequest.
+const codeTaskBlockedByDependency = "task_blocked_by_dependency"
+
 // permanentRefusals maps each sentinel to the code clients switch on.
 var permanentRefusals = []struct {
 	sentinel error
@@ -128,6 +133,21 @@ func criteriaGateBadRequest(c *fiber.Ctx, err error) (bool, error) {
 	return true, c.Status(fiber.StatusBadRequest).JSON(codedErrorResponse{
 		Error: errorDetail{Message: humanCriteriaGateMessage(gateErr), Type: codeCriteriaNotApproved},
 		Code:  codeCriteriaNotApproved,
+	})
+}
+
+// workOrderGateBadRequest writes the 400 for a move refused by
+// domain.WorkOrderGateError. Its Error() is already the human sentence — built
+// from each blocker's key/title, never a raw id — so this is a straight
+// rendering, unlike criteriaGateBadRequest which has to strip ids out.
+func workOrderGateBadRequest(c *fiber.Ctx, err error) (bool, error) {
+	var gateErr *domain.WorkOrderGateError
+	if !errors.As(err, &gateErr) {
+		return false, nil
+	}
+	return true, c.Status(fiber.StatusBadRequest).JSON(codedErrorResponse{
+		Error: errorDetail{Message: gateErr.Error(), Type: codeTaskBlockedByDependency},
+		Code:  codeTaskBlockedByDependency,
 	})
 }
 

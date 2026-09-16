@@ -157,6 +157,14 @@ func (f *controlTaskStore) BlockOnResource(context.Context, uuid.UUID, uuid.UUID
 	return "", nil
 }
 
+func (f *controlTaskStore) MarkWorkOrderWaiting(context.Context, uuid.UUID, uuid.UUID, string) error {
+	return nil
+}
+
+func (f *controlTaskStore) ClearWorkOrderWaiting(context.Context, uuid.UUID) (domain.BoardTask, bool, error) {
+	return domain.BoardTask{}, false, nil
+}
+
 func (f *controlTaskStore) TakeBlockedByResource(context.Context, string) (domain.BoardTask, bool, error) {
 	return domain.BoardTask{}, false, nil
 }
