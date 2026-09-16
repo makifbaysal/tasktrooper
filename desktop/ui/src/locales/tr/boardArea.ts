@@ -174,6 +174,7 @@ export const boardArea: BoardAreaDict = {
         pipeline_gate_opened: "Build sonucu gelmedi — reviewer yine de atandı",
         verification_failed: "Build/vet kontrolleri başarısız — In Progress'e geri alındı",
         deploy_released: "Deploy başarılı — görev yayınlandı",
+        merge_released_no_deploy_target: "Deploy target tanımlı değil — merge görevi doğrudan yayınladı",
         reconciled: "Takılan çalışma kurtarıldı — yeniden başlatıldı",
         question_answered: "Soru yanıtlandı — görev devam ediyor",
         quota_exhausted: "Kullanım limiti doldu — limit sıfırlanana kadar görev duraklatıldı",

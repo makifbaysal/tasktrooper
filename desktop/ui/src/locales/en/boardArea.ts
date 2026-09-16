@@ -180,6 +180,7 @@ export const boardArea = {
         pipeline_gate_opened: "No build result arrived — the reviewer was dispatched anyway",
         verification_failed: "Build/vet checks failed — sent back to In Progress",
         deploy_released: "Deploy succeeded — task released",
+        merge_released_no_deploy_target: "No deploy target configured — merge released the task directly",
         reconciled: "Stalled run recovered — re-dispatched",
         question_answered: "Question answered — task resumed",
         // Park/resume pairs. The park half is what moves a card into Blocked;
