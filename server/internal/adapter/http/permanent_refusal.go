@@ -151,6 +151,10 @@ func humanCriteriaGateMessage(e *domain.CriteriaGateError) string {
 		return fmt.Sprintf(
 			"This task can't be moved yet: %d %s %s rejected — %s. Move it to need_revision, or have them re-reviewed and approved first.",
 			count, criterion, is, strings.Join(titles, ", "))
+	case domain.CriteriaGateReasonIncomplete:
+		return fmt.Sprintf(
+			"This task can't be moved yet: %d %s %s not yet completed — %s. Ask the implementer to tick or cancel each one.",
+			count, criterion, is, strings.Join(titles, ", "))
 	default:
 		return fmt.Sprintf(
 			"This task can't be moved yet: %d %s %s still waiting for approval — %s.",

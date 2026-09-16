@@ -146,6 +146,15 @@ func TestCriteriaGateRefusalIsHumanReadable(t *testing.T) {
 		)
 		return badRequestErr(c, err)
 	})
+	app.Get("/incomplete", func(c *fiber.Ctx) error {
+		err := domain.NewCriteriaGateError(
+			domain.TaskColumnDone,
+			domain.CriteriaGateReasonIncomplete,
+			[]domain.CriteriaGateCriterion{{ID: criterionID, Text: "Unticked criterion"}},
+			"cannot move to done: 1 acceptance criteria are still open: [...] — call set_criterion_completed or cancel_criterion, then retry the move",
+		)
+		return badRequestErr(c, err)
+	})
 
 	t.Run("single unchecked criterion", func(t *testing.T) {
 		resp, err := app.Test(httptest.NewRequest("GET", "/unchecked-single", nil))
@@ -201,6 +210,28 @@ func TestCriteriaGateRefusalIsHumanReadable(t *testing.T) {
 		message, _, _ := decodeCoded(t, body)
 		if !strings.Contains(message, "rejected") {
 			t.Fatalf("message must say the criterion was rejected: %s", message)
+		}
+		if strings.Contains(message, criterionID.String()) {
+			t.Fatalf("message must not contain the criterion id: %s", message)
+		}
+	})
+
+	t.Run("incomplete criteria say the implementer hasn't finished, not that it's awaiting approval", func(t *testing.T) {
+		resp, err := app.Test(httptest.NewRequest("GET", "/incomplete", nil))
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		message, _, _ := decodeCoded(t, body)
+		if !strings.Contains(message, "not yet completed") {
+			t.Fatalf("message must say the criterion is not yet completed: %s", message)
+		}
+		if strings.Contains(message, "waiting for approval") {
+			t.Fatalf("message must not claim it's waiting for approval — nobody is reviewing an incomplete criterion: %s", message)
+		}
+		if !strings.Contains(message, "Unticked criterion") {
+			t.Fatalf("message must name the criterion: %s", message)
 		}
 		if strings.Contains(message, criterionID.String()) {
 			t.Fatalf("message must not contain the criterion id: %s", message)
