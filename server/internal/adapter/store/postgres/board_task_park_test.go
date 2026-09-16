@@ -240,3 +240,50 @@ func (s *BoardTaskParkSuite) TestUnparkedTaskReportsNoResumeTime() {
 	s.Equal("", fresh.BlockedResource)
 	s.Nil(fresh.BlockedResumeAt)
 }
+
+// The sweeper's whole job: a task whose recorded reset time has passed is
+// claimed back off the blocked column and its park markers are cleared, so a
+// resumed run starts from a card that looks exactly like it never parked.
+func (s *BoardTaskParkSuite) TestTakeQuotaResumableClaimsDueTaskAndRestoresColumn() {
+	task := s.newTask(domain.TaskColumnInProgress)
+	s.parkedRun(task.ID, time.Now().Add(-time.Minute))
+
+	previous, err := s.tasks.BlockOnResource(s.ctx, s.repoID, task.ID,
+		domain.ResourceClaudeCodeQuota, "usage limit reached")
+	s.Require().NoError(err)
+	s.Equal(domain.TaskColumnInProgress, previous)
+
+	taken, ok, err := s.tasks.TakeQuotaResumable(s.ctx, time.Now())
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Equal(task.ID, taken.ID)
+	s.Equal(domain.TaskColumnInProgress, taken.Column, "the task goes back to the column it was parked out of")
+
+	restored, err := s.tasks.Get(s.ctx, s.repoID, task.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.TaskColumnInProgress, restored.Column)
+	s.Equal("", restored.BlockedResource)
+	s.Nil(restored.BlockedAt)
+	s.Equal(domain.TaskColumn(""), restored.BlockedOriginColumn)
+}
+
+// A park whose reset time is still in the future must not be claimed: the
+// sweeper would otherwise resume a session before the quota it is waiting on
+// has actually reset.
+func (s *BoardTaskParkSuite) TestTakeQuotaResumableLeavesAFutureParkBlocked() {
+	task := s.newTask(domain.TaskColumnInProgress)
+	s.parkedRun(task.ID, time.Now().Add(time.Hour))
+
+	_, err := s.tasks.BlockOnResource(s.ctx, s.repoID, task.ID,
+		domain.ResourceClaudeCodeQuota, "usage limit reached")
+	s.Require().NoError(err)
+
+	_, ok, err := s.tasks.TakeQuotaResumable(s.ctx, time.Now())
+	s.Require().NoError(err)
+	s.False(ok, "the reset time has not arrived yet")
+
+	still, err := s.tasks.Get(s.ctx, s.repoID, task.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.TaskColumnBlocked, still.Column)
+	s.Equal(domain.ResourceClaudeCodeQuota, still.BlockedResource)
+}

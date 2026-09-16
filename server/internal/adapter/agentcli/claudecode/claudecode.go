@@ -292,41 +292,68 @@ func (e *Executor) Execute(ctx context.Context, req domain.TaskExecution) (domai
 	}
 	defer cleanupMCP()
 
-	systemPrompt, prompt := flattenHistory(req.History)
-	if strings.TrimSpace(req.ResumeSessionID) != "" {
-		// The session already holds the persona, the project context and the
-		// task: replaying them would spend the tokens again and, worse, read as
-		// a NEW instruction on top of half-finished work. What it needs is the
-		// one thing it does not know — that the wait is over.
-		systemPrompt = ""
-		prompt = continuePrompt(req)
-	}
-	// Last, so the names sit under the persona and the task rather than above
-	// them, and so a resumed session (empty prompt) is left alone.
-	systemPrompt = withToolManifest(systemPrompt, mcpCfg.Tools)
-
 	sessionEnv, refusedEnv := domain.SessionEnv(req.Env)
 	if len(refusedEnv) > 0 {
 		log.Warn().Strs("names", refusedEnv).Str("task", req.TaskKey).
 			Msg("claude code: dropped session environment outside the allowlist")
 	}
 
-	s, err := e.spawn(ctx, invocation{
-		workDir:         req.WorkDir,
-		systemPrompt:    systemPrompt,
-		prompt:          prompt,
-		model:           req.Model,
-		resumeSessionID: req.ResumeSessionID,
-		maxTurns:        req.MaxTurns,
-		effort:          req.Effort,
-		tools:           domain.NativeToolsForPolicy(req.Policy),
-		label:           req.TaskKey,
-		mcpPath:         mcpPath,
-		env:             sessionEnv,
-	})
+	fresh := func() invocation {
+		systemPrompt, prompt := flattenHistory(req.History)
+		// Last, so the names sit under the persona and the task rather than
+		// above them.
+		systemPrompt = withToolManifest(systemPrompt, mcpCfg.Tools)
+		return invocation{
+			workDir:      req.WorkDir,
+			systemPrompt: systemPrompt,
+			prompt:       prompt,
+			model:        req.Model,
+			maxTurns:     req.MaxTurns,
+			effort:       req.Effort,
+			tools:        domain.NativeToolsForPolicy(req.Policy),
+			label:        req.TaskKey,
+			mcpPath:      mcpPath,
+			env:          sessionEnv,
+		}
+	}
+
+	inv := fresh()
+	resumeSessionID := strings.TrimSpace(req.ResumeSessionID)
+	if resumeSessionID != "" {
+		// The session already holds the persona, the project context and the
+		// task: replaying them would spend the tokens again and, worse, read as
+		// a NEW instruction on top of half-finished work. What it needs is the
+		// one thing it does not know — that the wait is over.
+		inv.systemPrompt = ""
+		inv.prompt = continuePrompt(req)
+		inv.resumeSessionID = req.ResumeSessionID
+	}
+
+	s, err := e.spawn(ctx, inv)
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
+
+	// A resume the CLI cannot honour. The quota park window can span hours, and
+	// the CLI's own session storage on this host is pruned on its own schedule
+	// — none of which makes the task's work disposable. Falling straight
+	// through would hand the board a generic "failed" run, spending one of the
+	// task's three consecutive-failure lives on a park the sweeper faithfully
+	// resumed; three of those and the reconciler gives up silently, and the
+	// card is stuck for good even after the quota is back. See chat.go, which
+	// solved the same refusal for a conversation.
+	if resumeSessionID != "" && resumeRefused(s) {
+		log.Info().
+			Str("task_key", req.TaskKey).
+			Str("cli_session_id", resumeSessionID).
+			Msg("claude code could not resume this task's cli session; starting a fresh one from the stored history")
+		retry := fresh()
+		retry.trace = s.trace
+		if s, err = e.spawn(ctx, retry); err != nil {
+			return domain.AgentResponse{}, err
+		}
+	}
+
 	return e.finish(ctx, req.TaskKey, s)
 }
 

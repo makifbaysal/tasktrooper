@@ -245,6 +245,37 @@ func TestExecuteResumesTheParkedSession(t *testing.T) {
 	assert.NotContains(t, argv[3], "You are the backend developer.")
 }
 
+// A board task's resumed CLI session can be gone the same way a chat's can —
+// pruned on the host's own schedule, lost with a reinstall, or run on a
+// different machine during the quota park window. It must not turn into a
+// generic "failed" run: that is exactly the run the reconciler gives up on
+// after three of them, leaving the card parked forever even after the limit
+// resets.
+func TestExecuteFallsBackToAFreshSessionWhenTheResumeIsRefused(t *testing.T) {
+	ex, workDir := newTestExecutor(t, Config{}, "")
+	writeFixture(t, workDir, "chat_resume_missing.jsonl", "fixture.1.jsonl")
+	writeFixture(t, workDir, "chat_resume_missing_stderr.txt", "stderr.1.txt")
+	writeFixture(t, workDir, "success.jsonl", "fixture.2.jsonl")
+
+	req := taskExecution(workDir)
+	req.ResumeSessionID = "sess-gone-9"
+
+	resp, err := ex.Execute(context.Background(), req)
+	require.NoError(t, err, "a forgotten CLI session must not fail the run")
+
+	assert.Equal(t, "2", readFile(t, filepath.Join(workDir, "calls.txt")), "it retried exactly once")
+
+	first := strings.Split(strings.TrimRight(readFile(t, filepath.Join(workDir, "argv.1.txt")), "\x00"), "\x00")
+	assert.Contains(t, first, "--resume", "the first attempt did try to continue the session")
+
+	second := strings.Split(strings.TrimRight(readFile(t, filepath.Join(workDir, "argv.2.txt")), "\x00"), "\x00")
+	assert.NotContains(t, second, "--resume", "the retry starts a new conversation")
+	assert.Contains(t, second, "--append-system-prompt", "which means it must carry the task's full history again")
+	assert.Contains(t, second[indexOf(t, second, "--append-system-prompt")+1], "You are the backend developer.")
+
+	assert.Equal(t, "Added the executor seam and wired it in. Build and vet are green.", resp.Message.Content)
+}
+
 // Without the binary there is no executor, which is what makes the board
 // runner's failure a clear sentence about a missing install instead of an exec
 // error mid-run.
