@@ -114,10 +114,34 @@ export function blockedResourceLabel(resource: string): string {
  * (blocked_question reads "waiting for T-12 (API migration) [in_progress] to
  * finish"), not the generic resource wording — a human reading the board
  * needs to know WHICH task it is waiting for without hovering the tooltip.
+ *
+ * Parsed structurally, not with a key-shaped regex over the whole string: a
+ * blocker's TITLE is free text and routinely contains its own "T-9"-looking
+ * tokens (this repo's own task titles reference other keys in prose), which a
+ * blanket regex would pick up as an extra key. Each blocker segment is
+ * "KEY (TITLE) [COLUMN]" (blockerLabels, server work_order.go), joined by
+ * ", " — so the key is always the text before the segment's first " (".
  */
 export function workOrderBlockerLabel(blockedQuestion: string): string {
-  const keys = blockedQuestion.match(/[A-Za-z]+-\d+/g);
-  if (!keys || keys.length === 0) {
+  const trimmed = blockedQuestion.trim();
+  if (!trimmed) {
+    return blockedResourceLabel("work_order");
+  }
+  const prefix = "waiting for ";
+  const suffix = " to finish";
+  const start = trimmed.startsWith(prefix) ? prefix.length : 0;
+  const end = trimmed.endsWith(suffix) ? trimmed.length - suffix.length : trimmed.length;
+  const body = trimmed.slice(start, end);
+
+  const keys = body
+    .split(", ")
+    .map((segment) => {
+      const parenIndex = segment.indexOf(" (");
+      return (parenIndex >= 0 ? segment.slice(0, parenIndex) : segment).trim();
+    })
+    .filter(Boolean);
+
+  if (keys.length === 0) {
     return blockedResourceLabel("work_order");
   }
   const [first, ...rest] = keys;
