@@ -1570,6 +1570,7 @@ func (r *Runner) execute(parent context.Context, job RunJob) error {
 		// same second.
 		if buildVerified {
 			r.advanceToCodeReview(ctx, job, taskWorkspace, toolUsage)
+			r.advanceToAnalizReview(ctx, job, toolUsage)
 		} else {
 			log.Info().Str("task_id", job.Task.ID.String()).
 				Msg("hand-off: build verification failed after every fix round, task stays in the working column")
@@ -2099,6 +2100,73 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, taskWorksp
 	}
 	log.Info().Str("task_id", job.Task.ID.String()).Str("agent_id", agentID.String()).
 		Msg("hand-off: implementation run finished with a diff, task moved to code_review")
+}
+
+// advanceToAnalizReview hands a finished analiz run's task to the human review
+// gate, the same way advanceToCodeReview hands an implementation run's task to
+// its reviewer.
+//
+// An analiz task has no automatic hand-off of its own: advanceToCodeReview
+// explicitly skips it (its exit is analiz_review, not code_review), so the
+// column change from in_progress to analiz_review depended entirely on the
+// agent remembering to call move_board_task after writing its spec and plan.
+// That is exactly the gap advanceToCodeReview itself was written to close for
+// implementation runs — a board whose truth depends on the model remembering a
+// tool call is not a board — and analiz work sat in in_progress with a
+// finished analysis behind it for the same reason a finished implementation
+// used to.
+//
+// The evidence is add_task_document instead of a diff: an analiz task's
+// deliverable is the spec/plan documents attached to the card, not a change to
+// the branch, so AnalizDocumentTools is this column's equivalent of
+// ImplementationVerificationTools.
+func (r *Runner) advanceToAnalizReview(ctx context.Context, job RunJob, usage *registry.ToolUsage) {
+	if r.taskUpdater == nil {
+		return
+	}
+	if job.Task.TaskType != domain.TaskTypeAnaliz {
+		return
+	}
+	switch job.Task.Column {
+	case domain.TaskColumnInProgress, domain.TaskColumnNeedRevision:
+	default:
+		return
+	}
+
+	if usage != nil && !usage.UsedAny(domain.AnalizDocumentTools...) {
+		log.Info().Str("task_id", job.Task.ID.String()).
+			Msg("hand-off: analiz run attached no document, task stays in the working column")
+		return
+	}
+
+	if reader, ok := r.taskUpdater.(taskColumnReader); ok {
+		if fresh, err := reader.GetTask(ctx, job.RepositoryID, job.Task.ID); err != nil {
+			log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: task re-read failed, using the run's snapshot")
+		} else if fresh.Column != job.Task.Column {
+			log.Info().Str("task_id", job.Task.ID.String()).Str("column", string(fresh.Column)).
+				Msg("hand-off: task already left the column during the run")
+			return
+		}
+	}
+
+	column := domain.TaskColumnAnalizReview
+	agentID := job.Run.AgentID
+	if _, err := r.taskUpdater.UpdateTask(ctx, job.RepositoryID, job.Task.ID, domain.UpdateBoardTaskRequest{
+		Column:       &column,
+		Actor:        domain.TaskActorAgent,
+		ActorAgentID: &agentID,
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: automatic move to analiz_review failed")
+		if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
+			AuthorType: "system",
+			Content:    "Otomatik analiz_review geçişi reddedildi: " + err.Error(),
+		}); cErr != nil {
+			log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: refusal comment failed")
+		}
+		return
+	}
+	log.Info().Str("task_id", job.Task.ID.String()).Str("agent_id", agentID.String()).
+		Msg("hand-off: analiz run finished with a document, task moved to analiz_review")
 }
 
 // stampToolStats copies the run's tool counters onto the row about to be

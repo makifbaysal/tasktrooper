@@ -144,6 +144,14 @@ var ImplementationVerificationTools = []string{
 	"run_terminal",
 }
 
+// AnalizDocumentTools are the evidence that an analiz run produced its
+// deliverable: an analiz task's output is not a diff but the spec/plan
+// documents attached with add_task_document, so this is that column's
+// equivalent of ImplementationVerificationTools for the same hand-off check.
+var AnalizDocumentTools = []string{
+	"add_task_document",
+}
+
 // BoardProgressTools announce that work has STARTED. Claiming a task and moving
 // it to in_progress tells the board someone picked it up; neither produces the
 // thing the task asks for.
