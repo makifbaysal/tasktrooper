@@ -328,7 +328,7 @@ export function BoardPage() {
         }}
         onClick={() => openTask(task)}
         className={cn(
-          "mb-2 cursor-grab border-border/80 p-3 shadow-sm transition-shadow active:cursor-grabbing",
+          "mb-2 cursor-grab overflow-hidden border-border/80 p-3 shadow-sm transition-shadow active:cursor-grabbing",
           dragTaskId === task.id && "opacity-50 ring-2 ring-primary/30",
           "hover:shadow-md",
         )}
@@ -353,16 +353,16 @@ export function BoardPage() {
                 {taskPriorityLabel(task.priority)}
               </Badge>
             </div>
-            <p className="text-sm font-medium leading-snug">{task.title}</p>
+            <p className="break-words text-sm font-medium leading-snug">{task.title}</p>
             {task.description && (
-              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
+              <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{task.description}</p>
             )}
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="max-w-[9rem] truncate text-[10px]">
                 {repositoryName(task.repository_id)}
               </Badge>
               {initiative && (
-                <Badge variant="outline" className="text-[10px]">
+                <Badge variant="outline" className="max-w-[9rem] truncate text-[10px]">
                   {initiative}
                 </Badge>
               )}
