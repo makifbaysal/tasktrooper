@@ -1169,6 +1169,24 @@ export interface AppSettings {
   default_language: string;
   pipeline_container_runtime?: string;
   boilerplate_catalog_repo?: string;
+  analiz_assignee_backend?: string;
+  analiz_assignee_frontend?: string;
+  analiz_assignee_mobile?: string;
+}
+
+export interface UpdateAnalizAssignmentRequest {
+  backend?: string;
+  frontend?: string;
+  mobile?: string;
+  confirm_grant_tools?: boolean;
+}
+
+export interface AnalizAssignmentResult {
+  saved: boolean;
+  settings?: AppSettings;
+  missing_tools?: Record<string, string[]>;
+  granted_tools?: Record<string, string[]>;
+  hint?: string;
 }
 
 export interface GitHubConnectionStatus {
@@ -2436,6 +2454,25 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
+
+  // 422 with a missing_tools body is a normal outcome here (the caller opens a
+  // confirmation dialog), not an error — so this bypasses request()'s
+  // throw-on-non-2xx and returns the parsed AnalizAssignmentResult either way.
+  updateAnalizAssignment: async (req: UpdateAnalizAssignmentRequest) => {
+    const res = await fetchWithTimeout(
+      apiUrl("/v1/settings/analiz-assignment"),
+      {
+        method: "PUT",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(req),
+      },
+      WRITE_TIMEOUT_MS,
+    );
+    if (!res.ok && res.status !== 422) {
+      throw await apiErrorFrom(res);
+    }
+    return (await res.json()) as AnalizAssignmentResult;
+  },
 
   listLLMProviders: () => request<LLMProvidersResponse>("/v1/llm/providers"),
 

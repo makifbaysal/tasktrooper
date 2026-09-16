@@ -308,5 +308,25 @@ export const settingsPages: SettingsPagesDict = {
     add: "Ekle",
   },
 
+  analizAssignment: {
+    title: "Analiz Görev Atama",
+    subtitle:
+      "Backend, frontend veya mobile alanı için oluşturulan analiz görevinin hangi agent'a otomatik atanacağı.",
+    loadFailed: "Yüklenemedi",
+    savedToast: "Atama kaydedildi",
+    saveFailed: "Kayıt başarısız",
+    discardedToast: "Atama kaydedilmedi",
+
+    areas: {
+      backend: "Backend",
+      frontend: "Frontend",
+      mobile: "Mobile",
+    },
+
+    missingToolsTitle: "Eksik tool'lar",
+    missingToolsBody:
+      "Seçilen agent'ta analiz iş akışının ihtiyaç duyduğu bazı tool'lar eksik. Eklenip atama kaydedilsin mi?",
+    grantTools: "Evet, ekle",
+  },
 
 };

@@ -34,6 +34,7 @@ export const frame = {
       mcp: "MCP Servers",
       integrations: "Integrations",
       usage: "Usage",
+      analizAssignment: "Analysis Assignment",
     },
     sidebar: {
       workspace: "Workspace",

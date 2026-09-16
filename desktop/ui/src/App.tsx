@@ -21,6 +21,7 @@ import { MCPServersPage } from "@/pages/MCPServersPage";
 import { SettingsLayout } from "@/components/layout/SettingsLayout";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { BoardSettingsPage } from "@/pages/BoardSettingsPage";
+import { AnalizAssignmentSettingsPage } from "@/pages/AnalizAssignmentSettingsPage";
 import { LLMSettingsPage } from "@/pages/LLMSettingsPage";
 import { UsageSettingsPage } from "@/pages/UsageSettingsPage";
 import { SkillsPage } from "@/pages/SkillsPage";
@@ -86,6 +87,7 @@ export default function App() {
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route index element={<SettingsPage />} />
                   <Route path="board" element={<BoardSettingsPage />} />
+                  <Route path="analiz-assignment" element={<AnalizAssignmentSettingsPage />} />
                   <Route path="llm" element={<LLMSettingsPage />} />
                   <Route path="memory" element={<Navigate to="/memory" replace />} />
                   <Route path="mcp" element={<MCPServersPage />} />

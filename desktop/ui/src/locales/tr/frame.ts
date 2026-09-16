@@ -35,6 +35,7 @@ export const frame: FrameDict = {
       mcp: "MCP Sunucuları",
       integrations: "Entegrasyonlar",
       usage: "Kullanım",
+      analizAssignment: "Analiz Ataması",
     },
     sidebar: {
       workspace: "Çalışma Alanı",

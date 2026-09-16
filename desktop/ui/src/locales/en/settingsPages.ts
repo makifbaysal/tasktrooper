@@ -325,6 +325,26 @@ export const settingsPages = {
     add: "Add",
   },
 
+  analizAssignment: {
+    title: "Analysis Task Assignment",
+    subtitle:
+      "Which agent an analysis (analiz) task for the backend, frontend or mobile area is auto-assigned to on creation.",
+    loadFailed: "Failed to load",
+    savedToast: "Assignment saved",
+    saveFailed: "Failed to save",
+    discardedToast: "Assignment not saved",
+
+    areas: {
+      backend: "Backend",
+      frontend: "Frontend",
+      mobile: "Mobile",
+    },
+
+    missingToolsTitle: "Missing tools",
+    missingToolsBody:
+      "The selected agent is missing tools the analysis workflow needs. Add them and save the assignment?",
+    grantTools: "Yes, add them",
+  },
 
 };
 
