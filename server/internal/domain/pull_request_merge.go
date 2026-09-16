@@ -84,6 +84,12 @@ type TaskPRMergeResult struct {
 	BaseBranch     string `json:"base_branch,omitempty"`
 	BranchDeleted  bool   `json:"branch_deleted"`
 	Undrafted      bool   `json:"undrafted,omitempty"`
+	// AutoReleased is true when the repository has no deploy_target
+	// configured anywhere: the merge above already moved the task straight
+	// to `released`, and the caller (the QA agent) must not call
+	// trigger_release afterwards — there is nothing left to deploy or wait
+	// on.
+	AutoReleased bool `json:"auto_released,omitempty"`
 	// Message is the human sentence: what merged, and what did not go
 	// perfectly (a branch that could not be deleted, a SHA that could not be
 	// recorded) without pretending the merge itself failed.

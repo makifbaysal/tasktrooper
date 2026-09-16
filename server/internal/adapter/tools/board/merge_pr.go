@@ -51,7 +51,8 @@ func (t *mergeTaskPullRequestTool) Definition() domain.ToolDefinition {
 				"This is how a finished task's code actually lands, and it is IRREVERSIBLE — call it only for a task in the `done` column whose checks you have read and found green (get_task_pull_request, get_pipeline_status). " +
 				"It refuses, without merging anything, when: the task is not in `done`; the PR is already merged or was closed unmerged; the checks are not green (GitHub reports anything but a clean mergeable state, or the task's last pipeline failed); the repository requires the full review chain and a stage is missing; or the PR's head commit is no longer the commit the task was verified at — which means someone pushed after sign-off and the change must go back through review. " +
 				"Retrying a refusal changes nothing: act on what it said instead — a refusal naming a CONFLICT with the base branch (`dirty`) or an out-of-date branch (`behind`) is the developer's to resolve, so move the task to need_revision with that reason. " +
-				"On success it records the merge commit on the task and the card shows it: do NOT write a comment saying the merge happened.",
+				"On success it records the merge commit on the task and the card shows it: do NOT write a comment saying the merge happened. " +
+					"When the repository has no deploy_target configured anywhere, the merge also moves the task straight to `released` (the result's `auto_released` field is true) — do not call trigger_release afterwards, there is nothing left to deploy.",
 			Parameters: map[string]interface{}{
 				"type":                 "object",
 				"additionalProperties": false,

@@ -78,6 +78,10 @@ type TaskPRTasks interface {
 type TaskPRLifecycleGates interface {
 	CheckReviewChain(ctx context.Context, repositoryID, taskID uuid.UUID) error
 	LatestTaskPipeline(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskPipeline, error)
+	// AutoReleaseIfUndeployable moves the task to released when the
+	// repository has no deploy_target configured anywhere. Reports whether
+	// it did.
+	AutoReleaseIfUndeployable(ctx context.Context, repositoryID, taskID uuid.UUID) bool
 }
 
 // RootPathResolver resolves a repository's shared working copy. Used only to find

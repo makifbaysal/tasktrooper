@@ -84,6 +84,13 @@ const (
 	// mapped for the repo and the pipeline was skipped. Which one happened is
 	// on the pipeline's status/provider, not on this reason code.
 	MoveReasonDeployReleased = "deploy_released"
+	// MoveReasonMergeReleasedNoDeployTarget: the repository has zero
+	// deploy_target rows in any environment, so merging the task's pull
+	// request already was the whole release — no deploy pipeline runs.
+	// Distinct from MoveReasonDeployReleased, which means a real
+	// prod/preprod deploy pipeline succeeded; this one means no deploy
+	// exists to run in the first place.
+	MoveReasonMergeReleasedNoDeployTarget = "merge_released_no_deploy_target"
 	// MoveReasonReconciled: the reconciler revived a task whose run died.
 	MoveReasonReconciled = "reconciled"
 	// MoveReasonQuestionAnswered: a human answered the clarification a parked

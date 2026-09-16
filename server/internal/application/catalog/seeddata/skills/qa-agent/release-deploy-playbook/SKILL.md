@@ -64,6 +64,12 @@ Two shapes exist and you do not choose between them:
   steps need a credential this machine does not have, that is a `blocked` task,
   not a place to improvise.
 
+- **A repository with nothing configured at all.** `merge_task_pull_request`'s
+  result already tells you: `auto_released: true` means this repository has no
+  `deploy_target` in any environment, so the merge you just did already WAS the
+  release — the task is in `released`. Do not call `trigger_release` and do not
+  look for a deploy to watch; skip straight past this whole section.
+
 If `trigger_release` reports the repo uses batched releases, do not try to force a
 deploy. Note that the change is queued for the next batch and leave the task in
 `done`.

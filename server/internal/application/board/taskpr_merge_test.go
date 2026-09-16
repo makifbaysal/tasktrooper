@@ -60,6 +60,12 @@ type mergeGates struct {
 	chainErr    error
 	pipeline    domain.TaskPipeline
 	pipelineErr error
+	// autoReleased scripts what AutoReleaseIfUndeployable reports, defaulting
+	// to false so every existing fixture keeps merging into `done` unchanged.
+	autoReleased bool
+	// autoReleaseCalls counts every AutoReleaseIfUndeployable call, so a test
+	// can assert it was (or was not) asked at all.
+	autoReleaseCalls int
 }
 
 func (f *mergeGates) CheckReviewChain(context.Context, uuid.UUID, uuid.UUID) error { return f.chainErr }
@@ -69,6 +75,11 @@ func (f *mergeGates) LatestTaskPipeline(context.Context, uuid.UUID, uuid.UUID) (
 		return domain.TaskPipeline{}, f.pipelineErr
 	}
 	return f.pipeline, nil
+}
+
+func (f *mergeGates) AutoReleaseIfUndeployable(context.Context, uuid.UUID, uuid.UUID) bool {
+	f.autoReleaseCalls++
+	return f.autoReleased
 }
 
 const (
@@ -152,6 +163,65 @@ func TestMergeTaskPullRequestSquashesDeletesTheBranchAndRecordsTheCommit(t *test
 	// Recorded on the task: this is what stops the done column asking for the
 	// same merge again.
 	assert.Equal(t, "mergecommitsha0000000000000000000000000", tasks.merges[task.ID])
+}
+
+// When the repository has no deploy_target configured anywhere, the merge
+// also auto-releases the task, and the QA agent reading the result must be
+// told not to call trigger_release.
+func TestMergeTaskPullRequestReportsAutoRelease(t *testing.T) {
+	task := mergeTask()
+	gates := &mergeGates{
+		pipeline:     domain.TaskPipeline{Status: domain.PipelineStatusSuccess},
+		autoReleased: true,
+	}
+	svc, _, _, repositoryID := newMergeFixture(task, openCleanPR(), gates)
+
+	result, err := svc.MergeTaskPullRequest(context.Background(), repositoryID, task.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, gates.autoReleaseCalls)
+	assert.True(t, result.AutoReleased)
+	assert.Contains(t, result.Message, "do not call trigger_release")
+}
+
+// The ordinary case — at least one deploy target configured — must not claim
+// an auto-release that never happened.
+func TestMergeTaskPullRequestWithoutAutoReleaseReportsNone(t *testing.T) {
+	task := mergeTask()
+	gates := &mergeGates{
+		pipeline:     domain.TaskPipeline{Status: domain.PipelineStatusSuccess},
+		autoReleased: false,
+	}
+	svc, _, _, repositoryID := newMergeFixture(task, openCleanPR(), gates)
+
+	result, err := svc.MergeTaskPullRequest(context.Background(), repositoryID, task.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, gates.autoReleaseCalls)
+	assert.False(t, result.AutoReleased)
+	assert.NotContains(t, result.Message, "trigger_release")
+}
+
+// A configured-out gates dependency (s.gates == nil) is an existing, already
+// refused path for every other call the merge makes to it — the auto-release
+// check must be guarded the same way and never panic.
+func TestMergeTaskPullRequestWithoutGatesNeverCallsAutoRelease(t *testing.T) {
+	task := mergeTask()
+	repositoryID := uuid.New()
+	tasks := &taskChatTaskStore{tasks: map[[2]uuid.UUID]domain.BoardTask{{repositoryID, task.ID}: task}}
+	git := &taskPRGit{hasGit: true, branch: "feature/t-7"}
+	svc := NewTaskPRService(TaskPRServiceDeps{
+		Tasks:         tasks,
+		Repos:         taskChatRepos{root: "/repos/widget"},
+		Git:           git,
+		PRs:           &mergePRs{pr: openCleanPR()},
+		Tokens:        func(context.Context) (string, error) { return "tok", nil },
+		WorkspaceRoot: "/data/workspaces",
+	})
+
+	_, err := svc.MergeTaskPullRequest(context.Background(), repositoryID, task.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrMergeNotConfigured)
 }
 
 // The squash title separates the task key from the title with a space, not a

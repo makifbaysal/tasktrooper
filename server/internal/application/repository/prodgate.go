@@ -351,6 +351,67 @@ func (s *Service) mobileStoreGate(ctx context.Context, repositoryID uuid.UUID, e
 	return nil
 }
 
+// hasAnyDeployTarget reports whether the repository has any deploy_target row
+// — any environment, any sub-project. It answers "is there anywhere this
+// repository's code could be deployed to", which is what decides whether a
+// merge is the whole release or the first half of one.
+func (s *Service) hasAnyDeployTarget(ctx context.Context, repositoryID uuid.UUID) (bool, error) {
+	if s.deployTargets == nil {
+		return false, nil
+	}
+	targets, err := s.deployTargets.ListByRepository(ctx, repositoryID)
+	if err != nil {
+		return false, err
+	}
+	return len(targets) > 0, nil
+}
+
+// AutoReleaseIfUndeployable moves a task straight to `released` right after
+// its pull request merges, when the repository has nowhere configured to
+// deploy it: merging IS the release. It is a no-op — returns false — on any
+// repository with at least one deploy_target row; scenarios where a real
+// deploy pipeline succeeds or fails are unaffected and decide those.
+//
+// It goes through the ordinary gated UpdateTask, not a raw column write, so a
+// repository with require_release_deploy=true — which demands proof of an
+// actual deploy (releaseDeployGate) — is still correctly refused rather than
+// silently bypassed: that repository owner opted into "nothing ships without
+// a verified deploy", and zero deploy targets can never produce one. The task
+// stays in `done` in that case, with a comment explaining why, rather than
+// failing the merge that already succeeded.
+func (s *Service) AutoReleaseIfUndeployable(ctx context.Context, repositoryID, taskID uuid.UUID) bool {
+	has, err := s.hasAnyDeployTarget(ctx, repositoryID)
+	if err != nil {
+		log.Warn().Err(err).Str("repository_id", repositoryID.String()).
+			Msg("deploy target lookup for auto-release failed; leaving the task in done")
+		return false
+	}
+	if has {
+		return false
+	}
+	col := domain.TaskColumnReleased
+	if _, err := s.UpdateTask(ctx, repositoryID, taskID, domain.UpdateBoardTaskRequest{
+		Column:       &col,
+		SystemReason: domain.MoveReasonMergeReleasedNoDeployTarget,
+	}); err != nil {
+		if errors.Is(err, domain.ErrReleaseNotDeployed) {
+			if s.comments != nil {
+				_, _ = s.comments.Create(ctx, domain.TaskComment{
+					TaskID:     taskID,
+					AuthorType: "system",
+					Content: "This repository has no deploy_target configured anywhere, so merging cannot auto-release it: " +
+						"require_release_deploy is on and demands proof of an actual production deploy, which nothing here can produce. " +
+						"Turn require_release_deploy off for this repository, or configure a deploy target.",
+				})
+			}
+			return false
+		}
+		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("auto-release after merge failed")
+		return false
+	}
+	return true
+}
+
 // SetTestStrategy changes how the repository's tasks are verified: workspace
 // tests only, a staging deploy before QA, or a deploy at every reviewed step.
 func (s *Service) SetTestStrategy(ctx context.Context, repositoryID uuid.UUID, strategy string) (domain.Repository, error) {
