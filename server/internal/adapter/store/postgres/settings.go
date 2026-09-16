@@ -53,6 +53,9 @@ func (s *SettingsStore) Get(ctx context.Context) (domain.AppSettings, error) {
 		WorkspaceRoot:          s.defaultRoot,
 		DefaultLanguage:        s.defaultLang,
 		BoilerplateCatalogRepo: defaultBoilerplateCatalogRepo,
+		AnalizAssigneeBackend:  domain.AgentSystemArchitect,
+		AnalizAssigneeFrontend: domain.AgentSystemArchitect,
+		AnalizAssigneeMobile:   domain.AgentSystemArchitect,
 	}
 	for rows.Next() {
 		var key, value string
@@ -73,6 +76,18 @@ func (s *SettingsStore) Get(ctx context.Context) (domain.AppSettings, error) {
 		case "boilerplate_catalog_repo":
 			if value != "" {
 				out.BoilerplateCatalogRepo = value
+			}
+		case "analiz_assignee_backend":
+			if value != "" {
+				out.AnalizAssigneeBackend = value
+			}
+		case "analiz_assignee_frontend":
+			if value != "" {
+				out.AnalizAssigneeFrontend = value
+			}
+		case "analiz_assignee_mobile":
+			if value != "" {
+				out.AnalizAssigneeMobile = value
 			}
 		}
 	}
@@ -101,6 +116,34 @@ func (s *SettingsStore) Update(ctx context.Context, req domain.UpdateSettingsReq
 	for key, value := range map[string]string{
 		"pipeline_container_runtime": req.PipelineContainerRuntime,
 		"boilerplate_catalog_repo":   req.BoilerplateCatalogRepo,
+	} {
+		if value == "" {
+			continue
+		}
+		if value == "-" {
+			value = ""
+		}
+		_, err := s.pool.Exec(ctx, `
+			INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+		`, key, value)
+		if err != nil {
+			return domain.AppSettings{}, fmt.Errorf("update %s: %w", key, err)
+		}
+	}
+	return s.Get(ctx)
+}
+
+// UpdateAnalizAssignment writes the backend/frontend/mobile analiz-assignment
+// keys. Each argument follows the same leave-alone/reset contract as Update's
+// pipeline_container_runtime/boilerplate_catalog_repo fields: "" leaves that
+// area's row untouched, "-" clears it back to the default (system-architect),
+// anything else overwrites it.
+func (s *SettingsStore) UpdateAnalizAssignment(ctx context.Context, backend, frontend, mobile string) (domain.AppSettings, error) {
+	for key, value := range map[string]string{
+		"analiz_assignee_backend":  backend,
+		"analiz_assignee_frontend": frontend,
+		"analiz_assignee_mobile":   mobile,
 	} {
 		if value == "" {
 			continue

@@ -34,6 +34,14 @@ type RevisionNotifier interface {
 	NotifyRevision(ctx context.Context, task domain.BoardTask)
 }
 
+// AnalizAssignmentSource is the narrow slice of settings.Service CreateTask
+// needs: read the backend/frontend/mobile analiz-assignment settings to
+// override an analiz task's assignee. Wired late by runtime, same setter
+// style as SetEvolution, so this package stays decoupled from settings.
+type AnalizAssignmentSource interface {
+	Get(ctx context.Context) (domain.AppSettings, error)
+}
+
 // ProfileRefresher is implemented by the repoprofile service; it rebuilds the
 // agent-maintained project profile in the background. Wired late by runtime
 // (same setter style as SetEvolution) so this package stays decoupled from it.
@@ -106,10 +114,11 @@ type Service struct {
 	syncWarnings  map[uuid.UUID]string
 	syncCheckedAt map[uuid.UUID]time.Time
 
-	pipelineJobs port.RepositoryPipelineJobStore
-	githubToken  func(ctx context.Context) (string, error)
-	agentLister  func(ctx context.Context) ([]domain.Agent, error)
-	profiles     ProfileRefresher
+	pipelineJobs     port.RepositoryPipelineJobStore
+	githubToken      func(ctx context.Context) (string, error)
+	agentLister      func(ctx context.Context) ([]domain.Agent, error)
+	analizAssignment AnalizAssignmentSource
+	profiles         ProfileRefresher
 
 	// GitHub push-webhook state (see webhook.go). publicBaseURL is where
 	// GitHub must deliver; the maps are the per-repo debounce ledger and the
@@ -501,6 +510,14 @@ func (s *Service) SetAgentLister(fn func(ctx context.Context) ([]domain.Agent, e
 	s.agentLister = fn
 }
 
+// SetAnalizAssignmentSource wires the backend/frontend/mobile analiz-assignment
+// settings CreateTask consults to override an analiz task's assignee. Nil (the
+// pre-wiring behaviour) leaves CreateTask's existing behaviour untouched: the
+// PM's requested assignee is used as-is.
+func (s *Service) SetAnalizAssignmentSource(src AnalizAssignmentSource) {
+	s.analizAssignment = src
+}
+
 // CreateWorkflowSetupTask opens a board task (assigned by repo kind) to author
 // the repo's GitHub Actions CI/CD workflows, for repos that have none yet.
 func (s *Service) CreateWorkflowSetupTask(ctx context.Context, repositoryID uuid.UUID) (domain.BoardTask, error) {
@@ -543,6 +560,36 @@ Once each workflow exists, save the job/workflow mapping under Repository Settin
 		CreatedBy:       "system",
 		AssigneeAgentID: assignee,
 	})
+}
+
+// resolveAnalizAssignee overrides an analiz task's assignee with the agent
+// named by the backend/frontend/mobile analiz-assignment settings, regardless
+// of what the caller (typically the PM agent) requested — the setting exists
+// precisely to correct a PM that keeps assigning analiz to a developer whose
+// tool policy cannot carry the task (see domain.RequiredAnalizTools). Returns
+// nil (leave the caller's assignee alone) when the setting source or agent
+// roster is not wired, or the resolved agent name has no matching row.
+func (s *Service) resolveAnalizAssignee(ctx context.Context, repo domain.Repository) *uuid.UUID {
+	if s.analizAssignment == nil || s.agentLister == nil {
+		return nil
+	}
+	settings, err := s.analizAssignment.Get(ctx)
+	if err != nil {
+		return nil
+	}
+	area := domain.ResolveAnalizArea(repo.Kind, repo.SubProjects)
+	name := domain.AnalizAssigneeForArea(settings, area)
+	agents, err := s.agentLister(ctx)
+	if err != nil {
+		return nil
+	}
+	for i := range agents {
+		if agents[i].Name == name {
+			id := agents[i].ID
+			return &id
+		}
+	}
+	return nil
 }
 
 func buildHintForKind(kind string) string {
@@ -1695,6 +1742,12 @@ func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req do
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
+	assignee := req.AssigneeAgentID
+	if taskType == domain.TaskTypeAnaliz {
+		if resolved := s.resolveAnalizAssignee(ctx, repo); resolved != nil {
+			assignee = resolved
+		}
+	}
 	task, err := s.tasks.Create(ctx, domain.BoardTask{
 		RepositoryID:         repositoryID,
 		TaskNumber:           taskNumber,
@@ -1707,7 +1760,7 @@ func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req do
 		Position:             position,
 		Priority:             priority,
 		CreatedBy:            createdBy,
-		AssigneeAgentID:      req.AssigneeAgentID,
+		AssigneeAgentID:      assignee,
 		BeforeDeploy:         req.BeforeDeploy,
 		AfterDeploy:          req.AfterDeploy,
 		RollbackPlan:         req.RollbackPlan,

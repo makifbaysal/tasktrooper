@@ -2358,6 +2358,12 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var settingsSvc *settings.Service
 	if settingsStore != nil {
 		settingsSvc = settings.NewService(settingsStore)
+		if catalogSvc != nil {
+			settingsSvc.SetAgentCatalog(catalogSvc)
+		}
+		if repositorySvc != nil {
+			repositorySvc.SetAnalizAssignmentSource(settingsSvc)
+		}
 	}
 
 	var llmProviderSvc *llmprovider.Service

@@ -168,6 +168,51 @@ var BoardProgressTools = []string{
 	"move_board_task",
 }
 
+// RequiredAnalizTools is the minimum tool set an agent needs to carry an
+// analiz task through the board: read the code it is documenting
+// (CodeExplorationTools), produce its deliverable (AnalizDocumentTools),
+// announce it started and read back a need_revision bounce, and — the one
+// that actually blocked the bug this setting exists for — open the
+// per-project implementation tasks an approved analysis decomposes into
+// (create_board_task). Built from the named groups already used for the same
+// question elsewhere rather than a list invented from scratch.
+var RequiredAnalizTools = buildRequiredAnalizTools()
+
+func buildRequiredAnalizTools() []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(CodeExplorationTools)+len(AnalizDocumentTools)+len(BoardProgressTools)+4)
+	add := func(names ...string) {
+		for _, name := range names {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	add(CodeExplorationTools...)
+	add(AnalizDocumentTools...)
+	add(BoardProgressTools...)
+	add("add_task_comment", "list_task_comments", "list_task_documents", "create_board_task")
+	return out
+}
+
+// MissingAnalizTools reports which of RequiredAnalizTools a policy does not
+// grant. An unrestricted policy (empty allowlist) is never missing anything,
+// matching ToolAllowedByPolicy's own reading of a zero policy.
+func MissingAnalizTools(p ToolPolicy) []string {
+	if p.IsZero() {
+		return nil
+	}
+	var missing []string
+	for _, name := range RequiredAnalizTools {
+		if !ToolAllowedByPolicy(name, p) {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
 // ToolAllowedByPolicy reports whether a policy permits the named tool. An empty
 // allowlist is unrestricted, matching how the registry resolves definitions.
 func ToolAllowedByPolicy(name string, p ToolPolicy) bool {

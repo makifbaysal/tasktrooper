@@ -7,6 +7,63 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestMissingAnalizTools_UnrestrictedPolicyHasNoneMissing(t *testing.T) {
+	got := domain.MissingAnalizTools(domain.ToolPolicy{})
+	assert.Empty(t, got)
+}
+
+// Shaped like the developer role policy (roleShellTools + roleWebTools +
+// roleCodeTools + roleBrowserTools + roleBoardReadTools + roleBoardClaimTools
+// + roleMemoryTools + roleSkillTools + roleProfileTools + rolePRReadTools +
+// rolePRReplyTools + rolePRCommitTools), minus roleBoardCreateTools — the
+// gap that let a PM assign an analiz task to backend-developer and leave it
+// stuck with no way to open the implementation tasks the approval decomposes
+// into.
+func TestMissingAnalizTools_DeveloperShapedPolicyIsMissingBoardCreateTools(t *testing.T) {
+	p := domain.ToolPolicy{AllowTools: []string{
+		"run_terminal", "write_file", "edit_file", "edit_lines", "delete_file", "move_file", "download_file",
+		"web_search", "fetch_url",
+		"codebase_search", "grep_code", "get_repo_tree", "get_symbol_skeleton", "expand_symbol_context", "read_file",
+		"browser_navigate", "browser_screenshot", "browser_click", "browser_fill", "browser_read_dom", "browser_wait_for", "browser_set_viewport",
+		"list_board_tasks", "move_board_task", "update_board_task", "add_task_comment", "list_task_comments",
+		"list_task_documents", "list_acceptance_criteria", "set_criterion_completed", "cancel_criterion",
+		"list_test_cases", "list_projects", "list_repositories", "get_board_summary", "list_team",
+		"claim_board_task",
+		"save_memory", "search_memory", "delete_memory",
+		"load_skill", "create_skill",
+		"update_project_profile",
+		"get_task_pull_request", "comment_on_pull_request", "commit_task_changes",
+	}}
+	got := domain.MissingAnalizTools(p)
+	assert.ElementsMatch(t, []string{"add_task_document", "update_task_document", "create_board_task"}, got)
+}
+
+// Shaped like the architect role policy (roleShellTools + roleWebTools +
+// roleCodeTools + roleBoardReadTools + roleBoardCreateTools +
+// roleBoardClaimTools + get_pipeline_status + rolePRReadTools +
+// rolePRReplyTools + roleMemoryTools + roleSkillTools + roleProfileTools):
+// the architect already holds every required tool, so routing an analiz task
+// to it (the default) never asks for a tool-grant confirmation.
+func TestMissingAnalizTools_ArchitectShapedPolicyHasNoneMissing(t *testing.T) {
+	p := domain.ToolPolicy{AllowTools: []string{
+		"run_terminal", "write_file", "edit_file", "edit_lines", "delete_file", "move_file", "download_file",
+		"web_search", "fetch_url",
+		"codebase_search", "grep_code", "get_repo_tree", "get_symbol_skeleton", "expand_symbol_context", "read_file",
+		"list_board_tasks", "move_board_task", "update_board_task", "add_task_comment", "list_task_comments",
+		"list_task_documents", "list_acceptance_criteria", "set_criterion_completed", "cancel_criterion",
+		"list_test_cases", "list_projects", "list_repositories", "get_board_summary", "list_team",
+		"create_board_task", "add_task_document", "update_task_document", "attach_task_file",
+		"claim_board_task",
+		"get_pipeline_status",
+		"get_task_pull_request", "comment_on_pull_request",
+		"save_memory", "search_memory", "delete_memory",
+		"load_skill", "create_skill",
+		"update_project_profile",
+	}}
+	got := domain.MissingAnalizTools(p)
+	assert.Empty(t, got)
+}
+
 func TestIntersectToolPolicy_EmptyToolNames(t *testing.T) {
 	base := domain.ToolPolicy{AllowTools: []string{"web_search", "run_terminal"}}
 	got := domain.IntersectToolPolicy(base, nil)
