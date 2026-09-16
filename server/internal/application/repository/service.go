@@ -95,6 +95,9 @@ type Service struct {
 	restores  map[uuid.UUID]*domain.RepositoryRestore
 	// restoreRun is a test seam (same shape as pushRunFn); nil = `go fn()`.
 	restoreRun func(fn func())
+	// prAsyncRun is a test seam for ensurePullRequestAsync's background half;
+	// nil = `go fn()`.
+	prAsyncRun func(fn func())
 
 	// syncMu guards the clone-freshness ledger: the last pull failure per
 	// repository (reported on the index status so a stale clone stops looking
@@ -2093,17 +2096,29 @@ func (s *Service) ReplaceDeployDependencies(ctx context.Context, taskID uuid.UUI
 // request path. It was createDraftPRAsync and opened a draft; task PRs are
 // opened ready for review now — see git.EnsurePullRequest for why a draft made
 // every task PR unmergeable.
-// ctx is taken via context.WithoutCancel: it resolves the GitHub token, writes
-// the PR back onto the task row and comments on the card.
+//
+// It only records the PR on the task row — it no longer also announces it with
+// a system comment. The card already shows the link (get_task_pull_request,
+// the task detail drawer), and this runs on every column that re-ensures the
+// PR (code_review, PM UAT, done), so a comment here repeated the same link up
+// to three times per task for no new information.
+//
+// ctx is taken via context.WithoutCancel: it resolves the GitHub token and
+// writes the PR back onto the task row after the request that triggered it has
+// already returned.
 func (s *Service) ensurePullRequestAsync(ctx context.Context, task domain.BoardTask) {
-	if s.git == nil || s.workspaceRoot == "" || s.comments == nil {
+	if s.git == nil || s.workspaceRoot == "" {
 		return
 	}
 	workspacePath := s.taskWorkspacePath(task.ID)
 	if workspacePath == "" || !s.git.HasGit(workspacePath) {
 		return
 	}
-	go func() {
+	run := s.prAsyncRun
+	if run == nil {
+		run = func(fn func()) { go fn() }
+	}
+	run(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 		defer cancel()
 		url, err := s.git.EnsurePullRequest(ctx, workspacePath)
@@ -2111,22 +2126,11 @@ func (s *Service) ensurePullRequestAsync(ctx context.Context, task domain.BoardT
 			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("task pull request create failed")
 			return
 		}
-		// Record the PR on the task, not only as a comment. The comment is for a
-		// human reading the card; the columns are what let the board, the task
-		// chat and the PR tools name the PR without a working copy and a GitHub
-		// round-trip. Best-effort: the PR exists either way.
 		number, _ := domain.ParsePullRequestNumber(url)
 		if setErr := s.tasks.SetTaskPullRequest(ctx, task.ID, url, number); setErr != nil {
 			log.Warn().Err(setErr).Str("task_id", task.ID.String()).Msg("recording the task's pull request failed")
 		}
-		if _, err := s.comments.Create(ctx, domain.TaskComment{
-			TaskID:     task.ID,
-			AuthorType: "system",
-			Content:    "Pull request: " + url,
-		}); err != nil {
-			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("PR comment create failed")
-		}
-	}()
+	})
 }
 
 // validateAgentSelfMove rejects an assignee agent pushing its OWN task into a
