@@ -2958,7 +2958,8 @@ const analizProducesDocuments = "Your deliverable is a SPEC and an IMPLEMENTATIO
 	"If this task already carries a spec or a plan — a revision pass, a need_revision bounce, a change the human asked for — rewrite THAT document with update_task_document instead of attaching another one: the card must end with one current spec and one current plan. " +
 	"Never write, edit, move or delete a file in the repository and never commit: an analysis produces documents, not a diff, " +
 	"and there is no automatic hand-off to code_review for this task type — a run that ends with file edits has done the implementer's job on the wrong task. " +
-	"Finish by moving the task to `analiz_review` with a summary comment (approach, the document titles, the task split you intend), then STOP: " +
+	"Finish with a summary comment (approach, the document titles, the task split you intend), then STOP: " +
+	"when this run ends with a document attached, the system moves the task to `analiz_review` for you — do NOT move it yourself and never plan a step for the move — " +
 	"the human approves there, and no implementation task is created before they do."
 
 // taskTypeInstruction states what the run must produce when the task type — not

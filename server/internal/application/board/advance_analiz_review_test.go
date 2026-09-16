@@ -51,6 +51,21 @@ func TestAdvanceToAnalizReviewHandsBackARevision(t *testing.T) {
 	assert.Equal(t, domain.TaskColumnAnalizReview, *updater.calls[0].Column)
 }
 
+func TestAdvanceToAnalizReviewHandsBackARevisionRewrittenWithUpdateTaskDocument(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnNeedRevision, TaskType: domain.TaskTypeAnaliz}
+	updater := &fakeTaskUpdater{task: task}
+	r := analizRunner(updater)
+
+	usage := registry.NewToolUsage()
+	usage.Record("update_task_document")
+
+	r.advanceToAnalizReview(context.Background(), runJobFor(task, agentID), usage)
+
+	require.Len(t, updater.calls, 1, "the analiz prompt tells a need_revision run to call update_task_document, not add_task_document, so that call alone must be enough evidence to hand off")
+	assert.Equal(t, domain.TaskColumnAnalizReview, *updater.calls[0].Column)
+}
+
 func TestAdvanceToAnalizReviewHoldsARunWithNoDocument(t *testing.T) {
 	agentID := uuid.New()
 	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, TaskType: domain.TaskTypeAnaliz}
