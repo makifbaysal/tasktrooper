@@ -49,6 +49,13 @@ const criteriaSweepRounds = 3
 // the card then sat in front of the criteria gate until a human noticed. Re-
 // asking after each round is what converts that comment into either the work or
 // an explicit cancellation.
+// sweepOpenCriteria's second return value is settled: false only when the loop
+// ran every round of criteriaSweepRounds and at least one criterion was still
+// neither ticked nor cancelled when it gave up. That is the one outcome the
+// caller must not record as a clean finish — see the run.Status assignment in
+// Runner.runTask, which is what turns "settled=false" into
+// domain.TaskAgentRunStatusFailed so the reconciler's retry path picks the task
+// back up instead of it sitting in this column with nothing watching it.
 func (r *Runner) sweepOpenCriteria(
 	ctx context.Context,
 	job RunJob,
@@ -57,18 +64,18 @@ func (r *Runner) sweepOpenCriteria(
 	resp domain.AgentResponse,
 	model string,
 	policy domain.ToolPolicy,
-) domain.AgentResponse {
+) (domain.AgentResponse, bool) {
 	if isReviewColumn(job.Task.Column) {
-		return resp
+		return resp, true
 	}
 	switch job.Task.Column {
 	case domain.TaskColumnTodo, domain.TaskColumnInProgress, domain.TaskColumnNeedRevision:
 	default:
-		return resp
+		return resp, true
 	}
 	open := r.openCriteria(ctx, job)
 	if len(open) == 0 {
-		return resp
+		return resp, true
 	}
 
 	rec := activity.FromContext(ctx)
@@ -85,7 +92,10 @@ func (r *Runner) sweepOpenCriteria(
 			agent.WithCLILabel(fmt.Sprintf("%s criteria-sweep %d", job.Task.Key, round), job.Task.Title)); err != nil {
 			log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Int("round", round).
 				Msg("acceptance criteria sweep failed; leaving the criteria as they stand")
-			return resp
+			// A tool/agent-loop error here is not the round cap running out —
+			// the loop never got to ask three times, so this is not the
+			// "unattended machine" signature the reconciler retry exists for.
+			return resp, true
 		}
 
 		still := r.openCriteria(ctx, job)
@@ -93,7 +103,7 @@ func (r *Runner) sweepOpenCriteria(
 			if rec != nil {
 				rec.Step("criteria_sweep_settled", map[string]any{"rounds": round})
 			}
-			return resp
+			return resp, true
 		}
 		// Progress is not "fewer open": a round that cancelled one criterion
 		// and ignored two others still moved, and the next round is asked about
@@ -107,7 +117,7 @@ func (r *Runner) sweepOpenCriteria(
 	log.Info().Str("task_id", job.Task.ID.String()).Int("open", len(open)).Int("rounds", criteriaSweepRounds).
 		Msg("acceptance criteria still open after the sweep loop")
 	r.reportUnsettledCriteria(ctx, job, open)
-	return resp
+	return resp, false
 }
 
 // criteriaSweepPrompt escalates. The first round assumes bookkeeping was
@@ -155,4 +165,26 @@ func (r *Runner) reportUnsettledCriteria(ctx context.Context, job RunJob, open [
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("unsettled criteria comment failed")
 	}
+}
+
+// unsettledCriteriaMarker prefixes the run.Summary a sweep that exhausted its
+// rounds writes. There is no dedicated "why did this run fail" column on
+// task_agent_runs, so this text IS the signal isUnsettledCriteriaRun reads back
+// to tell a criteria-sweep failure apart from a crash — the distinction
+// CriteriaLoopGuard needs before it may park a task on ResourceHumanDecision
+// instead of leaving the reconciler's ordinary crash-retry path to keep
+// spinning it.
+const unsettledCriteriaMarker = "unsettled acceptance criteria"
+
+// unsettledCriteriaSummary is the run.Summary a run gets when its criteria
+// sweep exhausted every round with criteria still open.
+func unsettledCriteriaSummary(open int) string {
+	return fmt.Sprintf("%s: %d still open after the criteria sweep", unsettledCriteriaMarker, open)
+}
+
+// isUnsettledCriteriaRun reports whether a Failed run failed because its
+// criteria sweep ran out of rounds, as opposed to a crash, a max-iteration cut
+// off, or a git error — the other paths that also leave a run Failed.
+func isUnsettledCriteriaRun(run domain.TaskAgentRun) bool {
+	return run.Status == domain.TaskAgentRunStatusFailed && strings.HasPrefix(run.Summary, unsettledCriteriaMarker)
 }

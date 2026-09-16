@@ -88,7 +88,7 @@ func TestCriteriaSweepRunsOnTheHostExecutor(t *testing.T) {
 	}
 	resp := domain.AgentResponse{Message: domain.Message{Content: "implemented"}}
 
-	out := r.sweepOpenCriteria(ctx, job, claudeCodeAgent(),
+	out, _ := r.sweepOpenCriteria(ctx, job, claudeCodeAgent(),
 		[]domain.Message{{Role: domain.RoleUser, Content: "do the work"}}, resp, "opus", domain.ToolPolicy{})
 
 	// criteriaUpdater never settles the criterion, so the completion loop asks
@@ -147,7 +147,7 @@ func TestHostExecutedSweepFailsHonestlyWithNoRunner(t *testing.T) {
 	job := RunJob{Task: domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress}, RepositoryID: uuid.New()}
 	resp := domain.AgentResponse{Message: domain.Message{Content: "implemented"}}
 
-	out := r.sweepOpenCriteria(registry.ContextWithWorkspaceDir(context.Background(), t.TempDir()),
+	out, _ := r.sweepOpenCriteria(registry.ContextWithWorkspaceDir(context.Background(), t.TempDir()),
 		job, claudeCodeAgent(), nil, resp, "opus", domain.ToolPolicy{})
 
 	require.Empty(t, llm.requests, "a claude_code run must never become an HTTP request")

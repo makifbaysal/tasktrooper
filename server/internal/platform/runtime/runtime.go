@@ -1222,6 +1222,12 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		})
 	}
 
+	// Hoisted above the block that creates it: the criteria-loop guard is
+	// wired onto it later, once repositorySvc exists (it is both the task
+	// commenter and the acceptance-criteria reader), and that wiring lives
+	// next to ReviewLoopGuard/PipelineBounceGuard's in a sibling block below.
+	var reconciler *boardapp.Reconciler
+
 	if boardConfigStore != nil && boardEventStore != nil && taskAgentRunStore != nil && catalogStore != nil {
 		// A typed-nil *indexer.Service must not become a non-nil interface.
 		var branchIndexer boardapp.BranchIndexer
@@ -1467,7 +1473,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		}
 
 		if boardTaskStore != nil && cfg.Board.DispatchEnabled {
-			reconciler := boardapp.NewReconciler(taskAgentRunStore, boardTaskStore, boardDispatcher, cfg.Board.ReconcileStaleAfter)
+			reconciler = boardapp.NewReconciler(taskAgentRunStore, boardTaskStore, boardDispatcher, cfg.Board.ReconcileStaleAfter)
 			// No live-run checker any more. It asked THIS process whether a run
 			// was executing, which on a shared deployment reports every other
 			// replica's live run as abandoned; the run row's own heartbeat is
@@ -1562,6 +1568,19 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// need_revision column span never closes.
 			reviewLoop.SetParkJournal(boardapp.NewParkJournal(boardEventStore, taskSpanStore))
 			boardDispatcher.SetReviewLoopGuard(reviewLoop)
+		}
+
+		// Criteria-loop cap: the third machine-talking-to-itself shape,
+		// closed the same way as the two above — a task whose runs keep
+		// exhausting the criteria sweep with the SAME criteria left open,
+		// unattended, stops being retried and waits for a person. Unlike the
+		// other two this is not detected on an incoming board event, so it
+		// hangs off the reconciler rather than the dispatcher.
+		if reconciler != nil && boardEventStore != nil && boardTaskStore != nil {
+			criteriaLoop := boardapp.NewCriteriaLoopGuard(boardEventStore, boardTaskStore, repositorySvc)
+			criteriaLoop.SetCommenter(repositorySvc)
+			criteriaLoop.SetParkJournal(boardapp.NewParkJournal(boardEventStore, taskSpanStore))
+			reconciler.SetCriteriaLoopGuard(criteriaLoop)
 		}
 
 		// Project profile: agent-maintained per-repository brief. Built by the

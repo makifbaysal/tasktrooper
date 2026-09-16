@@ -15,11 +15,12 @@ import (
 // events (task.created/moved/assigned/commented), so without this nothing
 // else ever revisits a task whose run silently died mid-flight.
 type Reconciler struct {
-	runs       port.TaskAgentRunStore
-	tasks      port.BoardTaskStore
-	dispatcher *Dispatcher
-	staleAfter time.Duration
-	plans      PlanSettler
+	runs         port.TaskAgentRunStore
+	tasks        port.BoardTaskStore
+	dispatcher   *Dispatcher
+	staleAfter   time.Duration
+	plans        PlanSettler
+	criteriaLoop *CriteriaLoopGuard
 }
 
 // PlanSettler is the slice of the catalog the reconciler needs to close out the
@@ -60,6 +61,16 @@ func NewReconciler(runs port.TaskAgentRunStore, tasks port.BoardTaskStore, dispa
 func (r *Reconciler) SetPlanSettler(p PlanSettler) {
 	if r != nil {
 		r.plans = p
+	}
+}
+
+// SetCriteriaLoopGuard wires the brake on unsettled-criteria failure streaks.
+// Nil-safe: without it dispatchNeverStarted keeps its old behaviour of simply
+// giving up silently once maxConsecutiveFailedRuns is reached, whatever the
+// failure reason.
+func (r *Reconciler) SetCriteriaLoopGuard(g *CriteriaLoopGuard) {
+	if r != nil {
+		r.criteriaLoop = g
 	}
 }
 
@@ -238,6 +249,19 @@ func (r *Reconciler) dispatchNeverStarted(ctx context.Context, tasks []domain.Bo
 				failed++
 			}
 			if failed >= maxConsecutiveFailedRuns {
+				// The ordinary cap gives up silently here. That is still
+				// correct for a crash-caused streak — retrying a
+				// deterministic failure forever only burns provider budget,
+				// and nothing about a crash names what a human should do
+				// next. An unsettled-criteria streak is different: the same
+				// acceptance criteria staying open run after run is exactly
+				// the evidence CriteriaLoopGuard's two sibling guards
+				// (review loop, pipeline bounce) already act on, so it gets
+				// the same treatment — a park with a comment naming what is
+				// stuck — instead of the same silent stop.
+				if r.criteriaLoop != nil {
+					r.criteriaLoop.Hold(ctx, task.RepositoryID, task, runs)
+				}
 				continue
 			}
 			reason = "retry_failed_run"

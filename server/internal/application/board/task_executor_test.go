@@ -192,6 +192,72 @@ func TestClaudeCodeAgentIsRunByTheExecutor(t *testing.T) {
 	assert.Equal(t, "Done: added the seam.", row.Summary)
 }
 
+// criteriaSweepRunner wires a Runner whose initial execution AND its
+// criteria-sweep rounds both go through the same fake executor — the sweep
+// dials r.agentLoop.RunTask, a different seam from the initial r.taskExecutor
+// call, and both have to be wired or the sweep panics on a nil agentLoop.
+func criteriaSweepRunner(t *testing.T, runs *recordingRunStore, ex *fakeExecutor, updater TaskUpdater) (*Runner, RunJob) {
+	t.Helper()
+	agentRec := claudeCodeAgent()
+	router, _ := hostRouter(ex)
+	r := NewRunner(RunnerDeps{
+		AgentLoop:    router,
+		Runs:         runs,
+		Catalog:      &agentCatalog{agent: agentRec},
+		Repositories: oneRepoResolver{root: t.TempDir()},
+	})
+	r.SetTaskExecutor(ex)
+	r.SetTaskUpdater(updater)
+	taskID := uuid.New()
+	job := RunJob{
+		Run:  domain.TaskAgentRun{ID: uuid.New(), TaskID: taskID, AgentID: agentRec.ID},
+		Task: domain.BoardTask{ID: taskID, RepositoryID: uuid.New(), Key: "tt-42", Title: "Executor seam", Column: domain.TaskColumnInProgress},
+	}
+	return r, job
+}
+
+// A run that exhausted the criteria sweep with a criterion still open must not
+// be recorded as a clean finish: T-6 sat quietly in in_progress because the old
+// behaviour marked it Completed, and nothing ever revisited it again. Failed is
+// what puts the task back on the reconciler's retry_failed_run path.
+func TestRunExhaustingTheCriteriaSweepIsRecordedAsFailed(t *testing.T) {
+	runs := &recordingRunStore{}
+	ex := &fakeExecutor{
+		supports: domain.LLMProviderClaudeCode,
+		resp:     domain.AgentResponse{Message: domain.Message{Content: "done, I think"}},
+	}
+	r, job := criteriaSweepRunner(t, runs, ex, &criteriaUpdater{criteria: []domain.AcceptanceCriterion{
+		{ID: uuid.New(), Text: "the export includes archived rows"},
+	}})
+
+	require.NoError(t, r.execute(context.Background(), job))
+
+	row := runs.row()
+	assert.Equal(t, domain.TaskAgentRunStatusFailed, row.Status,
+		"a sweep that exhausted its rounds with an open criterion is not a clean finish")
+	assert.Contains(t, row.Summary, "1", "the summary must say how many criteria stayed open")
+	assert.Contains(t, row.Summary, "still open")
+}
+
+// The counterpart: a run that settles every criterion, by ticking or
+// cancelling, keeps the exact behaviour it had before — Completed.
+func TestRunSettlingEveryCriterionStaysCompleted(t *testing.T) {
+	runs := &recordingRunStore{}
+	ex := &fakeExecutor{
+		supports: domain.LLMProviderClaudeCode,
+		resp:     domain.AgentResponse{Message: domain.Message{Content: "all done"}},
+	}
+	r, job := criteriaSweepRunner(t, runs, ex, &settlingCriteriaUpdater{
+		criteria:    []domain.AcceptanceCriterion{{ID: uuid.New(), Text: "the export includes archived rows"}},
+		settleAfter: 1,
+	})
+
+	require.NoError(t, r.execute(context.Background(), job))
+
+	row := runs.row()
+	assert.Equal(t, domain.TaskAgentRunStatusCompleted, row.Status, "no regression: a settled sweep still completes")
+}
+
 // Without the binary there is no executor, and the run must fail with a
 // sentence a human can act on — not fall through to an agent loop that would
 // try to open an HTTP connection to a provider that has no endpoint.

@@ -124,6 +124,15 @@ const (
 	// for a person to decide. The agent-only half of the board has demonstrably
 	// run out of ways to finish this task on its own.
 	MoveReasonReviewLoopParked = "review_loop_parked"
+	// MoveReasonCriteriaLoopParked: the reconciler retried a task's
+	// unsettled-criteria failure (see board.isUnsettledCriteriaRun) up to
+	// board.maxConsecutiveFailedRuns times, every attempt left the same
+	// acceptance criteria open, and no human touched the card in between —
+	// so the card was parked instead of retried a fourth time. Its own reason
+	// rather than reusing MoveReasonReviewLoopParked because the loop it
+	// names is a different one: no need_revision entries are involved at all,
+	// just a run-status streak the criteria sweep left behind.
+	MoveReasonCriteriaLoopParked = "criteria_loop_parked"
 	// MoveReasonRunnerOffline: the assignee's Mac is not connected, so the run
 	// that would have happened on it was parked instead. Its own reason rather
 	// than MoveReasonResourceBlocked because this is the one park a person can

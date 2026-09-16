@@ -1512,21 +1512,33 @@ func (r *Runner) execute(parent context.Context, job RunJob) error {
 	// Last call before the work is committed and handed off: the criteria the run
 	// did not tick. Runs on the same history, so the agent answers with the work
 	// still in context rather than from a cold start on the next event.
+	criteriaSettled := true
 	if resp.Clarification == nil && resp.ResourceBlock == nil {
-		resp = r.sweepOpenCriteria(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
+		resp, criteriaSettled = r.sweepOpenCriteria(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
 		// The same call for a review run: an implementation run has
 		// advanceToCodeReview behind it, a reviewer's only exit is its own
 		// move_task and a forgotten one parks the card under a completed run.
 		r.sweepReviewVerdict(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
 	}
 
-	run.Status = domain.TaskAgentRunStatusCompleted
-	run.Summary = strings.TrimSpace(resp.Message.Content)
-	if resp.Clarification != nil {
-		run.Summary = "Waiting for an answer: " + resp.Clarification.Context
-	}
-	if resp.ResourceBlock != nil {
-		run.Summary = "Waiting for a shared resource: " + resp.ResourceBlock.Detail
+	if !criteriaSettled {
+		// The sweep ran every round and gave up with a criterion still open —
+		// this run did not honestly finish, whatever the agent's own closing
+		// message says. Failed, not Completed, is what makes the reconciler's
+		// existing retry_failed_run path pick the task back up on its own
+		// instead of it sitting quietly in this column (see
+		// Reconciler.dispatchNeverStarted).
+		run.Status = domain.TaskAgentRunStatusFailed
+		run.Summary = unsettledCriteriaSummary(len(r.openCriteria(runCtx, job)))
+	} else {
+		run.Status = domain.TaskAgentRunStatusCompleted
+		run.Summary = strings.TrimSpace(resp.Message.Content)
+		if resp.Clarification != nil {
+			run.Summary = "Waiting for an answer: " + resp.Clarification.Context
+		}
+		if resp.ResourceBlock != nil {
+			run.Summary = "Waiting for a shared resource: " + resp.ResourceBlock.Detail
+		}
 	}
 	run.Summary = truncateHead(run.Summary, 500)
 	// A run that finished its work behind a green build writes NOTHING on the
