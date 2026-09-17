@@ -473,6 +473,9 @@ export function AgentChatPage() {
                 <Link to={`/agents/${agentId}/settings`}>{t("agentArea.chat.settingsLink")}</Link>
               </Button>
               <Button variant="outline" asChild>
+                <Link to={`/agents/${agentId}/memory`}>{t("agentArea.chat.memoryLink")}</Link>
+              </Button>
+              <Button variant="outline" asChild>
                 <Link to={`/agents/${agentId}/performance`}>{t("agentArea.chat.performanceLink")}</Link>
               </Button>
             </div>

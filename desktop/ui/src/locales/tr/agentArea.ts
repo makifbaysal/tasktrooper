@@ -200,6 +200,7 @@ export const agentArea: AgentAreaDict = {
       description: "Bu ajanla doğrudan konuşun",
     },
     settingsLink: "Ajan Ayarları",
+    memoryLink: "Hafıza",
     performanceLink: "Performans",
     loading: "Yükleniyor...",
     emptyState: "Soldan bir sohbet seçin veya yeni sohbet başlatın.",

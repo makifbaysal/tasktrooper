@@ -200,6 +200,7 @@ export const agentArea = {
       description: "Talk directly with this agent",
     },
     settingsLink: "Agent Settings",
+    memoryLink: "Memory",
     performanceLink: "Performance",
     loading: "Loading...",
     emptyState: "Select a chat on the left or start a new chat.",
