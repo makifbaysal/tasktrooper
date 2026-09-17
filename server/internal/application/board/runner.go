@@ -1511,6 +1511,21 @@ func (r *Runner) execute(parent context.Context, job RunJob) error {
 		return err
 	}
 
+	// The same rule again, on PM's own end of the board: a pm_uat run's
+	// approval is only worth anything if PM put the product in front of itself,
+	// not just read QA's notes and the board.
+	if resp.ResourceBlock == nil && isUngroundedPMUAT(job.Task, resp, toolUsage) {
+		err = r.failRunUngroundedPMUAT(ctx, job, run, resp, ungroundedPMUATReason)
+		return err
+	}
+
+	// And the coverage gap this gate exists to close: PM approving a criterion
+	// that QA's own case list never actually proves, purely on QA's say-so.
+	if resp.Clarification == nil && resp.ResourceBlock == nil && r.pmSkippedCoverageEvidence(ctx, job, toolUsage) {
+		err = r.failRunUngroundedPMUAT(ctx, job, run, resp, pmUncoveredCriterionReason)
+		return err
+	}
+
 	// Last call before the work is committed and handed off: the criteria the run
 	// did not tick. Runs on the same history, so the agent answers with the work
 	// still in context rather than from a cold start on the next event.
@@ -2508,6 +2523,160 @@ func (r *Runner) failRunUngroundedQA(ctx context.Context, job RunJob, run domain
 // ErrUngroundedQA reports a QA run whose verdict was rejected because the run
 // never executed the product it was judging.
 var ErrUngroundedQA = errors.New("QA run executed nothing")
+
+// isUngroundedPMUAT is isUngroundedQA's counterpart for the PM's own sign-off
+// column: a pm_uat run's approval is only evidence if PM put the product in
+// front of itself. PM has no shell, so PMUATExecutionTools holds only the
+// browser/mobile calls — a run whose entire ledger is list_test_cases,
+// read_file and review_criterion calls has approved criteria from QA's notes
+// and the board alone, never from touching the running product.
+func isUngroundedPMUAT(task domain.BoardTask, resp domain.AgentResponse, usage *registry.ToolUsage) bool {
+	if resp.Clarification != nil || usage == nil {
+		return false
+	}
+	if task.Column != domain.TaskColumnPMUAT {
+		return false
+	}
+	return !usage.UsedAny(domain.PMUATExecutionTools...)
+}
+
+// pmSkippedCoverageEvidence closes the gap isUngroundedPMUAT leaves open: a PM
+// run can pass that gate with a single browser_navigate call and still approve
+// a DIFFERENT criterion purely on QA's say-so, one QA never actually proved
+// with a passed test case. It reads the task's own current criteria and test
+// cases and defers the decision to pmApprovedUncoveredCriterion.
+func (r *Runner) pmSkippedCoverageEvidence(ctx context.Context, job RunJob, usage *registry.ToolUsage) bool {
+	if usage == nil || job.Task.Column != domain.TaskColumnPMUAT {
+		return false
+	}
+	criteria := r.allCriteria(ctx, job)
+	testCases := r.taskTestCases(ctx, job)
+	return pmApprovedUncoveredCriterion(job.Task, criteria, testCases, usage)
+}
+
+// pmApprovedUncoveredCriterion reports whether this run's PM checks include an
+// approval that QA's own recorded test round never backs with a passed case —
+// and, if so, whether this run made up for that with its own execution
+// evidence.
+//
+// review_criterion is not counted as evidence of coverage: a PM approval is
+// the CLAIM this gate exists to check, not its own proof. A criterion is
+// "covered" only when some domain.TaskTestCase carries the matching
+// CriterionID and TestCaseStatusPassed — QA's executed round, not PM's verdict
+// about it.
+func pmApprovedUncoveredCriterion(
+	task domain.BoardTask,
+	criteria []domain.AcceptanceCriterion,
+	testCases []domain.TaskTestCase,
+	usage *registry.ToolUsage,
+) bool {
+	if usage == nil || task.Column != domain.TaskColumnPMUAT {
+		return false
+	}
+	passedByCriterion := make(map[uuid.UUID]bool, len(testCases))
+	for _, tc := range testCases {
+		if tc.CriterionID != nil && tc.Status == domain.TestCaseStatusPassed {
+			passedByCriterion[*tc.CriterionID] = true
+		}
+	}
+	uncovered := false
+	for _, c := range criteria {
+		if !pmApproved(c) {
+			continue
+		}
+		if !passedByCriterion[c.ID] {
+			uncovered = true
+			break
+		}
+	}
+	if !uncovered {
+		return false
+	}
+	return !usage.UsedAny(domain.PMUATExecutionTools...)
+}
+
+// pmApproved reports whether a criterion carries an approved PM verdict.
+func pmApproved(c domain.AcceptanceCriterion) bool {
+	for _, check := range c.Checks {
+		if check.Role == domain.CriterionReviewRolePM && check.Approved {
+			return true
+		}
+	}
+	return false
+}
+
+// taskTestCaseReader reads a task's recorded test round for the coverage-gap
+// gate. Optional, like taskCriteriaReader: repository.Service implements it
+// under the name ListTestCases, and a build without it simply skips the gate.
+type taskTestCaseReader interface {
+	ListTestCases(ctx context.Context, taskID uuid.UUID) ([]domain.TaskTestCase, error)
+}
+
+// taskTestCases reads every test case recorded on the task, or nil when the
+// store is not wired.
+func (r *Runner) taskTestCases(ctx context.Context, job RunJob) []domain.TaskTestCase {
+	reader, ok := r.taskUpdater.(taskTestCaseReader)
+	if !ok {
+		return nil
+	}
+	items, err := reader.ListTestCases(ctx, job.Task.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("list test cases for coverage-gap gate failed")
+		return nil
+	}
+	return items
+}
+
+const ungroundedPMUATReason = "pm_uat rejected: this run never checked the product itself " +
+	"(no browser_* or mobile_* call succeeded). Approving from QA's notes, the board or the diff is not verification — " +
+	"open the changed screens (or run the mobile flow) yourself, then record each criterion with review_criterion " +
+	"citing what you observed."
+
+const pmUncoveredCriterionReason = "pm_uat rejected: this run approved a criterion QA's own recorded test round never " +
+	"proves (no passed TaskTestCase links to it) without checking it yourself " +
+	"(no browser_* or mobile_* call succeeded). Trusting QA's review_criterion note is not enough when nothing in " +
+	"list_test_cases actually backs it — walk that criterion's flow yourself before approving it."
+
+// failRunUngroundedPMUAT ends a pm_uat run that produced an approval without
+// executing anything, mirroring failRunUngroundedQA: the run's own text is
+// kept (its walk-through plan is usually sound and the retry can execute
+// exactly that), the run is marked failed so the reconciler dispatches another
+// attempt, and the reason is on the task so the retry starts knowing what was
+// rejected.
+func (r *Runner) failRunUngroundedPMUAT(ctx context.Context, job RunJob, run domain.TaskAgentRun, resp domain.AgentResponse, reason string) error {
+	if r.taskUpdater != nil {
+		content := reason
+		if summary := strings.TrimSpace(resp.Message.Content); summary != "" {
+			content += "\n\nWhat the rejected run reported (execute this, do not re-approve it):\n\n" + summary
+		}
+		if _, err := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
+			AuthorType: "system",
+			Content:    truncateHead(content, 3000),
+		}); err != nil {
+			log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("ungrounded pm_uat comment failed")
+		}
+	}
+
+	log.Warn().Str("task_id", job.Task.ID.String()).Str("run_id", run.ID.String()).
+		Str("column", string(job.Task.Column)).Msg("pm_uat run rejected: approval without execution evidence")
+
+	run.Status = domain.TaskAgentRunStatusFailed
+	run.Summary = truncateHead(reason, 500)
+	pctx, cancel := persistCtx(ctx)
+	defer cancel()
+	if _, updateErr := r.runs.Update(pctx, run); updateErr != nil {
+		if errors.Is(updateErr, domain.ErrTaskAgentRunNotFound) {
+			log.Info().Str("run_id", run.ID.String()).Msg("run row gone, task deleted mid-run")
+			return nil
+		}
+		return updateErr
+	}
+	return ErrUngroundedPMUAT
+}
+
+// ErrUngroundedPMUAT reports a pm_uat run whose approval was rejected because
+// the run never checked the product it was judging.
+var ErrUngroundedPMUAT = errors.New("pm_uat run approved without execution evidence")
 
 // failRunOutOfBudget ends a run that spent its iteration budget. The work the
 // agent already produced is committed and summarised rather than discarded:
