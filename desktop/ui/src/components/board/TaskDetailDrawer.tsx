@@ -87,13 +87,15 @@ interface TaskDetailDrawerProps {
   onUpdated: () => void;
 }
 
-function runStatusVariant(status: string): "success" | "warning" | "destructive" | "secondary" {
+function runStatusVariant(status: string): "success" | "info" | "destructive" | "secondary" {
   switch (status) {
     case "completed":
       return "success";
+    // running/waiting reads as "info", not "warning" — kept distinct from the
+    // primary action color without implying something has gone wrong.
     case "running":
     case "pending":
-      return "warning";
+      return "info";
     case "failed":
       return "destructive";
     // Somebody stopped this run on purpose; it is history, not an incident, so
@@ -1098,7 +1100,7 @@ export function TaskDetailDrawer({
                   {selectedRunId && (
                     <div className="space-y-3 rounded-lg border border-border bg-muted/10 p-3">
                       {runIsLive && liveSummary && (
-                        <Badge variant="warning" className="gap-1">
+                        <Badge variant="info" className="gap-1">
                           <Loader2 className="h-3 w-3 animate-spin" />
                           {liveSummary}
                         </Badge>

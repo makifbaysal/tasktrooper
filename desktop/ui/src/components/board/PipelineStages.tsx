@@ -24,7 +24,7 @@ function jobStatusIcon(status: TaskPipelineJob["status"]): { Icon: LucideIcon; c
     case "failed":
       return { Icon: XCircle, className: "text-destructive" };
     case "running":
-      return { Icon: Loader2, className: "text-warning animate-spin" };
+      return { Icon: Loader2, className: "text-info animate-spin" };
     case "skipped":
       return { Icon: MinusCircle, className: "text-muted-foreground" };
     case "pending":

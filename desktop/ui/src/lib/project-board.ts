@@ -261,15 +261,18 @@ export function indexProgressPercent(filesProcessed: number, filesTotal: number,
 
 export function pipelineStatusVariant(
   status: TaskPipeline["status"],
-): "success" | "warning" | "destructive" | "secondary" {
+): "success" | "info" | "destructive" | "secondary" {
   switch (status) {
     case "success":
       return "success";
     case "failed":
       return "destructive";
+    // running/waiting states use "info", not "warning": nothing is wrong yet,
+    // and info is the color that reads as distinct from the primary action
+    // hue rather than as an in-progress warning.
     case "running":
     case "pending":
-      return "warning";
+      return "info";
     // "skipped" (nothing ran) falls through to the neutral variant on purpose:
     // painting it green implied a build that never happened.
     default:
@@ -313,7 +316,7 @@ export function taskPipelineCardIcon(
       return { Icon: XCircle, className: "text-destructive" };
     case "pending":
     case "running":
-      return { Icon: Loader2, className: "text-warning animate-spin" };
+      return { Icon: Loader2, className: "text-info animate-spin" };
     // Nothing ran — a muted dash, never the green check the card used to show.
     case "skipped":
       return { Icon: MinusCircle, className: "text-muted-foreground" };

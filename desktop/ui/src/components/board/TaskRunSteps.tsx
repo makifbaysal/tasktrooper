@@ -52,7 +52,7 @@ export function TaskRunSteps({ runId }: TaskRunStepsProps) {
         <div
           key={s.id}
           className={cn(
-            "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs",
+            "flex items-center gap-2 rounded-md px-compact py-1.5 text-xs",
             index === steps.length - 1 ? "bg-primary/5" : "bg-muted/30",
           )}
         >

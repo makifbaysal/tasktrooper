@@ -78,8 +78,8 @@ export function BoardLane({
           onDrop={() => onDropTask(stage.slug)}
         >
           <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2.5">
-            <span className="truncate text-sm font-medium">{stage.label}</span>
-            <Badge variant="secondary" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">
+            <span className="truncate text-heading font-medium">{stage.label}</span>
+            <Badge variant="secondary" className="h-5 min-w-5 justify-center px-1.5 text-micro">
               {stage.count}
             </Badge>
           </div>

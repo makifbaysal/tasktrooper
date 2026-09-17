@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { workOrderBlockerLabel } from "@/lib/project-board";
+import { pipelineStatusVariant, taskPipelineCardIcon, workOrderBlockerLabel } from "@/lib/project-board";
 
 describe("workOrderBlockerLabel", () => {
   it("shows the single blocker's task key", () => {
@@ -46,5 +46,25 @@ describe("workOrderBlockerLabel", () => {
         "waiting for T-3 (Refactor, cleanup) [todo], T-15 (schema) [code_review] to finish",
       ),
     ).toBe("T-3 +1");
+  });
+});
+
+describe("pipelineStatusVariant", () => {
+  it("renders running and pending as the info variant, distinct from a primary action", () => {
+    expect(pipelineStatusVariant("running")).toBe("info");
+    expect(pipelineStatusVariant("pending")).toBe("info");
+  });
+
+  it("still renders success/failed/skipped in their existing variants", () => {
+    expect(pipelineStatusVariant("success")).toBe("success");
+    expect(pipelineStatusVariant("failed")).toBe("destructive");
+    expect(pipelineStatusVariant("skipped")).toBe("secondary");
+  });
+});
+
+describe("taskPipelineCardIcon", () => {
+  it("colors the running/pending board-card icon with the info hue, not warning", () => {
+    expect(taskPipelineCardIcon("running")?.className).toBe("text-info animate-spin");
+    expect(taskPipelineCardIcon("pending")?.className).toBe("text-info animate-spin");
   });
 });

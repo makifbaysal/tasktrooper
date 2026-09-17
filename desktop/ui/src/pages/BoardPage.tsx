@@ -329,9 +329,9 @@ export function BoardPage() {
         }}
         onClick={() => openTask(task)}
         className={cn(
-          "mb-2 cursor-grab overflow-hidden border-border/80 p-3 shadow-sm transition-shadow active:cursor-grabbing",
+          "mb-2 cursor-grab overflow-hidden border-border/80 p-3 transition-shadow active:cursor-grabbing",
           dragTaskId === task.id && "opacity-50 ring-2 ring-primary/30",
-          "hover:shadow-md",
+          "hover:shadow-[var(--shadow-overlay)]",
         )}
       >
         <div className="flex items-start gap-2">
@@ -342,7 +342,7 @@ export function BoardPage() {
                 {task.key}
               </Badge>
               {agentRunning && (
-                <Badge variant="warning" className="gap-1 text-[10px]">
+                <Badge variant="info" className="gap-1 text-[10px]">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   {t("boardArea.board.agentRunning")}
                 </Badge>
