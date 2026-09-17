@@ -265,6 +265,33 @@ func TestMergeDocsTaskRefusesWithoutABundle(t *testing.T) {
 	require.ErrorContains(t, err, "no reference-doc task is outstanding")
 }
 
+// The pull request was already merged — by an earlier call here, by the QA
+// agent's own merge_task_pull_request, or by hand on GitHub. Retrying the
+// merge is refused by the gate, but the screen must read that as "done", not
+// as a failure: it re-reads the task for the commit the gate just recorded
+// and still forgets the bundle.
+func TestMergeDocsTaskTreatsAlreadyMergedAsDoneAndForgetsTheTask(t *testing.T) {
+	svc, repos, tasks := newFixture(t, domain.Repository{Kind: domain.RepoKindBackend})
+	svc.SetTaskPRMerger(&fakeMerger{err: domain.ErrMergeAlreadyMerged})
+
+	task, err := svc.CreateDocsBundleTask(context.Background(), repos.repo.ID, []repodocs.DocItem{
+		{Kind: domain.RepoDocArchitecture},
+	})
+	require.NoError(t, err)
+
+	// The gate would have recorded these on the task before refusing.
+	tasks.task.PRNumber = 12
+	tasks.task.PRURL = "https://github.com/acme/app/pull/12"
+	tasks.task.MergeCommitSHA = "abc1234567890000000000000000000000000000"
+
+	result, err := svc.MergeDocsTask(context.Background(), repos.repo.ID)
+	require.NoError(t, err)
+	require.True(t, result.Merged)
+	require.Equal(t, "abc1234567890000000000000000000000000000", result.MergeCommitSHA)
+	require.Contains(t, result.Message, "already merged")
+	require.Equal(t, []string{task.ID.String(), ""}, repos.docsTaskIDs, "an already-merged PR still clears the task")
+}
+
 // A refused merge leaves the task recorded: the docs are not on the default
 // branch, and forgetting the card would strand the branch.
 func TestMergeDocsTaskKeepsTheTaskWhenTheMergeIsRefused(t *testing.T) {

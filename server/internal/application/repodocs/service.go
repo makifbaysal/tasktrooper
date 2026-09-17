@@ -6,7 +6,9 @@ package repodocs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -374,15 +376,49 @@ func (s *Service) MergeDocsTask(ctx context.Context, repositoryID uuid.UUID) (do
 	}
 	result, err := s.merger.MergeTaskPullRequest(ctx, repositoryID, task.ID)
 	if err != nil {
-		return domain.TaskPRMergeResult{}, err
+		if !errors.Is(err, domain.ErrMergeAlreadyMerged) {
+			return domain.TaskPRMergeResult{}, err
+		}
+		// The gate refuses a second merge attempt on purpose — merging is
+		// irreversible and must never be retried — but from this screen's
+		// point of view the PR is exactly as landed as one this call merged
+		// itself: whoever merged it (an earlier call here, the QA agent's own
+		// merge_task_pull_request, or a person on GitHub) already did the
+		// work. Reporting that as a failure is what sent the user back to a
+		// "save" button for a PR that no longer exists.
+		result, err = s.alreadyMergedResult(ctx, repositoryID, task)
+		if err != nil {
+			return domain.TaskPRMergeResult{}, err
+		}
 	}
-	// Cleared only on a merge that actually landed: a failure to forget the
-	// task is worth reporting, but it must not read as a failed merge — the
-	// docs are on the default branch either way.
+	// Cleared whenever the PR is settled, merged now or merged earlier: a
+	// failure to forget the task is worth reporting, but it must not read as
+	// a failed merge — the docs are on the default branch either way.
 	if clearErr := s.repos.SetDocsTaskID(ctx, repositoryID, ""); clearErr != nil {
 		result.Message = strings.TrimSpace(result.Message + " WARNING: the docs task could not be cleared from the repository (" + clearErr.Error() + ").")
 	}
 	return result, nil
+}
+
+// alreadyMergedResult re-reads the task after a refused "already merged"
+// attempt, since the gate may have just recorded the commit GitHub reports
+// rather than the stale snapshot this call started with.
+func (s *Service) alreadyMergedResult(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) (domain.TaskPRMergeResult, error) {
+	current, err := s.tasks.GetTask(ctx, repositoryID, task.ID)
+	if err != nil {
+		current = task
+	}
+	msg := "Pull request was already merged; nothing further was needed."
+	if current.PRNumber > 0 {
+		msg = "Pull request #" + strconv.Itoa(current.PRNumber) + " was already merged; nothing further was needed."
+	}
+	return domain.TaskPRMergeResult{
+		Merged:         true,
+		PRNumber:       current.PRNumber,
+		PRURL:          current.PRURL,
+		MergeCommitSHA: current.MergeCommitSHA,
+		Message:        msg,
+	}, nil
 }
 
 // setDocPath records where a doc kind lives, scoped to the repository itself
