@@ -65,35 +65,36 @@ type ProfileRefresher interface {
 }
 
 type Service struct {
-	repos           port.RepositoryStore
-	tasks           port.BoardTaskStore
-	criteria        port.AcceptanceCriterionStore
-	testCases       port.TaskTestCaseStore
-	relations       port.TaskRelationStore
-	documents       port.TaskDocumentStore
-	comments        port.TaskCommentStore
-	attachments     port.AttachmentStore
-	columns         ColumnValidator
-	dispatcher      *board.Dispatcher
-	scorer          *board.ScoreTracker
-	completion      *board.CompletionStamper
-	reviewGate      *board.ReviewGate
-	evolution       RevisionNotifier
-	pipelines       *board.PipelineRunner
-	pipelineStore   port.TaskPipelineStore
-	deployPackages  port.DeployPackageStore
-	spans           StageEvidence
-	requireCriteria bool
-	indexer         *indexer.Service
-	allowedRoots    []string
-	indexMu         sync.Mutex
-	indexing        map[uuid.UUID]struct{}
-	git             port.GitClient
-	deployTargets   port.DeployTargetStore
-	mobileStoreApps port.MobileStoreAppStore
-	workspaceRoot   string
-	gitWarnMu       sync.Mutex
-	gitWarnings     map[uuid.UUID]string
+	repos            port.RepositoryStore
+	tasks            port.BoardTaskStore
+	criteria         port.AcceptanceCriterionStore
+	testCases        port.TaskTestCaseStore
+	relations        port.TaskRelationStore
+	documents        port.TaskDocumentStore
+	comments         port.TaskCommentStore
+	attachments      port.AttachmentStore
+	columns          ColumnValidator
+	dispatcher       *board.Dispatcher
+	scorer           *board.ScoreTracker
+	completion       *board.CompletionStamper
+	reviewGate       *board.ReviewGate
+	workOrderSweeper *board.WorkOrderSweeper
+	evolution        RevisionNotifier
+	pipelines        *board.PipelineRunner
+	pipelineStore    port.TaskPipelineStore
+	deployPackages   port.DeployPackageStore
+	spans            StageEvidence
+	requireCriteria  bool
+	indexer          *indexer.Service
+	allowedRoots     []string
+	indexMu          sync.Mutex
+	indexing         map[uuid.UUID]struct{}
+	git              port.GitClient
+	deployTargets    port.DeployTargetStore
+	mobileStoreApps  port.MobileStoreAppStore
+	workspaceRoot    string
+	gitWarnMu        sync.Mutex
+	gitWarnings      map[uuid.UUID]string
 
 	// restoreMu guards the working-copy restore ledger: the running or last
 	// clone-onto-this-host attempt per repository (see restore.go). It is
@@ -186,6 +187,14 @@ func (s *Service) SetReviewGate(g *board.ReviewGate) {
 
 func (s *Service) SetEvolution(n RevisionNotifier) {
 	s.evolution = n
+}
+
+// SetWorkOrderSweeper wires the sweeper UpdateTask calls the instant a task
+// lands in done/released, so a task parked behind it resumes in the same
+// request instead of waiting for the next poll. Nil leaves the poll as the
+// only trigger, which is the pre-wake behaviour.
+func (s *Service) SetWorkOrderSweeper(w *board.WorkOrderSweeper) {
+	s.workOrderSweeper = w
 }
 
 // SetProfileRefresher wires the project-profile rebuilder. Nil leaves imports
@@ -2024,6 +2033,12 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 			}
 		}
 		_ = s.emit(ctx, repo, updated, domain.BoardEventTaskMoved, movePayload)
+		// A task this one blocks may be parked behind it — wake it in the same
+		// request instead of leaving it for the next work-order sweep tick.
+		if s.workOrderSweeper != nil &&
+			(*req.Column == domain.TaskColumnDone || *req.Column == domain.TaskColumnReleased) {
+			s.workOrderSweeper.WakeDependentsOf(ctx, updated.ID)
+		}
 		if s.scorer != nil {
 			s.scorer.OnColumnTransition(ctx, updated, prevColumn, *req.Column)
 		}

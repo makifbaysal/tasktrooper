@@ -299,3 +299,38 @@ func TestWorkOrderSweepToleratesLosingTheClaim(t *testing.T) {
 
 	s.sweep(context.Background()) // must not panic or dispatch
 }
+
+// A silent resume is why the stakeholder thought the mechanism did not exist
+// at all: nothing but a server log recorded it. The card must show it.
+func TestWorkOrderSweepPostsACommentOnASuccessfulResume(t *testing.T) {
+	task := workOrderTask(domain.TaskColumnBlocked)
+	store := &stubWorkOrderParkStore{parked: []domain.BoardTask{task}}
+	comments := &stubWorkOrderCommenter{}
+	s := NewWorkOrderSweeper(store, &stubBlockerReader{}, &Dispatcher{})
+	s.SetCommenter(comments)
+
+	s.sweep(context.Background())
+
+	require.Len(t, store.takenIDs, 1)
+	require.Len(t, comments.contents, 1)
+	assert.Contains(t, comments.contents[0], "resumed automatically")
+}
+
+type failingWorkOrderCommenter struct{}
+
+func (failingWorkOrderCommenter) AddComment(context.Context, uuid.UUID, uuid.UUID, domain.CreateTaskCommentRequest) (domain.TaskComment, error) {
+	return domain.TaskComment{}, errors.New("comment store unavailable")
+}
+
+// The resume itself must not be undone by a comment failure — the task is
+// unparked and dispatched either way; only the card's visibility is degraded.
+func TestWorkOrderSweepResumeSurvivesACommentFailure(t *testing.T) {
+	task := workOrderTask(domain.TaskColumnBlocked)
+	store := &stubWorkOrderParkStore{parked: []domain.BoardTask{task}}
+	s := NewWorkOrderSweeper(store, &stubBlockerReader{}, &Dispatcher{})
+	s.SetCommenter(failingWorkOrderCommenter{})
+
+	s.sweep(context.Background())
+
+	require.Len(t, store.takenIDs, 1, "the resume itself must still happen")
+}

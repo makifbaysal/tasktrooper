@@ -60,10 +60,59 @@ type WorkOrderSweeper struct {
 	tasks      WorkOrderResourceLister
 	relations  BlockerReader
 	dispatcher *Dispatcher
+	dependents DependentsReader
+	comments   TaskCommenter
 }
 
 func NewWorkOrderSweeper(tasks WorkOrderResourceLister, relations BlockerReader, dispatcher *Dispatcher) *WorkOrderSweeper {
 	return &WorkOrderSweeper{tasks: tasks, relations: relations, dispatcher: dispatcher}
+}
+
+// DependentsReader answers "which relations does this task carry as their
+// source" — port.TaskRelationStore narrowed to the one method WakeDependentsOf
+// needs to find a blocker's dependents.
+type DependentsReader interface {
+	ListBySource(ctx context.Context, sourceTaskID uuid.UUID) ([]domain.TaskRelation, error)
+}
+
+// SetDependents wires the relation store WakeDependentsOf reads. Nil-safe:
+// without it, a landed blocker's dependents still resume, just on the next
+// poll rather than the same instant.
+func (s *WorkOrderSweeper) SetDependents(d DependentsReader) {
+	if s != nil {
+		s.dependents = d
+	}
+}
+
+// SetCommenter wires the card comment a successful automatic resume leaves
+// behind, symmetric with WorkOrder.SetCommenter's park comment. Nil-safe: the
+// resume still happens, it just leaves no trace on the card.
+func (s *WorkOrderSweeper) SetCommenter(c TaskCommenter) {
+	if s != nil {
+		s.comments = c
+	}
+}
+
+// WakeDependentsOf checks every task blockerTaskID directly blocks and resumes
+// the ones whose work order is now fully clear, instead of waiting for the
+// next tick. Nil-safe and best-effort — a failure here just falls back to the
+// ordinary sweep within WorkOrderSweeperInterval.
+func (s *WorkOrderSweeper) WakeDependentsOf(ctx context.Context, blockerTaskID uuid.UUID) {
+	if s == nil || s.dependents == nil {
+		return
+	}
+	rels, err := s.dependents.ListBySource(ctx, blockerTaskID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", blockerTaskID.String()).
+			Msg("work order sweeper: reading dependents failed")
+		return
+	}
+	for _, rel := range rels {
+		if rel.RelationType != domain.TaskRelationBlocks {
+			continue
+		}
+		s.resumeIfClear(ctx, domain.BoardTask{ID: rel.TargetTaskID})
+	}
 }
 
 // Start runs the sweep on interval until ctx ends.
@@ -158,6 +207,14 @@ func (s *WorkOrderSweeper) resumeIfClear(ctx context.Context, parked domain.Boar
 		// either way; the reconciler picks up a task that never started.
 		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("work order sweeper: redispatch failed")
 		return
+	}
+	if s.comments != nil {
+		if _, cerr := s.comments.AddComment(ctx, task.RepositoryID, task.ID, domain.CreateTaskCommentRequest{
+			AuthorType: "system",
+			Content:    "Work order: this task's blockers are done — resumed automatically.",
+		}); cerr != nil {
+			log.Warn().Err(cerr).Str("task_id", task.ID.String()).Msg("work order sweeper: resume comment failed")
+		}
 	}
 	log.Info().Str("task_id", task.ID.String()).
 		Msg("parked task resumed: everything it was waiting for is done")

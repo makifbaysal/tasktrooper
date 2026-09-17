@@ -165,3 +165,42 @@ func (s *WorkOrderParkSuite) TestClearWorkOrderWaitingOnAnUnparkedTaskIsANoOp() 
 	s.Require().NoError(err)
 	s.False(ok)
 }
+
+// A work_order park never moves board_column, so ListBlockedByResource must
+// not run the blocked-resources' origin-column restore on it: doing so
+// reports an in_progress task as todo, because a work_order park never wrote
+// a blocked_origin_column to restore from.
+func (s *WorkOrderParkSuite) TestListBlockedByResourceLeavesWorkOrderColumnAlone() {
+	task := s.newTask(domain.TaskColumnInProgress)
+	s.Require().NoError(s.tasks.MarkWorkOrderWaiting(s.ctx, s.repoID, task.ID, "waiting for T-1 to finish"))
+
+	parked, err := s.tasks.ListBlockedByResource(s.ctx, domain.ResourceWorkOrder, 100)
+	s.Require().NoError(err)
+	found := false
+	for _, p := range parked {
+		if p.ID == task.ID {
+			found = true
+			s.Equal(domain.TaskColumnInProgress, p.Column, "work_order never moved the column, so there is nothing to restore")
+		}
+	}
+	s.Require().True(found, "the parked task must be in the list")
+}
+
+// The other blocked_resource kinds DO move board_column into 'blocked' and
+// record where to restore it — ListBlockedByResource must keep doing that.
+func (s *WorkOrderParkSuite) TestListBlockedByResourceStillRestoresOtherResources() {
+	task := s.newTask(domain.TaskColumnInQA)
+	_, err := s.tasks.BlockOnResource(s.ctx, s.repoID, task.ID, domain.ResourceMobileDevice, "device held")
+	s.Require().NoError(err)
+
+	parked, err := s.tasks.ListBlockedByResource(s.ctx, domain.ResourceMobileDevice, 100)
+	s.Require().NoError(err)
+	found := false
+	for _, p := range parked {
+		if p.ID == task.ID {
+			found = true
+			s.Equal(domain.TaskColumnInQA, p.Column, "the origin-column restore must still apply to other resources")
+		}
+	}
+	s.Require().True(found, "the parked task must be in the list")
+}

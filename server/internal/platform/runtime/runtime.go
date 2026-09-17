@@ -1550,6 +1550,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			workOrder.SetCommenter(repositorySvc)
 			boardDispatcher.SetWorkOrder(workOrder)
 			workOrderSweeper := boardapp.NewWorkOrderSweeper(boardTaskStore, relationStore, boardDispatcher)
+			workOrderSweeper.SetDependents(relationStore)
+			workOrderSweeper.SetCommenter(repositorySvc)
+			repositorySvc.SetWorkOrderSweeper(workOrderSweeper)
 			activateBoard = append(activateBoard, func() {
 				workOrderSweeper.Start(ctx, boardapp.WorkOrderSweeperInterval)
 			})

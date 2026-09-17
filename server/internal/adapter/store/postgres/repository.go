@@ -1499,9 +1499,13 @@ func (s *BoardTaskStore) ListBlockedByResource(ctx context.Context, resource str
 		return nil, err
 	}
 	// The rows still read 'blocked'; callers dispatch off Column to pick the
-	// agents for the stage, exactly as TakeBlockedByResource restores it.
-	for i := range tasks {
-		tasks[i].Column = restoreBlockedOriginColumn(tasks[i])
+	// agents for the stage, exactly as TakeBlockedByResource restores it. A
+	// work_order park never wrote 'blocked' in the first place — restoring it
+	// here would report an in_progress task as todo.
+	if resource != domain.ResourceWorkOrder {
+		for i := range tasks {
+			tasks[i].Column = restoreBlockedOriginColumn(tasks[i])
+		}
 	}
 	return tasks, nil
 }
