@@ -151,7 +151,7 @@ const AccordionTrigger = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTML
             if (!disabled) toggle(value);
           }}
           className={cn(
-            "flex flex-1 items-center justify-between gap-2 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50",
+            "flex flex-1 items-center justify-between gap-2 px-4 py-3 text-left text-body font-medium transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50",
             className,
           )}
           {...props}
@@ -180,7 +180,7 @@ const AccordionContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElemen
         className={cn("grid transition-[grid-template-rows] duration-200 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}
       >
         <div ref={ref} className="overflow-hidden">
-          <div className={cn("px-4 pb-3 pt-0 text-sm text-muted-foreground", className)} {...props}>
+          <div className={cn("px-4 pb-3 pt-0 text-body text-muted-foreground", className)} {...props}>
             {children}
           </div>
         </div>

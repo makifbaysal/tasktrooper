@@ -1,7 +1,20 @@
+import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+// Vitest's `globals` option is off, so React Testing Library's own
+// auto-cleanup (which hooks into a jest-style global `afterEach`) never
+// fires — without this, component tests that render more than once leak
+// nodes into the same jsdom `document` across tests/cases.
+afterEach(() => {
+  cleanup();
+});
+
 // Polyfills the global `localStorage` the SPA reads at module scope
-// (src/api.ts's getStoredLocale) — Vitest's node environment has no DOM
-// storage, and Node's own experimental localStorage global requires a
-// --localstorage-file flag we don't want to depend on in CI.
+// (src/api.ts's getStoredLocale) — jsdom doesn't implement DOM storage
+// persistence beyond an in-memory map either, but this keeps the same
+// deterministic backing store the tests relied on before the environment
+// switched from "node" to "jsdom".
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();
 

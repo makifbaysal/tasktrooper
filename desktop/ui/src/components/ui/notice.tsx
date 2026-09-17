@@ -40,7 +40,7 @@ export function Notice({ variant = "warning", title, children, className }: Noti
   const style = variantStyles[variant];
   const Icon = style.icon;
   return (
-    <div className={cn("flex gap-3 rounded-2xl border px-4 py-3 text-sm shadow-sm", style.box, className)}>
+    <div className={cn("flex gap-3 rounded-2xl border px-4 py-3 text-body shadow-sm", style.box, className)}>
       <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", style.iconClass)} aria-hidden />
       <div className="min-w-0 space-y-1">
         <p className="font-medium">{title}</p>

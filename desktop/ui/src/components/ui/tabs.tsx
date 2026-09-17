@@ -126,7 +126,7 @@ const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
           if (!disabled) onValueChange(value);
         }}
         className={cn(
-          "inline-flex items-center whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+          "inline-flex items-center whitespace-nowrap text-body font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
           variant === "pill"
             ? cn(
                 "rounded-md px-3 py-1.5",
