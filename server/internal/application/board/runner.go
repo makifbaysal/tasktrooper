@@ -1521,7 +1521,7 @@ func (r *Runner) execute(parent context.Context, job RunJob) error {
 
 	// And the coverage gap this gate exists to close: PM approving a criterion
 	// that QA's own case list never actually proves, purely on QA's say-so.
-	if resp.Clarification == nil && resp.ResourceBlock == nil && r.pmSkippedCoverageEvidence(ctx, job, toolUsage) {
+	if resp.Clarification == nil && resp.ResourceBlock == nil && r.pmSkippedCoverageEvidence(ctx, job, run, toolUsage) {
 		err = r.failRunUngroundedPMUAT(ctx, job, run, resp, pmUncoveredCriterionReason)
 		return err
 	}
@@ -2544,20 +2544,27 @@ func isUngroundedPMUAT(task domain.BoardTask, resp domain.AgentResponse, usage *
 // run can pass that gate with a single browser_navigate call and still approve
 // a DIFFERENT criterion purely on QA's say-so, one QA never actually proved
 // with a passed test case. It reads the task's own current criteria and test
-// cases and defers the decision to pmApprovedUncoveredCriterion.
-func (r *Runner) pmSkippedCoverageEvidence(ctx context.Context, job RunJob, usage *registry.ToolUsage) bool {
+// cases and defers the decision to pmApprovedUncoveredCriterion, scoped to
+// approvals this run itself recorded — run.CreatedAt predates any check this
+// run's own review_criterion calls could have written, so a check timestamped
+// after it is this run's, not a settled earlier one.
+func (r *Runner) pmSkippedCoverageEvidence(ctx context.Context, job RunJob, run domain.TaskAgentRun, usage *registry.ToolUsage) bool {
 	if usage == nil || job.Task.Column != domain.TaskColumnPMUAT {
 		return false
 	}
 	criteria := r.allCriteria(ctx, job)
 	testCases := r.taskTestCases(ctx, job)
-	return pmApprovedUncoveredCriterion(job.Task, criteria, testCases, usage)
+	return pmApprovedUncoveredCriterion(job.Task, criteria, testCases, usage, run.CreatedAt)
 }
 
 // pmApprovedUncoveredCriterion reports whether this run's PM checks include an
 // approval that QA's own recorded test round never backs with a passed case —
 // and, if so, whether this run made up for that with its own execution
 // evidence.
+//
+// Only PM checks recorded after runStartedAt count as "this run's" approval:
+// a criterion PM approved (correctly, with evidence) in an earlier run must
+// not retrigger this gate for a later, unrelated run that never touched it.
 //
 // review_criterion is not counted as evidence of coverage: a PM approval is
 // the CLAIM this gate exists to check, not its own proof. A criterion is
@@ -2569,6 +2576,7 @@ func pmApprovedUncoveredCriterion(
 	criteria []domain.AcceptanceCriterion,
 	testCases []domain.TaskTestCase,
 	usage *registry.ToolUsage,
+	runStartedAt time.Time,
 ) bool {
 	if usage == nil || task.Column != domain.TaskColumnPMUAT {
 		return false
@@ -2581,7 +2589,7 @@ func pmApprovedUncoveredCriterion(
 	}
 	uncovered := false
 	for _, c := range criteria {
-		if !pmApproved(c) {
+		if !pmApprovedThisRun(c, runStartedAt) {
 			continue
 		}
 		if !passedByCriterion[c.ID] {
@@ -2595,10 +2603,12 @@ func pmApprovedUncoveredCriterion(
 	return !usage.UsedAny(domain.PMUATExecutionTools...)
 }
 
-// pmApproved reports whether a criterion carries an approved PM verdict.
-func pmApproved(c domain.AcceptanceCriterion) bool {
+// pmApprovedThisRun reports whether a criterion carries an approved PM verdict
+// recorded after runStartedAt — i.e. by the run currently being judged, not a
+// settled approval from an earlier one.
+func pmApprovedThisRun(c domain.AcceptanceCriterion, runStartedAt time.Time) bool {
 	for _, check := range c.Checks {
-		if check.Role == domain.CriterionReviewRolePM && check.Approved {
+		if check.Role == domain.CriterionReviewRolePM && check.Approved && check.CheckedAt.After(runStartedAt) {
 			return true
 		}
 	}

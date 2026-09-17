@@ -2,6 +2,7 @@ package board
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -59,11 +60,13 @@ func TestUngroundedPMUATIsNilSafe(t *testing.T) {
 	assert.False(t, isUngroundedPMUAT(task, domain.AgentResponse{}, nil))
 }
 
-func pmApprovedCriterion(id uuid.UUID) domain.AcceptanceCriterion {
+var pmUATRunStartedAt = time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+
+func pmApprovedCriterion(id uuid.UUID, checkedAt time.Time) domain.AcceptanceCriterion {
 	return domain.AcceptanceCriterion{
 		ID: id,
 		Checks: []domain.CriterionCheck{
-			{CriterionID: id, Role: domain.CriterionReviewRolePM, Approved: true},
+			{CriterionID: id, Role: domain.CriterionReviewRolePM, Approved: true, CheckedAt: checkedAt},
 		},
 	}
 }
@@ -71,48 +74,69 @@ func pmApprovedCriterion(id uuid.UUID) domain.AcceptanceCriterion {
 func TestPMApprovedUncoveredCriterionRequiresOwnEvidence(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnPMUAT}
 	criterionID := uuid.New()
-	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID)}
+	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID, pmUATRunStartedAt.Add(time.Minute))}
 
 	usage := qaUsage("list_test_cases", "review_criterion")
 
-	assert.True(t, pmApprovedUncoveredCriterion(task, criteria, nil, usage))
+	assert.True(t, pmApprovedUncoveredCriterion(task, criteria, nil, usage, pmUATRunStartedAt))
 }
 
 func TestPMApprovedUncoveredCriterionPassesWhenQACaseIsPassed(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnPMUAT}
 	criterionID := uuid.New()
-	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID)}
+	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID, pmUATRunStartedAt.Add(time.Minute))}
 	testCases := []domain.TaskTestCase{
 		{ID: uuid.New(), CriterionID: &criterionID, Status: domain.TestCaseStatusPassed},
 	}
 
 	usage := qaUsage("list_test_cases", "review_criterion")
 
-	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, testCases, usage))
+	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, testCases, usage, pmUATRunStartedAt))
 }
 
 func TestPMApprovedUncoveredCriterionPassesWhenPMExecutedItself(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnPMUAT}
 	criterionID := uuid.New()
-	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID)}
+	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID, pmUATRunStartedAt.Add(time.Minute))}
 
 	usage := qaUsage("browser_navigate", "review_criterion")
 
-	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, nil, usage))
+	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, nil, usage, pmUATRunStartedAt))
 }
 
 func TestPMApprovedUncoveredCriterionIgnoresNonPMUATColumns(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInQA}
 	criterionID := uuid.New()
-	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID)}
+	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID, pmUATRunStartedAt.Add(time.Minute))}
 
-	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, nil, qaUsage("read_file")))
+	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, nil, qaUsage("read_file"), pmUATRunStartedAt))
 }
 
 func TestPMApprovedUncoveredCriterionIsNilSafe(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnPMUAT}
 	criterionID := uuid.New()
-	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID)}
+	criteria := []domain.AcceptanceCriterion{pmApprovedCriterion(criterionID, pmUATRunStartedAt.Add(time.Minute))}
 
-	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, nil, nil))
+	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, nil, nil, pmUATRunStartedAt))
+}
+
+// The revision report's exact scenario: a criterion was PM-approved, correctly
+// and with evidence, in an earlier run — that approval must not retrigger the
+// gate for a later run that approves a different, already-covered criterion
+// and never touches the stale one at all.
+func TestPMApprovedUncoveredCriterionIgnoresApprovalsFromEarlierRuns(t *testing.T) {
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnPMUAT}
+	staleCriterionID := uuid.New()
+	coveredCriterionID := uuid.New()
+	criteria := []domain.AcceptanceCriterion{
+		pmApprovedCriterion(staleCriterionID, pmUATRunStartedAt.Add(-time.Hour)),
+		pmApprovedCriterion(coveredCriterionID, pmUATRunStartedAt.Add(time.Minute)),
+	}
+	testCases := []domain.TaskTestCase{
+		{ID: uuid.New(), CriterionID: &coveredCriterionID, Status: domain.TestCaseStatusPassed},
+	}
+
+	usage := qaUsage("list_test_cases", "review_criterion")
+
+	assert.False(t, pmApprovedUncoveredCriterion(task, criteria, testCases, usage, pmUATRunStartedAt))
 }
