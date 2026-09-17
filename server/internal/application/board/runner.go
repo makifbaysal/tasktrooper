@@ -1318,8 +1318,11 @@ func (r *Runner) execute(parent context.Context, job RunJob) error {
 	// what this DELIVERABLE may touch (an analiz produces a document), the column
 	// says what this RUN is for (a review or a QA round produces a verdict about
 	// someone else's work, never a change to it).
-	upliftedPolicy := domain.RestrictToolsForVerdictColumn(
-		domain.RestrictToolsForTaskType(domain.UpliftWorkspaceTools(policy), job.Task.TaskType),
+	upliftedPolicy := domain.RestrictCodeToolsForVerification(
+		domain.RestrictToolsForVerdictColumn(
+			domain.RestrictToolsForTaskType(domain.UpliftWorkspaceTools(policy), job.Task.TaskType),
+			job.Task.Column,
+		),
 		job.Task.Column,
 	)
 

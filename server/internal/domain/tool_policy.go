@@ -540,6 +540,76 @@ func RestrictToolsForVerdictColumn(p ToolPolicy, col TaskColumn) ToolPolicy {
 	return restricted
 }
 
+// pmUATColumns are the columns where the PM verifies rather than authors: the
+// backlog-grooming use of CodeExplorationTools ("verify a real file/endpoint
+// name before writing technical_description") does not apply here, so the
+// whole set goes away.
+var pmUATColumns = map[TaskColumn]bool{
+	TaskColumnPMUAT:    true,
+	TaskColumnHumanUAT: true,
+}
+
+// qaVerificationColumns are the columns where QA is expected to be black box.
+var qaVerificationColumns = map[TaskColumn]bool{
+	TaskColumnInQA:       true,
+	TaskColumnReadyForQA: true,
+}
+
+// RestrictCodeToolsForVerification takes source-reading tools away from a run
+// whose job is to exercise the running product, not to read the diff and
+// decide it looks right.
+//
+// PM loses every CodeExplorationTools name in pm_uat/human_uat: those are the
+// only columns PM signs a criterion off in, and its verdict must come from a
+// browser/mobile session run against the product, never from read_file on the
+// implementation. Outside those two columns PM keeps the set — it still needs
+// to verify a real file or endpoint name before writing technical_description
+// while grooming the backlog.
+//
+// QA loses only read_file in in_qa/ready_for_qa. get_repo_tree, grep_code and
+// get_task_pull_request survive there because QA's three legitimate reasons to
+// look at code before or during a round — debugging an observed failure from
+// its own surfaced output, scoping a resubmission's re-test from the diff, and
+// checking the case matrix is complete before execution — are tree-level and
+// diff-level, never "read this file's full body and decide from it".
+//
+// An empty allowlist means unrestricted and stays unrestricted, exactly as in
+// RestrictToolsForVerdictColumn: the policy has no deny list, and an agent
+// left unscoped was left unscoped deliberately.
+func RestrictCodeToolsForVerification(p ToolPolicy, col TaskColumn) ToolPolicy {
+	if len(p.AllowTools) == 0 {
+		return p
+	}
+	var strip []string
+	switch {
+	case pmUATColumns[col]:
+		strip = CodeExplorationTools
+	case qaVerificationColumns[col]:
+		strip = []string{"read_file"}
+	default:
+		return p
+	}
+	kept := make([]string, 0, len(p.AllowTools))
+	for _, name := range p.AllowTools {
+		if containsToolName(strip, name) {
+			continue
+		}
+		kept = append(kept, name)
+	}
+	restricted := p
+	restricted.AllowTools = kept
+	return restricted
+}
+
+func containsToolName(names []string, name string) bool {
+	for _, n := range names {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
 // MergePullRequestToolName is the tool that lands a task's change. Named here
 // because two policy decisions turn on it — it is withheld from the verdict
 // columns above, and withheld from the workspace uplift below — and a tool this

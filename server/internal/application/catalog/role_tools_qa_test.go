@@ -214,3 +214,63 @@ func TestWorkspaceUpliftNeverGrantsTheRollback(t *testing.T) {
 	assert.NotContains(t, uplifted.AllowTools, domain.RollbackReleaseToolName)
 	assert.NotContains(t, uplifted.AllowTools, domain.MergePullRequestToolName)
 }
+
+// ---------------------------------------------------------------------------
+// RestrictCodeToolsForVerification, wired at the same call-site pattern
+// board.Runner uses (RestrictToolsForVerdictColumn then
+// RestrictCodeToolsForVerification, both keyed on job.Task.Column).
+
+func pmRunPolicyIn(column domain.TaskColumn) domain.ToolPolicy {
+	return domain.RestrictCodeToolsForVerification(
+		domain.RestrictToolsForVerdictColumn(
+			domain.RestrictToolsForTaskType(
+				domain.UpliftWorkspaceTools(
+					domain.MergeToolPolicy(domain.ToolPolicy{}, productManagerToolPolicy()),
+				),
+				domain.TaskTypeTask,
+			),
+			column,
+		),
+		column,
+	)
+}
+
+// PM's whole reason to hold browser/mobile tools in pm_uat/human_uat is to
+// walk the product itself instead of reading the diff — so those columns must
+// take the code-exploration tools away, and only those two.
+func TestPMUATRunPolicyLosesCodeExplorationTools(t *testing.T) {
+	for _, column := range []domain.TaskColumn{domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT} {
+		t.Run(string(column), func(t *testing.T) {
+			policy := pmRunPolicyIn(column)
+			for _, name := range domain.CodeExplorationTools {
+				assert.NotContains(t, policy.AllowTools, name)
+			}
+			assert.Contains(t, policy.AllowTools, "browser_navigate", "PM still has to walk the product")
+			assert.Contains(t, policy.AllowTools, "review_criterion")
+		})
+	}
+}
+
+// Outside pm_uat/human_uat, PM keeps the full set — it still verifies a real
+// file or endpoint name before writing technical_description while grooming
+// the backlog.
+func TestPMKeepsCodeExplorationToolsOutsideUATColumns(t *testing.T) {
+	policy := pmRunPolicyIn(domain.TaskColumnTodo)
+	for _, name := range domain.CodeExplorationTools {
+		assert.Contains(t, policy.AllowTools, name)
+	}
+}
+
+// QA loses only read_file in its two verdict columns; the tree/diff-level
+// tools its three named exceptions actually need survive.
+func TestQARunPolicyLosesOnlyReadFileInVerdictColumns(t *testing.T) {
+	for _, column := range []domain.TaskColumn{domain.TaskColumnInQA, domain.TaskColumnReadyForQA} {
+		t.Run(string(column), func(t *testing.T) {
+			policy := domain.RestrictCodeToolsForVerification(qaRunPolicyIn(column), column)
+			assert.NotContains(t, policy.AllowTools, "read_file")
+			assert.Contains(t, policy.AllowTools, "get_repo_tree")
+			assert.Contains(t, policy.AllowTools, "grep_code")
+			assert.Contains(t, policy.AllowTools, "get_task_pull_request")
+		})
+	}
+}

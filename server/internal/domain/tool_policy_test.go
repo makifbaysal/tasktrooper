@@ -298,3 +298,51 @@ func TestDiffNeedsUIEvidence(t *testing.T) {
 		})
 	}
 }
+
+func fullCodeToolsPolicy() domain.ToolPolicy {
+	return domain.ToolPolicy{AllowTools: []string{
+		"codebase_search", "grep_code", "get_repo_tree", "get_symbol_skeleton", "expand_symbol_context", "read_file",
+		"browser_navigate", "run_terminal", "get_task_pull_request", "move_board_task",
+	}}
+}
+
+func TestRestrictCodeToolsForVerification_PMUATStripsAllCodeTools(t *testing.T) {
+	for _, column := range []domain.TaskColumn{domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT} {
+		t.Run(string(column), func(t *testing.T) {
+			got := domain.RestrictCodeToolsForVerification(fullCodeToolsPolicy(), column)
+			for _, name := range domain.CodeExplorationTools {
+				assert.NotContains(t, got.AllowTools, name)
+			}
+			assert.Contains(t, got.AllowTools, "browser_navigate")
+			assert.Contains(t, got.AllowTools, "run_terminal")
+		})
+	}
+}
+
+func TestRestrictCodeToolsForVerification_OtherColumnsKeepAllCodeTools(t *testing.T) {
+	for _, column := range []domain.TaskColumn{domain.TaskColumnTodo, domain.TaskColumnInProgress, domain.TaskColumnCodeReview} {
+		t.Run(string(column), func(t *testing.T) {
+			got := domain.RestrictCodeToolsForVerification(fullCodeToolsPolicy(), column)
+			for _, name := range domain.CodeExplorationTools {
+				assert.Contains(t, got.AllowTools, name)
+			}
+		})
+	}
+}
+
+func TestRestrictCodeToolsForVerification_QAColumnsStripOnlyReadFile(t *testing.T) {
+	for _, column := range []domain.TaskColumn{domain.TaskColumnInQA, domain.TaskColumnReadyForQA} {
+		t.Run(string(column), func(t *testing.T) {
+			got := domain.RestrictCodeToolsForVerification(fullCodeToolsPolicy(), column)
+			assert.NotContains(t, got.AllowTools, "read_file")
+			assert.Contains(t, got.AllowTools, "get_repo_tree")
+			assert.Contains(t, got.AllowTools, "grep_code")
+			assert.Contains(t, got.AllowTools, "get_task_pull_request")
+		})
+	}
+}
+
+func TestRestrictCodeToolsForVerification_UnrestrictedPolicyUntouched(t *testing.T) {
+	got := domain.RestrictCodeToolsForVerification(domain.ToolPolicy{}, domain.TaskColumnPMUAT)
+	assert.Empty(t, got.AllowTools)
+}
