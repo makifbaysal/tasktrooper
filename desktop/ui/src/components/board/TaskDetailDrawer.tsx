@@ -66,6 +66,7 @@ import {
   blockedResourceLabel,
   columnLabel,
   formatResumeIn,
+  runStatusVariant,
   TASK_PRIORITY_OPTIONS,
   TASK_TYPE_OPTIONS,
   taskPriorityLabel,
@@ -85,26 +86,6 @@ interface TaskDetailDrawerProps {
   initiativeProjects: InitiativeProject[];
   repositories: Repository[];
   onUpdated: () => void;
-}
-
-function runStatusVariant(status: string): "success" | "info" | "destructive" | "secondary" {
-  switch (status) {
-    case "completed":
-      return "success";
-    // running/waiting reads as "info", not "warning" — kept distinct from the
-    // primary action color without implying something has gone wrong.
-    case "running":
-    case "pending":
-      return "info";
-    case "failed":
-      return "destructive";
-    // Somebody stopped this run on purpose; it is history, not an incident, so
-    // it must never borrow the failure colour.
-    case "cancelled":
-      return "secondary";
-    default:
-      return "secondary";
-  }
 }
 
 // The server only accepts a stop while the run is still open, and a rerun only

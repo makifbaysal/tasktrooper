@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { pipelineStatusVariant, taskPipelineCardIcon, workOrderBlockerLabel } from "@/lib/project-board";
+import {
+  pipelineStatusVariant,
+  runStatusVariant,
+  taskPipelineCardIcon,
+  workOrderBlockerLabel,
+} from "@/lib/project-board";
 
 describe("workOrderBlockerLabel", () => {
   it("shows the single blocker's task key", () => {
@@ -59,6 +64,23 @@ describe("pipelineStatusVariant", () => {
     expect(pipelineStatusVariant("success")).toBe("success");
     expect(pipelineStatusVariant("failed")).toBe("destructive");
     expect(pipelineStatusVariant("skipped")).toBe("secondary");
+  });
+});
+
+describe("runStatusVariant", () => {
+  it("renders running and pending as the info variant, not warning, matching pipelineStatusVariant", () => {
+    expect(runStatusVariant("running")).toBe("info");
+    expect(runStatusVariant("pending")).toBe("info");
+  });
+
+  it("renders completed as success, failed as destructive and cancelled as secondary", () => {
+    expect(runStatusVariant("completed")).toBe("success");
+    expect(runStatusVariant("failed")).toBe("destructive");
+    expect(runStatusVariant("cancelled")).toBe("secondary");
+  });
+
+  it("falls back to secondary for an unknown status", () => {
+    expect(runStatusVariant("unknown")).toBe("secondary");
   });
 });
 

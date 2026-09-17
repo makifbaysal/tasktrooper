@@ -2,27 +2,9 @@ import { Activity, ArrowRight, Bot, Radio } from "lucide-react";
 import type { ActivityItem, BoardColumn } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/hooks/useI18n";
-import { columnLabel } from "@/lib/project-board";
+import { columnLabel, runStatusVariant } from "@/lib/project-board";
 import { formatRelativeDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-
-function runStatusVariant(status: string): "success" | "warning" | "destructive" | "secondary" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "running":
-    case "pending":
-      return "warning";
-    case "failed":
-      return "destructive";
-    // A run somebody stopped on purpose is history, not an incident, so the
-    // feed must not colour it like a failure.
-    case "cancelled":
-      return "secondary";
-    default:
-      return "secondary";
-  }
-}
 
 function payloadString(payload: Record<string, unknown> | undefined, key: string): string {
   const value = payload?.[key];

@@ -280,6 +280,29 @@ export function pipelineStatusVariant(
   }
 }
 
+// Shared by TaskDetailDrawer's run list and ActivityFeedItem's feed rows so a
+// running/pending item never shows "info" in one place and "warning" in the
+// other, a few pixels apart on the same board page.
+export function runStatusVariant(status: string): "success" | "info" | "destructive" | "secondary" {
+  switch (status) {
+    case "completed":
+      return "success";
+    // running/waiting reads as "info", not "warning" — kept distinct from the
+    // primary action color without implying something has gone wrong.
+    case "running":
+    case "pending":
+      return "info";
+    case "failed":
+      return "destructive";
+    // Somebody stopped this run on purpose; it is history, not an incident, so
+    // it must never borrow the failure colour.
+    case "cancelled":
+      return "secondary";
+    default:
+      return "secondary";
+  }
+}
+
 export function pipelineStatusLabel(status: TaskPipeline["status"]): string {
   const key = `lib.projectBoard.pipelineStatus.${status}`;
   const label = tStatic(key);
