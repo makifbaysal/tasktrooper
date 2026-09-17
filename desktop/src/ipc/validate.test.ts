@@ -3,9 +3,19 @@ import {
   ValidationError,
   validateOpenExternal,
   validateOverrides,
+  validatePreferences,
   validateRestartChild,
   validateReveal,
+  validateSettingsPatch,
 } from "./validate.js";
+
+const NOTIFICATIONS = {
+  enabled: true,
+  analizReview: true,
+  humanUat: false,
+  humanNeeded: true,
+  agentComments: true,
+};
 
 /**
  * The three payloads that reach something with consequences: a child id that
@@ -64,6 +74,40 @@ describe("validateOpenExternal", () => {
 
   it("refuses a url with a control character", () => {
     expect(() => validateOpenExternal({ url: "https://example.com\n/evil" })).toThrow(ValidationError);
+  });
+});
+
+describe("validateSettingsPatch notifications", () => {
+  it("accepts the full five-field object and keeps every value", () => {
+    expect(validateSettingsPatch({ notifications: NOTIFICATIONS }).notifications).toEqual(NOTIFICATIONS);
+  });
+
+  it("omits notifications from the result when the patch does not mention it", () => {
+    expect(validateSettingsPatch({ launchAtLogin: true }).notifications).toBeUndefined();
+  });
+
+  it("refuses a notifications object missing a field or holding a non-boolean", () => {
+    expect(() => validateSettingsPatch({ notifications: { enabled: true } })).toThrow(ValidationError);
+    expect(() => validateSettingsPatch({ notifications: { ...NOTIFICATIONS, enabled: "yes" } })).toThrow(
+      ValidationError,
+    );
+  });
+});
+
+describe("validatePreferences notifications", () => {
+  it("accepts the full five-field object alongside the existing switches", () => {
+    const result = validatePreferences({ launchAtLogin: false, notifications: NOTIFICATIONS });
+    expect(result).toEqual({ launchAtLogin: false, notifications: NOTIFICATIONS });
+  });
+
+  it("leaves launchAtLogin/autoConnect untouched when only notifications is sent", () => {
+    expect(validatePreferences({ notifications: NOTIFICATIONS })).toEqual({ notifications: NOTIFICATIONS });
+  });
+
+  it("refuses an incomplete notifications object", () => {
+    expect(() => validatePreferences({ notifications: { enabled: true, analizReview: true } })).toThrow(
+      ValidationError,
+    );
   });
 });
 

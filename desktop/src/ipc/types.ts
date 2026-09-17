@@ -160,6 +160,21 @@ export interface UserSettings {
   launchAtLogin: boolean;
   /** Start the local backend as soon as the app launches. */
   autoConnect: boolean;
+  /** Desktop notifications for board events the stakeholder must act on. */
+  notifications: NotificationPreferences;
+}
+
+/**
+ * One toggle per trigger group. `humanNeeded` covers both a blocked question
+ * and a blocked human-decision park — both mean the same thing to the
+ * stakeholder ("the board is stuck on you"), so they share one switch.
+ */
+export interface NotificationPreferences {
+  enabled: boolean;
+  analizReview: boolean;
+  humanUat: boolean;
+  humanNeeded: boolean;
+  agentComments: boolean;
 }
 
 /**

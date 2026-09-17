@@ -26,6 +26,7 @@ import type {
   ChildState,
   Diagnostics,
   LogLine,
+  NotificationPreferences,
   PreflightReport,
   WorkspaceCheck,
 } from "./types.js";
@@ -71,15 +72,17 @@ export interface HostRunnerSnapshot {
   blocker?: Blocker;
 }
 
-/** The whole user-facing configuration. Three fields, and one of them is a path. */
+/** The whole user-facing configuration. Four fields, and one of them is a path. */
 export interface HostSettings {
   workspaceDir: string;
   launchAtLogin: boolean;
   autoConnect: boolean;
+  notifications: NotificationPreferences;
 }
 
 /**
- * What the page may set directly: two switches.
+ * What the page may set directly: two switches, plus the notification
+ * preferences (always sent as a full object — see `validate.ts`).
  *
  * The workspace folder is deliberately NOT here. A page can ask for the native
  * picker — which the user then drives — but it cannot name a path, because
@@ -89,6 +92,7 @@ export interface HostSettings {
 export interface HostPreferences {
   launchAtLogin?: boolean;
   autoConnect?: boolean;
+  notifications?: NotificationPreferences;
 }
 
 /** The result of the native folder picker: null when the user cancelled. */

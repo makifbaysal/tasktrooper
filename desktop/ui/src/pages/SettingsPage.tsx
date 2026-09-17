@@ -1,4 +1,4 @@
-import { Globe, Package, Save } from "lucide-react";
+import { Bell, Globe, Package, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, setStoredLocale, type AppSettings } from "@/api";
@@ -8,7 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { tStatic, useI18n, type Lang } from "@/hooks/useI18n";
+import { desktopRunner, type DesktopNotificationPreferences } from "@/lib/desktop-bridge";
+
+const NOTIFICATION_CATEGORY_FIELDS = ["analizReview", "humanUat", "humanNeeded", "agentComments"] as const;
+type NotificationCategoryField = (typeof NOTIFICATION_CATEGORY_FIELDS)[number];
 
 const languageOptions = [
   { value: "tr", label: "Türkçe" },
@@ -83,6 +88,100 @@ function BoilerplateCatalogCard() {
           <Button variant="outline" size="sm" onClick={() => void save("")} disabled={saving}>
             {t("common.resetDefault")}
           </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function NotificationsCard() {
+  const { t } = useI18n();
+  const runner = desktopRunner();
+  const [prefs, setPrefs] = useState<DesktopNotificationPreferences | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!runner) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await runner.settings();
+      setPrefs(data.notifications);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : tStatic("settings.notifications.loadFailed"));
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runner]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const save = async (next: DesktopNotificationPreferences) => {
+    if (!runner) return;
+    setSaving(true);
+    try {
+      const data = await runner.setPreferences({ notifications: next });
+      setPrefs(data.notifications);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("settings.notifications.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!runner) {
+    return (
+      <Card className="mt-4 w-full space-y-2 p-6">
+        <Label className="flex items-center gap-2">
+          <Bell className="h-4 w-4" />
+          {t("settings.notifications.title")}
+        </Label>
+        <p className="text-sm text-muted-foreground">{t("settings.notifications.unavailable")}</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="mt-4 w-full space-y-4 p-6">
+      <div className="space-y-1">
+        <Label className="flex items-center gap-2">
+          <Bell className="h-4 w-4" />
+          {t("settings.notifications.title")}
+        </Label>
+        <p className="text-sm text-muted-foreground">{t("settings.notifications.help")}</p>
+      </div>
+      {loading || !prefs ? (
+        <Skeleton className="h-32 w-full" />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="notifications-enabled">{t("settings.notifications.enabled")}</Label>
+            <Switch
+              id="notifications-enabled"
+              checked={prefs.enabled}
+              disabled={saving}
+              onCheckedChange={(checked) => void save({ ...prefs, enabled: checked })}
+            />
+          </div>
+          {NOTIFICATION_CATEGORY_FIELDS.map((field: NotificationCategoryField) => (
+            <div key={field} className="flex items-center justify-between pl-4">
+              <Label htmlFor={`notifications-${field}`} className="text-muted-foreground">
+                {t(`settings.notifications.${field}`)}
+              </Label>
+              <Switch
+                id={`notifications-${field}`}
+                checked={prefs[field]}
+                disabled={saving || !prefs.enabled}
+                onCheckedChange={(checked) => void save({ ...prefs, [field]: checked })}
+              />
+            </div>
+          ))}
         </div>
       )}
     </Card>
@@ -183,6 +282,7 @@ export function SettingsPage() {
         </Card>
       )}
       <BoilerplateCatalogCard />
+      <NotificationsCard />
     </>
   );
 }

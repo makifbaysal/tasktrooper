@@ -21,6 +21,7 @@ function recorder(overrides: Partial<QuitSteps> = {}) {
   const order: string[] = [];
   const steps: QuitSteps = {
     stopUpdates: () => order.push("stop-updates"),
+    stopNotifications: () => order.push("stop-notifications"),
     destroyTray: () => order.push("destroy-tray"),
     drain: async () => {
       order.push("drain:start");
@@ -47,7 +48,7 @@ describe("quitSequence", () => {
     const { order, quit } = recorder();
     await quit.run();
 
-    expect(order).toEqual(["stop-updates", "destroy-tray", "drain:start", "drain:done", "exit:0"]);
+    expect(order).toEqual(["stop-updates", "stop-notifications", "destroy-tray", "drain:start", "drain:done", "exit:0"]);
     // Squirrel's ShipIt applies a staged update when this process exits, which
     // is what makes "applies on quit" true. What must NOT happen is
     // quitAndInstall(), because that is the call that brings the app back —
@@ -61,6 +62,7 @@ describe("quitSequence", () => {
 
     expect(order).toEqual([
       "stop-updates",
+      "stop-notifications",
       "destroy-tray",
       "drain:start",
       "drain:done",
@@ -122,7 +124,7 @@ describe("quitSequence", () => {
 
     // A child that refuses to die must not turn Quit into a hang.
     await expect(quit.run()).resolves.toBeUndefined();
-    expect(order).toEqual(["stop-updates", "destroy-tray", "drain:start", "exit:0"]);
+    expect(order).toEqual(["stop-updates", "stop-notifications", "destroy-tray", "drain:start", "exit:0"]);
   });
 
   it("does not drain twice when quit is pressed twice", async () => {

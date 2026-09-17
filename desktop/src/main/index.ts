@@ -24,6 +24,7 @@ import { registerIpc, type IpcServices } from "./ipc.js";
 import { quitSequence } from "./quit.js";
 import { APP_ORIGIN, originOf, registerAppSchemePrivileges, serveAppScheme } from "./services/app-scheme.js";
 import { binDir, dataDir } from "./services/detect.js";
+import { NotificationWatcher } from "./services/notifications.js";
 import { FEED_DEBUG_ENV, UpdateService, resolveFeed, type UpdaterBackend } from "./services/updater.js";
 import { Supervisor } from "./supervisor/supervisor.js";
 import { AppTray, setLaunchAtLogin } from "./tray.js";
@@ -55,6 +56,19 @@ const supervisor = new Supervisor();
  */
 let secrets: LocalSecrets | null = null;
 let tray: AppTray | null = null;
+
+/**
+ * Polls the backend the moment it becomes reachable and stops the moment it
+ * doesn't, so it never notifies about a task snapshot the backend cannot
+ * currently confirm. Built once, at `whenReady` — see the `supervisor.on("state", ...)`
+ * listener below for its start/stop and `quit.run()` for its teardown.
+ */
+const notifications = new NotificationWatcher({
+  apiBase: () => supervisor.apiBase ?? null,
+  apiToken: () => secrets?.api_token ?? null,
+  getPreferences: () => settingsStore.get().notifications,
+  onNotificationClick: () => showWindow("/board"),
+});
 
 /**
  * Auto-update, built at `whenReady` because resolving the feed reads
@@ -208,6 +222,7 @@ function checkedOverrides(patch: HostOverrides): HostOverrides {
  */
 const quit = quitSequence({
   stopUpdates: () => updates?.stop(),
+  stopNotifications: () => notifications.stop(),
   destroyTray: () => {
     tray?.destroy();
     tray = null;
@@ -488,6 +503,10 @@ app.whenReady().then(
       tray?.update(snapshot);
       broadcast(SHELL_EVENTS.supervisorState, snapshot);
       toCloud(CLOUD_EVENTS.runnerState, hostSnapshot(snapshot));
+      // The watcher polls only while there is a backend to poll — `start()` is
+      // idempotent, so calling it on every "running" event is harmless.
+      if (supervisor.apiBase) notifications.start();
+      else notifications.stop();
     });
     supervisor.on("logs", (lines) => toCloud(CLOUD_EVENTS.runnerLogs, lines));
 

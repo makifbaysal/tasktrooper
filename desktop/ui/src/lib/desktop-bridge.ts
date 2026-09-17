@@ -87,14 +87,28 @@ export interface DesktopLogLine {
   level?: string;
 }
 
+/**
+ * Desktop notification switches. `humanNeeded` covers both a blocked question
+ * and a blocked human-decision park — both mean "the board is stuck on you".
+ */
+export interface DesktopNotificationPreferences {
+  enabled: boolean;
+  analizReview: boolean;
+  humanUat: boolean;
+  humanNeeded: boolean;
+  agentComments: boolean;
+}
+
 export interface DesktopSettings {
   workspaceDir: string;
   launchAtLogin: boolean;
   autoConnect: boolean;
+  notifications: DesktopNotificationPreferences;
 }
 
 /**
- * What this page may set directly: two switches.
+ * What this page may set directly: two switches, plus the notification
+ * preferences (sent as a full object).
  *
  * The workspace folder is deliberately not here — this page can ask for the
  * native picker, which the user then drives, but it cannot name a path.
@@ -102,6 +116,7 @@ export interface DesktopSettings {
 export interface DesktopPreferences {
   launchAtLogin?: boolean;
   autoConnect?: boolean;
+  notifications?: DesktopNotificationPreferences;
 }
 
 export interface DesktopWorkspaceCheck {

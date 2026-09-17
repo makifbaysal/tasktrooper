@@ -35,6 +35,13 @@ export function defaultSettings(): UserSettings {
     // and then waits to be told to start its own server would open on an
     // offline screen every single time.
     autoConnect: true,
+    notifications: {
+      enabled: true,
+      analizReview: true,
+      humanUat: true,
+      humanNeeded: true,
+      agentComments: true,
+    },
   };
 }
 

@@ -34,6 +34,8 @@
 export interface QuitSteps {
   /** Stop the update timers, so nothing starts a download mid-drain. */
   stopUpdates: () => void;
+  /** Stop the notification poll, so it does not fire against a draining backend. */
+  stopNotifications: () => void;
   destroyTray: () => void;
   /** The supervisor's drain: SIGTERM to every child, and time to use it. */
   drain: () => Promise<unknown>;
@@ -72,6 +74,7 @@ export function quitSequence(steps: QuitSteps): QuitSequence {
       started = true;
 
       steps.stopUpdates();
+      steps.stopNotifications();
       steps.destroyTray();
 
       try {

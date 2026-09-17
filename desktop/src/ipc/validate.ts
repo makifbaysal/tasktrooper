@@ -14,7 +14,7 @@
  * have needed custom refinements for anyway.
  */
 
-import { CHILD_IDS, type ChildId, type UserSettings } from "./types.js";
+import { CHILD_IDS, type ChildId, type NotificationPreferences, type UserSettings } from "./types.js";
 import type {
   DiagnosticsRequest,
   OpenExternalRequest,
@@ -159,7 +159,24 @@ export function validateLogsRequest(raw: unknown): HostLogsRequest {
 }
 
 /**
- * The whole user-facing settings surface: three fields.
+ * The five notification switches, always given together — the settings page
+ * always sends the full object (spread of the current value plus the one
+ * field the user just toggled), so there is no partial-merge case to handle
+ * here or in `SettingsStore`.
+ */
+function asNotifications(value: unknown, what: string): NotificationPreferences {
+  const o = asRecord(value, what);
+  return {
+    enabled: asBoolean(o.enabled, `${what}.enabled`),
+    analizReview: asBoolean(o.analizReview, `${what}.analizReview`),
+    humanUat: asBoolean(o.humanUat, `${what}.humanUat`),
+    humanNeeded: asBoolean(o.humanNeeded, `${what}.humanNeeded`),
+    agentComments: asBoolean(o.agentComments, `${what}.agentComments`),
+  };
+}
+
+/**
+ * The whole user-facing settings surface: four fields.
  *
  * Not reachable from the bridge — the page gets `validatePreferences` below,
  * which is narrower. This one guards the settings file itself, which a person
@@ -172,11 +189,12 @@ export function validateSettingsPatch(raw: unknown): Partial<UserSettings> {
   if (o.workspaceDir !== undefined) out.workspaceDir = asAbsolutePath(o.workspaceDir, "settings.workspaceDir");
   if (o.launchAtLogin !== undefined) out.launchAtLogin = asBoolean(o.launchAtLogin, "settings.launchAtLogin");
   if (o.autoConnect !== undefined) out.autoConnect = asBoolean(o.autoConnect, "settings.autoConnect");
+  if (o.notifications !== undefined) out.notifications = asNotifications(o.notifications, "settings.notifications");
   return out;
 }
 
 /**
- * The two switches the page may set.
+ * The switches the page may set.
  *
  * The workspace folder is deliberately absent: it is a path this app creates
  * directories under and hands to a Claude Code session, so it changes only
@@ -188,6 +206,7 @@ export function validatePreferences(raw: unknown): HostPreferences {
   const out: HostPreferences = {};
   if (o.launchAtLogin !== undefined) out.launchAtLogin = asBoolean(o.launchAtLogin, "preferences.launchAtLogin");
   if (o.autoConnect !== undefined) out.autoConnect = asBoolean(o.autoConnect, "preferences.autoConnect");
+  if (o.notifications !== undefined) out.notifications = asNotifications(o.notifications, "preferences.notifications");
   return out;
 }
 
