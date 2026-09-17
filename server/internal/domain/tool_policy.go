@@ -99,6 +99,79 @@ func RepoHasUI(repo Repository) bool {
 	}
 }
 
+// nonUIPathExtensions are file extensions that never render a pixel:
+// documentation and shell scripts.
+var nonUIPathExtensions = map[string]bool{
+	".md": true, ".mdx": true, ".rst": true, ".txt": true,
+	".sh": true, ".bash": true, ".zsh": true,
+}
+
+// nonUIPathBasenames are exact, case-insensitive basenames that are
+// documentation or dependency lockfiles regardless of extension — a lockfile
+// declares versions, it never renders one.
+var nonUIPathBasenames = map[string]bool{
+	"license": true, "license.md": true, "changelog.md": true, "notice": true,
+	"package-lock.json": true, "yarn.lock": true, "pnpm-lock.yaml": true,
+	"go.sum": true, "go.mod": true,
+}
+
+// nonUIPathDirs are directories that hold repo tooling and docs, never a
+// rendered surface.
+var nonUIPathDirs = []string{".ai", ".github", "docs", "scripts"}
+
+// DiffNeedsUIEvidence reports whether a changed-file set contains anything a
+// screenshot or a DOM read could confirm or refute. RepoHasUI answers "is this
+// repository the kind of thing a person looks at" (repo-level, static); this
+// answers "did THIS diff touch the part of it a person would see" (diff-level)
+// — both are required before the code_review hand-off can demand
+// browser_screenshot/browser_read_dom/mobile_screenshot/mobile_read_ui, or a
+// docs-only run on a frontend/mobile repo is held for evidence that cannot
+// exist.
+//
+// The default is to REQUIRE evidence: an empty path list (unreadable diff) or
+// any path that is not one of the narrow non-visual categories below counts as
+// UI-relevant. Missing this gate on a real UI change is worse than an
+// unnecessary screenshot demand on a borderline one — deliberately not
+// exempting .json (locale strings render), .css/.ts/.tsx/.jsx/.vue/.html, or
+// anything unrecognized.
+func DiffNeedsUIEvidence(paths []string) bool {
+	if len(paths) == 0 {
+		return true
+	}
+	for _, p := range paths {
+		if isUIRelevantPath(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func isUIRelevantPath(p string) bool {
+	p = strings.TrimSpace(strings.ReplaceAll(p, "\\", "/"))
+	if p == "" {
+		return false
+	}
+	lower := strings.ToLower(p)
+	base := path.Base(lower)
+
+	if nonUIPathBasenames[base] {
+		return false
+	}
+	if nonUIPathExtensions[path.Ext(base)] {
+		return false
+	}
+	dir := ""
+	if idx := strings.LastIndex(lower, "/"); idx >= 0 {
+		dir = lower[:idx]
+	}
+	for _, d := range nonUIPathDirs {
+		if dir == d || strings.Contains("/"+dir+"/", "/"+d+"/") {
+			return false
+		}
+	}
+	return true
+}
+
 var QAExecutionTools = []string{
 	"run_terminal",
 	"browser_navigate",

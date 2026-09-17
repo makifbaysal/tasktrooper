@@ -16,13 +16,28 @@ import (
 
 type handoffGit struct {
 	port.GitClient
-	diff string
-	err  error
+	diff     string
+	err      error
+	files    []string
+	filesErr error
 }
 
 func (g *handoffGit) TaskDiff(context.Context, string) (string, error) {
 	return g.diff, g.err
 }
+
+func (g *handoffGit) TaskChangedFiles(context.Context, string) ([]string, error) {
+	return g.files, g.filesErr
+}
+
+type uiKindRepos struct{ kind string }
+
+func (u uiKindRepos) ResolveRootPath(context.Context, uuid.UUID) (string, error)    { return "", nil }
+func (u uiKindRepos) ResolveDescription(context.Context, uuid.UUID) (string, error) { return "", nil }
+func (u uiKindRepos) ResolveRepository(context.Context, uuid.UUID) (domain.Repository, error) {
+	return domain.Repository{Kind: u.kind}, nil
+}
+func (u uiKindRepos) ProfileForRun(context.Context, uuid.UUID, string) string { return "" }
 
 type readableUpdater struct {
 	fakeTaskUpdater
@@ -35,6 +50,12 @@ func (r *readableUpdater) GetTask(context.Context, uuid.UUID, uuid.UUID) (domain
 
 func handoffRunner(updater TaskUpdater, git port.GitClient) *Runner {
 	return &Runner{taskUpdater: updater, git: git}
+}
+
+func handoffRunnerWithProjects(updater TaskUpdater, git port.GitClient, projects RepositoryResolver) *Runner {
+	r := handoffRunner(updater, git)
+	r.projects = projects
+	return r
 }
 
 func verifiedUsage() *registry.ToolUsage {
@@ -184,6 +205,62 @@ type commentingUpdater struct {
 func (c *commentingUpdater) AddComment(_ context.Context, _, _ uuid.UUID, req domain.CreateTaskCommentRequest) (domain.TaskComment, error) {
 	c.comments = append(c.comments, req)
 	return domain.TaskComment{}, nil
+}
+
+func TestAdvanceToCodeReviewSkipsUIGateForDocsOnlyDiffOnFrontendRepo(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	git := &handoffGit{diff: "diff --git a/.ai/architecture.md b/.ai/architecture.md", files: []string{".ai/architecture.md", "scripts/dev.sh"}}
+	r := handoffRunnerWithProjects(updater, git, uiKindRepos{kind: domain.RepoKindFrontend})
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), "/w/task-1", verifiedUsage())
+
+	require.Len(t, updater.calls, 1)
+	assert.Equal(t, domain.TaskColumnCodeReview, *updater.calls[0].Column)
+	assert.Empty(t, updater.comments)
+}
+
+func TestAdvanceToCodeReviewStillBlocksUIGateForRealUIDiffOnFrontendRepo(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	git := &handoffGit{diff: "diff --git a/src/components/Button.tsx b/src/components/Button.tsx", files: []string{"src/components/Button.tsx"}}
+	r := handoffRunnerWithProjects(updater, git, uiKindRepos{kind: domain.RepoKindFrontend})
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), "/w/task-1", verifiedUsage())
+
+	assert.Empty(t, updater.calls)
+	require.Len(t, updater.comments, 1)
+	assert.Contains(t, updater.comments[0].Content, "ekrana hiç bakmadı")
+}
+
+func TestAdvanceToCodeReviewUIGateDefaultsToBlockingWhenChangedFilesUnreadable(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	git := &handoffGit{diff: "diff --git a/.ai/architecture.md b/.ai/architecture.md", filesErr: errors.New("not a git repository")}
+	r := handoffRunnerWithProjects(updater, git, uiKindRepos{kind: domain.RepoKindFrontend})
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), "/w/task-1", verifiedUsage())
+
+	assert.Empty(t, updater.calls)
+	require.Len(t, updater.comments, 1)
+	assert.Contains(t, updater.comments[0].Content, "ekrana hiç bakmadı")
+}
+
+func TestAdvanceToCodeReviewUIGateNeverFiresOnNonUIRepo(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	git := &handoffGit{diff: "diff --git a/.ai/architecture.md b/.ai/architecture.md", files: []string{".ai/architecture.md"}}
+	r := handoffRunnerWithProjects(updater, git, uiKindRepos{})
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), "/w/task-1", verifiedUsage())
+
+	require.Len(t, updater.calls, 1)
+	assert.Equal(t, domain.TaskColumnCodeReview, *updater.calls[0].Column)
+	assert.Empty(t, updater.comments)
 }
 
 func TestAdvanceToCodeReviewIsNilSafe(t *testing.T) {

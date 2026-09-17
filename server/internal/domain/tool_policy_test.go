@@ -266,3 +266,35 @@ func TestRestrictToolsForTaskType_ImplementationTasksKeepEverything(t *testing.T
 func TestRestrictToolsForTaskType_UnrestrictedPolicyUntouched(t *testing.T) {
 	assert.Empty(t, domain.RestrictToolsForTaskType(domain.ToolPolicy{}, domain.TaskTypeAnaliz).AllowTools)
 }
+
+func TestDiffNeedsUIEvidence(t *testing.T) {
+	cases := []struct {
+		name  string
+		paths []string
+		want  bool
+	}{
+		{"nil paths require evidence", nil, true},
+		{"empty paths require evidence", []string{}, true},
+		{
+			"docs and scripts tooling dirs are exempt",
+			[]string{".ai/coding-standards.md", ".ai/test-standards.md", ".ai/architecture.md", "scripts/dev.sh"},
+			false,
+		},
+		{"top-level readme is exempt", []string{"README.md"}, false},
+		{"go module files are exempt", []string{"go.mod", "go.sum"}, false},
+		{"a tsx component requires evidence", []string{"src/components/Button.tsx"}, true},
+		{
+			"one ui file among exempt ones still requires evidence",
+			[]string{"docs/setup.md", "src/App.tsx"},
+			true,
+		},
+		{"unrecognized extension defaults to requiring evidence", []string{"locales/en.json"}, true},
+		{"github workflow dir is exempt", []string{".github/workflows/ci.yml"}, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, domain.DiffNeedsUIEvidence(tc.paths))
+		})
+	}
+}

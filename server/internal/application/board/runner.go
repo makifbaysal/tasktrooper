@@ -2124,20 +2124,26 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, taskWorksp
 	// the check above: the evidence is missing, so the work stays where it is
 	// with the reason on the card.
 	if usage != nil && r.uiRepo(ctx, job.RepositoryID) && !usage.UsedAny(domain.UIObservationTools...) {
-		log.Warn().Str("task_id", job.Task.ID.String()).
-			Msg("hand-off: UI change never observed, staying in the working column")
-		if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
-			AuthorType: "system",
-			Content: "Otomatik code_review geçişi yapılmadı: bu run arayüzü değiştirdi ama ekrana hiç bakmadı " +
-				"(browser_screenshot / browser_read_dom / mobile_screenshot / mobile_read_ui kaydı yok). " +
-				"Yeşil build ekranın doğru göründüğünü söylemez — eksik ikon \"?\" olarak render edilir, taşan bir " +
-				"öğe telefonda yatay kaydırma yapar, ikisi de derlenir. Bir sonraki run dev server'ı arka planda " +
-				"başlatıp değişen sayfayı açmalı, masaüstü ve mobil boyutta ekran görüntüsü almalı ve eklediği " +
-				"öğenin DOM'da olduğunu doğrulamalı.",
-		}); cErr != nil {
-			log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: unseen-UI comment failed")
+		needsUI := true
+		if files, filesErr := r.git.TaskChangedFiles(ctx, taskWorkspace); filesErr == nil {
+			needsUI = domain.DiffNeedsUIEvidence(files)
 		}
-		return
+		if needsUI {
+			log.Warn().Str("task_id", job.Task.ID.String()).
+				Msg("hand-off: UI change never observed, staying in the working column")
+			if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
+				AuthorType: "system",
+				Content: "Otomatik code_review geçişi yapılmadı: bu run arayüzü değiştirdi ama ekrana hiç bakmadı " +
+					"(browser_screenshot / browser_read_dom / mobile_screenshot / mobile_read_ui kaydı yok). " +
+					"Yeşil build ekranın doğru göründüğünü söylemez — eksik ikon \"?\" olarak render edilir, taşan bir " +
+					"öğe telefonda yatay kaydırma yapar, ikisi de derlenir. Bir sonraki run dev server'ı arka planda " +
+					"başlatıp değişen sayfayı açmalı, masaüstü ve mobil boyutta ekran görüntüsü almalı ve eklediği " +
+					"öğenin DOM'da olduğunu doğrulamalı.",
+			}); cErr != nil {
+				log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: unseen-UI comment failed")
+			}
+			return
+		}
 	}
 
 	if reader, ok := r.taskUpdater.(taskColumnReader); ok {
