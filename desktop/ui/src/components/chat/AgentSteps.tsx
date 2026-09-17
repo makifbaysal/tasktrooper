@@ -201,8 +201,7 @@ export function IterationBody({ entry, compact }: { entry: GraphIteration; compa
 export function IterationNode({ entry, compact, nested }: { entry: GraphIteration; compact?: boolean; nested?: boolean }) {
   const { t } = useI18n();
   const isRunning = entry.status === "running";
-  const hasContent = entry.messages.length > 0 || entry.toolCalls.length > 0;
-  const [expanded, setExpanded] = useState(isRunning || (hasContent && !compact));
+  const [expanded, setExpanded] = useState(isRunning);
 
   const summary =
     entry.messages.length > 0

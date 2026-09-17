@@ -99,6 +99,89 @@ export interface GraphPlanMarker {
 
 export type TimelineEntry = GraphMessage | GraphIteration | GraphEvent | GraphSubtask | GraphPlanMarker;
 
+export type SessionGraphPhaseKind = "planning" | "execution" | "verification" | "messages";
+
+export interface SessionGraphPhase {
+  id: string;
+  kind: SessionGraphPhaseKind;
+  entries: TimelineEntry[];
+}
+
+const PLANNING_EVENT_TYPES = new Set([
+  "goal_intake_start",
+  "goal_intake_complete",
+  "planner_start",
+  "planner_complete",
+]);
+
+const VERIFICATION_EVENT_TYPES = new Set([
+  "verification_start",
+  "verification_complete",
+  "verification_failed",
+  "replan_created",
+  "replan_iteration",
+]);
+
+// An event step that is neither planning nor verification chrome — the head
+// and foot of a CLI session, the build gate, an unrecognized step type. It is
+// still a real step (never dropped, see groupSessionGraphPhases), but showing
+// it at full card width next to a subtask gave it the same visual weight as
+// the work it is only bookkeeping for.
+export function isLowSignalGraphEvent(entry: TimelineEntry): boolean {
+  if (entry.kind !== "event") return false;
+  return !PLANNING_EVENT_TYPES.has(entry.stepType) && !VERIFICATION_EVENT_TYPES.has(entry.stepType);
+}
+
+function classifyPhaseKind(entry: TimelineEntry): SessionGraphPhaseKind | null {
+  if (entry.kind === "plan") return "planning";
+  if (entry.kind === "message") return "messages";
+  if (entry.kind === "event") {
+    if (PLANNING_EVENT_TYPES.has(entry.stepType)) return "planning";
+    if (VERIFICATION_EVENT_TYPES.has(entry.stepType)) return "verification";
+  }
+  return null;
+}
+
+// Groups the flat, chronological TimelineEntry stream into labelled phases —
+// Planning / Execution (one per subtask) / Verification / Messages — so the
+// panel can render section headers instead of one undifferentiated list. A
+// subtask always opens its own execution phase, even next to another subtask;
+// everything else merges into the previous phase when it classifies the same
+// way, or attaches to whatever phase is open when it does not classify on its
+// own (a tool-chrome event, a top-level iteration) — never dropped.
+export function groupSessionGraphPhases(entries: TimelineEntry[]): SessionGraphPhase[] {
+  const phases: SessionGraphPhase[] = [];
+  let current: SessionGraphPhase | null = null;
+
+  for (const entry of entries) {
+    if (entry.kind === "subtask") {
+      current = { id: `execution-${entry.id}`, kind: "execution", entries: [entry] };
+      phases.push(current);
+      continue;
+    }
+
+    const kind = classifyPhaseKind(entry);
+    if (kind) {
+      if (current && current.kind === kind) {
+        current.entries.push(entry);
+      } else {
+        current = { id: `${kind}-${entry.id}`, kind, entries: [entry] };
+        phases.push(current);
+      }
+      continue;
+    }
+
+    if (current) {
+      current.entries.push(entry);
+    } else {
+      current = { id: `execution-${entry.id}`, kind: "execution", entries: [entry] };
+      phases.push(current);
+    }
+  }
+
+  return phases;
+}
+
 interface ToolCallPlanned {
   id: string;
   name: string;
