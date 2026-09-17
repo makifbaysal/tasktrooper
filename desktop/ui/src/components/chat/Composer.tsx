@@ -150,7 +150,7 @@ export function Composer({
       )}
       {files.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-2">
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1 text-caption text-muted-foreground">
             <Paperclip className="h-3 w-3" />
             {t("chatArea.chat.composer.ragFiles")}
           </span>
@@ -160,7 +160,7 @@ export function Composer({
               <label
                 key={file.id}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-xs transition-colors",
+                  "flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-caption transition-colors",
                   selected ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
                 )}
               >

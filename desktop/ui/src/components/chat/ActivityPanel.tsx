@@ -55,17 +55,20 @@ export function ActivityPanel({
 
   return (
     <div
+      data-testid="activity-panel"
       className={cn(
         "flex min-w-0 flex-col bg-muted/10",
-        embedded ? "w-full" : "h-full w-80 shrink-0 overflow-hidden border-l border-border",
+        embedded
+          ? "w-full"
+          : "h-full w-80 shrink-0 overflow-hidden border-l border-border shadow-[var(--shadow-raised)]",
       )}
     >
       <div className="shrink-0 border-b border-border p-3">
-        <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+        <h2 className="flex min-w-0 items-center gap-2 text-heading font-semibold">
           <Activity className="h-4 w-4 shrink-0" />
           <span className="truncate">{t("chatArea.chat.activityPanel.title")}</span>
           {isLive && (
-            <Badge variant="warning" className="ml-auto text-[10px]">
+            <Badge variant="warning" className="ml-auto text-micro">
               {t("chatArea.chat.activityPanel.live")}
             </Badge>
           )}
@@ -75,15 +78,15 @@ export function ActivityPanel({
       <Body className={cn("min-w-0", !embedded && "min-h-0 flex-1")}>
         <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden p-3">
           <section className="min-w-0 max-w-full">
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <h3 className="mb-2 text-micro font-medium uppercase tracking-wide text-muted-foreground">
               {t("chatArea.chat.activityPanel.activeRuns")}
             </h3>
             {sessionActiveRuns.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{t("chatArea.chat.activityPanel.noActiveRuns")}</p>
+              <p className="text-caption text-muted-foreground">{t("chatArea.chat.activityPanel.noActiveRuns")}</p>
             ) : (
               <ul className="space-y-2">
                 {sessionActiveRuns.map((run) => (
-                  <li key={run.id} className="min-w-0 max-w-full rounded-lg border border-warning/30 bg-warning/5 p-2 text-xs">
+                  <li key={run.id} className="min-w-0 max-w-full rounded-lg border border-warning/30 bg-warning/5 p-2 text-caption">
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <Badge variant={taskStatusVariant(run.status)} className="shrink-0">
                         {run.status}
@@ -103,7 +106,7 @@ export function ActivityPanel({
           <Separator />
 
           <section className="min-w-0 max-w-full">
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <h3 className="mb-2 text-micro font-medium uppercase tracking-wide text-muted-foreground">
               {t("chatArea.chat.activityPanel.runGraph")}
             </h3>
             {runs.length === 0 ? (
@@ -111,7 +114,7 @@ export function ActivityPanel({
             ) : (
               <div className="min-w-0 max-w-full space-y-3">
                 <Select value={selectedRunId ?? ""} onValueChange={onSelectRun}>
-                  <SelectTrigger className="h-8 w-full max-w-full text-xs">
+                  <SelectTrigger className="h-8 w-full max-w-full text-caption">
                     <SelectValue placeholder={t("chatArea.chat.activityPanel.selectRun")} />
                   </SelectTrigger>
                   <SelectContent>

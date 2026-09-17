@@ -125,14 +125,14 @@ export function MessageList({
                 )}
               >
                 <div className="mb-1 flex items-center gap-2">
-                  <span className="text-xs font-medium opacity-80">
+                  <span className="text-caption font-medium opacity-80">
                     {message.role === "user"
                       ? t("chatArea.chat.message.you")
                       : isError
                         ? t("chatArea.chat.message.error")
                         : t("chatArea.chat.message.assistant")}
                   </span>
-                  <span className="text-[10px] opacity-60">{formatDate(message.created_at)}</span>
+                  <span className="text-micro opacity-60">{formatDate(message.created_at)}</span>
                 </div>
                 {message.role === "assistant" ? (
                   <MarkdownContent content={message.content} className={cn(isError && "text-destructive")} />
@@ -189,7 +189,7 @@ export function MessageList({
         <div className="flex justify-start">
           <div className="min-w-0 max-w-[85%] rounded-2xl border border-border bg-card px-4 py-3 text-card-foreground shadow-sm">
             <div className="mb-1 flex items-center gap-2">
-              <span className="text-xs font-medium opacity-80">
+              <span className="text-caption font-medium opacity-80">
                 {t("chatArea.chat.message.assistant")}
               </span>
             </div>

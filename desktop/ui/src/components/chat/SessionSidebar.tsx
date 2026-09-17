@@ -32,9 +32,12 @@ export function SessionSidebar({
   const [deleting, setDeleting] = useState(false);
 
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-muted/20">
+    <div
+      data-testid="session-sidebar"
+      className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-muted/20 shadow-[var(--shadow-raised)]"
+    >
       <div className="flex items-center justify-between border-b border-border p-3">
-        <h2 className="text-sm font-semibold">{t("chatArea.chat.sidebar.title")}</h2>
+        <h2 className="text-heading font-semibold">{t("chatArea.chat.sidebar.title")}</h2>
         <Button size="sm" variant="outline" onClick={onCreate} className="gap-1.5">
           <MessageSquarePlus className="h-3.5 w-3.5" />
           {t("chatArea.chat.sidebar.new")}
@@ -76,7 +79,12 @@ export function SessionSidebar({
                     className="min-w-0 flex-1 px-3 py-2.5 text-left"
                   >
                     <div className="truncate text-sm font-medium">{session.title || t("chatArea.chat.sidebar.untitled")}</div>
-                    <div className="text-xs text-muted-foreground">{formatRelativeDate(session.updated_at)}</div>
+                    <div
+                      data-testid={`session-sidebar-date-${session.id}`}
+                      className="text-caption text-muted-foreground"
+                    >
+                      {formatRelativeDate(session.updated_at)}
+                    </div>
                   </button>
                   <Button
                     variant="ghost"
