@@ -27,10 +27,18 @@ type TestCaseScoreLookup interface {
 	MarkScored(ctx context.Context, ids []uuid.UUID, at time.Time) error
 }
 
+// EventExistenceChecker guards a whole-task completion credit against being
+// applied twice: the score ledger itself is the source of truth for "has this
+// already been credited", so no separate stamped state is needed.
+type EventExistenceChecker interface {
+	HasEventForTask(ctx context.Context, taskID uuid.UUID, eventType string) (bool, error)
+}
+
 type ScoreTracker struct {
 	scores         ScoreApplier
 	spans          SpanOwnerLookup
 	testCases      TestCaseScoreLookup
+	events         EventExistenceChecker
 	OnScoreUpdated func(agentID string, score float64, delta float64)
 }
 
@@ -49,6 +57,12 @@ func (st *ScoreTracker) SetSpans(spans SpanOwnerLookup) {
 // scenario verdicts confirmed. Without it QA scoring is a no-op.
 func (st *ScoreTracker) SetTestCases(testCases TestCaseScoreLookup) {
 	st.testCases = testCases
+}
+
+// SetEvents attaches the score-event ledger used to keep the QA/PM whole-task
+// completion credit idempotent. Without it that credit is never applied.
+func (st *ScoreTracker) SetEvents(events EventExistenceChecker) {
+	st.events = events
 }
 
 // blameColumns lists, per rejecting column, the columns whose owners are
@@ -112,7 +126,35 @@ func (st *ScoreTracker) OnColumnTransition(ctx context.Context, task domain.Boar
 
 	if fromQA && isQAForwardExit(to) {
 		st.scoreQARound(ctx, task, true)
+		st.creditRoleCompletion(ctx, task, "in_qa", domain.ScoreEventQATaskTested, domain.ScoreDeltaQATaskTested, "QA finished testing")
 	}
+	if from == domain.TaskColumnPMUAT && isQAForwardExit(to) {
+		st.creditRoleCompletion(ctx, task, "pm_uat", domain.ScoreEventPMUATCompleted, domain.ScoreDeltaPMUATCompleted, "PM finished UAT review")
+	}
+}
+
+// creditRoleCompletion credits the agent that owned the given column span
+// with a one-time, whole-task completion event, mirroring the developer's own
+// task_completed/task_released credit. It is idempotent per (task, event
+// type): a task whose QA or PM UAT phase is re-entered after a need_revision
+// bounce and forward-exits again must not be credited twice.
+func (st *ScoreTracker) creditRoleCompletion(ctx context.Context, task domain.BoardTask, column, evType string, delta float64, reason string) {
+	if st.events == nil {
+		return
+	}
+	already, err := st.events.HasEventForTask(ctx, task.ID, evType)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("event existence check failed")
+		return
+	}
+	if already {
+		return
+	}
+	agentID, ok := st.columnOwner(ctx, task, column)
+	if !ok {
+		return
+	}
+	st.apply(ctx, task, agentID, evType, delta, reason)
 }
 
 // isQAForwardExit reports whether a task leaving ready_for_qa/in_qa for this
@@ -237,6 +279,12 @@ func (st *ScoreTracker) blamed(ctx context.Context, task domain.BoardTask, colum
 // wrong agent because the span ledger is not wired would be worse than
 // scoring nothing.
 func (st *ScoreTracker) qaOwner(ctx context.Context, task domain.BoardTask) (uuid.UUID, bool) {
+	return st.columnOwner(ctx, task, "in_qa")
+}
+
+// columnOwner resolves the agent that owned the given column span. Like
+// qaOwner, it never falls back to the task's assignee.
+func (st *ScoreTracker) columnOwner(ctx context.Context, task domain.BoardTask, column string) (uuid.UUID, bool) {
 	if st.spans == nil {
 		return uuid.Nil, false
 	}
@@ -245,7 +293,7 @@ func (st *ScoreTracker) qaOwner(ctx context.Context, task domain.BoardTask) (uui
 		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("span owners lookup failed")
 		return uuid.Nil, false
 	}
-	agentID, ok := owners["in_qa"]
+	agentID, ok := owners[column]
 	return agentID, ok
 }
 

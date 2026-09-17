@@ -106,6 +106,17 @@ func (s *PerformanceStore) EventsInWindow(ctx context.Context, agentID uuid.UUID
 	return scanScoreEvents(rows)
 }
 
+func (s *PerformanceStore) HasEventForTask(ctx context.Context, taskID uuid.UUID, eventType string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM agent_score_events WHERE task_id = $1 AND event_type = $2)
+	`, taskID, eventType).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("has event for task: %w", err)
+	}
+	return exists, nil
+}
+
 func scanScoreEvents(rows pgx.Rows) ([]domain.AgentScoreEvent, error) {
 	var events []domain.AgentScoreEvent
 	for rows.Next() {

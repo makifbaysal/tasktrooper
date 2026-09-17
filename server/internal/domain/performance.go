@@ -27,6 +27,11 @@ const (
 	// verdict; kept small so a whole round never outweighs a single event.
 	ScoreDeltaQAValidScenarioConfirmed   float64 = +1.0
 	ScoreDeltaQAInvalidScenarioConfirmed float64 = -1.0
+	// ScoreDeltaQATaskTested/ScoreDeltaPMUATCompleted credit QA/PM with the same
+	// "a unit of work finished" weight as the developer's own completion
+	// credit, not the smaller per-scenario QA deltas above.
+	ScoreDeltaQATaskTested   float64 = +5.0
+	ScoreDeltaPMUATCompleted float64 = +5.0
 
 	ScoreEventRevisionRequested = "revision_requested"
 	ScoreEventPMUATFailed       = "pm_uat_failed"
@@ -39,6 +44,8 @@ const (
 	ScoreEventQABugFound                 = "qa_bug_found"
 	ScoreEventQAValidScenarioConfirmed   = "qa_valid_scenario_confirmed"
 	ScoreEventQAInvalidScenarioConfirmed = "qa_invalid_scenario_confirmed"
+	ScoreEventQATaskTested               = "qa_task_tested"
+	ScoreEventPMUATCompleted             = "pm_uat_completed"
 )
 
 type AgentPerformanceScore struct {

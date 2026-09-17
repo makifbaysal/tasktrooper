@@ -13,4 +13,5 @@ type AgentPerformanceStore interface {
 	ApplyDelta(ctx context.Context, input domain.ApplyScoreInput) (domain.AgentPerformanceScore, error)
 	RecentEvents(ctx context.Context, agentID uuid.UUID, limit int) ([]domain.AgentScoreEvent, error)
 	EventsInWindow(ctx context.Context, agentID uuid.UUID, from, to time.Time) ([]domain.AgentScoreEvent, error)
+	HasEventForTask(ctx context.Context, taskID uuid.UUID, eventType string) (bool, error)
 }

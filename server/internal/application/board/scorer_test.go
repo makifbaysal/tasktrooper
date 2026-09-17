@@ -12,6 +12,7 @@ import (
 )
 
 type recordedDelta struct {
+	taskID    uuid.UUID
 	agentID   uuid.UUID
 	eventType string
 	delta     float64
@@ -20,7 +21,11 @@ type recordedDelta struct {
 type fakePerfStore struct{ applied []recordedDelta }
 
 func (f *fakePerfStore) ApplyDelta(_ context.Context, in domain.ApplyScoreInput) (domain.AgentPerformanceScore, error) {
-	f.applied = append(f.applied, recordedDelta{in.AgentID, in.EventType, in.Delta})
+	var taskID uuid.UUID
+	if in.TaskID != nil {
+		taskID = *in.TaskID
+	}
+	f.applied = append(f.applied, recordedDelta{taskID, in.AgentID, in.EventType, in.Delta})
 	return domain.AgentPerformanceScore{}, nil
 }
 
@@ -50,6 +55,17 @@ func (f *fakeTestCases) MarkScored(_ context.Context, ids []uuid.UUID, _ time.Ti
 		}
 	}
 	return nil
+}
+
+type fakeEvents struct{ perf *fakePerfStore }
+
+func (f *fakeEvents) HasEventForTask(_ context.Context, taskID uuid.UUID, eventType string) (bool, error) {
+	for _, a := range f.perf.applied {
+		if a.taskID == taskID && a.eventType == eventType {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type ScorerSuite struct {
@@ -292,6 +308,109 @@ func (s *ScorerSuite) TestQARoundWithoutTestCaseStoreIsNoop() {
 
 	for _, a := range perf.applied {
 		s.NotEqual(domain.ScoreEventQABugFound, a.eventType)
+	}
+}
+
+func (s *ScorerSuite) TestQAForwardExitCreditsQATaskTested() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tracker.SetEvents(&fakeEvents{perf: perf})
+	task := domain.BoardTask{ID: uuid.New()}
+
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+
+	var got *recordedDelta
+	for i, a := range perf.applied {
+		if a.eventType == domain.ScoreEventQATaskTested {
+			got = &perf.applied[i]
+		}
+	}
+	s.Require().NotNil(got)
+	s.Equal(s.qa, got.agentID)
+	s.Equal(domain.ScoreDeltaQATaskTested, got.delta)
+}
+
+func (s *ScorerSuite) TestPMUATForwardExitCreditsPMUATCompleted() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tracker.SetEvents(&fakeEvents{perf: perf})
+	task := domain.BoardTask{ID: uuid.New()}
+
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT)
+
+	var got *recordedDelta
+	for i, a := range perf.applied {
+		if a.eventType == domain.ScoreEventPMUATCompleted {
+			got = &perf.applied[i]
+		}
+	}
+	s.Require().NotNil(got)
+	s.Equal(s.pm, got.agentID)
+	s.Equal(domain.ScoreDeltaPMUATCompleted, got.delta)
+}
+
+func (s *ScorerSuite) TestQATaskTestedIsNotCreditedTwiceAfterReEntry() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tracker.SetEvents(&fakeEvents{perf: perf})
+	task := domain.BoardTask{ID: uuid.New()}
+
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnPMUAT, domain.TaskColumnNeedRevision)
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+
+	count := 0
+	for _, a := range perf.applied {
+		if a.eventType == domain.ScoreEventQATaskTested {
+			count++
+		}
+	}
+	s.Equal(1, count)
+}
+
+func (s *ScorerSuite) TestQABounceToNeedRevisionDoesNotCreditQATaskTested() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tracker.SetEvents(&fakeEvents{perf: perf})
+
+	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+		domain.TaskColumnInQA, domain.TaskColumnNeedRevision)
+
+	for _, a := range perf.applied {
+		s.NotEqual(domain.ScoreEventQATaskTested, a.eventType)
+	}
+}
+
+func (s *ScorerSuite) TestPMUATBounceToNeedRevisionDoesNotCreditPMUATCompleted() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+	tracker.SetEvents(&fakeEvents{perf: perf})
+
+	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+		domain.TaskColumnPMUAT, domain.TaskColumnNeedRevision)
+
+	for _, a := range perf.applied {
+		s.NotEqual(domain.ScoreEventPMUATCompleted, a.eventType)
+	}
+}
+
+func (s *ScorerSuite) TestRoleCompletionWithoutEventsIsNoop() {
+	perf := &fakePerfStore{}
+	tracker := board.NewScoreTracker(perf)
+	tracker.SetSpans(s.owners())
+
+	s.NotPanics(func() {
+		tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
+			domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+	})
+
+	for _, a := range perf.applied {
+		s.NotEqual(domain.ScoreEventQATaskTested, a.eventType)
 	}
 }
 

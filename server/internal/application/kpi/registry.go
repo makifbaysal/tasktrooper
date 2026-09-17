@@ -52,7 +52,10 @@ var metricRegistry = map[string]MetricDef{
 			Description: "Number of tasks moved into the done/released column",
 			Direction:   domain.KPIDirectionHigherBetter,
 		},
-		Resolve: countScoreEvents(domain.ScoreEventTaskCompleted, domain.ScoreEventTaskReleased),
+		Resolve: countScoreEvents(
+			domain.ScoreEventTaskCompleted, domain.ScoreEventTaskReleased,
+			domain.ScoreEventQATaskTested, domain.ScoreEventPMUATCompleted,
+		),
 	},
 	"revisions_received": {
 		Info: domain.KPIMetricInfo{

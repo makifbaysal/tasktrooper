@@ -17,6 +17,28 @@ func (s *stubSpans) CleanTaskHours(context.Context, uuid.UUID, []string, time.Ti
 	return s.hours, nil
 }
 
+type stubPerf struct{ events []domain.AgentScoreEvent }
+
+func (s *stubPerf) GetScore(context.Context, uuid.UUID) (domain.AgentPerformanceScore, error) {
+	return domain.AgentPerformanceScore{}, nil
+}
+
+func (s *stubPerf) ApplyDelta(context.Context, domain.ApplyScoreInput) (domain.AgentPerformanceScore, error) {
+	return domain.AgentPerformanceScore{}, nil
+}
+
+func (s *stubPerf) RecentEvents(context.Context, uuid.UUID, int) ([]domain.AgentScoreEvent, error) {
+	return s.events, nil
+}
+
+func (s *stubPerf) EventsInWindow(context.Context, uuid.UUID, time.Time, time.Time) ([]domain.AgentScoreEvent, error) {
+	return s.events, nil
+}
+
+func (s *stubPerf) HasEventForTask(context.Context, uuid.UUID, string) (bool, error) {
+	return false, nil
+}
+
 func resolveMetric(t *testing.T, key string, hours []float64) (float64, error) {
 	t.Helper()
 	def, err := kpi.MetricByKey(key)
@@ -71,6 +93,43 @@ func TestQAStageCoversHandoverAndTesting(t *testing.T) {
 func TestReviewEscapesIsTracked(t *testing.T) {
 	info := mustInfo(t, "review_escapes")
 	require.Equal(t, domain.KPIDirectionLowerBetter, info.Direction)
+}
+
+func TestTasksCompletedCountsQATaskTested(t *testing.T) {
+	def, err := kpi.MetricByKey("tasks_completed")
+	require.NoError(t, err)
+	agentID := uuid.New()
+	deps := kpi.MetricDeps{Perf: &stubPerf{events: []domain.AgentScoreEvent{
+		{AgentID: agentID, EventType: domain.ScoreEventQATaskTested},
+	}}}
+	value, err := def.Resolve(context.Background(), deps, agentID, time.Now().Add(-24*time.Hour), time.Now())
+	require.NoError(t, err)
+	require.Equal(t, 1.0, value)
+}
+
+func TestTasksCompletedCountsPMUATCompleted(t *testing.T) {
+	def, err := kpi.MetricByKey("tasks_completed")
+	require.NoError(t, err)
+	agentID := uuid.New()
+	deps := kpi.MetricDeps{Perf: &stubPerf{events: []domain.AgentScoreEvent{
+		{AgentID: agentID, EventType: domain.ScoreEventPMUATCompleted},
+	}}}
+	value, err := def.Resolve(context.Background(), deps, agentID, time.Now().Add(-24*time.Hour), time.Now())
+	require.NoError(t, err)
+	require.Equal(t, 1.0, value)
+}
+
+func TestTasksCompletedForDeveloperIsUnchangedByQAPMEvents(t *testing.T) {
+	def, err := kpi.MetricByKey("tasks_completed")
+	require.NoError(t, err)
+	agentID := uuid.New()
+	deps := kpi.MetricDeps{Perf: &stubPerf{events: []domain.AgentScoreEvent{
+		{AgentID: agentID, EventType: domain.ScoreEventTaskCompleted},
+		{AgentID: agentID, EventType: domain.ScoreEventTaskReleased},
+	}}}
+	value, err := def.Resolve(context.Background(), deps, agentID, time.Now().Add(-24*time.Hour), time.Now())
+	require.NoError(t, err)
+	require.Equal(t, 2.0, value)
 }
 
 func TestAllListedMetricsAreResolvable(t *testing.T) {
