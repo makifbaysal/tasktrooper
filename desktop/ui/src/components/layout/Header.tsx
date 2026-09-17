@@ -15,13 +15,13 @@ export function Header({ title, onMenuClick }: HeaderProps) {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border bg-background/80 px-4 backdrop-blur-sm">
+    <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border bg-surface-raised/90 px-4 shadow-[var(--shadow-raised)] backdrop-blur-sm">
       <div className="flex min-w-0 items-center gap-3">
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={onMenuClick}>
           <Menu className="h-5 w-5" />
         </Button>
-        <SidebarBrand />
-        {title && <h1 className="truncate text-sm font-semibold">{title}</h1>}
+        <SidebarBrand className="lg:hidden" />
+        {title && <h1 className="truncate text-title font-semibold">{title}</h1>}
       </div>
 
       <div className="min-w-0 flex-1 self-stretch" aria-hidden />

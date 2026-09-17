@@ -7,9 +7,6 @@ export const frame = {
       lightTheme: "Light theme",
       darkTheme: "Dark theme",
     },
-    brand: {
-      subtitle: "Admin Console",
-    },
     health: {
       providerLocal: "Local",
       notConnected: "Not connected",

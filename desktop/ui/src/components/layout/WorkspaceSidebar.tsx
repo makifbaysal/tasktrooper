@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { Spinner } from "@/components/ui/spinner";
 import { NewAgentDialog } from "@/components/workspace/NewAgentDialog";
+import { SidebarBrand } from "@/components/layout/SidebarBrand";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
 import { SETUP_PATH } from "@/lib/setup";
@@ -55,13 +56,16 @@ export function WorkspaceSidebar({
         )}
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className={cn("flex items-center border-b border-sidebar-border p-2", collapsed && "justify-center")}>
+            <SidebarBrand collapsed={collapsed} />
+          </div>
           {!collapsed && (
             <div className="p-2">
               <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/30 px-3 py-2">
                 {loading ? (
                   <Spinner size="sm" />
                 ) : (
-                  <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
+                  <p className="truncate text-body font-semibold text-sidebar-accent-foreground">
                     {t("frame.layout.sidebar.workspace")}
                   </p>
                 )}
@@ -115,7 +119,7 @@ export function WorkspaceSidebar({
 
             {!collapsed ? (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
-                <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                <span className="text-micro font-medium tracking-wide text-muted-foreground uppercase">
                   {t("frame.layout.sidebar.agentChats")}
                 </span>
                 <button
@@ -150,7 +154,7 @@ export function WorkspaceSidebar({
             ))}
 
             {!collapsed && (
-              <p className="px-3 pt-4 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              <p className="px-3 pt-4 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase">
                 {t("frame.layout.sidebar.management")}
               </p>
             )}

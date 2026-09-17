@@ -41,7 +41,7 @@ export function WorkspaceShell({
           className={
             fullBleed
               ? "flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"
-              : "w-full min-w-0 flex-1 overflow-auto p-6 scrollbar-thin"
+              : "w-full min-w-0 flex-1 overflow-auto p-page scrollbar-thin"
           }
         >
           {children}

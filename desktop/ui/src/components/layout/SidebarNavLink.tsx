@@ -26,11 +26,11 @@ export function SidebarNavLink({
       onClick={onClick}
       className={({ isActive }) =>
         cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          "flex items-center gap-3 rounded-lg px-3 py-2 text-body font-medium transition-colors active:scale-[0.98]",
           collapsed && "justify-center px-2",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+            : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground active:bg-sidebar-accent/80",
         )
       }
       title={collapsed ? label : undefined}

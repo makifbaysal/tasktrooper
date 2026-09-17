@@ -8,9 +8,6 @@ export const frame: FrameDict = {
       lightTheme: "Açık tema",
       darkTheme: "Koyu tema",
     },
-    brand: {
-      subtitle: "Yönetim Konsolu",
-    },
     health: {
       providerLocal: "Yerel",
       notConnected: "Bağlı değil",
