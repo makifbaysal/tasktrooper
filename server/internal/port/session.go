@@ -34,6 +34,16 @@ type SessionStore interface {
 	// This is what lets "open the chat about this task" be idempotent instead of
 	// opening a second thread on every click.
 	FindByTask(ctx context.Context, taskID uuid.UUID) (domain.Session, bool, error)
+	// ParkPendingTurn records a chat turn that hit the Claude Code usage limit,
+	// due to rerun once resumeAt passes. An UPSERT — a second park on the same
+	// session (there should only ever be one run in flight per session, see
+	// Service.registerRun) replaces the first rather than erroring. See
+	// domain.PendingSessionTurn and migration 137.
+	ParkPendingTurn(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy, resumeAt time.Time) error
+	// TakePendingSessionTurn hands back (and atomically unparks) one chat turn
+	// whose Claude Code usage limit has expired, oldest park first — the
+	// release half of ParkPendingTurn, read by session.SessionQuotaSweeper.
+	TakePendingSessionTurn(ctx context.Context, now time.Time) (domain.PendingSessionTurn, bool, error)
 }
 
 // SessionActionStore persists the board records an agent touched inside a chat

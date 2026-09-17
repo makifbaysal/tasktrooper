@@ -11,7 +11,7 @@
  * is the thin I/O shell around it.
  */
 
-import { Notification } from "electron";
+import { Notification, powerSaveBlocker } from "electron";
 import type { NotificationPreferences } from "../../ipc/types.js";
 
 export const POLL_INTERVAL_MS = 15_000;
@@ -59,6 +59,16 @@ export interface DiffResult {
   toNotify: NotificationCandidate[];
   nextSnapshot: TaskSnapshot;
   nextCursor: ActivityCursor | null;
+}
+
+/**
+ * Whether any task is actively being worked, the proxy this app has for "a
+ * background agent run is in flight": the run itself happens server-side
+ * (`board/runner.go`), and the task list this watcher already polls is the
+ * cheapest signal of it reaching the Electron main process.
+ */
+export function hasRunningTask(tasks: RemoteTask[]): boolean {
+  return tasks.some((task) => task.column === "in_progress");
 }
 
 function truncate(s: string, max = BODY_MAX): string {
@@ -177,6 +187,11 @@ export class NotificationWatcher {
   #snapshot: TaskSnapshot | null = null;
   #cursor: ActivityCursor | null = null;
   #timer: ReturnType<typeof setInterval> | null = null;
+  // The id powerSaveBlocker.start() returned, or null when nothing is held.
+  // Lives here, not a sibling service, because this watcher is already the
+  // one thing polling `/v1/tasks` every tick — a second poller would just be
+  // this one's data fetched twice.
+  #wakeBlockerId: number | null = null;
 
   constructor(private readonly options: NotificationWatcherOptions) {}
 
@@ -189,6 +204,25 @@ export class NotificationWatcher {
   stop(): void {
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = null;
+    // The backend that would tell us a task finished just went away (stopped
+    // polling, app quitting) — holding the blocker past that point has no
+    // signal left that could ever release it.
+    this.#releaseWakeBlocker();
+  }
+
+  #syncWakeGuard(tasks: RemoteTask[]): void {
+    const shouldBlock = hasRunningTask(tasks);
+    if (shouldBlock && this.#wakeBlockerId === null) {
+      this.#wakeBlockerId = powerSaveBlocker.start("prevent-display-sleep");
+    } else if (!shouldBlock) {
+      this.#releaseWakeBlocker();
+    }
+  }
+
+  #releaseWakeBlocker(): void {
+    if (this.#wakeBlockerId === null) return;
+    powerSaveBlocker.stop(this.#wakeBlockerId);
+    this.#wakeBlockerId = null;
   }
 
   async #tick(): Promise<void> {
@@ -213,6 +247,8 @@ export class NotificationWatcher {
       // a reason to treat the next real poll as a seed.
       return;
     }
+
+    this.#syncWakeGuard(tasks);
 
     const prefs = this.options.getPreferences();
     const { toNotify, nextSnapshot, nextCursor } = diffForNotifications(

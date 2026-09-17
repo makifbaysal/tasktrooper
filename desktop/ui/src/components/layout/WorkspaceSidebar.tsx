@@ -1,11 +1,12 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Bot, Brain, FileText, Inbox, Kanban, Layers, ListChecks, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Rocket, Settings } from "lucide-react";
 import type { Agent, WorkspaceConfig } from "@/api";
 import { Button } from "@/components/ui/button";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { Spinner } from "@/components/ui/spinner";
 import { NewAgentDialog } from "@/components/workspace/NewAgentDialog";
-import { SidebarBrand } from "@/components/layout/SidebarBrand";
+import { useAgentUnread } from "@/hooks/useAgentUnread";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
 import { SETUP_PATH } from "@/lib/setup";
@@ -39,6 +40,11 @@ export function WorkspaceSidebar({
   // this surface could not READ is not something to nag about.
   const { needsWork } = useSetup();
 
+  const location = useLocation();
+  const activeAgentMatch = /^\/agents\/([^/]+)\/chat/.exec(location.pathname);
+  const activeAgentId = activeAgentMatch ? activeAgentMatch[1] : null;
+  const unreadAgentIds = useAgentUnread(agents, activeAgentId);
+
   return (
     <>
       {mobileOpen && (
@@ -56,9 +62,6 @@ export function WorkspaceSidebar({
         )}
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className={cn("flex items-center border-b border-sidebar-border p-2", collapsed && "justify-center")}>
-            <SidebarBrand collapsed={collapsed} />
-          </div>
           {!collapsed && (
             <div className="p-2">
               <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/30 px-3 py-2">
@@ -150,6 +153,17 @@ export function WorkspaceSidebar({
                 end={false}
                 collapsed={collapsed}
                 onClick={onMobileClose}
+                trailing={
+                  unreadAgentIds.has(agent.id) ? (
+                    // A dot, not a Badge: there is no count to show (the
+                    // server has no per-viewer read state to count against,
+                    // see useAgentUnread), only "something changed here".
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                      title={t("frame.layout.sidebar.unreadAgent")}
+                    />
+                  ) : null
+                }
               />
             ))}
 

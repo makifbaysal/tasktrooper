@@ -194,6 +194,25 @@ export function SetupProvider({ children }: { children: ReactNode }) {
     if (backendUp) void loadServer();
   }, [backendUp, loadServer]);
 
+  // Refreshing on focus, not on a timer: the CLI connection flag is a stored
+  // row (cheap to re-read) that can go stale behind the user's back — signed
+  // out in another window, expired mid-session — so coming back to this
+  // window is the one moment worth re-reading it, without polling the way
+  // loadServer's own comment says not to.
+  useEffect(() => {
+    if (!backendUp) return;
+    const onFocus = () => {
+      if (document.visibilityState === "hidden") return;
+      void loadServer();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [backendUp, loadServer]);
+
   const refresh = useCallback(async () => {
     await Promise.all([loadPreflight(), loadServer()]);
   }, [loadPreflight, loadServer]);

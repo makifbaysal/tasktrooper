@@ -200,6 +200,72 @@ func (s *SessionStore) UpdateCLISessionID(ctx context.Context, id uuid.UUID, cli
 	return nil
 }
 
+func (s *SessionStore) ParkPendingTurn(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy, resumeAt time.Time) error {
+	reqJSON, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal pending session turn request: %w", err)
+	}
+	policyJSON, err := json.Marshal(policy)
+	if err != nil {
+		return fmt.Errorf("marshal pending session turn policy: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE sessions
+		SET quota_resume_at = $2, quota_pending_request = $3, quota_pending_policy = $4
+		WHERE id = $1
+	`, sessionID, resumeAt, reqJSON, policyJSON)
+	if err != nil {
+		return fmt.Errorf("park pending session turn: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrSessionNotFound
+	}
+	return nil
+}
+
+// TakePendingSessionTurn is ParkPendingTurn's other half: the sweeper's claim.
+// FOR UPDATE SKIP LOCKED is what keeps two sweeper ticks (or two pods) from
+// resuming the same chat twice, the same as TakeQuotaResumable does for board
+// tasks.
+func (s *SessionStore) TakePendingSessionTurn(ctx context.Context, now time.Time) (domain.PendingSessionTurn, bool, error) {
+	var (
+		sessionID  uuid.UUID
+		reqJSON    []byte
+		policyJSON []byte
+		resumeAt   time.Time
+	)
+	err := s.pool.QueryRow(ctx, `
+		WITH claimed AS (
+			SELECT id FROM sessions
+			WHERE quota_resume_at IS NOT NULL AND quota_resume_at <= $1
+			ORDER BY quota_resume_at
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		), cleared AS (
+			UPDATE sessions
+			SET quota_resume_at = NULL, quota_pending_request = NULL, quota_pending_policy = NULL
+			FROM claimed WHERE sessions.id = claimed.id
+			RETURNING sessions.id
+		)
+		SELECT id, quota_pending_request, quota_pending_policy, quota_resume_at
+		FROM sessions WHERE id = (SELECT id FROM claimed)
+	`, now).Scan(&sessionID, &reqJSON, &policyJSON, &resumeAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.PendingSessionTurn{}, false, nil
+	}
+	if err != nil {
+		return domain.PendingSessionTurn{}, false, fmt.Errorf("take pending session turn: %w", err)
+	}
+	pending := domain.PendingSessionTurn{SessionID: sessionID, ResumeAt: resumeAt}
+	if err := json.Unmarshal(reqJSON, &pending.Request); err != nil {
+		return domain.PendingSessionTurn{}, false, fmt.Errorf("unmarshal pending session turn request: %w", err)
+	}
+	if err := json.Unmarshal(policyJSON, &pending.Policy); err != nil {
+		return domain.PendingSessionTurn{}, false, fmt.Errorf("unmarshal pending session turn policy: %w", err)
+	}
+	return pending, true, nil
+}
+
 func (s *SessionStore) Get(ctx context.Context, id uuid.UUID) (domain.Session, error) {
 	sess, err := s.scanSession(s.pool.QueryRow(ctx, `
 		SELECT `+sessionColumns+`

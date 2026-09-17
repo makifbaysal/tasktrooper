@@ -45,6 +45,12 @@ func (s *stubSessionStore) BindTask(context.Context, uuid.UUID, uuid.UUID) error
 func (s *stubSessionStore) FindByTask(context.Context, uuid.UUID) (domain.Session, bool, error) {
 	return domain.Session{}, false, nil
 }
+func (s *stubSessionStore) ParkPendingTurn(context.Context, uuid.UUID, domain.SessionMessageRequest, domain.ToolPolicy, time.Time) error {
+	return nil
+}
+func (s *stubSessionStore) TakePendingSessionTurn(context.Context, time.Time) (domain.PendingSessionTurn, bool, error) {
+	return domain.PendingSessionTurn{}, false, nil
+}
 
 type stubActionStore struct {
 	actions []domain.SessionAction

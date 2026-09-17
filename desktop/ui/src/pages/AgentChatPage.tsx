@@ -25,7 +25,7 @@ import { useRunActivity } from "@/hooks/useRunActivity";
 import { useAgentSessions } from "@/hooks/useAgentSessions";
 import { usePolling } from "@/hooks/usePolling";
 import { isAbortError } from "@/lib/errors";
-import { RATE_LIMIT_ERROR_TYPE } from "@/lib/chat";
+import { QUOTA_QUEUED_ERROR_TYPE, RATE_LIMIT_ERROR_TYPE } from "@/lib/chat";
 import { AgentStreamError, countAssistantMessages, sendSessionMessageWithRecovery } from "@/lib/sessionSend";
 
 function isActiveRunStatus(status: string): boolean {
@@ -391,19 +391,28 @@ export function AgentChatPage() {
       // A provider rate limit is the exception: it is a condition of the
       // account with an action attached, so it is a warning carrying the
       // server's own sentence, not a red failure.
-      if (e instanceof AgentStreamError && e.type === RATE_LIMIT_ERROR_TYPE) {
+      const isQuotaQueued = e instanceof AgentStreamError && e.type === QUOTA_QUEUED_ERROR_TYPE;
+      if (isQuotaQueued) {
+        // Not a failure at all — session.Service already queued this exact
+        // turn (see SessionQuotaSweeper) and will answer it on its own once
+        // the usage limit lifts. A calm info toast, and nothing handed back
+        // to the composer: there is nothing here for the user to retry.
+        toast.info(e.message || t("chatArea.chat.message.quotaQueuedTitle"));
+      } else if (e instanceof AgentStreamError && e.type === RATE_LIMIT_ERROR_TYPE) {
         toast.warning(e.message || t("chatArea.chat.message.rateLimitTitle"));
       } else {
         toast.error(e instanceof Error ? e.message : t("agentArea.chat.toast.sendFailed"));
       }
       if (!stillHere()) return;
-      // Hand the text back so the send can be retried — reloading the server
-      // transcript drops the optimistic bubble, and the user would otherwise
-      // have to retype from memory.
-      if (!contentOverride) setInput((prev) => prev || content);
-      // Same for the queued attachments: they are already uploaded, only the
-      // message that was to carry them failed.
-      if (!contentOverride) setPendingAttachments((prev) => (prev.length > 0 ? prev : attachmentsAtSend));
+      if (!isQuotaQueued) {
+        // Hand the text back so the send can be retried — reloading the server
+        // transcript drops the optimistic bubble, and the user would otherwise
+        // have to retype from memory.
+        if (!contentOverride) setInput((prev) => prev || content);
+        // Same for the queued attachments: they are already uploaded, only the
+        // message that was to carry them failed.
+        if (!contentOverride) setPendingAttachments((prev) => (prev.length > 0 ? prev : attachmentsAtSend));
+      }
       await loadMessages(sessionAtSend);
     } finally {
       if (streamAbortRef.current === abort) streamAbortRef.current = null;

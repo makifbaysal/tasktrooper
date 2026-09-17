@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,13 @@ interface SidebarNavLinkProps {
   collapsed: boolean;
   end?: boolean;
   onClick?: () => void;
+  /**
+   * Rendered after the label — a notification badge, a count. Hidden while
+   * collapsed along with the label itself: there is no room for either next
+   * to the bare icon, and a badge with no label to sit beside would read as
+   * unexplained.
+   */
+  trailing?: ReactNode;
 }
 
 export function SidebarNavLink({
@@ -18,6 +26,7 @@ export function SidebarNavLink({
   collapsed,
   end,
   onClick,
+  trailing,
 }: SidebarNavLinkProps) {
   return (
     <NavLink
@@ -36,7 +45,8 @@ export function SidebarNavLink({
       title={collapsed ? label : undefined}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      {!collapsed && <span>{label}</span>}
+      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
+      {!collapsed && trailing}
     </NavLink>
   );
 }

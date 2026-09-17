@@ -38,6 +38,7 @@ export const frame = {
       projects: "Projects",
       agentChats: "Agent Chats",
       newAgent: "New agent",
+      unreadAgent: "New message",
       management: "Management",
       teamMemory: "Team Memory",
       settings: "Settings",

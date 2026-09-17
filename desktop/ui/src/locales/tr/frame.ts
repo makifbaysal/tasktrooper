@@ -39,6 +39,7 @@ export const frame: FrameDict = {
       projects: "Projeler",
       agentChats: "Ajan Sohbetleri",
       newAgent: "Yeni ajan",
+      unreadAgent: "Yeni mesaj",
       management: "Yönetim",
       teamMemory: "Takım Hafızası",
       settings: "Ayarlar",

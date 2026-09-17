@@ -586,6 +586,13 @@ export function TaskDetailDrawer({
             <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
             <ScrollArea className="min-h-0 flex-1">
               <div className="space-y-6 px-6 py-5">
+                {/* The stakeholder's own decision is the single most important
+                    thing on a card sitting in human_uat/analiz_review — first
+                    in the scroll area, above even the blocked-park banner, so
+                    it cannot be missed the way the old low-contrast inline
+                    buttons were. */}
+                <HumanUatDecision task={task} repositoryId={repositoryId} onUpdated={onUpdated} />
+                <AnalizReviewDecision task={task} repositoryId={repositoryId} onUpdated={onUpdated} />
                 {/* A parked task is waiting on a human, so the question outranks
                     every other field here — it is what unblocks the work. */}
                 {task.blocked_at && (
@@ -636,8 +643,6 @@ export function TaskDetailDrawer({
                     )}
                   </section>
                 )}
-                <HumanUatDecision task={task} repositoryId={repositoryId} onUpdated={onUpdated} />
-                <AnalizReviewDecision task={task} repositoryId={repositoryId} onUpdated={onUpdated} />
                 {/* A schema change cannot reach production until a stage deploy
                     has actually applied it, so the gate's state belongs next to
                     the task, not only in the release error. */}

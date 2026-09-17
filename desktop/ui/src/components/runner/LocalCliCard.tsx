@@ -126,8 +126,8 @@ export function LocalCliCard({
             {t("settingsPages.llm.badgeConnected")}
           </Badge>
         ) : (
-          <Badge variant="secondary" className="whitespace-nowrap">
-            {t("settingsPages.llm.badgeLocalCli")}
+          <Badge variant="outline" className="whitespace-nowrap">
+            {t("settingsPages.llm.badgeNotConnected")}
           </Badge>
         )}
       </div>

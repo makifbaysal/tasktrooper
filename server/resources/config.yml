@@ -147,7 +147,7 @@ tools:
     sandbox:
       mode: blocklist
       allowed_commands: ["ls", "cat", "grep", "curl", "echo", "pwd", "find", "head", "tail", "mkdir", "touch", "go", "tee", "cd", "cp", "mv", "wc"]
-      blocked_patterns: ["rm -rf", "sudo", "chmod", "mkfs", "> /dev", "dd if=", "shutdown", "reboot", "| sh", "|sh", "| bash", "|bash"]
+      blocked_patterns: ["rm -rf", "sudo", "chmod", "mkfs", "> /dev", "dd if=", "shutdown", "reboot", "| sh", "|sh", "| bash", "|bash", "gh pr merge"]
       restrict_working_dir: true
   web:
     enabled: true

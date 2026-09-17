@@ -145,8 +145,8 @@ func TestExecuteBuildsTheDocumentedInvocation(t *testing.T) {
 	assert.Contains(t, argv, "opus")
 	assert.NotContains(t, argv, "--mcp-config", "with no MCPConfig the session runs on the CLI's native tools")
 	assert.NotContains(t, argv, "--resume", "a fresh run must not resume anything")
-	assert.Equal(t, "Bash(pkill:*),Bash(killall:*)", argv[indexOf(t, argv, "--disallowedTools")+1],
-		"a machine-wide kill by name reaches the backend and every other task")
+	assert.Equal(t, "Bash(pkill:*),Bash(killall:*),Bash(gh pr merge:*)", argv[indexOf(t, argv, "--disallowedTools")+1],
+		"a machine-wide kill by name reaches the backend and every other task, and gh pr merge must go through the gated merge_task_pull_request tool")
 
 	// System blocks are flattened into one system prompt file, in order; the
 	// user content arrives on stdin.

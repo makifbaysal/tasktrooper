@@ -14,7 +14,6 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   type AgentCLIFlavor,
-  type AgentCLIState,
   api,
   type ConnectLLMProviderRequest,
   type LLMEndpoint,
@@ -31,6 +30,7 @@ import {
   disconnectAgentCli,
 } from "@/components/runner/claudeCodeConnect";
 import { useDesktopHost, useRunnerSnapshot } from "@/components/runner/useDesktopRunner";
+import { useSetup } from "@/hooks/useSetup";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -142,10 +142,12 @@ export function LLMSettingsPage() {
   const [epBusyId, setEpBusyId] = useState<string | null>(null);
   const [deleteEndpointTarget, setDeleteEndpointTarget] = useState<LLMEndpoint | null>(null);
 
-  // Local agent CLIs. Separate state from `providers` because it comes from a
-  // separate endpoint answering a separate question: not "is a base URL stored"
-  // but "was the binary on this machine verified, and is its catalog installed".
-  const [cliState, setCliState] = useState<AgentCLIState | null>(null);
+  // Local agent CLIs. Read from useSetup(), not a state of our own — that hook
+  // is the single fetch of this row shared with the setup wizard, so a connect
+  // made here and a connect made there can never show two different answers,
+  // and its own focus-refresh keeps this page from freezing on whatever the
+  // flag said at mount.
+  const { cliState, refresh: refreshCliState } = useSetup();
   const [cliBusy, setCliBusy] = useState<AgentCLIFlavor | null>(null);
   // The failure stays ON THE CARD rather than in a toast. Connecting a CLI can
   // fail for reasons the user has to go and fix somewhere else — install the
@@ -160,16 +162,6 @@ export function LLMSettingsPage() {
   // here rather than in EnvironmentPreflight itself, which has no idea which
   // card it is drawn on.
   const [envBlocker, setEnvBlocker] = useState<EnvironmentBlocker | null>(null);
-
-  // What the server thinks is connected. Read at mount and after the user's own
-  // connect/disconnect — nothing else changes the answer.
-  const refreshCliState = useCallback(async () => {
-    try {
-      setCliState(await api.getAgentCLIState());
-    } catch {
-      /* leave the last known state: a failed read is not a disconnection */
-    }
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -188,11 +180,6 @@ export function LLMSettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  // The CLI row, once at mount.
-  useEffect(() => {
-    void refreshCliState();
-  }, [refreshCliState]);
 
   const applyResponse = (data: Awaited<ReturnType<typeof api.listLLMProviders>>) => {
     setProviders(data.providers ?? []);
@@ -230,7 +217,7 @@ export function LLMSettingsPage() {
     setCliError(null);
     setCliStep(null);
     try {
-      setCliState(await connectAgentCli({ flavor, api, onStep: setCliStep }));
+      await connectAgentCli({ flavor, api, onStep: setCliStep });
       toast.success(t("settingsPages.llm.cliConnectedToast"));
     } catch (e) {
       cliFailure(flavor, e);
@@ -246,7 +233,7 @@ export function LLMSettingsPage() {
     setCliError(null);
     setCliStep(null);
     try {
-      setCliState(await disconnectAgentCli({ flavor, api, onStep: setCliStep }));
+      await disconnectAgentCli({ flavor, api, onStep: setCliStep });
       toast.success(t("settingsPages.llm.cliDisconnectedToast"));
     } catch (e) {
       cliFailure(flavor, e);

@@ -9,7 +9,13 @@ import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { useI18n } from "@/hooks/useI18n";
 import { Notice } from "@/components/ui/notice";
-import { isAssistantErrorMessage, isRateLimitMessage, rateLimitMessageBody } from "@/lib/chat";
+import {
+  isAssistantErrorMessage,
+  isQuotaQueuedMessage,
+  isRateLimitMessage,
+  quotaQueuedMessageBody,
+  rateLimitMessageBody,
+} from "@/lib/chat";
 import { findClarificationAnswer, parseClarificationAnswers } from "@/lib/clarification";
 import { groupActionsByMessage } from "@/lib/sessionActions";
 import { cn, formatDate } from "@/lib/utils";
@@ -79,6 +85,7 @@ export function MessageList({
       {messages.map((message) => {
         const isError = message.role === "assistant" && isAssistantErrorMessage(message.content);
         const isRateLimit = message.role === "assistant" && isRateLimitMessage(message.content);
+        const isQuotaQueued = message.role === "assistant" && isQuotaQueuedMessage(message.content);
         const messageActions = byMessageId.get(message.id) ?? [];
         // A rate limit is a condition of the account, not a crash: it gets the
         // shared warning callout with the server's own sentence, never the red
@@ -93,6 +100,23 @@ export function MessageList({
               >
                 <p className="whitespace-pre-wrap">{rateLimitMessageBody(message.content)}</p>
                 <p className="mt-1 text-xs opacity-75">{t("chatArea.chat.message.rateLimitHint")}</p>
+              </Notice>
+            </div>
+          );
+        }
+        // A queued turn is not a warning either — nothing is wrong with the
+        // account, there is just nothing to show yet. `info`, not `warning`,
+        // and no hint asking the user to do anything: the sweeper reruns this
+        // turn on its own.
+        if (isQuotaQueued) {
+          return (
+            <div key={message.id} className="flex justify-start">
+              <Notice
+                className="max-w-[85%]"
+                variant="info"
+                title={t("chatArea.chat.message.quotaQueuedTitle")}
+              >
+                <p className="whitespace-pre-wrap">{quotaQueuedMessageBody(message.content)}</p>
               </Notice>
             </div>
           );

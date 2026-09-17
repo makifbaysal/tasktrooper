@@ -188,7 +188,6 @@ export const settingsPages = {
     cliTitle: "Local Agent CLIs",
     cliDesc:
       "These providers hand the task to a CLI session on your runner machine instead of to a server. They ask for no API key and no address. “Connect” verifies the binary is installed and signed in, then writes every enabled agent's role, rules and skills to disk in the layout that CLI reads.",
-    badgeLocalCli: "Local CLI",
     badgeComingSoon: "Coming soon",
     cliComingSoonHint:
       "The executor that would run this CLI has not been built yet, so it cannot be selected on an agent.",

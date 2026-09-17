@@ -184,7 +184,6 @@ export const settingsPages: SettingsPagesDict = {
     cliTitle: "Yerel Ajan CLI'ları",
     cliDesc:
       "Bu sağlayıcılar görevi bir sunucuya değil, runner makinenizde açılan bir CLI oturumuna verir. API anahtarı ya da adres istemezler. “Bağla” dediğinizde komutun kurulu ve oturumunun açık olduğu doğrulanır, sonra açık olan bütün ajanların rolü, kuralları ve skill'leri o CLI'nin okuduğu düzende diske yazılır.",
-    badgeLocalCli: "Yerel CLI",
     badgeComingSoon: "Yakında",
     cliComingSoonHint:
       "Bu CLI'yi çalıştıracak executor henüz yazılmadı; bu yüzden bir ajana atanamıyor.",

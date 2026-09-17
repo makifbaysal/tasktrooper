@@ -153,6 +153,7 @@ export const chatArea: ChatAreaDict = {
       error: "Hata",
       rateLimitTitle: "Model sağlayıcı sınırı",
       rateLimitHint: "Sınır açılana veya kota yenilenene kadar yanıt alınamaz.",
+      quotaQueuedTitle: "Sıraya alındı",
     },
     reasoning: {
       title: "Düşünme adımları ({count})",

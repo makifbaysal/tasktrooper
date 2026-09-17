@@ -153,6 +153,7 @@ export const chatArea = {
       error: "Error",
       rateLimitTitle: "Model provider limit",
       rateLimitHint: "No reply is possible until the limit resets or the quota is renewed.",
+      quotaQueuedTitle: "Queued",
     },
     reasoning: {
       title: "Reasoning steps ({count})",

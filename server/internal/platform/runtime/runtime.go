@@ -77,6 +77,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/job"
 	kpiapp "github.com/makifbaysal/tasktrooper/server/internal/application/kpi"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/llmprovider"
+	localpreviewapp "github.com/makifbaysal/tasktrooper/server/internal/application/localpreview"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mapper"
 	mcpsvc "github.com/makifbaysal/tasktrooper/server/internal/application/mcp"
 	memoryapp "github.com/makifbaysal/tasktrooper/server/internal/application/memory"
@@ -1184,6 +1185,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	// session with no task resolver keeps its old mirror-clone workspace.
 	var boardTaskChat httpadapter.TaskChatControl
 	var taskChatWorkspaces session.TaskWorkspaceResolver
+	var localPreviewSvc *localpreviewapp.Service
 
 	// The local agent CLI connect flow. Both stores are required and neither is
 	// optional-with-a-fallback: without the catalog there is nothing to write
@@ -1683,6 +1685,14 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			git:           gitClient,
 			workspaceRoot: cfg.Storage.Sessions.WorkspaceRoot,
 		}
+		// The human_uat reviewer's own manual pass at a task's branch — same
+		// checkout as the chat above, run instead of talked to.
+		localPreviewSvc = localpreviewapp.NewService(localpreviewapp.Deps{
+			Tasks:         boardTaskStore,
+			Repositories:  repositorySvc,
+			Git:           gitClient,
+			WorkspaceRoot: cfg.Storage.Sessions.WorkspaceRoot,
+		})
 
 		if settingsStore != nil && cfg.Tools.BoilerplateCatalog.Enabled {
 			e.reg.Register(boilerplatetools.New(settingsStore))
@@ -2499,6 +2509,14 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// session service's own nil check would then be the only thing
 			// standing between a cloud pod and a confusing error.
 			sessionSvc.SetChatExecutor(hostChatExecutor)
+
+			// The chat equivalent of the board's own quota sweeper, started here
+			// rather than earlier so it never ticks before SetChatExecutor has
+			// run — resuming a parked host-executed turn goes through the same
+			// chatExecutor this line just set. Guarded on hostChatExecutor for
+			// the same reason board's sweeper is guarded on claudeExecutor: with
+			// no CLI to run, a chat cannot park on its quota in the first place.
+			session.NewSessionQuotaSweeper(sessionStore, sessionSvc).Start(ctx, session.QuotaSweeperInterval)
 		}
 	}
 
@@ -2564,6 +2582,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		RepoDependencySvc: e.repoDependencySvc,
 		VercelOpsSvc:      e.vercelOpsSvc,
 		GCloudOpsSvc:      e.gcloudOpsSvc,
+		LocalPreviewSvc:   localPreviewSvc,
 		InitiativeSvc:     initiativeSvc,
 		WorkspaceSvc:      workspaceSvc,
 		BoardEvents:       boardEventStore,

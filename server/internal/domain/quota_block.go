@@ -37,6 +37,13 @@ func QuotaParkWindow(consecutiveParks int) time.Duration {
 	return window
 }
 
+// QuotaQueuedNoticePrefix marks a transcript line as a queued turn — parked,
+// not failed, and due to answer itself once SessionQuotaSweeper resumes it —
+// rather than a run failure or an ordinary (unqueued) rate-limit notice.
+// Clients key a calmer, non-retry styling off it, the same way they key the
+// warning bubble off RateLimitNoticePrefix.
+const QuotaQueuedNoticePrefix = "**Queued:**"
+
 // QuotaBlock is the CLI saying "this account has nothing left to spend until
 // T". It is an ERROR type, unlike ResourceBlock, because it comes back from an
 // executor rather than from a tool: the run did not finish and has no response
@@ -90,13 +97,11 @@ func QuotaBlockOf(err error) (*QuotaBlock, bool) {
 }
 
 // UserMessage is the sentence a person sees in a CHAT when the subscription is
-// spent.
-//
-// A chat has no card to park and no sweeper to wake it: the board's answer to
-// this error — move the task to blocked, resume at ResumeAt — has no equivalent
-// in a conversation, where the only actor is the human who just typed. So the
-// block has to become an instruction to that human, and the one fact that makes
-// it actionable is WHEN, which is why the time is always named.
+// spent and, for whatever reason, the turn could not be queued (see
+// QueuedMessage for the normal case). It tells the human to retry by hand,
+// because that is the only recourse left once queueing itself has failed. The
+// one fact that makes it actionable either way is WHEN, which is why the time
+// is always named.
 //
 // Local time, not UTC: the reader is sitting at this host's clock, and "resumes
 // at 14:20Z" is a sentence nobody can act on without doing arithmetic.
@@ -120,6 +125,31 @@ func (q *QuotaBlock) UserMessage(lang string) string {
 	default:
 		return fmt.Sprintf("The Claude Code usage limit is spent; it renews around %s — try again after that. "+
 			"If you would rather not wait, move this agent to an API-backed provider.", when)
+	}
+}
+
+// QueuedMessage is the sentence a person sees in a CHAT when the subscription
+// is spent and the turn HAS been queued: it will rerun itself once ResumeAt
+// passes, the same way a parked board task resumes on its own sweeper. No
+// action is asked of the reader, unlike UserMessage — the point of queueing is
+// that there is nothing left for them to do but wait.
+func (q *QuotaBlock) QueuedMessage(lang string) string {
+	if q == nil {
+		switch lang {
+		case "tr":
+			return "Claude Code kullanım limiti doldu; limit yenilenince mesajınız otomatik olarak gönderilecek."
+		default:
+			return "The Claude Code usage limit is spent; your message will send automatically once it renews."
+		}
+	}
+	when := q.resumeLabel()
+	switch lang {
+	case "tr":
+		return fmt.Sprintf("Claude Code kullanım limiti doldu; %s civarında yenilenince bu mesaj otomatik olarak gönderilecek, "+
+			"beklemenize gerek yok.", when)
+	default:
+		return fmt.Sprintf("The Claude Code usage limit is spent; this message will send automatically once it renews around %s — "+
+			"no need to wait or resend.", when)
 	}
 }
 
@@ -147,6 +177,12 @@ type QuotaNotice struct {
 // must not have to branch.
 func NewQuotaNotice(block *QuotaBlock, lang string) *QuotaNotice {
 	return &QuotaNotice{block: block, message: block.UserMessage(lang)}
+}
+
+// NewQuotaQueuedNotice is NewQuotaNotice's twin for a turn that WAS
+// successfully parked — see QueuedMessage.
+func NewQuotaQueuedNotice(block *QuotaBlock, lang string) *QuotaNotice {
+	return &QuotaNotice{block: block, message: block.QueuedMessage(lang)}
 }
 
 // Error is the localised sentence itself, not a description of it. That is

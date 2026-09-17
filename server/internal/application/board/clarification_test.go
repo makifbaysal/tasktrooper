@@ -61,6 +61,12 @@ func (f *fakeSessionStore) AppendMessage(_ context.Context, sessionID uuid.UUID,
 func (f *fakeSessionStore) UpdateWorkspaceDir(context.Context, uuid.UUID, string) error { return nil }
 func (f *fakeSessionStore) UpdateProjectRoot(context.Context, uuid.UUID, string) error  { return nil }
 func (f *fakeSessionStore) UpdateCLISessionID(context.Context, uuid.UUID, string) error { return nil }
+func (f *fakeSessionStore) ParkPendingTurn(context.Context, uuid.UUID, domain.SessionMessageRequest, domain.ToolPolicy, time.Time) error {
+	return nil
+}
+func (f *fakeSessionStore) TakePendingSessionTurn(context.Context, time.Time) (domain.PendingSessionTurn, bool, error) {
+	return domain.PendingSessionTurn{}, false, nil
+}
 
 func (f *fakeSessionStore) BindTask(_ context.Context, id, taskID uuid.UUID) error {
 	sess, ok := f.existing[id]

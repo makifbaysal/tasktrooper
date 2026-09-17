@@ -46,6 +46,23 @@ type Session struct {
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
+// PendingSessionTurn is a chat turn parked on the Claude Code usage limit
+// (see QuotaBlock), waiting for a SessionQuotaSweeper to rerun it once
+// ResumeAt has passed. It is the chat's counterpart to the board's own
+// quota park (migration 101) — see migration 137 for where it lives.
+//
+// The user's message is not carried here: it was already appended to the
+// session's transcript before the run that hit the limit, so the sweeper
+// rebuilds history from the store like any other turn and only needs the
+// original request (for its Content, FileIDs, Model, ...) and the policy
+// that request resolved to.
+type PendingSessionTurn struct {
+	SessionID uuid.UUID
+	Request   SessionMessageRequest
+	Policy    ToolPolicy
+	ResumeAt  time.Time
+}
+
 type SessionMessage struct {
 	ID            uuid.UUID             `json:"id"`
 	SessionID     uuid.UUID             `json:"session_id"`

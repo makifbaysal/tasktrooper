@@ -1,6 +1,8 @@
+import { Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, type BoardTask } from "@/api";
+import { LocalPreviewPanel } from "@/components/board/LocalPreviewPanel";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -81,16 +83,25 @@ export function HumanUatDecision({ task, repositoryId, onUpdated }: HumanUatDeci
   };
 
   return (
-    <section className="space-y-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
+    <section className="space-y-3 rounded-lg border-2 border-primary bg-primary/10 p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-primary">
+        <Eye className="h-5 w-5 shrink-0" />
+        <h3 className="text-base font-semibold text-foreground">
+          {t("boardArea.components.taskDetail.humanUatHeading")}
+        </h3>
+      </div>
       {!declining ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={approve} disabled={saving}>
-            {t("boardArea.components.taskDetail.humanUatApprove")}
-          </Button>
-          <Button size="sm" variant="destructive" onClick={() => setDeclining(true)} disabled={saving}>
-            {t("boardArea.components.taskDetail.humanUatDecline")}
-          </Button>
-        </div>
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={approve} disabled={saving}>
+              {t("boardArea.components.taskDetail.humanUatApprove")}
+            </Button>
+            <Button variant="destructive" onClick={() => setDeclining(true)} disabled={saving}>
+              {t("boardArea.components.taskDetail.humanUatDecline")}
+            </Button>
+          </div>
+          <LocalPreviewPanel task={task} repositoryId={repositoryId} />
+        </>
       ) : (
         <div className="space-y-2">
           <Label htmlFor="human-uat-decline-reason">

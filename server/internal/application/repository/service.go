@@ -2238,15 +2238,18 @@ func (s *Service) validateMoveAllowed(ctx context.Context, taskID uuid.UUID, tar
 	if taskID == uuid.Nil {
 		return nil
 	}
-	// Both are where work STARTS — the same pair board.workOrderGateApplies
-	// guards at dispatch time, and deliberately so: the move refusal and the
-	// dispatch park must not disagree about what "may this start" means. A
-	// task with an open blocker is parked in place (WorkOrder.Park) rather
-	// than refused when the DISPATCHER reaches it, but a human or an agent
-	// dragging the card there directly must be told no up front — the move
-	// guard is what makes that refusal happen instead of a silent park a
-	// moment later.
-	if target != domain.TaskColumnTodo && target != domain.TaskColumnInProgress {
+	// Only in_progress is refused up front. todo is queueing, not starting —
+	// a task may sit there with an open blocker so its order is visible on the
+	// board (the work-order chip, read from the park below) instead of being
+	// unable to enter the board at all until every dependency happens to be
+	// done first. board.workOrderGateApplies still gates BOTH todo and
+	// in_progress at dispatch time (WorkOrder.Park): that is what actually
+	// stops an agent from picking the task up early, parking it in place with
+	// its blockers named, and the sweeper releases it the moment they land. A
+	// human or an agent dragging the card straight into in_progress is still
+	// told no up front, because that is a direct attempt to start the work
+	// this instant, not to queue it.
+	if target != domain.TaskColumnInProgress {
 		return nil
 	}
 	if s.relations == nil {

@@ -1039,7 +1039,11 @@ func (e *Executor) buildArgs(inv invocation, systemPromptPath string) []string {
 	return args
 }
 
-const disallowedBashCommands = "Bash(pkill:*),Bash(killall:*)"
+// gh pr merge is denied here, not just discouraged in the done-column system
+// prompt, because the CLI's native Bash bypasses run_terminal's own sandbox
+// entirely (see domain.cli_native_tools.go) — without this, an agent can
+// land a PR with failing CI before the board's own pipeline gate ever runs.
+const disallowedBashCommands = "Bash(pkill:*),Bash(killall:*),Bash(gh pr merge:*)"
 
 // writeSystemPromptFile puts the system prompt where --append-system-prompt-file
 // reads it and returns the path with a cleanup that is always non-nil. In the

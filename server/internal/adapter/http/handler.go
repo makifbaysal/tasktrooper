@@ -39,6 +39,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/job"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/kpi"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/llmprovider"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/localpreview"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mcp"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/memory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mobiledevice"
@@ -128,6 +129,7 @@ type Handler struct {
 	repoDependencySvc *repodependency.Service
 	vercelOpsSvc      *vercelops.Service
 	gcloudOpsSvc      *gcloudops.Service
+	localPreviewSvc   *localpreview.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
 	mcpToolServer *mcpserver.Server
@@ -183,6 +185,7 @@ type Config struct {
 	RepoDependencySvc *repodependency.Service
 	VercelOpsSvc      *vercelops.Service
 	GCloudOpsSvc      *gcloudops.Service
+	LocalPreviewSvc   *localpreview.Service
 	MCPToolServer     *mcpserver.Server
 	BootSeed          BootSeed
 }
@@ -239,6 +242,7 @@ func NewHandler(cfg Config) *Handler {
 		repoDependencySvc: cfg.RepoDependencySvc,
 		vercelOpsSvc:      cfg.VercelOpsSvc,
 		gcloudOpsSvc:      cfg.GCloudOpsSvc,
+		localPreviewSvc:   cfg.LocalPreviewSvc,
 		mcpToolServer:     cfg.MCPToolServer,
 		bootSeed:          cfg.BootSeed,
 	}
@@ -847,6 +851,13 @@ func (h *Handler) SessionMessage(c *fiber.Ctx) error {
 				Error: errorDetail{Message: err.Error(), Type: "cancelled"},
 			})
 		}
+		// Queued, not failed — see the matching comment on the stream path
+		// above. 202: the message was accepted, the reply just is not here yet.
+		if _, ok := domain.QuotaBlockOf(err); ok {
+			return c.Status(fiber.StatusAccepted).JSON(errorResponse{
+				Error: errorDetail{Message: err.Error(), Type: "quota_queued"},
+			})
+		}
 		return internalError(c, err)
 	}
 	return c.JSON(resp)
@@ -986,20 +997,19 @@ func (h *Handler) sessionMessageStream(c *fiber.Ctx, sessionID uuid.UUID, req do
 			if rl, ok := domain.RateLimitOf(err); ok {
 				message, errType = rl.UserMessage(), "rate_limited"
 			}
-			// A spent Claude Code subscription rides the SAME frame type as a
-			// provider rate limit. It is the same class of thing — the account
-			// has nothing left to spend until a known time — and reusing the
-			// type means every client that already renders a rate limit as a
-			// calm, actionable warning renders this one that way too, with no
-			// change on their side. A new type would have been shown as an
-			// unrecognised error by every one of them.
+			// A spent Claude Code subscription gets its own frame type, distinct
+			// from a bare rate limit: session.Service has already QUEUED this
+			// turn (it reruns itself once the limit lifts — see
+			// SessionQuotaSweeper), so a client must not treat it as a dead end
+			// the way it treats "rate_limited" — no "resend this" affordance, no
+			// dumping the draft back in the composer.
 			//
-			// err.Error() is already the localised sentence naming the reset
-			// time: the session service built it while it still had the
-			// settings loaded, so nothing here has to read the database on an
-			// error path to find out what language to say it in.
+			// err.Error() is already the localised, queued-specific sentence:
+			// the session service built it while it still had the settings
+			// loaded, so nothing here has to read the database on an error path
+			// to find out what language to say it in.
 			if _, ok := domain.QuotaBlockOf(err); ok {
-				message, errType = err.Error(), "rate_limited"
+				message, errType = err.Error(), "quota_queued"
 			}
 			// The message is repeated in the delta for clients that predate the
 			// `error` field (iOS decodes a fixed struct and drops unknown keys);

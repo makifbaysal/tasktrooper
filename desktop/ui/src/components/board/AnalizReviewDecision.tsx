@@ -1,3 +1,4 @@
+import { Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, type BoardTask } from "@/api";
@@ -67,13 +68,19 @@ export function AnalizReviewDecision({ task, repositoryId, onUpdated }: AnalizRe
   };
 
   return (
-    <section className="space-y-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
+    <section className="space-y-3 rounded-lg border-2 border-primary bg-primary/10 p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-primary">
+        <Eye className="h-5 w-5 shrink-0" />
+        <h3 className="text-base font-semibold text-foreground">
+          {t("boardArea.components.taskDetail.analizReviewHeading")}
+        </h3>
+      </div>
       {!declining ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={approve} disabled={saving}>
+          <Button onClick={approve} disabled={saving}>
             {t("boardArea.components.taskDetail.analizReviewApprove")}
           </Button>
-          <Button size="sm" variant="destructive" onClick={() => setDeclining(true)} disabled={saving}>
+          <Button variant="destructive" onClick={() => setDeclining(true)} disabled={saving}>
             {t("boardArea.components.taskDetail.analizReviewDecline")}
           </Button>
         </div>

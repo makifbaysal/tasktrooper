@@ -78,6 +78,21 @@ export interface TaskComment {
   created_at: string;
 }
 
+export type LocalPreviewStatus = "starting" | "running" | "stopped" | "failed";
+
+/** One repository's "run it locally" process — see localpreview.Service. */
+export interface LocalPreview {
+  repository_id: string;
+  task_id: string;
+  branch: string;
+  command: string;
+  status: LocalPreviewStatus;
+  url?: string;
+  detail?: string;
+  started_at: string;
+  log_tail?: string[];
+}
+
 export interface TaskAgentRun {
   id: string;
   task_id: string;
@@ -3681,6 +3696,27 @@ export const api = {
     request<{ session_id: string; agent_id: string }>(
       `/v1/repositories/${repositoryId}/tasks/${taskId}/chat`,
       { method: "POST" },
+    ),
+
+  /**
+   * Starts (or restarts) the repository's local preview on this task's
+   * branch — the same checkout `openTaskChat`'s agent works in, run instead
+   * of talked to. Only one preview runs per repository; starting a second
+   * one replaces the first.
+   */
+  startLocalPreview: (repositoryId: string, taskId: string) =>
+    request<LocalPreview>(
+      `/v1/repositories/${repositoryId}/tasks/${taskId}/local-preview/start`,
+      { method: "POST" },
+    ),
+
+  stopLocalPreview: (repositoryId: string) =>
+    request<void>(`/v1/repositories/${repositoryId}/local-preview/stop`, { method: "POST" }),
+
+  /** The repository's current preview, whichever task started it. */
+  getLocalPreview: (repositoryId: string) =>
+    request<{ active: boolean; preview?: LocalPreview }>(
+      `/v1/repositories/${repositoryId}/local-preview`,
     ),
 
   listTaskAgentRuns: (repositoryId: string, taskId: string) =>

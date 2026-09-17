@@ -411,6 +411,9 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 		if handle.userStopped() {
 			return domain.AgentResponse{}, domain.ErrRunCancelled
 		}
+		if block, ok := domain.QuotaBlockOf(err); ok {
+			return domain.AgentResponse{}, s.parkTurnOnQuota(ctx, sessionID, req, policy, block, settings.DefaultLanguage)
+		}
 		s.appendAssistantError(ctx, sessionID, err)
 		return domain.AgentResponse{}, err
 	}
@@ -582,6 +585,9 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 		if handle.userStopped() {
 			s.persistCancelledTurn(ctx, sessionID, streamed.String())
 			return domain.AgentResponse{}, domain.ErrRunCancelled
+		}
+		if block, ok := domain.QuotaBlockOf(err); ok {
+			return domain.AgentResponse{}, s.parkTurnOnQuota(ctx, sessionID, req, policy, block, settings.DefaultLanguage)
 		}
 		s.appendAssistantError(ctx, sessionID, err)
 		return domain.AgentResponse{}, err
@@ -818,6 +824,32 @@ func (s *Service) prepareRunContext(
 		history = prependTaskChatPrompt(history, *task)
 	}
 	return ctx, history, nil
+}
+
+// parkTurnOnQuota is the chat equivalent of the board runner parking a task on
+// domain.QuotaBlock: instead of failing the turn, it records enough to rerun
+// it once the usage limit lifts (see SessionQuotaSweeper) and tells the user
+// their message is queued rather than that it failed.
+//
+// Best-effort by design, like appendAssistantError: this already runs on an
+// error path, so a second failure here (the park itself could not be written)
+// falls back to the plain notice rather than losing the turn's outcome
+// entirely.
+// The returned error is always a *domain.QuotaNotice (queued wording on
+// success, or the block itself when the park could not be written) — never
+// nil — so a caller that returns it straight through hands its own caller
+// (the SSE handler, in particular) the sentence a reader should see, not the
+// board-card-style Error() a bare *domain.QuotaBlock would give them.
+func (s *Service) parkTurnOnQuota(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy, block *domain.QuotaBlock, lang string) error {
+	if err := s.store.ParkPendingTurn(context.WithoutCancel(ctx), sessionID, req, policy, block.ResumeAt); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID.String()).Msg("could not park a quota-blocked chat turn; the user will have to resend it")
+		notice := domain.NewQuotaNotice(block, lang)
+		s.appendAssistantError(ctx, sessionID, notice)
+		return notice
+	}
+	notice := domain.NewQuotaQueuedNotice(block, lang)
+	_, _ = s.store.AppendMessage(ctx, sessionID, domain.RoleAssistant, domain.QuotaQueuedNoticePrefix+" "+notice.Error(), nil, nil)
+	return notice
 }
 
 func (s *Service) appendAssistantError(ctx context.Context, sessionID uuid.UUID, err error) {

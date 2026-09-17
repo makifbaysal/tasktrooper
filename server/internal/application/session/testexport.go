@@ -57,6 +57,22 @@ func NewHostExecutedServiceForTest(store port.SessionStore, executor port.ChatEx
 	return &Service{store: store, chatExecutor: executor}
 }
 
+// ParkTurnOnQuotaForTest exercises the quota-park path directly — the store
+// write and the transcript notice it leaves behind — without paying for the
+// rest of SendMessage's setup (workspace, agent context, the run itself).
+func ParkTurnOnQuotaForTest(
+	ctx context.Context,
+	store port.SessionStore,
+	sessionID uuid.UUID,
+	req domain.SessionMessageRequest,
+	policy domain.ToolPolicy,
+	block *domain.QuotaBlock,
+	lang string,
+) error {
+	svc := &Service{store: store}
+	return svc.parkTurnOnQuota(ctx, sessionID, req, policy, block, lang)
+}
+
 // RunHostExecutedTurnForTest exercises the branch a claude_code chat takes
 // instead of the agent loop — the branch whose absence made such an agent
 // chattable only in theory.

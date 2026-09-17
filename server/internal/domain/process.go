@@ -28,7 +28,12 @@ func ExitSignal(err error) (syscall.Signal, bool) {
 	// A child that traps the signal to shut down cleanly — the Node CLIs all
 	// do — is never "signaled" to the kernel: it exits on its own with the
 	// shell convention 128+n, which is how SIGTERM arrives here as 143.
-	if code := status.ExitStatus(); code > 128 && code <= 128+int(syscall.SIGUSR2) {
+	//
+	// The upper bound is the standard signal range (1-31), not
+	// syscall.SIGUSR2: that constant's value is platform-dependent (12 on
+	// Linux, 31 on Darwin), so using it here silently excluded 128+15=143
+	// (SIGTERM) on Linux while passing on macOS.
+	if code := status.ExitStatus(); code > 128 && code <= 128+31 {
 		return syscall.Signal(code - 128), true
 	}
 	return 0, false

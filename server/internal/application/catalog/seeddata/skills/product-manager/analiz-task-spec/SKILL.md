@@ -8,7 +8,7 @@ description: How to write an analiz board task
 
 create_board_task fields for analiz:
 
-- type: analiz
+- task_type: "analiz" — the exact tool argument is `task_type`, not `type`. Passing the wrong field name is silently dropped (the tool ignores unknown arguments) and the task is created as `task_type: "task"` instead, which breaks analiz filtering, routing and board semantics. Always pass `task_type: "analiz"` explicitly.
 - column: todo
 - assignee: **system-architect** (REQUIRED — pass `assignee: "system-architect"` to create_board_task). Without an assignee the architect is never dispatched and the task sits idle in todo. The architect is not subscribed to the todo column; it reaches an analiz task only via the assignee.
 - title: "Analiz: [what is being investigated]"

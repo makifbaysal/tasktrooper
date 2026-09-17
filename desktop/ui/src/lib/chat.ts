@@ -29,6 +29,24 @@ export function rateLimitMessageBody(content: string): string {
   return content.slice(RATE_LIMIT_PREFIX.length).trim();
 }
 
+// A quota-blocked turn that WAS queued gets its own marker, distinct from a
+// bare rate limit: it is not asking the reader to do anything (see
+// session.Service.parkTurnOnQuota on the server) — a SessionQuotaSweeper
+// reruns it once the limit lifts and the real reply lands on its own.
+const QUOTA_QUEUED_PREFIX = "**Queued:**";
+
+/** The stream/JSON error frame's `type` for a chat turn that was queued. */
+export const QUOTA_QUEUED_ERROR_TYPE = "quota_queued";
+
+export function isQuotaQueuedMessage(content: string): boolean {
+  return content.startsWith(QUOTA_QUEUED_PREFIX);
+}
+
+/** The message body without its marker, for rendering under an info heading. */
+export function quotaQueuedMessageBody(content: string): string {
+  return content.slice(QUOTA_QUEUED_PREFIX.length).trim();
+}
+
 export function assistantErrorMessage(text: string): SessionMessage {
   return {
     id: crypto.randomUUID(),

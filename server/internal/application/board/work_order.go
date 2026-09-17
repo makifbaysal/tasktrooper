@@ -136,9 +136,12 @@ func blockerLabels(blockers []domain.BoardTask) []string {
 // Only the two columns where work STARTS. A blocks relation is a statement
 // about who writes code first; once a task has reached code_review its code is
 // written, and parking it there would strand a finished change behind a
-// dependency the change no longer has. It is deliberately the same pair
-// repository.Service.validateMoveAllowed guards, so the move refusal and the
-// dispatch park cannot disagree about what "may this start" means.
+// dependency the change no longer has. Both are gated here even though
+// repository.Service.validateMoveAllowed only refuses a manual move into
+// in_progress: a manual move into todo is allowed (queueing, not starting) and
+// this is what actually keeps an agent from picking the work up early once it
+// gets there — parked in place, blockers named on the card, released by
+// WorkOrderSweeper the moment they land.
 //
 // The resume payload check is what stops the sweeper's own hand-back from being
 // re-parked before its dispatch reaches an agent: the sweeper only releases a
