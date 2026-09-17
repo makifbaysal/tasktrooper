@@ -45,15 +45,15 @@ export function NoRepositoriesNotice({
 
   return (
     <>
-      <Card className={className ?? "border-amber-500/30 bg-amber-500/5 p-4"}>
+      <Card className={className ?? "border-warning/30 bg-warning/5 p-4"}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
-              <FolderKanban className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warning/10">
+              <FolderKanban className="h-4 w-4 text-warning" />
             </div>
             <div>
-              <p className="text-sm font-medium">{t("chatArea.workspace.noRepositories.title")}</p>
-              <p className="mt-0.5 text-sm text-muted-foreground">
+              <p className="text-body font-medium">{t("chatArea.workspace.noRepositories.title")}</p>
+              <p className="mt-0.5 text-body text-muted-foreground">
                 {t("chatArea.workspace.noRepositories.description")}
               </p>
             </div>

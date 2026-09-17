@@ -49,7 +49,7 @@ export function SetupWizardStepper({
                 active
                   ? "border-primary bg-primary/10 font-medium text-primary"
                   : done
-                    ? "border-border text-muted-foreground hover:text-foreground"
+                    ? "border-success/40 text-success hover:text-success"
                     : "border-dashed border-border text-muted-foreground/60",
                 index > current && "cursor-default",
               )}
@@ -57,7 +57,11 @@ export function SetupWizardStepper({
               <span
                 className={cn(
                   "flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] leading-none",
-                  active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : done
+                      ? "bg-success/15 text-success"
+                      : "bg-muted text-muted-foreground",
                 )}
               >
                 {done ? <Check className="h-2.5 w-2.5" /> : index + 1}

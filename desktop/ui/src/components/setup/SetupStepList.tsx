@@ -61,9 +61,9 @@ export function SetupStepList({ steps, selected, onSelect }: SetupStepListProps)
                 className={cn(
                   "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold",
                   done
-                    ? "border-primary bg-primary text-primary-foreground"
+                    ? "border-success bg-success/15 text-success"
                     : active
-                      ? "border-primary text-primary"
+                      ? "border-primary bg-primary/10 text-primary"
                       : "border-muted-foreground/30 text-muted-foreground",
                 )}
               >

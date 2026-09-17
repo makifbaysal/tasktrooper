@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { tStatic } from "@/hooks/useI18n";
 
 /**
@@ -12,16 +13,15 @@ export function ConfigErrorPage({ missing }: { missing: string[] }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-destructive text-white">
-            <AlertTriangle className="h-6 w-6" />
-          </div>
-          <CardTitle className="text-xl">{tStatic("common.configError.title")}</CardTitle>
-          <CardDescription>{tStatic("common.configError.body")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs text-muted-foreground">{tStatic("common.configError.missing")}</p>
-          <p className="mt-1 break-words font-mono text-xs text-destructive">{missing.join(", ")}</p>
+        <CardContent className="pt-6">
+          <EmptyState
+            variant="critical"
+            icon={AlertTriangle}
+            title={tStatic("common.configError.title")}
+            description={tStatic("common.configError.body")}
+          />
+          <p className="text-center text-caption text-muted-foreground">{tStatic("common.configError.missing")}</p>
+          <p className="mt-1 break-words text-center font-mono text-caption text-destructive">{missing.join(", ")}</p>
         </CardContent>
       </Card>
     </div>

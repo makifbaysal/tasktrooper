@@ -26,8 +26,8 @@ export function WizardStepper({ currentStep }: WizardStepperProps) {
               <div
                 className={cn(
                   "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-sm font-semibold transition-colors",
-                  done && "border-primary bg-primary text-primary-foreground",
-                  active && !done && "border-primary text-primary",
+                  done && "border-success bg-success/15 text-success",
+                  active && !done && "border-primary bg-primary/10 text-primary",
                   !done && !active && "border-muted-foreground/30 text-muted-foreground",
                 )}
               >
