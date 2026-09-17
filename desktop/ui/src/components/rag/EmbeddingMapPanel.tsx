@@ -427,8 +427,8 @@ export function EmbeddingMapPanel() {
     <Card className="space-y-5 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="font-semibold">{t("content.embeddingMap.title")}</h2>
-          <p className="text-sm text-muted-foreground">{t("content.embeddingMap.subtitle")}</p>
+          <h2 className="text-heading font-semibold">{t("content.embeddingMap.title")}</h2>
+          <p className="text-caption text-muted-foreground">{t("content.embeddingMap.subtitle")}</p>
         </div>
         {mapData && (
           <div className="flex flex-wrap items-center gap-2">

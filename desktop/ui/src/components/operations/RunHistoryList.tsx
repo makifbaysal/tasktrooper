@@ -15,8 +15,8 @@ interface RunHistoryListProps {
 function conclusionIcon(run: DeploymentRun): { Icon: LucideIcon; className: string } {
   if (run.conclusion === "success") return { Icon: CheckCircle2, className: "text-success" };
   if (run.conclusion === "failure") return { Icon: XCircle, className: "text-destructive" };
-  if (run.status !== "completed") return { Icon: Loader2, className: "text-warning animate-spin" };
-  return { Icon: MinusCircle, className: "text-muted-foreground" };
+  if (run.status !== "completed") return { Icon: Loader2, className: "text-info animate-spin" };
+  return { Icon: MinusCircle, className: "text-warning" };
 }
 
 /**

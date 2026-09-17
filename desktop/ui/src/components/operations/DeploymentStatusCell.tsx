@@ -55,13 +55,13 @@ export function DeploymentStatusCell({ cell, repositoryId, onSelect }: Deploymen
   let showSpinner = false;
 
   if (run.conclusion === "success") {
-    variant = "default";
+    variant = "success";
     label = t("operations.deployments.runStatus.success");
   } else if (run.conclusion === "failure") {
     variant = "destructive";
     label = t("operations.deployments.runStatus.failure");
   } else if (run.status !== "completed") {
-    variant = "secondary";
+    variant = "info";
     showSpinner = true;
     label =
       run.status === "queued"
@@ -70,7 +70,7 @@ export function DeploymentStatusCell({ cell, repositoryId, onSelect }: Deploymen
   } else {
     // Completed but neither success nor failure (e.g. cancelled) — a
     // catch-all so every value of domain.RunConclusion still renders.
-    variant = "secondary";
+    variant = "warning";
     label = t("operations.deployments.runStatus.other");
   }
 

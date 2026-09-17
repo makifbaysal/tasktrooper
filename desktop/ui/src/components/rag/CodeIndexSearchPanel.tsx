@@ -138,8 +138,8 @@ export function CodeIndexSearchPanel({ repositories, loading = false }: CodeInde
     <Card className="space-y-5 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="font-semibold">{t("chatArea.rag.codeSearch.title")}</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-heading font-semibold">{t("chatArea.rag.codeSearch.title")}</h2>
+          <p className="text-caption text-muted-foreground">
             {t("chatArea.rag.codeSearch.subtitle")}
           </p>
         </div>

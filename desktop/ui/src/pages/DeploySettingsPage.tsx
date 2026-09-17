@@ -10,6 +10,7 @@ import {
   type TestStrategy,
 } from "@/api";
 import { DeployTargetsSection } from "@/components/projects/DeployTargetsSection";
+import { PageHeader } from "@/components/admin/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -98,10 +99,10 @@ export function DeploySettingsPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div>
-        <h1 className="text-xl font-semibold">{t("projectAdmin.prodOps.deployTitle")}</h1>
-        <p className="text-sm text-muted-foreground">{t("projectAdmin.prodOps.deploySubtitle")}</p>
-      </div>
+      <PageHeader
+        title={t("projectAdmin.prodOps.deployTitle")}
+        description={t("projectAdmin.prodOps.deploySubtitle")}
+      />
 
       <DeployTargetsSection repositoryId={repositoryId} credentials={credentials} />
 

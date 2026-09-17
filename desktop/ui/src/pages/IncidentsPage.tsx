@@ -2,6 +2,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api, type Incident, type IncidentSeverity, type Repository } from "@/api";
+import { PageHeader } from "@/components/admin/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -104,30 +105,30 @@ export function IncidentsPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">{t("projectAdmin.prodOps.incidentsTitle")}</h1>
-          <p className="text-sm text-muted-foreground">{t("projectAdmin.prodOps.incidentsSubtitle")}</p>
-        </div>
-        <div className="flex items-end gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="incident-status">{t("projectAdmin.prodOps.statusFilter")}</Label>
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "live" | "all")}>
-              <SelectTrigger id="incident-status" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="live">{t("projectAdmin.prodOps.statusLive")}</SelectItem>
-                <SelectItem value="all">{t("projectAdmin.prodOps.statusAll")}</SelectItem>
-              </SelectContent>
-            </Select>
+      <PageHeader
+        title={t("projectAdmin.prodOps.incidentsTitle")}
+        description={t("projectAdmin.prodOps.incidentsSubtitle")}
+        action={
+          <div className="flex items-end gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="incident-status">{t("projectAdmin.prodOps.statusFilter")}</Label>
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "live" | "all")}>
+                <SelectTrigger id="incident-status" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="live">{t("projectAdmin.prodOps.statusLive")}</SelectItem>
+                  <SelectItem value="all">{t("projectAdmin.prodOps.statusAll")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" onClick={() => void load()} disabled={loading}>
+              <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+              {t("common.refresh")}
+            </Button>
           </div>
-          <Button variant="outline" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-            {t("common.refresh")}
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Card>
