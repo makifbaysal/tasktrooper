@@ -66,7 +66,12 @@ narrower lookup set instead:
 
 - `get_repo_tree`
 - `grep_code`
-- `read_file`
+- `get_task_pull_request`
+
+`read_file` is also in QA's base policy, but `RestrictCodeToolsForVerification`
+(below) strips it back out in `in_qa`/`ready_for_qa` — the two columns QA
+actually tests in. That leaves QA with tree- and diff-level lookups there,
+never a full file body.
 
 This is deliberate: QA's evidence is a running product, not a read of the
 diff. Early on, QA held the full code-reading set and used it exactly as
@@ -76,6 +81,58 @@ the source, not a test of the behavior. The tools that exist to help someone
 *understand* code are the reviewer's tools; QA's job is to exercise the
 build and report what it observed, so its lookup set only goes as far as
 finding the start command and the route to open.
+
+Code and MR reading is forbidden by default for a QA round — never to decide
+a criterion passes, never to write down an "expected" result that was never
+observed, never to skip running a case QA believes it can predict. Exactly
+three named exceptions exist, none of which substitutes for execution:
+
+1. **Debugging an observed failure** — after a scenario fails against the
+   running product, `grep_code`/`get_repo_tree` and the failure's own
+   surfaced output (stack traces, logs, `browser_read_dom`) pinpoint and
+   report the defect location. `read_file` is gone here too — the defect is
+   traced from the failure's own output and the tree, never a full file read.
+2. **Re-test scope on a resubmission** — a task bounced to `need_revision`
+   and returned to `in_qa`/`ready_for_qa`: `get_task_pull_request` decides
+   whether the fix is scoped narrowly enough that only the previously-failing
+   cases need re-running, or whether the full matrix must be re-executed.
+   This is a scoping decision made *before* execution, never a verdict.
+3. **Case-matrix completeness/validity check** — while building the case
+   matrix, before touching the app, `get_repo_tree`/`grep_code` confirm a
+   case already written down is reachable/valid, or surface a scenario the
+   diff implies that QA had not already listed. This only feeds the matrix;
+   it never substitutes for executing the case afterward.
+
+## The PM UAT black-box rule
+
+PM's policy carries the full read-only code-reading set
+(`codebase_search`, `grep_code`, `get_repo_tree`, `get_symbol_skeleton`,
+`expand_symbol_context`, `read_file`) for backlog grooming — verifying a real
+file or endpoint name before writing a `technical_description`. But
+`RestrictCodeToolsForVerification` strips every one of those names in
+`pm_uat`/`human_uat`, the only two columns PM actually signs a criterion off
+in. In those columns PM has no way to look at the implementation at all; its
+verdict can only come from an executed browser/mobile session against the
+running product, or from a QA case that was itself executed and passed.
+
+Two gates back this up at the run level, mirroring QA's:
+
+- **`isUngroundedPMUAT`** fails a `pm_uat` run outright if it never called any
+  of `domain.PMUATExecutionTools` — the same browser/mobile call names as
+  `QAExecutionTools`, minus `run_terminal` (PM has no shell) and minus
+  `get_deploy_target` (resolving a stage URL is a lookup, not exercising the
+  product). A run that approved every criterion using nothing but board reads
+  is rejected the same way an ungrounded QA round is.
+- **The coverage-gap gate** (`pmApprovedUncoveredCriterion`) closes a narrower
+  hole: QA's `review_criterion(approved=true)` is a claim, not proof, if
+  nothing in QA's own recorded test-case list (`list_test_cases`) actually
+  backs it. For every criterion PM approves in this run, the gate checks
+  whether a `domain.TaskTestCase` with a matching `criterion_id` was recorded
+  `passed`. If every approval this run made is backed by such a case, PM
+  passes. If even one approval was **not** backed by a passed case, PM must
+  also have used `PMUATExecutionTools` this run — approving an uncovered
+  criterion off QA's note and board-read tools alone is ungrounded and fails
+  the run just as `isUngroundedPMUAT` does.
 
 ## How a column narrows a policy
 
@@ -100,6 +157,23 @@ without this restriction an architect dispatched on an analysis task has, in
 practice, gone ahead and edited files that then died with the run's
 workspace, having never been committed or reviewed.
 
+**`RestrictCodeToolsForVerification`** strips read-only code-reading tools —
+on top of what `RestrictToolsForVerdictColumn` already removes — from a run
+whose job is to exercise the running product, not to read the diff and
+decide it looks right. It applies to the same two roles differently, because
+each has legitimate reasons to look at code that the other does not:
+
+- **PM** loses every `CodeExplorationTools` name (`codebase_search`,
+  `grep_code`, `get_repo_tree`, `get_symbol_skeleton`, `expand_symbol_context`,
+  `read_file`) in `pm_uat`/`human_uat` — the only two columns PM signs a
+  criterion off in. Outside those columns PM keeps the set for backlog
+  grooming.
+- **QA** loses only `read_file` in `in_qa`/`ready_for_qa`. `get_repo_tree`,
+  `grep_code` and `get_task_pull_request` survive there, because QA's three
+  named exceptions (see [The QA black-box rule](#the-qa-black-box-rule)
+  above) are tree-level and diff-level, never "read this file's full body and
+  decide from it".
+
 **`RestrictToPlannedTools`** applies only inside chat orchestration, when a
 request is broken into subtasks. A subtask's declared tool names decide
 **only** the board-write tools (`create_board_task`, `move_board_task`,
@@ -113,15 +187,15 @@ asking a human instead.
 
 The columns `RestrictToolsForVerdictColumn` treats as judging, not changing:
 
-| Column | Writers/commit removed | Merge/rollback removed |
-|---|---|---|
-| Code Review | Yes | Yes |
-| Analysis Review | Yes | Yes |
-| Ready for QA | Yes | Yes |
-| In QA | Yes | Yes |
-| PM UAT | Yes | Yes |
-| Human UAT | Yes | Yes |
-| Done | Yes | No — this is where the merge and the deploy watch/rollback happen |
+| Column | Writers/commit removed | Merge/rollback removed | Code-exploration tools also removed (`RestrictCodeToolsForVerification`) |
+|---|---|---|---|
+| Code Review | Yes | Yes | No — the reviewer's job is to read the diff |
+| Analysis Review | Yes | Yes | No |
+| Ready for QA | Yes | Yes | Only `read_file` (QA keeps `get_repo_tree`/`grep_code`/`get_task_pull_request`) |
+| In QA | Yes | Yes | Only `read_file` (QA keeps `get_repo_tree`/`grep_code`/`get_task_pull_request`) |
+| PM UAT | Yes | Yes | Yes — all of `CodeExplorationTools` |
+| Human UAT | Yes | Yes | Yes — all of `CodeExplorationTools` |
+| Done | Yes | No — this is where the merge and the deploy watch/rollback happen | No |
 
 ## Editing a policy
 

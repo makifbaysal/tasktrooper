@@ -48,7 +48,7 @@ Declared as one triple in `role_seed.go` (`roleAgentProvider` / `roleAgentModel`
 **A QA run cannot finish without executing anything (`isUngroundedQA`).** The QA counterpart of the `analiz-read-code-first` gate, for the same reason: a QA run wrote its scenario list in the future tense ("I will apply these scenarios and verify each"), called nothing but a single board move, and was stamped `completed` — and the orchestration verifier, seeing a coherent plan, said PASSED.
 
 - A run in `in_qa`/`ready_for_qa` cannot complete until at least one of `domain.QAExecutionTools` (`run_terminal` + `browser_*`) has run **successfully**; otherwise the run is marked `failed`, the rejection reason and the rejected text land on the task as a comment, and the reconciler dispatches a new QA attempt (bounded by `maxConsecutiveFailedRuns`=3).
-- `review_criterion` / `add_task_comment` / `get_pipeline_status` **do not count as evidence**: the verdict is the claim under test and cannot be its own proof. Code-reading tools do not count either — QA is black-box.
+- `review_criterion` / `add_task_comment` / `get_pipeline_status` **do not count as evidence**: the verdict is the claim under test and cannot be its own proof. Code-reading tools do not count either — QA is black-box, with three narrow, named exceptions (debugging an observed failure, scoping a resubmission's re-test from the diff, checking the case matrix is complete before execution) that feed the matrix or trace a defect but never substitute for execution; see `domain.RestrictCodeToolsForVerification` below.
 - `analiz` tasks and runs that end in a question (`Clarification`) are exempt.
 - The rule layer says the same: `qa-execute-in-this-run` (priority 100) + step 1 of `qa-agent.md`.
 
@@ -57,6 +57,25 @@ Declared as one triple in `role_seed.go` (`roleAgentProvider` / `roleAgentModel`
 **The QA verdict gate holds every forward exit** (`criteriaReviewGate`). It used to gate only `ready_for_qa|in_qa → pm_uat` and `pm_uat → human_uat|done|released`; when QA moved a task straight from `in_qa` to `done`, no criterion verdict was required — that was the escape. Now every `isForwardReviewExit` target (pm_uat/human_uat/done/released) requires a full verdict, by the role of the review column the task leaves (QA or PM). `need_revision` and backward moves are ungated. Tasks with no criteria, and `require_criteria_complete=false`, remain no-ops.
 
 Mobile automation is out of scope for now. Browser QA needs a Chromium binary at `CHROME_BIN`.
+
+### PM UAT grounding + coverage-gap gate
+
+PM had no equivalent of `isUngroundedQA`: a `pm_uat` run could approve every criterion with a tool ledger holding nothing but `list_task_comments`/`read_file`/`list_acceptance_criteria`, no `browser_*`/`mobile_*` call at all, and nothing refused that hand-off.
+
+- **`isUngroundedPMUAT`** (`board/runner.go`) mirrors `isUngroundedQA`: a run in `pm_uat` with no `Clarification` and no successful call from `domain.PMUATExecutionTools` (the same browser/mobile names as `QAExecutionTools`, minus `run_terminal` — PM has no shell — and minus `get_deploy_target`, a lookup rather than an exercise of the product) fails the run (`ErrUngroundedPMUAT`).
+- **`pmApprovedUncoveredCriterion`** closes a narrower hole: QA's `review_criterion(approved=true)` is a claim, not proof, when nothing in QA's own recorded round backs it. For every criterion this run's PM approved, the gate looks for a `domain.TaskTestCase` (read via `port.TaskTestCaseStore.ListByTask` / `list_test_cases`) with a matching `criterion_id` and `Status == passed`. If every approval this run made has one, the gate passes; if even one does not, the run also needs `PMUATExecutionTools` usage — approving an uncovered criterion off QA's note and board reads alone fails the run the same way `isUngroundedPMUAT` does.
+- `pm-uat-review/SKILL.md` step 3 has PM call `list_test_cases` and check, criterion by criterion, for a `passed` case before approving off QA's note; step 5 requires PM's own `browser_*`/`mobile_*` walk-through for anything the case list does not already cover.
+
+### Column-scoped code-tool restriction for verification (`RestrictCodeToolsForVerification`)
+
+`RestrictToolsForVerdictColumn` only ever stripped writers/commit/merge/rollback; it never touched the read-only code tools, so QA and PM kept full code-reading access throughout `in_qa`/`ready_for_qa`/`pm_uat`/`human_uat` — enforced only by prompt wording (`qa-agent.md`, `product-manager.md`), not by anything the runtime checked.
+
+`domain.RestrictCodeToolsForVerification(p, col)` applies on top of `RestrictToolsForVerdictColumn`, asymmetrically by role:
+
+- **PM** loses every `CodeExplorationTools` name in `pm_uat`/`human_uat` — the only two columns PM signs a criterion off in. Outside those columns (backlog grooming, writing `technical_description`) PM keeps the set.
+- **QA** loses only `read_file` in `in_qa`/`ready_for_qa`; `get_repo_tree`, `grep_code` and `get_task_pull_request` survive, because QA's three named exceptions above are tree-level and diff-level, never "read this file's full body and decide from it".
+
+Wired at the same call-site pattern as `RestrictToolsForVerdictColumn`. An empty allowlist means unrestricted and stays unrestricted, same convention as the other two restriction functions.
 
 Legacy agents (`general-coder`, `shell-runner`, `code-explorer`) are removed by migration `017_agent_scoped_catalog`.
 

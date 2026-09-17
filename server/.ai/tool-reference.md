@@ -17,7 +17,7 @@ A `sed -n '<from>,<to>p'` read of fewer than 200 lines gets a line appended to i
 
 ### `read_file`
 
-Reads a workspace file with line numbers. Registered unconditionally (no semantic index required), confined to the workspace root, and part of `CodeExplorationTools` — so every tool-scoped agent has it, including on unindexed repositories.
+Reads a workspace file with line numbers. Registered unconditionally (no semantic index required), confined to the workspace root, and part of `CodeExplorationTools` — so every tool-scoped agent has it, including on unindexed repositories. `domain.RestrictCodeToolsForVerification` takes it back out of QA's policy in `in_qa`/`ready_for_qa`, and out of PM's whole `CodeExplorationTools` set in `pm_uat`/`human_uat` — those two roles verify a running product in those columns, never a file body.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
