@@ -127,6 +127,23 @@ func (r *Runner) SetAgentCLIConnections(c AgentCLIConnections) { r.agentCLIs = c
 // answers the question now, so two agents on two different connected CLIs both
 // dispatch.
 //
+// hostExecutorHint returns the binary name and env var for a host-executed
+// provider, so error messages point the user at the right CLI.
+func hostExecutorHint(p domain.LLMProviderType) (binary, envVar string) {
+	switch p {
+	case domain.LLMProviderClaudeCode:
+		return "claude", "CLAUDE_CODE_BIN"
+	case domain.LLMProviderCursorAgent:
+		return "cursor-agent", "CURSOR_AGENT_BIN"
+	case domain.LLMProviderAntigravity:
+		return "agy", "ANTIGRAVITY_BIN"
+	case domain.LLMProviderOpencode:
+		return "opencode", "OPENCODE_BIN"
+	default:
+		return string(p), string(p) + "_BIN"
+	}
+}
+
 // A read failure is a refusal, not a pass. The question being answered is "was
 // this binary verified", and a database that cannot answer it has not said yes;
 // treating the error as permission would defeat the check on exactly the hosts
@@ -1344,9 +1361,10 @@ func (r *Runner) execute(parent context.Context, job RunJob) error {
 		// fail with a message about a missing configuration, for an agent whose
 		// configuration is fine and whose host simply lacks the binary.
 		if r.executor == nil || !r.executor.Supports(agentRec.ProviderType) {
+			binary, envVar := hostExecutorHint(agentRec.ProviderType)
 			return fail(fmt.Errorf(
-				"claude code binary not available on this host: agent %q runs on the %s provider, which needs the `claude` CLI installed where agent-server runs (set CLAUDE_CODE_BIN if it is not on PATH). Move the agent to an API provider or install the CLI",
-				agentRec.Name, agentRec.ProviderType))
+				"%s binary not available on this host: agent %q runs on the %s provider, which needs the %q CLI installed where agent-server runs (set %s if it is not on PATH). Move the agent to an API provider or install the CLI",
+				binary, agentRec.Name, agentRec.ProviderType, binary, envVar))
 		}
 		// And this CLI has to be CONNECTED. A registered executor
 		// says the binary resolved at boot; it does not say anybody verified it
