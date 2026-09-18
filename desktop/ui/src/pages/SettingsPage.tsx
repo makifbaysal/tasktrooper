@@ -66,7 +66,7 @@ function BoilerplateCatalogCard() {
       </Label>
       <p className="text-sm text-muted-foreground">
         {t("settings.boilerplate.descPrefix")}{" "}
-        <code className="text-xs">.ai/catalog.yaml</code>
+        <code className="text-xs">.ai/catalog.yaml</code>{" "}
         {t("settings.boilerplate.descMid")} <code className="text-xs">owner/repo</code>,{" "}
         <code className="text-xs">github.com/owner/repo</code> {t("settings.boilerplate.descSuffix")}
       </p>
