@@ -55,19 +55,28 @@ describe("Header logo alignment", () => {
     expect(onMenuClick).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels the shell's pl-16 traffic-light clearance so the logo still lines up expanded", () => {
+  it("cancels the shell's pl-16 traffic-light clearance so the logo lines up expanded, at lg and up", () => {
     withDesktopHost();
     const { container } = renderHeader({ sidebarCollapsed: false });
     const logo = container.querySelector(LOGO_SELECTOR);
     const brand = logo?.closest("div")?.parentElement;
-    expect(brand?.className).toContain("-ml-[68px]");
+    expect(brand?.className).toContain("lg:-ml-[68px]");
   });
 
-  it("cancels the shell's pl-16 traffic-light clearance so the logo still lines up collapsed", () => {
+  it("cancels the shell's pl-16 traffic-light clearance so the logo lines up collapsed, at lg and up", () => {
     withDesktopHost();
     const { container } = renderHeader({ sidebarCollapsed: true });
     const logo = container.querySelector(LOGO_SELECTOR);
     const brandBadge = logo?.closest("div");
-    expect(brandBadge?.className).toContain("-ml-[62px]");
+    expect(brandBadge?.className).toContain("lg:-ml-[62px]");
+  });
+
+  it("does not cancel the traffic-light clearance below lg, so the logo stays clear of the mobile menu button", () => {
+    withDesktopHost();
+    const { container } = renderHeader({ sidebarCollapsed: false });
+    const logo = container.querySelector(LOGO_SELECTOR);
+    const brand = logo?.closest("div")?.parentElement;
+    const classes = brand?.className?.split(/\s+/) ?? [];
+    expect(classes).not.toContain("-ml-[68px]");
   });
 });

@@ -40,14 +40,20 @@ export function Header({ title, onMenuClick, sidebarCollapsed = false }: HeaderP
           canceling that 64px here too, the logo would sit 64px right of the
           nav icons in the packaged app. -ml-[68px]/-ml-[62px] are the same
           -4px/+2px base offsets above, minus the 64px pl-16 adds.
+
+          That cancel-offset only makes sense once the sidebar (and its nav
+          icons) is actually on screen, at lg and up — below that the mobile
+          menu button sits in this same flex row, and pulling the logo 68px
+          left drags it back over the button. Gate it with lg: so the narrow
+          layout keeps the logo in its natural post-button position.
         */}
         <SidebarBrand
           collapsed={sidebarCollapsed}
           className={
             inShell
               ? sidebarCollapsed
-                ? "-ml-[62px]"
-                : "-ml-[68px]"
+                ? "lg:-ml-[62px]"
+                : "lg:-ml-[68px]"
               : sidebarCollapsed
                 ? "ml-0.5"
                 : "-ml-1"
