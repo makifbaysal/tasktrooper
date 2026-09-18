@@ -121,6 +121,7 @@ function searchDirs(): { dir: string; source: PreflightSource }[] {
   out.push({ dir: path.join(home, ".local", "bin"), source: "home" });
   out.push({ dir: path.join(home, ".claude", "local"), source: "home" });
   out.push({ dir: path.join(home, ".bun", "bin"), source: "home" });
+  out.push({ dir: path.join(home, ".opencode", "bin"), source: "home" });
   // npm's global prefix. `npm prefix -g` would be authoritative but costs a
   // node startup per call; these are the three locations it actually uses.
   if (process.platform === "darwin") out.push({ dir: "/opt/homebrew/lib/node_modules/.bin", source: "npm-prefix" });
@@ -776,7 +777,7 @@ const probeCursorAgent = (): Promise<PreflightItem> =>
   probeSimpleCLI("cursor-agent", "Cursor CLI", "cursor-agent", "curl https://cursor.com/install -fsS | bash");
 
 const probeOpencode = (): Promise<PreflightItem> =>
-  probeSimpleCLI("opencode", "OpenCode CLI", "opencode", "npm install -g opencode-ai");
+  probeSimpleCLI("opencode", "OpenCode CLI", "opencode", "curl -fsSL https://opencode.ai/install | bash");
 
 // --- optional: chrome and the Xcode command line tools ----------------------
 
