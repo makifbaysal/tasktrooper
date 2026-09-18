@@ -83,6 +83,13 @@ SPA's own union must match exactly.
   `electron-builder.yml`'s `to: web`.
 - Tests are vitest, Node environment, Electron mocked per suite. `detect.test.ts`
   spawns real fake CLIs rather than stubbing `execFile`.
+- `npm run dev` opens and immediately closes on a machine that already has
+  TaskTrooper.app running (the common case — it's this project's own daily
+  driver): both builds are named "TaskTrooper", so Electron's single-instance
+  lock treats the dev launch as a second instance and just focuses the running
+  app. `npm run dev:isolated` points Electron at its own `--user-data-dir` (via
+  `TASKTROOPER_DEV_USER_DATA_DIR`) so the two never collide — use it for any
+  local check (including UAT) while the packaged app might be open.
 
 ## Verify
 

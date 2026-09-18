@@ -8,6 +8,7 @@
   "main": "dist/main/index.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:isolated": "TASKTROOPER_DEV_USER_DATA_DIR=/tmp/tasktrooper-dev-profile node scripts/dev.mjs",
     "dev:renderer": "vite",
     "build": "npm run typecheck && npm run build:renderer && npm run build:main",
     "build:renderer": "vite build",

@@ -53,7 +53,15 @@ if (!existsSync(path.join(root, "ui", "dist", "index.html"))) {
 
 await run(process.execPath, [path.join(root, "scripts/build-main.mjs")]);
 
-const electron = spawn(path.join(root, "node_modules/.bin/electron"), ["."], {
+// Electron's single-instance lock keys off the app name, and this build's is
+// the same "TaskTrooper" as the packaged app's — so on a machine that already
+// has TaskTrooper.app running (the common case: it's this project's own daily
+// driver), a plain dev launch just focuses that window and exits immediately.
+// `npm run dev:isolated` sets this so the two never collide.
+const userDataDir = process.env.TASKTROOPER_DEV_USER_DATA_DIR;
+const electronArgs = userDataDir ? [".", `--user-data-dir=${userDataDir}`] : ["."];
+
+const electron = spawn(path.join(root, "node_modules/.bin/electron"), electronArgs, {
   cwd: root,
   stdio: "inherit",
   env: { ...process.env, VITE_DEV_SERVER_URL: url },
