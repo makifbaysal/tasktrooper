@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { SerialQueue, truncateEncoding } from "./limits.js";
 import type * as OrtModule from "onnxruntime-web";
@@ -118,7 +119,8 @@ export class Engine {
  * fails there.
  */
 export async function loadEngine(files: CachedModelFiles, wasmDir: string): Promise<Engine> {
-  env.wasm.wasmPaths = wasmDir.endsWith("/") ? wasmDir : `${wasmDir}/`;
+  const wasmUrl = pathToFileURL(wasmDir).href;
+  env.wasm.wasmPaths = wasmUrl.endsWith("/") ? wasmUrl : `${wasmUrl}/`;
 
   const tokenizerJson = JSON.parse(readFileSync(files.tokenizerJsonPath, "utf8")) as object;
   const tokenizerConfig = JSON.parse(readFileSync(files.tokenizerConfigPath, "utf8")) as object;

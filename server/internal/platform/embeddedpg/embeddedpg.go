@@ -100,7 +100,9 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 		CachePath(cacheDir).
 		RuntimePath(filepath.Join(cacheDir, "runtime")).
 		StartTimeout(90 * time.Second).
-		Logger(logWriter{}))
+		Logger(logWriter{}).
+		Locale("C").
+		Encoding("UTF8"))
 
 	if err := pg.Start(); err != nil {
 		return "", nil, wrapStartError(err)
@@ -152,6 +154,9 @@ func freePort() (uint32, error) {
 }
 
 func binariesReady(cacheDir string) bool {
+	if _, err := os.Stat(filepath.Join(cacheDir, "bin", "postgres.exe")); err == nil {
+		return true
+	}
 	_, err := os.Stat(filepath.Join(cacheDir, "bin", "postgres"))
 	return err == nil
 }

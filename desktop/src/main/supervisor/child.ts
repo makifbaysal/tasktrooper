@@ -143,11 +143,9 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
           env: this.#spec.env,
           ...(this.#spec.cwd !== undefined ? { cwd: this.#spec.cwd } : {}),
           stdio: [this.#spec.stdinPipe ? "pipe" : "ignore", "pipe", "pipe"],
-          // No shell, ever. Values in env and args include generated secrets
-          // and detected paths; handing any of them to /bin/sh would make a
-          // backtick in one of them a command again — the exact failure the old
-          // shell-sourced local.env had, and the one this app exists to remove.
-          shell: false,
+          // No shell by default to protect arguments and secrets. On Windows,
+          // batch scripts (.cmd, .bat) require shell: true or spawn throws EINVAL.
+          shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(this.#spec.command),
           // Its own process group, so a stray SIGINT reaching this app does
           // not race the ordered teardown by killing the children first.
           detached: process.platform !== "win32",

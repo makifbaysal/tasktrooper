@@ -208,23 +208,35 @@ interface RunResult {
 
 function run(command: string, args: string[], timeoutMs = PROBE_TIMEOUT_MS): Promise<RunResult> {
   return new Promise((resolve) => {
-    execFile(
-      command,
-      args,
-      { timeout: timeoutMs, env: probeEnv(), maxBuffer: 1024 * 1024, shell: false },
-      (err, stdout, stderr) => {
-        const timedOut = !!err && (err as { killed?: boolean }).killed === true;
-        const code =
-          err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
-        resolve({
-          code,
-          stdout: (stdout ?? "").trim(),
-          stderr: (stderr ?? "").trim(),
-          out: `${stdout ?? ""}${stderr ?? ""}`.trim(),
-          timedOut,
-        });
-      },
-    );
+    const isCmdOrBat = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
+    try {
+      execFile(
+        command,
+        args,
+        { timeout: timeoutMs, env: probeEnv(), maxBuffer: 1024 * 1024, shell: isCmdOrBat },
+        (err, stdout, stderr) => {
+          const timedOut = !!err && (err as { killed?: boolean }).killed === true;
+          const code =
+            err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
+          resolve({
+            code,
+            stdout: (stdout ?? "").trim(),
+            stderr: (stderr ?? "").trim(),
+            out: `${stdout ?? ""}${stderr ?? ""}`.trim(),
+            timedOut,
+          });
+        },
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      resolve({
+        code: 1,
+        stdout: "",
+        stderr: msg,
+        out: msg,
+        timedOut: false,
+      });
+    }
   });
 }
 
@@ -356,7 +368,13 @@ export function probePostgres(): PreflightItem {
   // fergusstrange/embedded-postgres extracts under its RuntimePath; the bare
   // cache root is checked too so a layout change downgrades to "will download"
   // rather than to a wrong answer.
-  const extracted = [path.join(cache, "runtime", "bin", "postgres"), path.join(cache, "bin", "postgres")];
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const extracted = [
+    path.join(cache, "runtime", "bin", `postgres${ext}`),
+    path.join(cache, "bin", `postgres${ext}`),
+    path.join(cache, "runtime", "bin", "postgres"),
+    path.join(cache, "bin", "postgres"),
+  ];
   const found = extracted.find((candidate) => existsSync(candidate));
   if (found) {
     return {

@@ -80,9 +80,11 @@ function asCleanNonEmpty(value: unknown, what: string, opts?: { max?: number }):
   return s;
 }
 
+const ABSOLUTE_PATH = /^(\/|[a-zA-Z]:[/\\]|\\\\)/;
+
 function asAbsolutePath(value: unknown, what: string): string {
   const p = asCleanNonEmpty(value, what, { max: 1024 });
-  if (!p.startsWith("/")) fail(`${what}: must be an absolute path`);
+  if (!ABSOLUTE_PATH.test(p)) fail(`${what}: must be an absolute path`);
   return p;
 }
 

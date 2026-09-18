@@ -1,7 +1,15 @@
 package config
 
-import "github.com/makifbaysal/tasktrooper/server/internal/domain"
+import (
+	"os"
+	"strings"
+)
 
 func expandEnv(content string) string {
-	return domain.EnvExpand(content)
+	return os.Expand(content, func(key string) string {
+		if val, ok := os.LookupEnv(key); ok {
+			return strings.ReplaceAll(val, `\`, `\\`)
+		}
+		return ""
+	})
 }

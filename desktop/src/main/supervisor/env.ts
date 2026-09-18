@@ -126,20 +126,23 @@ export function agentServerEnv(inputs: AgentServerEnvInputs): NodeJS.ProcessEnv 
   const inherited = childEnv(preflight);
   for (const key of SERVER_CONTRACT_KEYS) delete inherited[key];
 
+  const toEnvPath = (p?: string): string | undefined =>
+    p && process.platform === "win32" ? p.replace(/\\/g, "/") : p;
+
   return {
     ...inherited,
     PORT: "0",
     SHUTDOWN_ON_STDIN_CLOSE: "1",
-    DATA_DIR: inputs.dataDir,
-    EMBEDDED_POSTGRES_CACHE_DIR: inputs.postgresCacheDir,
+    DATA_DIR: toEnvPath(inputs.dataDir)!,
+    EMBEDDED_POSTGRES_CACHE_DIR: toEnvPath(inputs.postgresCacheDir)!,
     SERVER_API_KEY: inputs.apiToken,
     MCP_SECRETS_KEY: inputs.mcpSecretsKey,
-    ...(claude?.status === "ok" && claude.path ? { CLAUDE_CODE_BIN: claude.path } : {}),
-    ...(cursorAgent?.status === "ok" && cursorAgent.path ? { CURSOR_AGENT_BIN: cursorAgent.path } : {}),
-    ...(antigravity?.status === "ok" && antigravity.path ? { ANTIGRAVITY_BIN: antigravity.path } : {}),
-    ...(opencode?.status === "ok" && opencode.path ? { OPENCODE_BIN: opencode.path } : {}),
+    ...(claude?.status === "ok" && claude.path ? { CLAUDE_CODE_BIN: toEnvPath(claude.path) } : {}),
+    ...(cursorAgent?.status === "ok" && cursorAgent.path ? { CURSOR_AGENT_BIN: toEnvPath(cursorAgent.path) } : {}),
+    ...(antigravity?.status === "ok" && antigravity.path ? { ANTIGRAVITY_BIN: toEnvPath(antigravity.path) } : {}),
+    ...(opencode?.status === "ok" && opencode.path ? { OPENCODE_BIN: toEnvPath(opencode.path) } : {}),
     ...(inputs.embeddingsBaseURL ? { EMBEDDINGS_BASE_URL: inputs.embeddingsBaseURL } : {}),
-    ...(chrome?.status === "ok" && chrome.path ? { CHROME_BIN: chrome.path } : {}),
+    ...(chrome?.status === "ok" && chrome.path ? { CHROME_BIN: toEnvPath(chrome.path) } : {}),
     // Sent whenever Appium is INSTALLED, whether this app started the hub or
     // adopted one already on the port — it is the same hub either way.
     ...(appium?.status === "ok" ? { MOBILE_APPIUM_HUB_URL: APPIUM_BASE_URL } : {}),

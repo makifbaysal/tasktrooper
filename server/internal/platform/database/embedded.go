@@ -81,7 +81,9 @@ func StartEmbedded(ctx context.Context, cfg EmbeddedConfig) (*Embedded, error) {
 		Version(embedded.V16).
 		Port(port).
 		DataPath(cfg.DataDir).
-		Logger(nil)
+		Logger(nil).
+		Locale("C").
+		Encoding("UTF8")
 	if cfg.RuntimePath != "" {
 		embeddedCfg = embeddedCfg.RuntimePath(cfg.RuntimePath)
 	}
