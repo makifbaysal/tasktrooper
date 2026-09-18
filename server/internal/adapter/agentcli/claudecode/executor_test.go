@@ -785,6 +785,46 @@ func TestQuotaGateParksSubsequentExecutesWithoutSpawning(t *testing.T) {
 	assert.Equal(t, "1", calls, "the gated execute must not spawn the CLI at all")
 }
 
+// The gate must not hold for the full guessed reset without ever trying
+// again: a cheap retry on quotaRetryInterval is what notices a different,
+// unspent account swapped in underneath (e.g. a credential-store switcher)
+// without this package knowing anything about how accounts are switched —
+// the CLI's own success is what actually clears the gate.
+func TestQuotaGateRetriesOnCadenceAndClearsOnSuccess(t *testing.T) {
+	ex, workA := newTestExecutor(t, Config{}, "usage_limit.jsonl")
+	fakeNow := time.Now()
+	ex.now = func() time.Time { return fakeNow }
+
+	_, err := ex.Execute(context.Background(), taskExecution(workA))
+	var block *domain.QuotaBlock
+	require.True(t, errors.As(err, &block), "the first execute must report the typed block: %v", err)
+
+	workB := t.TempDir()
+	body, err := os.ReadFile(filepath.Join("testdata", "success.jsonl"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(workB, "fixture.jsonl"), body, 0o600))
+
+	// Still inside the cadence: parks without spawning, same as any other
+	// gated execute.
+	_, err = ex.Execute(context.Background(), taskExecution(workB))
+	require.Error(t, err, "an execute inside the retry cadence must still park")
+	_, statErr := os.Stat(filepath.Join(workB, "calls.txt"))
+	assert.True(t, os.IsNotExist(statErr), "the gated execute must not have spawned the CLI yet")
+
+	// The cadence has passed: this execute must actually try the CLI, not just
+	// wait for quotaUntil.
+	fakeNow = fakeNow.Add(quotaRetryInterval)
+	resp, err := ex.Execute(context.Background(), taskExecution(workB))
+	require.NoError(t, err, "the retry-due execute must spawn for real: %v", err)
+	assert.NotZero(t, resp)
+	calls := strings.TrimSpace(readFile(t, filepath.Join(workB, "calls.txt")))
+	assert.Equal(t, "1", calls, "the retry-due execute must have spawned the CLI exactly once")
+
+	until, armed := ex.QuotaGate()
+	assert.False(t, armed, "a session that succeeded must clear the gate, including on a swapped-in account")
+	assert.True(t, until.IsZero())
+}
+
 // newWorkspaceWithSleep primes a workspace like newTestExecutor does, plus the
 // fake CLI's sleep_seconds file, for the concurrency-cap tests below where two
 // sessions have to be in flight at once — something one shared workspace's

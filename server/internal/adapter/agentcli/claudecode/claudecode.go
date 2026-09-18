@@ -208,10 +208,21 @@ type Executor struct {
 	// every OTHER session about to start not to bother, rather than each of up
 	// to MaxConcurrentSessions discovering the same spent subscription on its
 	// own spawn.
-	gateMu      sync.Mutex
-	quotaUntil  time.Time
-	quotaDetail string
+	gateMu         sync.Mutex
+	quotaUntil     time.Time
+	quotaDetail    string
+	quotaNextRetry time.Time
 }
+
+// quotaRetryInterval is how often a gated executor lets one session actually
+// try the CLI instead of parking on the guessed reset. Sleeping until
+// quotaUntil is right for a single account: nothing else would tell the gate
+// to lift early. It is wrong for anyone swapping Claude Code accounts under
+// this executor (e.g. a credential-store switcher) — this package has no way
+// to know an account changed, so it never shortens quotaUntil for that, but a
+// cheap, cadenced retry finds out empirically: the CLI's own success or
+// failure is what actually clears or re-arms the gate (finish, above).
+const quotaRetryInterval = 15 * time.Minute
 
 var (
 	_ port.TaskExecutor = (*Executor)(nil)
@@ -311,6 +322,7 @@ func (e *Executor) armQuotaGate(block *domain.QuotaBlock) {
 		e.quotaUntil = block.ResumeAt
 		e.quotaDetail = block.Detail
 	}
+	e.quotaNextRetry = e.now().Add(quotaRetryInterval)
 }
 
 // clearQuotaGate lifts the gate. A session that just succeeded is proof the
@@ -322,6 +334,7 @@ func (e *Executor) clearQuotaGate() {
 	defer e.gateMu.Unlock()
 	e.quotaUntil = time.Time{}
 	e.quotaDetail = ""
+	e.quotaNextRetry = time.Time{}
 }
 
 // QuotaGate reports the gate's current state, for observability.
@@ -334,18 +347,28 @@ func (e *Executor) QuotaGate() (until time.Time, armed bool) {
 // quotaGateState is QuotaGate plus the detail Execute needs to word its own
 // early return; kept unexported and separate so QuotaGate's public signature
 // stays the two values callers outside the package actually want.
-func (e *Executor) quotaGateState() (until time.Time, detail string, armed bool) {
+func (e *Executor) quotaGateState() (until time.Time, detail string, nextRetry time.Time, armed bool) {
 	e.gateMu.Lock()
 	defer e.gateMu.Unlock()
-	return e.quotaUntil, e.quotaDetail, !e.quotaUntil.IsZero()
+	return e.quotaUntil, e.quotaDetail, e.quotaNextRetry, !e.quotaUntil.IsZero()
 }
 
 // gatedQuotaBlock is the park Execute returns while the gate is armed, or nil.
 // req.ResumeSessionID rides along so a re-parked task does not lose the CLI
 // session it would resume.
 func (e *Executor) gatedQuotaBlock(req domain.TaskExecution) *domain.QuotaBlock {
-	until, detail, armed := e.quotaGateState()
+	until, detail, nextRetry, armed := e.quotaGateState()
 	if !armed || !e.now().Before(until) {
+		return nil
+	}
+	if !nextRetry.IsZero() && !e.now().Before(nextRetry) {
+		// The retry cadence is due: let this session spawn for real rather than
+		// park on the guessed reset. Its own outcome, through finish, is what
+		// clears the gate (success — including a different, now-unspent account
+		// swapped in underneath) or re-arms it with a fresh nextRetry (still
+		// spent). Not consumed here so a second gatedQuotaBlock call for the
+		// same request (after the concurrency slot is acquired) sees the same
+		// "go" answer instead of finding the window already pushed forward.
 		return nil
 	}
 	log.Info().
