@@ -774,6 +774,26 @@ func (c *Client) TaskChangedFiles(ctx context.Context, workspacePath string) ([]
 	return files, nil
 }
 
+// ChangedFilesSince lists the paths that changed between sha and HEAD. Used
+// to show a reviewer exactly what moved since their last verdict, instead of
+// re-asking about everything.
+func (c *Client) ChangedFilesSince(ctx context.Context, workspacePath, sha string) ([]string, error) {
+	if sha == "" || !c.HasGit(workspacePath) {
+		return nil, nil
+	}
+	out, err := c.run(ctx, workspacePath, "git", "diff", "--name-only", sha)
+	if err != nil {
+		return nil, fmt.Errorf("git diff --name-only: %w", err)
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
 func (c *Client) CommitAndPush(ctx context.Context, workspacePath, message string) error {
 	if _, err := c.run(ctx, workspacePath, "git", "add", "-A"); err != nil {
 		return fmt.Errorf("git add: %w", err)

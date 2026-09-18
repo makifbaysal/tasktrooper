@@ -237,6 +237,10 @@ type CriterionCheck struct {
 	Approved    bool                `json:"approved"`
 	Note        string              `json:"note,omitempty"`
 	CheckedAt   time.Time           `json:"checked_at"`
+	// VerifiedSHA is the task branch's HEAD at the moment of this verdict —
+	// empty when it could not be resolved. It lets a later reviewer be shown
+	// what changed since, instead of the verdict being wiped outright.
+	VerifiedSHA string `json:"verified_sha,omitempty"`
 }
 
 // ReleasedBoardWindow is how long a released task stays on the board. The

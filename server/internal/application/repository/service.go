@@ -323,7 +323,26 @@ func (s *Service) ReviewTaskCriterion(ctx context.Context, criterionID, agentID 
 	if agentID != uuid.Nil {
 		check.AgentID = &agentID
 	}
+	check.VerifiedSHA = s.currentTaskSHA(ctx, task.ID)
 	return s.criteria.UpsertCheck(ctx, check)
+}
+
+// currentTaskSHA resolves the task branch's HEAD to stamp on a verdict — best
+// effort, since a verdict is still worth recording without it. An empty
+// result just means a later reviewer sees no "changed since" note.
+func (s *Service) currentTaskSHA(ctx context.Context, taskID uuid.UUID) string {
+	if s.git == nil {
+		return ""
+	}
+	path := s.taskWorkspacePath(taskID)
+	if path == "" || !s.git.HasGit(path) {
+		return ""
+	}
+	info, err := s.git.TaskGitInfo(ctx, path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(info.HeadSHA)
 }
 
 // criteriaGate blocks forward moves while acceptance criteria remain open.
@@ -2047,15 +2066,6 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		}
 		if s.evolution != nil && *req.Column == domain.TaskColumnNeedRevision {
 			s.evolution.NotifyRevision(ctx, updated)
-		}
-		// A task entering ready_for_qa starts a fresh verification round: stale
-		// verdicts from the previous round would let the review gates pass on
-		// criteria nobody re-tested. Coming back from in_qa is the same round,
-		// so those verdicts survive.
-		if s.criteria != nil && *req.Column == domain.TaskColumnReadyForQA && prevColumn != domain.TaskColumnInQA {
-			if cerr := s.criteria.ClearChecksForTask(ctx, updated.ID); cerr != nil {
-				log.Warn().Err(cerr).Str("task_id", updated.ID.String()).Msg("clear criterion checks failed")
-			}
 		}
 		// The PR is opened when a task enters code_review so the
 		// validate/build/test pipeline can read PR-linked GitHub Actions runs.

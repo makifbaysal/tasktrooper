@@ -82,6 +82,10 @@ type GitClient interface {
 	// TaskChangedFiles lists the paths the task branch changed against its
 	// merge base — the input to the schema-change (migration) detector.
 	TaskChangedFiles(ctx context.Context, workspacePath string) ([]string, error)
+	// ChangedFilesSince lists the paths that changed between sha and HEAD —
+	// what a reviewer is shown in place of re-litigating a verdict already on
+	// record for code that never moved.
+	ChangedFilesSince(ctx context.Context, workspacePath, sha string) ([]string, error)
 	// TaskGitInfo resolves origin owner/repo + branch + HEAD SHA of a workspace.
 	TaskGitInfo(ctx context.Context, workspacePath string) (domain.TaskGitInfo, error)
 }

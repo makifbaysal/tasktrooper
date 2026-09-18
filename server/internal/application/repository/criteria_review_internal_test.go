@@ -32,9 +32,6 @@ func (f *fakeCriteriaStore) GetCriterion(ctx context.Context, criterionID uuid.U
 func (f *fakeCriteriaStore) UpsertCheck(ctx context.Context, check domain.CriterionCheck) (domain.CriterionCheck, error) {
 	return check, nil
 }
-func (f *fakeCriteriaStore) ClearChecksForTask(ctx context.Context, taskID uuid.UUID) error {
-	return nil
-}
 
 func criterion(text string, checks ...domain.CriterionCheck) domain.AcceptanceCriterion {
 	return domain.AcceptanceCriterion{ID: uuid.New(), Text: text, Completed: true, Checks: checks}
@@ -339,6 +336,48 @@ func TestCriteriaRefusalsCarryCriterionIDs(t *testing.T) {
 			t.Fatalf("expected %q in %v", want, err)
 		}
 	})
+}
+
+// A verdict now survives a revision round instead of being wiped on the way
+// back into ready_for_qa (that blanket clear is gone), so this is what tells a
+// later reviewer whether an old approval still means anything: the commit it
+// was checked against.
+func TestReviewTaskCriterionStampsTheCurrentHeadSHA(t *testing.T) {
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: uuid.New(), Key: "T-9", Column: domain.TaskColumnReadyForQA}
+	criteria := &fakeCriteriaStore{criterion: domain.AcceptanceCriterion{ID: uuid.New(), TaskID: task.ID, Text: "a"}}
+	svc := &Service{
+		criteria:      criteria,
+		tasks:         &criterionTaskStore{fakeReleaseTaskStore: &fakeReleaseTaskStore{task: task}},
+		git:           &fakeReleaseGit{hasGit: true, headSHA: "abc123"},
+		workspaceRoot: t.TempDir(),
+	}
+
+	check, err := svc.ReviewTaskCriterion(context.Background(), criteria.criterion.ID, uuid.New(), true, "")
+	if err != nil {
+		t.Fatalf("expected the verdict to be recorded, got %v", err)
+	}
+	if check.VerifiedSHA != "abc123" {
+		t.Fatalf("expected the verdict stamped with the task's current HEAD, got %q", check.VerifiedSHA)
+	}
+}
+
+// No workspace to resolve a HEAD from is not a reason to refuse the verdict —
+// only to record it without one.
+func TestReviewTaskCriterionToleratesNoGitClient(t *testing.T) {
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: uuid.New(), Key: "T-9", Column: domain.TaskColumnReadyForQA}
+	criteria := &fakeCriteriaStore{criterion: domain.AcceptanceCriterion{ID: uuid.New(), TaskID: task.ID, Text: "a"}}
+	svc := &Service{
+		criteria: criteria,
+		tasks:    &criterionTaskStore{fakeReleaseTaskStore: &fakeReleaseTaskStore{task: task}},
+	}
+
+	check, err := svc.ReviewTaskCriterion(context.Background(), criteria.criterion.ID, uuid.New(), true, "")
+	if err != nil {
+		t.Fatalf("expected the verdict to be recorded, got %v", err)
+	}
+	if check.VerifiedSHA != "" {
+		t.Fatalf("expected no SHA without a git client, got %q", check.VerifiedSHA)
+	}
 }
 
 // A verdict filed from outside the review columns is refused — and the refusal

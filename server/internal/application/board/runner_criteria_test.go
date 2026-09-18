@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 // The failure this file exists for: by the time QA is dispatched the developer
@@ -34,7 +35,7 @@ func TestCriteriaForRunListsEveryCriterionForReviewColumns(t *testing.T) {
 		got := r.criteriaForRun(context.Background(), job)
 		require.Len(t, got, len(ticked), "column %s: a reviewing run must see every criterion, ticked or not", col)
 
-		msg := buildTriggerMessage(job, got)
+		msg := buildTriggerMessage(job, got, nil)
 		for _, c := range ticked {
 			if !strings.Contains(msg, c.ID.String()) {
 				t.Errorf("column %s: criterion id %s is missing, so review_criterion cannot be called:\n%s", col, c.ID, msg)
@@ -54,11 +55,12 @@ func TestTriggerMessageTellsReviewersToRecordAVerdictOnEachID(t *testing.T) {
 	for _, col := range []domain.TaskColumn{
 		domain.TaskColumnReadyForQA, domain.TaskColumnInQA, domain.TaskColumnPMUAT,
 	} {
-		msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: col}}, criteria)
+		msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: col}}, criteria, nil)
 		for _, want := range []string{
 			"review_criterion",
-			"The forward move is refused while any id lacks your verdict on repositories that require criteria — record them all regardless.",
+			"The forward move is refused while any id lacks your verdict on repositories that require criteria.",
 			"Never move the task to need_revision just to look for these ids",
+			"A verdict already on an id survives a revision round",
 		} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("column %s: trigger message is missing %q:\n%s", col, want, msg)
@@ -72,7 +74,7 @@ func TestTriggerMessageTellsReviewersToRecordAVerdictOnEachID(t *testing.T) {
 
 func TestTriggerMessageNamesTheCriteriaAsTheDiffsTargetInCodeReview(t *testing.T) {
 	criteria := []domain.AcceptanceCriterion{{ID: uuid.New(), Text: "criterion", Completed: true}}
-	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnCodeReview}}, criteria)
+	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnCodeReview}}, criteria, nil)
 
 	require.Contains(t, msg, "Acceptance criteria the diff must satisfy (ids for reference)")
 	require.NotContains(t, msg, "call set_criterion_completed", "the reviewer does not tick the developer's boxes")
@@ -86,7 +88,7 @@ func TestTriggerMessageShowsWhoHasSaidWhatAboutEachCriterion(t *testing.T) {
 		Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true}},
 	}
 	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnPMUAT}},
-		[]domain.AcceptanceCriterion{c})
+		[]domain.AcceptanceCriterion{c}, nil)
 
 	want := "- [" + c.ID.String() + "] the banner appears — implementer: ticked; qa: approved; pm: —"
 	if !strings.Contains(msg, want) {
@@ -100,7 +102,7 @@ func TestTriggerMessageShowsARejectionWithItsNote(t *testing.T) {
 		Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: false, Note: "banner never rendered"}},
 	}
 	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnPMUAT}},
-		[]domain.AcceptanceCriterion{c})
+		[]domain.AcceptanceCriterion{c}, nil)
 
 	require.Contains(t, msg, "qa: rejected (banner never rendered)")
 }
@@ -121,7 +123,7 @@ func TestCriteriaForRunListsOnlyOpenCriteriaForImplementers(t *testing.T) {
 		require.Len(t, got, 1, "column %s: an implementer sees only what is still open", col)
 		require.Equal(t, open.ID, got[0].ID)
 
-		msg := buildTriggerMessage(job, got)
+		msg := buildTriggerMessage(job, got, nil)
 		if !strings.Contains(msg, "Open acceptance criteria") {
 			t.Errorf("column %s: implementer lost the open-criteria checklist:\n%s", col, msg)
 		}
@@ -157,10 +159,82 @@ func TestCriteriaForRunKeepsAnalizBehaviourUnchanged(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, open.ID, got[0].ID)
 
-	msg := buildTriggerMessage(job, got)
+	msg := buildTriggerMessage(job, got, nil)
 	require.Contains(t, msg, "Open acceptance criteria", "an analiz run keeps the implementer's open-only checklist")
 	require.NotContains(t, msg, done.ID.String())
 	require.NotContains(t, msg, "Acceptance criteria the diff must satisfy")
+}
+
+// changedFilesSinceGit answers ChangedFilesSince from a fixed table keyed by
+// sha; every other port.GitClient method is left to panic, so a change that
+// starts calling one here is caught rather than silently passing.
+type changedFilesSinceGit struct {
+	port.GitClient
+	bySHA map[string][]string
+	calls []string
+}
+
+func (g *changedFilesSinceGit) ChangedFilesSince(_ context.Context, _ string, sha string) ([]string, error) {
+	g.calls = append(g.calls, sha)
+	return g.bySHA[sha], nil
+}
+
+// A verdict used to be wiped wholesale on every return to ready_for_qa, so QA
+// re-verified every criterion even when the fix was a one-line merge
+// conflict. Verdicts now survive the round; this is what a reviewer is shown
+// in their place, so they can tell a criterion the revision never touched
+// from one it did.
+func TestChangedSinceByVerifiedSHAReportsWhatMovedSinceEachVerdict(t *testing.T) {
+	sha := "1111111111112222222222223333333333334444"
+	criteria := []domain.AcceptanceCriterion{
+		{
+			ID: uuid.New(), Text: "a",
+			Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true, VerifiedSHA: sha}},
+		},
+		{
+			// Same SHA as the first criterion — one review round, one git call.
+			ID: uuid.New(), Text: "b",
+			Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true, VerifiedSHA: sha}},
+		},
+	}
+	g := &changedFilesSinceGit{bySHA: map[string][]string{sha: {"server/foo.go"}}}
+	r := &Runner{git: g}
+
+	got := r.changedSinceByVerifiedSHA(context.Background(), "/workspace", criteria)
+
+	require.Equal(t, []string{"server/foo.go"}, got[sha])
+	require.Len(t, g.calls, 1, "one review round shares one SHA, so this must be one git call, not one per criterion")
+}
+
+// The reviewer's line has to say WHICH criteria are safe to leave alone: an
+// approval next to a note naming files that changed since is not the same
+// as one the revision never went near.
+func TestCriterionStateLineNotesFilesChangedSinceAnApprovedVerdict(t *testing.T) {
+	sha := "1111111111112222222222223333333333334444"
+	touched := domain.AcceptanceCriterion{
+		ID: uuid.New(), Text: "touched by the fix", Completed: true,
+		Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true, VerifiedSHA: sha}},
+	}
+	untouched := domain.AcceptanceCriterion{
+		ID: uuid.New(), Text: "untouched by the fix", Completed: true,
+		Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true, VerifiedSHA: sha}},
+	}
+	noHistory := domain.AcceptanceCriterion{
+		ID: uuid.New(), Text: "never reviewed against a commit", Completed: true,
+		Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true}},
+	}
+	changedSince := map[string][]string{sha: {"server/foo.go"}}
+
+	touchedLine := criterionStateLine(touched, changedSince)
+	require.Contains(t, touchedLine, "approved (as of "+domain.ShortSHA(sha)+", changed since: server/foo.go)")
+
+	unrelatedSince := map[string][]string{sha: nil}
+	untouchedLine := criterionStateLine(untouched, unrelatedSince)
+	require.Contains(t, untouchedLine, "approved (as of "+domain.ShortSHA(sha)+", nothing changed since)")
+
+	plainLine := criterionStateLine(noHistory, changedSince)
+	require.Contains(t, plainLine, "qa: approved;")
+	require.NotContains(t, plainLine, "as of", "a verdict with no recorded SHA gets no changed-since note")
 }
 
 // get_deploy_target was called with "agent-server" — the repository NAME, the
@@ -171,7 +245,7 @@ func TestTriggerMessageSnapshotCarriesTheRepositoryID(t *testing.T) {
 	msg := buildTriggerMessage(RunJob{
 		Task:         domain.BoardTask{Title: "t", Column: domain.TaskColumnInProgress},
 		RepositoryID: repoID,
-	}, nil)
+	}, nil, nil)
 
 	if !strings.Contains(msg, `"repository_id":"`+repoID.String()+`"`) {
 		t.Fatalf("task snapshot does not carry the repository id:\n%s", msg)

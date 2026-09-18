@@ -260,9 +260,6 @@ type AcceptanceCriterionStore interface {
 	// UpsertCheck records one role's verdict on one criterion, overwriting the
 	// role's previous verdict for that criterion.
 	UpsertCheck(ctx context.Context, check domain.CriterionCheck) (domain.CriterionCheck, error)
-	// ClearChecksForTask wipes all verdicts on the task's criteria — called
-	// when a task re-enters ready_for_qa so a new QA round starts clean.
-	ClearChecksForTask(ctx context.Context, taskID uuid.UUID) error
 }
 
 // TaskTestCaseStore holds the test round a task was actually given: every case

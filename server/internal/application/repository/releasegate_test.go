@@ -66,6 +66,9 @@ func (f *fakeReleaseGit) TaskDiff(context.Context, string) (string, error) { ret
 func (f *fakeReleaseGit) TaskChangedFiles(context.Context, string) ([]string, error) {
 	return nil, nil
 }
+func (f *fakeReleaseGit) ChangedFilesSince(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
 
 // fakeReleaseRepoStore serves one repository row; Get is what most tests
 // exercise, plus UpdateRootPath for the working-copy restore.

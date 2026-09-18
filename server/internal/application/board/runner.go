@@ -1105,7 +1105,9 @@ func (r *Runner) execute(parent context.Context, job RunJob) error {
 	}
 
 	systemPrompt := prompt.BuildSystemPromptFor(agentRec, enabledSkills, techStacks, ruleTexts, r.language(runCtx), skillDelivery)
-	triggerMsg := buildTriggerMessage(job, r.criteriaForRun(runCtx, job))
+	criteriaItems := r.criteriaForRun(runCtx, job)
+	changedSinceVerdict := r.changedSinceByVerifiedSHA(runCtx, workDir, criteriaItems)
+	triggerMsg := buildTriggerMessage(job, criteriaItems, changedSinceVerdict)
 
 	// Every context block below is computed here, in its original relative
 	// order, so every side effect (git reads, the PR lookup's early return,
@@ -2946,6 +2948,41 @@ func (r *Runner) criteriaForRun(ctx context.Context, job RunJob) []domain.Accept
 	return r.openCriteria(ctx, job)
 }
 
+// changedSinceByVerifiedSHA maps each distinct commit a criterion verdict was
+// checked against to the files that changed since. A verdict no longer gets
+// wiped on re-entry to review, so this is what tells the reviewer whether
+// their earlier approval still means anything, instead of forcing them to
+// re-verify criteria the revision never went near.
+//
+// Keyed by SHA rather than by criterion: a review round hands every criterion
+// the same verdict SHA, so this is one git call per round, not one per
+// criterion. A SHA missing from the result (lookup failed, or nothing was
+// ever recorded) means no note is shown — never a false "nothing changed".
+func (r *Runner) changedSinceByVerifiedSHA(ctx context.Context, workspacePath string, criteria []domain.AcceptanceCriterion) map[string][]string {
+	if r.git == nil || workspacePath == "" {
+		return nil
+	}
+	out := make(map[string][]string)
+	for _, c := range criteria {
+		for _, check := range c.Checks {
+			if check.VerifiedSHA == "" {
+				continue
+			}
+			if _, seen := out[check.VerifiedSHA]; seen {
+				continue
+			}
+			files, err := r.git.ChangedFilesSince(ctx, workspacePath, check.VerifiedSHA)
+			if err != nil {
+				log.Warn().Err(err).Str("task_id", c.TaskID.String()).Str("sha", check.VerifiedSHA).
+					Msg("changed-files-since lookup for criterion review failed")
+				continue
+			}
+			out[check.VerifiedSHA] = files
+		}
+	}
+	return out
+}
+
 // listsEveryCriterion reports whether this run's prompt shows every criterion
 // with its ids and its verdicts rather than only the unticked ones.
 //
@@ -3005,26 +3042,35 @@ func standingCriteriaMessage(task domain.BoardTask) string {
 // the forward move stays refused until they all have one. That refusal is
 // criteriaReviewGate, which only runs where require_criteria_complete is set, so
 // the sentence names that condition rather than promising a gate half the
-// repositories do not have — and still asks for every verdict, because a review
-// history is worth having on the repositories nothing forces.
-// The last sentence is
+// repositories do not have.
+// The "never move to need_revision just to look for these ids" sentence is
 // there because the observed workaround was worse than the gap — a QA run with
 // no ids in its prompt moved the task back to need_revision "to surface the
 // criteria", which sends finished work back to a developer who has nothing to
 // fix.
+//
+// carryOver exists because a verdict used to be wiped wholesale on every
+// return to ready_for_qa, so QA re-verified everything on a task whose fix
+// was a one-line merge conflict. Verdicts now survive the round; this is what
+// tells the reviewer that, and hands them the changed-file note
+// (criterionStateLine) to decide with, rather than the system deciding for
+// them by erasing the record.
 func reviewCriteriaHeader(column domain.TaskColumn) string {
+	const carryOver = " A verdict already on an id survives a revision round — it is not asked again from zero. " +
+		"Where a line below names files changed since that verdict, re-verify and call review_criterion again only if one of those files could plausibly affect that specific criterion; leave the rest as they are. " +
+		"An id with no verdict yet still needs one.\n"
 	switch column {
 	case domain.TaskColumnReadyForQA, domain.TaskColumnInQA:
 		return "\nAcceptance criteria — record YOUR verdict on EACH id below with review_criterion " +
 			"(approve only what you executed and observed; reject with expected-vs-actual). " +
-			"The forward move is refused while any id lacks your verdict on repositories that require criteria — record them all regardless. " +
-			"Never move the task to need_revision just to look for these ids: they are here.\n"
+			"The forward move is refused while any id lacks your verdict on repositories that require criteria. " +
+			"Never move the task to need_revision just to look for these ids: they are here.\n" + carryOver
 	case domain.TaskColumnPMUAT:
 		return "\nAcceptance criteria — record YOUR OWN PM verdict on EACH id below with review_criterion " +
 			"(approve only what executed evidence and your own check on stage cover; reject naming the gap). " +
 			"The developer's checkmark and QA's check are not your verdict. " +
-			"The forward move is refused while any id lacks your verdict on repositories that require criteria — record them all regardless. " +
-			"Never move the task to need_revision just to look for these ids: they are here.\n"
+			"The forward move is refused while any id lacks your verdict on repositories that require criteria. " +
+			"Never move the task to need_revision just to look for these ids: they are here.\n" + carryOver
 	case domain.TaskColumnCodeReview:
 		return "\nAcceptance criteria the diff must satisfy (ids for reference):\n"
 	default:
@@ -3035,26 +3081,27 @@ func reviewCriteriaHeader(column domain.TaskColumn) string {
 // criterionStateLine renders one criterion as id, text and who has said what
 // about it. A reviewer that cannot see an existing verdict either re-does work
 // another role already recorded or reads a ticked box as an approval.
-func criterionStateLine(c domain.AcceptanceCriterion) string {
+func criterionStateLine(c domain.AcceptanceCriterion, changedSince map[string][]string) string {
 	implementer := "not ticked"
 	if c.Completed {
 		implementer = "ticked"
 	}
 	return fmt.Sprintf("- [%s] %s — implementer: %s; qa: %s; pm: %s\n",
 		c.ID, c.Text, implementer,
-		criterionVerdictLabel(c, domain.CriterionReviewRoleQA),
-		criterionVerdictLabel(c, domain.CriterionReviewRolePM))
+		criterionVerdictLabel(c, domain.CriterionReviewRoleQA, changedSince),
+		criterionVerdictLabel(c, domain.CriterionReviewRolePM, changedSince))
 }
 
-func criterionVerdictLabel(c domain.AcceptanceCriterion, role domain.CriterionReviewRole) string {
+func criterionVerdictLabel(c domain.AcceptanceCriterion, role domain.CriterionReviewRole, changedSince map[string][]string) string {
 	for i := range c.Checks {
-		if c.Checks[i].Role != role {
+		check := c.Checks[i]
+		if check.Role != role {
 			continue
 		}
-		if c.Checks[i].Approved {
-			return "approved"
+		if check.Approved {
+			return "approved" + changedSinceNote(check.VerifiedSHA, changedSince)
 		}
-		if note := strings.TrimSpace(c.Checks[i].Note); note != "" {
+		if note := strings.TrimSpace(check.Note); note != "" {
 			return "rejected (" + note + ")"
 		}
 		return "rejected"
@@ -3062,11 +3109,39 @@ func criterionVerdictLabel(c domain.AcceptanceCriterion, role domain.CriterionRe
 	return "—"
 }
 
+// maxChangedFilesNoted caps how many paths a stale-verdict note lists inline —
+// enough for a reviewer to judge relevance, not the whole diff (that's what
+// the diff block already carries).
+const maxChangedFilesNoted = 15
+
+// changedSinceNote appends what moved since a verdict's SHA — "" when there is
+// nothing to add (no SHA recorded on the verdict, or its SHA had no entry in
+// changedSince), so an ordinary criterion's line reads exactly as it always
+// has.
+func changedSinceNote(sha string, changedSince map[string][]string) string {
+	if sha == "" {
+		return ""
+	}
+	files, ok := changedSince[sha]
+	if !ok {
+		return ""
+	}
+	if len(files) == 0 {
+		return fmt.Sprintf(" (as of %s, nothing changed since)", domain.ShortSHA(sha))
+	}
+	shown, suffix := files, ""
+	if len(shown) > maxChangedFilesNoted {
+		shown = shown[:maxChangedFilesNoted]
+		suffix = fmt.Sprintf(" +%d more", len(files)-maxChangedFilesNoted)
+	}
+	return fmt.Sprintf(" (as of %s, changed since: %s%s)", domain.ShortSHA(sha), strings.Join(shown, ", "), suffix)
+}
+
 // criteriaMessage renders the open criteria as the checklist the run is judged
 // against. Only implementers are told to tick them: for QA and PM the tick is
 // the developer's claim to verify, not theirs to make — they record their own
 // verdict with review_criterion.
-func criteriaMessage(task domain.BoardTask, criteria []domain.AcceptanceCriterion) string {
+func criteriaMessage(task domain.BoardTask, criteria []domain.AcceptanceCriterion, changedSince map[string][]string) string {
 	var sb strings.Builder
 	sb.WriteString(standingCriteriaMessage(task))
 	if len(criteria) == 0 {
@@ -3075,7 +3150,7 @@ func criteriaMessage(task domain.BoardTask, criteria []domain.AcceptanceCriterio
 	if listsEveryCriterion(task) {
 		sb.WriteString(reviewCriteriaHeader(task.Column))
 		for _, c := range criteria {
-			sb.WriteString(criterionStateLine(c))
+			sb.WriteString(criterionStateLine(c, changedSince))
 		}
 		return sb.String()
 	}
@@ -3102,7 +3177,7 @@ func criteriaMessage(task domain.BoardTask, criteria []domain.AcceptanceCriterio
 	return sb.String()
 }
 
-func buildTriggerMessage(job RunJob, criteria []domain.AcceptanceCriterion) string {
+func buildTriggerMessage(job RunJob, criteria []domain.AcceptanceCriterion, changedSince map[string][]string) string {
 	taskJSON, _ := json.Marshal(map[string]interface{}{
 		"task_id": job.Task.ID.String(),
 		// task_key is the short handle every board tool also accepts. Without it
@@ -3158,7 +3233,7 @@ A run that skips any of 1-3 has its hand-off refused and its finished work parke
 
 Task snapshot:
 %s
-%s`, runInstruction(job), closingStep(job), string(taskJSON), criteriaMessage(job.Task, criteria))
+%s`, runInstruction(job), closingStep(job), string(taskJSON), criteriaMessage(job.Task, criteria, changedSince))
 }
 
 // closingStep is step 4 of the pre-finish checklist. For a run whose hand-off
