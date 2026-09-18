@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -114,20 +115,56 @@ func sanitizeCommitMessage(raw string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-// commitTrailers puts the task key and the agent name in trailers instead of
-// the subject line: a subject prefixed with "T-1 " is not a valid Conventional
+// commitCoAuthorDomain is where a synthetic co-author address resolves for
+// the trailer below. No agent has a real account, so this only has to be
+// stable and visually grouped — it never has to receive mail. Kept alongside
+// the fallback commit identity's own domain (agents@tasktrooper.ai; see
+// git/client.go's commitIdentityEnv).
+const commitCoAuthorDomain = "agents.tasktrooper.ai"
+
+// commitTrailers puts the task key and the agent in trailers instead of the
+// subject line: a subject prefixed with "T-1 " is not a valid Conventional
 // Commits header, which fails commitlint and action-semantic-pull-request on
 // any repository that enforces one, and the PR title is this same subject.
+//
+// The agent is a `Co-authored-by:` trailer — a standard git trailer most
+// commit-message policies already recognise — rather than a bespoke `Agent:`
+// line repos with a trailer policy would have to special-case or strip. It is
+// deliberately not optional: which agent wrote which commit is the one thing
+// per-agent performance tracking cannot recover once a commit has landed, and
+// nothing else records it.
 func commitTrailers(taskKey, agentName string) string {
 	var lines []string
 	if key := strings.TrimSpace(taskKey); key != "" {
 		lines = append(lines, "Task: "+key)
 	}
 	if name := strings.TrimSpace(agentName); name != "" {
-		lines = append(lines, "Agent: "+name)
+		lines = append(lines, fmt.Sprintf("Co-authored-by: %s <%s@%s>", name, commitCoAuthorSlug(name), commitCoAuthorDomain))
 	}
 	if len(lines) == 0 {
 		return ""
 	}
 	return "\n\n" + strings.Join(lines, "\n") + "\n"
+}
+
+// commitCoAuthorSlug turns an agent's display name into the local part of its
+// synthetic co-author email — lowercase, non-alphanumerics collapsed to a
+// single hyphen, so "Frontend Developer" reads as frontend-developer@... next
+// to a human's own noreply address in the same trailer block.
+func commitCoAuthorSlug(name string) string {
+	var b strings.Builder
+	lastHyphen := true
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastHyphen = false
+		default:
+			if !lastHyphen {
+				b.WriteByte('-')
+				lastHyphen = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
