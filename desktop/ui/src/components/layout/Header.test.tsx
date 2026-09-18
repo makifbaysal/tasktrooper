@@ -1,13 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Header } from "@/components/layout/Header";
 import { I18nProvider } from "@/hooks/useI18n";
 import { ThemeProvider } from "@/hooks/useTheme";
 import type { TaskTrooperDesktopHost } from "@/lib/desktop-bridge";
-
-function withDesktopHost() {
-  window.__tasktrooperDesktop = { runner: {} } as unknown as TaskTrooperDesktopHost;
-}
 
 function renderHeader(props: Parameters<typeof Header>[0] = {}) {
   return render(
@@ -22,10 +18,6 @@ function renderHeader(props: Parameters<typeof Header>[0] = {}) {
 const LOGO_SELECTOR = 'svg[viewBox="0 0 100 130"]';
 
 describe("Header logo alignment", () => {
-  afterEach(() => {
-    delete window.__tasktrooperDesktop;
-  });
-
   it("shifts the logo left by the sidebar's expanded nav inset when the sidebar is expanded", () => {
     const { container } = renderHeader({ sidebarCollapsed: false });
     const logo = container.querySelector(LOGO_SELECTOR);
@@ -55,28 +47,12 @@ describe("Header logo alignment", () => {
     expect(onMenuClick).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels the shell's pl-16 traffic-light clearance so the logo lines up expanded, at lg and up", () => {
-    withDesktopHost();
+  it("uses the same nav-inset alignment regardless of the desktop shell, since the shell renders the app below its title bar", () => {
+    window.__tasktrooperDesktop = { runner: {} } as unknown as TaskTrooperDesktopHost;
     const { container } = renderHeader({ sidebarCollapsed: false });
     const logo = container.querySelector(LOGO_SELECTOR);
     const brand = logo?.closest("div")?.parentElement;
-    expect(brand?.className).toContain("lg:-ml-[68px]");
-  });
-
-  it("cancels the shell's pl-16 traffic-light clearance so the logo lines up collapsed, at lg and up", () => {
-    withDesktopHost();
-    const { container } = renderHeader({ sidebarCollapsed: true });
-    const logo = container.querySelector(LOGO_SELECTOR);
-    const brandBadge = logo?.closest("div");
-    expect(brandBadge?.className).toContain("lg:-ml-[62px]");
-  });
-
-  it("does not cancel the traffic-light clearance below lg, so the logo stays clear of the mobile menu button", () => {
-    withDesktopHost();
-    const { container } = renderHeader({ sidebarCollapsed: false });
-    const logo = container.querySelector(LOGO_SELECTOR);
-    const brand = logo?.closest("div")?.parentElement;
-    const classes = brand?.className?.split(/\s+/) ?? [];
-    expect(classes).not.toContain("-ml-[68px]");
+    expect(brand?.className).toContain("-ml-1");
+    delete window.__tasktrooperDesktop;
   });
 });
