@@ -59,7 +59,11 @@ func TestStartDetectsTheURLTheCommandPrints(t *testing.T) {
 
 	preview, err := svc.Start(context.Background(), repositoryID, taskID, `echo "Local: http://localhost:4321/"; sleep 5`)
 	require.NoError(t, err)
-	assert.Equal(t, domain.LocalPreviewStarting, preview.Status)
+	// The pump goroutine races the caller for the snapshot: on a loaded runner
+	// it can already have scanned the echoed URL and flipped the status to
+	// running before Start returns, which is a correct read of a command that
+	// prints instantly, not a bug — so both are accepted here.
+	assert.Contains(t, []domain.LocalPreviewStatus{domain.LocalPreviewStarting, domain.LocalPreviewRunning}, preview.Status)
 
 	require.Eventually(t, func() bool {
 		p, ok := svc.Status(repositoryID)
