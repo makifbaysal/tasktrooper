@@ -141,7 +141,8 @@ export function NotificationCenter({ onAgentSeen }: NotificationCenterProps) {
           </Button>
         </div>
         <DropdownMenuSeparator className="m-0" />
-        <ScrollArea className="max-h-96">
+        {/* Fixed h-96, not max-h: ScrollArea's absolutely-positioned viewport gives Root no intrinsic height under max-h, collapsing the list to 0px. */}
+        <ScrollArea className="h-96">
           <div className="p-1">
             {items.length === 0 ? (
               <EmptyState
