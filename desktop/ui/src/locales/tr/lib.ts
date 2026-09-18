@@ -2,7 +2,7 @@ import type { LibDict } from "@/locales/en/lib";
 
 export const lib: LibDict = {
   projectBoard: {
-    taskType: { task: "Görev", analiz: "Analiz", bug: "Hata" },
+    taskType: { task: "Görev", analiz: "Analiz", bug: "Hata", technical: "Teknik" },
     taskPriority: { low: "Düşük", medium: "Orta", high: "Yüksek", critical: "Kritik" },
     pipelineStatus: {
       pending: "Bekliyor",

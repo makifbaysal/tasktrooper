@@ -76,6 +76,7 @@ export const TASK_TYPE_OPTIONS: { value: TaskType; labelKey: string }[] = [
   { value: "task", labelKey: "lib.projectBoard.taskType.task" },
   { value: "analiz", labelKey: "lib.projectBoard.taskType.analiz" },
   { value: "bug", labelKey: "lib.projectBoard.taskType.bug" },
+  { value: "technical", labelKey: "lib.projectBoard.taskType.technical" },
 ];
 
 export const TASK_PRIORITY_OPTIONS: { value: TaskPriority; labelKey: string }[] = [

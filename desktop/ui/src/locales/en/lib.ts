@@ -1,7 +1,7 @@
 // Labels that live in non-component modules (lib/*). Resolved via tStatic().
 export const lib = {
   projectBoard: {
-    taskType: { task: "Task", analiz: "Analysis", bug: "Bug" },
+    taskType: { task: "Task", analiz: "Analysis", bug: "Bug", technical: "Technical" },
     taskPriority: { low: "Low", medium: "Medium", high: "High", critical: "Critical" },
     pipelineStatus: {
       pending: "Pending",

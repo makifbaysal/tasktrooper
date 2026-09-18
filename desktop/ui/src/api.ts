@@ -728,7 +728,7 @@ export interface SavePipelineConfigInput {
 
 export type Project = Repository;
 
-export type TaskType = "task" | "analiz" | "bug";
+export type TaskType = "task" | "analiz" | "bug" | "technical";
 
 export type TaskPriority = "low" | "medium" | "high" | "critical";
 

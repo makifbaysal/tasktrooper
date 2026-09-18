@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   pipelineStatusVariant,
   runStatusVariant,
+  TASK_TYPE_OPTIONS,
   taskPipelineCardIcon,
+  taskTypeLabel,
   workOrderBlockerLabel,
 } from "@/lib/project-board";
 
@@ -81,6 +83,16 @@ describe("runStatusVariant", () => {
 
   it("falls back to secondary for an unknown status", () => {
     expect(runStatusVariant("unknown")).toBe("secondary");
+  });
+});
+
+describe("TASK_TYPE_OPTIONS / taskTypeLabel", () => {
+  it("includes technical alongside task/analiz/bug", () => {
+    expect(TASK_TYPE_OPTIONS.map((o) => o.value)).toEqual(["task", "analiz", "bug", "technical"]);
+  });
+
+  it("labels the technical type in the active locale", () => {
+    expect(taskTypeLabel("technical")).toBe("Technical");
   });
 });
 
