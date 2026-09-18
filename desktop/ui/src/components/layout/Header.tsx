@@ -10,9 +10,10 @@ import { cn } from "@/lib/utils";
 interface HeaderProps {
   title?: string;
   onMenuClick?: () => void;
+  sidebarCollapsed?: boolean;
 }
 
-export function Header({ title, onMenuClick }: HeaderProps) {
+export function Header({ title, onMenuClick, sidebarCollapsed = false }: HeaderProps) {
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
   // Only the shell's window has macOS's traffic lights floating over its top
@@ -26,7 +27,14 @@ export function Header({ title, onMenuClick }: HeaderProps) {
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={onMenuClick}>
           <Menu className="h-5 w-5" />
         </Button>
-        <SidebarBrand />
+        {/*
+          The header's own px-4 puts this at 16px; the sidebar nav icon below it
+          sits at nav's px-2 + link's px-3 = 20px expanded, or nav's px-2 + the
+          collapsed link's centered icon = 26px collapsed (WorkspaceSidebar /
+          SidebarNavLink). These margins close that gap so the logo's left edge
+          tracks the nav icon's left edge in both states.
+        */}
+        <SidebarBrand collapsed={sidebarCollapsed} className={sidebarCollapsed ? "ml-0.5" : "-ml-1"} />
         {title && <h1 className="truncate text-title font-semibold">{title}</h1>}
       </div>
 
