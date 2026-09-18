@@ -28,14 +28,15 @@ var ErrTaskOutsideRepository = errors.New("board task belongs to a different rep
 type TaskType string
 
 const (
-	TaskTypeTask   TaskType = "task"
-	TaskTypeAnaliz TaskType = "analiz"
-	TaskTypeBug    TaskType = "bug"
+	TaskTypeTask      TaskType = "task"
+	TaskTypeAnaliz    TaskType = "analiz"
+	TaskTypeBug       TaskType = "bug"
+	TaskTypeTechnical TaskType = "technical"
 )
 
 func ValidTaskType(t TaskType) bool {
 	switch t {
-	case TaskTypeTask, TaskTypeAnaliz, TaskTypeBug:
+	case TaskTypeTask, TaskTypeAnaliz, TaskTypeBug, TaskTypeTechnical:
 		return true
 	default:
 		return false
@@ -56,6 +57,8 @@ func TaskKeyPrefix(t TaskType) string {
 		return "B"
 	case TaskTypeAnaliz:
 		return "A"
+	case TaskTypeTechnical:
+		return "TC"
 	default:
 		return "T"
 	}
@@ -72,6 +75,8 @@ func TaskTypeForKeyPrefix(prefix string) (TaskType, bool) {
 		return TaskTypeBug, true
 	case "A":
 		return TaskTypeAnaliz, true
+	case "TC":
+		return TaskTypeTechnical, true
 	default:
 		return "", false
 	}

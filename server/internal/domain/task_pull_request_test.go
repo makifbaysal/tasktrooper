@@ -71,11 +71,12 @@ func TestTaskKeyPrefixes(t *testing.T) {
 	assert.Equal(t, "T-7", FormatTaskKey(TaskTypeTask, 7))
 	assert.Equal(t, "B-7", FormatTaskKey(TaskTypeBug, 7))
 	assert.Equal(t, "A-7", FormatTaskKey(TaskTypeAnaliz, 7))
+	assert.Equal(t, "TC-7", FormatTaskKey(TaskTypeTechnical, 7))
 	// An unset type is ordinary work rather than an error: the board created
 	// tasks before types were mandatory.
 	assert.Equal(t, "T-7", FormatTaskKey("", 7))
 
-	for prefix, want := range map[string]TaskType{"T": TaskTypeTask, "b": TaskTypeBug, " a ": TaskTypeAnaliz} {
+	for prefix, want := range map[string]TaskType{"T": TaskTypeTask, "b": TaskTypeBug, " a ": TaskTypeAnaliz, "tc": TaskTypeTechnical} {
 		got, ok := TaskTypeForKeyPrefix(prefix)
 		assert.True(t, ok, prefix)
 		assert.Equal(t, want, got)

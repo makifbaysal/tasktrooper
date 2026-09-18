@@ -98,8 +98,8 @@ func (t *createTaskTool) Definition() domain.ToolDefinition {
 					},
 					"task_type": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"task", "analiz", "bug"},
-						"description": "Task type",
+						"enum":        []string{"task", "analiz", "bug", "technical"},
+						"description": "Task type. \"technical\" is for pure backend/infra work with no UI-facing behaviour: it skips pm_uat and goes straight from QA to human_uat.",
 					},
 					"description": map[string]interface{}{
 						"type":        "string",

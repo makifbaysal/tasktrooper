@@ -252,7 +252,7 @@ func TestRestrictToolsForTaskType_AnalizLosesTheFileWriters(t *testing.T) {
 func TestRestrictToolsForTaskType_ImplementationTasksKeepEverything(t *testing.T) {
 	policy := domain.ToolPolicy{AllowTools: append([]string{"run_terminal"}, domain.WorkspaceWriteTools...)}
 
-	for _, typ := range []domain.TaskType{domain.TaskTypeTask, domain.TaskTypeBug, ""} {
+	for _, typ := range []domain.TaskType{domain.TaskTypeTask, domain.TaskTypeBug, domain.TaskTypeTechnical, ""} {
 		got := domain.RestrictToolsForTaskType(policy, typ)
 		for _, tool := range domain.WorkspaceWriteTools {
 			assert.Contains(t, got.AllowTools, tool, "task type %q lost %s", typ, tool)
