@@ -7,7 +7,11 @@ data/
 # Compiled command binaries. `go build ./cmd/...` drops them next to the
 # module, and one already reached a commit as a 12 MB Mach-O.
 /agent-server
+/agent-server.exe
 /migrate
+/migrate.exe
+bin/
+*.exe
 
 # Coverage profiles produced by CI and by the local test commands.
 coverage.out

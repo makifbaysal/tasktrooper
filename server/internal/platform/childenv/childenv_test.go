@@ -1,6 +1,7 @@
 package childenv_test
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -119,7 +120,11 @@ func (s *ChildEnvSuite) TestPathFallsBackWhenTheParentHasNone() {
 		}
 	}
 	s.NotEmpty(path)
-	s.Contains(path, "/usr/bin")
+	if runtime.GOOS == "windows" {
+		s.Contains(path, "System32")
+	} else {
+		s.Contains(path, "/usr/bin")
+	}
 }
 
 // The overlay is the call site's own statement of intent — a repo's pinned
@@ -140,4 +145,21 @@ func (s *ChildEnvSuite) TestOverlayIsAppendedLast() {
 // failure rather than "this remote needs auth".
 func (s *ChildEnvSuite) TestGitPromptsAreDisabled() {
 	s.Contains(childenv.For(parentWithSecrets, nil), "GIT_TERMINAL_PROMPT=0")
+}
+
+func (s *ChildEnvSuite) TestWindowsEnvironmentVariablesForwarded() {
+	for _, name := range []string{
+		"USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA",
+		"SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "SYSTEMDRIVE",
+		"PROGRAMDATA", "ProgramData", "ProgramFiles", "ProgramFiles(x86)",
+		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+	} {
+		s.True(childenv.IsForwarded(name), "%s must reach the child", name)
+	}
+}
+
+func (s *ChildEnvSuite) TestHomePopulatedFromUserProfile() {
+	env := childenv.For([]string{"USERPROFILE=C:\\Users\\tester", "PATH=C:\\bin"}, nil)
+	s.Contains(env, "USERPROFILE=C:\\Users\\tester")
+	s.Contains(env, "HOME=C:\\Users\\tester")
 }

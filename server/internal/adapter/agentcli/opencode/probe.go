@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
 )
 
 // ProbeResult is what a successful probe learned about this host's CLI.
@@ -134,10 +135,7 @@ func tail(out string) string {
 
 // childEnv provides a safe environment for the subprocess.
 func childEnv(ctx context.Context) []string {
-	return []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + os.Getenv("HOME"),
-	}
+	return childenv.For(os.Environ(), nil)
 }
 
 // ResolveBinary finds the given binary on PATH.

@@ -34,7 +34,10 @@
 // cycle.
 package childenv
 
-import "strings"
+import (
+	"runtime"
+	"strings"
+)
 
 // forwardedEnvVars is the complete set of environment variables a child
 // process inherits from the bridge. Anything not named here (or matched by
@@ -65,6 +68,20 @@ var forwardedEnvVars = map[string]struct{}{
 	// Shell and locale.
 	"PATH": {}, "HOME": {}, "USER": {}, "LOGNAME": {}, "SHELL": {}, "TERM": {},
 	"TMPDIR": {}, "TMP": {}, "TEMP": {}, "LANG": {}, "LANGUAGE": {}, "TZ": {}, "CI": {},
+
+	// Windows system, profile, and session.
+	"USERPROFILE": {}, "HOMEDRIVE": {}, "HOMEPATH": {}, "APPDATA": {}, "LOCALAPPDATA": {},
+	"ALLUSERSPROFILE": {}, "PROGRAMDATA": {}, "ProgramData": {},
+	"SYSTEMROOT": {}, "SystemRoot": {}, "WINDIR": {}, "windir": {},
+	"COMSPEC": {}, "ComSpec": {}, "PATHEXT": {}, "SYSTEMDRIVE": {}, "SystemDrive": {},
+	"PROGRAMFILES": {}, "ProgramFiles": {}, "PROGRAMFILES(X86)": {}, "ProgramFiles(x86)": {},
+	"COMMONPROGRAMFILES": {}, "CommonProgramFiles": {}, "COMMONPROGRAMFILES(X86)": {}, "CommonProgramFiles(x86)": {},
+	"NUMBER_OF_PROCESSORS": {}, "PROCESSOR_ARCHITECTURE": {}, "PROCESSOR_IDENTIFIER": {}, "PROCESSOR_LEVEL": {}, "PROCESSOR_REVISION": {},
+	"OS": {}, "PUBLIC": {},
+
+	// Proxy and networking.
+	"HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {},
+	"http_proxy": {}, "https_proxy": {}, "no_proxy": {},
 
 	// TLS trust: without these, package installs and `git clone` over HTTPS
 	// fail on images that keep their CA bundle outside the default location.
@@ -121,6 +138,14 @@ var forwardedEnvVars = map[string]struct{}{
 	"DOCKER_HOST": {},
 }
 
+var forwardedEnvVarsUpper = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(forwardedEnvVars))
+	for k := range forwardedEnvVars {
+		m[strings.ToUpper(k)] = struct{}{}
+	}
+	return m
+}()
+
 // forwardedEnvPrefixes covers families where the individual names are not
 // enumerable but the whole family is non-secret. LC_* is locale only.
 var forwardedEnvPrefixes = []string{"LC_"}
@@ -130,6 +155,7 @@ var forwardedEnvPrefixes = []string{"LC_"}
 // no PATH at all and every command fails with "not found" — a scrub that breaks
 // the toolchain gets switched off, so it has to degrade to something workable.
 const defaultChildPath = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+const defaultChildPathWindows = `C:\Windows\System32;C:\Windows;C:\Windows\System32\Wbem`
 
 // IsForwarded reports whether name survives the scrub. Exported for tests that
 // need to state which variables are expected to reach a child.
@@ -137,8 +163,16 @@ func IsForwarded(name string) bool {
 	if _, ok := forwardedEnvVars[name]; ok {
 		return true
 	}
+	if runtime.GOOS == "windows" {
+		if _, ok := forwardedEnvVarsUpper[strings.ToUpper(name)]; ok {
+			return true
+		}
+	}
 	for _, prefix := range forwardedEnvPrefixes {
 		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+		if runtime.GOOS == "windows" && strings.HasPrefix(strings.ToUpper(name), strings.ToUpper(prefix)) {
 			return true
 		}
 	}
@@ -161,20 +195,45 @@ func IsForwarded(name string) bool {
 // is not equivalent to handing it a scrubbed one: nil means "inherit
 // everything", which is the leak this replaces.
 func For(parent, overlay []string) []string {
-	env := make([]string, 0, len(parent)+len(overlay)+2)
+	env := make([]string, 0, len(parent)+len(overlay)+4)
 	hasPath := false
+	hasHome := false
+	var userProfileVal string
+
 	for _, entry := range parent {
-		name, _, ok := strings.Cut(entry, "=")
+		name, val, ok := strings.Cut(entry, "=")
 		if !ok || !IsForwarded(name) {
 			continue
 		}
-		if name == "PATH" {
+		if strings.EqualFold(name, "PATH") {
 			hasPath = true
+		}
+		if strings.EqualFold(name, "HOME") && val != "" {
+			hasHome = true
+		}
+		if strings.EqualFold(name, "USERPROFILE") && val != "" {
+			userProfileVal = val
 		}
 		env = append(env, entry)
 	}
 	if !hasPath {
-		env = append(env, "PATH="+defaultChildPath)
+		if runtime.GOOS == "windows" {
+			env = append(env, "PATH="+defaultChildPathWindows)
+		} else {
+			env = append(env, "PATH="+defaultChildPath)
+		}
+	}
+	if !hasHome && userProfileVal != "" {
+		env = append(env, "HOME="+userProfileVal)
+	}
+	if runtime.GOOS == "windows" && userProfileVal == "" {
+		for _, entry := range env {
+			name, val, ok := strings.Cut(entry, "=")
+			if ok && strings.EqualFold(name, "HOME") && val != "" {
+				env = append(env, "USERPROFILE="+val)
+				break
+			}
+		}
 	}
 	// Any credential git used to find in the environment is gone now. Without
 	// this git falls back to prompting on the terminal and the command hangs
