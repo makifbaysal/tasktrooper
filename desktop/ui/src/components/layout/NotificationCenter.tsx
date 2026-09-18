@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useActivity } from "@/hooks/useActivity";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
@@ -141,8 +140,10 @@ export function NotificationCenter({ onAgentSeen }: NotificationCenterProps) {
           </Button>
         </div>
         <DropdownMenuSeparator className="m-0" />
-        {/* Fixed h-96, not max-h: ScrollArea's absolutely-positioned viewport gives Root no intrinsic height under max-h, collapsing the list to 0px. */}
-        <ScrollArea className="h-96">
+        {/* Plain overflow-y-auto, not Radix ScrollArea: nesting ScrollArea's own
+            pointer-capture/viewport primitives inside a Menu's roving-focus
+            content intermittently swallowed clicks on the items underneath it. */}
+        <div className="max-h-96 overflow-y-auto">
           <div className="p-1">
             {items.length === 0 ? (
               <EmptyState
@@ -174,7 +175,7 @@ export function NotificationCenter({ onAgentSeen }: NotificationCenterProps) {
               })
             )}
           </div>
-        </ScrollArea>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
