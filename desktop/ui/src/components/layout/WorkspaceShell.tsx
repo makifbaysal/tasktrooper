@@ -35,7 +35,11 @@ export function WorkspaceShell({
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <Header onMenuClick={() => setMobileOpen(true)} onAgentSeen={markAgentSeen} />
+      <Header
+        onMenuClick={() => setMobileOpen(true)}
+        sidebarCollapsed={collapsed}
+        onAgentSeen={markAgentSeen}
+      />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <WorkspaceSidebar
           config={config}

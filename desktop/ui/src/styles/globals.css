@@ -74,8 +74,9 @@
   --card-foreground: oklch(0.145 0.02 265);
   --popover: oklch(0.99 0.003 265);
   --popover-foreground: oklch(0.145 0.02 265);
-  /* Matches the app icon's magenta (desktop/build/icon.png). */
-  --primary: oklch(0.42 0.13 333);
+  /* Same dark navy as --brand-mark (#15214b, the app icon's dark corner) so
+     every primary-colored element matches the header logo box exactly. */
+  --primary: oklch(0.264 0.079 268.5);
   --primary-foreground: oklch(0.985 0.002 247);
   --secondary: oklch(0.945 0.01 265);
   --secondary-foreground: oklch(0.25 0.02 265);
@@ -87,12 +88,12 @@
   --destructive-foreground: oklch(0.985 0.002 247);
   --border: oklch(0.895 0.012 265);
   --input: oklch(0.895 0.012 265);
-  --ring: oklch(0.455 0.118 328.7);
+  --ring: oklch(0.455 0.118 265);
   --sidebar: oklch(0.962 0.007 265);
   --sidebar-foreground: oklch(0.35 0.02 265);
   --sidebar-border: oklch(0.895 0.012 265);
-  --sidebar-accent: oklch(0.935 0.014 328.7);
-  --sidebar-accent-foreground: oklch(0.2 0.02 328.7);
+  --sidebar-accent: oklch(0.935 0.014 265);
+  --sidebar-accent-foreground: oklch(0.2 0.02 265);
   --success: oklch(0.55 0.15 145);
   --warning: oklch(0.75 0.15 85);
   --info: oklch(0.55 0.14 230);
@@ -115,8 +116,9 @@
   --card-foreground: oklch(0.93 0.01 265);
   --popover: oklch(0.17 0.015 265);
   --popover-foreground: oklch(0.93 0.01 265);
-  /* Matches the app icon's magenta (desktop/build/icon.png). */
-  --primary: oklch(0.56 0.15 333);
+  /* Lighter than the light-mode navy so it still reads clearly against the
+     dark background, the same way the previous magenta was lightened here. */
+  --primary: oklch(0.5 0.12 265);
   --primary-foreground: oklch(0.985 0.002 247);
   --secondary: oklch(0.22 0.015 265);
   --secondary-foreground: oklch(0.93 0.01 265);
@@ -128,12 +130,12 @@
   --destructive-foreground: oklch(0.985 0.002 247);
   --border: oklch(0.28 0.015 265);
   --input: oklch(0.28 0.015 265);
-  --ring: oklch(0.61 0.15 328.7);
+  --ring: oklch(0.61 0.15 265);
   --sidebar: oklch(0.15 0.015 265);
   --sidebar-foreground: oklch(0.78 0.01 265);
   --sidebar-border: oklch(0.24 0.015 265);
-  --sidebar-accent: oklch(0.22 0.02 328.7);
-  --sidebar-accent-foreground: oklch(0.93 0.01 328.7);
+  --sidebar-accent: oklch(0.22 0.02 265);
+  --sidebar-accent-foreground: oklch(0.93 0.01 265);
   --success: oklch(0.65 0.17 145);
   --warning: oklch(0.78 0.14 85);
   --info: oklch(0.65 0.15 230);
