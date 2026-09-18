@@ -4,6 +4,7 @@ import type { AppInfo, CloudStatus, SupervisorSnapshot, UpdateStatus } from "@ip
 import { Button } from "@shared/ui/button.js";
 import { StatusDot, type Tone } from "@shared/components/StatusDot.js";
 import { api } from "./bridge";
+import { supervisorLabel, unreachableCopy } from "./copy";
 
 // Only macOS draws traffic lights inside the window, over the title bar.
 const IS_MAC = navigator.userAgent.includes("Macintosh");
@@ -66,7 +67,7 @@ export default function App() {
           title={snapshot?.detail ?? "The local server"}
         >
           <StatusDot tone={tone(snapshot)} pulse={snapshot?.state === "starting"} />
-          {label(snapshot)}
+          {supervisorLabel(snapshot, IS_MAC)}
         </span>
 
         <Button variant="ghost" size="sm" className="no-drag" onClick={reload} title="Reload">
@@ -76,7 +77,7 @@ export default function App() {
 
       <div className="min-h-0 flex-1">
         {cloud?.state === "failed" ? <Unreachable status={cloud} info={info} onRetry={reload} /> : null}
-        {cloud?.state === "loading" ? <Loading /> : null}
+        {cloud?.state === "loading" ? <Loading detail={snapshot?.detail} /> : null}
         {/* When the hosted app is up, the view covers this area exactly, which
             is why there is nothing to render for it here. */}
       </div>
@@ -182,10 +183,7 @@ function Unreachable({
       <div className="max-w-md text-center">
         <WifiOff className="mx-auto size-8 text-muted-foreground" />
         <h1 className="mt-4 text-base font-semibold">TaskTrooper could not start</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Everything runs on this Mac, so there is nothing to show until the local server is up. Start it from the
-          TaskTrooper icon in the menu bar, or retry below.
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground">{unreachableCopy(IS_MAC)}</p>
         {status.description ? (
           <code className="selectable mt-3 block break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
             {status.description}
@@ -215,23 +213,5 @@ function tone(snapshot: SupervisorSnapshot | null): Tone {
       return "bad";
     default:
       return "idle";
-  }
-}
-
-function label(snapshot: SupervisorSnapshot | null): string {
-  switch (snapshot?.state) {
-    case "running":
-      return "running on this Mac";
-    case "degraded":
-      return "degraded";
-    case "preflight":
-    case "starting":
-      return "starting";
-    case "stopping":
-      return "stopping";
-    case "failed":
-      return "not running";
-    default:
-      return "stopped";
   }
 }

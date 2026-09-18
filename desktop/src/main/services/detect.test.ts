@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PreflightId, PreflightItem, PreflightReport } from "../../ipc/types.js";
 
 /**
@@ -38,7 +38,8 @@ vi.mock("electron", () => ({
   app: { getAppPath: () => paths.appPath, getPath: () => paths.userData, isPackaged: false },
 }));
 
-const { classifyAuthStatus, firstBlocker, preflight, preflightReady, probePostgres } = await import("./detect.js");
+const { androidSdkDefaultRoot, classifyAuthStatus, firstBlocker, gitRemediation, preflight, preflightReady, probePostgres } =
+  await import("./detect.js");
 
 // --- the fake CLI ----------------------------------------------------------
 
@@ -329,7 +330,9 @@ describe("preflight: what blocks the start", () => {
 
     const optional = report.items.filter((i) => !i.required).map((i) => i.id);
     expect(optional).toContain("chrome");
-    expect(optional).toContain("xcode-clt");
+    // "xcode-clt" only appears on the platform the test actually ran on.
+    if (process.platform === "darwin") expect(optional).toContain("xcode-clt");
+    else expect(optional).not.toContain("xcode-clt");
 
     // Everything required did pass on this fixture, so `ready` must be true —
     // a constant, not an expression derived from the report.
@@ -503,6 +506,67 @@ describe("preflight: the mobile toolchain", () => {
     expect(sdk.required).toBe(false);
     expect(["ok", "missing", "unusable"]).toContain(sdk.status);
     expect(firstBlocker(report)).toBeUndefined();
+  });
+});
+
+// --- Windows and Linux: right place, right remediation ----------------------
+
+function withPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: platform, configurable: true });
+  try {
+    return fn();
+  } finally {
+    if (original) Object.defineProperty(process, "platform", original);
+  }
+}
+
+describe("git remediation, by platform", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("points Windows at winget, not xcode-select", () => {
+    const got = withPlatform("win32", gitRemediation);
+    expect(got.command).toBe("winget install --id Git.Git -e --source winget");
+    expect(got.remediation).not.toMatch(/xcode/i);
+  });
+
+  it("gives Linux a sentence and no non-functional command", () => {
+    const got = withPlatform("linux", gitRemediation);
+    expect(got.remediation).not.toMatch(/xcode/i);
+    expect(got.command).toBeUndefined();
+  });
+
+  it("keeps the Xcode CLT remediation on macOS", () => {
+    const got = withPlatform("darwin", gitRemediation);
+    expect(got.command).toBe("xcode-select --install");
+  });
+});
+
+describe("preflight: xcode-clt is macOS-only", () => {
+  it("does not appear on Windows or Linux", async () => {
+    for (const platform of ["win32", "linux"] as const) {
+      const report = await withPlatform(platform, () => run(fakeClaude({ auth: signedIn })));
+      expect(report.items.map((i) => i.id)).not.toContain("xcode-clt");
+    }
+  });
+});
+
+describe("Android SDK default install root, by platform", () => {
+  it("uses LOCALAPPDATA on Windows", () => {
+    vi.stubEnv("LOCALAPPDATA", "C:\\Users\\me\\AppData\\Local");
+    const root = withPlatform("win32", androidSdkDefaultRoot);
+    expect(root).toBe(path.join("C:\\Users\\me\\AppData\\Local", "Android", "Sdk"));
+  });
+
+  it("uses ~/Android/Sdk on Linux", () => {
+    const root = withPlatform("linux", androidSdkDefaultRoot);
+    expect(root.endsWith(path.join("Android", "Sdk"))).toBe(true);
+    expect(root).not.toContain("Library");
+  });
+
+  it("uses ~/Library/Android/sdk on macOS", () => {
+    const root = withPlatform("darwin", androidSdkDefaultRoot);
+    expect(root.endsWith(path.join("Library", "Android", "sdk"))).toBe(true);
   });
 });
 

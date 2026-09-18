@@ -574,10 +574,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       const timer = setInterval(() => {
         if (this.#serverUrl) return finish({ ok: true, url: this.#serverUrl });
         if (!alive()) {
-          return finish({
-            ok: false,
-            message: "The local server exited before it opened a port. Its own last line says why.",
-          });
+          return finish({ ok: false, message: describeServerExit(this.#lastAgentServerLine()) });
         }
         if (Date.now() >= deadline) {
           return finish({
@@ -591,6 +588,11 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       timer.unref?.();
       signal.addEventListener("abort", onAbort, { once: true });
     });
+  }
+
+  #lastAgentServerLine(): string | undefined {
+    const lines = this.#logs.read("agent-server");
+    return lines.length > 0 ? lines[lines.length - 1]?.text : undefined;
   }
 
   #onChildLog(id: ChildId, stream: "stdout" | "stderr", text: string): void {
@@ -778,4 +780,16 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
 
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The "could not start" message when the backend exited before it opened a
+ * port. Includes the child's own last log line when there is one, since that
+ * line is usually the whole diagnosis and is otherwise visible only in the
+ * app's own log view.
+ */
+export function describeServerExit(lastLine?: string): string {
+  return lastLine
+    ? `The local server exited before it opened a port. Its own last line: "${lastLine}"`
+    : "The local server exited before it opened a port. Its own last line says why.";
 }

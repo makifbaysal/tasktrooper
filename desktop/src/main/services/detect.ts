@@ -386,6 +386,22 @@ export function probePostgres(): PreflightItem {
  * edit, build, commit, push — and every one of those is git. Its absence is not
  * a degradation.
  */
+/**
+ * `xcode-select --install` only exists on macOS. Windows and Linux each need
+ * their own remediation, and a distro-agnostic package manager command does
+ * not exist, so Linux gets a sentence and no copyable command.
+ */
+export function gitRemediation(): { remediation: string; command?: string } {
+  switch (process.platform) {
+    case "win32":
+      return { remediation: "Install Git for Windows.", command: "winget install --id Git.Git -e --source winget" };
+    case "linux":
+      return { remediation: "Install git from this distribution's package manager." };
+    default:
+      return { remediation: "Install Apple's command line tools, which include git.", command: "xcode-select --install" };
+  }
+}
+
 async function probeGit(override?: string): Promise<PreflightItem> {
   const found = override && override !== "" ? which(override) : which("git");
   if (!found) {
@@ -395,8 +411,7 @@ async function probeGit(override?: string): Promise<PreflightItem> {
       required: true,
       status: "missing",
       detail: "Claude Code clones, commits and pushes with git. Without it a task cannot start.",
-      remediation: "Install Apple's command line tools, which include git.",
-      command: "xcode-select --install",
+      ...gitRemediation(),
     };
   }
   const { code, out } = await run(found.path, ["--version"]);
@@ -1053,13 +1068,25 @@ function probeAndroidSdk(): PreflightItem {
  * GUI-launched .app has an even shorter PATH than the terminal the user tested
  * in.
  */
+/** Where Android Studio puts the SDK when nobody overrode it, per platform. */
+export function androidSdkDefaultRoot(): string {
+  switch (process.platform) {
+    case "win32":
+      return path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "Android", "Sdk");
+    case "linux":
+      return path.join(os.homedir(), "Android", "Sdk");
+    default:
+      return path.join(os.homedir(), "Library", "Android", "sdk");
+  }
+}
+
 function androidSdkTool(dir: string, name: string): { path: string; source: PreflightSource } | null {
   const roots: string[] = [];
   for (const key of ["ANDROID_HOME", "ANDROID_SDK_ROOT"]) {
     const value = (process.env[key] ?? "").trim();
     if (value !== "") roots.push(value);
   }
-  roots.push(path.join(os.homedir(), "Library", "Android", "sdk"));
+  roots.push(androidSdkDefaultRoot());
   for (const root of roots) {
     const candidate = path.join(root, dir, name);
     if (isExecutable(candidate)) return { path: candidate, source: "home" };
@@ -1121,7 +1148,7 @@ export async function preflight(opts: PreflightOptions): Promise<PreflightReport
   const [git, claude, xcode, appium, agy, cursorAgent, opencode] = await Promise.all([
     probeGit(overrides.gitBin),
     claudePromise,
-    probeXcodeCLT(),
+    process.platform === "darwin" ? probeXcodeCLT() : Promise.resolve(null),
     probeAppium(overrides.appiumBin),
     probeAntigravity(),
     probeCursorAgent(),
@@ -1136,7 +1163,7 @@ export async function preflight(opts: PreflightOptions): Promise<PreflightReport
     claude,
     account,
     probeChrome(overrides.chromeBin),
-    xcode,
+    ...(xcode ? [xcode] : []),
     ...appium,
     probeAndroidSdk(),
     agy,
