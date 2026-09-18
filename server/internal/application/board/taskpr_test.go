@@ -115,9 +115,10 @@ func TestCommitTaskChangesPushesAndRecordsThePR(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, result.Committed)
-	// The message the agent gave, with the task key at the head of the subject.
-	// Without an agent in context there is no Agent trailer to add.
-	assert.Equal(t, []string{"DE-1 add the store link to the footer"}, git.commits)
+	// The message the agent gave, with the task key in a trailer rather than the
+	// subject — a subject prefixed with the key is not valid Conventional
+	// Commits. Without an agent in context there is no Agent trailer to add.
+	assert.Equal(t, []string{"add the store link to the footer\n\nTask: DE-1\n"}, git.commits)
 	assert.Equal(t, "bbb2222", result.SHA)
 	assert.Equal(t, "feature/task-1234abcd-add-the-store-link", result.Branch)
 	assert.Equal(t, "https://github.com/acme/widget/pull/42", result.PRURL)

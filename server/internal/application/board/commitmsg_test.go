@@ -49,7 +49,7 @@ func TestWriteCommitMessageRewritesIntoEnglishAndStampsTheAgent(t *testing.T) {
 	})
 
 	assert.Equal(t,
-		"PI-3 feat(web): add the android app link\n\nDrop the wishlist section from the landing page.\n\nAgent: Frontend Developer\n",
+		"feat(web): add the android app link\n\nDrop the wishlist section from the landing page.\n\nTask: PI-3\nAgent: Frontend Developer\n",
 		msg)
 
 	require.Len(t, llm.seen.Messages, 2)
@@ -67,7 +67,7 @@ func TestWriteCommitMessageFallsBackToTheOriginalOnError(t *testing.T) {
 		AgentName: "Backend Developer",
 	})
 
-	assert.Equal(t, "PI-3 Bir şeyi düzelt\n\nDüzeltildi.\n\nAgent: Backend Developer\n", msg)
+	assert.Equal(t, "Bir şeyi düzelt\n\nDüzeltildi.\n\nTask: PI-3\nAgent: Backend Developer\n", msg)
 }
 
 func TestWriteCommitMessageWithoutLLMKeepsTheOriginal(t *testing.T) {
@@ -99,7 +99,8 @@ func TestWriteCommitMessageKeepsThePrefixWithTaskKey(t *testing.T) {
 		Prefix:  "wip: ",
 	})
 
-	assert.True(t, strings.HasPrefix(msg, "wip: T-9 feat(api): add the delete endpoint"), msg)
+	assert.True(t, strings.HasPrefix(msg, "wip: feat(api): add the delete endpoint"), msg)
+	assert.Contains(t, msg, "Task: T-9")
 }
 
 func TestWriteCommitMessageCapsMaxTokens(t *testing.T) {
@@ -114,30 +115,26 @@ func TestWriteCommitMessageCapsMaxTokens(t *testing.T) {
 	assert.Equal(t, commitMessageMaxTokens, llm.seen.MaxTokens)
 }
 
-func TestPrefixSubjectWithTaskKeyTruncatesWithinBudget(t *testing.T) {
-	long := "feat(board): " + strings.Repeat("x", 200)
-
-	got := prefixSubjectWithTaskKey(long, "T-1")
-
-	assert.LessOrEqual(t, len(got), commitSubjectMaxChars)
-	assert.True(t, strings.HasPrefix(got, "T-1 feat(board): "), got)
+func TestCommitTrailersCombinesTaskAndAgent(t *testing.T) {
+	assert.Equal(t, "\n\nTask: PI-3\nAgent: Frontend Developer\n", commitTrailers("PI-3", "Frontend Developer"))
 }
 
-func TestPrefixSubjectWithTaskKeyOnlyTouchesTheSubjectLine(t *testing.T) {
-	body := "feat(web): add the link\n\nDrop the wishlist section.\n\nAgent: Frontend Developer\n"
-
-	got := prefixSubjectWithTaskKey(body, "PI-3")
-
-	assert.Equal(t,
-		"PI-3 feat(web): add the link\n\nDrop the wishlist section.\n\nAgent: Frontend Developer\n",
-		got)
+func TestCommitTrailersOmitsWhicheverIsMissing(t *testing.T) {
+	assert.Equal(t, "\n\nTask: T-1\n", commitTrailers("T-1", ""))
+	assert.Equal(t, "\n\nAgent: Backend Developer\n", commitTrailers("", "Backend Developer"))
+	assert.Equal(t, "", commitTrailers("", ""))
 }
 
-func TestPrefixSubjectWithTaskKeyLeavesTheBodyUntouchedWithoutAKey(t *testing.T) {
-	body := "feat(web): add the link"
+func TestWriteCommitMessageLeavesTheSubjectAsConventionalCommits(t *testing.T) {
+	llm := &commitLLM{reply: "feat(web): add the link"}
 
-	assert.Equal(t, body, prefixSubjectWithTaskKey(body, ""))
-	assert.Equal(t, "", prefixSubjectWithTaskKey("", "T-1"))
+	msg := writeCommitMessage(context.Background(), llm, commitDetails{
+		TaskKey: "T-32",
+		Title:   "add the link",
+	})
+
+	assert.True(t, strings.HasPrefix(msg, "feat(web): add the link"), msg)
+	assert.Contains(t, msg, "Task: T-32")
 }
 
 func TestSanitizeCommitMessage(t *testing.T) {

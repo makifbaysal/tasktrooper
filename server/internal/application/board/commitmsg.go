@@ -42,27 +42,10 @@ type modelRef struct {
 
 func writeCommitMessage(ctx context.Context, llm port.LLMClient, d commitDetails) string {
 	body := englishCommitBody(ctx, llm, d)
-	body = prefixSubjectWithTaskKey(body, d.TaskKey)
 	if d.Prefix != "" && !strings.HasPrefix(strings.ToLower(body), strings.ToLower(d.Prefix)) {
 		body = d.Prefix + body
 	}
-	return body + commitTrailer(d.AgentName)
-}
-
-func prefixSubjectWithTaskKey(body, taskKey string) string {
-	key := strings.TrimSpace(taskKey)
-	if key == "" || body == "" {
-		return body
-	}
-	lines := strings.SplitN(body, "\n", 2)
-	subject := key + " " + lines[0]
-	if len(subject) > commitSubjectMaxChars {
-		subject = strings.TrimSpace(subject[:commitSubjectMaxChars])
-	}
-	if len(lines) == 1 {
-		return subject
-	}
-	return subject + "\n" + lines[1]
+	return body + commitTrailers(d.TaskKey, d.AgentName)
 }
 
 func (r *Runner) writeCommitMessage(ctx context.Context, d commitDetails) string {
@@ -131,10 +114,20 @@ func sanitizeCommitMessage(raw string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func commitTrailer(agentName string) string {
-	name := strings.TrimSpace(agentName)
-	if name == "" {
+// commitTrailers puts the task key and the agent name in trailers instead of
+// the subject line: a subject prefixed with "T-1 " is not a valid Conventional
+// Commits header, which fails commitlint and action-semantic-pull-request on
+// any repository that enforces one, and the PR title is this same subject.
+func commitTrailers(taskKey, agentName string) string {
+	var lines []string
+	if key := strings.TrimSpace(taskKey); key != "" {
+		lines = append(lines, "Task: "+key)
+	}
+	if name := strings.TrimSpace(agentName); name != "" {
+		lines = append(lines, "Agent: "+name)
+	}
+	if len(lines) == 0 {
 		return ""
 	}
-	return "\n\nAgent: " + name + "\n"
+	return "\n\n" + strings.Join(lines, "\n") + "\n"
 }
