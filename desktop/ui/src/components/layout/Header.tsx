@@ -33,8 +33,26 @@ export function Header({ title, onMenuClick, sidebarCollapsed = false }: HeaderP
           collapsed link's centered icon = 26px collapsed (WorkspaceSidebar /
           SidebarNavLink). These margins close that gap so the logo's left edge
           tracks the nav icon's left edge in both states.
+
+          In shell, the sibling div above also carries pl-16 (64px) to clear
+          the macOS traffic lights — the sidebar has no such offset since it
+          renders below the header, out of the traffic lights' reach. Without
+          canceling that 64px here too, the logo would sit 64px right of the
+          nav icons in the packaged app. -ml-[68px]/-ml-[62px] are the same
+          -4px/+2px base offsets above, minus the 64px pl-16 adds.
         */}
-        <SidebarBrand collapsed={sidebarCollapsed} className={sidebarCollapsed ? "ml-0.5" : "-ml-1"} />
+        <SidebarBrand
+          collapsed={sidebarCollapsed}
+          className={
+            inShell
+              ? sidebarCollapsed
+                ? "-ml-[62px]"
+                : "-ml-[68px]"
+              : sidebarCollapsed
+                ? "ml-0.5"
+                : "-ml-1"
+          }
+        />
         {title && <h1 className="truncate text-title font-semibold">{title}</h1>}
       </div>
 
