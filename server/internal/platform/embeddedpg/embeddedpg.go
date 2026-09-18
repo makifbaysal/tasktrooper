@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -101,7 +103,7 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 		Logger(logWriter{}))
 
 	if err := pg.Start(); err != nil {
-		return "", nil, fmt.Errorf("start embedded postgres: %w", err)
+		return "", nil, wrapStartError(err)
 	}
 	if fresh {
 		if err := markBackupNotNeeded(backupDir); err != nil {
@@ -118,6 +120,22 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 			log.Error().Err(err).Msg("embedded postgres stop failed")
 		}
 	}, nil
+}
+
+// wrapStartError diagnoses the OS-level failure this library reports as
+// nothing more than "unable to init/start postgres" text. On Windows the
+// pg_ctl/initdb binaries downloaded into the cache directory are unsigned, so
+// the OS itself can refuse to run them (a Defender/antivirus quarantine or a
+// missing VC++ runtime), which surfaces here as an *exec.Error or
+// *fs.PathError. This does not fix or work around the failure; it only makes
+// the cause distinguishable in a shared log.
+func wrapStartError(err error) error {
+	var execErr *exec.Error
+	var pathErr *fs.PathError
+	if errors.As(err, &execErr) || errors.As(err, &pathErr) {
+		return fmt.Errorf("start embedded postgres: %w (the OS could not launch the postgres binary; on Windows this usually means it was blocked by antivirus/Defender or a required system runtime library is missing)", err)
+	}
+	return fmt.Errorf("start embedded postgres: %w", err)
 }
 
 func dsn(port uint32) string {
