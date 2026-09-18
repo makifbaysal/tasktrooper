@@ -1,5 +1,21 @@
 import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// tailwind-merge only knows Tailwind's default text-size scale (xs/sm/base/…).
+// Our own scale (globals.css `--text-*`) doesn't match any of those names, so
+// its font-size validator rejects e.g. `text-caption` and falls through to
+// the (permissive) text-color group instead — which then collides with a
+// real color utility like `text-primary-foreground` in the same class list
+// and silently drops it, keeping whichever came last. Every `size="sm"`
+// Button hit this: `text-primary-foreground` (variant) lost to `text-caption`
+// (size), leaving button text at the inherited `--foreground` color instead.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": ["text-display", "text-title", "text-heading", "text-body", "text-caption", "text-micro"],
+    },
+  },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
