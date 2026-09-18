@@ -1,1 +1,0 @@
-ALTER TABLE billing_plan ADD COLUMN IF NOT EXISTS max_concurrent_tasks INT NOT NULL DEFAULT 3;

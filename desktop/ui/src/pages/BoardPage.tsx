@@ -421,7 +421,7 @@ export function BoardPage() {
                       // pickup that will never come.
                       task.blocked_resource === "human_decision"
                         ? t("boardArea.board.blockedHumanDecisionTitle", {
-                            reason: task.blocked_question || blockedResourceLabel(task.blocked_resource),
+                            reason: task.blocked_question || t("boardArea.board.blockedHumanDecisionReason"),
                           })
                         : task.blocked_resume_at
                         ? t("boardArea.board.blockedResumeTitle", {
@@ -539,7 +539,6 @@ export function BoardPage() {
       <div className="shrink-0 px-6 pt-6">
         <PageHeader
           title={t("boardArea.board.title")}
-          description={t("boardArea.board.description")}
           action={
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" className="gap-2" onClick={() => setActivityOpen(true)}>

@@ -24,8 +24,7 @@ export const lib: LibDict = {
       mobile_device: "Test cihazı bekleniyor",
       deploy_watch: "Deploy bekleniyor",
       work_order: "Bloke eden görevler bekleniyor",
-      human_decision:
-        "İnsan kararı gerekiyor: aynı commit için CI kırmızı kaldı ya da review döngüsü insan müdahalesi olmadan tekrarladı",
+      human_decision: "İnsan kararı gerekiyor",
     },
     blockedResourceFallback: "Paylaşılan kaynak bekleniyor",
   },

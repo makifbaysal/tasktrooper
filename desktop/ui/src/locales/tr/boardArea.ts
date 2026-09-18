@@ -73,6 +73,8 @@ export const boardArea: BoardAreaDict = {
     columnAge: "Bu kolonda {value}",
     blockedResumeTitle: "{reason}. Yaklaşık {value} civarında devam edecek.",
     blockedResourceTitle: "{reason}. Sweeper görevi tekrar alana kadar bekliyor.",
+    blockedHumanDecisionReason:
+      "aynı commit için CI kırmızı kaldı ya da review döngüsü insan müdahalesi olmadan tekrarladı",
     blockedHumanDecisionTitle: "{reason}. Karar verince kartı Blocked'tan kendin taşı.",
     loadFailed: "Görevler yüklenemedi",
     moveFailed: "Görev taşınamadı",

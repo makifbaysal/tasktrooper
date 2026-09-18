@@ -76,6 +76,8 @@ export const boardArea = {
     columnAge: "In this column for {value}",
     blockedResumeTitle: "{reason}. Resumes around {value}.",
     blockedResourceTitle: "{reason}. Waiting for a sweeper to pick it back up.",
+    blockedHumanDecisionReason:
+      "CI stayed red for the same commit, or the review loop repeated without human input",
     blockedHumanDecisionTitle: "{reason}. Move the card out of Blocked yourself once you have decided.",
     moveFailed: "Failed to move task",
     taskDeleted: "Task deleted",

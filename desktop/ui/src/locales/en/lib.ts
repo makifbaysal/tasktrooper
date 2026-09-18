@@ -24,8 +24,7 @@ export const lib = {
       mobile_device: "Waiting for a test device",
       deploy_watch: "Waiting for the deploy",
       work_order: "Waiting for blocking tasks",
-      human_decision:
-        "Needs a human decision: CI stayed red for the same commit, or the review loop repeated without human input",
+      human_decision: "Needs a human decision",
     },
     blockedResourceFallback: "Waiting for a shared resource",
   },

@@ -3,6 +3,7 @@ import { api, type HealthResponse, type LLMProviderHealthItem } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
+import { useSetup } from "@/hooks/useSetup";
 import { cn } from "@/lib/utils";
 
 function providerDotClass(item: LLMProviderHealthItem) {
@@ -26,6 +27,13 @@ export function HealthStatus() {
     if (item.status === "ok") return t("frame.layout.health.connected");
     return t("frame.layout.health.problem");
   };
+
+  const { cliState } = useSetup();
+  // Agent CLIs (Claude Code, Cursor, ...) are host-executed and can never be
+  // `configured` on the chat-LLM providers below — they live in a separate
+  // system (see api.ts's AgentCLIState). A connected one is what actually
+  // does the work, so it outranks the chat-LLM badge when present.
+  const connectedCliFlavors = (cliState?.flavors ?? []).filter((f) => f.connected);
 
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +83,13 @@ export function HealthStatus() {
       <div className="flex cursor-default items-center gap-1.5">
         {!ready ? (
           <Badge variant="secondary" className="text-micro">...</Badge>
+        ) : connectedCliFlavors.length > 0 ? (
+          connectedCliFlavors.map((flavor) => (
+            <Badge key={flavor.flavor} variant="secondary" className="gap-1 text-micro px-1.5 py-0">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+              {flavor.label}
+            </Badge>
+          ))
         ) : configuredProviders.length > 0 ? (
           configuredProviders.map((item) => (
             <Badge
@@ -99,9 +114,22 @@ export function HealthStatus() {
           <p className="mb-2 text-xs font-medium text-foreground">{t("frame.layout.health.providersTitle")}</p>
           {error ? (
             <p className="text-xs text-destructive">{t("frame.layout.health.serverUnreachable", { error })}</p>
-          ) : health?.providers && health.providers.length > 0 ? (
+          ) : connectedCliFlavors.length > 0 || configuredProviders.length > 0 ? (
             <ul className="space-y-2">
-              {health.providers.map((item) => (
+              {connectedCliFlavors.map((flavor) => (
+                <li key={flavor.flavor} className="rounded-md border border-border/60 px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
+                      <span className="truncate text-xs font-medium">{flavor.label}</span>
+                    </div>
+                    <span className="shrink-0 text-micro text-muted-foreground">
+                      {t("frame.layout.health.connected")}
+                    </span>
+                  </div>
+                </li>
+              ))}
+              {configuredProviders.map((item) => (
                 <li key={item.provider_type} className="rounded-md border border-border/60 px-2.5 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">

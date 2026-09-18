@@ -1,5 +1,0 @@
--- Irreversible. 133 drops every tenant_id column and the tenants registry, and
--- nothing records which rows belonged to which tenant. To go back, stop the app
--- and put DATA_DIR/postgres-backup-pre-133 (the copy of the embedded cluster
--- taken before the first start on 133) back in place of DATA_DIR/postgres. A
--- DATABASE_URL database gets no such copy; restore it from your own backup.
