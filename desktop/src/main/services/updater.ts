@@ -245,6 +245,15 @@ export interface UpdateServiceDeps {
   /** Injected so a test does not depend on the wall clock. */
   now?: () => number;
   debug?: boolean;
+  /**
+   * One line per failed check, always — unlike the console logger, not gated
+   * behind `debug`. The title bar has one word for a failure ("update check
+   * failed"); this is the file a person can actually open to see what that
+   * word was standing in for. Injected rather than written here directly, for
+   * the same reason nothing else in this file talks to Electron: main/index.ts
+   * is the one place that knows `app.getPath("logs")`.
+   */
+  logLine?: (line: string) => void;
 }
 
 /** One sentence, not a stack. The title bar has one line to say this in. */
@@ -271,12 +280,31 @@ export function feedNotFound(feed: Feed, err: unknown): boolean {
   return /\b404\b/.test(message) || /not found/i.test(message) || /ensure a production release exists/i.test(message);
 }
 
+/**
+ * Squirrel.Mac's own message when it cannot read a code signature off the
+ * RUNNING app, before the feed is ever reached — the state an ad-hoc signed
+ * build is in, which is release.yml's fallback whenever CSC_LINK is not set
+ * (see its "Ad-hoc signed … so not notarized" summary line). No signature to
+ * compare against means this build can never verify an update, on any feed,
+ * so the fix is re-signing the build, not something wrong with this launch.
+ *
+ * Deliberately narrow to "for running application": Squirrel raises a
+ * different, genuine error when a DOWNLOADED update's signature fails to
+ * validate ("Code signature at URL … did not pass validation"), and that one
+ * must keep surfacing as an error — it means a real update was rejected.
+ */
+export function signatureUnsupported(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /could not get code signature for running application/i.test(message);
+}
+
 export class UpdateService {
   readonly #backend: UpdaterBackend;
   readonly #feed: Feed;
   readonly #onStatus: (status: UpdateStatus) => void;
   readonly #now: () => number;
   readonly #debug: boolean;
+  readonly #logLine: (line: string) => void;
 
   #status: UpdateStatus;
   #started = false;
@@ -289,6 +317,7 @@ export class UpdateService {
     this.#onStatus = deps.onStatus;
     this.#now = deps.now ?? (() => Date.now());
     this.#debug = deps.debug ?? false;
+    this.#logLine = deps.logLine ?? (() => {});
     this.#status =
       this.#feed.kind === "none"
         ? { phase: "unsupported", detail: this.#feed.reason }
@@ -411,12 +440,26 @@ export class UpdateService {
 
   /** Every failure lands here, so the one that must stay silent stays silent. */
   #failed(err: unknown): void {
+    const detail = reason(err);
     if (feedNotFound(this.#feed, err)) {
-      this.#logDebug(`feed has no releases yet: ${reason(err)}`);
+      this.#logDebug(`feed has no releases yet: ${detail}`);
+      this.#logLine(`feed has no releases yet: ${detail}`);
       this.#set({ phase: "current", checkedAt: this.#now(), version: undefined, percent: undefined, detail: undefined });
       return;
     }
-    this.#set({ phase: "error", checkedAt: this.#now(), detail: reason(err) });
+    if (signatureUnsupported(err)) {
+      this.#logLine(`this build cannot verify itself for updates (unsigned or ad-hoc signed): ${detail}`);
+      this.#set({
+        phase: "unsupported",
+        checkedAt: this.#now(),
+        version: undefined,
+        percent: undefined,
+        detail: "This build is not signed for automatic updates.",
+      });
+      return;
+    }
+    this.#logLine(`update check failed: ${detail}`);
+    this.#set({ phase: "error", checkedAt: this.#now(), detail });
   }
 
   #set(patch: Partial<UpdateStatus>): void {

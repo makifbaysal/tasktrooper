@@ -1,4 +1,5 @@
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
+import path from "node:path";
 import { BrowserWindow, app, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { autoUpdater } from "electron-updater";
 import { CLOUD_EVENTS, SHELL_EVENTS } from "../ipc/channels.js";
@@ -79,6 +80,24 @@ const notifications = new NotificationWatcher({
  * do nothing, which is the honest state rather than a failure to draw.
  */
 let updates: UpdateService | null = null;
+
+/**
+ * The updater's own log file, at `app.getPath("logs")` — `~/Library/Logs/TaskTrooper`
+ * on macOS. The title bar has room for one word when a check fails
+ * ("update check failed"); this is where the actual reason goes, since the
+ * hover tooltip on that word is easy to miss and there was previously nowhere
+ * else to look at all. Best-effort: a log write failing must never be why an
+ * update check itself fails.
+ */
+function logUpdaterLine(line: string): void {
+  try {
+    const dir = app.getPath("logs");
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(path.join(dir, "updater.log"), `${new Date().toISOString()} ${line}\n`, "utf8");
+  } catch {
+    // Best-effort — see above.
+  }
+}
 
 /** The base the window was last told about, so a new port can be noticed. */
 let servedBase: string | null = null;
@@ -482,6 +501,7 @@ app.whenReady().then(
         broadcast(SHELL_EVENTS.updateStatus, status);
       },
       debug: !!process.env[FEED_DEBUG_ENV],
+      logLine: logUpdaterLine,
     });
 
     // The tray outlives the window, which is the point: closing the window must

@@ -10,6 +10,7 @@ import {
   feedNotFound,
   feedUrlIsUsable,
   resolveFeed,
+  signatureUnsupported,
   type Feed,
   type UpdaterBackend,
   type UpdaterEvents,
@@ -195,10 +196,25 @@ describe("feedNotFound", () => {
   });
 });
 
+describe("signatureUnsupported", () => {
+  it("recognises Squirrel refusing to read the running app's own signature", () => {
+    expect(signatureUnsupported(new Error("Could not get code signature for running application"))).toBe(true);
+  });
+
+  it("stays out of the way of a downloaded update's signature actually failing", () => {
+    expect(signatureUnsupported(new Error("Code signature at URL file:///… did not pass validation"))).toBe(false);
+  });
+
+  it("stays out of the way of every other failure", () => {
+    expect(signatureUnsupported(new Error("net::ERR_INTERNET_DISCONNECTED"))).toBe(false);
+  });
+});
+
 describe("UpdateService", () => {
   function service(feedKind: "ok" | "github" | "none" = "ok") {
     const backend = new FakeBackend();
     const seen: UpdateStatus[] = [];
+    const lines: string[] = [];
     const feed: Feed =
       feedKind === "ok"
         ? { kind: "bundled", provider: "generic", url: "https://example.com/mac/" }
@@ -210,8 +226,9 @@ describe("UpdateService", () => {
       feed,
       onStatus: (status) => seen.push(status),
       now: () => 1_700_000_000_000,
+      logLine: (line) => lines.push(line),
     });
-    return { backend, svc, seen };
+    return { backend, svc, seen, lines };
   }
 
   it("is unsupported, silent and inert without a feed", async () => {
@@ -277,13 +294,36 @@ describe("UpdateService", () => {
   });
 
   it("surfaces a failed check as one sentence rather than a stack", async () => {
-    const { backend, svc } = service();
+    const { backend, svc, lines } = service();
     svc.start();
     backend.checkError = new Error("net::ERR_NAME_NOT_RESOLVED\n    at Object.<anonymous> (/x/y.js:1:1)");
     await svc.check();
     expect(svc.status.phase).toBe("error");
     expect(svc.status.detail).toBe("net::ERR_NAME_NOT_RESOLVED");
     expect(svc.status.checkedAt).toBe(1_700_000_000_000);
+    // The tooltip is easy to miss; the reason must also reach whatever this
+    // launch's logLine is wired to (main/index.ts: a file under
+    // `app.getPath("logs")`) so it is not the only place to look.
+    expect(lines).toEqual(["update check failed: net::ERR_NAME_NOT_RESOLVED"]);
+  });
+
+  /**
+   * An ad-hoc signed build (release.yml's fallback when CSC_LINK is not set)
+   * can never verify an update, on any feed. That is expected for this kind
+   * of build, not a fault the user can act on — the same treatment a dev run
+   * or an unpublished `npm run package` build already gets for carrying no
+   * feed at all, so it must not draw the same warning triangle a transient
+   * network failure does.
+   */
+  it("stays quiet, not an error, when the running app cannot be signature-checked", async () => {
+    const { backend, svc, lines } = service();
+    svc.start();
+    backend.checkError = new Error("Could not get code signature for running application");
+    await svc.check();
+    expect(svc.status.phase).toBe("unsupported");
+    expect(svc.status.detail).toBe("This build is not signed for automatic updates.");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("Could not get code signature");
   });
 
   it("surfaces an error the backend emits, including one that arrives after staging", () => {
