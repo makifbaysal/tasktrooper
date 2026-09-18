@@ -154,7 +154,9 @@ func TestMergeTaskPullRequestSquashesDeletesTheBranchAndRecordsTheCommit(t *test
 	assert.Equal(t, "feature/t-7", req.Branch)
 	// A ready PR is not un-drafted: there is nothing to repair.
 	assert.False(t, req.Undraft)
-	assert.Equal(t, "T-7 Add the store link (#42)", req.CommitTitle)
+	// openCleanPR's fixture carries no PR title, so this falls back to the
+	// task's own title — with no task key glued onto it; see mergeCommitTitle.
+	assert.Equal(t, "Add the store link (#42)", req.CommitTitle)
 
 	assert.True(t, result.Merged)
 	assert.True(t, result.BranchDeleted)
@@ -224,21 +226,21 @@ func TestMergeTaskPullRequestWithoutGatesNeverCallsAutoRelease(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrMergeNotConfigured)
 }
 
-// The squash title separates the task key from the title with a space, not a
-// colon — the same format every other commit and PR title this system writes
-// now uses.
-func TestMergeCommitTitleSeparatesKeyAndTitleWithASpace(t *testing.T) {
+// The squash title is the PR's own subject, not the task key glued onto it —
+// gluing a task key onto an otherwise-conventional subject is exactly the
+// commitlint-breaking shape this used to produce on main.
+func TestMergeCommitTitlePrefersThePRTitleOverTheTaskTitle(t *testing.T) {
+	task := domain.BoardTask{Key: "T-7", Title: "Mağaza linkini ekle"}
+	pr := port.PullRequest{Number: 42, Title: "feat(store): add the store link"}
+
+	assert.Equal(t, "feat(store): add the store link (#42)", mergeCommitTitle(task, pr))
+}
+
+func TestMergeCommitTitleFallsBackToTheTaskTitleWithoutAPRTitle(t *testing.T) {
 	task := domain.BoardTask{Key: "T-7", Title: "Add the store link"}
 	pr := port.PullRequest{Number: 42}
 
-	assert.Equal(t, "T-7 Add the store link (#42)", mergeCommitTitle(task, pr))
-}
-
-func TestMergeCommitTitleFallsBackToThePRTitleWithoutATaskTitle(t *testing.T) {
-	task := domain.BoardTask{Key: "T-7"}
-	pr := port.PullRequest{Number: 42, Title: "Add the store link"}
-
-	assert.Equal(t, "T-7 Add the store link (#42)", mergeCommitTitle(task, pr))
+	assert.Equal(t, "Add the store link (#42)", mergeCommitTitle(task, pr))
 }
 
 func TestMergeCommitTitleFallsBackToAGenericTitleWithNeither(t *testing.T) {

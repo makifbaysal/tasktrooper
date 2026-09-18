@@ -324,17 +324,19 @@ func (s *TaskPRService) refuse(task domain.BoardTask, err error) error {
 	return err
 }
 
-// mergeCommitTitle is the squash commit's subject: the task key and title, the
-// way every other commit this system writes names its work, plus the PR number
-// GitHub would otherwise append itself.
+// mergeCommitTitle is the squash commit's subject: the PR's own title, plus
+// the PR number GitHub would otherwise append itself.
+//
+// The PR title is preferred over the task's raw title because it is the
+// Conventional Commits subject writeCommitMessage already produced in
+// English — task.Title can be in whatever language the board's tasks are
+// titled in, and prefixing the task key onto it (as this used to do) breaks
+// that same convention on the branch commit one step earlier. The task key
+// still reaches main, in mergeCommitBody.
 func mergeCommitTitle(task domain.BoardTask, pr port.PullRequest) string {
-	title := strings.TrimSpace(task.Title)
+	title := strings.TrimSpace(pr.Title)
 	if title == "" {
-		title = strings.TrimSpace(pr.Title)
-	}
-	key := strings.TrimSpace(task.Key)
-	if key != "" && title != "" {
-		title = key + " " + title
+		title = strings.TrimSpace(task.Title)
 	}
 	if title == "" {
 		title = fmt.Sprintf("Merge pull request #%d", pr.Number)
