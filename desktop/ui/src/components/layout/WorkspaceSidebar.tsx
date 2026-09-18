@@ -1,12 +1,10 @@
 import { useState } from "react";
-import { useLocation } from "react-router-dom";
 import { Bot, Brain, FileText, Inbox, Kanban, Layers, ListChecks, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Rocket, Settings } from "lucide-react";
 import type { Agent, WorkspaceConfig } from "@/api";
 import { Button } from "@/components/ui/button";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { Spinner } from "@/components/ui/spinner";
 import { NewAgentDialog } from "@/components/workspace/NewAgentDialog";
-import { useAgentUnread } from "@/hooks/useAgentUnread";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
 import { SETUP_PATH } from "@/lib/setup";
@@ -21,6 +19,7 @@ interface WorkspaceSidebarProps {
   mobileOpen: boolean;
   onMobileClose: () => void;
   onRefresh: () => void;
+  unreadAgentIds: Set<string>;
 }
 
 export function WorkspaceSidebar({
@@ -31,6 +30,7 @@ export function WorkspaceSidebar({
   mobileOpen,
   onMobileClose,
   onRefresh,
+  unreadAgentIds,
 }: WorkspaceSidebarProps) {
   const { t } = useI18n();
   const [newAgentOpen, setNewAgentOpen] = useState(false);
@@ -39,11 +39,6 @@ export function WorkspaceSidebar({
   // does not redirect. Shown on `needsWork` and not on `!complete`: a step
   // this surface could not READ is not something to nag about.
   const { needsWork } = useSetup();
-
-  const location = useLocation();
-  const activeAgentMatch = /^\/agents\/([^/]+)\/chat/.exec(location.pathname);
-  const activeAgentId = activeAgentMatch ? activeAgentMatch[1] : null;
-  const unreadAgentIds = useAgentUnread(agents, activeAgentId);
 
   return (
     <>

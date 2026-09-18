@@ -1,6 +1,7 @@
 import { Menu, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HealthStatus } from "@/components/layout/HealthStatus";
+import { NotificationCenter } from "@/components/layout/NotificationCenter";
 import { SidebarBrand } from "@/components/layout/SidebarBrand";
 import { useDesktopHost } from "@/components/runner/useDesktopRunner";
 import { useI18n } from "@/hooks/useI18n";
@@ -10,9 +11,11 @@ import { cn } from "@/lib/utils";
 interface HeaderProps {
   title?: string;
   onMenuClick?: () => void;
+  /** Advances an agent's sidebar "last viewed" from a notification-center click. Optional so a Header shown outside WorkspaceShell (none today) still renders without a bell. */
+  onAgentSeen?: (agentId: string, iso: string) => void;
 }
 
-export function Header({ title, onMenuClick }: HeaderProps) {
+export function Header({ title, onMenuClick, onAgentSeen }: HeaderProps) {
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
   // Only the shell's window has macOS's traffic lights floating over its top
@@ -33,6 +36,7 @@ export function Header({ title, onMenuClick }: HeaderProps) {
       <div className="min-w-0 flex-1 self-stretch" aria-hidden />
 
       <div className="flex items-center gap-2">
+        {onAgentSeen && <NotificationCenter onAgentSeen={onAgentSeen} />}
         <HealthStatus />
 
         <Button

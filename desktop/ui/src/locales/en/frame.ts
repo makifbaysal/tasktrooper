@@ -6,6 +6,13 @@ export const frame = {
     header: {
       lightTheme: "Light theme",
       darkTheme: "Dark theme",
+      notificationCenter: {
+        title: "Notifications",
+        empty: "No notifications yet",
+        markAllRead: "Mark all as read",
+        unreadBadge: "{count} unread",
+        unreadBadgeOverflow: "9+",
+      },
     },
     health: {
       providerLocal: "Local",

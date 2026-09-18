@@ -1,13 +1,13 @@
-import { useCallback, useMemo, useState } from "react";
-import { api, type ActivityItem as ActivityItemType, type Agent, type BoardColumn, type BoardTask } from "@/api";
+import { useMemo } from "react";
+import { type Agent, type BoardColumn, type BoardTask } from "@/api";
 import { ActivityFeedHeader, ActivityFeedItem } from "@/components/workspace/ActivityFeedItem";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Activity } from "lucide-react";
+import { useActivity } from "@/hooks/useActivity";
 import { useI18n } from "@/hooks/useI18n";
-import { usePolling } from "@/hooks/usePolling";
 import { cn } from "@/lib/utils";
 
 interface ActivityFeedProps {
@@ -19,8 +19,7 @@ interface ActivityFeedProps {
 
 export function ActivityFeed({ className, agents = [], tasks = [], columns = [] }: ActivityFeedProps) {
   const { t } = useI18n();
-  const [items, setItems] = useState<ActivityItemType[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { items, loading } = useActivity(40, 2000);
 
   const agentNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -33,21 +32,6 @@ export function ActivityFeed({ className, agents = [], tasks = [], columns = [] 
     for (const t of tasks) map.set(t.id, `${t.key} · ${t.title}`);
     return map;
   }, [tasks]);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api.listActivity(40);
-      setItems(data.items ?? []);
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Visibility-gated: a hidden tab stops polling entirely and refreshes once
-  // when it comes back to the foreground.
-  usePolling(load, 2000, true);
 
   if (loading) {
     return <Skeleton className={cn("h-64 rounded-xl", className)} />;

@@ -7,6 +7,13 @@ export const frame: FrameDict = {
     header: {
       lightTheme: "Açık tema",
       darkTheme: "Koyu tema",
+      notificationCenter: {
+        title: "Bildirimler",
+        empty: "Henüz bildirim yok",
+        markAllRead: "Tümünü okundu işaretle",
+        unreadBadge: "{count} okunmamış",
+        unreadBadgeOverflow: "9+",
+      },
     },
     health: {
       providerLocal: "Yerel",

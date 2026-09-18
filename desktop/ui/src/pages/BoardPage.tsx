@@ -1,6 +1,6 @@
 import { Activity, Bot, Clock, GripVertical, HelpCircle, Inbox, Loader2, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
@@ -93,6 +93,7 @@ export function BoardPage() {
   const [repositoryAutoOpen, setRepositoryAutoOpen] = useState<"create" | "open" | null>(null);
   const [activeAgentTaskIds, setActiveAgentTaskIds] = useState<Set<string>>(new Set());
   const [activityOpen, setActivityOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Keep the open drawer's task in sync with the latest board data: after an
   // edit (e.g. assigning an agent) load() refetches tasks, and the selected
@@ -103,6 +104,28 @@ export function BoardPage() {
       prev ? tasks.find((task) => task.id === prev.id) ?? prev : prev,
     );
   }, [tasks]);
+
+  // A notification-center click lands here as `?task=<id>` — open that task's
+  // drawer once the board's own task list has loaded, then drop the param so
+  // the URL doesn't keep re-triggering it. A task that no longer exists
+  // (released/deleted since the notification fired) just clears silently.
+  useEffect(() => {
+    const taskId = searchParams.get("task");
+    if (!taskId || loading) return;
+    const found = tasks.find((task) => task.id === taskId);
+    if (found) {
+      setSelectedTask(found);
+      setDrawerOpen(true);
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("task");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams, tasks, loading]);
 
   const openTaskCreate = () => {
     if (repositories.length === 0) {
