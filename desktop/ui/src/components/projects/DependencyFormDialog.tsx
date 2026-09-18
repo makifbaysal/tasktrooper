@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
+import { dependencyTargetRepositories } from "@/lib/dependencyTargets";
 
 const TARGET_KINDS: DependencyTargetKind[] = ["repo", "sub_repo", "database"];
 const DATABASE_ENGINES: DatabaseEngine[] = ["postgres", "mysql", "mongodb", "redis", "other"];
@@ -82,7 +83,7 @@ export function DependencyFormDialog({
     setNote(dependency?.note ?? "");
   }, [open, dependency]);
 
-  const otherRepositories = repositories.filter((r) => r.id !== repositoryId);
+  const targetRepositoryOptions = dependencyTargetRepositories(repositories, repositoryId, targetKind);
   const targetRepository = repositories.find((r) => r.id === targetRepositoryId) ?? null;
   const targetSubProjects = targetRepository?.sub_projects ?? [];
 
@@ -176,7 +177,7 @@ export function DependencyFormDialog({
               <SelectValue placeholder={t("projectAdmin.dependencies.targetRepositoryPlaceholder")} />
             </SelectTrigger>
             <SelectContent>
-              {otherRepositories.map((r) => (
+              {targetRepositoryOptions.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
                   {r.name}
                 </SelectItem>
