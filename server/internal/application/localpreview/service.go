@@ -85,12 +85,43 @@ type Service struct {
 }
 
 func NewService(deps Deps) *Service {
-	return &Service{
+	s := &Service{
 		tasks:         deps.Tasks,
 		repos:         deps.Repositories,
 		git:           deps.Git,
 		workspaceRoot: deps.WorkspaceRoot,
 	}
+	s.reapStale()
+	return s
+}
+
+// reapStale kills whatever a previous server process left running. Start
+// records its child's pid to disk (persistLocked); a server that stops
+// abnormally — crash, force-quit, an update replacing the binary — never
+// reaches Stop, so the child is reparented by the OS and keeps running with
+// nothing left tracking it. That matters here specifically because a
+// workspace's detected dev server binds a FIXED port (desktop/ui's
+// vite.config.ts: strictPort, matched to the backend's own CORS allowlist),
+// so the orphan doesn't just waste a process — it blocks every later Start
+// for that repository until something kills it by hand.
+func (s *Service) reapStale() {
+	if s.workspaceRoot == "" {
+		return
+	}
+	for _, e := range loadState(s.workspaceRoot) {
+		if e.PID <= 0 {
+			continue
+		}
+		terminateProcessGroup(e.PID)
+		go func(pid int) {
+			time.Sleep(stopGrace)
+			killProcessGroup(pid)
+		}(e.PID)
+	}
+	// The file described the previous process's world, not this one's: clear
+	// it so a crash before this service's first Start doesn't re-reap the
+	// same (by then long-dead) pid on every future restart.
+	saveState(s.workspaceRoot, nil)
 }
 
 // process is one running (or just-exited) preview's live state.
@@ -222,6 +253,7 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 	}
 
 	s.active[repositoryID] = p
+	s.persistLocked()
 	go pumpLines(stdout, p.appendLine)
 	go pumpLines(stderr, p.appendLine)
 	go s.wait(repositoryID, p)
@@ -263,6 +295,7 @@ func (s *Service) wait(repositoryID uuid.UUID, p *process) {
 	s.mu.Lock()
 	if s.active[repositoryID] == p {
 		delete(s.active, repositoryID)
+		s.persistLocked()
 	}
 	s.mu.Unlock()
 }
@@ -286,6 +319,7 @@ func (s *Service) Stop(repositoryID uuid.UUID) {
 	p, ok := s.active[repositoryID]
 	if ok {
 		delete(s.active, repositoryID)
+		s.persistLocked()
 	}
 	s.mu.Unlock()
 	if ok {
@@ -295,10 +329,25 @@ func (s *Service) Stop(repositoryID uuid.UUID) {
 
 // stopLocked is Stop's body for the caller that already holds s.mu (Start,
 // replacing a previous preview) — it must not call Stop and deadlock on the
-// same lock.
+// same lock. Not followed by persistLocked: Start calls this only to make
+// room for the entry it is about to add and persist itself.
 func (s *Service) stopLocked(p *process) {
 	delete(s.active, p.preview.RepositoryID)
 	go s.stopProcess(p)
+}
+
+// persistLocked writes the repository -> pid pairs a restarted process would
+// need to reap what this one leaves running, if it never reaches a clean
+// Stop. Must be called with s.mu held.
+func (s *Service) persistLocked() {
+	entries := make([]persistedEntry, 0, len(s.active))
+	for repositoryID, p := range s.active {
+		if p.cmd.Process == nil {
+			continue
+		}
+		entries = append(entries, persistedEntry{RepositoryID: repositoryID, PID: p.cmd.Process.Pid})
+	}
+	saveState(s.workspaceRoot, entries)
 }
 
 func (s *Service) stopProcess(p *process) {
