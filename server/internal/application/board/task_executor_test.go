@@ -279,11 +279,12 @@ func TestClaudeCodeAgentWithoutAnExecutorFailsClearly(t *testing.T) {
 
 	err := r.execute(context.Background(), job)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "claude code binary not available on this host")
+	assert.Contains(t, err.Error(), "binary not available on this host")
+	assert.Contains(t, err.Error(), "claude_code provider")
 
 	row := runs.row()
 	assert.Equal(t, domain.TaskAgentRunStatusFailed, row.Status)
-	assert.Contains(t, row.Summary, "claude code binary not available on this host",
+	assert.Contains(t, row.Summary, "binary not available on this host",
 		"the reason belongs on the run row, which is what the task detail shows")
 	assert.Contains(t, row.Summary, "CLAUDE_CODE_BIN", "and it has to name the way out")
 }
@@ -297,7 +298,8 @@ func TestClaudeCodeAgentWithAnUnsupportedExecutorFailsClearly(t *testing.T) {
 
 	err := r.execute(context.Background(), job)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "claude code binary not available on this host")
+	assert.Contains(t, err.Error(), "binary not available on this host")
+	assert.Contains(t, err.Error(), "claude_code provider")
 	assert.Zero(t, ex.callCount(), "an executor that says it does not support the provider must not be called")
 }
 
