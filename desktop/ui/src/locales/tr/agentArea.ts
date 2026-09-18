@@ -81,6 +81,8 @@ export const agentArea: AgentAreaDict = {
       qa_bug_found: "QA bug buldu",
       qa_valid_scenario_confirmed: "Geçerli senaryo doğrulandı",
       qa_invalid_scenario_confirmed: "Geçersiz senaryo doğrulandı",
+      qa_task_tested: "QA testi tamamladı",
+      pm_uat_completed: "PM UAT'ı tamamladı",
     },
     changeType: {
       skill_created: "Skill eklendi",

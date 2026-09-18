@@ -131,6 +131,8 @@ export function AgentPerformancePage() {
     qa_bug_found: t("agentArea.perf.eventType.qa_bug_found"),
     qa_valid_scenario_confirmed: t("agentArea.perf.eventType.qa_valid_scenario_confirmed"),
     qa_invalid_scenario_confirmed: t("agentArea.perf.eventType.qa_invalid_scenario_confirmed"),
+    qa_task_tested: t("agentArea.perf.eventType.qa_task_tested"),
+    pm_uat_completed: t("agentArea.perf.eventType.pm_uat_completed"),
   };
 
   const changeTypeLabels: Record<string, string> = {

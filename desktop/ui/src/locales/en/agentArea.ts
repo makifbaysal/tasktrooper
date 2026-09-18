@@ -81,6 +81,8 @@ export const agentArea = {
       qa_bug_found: "QA bug found",
       qa_valid_scenario_confirmed: "Valid scenario confirmed",
       qa_invalid_scenario_confirmed: "Invalid scenario confirmed",
+      qa_task_tested: "QA finished testing",
+      pm_uat_completed: "PM UAT completed",
     },
     changeType: {
       skill_created: "Skill added",
