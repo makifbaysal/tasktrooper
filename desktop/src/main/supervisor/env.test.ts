@@ -59,6 +59,16 @@ describe("agentServerEnv", () => {
     expect(e.MCP_SECRETS_KEY).toBe("key-1");
     expect(e.DATA_DIR).toBe("/userData/data");
     expect(e.EMBEDDED_POSTGRES_CACHE_DIR).toBe("/userData/postgres-bin");
+    expect(e.ALLOWED_ROOTS).toBe("*");
+  });
+
+  it("respects TASKTROOPER_ALLOWED_ROOTS if set in the parent process", () => {
+    vi.stubEnv("TASKTROOPER_ALLOWED_ROOTS", "/custom/path");
+    try {
+      expect(env().ALLOWED_ROOTS).toBe("/custom/path");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   /**

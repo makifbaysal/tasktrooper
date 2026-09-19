@@ -102,11 +102,25 @@ func optionsFromEnv(getenv func(string) string) (localConfig, error) {
 			LazyMCP:           true,
 			CORSOrigins:       corsOriginsFromEnv(getenv("CORS_ORIGINS")),
 			EmbeddingsBaseURL: strings.TrimSpace(getenv("EMBEDDINGS_BASE_URL")),
+			AllowedRoots:      allowedRootsFromEnv(getenv("ALLOWED_ROOTS")),
 		},
 		PostgresDSN:    dsn,
 		PostgresBinDir: strings.TrimSpace(getenv("EMBEDDED_POSTGRES_CACHE_DIR")),
 		ShutdownGrace:  shutdownGraceFromEnv(getenv),
 	}, nil
+}
+
+func allowedRootsFromEnv(raw string) []string {
+	var out []string
+	splitter := func(r rune) bool {
+		return r == ';' || r == ','
+	}
+	for _, part := range strings.FieldsFunc(raw, splitter) {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func corsOriginsFromEnv(raw string) []string {

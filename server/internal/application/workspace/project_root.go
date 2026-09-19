@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -46,11 +47,14 @@ func ValidateProjectRoot(path, workspaceRoot string, allowedRoots []string) (str
 		if allowed == "" {
 			continue
 		}
+		if allowed == "*" {
+			return abs, nil
+		}
 		allowedAbs, err := filepath.Abs(allowed)
 		if err != nil {
 			continue
 		}
-		if abs == allowedAbs || strings.HasPrefix(abs, allowedAbs+string(os.PathSeparator)) {
+		if pathMatches(abs, allowedAbs) {
 			return abs, nil
 		}
 	}
@@ -58,6 +62,14 @@ func ValidateProjectRoot(path, workspaceRoot string, allowedRoots []string) (str
 	// tell a caller which directories exist, and they already know what they
 	// asked for.
 	return "", fmt.Errorf("project root is outside this workspace's allowed roots")
+}
+
+func pathMatches(abs, allowedAbs string) bool {
+	if runtime.GOOS == "windows" {
+		abs = strings.ToLower(abs)
+		allowedAbs = strings.ToLower(allowedAbs)
+	}
+	return abs == allowedAbs || strings.HasPrefix(abs, allowedAbs+string(os.PathSeparator))
 }
 
 func EffectiveProjectRoot(sessionWorkspace, projectRoot string) string {

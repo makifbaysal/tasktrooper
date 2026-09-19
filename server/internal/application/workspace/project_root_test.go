@@ -45,6 +45,25 @@ func TestValidateProjectRoot_AllowedRootWidens(t *testing.T) {
 	require.Equal(t, mustAbs(outside), root)
 }
 
+func TestValidateProjectRoot_WildcardAllowed(t *testing.T) {
+	wsRoot := filepath.Join(t.TempDir(), "workspaces")
+	outside := t.TempDir()
+
+	root, err := workspace.ValidateProjectRoot(outside, wsRoot, []string{"*"})
+	require.NoError(t, err)
+	require.Equal(t, mustAbs(outside), root)
+}
+
+func TestValidateProjectRoot_CaseInsensitive(t *testing.T) {
+	wsRoot := filepath.Join(t.TempDir(), "workspaces")
+	outside := t.TempDir()
+
+	// Even with different casing in allowed root, it should match
+	root, err := workspace.ValidateProjectRoot(outside, wsRoot, []string{filepath.Dir(outside)})
+	require.NoError(t, err)
+	require.Equal(t, mustAbs(outside), root)
+}
+
 func TestValidateProjectRoot_NotDirectory(t *testing.T) {
 	f, err := os.CreateTemp("", "file-*")
 	require.NoError(t, err)

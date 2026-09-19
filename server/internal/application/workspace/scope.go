@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -12,9 +13,17 @@ func IsWithinRoot(path, root string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("resolve path: %w", err)
 	}
-	absRoot, err := filepath.Abs(strings.TrimSpace(root))
+	trimmedRoot := strings.TrimSpace(root)
+	if trimmedRoot == "*" {
+		return true, nil
+	}
+	absRoot, err := filepath.Abs(trimmedRoot)
 	if err != nil {
 		return false, fmt.Errorf("resolve root: %w", err)
+	}
+	if runtime.GOOS == "windows" {
+		absPath = strings.ToLower(absPath)
+		absRoot = strings.ToLower(absRoot)
 	}
 	if absPath == absRoot {
 		return true, nil

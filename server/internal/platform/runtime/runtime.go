@@ -199,6 +199,9 @@ type Options struct {
 	// knows the port before then — so Run fills it in, and a reload then
 	// re-applies that value instead of the empty one config.yml expands to.
 	PublicBaseURL string
+	// AllowedRoots are extra roots a repository or a session may be pointed at.
+	// In desktop/local mode, defaults to "*" to permit opening any local directory.
+	AllowedRoots []string
 }
 
 type Server struct {
@@ -652,6 +655,9 @@ func applyLocalOverrides(cfg *domain.Config, opts Options) {
 		cfg.Storage.Sessions.WorkspaceRoot = filepath.Join(opts.DataDir, "workspaces")
 		cfg.RAG.StorageDir = filepath.Join(opts.DataDir, "files")
 		cfg.Tools.Terminal.WorkingDir = filepath.Join(opts.DataDir, "workspaces")
+	}
+	if len(opts.AllowedRoots) > 0 {
+		cfg.Indexer.AllowedRoots = append(cfg.Indexer.AllowedRoots, opts.AllowedRoots...)
 	}
 	if opts.APIKey != "" {
 		cfg.Server.APIKey = opts.APIKey

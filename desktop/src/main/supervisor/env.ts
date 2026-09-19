@@ -82,6 +82,7 @@ export const SERVER_CONTRACT_KEYS = [
   "EMBEDDED_POSTGRES_CACHE_DIR",
   "CHROME_BIN",
   "MOBILE_APPIUM_HUB_URL",
+  "ALLOWED_ROOTS",
 ] as const;
 
 export interface AgentServerEnvInputs {
@@ -137,6 +138,7 @@ export function agentServerEnv(inputs: AgentServerEnvInputs): NodeJS.ProcessEnv 
     EMBEDDED_POSTGRES_CACHE_DIR: toEnvPath(inputs.postgresCacheDir)!,
     SERVER_API_KEY: inputs.apiToken,
     MCP_SECRETS_KEY: inputs.mcpSecretsKey,
+    ALLOWED_ROOTS: process.env.TASKTROOPER_ALLOWED_ROOTS ?? "*",
     ...(claude?.status === "ok" && claude.path ? { CLAUDE_CODE_BIN: toEnvPath(claude.path) } : {}),
     ...(cursorAgent?.status === "ok" && cursorAgent.path ? { CURSOR_AGENT_BIN: toEnvPath(cursorAgent.path) } : {}),
     ...(antigravity?.status === "ok" && antigravity.path ? { ANTIGRAVITY_BIN: toEnvPath(antigravity.path) } : {}),

@@ -102,6 +102,22 @@ func TestOptionsFromEnv(t *testing.T) {
 		}
 	})
 
+	t.Run("allowed roots", func(t *testing.T) {
+		env := validEnv()
+		env["ALLOWED_ROOTS"] = "C:\\path1; /path2 , /path3"
+		cfg, err := optionsFromEnv(fakeEnv(env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"C:\\path1", "/path2", "/path3"}
+		if len(cfg.Options.AllowedRoots) != 3 ||
+			cfg.Options.AllowedRoots[0] != want[0] ||
+			cfg.Options.AllowedRoots[1] != want[1] ||
+			cfg.Options.AllowedRoots[2] != want[2] {
+			t.Fatalf("allowed roots = %v, want %v", cfg.Options.AllowedRoots, want)
+		}
+	})
+
 	for _, required := range []string{"SERVER_API_KEY", "MCP_SECRETS_KEY"} {
 		t.Run("missing "+required, func(t *testing.T) {
 			env := validEnv()
