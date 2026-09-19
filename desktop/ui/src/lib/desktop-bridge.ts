@@ -245,6 +245,12 @@ export interface DesktopOverrides {
   appiumBin?: string;
 }
 
+export interface ChooseDirectoryRequest {
+  title?: string;
+  defaultPath?: string;
+  buttonLabel?: string;
+}
+
 /**
  * The local half. Everything a browser tab cannot do, and nothing else: no
  * generic "run this", no path this page may name, no secret returned.
@@ -264,6 +270,7 @@ export interface DesktopRunnerHost {
   settings(): Promise<DesktopSettings>;
   setPreferences(patch: DesktopPreferences): Promise<DesktopSettings>;
   chooseWorkspace(): Promise<DesktopWorkspaceChoice | null>;
+  chooseDirectory(options?: ChooseDirectoryRequest): Promise<string | null>;
   reveal(what: "workspace" | "previous-workspace" | "logs"): Promise<void>;
 
   /**

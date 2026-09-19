@@ -105,6 +105,7 @@ export const CLOUD_CHANNELS = {
   settingsGet: "cloud:settings:get",
   settingsSetPreferences: "cloud:settings:set-preferences",
   chooseWorkspace: "cloud:settings:choose-workspace",
+  chooseDirectory: "cloud:dialog:choose-directory",
   reveal: "cloud:settings:reveal",
 
   /**
@@ -155,6 +156,12 @@ export interface RevealRequest {
 
 export interface OpenExternalRequest {
   url: string;
+}
+
+export interface ChooseDirectoryRequest {
+  title?: string;
+  defaultPath?: string;
+  buttonLabel?: string;
 }
 
 export interface DiagnosticsRequest {

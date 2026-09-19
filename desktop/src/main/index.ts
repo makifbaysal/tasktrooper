@@ -20,7 +20,7 @@ import type {
 } from "../ipc/types.js";
 import { SecretStore, type LocalSecrets } from "./config/secrets.js";
 import { SettingsStore } from "./config/settings.js";
-import { checkWorkspace, pickWorkspace, reveal } from "./config/workspace.js";
+import { checkWorkspace, pickDirectory, pickWorkspace, reveal } from "./config/workspace.js";
 import { registerIpc, type IpcServices } from "./ipc.js";
 import { quitSequence } from "./quit.js";
 import { APP_ORIGIN, originOf, registerAppSchemePrivileges, serveAppScheme } from "./services/app-scheme.js";
@@ -338,6 +338,8 @@ const services: IpcServices = {
     }
     return { check: chosen, settings: next };
   },
+
+  chooseDirectory: (options) => pickDirectory(options),
 
   reveal: (what) => {
     if (what === "workspace") reveal(settingsStore.get().workspaceDir);

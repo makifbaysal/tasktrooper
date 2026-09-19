@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ValidationError,
+  validateChooseDirectory,
   validateOpenExternal,
   validateOverrides,
   validatePreferences,
@@ -123,5 +124,32 @@ describe("validateOverrides", () => {
     expect(() => validateOverrides({ claudeBin: "claude" })).toThrow(ValidationError);
     expect(() => validateOverrides({ claudeBin: "/bin/sh\n/bin/evil" })).toThrow(ValidationError);
     expect(() => validateOverrides({ chromeBin: 7 })).toThrow(ValidationError);
+  });
+});
+
+describe("validateChooseDirectory", () => {
+  it("accepts undefined and null as empty options", () => {
+    expect(validateChooseDirectory(undefined)).toEqual({});
+    expect(validateChooseDirectory(null)).toEqual({});
+  });
+
+  it("validates and trims title, defaultPath and buttonLabel", () => {
+    expect(
+      validateChooseDirectory({
+        title: " Choose Repo ",
+        defaultPath: " /Users/test/projects ",
+        buttonLabel: " Open ",
+      }),
+    ).toEqual({
+      title: "Choose Repo",
+      defaultPath: "/Users/test/projects",
+      buttonLabel: "Open",
+    });
+  });
+
+  it("refuses control characters in options", () => {
+    expect(() => validateChooseDirectory({ title: "Bad\ntitle" })).toThrow(ValidationError);
+    expect(() => validateChooseDirectory({ defaultPath: "Bad\0path" })).toThrow(ValidationError);
+    expect(() => validateChooseDirectory({ buttonLabel: "Bad\rlabel" })).toThrow(ValidationError);
   });
 });

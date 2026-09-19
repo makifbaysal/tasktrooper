@@ -1,7 +1,8 @@
-import { Loader2, Lock } from "lucide-react";
+import { FolderOpen, Loader2, Lock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, type GitHubOwner, type GitHubRepoInfo, type InitiativeProject } from "@/api";
+import { desktopRunner } from "@/lib/desktop-bridge";
 import { MultiSelectPicker } from "@/components/admin/MultiSelectPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -277,6 +278,23 @@ export function OpenRepositoryDialog({
   const [projectIds, setProjectIds] = useState<string[]>([]);
   const [initiativeProjects, setInitiativeProjects] = useState<InitiativeProject[]>([]);
   const [loading, setLoading] = useState(false);
+  const runner = desktopRunner();
+  const canBrowse = typeof runner?.chooseDirectory === "function";
+
+  const handleBrowse = async () => {
+    if (!runner?.chooseDirectory) return;
+    try {
+      const chosen = await runner.chooseDirectory({
+        title: t("projectAdmin.components.chooseFolderTitle"),
+        defaultPath: rootPath.trim() || undefined,
+      });
+      if (chosen) {
+        setRootPath(chosen);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to open folder picker");
+    }
+  };
 
   useEffect(() => {
     if (!open || lockedProjectId) return;
@@ -323,11 +341,26 @@ export function OpenRepositoryDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>{t("projectAdmin.components.folder")}</Label>
-            <Input
-              value={rootPath}
-              onChange={(e) => setRootPath(e.target.value)}
-              placeholder="/path/to/project"
-            />
+            <div className="flex gap-2">
+              <Input
+                value={rootPath}
+                onChange={(e) => setRootPath(e.target.value)}
+                placeholder="/path/to/project"
+                className="flex-1"
+              />
+              {canBrowse && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleBrowse}
+                  title={t("projectAdmin.components.browseFolder")}
+                  className="shrink-0"
+                >
+                  <FolderOpen className="h-4 w-4 mr-1.5" />
+                  {t("projectAdmin.components.browseFolder")}
+                </Button>
+              )}
+            </div>
           </div>
           <div className="space-y-2">
             <Label>{t("projectAdmin.components.repoAbout")}</Label>

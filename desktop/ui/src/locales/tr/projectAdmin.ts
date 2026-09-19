@@ -213,6 +213,8 @@ export const projectAdmin: ProjectAdminDict = {
     repoOpenFailed: "Depo açılamadı",
     openRepoTitle: "Kod Deposu Aç",
     folder: "Klasör",
+    browseFolder: "Gözat",
+    chooseFolderTitle: "Depo Klasörü Seç",
     repoAbout: "Bu depo ne ile ilgili?",
     repoAboutPlaceholder: "Kod deposunun amacı, hizmet ettiği alan...",
     linkedProjects: "İlişkili projeler",

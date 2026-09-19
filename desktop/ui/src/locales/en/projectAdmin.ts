@@ -218,6 +218,8 @@ export const projectAdmin = {
     repoOpenFailed: "Failed to open repository",
     openRepoTitle: "Open Code Repository",
     folder: "Folder",
+    browseFolder: "Browse",
+    chooseFolderTitle: "Choose Repository Folder",
     repoAbout: "What is this repository about?",
     repoAboutPlaceholder: "The repository's purpose, the area it serves...",
     linkedProjects: "Linked projects",

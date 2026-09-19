@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, mkdirSync, statfsSync } from "node:f
 import os from "node:os";
 import path from "node:path";
 import { app, dialog, shell } from "electron";
+import type { ChooseDirectoryRequest } from "../../ipc/channels.js";
 import type { WorkspaceCheck } from "../../ipc/types.js";
 
 /**
@@ -141,6 +142,25 @@ export async function pickWorkspace(current: string): Promise<WorkspaceCheck | n
   const chosen = result.filePaths[0];
   if (result.canceled || chosen === undefined) return null;
   return checkWorkspace(chosen);
+}
+
+/**
+ * Generic folder picker. Opens the native OS directory chooser and returns
+ * the selected directory's absolute path, or null when canceled.
+ */
+export async function pickDirectory(options?: ChooseDirectoryRequest): Promise<string | null> {
+  const defaultPath = options?.defaultPath && existsSync(options.defaultPath)
+    ? options.defaultPath
+    : os.homedir();
+  const result = await dialog.showOpenDialog({
+    title: options?.title ?? "Choose Directory",
+    defaultPath,
+    buttonLabel: options?.buttonLabel ?? "Select",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  const chosen = result.filePaths[0];
+  if (result.canceled || chosen === undefined) return null;
+  return chosen;
 }
 
 export function reveal(target: string): void {

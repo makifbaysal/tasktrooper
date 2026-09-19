@@ -16,6 +16,7 @@
 
 import { CHILD_IDS, type ChildId, type NotificationPreferences, type UserSettings } from "./types.js";
 import type {
+  ChooseDirectoryRequest,
   DiagnosticsRequest,
   OpenExternalRequest,
   PreflightRequest,
@@ -233,5 +234,20 @@ export function validateOverrides(raw: unknown): HostOverrides {
   pathOrClear("gitBin", "overrides.gitBin");
   pathOrClear("chromeBin", "overrides.chromeBin");
   pathOrClear("appiumBin", "overrides.appiumBin");
+  return out;
+}
+
+export function validateChooseDirectory(raw: unknown): ChooseDirectoryRequest {
+  if (raw === undefined || raw === null) return {};
+  const o = asRecord(raw, "chooseDirectory");
+  const out: ChooseDirectoryRequest = {};
+  if (o.title !== undefined) out.title = asClean(o.title, "chooseDirectory.title", { max: 256 }).trim();
+  if (o.defaultPath !== undefined) {
+    const p = asClean(o.defaultPath, "chooseDirectory.defaultPath", { max: 1024 }).trim();
+    if (p !== "") out.defaultPath = p;
+  }
+  if (o.buttonLabel !== undefined) {
+    out.buttonLabel = asClean(o.buttonLabel, "chooseDirectory.buttonLabel", { max: 64 }).trim();
+  }
   return out;
 }

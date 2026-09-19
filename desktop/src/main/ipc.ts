@@ -1,5 +1,5 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
-import { CLOUD_CHANNELS, SHELL_CHANNELS } from "../ipc/channels.js";
+import { CLOUD_CHANNELS, SHELL_CHANNELS, type ChooseDirectoryRequest } from "../ipc/channels.js";
 import type {
   HostOverrides,
   HostPreferences,
@@ -18,6 +18,7 @@ import type {
 } from "../ipc/types.js";
 import {
   ValidationError,
+  validateChooseDirectory,
   validateDiagnosticsRequest,
   validateLogsRequest,
   validateOpenExternal,
@@ -85,6 +86,7 @@ export interface IpcServices {
   getSettings(): HostSettings;
   setPreferences(patch: HostPreferences): Promise<HostSettings>;
   chooseWorkspace(): Promise<HostWorkspaceChoice | null>;
+  chooseDirectory(options?: ChooseDirectoryRequest): Promise<string | null>;
   reveal(what: "workspace" | "previous-workspace" | "logs"): void;
   openExternal(url: string): boolean;
 
@@ -213,6 +215,9 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.settingsGet, () => services.getSettings());
   cloud(CLOUD_CHANNELS.settingsSetPreferences, (payload) => services.setPreferences(validatePreferences(payload)));
   cloud(CLOUD_CHANNELS.chooseWorkspace, () => services.chooseWorkspace());
+  cloud(CLOUD_CHANNELS.chooseDirectory, (payload) =>
+    services.chooseDirectory(validateChooseDirectory(payload)),
+  );
   cloud(CLOUD_CHANNELS.reveal, (payload) => {
     services.reveal(validateReveal(payload).what);
   });

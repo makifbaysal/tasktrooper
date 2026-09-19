@@ -30,6 +30,7 @@ import type {
   PreflightReport,
   WorkspaceCheck,
 } from "./types.js";
+import type { ChooseDirectoryRequest } from "./channels.js";
 
 /**
  * One child process, as the page renders it.
@@ -140,6 +141,7 @@ export interface DesktopRunnerHost {
   settings(): Promise<HostSettings>;
   setPreferences(patch: HostPreferences): Promise<HostSettings>;
   chooseWorkspace(): Promise<HostWorkspaceChoice | null>;
+  chooseDirectory(options?: ChooseDirectoryRequest): Promise<string | null>;
   reveal(what: "workspace" | "previous-workspace" | "logs"): Promise<void>;
 
   /**
@@ -189,3 +191,5 @@ export interface DesktopHost {
   apiToken?: string;
   runner: DesktopRunnerHost;
 }
+
+export type { ChooseDirectoryRequest };

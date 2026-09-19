@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS } from "../ipc/channels.js";
+import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS, type ChooseDirectoryRequest } from "../ipc/channels.js";
 import type {
   DesktopHost,
   DesktopRunnerHost,
@@ -84,6 +84,8 @@ const runner: DesktopRunnerHost = {
   setPreferences: (patch: HostPreferences) =>
     call<HostSettings>(CLOUD_CHANNELS.settingsSetPreferences, patch),
   chooseWorkspace: () => call<HostWorkspaceChoice | null>(CLOUD_CHANNELS.chooseWorkspace),
+  chooseDirectory: (options?: ChooseDirectoryRequest) =>
+    call<string | null>(CLOUD_CHANNELS.chooseDirectory, options),
   reveal: (what) => call<void>(CLOUD_CHANNELS.reveal, { what }),
   openExternal: (url) => call<boolean>(CLOUD_CHANNELS.openExternal, { url }),
 
