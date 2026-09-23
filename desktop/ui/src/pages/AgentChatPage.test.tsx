@@ -81,4 +81,14 @@ describe("AgentChatPage header shortcuts", () => {
     expect(memoryLink).toHaveAttribute("href", "/agents/agent-1/memory");
     expect(performanceLink).toHaveAttribute("href", "/agents/agent-1/performance");
   });
+
+  it("does not render the agent's description under its name", async () => {
+    renderChatPage();
+
+    await waitFor(() => expect(getAgent).toHaveBeenCalledWith("agent-1"));
+    await screen.findByRole("heading", { name: "Rex" });
+
+    expect(screen.queryByText("Reviews pull requests")).not.toBeInTheDocument();
+    expect(screen.queryByText("Talk directly with this agent")).not.toBeInTheDocument();
+  });
 });

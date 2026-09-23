@@ -266,7 +266,6 @@ export const agentArea = {
     newSession: "New chat",
     header: {
       title: "Agent Chat",
-      description: "Talk directly with this agent",
     },
     settingsLink: "Agent Settings",
     memoryLink: "Memory",

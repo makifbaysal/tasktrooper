@@ -266,7 +266,6 @@ export const agentArea: AgentAreaDict = {
     newSession: "Yeni sohbet",
     header: {
       title: "Ajan Sohbeti",
-      description: "Bu ajanla doğrudan konuşun",
     },
     settingsLink: "Ajan Ayarları",
     memoryLink: "Hafıza",
