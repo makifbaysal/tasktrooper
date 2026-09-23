@@ -39,6 +39,7 @@ func (s *stubSessionStore) AppendMessage(context.Context, uuid.UUID, domain.Role
 }
 func (s *stubSessionStore) UpdateWorkspaceDir(context.Context, uuid.UUID, string) error { return nil }
 func (s *stubSessionStore) UpdateProjectRoot(context.Context, uuid.UUID, string) error  { return nil }
+func (s *stubSessionStore) UpdateTitle(context.Context, uuid.UUID, string, bool) error  { return nil }
 func (s *stubSessionStore) UpdateCLISessionID(context.Context, uuid.UUID, string) error { return nil }
 func (s *stubSessionStore) BindTask(context.Context, uuid.UUID, uuid.UUID) error        { return nil }
 func (s *stubSessionStore) FindByTask(context.Context, uuid.UUID) (domain.Session, bool, error) {

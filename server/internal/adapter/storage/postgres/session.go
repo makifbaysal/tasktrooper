@@ -102,12 +102,12 @@ func (s *SessionStore) scanSession(row interface{ Scan(dest ...any) error }) (do
 // meant editing five queries and two scan lists and failing at runtime with a
 // scan-arity error if any one of them drifted. This store has no unit tests to
 // catch that.
-const sessionColumns = `id, title, model, workspace_dir, project_root, repository_id, agent_id, task_id, cli_session_id, created_at, updated_at, expires_at`
+const sessionColumns = `id, title, model, workspace_dir, project_root, repository_id, agent_id, task_id, cli_session_id, auto_titled, created_at, updated_at, expires_at`
 
 func sessionScanTargets(sess *domain.Session) []any {
 	return []any{
 		&sess.ID, &sess.Title, &sess.Model, &sess.WorkspaceDir, &sess.ProjectRoot,
-		&sess.ProjectID, &sess.AgentID, &sess.TaskID, &sess.CLISessionID,
+		&sess.ProjectID, &sess.AgentID, &sess.TaskID, &sess.CLISessionID, &sess.AutoTitled,
 		&sess.CreatedAt, &sess.UpdatedAt, &sess.ExpiresAt,
 	}
 }
@@ -175,6 +175,17 @@ func (s *SessionStore) UpdateProjectRoot(ctx context.Context, id uuid.UUID, proj
 	tag, err := s.pool.Exec(ctx, `UPDATE sessions SET project_root = $2, updated_at = now() WHERE id = $1`, id, projectRoot)
 	if err != nil {
 		return fmt.Errorf("update project root: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("session not found")
+	}
+	return nil
+}
+
+func (s *SessionStore) UpdateTitle(ctx context.Context, id uuid.UUID, title string, autoTitled bool) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE sessions SET title = $2, auto_titled = $3, updated_at = now() WHERE id = $1`, id, title, autoTitled)
+	if err != nil {
+		return fmt.Errorf("update session title: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("session not found")

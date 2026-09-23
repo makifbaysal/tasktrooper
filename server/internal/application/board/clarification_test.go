@@ -60,6 +60,7 @@ func (f *fakeSessionStore) AppendMessage(_ context.Context, sessionID uuid.UUID,
 }
 func (f *fakeSessionStore) UpdateWorkspaceDir(context.Context, uuid.UUID, string) error { return nil }
 func (f *fakeSessionStore) UpdateProjectRoot(context.Context, uuid.UUID, string) error  { return nil }
+func (f *fakeSessionStore) UpdateTitle(context.Context, uuid.UUID, string, bool) error  { return nil }
 func (f *fakeSessionStore) UpdateCLISessionID(context.Context, uuid.UUID, string) error { return nil }
 func (f *fakeSessionStore) ParkPendingTurn(context.Context, uuid.UUID, domain.SessionMessageRequest, domain.ToolPolicy, time.Time) error {
 	return nil

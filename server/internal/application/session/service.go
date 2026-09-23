@@ -39,6 +39,7 @@ type Service struct {
 	indexInjector  IndexInjector
 	budget         appcontext.Budget
 	summarizer     appcontext.Summarizer
+	titleGen       TitleGenerator
 	contextCfg     domain.ContextConfig
 	indexerCfg     domain.IndexerConfig
 	mappingCfg     domain.MappingConfig
@@ -113,6 +114,7 @@ type Deps struct {
 	Catalog            port.CatalogStore
 	Budget             appcontext.Budget
 	Summarizer         appcontext.Summarizer
+	TitleGenerator     TitleGenerator
 	ContextCfg         domain.ContextConfig
 	IndexerCfg         domain.IndexerConfig
 	MappingCfg         domain.MappingConfig
@@ -139,6 +141,7 @@ func NewService(store port.SessionStore, activityStore port.ActivityStore, agent
 		svc.catalog = deps.Catalog
 		svc.budget = deps.Budget
 		svc.summarizer = deps.Summarizer
+		svc.titleGen = deps.TitleGenerator
 		svc.contextCfg = deps.ContextCfg
 		svc.indexerCfg = deps.IndexerCfg
 		svc.mappingCfg = deps.MappingCfg
@@ -422,6 +425,7 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 	}
 
 	s.persistAssistantResponse(ctx, sessionID, resp)
+	s.maybeAutoTitle(ctx, sess, sessionID, req.Content, resp.Message.Content, model, agentProvider)
 
 	return resp, nil
 }
@@ -448,6 +452,30 @@ func (s *Service) ackResumedAnswer(ctx context.Context, sessionID uuid.UUID) dom
 	}}
 	s.persistAssistantResponse(ctx, sessionID, resp)
 	return resp
+}
+
+// maybeAutoTitle names a new agent chat off its first exchange, once. Best
+// effort on purpose — a title the user never asked for must never fail the
+// turn they did ask for, so every error here is logged and swallowed.
+func (s *Service) maybeAutoTitle(ctx context.Context, sess domain.Session, sessionID uuid.UUID, userContent, assistantContent, model string, provider domain.LLMProviderType) {
+	if sess.AgentID == nil || sess.TaskID != nil || sess.AutoTitled || s.titleGen == nil {
+		return
+	}
+	title, err := s.titleGen.GenerateTitle(ctx, userContent, assistantContent, model, provider)
+	title = strings.TrimSpace(title)
+	if err != nil || title == "" {
+		title = FallbackTitle(userContent)
+	}
+	if title == "" {
+		if updErr := s.store.UpdateTitle(ctx, sessionID, sess.Title, true); updErr != nil {
+			log.Warn().Err(updErr).Str("session_id", sessionID.String()).Msg("auto-title: could not freeze title after empty result")
+		}
+		return
+	}
+	title = domain.TruncateHead(title, titleMaxBytes)
+	if err := s.store.UpdateTitle(ctx, sessionID, title, true); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID.String()).Msg("auto-title: could not persist generated title")
+	}
 }
 
 func (s *Service) persistAssistantResponse(ctx context.Context, sessionID uuid.UUID, resp domain.AgentResponse) {
@@ -594,6 +622,7 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 	}
 
 	s.persistAssistantResponse(ctx, sessionID, resp)
+	s.maybeAutoTitle(ctx, sess, sessionID, req.Content, resp.Message.Content, model, agentProvider)
 
 	return resp, nil
 }

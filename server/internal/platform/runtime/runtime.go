@@ -941,6 +941,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		budget.KeepRecentMessages = 10
 	}
 	summarizer := appcontext.NewLLMSummarizer(llmClient)
+	titleGen := session.NewLLMTitleGenerator(llmClient)
 	// The loop trims with the same budget its callers do, or tool results grow
 	// the request back past it many times over.
 	e.agentLoop.SetHistoryBudget(budget)
@@ -2375,6 +2376,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			Catalog:            catalogStore,
 			Budget:             budget,
 			Summarizer:         summarizer,
+			TitleGenerator:     titleGen,
 			ContextCfg:         cfg.Context,
 			IndexerCfg:         cfg.Indexer,
 			MappingCfg:         cfg.Mapping,
