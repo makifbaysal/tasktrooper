@@ -33,10 +33,14 @@ type Session struct {
 	// whole transcript into a new session, paying for the conversation again
 	// each time. Not in the JSON view: it names a process-local artefact on the
 	// runner host and means nothing to a client.
-	CLISessionID string     `json:"-"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	CLISessionID string `json:"-"`
+	// AutoTitled marks whether this chat's title has already been decided (by
+	// the auto-title generator, once, on its first exchange) — never in the
+	// JSON view, it means nothing to a client.
+	AutoTitled bool       `json:"-"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 }
 
 // PendingSessionTurn is a chat turn parked on the Claude Code usage limit (see

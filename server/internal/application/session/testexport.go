@@ -87,6 +87,19 @@ func AppendAssistantErrorForTest(ctx context.Context, store port.SessionStore, s
 	(&Service{store: store}).appendAssistantError(ctx, sessionID, err)
 }
 
+func MaybeAutoTitleForTest(
+	ctx context.Context,
+	store port.SessionStore,
+	titleGen TitleGenerator,
+	sess domain.Session,
+	sessionID uuid.UUID,
+	userContent, assistantContent, model string,
+	provider domain.LLMProviderType,
+) {
+	svc := &Service{store: store, titleGen: titleGen}
+	svc.maybeAutoTitle(ctx, sess, sessionID, userContent, assistantContent, model, provider)
+}
+
 func BuildMessageHistoryForTest(
 	ctx context.Context,
 	store port.SessionStore,
