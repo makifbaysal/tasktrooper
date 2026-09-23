@@ -466,7 +466,6 @@ export function AgentChatPage() {
       <div className="shrink-0 border-b border-border px-6 py-4">
         <PageHeader
           title={agent?.name ?? t("agentArea.chat.header.title")}
-          description={agent?.description ?? t("agentArea.chat.header.description")}
           action={
             <div className="flex items-center gap-2">
               <Button variant="outline" asChild>
