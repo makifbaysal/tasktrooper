@@ -58,6 +58,7 @@ export function AgentChatPage() {
     sessions,
     loading: sessionsLoading,
     failed: sessionsFailed,
+    refresh: refreshSessions,
     createSession,
     deleteSession,
   } = useAgentSessions(agentId);
@@ -378,6 +379,8 @@ export function AgentChatPage() {
       if (result.status === "recovered") {
         toast.info(t("agentArea.chat.toast.recovered"));
       }
+      // backend may have just set this chat's auto-generated title
+      void refreshSessions();
       await loadSessionActivity();
     } catch (e) {
       // We cancelled this ourselves (session switch, or the user left the
