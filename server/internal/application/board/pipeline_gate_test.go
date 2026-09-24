@@ -542,7 +542,6 @@ func TestEveryGateReasonIsLabelledAndRecognised(t *testing.T) {
 		domain.PipelineGateReasonTimeout,
 		domain.PipelineGateReasonCIUnavailable,
 		domain.PipelineGateReasonNoCI,
-		domain.PipelineGateReasonDisabled,
 	} {
 		if !domain.PipelineGateReasonOpen(reason) {
 			t.Errorf("%q is not recognised as a gate-open reason", reason)

@@ -43,13 +43,13 @@ import { cn } from "@/lib/utils";
 const RELEASE_ENGINES: ReleaseEngine[] = ["auto", "github_actions", "local"];
 
 
-const CREDENTIAL_PROVIDER: Record<MobileStorePlatform, StoreCredentialProvider> = {
+export const CREDENTIAL_PROVIDER: Record<MobileStorePlatform, StoreCredentialProvider> = {
   ios: "asc",
   android: "google_play",
 };
 
 /** A cross-platform project ships to both stores, so it gets both sections. */
-function platformsFor(mobilePlatform: MobilePlatform): MobileStorePlatform[] {
+export function platformsFor(mobilePlatform: MobilePlatform): MobileStorePlatform[] {
   if (mobilePlatform === "ios") return ["ios"];
   if (mobilePlatform === "android") return ["android"];
   return ["ios", "android"];

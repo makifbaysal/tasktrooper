@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -28,7 +27,7 @@ func (t *triggerReleaseTool) Definition() domain.ToolDefinition {
 		Type: "function",
 		Function: domain.FunctionDefinition{
 			Name:        triggerReleaseToolName,
-			Description: "Dispatch the production deploy (release) GitHub Actions workflow for a task that is in the done column. On success the task moves to released; on failure it moves to need_revision with the deploy log. Do NOT write a pre-deploy checklist comment: the task's before_deploy and rollback_plan fields are posted automatically when the deploy is dispatched, and after_deploy when it succeeds — put the content in those fields (update_board_task) instead. No-op if the repo uses batched releases; a batched repo releases through a deploy package, not this tool. The release is refused if the task's branch has moved since it was verified (or if no verified commit is recorded) — commit nothing after a task reaches done unless you intend it to go back through review — and also if any task in the task's deploy_depends_on list is not live in production yet.",
+			Description: "Dispatch the production deploy (release) GitHub Actions workflow for a task that is in the done column. On success the task moves to released; on failure it moves to need_revision with the deploy log. Do NOT write a pre-deploy checklist comment: the task's before_deploy and rollback_plan fields are posted automatically when the deploy is dispatched, and after_deploy when it succeeds — put the content in those fields (update_board_task) instead. The release is refused if the task's branch has moved since it was verified (or if no verified commit is recorded) — commit nothing after a task reaches done unless you intend it to go back through review — and also if any task in the task's deploy_depends_on list is not live in production yet.",
 			Parameters: map[string]interface{}{
 				"type":                 "object",
 				"additionalProperties": false,
@@ -58,13 +57,6 @@ func (t *triggerReleaseTool) Execute(ctx context.Context, arguments string) doma
 	}
 	pipeline, err := t.kit.Tasks.TriggerRelease(ctx, repositoryID, taskID)
 	if err != nil {
-		if errors.Is(err, repository.ErrReleaseDisabled) {
-			return toolJSON(triggerReleaseToolName, map[string]any{
-				"triggered": false,
-				"reason":    "batched_release",
-				"message":   "This repo has automatic prod deploy on the done column turned off (batched release). No deploy was triggered.",
-			})
-		}
 		// The release-identity block is a tool ERROR, not a quiet "not
 		// triggered": the code on the branch is not the code that was signed
 		// off, and an agent that reads this as a routine no-op will report the

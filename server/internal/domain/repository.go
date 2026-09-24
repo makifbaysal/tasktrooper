@@ -22,16 +22,20 @@ type Repository struct {
 	TestCommand   string `json:"test_command"`
 	// CoverageThreshold is the whole-repo line-coverage bar; 0 = the board's
 	// 90% default. It blocks nothing — coverage is measured and stated in the
-	// hand-off, never used to hold a task.
+	// hand-off, never used to hold a task. Projected from the single
+	// component's gates (projectmodel/projection.go), not user-set.
 	CoverageThreshold float64 `json:"coverage_threshold,omitempty"`
 	// RequireOverallCoverage decides how a shortfall is phrased (repo's own bar
-	// vs. bare figure), not whether anything stops.
+	// vs. bare figure), not whether anything stops. Projected from the single
+	// component's gates, not user-set.
 	RequireOverallCoverage bool `json:"require_overall_coverage"`
 	// MutationEnabled arms the mutation-score bar the same way, phrasing only;
 	// off by default because a repo with no mutation tooling scores nothing.
+	// Projected from the single component's gates, not user-set.
 	MutationEnabled bool `json:"mutation_enabled"`
 	// MutationThreshold is the percentage of mutants a run is expected to kill;
-	// 0 reports the score bare.
+	// 0 reports the score bare. Projected from the single component's gates,
+	// not user-set.
 	MutationThreshold float64 `json:"mutation_threshold,omitempty"`
 	// Kind feeds pipeline auto-detect's keyword set (e.g. mobile never matches
 	// a docker build). One of RepoKind*.
@@ -57,28 +61,11 @@ type Repository struct {
 	// detected at import — distinct from SubRepoKinds, neither derived from the
 	// other.
 	SubProjects []RepoSubProject `json:"sub_projects,omitempty"`
-	// AutoReleaseOnDone, when false, stops the done→prod-deploy auto-trigger so
-	// batched release trains are not force-deployed per task.
-	AutoReleaseOnDone bool `json:"auto_release_on_done"`
 	// RequireHumanReview makes code_review a human approval gate: an approval is
 	// held, a rejection still goes through. Only code_review — pm_uat's forward
 	// move is into human_uat, so holding both would make one person approve the
 	// same task twice.
 	RequireHumanReview bool `json:"require_human_review"`
-	// RequireReviewChain, when true, refuses done/released until every review
-	// stage the type requires has passed. Off by default: on a board not wired
-	// for the chain (no QA agent, custom columns), tasks would park in front of
-	// a stage nothing can satisfy.
-	RequireReviewChain bool `json:"require_review_chain"`
-	// RequireReleaseDeploy, when true, refuses released until a production
-	// deploy actually succeeded. A repo with no deploy workflow records that as
-	// SKIPPED, which is not evidence of a deploy, so this must stay off there.
-	RequireReleaseDeploy bool `json:"require_release_deploy"`
-	// RequirePipelineForReview (default true) holds the reviewer until the
-	// build/test pipeline has reported; false dispatches immediately. It is
-	// opt-OUT-able where the other gates are opt-in: this behaviour has always
-	// been on. The gate still opens on timeout even here.
-	RequirePipelineForReview bool `json:"require_pipeline_for_review"`
 	// IncidentPolicy decides what a production incident on this repo triggers.
 	IncidentPolicy IncidentPolicy `json:"incident_policy"`
 	// TestStrategy decides how a task is verified: local, stage (default), or
@@ -507,11 +494,8 @@ type UpdateRepositoryRequest struct {
 	// ReleaseEngine picks where mobile releases are built; a non-nil empty
 	// string legally means ReleaseEngineAuto, the column's default.
 	ReleaseEngine      *string           `json:"release_engine,omitempty"`
-	MutationEnabled    *bool             `json:"mutation_enabled,omitempty"`
-	MutationThreshold  *float64          `json:"mutation_threshold,omitempty"`
 	SubRepoKinds       *[]string         `json:"sub_repo_kinds,omitempty"`
 	SubProjects        *[]RepoSubProject `json:"sub_projects,omitempty"`
-	AutoReleaseOnDone  *bool             `json:"auto_release_on_done,omitempty"`
 	RequireHumanReview *bool             `json:"require_human_review,omitempty"`
 	IncidentPolicy     *IncidentPolicy   `json:"incident_policy,omitempty"`
 	TestStrategy       *string           `json:"test_strategy,omitempty"`

@@ -17,23 +17,25 @@ import (
 // the projectmodel package's own b2Store test fake: enough of the same
 // contract for the tools to exercise a real Service instead of mocking it.
 type fakeStore struct {
-	mu         sync.Mutex
-	components map[uuid.UUID]domain.Component
-	checks     map[uuid.UUID]domain.ComponentCheck
-	links      map[uuid.UUID]domain.ComponentLink
-	resources  map[uuid.UUID]domain.SystemResource
-	notes      map[uuid.UUID]domain.ProjectNote
-	scans      map[uuid.UUID]domain.ProjectScan
+	mu              sync.Mutex
+	components      map[uuid.UUID]domain.Component
+	checks          map[uuid.UUID]domain.ComponentCheck
+	links           map[uuid.UUID]domain.ComponentLink
+	resources       map[uuid.UUID]domain.SystemResource
+	resourceAliases map[string]uuid.UUID
+	notes           map[uuid.UUID]domain.ProjectNote
+	scans           map[uuid.UUID]domain.ProjectScan
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		components: map[uuid.UUID]domain.Component{},
-		checks:     map[uuid.UUID]domain.ComponentCheck{},
-		links:      map[uuid.UUID]domain.ComponentLink{},
-		resources:  map[uuid.UUID]domain.SystemResource{},
-		notes:      map[uuid.UUID]domain.ProjectNote{},
-		scans:      map[uuid.UUID]domain.ProjectScan{},
+		resourceAliases: map[string]uuid.UUID{},
+		components:      map[uuid.UUID]domain.Component{},
+		checks:          map[uuid.UUID]domain.ComponentCheck{},
+		links:           map[uuid.UUID]domain.ComponentLink{},
+		resources:       map[uuid.UUID]domain.SystemResource{},
+		notes:           map[uuid.UUID]domain.ProjectNote{},
+		scans:           map[uuid.UUID]domain.ProjectScan{},
 	}
 }
 
@@ -223,11 +225,57 @@ func (s *fakeStore) ListResources(_ context.Context, ids []uuid.UUID) ([]domain.
 func (s *fakeStore) EnsureResource(_ context.Context, r domain.SystemResource) (domain.SystemResource, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if targetID, ok := s.resourceAliases[r.IdentityKey]; ok {
+		return s.resources[targetID], nil
+	}
 	if r.ID == uuid.Nil {
 		r.ID = uuid.New()
 	}
 	s.resources[r.ID] = r
 	return r, nil
+}
+
+func (s *fakeStore) RenameResource(_ context.Context, id uuid.UUID, name string) (domain.SystemResource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.resources[id]
+	if !ok {
+		return domain.SystemResource{}, fmt.Errorf("resource %s: %w", id, port.ErrNotFound)
+	}
+	r.Name = name
+	r.NameLocked = true
+	s.resources[id] = r
+	return r, nil
+}
+
+func (s *fakeStore) MergeResources(_ context.Context, sourceID, targetID uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source, ok := s.resources[sourceID]
+	if !ok {
+		return fmt.Errorf("resource %s: %w", sourceID, port.ErrNotFound)
+	}
+	if _, ok := s.resources[targetID]; !ok {
+		return fmt.Errorf("resource %s: %w", targetID, port.ErrNotFound)
+	}
+	for id, l := range s.links {
+		if l.ToResourceID != nil && *l.ToResourceID == sourceID {
+			target := targetID
+			l.ToResourceID = &target
+			s.links[id] = l
+		}
+	}
+	if s.resourceAliases == nil {
+		s.resourceAliases = map[string]uuid.UUID{}
+	}
+	for key, rid := range s.resourceAliases {
+		if rid == sourceID {
+			s.resourceAliases[key] = targetID
+		}
+	}
+	s.resourceAliases[source.IdentityKey] = targetID
+	delete(s.resources, sourceID)
+	return nil
 }
 
 func (s *fakeStore) ListNotes(_ context.Context, repositoryID uuid.UUID) ([]domain.ProjectNote, error) {

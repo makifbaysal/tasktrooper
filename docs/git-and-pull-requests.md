@@ -137,7 +137,7 @@ Before it runs, every one of these has to hold:
 | Task is in Done | not still under review |
 | A pull request exists, open and unmerged | nothing to merge otherwise |
 | Checks are green | GitHub's own `mergeable_state` is `clean`/`has_hooks`, and the task's last pipeline run did not fail |
-| Review chain satisfied | only when the repository's `require_review_chain` setting is on |
+| Review chain satisfied | always — every stage the task's workflow requires (code review, QA, UAT) must have been visited and not rejected |
 | PR head unchanged since the gate ran | the PR's head commit still matches the SHA the board last verified |
 
 A `dirty`/`behind` mergeable state is treated as a real conflict: the tool's

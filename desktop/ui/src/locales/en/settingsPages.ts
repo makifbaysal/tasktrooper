@@ -378,7 +378,6 @@ export const settingsPages = {
       "require_execution_evidence": { label: "Require execution evidence", description: "A QA round in this stage is rejected as ungrounded without evidence the product was actually run." },
       "require_product_check": { label: "Require product check", description: "A UAT round in this stage is rejected without evidence the product was checked." },
       "review_chain_stage": { label: "Review chain stage", description: "This stage is a mandatory step of the type's review chain, required before done/released." },
-      "require_release_deploy": { label: "Require release deploy", description: "Entering this stage is refused without a recorded successful production deploy." },
       "strip_writers": { label: "Strip writers", description: "Write/verdict tools are stripped from the policy in this stage, except any named in allow." },
       "no_code_reading": { label: "No code reading", description: "Code-reading tools are stripped from the policy in this stage." },
       "no_workspace_writes": { label: "No workspace writes", description: "Runs on this task type never get workspace write tools." },

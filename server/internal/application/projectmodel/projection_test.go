@@ -328,3 +328,115 @@ func (s *ProjectionSuite) TestPipelineReplaceOnlyWhenChanged() {
 	s.Require().NoError(s.svc.project(context.Background(), s.repo.ID))
 	s.Equal(1, s.pipelines.replaceCallCount(), "no check changed, so the pipeline slots must not be rewritten")
 }
+
+func (s *ProjectionSuite) TestProjectQualityGatesSingleComponent() {
+	on := true
+	threshold := 55.0
+	s.store.seedComponent(domain.Component{
+		ID:           uuid.New(),
+		RepositoryID: s.repo.ID,
+		Path:         ".",
+		Role:         domain.Fact[domain.ComponentRole]{Detected: ptr(domain.ComponentRoleBackend)},
+		Gates: domain.ComponentGates{
+			CoverageEnabled: &on, CoverageThreshold: &threshold,
+			MutationEnabled: &on, MutationThreshold: &threshold,
+		},
+		Status: domain.ComponentStatusActive,
+	})
+
+	s.Require().NoError(s.svc.project(context.Background(), s.repo.ID))
+
+	s.Equal(1, s.projector.qualityGatesCallCount())
+	s.Equal(domain.QualityGate{Enabled: true, Threshold: 55.0}, s.projector.lastQualityGatesCoverage)
+	s.Equal(domain.QualityGate{Enabled: true, Threshold: 55.0}, s.projector.lastQualityGatesMutation)
+
+	updated, err := s.repos.Get(context.Background(), s.repo.ID)
+	s.Require().NoError(err)
+	s.True(updated.RequireOverallCoverage)
+	s.Equal(55.0, updated.CoverageThreshold)
+	s.True(updated.MutationEnabled)
+	s.Equal(55.0, updated.MutationThreshold)
+}
+
+// TestProjectQualityGatesNilGatesMeansDefaults proves a component with no
+// gate overrides projects the all-off default, not whatever the repository
+// happened to carry before (which it was writing to itself in the pre-model
+// world).
+func (s *ProjectionSuite) TestProjectQualityGatesNilGatesMeansDefaults() {
+	s.repo.RequireOverallCoverage = true
+	s.repo.CoverageThreshold = 90
+	s.repos.set(s.repo)
+
+	s.store.seedComponent(domain.Component{
+		ID:           uuid.New(),
+		RepositoryID: s.repo.ID,
+		Path:         ".",
+		Role:         domain.Fact[domain.ComponentRole]{Detected: ptr(domain.ComponentRoleBackend)},
+		Status:       domain.ComponentStatusActive,
+	})
+
+	s.Require().NoError(s.svc.project(context.Background(), s.repo.ID))
+
+	s.Equal(1, s.projector.qualityGatesCallCount())
+	updated, err := s.repos.Get(context.Background(), s.repo.ID)
+	s.Require().NoError(err)
+	s.False(updated.RequireOverallCoverage)
+	s.Zero(updated.CoverageThreshold)
+	s.False(updated.MutationEnabled)
+	s.Zero(updated.MutationThreshold)
+}
+
+// TestProjectQualityGatesMonorepoAlwaysDefaults proves a monorepo's repo-level
+// gate columns always project to the all-off default: each sub-project
+// carries its own gates (projectSubProjects), so the repo columns have
+// nothing to say.
+func (s *ProjectionSuite) TestProjectQualityGatesMonorepoAlwaysDefaults() {
+	on := true
+	threshold := 42.0
+	s.store.seedComponent(domain.Component{
+		ID:           uuid.New(),
+		RepositoryID: s.repo.ID,
+		Path:         "apps/web",
+		Role:         domain.Fact[domain.ComponentRole]{Detected: ptr(domain.ComponentRoleFrontend)},
+		Gates:        domain.ComponentGates{CoverageEnabled: &on, CoverageThreshold: &threshold},
+		Status:       domain.ComponentStatusActive,
+	})
+	s.store.seedComponent(domain.Component{
+		ID:           uuid.New(),
+		RepositoryID: s.repo.ID,
+		Path:         "services/api",
+		Role:         domain.Fact[domain.ComponentRole]{Detected: ptr(domain.ComponentRoleBackend)},
+		Status:       domain.ComponentStatusActive,
+	})
+
+	s.repo.RequireOverallCoverage = true
+	s.repo.CoverageThreshold = 77
+	s.repos.set(s.repo)
+
+	s.Require().NoError(s.svc.project(context.Background(), s.repo.ID))
+
+	s.Equal(1, s.projector.qualityGatesCallCount())
+	updated, err := s.repos.Get(context.Background(), s.repo.ID)
+	s.Require().NoError(err)
+	s.False(updated.RequireOverallCoverage, "a monorepo carries its gates on each sub-project, not the repo")
+	s.Zero(updated.CoverageThreshold)
+}
+
+func (s *ProjectionSuite) TestProjectQualityGatesUnchangedSkipsWrite() {
+	on := true
+	threshold := 50.0
+	s.store.seedComponent(domain.Component{
+		ID:           uuid.New(),
+		RepositoryID: s.repo.ID,
+		Path:         ".",
+		Role:         domain.Fact[domain.ComponentRole]{Detected: ptr(domain.ComponentRoleBackend)},
+		Gates:        domain.ComponentGates{CoverageEnabled: &on, CoverageThreshold: &threshold},
+		Status:       domain.ComponentStatusActive,
+	})
+	s.repo.RequireOverallCoverage = true
+	s.repo.CoverageThreshold = 50
+	s.repos.set(s.repo)
+
+	s.Require().NoError(s.svc.project(context.Background(), s.repo.ID))
+	s.Equal(0, s.projector.qualityGatesCallCount(), "the repo already matches the component's gates; nothing to write")
+}

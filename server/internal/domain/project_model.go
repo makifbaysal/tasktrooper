@@ -209,7 +209,8 @@ type MobileFacts struct {
 }
 
 // ComponentGates carries the per-component quality-gate overrides that used to
-// ride inside repositories.sub_projects; nil inherits the repository setting.
+// ride inside repositories.sub_projects; nil means the default (gate off;
+// coverage threshold falls back to the board default).
 type ComponentGates struct {
 	CoverageEnabled   *bool    `json:"coverage_enabled,omitempty"`
 	CoverageThreshold *float64 `json:"coverage_threshold,omitempty"`
@@ -500,8 +501,11 @@ type SystemResource struct {
 	Name        string            `json:"name"`
 	IdentityKey string            `json:"identity_key"`
 	Details     map[string]string `json:"details,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	// NameLocked marks a human-renamed resource: EnsureResource must never let
+	// a rescan's detected name overwrite it.
+	NameLocked bool      `json:"name_locked"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type LinkProtocol string

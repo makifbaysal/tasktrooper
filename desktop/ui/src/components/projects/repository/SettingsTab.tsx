@@ -1,5 +1,5 @@
 import { RefreshCw, Square, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, type InitiativeProject, type RepositoryModel } from "@/api";
@@ -9,11 +9,8 @@ import { RepoDocsCard } from "@/components/projects/RepoDocsCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Notice } from "@/components/ui/notice";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
 import { useIndexProgress } from "@/hooks/useIndexProgress";
@@ -34,12 +31,9 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
   const [projectIds, setProjectIds] = useState<string[]>(repository.project_ids ?? []);
   const [initiativeProjects, setInitiativeProjects] = useState<InitiativeProject[]>([]);
   const [saving, setSaving] = useState(false);
-  const [coverageThreshold, setCoverageThreshold] = useState(String(repository.coverage_threshold ?? ""));
-  const [mutationThreshold, setMutationThreshold] = useState(String(repository.mutation_threshold ?? ""));
   const [watchingIndex, setWatchingIndex] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [creatingSetupTask, setCreatingSetupTask] = useState(false);
 
   const { index, percent, refresh: refreshIndex } = useIndexProgress(repositoryId, {
     forcePoll: watchingIndex,
@@ -52,30 +46,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
       .then((res) => setInitiativeProjects(res.projects ?? []))
       .catch(() => undefined);
   }, []);
-
-  const patchRepo = useCallback(
-    async (partial: Parameters<typeof api.updateRepository>[1]) => {
-      try {
-        await api.updateRepository(repositoryId, { name: repository.name, description: repository.description, ...partial });
-        onReload();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : t("common.saveFailed"));
-      }
-    },
-    [repositoryId, repository.name, repository.description, onReload, t],
-  );
-
-  const patchGates = useCallback(
-    async (partial: Parameters<typeof api.setLifecycleGates>[1]) => {
-      try {
-        await api.setLifecycleGates(repositoryId, partial);
-        onReload();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : t("common.saveFailed"));
-      }
-    },
-    [repositoryId, onReload, t],
-  );
 
   const saveGeneral = async () => {
     setSaving(true);
@@ -112,18 +82,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
     }
   };
 
-  const handleCreateSetupTask = async () => {
-    setCreatingSetupTask(true);
-    try {
-      await api.createWorkflowSetupTask(repositoryId);
-      toast.success(t("repositoryPage.settings.openSetupTask"));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("common.actionFailed"));
-    } finally {
-      setCreatingSetupTask(false);
-    }
-  };
-
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -136,7 +94,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
   };
 
   const displayPercent = index ? indexProgressPercent(index.files_processed, index.files_total, index.status) : percent;
-  const hasCIChecks = model.checks.some((c) => c.source === "ci");
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -165,80 +122,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
           <Button onClick={saveGeneral} disabled={saving}>
             {t("common.save")}
           </Button>
-        </div>
-      </Card>
-
-      <Card className="space-y-4 p-6">
-        <div>
-          <h2 className="font-semibold">{t("repositoryPage.settings.workflowTitle")}</h2>
-          <p className="text-caption text-muted-foreground">{t("repositoryPage.settings.workflowDesc")}</p>
-        </div>
-
-        <GateRow
-          label={t("repositoryPage.settings.requireHumanReview")}
-          help={t("repositoryPage.settings.requireHumanReviewHelp")}
-          checked={repository.require_human_review ?? false}
-          onCheckedChange={(checked) => patchRepo({ require_human_review: checked })}
-        />
-        <GateRow
-          label={t("repositoryPage.settings.autoRelease")}
-          checked={repository.auto_release_on_done ?? false}
-          onCheckedChange={(checked) => patchRepo({ auto_release_on_done: checked })}
-        />
-        <GateRow
-          label={t("repositoryPage.settings.requireReviewChain")}
-          checked={repository.require_review_chain ?? false}
-          onCheckedChange={(checked) => patchGates({ require_review_chain: checked })}
-        />
-        <GateRow
-          label={t("repositoryPage.settings.requireReleaseDeploy")}
-          checked={repository.require_release_deploy ?? false}
-          onCheckedChange={(checked) => patchGates({ require_release_deploy: checked })}
-        />
-        <GateRow
-          label={t("repositoryPage.settings.requirePipelineForReview")}
-          checked={repository.require_pipeline_for_review ?? true}
-          onCheckedChange={(checked) => patchGates({ require_pipeline_for_review: checked })}
-        />
-        <GateRow
-          label={t("repositoryPage.settings.requireOverallCoverage")}
-          checked={repository.require_overall_coverage ?? false}
-          onCheckedChange={(checked) => patchGates({ require_overall_coverage: checked })}
-        />
-        <div className="space-y-2">
-          <Label>{t("repositoryPage.settings.coverageThreshold")}</Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={coverageThreshold}
-            onChange={(e) => setCoverageThreshold(e.target.value)}
-            onBlur={() => {
-              const n = Number(coverageThreshold);
-              if (!Number.isNaN(n) && n !== repository.coverage_threshold) void patchGates({ coverage_threshold: n });
-            }}
-            className="max-w-32"
-          />
-        </div>
-        <GateRow
-          label={t("repositoryPage.settings.mutationGate")}
-          checked={repository.mutation_enabled ?? false}
-          onCheckedChange={(checked) => patchRepo({ mutation_enabled: checked })}
-        />
-        <div className="space-y-2">
-          <Label>{t("repositoryPage.settings.mutationThreshold")}</Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={mutationThreshold}
-            onChange={(e) => setMutationThreshold(e.target.value)}
-            onBlur={() => {
-              const n = Number(mutationThreshold);
-              if (!Number.isNaN(n) && n !== repository.mutation_threshold) void patchRepo({ mutation_threshold: n });
-            }}
-            className="max-w-32"
-          />
         </div>
       </Card>
 
@@ -282,17 +165,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
 
       <RepoDocsCard repositoryId={repositoryId} title={t("repositoryPage.settings.docsTitle")} />
 
-      {!hasCIChecks && (
-        <Notice variant="warning" title={t("repositoryPage.settings.noWorkflowsTitle")}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>{t("repositoryPage.settings.noWorkflowsDesc")}</span>
-            <Button size="sm" onClick={handleCreateSetupTask} disabled={creatingSetupTask} className="shrink-0">
-              {t("repositoryPage.settings.openSetupTask")}
-            </Button>
-          </div>
-        </Notice>
-      )}
-
       <Card className="space-y-4 border-destructive/30 p-6">
         <h2 className="font-semibold text-destructive">{t("repositoryPage.settings.dangerTitle")}</h2>
         <p className="text-body text-muted-foreground">{t("repositoryPage.settings.deleteRepoWarning")}</p>
@@ -311,28 +183,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
         loading={deleting}
         onConfirm={handleDelete}
       />
-    </div>
-  );
-}
-
-function GateRow({
-  label,
-  help,
-  checked,
-  onCheckedChange,
-}: {
-  label: string;
-  help?: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
-      <div className="flex items-center gap-1.5">
-        <Label>{label}</Label>
-        {help && <HelpTooltip text={help} />}
-      </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   );
 }

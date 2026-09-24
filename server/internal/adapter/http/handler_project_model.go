@@ -43,6 +43,11 @@ func (h *Handler) registerProjectModelRoutes(app fiber.Router) {
 	app.Put("/v1/repositories/:id/notes", h.SaveProjectNote)
 	app.Patch("/v1/notes/:noteId", h.UpdateProjectNote)
 	app.Delete("/v1/notes/:noteId", h.DeleteProjectNote)
+
+	app.Get("/v1/resources", h.ListWorkspaceResources)
+	app.Patch("/v1/resources/:resourceId", h.RenameResource)
+	app.Post("/v1/resources/:resourceId/merge", h.MergeResource)
+	app.Post("/v1/resources/:resourceId/split", h.SplitResource)
 }
 
 // pmErr writes the flat `{"error": "message"}` shape the project-model
@@ -369,4 +374,68 @@ func (h *Handler) DeleteProjectNote(c *fiber.Ctx) error {
 		return projectModelErr(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// ListWorkspaceResources — GET /v1/resources
+func (h *Handler) ListWorkspaceResources(c *fiber.Ctx) error {
+	resources, err := h.projectModelSvc.ListWorkspaceResources(h.enrichContext(c))
+	if err != nil {
+		return projectModelErr(c, err)
+	}
+	return c.JSON(fiber.Map{"resources": resources})
+}
+
+// RenameResource — PATCH /v1/resources/:resourceId
+func (h *Handler) RenameResource(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "resourceId")
+	if err != nil {
+		return pmErrMsg(c, fiber.StatusBadRequest, "invalid resource id")
+	}
+	var patch domain.ResourcePatch
+	if err := c.BodyParser(&patch); err != nil {
+		return pmErrMsg(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	resource, err := h.projectModelSvc.RenameResource(h.enrichContext(c), id, patch)
+	if err != nil {
+		return projectModelErr(c, err)
+	}
+	return c.JSON(resource)
+}
+
+// MergeResource — POST /v1/resources/:resourceId/merge
+// The resource in the URL is folded into into_resource_id and deleted; 200
+// returns the surviving (target) resource.
+func (h *Handler) MergeResource(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "resourceId")
+	if err != nil {
+		return pmErrMsg(c, fiber.StatusBadRequest, "invalid resource id")
+	}
+	var req domain.MergeResourceRequest
+	if err := c.BodyParser(&req); err != nil {
+		return pmErrMsg(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	resource, err := h.projectModelSvc.MergeResources(h.enrichContext(c), id, req)
+	if err != nil {
+		return projectModelErr(c, err)
+	}
+	return c.JSON(resource)
+}
+
+// SplitResource — POST /v1/resources/:resourceId/split
+// Moves the given links off the resource in the URL onto a freshly minted
+// resource; 201 returns the new resource.
+func (h *Handler) SplitResource(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "resourceId")
+	if err != nil {
+		return pmErrMsg(c, fiber.StatusBadRequest, "invalid resource id")
+	}
+	var req domain.SplitResourceRequest
+	if err := c.BodyParser(&req); err != nil {
+		return pmErrMsg(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	resource, err := h.projectModelSvc.SplitResource(h.enrichContext(c), id, req)
+	if err != nil {
+		return projectModelErr(c, err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(resource)
 }

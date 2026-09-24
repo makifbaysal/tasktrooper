@@ -21,17 +21,17 @@ export function RepositoryOverviewRow({ repository, projectId }: RepositoryOverv
   const single = repository.shape === "single";
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <div className="relative flex flex-wrap items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/40">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link
             to={`/repositories/${repository.id}?project=${projectId}`}
-            className="truncate font-medium hover:underline"
+            className="truncate font-medium after:absolute after:inset-0"
           >
             {repository.name}
           </Link>
           <RepoShapeBadge shape={repository.shape} />
-          {repository.git_warning && <GitWarningIcon warning={repository.git_warning} />}
+          {repository.git_warning && <GitWarningIcon warning={repository.git_warning} className="relative z-10" />}
         </div>
         {repository.components.length > 0 && (
           <div className="mt-1.5 space-y-1">

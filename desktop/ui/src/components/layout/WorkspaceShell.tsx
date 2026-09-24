@@ -52,11 +52,15 @@ export function WorkspaceShell({
           onRefresh={onRefresh}
           unreadAgentIds={unreadAgentIds}
         />
+        {/* `relative` makes main the containing block for absolutely positioned
+            descendants (sr-only text, Radix hidden inputs). Without it they
+            resolve against the viewport, escape main's overflow, and stretch
+            the document: the whole shell then scrolls, sidebar and all. */}
         <main
           className={
             fullBleed
-              ? "flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"
-              : "w-full min-w-0 flex-1 overflow-auto p-page scrollbar-thin"
+              ? "relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden"
+              : "relative w-full min-w-0 flex-1 overflow-auto p-page scrollbar-thin"
           }
         >
           {children}

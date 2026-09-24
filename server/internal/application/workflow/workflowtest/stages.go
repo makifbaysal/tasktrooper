@@ -159,7 +159,7 @@ var codingExtra = map[domain.TaskColumn][]domain.BehaviourRef{
 		ref(domain.BehaviourDispatchSuspended), ref(domain.BehaviourMergePROnEnter), ref(domain.BehaviourWatchDeployOnResume),
 	},
 	domain.TaskColumnReleased: {
-		ref(domain.BehaviourBuildVerify), ref(domain.BehaviourWatchDeployOnResume), ref(domain.BehaviourRequireReleaseDeploy),
+		ref(domain.BehaviourBuildVerify), ref(domain.BehaviourWatchDeployOnResume),
 	},
 }
 

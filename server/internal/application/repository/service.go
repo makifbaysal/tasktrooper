@@ -553,7 +553,7 @@ func (s *Service) Open(ctx context.Context, req domain.OpenRepositoryRequest) (d
 		}
 
 		if kind := strings.TrimSpace(req.Kind); kind != "" && kind != existing.Kind {
-			updated, err := s.repos.UpdateMeta(ctx, existing.ID, &kind, nil, nil)
+			updated, err := s.repos.UpdateMeta(ctx, existing.ID, &kind, nil)
 			if err != nil {
 				return domain.Repository{}, err
 			}
@@ -787,17 +787,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req domain.UpdateRep
 			engine = domain.ReleaseEngineAuto
 		}
 		updated, err := s.repos.UpdateReleaseEngine(ctx, id, engine)
-		if err != nil {
-			return domain.Repository{}, err
-		}
-		repo = updated
-	}
-	if req.MutationEnabled != nil || req.MutationThreshold != nil {
-		if req.MutationThreshold != nil && (*req.MutationThreshold < 0 || *req.MutationThreshold > 100) {
-			return domain.Repository{}, fmt.Errorf(
-				"mutation_threshold must be between 0 and 100 (0 means no bar), got %.1f", *req.MutationThreshold)
-		}
-		updated, err := s.repos.UpdateMutationGate(ctx, id, req.MutationEnabled, req.MutationThreshold)
 		if err != nil {
 			return domain.Repository{}, err
 		}
@@ -1547,9 +1536,6 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		if err := s.reviewChainGate(ctx, repo, task, prevColumn, *req.Column); err != nil {
 			return domain.BoardTask{}, err
 		}
-		if err := s.releaseDeployGate(ctx, repo, task, *req.Column); err != nil {
-			return domain.BoardTask{}, err
-		}
 		task.Column = *req.Column
 	}
 	if req.Position != nil {
@@ -2052,23 +2038,13 @@ func (s *Service) LatestTaskPipeline(ctx context.Context, repositoryID, taskID u
 	return pipeline, nil
 }
 
-var ErrReleaseDisabled = fmt.Errorf("repository uses batched release; automatic prod deploy on the done column is off")
-
 func (s *Service) TriggerRelease(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskPipeline, error) {
-	return s.triggerRelease(ctx, repositoryID, taskID, releaseOptions{})
+	return s.triggerRelease(ctx, repositoryID, taskID)
 }
 
-type releaseOptions struct {
-	FromPackage bool
-}
-
-func (s *Service) triggerRelease(ctx context.Context, repositoryID, taskID uuid.UUID, opts releaseOptions) (domain.TaskPipeline, error) {
-	repo, err := s.repos.Get(ctx, repositoryID)
-	if err != nil {
+func (s *Service) triggerRelease(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskPipeline, error) {
+	if _, err := s.repos.Get(ctx, repositoryID); err != nil {
 		return domain.TaskPipeline{}, err
-	}
-	if !repo.AutoReleaseOnDone && !opts.FromPackage {
-		return domain.TaskPipeline{}, ErrReleaseDisabled
 	}
 	task, err := s.tasks.Get(ctx, repositoryID, taskID)
 	if err != nil {

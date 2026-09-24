@@ -389,6 +389,89 @@ func (s *ProjectModelStoreSuite) TestEnsureResourceDedupesByIdentityKey() {
 	s.Nil(empty)
 }
 
+func (s *ProjectModelStoreSuite) TestEnsureResourceAfterMergeResolvesTheSourceIdentityKeyToTheTarget() {
+	sourceKey := "database:" + uuid.NewString()
+	targetKey := "postgres:" + uuid.NewString()
+	source, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "database", Name: "Database", IdentityKey: sourceKey})
+	s.Require().NoError(err)
+	target, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "postgres", Name: "PostgreSQL", IdentityKey: targetKey})
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.store.MergeResources(s.ctx, source.ID, target.ID))
+
+	_, err = s.store.GetResource(s.ctx, source.ID)
+	s.Require().ErrorIs(err, port.ErrNotFound)
+
+	resolved, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "database", Name: "Database (detected again)", IdentityKey: sourceKey})
+	s.Require().NoError(err)
+	s.Equal(target.ID, resolved.ID, "a rescan that still emits the source's identity key must resolve to the merge target")
+	s.Equal("PostgreSQL", resolved.Name, "the alias hit must return the target unchanged, not upsert its name")
+}
+
+func (s *ProjectModelStoreSuite) TestRenameResourceLocksNameAcrossALaterUpsert() {
+	key := "redis:" + uuid.NewString()
+	res, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceCache, Vendor: "redis", Name: "Redis", IdentityKey: key})
+	s.Require().NoError(err)
+
+	renamed, err := s.store.RenameResource(s.ctx, res.ID, "Session Cache")
+	s.Require().NoError(err)
+	s.Equal("Session Cache", renamed.Name)
+	s.True(renamed.NameLocked)
+
+	again, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceCache, Vendor: "redis", Name: "Redis (detected)", IdentityKey: key})
+	s.Require().NoError(err)
+	s.Equal("Session Cache", again.Name, "a locked name must survive a rescan's upsert")
+	s.True(again.NameLocked)
+}
+
+func (s *ProjectModelStoreSuite) TestRenameResourceUnknownIDReturnsNotFound() {
+	_, err := s.store.RenameResource(s.ctx, uuid.New(), "New Name")
+	s.Require().ErrorIs(err, port.ErrNotFound)
+}
+
+func (s *ProjectModelStoreSuite) TestMergeResourcesRepointsLinksAndAliasesThenChainsThroughASecondMerge() {
+	keyA := "database:" + uuid.NewString()
+	keyB := "postgres:" + uuid.NewString()
+	keyC := "postgresql:" + uuid.NewString()
+	a, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "database", Name: "Database", IdentityKey: keyA})
+	s.Require().NoError(err)
+	b, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "postgres", Name: "Postgres", IdentityKey: keyB})
+	s.Require().NoError(err)
+	c, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "postgresql", Name: "PostgreSQL", IdentityKey: keyC})
+	s.Require().NoError(err)
+
+	comp, err := s.store.SaveComponent(s.ctx, domain.Component{RepositoryID: s.repoA, Path: ".", Status: domain.ComponentStatusActive})
+	s.Require().NoError(err)
+	link, err := s.store.SaveLink(s.ctx, domain.ComponentLink{
+		RepositoryID: s.repoA, FromComponentID: comp.ID, ToResourceID: ptr(a.ID), Status: domain.LinkConfirmed,
+	})
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.store.MergeResources(s.ctx, a.ID, b.ID))
+	s.Require().NoError(s.store.MergeResources(s.ctx, b.ID, c.ID))
+
+	moved, err := s.store.GetLink(s.ctx, link.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(moved.ToResourceID)
+	s.Equal(c.ID, *moved.ToResourceID, "the link must end up on the final merge target")
+
+	resolvedA, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "database", Name: "Database", IdentityKey: keyA})
+	s.Require().NoError(err)
+	s.Equal(c.ID, resolvedA.ID, "A's identity key must resolve through B all the way to C")
+
+	resolvedB, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceDatabase, Vendor: "postgres", Name: "Postgres", IdentityKey: keyB})
+	s.Require().NoError(err)
+	s.Equal(c.ID, resolvedB.ID, "B's own identity key must resolve to C once B itself was merged away")
+}
+
+func (s *ProjectModelStoreSuite) TestMergeResourcesUnknownSourceOrTargetReturnsNotFound() {
+	target, err := s.store.EnsureResource(s.ctx, domain.SystemResource{Kind: domain.ResourceCache, Vendor: "redis", Name: "Redis", IdentityKey: "redis:" + uuid.NewString()})
+	s.Require().NoError(err)
+
+	s.Require().ErrorIs(s.store.MergeResources(s.ctx, uuid.New(), target.ID), port.ErrNotFound)
+	s.Require().ErrorIs(s.store.MergeResources(s.ctx, target.ID, uuid.New()), port.ErrNotFound)
+}
+
 func (s *ProjectModelStoreSuite) TestSaveNoteUpsertsByRepositoryNilComponentTopic() {
 	first, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
 		RepositoryID: s.repoA,

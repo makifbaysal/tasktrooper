@@ -77,6 +77,10 @@ func newWakeFixture(t *testing.T) *wakeFixture {
 		tasks:     tasks,
 		relations: relation,
 		workflows: workflowtest.Default().Reader(),
+		// The review chain is now enforced unconditionally, but this fixture
+		// is about the work-order wake, not review-chain enforcement, so every
+		// task starts having already passed it.
+		spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
 	}
 	svc.SetWorkOrderSweeper(sweeper)
 	return &wakeFixture{svc: svc, tasks: tasks, relation: relation, repoID: repoID}

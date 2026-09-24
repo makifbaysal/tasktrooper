@@ -326,7 +326,7 @@ func newPackageFixture(t *testing.T, keys ...string) *packageFixture {
 	}
 
 	svc := &Service{
-		repos:          &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID, AutoReleaseOnDone: false}},
+		repos:          &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
 		tasks:          tasks,
 		relations:      relations,
 		comments:       comments,
@@ -610,12 +610,13 @@ func TestReleasePackageFailsOnCycleWithoutDispatching(t *testing.T) {
 	}
 }
 
-func TestPackageReleaseIgnoresAutoReleaseOnDone(t *testing.T) {
+// TestPackageReleaseWorksAlongsideThePerTaskPath proves a deploy package
+// still batches its members even though release is no longer a per-repository
+// opt-in: auto_release_on_done is gone, so the per-task path (trigger_release)
+// and the package path are both always available, and releasing the package
+// dispatches its member same as before.
+func TestPackageReleaseWorksAlongsideThePerTaskPath(t *testing.T) {
 	f := newPackageFixture(t, "DE-1")
-
-	if _, err := f.svc.TriggerRelease(context.Background(), f.repoID, f.taskID(t, "DE-1")); !errors.Is(err, ErrReleaseDisabled) {
-		t.Fatalf("want ErrReleaseDisabled on the per-task path, got %v", err)
-	}
 
 	pkg, err := f.svc.ReleasePackage(context.Background(), f.repoID, f.packages.pkg.ID)
 	if err != nil {
@@ -696,7 +697,7 @@ func TestTriggerReleasePostsTheRunbookOnDispatch(t *testing.T) {
 	task.RollbackPlan = &rollback
 	f.tasks.tasks[id] = task
 
-	if _, err := f.svc.triggerRelease(context.Background(), f.repoID, id, releaseOptions{FromPackage: true}); err != nil {
+	if _, err := f.svc.triggerRelease(context.Background(), f.repoID, id); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(f.comments.comments) != 1 {
@@ -713,7 +714,7 @@ func TestTriggerReleasePostsTheRunbookOnDispatch(t *testing.T) {
 func TestTriggerReleasePostsNothingWithoutARunbook(t *testing.T) {
 	f := newPackageFixture(t, "DE-1")
 
-	if _, err := f.svc.triggerRelease(context.Background(), f.repoID, f.taskID(t, "DE-1"), releaseOptions{FromPackage: true}); err != nil {
+	if _, err := f.svc.triggerRelease(context.Background(), f.repoID, f.taskID(t, "DE-1")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(f.comments.comments) != 0 {

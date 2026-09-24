@@ -37,8 +37,18 @@ type LinkStore interface {
 type ResourceStore interface {
 	GetResource(ctx context.Context, id uuid.UUID) (domain.SystemResource, error)
 	ListResources(ctx context.Context, ids []uuid.UUID) ([]domain.SystemResource, error)
-	// Upserts by IdentityKey and returns the stored row (with its ID).
+	// Upserts by IdentityKey and returns the stored row (with its ID). An
+	// identity key that resolves through system_resource_aliases returns that
+	// alias's resource unchanged instead of upserting, so a rescan can never
+	// resurrect a resource a human merged away.
 	EnsureResource(ctx context.Context, r domain.SystemResource) (domain.SystemResource, error)
+	// MergeResources moves every link and alias of source onto target, records
+	// source's identity key as an alias of target, and deletes source, all in
+	// one transaction. Returns ErrNotFound if either id does not exist.
+	MergeResources(ctx context.Context, sourceID, targetID uuid.UUID) error
+	// RenameResource sets name and locks it against EnsureResource overwriting
+	// it on a later rescan.
+	RenameResource(ctx context.Context, id uuid.UUID, name string) (domain.SystemResource, error)
 }
 
 type NoteStore interface {

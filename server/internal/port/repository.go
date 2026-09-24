@@ -25,7 +25,7 @@ type RepositoryStore interface {
 	// name/description apply unconditionally; each command pointer applies only
 	// when non-nil — non-nil "" clears it, nil leaves it unchanged.
 	Update(ctx context.Context, id uuid.UUID, name, description string, verifyCommand, buildCommand, testCommand *string, requireHumanReview *bool) (domain.Repository, error)
-	UpdateMeta(ctx context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string, autoReleaseOnDone *bool) (domain.Repository, error)
+	UpdateMeta(ctx context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string) (domain.Repository, error)
 	// Its own setter, like UpdateSubProjects, so one settings writer cannot
 	// blank a neighbouring column by omitting it.
 	UpdateMobilePlatform(ctx context.Context, id uuid.UUID, platform string) (domain.Repository, error)
@@ -35,7 +35,11 @@ type RepositoryStore interface {
 	UpdateDetectedAppIdentity(ctx context.Context, id uuid.UUID, identity domain.AppIdentity) (domain.Repository, error)
 	// Written by detection only; "" travels to the release and refuses it.
 	UpdateDetectedBuildTargets(ctx context.Context, id uuid.UUID, targets domain.BuildTargets) (domain.Repository, error)
-	UpdateMutationGate(ctx context.Context, id uuid.UUID, enabled *bool, threshold *float64) (domain.Repository, error)
+	// UpdateQualityGates writes the repository's coverage/mutation columns,
+	// which since the project-model projection stopped being user-settable and
+	// are only ever a projection of a single component's gates
+	// (projectmodel.LegacyProjector).
+	UpdateQualityGates(ctx context.Context, id uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error)
 	SetDocsTaskID(ctx context.Context, id uuid.UUID, taskID string) error
 	// Separate from UpdateMeta: sub_repo_kinds is the pipeline's routing key
 	// set, and a writer of one must not be able to blank the other.
@@ -43,12 +47,6 @@ type RepositoryStore interface {
 	UpdateDocs(ctx context.Context, id uuid.UUID, docs domain.RepositoryDocs) (domain.Repository, error)
 	UpdateIncidentPolicy(ctx context.Context, id uuid.UUID, policy domain.IncidentPolicy) (domain.Repository, error)
 	UpdateTestStrategy(ctx context.Context, id uuid.UUID, strategy string) (domain.Repository, error)
-	// Each of the five is applied only when its pointer is non-nil. The third
-	// gates a DISPATCH (reviewer waits for CI), not a MOVE, but is set here
-	// because it is the same kind of per-repository switch. New-code coverage
-	// is deliberately not here: it is the bar every change is held to, not a
-	// per-repository choice.
-	UpdateLifecycleGates(ctx context.Context, id uuid.UUID, requireReviewChain, requireReleaseDeploy, requirePipelineForReview, requireOverallCoverage *bool, coverageThreshold *float64) (domain.Repository, error)
 	// The secret must never appear in any API response.
 	SetWebhook(ctx context.Context, id uuid.UUID, secret string, hookID int64) error
 	WebhookSecret(ctx context.Context, id uuid.UUID) (string, error)

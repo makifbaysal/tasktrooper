@@ -15,6 +15,7 @@ import {
 } from "@/api";
 import { AddComponentDialog } from "@/components/projects/repository/AddComponentDialog";
 import { ComponentRail } from "@/components/projects/repository/ComponentRail";
+import { RepositoryReviewSettings } from "@/components/projects/repository/RepositoryReviewSettings";
 import { evidenceLabel } from "@/components/projects/model/EvidenceList";
 import { FactValue } from "@/components/projects/model/FactValue";
 import { RoleBadge } from "@/components/projects/model/RoleBadge";
@@ -44,18 +45,55 @@ export function ComponentsTab({ model, repositoryId, selectedComponentId, onSele
 
   if (model.components.length === 0) {
     return (
-      <Card className="p-6">
-        <EmptyState
-          icon={Box}
-          title={t("repositoryPage.components.empty")}
-          description={t("repositoryPage.components.emptyDesc")}
-          action={
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
+      <div className="space-y-4">
+        <RepositoryReviewSettings model={model} repositoryId={repositoryId} onReload={onReload} />
+        <Card className="p-6">
+          <EmptyState
+            icon={Box}
+            title={t("repositoryPage.components.empty")}
+            description={t("repositoryPage.components.emptyDesc")}
+            action={
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t("repositoryPage.components.addComponent")}
+              </Button>
+            }
+          />
+          <AddComponentDialog
+            open={addOpen}
+            onOpenChange={setAddOpen}
+            repositoryId={repositoryId}
+            existingPaths={model.components.map((c) => c.path)}
+            onCreated={(c) => {
+              onReload();
+              onSelectComponent(c.id);
+            }}
+          />
+        </Card>
+      </div>
+    );
+  }
+
+  const selected = model.components.find((c) => c.id === selectedComponentId) ?? model.components[0];
+
+  return (
+    <div className="space-y-4">
+      <RepositoryReviewSettings model={model} repositoryId={repositoryId} onReload={onReload} />
+      <div className="flex gap-6">
+        <ComponentRail
+          components={model.components}
+          selectedId={selected.id}
+          onSelect={(id) => id && onSelectComponent(id)}
+          footer={
+            <Button variant="ghost" size="sm" className="mt-1 justify-start gap-1.5" onClick={() => setAddOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
               {t("repositoryPage.components.addComponent")}
             </Button>
           }
         />
+        <div className="min-w-0 flex-1 space-y-4">
+          <ComponentDetail key={selected.id} component={selected} model={model} onReload={onReload} />
+        </div>
         <AddComponentDialog
           open={addOpen}
           onOpenChange={setAddOpen}
@@ -66,38 +104,7 @@ export function ComponentsTab({ model, repositoryId, selectedComponentId, onSele
             onSelectComponent(c.id);
           }}
         />
-      </Card>
-    );
-  }
-
-  const selected = model.components.find((c) => c.id === selectedComponentId) ?? model.components[0];
-
-  return (
-    <div className="flex gap-6">
-      <ComponentRail
-        components={model.components}
-        selectedId={selected.id}
-        onSelect={(id) => id && onSelectComponent(id)}
-        footer={
-          <Button variant="ghost" size="sm" className="mt-1 justify-start gap-1.5" onClick={() => setAddOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            {t("repositoryPage.components.addComponent")}
-          </Button>
-        }
-      />
-      <div className="min-w-0 flex-1 space-y-4">
-        <ComponentDetail key={selected.id} component={selected} model={model} onReload={onReload} />
       </div>
-      <AddComponentDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        repositoryId={repositoryId}
-        existingPaths={model.components.map((c) => c.path)}
-        onCreated={(c) => {
-          onReload();
-          onSelectComponent(c.id);
-        }}
-      />
     </div>
   );
 }

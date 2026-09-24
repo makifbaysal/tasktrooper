@@ -203,6 +203,42 @@ func (s *ViewsSuite) TestProjectMapResourceNodeSharedWith() {
 	s.Equal(projB.Name, resourceNode.SharedWith[0].Name)
 }
 
+func (s *ViewsSuite) TestProjectMapCollapsesParallelLinksToTheSameResourceIntoOneEdge() {
+	projA := domain.InitiativeProject{ID: uuid.New(), Name: "proj-a"}
+	s.projects = newFakeProjects(projA)
+	s.svc = NewService(Deps{Store: s.store, Repos: s.repos, Projects: s.projects})
+
+	repo := s.newRepo("repo-a", projA.ID)
+	comp := s.store.seedComponent(domain.Component{ID: uuid.New(), RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive})
+	resource := s.store.seedResource(domain.SystemResource{ID: uuid.New(), Kind: domain.ResourceDatabase, Name: "PostgreSQL", IdentityKey: "repo:x:postgres:postgres"})
+
+	smallestID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	largerID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	s.store.seedLink(domain.ComponentLink{
+		ID: largerID, RepositoryID: repo.ID, FromComponentID: comp.ID, ToResourceID: &resource.ID,
+		Status: domain.LinkConfirmed, Protocol: domain.LinkSQL, EnvVars: []string{"DATABASE_URL"},
+	})
+	s.store.seedLink(domain.ComponentLink{
+		ID: smallestID, RepositoryID: repo.ID, FromComponentID: comp.ID, ToResourceID: &resource.ID,
+		Status: domain.LinkSuggested, Protocol: domain.LinkSQL, EnvVars: []string{"POSTGRES_URL"},
+	})
+
+	m, err := s.svc.ProjectMap(context.Background(), projA.ID)
+	s.Require().NoError(err)
+
+	var resourceEdges []domain.MapEdge
+	for _, e := range m.Edges {
+		if e.To == "r:"+resource.ID.String() {
+			resourceEdges = append(resourceEdges, e)
+		}
+	}
+	s.Require().Len(resourceEdges, 1, "parallel links to the same resource must collapse into one edge")
+	edge := resourceEdges[0]
+	s.Equal(smallestID, edge.LinkID, "the collapsed edge must keep the lexicographically smallest link id")
+	s.Equal(domain.LinkSuggested, edge.Status, "a suggested link in the group makes the whole edge suggested")
+	s.ElementsMatch([]string{"DATABASE_URL", "POSTGRES_URL"}, edge.EnvVars, "env vars from every collapsed link must be unioned")
+}
+
 func (s *ViewsSuite) TestProjectMapHealthAndProviderFromProductionEnvironment() {
 	projA := domain.InitiativeProject{ID: uuid.New(), Name: "proj-a"}
 	s.projects = newFakeProjects(projA)

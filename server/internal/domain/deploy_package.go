@@ -51,10 +51,9 @@ func ValidDeployPackageStatus(s string) bool {
 	}
 }
 
-// DeployPackage is an explicitly assembled release train for one repository. It
-// exists because a repository with auto_release_on_done off has no release path
-// at all: trigger_release refuses it by design ("batched release"), and nothing
-// else dispatches a prod deploy.
+// DeployPackage is an explicitly assembled release train for one repository:
+// it batches several tasks into one production deploy instead of releasing
+// each as it reaches done.
 type DeployPackage struct {
 	ID           uuid.UUID `json:"id"`
 	RepositoryID uuid.UUID `json:"repository_id"`

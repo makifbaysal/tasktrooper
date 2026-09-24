@@ -1186,22 +1186,13 @@ func (s *DispatcherSuite) TestAssignedDefersToRunningRun() {
 	s.Len(s.runs.runs, 1, "no second run while the agent is already running the task")
 }
 
-type fakeGatePolicy struct {
-	require bool
-	asked   []uuid.UUID
-}
-
-func (f *fakeGatePolicy) RequirePipelineForReview(_ context.Context, repositoryID uuid.UUID) bool {
-	f.asked = append(f.asked, repositoryID)
-	return f.require
-}
-
-func (s *DispatcherSuite) TestCodeReviewIsGatedWhenTheRepositoryRequiresAPipeline() {
+// TestCodeReviewIsGatedUnconditionally proves the pipeline gate is no longer
+// a per-repository opt-out (require_pipeline_for_review is gone): with the
+// gate armed, wait_for_ci alone is enough to defer the reviewer.
+func (s *DispatcherSuite) TestCodeReviewIsGatedUnconditionally() {
 	architect := uuid.New()
 	s.board.agentsByColumn[string(domain.TaskColumnCodeReview)] = []uuid.UUID{architect}
 	s.disp.SetPipelineGate(true)
-	policy := &fakeGatePolicy{require: true}
-	s.disp.SetPipelineGatePolicy(policy)
 
 	repositoryID := uuid.New()
 	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
@@ -1215,55 +1206,12 @@ func (s *DispatcherSuite) TestCodeReviewIsGatedWhenTheRepositoryRequiresAPipelin
 	s.Require().NoError(err)
 	s.Len(s.events.events, 1)
 	s.Empty(s.runs.runs, "the reviewer must wait for the pipeline")
-	s.Equal([]uuid.UUID{repositoryID}, policy.asked)
-}
-
-func (s *DispatcherSuite) TestCodeReviewDispatchesImmediatelyWhenTheRepositorySettingIsOff() {
-	architect := uuid.New()
-	s.board.agentsByColumn[string(domain.TaskColumnCodeReview)] = []uuid.UUID{architect}
-	s.disp.SetPipelineGate(true)
-	s.disp.SetPipelineGatePolicy(&fakeGatePolicy{require: false})
-
-	repositoryID := uuid.New()
-	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
-		RepositoryID: repositoryID,
-		Task: domain.BoardTask{
-			ID: uuid.New(), RepositoryID: repositoryID, Title: "t",
-			Column: domain.TaskColumnCodeReview,
-		},
-		EventType: domain.BoardEventTaskMoved,
-	})
-	s.Require().NoError(err)
-	s.Require().Len(s.runs.runs, 1, "the reviewer must be dispatched with no pipeline to wait for")
-	s.Equal(architect, s.runs.runs[0].AgentID)
-	s.Require().Len(s.runner.jobs, 1)
-
-	var payload map[string]interface{}
-	s.Require().NoError(json.Unmarshal(s.events.events[0].Payload, &payload))
-	s.Equal(domain.PipelineGateReasonDisabled, payload[domain.EventPayloadPipelineGate])
-}
-func (s *DispatcherSuite) TestCodeReviewStillGatesWithNoPolicyWired() {
-	s.board.agentsByColumn[string(domain.TaskColumnCodeReview)] = []uuid.UUID{uuid.New()}
-	s.disp.SetPipelineGate(true)
-
-	repositoryID := uuid.New()
-	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
-		RepositoryID: repositoryID,
-		Task: domain.BoardTask{
-			ID: uuid.New(), RepositoryID: repositoryID, Title: "t",
-			Column: domain.TaskColumnCodeReview,
-		},
-		EventType: domain.BoardEventTaskMoved,
-	})
-	s.Require().NoError(err)
-	s.Empty(s.runs.runs, "no policy must mean the pre-existing behaviour: gate closed")
 }
 
 func (s *DispatcherSuite) TestDispatchQACarriesTheGateReasonWhenTheGateWasForcedOpen() {
 	architect := uuid.New()
 	s.board.agentsByColumn[string(domain.TaskColumnCodeReview)] = []uuid.UUID{architect}
 	s.disp.SetPipelineGate(true)
-	s.disp.SetPipelineGatePolicy(&fakeGatePolicy{require: true})
 
 	repositoryID := uuid.New()
 	pipelineID := uuid.New()

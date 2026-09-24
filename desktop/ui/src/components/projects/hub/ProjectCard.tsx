@@ -28,10 +28,10 @@ export function ProjectCard({ project, repositories, onEdit, onDelete }: Project
 
   return (
     <Card className="w-full overflow-hidden p-0">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
+      <div className="relative flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/40">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Link to={`/projects/${project.id}`} className="font-semibold hover:underline">
+            <Link to={`/projects/${project.id}`} className="font-semibold after:absolute after:inset-0">
               {project.name}
             </Link>
             <ProjectTypeBadge type={project.type} />
@@ -46,7 +46,7 @@ export function ProjectCard({ project, repositories, onEdit, onDelete }: Project
             {project.description || t("projectsHub.card.noDescription")}
           </p>
         </div>
-        <div className="flex shrink-0 gap-1">
+        <div className="relative z-10 flex shrink-0 gap-1">
           <Button
             variant="ghost"
             size="icon"

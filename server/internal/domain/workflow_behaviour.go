@@ -29,7 +29,6 @@ const (
 	BehaviourRequireExecutionEvidence BehaviourKey = "require_execution_evidence"
 	BehaviourRequireProductCheck      BehaviourKey = "require_product_check"
 	BehaviourReviewChainStage         BehaviourKey = "review_chain_stage"
-	BehaviourRequireReleaseDeploy     BehaviourKey = "require_release_deploy"
 	BehaviourStripWriters             BehaviourKey = "strip_writers"
 	BehaviourNoCodeReading            BehaviourKey = "no_code_reading"
 
@@ -227,10 +226,6 @@ var BehaviourRegistry = map[BehaviourKey]BehaviourSpec{
 			{Name: "label", Type: ParamTypeString, Required: true},
 			{Name: "remedy", Type: ParamTypeString, Required: true},
 		},
-	},
-	BehaviourRequireReleaseDeploy: {
-		Scope: BehaviourScopeStage, Group: BehaviourGroupEntry, Kinds: []StageKind{StageKindTerminal}, Label: "Require release deploy",
-		Description: "Entering this stage is refused without a recorded successful production deploy.",
 	},
 	BehaviourStripWriters: {
 		Scope: BehaviourScopeStage, Group: BehaviourGroupOther, Kinds: []StageKind{StageKindQueue, StageKindReview, StageKindApproval, StageKindTerminal}, Label: "Strip writers",

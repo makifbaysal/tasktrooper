@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { api, type CloudAccount, type ComponentEnvironment, type RepositoryModel } from "@/api";
+import {
+  api,
+  type CloudAccount,
+  type Component,
+  type ComponentEnvironment,
+  type MobilePlatform,
+  type RepositoryModel,
+} from "@/api";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { ComponentRail } from "@/components/projects/repository/ComponentRail";
 import { DeliverySettingsPanel } from "@/components/projects/repository/deploy/DeliverySettingsPanel";
 import { EnvironmentsCard } from "@/components/projects/repository/deploy/EnvironmentsCard";
 import { RuntimePanel } from "@/components/projects/repository/deploy/RuntimePanel";
+import { StoreReleasesCard } from "@/components/projects/repository/deploy/StoreReleasesCard";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useI18n } from "@/hooks/useI18n";
+import { effectiveRole, factValue } from "@/lib/project-model";
 import { cn } from "@/lib/utils";
 
 const HEALTH_DOT: Record<string, string> = {
@@ -38,6 +47,15 @@ function railHealth(environments: ComponentEnvironment[], componentId: string) {
       <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", HEALTH_DOT[status])} aria-hidden />
     </span>
   );
+}
+
+/** The component's own scan answer first, then the repository scope it sits in. */
+function mobilePlatformOf(model: RepositoryModel, component: Component): MobilePlatform {
+  const detected = factValue(component.mobile)?.platform;
+  if (detected) return detected as MobilePlatform;
+  const path = component.path === "." ? "" : component.path;
+  const repo = model.repository;
+  return (path ? repo.sub_projects?.find((sp) => sp.path === path)?.mobile_platform : repo.mobile_platform) ?? "";
 }
 
 /**
@@ -98,19 +116,29 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
         renderTrailing={(c) => railHealth(model.environments, c.id)}
       />
       <div className="min-w-0 flex-1 space-y-4">
-        <EnvironmentsCard
-          component={selected}
-          environments={componentEnvs}
-          accounts={accounts ?? []}
-          accountsLoading={accountsLoading}
-          selectedEnvId={selectedEnv?.id ?? null}
-          onSelectEnv={(env) => setSelectedEnvId(env.id)}
-          onChanged={onReload}
-          onAccountsChanged={loadAccounts}
-        />
+        {effectiveRole(selected) === "mobile" ? (
+          <StoreReleasesCard
+            key={selected.id}
+            repositoryId={repositoryId}
+            mobilePlatform={mobilePlatformOf(model, selected)}
+          />
+        ) : (
+          <>
+            <EnvironmentsCard
+              component={selected}
+              environments={componentEnvs}
+              accounts={accounts ?? []}
+              accountsLoading={accountsLoading}
+              selectedEnvId={selectedEnv?.id ?? null}
+              onSelectEnv={(env) => setSelectedEnvId(env.id)}
+              onChanged={onReload}
+              onAccountsChanged={loadAccounts}
+            />
 
-        {selectedEnv?.account_id && (
-          <RuntimePanel env={selectedEnv} accounts={accounts ?? []} onAccountsChanged={loadAccounts} />
+            {selectedEnv?.account_id && (
+              <RuntimePanel env={selectedEnv} accounts={accounts ?? []} onAccountsChanged={loadAccounts} />
+            )}
+          </>
         )}
 
         <Accordion type="single" collapsible>

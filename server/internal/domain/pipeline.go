@@ -89,11 +89,6 @@ const (
 	// PipelineGateReasonNoCI: the repository has no validate/build/test job
 	// mapped, so there was never anything to wait for.
 	PipelineGateReasonNoCI = "no_ci_configured"
-	// PipelineGateReasonDisabled: require_pipeline_for_review is off for this
-	// repository, so code_review never gated on CI in the first place. Carried
-	// on the board event rather than on a pipeline row — there may be no
-	// pipeline at all.
-	PipelineGateReasonDisabled = "gate_disabled"
 )
 
 // PipelineGateReasonOpen reports whether a gate reason means the reviewer was
@@ -102,7 +97,7 @@ const (
 func PipelineGateReasonOpen(reason string) bool {
 	switch reason {
 	case PipelineGateReasonTimeout, PipelineGateReasonCIUnavailable,
-		PipelineGateReasonNoCI, PipelineGateReasonDisabled:
+		PipelineGateReasonNoCI:
 		return true
 	}
 	return false

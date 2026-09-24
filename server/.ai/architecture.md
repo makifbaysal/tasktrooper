@@ -97,25 +97,22 @@ pipeline**, could open it — so a process restart mid-poll, a repository out of
 minutes (402), or a hook registered for `push` only left the card wedged with a spinner
 and no agent, permanently and silently.
 
-Four things bound it, fastest first:
+The gate is unconditional — there is no per-repository off switch; it cannot deadlock
+because the other three mechanisms below all bound the wait. Three things bound it,
+fastest first:
 
-1. **A per-repository off switch** — `repositories.require_pipeline_for_review` (default
-   **true**, unlike its opt-in siblings: it makes existing behaviour opt-OUT-able). Off ⇒
-   `code_review` dispatches immediately and the board event carries `pipeline_gate:
-   gate_disabled`, so a skipped gate is never mistaken for a passed one. Set through
-   `PUT /v1/repositories/:id/lifecycle-gates`.
-2. **The webhook, actually wired** — the hook subscribes to `push`, `workflow_run` and
+1. **The webhook, actually wired** — the hook subscribes to `push`, `workflow_run` and
    `check_suite` (`githubapi.WebhookEvents`). A completed delivery goes
    `handler_github_webhook.go` → `repository.Service.HandleGitHubWorkflowEvent` →
    `PipelineRunner.ResolveByHeadSHA`, the join from "GitHub finished a run" to "which card
    was waiting" (`task_pipelines.head_sha`). `pull_request` is deliberately absent — the
    board opens and merges its own PRs and the gate reads run conclusions, not PR state.
-3. **Hook repair** — `ReconcileWebhooksAsync` at boot installs a missing hook and
+2. **Hook repair** — `ReconcileWebhooksAsync` at boot installs a missing hook and
    `PATCH`es an existing one's **events list only**
    (`githubapi.ReconcileRepoWebhookEvents`): no `config` block, so no secret rotation and
    no window of rejected deliveries. It sends the union (an operator's extra event
    survives) and leaves a `*` wildcard hook alone. A converged hook costs one GET.
-4. **A reconciling poll** — `board.PipelineGateSweeper` every `board.pipeline_gate_interval`
+3. **A reconciling poll** — `board.PipelineGateSweeper` every `board.pipeline_gate_interval`
    (2m) asks GitHub about each unfinished pipeline and settles it. `PipelineRunner.inflight`
    keeps it off pipelines this process already polls, so the two never double-write jobs.
 
@@ -317,30 +314,29 @@ never rebuild (`--skip_binary_upload`, `track_promote_to`).
 
 Migration 061 tables: `store_credentials`, `mobile_store_apps`, `signing_assets`.
 
-## Repository lifecycle gates (migration 080)
+## The review chain gate (migration 080, unconditional since migration 158)
 
-`done` claims "this passed its review chain" and `released` claims "this is live in
-production"; nothing checked either. Two per-repository, opt-in, default-`false` flags do
+`done` claims "this passed its review chain"; nothing checked that until this gate
 (`internal/domain/lifecycle_gate.go`, `internal/application/repository/lifecyclegate.go`).
 
-`require_review_chain` blocks a move into `done` (and into `released` when it skips `done`,
-but not the ordinary `done → released` promotion) unless the task visited every stage
-`domain.ReviewChainForType` requires — `code_review`/`in_qa`/`pm_uat` for `task`/`bug`,
-`analiz_review` for `analiz` — with none of those stages' latest visit rejected. Evidence
-is the `task_column_spans` ledger, not the current column, so rework through
-`need_revision` is not punished; a stage whose column is absent from the board is skipped,
-since a customized board cannot route through a column it does not have.
+It blocks a move into `done` (and into `released` when it skips `done`, but not the
+ordinary `done → released` promotion) unless the task visited every stage
+`Workflow.ReviewChain()` requires (built from each stage's `review_chain_stage`
+behaviour) — `code_review`/`in_qa`/`pm_uat` for `task`/`bug`, `analiz_review` for
+`analiz` — with none of those stages' latest visit rejected. Evidence is the
+`task_column_spans` ledger, not the current column, so rework through `need_revision` is
+not punished; a stage whose column is absent from the board is skipped, since a
+customized board cannot route through a column it does not have.
 
-`require_release_deploy` blocks a move into `released` unless `task_pipelines` records a
-successful `prod_deploy`, or a successful `preprod_deploy` on a repository with no prod
-workflow mapped. `skipped` is never evidence. `analiz` tasks are exempt
-(`domain.TaskTypeShipsCode`).
+The gate is always on — there is no per-repository opt-out any more
+(`repositories.require_review_chain` was dropped in migration 158). It fails closed on an
+unreadable ledger: a check that passes when its evidence cannot be read is not a check.
 
-Both default off because each is only honest on a board wired for it — a repository with no
-QA agent on `in_qa`, or no prod workflow, would park every task in front of something
-nothing can satisfy. Both fail closed on an unreadable ledger: a check that passes when its
-evidence cannot be read is not a check. `PUT /v1/repositories/:id/lifecycle-gates` arms
-them independently.
+Release itself (a move into `released`) is no longer gated on any recorded production
+deploy: `repositories.require_release_deploy` and the `require_release_deploy` stage
+behaviour are gone (migration 158). `trigger_release`/`TriggerRelease` fires from `done`
+unconditionally — there is no more "batched release" repository that refuses the
+per-task path.
 
 ## Merging the task's pull request (migration 104)
 
@@ -358,7 +354,7 @@ QA last exercised the built product, so `done` wakes QA (`board.Dispatcher.doneM
 narrow enough that the column stays terminal for everything else) and the agent calls
 `merge_task_pull_request`: squash-merge, then delete the branch — refused unless the task is
 in `done`, its PR is open and unmerged, checks are green, the review chain is satisfied
-where `require_review_chain` demands it, and the PR head is still `board_tasks.verified_sha`
+(always, per the gate above), and the PR head is still `board_tasks.verified_sha`
 (`domain.VerifiedCommitMatches`, the same comparison `releaseTargetGate` makes, asked of the
 PR head). The verified SHA travels to GitHub as the merge's `sha` precondition, so a push
 landing between gate and merge is a 409 rather than a silent merge of unreviewed code.

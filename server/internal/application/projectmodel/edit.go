@@ -384,6 +384,20 @@ func (s *Service) UpdateLink(ctx context.Context, linkID uuid.UUID, patch domain
 		return domain.ComponentLink{}, fmt.Errorf("update link: %w", err)
 	}
 
+	targetFields := 0
+	if patch.ToComponentID != nil {
+		targetFields++
+	}
+	if patch.ToResource != nil {
+		targetFields++
+	}
+	if patch.ToResourceID != nil {
+		targetFields++
+	}
+	if targetFields > 1 {
+		return domain.ComponentLink{}, fmt.Errorf("%w: at most one of to_component_id, to_resource, to_resource_id may be set", ErrInvalidInput)
+	}
+
 	retargeted := false
 	switch {
 	case patch.ToComponentID != nil:
@@ -404,6 +418,15 @@ func (s *Service) UpdateLink(ctx context.Context, linkID uuid.UUID, patch domain
 			return domain.ComponentLink{}, err
 		}
 		link.ToResourceID = &resource.ID
+		link.ToComponentID = nil
+		link.AutoConfirmed = false
+		link.Reason = ""
+		retargeted = true
+	case patch.ToResourceID != nil:
+		if _, err := s.store.GetResource(ctx, *patch.ToResourceID); err != nil {
+			return domain.ComponentLink{}, fmt.Errorf("update link: %w", err)
+		}
+		link.ToResourceID = patch.ToResourceID
 		link.ToComponentID = nil
 		link.AutoConfirmed = false
 		link.Reason = ""

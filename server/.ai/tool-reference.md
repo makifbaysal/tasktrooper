@@ -302,7 +302,7 @@ any of them:
 | already merged | `ErrMergeAlreadyMerged` | `merge_commit_sha` is set, or GitHub reports the PR merged (then the SHA is recorded so `done` stops asking) |
 | closed unmerged | `ErrMergeClosed` | the PR was closed without merging |
 | checks not green | `ErrMergeChecksNotGreen` | GitHub's `mergeable_state` is anything but `clean`/`has_hooks` (`blocked`, `unstable`, `dirty`, `behind`, `unknown`), or the task's last pipeline `failed`. `dirty`/`behind` are the CONFLICT case: the remedy text tells QA to move the task to `need_revision`, because rebasing a branch is the developer's work |
-| review chain incomplete | `ErrReviewChainIncomplete` / `ErrReviewStageRejected` | `repositories.require_review_chain` is on and a stage is missing or was rejected — the same `reviewChainGate` the move into `done` runs, re-asked through `repository.Service.CheckReviewChain` |
+| review chain incomplete | `ErrReviewChainIncomplete` / `ErrReviewStageRejected` | a required review stage is missing or was rejected — the review chain is always enforced (no repository opt-out), the same `reviewChainGate` the move into `done` runs, re-asked through `repository.Service.CheckReviewChain` |
 | head drifted | `ErrReleaseTargetMoved` / `ErrReleaseTargetUnverified` | the PR head SHA is not `board_tasks.verified_sha` — the same `domain.VerifiedCommitMatches` comparison the release gate makes, asked of the PR head rather than of the workspace |
 
 A missing or `skipped` pipeline does **not** block: that is a repository with no

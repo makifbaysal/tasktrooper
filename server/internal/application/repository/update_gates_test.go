@@ -15,28 +15,6 @@ func newUpdateTestService(repo domain.Repository) (*Service, *fakeReleaseRepoSto
 	return &Service{repos: repos}, repos
 }
 
-func TestUpdateSetsTheMutationGate(t *testing.T) {
-	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindBackend})
-	on := true
-	threshold := 65.0
-
-	repo, err := svc.Update(context.Background(), repos.repo.ID, domain.UpdateRepositoryRequest{
-		MutationEnabled: &on, MutationThreshold: &threshold,
-	})
-	require.NoError(t, err)
-	require.True(t, repo.MutationEnabled)
-	require.Equal(t, 65.0, repo.MutationThreshold)
-}
-
-func TestUpdateRejectsAMutationThresholdOutside0To100(t *testing.T) {
-	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindBackend})
-	bad := 140.0
-
-	_, err := svc.Update(context.Background(), repos.repo.ID, domain.UpdateRepositoryRequest{MutationThreshold: &bad})
-	require.ErrorContains(t, err, "must be between 0 and 100")
-	require.Zero(t, repos.repo.MutationThreshold)
-}
-
 func TestUpdateValidatesSubProjectQualityGates(t *testing.T) {
 	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindMonorepo})
 	bad := -5.0

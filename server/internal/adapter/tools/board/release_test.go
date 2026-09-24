@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -101,16 +100,6 @@ func TestTriggerReleaseToolUnblockedPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("batched release stays a no-op", func(t *testing.T) {
-		fake := &fakeReleaseManager{fakeTaskManager: &fakeTaskManager{}, err: repository.ErrReleaseDisabled}
-		result := newReleaseTool(fake).Execute(context.Background(), `{"task_id":"`+uuid.New().String()+`"}`)
-		if result.IsError {
-			t.Fatalf("batched release must not be a tool error: %s", result.Content)
-		}
-		if !strings.Contains(result.Content, "batched_release") {
-			t.Fatalf("want the batched_release reason, got: %s", result.Content)
-		}
-	})
 }
 
 // Any other failure keeps its previous shape: a tool error carrying the

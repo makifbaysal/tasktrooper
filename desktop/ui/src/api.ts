@@ -379,7 +379,9 @@ export interface TaskPipelineJob {
 //   timeout          — nothing reported inside the gate window
 //   ci_unavailable   — GitHub refused to run (quota/billing) or no run exists
 //   no_ci_configured — this repository has no build/test job mapped
-//   gate_disabled    — require_pipeline_for_review is off for this repository
+//   gate_disabled    — history only: the pipeline gate can no longer be
+//                       disabled, so only events recorded before it became
+//                       unconditional carry this reason
 export type PipelineGateReason = "timeout" | "ci_unavailable" | "no_ci_configured" | "gate_disabled";
 
 export interface TaskPipeline {
@@ -449,27 +451,7 @@ export interface Repository {
   kind?: RepoKind;
   sub_repo_kinds?: string[];
   sub_projects?: RepoSubProject[];
-  auto_release_on_done?: boolean;
   require_human_review?: boolean;
-  require_review_chain?: boolean;
-  require_release_deploy?: boolean;
-  // require_pipeline_for_review defaults to TRUE on the server, unlike the two
-  // gates above: it is not a new requirement being opted into but existing
-  // behaviour being made opt-OUT-able. Read `?? true`, never `?? false`.
-  require_pipeline_for_review?: boolean;
-  // Whether the repo's WHOLE-REPO coverage figure blocks a task, and the bar it
-  // blocks under (0 / absent means the 90% default). Off by default: overall
-  // coverage describes the codebase rather than the change, so gating on it
-  // stops every task in a repo that has not reached the bar yet. The always-on
-  // gate is new-code coverage, which is not per-repository and not settable.
-  require_overall_coverage?: boolean;
-  coverage_threshold?: number;
-  // Repo-level mutation-test gate: whether it blocks a task, and the bar it
-  // blocks under (0 / absent means the server default). Independent of
-  // require_overall_coverage/coverage_threshold above, which gate line
-  // coverage rather than mutation score.
-  mutation_enabled?: boolean;
-  mutation_threshold?: number;
   incident_policy?: IncidentPolicy;
   test_strategy?: TestStrategy;
   docs?: RepositoryDocs;
@@ -2522,6 +2504,8 @@ export interface SystemResource {
   name: string;
   identity_key: string;
   details?: Record<string, string>;
+  /** true once a person has renamed it — a later scan no longer overwrites the name. */
+  name_locked?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -2748,6 +2732,25 @@ export interface ResourceRefView {
   name: string;
 }
 
+/** One component that has a non-dismissed link to a workspace resource. */
+export interface ResourceUser {
+  repository_id: string;
+  repository_name: string;
+  project_ids: string[];
+  component_id: string;
+  component_path: string;
+}
+
+/** GET /v1/resources' entry: a resource plus who links to it, for the
+ * resource picker's "in this repo / project / elsewhere" sections and the
+ * link panel's "used by" list. */
+export interface WorkspaceResource {
+  resource: SystemResource;
+  users: ResourceUser[];
+  projects: ProjectRef[];
+  link_count: number;
+}
+
 /**
  * One card on the projects page and the header of the project page.
  * cross_projects/cross_links/shared_resources are empty when the project is
@@ -2828,6 +2831,7 @@ export interface ResourceRef {
 export interface LinkPatch {
   status?: LinkStatus;
   to_component_id?: string;
+  to_resource_id?: string;
   to_resource?: ResourceRef;
   protocol?: LinkProtocol;
 }
@@ -3813,12 +3817,6 @@ export const api = {
       require_human_review?: boolean;
       docs?: RepositoryDocs;
       release_engine?: ReleaseEngine;
-      mutation_enabled?: boolean;
-      mutation_threshold?: number;
-      // Was only reachable through the now-removed pipeline/config endpoint
-      // (SavePipelineConfig); the general PATCH has always accepted it
-      // (domain.UpdateRepositoryRequest.AutoReleaseOnDone).
-      auto_release_on_done?: boolean;
     },
   ) =>
     request<Repository>(`/v1/repositories/${id}`, {
@@ -3933,21 +3931,6 @@ export const api = {
   releaseDeployPackage: (repositoryId: string, packageId: string) =>
     request<DeployPackage>(`/v1/repositories/${repositoryId}/deploy-packages/${packageId}/release`, {
       method: "POST",
-    }),
-
-  setLifecycleGates: (
-    id: string,
-    data: {
-      require_review_chain?: boolean;
-      require_release_deploy?: boolean;
-      require_pipeline_for_review?: boolean;
-      require_overall_coverage?: boolean;
-      coverage_threshold?: number;
-    },
-  ) =>
-    request<Repository>(`/v1/repositories/${id}/lifecycle-gates`, {
-      method: "PUT",
-      body: JSON.stringify(data),
     }),
 
   getEnvInventory: (id: string) => request<EnvInventory>(`/v1/repositories/${id}/env-inventory`),
@@ -4611,6 +4594,27 @@ export const api = {
     request<ComponentLink>(`/v1/links/${linkId}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   deleteLink: (linkId: string) => request<void>(`/v1/links/${linkId}`, { method: "DELETE" }),
+
+  listWorkspaceResources: () => request<{ resources: WorkspaceResource[] }>("/v1/resources"),
+
+  renameResource: (resourceId: string, name: string) =>
+    request<SystemResource>(`/v1/resources/${resourceId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+
+  // Moves every link of resourceId onto intoResourceId and deletes resourceId;
+  // future scans keep resolving its signals to the target.
+  mergeResource: (resourceId: string, intoResourceId: string) =>
+    request<SystemResource>(`/v1/resources/${resourceId}/merge`, {
+      method: "POST",
+      body: JSON.stringify({ into_resource_id: intoResourceId }),
+    }),
+
+  // Splits linkIds (which must currently point at resourceId) onto a fresh
+  // copy of it, confirmed.
+  splitResource: (resourceId: string, linkIds: string[]) =>
+    request<SystemResource>(`/v1/resources/${resourceId}/split`, {
+      method: "POST",
+      body: JSON.stringify({ link_ids: linkIds }),
+    }),
 
   saveNote: (repositoryId: string, body: SaveNoteRequest) =>
     request<ProjectNote>(`/v1/repositories/${repositoryId}/notes`, {

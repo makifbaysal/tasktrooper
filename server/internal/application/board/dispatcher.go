@@ -37,7 +37,6 @@ type Dispatcher struct {
 	notifier     TaskNotifier
 	spans        port.TaskColumnSpanStore
 	workOrder    *WorkOrder
-	gatePolicy   PipelineGatePolicy
 	reviewLoop   *ReviewLoopGuard
 	workflows    port.WorkflowReader
 	roles        port.RoleResolver
@@ -59,14 +58,6 @@ func (d *Dispatcher) workflowFor(ctx context.Context, taskType domain.TaskType) 
 
 func (d *Dispatcher) SetWorkflows(w port.WorkflowReader)  { d.workflows = w }
 func (d *Dispatcher) SetRoleResolver(r port.RoleResolver) { d.roles = r }
-
-type PipelineGatePolicy interface {
-	RequirePipelineForReview(ctx context.Context, repositoryID uuid.UUID) bool
-}
-
-func (d *Dispatcher) SetPipelineGatePolicy(p PipelineGatePolicy) {
-	d.gatePolicy = p
-}
 
 func NewDispatcher(board port.BoardConfigStore, events port.BoardEventStore, runs port.TaskAgentRunStore, runner RunEnqueuer, enabled bool) *Dispatcher {
 	return &Dispatcher{
@@ -408,13 +399,7 @@ func (d *Dispatcher) pipelineGateDecision(ctx context.Context, wf domain.Workflo
 	if !wf.Has(input.Task.Column, domain.BehaviourWaitForCI) {
 		return false, ""
 	}
-	if d.gatePolicy == nil || d.gatePolicy.RequirePipelineForReview(ctx, input.RepositoryID) {
-		return true, ""
-	}
-	log.Info().Str("task_id", input.Task.ID.String()).
-		Str("repository_id", input.RepositoryID.String()).
-		Msg("code review gate skipped: this repository does not gate review on CI")
-	return false, domain.PipelineGateReasonDisabled
+	return true, ""
 }
 
 func (d *Dispatcher) DispatchQA(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, pipelineID uuid.UUID, gateReason string) error {

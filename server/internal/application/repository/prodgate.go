@@ -276,18 +276,6 @@ func (s *Service) AutoReleaseIfUndeployable(ctx context.Context, repositoryID, t
 		Column:       &col,
 		SystemReason: domain.MoveReasonMergeReleasedNoDeployTarget,
 	}); err != nil {
-		if errors.Is(err, domain.ErrReleaseNotDeployed) {
-			if s.comments != nil {
-				_, _ = s.comments.Create(ctx, domain.TaskComment{
-					TaskID:     taskID,
-					AuthorType: "system",
-					Content: "This repository has no deploy_target configured anywhere, so merging cannot auto-release it: " +
-						"require_release_deploy is on and demands proof of an actual production deploy, which nothing here can produce. " +
-						"Turn require_release_deploy off for this repository, or configure a deploy target.",
-				})
-			}
-			return false
-		}
 		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("auto-release after merge failed")
 		return false
 	}

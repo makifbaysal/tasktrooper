@@ -428,7 +428,7 @@ func (f *fakeRepositoryStore) Update(_ context.Context, id uuid.UUID, name, desc
 	return r, nil
 }
 
-func (f *fakeRepositoryStore) UpdateMeta(_ context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string, autoReleaseOnDone *bool) (domain.Repository, error) {
+func (f *fakeRepositoryStore) UpdateMeta(_ context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string) (domain.Repository, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r, ok := f.rows[id]
@@ -440,9 +440,6 @@ func (f *fakeRepositoryStore) UpdateMeta(_ context.Context, id uuid.UUID, kind *
 	}
 	if subRepoKinds != nil {
 		r.SubRepoKinds = *subRepoKinds
-	}
-	if autoReleaseOnDone != nil {
-		r.AutoReleaseOnDone = *autoReleaseOnDone
 	}
 	f.rows[id] = r
 	return r, nil
@@ -496,19 +493,17 @@ func (f *fakeRepositoryStore) UpdateDetectedAppIdentity(_ context.Context, id uu
 	return r, nil
 }
 
-func (f *fakeRepositoryStore) UpdateMutationGate(_ context.Context, id uuid.UUID, enabled *bool, threshold *float64) (domain.Repository, error) {
+func (f *fakeRepositoryStore) UpdateQualityGates(_ context.Context, id uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r, ok := f.rows[id]
 	if !ok {
-		return domain.Repository{}, fmt.Errorf("update mutation gate: %w", port.ErrNotFound)
+		return domain.Repository{}, fmt.Errorf("update quality gates: %w", port.ErrNotFound)
 	}
-	if enabled != nil {
-		r.MutationEnabled = *enabled
-	}
-	if threshold != nil {
-		r.MutationThreshold = *threshold
-	}
+	r.RequireOverallCoverage = coverage.Enabled
+	r.CoverageThreshold = coverage.Threshold
+	r.MutationEnabled = mutation.Enabled
+	r.MutationThreshold = mutation.Threshold
 	f.rows[id] = r
 	return r, nil
 }
@@ -557,26 +552,6 @@ func (f *fakeRepositoryStore) UpdateTestStrategy(_ context.Context, id uuid.UUID
 		return domain.Repository{}, fmt.Errorf("update test strategy: %w", port.ErrNotFound)
 	}
 	r.TestStrategy = strategy
-	f.rows[id] = r
-	return r, nil
-}
-
-func (f *fakeRepositoryStore) UpdateLifecycleGates(_ context.Context, id uuid.UUID, requireReviewChain, requireReleaseDeploy, requirePipelineForReview, _ *bool, _ *float64) (domain.Repository, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	r, ok := f.rows[id]
-	if !ok {
-		return domain.Repository{}, fmt.Errorf("update lifecycle gates: %w", port.ErrNotFound)
-	}
-	if requireReviewChain != nil {
-		r.RequireReviewChain = *requireReviewChain
-	}
-	if requireReleaseDeploy != nil {
-		r.RequireReleaseDeploy = *requireReleaseDeploy
-	}
-	if requirePipelineForReview != nil {
-		r.RequirePipelineForReview = *requirePipelineForReview
-	}
 	f.rows[id] = r
 	return r, nil
 }

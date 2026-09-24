@@ -1662,10 +1662,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			pipelineRunner.SetWorkflows(workflowSvc)
 			if boardDispatcher != nil {
 				boardDispatcher.SetPipelineGate(true)
-				// …and the per-repository off switch for it. Without this the
-				// gate is unconditional, which is a deadlock on any repository
-				// whose CI cannot answer.
-				boardDispatcher.SetPipelineGatePolicy(repositorySvc)
 			}
 			pipelineRunner.SetStageVerifier(repositorySvc)
 			// Lets a finished prod deploy re-read the task and post its

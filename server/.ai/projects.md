@@ -55,8 +55,10 @@ Column slugs are global in `board_columns`. Default template: `backlog`, `todo`,
 | POST | `/v1/repositories/:id/scans` · GET `/v1/repositories/:id/scans/latest` · GET `/v1/scans/:scanId` |
 | POST `/v1/repositories/:id/components` · PATCH `/v1/components/:componentId` |
 | POST `/v1/components/:componentId/checks` · PATCH `/v1/checks/:checkId` · DELETE (manual only) |
-| POST `/v1/links` · PATCH `/v1/links/:linkId` · DELETE (user-created only) |
+| POST `/v1/links` · PATCH `/v1/links/:linkId` (`to_component_id`/`to_resource`/`to_resource_id`, at most one) · DELETE (user-created only) |
 | PUT `/v1/repositories/:id/notes` · PATCH `/v1/notes/:noteId` · DELETE `/v1/notes/:noteId` |
+| GET `/v1/resources` — `domain.WorkspaceResource[]`: every resource with ≥1 non-dismissed link, its users and projects, `link_count` |
+| PATCH `/v1/resources/:resourceId` (`{"name"}`) · POST `/v1/resources/:resourceId/merge` (`{"into_resource_id"}`) · POST `/v1/resources/:resourceId/split` (`{"link_ids"}`) |
 
 ## Scans and the Fact rule
 
@@ -131,6 +133,16 @@ confirmed or dismissed is never touched again.
 `SystemResource` is a workspace-wide node (database, cache, queue, SaaS API…) deduped by
 `identity_key`, so a SaaS API is one node however many components call it. `shared_with` on
 a map node lists the OTHER projects also linking the same resource.
+
+A scanner can mint two resources for one real thing — a "Database" resource from an env var
+and a "PostgreSQL" resource from the package it uses. `POST /v1/resources/:id/merge` folds
+one into the other: every link and every merged-away identity key moves onto the target, and
+the source is deleted. The source's `identity_key` becomes a row in
+`system_resource_aliases`, so a later rescan that still emits the same signal resolves
+straight to the merge target through `EnsureResource` instead of recreating the resource —
+merges survive rescans. `POST /v1/resources/:id/split` is the inverse: it pulls the given
+`link_ids` off a resource onto a freshly minted one. `PATCH /v1/resources/:id {"name"}` locks
+the name (`name_locked`) so a rescan's detected name can never overwrite a human's rename.
 
 ## Notes
 

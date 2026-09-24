@@ -84,10 +84,49 @@ type ResourceRef struct {
 }
 
 type LinkPatch struct {
-	Status        *LinkStatus   `json:"status,omitempty"`
-	ToComponentID *uuid.UUID    `json:"to_component_id,omitempty"`
-	ToResource    *ResourceRef  `json:"to_resource,omitempty"`
-	Protocol      *LinkProtocol `json:"protocol,omitempty"`
+	Status        *LinkStatus  `json:"status,omitempty"`
+	ToComponentID *uuid.UUID   `json:"to_component_id,omitempty"`
+	ToResource    *ResourceRef `json:"to_resource,omitempty"`
+	// ToResourceID points a link at an existing resource by id, unlike
+	// ToResource which mints/looks up a user-scoped one from a name.
+	ToResourceID *uuid.UUID    `json:"to_resource_id,omitempty"`
+	Protocol     *LinkProtocol `json:"protocol,omitempty"`
+}
+
+type ResourcePatch struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// MergeResourceRequest folds the resource in the URL into IntoResourceID: the
+// URL resource is deleted and its identity key becomes an alias of the target.
+type MergeResourceRequest struct {
+	IntoResourceID uuid.UUID `json:"into_resource_id"`
+}
+
+// SplitResourceRequest pulls the named links off the resource in the URL and
+// onto a freshly minted resource of their own.
+type SplitResourceRequest struct {
+	LinkIDs []uuid.UUID `json:"link_ids"`
+}
+
+// ResourceUser is one component that links to a resource, excluding dismissed
+// links.
+type ResourceUser struct {
+	RepositoryID   uuid.UUID   `json:"repository_id"`
+	RepositoryName string      `json:"repository_name"`
+	ProjectIDs     []uuid.UUID `json:"project_ids"`
+	ComponentID    uuid.UUID   `json:"component_id"`
+	ComponentPath  string      `json:"component_path"`
+}
+
+// WorkspaceResource is one row of GET /v1/resources: a resource together with
+// who talks to it, so the human can decide whether two rows are the same
+// thing before merging them.
+type WorkspaceResource struct {
+	Resource  SystemResource `json:"resource"`
+	Users     []ResourceUser `json:"users"`
+	Projects  []ProjectRef   `json:"projects"`
+	LinkCount int            `json:"link_count"`
 }
 
 type NewLinkRequest struct {

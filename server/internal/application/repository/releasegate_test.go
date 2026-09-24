@@ -121,15 +121,12 @@ func (f *fakeReleaseRepoStore) Update(_ context.Context, _ uuid.UUID, name, desc
 	}
 	return f.repo, nil
 }
-func (f *fakeReleaseRepoStore) UpdateMeta(_ context.Context, _ uuid.UUID, kind *string, subRepoKinds *[]string, autoReleaseOnDone *bool) (domain.Repository, error) {
+func (f *fakeReleaseRepoStore) UpdateMeta(_ context.Context, _ uuid.UUID, kind *string, subRepoKinds *[]string) (domain.Repository, error) {
 	if kind != nil {
 		f.repo.Kind = *kind
 	}
 	if subRepoKinds != nil {
 		f.repo.SubRepoKinds = *subRepoKinds
-	}
-	if autoReleaseOnDone != nil {
-		f.repo.AutoReleaseOnDone = *autoReleaseOnDone
 	}
 	return f.repo, nil
 }
@@ -153,13 +150,11 @@ func (f *fakeReleaseRepoStore) UpdateDetectedBuildTargets(_ context.Context, _ u
 	f.repo.DetectedBuildTargets = targets
 	return f.repo, nil
 }
-func (f *fakeReleaseRepoStore) UpdateMutationGate(_ context.Context, _ uuid.UUID, enabled *bool, threshold *float64) (domain.Repository, error) {
-	if enabled != nil {
-		f.repo.MutationEnabled = *enabled
-	}
-	if threshold != nil {
-		f.repo.MutationThreshold = *threshold
-	}
+func (f *fakeReleaseRepoStore) UpdateQualityGates(_ context.Context, _ uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error) {
+	f.repo.RequireOverallCoverage = coverage.Enabled
+	f.repo.CoverageThreshold = coverage.Threshold
+	f.repo.MutationEnabled = mutation.Enabled
+	f.repo.MutationThreshold = mutation.Threshold
 	return f.repo, nil
 }
 func (f *fakeReleaseRepoStore) SetDocsTaskID(_ context.Context, _ uuid.UUID, taskID string) error {
@@ -176,9 +171,6 @@ func (f *fakeReleaseRepoStore) UpdateIncidentPolicy(context.Context, uuid.UUID, 
 	return domain.Repository{}, nil
 }
 func (f *fakeReleaseRepoStore) UpdateTestStrategy(context.Context, uuid.UUID, string) (domain.Repository, error) {
-	return domain.Repository{}, nil
-}
-func (f *fakeReleaseRepoStore) UpdateLifecycleGates(context.Context, uuid.UUID, *bool, *bool, *bool, *bool, *float64) (domain.Repository, error) {
 	return domain.Repository{}, nil
 }
 func (f *fakeReleaseRepoStore) UpdateDocs(context.Context, uuid.UUID, domain.RepositoryDocs) (domain.Repository, error) {
@@ -417,7 +409,7 @@ func TestTriggerReleaseChecksReleaseTargetBeforeDispatch(t *testing.T) {
 			pipelineStore := &fakeReleasePipelineStore{}
 			comments := &fakeReleaseComments{}
 			svc := &Service{
-				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID, AutoReleaseOnDone: true}},
+				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
 				tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
 					ID:           taskID,
 					RepositoryID: repoID,
@@ -599,7 +591,7 @@ func TestTriggerReleaseRefusesOutsideDone(t *testing.T) {
 			pipelineStore := &fakeReleasePipelineStore{}
 			comments := &fakeReleaseComments{}
 			svc := &Service{
-				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID, AutoReleaseOnDone: true}},
+				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
 				tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
 					ID: taskID, RepositoryID: repoID, Column: col,
 
@@ -635,7 +627,7 @@ func TestTriggerReleaseAllowsDoneAndReleased(t *testing.T) {
 			repoID, taskID := uuid.New(), uuid.New()
 			pipelineStore := &fakeReleasePipelineStore{}
 			svc := &Service{
-				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID, AutoReleaseOnDone: true}},
+				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
 				tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
 					ID: taskID, RepositoryID: repoID, Column: col, VerifiedSHA: verifiedCommit,
 				}},
@@ -652,5 +644,30 @@ func TestTriggerReleaseAllowsDoneAndReleased(t *testing.T) {
 				t.Fatalf("want one deploy pipeline, got %d", len(pipelineStore.created))
 			}
 		})
+	}
+}
+
+// TestTriggerReleaseNeverRefusesForTheRepository proves release is no longer
+// a per-repository opt-in: a zero-value repository (the old
+// auto_release_on_done default would have been false) still dispatches.
+func TestTriggerReleaseNeverRefusesForTheRepository(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	pipelineStore := &fakeReleasePipelineStore{}
+	svc := &Service{
+		repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
+		tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
+			ID: taskID, RepositoryID: repoID, Column: domain.TaskColumnDone, VerifiedSHA: verifiedCommit,
+		}},
+		git:           &fakeReleaseGit{hasGit: true, headSHA: verifiedCommit},
+		workspaceRoot: t.TempDir(),
+		comments:      &fakeReleaseComments{},
+		pipelines:     board.NewPipelineRunner(board.PipelineRunnerDeps{Store: pipelineStore}),
+	}
+
+	if _, err := svc.TriggerRelease(context.Background(), repoID, taskID); err != nil {
+		t.Fatalf("TriggerRelease must not refuse a batched-looking repository: %v", err)
+	}
+	if len(pipelineStore.created) != 1 {
+		t.Fatalf("want one deploy pipeline, got %d", len(pipelineStore.created))
 	}
 }

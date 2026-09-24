@@ -90,8 +90,14 @@ env label, health dot, error-count badge — read straight off
 `ProjectRepositoriesTable`, one call per component).
 
 `components/projects/repository/`: `RepositoryHeader`, `OverviewTab`, `ComponentsTab`
-(+ `ComponentRail`, `AddComponentDialog`, `ComponentPickerDialog`), `ChecksTab`
-(+ `AddCheckDialog`), `LinksTab` (+ `AddLinkDialog`, `ExternalResourceDialog`),
+(+ `ComponentRail`, `AddComponentDialog`, `ComponentPickerDialog`,
+`RepositoryReviewSettings` — the repo-wide `require_human_review` toggle and the
+no-CI-workflows setup notice, rendered at the top of the tab), `ChecksTab`
+(+ `AddCheckDialog`), `LinksTab` (+ `AddLinkDialog`, `ExternalResourceDialog`,
+`ResourcePickerDialog` — every workspace `SystemResource`, filterable by kind/
+search and sectioned by repo/project/elsewhere; the picker behind both
+"merge with an existing resource" and "link to an existing resource" on a
+link's resource panel, and behind the duplicate-resource notice's merge flow),
 `KnowledgeTab` (+ `NoteDialog`), `SettingsTab`, `LocalCommandsDialog`, and the
 Deploy & Runtime tab — `components/projects/repository/deploy/` — below.
 

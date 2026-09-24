@@ -108,14 +108,17 @@ func TestAutoReleaseIfUndeployable(t *testing.T) {
 		require.Empty(t, tasks.updated.ID)
 	})
 
-	t.Run("require_release_deploy refuses and comments, task stays in done", func(t *testing.T) {
+	// require_release_deploy is gone: a repository with zero deploy targets
+	// always auto-releases now, with no comment explaining a refusal that no
+	// longer happens.
+	t.Run("zero targets releases the task and posts no comment", func(t *testing.T) {
 		repoID, taskID := uuid.New(), uuid.New()
 		tasks := &fakeReleaseTaskStore{task: domain.BoardTask{
 			ID: taskID, RepositoryID: repoID, TaskType: "task", Column: domain.TaskColumnDone,
 		}}
 		comments := &fakeReleaseComments{}
 		svc := &Service{
-			repos:         &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID, RequireReleaseDeploy: true}},
+			repos:         &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
 			tasks:         tasks,
 			deployTargets: &fakeAutoReleaseDeployStore{},
 			comments:      comments,
@@ -123,10 +126,9 @@ func TestAutoReleaseIfUndeployable(t *testing.T) {
 
 		released := svc.AutoReleaseIfUndeployable(context.Background(), repoID, taskID)
 
-		require.False(t, released)
-		require.Empty(t, tasks.updated.ID)
-		require.Len(t, comments.comments, 1)
-		require.Contains(t, comments.comments[0].Content, "require_release_deploy")
+		require.True(t, released)
+		require.Equal(t, domain.TaskColumnReleased, tasks.updated.Column)
+		require.Empty(t, comments.comments)
 	})
 
 	t.Run("deploy target lookup failure fails safe, not open", func(t *testing.T) {

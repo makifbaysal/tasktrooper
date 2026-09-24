@@ -81,7 +81,7 @@ func (s *RepositoryStore) localizeRootPath(r *domain.Repository) {
 
 // repositoryCols is the canonical repositories column list shared by every
 // SELECT/RETURNING below so the read order can never drift from scanRepository.
-const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, auto_release_on_done, require_human_review, require_review_chain, require_release_deploy, require_pipeline_for_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, created_at, updated_at`
+const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, require_human_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, created_at, updated_at`
 
 // scanRepository reads a single repositories row in repositoryCols order and
 // re-anchors its root_path onto this host. Every SELECT/RETURNING in this file
@@ -108,8 +108,7 @@ func scanRepositoryRow(row interface{ Scan(dest ...any) error }) (domain.Reposit
 		&r.Kind, &r.MobilePlatform, &r.DetectedAppIdentity.BundleID, &r.DetectedAppIdentity.PackageName,
 		&r.DetectedBuildTargets.XcodeScheme, &r.DetectedBuildTargets.GradleModule, &r.ReleaseEngine,
 		&r.SubRepoKinds, &subProjectsJSON, &docsJSON, &r.DocsTaskID,
-		&r.AutoReleaseOnDone, &r.RequireHumanReview,
-		&r.RequireReviewChain, &r.RequireReleaseDeploy, &r.RequirePipelineForReview, &incidentPolicy,
+		&r.RequireHumanReview, &incidentPolicy,
 		&r.TestStrategy, &r.CoverageThreshold, &r.RequireOverallCoverage, &r.MutationEnabled, &r.MutationThreshold,
 		&webhookHookID, &r.CreatedAt, &r.UpdatedAt,
 	)
@@ -419,23 +418,23 @@ func (s *RepositoryStore) UpdateTestStrategy(ctx context.Context, id uuid.UUID, 
 	return r, nil
 }
 
-// UpdateLifecycleGates arms/disarms the done and released gates. Separate from
-// Update for the same reason UpdateIncidentPolicy is: a settings screen that
-// posts one toggle must not blank an unrelated command field by omitting it.
-func (s *RepositoryStore) UpdateLifecycleGates(ctx context.Context, id uuid.UUID, requireReviewChain, requireReleaseDeploy, requirePipelineForReview, requireOverallCoverage *bool, coverageThreshold *float64) (domain.Repository, error) {
+// UpdateQualityGates writes the repository's coverage/mutation columns
+// unconditionally: since the project-model projection, these are a projection
+// of a single component's gates (projectmodel.LegacyProjector), never a
+// direct user edit, so there is no COALESCE half-update to preserve.
+func (s *RepositoryStore) UpdateQualityGates(ctx context.Context, id uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error) {
 	r, err := s.scanRepository(s.pool.QueryRow(ctx, `
 		UPDATE repositories SET
-			require_review_chain = COALESCE($2, require_review_chain),
-			require_release_deploy = COALESCE($3, require_release_deploy),
-			require_pipeline_for_review = COALESCE($4, require_pipeline_for_review),
-			require_overall_coverage = COALESCE($5, require_overall_coverage),
-			coverage_threshold = COALESCE($6, coverage_threshold),
+			require_overall_coverage = $2,
+			coverage_threshold = $3,
+			mutation_enabled = $4,
+			mutation_threshold = $5,
 			updated_at = now()
 		WHERE id = $1
 		RETURNING `+repositoryCols,
-		id, requireReviewChain, requireReleaseDeploy, requirePipelineForReview, requireOverallCoverage, coverageThreshold))
+		id, coverage.Enabled, coverage.Threshold, mutation.Enabled, mutation.Threshold))
 	if err != nil {
-		return domain.Repository{}, fmt.Errorf("update lifecycle gates: %w", err)
+		return domain.Repository{}, fmt.Errorf("update quality gates: %w", err)
 	}
 	return r, nil
 }
@@ -533,27 +532,6 @@ func (s *RepositoryStore) UpdateDetectedBuildTargets(ctx context.Context, id uui
 	return r, nil
 }
 
-// UpdateMutationGate arms or disarms the mutation-score bar and sets the
-// number it is judged against; each is applied only when its pointer is
-// non-nil. The coverage half of the same pair lives on UpdateLifecycleGates,
-// which the operations settings screen owns.
-func (s *RepositoryStore) UpdateMutationGate(ctx context.Context, id uuid.UUID, enabled *bool, threshold *float64) (domain.Repository, error) {
-	r, err := s.scanRepository(s.pool.QueryRow(ctx, `
-		UPDATE repositories SET
-			mutation_enabled = COALESCE($2, mutation_enabled),
-			mutation_threshold = COALESCE($3, mutation_threshold),
-			updated_at = now()
-		WHERE id = $1
-		RETURNING `+repositoryCols, id, enabled, threshold))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.Repository{}, fmt.Errorf("update mutation gate: %w", port.ErrNotFound)
-		}
-		return domain.Repository{}, fmt.Errorf("update mutation gate: %w", err)
-	}
-	return r, nil
-}
-
 // SetDocsTaskID records (or, with "", clears) the reference-doc bundle task
 // this repository is waiting on.
 func (s *RepositoryStore) SetDocsTaskID(ctx context.Context, id uuid.UUID, taskID string) error {
@@ -569,18 +547,17 @@ func (s *RepositoryStore) SetDocsTaskID(ctx context.Context, id uuid.UUID, taskI
 	return nil
 }
 
-// UpdateMeta applies kind / sub-repo kinds / auto-release only when the
-// matching pointer is non-nil, leaving unspecified fields untouched.
-func (s *RepositoryStore) UpdateMeta(ctx context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string, autoReleaseOnDone *bool) (domain.Repository, error) {
+// UpdateMeta applies kind / sub-repo kinds only when the matching pointer is
+// non-nil, leaving unspecified fields untouched.
+func (s *RepositoryStore) UpdateMeta(ctx context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string) (domain.Repository, error) {
 	r, err := s.scanRepository(s.pool.QueryRow(ctx, `
 		UPDATE repositories SET
 			kind = COALESCE($2, kind),
 			sub_repo_kinds = COALESCE($3, sub_repo_kinds),
-			auto_release_on_done = COALESCE($4, auto_release_on_done),
 			updated_at = now()
 		WHERE id = $1
 		RETURNING `+repositoryCols,
-		id, kind, subRepoKinds, autoReleaseOnDone))
+		id, kind, subRepoKinds))
 	if err != nil {
 		return domain.Repository{}, fmt.Errorf("update repository meta: %w", err)
 	}

@@ -128,6 +128,16 @@ func (s *Service) ProjectMap(ctx context.Context, projectID uuid.UUID) (domain.P
 		}
 	}
 
+	// resourceEdgeGroup collapses parallel links from one component to one
+	// resource (the "Database" + "PostgreSQL" merge case) into a single edge;
+	// a component-to-component edge is never collapsed.
+	type resourceEdgeGroup struct {
+		from, to string
+		links    []domain.ComponentLink
+	}
+	resourceGroups := map[string]*resourceEdgeGroup{}
+	var resourceGroupOrder []string
+
 	var edges []domain.MapEdge
 	for _, l := range data.allLinks {
 		if l.Status == domain.LinkDismissed {
@@ -164,33 +174,71 @@ func (s *Service) ProjectMap(ctx context.Context, projectID uuid.UUID) (domain.P
 		}
 		fromID := "c:" + fromComp.ID.String()
 
-		var toID string
-		crossProject := false
 		if l.ToComponentID != nil {
 			if !addComponentNode(toComp) {
 				continue
 			}
-			toID = "c:" + toComp.ID.String()
-			crossProject = !fromInProject || !toInProject
-		} else {
-			id, ok := addResourceNode(*l.ToResourceID)
-			if !ok {
-				continue
-			}
-			toID = id
+			toID := "c:" + toComp.ID.String()
+			crossProject := !fromInProject || !toInProject
+			edges = append(edges, domain.MapEdge{
+				ID:           "e:" + l.ID.String(),
+				LinkID:       l.ID,
+				From:         fromID,
+				To:           toID,
+				Protocol:     l.Protocol,
+				Detail:       l.Detail,
+				Status:       l.Status,
+				Source:       l.Source,
+				EnvVars:      nonNil(l.EnvVars),
+				CrossProject: crossProject,
+			})
+			continue
 		}
 
+		id, ok := addResourceNode(*l.ToResourceID)
+		if !ok {
+			continue
+		}
+		key := fromID + "|" + id
+		g, exists := resourceGroups[key]
+		if !exists {
+			g = &resourceEdgeGroup{from: fromID, to: id}
+			resourceGroups[key] = g
+			resourceGroupOrder = append(resourceGroupOrder, key)
+		}
+		g.links = append(g.links, l)
+	}
+
+	for _, key := range resourceGroupOrder {
+		g := resourceGroups[key]
+		rep := g.links[0]
+		status := domain.LinkConfirmed
+		var envVars []string
+		seenEnv := map[string]bool{}
+		for _, gl := range g.links {
+			if gl.ID.String() < rep.ID.String() {
+				rep = gl
+			}
+			if gl.Status == domain.LinkSuggested {
+				status = domain.LinkSuggested
+			}
+			for _, ev := range gl.EnvVars {
+				if !seenEnv[ev] {
+					seenEnv[ev] = true
+					envVars = append(envVars, ev)
+				}
+			}
+		}
 		edges = append(edges, domain.MapEdge{
-			ID:           "e:" + l.ID.String(),
-			LinkID:       l.ID,
-			From:         fromID,
-			To:           toID,
-			Protocol:     l.Protocol,
-			Detail:       l.Detail,
-			Status:       l.Status,
-			Source:       l.Source,
-			EnvVars:      nonNil(l.EnvVars),
-			CrossProject: crossProject,
+			ID:       "e:" + rep.ID.String(),
+			LinkID:   rep.ID,
+			From:     g.from,
+			To:       g.to,
+			Protocol: rep.Protocol,
+			Detail:   rep.Detail,
+			Status:   status,
+			Source:   rep.Source,
+			EnvVars:  nonNil(envVars),
 		})
 	}
 

@@ -363,7 +363,6 @@ export const settingsPages: SettingsPagesDict = {
       "require_execution_evidence": { label: "Çalıştırma kanıtı gerektir", description: "Ürünün gerçekten çalıştırıldığına dair kanıt yoksa, bu kolondaki QA turu reddedilir." },
       "require_product_check": { label: "Ürün kontrolü gerektir", description: "Ürünün kontrol edildiğine dair kanıt yoksa, bu kolondaki UAT turu reddedilir." },
       "review_chain_stage": { label: "İnceleme zinciri adımı", description: "Bu kolon, görev tipinin inceleme zincirinin zorunlu bir adımıdır; done/released'e geçmeden önce gereklidir." },
-      "require_release_deploy": { label: "Release deploy'u gerektir", description: "Başarılı bir canlı deploy kaydı yoksa bu kolona giriş reddedilir." },
       "strip_writers": { label: "Yazma araçlarını kaldır", description: "Bu kolonda, izin verilenler hariç yazma/karar araçları ajanın politikasından çıkarılır." },
       "no_code_reading": { label: "Kod okumayı kapat", description: "Bu kolonda kod okuma araçları ajanın politikasından çıkarılır." },
       "no_workspace_writes": { label: "Çalışma alanına yazmayı kapat", description: "Bu görev tipindeki çalışmalar hiçbir zaman dosya yazma araçlarına sahip olmaz." },

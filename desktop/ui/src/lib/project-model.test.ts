@@ -14,7 +14,17 @@ import {
   componentLabel,
   effectiveRole,
   factValue,
+  findDuplicateResourceHints,
+  groupEnvVars,
+  groupEvidence,
+  groupFirstReason,
+  groupHighestConfidence,
+  groupIsAuto,
+  groupIsMissing,
   groupLinks,
+  groupLinksByTarget,
+  groupProtocols,
+  groupStatus,
   isOverridden,
   isScanFinished,
   linkTargetLabel,
@@ -107,6 +117,19 @@ function makeCheck(overrides: Partial<ComponentCheck> = {}): ComponentCheck {
     status: "active",
     missing: false,
     needs_review: false,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeResource(overrides: Partial<SystemResource> = {}): SystemResource {
+  return {
+    id: "res1",
+    kind: "database",
+    vendor: "",
+    name: "Database",
+    identity_key: "database:res1",
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -261,6 +284,142 @@ describe("groupLinks", () => {
     const { outgoing, incoming } = groupLinks(model, "c1");
     expect(outgoing.map((l) => l.id)).toEqual(["out1"]);
     expect(incoming.map((l) => l.id)).toEqual(["in1"]);
+  });
+});
+
+describe("groupLinksByTarget", () => {
+  it("groups links sharing a source component and a resolved resource target", () => {
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_resource_id: "res1", protocol: "sql" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_resource_id: "res1", protocol: "sql" }),
+    ];
+    const groups = groupLinksByTarget(links);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].links.map((l) => l.id)).toEqual(["l1", "l2"]);
+  });
+
+  it("groups links sharing a source component and a resolved component target", () => {
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_component_id: "comp-x" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_component_id: "comp-x" }),
+    ];
+    expect(groupLinksByTarget(links)).toHaveLength(1);
+  });
+
+  it("never groups unresolved links, even when they share a source component", () => {
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", hint: "billing-svc" }),
+      makeLink({ id: "l2", from_component_id: "c1", hint: "billing-svc" }),
+    ];
+    const groups = groupLinksByTarget(links);
+    expect(groups).toHaveLength(2);
+  });
+
+  it("keeps different targets and different source components separate", () => {
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_resource_id: "res1" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_resource_id: "res2" }),
+      makeLink({ id: "l3", from_component_id: "c2", to_resource_id: "res1" }),
+    ];
+    expect(groupLinksByTarget(links)).toHaveLength(3);
+  });
+
+  it("orders groups by first appearance", () => {
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_resource_id: "res1" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_resource_id: "res2" }),
+      makeLink({ id: "l3", from_component_id: "c1", to_resource_id: "res1" }),
+    ];
+    const groups = groupLinksByTarget(links);
+    expect(groups.map((g) => g.links.map((l) => l.id))).toEqual([["l1", "l3"], ["l2"]]);
+  });
+});
+
+describe("group status/badge/evidence helpers", () => {
+  it("groupStatus prefers suggested, then confirmed, else dismissed", () => {
+    expect(groupStatus([makeLink({ status: "dismissed" }), makeLink({ status: "suggested" })])).toBe("suggested");
+    expect(groupStatus([makeLink({ status: "dismissed" }), makeLink({ status: "confirmed" })])).toBe("confirmed");
+    expect(groupStatus([makeLink({ status: "dismissed" })])).toBe("dismissed");
+  });
+
+  it("groupProtocols de-duplicates in first-appearance order", () => {
+    expect(groupProtocols([makeLink({ protocol: "sql" }), makeLink({ protocol: "http" }), makeLink({ protocol: "sql" })])).toEqual([
+      "sql",
+      "http",
+    ]);
+  });
+
+  it("groupEnvVars unions without duplicates", () => {
+    expect(
+      groupEnvVars([makeLink({ env_vars: ["DATABASE_URL"] }), makeLink({ env_vars: ["DATABASE_URL", "PG_HOST"] })]),
+    ).toEqual(["DATABASE_URL", "PG_HOST"]);
+  });
+
+  it("groupIsAuto is true only when every link is auto_confirmed", () => {
+    expect(groupIsAuto([makeLink({ auto_confirmed: true }), makeLink({ auto_confirmed: true })])).toBe(true);
+    expect(groupIsAuto([makeLink({ auto_confirmed: true }), makeLink({ auto_confirmed: false })])).toBe(false);
+  });
+
+  it("groupIsMissing is true only when every link is missing", () => {
+    expect(groupIsMissing([makeLink({ missing: true }), makeLink({ missing: true })])).toBe(true);
+    expect(groupIsMissing([makeLink({ missing: true }), makeLink({ missing: false })])).toBe(false);
+  });
+
+  it("groupHighestConfidence picks the strongest confidence in the group", () => {
+    expect(groupHighestConfidence([makeLink({ confidence: "low" }), makeLink({ confidence: "high" })])).toBe("high");
+  });
+
+  it("groupFirstReason returns the first non-empty reason", () => {
+    expect(groupFirstReason([makeLink({ reason: "" }), makeLink({ reason: "imports pg" })])).toBe("imports pg");
+    expect(groupFirstReason([makeLink({})])).toBeUndefined();
+  });
+
+  it("groupEvidence concatenates every link's evidence", () => {
+    const evidence = groupEvidence([
+      makeLink({ evidence: [{ path: "a.go", line: 1 }] }),
+      makeLink({ evidence: [{ path: "b.go" }] }),
+    ]);
+    expect(evidence).toEqual([{ path: "a.go", line: 1 }, { path: "b.go" }]);
+  });
+});
+
+describe("findDuplicateResourceHints", () => {
+  it("flags a component whose links resolve to ≥2 different resources of the same duplicate-prone kind", () => {
+    const resources = [makeResource({ id: "res-db", kind: "database", name: "Database" }), makeResource({ id: "res-pg", kind: "database", name: "PostgreSQL" })];
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_resource_id: "res-db", status: "confirmed" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_resource_id: "res-pg", status: "confirmed" }),
+    ];
+    const hints = findDuplicateResourceHints(links, resources);
+    expect(hints).toEqual([{ componentId: "c1", kind: "database", resourceIds: expect.arrayContaining(["res-db", "res-pg"]) }]);
+  });
+
+  it("ignores dismissed links", () => {
+    const resources = [makeResource({ id: "res-db" }), makeResource({ id: "res-pg" })];
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_resource_id: "res-db", status: "confirmed" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_resource_id: "res-pg", status: "dismissed" }),
+    ];
+    expect(findDuplicateResourceHints(links, resources)).toEqual([]);
+  });
+
+  it("ignores kinds outside the duplicate-prone set", () => {
+    const resources = [makeResource({ id: "res-a", kind: "api" }), makeResource({ id: "res-b", kind: "api" })];
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_resource_id: "res-a", status: "confirmed" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_resource_id: "res-b", status: "confirmed" }),
+    ];
+    expect(findDuplicateResourceHints(links, resources)).toEqual([]);
+  });
+
+  it("narrows to the given component ids when provided", () => {
+    const resources = [makeResource({ id: "res-db" }), makeResource({ id: "res-pg" })];
+    const links = [
+      makeLink({ id: "l1", from_component_id: "c1", to_resource_id: "res-db", status: "confirmed" }),
+      makeLink({ id: "l2", from_component_id: "c1", to_resource_id: "res-pg", status: "confirmed" }),
+    ];
+    expect(findDuplicateResourceHints(links, resources, ["c2"])).toEqual([]);
+    expect(findDuplicateResourceHints(links, resources, ["c1"])).toHaveLength(1);
   });
 });
 

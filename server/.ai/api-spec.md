@@ -443,9 +443,10 @@ carries the same text with the markers stripped.
 
 ### Deploy packages
 
-The release path for a repository with `auto_release_on_done` off, which otherwise has
-none (`trigger_release` refuses it as "batched release"). A package release skips only
-that flag; every other release gate still applies per task.
+An explicitly assembled release train that batches several tasks into one production
+deploy instead of releasing each as it reaches `done`; the per-task path
+(`trigger_release`/`TriggerRelease`) is always available too — release is never a
+per-repository opt-in. Every other release gate still applies per task.
 
 | Endpoint | Notes |
 |---|---|
@@ -499,35 +500,26 @@ repository's own `local_run` doc (`scripts/dev.sh`).
   `.env.example`-style files (root + two levels for monorepos; real `.env` files are
   never read) plus the deploy targets, so "what does this need and where does it answer"
   is one call. Targets carry `base_url` next to `health_url`.
-- `PUT /v1/repositories/{id}/lifecycle-gates` — `{require_review_chain?,
-  require_release_deploy?, require_pipeline_for_review?}`, all optional; an omitted field
-  is left as it was. Returns the updated `domain.Repository` (every flag round-trips).
-  400 on an invalid id or a failed update.
-
-  The first two default `false`; **`require_pipeline_for_review` defaults `true`**
-  (migration 107), deliberately: the others are new requirements a repository opts INTO,
-  while this is behaviour that has always been on and is now opt-OUT-able. It is also the
-  only one gating a **dispatch** rather than a **move** — on, a task entering
-  `code_review` waits for the build/test pipeline before the reviewing architect is
-  dispatched; off, dispatch is immediate and the board event carries `pipeline_gate:
-  gate_disabled` so a card that skipped the gate is never mistaken for one that passed
-  it. Turn it off for a repository whose CI cannot answer (no Actions minutes, checks this
-  server cannot read). Even on, the wait is bounded
-  (`board.pipeline_gate_timeout`).
-
-  Arming the other two changes what a later move accepts, not this call.
-  `require_review_chain`: moving into `done` (or `released` when that skips `done`) 400s
-  unless the column-span history shows every review stage the type requires —
-  `code_review`, `in_qa`, `pm_uat` for `task`/`bug`, `analiz_review` for `analiz` — with
-  none of those stages' latest visit rejected; the message names the missing/rejected
-  stage and the move that earns it (`done means the task passed its review chain, and
-  this one has not … Missing: QA (in_qa) — move it to ready_for_qa`).
-  `require_release_deploy`: moving into `released` 400s unless `task_pipelines` holds a
-  successful `prod_deploy` (or `preprod_deploy` on a repo with no prod workflow mapped);
-  a `skipped` pipeline is never accepted and `analiz` tasks are exempt. Both fail closed
-  (400, not 200) if their evidence store cannot be read, so only enable a gate the board
-  can satisfy — see [orchestration-agents.md](orchestration-agents.md) and
-  [architecture.md](architecture.md) for the deadlock each can cause.
+- There is no more `PUT /v1/repositories/{id}/lifecycle-gates` endpoint (migration 158
+  dropped `repositories.require_review_chain`, `require_release_deploy` and
+  `require_pipeline_for_review`, and the route/handler with them). The gates it used to
+  arm are now unconditional or gone:
+  - The **pipeline gate** (code_review waits for the build/test pipeline before the
+    reviewing architect is dispatched) is always on wherever a stage carries
+    `wait_for_ci`; there is no per-repository off switch. The wait is still bounded
+    (`board.pipeline_gate_timeout`), so it cannot deadlock a repository whose CI cannot
+    answer.
+  - The **review chain gate** is always enforced: moving into `done` (or `released`
+    when that skips `done`) 400s unless the column-span history shows every review
+    stage the type's workflow requires — `code_review`, `in_qa`, `pm_uat` for
+    `task`/`bug`, `analiz_review` for `analiz` — with none of those stages' latest
+    visit rejected; the message names the missing/rejected stage and the move that
+    earns it (`done means the task passed its review chain, and this one has not …
+    Missing: QA (in_qa) — move it to ready_for_qa`). It still fails closed (400, not
+    200) if the span ledger cannot be read.
+  - The **release-deploy gate** is gone entirely: moving into `released` is never
+    gated on a recorded production deploy. `trigger_release` fires from `done`
+    unconditionally.
 
 ## GitHub webhook
 
@@ -574,6 +566,15 @@ payloads are in [projects.md](projects.md) and the domain JSON tags
   `POST /v1/components/{id}/checks`, `PATCH|DELETE /v1/checks/{id}`,
   `POST /v1/links`, `PATCH|DELETE /v1/links/{id}`,
   `PUT /v1/repositories/{id}/notes`, `PATCH|DELETE /v1/notes/{id}`
+- `GET /v1/resources` — `{"resources": [domain.WorkspaceResource, ...]}`, never `null`
+- `PATCH /v1/resources/{id}` (`{"name": "…"}`) — 200 `domain.SystemResource`, locks the name
+  against a later rescan
+- `POST /v1/resources/{id}/merge` (`{"into_resource_id": "uuid"}`) — 200 the surviving
+  (target) `domain.SystemResource`; the resource in the URL is deleted and its identity key
+  becomes an alias of the target, so a rescan that still emits it resolves to the target
+  instead of recreating it
+- `POST /v1/resources/{id}/split` (`{"link_ids": ["uuid", ...]}`) — 201 the freshly minted
+  `domain.SystemResource` the given links now point at
 
 PATCH bodies distinguish an absent field (leave), `null` (revert to detected) and a
 value (set the override). Errors are flat `{"error": "…"}`.

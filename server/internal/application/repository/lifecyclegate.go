@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/board"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -20,35 +19,7 @@ func (s *Service) SetSpanStore(spans StageEvidence) {
 	s.spans = spans
 }
 
-func (s *Service) SetLifecycleGates(ctx context.Context, repositoryID uuid.UUID, requireReviewChain, requireReleaseDeploy, requirePipelineForReview, requireOverallCoverage *bool, coverageThreshold *float64) (domain.Repository, error) {
-	if s.repos == nil {
-		return domain.Repository{}, fmt.Errorf("repository store unavailable")
-	}
-	if coverageThreshold != nil && (*coverageThreshold < 0 || *coverageThreshold > 100) {
-		return domain.Repository{}, fmt.Errorf(
-			"coverage_threshold must be between 0 and 100 (0 means the default %.0f%%), got %.1f",
-			board.DefaultCoverageThreshold, *coverageThreshold)
-	}
-	return s.repos.UpdateLifecycleGates(ctx, repositoryID, requireReviewChain, requireReleaseDeploy, requirePipelineForReview, requireOverallCoverage, coverageThreshold)
-}
-
-func (s *Service) RequirePipelineForReview(ctx context.Context, repositoryID uuid.UUID) bool {
-	if s.repos == nil {
-		return true
-	}
-	repo, err := s.repos.Get(ctx, repositoryID)
-	if err != nil {
-		log.Warn().Err(err).Str("repository_id", repositoryID.String()).
-			Msg("pipeline gate: repository unreadable, keeping the review gate closed")
-		return true
-	}
-	return repo.RequirePipelineForReview
-}
-
 func (s *Service) reviewChainGate(ctx context.Context, repo domain.Repository, task domain.BoardTask, prev, target domain.TaskColumn) error {
-	if !repo.RequireReviewChain {
-		return nil
-	}
 	if target != domain.TaskColumnDone && target != domain.TaskColumnReleased {
 		return nil
 	}
@@ -68,7 +39,7 @@ func (s *Service) reviewChainGate(ctx context.Context, repo domain.Repository, t
 	}
 	if s.spans == nil {
 		return fmt.Errorf("%w: the column-span ledger is not available, so its review history cannot be read. "+
-			"Fix the control plane's span store, or turn require_review_chain off for this repository", domain.ErrReviewChainIncomplete)
+			"Fix the control plane's span store", domain.ErrReviewChainIncomplete)
 	}
 	verdicts, err := s.spans.LatestVerdicts(ctx, task.ID)
 	if err != nil {
@@ -111,9 +82,6 @@ func (s *Service) CheckReviewChain(ctx context.Context, repositoryID, taskID uui
 	if err != nil {
 		return err
 	}
-	if !repo.RequireReviewChain {
-		return nil
-	}
 	task, err := s.tasks.Get(ctx, repositoryID, taskID)
 	if err != nil {
 		return err
@@ -122,45 +90,8 @@ func (s *Service) CheckReviewChain(ctx context.Context, repositoryID, taskID uui
 	return s.reviewChainGate(ctx, repo, task, task.Column, domain.TaskColumnDone)
 }
 
-func (s *Service) releaseDeployGate(ctx context.Context, repo domain.Repository, task domain.BoardTask, target domain.TaskColumn) error {
-	if !repo.RequireReleaseDeploy || target != domain.TaskColumnReleased {
-		return nil
-	}
-	wf, err := s.workflow(ctx, task.TaskType)
-	if err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("release-deploy gate could not read the task's workflow")
-		return fmt.Errorf("%w: its workflow could not be read (%v) — retry the move", domain.ErrReleaseNotDeployed, err)
-	}
-	if !wf.Has(domain.TaskColumnReleased, domain.BehaviourRequireReleaseDeploy) {
-		return nil
-	}
-	if s.pipelineStore == nil {
-		return fmt.Errorf("%w: the pipeline ledger is not available, so no deploy can be proven. "+
-			"Fix the control plane's pipeline store, or turn require_release_deploy off for this repository",
-			domain.ErrReleaseNotDeployed)
-	}
-	evidence, err := s.releaseEvidence(ctx, repo.ID, task.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("release-deploy gate could not read pipelines")
-		return fmt.Errorf("%w: its deploy history could not be read (%v) — retry the move", domain.ErrReleaseNotDeployed, err)
-	}
-	if evidence.Deployed {
-		return nil
-	}
-
-	remedy := "Release it through the board (trigger_release / the done column's release dispatch) and let the prod deploy finish before moving it here."
-	sawSkipped := evidence.SawSkipped
-	if sawSkipped {
-		remedy = "Its production deploy ran nothing: no prod deploy workflow is mapped for this repository. " +
-			"Map one under the repository's pipeline settings, or turn require_release_deploy off — a skipped pipeline is not a deploy."
-	}
-	return fmt.Errorf("%w — cannot move %s to released. %s", domain.ErrReleaseNotDeployed, taskLabel(task), remedy)
-}
-
 type ReleaseEvidence struct {
 	Deployed bool
-
-	SawSkipped bool
 }
 
 func (s *Service) releaseEvidence(ctx context.Context, repositoryID, taskID uuid.UUID) (ReleaseEvidence, error) {
@@ -183,9 +114,6 @@ func (s *Service) releaseEvidence(ctx context.Context, repositoryID, taskID uuid
 				return out, nil
 			}
 			continue
-		}
-		if run.Status == domain.PipelineStatusSkipped {
-			out.SawSkipped = true
 		}
 	}
 	return out, nil

@@ -221,7 +221,7 @@ func (s *Service) AdvancePackage(ctx context.Context, repositoryID uuid.UUID, pk
 		if inFlight {
 			continue
 		}
-		if _, derr := s.triggerRelease(ctx, repositoryID, member.TaskID, releaseOptions{FromPackage: true}); derr != nil {
+		if _, derr := s.triggerRelease(ctx, repositoryID, member.TaskID); derr != nil {
 			note := fmt.Sprintf("%s: %v", memberLabel(member), derr)
 			failed, ferr := s.failPackage(ctx, repositoryID, pkg.ID, note)
 			if ferr != nil {

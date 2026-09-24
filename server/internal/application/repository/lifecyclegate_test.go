@@ -75,29 +75,6 @@ func deployRun(trigger domain.PipelineTrigger, status domain.PipelineStatus) dom
 	return domain.TaskPipeline{ID: uuid.New(), Trigger: trigger, Status: status}
 }
 
-type fakePipelineJobs struct {
-	jobs []domain.RepositoryPipelineJob
-	err  error
-}
-
-func (f *fakePipelineJobs) ListByRepository(context.Context, uuid.UUID) ([]domain.RepositoryPipelineJob, error) {
-	return f.jobs, f.err
-}
-func (f *fakePipelineJobs) ListAll(context.Context) ([]domain.RepositoryPipelineJob, error) {
-	return f.jobs, f.err
-}
-func (f *fakePipelineJobs) ReplaceForRepository(_ context.Context, _ uuid.UUID, jobs []domain.RepositoryPipelineJob) ([]domain.RepositoryPipelineJob, error) {
-	return jobs, nil
-}
-
-func mappedProdWorkflow() *fakePipelineJobs {
-	return &fakePipelineJobs{jobs: []domain.RepositoryPipelineJob{{
-		Category:   domain.PipelineCategoryProdDeploy,
-		TargetKind: domain.PipelineTargetWorkflow,
-		TargetRef:  "deploy-prod.yml",
-	}}}
-}
-
 func TestReviewChainGate(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -105,7 +82,6 @@ func TestReviewChainGate(t *testing.T) {
 		spans    *fakeStageEvidence
 		prev     domain.TaskColumn
 		target   domain.TaskColumn
-		off      bool
 		wantErr  error
 		wantSaid []string
 	}{
@@ -227,13 +203,6 @@ func TestReviewChainGate(t *testing.T) {
 			target:   domain.TaskColumnNeedRevision,
 		},
 		{
-			name:     "the gate is off unless the repository opted in",
-			taskType: "task",
-			spans:    visited(domain.TaskColumnInProgress),
-			target:   domain.TaskColumnDone,
-			off:      true,
-		},
-		{
 			name:     "unreadable history fails closed",
 			taskType: "task",
 			spans:    &fakeStageEvidence{err: errors.New("boom: pool exhausted")},
@@ -246,7 +215,7 @@ func TestReviewChainGate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &Service{spans: tc.spans, workflows: workflowtest.Default().Reader()}
-			repo := domain.Repository{ID: uuid.New(), RequireReviewChain: !tc.off}
+			repo := domain.Repository{ID: uuid.New()}
 			task := domain.BoardTask{ID: uuid.New(), Key: "APP-7", TaskType: tc.taskType}
 
 			err := svc.reviewChainGate(context.Background(), repo, task, tc.prev, tc.target)
@@ -272,7 +241,7 @@ func TestReviewChainGate(t *testing.T) {
 func TestReviewChainGateWithoutSpanStoreFailsClosed(t *testing.T) {
 	svc := &Service{}
 	err := svc.reviewChainGate(context.Background(),
-		domain.Repository{RequireReviewChain: true},
+		domain.Repository{},
 		domain.BoardTask{ID: uuid.New(), TaskType: "task"},
 		domain.TaskColumnInProgress, domain.TaskColumnDone)
 	if !errors.Is(err, domain.ErrReviewChainIncomplete) {
@@ -281,7 +250,7 @@ func TestReviewChainGateWithoutSpanStoreFailsClosed(t *testing.T) {
 }
 
 func TestReviewChainGateSkipsStagesTheBoardDoesNotHave(t *testing.T) {
-	repo := domain.Repository{ID: uuid.New(), RequireReviewChain: true}
+	repo := domain.Repository{ID: uuid.New()}
 	task := domain.BoardTask{ID: uuid.New(), Key: "APP-9", TaskType: "task"}
 
 	noQA := &Service{
@@ -307,148 +276,7 @@ func TestReviewChainGateSkipsStagesTheBoardDoesNotHave(t *testing.T) {
 	}
 }
 
-func TestReleaseDeployGate(t *testing.T) {
-	cases := []struct {
-		name     string
-		taskType domain.TaskType
-		runs     []domain.TaskPipeline
-		listErr  error
-		prodJobs *fakePipelineJobs
-		target   domain.TaskColumn
-		off      bool
-		wantErr  error
-		wantSaid []string
-		noStore  bool
-	}{
-		{
-			name:     "a successful prod deploy releases",
-			taskType: "task",
-			runs:     []domain.TaskPipeline{deployRun(domain.PipelineTriggerProdDeploy, domain.PipelineStatusSuccess)},
-			target:   domain.TaskColumnReleased,
-		},
-		{
-			name:     "no deploy at all is refused",
-			taskType: "task",
-			runs:     nil,
-			target:   domain.TaskColumnReleased,
-			wantErr:  domain.ErrReleaseNotDeployed,
-			wantSaid: []string{"prod deploy finish"},
-		},
-		{
-			name:     "a failed prod deploy is refused",
-			taskType: "task",
-			runs:     []domain.TaskPipeline{deployRun(domain.PipelineTriggerProdDeploy, domain.PipelineStatusFailed)},
-			target:   domain.TaskColumnReleased,
-			wantErr:  domain.ErrReleaseNotDeployed,
-		},
-		{
-			name:     "a skipped prod deploy ran nothing and is refused, with the reason",
-			taskType: "task",
-			runs:     []domain.TaskPipeline{deployRun(domain.PipelineTriggerProdDeploy, domain.PipelineStatusSkipped)},
-			target:   domain.TaskColumnReleased,
-			wantErr:  domain.ErrReleaseNotDeployed,
-			wantSaid: []string{"no prod deploy workflow is mapped"},
-		},
-		{
-			name:     "a stage deploy is not a production deploy",
-			taskType: "task",
-			runs:     []domain.TaskPipeline{deployRun(domain.PipelineTriggerStageDeploy, domain.PipelineStatusSuccess)},
-			target:   domain.TaskColumnReleased,
-			wantErr:  domain.ErrReleaseNotDeployed,
-		},
-		{
-			name:     "preprod releases when the repo maps no prod workflow",
-			taskType: "task",
-			runs:     []domain.TaskPipeline{deployRun(domain.PipelineTriggerPreProdDeploy, domain.PipelineStatusSuccess)},
-			target:   domain.TaskColumnReleased,
-		},
-		{
-			name:     "preprod alone is not enough when prod IS mapped",
-			taskType: "task",
-			runs:     []domain.TaskPipeline{deployRun(domain.PipelineTriggerPreProdDeploy, domain.PipelineStatusSuccess)},
-			prodJobs: mappedProdWorkflow(),
-			target:   domain.TaskColumnReleased,
-			wantErr:  domain.ErrReleaseNotDeployed,
-		},
-		{
-			name:     "preprod then a successful prod deploy releases on a repo that maps prod",
-			taskType: "task",
-			runs: []domain.TaskPipeline{
-				deployRun(domain.PipelineTriggerPreProdDeploy, domain.PipelineStatusSuccess),
-				deployRun(domain.PipelineTriggerProdDeploy, domain.PipelineStatusSuccess),
-			},
-			prodJobs: mappedProdWorkflow(),
-			target:   domain.TaskColumnReleased,
-		},
-		{
-			name:     "an analiz task ships no code and needs no deploy",
-			taskType: "analiz",
-			runs:     nil,
-			target:   domain.TaskColumnReleased,
-		},
-		{
-			name:     "entering done is not this gate's business",
-			taskType: "task",
-			runs:     nil,
-			target:   domain.TaskColumnDone,
-		},
-		{
-			name:     "the gate is off unless the repository opted in",
-			taskType: "task",
-			runs:     nil,
-			target:   domain.TaskColumnReleased,
-			off:      true,
-		},
-		{
-			name:     "unreadable deploy history fails closed",
-			taskType: "task",
-			listErr:  errors.New("boom: pool exhausted"),
-			target:   domain.TaskColumnReleased,
-			wantErr:  domain.ErrReleaseNotDeployed,
-			wantSaid: []string{"could not be read"},
-		},
-		{
-			name:     "no pipeline ledger fails closed",
-			taskType: "task",
-			noStore:  true,
-			target:   domain.TaskColumnReleased,
-			wantErr:  domain.ErrReleaseNotDeployed,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			svc := &Service{workflows: workflowtest.Default().Reader()}
-			if !tc.noStore {
-				svc.pipelineStore = &fakeDeployPipelines{runs: tc.runs, err: tc.listErr}
-			}
-			if tc.prodJobs != nil {
-				svc.pipelineJobs = tc.prodJobs
-			}
-			repo := domain.Repository{ID: uuid.New(), RequireReleaseDeploy: !tc.off}
-			task := domain.BoardTask{ID: uuid.New(), Key: "APP-7", TaskType: tc.taskType}
-
-			err := svc.releaseDeployGate(context.Background(), repo, task, tc.target)
-
-			if tc.wantErr == nil {
-				if err != nil {
-					t.Fatalf("want the move allowed, got %v", err)
-				}
-				return
-			}
-			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("want %v, got %v", tc.wantErr, err)
-			}
-			for _, want := range tc.wantSaid {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("want %q named in the block, got: %v", want, err)
-				}
-			}
-		})
-	}
-}
-
-func TestUpdateTaskEnforcesLifecycleGatesForEveryActor(t *testing.T) {
+func TestUpdateTaskEnforcesReviewChainForEveryActor(t *testing.T) {
 	agentID := uuid.New()
 
 	cases := []struct {
@@ -485,22 +313,14 @@ func TestUpdateTaskEnforcesLifecycleGatesForEveryActor(t *testing.T) {
 				domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT),
 		},
 		{
-			name:  "done to released without a deploy is refused",
-			actor: domain.TaskActorHuman,
-			from:  domain.TaskColumnDone,
-			to:    domain.TaskColumnReleased,
-			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA,
-				domain.TaskColumnPMUAT, domain.TaskColumnDone),
-			wantErr: domain.ErrReleaseNotDeployed,
-		},
-		{
-			name:  "done to released after a successful prod deploy is allowed",
+			// require_release_deploy is gone: released is no longer gated on
+			// any deploy evidence, only on having passed the review chain.
+			name:  "done to released needs no deploy evidence",
 			actor: domain.TaskActorSystem,
 			from:  domain.TaskColumnDone,
 			to:    domain.TaskColumnReleased,
 			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA,
 				domain.TaskColumnPMUAT, domain.TaskColumnDone),
-			runs: []domain.TaskPipeline{deployRun(domain.PipelineTriggerProdDeploy, domain.PipelineStatusSuccess)},
 		},
 	}
 
@@ -516,11 +336,7 @@ func TestUpdateTaskEnforcesLifecycleGatesForEveryActor(t *testing.T) {
 				AssigneeAgentID: &agentID,
 			}}
 			svc := &Service{
-				repos: &fakeReleaseRepoStore{repo: domain.Repository{
-					ID:                   repoID,
-					RequireReviewChain:   true,
-					RequireReleaseDeploy: true,
-				}},
+				repos:         &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
 				tasks:         tasks,
 				spans:         tc.spans,
 				pipelineStore: &fakeDeployPipelines{runs: tc.runs},
@@ -553,7 +369,10 @@ func TestUpdateTaskEnforcesLifecycleGatesForEveryActor(t *testing.T) {
 	}
 }
 
-func TestUpdateTaskLeavesUnOptedRepositoriesAlone(t *testing.T) {
+// TestReviewChainGateEnforcedWithNoRepoFlag proves the review chain is no
+// longer an opt-in: a repository with every field at its zero value (the old
+// require_review_chain default) still blocks done on a missing review stage.
+func TestReviewChainGateEnforcedWithNoRepoFlag(t *testing.T) {
 	repoID, taskID := uuid.New(), uuid.New()
 	tasks := &fakeReleaseTaskStore{task: domain.BoardTask{
 		ID: taskID, RepositoryID: repoID, TaskType: "task", Column: domain.TaskColumnInProgress,
@@ -563,15 +382,15 @@ func TestUpdateTaskLeavesUnOptedRepositoriesAlone(t *testing.T) {
 		tasks:         tasks,
 		spans:         visited(domain.TaskColumnInProgress),
 		pipelineStore: &fakeDeployPipelines{},
+		workflows:     workflowtest.Default().Reader(),
 	}
 
-	for _, target := range []domain.TaskColumn{domain.TaskColumnDone, domain.TaskColumnReleased} {
-		col := target
-		if _, err := svc.UpdateTask(context.Background(), repoID, taskID, domain.UpdateBoardTaskRequest{
-			Column: &col,
-			Actor:  domain.TaskActorHuman,
-		}); err != nil {
-			t.Fatalf("an un-opted repository must behave exactly as before, got %v moving to %s", err, target)
-		}
+	col := domain.TaskColumnDone
+	_, err := svc.UpdateTask(context.Background(), repoID, taskID, domain.UpdateBoardTaskRequest{
+		Column: &col,
+		Actor:  domain.TaskActorHuman,
+	})
+	if !errors.Is(err, domain.ErrReviewChainIncomplete) {
+		t.Fatalf("want ErrReviewChainIncomplete even with no repo flag set, got %v", err)
 	}
 }

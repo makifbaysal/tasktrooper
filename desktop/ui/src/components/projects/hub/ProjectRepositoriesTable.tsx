@@ -54,9 +54,12 @@ export function ProjectRepositoriesTable({ project }: ProjectRepositoriesTablePr
         </thead>
         <tbody className="divide-y divide-border">
           {project.repositories.map((repo) => (
-            <tr key={repo.id}>
+            <tr key={repo.id} className="relative transition-colors hover:bg-muted/40">
               <td className="px-4 py-3">
-                <Link to={`/repositories/${repo.id}?project=${project.id}`} className="font-medium hover:underline">
+                <Link
+                  to={`/repositories/${repo.id}?project=${project.id}`}
+                  className="font-medium after:absolute after:inset-0"
+                >
                   {repo.name}
                 </Link>
               </td>
@@ -85,7 +88,7 @@ export function ProjectRepositoriesTable({ project }: ProjectRepositoriesTablePr
                 <ScanStatusLabel scan={repo.last_scan} />
               </td>
               <td className="px-4 py-3 text-right">
-                <Button size="sm" variant="outline" asChild>
+                <Button size="sm" variant="outline" asChild className="relative z-10">
                   <Link to={`/repositories/${repo.id}?project=${project.id}`}>{t("projectsHub.project.table.open")}</Link>
                 </Button>
               </td>

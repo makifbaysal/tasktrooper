@@ -56,43 +56,7 @@ func (h *Handler) registerRepositoryOpsRoutes(app fiber.Router) {
 		return
 	}
 	app.Put("/v1/repositories/:id/test-strategy", h.SetTestStrategy)
-	app.Put("/v1/repositories/:id/lifecycle-gates", h.SetLifecycleGates)
 	app.Get("/v1/repositories/:id/env-inventory", h.GetEnvInventory)
-}
-
-// SetLifecycleGates — PUT /v1/repositories/:id/lifecycle-gates
-// Arms or disarms the repository's stage gates: a task may only enter done once
-// it has passed the review chain its type requires, may only enter released
-// once a production deploy has actually succeeded for it, and its code review
-// waits for the build/test pipeline before the reviewing architect is
-// dispatched. Every toggle is optional; an omitted one is left as it was.
-func (h *Handler) SetLifecycleGates(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return badRequest(c, "invalid repository id")
-	}
-	var req struct {
-		RequireReviewChain       *bool `json:"require_review_chain"`
-		RequireReleaseDeploy     *bool `json:"require_release_deploy"`
-		RequirePipelineForReview *bool `json:"require_pipeline_for_review"`
-		// Whether the repository's WHOLE-REPO coverage figure blocks a task,
-		// and the number it blocks under. Off by default: overall coverage
-		// describes the codebase rather than the change, so gating on it stops
-		// every task in a repo that has not reached the bar yet. The always-on
-		// gate is new-code coverage, which is deliberately not settable here.
-		RequireOverallCoverage *bool    `json:"require_overall_coverage"`
-		CoverageThreshold      *float64 `json:"coverage_threshold"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return badRequest(c, "invalid request body")
-	}
-	repo, err := h.repositorySvc.SetLifecycleGates(h.enrichContext(c), id,
-		req.RequireReviewChain, req.RequireReleaseDeploy, req.RequirePipelineForReview,
-		req.RequireOverallCoverage, req.CoverageThreshold)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	return c.JSON(repo)
 }
 
 // SetTestStrategy — PUT /v1/repositories/:id/test-strategy

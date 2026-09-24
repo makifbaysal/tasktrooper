@@ -386,12 +386,14 @@ func (s *ProjectModelStore) GetCheck(ctx context.Context, id uuid.UUID) (domain.
 
 // --- SystemResource ---
 
-const resourceCols = `id, kind, vendor, name, identity_key, details, created_at, updated_at`
+const resourceCols = `id, kind, vendor, name, identity_key, details, name_locked, created_at, updated_at`
+
+const resourceColsPrefixed = `sr.id, sr.kind, sr.vendor, sr.name, sr.identity_key, sr.details, sr.name_locked, sr.created_at, sr.updated_at`
 
 func scanResource(row pgx.Row) (domain.SystemResource, error) {
 	var r domain.SystemResource
 	var detailsJSON []byte
-	if err := row.Scan(&r.ID, &r.Kind, &r.Vendor, &r.Name, &r.IdentityKey, &detailsJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
+	if err := row.Scan(&r.ID, &r.Kind, &r.Vendor, &r.Name, &r.IdentityKey, &detailsJSON, &r.NameLocked, &r.CreatedAt, &r.UpdatedAt); err != nil {
 		return domain.SystemResource{}, err
 	}
 	if err := json.Unmarshal(detailsJSON, &r.Details); err != nil {
@@ -439,14 +441,40 @@ VALUES ($1,$2,$3,$4,$5,$6)
 ON CONFLICT (identity_key) DO UPDATE SET
 	kind = EXCLUDED.kind,
 	vendor = EXCLUDED.vendor,
-	name = EXCLUDED.name,
+	-- a human-renamed resource (name_locked) must never have its name
+	-- overwritten by what a later scan detected.
+	name = CASE WHEN system_resources.name_locked THEN system_resources.name ELSE EXCLUDED.name END,
 	-- jsonb concatenation favors its right operand's keys on a clash, which is
 	-- exactly "new keys win" without a read-then-merge round trip.
 	details = system_resources.details || EXCLUDED.details,
 	updated_at = now()
 RETURNING ` + resourceCols
 
+// resolveResourceAlias looks up an identity key a merge folded away; a hit
+// means EnsureResource must return the merge target unchanged instead of
+// upserting, so a rescan can never resurrect a merged resource.
+func (s *ProjectModelStore) resolveResourceAlias(ctx context.Context, identityKey string) (domain.SystemResource, bool, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+resourceColsPrefixed+`
+		FROM system_resource_aliases sra
+		JOIN system_resources sr ON sr.id = sra.resource_id
+		WHERE sra.identity_key = $1`, identityKey)
+	r, err := scanResource(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.SystemResource{}, false, nil
+	}
+	if err != nil {
+		return domain.SystemResource{}, false, err
+	}
+	return r, true, nil
+}
+
 func (s *ProjectModelStore) EnsureResource(ctx context.Context, r domain.SystemResource) (domain.SystemResource, error) {
+	if alias, ok, err := s.resolveResourceAlias(ctx, r.IdentityKey); err != nil {
+		return domain.SystemResource{}, fmt.Errorf("ensure resource: resolve alias: %w", err)
+	} else if ok {
+		return alias, nil
+	}
 	if r.ID == uuid.Nil {
 		r.ID = uuid.New()
 	}
@@ -460,6 +488,60 @@ func (s *ProjectModelStore) EnsureResource(ctx context.Context, r domain.SystemR
 		return domain.SystemResource{}, fmt.Errorf("ensure resource: %w", err)
 	}
 	return out, nil
+}
+
+func (s *ProjectModelStore) RenameResource(ctx context.Context, id uuid.UUID, name string) (domain.SystemResource, error) {
+	r, err := scanResource(s.pool.QueryRow(ctx, `
+		UPDATE system_resources SET name = $2, name_locked = true, updated_at = now()
+		WHERE id = $1
+		RETURNING `+resourceCols, id, name))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.SystemResource{}, fmt.Errorf("rename resource: %w", port.ErrNotFound)
+	}
+	if err != nil {
+		return domain.SystemResource{}, fmt.Errorf("rename resource: %w", err)
+	}
+	return r, nil
+}
+
+// MergeResources folds source into target: every link and alias pointing at
+// source is repointed at target, source's own identity key becomes an alias
+// of target (so a rescan that still emits source's signal resolves to
+// target), and source is deleted. One transaction so a half-applied merge
+// never leaves a link dangling on a deleted resource.
+func (s *ProjectModelStore) MergeResources(ctx context.Context, sourceID, targetID uuid.UUID) error {
+	return s.pool.InTx(ctx, func(tx pgx.Tx) error {
+		var identityKey string
+		err := tx.QueryRow(ctx, `SELECT identity_key FROM system_resources WHERE id = $1`, sourceID).Scan(&identityKey)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("merge resources: source: %w", port.ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("merge resources: source: %w", err)
+		}
+		var targetExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM system_resources WHERE id = $1)`, targetID).Scan(&targetExists); err != nil {
+			return fmt.Errorf("merge resources: target: %w", err)
+		}
+		if !targetExists {
+			return fmt.Errorf("merge resources: target: %w", port.ErrNotFound)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE component_links SET to_resource_id = $2, updated_at = now() WHERE to_resource_id = $1`, sourceID, targetID); err != nil {
+			return fmt.Errorf("merge resources: repoint links: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE system_resource_aliases SET resource_id = $2 WHERE resource_id = $1`, sourceID, targetID); err != nil {
+			return fmt.Errorf("merge resources: repoint aliases: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO system_resource_aliases (identity_key, resource_id) VALUES ($1, $2)
+			ON CONFLICT (identity_key) DO UPDATE SET resource_id = EXCLUDED.resource_id`, identityKey, targetID); err != nil {
+			return fmt.Errorf("merge resources: alias source: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM system_resources WHERE id = $1`, sourceID); err != nil {
+			return fmt.Errorf("merge resources: delete source: %w", err)
+		}
+		return nil
+	})
 }
 
 // --- ComponentLink ---

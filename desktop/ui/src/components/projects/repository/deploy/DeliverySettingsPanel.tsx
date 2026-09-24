@@ -11,7 +11,6 @@ import {
   type TestStrategy,
 } from "@/api";
 import { DeployTargetsSection } from "@/components/projects/DeployTargetsSection";
-import { MobileStorePanel } from "@/components/projects/MobileStorePanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,8 +85,6 @@ export function DeliverySettingsPanel({ repositoryId, repository, component, cla
   const scopeKind = subProjectPath ? (subProjects.find((sp) => sp.path === subProjectPath)?.kind ?? "") : (repo.kind ?? "");
   const isMobile = scopeKind === "mobile";
   const hasStoreScope = isMobile || subProjects.some((sp) => sp.kind === "mobile");
-  const mobilePlatform =
-    (subProjectPath ? subProjects.find((sp) => sp.path === subProjectPath)?.mobile_platform : repo.mobile_platform) ?? "";
 
   if (loading) {
     return (
@@ -100,8 +97,6 @@ export function DeliverySettingsPanel({ repositoryId, repository, component, cla
 
   return (
     <div className={className ?? "space-y-4"}>
-      {isMobile && <MobileStorePanel repositoryId={repositoryId} mobilePlatform={mobilePlatform} />}
-
       <DeployTargetsSection key={subProjectPath} repositoryId={repositoryId} subProjectPath={subProjectPath} kind={scopeKind} credentials={credentials} />
 
       <div className="grid gap-4 lg:grid-cols-2">

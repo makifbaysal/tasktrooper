@@ -23,18 +23,22 @@ type b2Store struct {
 	checks     map[uuid.UUID]domain.ComponentCheck
 	links      map[uuid.UUID]domain.ComponentLink
 	resources  map[uuid.UUID]domain.SystemResource
-	notes      map[uuid.UUID]domain.ProjectNote
-	scans      map[uuid.UUID]domain.ProjectScan
+	// resourceAliases mirrors system_resource_aliases: an identity key a merge
+	// folded away keeps resolving to its merge target.
+	resourceAliases map[string]uuid.UUID
+	notes           map[uuid.UUID]domain.ProjectNote
+	scans           map[uuid.UUID]domain.ProjectScan
 }
 
 func newB2Store() *b2Store {
 	return &b2Store{
-		components: map[uuid.UUID]domain.Component{},
-		checks:     map[uuid.UUID]domain.ComponentCheck{},
-		links:      map[uuid.UUID]domain.ComponentLink{},
-		resources:  map[uuid.UUID]domain.SystemResource{},
-		notes:      map[uuid.UUID]domain.ProjectNote{},
-		scans:      map[uuid.UUID]domain.ProjectScan{},
+		components:      map[uuid.UUID]domain.Component{},
+		checks:          map[uuid.UUID]domain.ComponentCheck{},
+		links:           map[uuid.UUID]domain.ComponentLink{},
+		resources:       map[uuid.UUID]domain.SystemResource{},
+		resourceAliases: map[string]uuid.UUID{},
+		notes:           map[uuid.UUID]domain.ProjectNote{},
+		scans:           map[uuid.UUID]domain.ProjectScan{},
 	}
 }
 
@@ -250,9 +254,15 @@ func (s *b2Store) ListResources(_ context.Context, ids []uuid.UUID) ([]domain.Sy
 func (s *b2Store) EnsureResource(_ context.Context, r domain.SystemResource) (domain.SystemResource, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if targetID, ok := s.resourceAliases[r.IdentityKey]; ok {
+		return s.resources[targetID], nil
+	}
 	for _, existing := range s.resources {
 		if existing.IdentityKey == r.IdentityKey {
-			existing.Kind, existing.Vendor, existing.Name, existing.Details = r.Kind, r.Vendor, r.Name, r.Details
+			existing.Kind, existing.Vendor, existing.Details = r.Kind, r.Vendor, r.Details
+			if !existing.NameLocked {
+				existing.Name = r.Name
+			}
 			existing.UpdatedAt = time.Now().UTC()
 			s.resources[existing.ID] = existing
 			return existing, nil
@@ -265,6 +275,48 @@ func (s *b2Store) EnsureResource(_ context.Context, r domain.SystemResource) (do
 	r.CreatedAt, r.UpdatedAt = now, now
 	s.resources[r.ID] = r
 	return r, nil
+}
+
+func (s *b2Store) RenameResource(_ context.Context, id uuid.UUID, name string) (domain.SystemResource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.resources[id]
+	if !ok {
+		return domain.SystemResource{}, fmt.Errorf("resource %s: %w", id, port.ErrNotFound)
+	}
+	r.Name = name
+	r.NameLocked = true
+	r.UpdatedAt = time.Now().UTC()
+	s.resources[id] = r
+	return r, nil
+}
+
+func (s *b2Store) MergeResources(_ context.Context, sourceID, targetID uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source, ok := s.resources[sourceID]
+	if !ok {
+		return fmt.Errorf("resource %s: %w", sourceID, port.ErrNotFound)
+	}
+	if _, ok := s.resources[targetID]; !ok {
+		return fmt.Errorf("resource %s: %w", targetID, port.ErrNotFound)
+	}
+	for id, l := range s.links {
+		if l.ToResourceID != nil && *l.ToResourceID == sourceID {
+			target := targetID
+			l.ToResourceID = &target
+			l.UpdatedAt = time.Now().UTC()
+			s.links[id] = l
+		}
+	}
+	for key, rid := range s.resourceAliases {
+		if rid == sourceID {
+			s.resourceAliases[key] = targetID
+		}
+	}
+	s.resourceAliases[source.IdentityKey] = targetID
+	delete(s.resources, sourceID)
+	return nil
 }
 
 // --- notes ---
@@ -548,7 +600,7 @@ func (r *b2Repos) List(_ context.Context) ([]domain.Repository, error) {
 	return out, nil
 }
 
-func (r *b2Repos) UpdateMeta(_ context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string, autoReleaseOnDone *bool) (domain.Repository, error) {
+func (r *b2Repos) UpdateMeta(_ context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string) (domain.Repository, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	repo := r.repos[id]
@@ -558,9 +610,18 @@ func (r *b2Repos) UpdateMeta(_ context.Context, id uuid.UUID, kind *string, subR
 	if subRepoKinds != nil {
 		repo.SubRepoKinds = *subRepoKinds
 	}
-	if autoReleaseOnDone != nil {
-		repo.AutoReleaseOnDone = *autoReleaseOnDone
-	}
+	r.repos[id] = repo
+	return repo, nil
+}
+
+func (r *b2Repos) UpdateQualityGates(_ context.Context, id uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	repo := r.repos[id]
+	repo.RequireOverallCoverage = coverage.Enabled
+	repo.CoverageThreshold = coverage.Threshold
+	repo.MutationEnabled = mutation.Enabled
+	repo.MutationThreshold = mutation.Threshold
 	r.repos[id] = repo
 	return repo, nil
 }

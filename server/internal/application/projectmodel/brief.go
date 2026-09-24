@@ -424,8 +424,17 @@ func briefInformativeCheckNames(checks []domain.ComponentCheck) string {
 	return strings.Join(names, ", ")
 }
 
+// briefTalksToEntry accumulates every confirmed link this component has to
+// one target label; a merge can leave several links pointing at the same
+// resource, so they render as one line instead of one per link.
+type briefTalksToEntry struct {
+	protocols []domain.LinkProtocol
+	envVars   []string
+}
+
 func (s *Service) briefTalksTo(ctx context.Context, links []domain.ComponentLink, componentID uuid.UUID) string {
-	var b strings.Builder
+	byLabel := map[string]*briefTalksToEntry{}
+	var order []string
 	for _, l := range links {
 		if l.FromComponentID != componentID || l.Status != domain.LinkConfirmed {
 			continue
@@ -434,11 +443,34 @@ func (s *Service) briefTalksTo(ctx context.Context, links []domain.ComponentLink
 		if label == "" {
 			continue
 		}
-		extra := ""
-		if len(l.EnvVars) > 0 {
-			extra = ", env " + strings.Join(l.EnvVars, ", ")
+		entry, ok := byLabel[label]
+		if !ok {
+			entry = &briefTalksToEntry{}
+			byLabel[label] = entry
+			order = append(order, label)
 		}
-		fmt.Fprintf(&b, "- %s (%s%s)\n", label, l.Protocol, extra)
+		if !containsProtocol(entry.protocols, l.Protocol) {
+			entry.protocols = append(entry.protocols, l.Protocol)
+		}
+		for _, ev := range l.EnvVars {
+			if !containsString(entry.envVars, ev) {
+				entry.envVars = append(entry.envVars, ev)
+			}
+		}
+	}
+
+	var b strings.Builder
+	for _, label := range order {
+		entry := byLabel[label]
+		protocols := make([]string, len(entry.protocols))
+		for i, p := range entry.protocols {
+			protocols[i] = string(p)
+		}
+		extra := ""
+		if len(entry.envVars) > 0 {
+			extra = ", env " + strings.Join(entry.envVars, ", ")
+		}
+		fmt.Fprintf(&b, "- %s (%s%s)\n", label, strings.Join(protocols, ", "), extra)
 	}
 	return b.String()
 }

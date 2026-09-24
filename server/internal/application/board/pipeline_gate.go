@@ -336,8 +336,6 @@ func gateReasonLabel(reason string) string {
 		return "CI unavailable"
 	case domain.PipelineGateReasonTimeout:
 		return "CI did not report in time"
-	case domain.PipelineGateReasonDisabled:
-		return "gate disabled for this repository"
 	default:
 		return "gate opened"
 	}

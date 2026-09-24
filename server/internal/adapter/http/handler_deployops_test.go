@@ -103,7 +103,7 @@ func (f *fakeDeployOpsRepositoryStore) Update(_ context.Context, id uuid.UUID, n
 	return r, nil
 }
 
-func (f *fakeDeployOpsRepositoryStore) UpdateMeta(_ context.Context, id uuid.UUID, _ *string, _ *[]string, _ *bool) (domain.Repository, error) {
+func (f *fakeDeployOpsRepositoryStore) UpdateMeta(_ context.Context, id uuid.UUID, _ *string, _ *[]string) (domain.Repository, error) {
 	r, ok := f.rows[id]
 	if !ok {
 		return domain.Repository{}, fmt.Errorf("update repository meta: %w", port.ErrNotFound)
@@ -151,17 +151,15 @@ func (f *fakeDeployOpsRepositoryStore) UpdateDetectedBuildTargets(_ context.Cont
 	return r, nil
 }
 
-func (f *fakeDeployOpsRepositoryStore) UpdateMutationGate(_ context.Context, id uuid.UUID, enabled *bool, threshold *float64) (domain.Repository, error) {
+func (f *fakeDeployOpsRepositoryStore) UpdateQualityGates(_ context.Context, id uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error) {
 	r, ok := f.rows[id]
 	if !ok {
-		return domain.Repository{}, fmt.Errorf("update mutation gate: %w", port.ErrNotFound)
+		return domain.Repository{}, fmt.Errorf("update quality gates: %w", port.ErrNotFound)
 	}
-	if enabled != nil {
-		r.MutationEnabled = *enabled
-	}
-	if threshold != nil {
-		r.MutationThreshold = *threshold
-	}
+	r.RequireOverallCoverage = coverage.Enabled
+	r.CoverageThreshold = coverage.Threshold
+	r.MutationEnabled = mutation.Enabled
+	r.MutationThreshold = mutation.Threshold
 	f.rows[id] = r
 	return r, nil
 }
@@ -198,14 +196,6 @@ func (f *fakeDeployOpsRepositoryStore) UpdateTestStrategy(_ context.Context, id 
 	r, ok := f.rows[id]
 	if !ok {
 		return domain.Repository{}, fmt.Errorf("update test strategy: %w", port.ErrNotFound)
-	}
-	return r, nil
-}
-
-func (f *fakeDeployOpsRepositoryStore) UpdateLifecycleGates(_ context.Context, id uuid.UUID, _, _, _, _ *bool, _ *float64) (domain.Repository, error) {
-	r, ok := f.rows[id]
-	if !ok {
-		return domain.Repository{}, fmt.Errorf("update lifecycle gates: %w", port.ErrNotFound)
 	}
 	return r, nil
 }

@@ -30,8 +30,11 @@ type fakeStore struct {
 	links               map[uuid.UUID]domain.ComponentLink
 	resources           map[uuid.UUID]domain.SystemResource
 	resourcesByIdentity map[string]uuid.UUID
-	notes               map[uuid.UUID]domain.ProjectNote
-	scans               map[uuid.UUID]domain.ProjectScan
+	// resourceAliases mirrors system_resource_aliases: an identity key a merge
+	// folded away keeps resolving to its merge target.
+	resourceAliases map[string]uuid.UUID
+	notes           map[uuid.UUID]domain.ProjectNote
+	scans           map[uuid.UUID]domain.ProjectScan
 }
 
 var _ port.ProjectModelStore = (*fakeStore)(nil)
@@ -43,6 +46,7 @@ func newFakeStore() *fakeStore {
 		links:               map[uuid.UUID]domain.ComponentLink{},
 		resources:           map[uuid.UUID]domain.SystemResource{},
 		resourcesByIdentity: map[string]uuid.UUID{},
+		resourceAliases:     map[string]uuid.UUID{},
 		notes:               map[uuid.UUID]domain.ProjectNote{},
 		scans:               map[uuid.UUID]domain.ProjectScan{},
 	}
@@ -276,9 +280,15 @@ func (f *fakeStore) ListResources(ctx context.Context, ids []uuid.UUID) ([]domai
 func (f *fakeStore) EnsureResource(ctx context.Context, r domain.SystemResource) (domain.SystemResource, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if targetID, ok := f.resourceAliases[r.IdentityKey]; ok {
+		return f.resources[targetID], nil
+	}
 	if id, ok := f.resourcesByIdentity[r.IdentityKey]; ok {
 		existing := f.resources[id]
-		existing.Kind, existing.Vendor, existing.Name, existing.Details = r.Kind, r.Vendor, r.Name, r.Details
+		existing.Kind, existing.Vendor, existing.Details = r.Kind, r.Vendor, r.Details
+		if !existing.NameLocked {
+			existing.Name = r.Name
+		}
 		f.resources[id] = existing
 		return existing, nil
 	}
@@ -288,6 +298,47 @@ func (f *fakeStore) EnsureResource(ctx context.Context, r domain.SystemResource)
 	f.resources[r.ID] = r
 	f.resourcesByIdentity[r.IdentityKey] = r.ID
 	return r, nil
+}
+
+func (f *fakeStore) RenameResource(ctx context.Context, id uuid.UUID, name string) (domain.SystemResource, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.resources[id]
+	if !ok {
+		return domain.SystemResource{}, port.ErrNotFound
+	}
+	r.Name = name
+	r.NameLocked = true
+	f.resources[id] = r
+	return r, nil
+}
+
+func (f *fakeStore) MergeResources(ctx context.Context, sourceID, targetID uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	source, ok := f.resources[sourceID]
+	if !ok {
+		return port.ErrNotFound
+	}
+	if _, ok := f.resources[targetID]; !ok {
+		return port.ErrNotFound
+	}
+	for id, l := range f.links {
+		if l.ToResourceID != nil && *l.ToResourceID == sourceID {
+			target := targetID
+			l.ToResourceID = &target
+			f.links[id] = l
+		}
+	}
+	for key, rid := range f.resourceAliases {
+		if rid == sourceID {
+			f.resourceAliases[key] = targetID
+		}
+	}
+	f.resourceAliases[source.IdentityKey] = targetID
+	delete(f.resources, sourceID)
+	delete(f.resourcesByIdentity, source.IdentityKey)
+	return nil
 }
 
 func (f *fakeStore) ListNotes(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProjectNote, error) {
@@ -506,11 +557,14 @@ type fakeProjector struct {
 	updateMobilePlatformCalls int
 	updateAppIdentityCalls    int
 	updateBuildTargetsCalls   int
+	updateQualityGatesCalls   int
+	lastQualityGatesCoverage  domain.QualityGate
+	lastQualityGatesMutation  domain.QualityGate
 }
 
 var _ LegacyProjector = (*fakeProjector)(nil)
 
-func (f *fakeProjector) UpdateMeta(ctx context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string, autoReleaseOnDone *bool) (domain.Repository, error) {
+func (f *fakeProjector) UpdateMeta(ctx context.Context, id uuid.UUID, kind *string, subRepoKinds *[]string) (domain.Repository, error) {
 	f.mu.Lock()
 	f.updateMetaCalls++
 	f.mu.Unlock()
@@ -524,11 +578,32 @@ func (f *fakeProjector) UpdateMeta(ctx context.Context, id uuid.UUID, kind *stri
 	if subRepoKinds != nil {
 		r.SubRepoKinds = *subRepoKinds
 	}
-	if autoReleaseOnDone != nil {
-		r.AutoReleaseOnDone = *autoReleaseOnDone
-	}
 	f.repos.set(r)
 	return r, nil
+}
+
+func (f *fakeProjector) UpdateQualityGates(ctx context.Context, id uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error) {
+	f.mu.Lock()
+	f.updateQualityGatesCalls++
+	f.lastQualityGatesCoverage = coverage
+	f.lastQualityGatesMutation = mutation
+	f.mu.Unlock()
+	r, err := f.repos.Get(ctx, id)
+	if err != nil {
+		return domain.Repository{}, err
+	}
+	r.RequireOverallCoverage = coverage.Enabled
+	r.CoverageThreshold = coverage.Threshold
+	r.MutationEnabled = mutation.Enabled
+	r.MutationThreshold = mutation.Threshold
+	f.repos.set(r)
+	return r, nil
+}
+
+func (f *fakeProjector) qualityGatesCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.updateQualityGatesCalls
 }
 
 func (f *fakeProjector) UpdateSubProjects(ctx context.Context, id uuid.UUID, subProjects []domain.RepoSubProject) (domain.Repository, error) {

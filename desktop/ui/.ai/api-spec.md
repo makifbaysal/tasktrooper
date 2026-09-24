@@ -503,9 +503,9 @@ shipping order. Both are read by the release path, not just displayed.
   column. It runs after the migration gate and before the mobile-store and release-target
   gates.
 
-Deploy packages are the release path for a repository with `auto_release_on_done` off,
-which otherwise has none (`trigger_release` refuses it as "batched release"). A package
-release skips only that flag; every other release gate still applies per task.
+Deploy packages batch several tasks into one production deploy instead of releasing each as
+it reaches `done`; the per-task path (`trigger_release`) is always available too. Every other
+release gate still applies per task.
 
 - `GET /v1/repositories/{id}/deploy-packages` — `{packages, count}`. **Not a pure read**: each
   package is advanced first — members with production evidence are marked, a package whose
@@ -592,27 +592,6 @@ a thin workflow calls it) instead of the four deleted platform deploy templates
   `.env.example`-style files (root + two levels for monorepos; real `.env` files are never
   read) plus the deploy targets, so "what does this need and where does it answer" is one
   call. Deploy targets carry `base_url` (the environment's DNS entry) next to `health_url`.
-- `PUT /v1/repositories/{id}/lifecycle-gates` — `{require_review_chain?: bool, require_release_deploy?: bool}`,
-  both optional; an omitted field is left as it was. Returns the updated `domain.Repository`
-  (both flags round-trip in the JSON body). Both default `false`. Fails 400 on an invalid `id`
-  or if the underlying update errors (the repository store being unavailable).
-
-  Arming either flag does not itself fail this call — it changes what a later
-  `PATCH .../tasks/{taskId}` move into `done`/`released` accepts. With `require_review_chain`
-  on, moving a task into `done` (or into `released` when that would skip `done`) 400s unless
-  the task's column-span history shows every review stage its type requires — `code_review`,
-  `in_qa`, `pm_uat` for `task`/`bug`; `analiz_review` for `analiz` — with none of those stages'
-  latest visit rejected. The message names the missing/rejected stage and the move that earns
-  it, e.g. `done means the task passed its review chain, and this one has not — cannot move
-  TASK-123 to done. Missing: QA (in_qa) — move it to ready_for_qa; QA takes it into in_qa and
-  tests it there`. With `require_release_deploy` on, moving a task into `released` 400s unless
-  `task_pipelines` has a successful `prod_deploy` for it (or a successful `preprod_deploy` on a
-  repo with no prod workflow mapped) — a `skipped` pipeline is never accepted; `analiz` tasks
-  are exempt. Both checks fail closed (400, not 200) if their evidence store can't be read, so
-  a repository should only enable a gate its board can actually satisfy — see
-  [orchestration-agents.md](orchestration-agents.md) and [architecture.md](architecture.md)
-  for the full semantics and the deadlock each flag can cause if turned on without the board
-  wiring it needs.
 
 ## Project model
 
@@ -675,10 +654,29 @@ Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
   (`NewLinkRequest {from_component_id, to_component_id? | to_resource?:
   {kind, vendor?, name}, protocol, detail?}`) → 201; `PATCH`/`DELETE
   /v1/links/{id}` (same manual-only rule as checks; retargeting a suggested
-  link with `PATCH` confirms it). `PUT /v1/repositories/{id}/notes`
+  link with `PATCH` confirms it; `LinkPatch` also takes `to_resource_id`, to
+  point a link at an existing `SystemResource` instead of typing a new one).
+  `PUT /v1/repositories/{id}/notes`
   (`SaveNoteRequest {component_id?, topic, body_md, locked}`);
   `PATCH`/`DELETE /v1/notes/{id}`. The "add component" folder picker reuses
   the existing `GET /v1/repositories/{id}/directories?path=`.
+- **Resource unification** (merging duplicate `SystemResource`s a scan split,
+  e.g. "Database" + "PostgreSQL" from the same connection string):
+  `SystemResource` gains `name_locked: boolean` (true once a person renames
+  it; a later scan no longer overwrites the name). `GET /v1/resources` →
+  `{resources: WorkspaceResource[]}` — every resource in the workspace with
+  ≥1 non-dismissed link, sorted by kind then name:
+  `WorkspaceResource {resource: SystemResource, users: ResourceUser[],
+  projects: ProjectRef[], link_count: number}`,
+  `ResourceUser {repository_id, repository_name, project_ids: string[],
+  component_id, component_path}`. `PATCH /v1/resources/{id}`
+  (`{name: string}`) → `SystemResource`, renames it and sets `name_locked`.
+  `POST /v1/resources/{id}/merge` (`{into_resource_id: string}`) →
+  `SystemResource` — moves every link of `id` onto `into_resource_id` and
+  deletes `id`; future scans keep resolving `id`'s signals to the target.
+  `POST /v1/resources/{id}/split` (`{link_ids: string[]}`) → 201
+  `SystemResource` — moves only those links (which must currently point at
+  `id`) onto a fresh copy of it, confirmed.
 - **Removed, the UI must not call them:** `GET /v1/repositories/{id}/profile`,
   `POST /v1/repositories/{id}/profile/refresh`,
   `/v1/repositories/{id}/dependencies*`, `GET /v1/projects/{id}/dependencies`,

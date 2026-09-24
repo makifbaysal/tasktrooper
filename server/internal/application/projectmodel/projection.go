@@ -46,6 +46,9 @@ func (s *Service) project(ctx context.Context, repositoryID uuid.UUID) error {
 	if err := s.projectSubProjects(ctx, repo, active, monorepo); err != nil {
 		return err
 	}
+	if err := s.projectQualityGates(ctx, repo, active, monorepo); err != nil {
+		return err
+	}
 	if len(active) == 1 && active[0].Role.Get().LegacyRepoKind() == domain.RepoKindMobile {
 		if err := s.projectSingleMobile(ctx, repo, active[0]); err != nil {
 			return err
@@ -73,7 +76,40 @@ func (s *Service) projectMeta(ctx context.Context, repo domain.Repository, activ
 	if kindPtr == nil && subRepoKindsPtr == nil {
 		return nil
 	}
-	_, err := s.projector.UpdateMeta(ctx, repo.ID, kindPtr, subRepoKindsPtr, nil)
+	_, err := s.projector.UpdateMeta(ctx, repo.ID, kindPtr, subRepoKindsPtr)
+	return err
+}
+
+// projectQualityGates writes the repository's coverage/mutation columns from
+// the component model: a single-component repo takes that component's own
+// gates (nil meaning the default, off/0), a monorepo always projects the
+// all-off default because each sub-project carries its own gates
+// (projectSubProjects already projects those). Without this, a
+// single-component repo's board coverage gate (Repository.EffectiveCoverageGate,
+// read with subProjectPath "") would read only the repo columns and the
+// component's "Kalite kapıları" card would do nothing.
+func (s *Service) projectQualityGates(ctx context.Context, repo domain.Repository, active []domain.Component, monorepo bool) error {
+	var coverage, mutation domain.QualityGate
+	if !monorepo {
+		gates := active[0].Gates
+		if gates.CoverageEnabled != nil {
+			coverage.Enabled = *gates.CoverageEnabled
+		}
+		if gates.CoverageThreshold != nil {
+			coverage.Threshold = *gates.CoverageThreshold
+		}
+		if gates.MutationEnabled != nil {
+			mutation.Enabled = *gates.MutationEnabled
+		}
+		if gates.MutationThreshold != nil {
+			mutation.Threshold = *gates.MutationThreshold
+		}
+	}
+	if coverage.Enabled == repo.RequireOverallCoverage && coverage.Threshold == repo.CoverageThreshold &&
+		mutation.Enabled == repo.MutationEnabled && mutation.Threshold == repo.MutationThreshold {
+		return nil
+	}
+	_, err := s.projector.UpdateQualityGates(ctx, repo.ID, coverage, mutation)
 	return err
 }
 
