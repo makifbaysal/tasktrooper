@@ -19,6 +19,10 @@ type SessionStore interface {
 	AppendMessage(ctx context.Context, sessionID uuid.UUID, role domain.Role, content string, toolCalls []byte, clarification []byte) (domain.SessionMessage, error)
 	UpdateWorkspaceDir(ctx context.Context, id uuid.UUID, workspaceDir string) error
 	UpdateProjectRoot(ctx context.Context, id uuid.UUID, projectRoot string) error
+	// UpdateTitle sets the chat's display name and freezes it: autoTitled=true
+	// means the auto-title generator must never touch this session's title
+	// again.
+	UpdateTitle(ctx context.Context, id uuid.UUID, title string, autoTitled bool) error
 	// Also written after a turn that failed — the session it left behind is
 	// still the one worth resuming.
 	UpdateCLISessionID(ctx context.Context, id uuid.UUID, cliSessionID string) error
