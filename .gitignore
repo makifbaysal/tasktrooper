@@ -3,6 +3,7 @@
 
 # Go
 server/data/
+server/data-*/
 server/coverage.out
 server/*.test
 

@@ -13,7 +13,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// EnvironmentStore persists ComponentEnvironment (migration 154): the binding
+// EnvironmentStore persists ComponentEnvironment (migration 155): the binding
 // of one component's environment to where it runs.
 type EnvironmentStore struct {
 	pool *DB

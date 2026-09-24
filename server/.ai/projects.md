@@ -3,7 +3,7 @@
 Code repositories bind a filesystem directory to codebase indexing and the kanban board. Repository-scoped chat is removed; agents are triggered by board events instead. The board is global — there is no team or tenant grouping (`team_id` removed migration 038, `tenant_id` removed migration 133). See [Person columns](#person-columns-migrations-115-133) for the per-person columns migration 115 added and migration 133 then dropped.
 
 An initiative project groups repositories; a repository groups **components** — the actual
-buildable/deployable units a scan finds (migration 153, replacing the markdown profile and
+buildable/deployable units a scan finds (migration 154, replacing the markdown profile and
 `repofacts`/`repoprofile`). The hierarchy is `projects → repositories → components`, and
 everything below this section is the component layer.
 
@@ -15,10 +15,10 @@ everything below this section is the component layer.
 | `repository_projects` | Links repos to initiative projects |
 | `projects` | Initiative projects: `name`, `description` (no `team_id`) |
 | `workspace_indexes.repository_id` | Code index scoped to repository |
-| `board_tasks` | Board tasks with `board_column` slug validated against `board_columns`, global `task_number`; `component_id` (migration 153) ties a task to the component it touches |
-| `project_components` | One buildable/deployable unit per row: `path` (`.` for the whole repo), `name`/`role`/`stack` as Facts, `commands`, `docs`, `gates`, `status`, `needs_review` (migration 155) |
-| `component_checks` | One CI job → one component, `purpose`/`gate`/`local_commands` as Facts, `needs_review` (migration 155) |
-| `component_links` | One outgoing edge: to another component or to a `system_resources` row, `status`/`confidence`, `target_host`/`target_port` (migration 155) |
+| `board_tasks` | Board tasks with `board_column` slug validated against `board_columns`, global `task_number`; `component_id` (migration 154) ties a task to the component it touches |
+| `project_components` | One buildable/deployable unit per row: `path` (`.` for the whole repo), `name`/`role`/`stack` as Facts, `commands`, `docs`, `gates`, `status`, `needs_review` (migration 156) |
+| `component_checks` | One CI job → one component, `purpose`/`gate`/`local_commands` as Facts, `needs_review` (migration 156) |
+| `component_links` | One outgoing edge: to another component or to a `system_resources` row, `status`/`confidence`, `target_host`/`target_port` (migration 156) |
 | `system_resources` | A workspace-wide node (database, queue, SaaS API…), deduped by `identity_key` |
 | `project_notes` | Judgment an agent or a human wrote, evidence-gated |
 | `project_scans` | One scan's progress/events/result, `review_count` |

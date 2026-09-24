@@ -16,7 +16,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// ProjectModelStore persists the structured project model (migration 153):
+// ProjectModelStore persists the structured project model (migration 154):
 // components, their CI checks, the edges between components and system
 // resources, human-written notes, and the scans that produce all of it.
 type ProjectModelStore struct {

@@ -16,7 +16,7 @@ import (
 )
 
 // CloudAccountStore persists one connected provider login per row; the
-// credential fields (migration 154) are encrypted together as a single JSON
+// credential fields (migration 155) are encrypted together as a single JSON
 // blob, never split into per-field columns, so a provider can carry whatever
 // shape of secret it needs without a schema change.
 type CloudAccountStore struct {
