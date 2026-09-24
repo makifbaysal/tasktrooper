@@ -2,7 +2,13 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from "react";
 import { cn } from "@/lib/utils";
 
-const DropdownMenu = DropdownMenuPrimitive.Root;
+// Non-modal by default: a modal menu whose item opens a Dialog leaves
+// `pointer-events: none` on <body> once that dialog closes (the two Radix
+// layers restore each other's saved value out of order), and the whole window
+// stops taking clicks until a reload.
+function DropdownMenu({ modal = false, ...props }: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
+  return <DropdownMenuPrimitive.Root modal={modal} {...props} />;
+}
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
 
