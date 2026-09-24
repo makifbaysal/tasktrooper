@@ -60,6 +60,9 @@ tool_policy:
         - set_repository_projects
         - review_criterion
         - get_task_pull_request
+        - get_project_brief
+        - list_links
+        - get_environment
         - save_memory
         - search_memory
         - delete_memory

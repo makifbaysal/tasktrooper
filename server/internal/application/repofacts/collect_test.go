@@ -122,9 +122,6 @@ jobs:
 	if !automatic {
 		t.Fatalf("landing on main must be reported as an automatic deploy; got %+v", f.Deploys)
 	}
-	if !strings.Contains(renderGitWorkflow(f), "triggers a") {
-		t.Error("the git workflow section must warn that landing on the default branch deploys")
-	}
 }
 
 func TestHostingIntegrationWithoutWorkflowIsTheDeploy(t *testing.T) {
@@ -220,56 +217,6 @@ func TestSingleKindInference(t *testing.T) {
 	}
 }
 
-func TestDerivedSectionsCarryTheirSources(t *testing.T) {
-	root := seed(t, map[string]string{
-		"go.mod": "module demo\n\ngo 1.26\n",
-		".github/workflows/ci.yml": `name: CI
-on: [push]
-jobs:
-  test:
-    steps:
-      - run: go test ./...
-`,
-	})
-	sections := DerivedSections(Collect(context.Background(), root))
-	if len(sections) == 0 {
-		t.Fatal("no derived sections")
-	}
-	for _, s := range sections {
-		if s.Origin != domain.ProfileOriginDerived {
-			t.Errorf("section %q origin = %q", s.Section, s.Origin)
-		}
-		switch s.Section {
-		case domain.ProfileSectionStack, domain.ProfileSectionCommands, domain.ProfileSectionCICD:
-			if len(s.SourcePaths) == 0 {
-				t.Errorf("section %q has no source paths, so a push can never mark it stale", s.Section)
-			}
-		}
-	}
-}
-
-func TestProposalsAreConcrete(t *testing.T) {
-	root := seed(t, map[string]string{
-		"go.mod":   "module demo\n\ngo 1.26\n",
-		"main.go":  "package main\n\nfunc main() {}\n",
-		"Makefile": "lint:\n\tgolangci-lint run\n",
-	})
-	proposals := Proposals(Collect(context.Background(), root))
-	got := map[string]string{}
-	for _, p := range proposals {
-		got[p.Field] = string(p.Value)
-		if p.Label == "" {
-			t.Errorf("proposal %q has no label", p.Field)
-		}
-	}
-	if got[domain.ProposalFieldTestCommand] != `"go test ./..."` {
-		t.Errorf("test command proposal = %s", got[domain.ProposalFieldTestCommand])
-	}
-	if got[domain.ProposalFieldVerifyCommand] != `"make lint"` {
-		t.Errorf("verify command proposal = %s", got[domain.ProposalFieldVerifyCommand])
-	}
-}
-
 func TestMissingWorkingCopyDegrades(t *testing.T) {
 	f := Collect(context.Background(), filepath.Join(t.TempDir(), "nope"))
 	if f.HasAny() {
@@ -277,11 +224,5 @@ func TestMissingWorkingCopyDegrades(t *testing.T) {
 	}
 	if len(f.Warnings) == 0 {
 		t.Fatal("a missing working copy must be reported as a warning")
-	}
-	if PromptFacts(f) != "" {
-		t.Fatal("an empty fact block must not be injected")
-	}
-	if len(DerivedSections(f)) != 0 {
-		t.Fatal("no sections may be written from an unreadable tree")
 	}
 }

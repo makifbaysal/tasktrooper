@@ -68,6 +68,13 @@ type AttachmentManager interface {
 	LinkTask(ctx context.Context, repositoryID, taskID, attachmentID uuid.UUID) (domain.AttachmentMeta, error)
 }
 
+// ComponentResolver looks up a monorepo component by its repository-relative
+// path, so create_task/update_task accept "services/api" (or "." for the
+// repository root) instead of a UUID the planner would have to already know.
+type ComponentResolver interface {
+	ComponentByPath(ctx context.Context, repositoryID uuid.UUID, path string) (domain.Component, error)
+}
+
 type ToolKit struct {
 	Tasks       TaskManager
 	Workspace   WorkspaceLister
@@ -90,6 +97,10 @@ type ToolKit struct {
 	// on purpose (not the whole port.BoardConfigStore) since that is all this
 	// package reads from it.
 	Subscriptions SubscriptionLister
+	// Components resolves create_task/update_task's optional component path
+	// argument. Nil means the argument is accepted but ignored — a build with
+	// no project model still runs the rest of the tool.
+	Components ComponentResolver
 }
 
 // SubscriptionLister is the read-only slice of port.BoardConfigStore
@@ -175,6 +186,21 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 		)
 	}
 	return execs
+}
+
+// resolveComponentRef resolves a component path argument against
+// repositoryID. A nil Components resolver silently ignores the argument
+// (returns nil, nil) rather than failing the whole tool call over a
+// deployment that has not scanned its repositories yet.
+func (kit *ToolKit) resolveComponentRef(ctx context.Context, repositoryID uuid.UUID, path string) (*uuid.UUID, error) {
+	if kit.Components == nil {
+		return nil, nil
+	}
+	comp, err := kit.Components.ComponentByPath(ctx, repositoryID, path)
+	if err != nil {
+		return nil, fmt.Errorf("component %q: %w", path, err)
+	}
+	return &comp.ID, nil
 }
 
 func (kit *ToolKit) resolveCreateRepositoryID(ctx context.Context, explicit *uuid.UUID) (uuid.UUID, error) {

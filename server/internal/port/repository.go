@@ -59,23 +59,6 @@ type RepositoryStore interface {
 	ListProjectIDsByRepositories(ctx context.Context, repositoryIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
 }
 
-// RepositoryProfileStore holds the sectioned project profile: parser-owned
-// facts, agent-written judgment sections, and settings proposals.
-type RepositoryProfileStore interface {
-	ListSections(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProfileSection, error)
-	// Replaces only the named sections, which is what makes a scoped refresh
-	// possible.
-	UpsertSections(ctx context.Context, repositoryID uuid.UUID, sections []domain.ProfileSection) error
-	DeleteSections(ctx context.Context, repositoryID uuid.UUID, sections []string) error
-	// Flags the sections whose source files appear in changedPaths — the work
-	// list for a scoped refresh.
-	MarkStale(ctx context.Context, repositoryID uuid.UUID, changedPaths []string) ([]string, error)
-	ListProposals(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProfileProposal, error)
-	ReplaceProposals(ctx context.Context, repositoryID uuid.UUID, proposals []domain.ProfileProposal) error
-	GetProposal(ctx context.Context, id uuid.UUID) (domain.ProfileProposal, error)
-	SetProposalStatus(ctx context.Context, id uuid.UUID, status domain.ProfileProposalStatus) (domain.ProfileProposal, error)
-}
-
 // RepositoryPipelineJobStore persists the per-(sub-repo, category) mapping of
 // pipeline categories to GitHub Actions jobs/workflows.
 type RepositoryPipelineJobStore interface {

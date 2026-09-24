@@ -8,7 +8,9 @@ import { SetupPage } from "@/pages/SetupPage";
 import { WorkspaceAgentLayout } from "@/components/layout/WorkspaceAgentLayout";
 import { AgentSettingsPage } from "@/pages/AgentSettingsPage";
 import { AgentColumnsPage } from "@/pages/AgentColumnsPage";
-import { ProjectSettingsPage } from "@/pages/ProjectSettingsPage";
+import { AddRepositoryPage } from "@/pages/AddRepositoryPage";
+import { ProjectPage } from "@/pages/ProjectPage";
+import { RepositoryPage } from "@/pages/RepositoryPage";
 import { DeploySettingsPage } from "@/pages/DeploySettingsPage";
 import { IncidentsPage } from "@/pages/IncidentsPage";
 import { DeploymentsPage } from "@/pages/DeploymentsPage";
@@ -59,6 +61,10 @@ export default function App() {
                     redirect stays for old bookmarks and links. */}
                 <Route path="repositories" element={<Navigate to="/projects" replace />} />
                 <Route path="projects" element={<ProjectsPage />} />
+                {/* Declared before projects/:projectId so the static "new"
+                    segment is never swallowed by the dynamic one. */}
+                <Route path="projects/new" element={<AddRepositoryPage />} />
+                <Route path="projects/:projectId" element={<ProjectPage />} />
                 <Route path="agents/:agentId/chat" element={<AgentChatPage />} />
                 <Route path="agents/:agentId/chat/:sessionId" element={<AgentChatPage />} />
                 <Route path="agents/new" element={<WorkspaceAgentLayout />}>
@@ -74,8 +80,10 @@ export default function App() {
                   <Route path="memory" element={<AgentMemoryPage />} />
                   <Route path="performance" element={<AgentPerformancePage />} />
                 </Route>
-                <Route path="repositories/:repositoryId" element={<Navigate to="settings" replace />} />
-                <Route path="repositories/:repositoryId/settings" element={<ProjectSettingsPage />} />
+                <Route path="repositories/:repositoryId" element={<RepositoryPage />} />
+                {/* The repository page absorbed Settings as a ?tab= section;
+                    this keeps the old settings URL landing somewhere real. */}
+                <Route path="repositories/:repositoryId/settings" element={<RepositorySettingsRedirect />} />
                 <Route path="repositories/:repositoryId/deploy" element={<DeploySettingsPage />} />
                 <Route path="operations" element={<OperationsLayout />}>
                   <Route index element={<Navigate to="deployments" replace />} />
@@ -131,6 +139,13 @@ export default function App() {
       </I18nProvider>
     </ThemeProvider>
   );
+}
+
+// /repositories/:id/settings used to render its own page; Settings is now a
+// tab on the repository page itself.
+function RepositorySettingsRedirect() {
+  const { repositoryId } = useParams();
+  return <Navigate to={`/repositories/${repositoryId}?tab=settings`} replace />;
 }
 
 // Old /teams/:teamId/... URLs map onto the single-workspace equivalents.

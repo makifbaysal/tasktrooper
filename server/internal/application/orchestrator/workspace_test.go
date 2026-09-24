@@ -30,21 +30,21 @@ func TestWorkspaceFacts_RendersSnapshot(t *testing.T) {
 	facts := orchestrator.WorkspaceFactsForTest(fakeWorkspace{
 		projects: []domain.InitiativeProject{{ID: uuid.New(), Name: "Acme"}},
 		repos:    []domain.Repository{{Name: "acme-web", Kind: domain.RepoKindFrontend}},
-	})
+	}, nil)
 
 	assert.Contains(t, facts, "Acme")
 	assert.Contains(t, facts, "acme-web")
 }
 
 func TestWorkspaceFacts_NoListerIsEmpty(t *testing.T) {
-	assert.Empty(t, orchestrator.WorkspaceFactsForTest(nil))
+	assert.Empty(t, orchestrator.WorkspaceFactsForTest(nil, nil))
 }
 
 func TestWorkspaceFacts_PartialFailureStillRenders(t *testing.T) {
 	facts := orchestrator.WorkspaceFactsForTest(fakeWorkspace{
 		projectsErr: errors.New("boom"),
 		repos:       []domain.Repository{{Name: "acme-web"}},
-	})
+	}, nil)
 
 	assert.Contains(t, facts, "acme-web")
 }
@@ -53,9 +53,53 @@ func TestWorkspaceFacts_TotalFailureIsEmpty(t *testing.T) {
 	facts := orchestrator.WorkspaceFactsForTest(fakeWorkspace{
 		projectsErr: errors.New("boom"),
 		reposErr:    errors.New("boom"),
-	})
+	}, nil)
 
 	assert.Empty(t, facts)
+}
+
+type fakeProjectModel struct {
+	overview domain.ProjectsOverview
+	err      error
+}
+
+func (f fakeProjectModel) ProjectsOverview(context.Context) (domain.ProjectsOverview, error) {
+	return f.overview, f.err
+}
+
+func TestWorkspaceFacts_AddsComponentsAndProjectTypeFromProjectModel(t *testing.T) {
+	projectID := uuid.New()
+	repoID := uuid.New()
+	facts := orchestrator.WorkspaceFactsForTest(
+		fakeWorkspace{
+			projects: []domain.InitiativeProject{{ID: projectID, Name: "Acme"}},
+			repos:    []domain.Repository{{ID: repoID, Name: "acme-api"}},
+		},
+		fakeProjectModel{overview: domain.ProjectsOverview{
+			Projects: []domain.ProjectOverview{{
+				ID:   projectID,
+				Name: "Acme",
+				Type: domain.ProjectTypeSingle,
+				Repositories: []domain.RepositorySummary{{
+					ID:         repoID,
+					Name:       "acme-api",
+					Components: []domain.ComponentSummary{{Path: ".", Role: domain.ComponentRoleBackend}},
+				}},
+			}},
+		}},
+	)
+
+	assert.Contains(t, facts, "Acme (single_repo)")
+	assert.Contains(t, facts, "role: backend")
+}
+
+func TestWorkspaceFacts_ProjectModelFailureStillRendersPlainSnapshot(t *testing.T) {
+	facts := orchestrator.WorkspaceFactsForTest(
+		fakeWorkspace{repos: []domain.Repository{{Name: "acme-web"}}},
+		fakeProjectModel{err: errors.New("boom")},
+	)
+
+	assert.Contains(t, facts, "acme-web")
 }
 
 func TestBuildIntakeSystemPrompt_IncludesWorkspaceFacts(t *testing.T) {

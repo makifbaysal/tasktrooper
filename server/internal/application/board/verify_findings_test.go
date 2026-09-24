@@ -72,8 +72,6 @@ func (f failingRepo) ResolveDescription(context.Context, uuid.UUID) (string, err
 func (f failingRepo) ResolveRepository(context.Context, uuid.UUID) (domain.Repository, error) {
 	return f.repo, nil
 }
-func (f failingRepo) ProfileForRun(context.Context, uuid.UUID, string) string { return "" }
-
 func traceStep(t *testing.T, kind string, payload any) domain.SessionStep {
 	t.Helper()
 	data, err := json.Marshal(payload)

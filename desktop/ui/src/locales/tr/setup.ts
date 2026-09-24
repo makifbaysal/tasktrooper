@@ -64,7 +64,7 @@ export const setup = {
       "Bir proje, birlikte yayınlanan depoları gruplar. Bir tane oluşturun, sonra ilk deponuzu içine aktarın; türünün ne olduğu, nasıl deploy edildiği, nasıl derlenip test edildiği sorulacak.",
     createProject: "Proje oluştur",
     needsRepositoryTitle: "Şimdi bir depo içe aktarın",
-    needsRepositoryBody: "Aşağıdaki projedeki düğmelerden birini kullanın. Diğerlerini sonra ekleyebilirsiniz.",
+    needsRepositoryBody: "Eklemek için aşağıdaki düğmeyi kullanın. Diğerlerini sonra ekleyebilirsiniz.",
     doneTitle: "İlk deponuz eklendi",
     doneBody: "Projeye bağlandı ve arka planda indeksleniyor. İstediğiniz zaman yenilerini ekleyin.",
     loadFailed: "Projeleriniz yüklenemedi",

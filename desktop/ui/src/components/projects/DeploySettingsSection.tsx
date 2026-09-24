@@ -11,7 +11,6 @@ import {
 } from "@/api";
 import { DeployTargetsSection } from "@/components/projects/DeployTargetsSection";
 import { MobileStorePanel } from "@/components/projects/MobileStorePanel";
-import { HostingPanel } from "@/components/projects/hosting/HostingPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -151,7 +150,10 @@ export function DeploySettingsSection({ repositoryId, className }: DeploySetting
         </div>
       )}
 
-      {isMobile ? (
+      {/* The non-mobile branch used to mount HostingPanel here; the Deploy &
+          Runtime tab (next UI step, built on the Phase 2 environments/cloud
+          accounts) replaces it. */}
+      {isMobile && (
         <MobileStorePanel
           repositoryId={repositoryId}
           mobilePlatform={
@@ -160,8 +162,6 @@ export function DeploySettingsSection({ repositoryId, className }: DeploySetting
               : repository?.mobile_platform) ?? ""
           }
         />
-      ) : (
-        <HostingPanel repositoryId={repositoryId} subProjectPath={subProjectPath} scopeKind={scopeKind} />
       )}
 
       <DeployTargetsSection

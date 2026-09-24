@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -26,6 +28,10 @@ type updateTaskArgs struct {
 	// Project tags an existing task with an initiative (name or UUID). Without
 	// it a task created before the initiative existed could never be filed.
 	Project string `json:"project"`
+	// Component re-scopes the task to a different component of a monorepo, by
+	// its repository-relative path ("." for the root). Empty leaves it alone —
+	// there is no spelling to clear it back to "whole repository" from here.
+	Component string `json:"component"`
 	// Deploy runbook. Empty string is "leave alone" here, matching every other
 	// string argument on this tool; the fields are cleared from the UI, not by
 	// an agent that happened to send "".
@@ -95,6 +101,10 @@ func (t *updateTaskTool) Definition() domain.ToolDefinition {
 						"type":        "string",
 						"description": "File this task under an initiative: project name or UUID. Use list_projects for valid names.",
 					},
+					"component": map[string]interface{}{
+						"type":        "string",
+						"description": "For a monorepo: re-scope this task to a different component, by its repository-relative path (e.g. \"services/api\"); \".\" means the repository root. Omit to leave the task's current component alone.",
+					},
 					"before_deploy": map[string]interface{}{
 						"type":        "string",
 						"description": "Pre-deploy checklist (markdown): what must be true or done before this ships. Posted on the task automatically when the release is dispatched — do not write it as a comment.",
@@ -161,6 +171,15 @@ func (t *updateTaskTool) Execute(ctx context.Context, arguments string) domain.T
 			return toolError(updateBoardTaskToolName, projErr.Error())
 		}
 		req.InitiativeProjectID = &projectID
+	}
+	if strings.TrimSpace(args.Component) != "" {
+		componentID, cerr := t.kit.resolveComponentRef(ctx, repositoryID, args.Component)
+		if cerr != nil {
+			return toolError(updateBoardTaskToolName, cerr.Error())
+		}
+		if componentID != nil {
+			req.ComponentID = domain.Nullable[uuid.UUID]{Present: true, Value: componentID}
+		}
 	}
 	if args.BeforeDeploy != "" {
 		req.BeforeDeploy = &args.BeforeDeploy

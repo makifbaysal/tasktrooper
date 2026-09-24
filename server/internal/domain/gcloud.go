@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // GCloudCredential is the decrypted view of the Google Cloud service-account
@@ -20,19 +18,6 @@ type GCloudCredential struct {
 	Data      map[string]string
 }
 
-// GCloudCredentialView is the safe-to-serve projection of the stored
-// credential: never the payload, only whether Google Cloud is connected, the
-// two identifiers that name the connection, and when it was last written.
-type GCloudCredentialView struct {
-	Connected bool `json:"connected"`
-	// ClientEmail is the service account's address — an identifier, not a
-	// secret: it appears in every IAM binding, and the operator needs it to
-	// grant the roles this integration asks for.
-	ClientEmail string    `json:"client_email,omitempty"`
-	ProjectID   string    `json:"project_id,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
 // The Google Cloud resource kinds this integration binds: both are things a
 // sub-project IS deployed AS, which is why a Cloud Build trigger is not here.
 const (
@@ -41,8 +26,7 @@ const (
 )
 
 // GCloudResourceRef is one Google Cloud resource as the API lists it — a
-// remote record we neither own nor persist wholesale, deliberately distinct
-// from GCloudResourceBinding (OUR statement about a repository).
+// remote record we neither own nor persist wholesale.
 type GCloudResourceRef struct {
 	// Type discriminates the union; the consumer that ignores it cannot tell a
 	// service from a cluster.
@@ -142,94 +126,10 @@ type GCloudIdentity struct {
 	ClientEmail string `json:"client_email"`
 }
 
-// GCloudResourceDetail is the discriminated union the bound-resource read
-// returns: exactly one pointer is set, matching Ref.Type.
-type GCloudResourceDetail struct {
-	Ref        GCloudResourceRef      `json:"ref"`
-	CloudRun   *CloudRunServiceDetail `json:"cloud_run,omitempty"`
-	GKECluster *GKEClusterDetail      `json:"gke_cluster,omitempty"`
-}
-
-// GCloudResourceBinding is one (repository, sub-project) → Google Cloud
-// resource statement.
-type GCloudResourceBinding struct {
-	ID             uuid.UUID `json:"id"`
-	RepositoryID   uuid.UUID `json:"repository_id"`
-	SubProjectPath string    `json:"sub_project_path"`
-	ResourceType   string    `json:"resource_type"`
-	ResourceName   string    `json:"resource_name"`
-	DisplayName    string    `json:"display_name,omitempty"`
-	ProjectID      string    `json:"project_id,omitempty"`
-	Location       string    `json:"location,omitempty"`
-	Source         string    `json:"source"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-}
-
-// SaveGCloudResourceRequest binds one scope of a repository to one resource as
-// the picker listed it.
-type SaveGCloudResourceRequest struct {
-	// SubProjectPath is "" for the repository itself, or a path that must
-	// appear in the repository's sub_projects list.
-	SubProjectPath string `json:"sub_project_path"`
-	ResourceType   string `json:"resource_type"`
-	ResourceName   string `json:"resource_name"`
-	DisplayName    string `json:"display_name"`
-	ProjectID      string `json:"project_id"`
-	Location       string `json:"location"`
-}
-
-// ErrInvalidGCloudResource marks a binding request the CALLER got wrong; the
-// HTTP layer turns it into a 400, never the credential or backend failing.
+// ErrInvalidGCloudResource marks a resource name the caller got wrong; the
+// gcloud adapter turns it into port.ErrCloudAuth/a 4xx, never a backend
+// failure.
 var ErrInvalidGCloudResource = errors.New("invalid google cloud resource")
-
-// ValidGCloudResourceType reports whether t is one of the two kinds this
-// integration binds.
-func ValidGCloudResourceType(t string) bool {
-	return t == GCloudResourceCloudRun || t == GCloudResourceGKECluster
-}
-
-// maxGCloudResourceName bounds the stored name; GCP's own limits are far lower,
-// so this only stops a hostile body filling a column.
-const maxGCloudResourceName = 512
-
-// ValidateSaveGCloudResource normalises and checks a binding request, filling
-// ProjectID and Location from ResourceName when the caller left them out — the
-// fully qualified name already carries both.
-func ValidateSaveGCloudResource(req SaveGCloudResourceRequest) (SaveGCloudResourceRequest, error) {
-	req.SubProjectPath = strings.TrimSpace(req.SubProjectPath)
-	req.ResourceType = strings.TrimSpace(req.ResourceType)
-	req.ResourceName = strings.TrimSpace(req.ResourceName)
-	req.DisplayName = strings.TrimSpace(req.DisplayName)
-
-	if !ValidGCloudResourceType(req.ResourceType) {
-		return SaveGCloudResourceRequest{}, fmt.Errorf("%w: unknown resource type %q", ErrInvalidGCloudResource, req.ResourceType)
-	}
-	if req.ResourceName == "" {
-		return SaveGCloudResourceRequest{}, fmt.Errorf("%w: resource_name is required", ErrInvalidGCloudResource)
-	}
-	if len(req.ResourceName) > maxGCloudResourceName {
-		return SaveGCloudResourceRequest{}, fmt.Errorf("%w: resource_name is too long", ErrInvalidGCloudResource)
-	}
-
-	parsed, err := ParseGCloudResourceName(req.ResourceName)
-	if err != nil {
-		return SaveGCloudResourceRequest{}, err
-	}
-	if parsed.Type != req.ResourceType {
-		return SaveGCloudResourceRequest{}, fmt.Errorf("%w: resource_name is a %s, not a %s", ErrInvalidGCloudResource, parsed.Type, req.ResourceType)
-	}
-	if req.ProjectID == "" {
-		req.ProjectID = parsed.ProjectID
-	}
-	if req.Location == "" {
-		req.Location = parsed.Location
-	}
-	if req.DisplayName == "" {
-		req.DisplayName = parsed.ShortName
-	}
-	return req, nil
-}
 
 // ParsedGCloudResourceName is the four parts of a fully qualified GCP resource
 // name this integration understands.

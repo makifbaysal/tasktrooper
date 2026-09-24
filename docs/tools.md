@@ -76,7 +76,26 @@ Read-only, and available even on a repository with no semantic index yet.
 | `list_repositories` | Lists registered repositories | Every role |
 | `set_repository_projects` | Links a repository to projects | `product-manager` |
 | `list_team` | Lists board member agents | Every role |
-| `update_project_profile` | Writes the judgment half of a repository's project profile (purpose, conventions, invariants, danger zones) | `system-architect`, developer roles |
+| `get_project_brief` | Reads the structured project model's brief: what a repository/component is, what it runs, what it talks to, plus judgment notes | `system-architect`, developer roles, `qa-agent`, `product-manager` |
+| `list_component_checks` | Lists each component's CI checks — workflow, purpose, gate, the exact local command that reproduces it | `system-architect`, developer roles, `qa-agent` |
+| `list_links` | Lists what a component talks to and what talks to it (other components, system resources) | `system-architect`, developer roles, `qa-agent`, `product-manager` |
+| `record_project_note` | Writes the judgment half of the project model (purpose, entrypoints, conventions, invariants, danger zones, change recipes, gotchas) | `system-architect`, developer roles |
+
+## Cloud runtime
+
+Where a component actually runs (a connected Vercel/GCP/AWS account, or a
+custom URL) and what it is doing there right now. `get_environment` is the
+lookup; the other three need one *bound* environment — an account and a
+resource, not just a URL — and refuse with "no `<environment>` environment is
+bound for `<component>` — the human connects it on the repository's Deploy
+tab" otherwise.
+
+| Tool | What it does | Typically held by |
+|---|---|---|
+| `get_environment` | Reads one component's environment(s): provider, resource, URL, health, binding status | `system-architect`, developer roles, `qa-agent`, `product-manager` |
+| `query_runtime_logs` | Reads an environment's live application logs (not a CI job's output — that is `get_deploy_logs`), newest first | Developer roles, `qa-agent` |
+| `list_runtime_errors` | Lists an environment's runtime errors, grouped and deduplicated, with a `new` flag for errors that started in the window | `system-architect`, developer roles, `qa-agent` |
+| `list_deployments` | Lists an environment's recent deployments as the provider reports them | Developer roles, `qa-agent` |
 
 ## Pull requests
 
@@ -103,6 +122,8 @@ refusal matrix.
 | `get_deploy_target` | How a repository ships to an environment | `qa-agent`, `product-manager` |
 | `update_deploy_target` | Records the address an environment actually answers at (`base_url`/`health_url`/`logs_url`/`app_url` only) | `qa-agent`, `product-manager` |
 | `record_local_deploy` | Records a break-glass deploy run made from a machine directly, so the Deployments page still reflects it | Ops-facing agents with board/deploy write access |
+
+`get_deploy_logs` reads a CI/Actions job's output; a bound environment's own live logs and grouped errors come from `query_runtime_logs`/`list_runtime_errors` in [Cloud runtime](#cloud-runtime) instead.
 
 See [Deploy targets and recipes](deploy.md).
 

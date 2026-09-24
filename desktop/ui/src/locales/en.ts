@@ -1,14 +1,19 @@
 // English dictionary — source of truth for UI strings.
 // Shape here defines `Dict`; tr.ts must match it (missing/extra keys fail typecheck).
 // Namespaced by page/component. Interpolation uses {name} placeholders.
+import { addRepository } from "@/locales/en/addRepository";
 import { agentArea } from "@/locales/en/agentArea";
 import { boardArea } from "@/locales/en/boardArea";
 import { chatArea } from "@/locales/en/chatArea";
+import { cloud } from "@/locales/en/cloud";
 import { content } from "@/locales/en/content";
 import { frame } from "@/locales/en/frame";
 import { lib } from "@/locales/en/lib";
 import { operations } from "@/locales/en/operations";
 import { projectAdmin } from "@/locales/en/projectAdmin";
+import { projectModel } from "@/locales/en/projectModel";
+import { projectsHub } from "@/locales/en/projectsHub";
+import { repositoryPage } from "@/locales/en/repositoryPage";
 import { settingsPages } from "@/locales/en/settingsPages";
 import { setup } from "@/locales/en/setup";
 
@@ -17,12 +22,12 @@ export const en = {
     save: "Save",
     saving: "Saving...",
     cancel: "Cancel",
-    edit: "Edit",
     refresh: "Refresh",
     resetDefault: "Reset to default",
     actionFailed: "Action failed",
     saved: "Saved",
     saveFailed: "Failed to save",
+    comingSoon: "Coming soon",
     errorBoundary: {
       title: "Something went wrong",
       body: "An unexpected error occurred and the screen couldn't render. Try reloading the page.",
@@ -53,63 +58,6 @@ export const en = {
       connectedToast: "GitHub connected",
       connectFailedToast: "GitHub connection failed",
       disconnectedToast: "GitHub connection removed",
-    },
-    vercel: {
-      statusUnavailable: "Status unavailable.",
-      connected: "✓ Connected: {login}",
-      disconnect: "Disconnect",
-      connect: "Connect",
-      tokenLabel: "Access token",
-      tokenPlaceholder: "paste a Vercel access token",
-      tokenHelp:
-        "Create a token at vercel.com/account/tokens, scoped to the team your projects live in. It is verified once, stored encrypted on the server and never shown again.",
-      team: "Scope",
-      personalAccount: "Personal account",
-      teamSaved: "Vercel scope saved",
-      connectedToast: "Vercel connected",
-      connectFailedToast: "Vercel connection failed",
-      disconnectedToast: "Vercel connection removed",
-      apps: {
-        title: "App links",
-        subtitle:
-          "Pick an app. TaskTrooper reads its tree and your Vercel projects to work out where its frontend and backend ship; when it cannot tell, you choose.",
-        selectApp: "Select an app",
-        noApps: "No apps yet — add a repository first.",
-        detecting: "Inspecting the repository and your Vercel projects…",
-        detectFailed: "Detection failed",
-        noAreas: "This app has no frontend or backend area to host — only backend and frontend projects are linked.",
-        warnings: "Notes",
-        area: { root: "Whole repository", frontend: "Frontend", backend: "Backend", mobile: "Mobile", worker: "Worker" },
-        directory: "Folder",
-        linked: "Linked to {name}",
-        linkedProvider: "Recorded as {provider}",
-        linkedBy: { detected: "detected", user: "chosen by you" },
-        openProject: "Open",
-        unlink: "Unlink",
-        unlinked: "Link removed",
-        hints: "What the tree says",
-        detected: "Detected: {name}",
-        detectedHelp: "Proven by {reason}.",
-        confirm: "Link",
-        ambiguous: "Several Vercel projects could be this one — pick the right one.",
-        none: "Could not tell where this ships. Pick the Vercel project, or record where it lives instead.",
-        pickProject: "Vercel project",
-        pickProjectPlaceholder: "Choose a project",
-        loadingProjects: "Loading projects…",
-        noProjects: "No projects in this scope.",
-        elsewhere: "It lives elsewhere",
-        elsewherePlaceholder: "Choose a provider",
-        record: "Record",
-        recorded: "Recorded — this area will not be asked about again.",
-        linkSaved: "Linked to {name}",
-        notConnected: "Connect Vercel above to look projects up.",
-        reasons: {
-          project_json: ".vercel/project.json in the working copy",
-          git_link_dir: "git-linked to this repository and built from this folder",
-          git_link: "git-linked to this repository",
-          name: "a matching project name",
-        },
-      },
     },
     boilerplate: {
       title: "Boilerplate Catalog",
@@ -143,14 +91,19 @@ export const en = {
       saveFailed: "Failed to save",
     },
   },
+  addRepository,
   agentArea,
   boardArea,
   chatArea,
+  cloud,
   content,
   frame,
   lib,
   operations,
   projectAdmin,
+  projectModel,
+  projectsHub,
+  repositoryPage,
   settingsPages,
   setup,
 };

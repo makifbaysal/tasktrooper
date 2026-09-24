@@ -40,9 +40,9 @@ import {
 import { cn } from "@/lib/utils";
 
 // The Select value that means "no template": a target may legitimately have
-// none — everything InitialSetupDialog writes does, since it records where an
-// environment answers without claiming to know how it got there. Radix Select
-// cannot hold "" as an item value, hence the sentinel.
+// none, since it can just record where an environment answers without
+// claiming to know how it got there. Radix Select cannot hold "" as an item
+// value, hence the sentinel.
 const NO_TEMPLATE = "__none__";
 
 // storeCredentialProviderFor maps a deploy provider to the credential-vault

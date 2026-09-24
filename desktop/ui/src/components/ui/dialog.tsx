@@ -74,8 +74,7 @@ interface DialogContentOwnProps {
   /**
    * Hides the top-right "X". Additive and off by default — every existing
    * dialog keeps its close button. Used for a dialog that must be finished
-   * rather than dismissed (see InitialSetupDialog's `dismissable` prop on
-   * FormDialog, which is what actually sets this).
+   * rather than dismissed.
    */
   hideCloseButton?: boolean;
 }

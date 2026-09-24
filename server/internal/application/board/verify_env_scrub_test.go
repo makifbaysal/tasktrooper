@@ -52,7 +52,7 @@ func (s *VerifyEnvScrubSuite) TestRepoDeclaredStageGetsNoSecrets() {
 	s.plantSecrets()
 	dir, repo := s.hostileRepo("env")
 
-	ok, report := runVerification(context.Background(), dir, repo)
+	ok, report := runVerification(context.Background(), dir, repo, nil)
 
 	s.False(ok, "the stage exits 1, so verification must report a failure")
 	s.assertNoSecrets(report)
@@ -71,7 +71,7 @@ func (s *VerifyEnvScrubSuite) TestObfuscatedReadsInAStageFindNothing() {
 		`cat /proc/self/environ`,
 	} {
 		dir, repo := s.hostileRepo(script)
-		_, report := runVerification(context.Background(), dir, repo)
+		_, report := runVerification(context.Background(), dir, repo, nil)
 		s.assertNoSecrets(report)
 	}
 }
@@ -81,7 +81,7 @@ func (s *VerifyEnvScrubSuite) TestStageKeepsItsToolchain() {
 	s.T().Setenv("JAVA_HOME", "/opt/java")
 	dir, repo := s.hostileRepo(`echo path=[$PATH] home=[$HOME] goflags=[$GOFLAGS] java=[$JAVA_HOME]`)
 
-	_, report := runVerification(context.Background(), dir, repo)
+	_, report := runVerification(context.Background(), dir, repo, nil)
 
 	s.NotContains(report, "path=[]")
 	s.NotContains(report, "home=[]")
@@ -93,7 +93,7 @@ func (s *VerifyEnvScrubSuite) TestNoToolchainOverlayStillScrubs() {
 	s.plantSecrets()
 	dir, repo := s.hostileRepo("env")
 
-	ok, report := runVerification(context.Background(), dir, repo)
+	ok, report := runVerification(context.Background(), dir, repo, nil)
 
 	s.False(ok)
 	s.NotEmpty(report, "the stage's output must reach the report, or this proves nothing")

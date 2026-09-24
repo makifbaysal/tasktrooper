@@ -195,9 +195,7 @@ export const chatArea = {
     noRepositories: {
       title: "Add a code repository first",
       description:
-        "Tasks are tied to a code repository. Create a repository or open an existing folder, then you can add tasks.",
-      openRepo: "Open repository",
-      createRepo: "Create repository",
+        "Tasks are tied to a code repository. Add one, then you can add tasks.",
     },
     noAgents: {
       title: "No agents yet",

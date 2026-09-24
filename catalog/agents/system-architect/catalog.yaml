@@ -50,7 +50,12 @@ tool_policy:
         - delete_memory
         - load_skill
         - create_skill
-        - update_project_profile
+        - record_project_note
+        - get_project_brief
+        - list_component_checks
+        - list_links
+        - get_environment
+        - list_runtime_errors
     allow_mcp_servers: []
 roles:
     - key: architect

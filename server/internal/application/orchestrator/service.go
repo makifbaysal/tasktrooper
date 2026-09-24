@@ -38,6 +38,7 @@ type Service struct {
 	cfg            domain.OrchestrationConfig
 	contextBuilder *ContextBuilder
 	workspace      WorkspaceLister
+	projectModel   ProjectModel
 }
 
 func NewService(

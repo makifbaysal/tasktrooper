@@ -333,16 +333,13 @@ just a recorded address + health check like any other).
 - `GET /v1/repositories/{id}/deploy/targets/{env}/instructions` — recipe rendered with the target's vars (repository-scoped only, no sub_project_path).
 - `POST /v1/repositories/{id}/deploy/targets/{env}/setup-task` — open the board task that authors the deploy workflow (repository-scoped only).
 
-## Pipeline config
+## Pipeline setup task
 
-- `GET /v1/repositories/{id}/pipeline/config` — repo kind, saved
-  `repository_pipeline_jobs` rows and category suggestions. Each row/suggestion
-  carries `sub_project_path` (`""` = the repository itself) alongside
-  `sub_repo_kind` — the path is what disambiguates two sub-projects that share
-  a kind; `sub_repo_kind` only picks the keyword set used for suggestions. A
-  monorepo with no `sub_projects` yet falls back to one group per checked
-  `sub_repo_kinds` entry, same as before this field existed.
-- `PUT /v1/repositories/{id}/pipeline/config` — `{kind, sub_repo_kinds, auto_release_on_done, jobs}`; replaces the whole repository's job set in one call (every sub-project's slots are submitted together).
+`GET`/`PUT /v1/repositories/{id}/pipeline/config` are gone (Project Model
+Phase 1 — see "Project model" below); only the setup task survives:
+
+- `POST /v1/repositories/{id}/pipeline/setup-task` — open the board task that
+  writes this repository's CI workflows (`api.createWorkflowSetupTask`).
 
 ## GitHub connection
 
@@ -351,15 +348,53 @@ Settings → Integrations (`admin/GitHubCard`). `GET /v1/settings/github` → `{
 it encrypted (scopes: `repo`, `admin:repo_hook`, `read:org`); `DELETE` removes it. There is no OAuth
 hop — nothing here can hold an OAuth app's client secret or receive GitHub's callback.
 
-## Vercel connection & hosting links
+## Cloud accounts & environments (Phase 2)
 
-Settings → Integrations (`admin/VercelCard`). `GET/PUT/DELETE /v1/settings/vercel` (pasted
-access token; `PUT {team_id}` re-scopes), `GET /v1/settings/vercel/teams`,
-`GET /v1/settings/vercel/projects?team_id=`. Per app:
-`GET /v1/repositories/{id}/hosting/detect` (areas with `confidence` exact/ambiguous/none,
-`candidates`, tree `hints`, `existing`), `PUT /v1/repositories/{id}/hosting/links`
-(`{area, provider, external_id, source}`), `DELETE …/hosting/links/{area|root}`.
-409 = Vercel not connected.
+Replaced the old one-account-each `/v1/settings/vercel*` and `/v1/gcloud/*` (plus
+the hosting-link endpoints, `/v1/repositories/{id}/hosting/*`): a repository's
+components now bind to a provider-neutral environment, read through one or more
+connected accounts. JSON shapes mirror `server/internal/domain/cloud.go`'s tags
+exactly. Errors: `{error, code}`; a rejected credential is 400 with
+`code:"cloud_auth"` (`api.isCloudAuthError`), 404 unknown id, 502 provider
+unreachable.
+
+Accounts (Settings → Integrations, `admin/CloudAccountsCard` + `CloudAccountDialog`):
+
+- `GET /v1/cloud-accounts` → `{accounts: CloudAccount[]}` (never carries secrets).
+- `POST /v1/cloud-accounts` `SaveCloudAccountRequest {provider: "vercel"|"gcp"|"aws", label?, fields}`
+  → 201 `CloudAccount`. Verified with the provider before storing.
+  `fields`: vercel `{token, team_id?}` · gcp `{service_account_json}` · aws
+  `{access_key_id, secret_access_key, session_token?, region}`.
+- `PATCH /v1/cloud-accounts/{id}` `{label?, fields?}` → `CloudAccount` (re-verified
+  when `fields` is given — this is how a credential is replaced).
+- `POST /v1/cloud-accounts/{id}/verify` → `CloudAccount` (`status` ok|error, `status_detail`).
+- `DELETE /v1/cloud-accounts/{id}` → 204 (environments bound through it keep their
+  rows but lose live data).
+- `GET /v1/cloud-accounts/{id}/resources?refresh=1` → `{resources: CloudResource[]}` (cached 60s).
+
+Environments (a repository's Deploy & Runtime tab, one per `ComponentEnvironment`;
+listed in `GET /v1/repositories/{id}/model` → `environments`, suggestions surface
+in `review` with `kind:"environment"`, rendered by `projects/model/ReviewList`):
+
+- `PUT /v1/components/{componentId}/environments/{env}`
+  `SaveEnvironmentRequest {account_id?, resource?, url?, health_url?}` →
+  `ComponentEnvironment` (source user, confirmed). `{env}` ∈
+  production|staging|preview|development. With `account_id` a `resource` is
+  required (picked from that account's resources); without one it is a custom
+  environment and `url` is required.
+- `PATCH /v1/environments/{envId}` `{status?: "confirmed"|"dismissed"|"suggested", account_id?, resource?}`
+  → `ComponentEnvironment` — choosing one of the row's `candidates` means sending
+  its `account_id` + `resource.ref` with `status:"confirmed"` (`api.patchEnvironment`).
+- `DELETE /v1/environments/{envId}` → 204.
+- `GET /v1/environments/{envId}/overview` → `EnvironmentRuntime {environment, detail?, deployments[], errors[], unavailable?}`.
+- `GET /v1/environments/{envId}/logs?since=&until=&min_severity=&q=&limit=&cursor=` → `RuntimeLogPage` (default: last hour, 200).
+- `GET /v1/environments/{envId}/errors?since=` → `{errors: RuntimeErrorGroup[]}` (default last 24h).
+- `GET /v1/environments/{envId}/deployments?limit=` → `{deployments: CloudDeployment[]}`.
+- `POST /v1/environments/{envId}/errors/task` body `RuntimeErrorGroup` → 201 `BoardTask`.
+
+`RepositorySummary.environments[]` (`EnvironmentSummary`) comes from stored health
+only — cheap, no provider call — and is what `projects/hub/EnvironmentChips`
+renders per component on the projects hub.
 
 ## Roles, task types & workflows
 
@@ -441,9 +476,8 @@ A board task is assigned to an agent only (`assignee_agent_id`); there is no per
 ## `sync_warning` on the index status
 
 Set to `err.Error()` when a reindex pass's git pull from origin fails, so the index
-still runs (indexing slightly old code beats refusing) but the card can say the code
-it describes may be behind. `ProjectSettingsPage` renders it under "This index is
-behind the code it describes: …". Cleared by the next pass that pulls cleanly.
+still runs (indexing slightly old code beats refusing) but a caller can say the code
+it describes may be behind. Cleared by the next pass that pulls cleanly.
 
 ## Deploy metadata & deploy packages
 
@@ -580,18 +614,77 @@ a thin workflow calls it) instead of the four deleted platform deploy templates
   for the full semantics and the deadlock each flag can cause if turned on without the board
   wiring it needs.
 
-## Project profile
+## Project model
 
-- `GET /v1/repositories/{id}/profile` — `{profile_md, profile_updated_at}`: the
-  agent-maintained markdown brief of the codebase (purpose, stack, layout,
-  commands, conventions). `profile_md` is `""` and `profile_updated_at` is
-  `null` until the first analysis lands. 404 on an unknown repository.
-- `POST /v1/repositories/{id}/profile/refresh` — 202 `{status: "started" |
-  "already_running"}`. Kicks a background analysis run (system-architect's
-  model, read-only code tools against `root_path`); per-repo in-flight dedup
-  makes a second request while one runs a no-op. The profile is also rebuilt
-  automatically on import and after a push-triggered reindex when it is missing
-  or older than 6h.
+Replaced the old repository profile, in Phase 1: instead of one agent-written
+markdown brief, a repository now has a structured model — components, checks,
+links, resources, notes — built by a deterministic scan plus one agent pass.
+JSON shapes are the Go types' JSON tags exactly: `server/internal/domain/project_model.go`
+(Component, ComponentCheck, ComponentLink, SystemResource, ProjectNote,
+ProjectScan, `Fact<T>`, enums), `scan_result.go` (ScanResult, inside
+`ProjectScan.result` only), `project_model_requests.go` (patch/request bodies,
+RepositoryModel, ProjectsOverview, ProjectDetail, ReviewItem, summaries),
+`repository.go` (Repository, RepositoryDocs).
+
+`Fact<T>`: `{ detected?: T, override?: T, confidence?: "exact"|"high"|"medium"|"low", evidence?: [{path, line?, note?}] }`.
+Effective value = `override ?? detected`; "edited by you" = override present;
+reverting to detected means sending `null` for that field in a PATCH.
+`Patch<T>` in request bodies: field absent = leave, `null` = clear the
+override, a value = set it.
+
+Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
+(a scan is already running — body still carries `{scan}`), 500.
+
+- `GET/POST /v1/projects`, `GET/PATCH/DELETE /v1/projects/{id}`,
+  `PUT /v1/repositories/{id}/projects` (`{project_ids: []}`) — unchanged, basic
+  project CRUD and repo↔project membership.
+- `GET /v1/projects/overview` → `{ projects: ProjectOverview[], unassigned: RepositorySummary[] }`
+  — the projects hub's one call. `GET /v1/projects/{id}/overview` → the same
+  `ProjectOverview` plus `review: ReviewItem[]` across its repositories.
+  `ProjectOverview.type` (`"empty"|"single_repo"|"monorepo"|"multi_repo"`) is
+  computed; `cross_projects`/`cross_links`/`shared_resources` are empty for an
+  independent project.
+- `GET /v1/repositories/{id}/model` → `RepositoryModel`: `{ repository,
+  shape: "single"|"monorepo", components, checks, links (outgoing),
+  incoming_links, resources, linked_components (display info for other
+  repositories' components a link points at), notes, review, latest_scan? }`.
+- `GET /v1/repositories/{id}/brief?component_id=&area=` → `{ brief: string }`
+  — the markdown injected into an agent run.
+- `POST /v1/repositories/{id}/scans` → 202 `{ scan }` (409 while one is
+  already running). `GET /v1/repositories/{id}/scans/latest` → `{ scan:
+  ProjectScan | null }` and `GET /v1/scans/{scanId}` → `{ scan }` (neither
+  carries `result`). `ProjectScan.events[]`: `{stage, done, summary?, at}`;
+  stages in order: clone, inventory, shape, components, stack, checks, links,
+  deploy, match, notes. The deterministic stages finish in seconds; `notes`
+  (the agent pass) runs after `status` is already `succeeded` and appends its
+  events later. Import (`POST /v1/repositories/import|open`, `POST
+  /v1/repositories`) now starts a scan instead of the old profile refresh —
+  poll `GET /v1/repositories/{id}/scans/latest` every 1s until `status` is
+  `succeeded`/`failed`.
+- Edits: `POST /v1/repositories/{id}/components` (`NewComponentRequest
+  {path, name?, role}`) → 201; `PATCH /v1/components/{id}` (`ComponentPatch
+  {name?, role?, commands?: {<purpose>: string|null}, gates?, docs?, status?}`).
+  `POST /v1/components/{id}/checks` (`NewCheckRequest {name, purpose,
+  local_commands:[{dir, argv}], gate}`) → 201; `PATCH`/`DELETE
+  /v1/checks/{id}` (manual checks only — a CI-sourced check 400s on DELETE;
+  dismiss it instead via the PATCH `status`). `POST /v1/links`
+  (`NewLinkRequest {from_component_id, to_component_id? | to_resource?:
+  {kind, vendor?, name}, protocol, detail?}`) → 201; `PATCH`/`DELETE
+  /v1/links/{id}` (same manual-only rule as checks; retargeting a suggested
+  link with `PATCH` confirms it). `PUT /v1/repositories/{id}/notes`
+  (`SaveNoteRequest {component_id?, topic, body_md, locked}`);
+  `PATCH`/`DELETE /v1/notes/{id}`. The "add component" folder picker reuses
+  the existing `GET /v1/repositories/{id}/directories?path=`.
+- **Removed, the UI must not call them:** `GET /v1/repositories/{id}/profile`,
+  `POST /v1/repositories/{id}/profile/refresh`,
+  `/v1/repositories/{id}/dependencies*`, `GET /v1/projects/{id}/dependencies`,
+  `GET`/`PUT /v1/repositories/{id}/pipeline/config`. Phase 2 additionally removed
+  `/v1/settings/vercel*`, `/v1/vercel/*`, `/v1/repositories/{id}/vercel/project`,
+  `/v1/gcloud/*`, `/v1/repositories/{id}/gcloud/resource` and
+  `/v1/repositories/{id}/hosting/*` — see "Cloud accounts & environments (Phase 2)".
+  Deploy targets, store, incidents, deploy ops,
+  `POST /v1/repositories/{id}/pipeline/setup-task`, docs tasks, index, local
+  preview, lifecycle gates and test strategy are unchanged.
 
 ## Embedding map (UMAP source data)
 

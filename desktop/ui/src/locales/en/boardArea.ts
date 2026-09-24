@@ -3,25 +3,6 @@
 // Interpolation uses {name} placeholders.
 export const boardArea = {
   repos: {
-    loadFailed: "Failed to load repositories",
-    deleted: "Repository deleted",
-    deleteFailed: "Failed to delete",
-    title: "Code Repositories",
-    description: "Workspaces and code indexing. Tasks are managed via Backlog and Board.",
-    board: "Board",
-    openRepo: "Open Repository",
-    importGithub: "Import from GitHub",
-    createRepo: "Create Repository",
-    emptyTitle: "No code repositories",
-    emptyDescription: "Add a code repository first; then manage tasks via Backlog and Board.",
-    noDescription: "No description",
-    projectFallback: "Project",
-    updated: "Updated {date}",
-    settings: "Settings",
-    deleteTitle: "Delete repository?",
-    deleteConfirm:
-      "Delete the \"{name}\" repository? Tasks, comments, pipeline history and index data will be permanently deleted.",
-    delete: "Delete",
     // Restoring a working copy: the folder is missing on this machine, but
     // the repository's git remote is on record, so the code can be fetched
     // here. Offered only when the server says it is possible.

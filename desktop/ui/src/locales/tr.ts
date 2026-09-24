@@ -1,12 +1,17 @@
 import type { Dict } from "@/locales/en";
+import { addRepository } from "@/locales/tr/addRepository";
 import { agentArea } from "@/locales/tr/agentArea";
 import { boardArea } from "@/locales/tr/boardArea";
 import { chatArea } from "@/locales/tr/chatArea";
+import { cloud } from "@/locales/tr/cloud";
 import { content } from "@/locales/tr/content";
 import { frame } from "@/locales/tr/frame";
 import { lib } from "@/locales/tr/lib";
 import { operations } from "@/locales/tr/operations";
 import { projectAdmin } from "@/locales/tr/projectAdmin";
+import { projectModel } from "@/locales/tr/projectModel";
+import { projectsHub } from "@/locales/tr/projectsHub";
+import { repositoryPage } from "@/locales/tr/repositoryPage";
 import { settingsPages } from "@/locales/tr/settingsPages";
 import { setup } from "@/locales/tr/setup";
 
@@ -16,12 +21,12 @@ export const tr: Dict = {
     save: "Kaydet",
     saving: "Kaydediliyor...",
     cancel: "İptal",
-    edit: "Düzenle",
     refresh: "Yenile",
     resetDefault: "Varsayılana dön",
     actionFailed: "İşlem başarısız",
     saved: "Kaydedildi",
     saveFailed: "Kaydetme başarısız",
+    comingSoon: "Yakında",
     errorBoundary: {
       title: "Bir şeyler ters gitti",
       body: "Beklenmeyen bir hata oluştu ve ekran çizilemedi. Sayfayı yeniden yükleyip tekrar deneyebilirsiniz.",
@@ -52,63 +57,6 @@ export const tr: Dict = {
       connectedToast: "GitHub bağlandı",
       connectFailedToast: "GitHub bağlantısı başarısız",
       disconnectedToast: "GitHub bağlantısı kaldırıldı",
-    },
-    vercel: {
-      statusUnavailable: "Durum alınamadı.",
-      connected: "✓ Bağlı: {login}",
-      disconnect: "Bağlantıyı kes",
-      connect: "Bağlan",
-      tokenLabel: "Erişim token'ı",
-      tokenPlaceholder: "Vercel erişim token'ını yapıştır",
-      tokenHelp:
-        "vercel.com/account/tokens adresinden, projelerinin bulunduğu takıma kapsamlı bir token oluştur. Token bir kez doğrulanır, sunucuda şifreli saklanır ve bir daha gösterilmez.",
-      team: "Kapsam",
-      personalAccount: "Kişisel hesap",
-      teamSaved: "Vercel kapsamı kaydedildi",
-      connectedToast: "Vercel bağlandı",
-      connectFailedToast: "Vercel bağlantısı başarısız",
-      disconnectedToast: "Vercel bağlantısı kaldırıldı",
-      apps: {
-        title: "Uygulama bağlantıları",
-        subtitle:
-          "Bir uygulama seç. TaskTrooper repo ağacını ve Vercel projelerini okuyup frontend ve backend'in nereye deploy olduğunu bulur; anlayamazsa sen seçersin.",
-        selectApp: "Uygulama seç",
-        noApps: "Henüz uygulama yok — önce bir repo ekle.",
-        detecting: "Repo ve Vercel projeleri inceleniyor…",
-        detectFailed: "Tespit başarısız",
-        noAreas: "Bu uygulamanın barındırılacak frontend veya backend alanı yok — yalnızca backend ve frontend projeleri bağlanır.",
-        warnings: "Notlar",
-        area: { root: "Tüm repo", frontend: "Frontend", backend: "Backend", mobile: "Mobil", worker: "Worker" },
-        directory: "Klasör",
-        linked: "{name} projesine bağlı",
-        linkedProvider: "{provider} olarak kaydedildi",
-        linkedBy: { detected: "otomatik tespit", user: "senin seçimin" },
-        openProject: "Aç",
-        unlink: "Bağlantıyı kaldır",
-        unlinked: "Bağlantı kaldırıldı",
-        hints: "Ağacın söyledikleri",
-        detected: "Tespit edildi: {name}",
-        detectedHelp: "Kanıt: {reason}.",
-        confirm: "Bağla",
-        ambiguous: "Birden fazla Vercel projesi bu olabilir — doğrusunu seç.",
-        none: "Nereye deploy olduğu anlaşılamadı. Vercel projesini seç ya da nerede yaşadığını kaydet.",
-        pickProject: "Vercel projesi",
-        pickProjectPlaceholder: "Proje seç",
-        loadingProjects: "Projeler yükleniyor…",
-        noProjects: "Bu kapsamda proje yok.",
-        elsewhere: "Başka yerde barınıyor",
-        elsewherePlaceholder: "Sağlayıcı seç",
-        record: "Kaydet",
-        recorded: "Kaydedildi — bu alan bir daha sorulmayacak.",
-        linkSaved: "{name} projesine bağlandı",
-        notConnected: "Projeleri görmek için yukarıdan Vercel'i bağla.",
-        reasons: {
-          project_json: "çalışma kopyasındaki .vercel/project.json",
-          git_link_dir: "bu repoya git ile bağlı ve bu klasörden build alıyor",
-          git_link: "bu repoya git ile bağlı",
-          name: "eşleşen proje adı",
-        },
-      },
     },
     boilerplate: {
       title: "Boilerplate Kataloğu",
@@ -142,14 +90,19 @@ export const tr: Dict = {
       saveFailed: "Kaydetme başarısız",
     },
   },
+  addRepository,
   agentArea,
   boardArea,
   chatArea,
+  cloud,
   content,
   frame,
   lib,
   operations,
   projectAdmin,
+  projectModel,
+  projectsHub,
+  repositoryPage,
   settingsPages,
   setup,
 };

@@ -28,6 +28,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/cursor"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/opencode"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cloud/appstore"
+	awsprovider "github.com/makifbaysal/tasktrooper/server/internal/adapter/cloud/aws"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cloud/deviceagent"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cloud/gcloud"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cloud/googleplay"
@@ -48,7 +49,8 @@ import (
 	memorytools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/memory"
 	mobiletools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/mobile"
 	opstools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/ops"
-	repoprofiletools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/repoprofile"
+	projectmodeltools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/projectmodel"
+	runtimetools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/runtime"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/search"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/shell"
 	skilltools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/skill"
@@ -64,15 +66,15 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/bootseed"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/chunker"
+	cloudapp "github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
 	appconfig "github.com/makifbaysal/tasktrooper/server/internal/application/config"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploywatch"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/embedmap"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/evolution"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/gcloudops"
-	hostingapp "github.com/makifbaysal/tasktrooper/server/internal/application/hosting"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/indexer"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/initiative"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/job"
@@ -85,18 +87,16 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mobiledevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/orchestrator"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/repodependency"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
-	repoprofileapp "github.com/makifbaysal/tasktrooper/server/internal/application/repoprofile"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/settings"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops/pipeline"
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/vercelops"
 	workflowapp "github.com/makifbaysal/tasktrooper/server/internal/application/workflow"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -230,25 +230,23 @@ type engine struct {
 	// from the provider the caller already passes (see agent.Router). agentLoop
 	// stays beside it because the loop's own setters are the loop's, not the
 	// router's.
-	agentRouter       *agent.Router
-	jobSvc            *job.Service
-	boardRunner       *boardapp.Runner
-	billingSvc        *billing.Service
-	pipelineRunner    *boardapp.PipelineRunner
-	deploySvc         *deploy.Service
-	repoDocsSvc       *repodocs.Service
-	hostingSvc        *hostingapp.Service
-	repoDependencySvc *repodependency.Service
-	vercelOpsSvc      *vercelops.Service
-	gcloudOpsSvc      *gcloudops.Service
-	prodOpsSvc        *prodops.Service
-	healthMonitor     *prodops.Monitor
-	storeOpsSvc       *storeops.Service
-	storeMonitor      *storeops.Monitor
-	deployOpsSvc      *deployops.Service
-	deployWatchSvc    *deploywatch.Service
-	deployMonitor     *deployops.Monitor
-	evolutionSvc      *evolution.Service
+	agentRouter     *agent.Router
+	jobSvc          *job.Service
+	boardRunner     *boardapp.Runner
+	billingSvc      *billing.Service
+	pipelineRunner  *boardapp.PipelineRunner
+	deploySvc       *deploy.Service
+	repoDocsSvc     *repodocs.Service
+	projectModelSvc *projectmodel.Service
+	cloudSvc        *cloudapp.Service
+	prodOpsSvc      *prodops.Service
+	healthMonitor   *prodops.Monitor
+	storeOpsSvc     *storeops.Service
+	storeMonitor    *storeops.Monitor
+	deployOpsSvc    *deployops.Service
+	deployWatchSvc  *deploywatch.Service
+	deployMonitor   *deployops.Monitor
+	evolutionSvc    *evolution.Service
 	// pgPool is kept beside pgDB for the two jobs that are not row data: pool
 	// close and the pgvector bootstrap. Everything else reaches Postgres through
 	// pgDB.
@@ -745,7 +743,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var mcpStore port.MCPStore
 	var settingsStore port.SettingsStore
 	var githubTokens port.GitHubTokenStore
-	var vercelCreds port.VercelCredentialStore
 	var llmProviderStore port.LLMProviderStore
 	var llmEndpointStore port.LLMEndpointStore
 
@@ -817,7 +814,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			pgSettings.SetCipher(e.secretsCipher, e.secretsCipherErr)
 			settingsStore = pgSettings
 			githubTokens = pgSettings
-			vercelCreds = pgSettings
 			llmProviderStore = pgstore.NewLLMProviderStore(pgDB)
 			llmEndpointStore = pgstore.NewLLMEndpointStore(pgDB)
 			agentCLIStore = pgstore.NewAgentCLIStore(pgDB)
@@ -955,6 +951,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var indexSvc *indexer.Service
 	var indexInjector *indexer.Injector
 	var repositorySvc *repository.Service
+	var modelSvc *projectmodel.Service
 	var initiativeSvc *initiative.Service
 	var workspaceSvc *workspace.Service
 	var boardDispatcher *boardapp.Dispatcher
@@ -1512,31 +1509,37 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			reconciler.SetCriteriaLoopGuard(criteriaLoop)
 		}
 
-		// Project profile: agent-maintained per-repository brief, built by the
-		// shared loop and refreshed on import/push/manual triggers. The sectioned
-		// store is Postgres-only; without a pool it degrades to the single
-		// rendered blob on the repositories row.
-		var profileSectionStore port.RepositoryProfileStore
+		// Project model: the scanned component/check/link structure that
+		// replaced the markdown profile. Postgres-only, like the profile it
+		// replaces.
 		if e.pgDB != nil {
-			profileSectionStore = pgstore.NewRepositoryProfileStore(e.pgDB)
+			modelSvc = projectmodel.NewService(projectmodel.Deps{
+				Store:     pgstore.NewProjectModelStore(e.pgDB),
+				Repos:     repositoryStore,
+				Projector: repositoryStore,
+				Projects:  initiativeStore,
+				Pipelines: pgstore.NewRepositoryPipelineJobStore(e.pgDB),
+				Scanner:   discovery.New(),
+				Legacy:    pgstore.NewLegacyModelSource(e.pgDB),
+			})
+			if e.agentRouter != nil && catalogStore != nil && workflowSvc != nil {
+				modelSvc.SetAgentLoop(e.agentRouter, catalogStore, workflowSvc)
+			}
+			modelSvc.SetBackgroundContext(ctx)
+			modelSvc.Boot(ctx)
+			for _, tool := range projectmodeltools.NewExecutors(&projectmodeltools.ToolKit{Model: modelSvc}) {
+				e.reg.Register(tool)
+			}
+			repositorySvc.SetModelRefresher(modelSvc)
+			repositorySvc.SetComponentResolver(modelSvc)
+			if boardRunner != nil {
+				boardRunner.SetProjectModel(modelSvc)
+			}
+			if orchSvc != nil {
+				orchSvc.SetProjectModel(modelSvc)
+			}
 		}
-		profileSvc := repoprofileapp.NewService(repositoryStore, profileSectionStore, e.agentRouter)
-		if workflowSvc != nil {
-			profileSvc.SetWorkflows(workflowSvc)
-			profileSvc.SetRoleResolver(workflowSvc)
-		}
-		if catalogStore != nil {
-			profileSvc.SetAgentGetter(catalogStore)
-		}
-		if e.pgDB != nil {
-			// Pipeline slots are a setting a profiling pass can fill in from the
-			// deploy workflows it just parsed.
-			profileSvc.SetPipelineJobs(pgstore.NewRepositoryPipelineJobStore(e.pgDB))
-		}
-		for _, tool := range repoprofiletools.NewExecutors(&repoprofiletools.ToolKit{Profiles: profileSvc}) {
-			e.reg.Register(tool)
-		}
-		repositorySvc.SetProfileRefresher(profileSvc)
+		e.projectModelSvc = modelSvc
 
 		if attachmentStore != nil {
 			// Task detail responses carry attachment metadata alongside documents.
@@ -1558,6 +1561,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		}
 		if attachmentSvc != nil {
 			boardKit.Attachments = attachmentSvc
+		}
+		if modelSvc != nil {
+			boardKit.Components = modelSvc
 		}
 		// The task<->pull-request use case needs GitHub for everything but the
 		// commit, so these tools are registered only when a token store exists —
@@ -1763,40 +1769,52 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			}
 			e.repoDocsSvc = repoDocsSvc
 
-			// Hosting links (where a frontend/backend lives as a Vercel project), wired
-			// beside deploy because a root-area link fills the prod deploy target
-			// — the same store the runner and monitor read.
-			hostingSvc := hostingapp.NewService(pgstore.NewHostingLinkStore(e.pgDB), repositoryStore, vercelCreds, vercelapi.New())
-			hostingSvc.SetDeployTargets(deployTargetStore)
-			e.hostingSvc = hostingSvc
+			// Cloud accounts, environments and runtime: which provider account backs
+			// each component's environment, and the live picture (deployments, logs,
+			// errors) read back through the matching provider. The two secret-bearing
+			// stores get the boot-time cipher exactly like pgSettings/mobileStore
+			// above and below — their first real use is a later HTTP request, after
+			// scrubProcessSecrets has already wiped MCP_SECRETS_KEY from the env.
+			cloudAccountStore := pgstore.NewCloudAccountStore(e.pgDB)
+			cloudAccountStore.SetCipher(e.secretsCipher, e.secretsCipherErr)
+			environmentStore := pgstore.NewEnvironmentStore(e.pgDB)
+			legacyCloudSource := pgstore.NewLegacyCloudSourceStore(e.pgDB)
+			legacyCloudSource.SetCipher(e.secretsCipher, e.secretsCipherErr)
+			cloudComponents := pgstore.NewProjectModelStore(e.pgDB)
 
-			// Repo/database dependency edges feed the project overview's architecture
-			// view. SetCipher before the scrubs, same reason as the repository
-			// store above.
-			repoDependencyStore := pgstore.NewRepoDependencyStore(e.pgDB)
-			repoDependencyStore.SetCipher(e.secretsCipher, e.secretsCipherErr)
-			e.repoDependencySvc = repodependency.NewService(repoDependencyStore, repositoryStore)
-
-			// One *vercel.Client for both roles, so one token backs one rate limit —
-			// two clients would only split the budget.
 			vercelClient := vercelapi.New()
-			e.vercelOpsSvc = vercelops.NewService(vercelops.Deps{
-				Links:       pgstore.NewVercelProjectLinkStore(e.pgDB),
-				Creds:       vercelCreds,
-				API:         vercelClient,
-				Deployments: vercelClient,
-				Repos:       repositoryStore,
+			cloudSvc := cloudapp.NewService(cloudapp.Deps{
+				Accounts:     cloudAccountStore,
+				Environments: environmentStore,
+				Providers: []port.CloudProvider{
+					vercelapi.NewProvider(vercelClient),
+					gcloud.NewProvider(),
+					awsprovider.NewProvider(),
+				},
+				Components:    cloudComponents,
+				Scans:         cloudComponents,
+				Repos:         repositoryStore,
+				DeployTargets: deployTargetStore,
+				Tasks:         repositorySvc,
+				Legacy:        legacyCloudSource,
 			})
-
-			// The user's own Google Cloud account, read-only. Repos lets a bind verify
-			// the sub-project path exists; nil would accept any path silently.
-			e.gcloudOpsSvc = gcloudops.NewService(gcloudops.Deps{
-				Credentials: pgstore.NewGCloudCredentialStore(e.pgDB),
-				Bindings:    pgstore.NewGCloudResourceStore(e.pgDB),
-				Cipher:      e.secretsCipher,
-				NewClient:   func(c domain.GCloudCredential) (port.GCloudClient, error) { return gcloud.New(c) },
-				Repos:       repositoryStore,
-			})
+			cloudSvc.SetBackgroundContext(ctx)
+			// Background health sweep of every bound environment, and the one-time
+			// carry-forward of a pre-cloud-accounts Vercel/GCloud connection and its
+			// bindings (cloud.Service.Boot's own doc comment covers idempotency).
+			cloudSvc.Start(ctx)
+			cloudSvc.Boot(ctx)
+			e.cloudSvc = cloudSvc
+			if modelSvc != nil {
+				// A finished scan turns its deploy signals into environment rows
+				// through the same service the runtime routes read, and the model
+				// reads environments back for RepositoryModel/RepositorySummary.
+				modelSvc.SetDeployMatcher(cloudSvc)
+				modelSvc.SetEnvironmentReader(environmentStore)
+			}
+			for _, tool := range runtimetools.NewExecutors(&runtimetools.ToolKit{Components: cloudComponents, Cloud: cloudSvc}) {
+				e.reg.Register(tool)
+			}
 
 			// Real-device tools, registered here because their guard IS the deploy
 			// target store, which does not exist until this point. No enable
@@ -2383,6 +2401,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			Actions:            sessionActionStore,
 			Workspace:          sessionWorkspace,
 		})
+		if modelSvc != nil {
+			sessionSvc.SetProjectBriefs(modelSvc)
+		}
 		// Loop closer for human-in-the-loop: a question parks the task on the
 		// clarification chat and answering re-dispatches it; repositorySvc
 		// records the answer on the task so later runs read what was settled.
@@ -2474,10 +2495,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		ProdOpsSvc:        e.prodOpsSvc,
 		StoreOpsSvc:       e.storeOpsSvc,
 		DeployOpsSvc:      e.deployOpsSvc,
-		HostingSvc:        e.hostingSvc,
-		RepoDependencySvc: e.repoDependencySvc,
-		VercelOpsSvc:      e.vercelOpsSvc,
-		GCloudOpsSvc:      e.gcloudOpsSvc,
+		ProjectModelSvc:   e.projectModelSvc,
+		CloudSvc:          e.cloudSvc,
 		LocalPreviewSvc:   localPreviewSvc,
 		InitiativeSvc:     initiativeSvc,
 		WorkspaceSvc:      workspaceSvc,

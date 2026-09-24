@@ -43,7 +43,6 @@ func (r oneRepoResolver) ResolveDescription(context.Context, uuid.UUID) (string,
 func (r oneRepoResolver) ResolveRepository(context.Context, uuid.UUID) (domain.Repository, error) {
 	return domain.Repository{Name: "demo", RootPath: r.root}, nil
 }
-func (r oneRepoResolver) ProfileForRun(context.Context, uuid.UUID, string) string { return "" }
 
 type recordingRunStore struct {
 	countingRunStore

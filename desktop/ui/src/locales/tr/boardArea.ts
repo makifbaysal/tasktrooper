@@ -4,25 +4,6 @@ import type { BoardAreaDict } from "@/locales/en/boardArea";
 // en/boardArea.ts keys exactly.
 export const boardArea: BoardAreaDict = {
   repos: {
-    loadFailed: "Depolar yüklenemedi",
-    deleted: "Depo silindi",
-    deleteFailed: "Silinemedi",
-    title: "Kod Depoları",
-    description: "Çalışma alanları ve kod indexleme. Görevler Backlog ve Board üzerinden yönetilir.",
-    board: "Board",
-    openRepo: "Depo Aç",
-    importGithub: "GitHub'dan İçe Aktar",
-    createRepo: "Depo Oluştur",
-    emptyTitle: "Kod deposu yok",
-    emptyDescription: "Önce bir kod deposu ekleyin; ardından görevleri Backlog ve Board üzerinden yönetin.",
-    noDescription: "Açıklama yok",
-    projectFallback: "Proje",
-    updated: "Güncellendi {date}",
-    settings: "Ayarlar",
-    deleteTitle: "Depo silinsin mi?",
-    deleteConfirm:
-      "\"{name}\" deposu silinsin mi? Görevler, yorumlar, pipeline geçmişi ve indeks verileri kalıcı olarak silinir.",
-    delete: "Sil",
     restore: "Bu makineye indir",
     restoreRetry: "Tekrar dene",
     restoring: "Proje indiriliyor…",

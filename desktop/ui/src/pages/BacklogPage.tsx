@@ -1,6 +1,6 @@
 import { Archive, ArrowRight, Inbox, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
@@ -65,12 +65,12 @@ export function BacklogPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [defaultRepositoryId, setDefaultRepositoryId] = useState("");
-  const [repositoryAutoOpen, setRepositoryAutoOpen] = useState<"create" | "open" | null>(null);
   const [projectFilter, setProjectFilter] = useState("all");
+  const navigate = useNavigate();
 
   const openTaskCreate = () => {
     if (repositories.length === 0) {
-      setRepositoryAutoOpen("create");
+      navigate("/projects/new");
       return;
     }
     setDialogOpen(true);
@@ -300,13 +300,7 @@ export function BacklogPage() {
         <ScrollArea className="min-h-0 flex-1">
           <div className="p-6">
             {repositories.length === 0 && (
-              <NoRepositoriesNotice
-                className="mb-6 border-amber-500/30 bg-amber-500/5 p-4"
-                autoOpen={repositoryAutoOpen}
-                onAutoOpenHandled={() => setRepositoryAutoOpen(null)}
-                onRepositoryAdded={load}
-                onReadyForTask={() => setDialogOpen(true)}
-              />
+              <NoRepositoriesNotice className="mb-6 border-amber-500/30 bg-amber-500/5 p-4" />
             )}
             {backlogTasks.length === 0 ? (
               <Card className="border-dashed">

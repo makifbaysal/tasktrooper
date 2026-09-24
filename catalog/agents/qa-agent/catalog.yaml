@@ -19,6 +19,13 @@ tool_policy:
         - get_repo_tree
         - grep_code
         - read_file
+        - get_project_brief
+        - list_component_checks
+        - list_links
+        - get_environment
+        - query_runtime_logs
+        - list_runtime_errors
+        - list_deployments
         - browser_navigate
         - browser_screenshot
         - browser_click

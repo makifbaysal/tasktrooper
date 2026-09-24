@@ -327,25 +327,61 @@ watch keys off rather than the default branch.
 - `POST /v1/repositories/{id}/deploy/targets/{env}/setup-task` — opens the board task that authors the
   deploy workflow.
 
-## Vercel connection & hosting links (migration 112)
+## Cloud accounts, environments & runtime (migration 154, Phase 2)
 
-- `GET /v1/settings/vercel` — `{connected, username, email, team_id, team_slug, detail}`;
-  `PUT /v1/settings/vercel {token?, team_id?}` — a token is verified against `/v2/user`
-  and stored encrypted (same cipher as the GitHub token); `team_id` alone re-scopes
-  (`""` = personal account, validated against the token's teams);
-  `DELETE /v1/settings/vercel` — forgets token + team, keeps links.
-- `GET /v1/settings/vercel/teams` · `GET /v1/settings/vercel/projects?team_id=` (omitted →
-  default team). 409 when Vercel is not connected.
-- `GET /v1/repositories/{id}/hosting/detect` — per AREA (`""` for a backend/frontend repo;
-  `frontend`/`backend` halves of a monorepo, mobile/worker skipped): tree `hints`
-  (hosting markers, deploy workflows), Vercel `candidates` with a `reason`
-  (`project_json` > `git_link_dir` > `git_link` > `name`) and a `confidence`
-  (`exact` | `ambiguous` | `none`). Only one decisive candidate is `exact`; the UI asks otherwise.
-- `GET/PUT /v1/repositories/{id}/hosting/links` — `{area, provider, external_id, scope_id?,
-  source, evidence}`; a `vercel` link is resolved against the API before it is stored and, on
-  the root area, fills the empty fields of the prod deploy target (base/health URL, recipe
-  vars). Other providers record the operator's answer as given.
-  `DELETE …/hosting/links/{area}` (`root` for `""`).
+Replaced the Vercel connection/hosting-links/GCloud settings surface this
+section used to document — `/v1/settings/vercel*`, `/v1/vercel/*`,
+`/v1/gcloud/*`, `/v1/repositories/{id}/{hosting,vercel,gcloud}/*` are gone. An
+existing
+connection and its per-repository bindings carry forward once, in the
+background, as `cloud_accounts`/`component_environments` rows
+(`cloud.Service.Boot`) — nothing for the operator to redo. JSON shapes are the
+Go tags on `domain.CloudAccount`, `CloudResource(Ref/Detail)`,
+`ComponentEnvironment`, `EnvironmentRuntime`, `RuntimeLog(Query/Entry/Page)`,
+`RuntimeErrorGroup`, `CloudDeployment` (`internal/domain/cloud.go`). Errors are
+flat `{"error": "message"}`, never the nested shape the rest of this file
+uses: 400 bad input, 400 `{error, code:"cloud_auth"}` for a provider refusing
+the stored credential, 404 unknown id, 409 `{error, code:"not_connected"}` for
+an environment with no bound account/resource, 502 the provider/network is
+unreachable.
+
+- `GET/POST /v1/cloud-accounts` — list (never carries secret fields back); create
+  `{provider: "vercel"|"gcp"|"aws", label?, fields}` (vercel `{token, team_id?}` · gcp
+  `{service_account_json}` · aws `{access_key_id, secret_access_key, session_token?,
+  region}`), verified against the provider BEFORE anything is stored.
+- `PATCH /v1/cloud-accounts/{id}` `{label?, fields?}` — re-verifies only when `fields` is
+  given. `POST …/{id}/verify` re-checks the stored credential (200 either way; a refusal
+  is reported through `status`/`status_detail`, not an HTTP error).
+  `DELETE /v1/cloud-accounts/{id}` — environments bound to it keep their rows, lose the
+  account.
+- `GET /v1/cloud-accounts/{id}/resources?refresh=1` — the account's resource listing,
+  cached 60s.
+- `PUT /v1/components/{componentId}/environments/{env}` (`env` ∈
+  `production|staging|preview|development`) `{account_id?, resource?, url?, health_url?}` —
+  with `account_id`, `resource` is required (picked from the account's resources); without,
+  `url` is required (a custom, log-less environment).
+  `PATCH /v1/environments/{envId}` `{status?: "confirmed"|"dismissed"|"suggested",
+  account_id?, resource?}` — confirming one of a suggested row's `candidates` is sending
+  its `account_id` + `resource.ref` with `status: "confirmed"`.
+  `DELETE /v1/environments/{envId}` — a user-made binding is deleted outright; a
+  scan-sourced one is only dismissed, so the next scan does not resurrect it.
+- `GET /v1/environments/{envId}/overview` — `{environment, detail?, deployments[],
+  errors[], unavailable?}`; never errors for "not connected" or a provider auth
+  refusal, both go through `unavailable` instead.
+- `GET /v1/environments/{envId}/logs?since=&until=&min_severity=&q=&limit=&cursor=` —
+  `since`/`until` RFC3339, `min_severity` ∈ `debug|info|warning|error|critical`, defaults
+  last hour / 200 entries.
+  `GET …/errors?since=` (default 24h) — `{errors: RuntimeErrorGroup[]}`, provider-native
+  grouping where there is one (GCP Error Reporting), a message-fingerprint grouping over
+  error-level logs otherwise.
+  `GET …/deployments?limit=` — `{deployments: CloudDeployment[]}`.
+  `POST …/errors/task` body one `RuntimeErrorGroup` (as returned) — opens a bug task with
+  the error, a sample and recent log lines; component set from the environment.
+- `RepositoryModel.environments` (`GET /v1/repositories/{id}/model`) and
+  `RepositorySummary.environments` (`GET /v1/projects/overview`, from stored health only)
+  carry the same rows for the UI; agents read the equivalent through `get_environment` /
+  `query_runtime_logs` / `list_runtime_errors` / `list_deployments`
+  (`.ai/tool-reference.md`).
 
 ## Deploy metadata, ordering relations, packages
 

@@ -46,8 +46,6 @@ type Client struct {
 	tokens map[string]cachedToken
 }
 
-var _ port.GCloudClient = (*Client)(nil)
-
 func New(cred domain.GCloudCredential) (*Client, error) {
 	raw := cred.Data["service_account_json"]
 	if raw == "" {

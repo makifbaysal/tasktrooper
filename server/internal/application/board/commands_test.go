@@ -19,7 +19,7 @@ func touch(t *testing.T, dir, name string) {
 func TestResolveVerifyStages_GoProject(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "go.mod")
-	stages := ResolveVerifyStages(dir, domain.Repository{})
+	stages := ResolveVerifyStages(dir, domain.Repository{}, nil)
 	if len(stages) != 2 || stages[0].Command[0] != "go" || stages[1].Command[1] != "vet" {
 		t.Fatalf("unexpected stages: %+v", stages)
 	}
@@ -28,7 +28,7 @@ func TestResolveVerifyStages_GoProject(t *testing.T) {
 func TestResolveVerifyStages_OverrideWins(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "go.mod")
-	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "make check"})
+	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "make check"}, nil)
 	if len(stages) != 1 || stages[0].Command[0] != "make" || stages[0].Command[1] != "check" {
 		t.Fatalf("unexpected stages: %+v", stages)
 	}
@@ -37,7 +37,7 @@ func TestResolveVerifyStages_OverrideWins(t *testing.T) {
 func TestResolveVerifyStages_Rust(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "Cargo.toml")
-	stages := ResolveVerifyStages(dir, domain.Repository{})
+	stages := ResolveVerifyStages(dir, domain.Repository{}, nil)
 	if len(stages) != 1 || stages[0].Command[0] != "cargo" || stages[0].Command[1] != "check" {
 		t.Fatalf("unexpected stages: %+v", stages)
 	}
@@ -46,7 +46,7 @@ func TestResolveVerifyStages_Rust(t *testing.T) {
 func TestResolveVerifyStages_Python(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "pyproject.toml")
-	stages := ResolveVerifyStages(dir, domain.Repository{})
+	stages := ResolveVerifyStages(dir, domain.Repository{}, nil)
 	if len(stages) != 1 || stages[0].Command[0] != "python" {
 		t.Fatalf("unexpected stages: %+v", stages)
 	}
@@ -63,7 +63,7 @@ func writeNPMProject(t *testing.T, dir string) {
 func TestResolveVerifyStages_InstallsNPMDepsWhenMissing(t *testing.T) {
 	dir := t.TempDir()
 	writeNPMProject(t, dir)
-	stages := ResolveVerifyStages(dir, domain.Repository{})
+	stages := ResolveVerifyStages(dir, domain.Repository{}, nil)
 	if len(stages) != 2 {
 		t.Fatalf("expected install + build, got %+v", stages)
 	}
@@ -82,7 +82,7 @@ func TestResolveVerifyStages_UsesNPMCIWithLockfile(t *testing.T) {
 	dir := t.TempDir()
 	writeNPMProject(t, dir)
 	touch(t, dir, "package-lock.json")
-	stages := ResolveVerifyStages(dir, domain.Repository{})
+	stages := ResolveVerifyStages(dir, domain.Repository{}, nil)
 	if stages[0].Command[1] != "ci" {
 		t.Fatalf("a lockfile must select npm ci: %+v", stages[0])
 	}
@@ -94,7 +94,7 @@ func TestResolveVerifyStages_NPMBuildWithNodeModules(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "node_modules"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stages := ResolveVerifyStages(dir, domain.Repository{})
+	stages := ResolveVerifyStages(dir, domain.Repository{}, nil)
 	if len(stages) != 1 || stages[0].Command[0] != "npm" {
 		t.Fatalf("unexpected stages: %+v", stages)
 	}
@@ -134,7 +134,7 @@ func TestResolveVerifyStages_DeclaredCommandInstallsNestedPackages(t *testing.T)
 	}
 	touch(t, filepath.Join(dir, "docs"), "package.json")
 
-	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "make lint"})
+	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "make lint"}, nil)
 	if got, want := stageNames(stages), "npm-install-desktop,npm-install-desktop/ui,verify"; got != want {
 		t.Fatalf("stages = %s, want %s", got, want)
 	}
@@ -152,7 +152,7 @@ func TestResolveVerifyStages_DeclaredCommandSkipsInstalledPackages(t *testing.T)
 	dir := t.TempDir()
 	writeLockedPackage(t, dir, true)
 	writeLockedPackage(t, filepath.Join(dir, "web"), true)
-	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "npm test"})
+	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "npm test"}, nil)
 	if got := stageNames(stages); got != "verify" {
 		t.Fatalf("stages = %s, want only verify", got)
 	}
@@ -161,12 +161,41 @@ func TestResolveVerifyStages_DeclaredCommandSkipsInstalledPackages(t *testing.T)
 func TestResolveVerifyStages_DeclaredCommandInstallsRootPackage(t *testing.T) {
 	dir := t.TempDir()
 	writeLockedPackage(t, dir, false)
-	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "npm test"})
+	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "npm test"}, nil)
 	if got := stageNames(stages); got != "npm-install,verify" {
 		t.Fatalf("stages = %s, want npm-install,verify", got)
 	}
 	if strings.Contains(strings.Join(stages[0].Command, " "), "--prefix") {
 		t.Fatalf("root install should run in place: %+v", stages[0])
+	}
+}
+
+func TestResolveVerifyStages_RequiredCommandsWinOverEverything(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "go.mod")
+	required := []domain.LocalCommand{
+		{Dir: "apps/api", Argv: []string{"go", "test", "./..."}},
+		{Dir: ".", Argv: []string{"go", "vet", "./..."}},
+	}
+	stages := ResolveVerifyStages(dir, domain.Repository{VerifyCommand: "make check"}, required)
+	if got, want := stageNames(stages), "check:apps/api:go,check:.:go"; got != want {
+		t.Fatalf("stages = %s, want %s", got, want)
+	}
+	if stages[0].Dir != "apps/api" || stages[1].Dir != "." {
+		t.Fatalf("stage dirs = %+v", stages)
+	}
+	if stages[0].Command[1] != "test" || stages[1].Command[1] != "vet" {
+		t.Fatalf("stage commands = %+v", stages)
+	}
+}
+
+func TestResolveVerifyStages_RequiredCommandsInstallNestedPackagesFirst(t *testing.T) {
+	dir := t.TempDir()
+	writeLockedPackage(t, filepath.Join(dir, "web"), false)
+	required := []domain.LocalCommand{{Dir: "web", Argv: []string{"npm", "test"}}}
+	stages := ResolveVerifyStages(dir, domain.Repository{}, required)
+	if got, want := stageNames(stages), "npm-install-web,check:web:npm"; got != want {
+		t.Fatalf("stages = %s, want %s", got, want)
 	}
 }
 

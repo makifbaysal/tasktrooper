@@ -15,6 +15,7 @@ import (
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/memory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/orchestrator"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	appSettings "github.com/makifbaysal/tasktrooper/server/internal/application/settings"
@@ -32,6 +33,7 @@ type Service struct {
 	orchestrator   *orchestrator.Service
 	settings       *appSettings.Service
 	repositories   RepositoryResolver
+	projectBriefs  ProjectBriefs
 	board          port.BoardConfigStore
 	catalog        port.CatalogStore
 	ttl            time.Duration
@@ -96,6 +98,17 @@ type RepositoryResolver interface {
 	ResolveRootPath(ctx context.Context, repositoryID uuid.UUID) (string, error)
 	ResolveDescription(ctx context.Context, repositoryID uuid.UUID) (string, error)
 	ResolveRepository(ctx context.Context, repositoryID uuid.UUID) (domain.Repository, error)
+}
+
+// ProjectBriefs is the structured project model's read surface a chat session
+// needs: the brief that replaces the old ProfileMD injection. A nil
+// ProjectBriefs injects nothing — ProfileMD is dead, never a fallback.
+type ProjectBriefs interface {
+	Brief(ctx context.Context, repositoryID uuid.UUID, scope projectmodel.BriefScope) (string, error)
+}
+
+func (s *Service) SetProjectBriefs(b ProjectBriefs) {
+	s.projectBriefs = b
 }
 
 type IndexInjector interface {
@@ -808,13 +821,13 @@ func (s *Service) prepareRunContext(
 	if sess.ProjectID != nil {
 		ctx = registry.ContextWithProjectID(ctx, *sess.ProjectID)
 		if s.repositories != nil {
-			if repo, err := s.repositories.ResolveRepository(ctx, *sess.ProjectID); err == nil {
-				if repo.Description != "" {
-					history = prependProjectPrompt(history, repo.Description)
-				}
-				if repo.ProfileMD != "" {
-					history = prependProjectProfilePrompt(history, repo.ProfileMD)
-				}
+			if repo, err := s.repositories.ResolveRepository(ctx, *sess.ProjectID); err == nil && repo.Description != "" {
+				history = prependProjectPrompt(history, repo.Description)
+			}
+		}
+		if s.projectBriefs != nil {
+			if brief, err := s.projectBriefs.Brief(ctx, *sess.ProjectID, projectmodel.BriefScope{}); err == nil && brief != "" {
+				history = prependProjectBriefPrompt(history, brief)
 			}
 		}
 	}

@@ -2,7 +2,6 @@ package http
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -29,10 +28,6 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Get("/v1/repositories/:id/index/status", h.RepositoryIndexStatus)
 	app.Post("/v1/repositories/:id/index", h.ReindexRepository)
 	app.Delete("/v1/repositories/:id/index", h.StopRepositoryIndex)
-	app.Get("/v1/repositories/:id/profile", h.GetRepositoryProfile)
-	app.Post("/v1/repositories/:id/profile/refresh", h.RefreshRepositoryProfile)
-	app.Post("/v1/repositories/:id/profile/proposals/:proposalId/apply", h.ApplyRepositoryProfileProposal)
-	app.Post("/v1/repositories/:id/profile/proposals/:proposalId/dismiss", h.DismissRepositoryProfileProposal)
 	app.Post("/v1/repositories/:id/webhook", h.SetupRepositoryWebhook)
 	// Public (signature-authenticated) — see isPublicPath and githubWebhookPath.
 	app.Post(githubWebhookPath, h.GitHubWebhook)
@@ -71,44 +66,7 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Delete("/v1/repositories/:id/deploy-packages/:pkgId", h.DeleteDeployPackage)
 	app.Put("/v1/repositories/:id/deploy-packages/:pkgId/tasks", h.SetDeployPackageTasks)
 	app.Post("/v1/repositories/:id/deploy-packages/:pkgId/release", h.ReleaseDeployPackage)
-	app.Get("/v1/repositories/:id/pipeline/config", h.GetPipelineConfig)
-	app.Put("/v1/repositories/:id/pipeline/config", h.SavePipelineConfig)
 	app.Post("/v1/repositories/:id/pipeline/setup-task", h.CreateWorkflowSetupTask)
-}
-
-// GetPipelineConfig — GET /v1/repositories/:id/pipeline/config
-func (h *Handler) GetPipelineConfig(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return badRequest(c, "invalid repository id")
-	}
-	view, err := h.repositorySvc.GetPipelineConfig(h.enrichContext(c), id)
-	if err != nil {
-		return internalError(c, err)
-	}
-	return c.JSON(view)
-}
-
-// SavePipelineConfig — PUT /v1/repositories/:id/pipeline/config
-func (h *Handler) SavePipelineConfig(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return badRequest(c, "invalid repository id")
-	}
-	var req struct {
-		Kind              *string                        `json:"kind"`
-		SubRepoKinds      *[]string                      `json:"sub_repo_kinds"`
-		AutoReleaseOnDone *bool                          `json:"auto_release_on_done"`
-		Jobs              []domain.RepositoryPipelineJob `json:"jobs"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return badRequest(c, "invalid request body")
-	}
-	view, err := h.repositorySvc.SavePipelineConfig(h.enrichContext(c), id, req.Kind, req.SubRepoKinds, req.AutoReleaseOnDone, req.Jobs)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	return c.JSON(view)
 }
 
 // CreateWorkflowSetupTask — POST /v1/repositories/:id/pipeline/setup-task
@@ -353,7 +311,7 @@ func (h *Handler) ListRepositoryDirectories(c *fiber.Ctx) error {
 	if err != nil {
 		return badRequest(c, "invalid repository id")
 	}
-	rel, kind, names, err := h.repositorySvc.ListDirectories(h.enrichContext(c), id, c.Query("path"))
+	rel, names, err := h.repositorySvc.ListDirectories(h.enrichContext(c), id, c.Query("path"))
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
@@ -373,7 +331,7 @@ func (h *Handler) ListRepositoryDirectories(c *fiber.Ctx) error {
 		}
 		parent = &p
 	}
-	return c.JSON(fiber.Map{"path": rel, "parent": parent, "kind": kind, "entries": entries})
+	return c.JSON(fiber.Map{"path": rel, "parent": parent, "entries": entries})
 }
 
 // RestoreRepositoryWorkingCopy — POST /v1/repositories/:id/restore
@@ -399,6 +357,11 @@ func (h *Handler) RestoreRepositoryWorkingCopy(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(repo)
 }
 
+// UpdateRepository — PATCH /v1/repositories/:id
+//
+// kind, sub_repo_kinds, sub_projects and mobile_platform are refused: the
+// project model now projects them from the component scan, so a client
+// setting them directly would be overwritten by the next scan anyway.
 func (h *Handler) UpdateRepository(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -407,6 +370,9 @@ func (h *Handler) UpdateRepository(c *fiber.Ctx) error {
 	var req domain.UpdateRepositoryRequest
 	if err := c.BodyParser(&req); err != nil {
 		return badRequest(c, "invalid request body")
+	}
+	if req.Kind != nil || req.SubRepoKinds != nil || req.SubProjects != nil || req.MobilePlatform != nil {
+		return badRequest(c, "set roles on components instead")
 	}
 	repo, err := h.repositorySvc.Update(h.enrichContext(c), id, req)
 	if err != nil {
@@ -474,79 +440,6 @@ func (h *Handler) SearchRepositoryIndex(c *fiber.Ctx) error {
 		return badRequestErr(c, err)
 	}
 	return c.JSON(fiber.Map{"results": results, "count": len(results)})
-}
-
-// GetRepositoryProfile — GET /v1/repositories/:id/profile
-// Returns the agent-maintained project profile and when it was last rebuilt.
-func (h *Handler) GetRepositoryProfile(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return badRequest(c, "invalid repository id")
-	}
-	detail, err := h.repositorySvc.GetProfileDetail(h.enrichContext(c), id)
-	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": fiber.Map{"message": err.Error(), "type": "not_found"}})
-	}
-	return c.JSON(detail)
-}
-
-// ApplyRepositoryProfileProposal — POST /v1/repositories/:id/profile/proposals/:proposalId/apply
-// Writes a proposed setting (repo kind, sub-projects, a build/test command, a
-// pipeline slot) into the repository.
-func (h *Handler) ApplyRepositoryProfileProposal(c *fiber.Ctx) error {
-	id, proposalID, err := repositoryProposalIDs(c)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	proposal, err := h.repositorySvc.ApplyProfileProposal(h.enrichContext(c), id, proposalID)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	return c.JSON(proposal)
-}
-
-// DismissRepositoryProfileProposal — POST /v1/repositories/:id/profile/proposals/:proposalId/dismiss
-// Records that a human declined the proposal; later refreshes will not re-ask.
-func (h *Handler) DismissRepositoryProfileProposal(c *fiber.Ctx) error {
-	id, proposalID, err := repositoryProposalIDs(c)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	proposal, err := h.repositorySvc.DismissProfileProposal(h.enrichContext(c), id, proposalID)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	return c.JSON(proposal)
-}
-
-func repositoryProposalIDs(c *fiber.Ctx) (repositoryID, proposalID uuid.UUID, err error) {
-	repositoryID, err = uuid.Parse(c.Params("id"))
-	if err != nil {
-		return uuid.Nil, uuid.Nil, fmt.Errorf("invalid repository id")
-	}
-	proposalID, err = uuid.Parse(c.Params("proposalId"))
-	if err != nil {
-		return uuid.Nil, uuid.Nil, fmt.Errorf("invalid proposal id")
-	}
-	return repositoryID, proposalID, nil
-}
-
-// RefreshRepositoryProfile — POST /v1/repositories/:id/profile/refresh
-// Kicks a background rebuild; 202 with status "started" or "already_running".
-func (h *Handler) RefreshRepositoryProfile(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return badRequest(c, "invalid repository id")
-	}
-	started, err := h.repositorySvc.RefreshProfile(h.enrichContext(c), id)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	status := "started"
-	if !started {
-		status = "already_running"
-	}
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"status": status})
 }
 
 func (h *Handler) ReindexRepository(c *fiber.Ctx) error {

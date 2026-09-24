@@ -1,6 +1,7 @@
 package board
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,10 @@ import (
 )
 
 type Stage struct {
-	Name    string
+	Name string
+	// Dir is repo-relative; runVerification runs the stage inside
+	// filepath.Join(workspace, Dir) and refuses a Dir that escapes the workspace.
+	Dir     string
 	Command []string
 	Setup   bool
 	Timeout time.Duration
@@ -82,7 +86,24 @@ func hasNodeModules(dir string) bool {
 	return err == nil && info.IsDir()
 }
 
-func ResolveVerifyStages(dir string, repo domain.Repository) []Stage {
+// ResolveVerifyStages picks the verification plan for one run: the project
+// model's required checks when there are any, else the repository's own
+// declared VerifyCommand, else the language auto-detection.
+func ResolveVerifyStages(dir string, repo domain.Repository, required []domain.LocalCommand) []Stage {
+	if len(required) > 0 {
+		stages := nodeSetupStages(dir)
+		for _, cmd := range required {
+			if len(cmd.Argv) == 0 {
+				continue
+			}
+			stages = append(stages, Stage{
+				Name:    fmt.Sprintf("check:%s:%s", cmd.Dir, cmd.Argv[0]),
+				Command: cmd.Argv,
+				Dir:     cmd.Dir,
+			})
+		}
+		return stages
+	}
 	if cmd := splitCommand(repo.VerifyCommand); len(cmd) > 0 {
 		return append(nodeSetupStages(dir), Stage{Name: "verify", Command: cmd})
 	}

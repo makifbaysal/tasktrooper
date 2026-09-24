@@ -245,23 +245,26 @@ type UpdateTaskDocumentRequest struct {
 }
 
 type BoardTask struct {
-	ID                   uuid.UUID             `json:"id"`
-	RepositoryID         uuid.UUID             `json:"repository_id"`
-	Key                  string                `json:"key"`
-	TaskNumber           int                   `json:"task_number"`
-	Title                string                `json:"title"`
-	TaskType             TaskType              `json:"task_type"`
-	Description          string                `json:"description"`
-	TechnicalDescription string                `json:"technical_description"`
-	InitiativeProjectID  *uuid.UUID            `json:"initiative_project_id,omitempty"`
-	Column               TaskColumn            `json:"column"`
-	Position             int                   `json:"position"`
-	Priority             TaskPriority          `json:"priority"`
-	CreatedBy            string                `json:"created_by"`
-	AssigneeAgentID      *uuid.UUID            `json:"assignee_agent_id,omitempty"`
-	CreatedAt            time.Time             `json:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at"`
-	AcceptanceCriteria   []AcceptanceCriterion `json:"acceptance_criteria,omitempty"`
+	ID                   uuid.UUID  `json:"id"`
+	RepositoryID         uuid.UUID  `json:"repository_id"`
+	Key                  string     `json:"key"`
+	TaskNumber           int        `json:"task_number"`
+	Title                string     `json:"title"`
+	TaskType             TaskType   `json:"task_type"`
+	Description          string     `json:"description"`
+	TechnicalDescription string     `json:"technical_description"`
+	InitiativeProjectID  *uuid.UUID `json:"initiative_project_id,omitempty"`
+	// ComponentID narrows the task to one component of a monorepo: its brief,
+	// its required checks. nil = the whole repository.
+	ComponentID        *uuid.UUID            `json:"component_id,omitempty"`
+	Column             TaskColumn            `json:"column"`
+	Position           int                   `json:"position"`
+	Priority           TaskPriority          `json:"priority"`
+	CreatedBy          string                `json:"created_by"`
+	AssigneeAgentID    *uuid.UUID            `json:"assignee_agent_id,omitempty"`
+	CreatedAt          time.Time             `json:"created_at"`
+	UpdatedAt          time.Time             `json:"updated_at"`
+	AcceptanceCriteria []AcceptanceCriterion `json:"acceptance_criteria,omitempty"`
 	// TestCases is the full round the task was given, including cases rejected
 	// as not valid. Single-task read only.
 	TestCases []TaskTestCase `json:"test_cases,omitempty"`
@@ -330,6 +333,7 @@ type CreateBoardTaskRequest struct {
 	Description          string                     `json:"description,omitempty"`
 	TechnicalDescription string                     `json:"technical_description,omitempty"`
 	InitiativeProjectID  *uuid.UUID                 `json:"initiative_project_id,omitempty"`
+	ComponentID          *uuid.UUID                 `json:"component_id,omitempty"`
 	Column               TaskColumn                 `json:"column,omitempty"`
 	Priority             TaskPriority               `json:"priority,omitempty"`
 	CreatedBy            string                     `json:"created_by,omitempty"`
@@ -348,14 +352,16 @@ type CreateBoardTaskRequest struct {
 }
 
 type UpdateBoardTaskRequest struct {
-	Title                *string       `json:"title,omitempty"`
-	TaskType             *TaskType     `json:"task_type,omitempty"`
-	Description          *string       `json:"description,omitempty"`
-	TechnicalDescription *string       `json:"technical_description,omitempty"`
-	InitiativeProjectID  *uuid.UUID    `json:"initiative_project_id,omitempty"`
-	Column               *TaskColumn   `json:"column,omitempty"`
-	Position             *int          `json:"position,omitempty"`
-	Priority             *TaskPriority `json:"priority,omitempty"`
+	Title                *string    `json:"title,omitempty"`
+	TaskType             *TaskType  `json:"task_type,omitempty"`
+	Description          *string    `json:"description,omitempty"`
+	TechnicalDescription *string    `json:"technical_description,omitempty"`
+	InitiativeProjectID  *uuid.UUID `json:"initiative_project_id,omitempty"`
+	// ComponentID: omitted leaves it, null clears it, a value sets it.
+	ComponentID Nullable[uuid.UUID] `json:"component_id,omitempty"`
+	Column      *TaskColumn         `json:"column,omitempty"`
+	Position    *int                `json:"position,omitempty"`
+	Priority    *TaskPriority       `json:"priority,omitempty"`
 	// AssigneeAgentID reads three spellings: omitted (unchanged), explicit
 	// null (unassign), a value (assign; "" also unassigns). Nullable rather
 	// than a plain pointer so omitted and null stay distinct.

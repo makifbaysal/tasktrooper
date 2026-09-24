@@ -12,9 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/google/uuid"
-	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/board"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/ci"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/indexer"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
@@ -32,18 +30,22 @@ type RevisionNotifier interface {
 	NotifyRevision(ctx context.Context, task domain.BoardTask)
 }
 
-type ProfileRefresher interface {
+// ModelRefresher is the project-model service's compat seam for what used to
+// be a profile refresh: opening, syncing or pushing to a repository now
+// starts a scan instead.
+type ModelRefresher interface {
 	RefreshAsync(ctx context.Context, repositoryID uuid.UUID, reason string) bool
 
 	RefreshIfStale(ctx context.Context, repositoryID uuid.UUID, reason string)
 
 	RefreshAfterPush(ctx context.Context, repositoryID uuid.UUID, reason string)
+}
 
-	Sections(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProfileSection, error)
-	Proposals(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProfileProposal, error)
-
-	ApplyProposal(ctx context.Context, repositoryID, proposalID uuid.UUID) (domain.ProfileProposal, error)
-	DismissProposal(ctx context.Context, repositoryID, proposalID uuid.UUID) (domain.ProfileProposal, error)
+// ComponentResolver validates a task's component_id: it must name a
+// component of the task's own repository, active, not dismissed.
+type ComponentResolver interface {
+	GetComponent(ctx context.Context, id uuid.UUID) (domain.Component, error)
+	ComponentByPath(ctx context.Context, repositoryID uuid.UUID, path string) (domain.Component, error)
 }
 
 type Service struct {
@@ -89,10 +91,11 @@ type Service struct {
 	syncWarnings  map[uuid.UUID]string
 	syncCheckedAt map[uuid.UUID]time.Time
 
-	pipelineJobs port.RepositoryPipelineJobStore
-	githubToken  func(ctx context.Context) (string, error)
-	agentLister  func(ctx context.Context) ([]domain.Agent, error)
-	profiles     ProfileRefresher
+	pipelineJobs   port.RepositoryPipelineJobStore
+	githubToken    func(ctx context.Context) (string, error)
+	agentLister    func(ctx context.Context) ([]domain.Agent, error)
+	modelRefresher ModelRefresher
+	components     ComponentResolver
 
 	publicBaseURL       string
 	githubAPIBase       string
@@ -159,8 +162,32 @@ func (s *Service) SetWorkOrderSweeper(w *board.WorkOrderSweeper) {
 	s.workOrderSweeper = w
 }
 
-func (s *Service) SetProfileRefresher(p ProfileRefresher) {
-	s.profiles = p
+func (s *Service) SetModelRefresher(m ModelRefresher) {
+	s.modelRefresher = m
+}
+
+func (s *Service) SetComponentResolver(c ComponentResolver) {
+	s.components = c
+}
+
+// validateTaskComponent rejects a component_id from a different repository or
+// one the scan/human has dismissed — a task must never point at a component
+// that no longer exists in this repository's model.
+func (s *Service) validateTaskComponent(ctx context.Context, repositoryID, componentID uuid.UUID) error {
+	if s.components == nil {
+		return fmt.Errorf("component resolver unavailable")
+	}
+	comp, err := s.components.GetComponent(ctx, componentID)
+	if err != nil {
+		return fmt.Errorf("component: %w", err)
+	}
+	if comp.RepositoryID != repositoryID {
+		return fmt.Errorf("component belongs to a different repository")
+	}
+	if comp.Status != domain.ComponentStatusActive {
+		return fmt.Errorf("component %q is not active", comp.Path)
+	}
+	return nil
 }
 
 func (s *Service) SetPipelineRunner(pr *board.PipelineRunner) {
@@ -476,79 +503,6 @@ func buildHintForKind(kind string) string {
 	}
 }
 
-func (s *Service) GetPipelineConfig(ctx context.Context, repositoryID uuid.UUID) (ci.ConfigView, error) {
-	repo, err := s.repos.Get(ctx, repositoryID)
-	if err != nil {
-		return ci.ConfigView{}, err
-	}
-	view := ci.ConfigView{
-		Kind:              repo.Kind,
-		SubRepoKinds:      repo.SubRepoKinds,
-		AutoReleaseOnDone: repo.AutoReleaseOnDone,
-	}
-	if s.pipelineJobs != nil {
-		if saved, serr := s.pipelineJobs.ListByRepository(ctx, repositoryID); serr == nil {
-			view.Saved = saved
-		}
-	}
-	refs, hasWorkflows := s.parseWorkflowRefs(ctx, repo)
-	view.HasWorkflows = hasWorkflows
-
-	subProjects := repo.SubProjects
-	if repo.Kind == domain.RepoKindMonorepo && len(subProjects) == 0 {
-		kinds := repo.SubRepoKinds
-		if len(kinds) == 0 {
-			kinds = domain.AllSubRepoKinds()
-		}
-		for _, k := range kinds {
-			subProjects = append(subProjects, domain.RepoSubProject{Kind: k})
-		}
-	}
-	view.Suggestions = ci.Suggest(repo.Kind, subProjects, refs)
-	return view, nil
-}
-
-func (s *Service) parseWorkflowRefs(ctx context.Context, repo domain.Repository) ([]ci.JobRef, bool) {
-	if s.githubToken == nil || s.git == nil {
-		return nil, false
-	}
-	token, err := s.githubToken(ctx)
-	if err != nil || strings.TrimSpace(token) == "" {
-		return nil, false
-	}
-	info, err := s.git.TaskGitInfo(ctx, repo.RootPath)
-	if err != nil {
-		return nil, false
-	}
-	defs, err := githubapi.ParseWorkflowJobs(ctx, token, info.Owner, info.Repo)
-	if err != nil || len(defs) == 0 {
-		return nil, false
-	}
-	refs := make([]ci.JobRef, 0, len(defs))
-	for _, d := range defs {
-		refs = append(refs, ci.JobRef{Key: d.Key, Name: d.Name, WorkflowFile: d.WorkflowFile})
-	}
-	return refs, true
-}
-
-func (s *Service) SavePipelineConfig(ctx context.Context, repositoryID uuid.UUID, kind *string, subRepoKinds *[]string, autoRelease *bool, jobs []domain.RepositoryPipelineJob) (ci.ConfigView, error) {
-	if kind != nil && !domain.ValidRepoKind(*kind) {
-		return ci.ConfigView{}, fmt.Errorf("invalid repository kind: %s", *kind)
-	}
-	if _, err := s.repos.UpdateMeta(ctx, repositoryID, kind, subRepoKinds, autoRelease); err != nil {
-		return ci.ConfigView{}, err
-	}
-	if s.pipelineJobs != nil {
-		for i := range jobs {
-			jobs[i].RepositoryID = repositoryID
-		}
-		if _, err := s.pipelineJobs.ReplaceForRepository(ctx, repositoryID, jobs); err != nil {
-			return ci.ConfigView{}, err
-		}
-	}
-	return s.GetPipelineConfig(ctx, repositoryID)
-}
-
 func (s *Service) List(ctx context.Context) ([]domain.Repository, error) {
 	repos, err := s.repos.List(ctx)
 	if err != nil {
@@ -626,25 +580,10 @@ func (s *Service) Open(ctx context.Context, req domain.OpenRepositoryRequest) (d
 		remoteURL = s.git.OriginURL(ctx, absRoot)
 	}
 
+	// Kind, sub-projects, mobile identity and build targets are no longer
+	// detected here: the scan the ModelRefresher kicks off below projects them
+	// from the component model once it finishes.
 	kind := strings.TrimSpace(req.Kind)
-	var subProjects []domain.RepoSubProject
-	if kind == "" {
-		kind = DetectRepoKind(absRoot)
-		if kind == domain.RepoKindMonorepo {
-			subProjects = DetectRepoSubProjects(absRoot)
-		}
-	}
-
-	mobilePlatform := ""
-
-	appIdentity := domain.AppIdentity{}
-
-	buildTargets := domain.BuildTargets{}
-	if kind == domain.RepoKindMobile {
-		mobilePlatform = DetectMobilePlatform(absRoot)
-		appIdentity = DetectAppIdentity(absRoot)
-		buildTargets = DetectBuildTargets(absRoot)
-	}
 
 	repo, err := s.repos.Create(ctx, name, strings.TrimSpace(req.Description), absRoot, remoteURL, kind)
 	if err != nil {
@@ -656,58 +595,12 @@ func (s *Service) Open(ctx context.Context, req domain.OpenRepositoryRequest) (d
 		}
 		repo.ProjectIDs = req.ProjectIDs
 	}
-	if mobilePlatform != "" {
-
-		updated, err := s.repos.UpdateMobilePlatform(ctx, repo.ID, mobilePlatform)
-		if err != nil {
-			return domain.Repository{}, err
-		}
-		updated.ProjectIDs = repo.ProjectIDs
-		repo = updated
-	}
-	if !appIdentity.IsZero() {
-		updated, err := s.repos.UpdateDetectedAppIdentity(ctx, repo.ID, appIdentity)
-		if err != nil {
-			return domain.Repository{}, err
-		}
-		updated.ProjectIDs = repo.ProjectIDs
-		repo = updated
-	}
-	if !buildTargets.IsZero() {
-		updated, err := s.repos.UpdateDetectedBuildTargets(ctx, repo.ID, buildTargets)
-		if err != nil {
-			return domain.Repository{}, err
-		}
-		updated.ProjectIDs = repo.ProjectIDs
-		repo = updated
-	}
-	if len(subProjects) > 0 {
-
-		updated, err := s.repos.UpdateSubProjects(ctx, repo.ID, subProjects)
-		if err != nil {
-			return domain.Repository{}, err
-		}
-		updated.ProjectIDs = repo.ProjectIDs
-		repo = updated
-		kinds := make([]string, 0, len(subProjects))
-		seenKind := map[string]bool{}
-		for _, sp := range subProjects {
-			if !seenKind[sp.Kind] {
-				seenKind[sp.Kind] = true
-				kinds = append(kinds, sp.Kind)
-			}
-		}
-		if updated, err := s.repos.UpdateMeta(ctx, repo.ID, nil, &kinds, nil); err == nil {
-			updated.ProjectIDs = repo.ProjectIDs
-			repo = updated
-		}
-	}
 	s.startIndex(ctx, repo.ID, absRoot)
 
 	s.setupWebhookAsync(ctx, repo.ID)
 
-	if s.profiles != nil {
-		s.profiles.RefreshAsync(ctx, repo.ID, "import")
+	if s.modelRefresher != nil {
+		s.modelRefresher.RefreshAsync(ctx, repo.ID, "import")
 	}
 	return s.withGitWarning(repo), nil
 }
@@ -1159,8 +1052,8 @@ func (s *Service) ensureIndexFresh(ctx context.Context, repo domain.Repository, 
 
 		s.restartIndex(freshCtx, repo.ID, repo.RootPath)
 
-		if s.profiles != nil {
-			s.profiles.RefreshAfterPush(freshCtx, repo.ID, "poll")
+		if s.modelRefresher != nil {
+			s.modelRefresher.RefreshAfterPush(freshCtx, repo.ID, "poll")
 		}
 	}()
 }
@@ -1473,10 +1366,16 @@ func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req do
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
+	if req.ComponentID != nil {
+		if err := s.validateTaskComponent(ctx, repositoryID, *req.ComponentID); err != nil {
+			return domain.BoardTask{}, err
+		}
+	}
 	task, err := s.tasks.Create(ctx, domain.BoardTask{
 		RepositoryID:         repositoryID,
 		TaskNumber:           taskNumber,
 		Title:                strings.TrimSpace(req.Title),
+		ComponentID:          req.ComponentID,
 		TaskType:             taskType,
 		Description:          req.Description,
 		TechnicalDescription: req.TechnicalDescription,
@@ -1695,6 +1594,14 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 	}
 	if req.AssigneeAgentID.Present {
 		task.AssigneeAgentID = req.AssigneeAgentID.Value
+	}
+	if req.ComponentID.Present {
+		if req.ComponentID.Value != nil {
+			if err := s.validateTaskComponent(ctx, repositoryID, *req.ComponentID.Value); err != nil {
+				return domain.BoardTask{}, err
+			}
+		}
+		task.ComponentID = req.ComponentID.Value
 	}
 
 	if req.Column != nil && *req.Column != prevColumn && s.reviewGate != nil {
@@ -2311,22 +2218,26 @@ func (s *Service) ResolveRootPath(ctx context.Context, repositoryID uuid.UUID) (
 	return repo.RootPath, nil
 }
 
-func (s *Service) ListDirectories(ctx context.Context, repositoryID uuid.UUID, rel string) (string, string, []string, error) {
+// ListDirectories backs the "add component" folder picker: it browses real
+// directories under the repository's working copy. It no longer classifies
+// what it finds — a component's role is a projection of the scan, not a
+// guess made while browsing.
+func (s *Service) ListDirectories(ctx context.Context, repositoryID uuid.UUID, rel string) (string, []string, error) {
 	repo, err := s.repos.Get(ctx, repositoryID)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	abs, err := workspace.ResolveWithinRoot(repo.RootPath, rel)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	absRoot, err := filepath.Abs(repo.RootPath)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("resolve repository root: %w", err)
+		return "", nil, fmt.Errorf("resolve repository root: %w", err)
 	}
 	relClean, err := filepath.Rel(absRoot, abs)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("resolve %q: %w", rel, err)
+		return "", nil, fmt.Errorf("resolve %q: %w", rel, err)
 	}
 	if relClean == "." {
 		relClean = ""
@@ -2335,10 +2246,9 @@ func (s *Service) ListDirectories(ctx context.Context, repositoryID uuid.UUID, r
 	}
 	entries, err := ListChildDirectories(abs)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
-	kind, _ := classifyDir(abs)
-	return relClean, kind, entries, nil
+	return relClean, entries, nil
 }
 
 func (s *Service) ResolveDescription(ctx context.Context, repositoryID uuid.UUID) (string, error) {
@@ -2351,83 +2261,6 @@ func (s *Service) ResolveDescription(ctx context.Context, repositoryID uuid.UUID
 
 func (s *Service) ResolveRepository(ctx context.Context, repositoryID uuid.UUID) (domain.Repository, error) {
 	return s.repos.Get(ctx, repositoryID)
-}
-
-func (s *Service) GetProfile(ctx context.Context, repositoryID uuid.UUID) (string, *time.Time, error) {
-	repo, err := s.repos.Get(ctx, repositoryID)
-	if err != nil {
-		return "", nil, err
-	}
-	return repo.ProfileMD, repo.ProfileUpdatedAt, nil
-}
-
-func (s *Service) ProfileForRun(ctx context.Context, repositoryID uuid.UUID, kind string) string {
-	if s.profiles == nil {
-		return ""
-	}
-	sections, err := s.profiles.Sections(ctx, repositoryID)
-	if err != nil || len(sections) == 0 {
-		return ""
-	}
-	return domain.RenderProfileMarkdown(domain.SelectProfileSections(sections, kind))
-}
-
-type ProfileDetail struct {
-	ProfileMD string                   `json:"profile_md"`
-	UpdatedAt *time.Time               `json:"profile_updated_at,omitempty"`
-	Sections  []domain.ProfileSection  `json:"sections"`
-	Proposals []domain.ProfileProposal `json:"proposals"`
-}
-
-func (s *Service) GetProfileDetail(ctx context.Context, repositoryID uuid.UUID) (ProfileDetail, error) {
-	repo, err := s.repos.Get(ctx, repositoryID)
-	if err != nil {
-		return ProfileDetail{}, err
-	}
-	out := ProfileDetail{
-		ProfileMD: repo.ProfileMD,
-		UpdatedAt: repo.ProfileUpdatedAt,
-		Sections:  []domain.ProfileSection{},
-		Proposals: []domain.ProfileProposal{},
-	}
-	if s.profiles == nil {
-		return out, nil
-	}
-	if sections, serr := s.profiles.Sections(ctx, repositoryID); serr != nil {
-		log.Warn().Err(serr).Str("repository_id", repositoryID.String()).Msg("profile sections lookup failed")
-	} else if sections != nil {
-		out.Sections = sections
-	}
-	if proposals, perr := s.profiles.Proposals(ctx, repositoryID); perr != nil {
-		log.Warn().Err(perr).Str("repository_id", repositoryID.String()).Msg("profile proposals lookup failed")
-	} else if proposals != nil {
-		out.Proposals = proposals
-	}
-	return out, nil
-}
-
-func (s *Service) ApplyProfileProposal(ctx context.Context, repositoryID, proposalID uuid.UUID) (domain.ProfileProposal, error) {
-	if s.profiles == nil {
-		return domain.ProfileProposal{}, fmt.Errorf("profile proposals unavailable")
-	}
-	return s.profiles.ApplyProposal(ctx, repositoryID, proposalID)
-}
-
-func (s *Service) DismissProfileProposal(ctx context.Context, repositoryID, proposalID uuid.UUID) (domain.ProfileProposal, error) {
-	if s.profiles == nil {
-		return domain.ProfileProposal{}, fmt.Errorf("profile proposals unavailable")
-	}
-	return s.profiles.DismissProposal(ctx, repositoryID, proposalID)
-}
-
-func (s *Service) RefreshProfile(ctx context.Context, repositoryID uuid.UUID) (bool, error) {
-	if s.profiles == nil {
-		return false, fmt.Errorf("profile refresh unavailable")
-	}
-	if _, err := s.repos.Get(ctx, repositoryID); err != nil {
-		return false, err
-	}
-	return s.profiles.RefreshAsync(ctx, repositoryID, "manual"), nil
 }
 
 func (s *Service) validateColumn(ctx context.Context, col domain.TaskColumn) error {

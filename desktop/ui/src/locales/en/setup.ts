@@ -63,7 +63,7 @@ export const setup = {
       "A project groups the repositories that ship together. Create one, then import your first repository into it. You'll be asked what kind it is, how it deploys, and how it's built and tested.",
     createProject: "Create a project",
     needsRepositoryTitle: "Now import a repository",
-    needsRepositoryBody: "Use one of the buttons on the project below. You can import more later.",
+    needsRepositoryBody: "Use the button below to add one. You can import more later.",
     doneTitle: "Your first repository is in",
     doneBody: "It's linked to the project and indexing in the background. Add more whenever you like.",
     loadFailed: "Couldn't load your projects",

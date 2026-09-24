@@ -357,10 +357,10 @@ func (s *Service) startPushReindex(repositoryID uuid.UUID) {
 	}
 	s.pullAndRestartIndexNotify(pushCtx, repo.ID, repo.RootPath, func() {
 		s.pushReindexDone(repositoryID)
-		if s.profiles != nil {
+		if s.modelRefresher != nil {
 			pctx, pcancel := context.WithTimeout(pushCtx, 30*time.Second)
 			defer pcancel()
-			s.profiles.RefreshAfterPush(pctx, repositoryID, "push")
+			s.modelRefresher.RefreshAfterPush(pctx, repositoryID, "push")
 		}
 	})
 }

@@ -2,11 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, type StoreCredentialView } from "@/api";
 import { AppStoreConnectCard } from "@/components/admin/AppStoreConnectCard";
+import { CloudAccountsCard } from "@/components/admin/CloudAccountsCard";
 import { GitHubCard } from "@/components/admin/GitHubCard";
-import { GoogleCloudCard } from "@/components/admin/GoogleCloudCard";
 import { GooglePlayCard } from "@/components/admin/GooglePlayCard";
 import { PageHeader } from "@/components/admin/PageHeader";
-import { VercelCard } from "@/components/admin/VercelCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { tStatic, useI18n } from "@/hooks/useI18n";
 
@@ -49,8 +48,7 @@ export function IntegrationsSettingsPage() {
       />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(268px,1fr))]">
         <GitHubCard />
-        <VercelCard />
-        <GoogleCloudCard />
+        <CloudAccountsCard className="lg:col-span-2" />
         {loading ? (
           <>
             <Skeleton className="mt-4 h-72 w-full" />

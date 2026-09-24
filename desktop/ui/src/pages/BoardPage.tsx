@@ -1,6 +1,6 @@
 import { Activity, Bot, Clock, GripVertical, HelpCircle, Inbox, Loader2, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
@@ -93,10 +93,10 @@ export function BoardPage() {
   const [dropColumn, setDropColumn] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<BoardTask | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [repositoryAutoOpen, setRepositoryAutoOpen] = useState<"create" | "open" | null>(null);
   const [activeAgentTaskIds, setActiveAgentTaskIds] = useState<Set<string>>(new Set());
   const [activityOpen, setActivityOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   // Keep the open drawer's task in sync with the latest board data: after an
   // edit (e.g. assigning an agent) load() refetches tasks, and the selected
@@ -132,7 +132,7 @@ export function BoardPage() {
 
   const openTaskCreate = () => {
     if (repositories.length === 0) {
-      setRepositoryAutoOpen("create");
+      navigate("/projects/new");
       return;
     }
     setDialogOpen(true);
@@ -609,13 +609,7 @@ export function BoardPage() {
 
       <div className="flex min-h-0 flex-1 flex-col p-4 pt-2">
         {repositories.length === 0 && (
-          <NoRepositoriesNotice
-            className="mb-4 border-amber-500/30 bg-amber-500/5 p-4"
-            autoOpen={repositoryAutoOpen}
-            onAutoOpenHandled={() => setRepositoryAutoOpen(null)}
-            onRepositoryAdded={load}
-            onReadyForTask={() => setDialogOpen(true)}
-          />
+          <NoRepositoriesNotice className="mb-4 border-amber-500/30 bg-amber-500/5 p-4" />
         )}
         <div className="flex min-h-0 flex-1 overflow-x-auto pb-1">
           <div className="flex h-full min-h-0 min-w-max gap-3">

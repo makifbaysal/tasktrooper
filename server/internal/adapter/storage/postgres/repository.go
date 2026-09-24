@@ -734,7 +734,7 @@ const boardTaskColumns = `id, repository_id, task_number, title, task_type,
 		clarification_session_id,
 		has_migration, stage_verified_at, verified_sha,
 		before_deploy, after_deploy, rollback_plan,
-		pr_url, pr_number, merge_commit_sha,
+		pr_url, pr_number, merge_commit_sha, component_id,
 		NULL::timestamptz, NULL::timestamptz,
 		(SELECT key_prefix FROM task_types WHERE key = task_type)`
 
@@ -756,7 +756,7 @@ const boardTaskSelect = `
 		bt.clarification_session_id,
 		bt.has_migration, bt.stage_verified_at, bt.verified_sha,
 		bt.before_deploy, bt.after_deploy, bt.rollback_plan,
-		bt.pr_url, bt.pr_number, bt.merge_commit_sha,
+		bt.pr_url, bt.pr_number, bt.merge_commit_sha, bt.component_id,
 		sp.entered_at, qr.quota_resume_at,
 		tt.key_prefix
 	FROM board_tasks bt
@@ -795,7 +795,7 @@ func scanBoardTask(scanner interface {
 		&task.ClarificationSessionID,
 		&task.HasMigration, &task.StageVerifiedAt, &task.VerifiedSHA,
 		&task.BeforeDeploy, &task.AfterDeploy, &task.RollbackPlan,
-		&prURL, &prNumber, &mergeCommitSHA,
+		&prURL, &prNumber, &mergeCommitSHA, &task.ComponentID,
 		&task.ColumnEnteredAt, &task.BlockedResumeAt,
 		&keyPrefix,
 	)
@@ -847,13 +847,13 @@ func (s *BoardTaskStore) Create(ctx context.Context, task domain.BoardTask) (dom
 		INSERT INTO board_tasks (
 			repository_id, task_number, title, task_type, description, technical_description,
 			initiative_project_id, board_column, position, priority, created_by, assignee_agent_id,
-			before_deploy, after_deploy, rollback_plan
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			before_deploy, after_deploy, rollback_plan, component_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING `+boardTaskColumns+`
 	`, task.RepositoryID, task.TaskNumber, task.Title, string(task.TaskType),
 		task.Description, task.TechnicalDescription, task.InitiativeProjectID, string(task.Column),
 		task.Position, string(task.Priority), task.CreatedBy, task.AssigneeAgentID,
-		task.BeforeDeploy, task.AfterDeploy, task.RollbackPlan)
+		task.BeforeDeploy, task.AfterDeploy, task.RollbackPlan, task.ComponentID)
 	created, err := scanBoardTask(row)
 	if err != nil {
 		return domain.BoardTask{}, fmt.Errorf("create board task: %w", err)
@@ -1053,6 +1053,7 @@ func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (dom
 			before_deploy = $14,
 			after_deploy = $15,
 			rollback_plan = $16,
+			component_id = $17,
 			updated_at = now()
 		WHERE id = $1 AND repository_id = $2
 		RETURNING `+boardTaskColumns+`
@@ -1060,7 +1061,7 @@ func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (dom
 		task.TechnicalDescription, task.InitiativeProjectID, string(task.Column),
 		task.Position, string(task.Priority), task.AssigneeAgentID,
 		string(domain.TaskColumnBlocked), task.VerifiedSHA,
-		task.BeforeDeploy, task.AfterDeploy, task.RollbackPlan)
+		task.BeforeDeploy, task.AfterDeploy, task.RollbackPlan, task.ComponentID)
 	updated, err := scanBoardTask(row)
 	if err != nil {
 		return domain.BoardTask{}, fmt.Errorf("update board task: %w", err)

@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
@@ -18,6 +19,18 @@ type WorkspaceLister interface {
 // Optional; the pipeline keeps working, it just loses the never-ask-about-repos grounding.
 func (s *Service) SetWorkspace(w WorkspaceLister) {
 	s.workspace = w
+}
+
+// ProjectModel is the structured project model's read surface the workspace
+// snapshot enriches itself with: each project's type and each repository's
+// components. Optional; without it the snapshot still lists projects and
+// repositories, just without that detail.
+type ProjectModel interface {
+	ProjectsOverview(ctx context.Context) (domain.ProjectsOverview, error)
+}
+
+func (s *Service) SetProjectModel(m ProjectModel) {
+	s.projectModel = m
 }
 
 // Lets each subtask re-read the board-action ledger instead of the run-start snapshot. Optional.
@@ -43,13 +56,42 @@ func (s *Service) workspaceFacts(ctx context.Context) string {
 	if projErr != nil && repoErr != nil {
 		return ""
 	}
-	return prompt.WorkspaceFactsBlock(projects, repos)
+	projectTypes, componentsByRepo := s.projectModelFacts(ctx)
+	return prompt.WorkspaceFactsBlock(projects, repos, projectTypes, componentsByRepo)
 }
 
-func WorkspaceFactsForTest(w WorkspaceLister) string {
+// projectModelFacts degrades to nil maps on any failure: the snapshot still
+// renders, it just carries no component/type detail that run.
+func (s *Service) projectModelFacts(ctx context.Context) (map[uuid.UUID]domain.ProjectType, map[uuid.UUID][]domain.ComponentSummary) {
+	if s.projectModel == nil {
+		return nil, nil
+	}
+	overview, err := s.projectModel.ProjectsOverview(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("workspace snapshot: project model overview failed")
+		return nil, nil
+	}
+	projectTypes := make(map[uuid.UUID]domain.ProjectType, len(overview.Projects))
+	componentsByRepo := make(map[uuid.UUID][]domain.ComponentSummary)
+	for _, p := range overview.Projects {
+		projectTypes[p.ID] = p.Type
+		for _, r := range p.Repositories {
+			componentsByRepo[r.ID] = r.Components
+		}
+	}
+	for _, r := range overview.Unassigned {
+		componentsByRepo[r.ID] = r.Components
+	}
+	return projectTypes, componentsByRepo
+}
+
+func WorkspaceFactsForTest(w WorkspaceLister, m ProjectModel) string {
 	s := &Service{}
 	if w != nil {
 		s.SetWorkspace(w)
+	}
+	if m != nil {
+		s.SetProjectModel(m)
 	}
 	return s.workspaceFacts(context.Background())
 }

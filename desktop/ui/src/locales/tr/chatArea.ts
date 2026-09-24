@@ -194,10 +194,7 @@ export const chatArea: ChatAreaDict = {
     },
     noRepositories: {
       title: "Önce bir kod deposu ekleyin",
-      description:
-        "Görevler bir kod deposuna bağlıdır. Depo oluşturun veya mevcut bir klasörü açın; ardından görev ekleyebilirsiniz.",
-      openRepo: "Depo Aç",
-      createRepo: "Depo Oluştur",
+      description: "Görevler bir kod deposuna bağlıdır. Bir tane ekleyin; ardından görev ekleyebilirsiniz.",
     },
     noAgents: {
       title: "Henüz ajan yok",

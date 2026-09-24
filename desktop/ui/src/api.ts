@@ -428,6 +428,8 @@ export interface Repository {
   name: string;
   description: string;
   root_path: string;
+  /** The git origin the working copy came from; absent for a repo with no remote on record. */
+  remote_url?: string;
   project_ids?: string[];
   git_warning?: string;
   /**
@@ -472,62 +474,10 @@ export interface Repository {
   test_strategy?: TestStrategy;
   docs?: RepositoryDocs;
   webhook_installed?: boolean;
-  profile_md?: string;
-  profile_updated_at?: string;
   mobile_platform?: MobilePlatform;
   release_engine?: ReleaseEngine;
   created_at: string;
   updated_at: string;
-}
-
-export interface ProfileEvidence {
-  path: string;
-  line?: number;
-  note?: string;
-}
-
-/**
- * A profile section is either `derived` — collected from the tree by the
- * backend's parser (stack, commands, CI, deploy, git workflow) — or `agent`,
- * the judgment half, which only exists with evidence paths behind it.
- */
-export type ProfileSectionOrigin = "derived" | "agent";
-
-export interface ProfileSection {
-  id: string;
-  repository_id: string;
-  section: string;
-  body_md: string;
-  evidence?: ProfileEvidence[];
-  source_paths?: string[];
-  source_commit?: string;
-  origin: ProfileSectionOrigin;
-  stale: boolean;
-  updated_at: string;
-}
-
-export type ProfileProposalStatus = "pending" | "applied" | "dismissed";
-
-/** A repository setting the profiling pass worked out from the tree. */
-export interface ProfileProposal {
-  id: string;
-  repository_id: string;
-  field: string;
-  slot?: string;
-  value: unknown;
-  current?: string;
-  label: string;
-  evidence?: ProfileEvidence[];
-  status: ProfileProposalStatus;
-  created_at: string;
-  applied_at?: string;
-}
-
-export interface RepositoryProfile {
-  profile_md: string;
-  profile_updated_at: string | null;
-  sections?: ProfileSection[];
-  proposals?: ProfileProposal[];
 }
 
 export type DeployEnv = "local" | "stage" | "preprod" | "prod";
@@ -908,59 +858,6 @@ export interface RepositoryDirectoryListing {
   kind: SubRepoKind;
   entries: RepositoryDirectoryEntry[];
 }
-export type PipelineCategory =
-  | "validate"
-  | "build"
-  | "test"
-  | "mutation_test"
-  | "pr_open"
-  | "stage_deploy"
-  | "preprod_deploy"
-  | "prod_deploy";
-
-export interface RepositoryPipelineJob {
-  id?: string;
-  repository_id?: string;
-  /** "" = the repository itself; distinguishes two sub-projects of the same kind. */
-  sub_project_path?: string;
-  sub_repo_kind: string;
-  category: PipelineCategory;
-  target_kind: "job" | "workflow";
-  target_ref: string;
-  auto_detected?: boolean;
-}
-
-export interface PipelineJobCandidate {
-  ref: string;
-  workflow_file?: string;
-}
-
-export interface PipelineCategorySuggestion {
-  sub_project_path?: string;
-  sub_repo_kind: string;
-  category: PipelineCategory;
-  target_kind: "job" | "workflow";
-  auto: string;
-  ambiguous: boolean;
-  candidates: PipelineJobCandidate[];
-}
-
-export interface PipelineConfigView {
-  kind: RepoKind;
-  sub_repo_kinds: string[] | null;
-  auto_release_on_done: boolean;
-  has_workflows: boolean;
-  suggestions: PipelineCategorySuggestion[];
-  saved: RepositoryPipelineJob[] | null;
-}
-
-export interface SavePipelineConfigInput {
-  kind: RepoKind;
-  sub_repo_kinds: string[];
-  auto_release_on_done: boolean;
-  jobs: RepositoryPipelineJob[];
-}
-
 export type Project = Repository;
 
 // Task types are data now (task_types table), not a closed enum — see
@@ -1431,338 +1328,6 @@ export interface GitHubConnectionStatus {
   connected: boolean;
   login?: string;
   detail?: string;
-}
-
-export interface VercelConnectionStatus {
-  connected: boolean;
-  username?: string;
-  email?: string;
-  /** Default scope for project lookups; "" is the personal account. */
-  team_id: string;
-  team_slug?: string;
-  detail?: string;
-}
-
-export interface VercelTeam {
-  id: string;
-  slug: string;
-  name: string;
-}
-
-export interface VercelGitLink {
-  type: string;
-  org: string;
-  repo: string;
-  production_branch?: string;
-}
-
-export interface VercelProject {
-  id: string;
-  name: string;
-  framework?: string;
-  root_directory?: string;
-  link?: VercelGitLink;
-  production_url?: string;
-  team_id?: string;
-  team_slug?: string;
-  updated_at?: string;
-}
-
-// ---- Google Cloud -------------------------------------------------------
-// The operator's own project, read-only, behind a service account they saved.
-
-export type GCloudResourceType = "cloud_run_service" | "gke_cluster";
-
-export interface GCloudCredentialView {
-  connected: boolean;
-  client_email?: string;
-  project_id?: string;
-  updated_at: string;
-}
-
-export interface GCloudResourceRef {
-  type: GCloudResourceType;
-  name: string;
-  display_name: string;
-  project_id: string;
-  location: string;
-  uri?: string;
-  state?: string;
-}
-
-/** One family's verdict, in the same vocabulary as the top-level listing:
- * a credential holding only roles/run.viewer still gets a usable Cloud Run
- * picker instead of one blanket failure. */
-export interface GCloudFamilyListing {
-  listing_available: boolean;
-  reason?: ListingReason;
-  unreachable_locations?: string[];
-}
-
-/**
- * `workloads_available` is always false and saying so is the point: a shared
- * agent-server outside the customer's VPC cannot route to a private GKE
- * control plane at all, so an absent field would let the console render an
- * empty workload list as "these clusters run nothing".
- */
-export interface GCloudGKEListing extends GCloudFamilyListing {
-  workloads_available: boolean;
-  workloads_reason?: ListingReason;
-}
-
-export interface GCloudResourceListing {
-  listing_available: boolean;
-  reason?: ListingReason;
-  resources: GCloudResourceRef[];
-  cloud_run: GCloudFamilyListing;
-  gke: GCloudGKEListing;
-}
-
-export interface CloudRunTrafficTarget {
-  revision: string;
-  percent: number;
-  tag?: string;
-  uri?: string;
-}
-
-export interface CloudRunServiceDetail {
-  ref: GCloudResourceRef;
-  latest_ready_revision: string;
-  latest_created_revision: string;
-  image: string;
-  traffic: CloudRunTrafficTarget[];
-  ready: string;
-  ready_reason?: string;
-  ready_message?: string;
-  update_time?: string;
-}
-
-export interface GKENodePool {
-  name: string;
-  status: string;
-  node_count: number;
-  version?: string;
-  machine_type?: string;
-}
-
-export interface GKEClusterDetail {
-  ref: GCloudResourceRef;
-  status: string;
-  status_message?: string;
-  master_version?: string;
-  node_count: number;
-  node_pools?: GKENodePool[];
-  autopilot: boolean;
-  private_endpoint: boolean;
-  workloads_available: boolean;
-  /** Prose, not a code — it names which wall blocked this specific cluster. */
-  workloads_note?: string;
-}
-
-/** The discriminated union the bound-resource read returns: exactly one of the
- * two detail pointers is set, matching `ref.type`. */
-export interface GCloudResourceDetail {
-  ref: GCloudResourceRef;
-  cloud_run?: CloudRunServiceDetail;
-  gke_cluster?: GKEClusterDetail;
-}
-
-/**
- * The bound-resource read: the binding always, the live detail only when the
- * credential could read it.
- *
- * `detail_available: false` is a 200, not an error — the binding is a fact
- * about the repository that outlives a disconnected or under-privileged
- * credential, and hiding it behind a failure would lose real state.
- */
-export interface BoundGCloudResource {
-  binding: GCloudResourceBinding;
-  detail_available: boolean;
-  reason?: ListingReason;
-  detail?: GCloudResourceDetail;
-}
-
-export interface GCloudResourceBinding {
-  id: string;
-  repository_id: string;
-  sub_project_path: string;
-  resource_type: GCloudResourceType;
-  resource_name: string;
-  display_name?: string;
-  project_id?: string;
-  location?: string;
-  source: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface VercelProjectListing {
-  listing_available: boolean;
-  reason?: ListingReason;
-  projects: VercelProject[];
-}
-
-export interface VercelDeployment {
-  id: string;
-  state?: string;
-  target?: string;
-  url?: string;
-  inspector_url?: string;
-  created_at?: string;
-  ready_at?: string;
-  commit_sha?: string;
-  commit_ref?: string;
-  commit_message?: string;
-  commit_author?: string;
-  error_code?: string;
-  error_message?: string;
-}
-
-/** One repository scope bound to one Vercel project. `sub_project_path` is ""
- * for the repository itself. */
-export interface VercelProjectLink {
-  id: string;
-  repository_id: string;
-  sub_project_path: string;
-  project_id: string;
-  project_name?: string;
-  team_id: string;
-  team_slug?: string;
-  framework?: string;
-  root_directory?: string;
-  production_url?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-/**
- * `last_failed_deployment` is reported apart from `latest_deployment` on
- * purpose: a project whose last build failed and was then fixed still wants
- * the failure visible, and a currently broken one carries the same deployment
- * in both. `warnings` is how a live read that partly failed still answers —
- * the stored link is returned rather than an error.
- */
-export interface VercelProjectDetails {
-  link: VercelProjectLink;
-  production_url?: string;
-  framework?: string;
-  root_directory?: string;
-  latest_deployment?: VercelDeployment;
-  last_failed_deployment?: VercelDeployment;
-  warnings?: string[];
-}
-
-/** "" is the whole repository; a monorepo uses its sub-repo kinds. */
-export type HostingArea = "" | SubRepoKind;
-export type HostingLinkSource = "detected" | "user";
-export type HostingConfidence = "exact" | "ambiguous" | "none";
-export type HostingMatchReason = "project_json" | "git_link_dir" | "git_link" | "name";
-
-export interface HostingLink {
-  id: string;
-  repository_id: string;
-  area: HostingArea;
-  provider: DeployProvider;
-  external_id?: string;
-  external_name?: string;
-  scope_id?: string;
-  scope_slug?: string;
-  root_directory?: string;
-  production_url?: string;
-  source: HostingLinkSource;
-  evidence?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SaveHostingLinkInput {
-  area: HostingArea | "root";
-  provider: DeployProvider;
-  external_id?: string;
-  /** Omit for the connection's default team; "" for the personal account. */
-  scope_id?: string;
-  source?: HostingLinkSource;
-  evidence?: string;
-}
-
-export interface HostingHint {
-  provider: string;
-  name: string;
-  detail?: string;
-  evidence?: string;
-}
-
-export interface HostingCandidate {
-  provider: DeployProvider;
-  project: VercelProject;
-  reason: HostingMatchReason;
-}
-
-export interface HostingAreaDetection {
-  area: HostingArea;
-  kind: string;
-  directory?: string;
-  existing?: HostingLink;
-  hints?: HostingHint[] | null;
-  candidates?: HostingCandidate[] | null;
-  confidence: HostingConfidence;
-}
-
-export interface HostingDetection {
-  repository_id: string;
-  kind: string;
-  vercel_connected: boolean;
-  areas: HostingAreaDetection[] | null;
-  warnings?: string[] | null;
-}
-
-/** What a repository's dependency record points at: another repo's
- * sub-project, a whole other repo, or a manually-recorded database. See
- * domain.RepoDependency on the server. */
-export type DependencyTargetKind = "sub_repo" | "repo" | "database";
-export type DatabaseEngine = "postgres" | "mysql" | "mongodb" | "redis" | "other";
-
-export interface RepoDependency {
-  id: string;
-  repository_id: string;
-  target_kind: DependencyTargetKind;
-  target_repository_id?: string;
-  target_sub_project_path?: string;
-  database_label?: string;
-  database_engine?: DatabaseEngine | "";
-  /** "stage" | "prod" only — see domain.ValidateRepoDependencyRequest. */
-  database_env?: DeployEnv | "";
-  database_host?: string;
-  database_port?: number;
-  database_name?: string;
-  database_username?: string;
-  /** Masked ("***") whenever a secret is stored, "" when none was ever set.
-   * The real value never round-trips. */
-  database_secret?: string;
-  note?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SaveRepoDependencyRequest {
-  target_kind: DependencyTargetKind;
-  target_repository_id?: string;
-  target_sub_project_path?: string;
-  database_label?: string;
-  database_engine?: DatabaseEngine | "";
-  database_env?: DeployEnv | "";
-  database_host?: string;
-  database_port?: number;
-  database_name?: string;
-  database_username?: string;
-  /** "" or the masked placeholder leaves the stored secret untouched. */
-  database_secret?: string;
-  note?: string;
-}
-
-export interface ProjectDependencyView {
-  outgoing: RepoDependency[];
-  incoming: RepoDependency[];
 }
 
 export interface GitHubOwner {
@@ -2579,17 +2144,29 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   let message = text;
   let type = "";
   try {
-    const parsed = JSON.parse(text) as { error?: string | { message?: string; type?: string } };
+    const parsed = JSON.parse(text) as {
+      error?: string | { message?: string; type?: string };
+      code?: string;
+    };
     if (typeof parsed.error === "string") {
       message = parsed.error;
     } else {
       message = parsed.error?.message ?? text;
       type = parsed.error?.type ?? "";
     }
+    // Some coded errors (e.g. the cloud endpoints' cloud_auth) carry the code
+    // only at the top level, `{error, code}`, rather than nested in error.type.
+    if (!type && parsed.code) type = parsed.code;
   } catch {
     /* keep text */
   }
   return new ApiError(message || `HTTP ${res.status}`, res.status, type);
+}
+
+/** A cloud account's provider rejected the stored credential — the UI says
+ * "reconnect" rather than the generic action-failed toast. */
+export function isCloudAuthError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 400 && e.type === "cloud_auth";
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -2693,6 +2270,799 @@ export function attachmentUrl(id: string): string {
   return apiUrl(`/v1/attachments/${id}`);
 }
 
+// ---------------------------------------------------------------------------
+// Project model: Project → Repository → Component → Check/Link/Note.
+// Mirrors server/internal/domain/project_model.go and project_model_requests.go
+// JSON tags exactly (Phase 1 HTTP contract). Every detected field is a
+// Fact<T>: effective value = override ?? detected; "edited by you" = override
+// present; PATCHing a field to `null` clears the override (revert to
+// detected), an absent field is left untouched, and JSON.stringify already
+// drops `undefined` keys, so the three patch spellings fall out for free.
+// ---------------------------------------------------------------------------
+
+export type Confidence = "exact" | "high" | "medium" | "low";
+
+export interface SourceEvidence {
+  path: string;
+  line?: number;
+  note?: string;
+}
+
+export interface Fact<T> {
+  detected?: T;
+  override?: T;
+  confidence?: Confidence;
+  evidence?: SourceEvidence[];
+}
+
+export type ComponentRole =
+  | "frontend"
+  | "backend"
+  | "mobile"
+  | "desktop"
+  | "worker"
+  | "library"
+  | "infra"
+  | "cli"
+  | "other";
+
+export const COMPONENT_ROLES: ComponentRole[] = [
+  "frontend",
+  "backend",
+  "mobile",
+  "desktop",
+  "worker",
+  "library",
+  "infra",
+  "cli",
+  "other",
+];
+
+export interface StackItem {
+  name: string;
+  version?: string;
+  evidence?: SourceEvidence;
+}
+
+export interface ComponentStack {
+  languages?: StackItem[];
+  frameworks?: StackItem[];
+  libraries?: StackItem[];
+  runtime?: StackItem;
+  package_manager?: string;
+  container?: string;
+}
+
+export type CommandPurpose =
+  | "install"
+  | "dev"
+  | "build"
+  | "test"
+  | "lint"
+  | "typecheck"
+  | "format"
+  | "e2e"
+  | "migrate";
+
+export const COMMAND_PURPOSES: CommandPurpose[] = [
+  "install",
+  "dev",
+  "build",
+  "test",
+  "lint",
+  "typecheck",
+  "format",
+  "e2e",
+  "migrate",
+];
+
+export interface ComponentCommand {
+  purpose: CommandPurpose;
+  command: Fact<string>;
+}
+
+/** Read off the working copy (repository.DetectAppIdentity); never typed by a human. */
+export interface AppIdentity {
+  bundle_id: string;
+  package_name: string;
+}
+
+/** Read off the working copy (repository.DetectBuildTargets); "" blocks a mobile release. */
+export interface BuildTargets {
+  xcode_scheme: string;
+  gradle_module: string;
+}
+
+export interface MobileFacts {
+  platform?: string;
+  identity: AppIdentity;
+  build_targets: BuildTargets;
+}
+
+/** nil/absent inherits the repository-level gate setting. */
+export interface ComponentGates {
+  coverage_enabled?: boolean;
+  coverage_threshold?: number;
+  mutation_enabled?: boolean;
+  mutation_threshold?: number;
+}
+
+export type ComponentStatus = "active" | "dismissed";
+
+export interface Component {
+  id: string;
+  repository_id: string;
+  path: string;
+  name: Fact<string>;
+  role: Fact<ComponentRole>;
+  stack: Fact<ComponentStack>;
+  commands: ComponentCommand[];
+  mobile?: Fact<MobileFacts>;
+  docs: RepositoryDocs;
+  gates: ComponentGates;
+  status: ComponentStatus;
+  manually_added: boolean;
+  last_scan_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CheckPurpose =
+  | "lint"
+  | "typecheck"
+  | "test"
+  | "build"
+  | "e2e"
+  | "security"
+  | "deploy"
+  | "release"
+  | "other";
+
+export const CHECK_PURPOSES: CheckPurpose[] = [
+  "lint",
+  "typecheck",
+  "test",
+  "build",
+  "e2e",
+  "security",
+  "deploy",
+  "release",
+  "other",
+];
+
+export type CheckGate = "required" | "info" | "off";
+
+export const CHECK_GATES: CheckGate[] = ["required", "info", "off"];
+
+/** One argv run without a shell inside `dir` (repo-relative). */
+export interface LocalCommand {
+  dir: string;
+  argv: string[];
+}
+
+export interface CheckStep {
+  name?: string;
+  run?: string;
+  uses?: string;
+  working_directory?: string;
+}
+
+export type CheckSource = "ci" | "manual";
+export type ModelStatus = "active" | "dismissed";
+
+// Distinct from DeployEnv ("local"|"stage"|"preprod"|"prod", used by deploy
+// targets): this is the CI workflow's own environment label, read off the job.
+export type DeployEnvironment = "production" | "staging" | "preview" | "development";
+
+/** One CI job mapped onto the component it verifies. */
+export interface ComponentCheck {
+  id: string;
+  repository_id: string;
+  component_id: string;
+  source: CheckSource;
+  workflow: string;
+  workflow_name?: string;
+  job_key: string;
+  job_name?: string;
+  purpose: Fact<CheckPurpose>;
+  environment?: DeployEnvironment;
+  triggers?: string[];
+  path_filters?: string[];
+  steps?: CheckStep[];
+  local_commands: Fact<LocalCommand[]>;
+  gate: Fact<CheckGate>;
+  dispatchable: boolean;
+  status: ModelStatus;
+  missing: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ResourceKind =
+  | "database"
+  | "cache"
+  | "queue"
+  | "storage"
+  | "search"
+  | "api"
+  | "auth"
+  | "email"
+  | "payments"
+  | "ai"
+  | "observability"
+  | "other";
+
+export const RESOURCE_KINDS: ResourceKind[] = [
+  "database",
+  "cache",
+  "queue",
+  "storage",
+  "search",
+  "api",
+  "auth",
+  "email",
+  "payments",
+  "ai",
+  "observability",
+  "other",
+];
+
+/** A workspace-wide node something connects to; IdentityKey dedupes it. */
+export interface SystemResource {
+  id: string;
+  kind: ResourceKind;
+  vendor: string;
+  name: string;
+  identity_key: string;
+  details?: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LinkProtocol = "http" | "grpc" | "graphql" | "sql" | "redis" | "queue" | "sdk" | "package" | "other";
+
+export const LINK_PROTOCOLS: LinkProtocol[] = [
+  "http",
+  "grpc",
+  "graphql",
+  "sql",
+  "redis",
+  "queue",
+  "sdk",
+  "package",
+  "other",
+];
+
+export type LinkStatus = "suggested" | "confirmed" | "dismissed";
+
+export const LINK_STATUSES: LinkStatus[] = ["suggested", "confirmed", "dismissed"];
+
+export type LinkSource = "scan" | "user";
+
+/**
+ * One outgoing edge. Exactly one of to_component_id/to_resource_id is set
+ * once resolved; an unresolved suggestion has neither and carries `hint`.
+ */
+export interface ComponentLink {
+  id: string;
+  repository_id: string;
+  from_component_id: string;
+  to_component_id?: string;
+  to_resource_id?: string;
+  protocol: LinkProtocol;
+  detail?: string;
+  env_vars?: string[];
+  evidence?: SourceEvidence[];
+  confidence: Confidence;
+  reason?: string;
+  hint?: string;
+  status: LinkStatus;
+  source: LinkSource;
+  auto_confirmed: boolean;
+  signal_key?: string;
+  missing: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NoteTopic =
+  | "purpose"
+  | "entrypoints"
+  | "conventions"
+  | "invariants"
+  | "danger_zones"
+  | "change_recipes"
+  | "gotchas";
+
+export const NOTE_TOPICS: NoteTopic[] = [
+  "purpose",
+  "entrypoints",
+  "conventions",
+  "invariants",
+  "danger_zones",
+  "change_recipes",
+  "gotchas",
+];
+
+export type NoteAuthor = "agent" | "user";
+
+/** Judgment a parser cannot make. An agent may only write one with evidence,
+ * and never a locked one. */
+export interface ProjectNote {
+  id: string;
+  repository_id: string;
+  component_id?: string;
+  topic: NoteTopic;
+  body_md: string;
+  evidence?: SourceEvidence[];
+  source_commit?: string;
+  stale: boolean;
+  author: NoteAuthor;
+  locked: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ScanTrigger = "import" | "manual" | "push" | "stale" | "migrate";
+
+export type ScanStatus = "queued" | "running" | "succeeded" | "failed";
+
+export type ScanStage =
+  | "clone"
+  | "inventory"
+  | "shape"
+  | "components"
+  | "stack"
+  | "checks"
+  | "links"
+  | "deploy"
+  | "match"
+  | "notes";
+
+/** One progress line the add-repository flow streams; summary is a finished
+ * sentence of what the stage found. */
+export interface ScanEvent {
+  stage: ScanStage;
+  done: boolean;
+  summary?: string;
+  at: string;
+}
+
+export interface ProjectScan {
+  id: string;
+  repository_id: string;
+  trigger: ScanTrigger;
+  status: ScanStatus;
+  stage?: ScanStage;
+  commit_sha?: string;
+  events: ScanEvent[];
+  // Never populated by the endpoints the UI calls (scans/latest, /v1/scans/:id) —
+  // ScanResult is the parser's internal record, replayed for audit only.
+  result?: unknown;
+  review_count: number;
+  error?: string;
+  started_at: string;
+  finished_at?: string;
+}
+
+export type RepoShape = "single" | "monorepo";
+
+export type ProjectType = "empty" | "single_repo" | "monorepo" | "multi_repo";
+
+export type ReviewKind = "role" | "link" | "environment";
+
+/** Points at one medium-confidence value waiting for the human; the UI
+ * renders it from the entity in the same payload. */
+export interface ReviewItem {
+  kind: ReviewKind;
+  entity_id: string;
+  repository_id: string;
+  component_id: string;
+  confidence: Confidence;
+}
+
+/** Display identity of a component that lives in another repository but is
+ * the other end of one of this payload's links. */
+export interface LinkedComponent {
+  id: string;
+  repository_id: string;
+  repository_name: string;
+  project_ids?: string[];
+  path: string;
+  name: string;
+  role: ComponentRole;
+}
+
+/** GET /v1/repositories/:id/model. */
+export interface RepositoryModel {
+  repository: Repository;
+  shape: RepoShape;
+  components: Component[];
+  checks: ComponentCheck[];
+  links: ComponentLink[];
+  incoming_links: ComponentLink[];
+  resources: SystemResource[];
+  linked_components: LinkedComponent[];
+  notes: ProjectNote[];
+  environments: ComponentEnvironment[];
+  review: ReviewItem[];
+  latest_scan?: ProjectScan;
+}
+
+export interface ComponentSummary {
+  id: string;
+  path: string;
+  name: string;
+  role: ComponentRole;
+  role_confidence?: Confidence;
+  stack_summary: string;
+  checks: number;
+  required_checks: number;
+}
+
+export interface ScanSummary {
+  id: string;
+  status: ScanStatus;
+  trigger: ScanTrigger;
+  started_at: string;
+  finished_at?: string;
+}
+
+export interface RepositorySummary {
+  id: string;
+  name: string;
+  description: string;
+  remote_url?: string;
+  project_ids?: string[];
+  shape: RepoShape;
+  components: ComponentSummary[];
+  review_count: number;
+  last_scan?: ScanSummary;
+  // Filled from stored health only, so the projects page never waits on a
+  // cloud provider.
+  environments: EnvironmentSummary[];
+  git_warning?: string;
+  updated_at: string;
+}
+
+export interface ProjectRef {
+  id: string;
+  name: string;
+}
+
+export interface ResourceRefView {
+  id: string;
+  kind: ResourceKind;
+  name: string;
+}
+
+/**
+ * One card on the projects page and the header of the project page.
+ * cross_projects/cross_links/shared_resources are empty when the project is
+ * independent.
+ */
+export interface ProjectOverview {
+  id: string;
+  name: string;
+  description: string;
+  type: ProjectType;
+  repositories: RepositorySummary[];
+  review_count: number;
+  cross_projects: ProjectRef[];
+  cross_links: number;
+  shared_resources: ResourceRefView[];
+}
+
+/** GET /v1/projects/overview. */
+export interface ProjectsOverview {
+  projects: ProjectOverview[];
+  unassigned: RepositorySummary[];
+}
+
+/** GET /v1/projects/:projectId/overview. */
+export interface ProjectDetail extends ProjectOverview {
+  review: ReviewItem[];
+}
+
+// ---- Project model request bodies ----------------------------------------
+// Patch bodies read `T | null | undefined`: undefined (key omitted — dropped
+// by JSON.stringify) leaves the override untouched, null clears it (revert to
+// detected), a value sets it. See the Fact<T> comment above.
+
+export interface ComponentPatch {
+  name?: string | null;
+  role?: ComponentRole | null;
+  commands?: Partial<Record<CommandPurpose, string | null>>;
+  gates?: ComponentGates | null;
+  docs?: RepositoryDocs | null;
+  status?: ComponentStatus;
+}
+
+export interface NewComponentRequest {
+  path: string;
+  name?: string;
+  role: ComponentRole;
+}
+
+export interface CheckPatch {
+  purpose?: CheckPurpose | null;
+  gate?: CheckGate | null;
+  local_commands?: LocalCommand[] | null;
+  status?: ModelStatus;
+}
+
+/** component_id is redundant with the /v1/components/:componentId/checks URL;
+ * api.createCheck fills it in so callers never pass it twice. */
+export interface NewCheckRequest {
+  component_id: string;
+  name: string;
+  purpose: CheckPurpose;
+  local_commands: LocalCommand[];
+  gate: CheckGate;
+}
+
+/** A resource the human picked or typed; the server turns it into a
+ * SystemResource with a user-scoped identity key. */
+export interface ResourceRef {
+  kind: ResourceKind;
+  vendor?: string;
+  name: string;
+}
+
+export interface LinkPatch {
+  status?: LinkStatus;
+  to_component_id?: string;
+  to_resource?: ResourceRef;
+  protocol?: LinkProtocol;
+}
+
+export interface NewLinkRequest {
+  from_component_id: string;
+  to_component_id?: string;
+  to_resource?: ResourceRef;
+  protocol: LinkProtocol;
+  detail?: string;
+}
+
+export interface SaveNoteRequest {
+  component_id?: string;
+  topic: NoteTopic;
+  body_md: string;
+  locked: boolean;
+}
+
+export interface NotePatch {
+  body_md?: string;
+  locked?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Cloud & runtime (Phase 2): connected provider accounts, the resources they
+// can see, and per-component-environment deployments/logs/errors read
+// through them. Mirrors server/internal/domain/cloud.go's JSON tags exactly.
+// ---------------------------------------------------------------------------
+
+export type CloudProviderKind = "vercel" | "gcp" | "aws";
+
+export const CLOUD_PROVIDERS: CloudProviderKind[] = ["vercel", "gcp", "aws"];
+
+export type CloudAccountStatus = "ok" | "error" | "unverified";
+
+/** One connected provider login. The credential itself never round-trips;
+ * `meta` carries the non-secret identity the provider reported (team,
+ * project id, account id, region, client email). */
+export interface CloudAccount {
+  id: string;
+  provider: CloudProviderKind;
+  label: string;
+  meta: Record<string, string>;
+  status: CloudAccountStatus;
+  status_detail?: string;
+  verified_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** fields: vercel {token, team_id?} · gcp {service_account_json} · aws
+ * {access_key_id, secret_access_key, session_token?, region}. */
+export interface SaveCloudAccountRequest {
+  provider: CloudProviderKind;
+  label?: string;
+  fields: Record<string, string>;
+}
+
+export type CloudResourceKind =
+  | "vercel_project"
+  | "cloud_run_service"
+  | "cloud_run_job"
+  | "app_engine_service"
+  | "cloud_function"
+  | "gke_workload"
+  | "ecs_service"
+  | "lambda_function"
+  | "app_runner_service";
+
+/** One deployable thing inside an account. `id` is the provider-native
+ * identifier (prj_…, a Cloud Run resource name, an ARN). */
+export interface CloudResourceRef {
+  kind: CloudResourceKind;
+  id: string;
+  name: string;
+  region?: string;
+  extra?: Record<string, string>;
+}
+
+/** One row of an account's resource listing. */
+export interface CloudResource {
+  account_id: string;
+  provider: CloudProviderKind;
+  ref: CloudResourceRef;
+  url?: string;
+  domains?: string[];
+  labels?: Record<string, string>;
+}
+
+export type CloudResourceStatus = "healthy" | "deploying" | "degraded" | "failed" | "unknown";
+
+export interface KeyValue {
+  label: string;
+  value: string;
+}
+
+export interface CloudResourceDetail extends CloudResource {
+  status: CloudResourceStatus;
+  status_detail?: string;
+  revision?: string;
+  console_url?: string;
+  latest_deployment?: CloudDeployment;
+  facts?: KeyValue[];
+}
+
+export type CloudDeploymentStatus = "ready" | "building" | "error" | "canceled" | "unknown";
+
+export interface CloudDeployment {
+  id: string;
+  status: CloudDeploymentStatus;
+  environment?: DeployEnvironment;
+  commit_sha?: string;
+  commit_message?: string;
+  branch?: string;
+  url?: string;
+  creator?: string;
+  created_at: string;
+  ready_at?: string;
+  inspect_url?: string;
+}
+
+export type LogSeverity = "debug" | "info" | "warning" | "error" | "critical";
+
+export const LOG_SEVERITIES: LogSeverity[] = ["debug", "info", "warning", "error", "critical"];
+
+export interface RuntimeLogQuery {
+  since?: string;
+  until?: string;
+  min_severity?: LogSeverity;
+  text?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface RuntimeLogEntry {
+  timestamp: string;
+  severity: LogSeverity;
+  message: string;
+  source?: string;
+  method?: string;
+  path?: string;
+  status_code?: number;
+  trace_id?: string;
+  fields?: Record<string, string>;
+}
+
+export interface RuntimeLogPage {
+  entries: RuntimeLogEntry[];
+  next_cursor?: string;
+  /** The provider capped the window; the list is not complete. */
+  truncated?: boolean;
+}
+
+/** One recurring error. Providers with native grouping (GCP Error Reporting)
+ * fill it directly; otherwise error-level log lines are grouped by a
+ * normalised message fingerprint. */
+export interface RuntimeErrorGroup {
+  fingerprint: string;
+  message: string;
+  count: number;
+  first_seen: string;
+  last_seen: string;
+  sample?: string;
+  source?: string;
+  /** The group's first occurrence falls inside the queried window — "started
+   * with this deploy". */
+  new: boolean;
+  external_url?: string;
+}
+
+/**
+ * Binds one component's environment to where it runs. Provider "" with only
+ * url/health_url is a custom environment the platform can probe but not read
+ * logs from.
+ */
+export interface ComponentEnvironment {
+  id: string;
+  repository_id: string;
+  component_id: string;
+  environment: DeployEnvironment;
+  provider?: CloudProviderKind;
+  account_id?: string;
+  resource?: CloudResourceRef;
+  url?: string;
+  health_url?: string;
+  status: LinkStatus;
+  source: LinkSource;
+  confidence: Confidence;
+  reason?: string;
+  /** The matcher bound this from an exact signal (a unique service name, a
+   * project id) without asking. */
+  auto_confirmed: boolean;
+  /** The resources an ambiguous signal could mean; the human picks one. Empty
+   * once confirmed. */
+  candidates?: CloudResource[];
+  signal_key?: string;
+  /** The last background probe's summary; absent until one ran. */
+  health?: EnvironmentHealth;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SaveEnvironmentRequest {
+  account_id?: string;
+  resource?: CloudResourceRef;
+  url?: string;
+  health_url?: string;
+}
+
+/** Choosing one of `ComponentEnvironment.candidates` sends its account_id +
+ * resource.ref alongside status "confirmed". */
+export interface EnvironmentPatch {
+  status?: "confirmed" | "dismissed" | "suggested";
+  account_id?: string;
+  resource?: CloudResourceRef;
+}
+
+/** GET …/environments/:envId/overview — the live picture the Deploy &
+ * Runtime tab opens on. */
+export interface EnvironmentRuntime {
+  environment: ComponentEnvironment;
+  detail?: CloudResourceDetail;
+  deployments: CloudDeployment[];
+  errors: RuntimeErrorGroup[];
+  unavailable?: string;
+}
+
+/** Refreshed by a background sweep so list views never call a provider on
+ * load. */
+export interface EnvironmentHealth {
+  status: CloudResourceStatus;
+  error_count_24h: number;
+  last_deploy_at?: string;
+  checked_at: string;
+  detail?: string;
+}
+
+/** RepositorySummary.environments[] — cheap, from stored health only. */
+export interface EnvironmentSummary {
+  id: string;
+  component_id: string;
+  environment: DeployEnvironment;
+  provider?: CloudProviderKind;
+  resource_name?: string;
+  url?: string;
+  status: LinkStatus;
+  health?: CloudResourceStatus;
+  error_count_24h: number;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   usageSummary: (days = 30) => request<UsageSummary>(`/v1/usage?days=${days}`),
@@ -2740,57 +3110,6 @@ export const api = {
       method: "POST",
     }),
 
-  getGCloudCredential: () => request<GCloudCredentialView>("/v1/gcloud/credential"),
-
-  saveGCloudCredential: (serviceAccountJson: string) =>
-    request<GCloudCredentialView>("/v1/gcloud/credential", {
-      method: "PUT",
-      body: JSON.stringify({ service_account_json: serviceAccountJson }),
-    }),
-
-  deleteGCloudCredential: () => request<void>("/v1/gcloud/credential", { method: "DELETE" }),
-
-  listGCloudResources: () => request<GCloudResourceListing>("/v1/gcloud/resources"),
-
-  bindGCloudResource: (
-    id: string,
-    resource: { resource_type: GCloudResourceType; resource_name: string; sub_project_path?: string },
-  ) =>
-    request<GCloudResourceBinding>(`/v1/repositories/${id}/gcloud/resource`, {
-      method: "PUT",
-      body: JSON.stringify({ sub_project_path: "", ...resource }),
-    }),
-
-  gcloudResourceDetails: (id: string, subProjectPath = "") =>
-    request<BoundGCloudResource>(
-      `/v1/repositories/${id}/gcloud/resource?sub_project_path=${encodeURIComponent(subProjectPath)}`,
-    ),
-
-  unbindGCloudResource: (id: string, subProjectPath = "") =>
-    request<void>(
-      `/v1/repositories/${id}/gcloud/resource?sub_project_path=${encodeURIComponent(subProjectPath)}`,
-      { method: "DELETE" },
-    ),
-
-  listVercelProjects: () => request<VercelProjectListing>("/v1/vercel/projects"),
-
-  linkVercelProject: (id: string, projectId: string, subProjectPath = "") =>
-    request<VercelProjectLink>(`/v1/repositories/${id}/vercel/project`, {
-      method: "PUT",
-      body: JSON.stringify({ project_id: projectId, sub_project_path: subProjectPath }),
-    }),
-
-  vercelProjectDetails: (id: string, subProjectPath = "") =>
-    request<VercelProjectDetails>(
-      `/v1/repositories/${id}/vercel/project?sub_project_path=${encodeURIComponent(subProjectPath)}`,
-    ),
-
-  unlinkVercelProject: (id: string, subProjectPath = "") =>
-    request<void>(
-      `/v1/repositories/${id}/vercel/project?sub_project_path=${encodeURIComponent(subProjectPath)}`,
-      { method: "DELETE" },
-    ),
-
   githubStatus: () =>
     request<GitHubConnectionStatus>("/v1/settings/github"),
 
@@ -2803,70 +3122,6 @@ export const api = {
 
   disconnectGitHub: () =>
     request<GitHubConnectionStatus>("/v1/settings/github", { method: "DELETE" }),
-
-  // Vercel is a pasted access token (vercel.com/account/tokens), verified and
-  // stored encrypted server-side — there is no OAuth hop to a gateway here.
-  vercelStatus: () => request<VercelConnectionStatus>("/v1/settings/vercel"),
-
-  connectVercel: (data: { token?: string; team_id?: string }) =>
-    request<VercelConnectionStatus>("/v1/settings/vercel", {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-
-  disconnectVercel: () =>
-    request<VercelConnectionStatus>("/v1/settings/vercel", { method: "DELETE" }),
-
-  vercelTeams: () => request<{ teams: VercelTeam[] }>("/v1/settings/vercel/teams"),
-
-  // teamId undefined → the connection's default scope; "" → personal account.
-  vercelProjects: (teamId?: string) =>
-    request<{ projects: VercelProject[]; count: number }>(
-      teamId === undefined
-        ? "/v1/settings/vercel/projects"
-        : `/v1/settings/vercel/projects?team_id=${encodeURIComponent(teamId)}`,
-    ),
-
-  detectHosting: (repositoryId: string) =>
-    request<HostingDetection>(`/v1/repositories/${repositoryId}/hosting/detect`),
-
-  listHostingLinks: (repositoryId: string) =>
-    request<{ links: HostingLink[] }>(`/v1/repositories/${repositoryId}/hosting/links`),
-
-  saveHostingLink: (repositoryId: string, data: SaveHostingLinkInput) =>
-    request<HostingLink>(`/v1/repositories/${repositoryId}/hosting/links`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-
-  // "root" addresses the whole-repository area, which cannot travel as "".
-  deleteHostingLink: (repositoryId: string, area: HostingArea) =>
-    request<void>(`/v1/repositories/${repositoryId}/hosting/links/${area || "root"}`, {
-      method: "DELETE",
-    }),
-
-  listRepoDependencies: (repositoryId: string) =>
-    request<{ dependencies: RepoDependency[] }>(`/v1/repositories/${repositoryId}/dependencies`),
-
-  createRepoDependency: (repositoryId: string, data: SaveRepoDependencyRequest) =>
-    request<RepoDependency>(`/v1/repositories/${repositoryId}/dependencies`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  updateRepoDependency: (repositoryId: string, depId: string, data: SaveRepoDependencyRequest) =>
-    request<RepoDependency>(`/v1/repositories/${repositoryId}/dependencies/${depId}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
-
-  deleteRepoDependency: (repositoryId: string, depId: string) =>
-    request<void>(`/v1/repositories/${repositoryId}/dependencies/${depId}`, {
-      method: "DELETE",
-    }),
-
-  listProjectDependencies: (projectId: string) =>
-    request<ProjectDependencyView>(`/v1/projects/${projectId}/dependencies`),
 
   githubOwners: () => request<{ owners: GitHubOwner[] }>("/v1/settings/github/owners"),
 
@@ -3379,7 +3634,7 @@ export const api = {
       projects: d.repositories,
     })),
 
-  openRepository: (rootPath: string, description: string, projectIds?: string[]) =>
+  openRepository: (rootPath: string, description?: string, projectIds?: string[]) =>
     request<Repository>("/v1/repositories/open", {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath, description, project_ids: projectIds }),
@@ -3390,7 +3645,7 @@ export const api = {
   createRepository: (
     name: string,
     parentDir: string,
-    description: string,
+    description?: string,
     projectIds?: string[],
     owner?: string,
   ) =>
@@ -3438,13 +3693,14 @@ export const api = {
       build_command?: string;
       test_command?: string;
       require_human_review?: boolean;
-      kind?: RepoKind;
-      sub_projects?: RepoSubProject[];
       docs?: RepositoryDocs;
-      mobile_platform?: MobilePlatform;
       release_engine?: ReleaseEngine;
       mutation_enabled?: boolean;
       mutation_threshold?: number;
+      // Was only reachable through the now-removed pipeline/config endpoint
+      // (SavePipelineConfig); the general PATCH has always accepted it
+      // (domain.UpdateRepositoryRequest.AutoReleaseOnDone).
+      auto_release_on_done?: boolean;
     },
   ) =>
     request<Repository>(`/v1/repositories/${id}`, {
@@ -3477,33 +3733,6 @@ export const api = {
 
   updateProject: (id: string, data: { name?: string; description?: string }) =>
     api.updateRepository(id, data),
-
-  getRepositoryProfile: (id: string) =>
-    request<RepositoryProfile>(`/v1/repositories/${id}/profile`),
-
-  refreshRepositoryProfile: (id: string) =>
-    request<{ status: "started" | "already_running" }>(`/v1/repositories/${id}/profile/refresh`, {
-      method: "POST",
-    }),
-
-  applyProfileProposal: (id: string, proposalId: string) =>
-    request<ProfileProposal>(`/v1/repositories/${id}/profile/proposals/${proposalId}/apply`, {
-      method: "POST",
-    }),
-
-  dismissProfileProposal: (id: string, proposalId: string) =>
-    request<ProfileProposal>(`/v1/repositories/${id}/profile/proposals/${proposalId}/dismiss`, {
-      method: "POST",
-    }),
-
-  getPipelineConfig: (id: string) =>
-    request<PipelineConfigView>(`/v1/repositories/${id}/pipeline/config`),
-
-  savePipelineConfig: (id: string, data: SavePipelineConfigInput) =>
-    request<PipelineConfigView>(`/v1/repositories/${id}/pipeline/config`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
 
   createWorkflowSetupTask: (id: string) =>
     request<BoardTask>(`/v1/repositories/${id}/pipeline/setup-task`, { method: "POST" }),
@@ -4185,4 +4414,153 @@ export const api = {
   triggerTaskPipeline: (repositoryId: string, taskId: string) =>
     request<TaskPipeline>(
       `/v1/repositories/${repositoryId}/tasks/${taskId}/pipelines`, { method: "POST" }),
+
+  // ---- Project model ------------------------------------------------------
+
+  getProjectsOverview: () => request<ProjectsOverview>("/v1/projects/overview"),
+
+  getProjectOverview: (projectId: string) => request<ProjectDetail>(`/v1/projects/${projectId}/overview`),
+
+  getRepositoryModel: (repositoryId: string) => request<RepositoryModel>(`/v1/repositories/${repositoryId}/model`),
+
+  getRepositoryBrief: (repositoryId: string, params: { componentId?: string; area?: ComponentRole } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.componentId) qs.set("component_id", params.componentId);
+    if (params.area) qs.set("area", params.area);
+    const suffix = qs.toString();
+    return request<{ brief: string }>(`/v1/repositories/${repositoryId}/brief${suffix ? `?${suffix}` : ""}`);
+  },
+
+  // A scan already running on this repository answers 409, not an error the
+  // caller should surface — the running scan is exactly what the add-repository
+  // flow wants to poll, so this folds that case back into a normal result.
+  startRepositoryScan: async (repositoryId: string): Promise<ProjectScan> => {
+    try {
+      const res = await request<{ scan: ProjectScan }>(`/v1/repositories/${repositoryId}/scans`, {
+        method: "POST",
+      });
+      return res.scan;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        const latest = await api.getLatestRepositoryScan(repositoryId);
+        if (latest.scan) return latest.scan;
+      }
+      throw e;
+    }
+  },
+
+  getLatestRepositoryScan: (repositoryId: string) =>
+    request<{ scan: ProjectScan | null }>(`/v1/repositories/${repositoryId}/scans/latest`),
+
+  getScan: (scanId: string) => request<{ scan: ProjectScan }>(`/v1/scans/${scanId}`),
+
+  createComponent: (repositoryId: string, body: NewComponentRequest) =>
+    request<Component>(`/v1/repositories/${repositoryId}/components`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateComponent: (componentId: string, patch: ComponentPatch) =>
+    request<Component>(`/v1/components/${componentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  createCheck: (componentId: string, body: Omit<NewCheckRequest, "component_id">) =>
+    request<ComponentCheck>(`/v1/components/${componentId}/checks`, {
+      method: "POST",
+      body: JSON.stringify({ component_id: componentId, ...body }),
+    }),
+
+  updateCheck: (checkId: string, patch: CheckPatch) =>
+    request<ComponentCheck>(`/v1/checks/${checkId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  deleteCheck: (checkId: string) => request<void>(`/v1/checks/${checkId}`, { method: "DELETE" }),
+
+  createLink: (body: NewLinkRequest) =>
+    request<ComponentLink>("/v1/links", { method: "POST", body: JSON.stringify(body) }),
+
+  updateLink: (linkId: string, patch: LinkPatch) =>
+    request<ComponentLink>(`/v1/links/${linkId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  deleteLink: (linkId: string) => request<void>(`/v1/links/${linkId}`, { method: "DELETE" }),
+
+  saveNote: (repositoryId: string, body: SaveNoteRequest) =>
+    request<ProjectNote>(`/v1/repositories/${repositoryId}/notes`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  updateNote: (noteId: string, patch: NotePatch) =>
+    request<ProjectNote>(`/v1/notes/${noteId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  deleteNote: (noteId: string) => request<void>(`/v1/notes/${noteId}`, { method: "DELETE" }),
+
+  // ---- Cloud accounts & environments (Phase 2) ---------------------------
+
+  listCloudAccounts: () => request<{ accounts: CloudAccount[] }>("/v1/cloud-accounts"),
+
+  // The server verifies with the provider before storing; a rejected
+  // credential is a 400 {error, code:"cloud_auth"} — see isCloudAuthError.
+  createCloudAccount: (data: SaveCloudAccountRequest) =>
+    request<CloudAccount>("/v1/cloud-accounts", { method: "POST", body: JSON.stringify(data) }),
+
+  updateCloudAccount: (id: string, data: { label?: string; fields?: Record<string, string> }) =>
+    request<CloudAccount>(`/v1/cloud-accounts/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  verifyCloudAccount: (id: string) => request<CloudAccount>(`/v1/cloud-accounts/${id}/verify`, { method: "POST" }),
+
+  deleteCloudAccount: (id: string) => request<void>(`/v1/cloud-accounts/${id}`, { method: "DELETE" }),
+
+  listCloudResources: (accountId: string, opts: { refresh?: boolean } = {}) =>
+    request<{ resources: CloudResource[] }>(
+      `/v1/cloud-accounts/${accountId}/resources${opts.refresh ? "?refresh=1" : ""}`,
+    ),
+
+  bindEnvironment: (componentId: string, env: DeployEnvironment, body: SaveEnvironmentRequest) =>
+    request<ComponentEnvironment>(`/v1/components/${componentId}/environments/${env}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  patchEnvironment: (envId: string, patch: EnvironmentPatch) =>
+    request<ComponentEnvironment>(`/v1/environments/${envId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  deleteEnvironment: (envId: string) => request<void>(`/v1/environments/${envId}`, { method: "DELETE" }),
+
+  getEnvironmentOverview: (envId: string) => request<EnvironmentRuntime>(`/v1/environments/${envId}/overview`),
+
+  getEnvironmentLogs: (envId: string, query: RuntimeLogQuery = {}) => {
+    const qs = new URLSearchParams();
+    if (query.since) qs.set("since", query.since);
+    if (query.until) qs.set("until", query.until);
+    if (query.min_severity) qs.set("min_severity", query.min_severity);
+    if (query.text) qs.set("q", query.text);
+    if (query.limit) qs.set("limit", String(query.limit));
+    if (query.cursor) qs.set("cursor", query.cursor);
+    const suffix = qs.toString();
+    return request<RuntimeLogPage>(`/v1/environments/${envId}/logs${suffix ? `?${suffix}` : ""}`);
+  },
+
+  getEnvironmentErrors: (envId: string, opts: { since?: string } = {}) =>
+    request<{ errors: RuntimeErrorGroup[] }>(
+      `/v1/environments/${envId}/errors${opts.since ? `?since=${encodeURIComponent(opts.since)}` : ""}`,
+    ),
+
+  getEnvironmentDeployments: (envId: string, opts: { limit?: number } = {}) =>
+    request<{ deployments: CloudDeployment[] }>(
+      `/v1/environments/${envId}/deployments${opts.limit ? `?limit=${opts.limit}` : ""}`,
+    ),
+
+  createErrorTask: (envId: string, group: RuntimeErrorGroup) =>
+    request<BoardTask>(`/v1/environments/${envId}/errors/task`, {
+      method: "POST",
+      body: JSON.stringify(group),
+    }),
 };

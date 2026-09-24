@@ -37,6 +37,10 @@ type createTaskArgs struct {
 	Project             string `json:"project"`
 	RepositoryID        string `json:"repository_id"`
 	InitiativeProjectID string `json:"initiative_project_id"`
+	// Component narrows the task to one component of a monorepo, by its
+	// repository-relative path ("." for the root). Ignored when the deployment
+	// has no project model.
+	Component string `json:"component"`
 	// AllowDuplicate opts out of the same-work guard for the rare case where a
 	// near-identically titled open task is genuinely a separate deliverable.
 	AllowDuplicate bool `json:"allow_duplicate"`
@@ -150,6 +154,10 @@ func (t *createTaskTool) Definition() domain.ToolDefinition {
 						"type":        "string",
 						"description": "Deprecated alias for project (UUID only).",
 					},
+					"component": map[string]interface{}{
+						"type":        "string",
+						"description": "For a monorepo: which component this task belongs to, by its repository-relative path (e.g. \"services/api\"); \".\" means the repository root. Scopes the task's required checks and brief to that component instead of the whole repository. Omit for a single-purpose repository, or when you are not sure — use list_repositories/the repository's model to see valid component paths.",
+					},
 					"allow_duplicate": map[string]interface{}{
 						"type":        "boolean",
 						"description": "Set true only when an open task with an almost identical title is genuinely different work. Creation is otherwise refused and the existing task is returned, so parallel agents cannot open the same task twice.",
@@ -245,6 +253,13 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 	}
 	if args.Priority != "" {
 		req.Priority = domain.TaskPriority(args.Priority)
+	}
+	if strings.TrimSpace(args.Component) != "" {
+		componentID, cerr := t.kit.resolveComponentRef(ctx, repositoryID, args.Component)
+		if cerr != nil {
+			return toolError(createBoardTaskToolName, cerr.Error())
+		}
+		req.ComponentID = componentID
 	}
 	if ref := args.projectRef(); strings.TrimSpace(ref) != "" {
 		parsed, err := t.kit.resolveProjectRef(ctx, ref)

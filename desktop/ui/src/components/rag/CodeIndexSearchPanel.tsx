@@ -206,7 +206,7 @@ export function CodeIndexSearchPanel({ repositories, loading = false }: CodeInde
       {index && index.status !== "completed" && (
         <p className="text-sm text-muted-foreground">
           {t("chatArea.rag.codeSearch.indexIncomplete")}{" "}
-          <Link className="text-primary underline-offset-4 hover:underline" to={`/repositories/${selectedId}/settings`}>
+          <Link className="text-primary underline-offset-4 hover:underline" to={`/repositories/${selectedId}?tab=settings`}>
             {t("chatArea.rag.codeSearch.repoSettings")}
           </Link>{" "}
           {t("chatArea.rag.codeSearch.reindexHint")}

@@ -1,0 +1,102 @@
+import type { CloudDict } from "@/locales/en/cloud";
+
+// Turkish dictionary for the cloud namespace. Typed as CloudDict; must mirror
+// en/cloud.ts keys exactly.
+export const cloud: CloudDict = {
+  providers: {
+    vercel: "Vercel",
+    gcp: "Google Cloud",
+    aws: "AWS",
+  },
+  environments: {
+    production: "Production",
+    staging: "Staging",
+    preview: "Preview",
+    development: "Development",
+  },
+  environmentsShort: {
+    production: "Prod",
+    staging: "Stg",
+    preview: "Preview",
+    development: "Dev",
+  },
+  health: {
+    healthy: "Sağlıklı",
+    deploying: "Deploy oluyor",
+    degraded: "Sorunlu",
+    failed: "Başarısız",
+    unknown: "Bilinmiyor",
+  },
+  errorCount: "Son 24 saatte {count} hata",
+  accounts: {
+    title: "Bulut hesapları",
+    description:
+      "TaskTrooper'ın deployment, log ve hataları okuduğu sağlayıcı hesapları — bir kez bağlanır, her reponun ortamları tarafından kullanılır.",
+    loadFailed: "Bağlı hesaplar okunamadı",
+    empty: "Henüz bağlı bir bulut hesabı yok.",
+    connect: "Bağlan",
+    connectProvider: "{provider} bağla",
+    status: {
+      ok: "Bağlı",
+      error: "Hata",
+      unverified: "Doğrulanmadı",
+    },
+    verifiedAt: "{date} tarihinde doğrulandı",
+    neverVerified: "Hiç doğrulanmadı",
+    verify: "Doğrula",
+    verified: "Hesap doğrulandı",
+    verifyFailed: "Doğrulama başarısız",
+    rename: "Yeniden adlandır",
+    renameTitle: "Bu hesabı yeniden adlandır",
+    renameSaved: "Hesap yeniden adlandırıldı",
+    replaceCredential: "Kimlik bilgisini değiştir",
+    remove: "Kaldır",
+    removeTitle: "Bu hesap kaldırılsın mı?",
+    removeDescription:
+      "{label} üzerinden bağlı ortamlar satırlarını korur ama başka bir hesap bağlanana kadar canlı deployment, log ve hatalarını kaybeder.",
+    removed: "Hesap kaldırıldı",
+  },
+  dialog: {
+    connectTitle: "{provider} bağla",
+    replaceTitle: "{provider} kimlik bilgisini değiştir",
+    labelField: "Etiket",
+    labelPlaceholder: "örn. Production Vercel",
+    save: "Kaydet",
+    saving: "Kaydediliyor…",
+    connected: "Hesap bağlandı",
+    replaced: "Kimlik bilgisi değiştirildi",
+    authErrorTitle: "Sağlayıcı bu kimlik bilgisini reddetti",
+    authErrorGeneric: "Bu kimlik bilgisi doğrulanamadı",
+    vercel: {
+      tokenLabel: "Erişim token'ı",
+      tokenPlaceholder: "Vercel erişim token'ını yapıştır",
+      teamLabel: "Takım kimliği (opsiyonel)",
+      teamPlaceholder: "team_…",
+      permissions: "Okuma erişimi olan bir token gerekir.",
+    },
+    gcp: {
+      jsonLabel: "Servis hesabı JSON'u",
+      jsonPlaceholder: "{ \"type\": \"service_account\", … }",
+      pickFile: "Dosya seç…",
+      fileReadFailed: "Bu dosya okunamadı",
+      permissions: "Cloud Run Viewer, Logs Viewer ve Error Reporting Viewer rolleri gerekir.",
+    },
+    aws: {
+      accessKeyIdLabel: "Erişim anahtarı kimliği",
+      secretAccessKeyLabel: "Gizli erişim anahtarı",
+      sessionTokenLabel: "Oturum token'ı (opsiyonel)",
+      regionLabel: "Bölge",
+      regionPlaceholder: "örn. us-east-1",
+      regionCustom: "Diğer…",
+      permissions: "ECS, Lambda, App Runner ve CloudWatch Logs'a salt-okunur erişim gerekir.",
+    },
+  },
+  review: {
+    whereQuestion: "{component}, {environment} ortamında nerede çalışıyor?",
+    candidatesLabel: "Eşleşen kaynaklar",
+    useThis: "Bunu kullan",
+    connectPrompt: "Deployment, log ve hatalarını okumak için bir {provider} hesabı bağla",
+    connectAction: "Bağla",
+    notNow: "Şimdi değil",
+  },
+};

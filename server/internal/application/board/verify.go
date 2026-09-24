@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/makifbaysal/tasktrooper/server/internal/application/activity"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/toolchain"
@@ -61,12 +63,13 @@ func (r *Runner) verifyAndFix(
 			repo = fetched
 		}
 	}
+	required := r.requiredVerifyCommands(ctx, job, agentRec, workspace)
 	rec := activity.FromContext(ctx)
 	for attempt := 0; ; attempt++ {
 		if rec != nil {
 			rec.Step("build_verification_start", map[string]any{"attempt": attempt + 1})
 		}
-		ok, failReport := runVerification(ctx, workspace, repo)
+		ok, failReport := runVerification(ctx, workspace, repo, required)
 		// Coverage is measured only once the code compiles, and it reports instead of gating.
 		if ok {
 			for _, note := range []string{coverageReport(ctx, workspace, repo, ""), runMutation(ctx, workspace, repo, "")} {
@@ -191,8 +194,47 @@ func (r *Runner) reportVerificationFailure(ctx context.Context, job RunJob, fail
 	}
 }
 
-func runVerification(ctx context.Context, dir string, repo domain.Repository) (bool, string) {
-	stages := ResolveVerifyStages(dir, repo)
+// requiredVerifyCommands resolves the components this run's verification
+// scopes to — the task's own component, else the components its changed
+// files own, else the agent's area — and asks the project model for their
+// required local commands. An empty scope asks RequiredCommands for every
+// component, which is also what a nil ProjectModel or a failed lookup falls
+// back to via ResolveVerifyStages's VerifyCommand/detectBuild path.
+func (r *Runner) requiredVerifyCommands(ctx context.Context, job RunJob, agentRec domain.Agent, workspace string) []domain.LocalCommand {
+	if r.projectModel == nil {
+		return nil
+	}
+	var componentIDs []uuid.UUID
+	switch {
+	case job.Task.ComponentID != nil:
+		componentIDs = []uuid.UUID{*job.Task.ComponentID}
+	default:
+		if r.git != nil {
+			if files, err := r.git.TaskChangedFiles(ctx, workspace); err == nil && len(files) > 0 {
+				if ids, err := r.projectModel.ComponentsForPaths(ctx, job.RepositoryID, files); err == nil && len(ids) > 0 {
+					componentIDs = ids
+				}
+			}
+		}
+		if len(componentIDs) == 0 && r.roles != nil {
+			if area := r.roles.AgentArea(ctx, agentRec.ID); area != "" {
+				if ids, err := r.projectModel.ComponentsForArea(ctx, job.RepositoryID, area); err == nil {
+					componentIDs = ids
+				}
+			}
+		}
+	}
+	commands, err := r.projectModel.RequiredCommands(ctx, job.RepositoryID, componentIDs)
+	if err != nil {
+		log.Warn().Err(err).Str("repository_id", job.RepositoryID.String()).
+			Msg("required verify commands unavailable; verification falls back to VerifyCommand/detectBuild")
+		return nil
+	}
+	return commands
+}
+
+func runVerification(ctx context.Context, dir string, repo domain.Repository, required []domain.LocalCommand) (bool, string) {
+	stages := ResolveVerifyStages(dir, repo, required)
 	if len(stages) == 0 {
 		return true, ""
 	}
@@ -202,13 +244,18 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository) (b
 	var unverified []string
 	for _, stage := range stages {
 		args := stage.Command
+		workDir, dirErr := stageWorkDir(dir, stage.Dir)
+		if dirErr != nil {
+			failures = append(failures, dirErr.Error())
+			continue
+		}
 		timeout := stage.Timeout
 		if timeout <= 0 {
 			timeout = defaultStageTimeout
 		}
 		cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 		cmd := exec.CommandContext(cmdCtx, args[0], args[1:]...)
-		cmd.Dir = dir
+		cmd.Dir = workDir
 		// The overlay is set unconditionally: empty used to leave cmd.Env nil, and exec reads nil as "inherit the parent".
 		cmd.Env = verifyEnv(os.Environ(), overlay.Env)
 		var buf bytes.Buffer
@@ -250,6 +297,21 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository) (b
 		failures = append(failures, "[toolchain] "+strings.Join(overlay.Warnings, "\n[toolchain] "))
 	}
 	return false, strings.Join(failures, "\n\n")
+}
+
+// stageWorkDir resolves a stage's repo-relative Dir against the workspace
+// root and refuses one that escapes it — a required command's Dir comes from
+// the project model, not the model running this task, but a stale or hand-
+// edited row should still never point run_terminal outside the checkout.
+func stageWorkDir(root, dir string) (string, error) {
+	if dir == "" || dir == "." {
+		return root, nil
+	}
+	clean := filepath.Clean(filepath.FromSlash(dir))
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("stage dir %q escapes the workspace", dir)
+	}
+	return filepath.Join(root, clean), nil
 }
 
 func verifyEnv(parent, overlay []string) []string {

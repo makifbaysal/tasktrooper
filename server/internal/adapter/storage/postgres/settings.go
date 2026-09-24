@@ -251,39 +251,3 @@ func (s *SettingsStore) SetGitHubToken(ctx context.Context, token string) error 
 func (s *SettingsStore) DeleteGitHubToken(ctx context.Context) error {
 	return s.forgetKeys(ctx, githubTokenKey)
 }
-
-// Vercel: the access token is encrypted exactly like the GitHub one; the
-// default team is a plain scope id (team_…, or "" for the personal account).
-const (
-	vercelTokenKey = "vercel_token"
-	vercelTeamKey  = "vercel_team_id"
-)
-
-func (s *SettingsStore) VercelToken(ctx context.Context) (string, error) {
-	return s.secret(ctx, vercelTokenKey)
-}
-
-func (s *SettingsStore) SetVercelToken(ctx context.Context, token string) error {
-	return s.setSecret(ctx, vercelTokenKey, token)
-}
-
-// DeleteVercelToken drops the token and the team it was scoped to together.
-func (s *SettingsStore) DeleteVercelToken(ctx context.Context) error {
-	return s.forgetKeys(ctx, vercelTokenKey, vercelTeamKey)
-}
-
-func (s *SettingsStore) VercelTeam(ctx context.Context) (string, error) {
-	var value string
-	err := s.pool.QueryRow(ctx, `SELECT value FROM app_settings WHERE key = $1`, vercelTeamKey).Scan(&value)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return "", fmt.Errorf("get %s: %w", vercelTeamKey, err)
-	}
-	return value, nil
-}
-
-func (s *SettingsStore) SetVercelTeam(ctx context.Context, teamID string) error {
-	return s.setPlain(ctx, vercelTeamKey, teamID)
-}

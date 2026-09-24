@@ -19,7 +19,9 @@ The snapshot below is ground truth. It already answers the following, so asking 
 If the request names a product with no repository in the snapshot, plan the work to create and register that repository. Do not ask the stakeholder to supply access details.`
 
 // Empty input still renders: "none registered" is a fact worth stating and keeps the never-ask rule attached.
-func WorkspaceFactsBlock(projects []domain.InitiativeProject, repos []domain.Repository) string {
+// projectTypes and componentsByRepo are optional (nil when the project model
+// has not scanned yet, or is not wired) — the snapshot still renders without them.
+func WorkspaceFactsBlock(projects []domain.InitiativeProject, repos []domain.Repository, projectTypes map[uuid.UUID]domain.ProjectType, componentsByRepo map[uuid.UUID][]domain.ComponentSummary) string {
 	var sb strings.Builder
 	sb.WriteString(workspaceFactsRule)
 	sb.WriteString("\n\n")
@@ -28,7 +30,7 @@ func WorkspaceFactsBlock(projects []domain.InitiativeProject, repos []domain.Rep
 	labels := make([]string, 0, len(projects))
 	for _, p := range projects {
 		projectNames[p.ID] = p.Name
-		labels = append(labels, p.Name)
+		labels = append(labels, projectLabel(p, projectTypes))
 	}
 	if len(labels) == 0 {
 		sb.WriteString("Projects (0): none registered\n")
@@ -55,6 +57,10 @@ func WorkspaceFactsBlock(projects []domain.InitiativeProject, repos []domain.Rep
 			line.WriteString(" — projects: ")
 			line.WriteString(strings.Join(linked, ", "))
 		}
+		if label := componentsLabel(componentsByRepo[r.ID]); label != "" {
+			line.WriteString(" — ")
+			line.WriteString(label)
+		}
 		if desc := truncateRunes(r.Description, workspaceRepoDescriptionMax); desc != "" {
 			line.WriteString(" — ")
 			line.WriteString(desc)
@@ -63,6 +69,31 @@ func WorkspaceFactsBlock(projects []domain.InitiativeProject, repos []domain.Rep
 		sb.WriteString("\n")
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+func projectLabel(p domain.InitiativeProject, projectTypes map[uuid.UUID]domain.ProjectType) string {
+	t, ok := projectTypes[p.ID]
+	if !ok || t == "" {
+		return p.Name
+	}
+	return fmt.Sprintf("%s (%s)", p.Name, t)
+}
+
+// componentsLabel renders a repository's components: a single-component repo
+// (or one not yet scanned) just names the role, a monorepo lists every
+// component as "path (role)".
+func componentsLabel(components []domain.ComponentSummary) string {
+	if len(components) == 0 {
+		return ""
+	}
+	if len(components) == 1 {
+		return "role: " + string(components[0].Role)
+	}
+	parts := make([]string, 0, len(components))
+	for _, c := range components {
+		parts = append(parts, fmt.Sprintf("%s (%s)", c.Path, c.Role))
+	}
+	return "components: " + strings.Join(parts, ", ")
 }
 
 func linkedProjectNames(names map[uuid.UUID]string, ids []uuid.UUID) []string {

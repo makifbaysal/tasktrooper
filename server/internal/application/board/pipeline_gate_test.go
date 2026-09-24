@@ -55,7 +55,6 @@ func (g *gateRepos) ResolveDescription(context.Context, uuid.UUID) (string, erro
 func (g *gateRepos) ResolveRepository(_ context.Context, _ uuid.UUID) (domain.Repository, error) {
 	return g.repo, g.err
 }
-func (g *gateRepos) ProfileForRun(context.Context, uuid.UUID, string) string { return "" }
 
 type gateJobStore struct {
 	mappings []domain.RepositoryPipelineJob

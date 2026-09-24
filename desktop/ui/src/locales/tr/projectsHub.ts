@@ -1,0 +1,93 @@
+import type { ProjectsHubDict } from "@/locales/en/projectsHub";
+
+// Turkish dictionary for the `projectsHub` namespace. Typed as
+// ProjectsHubDict; keys must mirror en/projectsHub.ts exactly.
+export const projectsHub: ProjectsHubDict = {
+  title: "Projeler",
+  subtitle: "{projects} proje · {repositories} repo · {components} bileşen",
+  actions: {
+    addRepository: "Repo ekle",
+    newProject: "Yeni proje",
+  },
+  attention: {
+    message: "{count} şey incelemeni bekliyor",
+    review: "İncele",
+  },
+  filters: {
+    allRoles: "Tümü",
+    searchPlaceholder: "Proje, repo, teknoloji ara…",
+  },
+  card: {
+    counts: "{repos} repo · {components} bileşen",
+    reviewBadge: "{count} inceleme bekliyor",
+    editProject: "Projeyi düzenle",
+    deleteProject: "Projeyi sil",
+    deleteTitle: "{name} silinsin mi?",
+    deleteDescription: "Bu projedeki repolar silinmez — yalnızca bu projeyle bağlantıları kalkar.",
+    noDescription: "Açıklama yok",
+    emptyRepos: "Henüz repo yok",
+    linksTo: "Bağlantılı:",
+    sharesPrefix: "Ortak kaynak:",
+    sharesWith: "—",
+    scanRunning: "Taranıyor…",
+    scanFailed: "Tarama başarısız",
+    scanNone: "Hiç taranmadı",
+    gitWarning: "Git sorunu — {warning}",
+  },
+  unassigned: {
+    title: "Projesiz repolar",
+    description: "Henüz bir projeye bağlı değil.",
+    addToProject: "Projeye ekle",
+  },
+  empty: {
+    title: "İlk projeni oluştur",
+    description: "Tek bir ürünü ya da girişimi oluşturan repoları bir arada topla.",
+    cta: "İlk projeni oluştur",
+  },
+  deleted: "Proje silindi",
+  deleteFailed: "Proje silinemedi",
+  project: {
+    breadcrumb: "Projeler",
+    edit: "Düzenle",
+    notFound: {
+      title: "Proje bulunamadı",
+      description: "Silinmiş olabilir ya da bağlantı hatalı.",
+      back: "Projelere dön",
+    },
+    tabs: {
+      repositories: "Repolar",
+      review: "İnceleme",
+      settings: "Ayarlar",
+    },
+    table: {
+      repository: "Repo",
+      shape: "Yapı",
+      components: "Bileşenler",
+      requiredChecks: "Zorunlu kontroller",
+      review: "İnceleme",
+      lastScan: "Son tarama",
+      open: "Aç",
+    },
+    reviewEmpty: "İncelenecek bir şey yok",
+    settings: {
+      nameLabel: "Ad",
+      descriptionLabel: "Açıklama",
+      saved: "Proje güncellendi",
+      members: "Repolar",
+      noMembers: "Bu projede henüz repo yok.",
+      removeFromProject: "Projeden çıkar",
+      removed: "Projeden çıkarıldı",
+      removeFailed: "Repo projeden çıkarılamadı",
+      addExisting: "Var olan bir repoyu ekle",
+      addExistingPlaceholder: "Bir repo seç…",
+      added: "Projeye eklendi",
+      addFailed: "Repo eklenemedi",
+      dangerZone: "Tehlikeli bölge",
+      deleteProject: "Projeyi sil",
+      deleteWarning: "Repolar silinmez — yalnızca bu projeden çıkarılır.",
+      deleteConfirmTitle: "{name} silinsin mi?",
+      deleteConfirmDescription: "Bu geri alınamaz. Repoları kalır; yalnızca bu proje kaldırılır.",
+      delete: "Projeyi sil",
+    },
+  },
+};

@@ -102,9 +102,28 @@ var (
 		"load_skill",
 		"create_skill",
 	}
-	// Per-repository project profile; matches the 082 migration backfill.
+	// The structured project model's write path: judgment notes only, never
+	// stack/commands/CI/links — those are derived and read with roleProjectModelReadTools.
 	roleProfileTools = []string{
-		"update_project_profile",
+		"record_project_note",
+	}
+	// Read-only project model tools: the brief, CI checks and cross-component
+	// links. Granted to every role that writes or reviews code.
+	roleProjectModelReadTools = []string{
+		"get_project_brief",
+		"list_component_checks",
+		"list_links",
+	}
+	// The runtime picture of a bound environment (Phase 2's cloud accounts):
+	// where a component runs, its live logs, its grouped errors and its
+	// deployments. Full set granted to developers and QA; the architect and
+	// PM get a narrower slice (see their own policy functions) since neither
+	// debugs a live request the way an implementer or a tester does.
+	roleRuntimeReadTools = []string{
+		"get_environment",
+		"query_runtime_logs",
+		"list_runtime_errors",
+		"list_deployments",
 	}
 	// Read-only, so every role that reviews or reports on a task holds it.
 	rolePRReadTools = []string{
@@ -135,6 +154,8 @@ func developerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	tools = append(tools, roleProfileTools...)
+	tools = append(tools, roleProjectModelReadTools...)
+	tools = append(tools, roleRuntimeReadTools...)
 	tools = append(tools, rolePRReadTools...)
 	tools = append(tools, rolePRReplyTools...)
 	tools = append(tools, rolePRCommitTools...)
@@ -159,6 +180,11 @@ func productManagerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, "review_criterion")
 	// The PM answers "what shipped?" from the PR rather than the implementer's summary.
 	tools = append(tools, rolePRReadTools...)
+	tools = append(tools, "get_project_brief", "list_links")
+	// pm_uat: where a stage/production environment actually runs, without the
+	// live-debugging tools (query_runtime_logs, list_runtime_errors,
+	// list_deployments) a PM never needs.
+	tools = append(tools, "get_environment")
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	return domain.ToolPolicy{AllowTools: tools}
@@ -179,6 +205,12 @@ func architectToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	tools = append(tools, roleProfileTools...)
+	tools = append(tools, roleProjectModelReadTools...)
+	// The two triage tools for judging whether a review's failure is live in
+	// production: where it runs, and what it is erroring on. Not the raw log
+	// tail (query_runtime_logs) or the deploy history (list_deployments) —
+	// those are for the implementer and QA, not the reviewer.
+	tools = append(tools, "get_environment", "list_runtime_errors")
 	return domain.ToolPolicy{AllowTools: tools}
 }
 
@@ -189,6 +221,8 @@ func qaToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleQALookupTools...)
 	tools = append(tools, roleBrowserTools...)
 	tools = append(tools, roleMobileTools...)
+	tools = append(tools, roleProjectModelReadTools...)
+	tools = append(tools, roleRuntimeReadTools...)
 	tools = append(tools, "list_board_tasks", "list_ready_tasks", "move_board_task", "add_task_comment", "list_task_comments", "list_task_documents", "list_acceptance_criteria", "review_criterion", "list_repositories")
 	// QA is the only role that WRITES test cases.
 	tools = append(tools, "list_test_cases", "record_test_cases", "set_test_case_result")

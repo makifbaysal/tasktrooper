@@ -37,7 +37,6 @@ func (u uiKindRepos) ResolveDescription(context.Context, uuid.UUID) (string, err
 func (u uiKindRepos) ResolveRepository(context.Context, uuid.UUID) (domain.Repository, error) {
 	return domain.Repository{Kind: u.kind}, nil
 }
-func (u uiKindRepos) ProfileForRun(context.Context, uuid.UUID, string) string { return "" }
 
 type readableUpdater struct {
 	fakeTaskUpdater

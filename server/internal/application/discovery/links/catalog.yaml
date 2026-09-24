@@ -1,0 +1,424 @@
+# Dependency catalog: manifest package name -> the resource it wires the
+# component to. Data, not code — extend by adding an entry, not a branch.
+# match.go is a prefix; every other ecosystem list is exact unless the entry
+# ends in "*", which is a prefix on that ecosystem too (e.g. @sentry/*).
+- id: postgres
+  match:
+    npm: [pg, postgres, "@neondatabase/serverless"]
+    go: [github.com/jackc/pgx, github.com/lib/pq]
+    py: [psycopg, psycopg2, asyncpg]
+    rust: [tokio-postgres, postgres]
+    ruby: [pg]
+    jvm: ["org.postgresql:postgresql"]
+  resource: { kind: database, vendor: postgres, name: PostgreSQL }
+  protocol: sql
+  scope: repo
+
+- id: mysql
+  match:
+    npm: [mysql, mysql2]
+    go: [github.com/go-sql-driver/mysql]
+    py: [pymysql, mysqlclient, PyMySQL]
+    rust: [mysql, mysql_async]
+    ruby: [mysql2]
+    jvm: ["mysql:mysql-connector-java"]
+  resource: { kind: database, vendor: mysql, name: MySQL }
+  protocol: sql
+  scope: repo
+
+- id: mongodb
+  match:
+    npm: [mongodb, mongoose]
+    go: [go.mongodb.org/mongo-driver]
+    py: [pymongo]
+    rust: [mongodb]
+    ruby: [mongo]
+  resource: { kind: database, vendor: mongodb, name: MongoDB }
+  protocol: other
+  scope: repo
+
+- id: redis
+  match:
+    npm: [redis, ioredis]
+    go: [github.com/redis/go-redis, github.com/go-redis/redis]
+    py: [redis]
+    rust: [redis]
+    ruby: [redis]
+    jvm: ["redis.clients:jedis"]
+  resource: { kind: cache, vendor: redis, name: Redis }
+  protocol: redis
+  scope: repo
+
+- id: elasticsearch
+  match:
+    npm: ["@elastic/elasticsearch"]
+    go: [github.com/elastic/go-elasticsearch]
+    py: [elasticsearch]
+  resource: { kind: search, vendor: elasticsearch, name: Elasticsearch }
+  protocol: sdk
+  scope: repo
+
+- id: opensearch
+  match:
+    npm: ["@opensearch-project/opensearch"]
+    go: [github.com/opensearch-project/opensearch-go]
+    py: [opensearch-py]
+  resource: { kind: search, vendor: opensearch, name: OpenSearch }
+  protocol: sdk
+  scope: repo
+
+- id: kafka
+  match:
+    npm: [kafkajs]
+    go: [github.com/segmentio/kafka-go]
+    py: [confluent-kafka, kafka-python]
+    rust: [rdkafka]
+  resource: { kind: queue, vendor: kafka, name: Kafka }
+  protocol: queue
+  scope: repo
+
+- id: rabbitmq
+  match:
+    npm: [amqplib]
+    go: [github.com/rabbitmq/amqp091-go]
+    py: [pika]
+  resource: { kind: queue, vendor: rabbitmq, name: RabbitMQ }
+  protocol: queue
+  scope: repo
+
+- id: nats
+  match:
+    npm: [nats]
+    go: [github.com/nats-io/nats.go]
+    py: [nats-py]
+  resource: { kind: queue, vendor: nats, name: NATS }
+  protocol: queue
+  scope: repo
+
+- id: aws_s3
+  match:
+    npm: ["@aws-sdk/client-s3"]
+    go: [github.com/aws/aws-sdk-go-v2/service/s3]
+    rust: [aws-sdk-s3]
+  resource: { kind: storage, vendor: s3, name: Amazon S3 }
+  protocol: sdk
+  scope: repo
+
+- id: aws_sqs
+  match:
+    npm: ["@aws-sdk/client-sqs"]
+    go: [github.com/aws/aws-sdk-go-v2/service/sqs]
+    rust: [aws-sdk-sqs]
+  resource: { kind: queue, vendor: sqs, name: Amazon SQS }
+  protocol: queue
+  scope: repo
+
+- id: aws_sns
+  match:
+    npm: ["@aws-sdk/client-sns"]
+    go: [github.com/aws/aws-sdk-go-v2/service/sns]
+    rust: [aws-sdk-sns]
+  resource: { kind: queue, vendor: sns, name: Amazon SNS }
+  protocol: queue
+  scope: repo
+
+- id: aws_dynamodb
+  match:
+    npm: ["@aws-sdk/client-dynamodb"]
+    go: [github.com/aws/aws-sdk-go-v2/service/dynamodb]
+    rust: [aws-sdk-dynamodb]
+  resource: { kind: database, vendor: dynamodb, name: Amazon DynamoDB }
+  protocol: other
+  scope: repo
+
+- id: aws_generic
+  match:
+    py: [boto3]
+  resource: { kind: api, vendor: aws, name: AWS }
+  protocol: sdk
+  scope: global
+
+- id: gcp_generic
+  match: {}
+  resource: { kind: api, vendor: gcp, name: Google Cloud }
+  protocol: sdk
+  scope: global
+
+- id: gcs
+  match:
+    npm: ["@google-cloud/storage"]
+    go: [cloud.google.com/go/storage]
+  resource: { kind: storage, vendor: gcs, name: Google Cloud Storage }
+  protocol: sdk
+  scope: repo
+
+- id: pubsub
+  match:
+    npm: ["@google-cloud/pubsub"]
+    go: [cloud.google.com/go/pubsub]
+  resource: { kind: queue, vendor: pubsub, name: Google Pub/Sub }
+  protocol: queue
+  scope: repo
+
+- id: firestore
+  match:
+    npm: ["@google-cloud/firestore"]
+    go: [cloud.google.com/go/firestore]
+  resource: { kind: database, vendor: firestore, name: Google Firestore }
+  protocol: other
+  scope: repo
+
+- id: firebase
+  match:
+    npm: [firebase, firebase-admin, "@react-native-firebase/*"]
+  resource: { kind: api, vendor: firebase, name: Firebase }
+  protocol: sdk
+  scope: global
+
+- id: supabase
+  match:
+    npm: ["@supabase/supabase-js"]
+    py: [supabase]
+  resource: { kind: api, vendor: supabase, name: Supabase }
+  protocol: sdk
+  scope: global
+
+- id: stripe
+  match:
+    npm: [stripe]
+    go: [github.com/stripe/stripe-go]
+    py: [stripe]
+    rust: [async-stripe]
+    ruby: [stripe]
+    jvm: ["com.stripe:stripe-java"]
+  resource: { kind: payments, vendor: stripe, name: Stripe }
+  protocol: sdk
+  scope: global
+
+- id: openai
+  match:
+    npm: [openai]
+    go: [github.com/sashabaranov/go-openai]
+    py: [openai]
+  resource: { kind: ai, vendor: openai, name: OpenAI }
+  protocol: sdk
+  scope: global
+
+- id: anthropic
+  match:
+    npm: ["@anthropic-ai/sdk"]
+    go: [github.com/anthropics/anthropic-sdk-go]
+    py: [anthropic]
+  resource: { kind: ai, vendor: anthropic, name: Anthropic }
+  protocol: sdk
+  scope: global
+
+- id: google_genai
+  match:
+    npm: ["@google/genai"]
+    go: [google.golang.org/genai]
+  resource: { kind: ai, vendor: google, name: Google GenAI }
+  protocol: sdk
+  scope: global
+
+- id: sentry
+  match:
+    npm: ["@sentry/*"]
+    go: [github.com/getsentry/sentry-go]
+    py: [sentry-sdk]
+  resource: { kind: observability, vendor: sentry, name: Sentry }
+  protocol: sdk
+  scope: global
+
+- id: datadog
+  match:
+    npm: [dd-trace]
+    go: [github.com/DataDog/dd-trace-go]
+    py: [ddtrace]
+  resource: { kind: observability, vendor: datadog, name: Datadog }
+  protocol: sdk
+  scope: global
+
+- id: posthog
+  match:
+    npm: [posthog-js, posthog-node]
+    py: [posthog]
+  resource: { kind: observability, vendor: posthog, name: PostHog }
+  protocol: sdk
+  scope: global
+
+- id: segment
+  match:
+    npm: [analytics-node, "@segment/analytics-next"]
+  resource: { kind: observability, vendor: segment, name: Segment }
+  protocol: sdk
+  scope: global
+
+- id: mixpanel
+  match:
+    npm: [mixpanel]
+    py: [mixpanel]
+  resource: { kind: observability, vendor: mixpanel, name: Mixpanel }
+  protocol: sdk
+  scope: global
+
+- id: sendgrid
+  match:
+    npm: ["@sendgrid/mail"]
+    go: [github.com/sendgrid/sendgrid-go]
+    py: [sendgrid]
+  resource: { kind: email, vendor: sendgrid, name: SendGrid }
+  protocol: sdk
+  scope: global
+
+- id: resend
+  match:
+    npm: [resend]
+    py: [resend]
+  resource: { kind: email, vendor: resend, name: Resend }
+  protocol: sdk
+  scope: global
+
+- id: postmark
+  match:
+    npm: [postmark]
+  resource: { kind: email, vendor: postmark, name: Postmark }
+  protocol: sdk
+  scope: global
+
+- id: mailgun
+  match:
+    npm: [mailgun.js, mailgun-js]
+    go: [github.com/mailgun/mailgun-go]
+  resource: { kind: email, vendor: mailgun, name: Mailgun }
+  protocol: sdk
+  scope: global
+
+- id: twilio
+  match:
+    npm: [twilio]
+    go: [github.com/twilio/twilio-go]
+    py: [twilio]
+  resource: { kind: api, vendor: twilio, name: Twilio }
+  protocol: sdk
+  scope: global
+
+- id: algolia
+  match:
+    npm: [algoliasearch]
+    py: [algoliasearch]
+  resource: { kind: search, vendor: algolia, name: Algolia }
+  protocol: sdk
+  scope: global
+
+- id: meilisearch
+  match:
+    npm: [meilisearch]
+    py: [meilisearch]
+  resource: { kind: search, vendor: meilisearch, name: Meilisearch }
+  protocol: sdk
+  scope: repo
+
+- id: auth0
+  match:
+    npm: [auth0, "@auth0/nextjs-auth0"]
+    go: [github.com/auth0/go-auth0]
+    py: [auth0-python]
+  resource: { kind: auth, vendor: auth0, name: Auth0 }
+  protocol: sdk
+  scope: global
+
+- id: clerk
+  match:
+    npm: ["@clerk/nextjs", "@clerk/clerk-sdk-node"]
+  resource: { kind: auth, vendor: clerk, name: Clerk }
+  protocol: sdk
+  scope: global
+
+- id: cloudinary
+  match:
+    npm: [cloudinary]
+    py: [cloudinary]
+  resource: { kind: api, vendor: cloudinary, name: Cloudinary }
+  protocol: sdk
+  scope: global
+
+- id: pusher
+  match:
+    npm: [pusher, pusher-js]
+    go: [github.com/pusher/pusher-http-go]
+    py: [pusher]
+  resource: { kind: api, vendor: pusher, name: Pusher }
+  protocol: sdk
+  scope: global
+
+- id: slack
+  match:
+    npm: ["@slack/web-api"]
+  resource: { kind: api, vendor: slack, name: Slack }
+  protocol: sdk
+  scope: global
+
+- id: github
+  match:
+    npm: [octokit, "@octokit/rest"]
+    go: [github.com/google/go-github]
+  resource: { kind: api, vendor: github, name: GitHub }
+  protocol: sdk
+  scope: global
+
+- id: prisma
+  match:
+    npm: [prisma, "@prisma/client"]
+  resource: { kind: database, vendor: database, name: Database }
+  protocol: sql
+  scope: repo
+
+- id: drizzle
+  match:
+    npm: [drizzle-orm]
+  resource: { kind: database, vendor: database, name: Database }
+  protocol: sql
+  scope: repo
+
+- id: typeorm
+  match:
+    npm: [typeorm]
+  resource: { kind: database, vendor: database, name: Database }
+  protocol: sql
+  scope: repo
+
+- id: sequelize
+  match:
+    npm: [sequelize]
+  resource: { kind: database, vendor: database, name: Database }
+  protocol: sql
+  scope: repo
+
+- id: knex
+  match:
+    npm: [knex]
+  resource: { kind: database, vendor: database, name: Database }
+  protocol: sql
+  scope: repo
+
+- id: gorm_postgres
+  match:
+    go: [gorm.io/driver/postgres]
+  resource: { kind: database, vendor: postgres, name: PostgreSQL }
+  protocol: sql
+  scope: repo
+
+- id: gorm_mysql
+  match:
+    go: [gorm.io/driver/mysql]
+  resource: { kind: database, vendor: mysql, name: MySQL }
+  protocol: sql
+  scope: repo
+
+- id: bullmq
+  match:
+    npm: [bullmq, bull]
+  resource: { kind: queue, vendor: redis, name: Redis }
+  protocol: queue
+  scope: repo

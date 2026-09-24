@@ -18,6 +18,7 @@ import (
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/memory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/orchestrator"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/toolchain"
@@ -45,7 +46,17 @@ type RepositoryResolver interface {
 	ResolveRootPath(ctx context.Context, repositoryID uuid.UUID) (string, error)
 	ResolveDescription(ctx context.Context, repositoryID uuid.UUID) (string, error)
 	ResolveRepository(ctx context.Context, repositoryID uuid.UUID) (domain.Repository, error)
-	ProfileForRun(ctx context.Context, repositoryID uuid.UUID, kind string) string
+}
+
+// ProjectModel is the structured project model's read surface the board
+// needs: the brief that replaces the old markdown profile injection, and the
+// component scope verification runs against. A nil ProjectModel is the
+// pre-model behaviour — no brief, VerifyCommand/detectBuild verification.
+type ProjectModel interface {
+	Brief(ctx context.Context, repositoryID uuid.UUID, scope projectmodel.BriefScope) (string, error)
+	RequiredCommands(ctx context.Context, repositoryID uuid.UUID, componentIDs []uuid.UUID) ([]domain.LocalCommand, error)
+	ComponentsForPaths(ctx context.Context, repositoryID uuid.UUID, paths []string) ([]uuid.UUID, error)
+	ComponentsForArea(ctx context.Context, repositoryID uuid.UUID, area string) ([]uuid.UUID, error)
 }
 
 type TaskUpdater interface {
@@ -178,6 +189,7 @@ type Runner struct {
 	agentCLIs         AgentCLIConnections
 	workflows         port.WorkflowReader
 	roles             port.RoleResolver
+	projectModel      ProjectModel
 	queue             chan RunJob
 	wg                sync.WaitGroup
 	cancel            context.CancelFunc
@@ -306,6 +318,10 @@ func (r *Runner) SetTaskUpdater(t TaskUpdater) {
 
 func (r *Runner) SetRepositories(resolver RepositoryResolver) {
 	r.projects = resolver
+}
+
+func (r *Runner) SetProjectModel(m ProjectModel) {
+	r.projectModel = m
 }
 
 func (r *Runner) SetPipelines(store port.TaskPipelineStore) {
@@ -929,22 +945,25 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		prevFailuresMsg = previousRunFailuresMessage(prevRuns, run.ID)
 		resumeCLISession = latestCLISession(prevRuns, run.ID, job.Run.AgentID)
 	}
-	var projectDesc, projectProfile string
+	var projectDesc, projectBrief string
 	if repoCtx, repoCtxErr := r.projects.ResolveRepository(ctx, job.RepositoryID); repoCtxErr == nil {
 		projectDesc = repoCtx.Description
-		profileKind := ""
-		if repoCtx.Kind == domain.RepoKindMonorepo && r.roles != nil {
-			profileKind = r.roles.AgentArea(ctx, agentRec.ID)
+	}
+	if r.projectModel != nil {
+		scope := projectmodel.BriefScope{ComponentID: job.Task.ComponentID}
+		if scope.ComponentID == nil && r.roles != nil {
+			scope.Area = r.roles.AgentArea(ctx, agentRec.ID)
 		}
-		projectProfile = r.projects.ProfileForRun(ctx, job.RepositoryID, profileKind)
-		if projectProfile == "" {
-			projectProfile = repoCtx.ProfileMD
+		if brief, briefErr := r.projectModel.Brief(ctx, job.RepositoryID, scope); briefErr == nil {
+			projectBrief = brief
+		} else {
+			log.Warn().Err(briefErr).Str("repository_id", job.RepositoryID.String()).Msg("project brief unavailable; run continues without it")
 		}
 	}
 
 	history := []domain.Message{{Role: domain.RoleSystem, Content: systemPrompt}}
 	history = append(history, domain.Message{Role: domain.RoleSystem, Content: prompt.SubtaskWorkspaceNote(workDir)})
-	history = append(history, prependProjectContext(nil, projectDesc, projectProfile)...)
+	history = append(history, prependProjectContext(nil, projectDesc, projectBrief)...)
 	if scoreMsg != "" {
 		history = append(history, domain.Message{Role: domain.RoleSystem, Content: scoreMsg})
 	}
@@ -2229,7 +2248,7 @@ Event rules:
 - Tools that take a repository_id (get_deploy_target, update_deploy_target, list_incidents, create_board_task) want the repository_id UUID from the snapshot below — never the repository name. Tools without that field — list_board_tasks among them — are already scoped to this run's repository; passing one an extra field is a schema error.
 
 Before you finish, in this order — these are calls, not prose in your summary:
-1. Build and test what you changed with run_terminal, and read the output. Red output is fixed in this run, not reported as done.
+1. Build and test what you changed with run_terminal, and read the output. Red output is fixed in this run, not reported as done. The commands under "Before handing off" in your project brief are what CI runs on this diff — passing them locally is what this step means.
 2. Every acceptance criterion you satisfied: set_criterion_completed with its id — ticked only after step 1 showed it working.
 3. Every criterion you did NOT satisfy: leave it open and say why in a comment.
 %s
@@ -2286,7 +2305,8 @@ const qaExecutionInstruction = "Test it as a black box, on a RUNNING product. " 
 	"phone width) or the mobile_* tools for a device app. Never test against production. " +
 	"Reading source is NOT testing: read_file/grep_code/get_repo_tree are there to find the start command, the " +
 	"port or the route you have to open — a verdict whose evidence is the code rather than an executed run is " +
-	"rejected and the round is failed."
+	"rejected and the round is failed. For a bound environment's own live logs or grouped errors, use " +
+	"query_runtime_logs / list_runtime_errors instead of get_deploy_logs, which stays for a CI job's output."
 
 func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 	if stage, ok := wf.Stage(task.Column); ok && stage.Instructions != "" {
@@ -2389,18 +2409,18 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 	}
 }
 
-const maxInjectedProfileChars = 8000
+const maxInjectedBriefChars = 8000
 
-func prependProjectContext(history []domain.Message, desc, profile string) []domain.Message {
+func prependProjectContext(history []domain.Message, desc, brief string) []domain.Message {
 	var note string
 	if desc != "" {
 		note = "Project context: " + desc
 	}
-	if profile != "" {
+	if brief != "" {
 		if note != "" {
 			note += "\n\n"
 		}
-		note += "## Project profile (maintained by agents)\n" + domain.TruncateHead(profile, maxInjectedProfileChars)
+		note += "## Project brief (maintained by TaskTrooper)\n" + domain.TruncateHead(brief, maxInjectedBriefChars)
 	}
 	if note == "" {
 		return history

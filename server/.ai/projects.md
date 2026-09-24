@@ -56,18 +56,28 @@ Proposals: the same pass fills in repository settings it can read off the tree (
 
 Injection: board runs and repo-bound chats get the profile narrowed by area — on a monorepo, the running agent's role picks which layout/test/CI sections come along; always-inject sections (purpose, stack, commands, deploy, git workflow, conventions, invariants, danger zones) always do. See `internal/application/repoprofile`.
 
-## Hosting Links
+## Cloud accounts & environments (Phase 2; replaced Hosting Links / migration 112)
 
-`repository_hosting_links` (migration 112) binds one (repository, area) to the provider object it lives in — a Vercel project today. Area is `''` for a single-kind repo or the sub-repo kind on a monorepo, so a frontend on Vercel and a backend elsewhere coexist. It is the "where" per area; `repository_deploy_targets` stays the "how" per environment, and the two meet once: a root-area Vercel link fills the prod target's empty address/health/vars.
+`repository_hosting_links`/the standalone Vercel settings/GCloud settings are gone. In their
+place: `cloud_accounts` (one connected provider login — Vercel, GCP or AWS) and
+`component_environments` (one `(component, environment)` → account + resource binding,
+matched by a scan or confirmed by a human). This is the "where a component runs" half;
+`repository_deploy_targets` stays the "how a task ships" half, and the two meet once: a
+confirmed environment fills the deploy target's empty base/health URL.
 
 | Piece | Where |
 |-------|-------|
-| Credential (encrypted token + default team) | `app_settings` `vercel_token` / `vercel_team_id`, `port.VercelCredentialStore` |
-| API client | `internal/adapter/vercel` (`/v2/user`, `/v2/teams`, `/v9/projects`) |
-| Detection + linking | `internal/application/hosting` — `.vercel/project.json`, git-link ↔ remote slug, root directory, name |
-| Routes | `/v1/settings/vercel*`, `/v1/repositories/:id/hosting/*` — see api-spec |
+| Service | `internal/application/cloud` (`cloud.Service`) |
+| Provider adapters | `internal/adapter/cloud/{vercel,gcloud,aws}` |
+| Stores | `internal/adapter/storage/postgres/{cloud_accounts,component_environments}.go` |
+| Routes | `internal/adapter/http/handler_cloud.go` — see api-spec's "Cloud accounts, environments & runtime" |
+| Agent tools | `get_environment`, `query_runtime_logs`, `list_runtime_errors`, `list_deployments` — `.ai/tool-reference.md` |
 
-Detection never links on its own: only one decisive candidate is reported `exact`; everything else is `ambiguous`/`none` and the settings UI asks the person, who may also record "lives elsewhere" so the area is not asked again.
+An install's pre-cloud-accounts Vercel/GCloud connection and its per-repository links carry
+forward once, in the background, as `cloud_accounts`/confirmed `component_environments` rows
+(`cloud.Service.Boot`, reading `port.LegacyCloudSource`) — nothing for the operator to redo.
+A scan match is never decisive on its own the way the old detector was either: an ambiguous
+signal leaves `candidates` on the row for a human (or `PATCH .../environments/:envId`) to pick.
 
 ## Agent Board Tools
 

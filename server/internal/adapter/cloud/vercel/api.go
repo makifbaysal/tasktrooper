@@ -1,10 +1,10 @@
-// Package vercel is a thin client for the parts of Vercel's REST API the
-// hosting link feature needs: who a token is, which teams it can act in, and
-// the projects (with their git links and production addresses) in a scope.
+// Package vercel is the port.CloudProvider adapter for Vercel: who a token
+// is, which teams it can act in, its projects and their deployments, logs and
+// runtime errors.
 //
 // Token source: an access token the operator creates at
-// vercel.com/account/tokens and pastes into Settings. It is stored encrypted
-// beside the GitHub token and never leaves the server.
+// vercel.com/account/tokens and saves as a cloud account. It is stored
+// encrypted and never leaves the server.
 package vercel
 
 import (
@@ -22,7 +22,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// Client implements port.VercelAPI over HTTP.
+// Client is the low-level Vercel REST client Provider is built on.
 type Client struct {
 	// BaseURL is a field (not a const) so tests can point it at an httptest
 	// server. Empty means the public API.

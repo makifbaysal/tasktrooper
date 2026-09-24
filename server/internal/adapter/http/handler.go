@@ -28,12 +28,11 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/attachment"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/billing"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/embedmap"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/evolution"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/gcloudops"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/hosting"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/indexer"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/initiative"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/job"
@@ -44,15 +43,14 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/memory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mobiledevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/repodependency"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/settings"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/vercelops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workflow"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -131,10 +129,8 @@ type Handler struct {
 	prodOpsSvc        *prodops.Service
 	storeOpsSvc       *storeops.Service
 	deployOpsSvc      *deployops.Service
-	hostingSvc        *hosting.Service
-	repoDependencySvc *repodependency.Service
-	vercelOpsSvc      *vercelops.Service
-	gcloudOpsSvc      *gcloudops.Service
+	projectModelSvc   *projectmodel.Service
+	cloudSvc          *cloud.Service
 	localPreviewSvc   *localpreview.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
@@ -190,10 +186,8 @@ type Config struct {
 	ProdOpsSvc        *prodops.Service
 	StoreOpsSvc       *storeops.Service
 	DeployOpsSvc      *deployops.Service
-	HostingSvc        *hosting.Service
-	RepoDependencySvc *repodependency.Service
-	VercelOpsSvc      *vercelops.Service
-	GCloudOpsSvc      *gcloudops.Service
+	ProjectModelSvc   *projectmodel.Service
+	CloudSvc          *cloud.Service
 	LocalPreviewSvc   *localpreview.Service
 	MCPToolServer     *mcpserver.Server
 	BootSeed          BootSeed
@@ -250,10 +244,8 @@ func NewHandler(cfg Config) *Handler {
 		prodOpsSvc:        cfg.ProdOpsSvc,
 		storeOpsSvc:       cfg.StoreOpsSvc,
 		deployOpsSvc:      cfg.DeployOpsSvc,
-		hostingSvc:        cfg.HostingSvc,
-		repoDependencySvc: cfg.RepoDependencySvc,
-		vercelOpsSvc:      cfg.VercelOpsSvc,
-		gcloudOpsSvc:      cfg.GCloudOpsSvc,
+		projectModelSvc:   cfg.ProjectModelSvc,
+		cloudSvc:          cfg.CloudSvc,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		mcpToolServer:     cfg.MCPToolServer,
 		bootSeed:          cfg.BootSeed,
@@ -291,22 +283,23 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerIndexRoutes(app)
 	h.registerEmbeddingMapRoutes(app)
 	h.registerRepositoryRoutes(app)
+	// Registered before registerInitiativeRoutes: fiber matches routes in
+	// registration order, so /v1/projects/overview must be mounted before
+	// /v1/projects/:projectId or the :projectId param would swallow "overview".
+	h.registerProjectModelRoutes(app)
+	h.registerCloudRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)
 	h.registerRepoDocsRoutes(app)
 	h.registerProdOpsRoutes(app)
 	h.registerRepositoryOpsRoutes(app)
 	h.registerStoreOpsRoutes(app)
-	h.registerGCloudOpsRoutes(app)
 	h.registerWorkspaceRoutes(app)
 	h.registerWorkflowRoutes(app)
 	h.registerEvolutionRoutes(app)
 
 	h.registerSettingsRoutes(app)
 	h.registerCatalogRoutes(app)
-	h.registerHostingRoutes(app)
-	h.registerRepoDependencyRoutes(app)
-	h.registerVercelOpsRoutes(app)
 	h.registerMobileDeviceRoutes(app)
 	h.registerLLMProviderRoutes(app)
 	h.registerAgentCLIRoutes(app)

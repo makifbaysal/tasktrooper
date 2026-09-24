@@ -50,7 +50,14 @@ tool_policy:
         - delete_memory
         - load_skill
         - create_skill
-        - update_project_profile
+        - record_project_note
+        - get_project_brief
+        - list_component_checks
+        - list_links
+        - get_environment
+        - query_runtime_logs
+        - list_runtime_errors
+        - list_deployments
         - get_task_pull_request
         - comment_on_pull_request
         - commit_task_changes

@@ -125,20 +125,29 @@ Refused: `failed` without `actual`, `invalid`/`skipped` without `notes`, duplica
 
 Drops one acceptance criterion from scope with a reason (`task_acceptance_criteria.canceled/cancel_reason`, migration 131). Args: `criterion_id`, `reason`, optional `canceled` (default true). The reason is stored and posted as a task comment; the criteria gates treat a cancelled criterion as settled, never as met. Granted wherever `set_criterion_completed` is.
 
-### `update_project_profile`
+### `get_project_brief`, `list_component_checks`, `list_links`, `record_project_note`
 
-Stores judgment sections of the repository's project profile — the brief injected into every repo-scoped agent run. Each section sent replaces that section and leaves the others alone. Granted to `system-architect`, `backend-developer`, `frontend-developer`, `mobile-developer`; also the success signal of the background profile-refresh run (`internal/application/repoprofile`).
+The structured project model's agent-facing surface (`internal/adapter/tools/projectmodel`), replacing the old markdown profile and `update_project_profile`. All four resolve their repository from the run context the way the board tools do, with an optional `repository_id` argument to override it; a call with neither gets an error naming both ways out.
 
-Writable sections: `purpose`, `entrypoints`, `conventions`, `invariants`, `change_recipes`, `danger_zones`, `gotchas`, `notes`. The derived sections (`stack`, `layout`, `commands`, `ci_cd`, `deploy`, `integrations`, `git_workflow`, `test_map`, `hotspots`) are collected from the tree by the platform and are **rejected** if sent.
+- **`get_project_brief`** `{component?, area?}` — the same brief text injected at the start of every board run and repo-bound chat: what the repository (or the named component) is, what it runs, what it talks to, and the judgment notes on top. `component` is a component's own path; `area` is a role like `backend`, ignored when `component` is set.
+- **`list_component_checks`** `{component?}` — JSON per component: each CI check's workflow, job, purpose, gate, local command in display form (`cd <dir> && <argv>`), and whether it is required/missing. This is how a run finds the exact command CI runs.
+- **`list_links`** `{component?, direction?}` — JSON list of what a component talks to and what talks to it: `direction` is `out`/`in`/`both` (default `both`). Each entry names the other end (`repo/path` for a component, `name (kind)` for a system resource), protocol, env vars, status, confidence and reason.
+- **`record_project_note`** (`RecordNoteToolName = "record_project_note"`) `{notes: [{topic, body_md, evidence, component_path?}]}` — the only write path left: judgment the platform cannot derive (`purpose`, `entrypoints`, `conventions`, `invariants`, `danger_zones`, `change_recipes`, `gotchas`). Never restates what `get_project_brief`/`list_component_checks`/`list_links` already show — stack, commands, CI and links are scanned from the tree. Every note needs at least one evidence path that exists in the working copy or it is rejected; a note the human already wrote or locked is refused outright. Returns one `{topic, component_path?, accepted, reason?}` per note so a rejected write can be corrected and resent in the same run.
 
-Every section must carry at least one evidence path that exists in the working copy; sections without one are rejected and named in the tool result so the run can retry. A call where nothing landed returns an error result.
+Granted: the three read tools to `system-architect`, `backend-developer`, `frontend-developer`, `mobile-developer`, `qa-agent` (every role that writes or reviews code) and, narrower, `get_project_brief` + `list_links` to `product-manager`; `record_project_note` to the developer and architect roles.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `sections` | array | yes | Sections to store. Each: `section` (enum above), `body_md` (markdown, capped at 4,000 chars — longer is truncated), `evidence` (array of `{path, line?, note?}`). Max 12 per call. |
-| `content` | string | no | Legacy single-blob shape. Accepted only when `sections` is absent, and stored as the `notes` section with a warning — it carries no evidence and cannot be kept fresh. |
+### `get_environment`, `query_runtime_logs`, `list_runtime_errors`, `list_deployments`
 
-The repository is resolved from the run context (same fallback as the board tools); a run with no repository in context gets an error.
+The runtime picture of a component's environment (`internal/adapter/tools/runtime`), read through `cloud.Service` — the Phase 2 cloud accounts/environments API that replaced the standalone Vercel/GCloud settings. All four resolve their repository the way the project-model tools do (`repository_id` optional, run context otherwise) and their component the same way: `component` is a component's own path, or `.`/omitted resolves to the repository's only component — with more than one and no path given, the error lists every path to retry with.
+
+- **`get_environment`** `{component?, environment?}` — every environment of the resolved component (or just the one named), each with provider, resource, URL, health URL, status and whether it is actually bound (an account + a resource, not just a suggestion or a custom URL). This is the lookup the other three need before they can read anything live.
+- **`query_runtime_logs`** `{component?, environment? (default production), since? (default "1h"; a duration like "30m", "2h", "1d"), min_severity?, text?, limit? (default 100, max 500)}` — the environment's own application logs, newest first: timestamp, severity, message, and path/status_code when the entry carries them. A `note` field says when the provider capped the window.
+- **`list_runtime_errors`** `{component?, environment? (default production), since? (default "24h")}` — runtime errors grouped and deduplicated (native grouping where the provider has it — GCP Error Reporting — a message fingerprint otherwise): message, count, first/last seen, a `new` flag (first occurrence falls inside this window — the "started with this deploy" signal), and up to the first 10 lines of a sample.
+- **`list_deployments`** `{component?, environment? (default production), limit? (default 10)}` — the environment's recent deployments as the provider reports them (status, commit, branch, URL, timestamps), newest first.
+
+The three runtime reads all resolve one *bound* environment first and refuse with the same clear sentence when there is none: `"no <environment> environment is bound for <component> — the human connects it on the repository's Deploy tab"` — never `cloud.ErrNotConnected` verbatim. `get_deploy_logs` (Prod Ops & Deploy Tools, below) is unrelated and stays: it reads a CI/Actions job's output, not the running application's own logs.
+
+Granted: all four to `backend-developer`, `frontend-developer`, `mobile-developer`, `qa-agent`; `get_environment` + `list_runtime_errors` to `system-architect`; `get_environment` alone to `product-manager` (`internal/application/catalog/role_tools.go`'s `roleRuntimeReadTools`).
 
 ### `list_task_documents`
 
@@ -347,6 +356,9 @@ lists parked tasks, asks about each, and claims only the ready ones.
 ### `get_deploy_logs`
 
 Reads the log behind a deploy. Granted to `qa-agent` alone (migration 105).
+This is a CI/Actions job's output — a bound environment's own live logs and
+grouped errors come from `query_runtime_logs`/`list_runtime_errors` instead
+(above).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

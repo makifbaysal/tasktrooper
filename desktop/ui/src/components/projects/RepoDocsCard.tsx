@@ -34,21 +34,15 @@ const TERMINAL_TASK_COLUMNS = new Set(["done", "released", "failed", "cancelled"
 
 interface RepoDocsCardProps {
   repositoryId: string;
-  /** "" (default) = the repository itself; otherwise one sub-project's own
-   * docs, stored on its RepoSubProject entry. */
-  subProjectPath?: string;
   /** Overrides the card's heading — used to label which sub-project this is. */
   title?: string;
   className?: string;
 }
 
 /**
- * RepoDocsCard is the Settings-page counterpart of InitialSetupDialog's
- * ReferenceDocsFields: where InitialSetupDialog only collects these paths
- * into local state (nothing is sent until the wizard's own Save), this reads
- * and writes them live, since it edits a repository (or sub-project) that
- * already exists — an already-imported repo has no other way to reach this
- * feature.
+ * RepoDocsCard reads and writes a repository's reference-doc paths live,
+ * since it edits a repository that already exists — an already-imported repo
+ * has no other way to reach this feature.
  *
  * Generation is queued rather than fired per field: four separate tasks meant
  * four branches and four pull requests for one set of reference docs. The
@@ -56,7 +50,7 @@ interface RepoDocsCardProps {
  * marked doc in a single PR — which is why saving turns into "save and merge"
  * once that PR exists.
  */
-export function RepoDocsCard({ repositoryId, subProjectPath = "", title, className }: RepoDocsCardProps) {
+export function RepoDocsCard({ repositoryId, title, className }: RepoDocsCardProps) {
   const { t } = useI18n();
   const [docs, setDocs] = useState<RepositoryDocs>({});
   const [queued, setQueued] = useState<RepoDocKind[]>([]);
@@ -70,16 +64,13 @@ export function RepoDocsCard({ repositoryId, subProjectPath = "", title, classNa
     setLoading(true);
     try {
       const repo = await api.getRepository(repositoryId);
-      const source = subProjectPath
-        ? repo.sub_projects?.find((sp) => sp.path === subProjectPath)?.docs
-        : repo.docs;
-      setDocs(source ?? {});
+      setDocs(repo.docs ?? {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.actionFailed"));
     } finally {
       setLoading(false);
     }
-  }, [repositoryId, subProjectPath, t]);
+  }, [repositoryId, t]);
 
   // The docs task is one per repository, not per sub-project: a bundle can
   // carry items for several sub-projects, so every card on the page reports the
@@ -106,21 +97,12 @@ export function RepoDocsCard({ repositoryId, subProjectPath = "", title, classNa
     };
   }, [task, loadTask]);
 
-  // Writes `next` back onto the repository (root) or the one sub-project
-  // (inside its own sub_projects entry) — the same split CreateDocTask makes
-  // server-side, mirrored here because the client PATCH takes the whole
-  // sub_projects array, not a single path.
   const persist = useCallback(
     async (next: RepositoryDocs) => {
       const repo = await api.getRepository(repositoryId);
-      if (!subProjectPath) {
-        await api.updateRepository(repositoryId, { name: repo.name, description: repo.description, docs: next });
-        return;
-      }
-      const subs = (repo.sub_projects ?? []).map((sp) => (sp.path === subProjectPath ? { ...sp, docs: next } : sp));
-      await api.updateRepository(repositoryId, { name: repo.name, description: repo.description, sub_projects: subs });
+      await api.updateRepository(repositoryId, { name: repo.name, description: repo.description, docs: next });
     },
-    [repositoryId, subProjectPath],
+    [repositoryId],
   );
 
   const prURL = task?.pr_url ?? "";
@@ -156,7 +138,6 @@ export function RepoDocsCard({ repositoryId, subProjectPath = "", title, classNa
         repositoryId,
         queued.map((kind) => ({
           kind,
-          sub_project_path: subProjectPath || undefined,
           path: docs[kind]?.trim() || undefined,
         })),
       );
