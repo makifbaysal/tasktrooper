@@ -663,11 +663,15 @@ Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
   `succeeded`/`failed`.
 - Edits: `POST /v1/repositories/{id}/components` (`NewComponentRequest
   {path, name?, role}`) → 201; `PATCH /v1/components/{id}` (`ComponentPatch
-  {name?, role?, commands?: {<purpose>: string|null}, gates?, docs?, status?}`).
+  {name?, role?, commands?: {<purpose>: string|null}, gates?, docs?, status?,
+  reviewed?}` — `reviewed: true` acknowledges a component a later scan found
+  on its own, clearing `Component.needs_review`).
   `POST /v1/components/{id}/checks` (`NewCheckRequest {name, purpose,
   local_commands:[{dir, argv}], gate}`) → 201; `PATCH`/`DELETE
   /v1/checks/{id}` (manual checks only — a CI-sourced check 400s on DELETE;
-  dismiss it instead via the PATCH `status`). `POST /v1/links`
+  dismiss it instead via the PATCH `status`; `CheckPatch` also takes
+  `reviewed?`, clearing `ComponentCheck.needs_review` the same way). `POST
+  /v1/links`
   (`NewLinkRequest {from_component_id, to_component_id? | to_resource?:
   {kind, vendor?, name}, protocol, detail?}`) → 201; `PATCH`/`DELETE
   /v1/links/{id}` (same manual-only rule as checks; retargeting a suggested
@@ -685,6 +689,46 @@ Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
   Deploy targets, store, incidents, deploy ops,
   `POST /v1/repositories/{id}/pipeline/setup-task`, docs tasks, index, local
   preview, lifecycle gates and test strategy are unchanged.
+
+## Maps & review (Phase 3)
+
+JSON shapes are `server/internal/domain/project_map.go`'s Go tags exactly
+(ProjectMap, MapNode, MapEdge, WorkspaceMap, WorkspaceMapProject,
+WorkspaceMapRepository, WorkspaceMapEdge, WorkspaceSharedResource, MapTier),
+plus the Phase 1/2 types above.
+
+- `GET /v1/projects/map` → `WorkspaceMap` — registered **before**
+  `/v1/projects/{projectId}`, so `"map"` is never read back as a project id.
+  Every project with its repositories and component summaries; `edges` exist
+  only between projects that actually link (aggregated per ordered project
+  pair); `shared_resources` only for a resource linked from ≥2 projects.
+  Independent projects appear with no edges — `projects/map/WorkspaceMapView`.
+- `GET /v1/projects/{projectId}/map` → `ProjectMap` — `nodes` are every active
+  component of the project's repositories (tier by role; libraries get tier
+  `"library"`), every resource they link to (tier `"data"`/`"external"`,
+  `shared_with` = the other projects linking it), plus FOREIGN component
+  nodes (`foreign: true`) for components of other projects on either end of a
+  cross-project link; `edges` are links (confirmed + suggested; dismissed
+  excluded) with `cross_project` set when one end is foreign. Node ids:
+  `c:<componentId>` / `r:<resourceId>`. Health/provider come from the
+  component's production environment. Drives `projects/map/ProjectArchitectureMap`,
+  the project page's Architecture tab (default the moment the project has a
+  repository).
+- Review kinds added to `ReviewItem.kind`: `"component"` (a component a later
+  scan found — `Component.needs_review`) and `"check"` (a REQUIRED check a
+  later scan added — `ComponentCheck.needs_review`). Acknowledge with `PATCH
+  /v1/components/{id} {"reviewed": true}` / `PATCH /v1/checks/{id}
+  {"reviewed": true}`; dismissing still uses the existing `status:
+  "dismissed"` — see `projects/model/ReviewList`.
+- `ComponentLink.target_host` / `target_port`: what an unresolved URL pointed
+  at. When an environment is later bound whose URL host/domain equals it, the
+  link is re-matched to that component automatically (exact match →
+  confirmed, `auto_confirmed`). Display-only on the UI side; nothing here
+  writes these fields.
+- `EnvironmentRuntime.unavailable_code`: `"not_connected" | "cloud_auth" |
+  "provider_error"` — `RuntimePanel` reads this to decide Reconnect
+  (`cloud_auth`) vs Connect (`not_connected`), never the `unavailable` message
+  text.
 
 ## Embedding map (UMAP source data)
 

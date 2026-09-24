@@ -48,3 +48,47 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   writable: true,
 });
+
+// jsdom implements neither: @xyflow/react measures nodes with ResizeObserver
+// and the viewport transform with DOMMatrix on every mount, so any test that
+// renders <ReactFlow> throws without these.
+//
+// A real browser fires the callback asynchronously; this fires it right from
+// `observe()` instead. @xyflow/react's own observer only reads `entry.target`
+// (it re-measures via the DOM element, not the entry's rect), and a node's
+// `handleBounds` — hence any edge touching it — never leaves `undefined`
+// without this, because that is the only thing that ever populates it.
+class ResizeObserverStub {
+  #callback: ResizeObserverCallback;
+
+  constructor(callback: ResizeObserverCallback) {
+    this.#callback = callback;
+  }
+
+  observe(target: Element): void {
+    const contentRect = target.getBoundingClientRect();
+    this.#callback([{ target, contentRect } as ResizeObserverEntry], this as unknown as ResizeObserver);
+  }
+
+  unobserve(): void {}
+  disconnect(): void {}
+}
+Object.defineProperty(globalThis, "ResizeObserver", {
+  value: ResizeObserverStub,
+  configurable: true,
+  writable: true,
+});
+
+class DOMMatrixStub {
+  m22 = 1;
+}
+Object.defineProperty(globalThis, "DOMMatrixReadOnly", {
+  value: DOMMatrixStub,
+  configurable: true,
+  writable: true,
+});
+Object.defineProperty(globalThis, "DOMMatrix", {
+  value: DOMMatrixStub,
+  configurable: true,
+  writable: true,
+});

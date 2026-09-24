@@ -69,12 +69,14 @@ pipeline-config endpoints — that model is `RepositoryModel`
 
 | Piece | What it is |
 |---|---|
-| `pages/ProjectsPage.tsx` | The hub: every project as a `hub/ProjectCard`, an unassigned-repositories card, filters, "Add repository" / "New project". |
-| `pages/ProjectPage.tsx` | One project: its repositories table, cross-project review queue, settings tab. |
+| `pages/ProjectsPage.tsx` | The hub: a Cards/Map segmented toggle (`?view=map`) over either every project as a `hub/ProjectCard` + an unassigned-repositories card + filters, or `map/WorkspaceMapView`; "Add repository" / "New project" either way. |
+| `pages/ProjectPage.tsx` | One project, tabbed (`?tab=`): Architecture (`map/ProjectArchitectureMap`, the default the moment the project has a repository), Repositories table, cross-project Review queue, Settings. |
 | `pages/RepositoryPage.tsx` | One repository, tabbed (`?tab=`): overview, components, checks, links, deploy, knowledge, settings. |
 | `pages/AddRepositoryPage.tsx` | The `/projects/new` wizard: Source → Scan → Review → Done, driven by `add/useAddRepositoryFlow`. |
 | `hooks/useProjectsOverview.ts` | `GET /v1/projects/overview` for the hub; cached (`CACHE_PROJECTS_OVERVIEW`), paints last snapshot on a failed refresh. |
 | `hooks/useProjectOverview.ts` | `GET /v1/projects/:id/overview` for `ProjectPage`; same per-id cache-then-refresh contract as `useRepositoryModel`. |
+| `hooks/useProjectMap.ts` | `GET /v1/projects/:id/map` for the Architecture tab; same per-id cache-then-refresh contract, loaded only once that tab mounts. |
+| `hooks/useWorkspaceMap.ts` | `GET /v1/projects/map` for the hub's Map view; loaded only once that view is selected. |
 | `hooks/useRepositoryModel.ts` | `GET /v1/repositories/:id/model` for `RepositoryPage`; per-id cached snapshot. |
 | `hooks/useScanProgress.ts` | Polls a repository's latest scan until it finishes; used by the add-repository flow's `add/ScanStep` and `RepositoryPage`'s scan banner. |
 
@@ -101,11 +103,11 @@ the Phase 2 cloud accounts/environments model.
 | `DeployRuntimeTab` | Organism, the tab's root: the shared `ComponentRail` (production-environment provider mark + health dot per component via `renderTrailing`) + the selected component's `EnvironmentsCard`, `RuntimePanel` and the collapsed `DeliverySettingsPanel`. Owns the connected-accounts list and which environment row is selected. |
 | `EnvironmentsCard` | Organism: production/staging/preview rows (development only when bound) for the selected component — provider, resource, URL, health dot, error count, last deploy, `suggested`/`auto` badges; Connect/Change (`BindEnvironmentDialog`) and Disconnect (`deleteEnvironment`, confirmed); a `noAccountsAtAll` empty state that opens `CloudAccountDialog`. A `suggested` row hands off to `model/EnvironmentCandidates` instead of the usual actions. |
 | `BindEnvironmentDialog` | Organism/dialog: step 1 picks a connected account or "Custom URL"; step 2 is either a searchable, refreshable `listCloudResources` picker or a URL/health-URL pair. Submits `bindEnvironment`. |
-| `RuntimePanel` | Organism: one bound environment's live picture — `getEnvironmentOverview` header (resource status, revision, console link, latest deployment), an `unavailable` `Notice` with a heuristic "Reconnect" (opens `CloudAccountDialog` in replace mode) when the message reads like an auth failure, and pill `Tabs` for Errors/Logs/Deployments. Only mounted when the environment has an account behind it. |
+| `RuntimePanel` | Organism: one bound environment's live picture — `getEnvironmentOverview` header (resource status, revision, console link, latest deployment), an `unavailable` `Notice` whose action is read off `unavailable_code` (`"cloud_auth"` → Reconnect, opens `CloudAccountDialog` in replace mode; `"not_connected"` → Connect, opens it in create mode preset to `env.provider`), never the message text, and pill `Tabs` for Errors/Logs/Deployments. |
 | `ErrorsPanel` | 1h/24h/7d `getEnvironmentErrors` list: message (click to expand the sample), count, `new` badge, first/last seen, external link, "Create task" (`createErrorTask`) with a toast linking to the created task. |
 | `LogsPanel` | Severity floor + preset/custom time range + 400ms-debounced search against `getEnvironmentLogs`; a "Live" toggle re-polls every 5s via `hooks/usePolling` (pauses on a hidden tab, stops the moment it's switched off); monospace scroll list, `next_cursor` "Load more", `truncated` notice. |
 | `DeploymentsPanel` (+ `DEPLOYMENT_STATUS_VARIANT`) | `getEnvironmentDeployments` list: status, environment, commit/branch/creator, ready duration, inspect link. |
-| `DeliverySettingsPanel` | Organism: the still-relevant half of the old `DeploySettingsSection` (mobile store panel, `DeployTargetsSection`, incident policy, test strategy, env inventory), scoped to the rail's selected component instead of asking its own scope question — composes `DeploySettingsSection`'s sub-organisms directly rather than mounting it, since the tab already has a scope picker. Rendered inside a collapsible `Accordion` ("Delivery settings"). |
+| `DeliverySettingsPanel` | Organism: the still-relevant half of the old `DeploySettingsSection` (mobile store panel, `DeployTargetsSection`, incident policy, test strategy, env inventory), scoped to the rail's selected component instead of asking its own scope question. Also reachable stand-alone: `/repositories/:id/deploy` now redirects to `?tab=deploy` on the repository page instead of rendering its own page. |
 
 `components/projects/add/`: `SourceStep`, `ScanStep` (+ `ScanRepoRow`), `ReviewStep`
 (+ `RepoReviewCard`), `DoneStep`, `GitHubRepoPicker`, and the pure
@@ -121,16 +123,43 @@ Deploy & Runtime tab's `EnvironmentsCard`), `EvidenceList`, `FactValue`,
 `LinkTargetLabel`, `ProjectTypeBadge`, `ProviderIcon` (a cloud provider's mark —
 a plain lucide glyph on theme tokens, never a brand logo image; Vercel/GCP/AWS),
 `RepoShapeBadge`, `ResourceKindIcon`, `ReviewList` (renders every `review` item;
-`kind: "environment"` composes `EnvironmentCandidates`), `RoleBadge`,
-`ScanProgressList`.
+`kind: "environment"` composes `EnvironmentCandidates`; `kind: "component"` —
+"New component detected as `<role>` — keep it?" → Keep (`updateComponent(id,
+{reviewed:true})`) / Dismiss (`{status:"dismissed"}`); `kind: "check"` — "CI now
+requires `<workflow> › <job>` before hand-off" → OK (`updateCheck(id,
+{reviewed:true})`) / Make informative (`{gate:"info", reviewed:true}`)),
+`RoleBadge`, `ScanProgressList`.
+
+## Architecture & workspace maps (Phase 3)
+
+`components/projects/map/` — React Flow (`@xyflow/react`, the one dependency
+this phase added; its stylesheet is imported once in `main.tsx` and themed off
+the app's own CSS variables in `styles/globals.css`, never a hard-coded hex).
+
+| Piece | What it is |
+|---|---|
+| `ProjectArchitectureMap` | Organism: one project's map (`ProjectMap` from `useProjectMap`) — a deterministic tiered layout (`lib/architectureMapLayout.ts`'s `layoutMapNodes`: client → service → library (opt-in) → data → external, grouped by repository/path within a tier), custom `ComponentMapNode`/`ResourceMapNode` types, a custom `MapEdgeLine` (confirmed solid, suggested dashed warning-colored, cross-project thicker/info-colored, protocol label on hover/selection), pan/zoom/minimap via React Flow, `MapFilters` (libraries/suggestions/other projects) and `MapSidePanel` on node/edge selection. Empty state when the project has no components. |
+| `MapSidePanel` | Molecule: a node's identity + outgoing/incoming edge list (each row reselects that edge) + "Open repository" (`/repositories/:id`) / "Open project" (`/projects/:id`, foreign nodes only, resolved against the `crossProjects` prop); an edge's two ends + Confirm/Dismiss (`api.updateLink`) while it is still `suggested`. |
+| `WorkspaceMapView` | Organism: the hub's Map view (`WorkspaceMap` from `useWorkspaceMap`) — `lib/workspaceMapLayout.ts`'s `buildWorkspaceMapGraph` lays out every linked project as a `ProjectGroupNode` (a React Flow parent/group node) holding its repositories as `WorkspaceRepoNode` children (role chips per component), cross-project edges from `edges` (labeled "N links" (+"suggested" count), only between projects that actually have one), `WorkspaceResourceNode`s for resources `shared_resources` says are used by ≥2 projects, and independent projects in their own grid below with an "Independent" caption and no edges at all. Clicking a project node opens `/projects/:id?tab=architecture`. |
+| `lib/architectureMapLayout.ts` / `lib/workspaceMapLayout.ts` | Pure, unit-tested layout functions (`layoutMapNodes`/`isProjectLinked`/`buildWorkspaceMapGraph`) plus the React Flow node/edge adapters (`toFlowNodes`/`toFlowEdges`) — kept framework-adjacent but DOM-free so tier ordering, grouping, foreign placement and the library toggle are tested without rendering. |
+
+React Flow needs `ResizeObserver`/`DOMMatrix` in `jsdom`; the stubs live in
+`vitest.setup.ts` (shared, not per-test-file) — the `ResizeObserver` one fires
+its callback synchronously from `observe()`, since a real node/handle
+measurement (and therefore any edge touching that node) never happens
+otherwise in a environment with no layout engine.
 
 **Removed, not to be recreated:** `pages/ProjectSettingsPage.tsx`;
-`projects/ProjectProfileCard`, `DependenciesPanel`, `DependencyFormDialog`,
-`ProjectArchitectureSection`, `ProjectRepositoriesSection`, `RepositoryRow`,
-`RepositoryDialogs`, `useRepositoryImport`, `InitialSetupDialog`,
-`RepositoryAnalyzingDialog`, `ScopeSetupFields`, `PipelineSlots`,
-`SubRepoSettingsPanel`; `lib/dependencyTargets.ts`. Their jobs are now either the
-`RepositoryModel` tabs above, or the add-repository wizard.
+`pages/DeploySettingsPage.tsx` (+ `projects/DeploySettingsSection` and its
+test — `/repositories/:id/deploy` redirects to the repository page's own
+Deploy & Runtime tab instead); `projects/ProjectProfileCard`,
+`DependenciesPanel`, `DependencyFormDialog`, `ProjectArchitectureSection`,
+`ProjectRepositoriesSection`, `RepositoryRow`, `RepositoryDialogs`,
+`useRepositoryImport`, `InitialSetupDialog`, `RepositoryAnalyzingDialog`,
+`ScopeSetupFields`, `PipelineSlots`, `SubRepoSettingsPanel`;
+`lib/dependencyTargets.ts`. Their jobs are now either the `RepositoryModel`
+tabs above, the add-repository wizard, or (for the deploy page) the Deploy &
+Runtime tab.
 
 ## Store console + mobile release panel
 
@@ -140,7 +169,6 @@ a plain lucide glyph on theme tokens, never a brand logo image; Vercel/GCP/AWS),
 | `admin/StoreAppPickerDialog` | Dialog to bind a repo/platform to one store app; same file also exports `StoreAppsBrowser` (lists a credential's apps) and the `useStoreAppListing` hook (on-demand fetch, `listing_available:false` ≠ error). |
 | `projects/MobileStorePanel` | Organism: per-repo link/tracks/promote/build panel, composes `StoreAppPickerDialog` and the pieces below. |
 | `IntegrationsSettingsPage` | Composes `AppStoreConnectCard` + `GooglePlayCard` + `CloudAccountsCard` alongside `GitHubCard` (all pasted/stored credentials). |
-| `projects/DeploySettingsSection` | Organism: one repository's whole deploy story — the scope picker (repository or sub-project), per-environment targets, incident policy, test strategy, env inventory. A mobile scope also gets `MobileStorePanel`. Mounted at the standalone `/repositories/:id/deploy` page the operations matrix links to; the repository page's own Deploy & Runtime tab (`projects/repository/deploy/DeployRuntimeTab`, below) composes its sub-organisms directly instead, scoped to the tab's own selected component. |
 
 `StoreAppPickerDialog` answers the same three states every provider picker in
 this app must: a list, "connected but this account cannot be enumerated"

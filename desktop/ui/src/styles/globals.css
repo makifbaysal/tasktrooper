@@ -304,3 +304,36 @@
 .prose-chat th {
   @apply bg-muted font-medium;
 }
+
+/* React Flow (architecture/workspace maps) themed off the app's own tokens —
+   both here and in .dark, never a hard-coded hex, so a map redraws correctly
+   under either theme with no per-component overrides. */
+.react-flow {
+  --xy-background-color: var(--surface-sunken);
+  --xy-background-pattern-color: var(--border);
+  --xy-edge-stroke: var(--muted-foreground);
+  --xy-edge-stroke-width: 1.5px;
+  --xy-edge-stroke-selected: var(--ring);
+  --xy-connectionline-stroke: var(--ring);
+  --xy-connectionline-stroke-width: 1.5px;
+  --xy-edge-label-background-color: var(--popover);
+  --xy-edge-label-color: var(--popover-foreground);
+  --xy-node-background-color: var(--card);
+  --xy-node-color: var(--card-foreground);
+  --xy-node-border: 1px solid var(--border);
+  --xy-node-border-radius: var(--radius-lg);
+  --xy-node-boxshadow-hover: var(--shadow-raised);
+  --xy-node-boxshadow-selected: 0 0 0 2px var(--ring);
+  --xy-minimap-background-color: var(--card);
+  --xy-minimap-mask-background-color: color-mix(in oklch, var(--foreground) 8%, transparent);
+  --xy-minimap-mask-stroke-color: var(--border);
+  --xy-minimap-node-background-color: var(--muted);
+  --xy-minimap-node-stroke-color: var(--border);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--accent);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-color-hover: var(--accent-foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: var(--shadow-raised);
+  --xy-attribution-background-color: transparent;
+}

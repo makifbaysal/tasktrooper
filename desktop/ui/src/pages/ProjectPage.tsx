@@ -1,12 +1,14 @@
 import { ChevronRight, FolderKanban, Plus } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import type { InitiativeProject } from "@/api";
+import { toast } from "sonner";
+import type { InitiativeProject, ProjectDetail } from "@/api";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { ProjectFormDialog } from "@/components/projects/ProjectFormDialog";
 import { ProjectRepositoriesTable } from "@/components/projects/hub/ProjectRepositoriesTable";
 import { ProjectReviewTab } from "@/components/projects/hub/ProjectReviewTab";
 import { ProjectSettingsTab } from "@/components/projects/hub/ProjectSettingsTab";
+const ProjectArchitectureMap = lazy(() => import("@/components/projects/map/ProjectArchitectureMap").then((m) => ({ default: m.ProjectArchitectureMap })));
 import { ProjectTypeBadge } from "@/components/projects/model/ProjectTypeBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,13 +16,19 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/hooks/useI18n";
+import { useProjectMap } from "@/hooks/useProjectMap";
 import { useProjectOverview } from "@/hooks/useProjectOverview";
 
-type ProjectTab = "repositories" | "review" | "settings";
-const TABS: ProjectTab[] = ["repositories", "review", "settings"];
+type ProjectTab = "architecture" | "repositories" | "review" | "settings";
+const TABS: ProjectTab[] = ["architecture", "repositories", "review", "settings"];
 
-function tabFromParam(raw: string | null): ProjectTab {
-  return TABS.find((t) => t === raw) ?? "repositories";
+/** Architecture is the default the moment there is something to map; a
+ * project with no repositories yet has nothing to draw, so it opens on the
+ * table that gets it its first one. */
+function tabFromParam(raw: string | null, project: ProjectDetail | null): ProjectTab {
+  const requested = TABS.find((t) => t === raw);
+  if (requested) return requested;
+  return project && project.repositories.length === 0 ? "repositories" : "architecture";
 }
 
 /** One project: its repositories, cross-project links, review queue and
@@ -30,7 +38,7 @@ export function ProjectPage() {
   const { projectId } = useParams();
   const { project, loading, reload } = useProjectOverview(projectId);
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = tabFromParam(searchParams.get("tab"));
+  const tab = tabFromParam(searchParams.get("tab"), project);
   const setTab = (next: ProjectTab) =>
     setSearchParams(
       (prev) => {
@@ -112,6 +120,7 @@ export function ProjectPage() {
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as ProjectTab)}>
         <TabsList>
+          <TabsTrigger value="architecture">{t("projectsHub.project.tabs.architecture")}</TabsTrigger>
           <TabsTrigger value="repositories">{t("projectsHub.project.tabs.repositories")}</TabsTrigger>
           <TabsTrigger value="review">
             {t("projectsHub.project.tabs.review")}
@@ -123,6 +132,10 @@ export function ProjectPage() {
           </TabsTrigger>
           <TabsTrigger value="settings">{t("projectsHub.project.tabs.settings")}</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="architecture">
+          <ProjectArchitectureTabContent project={project} />
+        </TabsContent>
 
         <TabsContent value="repositories">
           <ProjectRepositoriesTable project={project} />
@@ -144,5 +157,31 @@ export function ProjectPage() {
         onSaved={() => void reload()}
       />
     </>
+  );
+}
+
+/** Loads the map only once the Architecture tab is actually mounted — same
+ * on-demand contract as ProjectReviewTab's own per-repository model fetch. */
+function ProjectArchitectureTabContent({ project }: { project: ProjectDetail }) {
+  const { map, loading, error, reload } = useProjectMap(project.id);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
+  if (loading && !map) {
+    return <Skeleton className="h-[600px] w-full rounded-xl" />;
+  }
+  if (!map) return null;
+
+  return (
+    <Suspense fallback={<Skeleton className="h-[600px] w-full rounded-xl" />}>
+      <ProjectArchitectureMap
+        map={map}
+        currentProjectId={project.id}
+        crossProjects={project.cross_projects}
+        onChanged={() => void reload()}
+      />
+    </Suspense>
   );
 }

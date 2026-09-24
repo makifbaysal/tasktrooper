@@ -21,7 +21,9 @@ func (h *Handler) registerProjectModelRoutes(app fiber.Router) {
 		return
 	}
 	app.Get("/v1/projects/overview", h.ProjectsOverview)
+	app.Get("/v1/projects/map", h.WorkspaceMap)
 	app.Get("/v1/projects/:projectId/overview", h.ProjectOverview)
+	app.Get("/v1/projects/:projectId/map", h.ProjectMap)
 
 	app.Get("/v1/repositories/:id/model", h.RepositoryModel)
 	app.Get("/v1/repositories/:id/brief", h.RepositoryBrief)
@@ -95,6 +97,28 @@ func (h *Handler) ProjectOverview(c *fiber.Ctx) error {
 		return projectModelErr(c, err)
 	}
 	return c.JSON(detail)
+}
+
+// WorkspaceMap — GET /v1/projects/map
+func (h *Handler) WorkspaceMap(c *fiber.Ctx) error {
+	m, err := h.projectModelSvc.WorkspaceMap(h.enrichContext(c))
+	if err != nil {
+		return projectModelErr(c, err)
+	}
+	return c.JSON(m)
+}
+
+// ProjectMap — GET /v1/projects/:projectId/map
+func (h *Handler) ProjectMap(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "projectId")
+	if err != nil {
+		return pmErrMsg(c, fiber.StatusBadRequest, "invalid project id")
+	}
+	m, err := h.projectModelSvc.ProjectMap(h.enrichContext(c), id)
+	if err != nil {
+		return projectModelErr(c, err)
+	}
+	return c.JSON(m)
 }
 
 // RepositoryModel — GET /v1/repositories/:id/model

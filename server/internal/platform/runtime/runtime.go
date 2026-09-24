@@ -1811,6 +1811,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				// reads environments back for RepositoryModel/RepositorySummary.
 				modelSvc.SetDeployMatcher(cloudSvc)
 				modelSvc.SetEnvironmentReader(environmentStore)
+				// A confirmed environment binding can resolve another repository's
+				// dangling link target, the same relationship in reverse.
+				cloudSvc.SetRelinker(modelSvc)
 			}
 			for _, tool := range runtimetools.NewExecutors(&runtimetools.ToolKit{Components: cloudComponents, Cloud: cloudSvc}) {
 				e.reg.Register(tool)

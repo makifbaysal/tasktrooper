@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -22,6 +23,62 @@ func TestB2BriefWithNoComponentsIsTheScanPrompt(t *testing.T) {
 	assert.Contains(t, brief, "# demo")
 	assert.Contains(t, brief, "A demo repo.")
 	assert.Contains(t, brief, "has not been scanned yet")
+}
+
+func TestB2BriefIncludesGitBlockFromLatestSucceededScan(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive, Role: domain.Fact[domain.ComponentRole]{Detected: rolePtr(domain.ComponentRoleBackend)}})
+
+	git := domain.ScanGit{
+		DefaultBranch: "main",
+		BranchPattern: "feature/* prefix — 3 of 4 recent branches",
+		BranchSamples: []string{"feature/a", "feature/b", "feature/c", "fix/d"},
+		MergeStyle:    "linear history (squash or rebase merges, or direct pushes)",
+		DirectToMain:  true,
+		CommitStyle:   "Conventional Commits (5 of last 6 subjects)",
+		Hotspots: []domain.GitHotspot{
+			{Path: "server/a.go", Commits: 10},
+			{Path: "server/b.go", Commits: 8},
+			{Path: "server/c.go", Commits: 6},
+			{Path: "server/d.go", Commits: 4},
+			{Path: "server/e.go", Commits: 3},
+			{Path: "server/f.go", Commits: 3},
+		},
+	}
+	_, err := store.CreateScan(ctx, domain.ProjectScan{
+		ID: uuid.New(), RepositoryID: repo.ID, Status: domain.ScanSucceeded,
+		StartedAt: time.Now().UTC(), Result: &domain.ScanResult{Git: git},
+	})
+	require.NoError(t, err)
+
+	brief, err := svc.Brief(ctx, repo.ID, BriefScope{})
+	require.NoError(t, err)
+	assert.Contains(t, brief, "## Git")
+	assert.Contains(t, brief, "- Default branch: main")
+	assert.Contains(t, brief, "- Branch naming: feature/<slug> (from 4 recent branches)")
+	assert.Contains(t, brief, "- Merge style: linear history")
+	assert.Contains(t, brief, "- History lands directly on main")
+	assert.Contains(t, brief, "- Commit style: Conventional Commits")
+	assert.Contains(t, brief, "- Hotspots: server/a.go (10), server/b.go (8), server/c.go (6), server/d.go (4), server/e.go (3)")
+	assert.NotContains(t, brief, "server/f.go", "only the top 5 hotspots belong in the brief")
+}
+
+func TestB2BriefOmitsGitBlockWithoutASucceededScan(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive})
+
+	_, err := store.CreateScan(ctx, domain.ProjectScan{
+		ID: uuid.New(), RepositoryID: repo.ID, Status: domain.ScanRunning, StartedAt: time.Now().UTC(),
+	})
+	require.NoError(t, err)
+
+	brief, err := svc.Brief(ctx, repo.ID, BriefScope{})
+	require.NoError(t, err)
+	assert.NotContains(t, brief, "## Git")
 }
 
 func TestB2BriefSingleComponentHeaderAndLayout(t *testing.T) {

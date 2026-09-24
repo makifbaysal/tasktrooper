@@ -323,6 +323,7 @@ export const repositoryPage: RepositoryPageDict = {
       loadFailed: "Bu ortamın çalışma verisi okunamadı",
       unavailableTitle: "Çalışma verisi şu an ulaşılamıyor",
       reconnect: "Yeniden bağla",
+      connect: "Bağlan",
       consoleLink: "Konsolda aç",
       tabs: {
         errors: "Hatalar",

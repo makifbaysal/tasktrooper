@@ -3,8 +3,7 @@ package components
 // frameworkNames maps a dependency (npm package, Go module path, or a
 // generic ecosystem keyword) to the display name recorded in the component
 // stack. Only the names that decide how the code is written earn a place
-// here — see repofacts.frameworkDeps for the same judgment applied to the
-// older, coarser profile.
+// here.
 var frameworkNames = map[string]string{
 	"next":             "Next.js",
 	"nuxt":             "Nuxt",

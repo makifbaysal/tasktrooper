@@ -88,7 +88,7 @@ func (s *Service) Overview(ctx context.Context, envID uuid.UUID) (domain.Environ
 	bound, err := s.resolveRuntimeBound(ctx, envID)
 	if err != nil {
 		if errors.Is(err, ErrNotConnected) {
-			return domain.EnvironmentRuntime{Environment: bound.env, Unavailable: "not connected to a cloud account"}, nil
+			return domain.EnvironmentRuntime{Environment: bound.env, Unavailable: "not connected to a cloud account", UnavailableCode: "not_connected"}, nil
 		}
 		return domain.EnvironmentRuntime{}, err
 	}
@@ -103,9 +103,11 @@ func (s *Service) Overview(ctx context.Context, envID uuid.UUID) (domain.Environ
 		if errors.Is(err, port.ErrCloudAuth) {
 			s.markAccountError(ctx, *env.AccountID, err)
 			out.Unavailable = fmt.Sprintf("the %s account needs reconnecting", env.Provider)
+			out.UnavailableCode = "cloud_auth"
 			return out, nil
 		}
 		out.Unavailable = err.Error()
+		out.UnavailableCode = "provider_error"
 		return out, nil
 	}
 	detail := v.(domain.CloudResourceDetail)

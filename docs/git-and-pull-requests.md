@@ -186,12 +186,12 @@ A repository's settings page (**Repository Settings**) lets you set
 `verify_command`, `build_command` and `test_command` explicitly; left empty,
 TaskTrooper auto-detects them from the working copy (and, with a Dockerfile
 present, can build in a container instead). These, together with the
-repository's default branch, are also read automatically into its
-[project profile](architecture.md) — a background pass parses the git history
-itself to report the default branch, the branch-naming convention, and the
-**merge style** (merge commits versus squash/rebase for a linear history) the
-repository already uses, so an agent's own commits and PRs follow the same
-convention rather than guessing.
+repository's default branch, are also read automatically into the
+repository's project brief (the scan's git facts) — a background pass parses
+the git history itself to report the default branch, the branch-naming
+convention, and the **merge style** (merge commits versus squash/rebase for a
+linear history) the repository already uses, so an agent's own commits and
+PRs follow the same convention rather than guessing.
 
 ## See also
 

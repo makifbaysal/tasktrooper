@@ -29,6 +29,14 @@ type TaskCreator interface {
 	CreateTask(ctx context.Context, repositoryID uuid.UUID, req domain.CreateBoardTaskRequest) (domain.BoardTask, error)
 }
 
+// Relinker is projectmodel.Service.Relink narrowed to a single-method seam —
+// the same indirection DeployMatcher uses in the other direction. Confirming
+// an environment here can resolve a link another repository's scan left
+// dangling, so this package pokes projectmodel without importing it.
+type Relinker interface {
+	Relink(ctx context.Context) error
+}
+
 type Clock func() time.Time
 
 type Deps struct {
@@ -70,6 +78,7 @@ type Service struct {
 	deployTargets port.DeployTargetStore
 	tasks         TaskCreator
 	legacy        port.LegacyCloudSource
+	relinker      Relinker
 
 	now   Clock
 	bgCtx context.Context
@@ -107,6 +116,11 @@ func NewService(d Deps) *Service {
 }
 
 func (s *Service) SetClock(c Clock) { s.now = c }
+
+// SetRelinker wires projectmodel.Service.Relink; nil (the pre-wiring
+// default) leaves a newly confirmed environment's dangling link targets alone
+// until the next scan.
+func (s *Service) SetRelinker(r Relinker) { s.relinker = r }
 
 // SetBackgroundContext is the process-lifetime context rematchAll and Boot
 // run under, so a request's cancellation never kills work it only started.

@@ -604,7 +604,8 @@ verdict, run a subtask, profile a repository or reflect on itself.
 
 `agent.Router` implements `agent.Runner` (the loop's own three methods as an interface) and
 every agentic consumer is handed it instead of the bare loop — `board.Runner`,
-`orchestrator.Service`/`Executor`, `repoprofile.Service`, `evolution.Service`:
+`orchestrator.Service`/`Executor`, `projectmodel.Service` (its post-scan notes pass),
+`evolution.Service`:
 
 ```
 provider is host-executed AND an executor is wired  →  executor.Execute
@@ -676,7 +677,7 @@ On a host **with** a runner, for an agent on `claude_code`:
 | criteria sweep (`board/criteria_sweep.go`) | CLI | router |
 | review verdict sweep + finalize (`board/review_sweep.go`) | CLI | router |
 | orchestrator subtask (`orchestrator/executor.go`) | CLI | router; subtask workspace |
-| repository profile refresh (`repoprofile/service.go`) | CLI | router; repo root, read-only tools |
+| project model notes pass (`projectmodel/profiler.go`) | CLI | router; repo root, read-only + `record_project_note` tools |
 | agent reflection with `allow_web_research` (`evolution/reflect.go`) | CLI | router; scratch workspace |
 | chat turn (`session/`) | CLI | `port.ChatExecutor`; resumes the CLI session |
 
@@ -709,7 +710,7 @@ tokens: the work was free, the JSON-shaped bookkeeping was not.
 **Follow-up steps resume the run's own session, not a fresh one.** The build-gate fix round,
 the criteria sweep and the review verdict sweep/finalize can all run several times inside one
 `Runner.execute`, and each used to open a brand-new `claude -p` with the ENTIRE flattened
-history replayed — persona, project profile, memories, diff, the prior assistant turn — up to
+history replayed — persona, project brief, memories, diff, the prior assistant turn — up to
 six times on one task, on the person's own subscription quota. `Runner.execute` now shares a
 `*agent.CLISession` holder across that whole call (`agent.ContextWithCLISession`); the router's
 `execute` reads it, and when the holder already has an id AND the step's own history ends on a

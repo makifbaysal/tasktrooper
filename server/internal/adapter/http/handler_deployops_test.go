@@ -210,16 +210,6 @@ func (f *fakeDeployOpsRepositoryStore) UpdateLifecycleGates(_ context.Context, i
 	return r, nil
 }
 
-func (f *fakeDeployOpsRepositoryStore) UpdateProfile(_ context.Context, id uuid.UUID, profileMD string) (domain.Repository, error) {
-	r, ok := f.rows[id]
-	if !ok {
-		return domain.Repository{}, fmt.Errorf("update repository profile: %w", port.ErrNotFound)
-	}
-	r.ProfileMD = profileMD
-	f.rows[id] = r
-	return r, nil
-}
-
 func (f *fakeDeployOpsRepositoryStore) UpdateDocs(_ context.Context, id uuid.UUID, docs domain.RepositoryDocs) (domain.Repository, error) {
 	r, ok := f.rows[id]
 	if !ok {

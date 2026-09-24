@@ -115,7 +115,7 @@ func (s *Service) RepositoryModel(ctx context.Context, repositoryID uuid.UUID) (
 		LinkedComponents: linkedComponents,
 		Notes:            nonNil(notes),
 		Environments:     nonNil(environments),
-		Review:           nonNil(reviewItems(components, links, environments)),
+		Review:           nonNil(reviewItems(components, checks, links, environments)),
 		LatestScan:       latestScan,
 	}, nil
 }
@@ -209,6 +209,7 @@ type overviewData struct {
 	repos              []domain.Repository
 	componentsByRepo   map[uuid.UUID][]domain.Component
 	componentRepo      map[uuid.UUID]uuid.UUID
+	checksByRepo       map[uuid.UUID][]domain.ComponentCheck
 	linksByRepo        map[uuid.UUID][]domain.ComponentLink
 	allLinks           []domain.ComponentLink
 	environmentsByRepo map[uuid.UUID][]domain.ComponentEnvironment
@@ -245,6 +246,7 @@ func (s *Service) loadOverviewData(ctx context.Context) (overviewData, error) {
 		repos:              repos,
 		componentsByRepo:   map[uuid.UUID][]domain.Component{},
 		componentRepo:      map[uuid.UUID]uuid.UUID{},
+		checksByRepo:       map[uuid.UUID][]domain.ComponentCheck{},
 		linksByRepo:        map[uuid.UUID][]domain.ComponentLink{},
 		allLinks:           allLinks,
 		environmentsByRepo: map[uuid.UUID][]domain.ComponentEnvironment{},
@@ -292,6 +294,7 @@ func (s *Service) loadOverviewData(ctx context.Context) (overviewData, error) {
 		if err != nil {
 			return overviewData{}, err
 		}
+		data.checksByRepo[r.ID] = checks
 		data.summaries[r.ID] = s.repositorySummary(ctx, r, data.componentsByRepo[r.ID], checks, data.linksByRepo[r.ID], data.environmentsByRepo[r.ID])
 	}
 	return data, nil
@@ -346,7 +349,7 @@ func (s *Service) repositorySummary(ctx context.Context, r domain.Repository, co
 		ProjectIDs:   r.ProjectIDs,
 		Shape:        domain.ShapeFromComponents(components),
 		Components:   nonNil(compSummaries),
-		ReviewCount:  len(reviewItems(components, links, environments)),
+		ReviewCount:  len(reviewItems(components, checks, links, environments)),
 		LastScan:     lastScan,
 		Environments: nonNil(environmentSummaries(environments)),
 		GitWarning:   r.GitWarning,
@@ -511,16 +514,18 @@ func (s *Service) ProjectOverview(ctx context.Context, projectID uuid.UUID) (dom
 	overview := buildProjectOverview(project, data, projectsByID)
 
 	var components []domain.Component
+	var checks []domain.ComponentCheck
 	var links []domain.ComponentLink
 	var environments []domain.ComponentEnvironment
 	for _, r := range memberRepositories(project, data.repos) {
 		components = append(components, data.componentsByRepo[r.ID]...)
+		checks = append(checks, data.checksByRepo[r.ID]...)
 		links = append(links, data.linksByRepo[r.ID]...)
 		environments = append(environments, data.environmentsByRepo[r.ID]...)
 	}
 
 	return domain.ProjectDetail{
 		ProjectOverview: overview,
-		Review:          nonNil(reviewItems(components, links, environments)),
+		Review:          nonNil(reviewItems(components, checks, links, environments)),
 	}, nil
 }

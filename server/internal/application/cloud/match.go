@@ -123,7 +123,23 @@ func (s *Service) MatchScan(ctx context.Context, repoID uuid.UUID, result domain
 	if err := s.project(ctx, repoID); err != nil {
 		log.Warn().Err(err).Str("repository_id", repoID.String()).Msg("cloud: match: projection failed")
 	}
+	s.triggerRelink()
 	return nil
+}
+
+// triggerRelink runs Relink in the background under the service's own
+// lifetime context, so a BindEnvironment/PatchEnvironment request or a scan's
+// MatchScan call never waits on a re-scan of every other repository's
+// dangling link targets.
+func (s *Service) triggerRelink() {
+	if s.relinker == nil {
+		return
+	}
+	go func() {
+		if err := s.relinker.Relink(s.bgCtx); err != nil {
+			log.Warn().Err(err).Msg("cloud: relink after environment change failed")
+		}
+	}()
 }
 
 type matchOutcome struct {

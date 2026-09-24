@@ -8,6 +8,14 @@ export const projectsHub = {
     addRepository: "Add repository",
     newProject: "New project",
   },
+  view: {
+    cards: "Cards",
+    map: "Map",
+  },
+  map: {
+    independent: "Independent",
+    canvasLabel: "All projects map",
+  },
   attention: {
     message: "{count} things need your review",
     review: "Review",
@@ -54,6 +62,7 @@ export const projectsHub = {
       back: "Back to projects",
     },
     tabs: {
+      architecture: "Architecture",
       repositories: "Repositories",
       review: "Review",
       settings: "Settings",

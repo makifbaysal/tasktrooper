@@ -1,5 +1,5 @@
-import { FolderKanban, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FolderKanban, LayoutGrid, Map as MapIcon, Plus } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -14,6 +14,7 @@ import { AttentionNotice } from "@/components/projects/hub/AttentionNotice";
 import { ProjectCard } from "@/components/projects/hub/ProjectCard";
 import { ProjectFilters } from "@/components/projects/hub/ProjectFilters";
 import { UnassignedRepositoriesCard } from "@/components/projects/hub/UnassignedRepositoriesCard";
+const WorkspaceMapView = lazy(() => import("@/components/projects/map/WorkspaceMapView").then((m) => ({ default: m.WorkspaceMapView })));
 import { ProjectFormDialog } from "@/components/projects/ProjectFormDialog";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,12 @@ import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/hooks/useI18n";
 import { useProjectsOverview } from "@/hooks/useProjectsOverview";
+import { useWorkspaceMap } from "@/hooks/useWorkspaceMap";
+
+type ProjectsView = "cards" | "map";
 
 function normalize(value: string): string {
   return value.trim().toLocaleLowerCase("tr");
@@ -61,6 +66,17 @@ export function ProjectsPage() {
   const roleParam = searchParams.get("role");
   const role = (COMPONENT_ROLES as string[]).includes(roleParam ?? "") ? (roleParam as ComponentRole) : null;
   const query = normalize(searchParams.get("q") ?? "");
+  const view: ProjectsView = searchParams.get("view") === "map" ? "map" : "cards";
+  const setView = (next: ProjectsView) =>
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next === "map") params.set("view", "map");
+        else params.delete("view");
+        return params;
+      },
+      { replace: true },
+    );
 
   const setRole = (next: ComponentRole | null) =>
     setSearchParams((prev) => {
@@ -201,26 +217,50 @@ export function ProjectsPage() {
         <div className="space-y-4">
           {overview && <AttentionNotice projects={overview.projects} />}
 
-          <ProjectFilters role={role} onRoleChange={setRole} query={searchParams.get("q") ?? ""} onQueryChange={setQuery} />
-
-          <div className="space-y-4">
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                repositories={visibleRepositories(project, role, query)}
-                onEdit={() => openEditProject(project)}
-                onDelete={() => setDeleteTarget(project)}
-              />
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {view === "cards" ? (
+              <ProjectFilters role={role} onRoleChange={setRole} query={searchParams.get("q") ?? ""} onQueryChange={setQuery} />
+            ) : (
+              <span />
+            )}
+            <Tabs value={view} onValueChange={(v) => setView(v as ProjectsView)} variant="pill" className="w-fit">
+              <TabsList>
+                <TabsTrigger value="cards" className="gap-1.5">
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  {t("projectsHub.view.cards")}
+                </TabsTrigger>
+                <TabsTrigger value="map" className="gap-1.5">
+                  <MapIcon className="h-3.5 w-3.5" />
+                  {t("projectsHub.view.map")}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
 
-          {filteredUnassigned.length > 0 && (
-            <UnassignedRepositoriesCard
-              repositories={filteredUnassigned}
-              projects={overview?.projects ?? []}
-              onAssigned={() => void reload()}
-            />
+          {view === "map" ? (
+            <ProjectsMapContent />
+          ) : (
+            <>
+              <div className="space-y-4">
+                {filteredProjects.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    repositories={visibleRepositories(project, role, query)}
+                    onEdit={() => openEditProject(project)}
+                    onDelete={() => setDeleteTarget(project)}
+                  />
+                ))}
+              </div>
+
+              {filteredUnassigned.length > 0 && (
+                <UnassignedRepositoriesCard
+                  repositories={filteredUnassigned}
+                  projects={overview?.projects ?? []}
+                  onAssigned={() => void reload()}
+                />
+              )}
+            </>
           )}
         </div>
       )}
@@ -242,5 +282,26 @@ export function ProjectsPage() {
         onConfirm={handleDelete}
       />
     </>
+  );
+}
+
+/** Loads the workspace map only once the Map view is actually selected —
+ * same on-demand contract as the project page's own Architecture tab. */
+function ProjectsMapContent() {
+  const { map, loading, error } = useWorkspaceMap();
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error]);
+
+  if (loading && !map) {
+    return <Skeleton className="h-[640px] w-full rounded-xl" />;
+  }
+  if (!map) return null;
+
+  return (
+    <Suspense fallback={<Skeleton className="h-[640px] w-full rounded-xl" />}>
+      <WorkspaceMapView map={map} />
+    </Suspense>
   );
 }

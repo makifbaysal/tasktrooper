@@ -9,6 +9,14 @@ export const projectsHub: ProjectsHubDict = {
     addRepository: "Repo ekle",
     newProject: "Yeni proje",
   },
+  view: {
+    cards: "Kartlar",
+    map: "Harita",
+  },
+  map: {
+    independent: "Bağımsız",
+    canvasLabel: "Tüm projeler haritası",
+  },
   attention: {
     message: "{count} şey incelemeni bekliyor",
     review: "İncele",
@@ -55,6 +63,7 @@ export const projectsHub: ProjectsHubDict = {
       back: "Projelere dön",
     },
     tabs: {
+      architecture: "Mimari",
       repositories: "Repolar",
       review: "İnceleme",
       settings: "Ayarlar",

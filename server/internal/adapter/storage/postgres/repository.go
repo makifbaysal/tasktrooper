@@ -81,7 +81,7 @@ func (s *RepositoryStore) localizeRootPath(r *domain.Repository) {
 
 // repositoryCols is the canonical repositories column list shared by every
 // SELECT/RETURNING below so the read order can never drift from scanRepository.
-const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, auto_release_on_done, require_human_review, require_review_chain, require_release_deploy, require_pipeline_for_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, COALESCE(profile_md, ''), profile_updated_at, created_at, updated_at`
+const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, auto_release_on_done, require_human_review, require_review_chain, require_release_deploy, require_pipeline_for_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, created_at, updated_at`
 
 // scanRepository reads a single repositories row in repositoryCols order and
 // re-anchors its root_path onto this host. Every SELECT/RETURNING in this file
@@ -111,7 +111,7 @@ func scanRepositoryRow(row interface{ Scan(dest ...any) error }) (domain.Reposit
 		&r.AutoReleaseOnDone, &r.RequireHumanReview,
 		&r.RequireReviewChain, &r.RequireReleaseDeploy, &r.RequirePipelineForReview, &incidentPolicy,
 		&r.TestStrategy, &r.CoverageThreshold, &r.RequireOverallCoverage, &r.MutationEnabled, &r.MutationThreshold,
-		&webhookHookID, &r.ProfileMD, &r.ProfileUpdatedAt, &r.CreatedAt, &r.UpdatedAt,
+		&webhookHookID, &r.CreatedAt, &r.UpdatedAt,
 	)
 	r.IncidentPolicy = domain.IncidentPolicy(incidentPolicy)
 	r.WebhookInstalled = webhookHookID != 0
@@ -440,27 +440,9 @@ func (s *RepositoryStore) UpdateLifecycleGates(ctx context.Context, id uuid.UUID
 	return r, nil
 }
 
-// UpdateProfile replaces the agent-maintained project profile and stamps
-// profile_updated_at. Separate from Update for the same reason the other
-// single-purpose setters are: the tool that writes it must not be able to
-// blank an unrelated field.
-func (s *RepositoryStore) UpdateProfile(ctx context.Context, id uuid.UUID, profileMD string) (domain.Repository, error) {
-	r, err := s.scanRepository(s.pool.QueryRow(ctx, `
-		UPDATE repositories SET profile_md = $2, profile_updated_at = now(), updated_at = now()
-		WHERE id = $1
-		RETURNING `+repositoryCols, id, profileMD))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.Repository{}, fmt.Errorf("update repository profile: %w", port.ErrNotFound)
-		}
-		return domain.Repository{}, fmt.Errorf("update repository profile: %w", err)
-	}
-	return r, nil
-}
-
 // UpdateDocs replaces the repository's own reference-doc pointers wholesale.
-// Separate from Update for the same reason UpdateProfile is: a writer of one
-// concern must not be able to blank an unrelated field by omitting it.
+// Separate from Update so a writer of one concern can't blank an unrelated
+// field by omitting it.
 func (s *RepositoryStore) UpdateDocs(ctx context.Context, id uuid.UUID, docs domain.RepositoryDocs) (domain.Repository, error) {
 	body, err := json.Marshal(docs)
 	if err != nil {

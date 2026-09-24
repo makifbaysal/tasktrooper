@@ -92,14 +92,8 @@ type Repository struct {
 	Docs RepositoryDocs `json:"docs"`
 	// DocsTaskID is the board task of the last reference-doc bundle asked for;
 	// overwritten by the next and cleared when its PR merges.
-	DocsTaskID string `json:"docs_task_id,omitempty"`
-	// ProfileMD is the agent-maintained markdown profile of the codebase,
-	// injected into every repo-scoped run; "" = never profiled.
-	ProfileMD string `json:"profile_md,omitempty"`
-	// ProfileUpdatedAt stamps the last profile write; the push-webhook trigger
-	// refreshes only when nil or stale.
-	ProfileUpdatedAt *time.Time  `json:"profile_updated_at,omitempty"`
-	ProjectIDs       []uuid.UUID `json:"project_ids,omitempty"`
+	DocsTaskID string      `json:"docs_task_id,omitempty"`
+	ProjectIDs []uuid.UUID `json:"project_ids,omitempty"`
 	// GitWarning is the finished sentence the repository card shows above its
 	// root path. Rendered verbatim by the web app — server-composed English,
 	// not a translation key, so localising it would mean threading a language

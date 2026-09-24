@@ -118,11 +118,43 @@ export const projectModel = {
     dismiss: "Ignore",
     failed: "Could not save the answer",
     count: "{count} items to review",
+    componentQuestion: "New component {path} detected as {role} — keep it?",
+    keep: "Keep",
+    checkQuestion: "CI now requires {workflow} › {job} before hand-off for {component}",
+    ok: "OK",
+    makeInformative: "Make informative",
   },
   editedByYou: "Edited by you",
   revertToDetected: "Revert to detected",
   evidence: "Evidence",
   linkTargetUnknown: "Unknown target",
+  map: {
+    foreign: "Other project",
+    sharedWith: "Shared with {count}",
+    canvasLabel: "{project} architecture map",
+    empty: {
+      title: "Nothing to map yet",
+      description: "This project has no components yet — add a repository or run a scan to detect them.",
+    },
+    filters: {
+      libraries: "Show libraries",
+      suggestions: "Show suggestions",
+      otherProjects: "Other projects",
+    },
+    panel: {
+      repository: "Repository",
+      vendor: "Vendor",
+      stack: "Stack",
+      provider: "Provider",
+      health: "Health",
+      sharedWithTitle: "Shared with",
+      outgoing: "Outgoing · {count}",
+      incoming: "Incoming · {count}",
+      openRepository: "Open repository",
+      openProject: "Open project",
+      crossProject: "Cross-project",
+    },
+  },
 };
 
 export type ProjectModelDict = typeof projectModel;

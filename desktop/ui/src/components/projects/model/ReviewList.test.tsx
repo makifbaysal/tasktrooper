@@ -1,19 +1,21 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Component, ComponentEnvironment, Repository, RepositoryModel } from "@/api";
+import type { Component, ComponentCheck, ComponentEnvironment, Repository, RepositoryModel } from "@/api";
 import { ReviewList } from "@/components/projects/model/ReviewList";
 import { I18nProvider } from "@/hooks/useI18n";
 
-const { patchEnvironment } = vi.hoisted(() => ({
+const { patchEnvironment, updateComponent, updateCheck } = vi.hoisted(() => ({
   patchEnvironment: vi.fn(),
+  updateComponent: vi.fn(),
+  updateCheck: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
   return {
     ...actual,
-    api: { ...actual.api, patchEnvironment },
+    api: { ...actual.api, patchEnvironment, updateComponent, updateCheck },
   };
 });
 
@@ -39,6 +41,7 @@ function component(overrides: Partial<Component> = {}): Component {
     gates: {},
     status: "active",
     manually_added: false,
+    needs_review: false,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -150,5 +153,83 @@ describe("ReviewList environment item", () => {
 
     expect(await screen.findByText("Connect Google Cloud")).toBeInTheDocument();
     expect(screen.getByLabelText(/service account json/i)).toBeInTheDocument();
+  });
+});
+
+function checkFixture(overrides: Partial<ComponentCheck> = {}): ComponentCheck {
+  return {
+    id: "chk-1",
+    repository_id: "repo-1",
+    component_id: "c1",
+    source: "ci",
+    workflow: "ci.yml",
+    workflow_name: "CI",
+    job_key: "test",
+    job_name: "Test",
+    purpose: { detected: "test" },
+    local_commands: {},
+    gate: { detected: "required" },
+    dispatchable: true,
+    status: "active",
+    missing: false,
+    needs_review: true,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("ReviewList component/check items", () => {
+  beforeEach(() => {
+    updateComponent.mockReset();
+    updateCheck.mockReset();
+  });
+
+  it("a component item's Keep calls updateComponent with reviewed:true, Dismiss with status:dismissed", async () => {
+    updateComponent.mockResolvedValue({});
+    const onChanged = vi.fn();
+    const newComponent = component({ id: "c-new", path: "apps/admin", role: { detected: "frontend" }, needs_review: true });
+    const model: RepositoryModel = {
+      ...baseModel([]),
+      components: [component(), newComponent],
+      review: [{ kind: "component", entity_id: "c-new", repository_id: "repo-1", component_id: "c-new", confidence: "medium" }],
+    };
+    render(
+      <I18nProvider>
+        <ReviewList model={model} onChanged={onChanged} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText("New component apps/admin detected as Frontend — keep it?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    await waitFor(() => expect(updateComponent).toHaveBeenCalledWith("c-new", { reviewed: true }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Ignore" }));
+    await waitFor(() => expect(updateComponent).toHaveBeenCalledWith("c-new", { status: "dismissed" }));
+  });
+
+  it("a check item's OK calls updateCheck with reviewed:true, Make informative with gate:info+reviewed:true", async () => {
+    updateCheck.mockResolvedValue({});
+    const onChanged = vi.fn();
+    const check = checkFixture();
+    const model: RepositoryModel = {
+      ...baseModel([]),
+      checks: [check],
+      review: [{ kind: "check", entity_id: "chk-1", repository_id: "repo-1", component_id: "c1", confidence: "medium" }],
+    };
+    render(
+      <I18nProvider>
+        <ReviewList model={model} onChanged={onChanged} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText("CI now requires CI › Test before hand-off for web")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(updateCheck).toHaveBeenCalledWith("chk-1", { reviewed: true }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Make informative" }));
+    await waitFor(() => expect(updateCheck).toHaveBeenCalledWith("chk-1", { gate: "info", reviewed: true }));
   });
 });

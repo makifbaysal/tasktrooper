@@ -24,7 +24,7 @@ type reconcileSummary struct {
 // reconcileScan loads the repository's current model, ensures every
 // resource a detected link points at exists, plans the update with the pure
 // planReconcile, and applies it atomically.
-func (s *Service) reconcileScan(ctx context.Context, repo domain.Repository, scanID uuid.UUID, result domain.ScanResult) (reconcileSummary, error) {
+func (s *Service) reconcileScan(ctx context.Context, repo domain.Repository, scanID uuid.UUID, trigger domain.ScanTrigger, result domain.ScanResult) (reconcileSummary, error) {
 	existingComponents, err := s.store.ListComponents(ctx, repo.ID)
 	if err != nil {
 		return reconcileSummary{}, fmt.Errorf("list components: %w", err)
@@ -61,6 +61,10 @@ func (s *Service) reconcileScan(ctx context.Context, repo domain.Repository, sca
 		existingLinks:      existingLinks,
 		resources:          resources,
 		matchCandidates:    buildMatchCandidates(repo, allComponents, repos),
+		// flagNewRows: a later scan (not the first import, not a migrate replay)
+		// on a repository that already had a model adds rows the human hasn't
+		// seen yet, so they're queued for review instead of landing silently.
+		flagNewRows: trigger != domain.ScanTriggerImport && trigger != domain.ScanTriggerMigrate && len(existingComponents) > 0,
 	}
 	out := planReconcile(in)
 
@@ -83,7 +87,7 @@ func (s *Service) reconcileScan(ctx context.Context, repo domain.Repository, sca
 		// Environments this scan's own MatchScan will bind are not visible yet:
 		// MatchScan runs after reconcileScan returns (see runScan), so the
 		// review count here reflects environments as of the previous scan.
-		ReviewCount: len(reviewItems(out.finalComponents, out.finalLinks, nil)),
+		ReviewCount: len(reviewItems(out.finalComponents, out.finalChecks, out.finalLinks, nil)),
 	}, nil
 }
 
@@ -140,6 +144,11 @@ type planInput struct {
 	resources map[string]uuid.UUID
 
 	matchCandidates []matchCandidate
+
+	// flagNewRows marks a component or required check this reconcile CREATES
+	// (not merges into an existing row) with NeedsReview, so it queues for the
+	// human instead of landing silently.
+	flagNewRows bool
 }
 
 type planOutput struct {
@@ -269,7 +278,7 @@ func reconcileComponents(in planInput) componentPlan {
 			plan.final = append(plan.final, updated)
 			plan.byID[updated.ID] = updated
 		case hasDetected:
-			created := newComponent(in.repositoryID, detected, in.scanID, in.now)
+			created := newComponent(in.repositoryID, detected, in.scanID, in.now, in.flagNewRows)
 			plan.save = append(plan.save, created)
 			plan.final = append(plan.final, created)
 			plan.byID[created.ID] = created
@@ -309,7 +318,7 @@ func mergeComponent(existing domain.Component, detected domain.DetectedComponent
 	return out
 }
 
-func newComponent(repositoryID uuid.UUID, detected domain.DetectedComponent, scanID uuid.UUID, now time.Time) domain.Component {
+func newComponent(repositoryID uuid.UUID, detected domain.DetectedComponent, scanID uuid.UUID, now time.Time, needsReview bool) domain.Component {
 	name := detected.Name
 	role := detected.Role
 	stack := detected.Stack
@@ -326,6 +335,7 @@ func newComponent(repositoryID uuid.UUID, detected domain.DetectedComponent, sca
 		Commands:     mergeCommands(nil, detected.Commands),
 		Mobile:       mergeMobile(nil, detected.Mobile),
 		Status:       domain.ComponentStatusActive,
+		NeedsReview:  needsReview,
 		LastScanID:   &scanID,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -451,7 +461,7 @@ func reconcileChecks(in planInput, componentByPath map[string]domain.Component) 
 			plan.finalChecks = append(plan.finalChecks, updated)
 			delete(existingByKey, key)
 		} else {
-			created := newCheck(in.repositoryID, key.componentID, dc, gate)
+			created := newCheck(in.repositoryID, key.componentID, dc, gate, in.flagNewRows && gate == domain.CheckGateRequired)
 			plan.saveChecks = append(plan.saveChecks, created)
 			plan.finalChecks = append(plan.finalChecks, created)
 		}
@@ -494,7 +504,7 @@ func mergeCheck(existing domain.ComponentCheck, dc domain.DetectedCheck, gate do
 	return out
 }
 
-func newCheck(repositoryID, componentID uuid.UUID, dc domain.DetectedCheck, gate domain.CheckGate) domain.ComponentCheck {
+func newCheck(repositoryID, componentID uuid.UUID, dc domain.DetectedCheck, gate domain.CheckGate, needsReview bool) domain.ComponentCheck {
 	purpose := dc.Purpose
 	cmds := dc.LocalCommands
 	return domain.ComponentCheck{
@@ -515,6 +525,7 @@ func newCheck(repositoryID, componentID uuid.UUID, dc domain.DetectedCheck, gate
 		Gate:          domain.Fact[domain.CheckGate]{Detected: &gate},
 		Dispatchable:  dc.Dispatchable,
 		Status:        domain.ModelStatusActive,
+		NeedsReview:   needsReview,
 	}
 }
 
@@ -599,6 +610,8 @@ type linkResolution struct {
 	reason        string
 	hint          string
 	confidence    domain.Confidence
+	targetHost    string
+	targetPort    int
 }
 
 // resolveLinkTarget follows the target-kind ladder: a resource signal wires
@@ -618,6 +631,11 @@ func resolveLinkTarget(in planInput, fromComponentID uuid.UUID, dl domain.Detect
 			res.toComponentID = &id
 		}
 	case domain.LinkTargetUnresolved:
+		// TargetHost/Port are kept regardless of whether this reconcile itself
+		// resolves the link, so a later Relink can match it against an
+		// environment bound after this scan.
+		res.targetHost = dl.Target.URLHost
+		res.targetPort = dl.Target.Port
 		if m, ok := matchLink(dl.Target, in.matchCandidates); ok {
 			id := m.Candidate.Component.ID
 			res.toComponentID = &id
@@ -681,9 +699,20 @@ func newLink(in planInput, fromComponentID uuid.UUID, dl domain.DetectedLink, co
 		Source:          domain.LinkSourceScan,
 		AutoConfirmed:   autoConfirmed,
 		SignalKey:       dl.SignalKey,
+		TargetHost:      resolved.targetHost,
+		TargetPort:      resolved.targetPort,
 		CreatedAt:       in.now,
 		UpdatedAt:       in.now,
 	}, true
+}
+
+// linkOpenForRematch is the "still asking the human to look" test shared by
+// mergeLink (re-resolving against this scan's own candidates) and Relink
+// (re-resolving against environments bound after the scan): suggested, or
+// confirmed with nothing to point at. A dismissed or a confirmed-and-resolved
+// row is the human's final word and is never touched again.
+func linkOpenForRematch(l domain.ComponentLink) bool {
+	return l.Status == domain.LinkSuggested || (l.Status == domain.LinkConfirmed && !l.Resolved())
 }
 
 // mergeLink always refreshes the scan-observed fields; it only re-resolves
@@ -701,8 +730,7 @@ func mergeLink(existing domain.ComponentLink, dl domain.DetectedLink, in planInp
 	if existing.Status == domain.LinkDismissed {
 		return out
 	}
-	reResolve := existing.Status == domain.LinkSuggested || (existing.Status == domain.LinkConfirmed && !existing.Resolved())
-	if !reResolve {
+	if !linkOpenForRematch(existing) {
 		return out
 	}
 
@@ -711,6 +739,8 @@ func mergeLink(existing domain.ComponentLink, dl domain.DetectedLink, in planInp
 	if drop {
 		status, autoConfirmed = domain.LinkSuggested, false
 	}
+	out.TargetHost = resolved.targetHost
+	out.TargetPort = resolved.targetPort
 	out.ToComponentID = resolved.toComponentID
 	out.ToResourceID = resolved.toResourceID
 	out.Confidence = resolved.confidence

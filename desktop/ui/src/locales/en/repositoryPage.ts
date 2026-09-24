@@ -324,6 +324,7 @@ export const repositoryPage = {
       loadFailed: "Could not load this environment's runtime",
       unavailableTitle: "Runtime unavailable",
       reconnect: "Reconnect",
+      connect: "Connect",
       consoleLink: "Open in console",
       tabs: {
         errors: "Errors",

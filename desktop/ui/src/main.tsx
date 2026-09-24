@@ -9,6 +9,9 @@ import { getApiToken } from "@/lib/auth";
 import "@fontsource-variable/inter";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
+// One import for both map organisms (ProjectArchitectureMap, WorkspaceMapView)
+// so neither has to remember to bring its own copy; globals.css themes it.
+import "@xyflow/react/dist/style.css";
 import "@/styles/globals.css";
 
 function main() {

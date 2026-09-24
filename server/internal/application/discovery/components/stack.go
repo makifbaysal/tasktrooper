@@ -10,9 +10,8 @@ import (
 )
 
 // languageByExt maps a file extension to the language name reported in both
-// the repository-wide histogram and each component's own top-3 — the same
-// judgment call as repofacts.languageByExt: extensions absent here count as
-// files but never as a "language".
+// the repository-wide histogram and each component's own top-3; an extension
+// absent here counts as a file but never as a language.
 var languageByExt = map[string]string{
 	".go": "Go", ".ts": "TypeScript", ".tsx": "TypeScript", ".js": "JavaScript",
 	".jsx": "JavaScript", ".mjs": "JavaScript", ".cjs": "JavaScript",

@@ -24,9 +24,23 @@ type LanguageShare struct {
 }
 
 type ScanGit struct {
-	DefaultBranch string `json:"default_branch,omitempty"`
-	HeadSHA       string `json:"head_sha,omitempty"`
-	RemoteSlug    string `json:"remote_slug,omitempty"`
+	DefaultBranch string       `json:"default_branch,omitempty"`
+	HeadSHA       string       `json:"head_sha,omitempty"`
+	RemoteSlug    string       `json:"remote_slug,omitempty"`
+	BranchPattern string       `json:"branch_pattern,omitempty"`
+	BranchSamples []string     `json:"branch_samples,omitempty"`
+	MergeStyle    string       `json:"merge_style,omitempty"`
+	DirectToMain  bool         `json:"direct_to_main,omitempty"`
+	CommitStyle   string       `json:"commit_style,omitempty"`
+	Hotspots      []GitHotspot `json:"hotspots,omitempty"`
+}
+
+// GitHotspot is one path from the churn ranking: how many of the recent
+// commits touched it, the same signal a human skims a `git log --stat`
+// summary for.
+type GitHotspot struct {
+	Path    string `json:"path,omitempty"`
+	Commits int    `json:"commits,omitempty"`
 }
 
 type DetectedCommand struct {

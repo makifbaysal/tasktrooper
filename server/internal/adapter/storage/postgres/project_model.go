@@ -53,14 +53,14 @@ func nonNilMap[K comparable, V any](m map[K]V) map[K]V {
 
 // --- Component ---
 
-const componentCols = `id, repository_id, path, name, role, stack, commands, mobile, docs, gates, status, manually_added, last_scan_id, created_at, updated_at`
+const componentCols = `id, repository_id, path, name, role, stack, commands, mobile, docs, gates, status, manually_added, needs_review, last_scan_id, created_at, updated_at`
 
 func scanComponent(row pgx.Row) (domain.Component, error) {
 	var c domain.Component
 	var nameJSON, roleJSON, stackJSON, commandsJSON, mobileJSON, docsJSON, gatesJSON []byte
 	if err := row.Scan(
 		&c.ID, &c.RepositoryID, &c.Path, &nameJSON, &roleJSON, &stackJSON, &commandsJSON, &mobileJSON, &docsJSON, &gatesJSON,
-		&c.Status, &c.ManuallyAdded, &c.LastScanID, &c.CreatedAt, &c.UpdatedAt,
+		&c.Status, &c.ManuallyAdded, &c.NeedsReview, &c.LastScanID, &c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return domain.Component{}, err
 	}
@@ -94,8 +94,8 @@ func scanComponent(row pgx.Row) (domain.Component, error) {
 
 const upsertComponentSQL = `
 INSERT INTO project_components
-	(id, repository_id, path, name, role, stack, commands, mobile, docs, gates, status, manually_added, last_scan_id)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+	(id, repository_id, path, name, role, stack, commands, mobile, docs, gates, status, manually_added, needs_review, last_scan_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 ON CONFLICT (id) DO UPDATE SET
 	repository_id = EXCLUDED.repository_id,
 	path = EXCLUDED.path,
@@ -108,6 +108,7 @@ ON CONFLICT (id) DO UPDATE SET
 	gates = EXCLUDED.gates,
 	status = EXCLUDED.status,
 	manually_added = EXCLUDED.manually_added,
+	needs_review = EXCLUDED.needs_review,
 	last_scan_id = EXCLUDED.last_scan_id,
 	updated_at = now()
 RETURNING ` + componentCols
@@ -156,7 +157,7 @@ func upsertComponent(ctx context.Context, q pmExecutor, c domain.Component) (dom
 	}
 	row := q.QueryRow(ctx, upsertComponentSQL,
 		c.ID, c.RepositoryID, c.Path, nameJSON, roleJSON, stackJSON, commandsJSON, mobileJSON, docsJSON, gatesJSON,
-		status, c.ManuallyAdded, c.LastScanID)
+		status, c.ManuallyAdded, c.NeedsReview, c.LastScanID)
 	out, err := scanComponent(row)
 	if err != nil {
 		return domain.Component{}, fmt.Errorf("upsert component: %w", err)
@@ -238,9 +239,9 @@ func (s *ProjectModelStore) GetComponent(ctx context.Context, id uuid.UUID) (dom
 
 // --- ComponentCheck ---
 
-const checkCols = `id, repository_id, component_id, source, workflow, workflow_name, job_key, job_name, purpose, environment, triggers, path_filters, steps, local_commands, gate, dispatchable, status, missing, created_at, updated_at`
+const checkCols = `id, repository_id, component_id, source, workflow, workflow_name, job_key, job_name, purpose, environment, triggers, path_filters, steps, local_commands, gate, dispatchable, status, missing, needs_review, created_at, updated_at`
 
-const checkColsPrefixed = `cc.id, cc.repository_id, cc.component_id, cc.source, cc.workflow, cc.workflow_name, cc.job_key, cc.job_name, cc.purpose, cc.environment, cc.triggers, cc.path_filters, cc.steps, cc.local_commands, cc.gate, cc.dispatchable, cc.status, cc.missing, cc.created_at, cc.updated_at`
+const checkColsPrefixed = `cc.id, cc.repository_id, cc.component_id, cc.source, cc.workflow, cc.workflow_name, cc.job_key, cc.job_name, cc.purpose, cc.environment, cc.triggers, cc.path_filters, cc.steps, cc.local_commands, cc.gate, cc.dispatchable, cc.status, cc.missing, cc.needs_review, cc.created_at, cc.updated_at`
 
 func scanCheck(row pgx.Row) (domain.ComponentCheck, error) {
 	var c domain.ComponentCheck
@@ -248,7 +249,7 @@ func scanCheck(row pgx.Row) (domain.ComponentCheck, error) {
 	if err := row.Scan(
 		&c.ID, &c.RepositoryID, &c.ComponentID, &c.Source, &c.Workflow, &c.WorkflowName, &c.JobKey, &c.JobName,
 		&purposeJSON, &c.Environment, &triggersJSON, &pathFiltersJSON, &stepsJSON, &localCommandsJSON, &gateJSON,
-		&c.Dispatchable, &c.Status, &c.Missing, &c.CreatedAt, &c.UpdatedAt,
+		&c.Dispatchable, &c.Status, &c.Missing, &c.NeedsReview, &c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return domain.ComponentCheck{}, err
 	}
@@ -275,8 +276,8 @@ func scanCheck(row pgx.Row) (domain.ComponentCheck, error) {
 
 const upsertCheckSQL = `
 INSERT INTO component_checks
-	(id, repository_id, component_id, source, workflow, workflow_name, job_key, job_name, purpose, environment, triggers, path_filters, steps, local_commands, gate, dispatchable, status, missing)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+	(id, repository_id, component_id, source, workflow, workflow_name, job_key, job_name, purpose, environment, triggers, path_filters, steps, local_commands, gate, dispatchable, status, missing, needs_review)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 ON CONFLICT (id) DO UPDATE SET
 	repository_id = EXCLUDED.repository_id,
 	component_id = EXCLUDED.component_id,
@@ -295,6 +296,7 @@ ON CONFLICT (id) DO UPDATE SET
 	dispatchable = EXCLUDED.dispatchable,
 	status = EXCLUDED.status,
 	missing = EXCLUDED.missing,
+	needs_review = EXCLUDED.needs_review,
 	updated_at = now()
 RETURNING ` + checkCols
 
@@ -337,7 +339,7 @@ func upsertCheck(ctx context.Context, q pmExecutor, c domain.ComponentCheck) (do
 	row := q.QueryRow(ctx, upsertCheckSQL,
 		c.ID, c.RepositoryID, c.ComponentID, source, c.Workflow, c.WorkflowName, c.JobKey, c.JobName,
 		purposeJSON, c.Environment, triggersJSON, pathFiltersJSON, stepsJSON, localCommandsJSON, gateJSON,
-		c.Dispatchable, status, c.Missing)
+		c.Dispatchable, status, c.Missing, c.NeedsReview)
 	out, err := scanCheck(row)
 	if err != nil {
 		return domain.ComponentCheck{}, fmt.Errorf("upsert check: %w", err)
@@ -462,9 +464,9 @@ func (s *ProjectModelStore) EnsureResource(ctx context.Context, r domain.SystemR
 
 // --- ComponentLink ---
 
-const linkCols = `id, repository_id, from_component_id, to_component_id, to_resource_id, protocol, detail, env_vars, evidence, confidence, reason, hint, status, source, auto_confirmed, signal_key, missing, created_at, updated_at`
+const linkCols = `id, repository_id, from_component_id, to_component_id, to_resource_id, protocol, detail, env_vars, evidence, confidence, reason, hint, status, source, auto_confirmed, signal_key, target_host, target_port, missing, created_at, updated_at`
 
-const linkColsPrefixed = `cl.id, cl.repository_id, cl.from_component_id, cl.to_component_id, cl.to_resource_id, cl.protocol, cl.detail, cl.env_vars, cl.evidence, cl.confidence, cl.reason, cl.hint, cl.status, cl.source, cl.auto_confirmed, cl.signal_key, cl.missing, cl.created_at, cl.updated_at`
+const linkColsPrefixed = `cl.id, cl.repository_id, cl.from_component_id, cl.to_component_id, cl.to_resource_id, cl.protocol, cl.detail, cl.env_vars, cl.evidence, cl.confidence, cl.reason, cl.hint, cl.status, cl.source, cl.auto_confirmed, cl.signal_key, cl.target_host, cl.target_port, cl.missing, cl.created_at, cl.updated_at`
 
 func scanLink(row pgx.Row) (domain.ComponentLink, error) {
 	var l domain.ComponentLink
@@ -472,7 +474,7 @@ func scanLink(row pgx.Row) (domain.ComponentLink, error) {
 	if err := row.Scan(
 		&l.ID, &l.RepositoryID, &l.FromComponentID, &l.ToComponentID, &l.ToResourceID, &l.Protocol, &l.Detail,
 		&envVarsJSON, &evidenceJSON, &l.Confidence, &l.Reason, &l.Hint, &l.Status, &l.Source, &l.AutoConfirmed,
-		&l.SignalKey, &l.Missing, &l.CreatedAt, &l.UpdatedAt,
+		&l.SignalKey, &l.TargetHost, &l.TargetPort, &l.Missing, &l.CreatedAt, &l.UpdatedAt,
 	); err != nil {
 		return domain.ComponentLink{}, err
 	}
@@ -487,8 +489,8 @@ func scanLink(row pgx.Row) (domain.ComponentLink, error) {
 
 const upsertLinkSQL = `
 INSERT INTO component_links
-	(id, repository_id, from_component_id, to_component_id, to_resource_id, protocol, detail, env_vars, evidence, confidence, reason, hint, status, source, auto_confirmed, signal_key, missing)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+	(id, repository_id, from_component_id, to_component_id, to_resource_id, protocol, detail, env_vars, evidence, confidence, reason, hint, status, source, auto_confirmed, signal_key, target_host, target_port, missing)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 ON CONFLICT (id) DO UPDATE SET
 	repository_id = EXCLUDED.repository_id,
 	from_component_id = EXCLUDED.from_component_id,
@@ -505,6 +507,8 @@ ON CONFLICT (id) DO UPDATE SET
 	source = EXCLUDED.source,
 	auto_confirmed = EXCLUDED.auto_confirmed,
 	signal_key = EXCLUDED.signal_key,
+	target_host = EXCLUDED.target_host,
+	target_port = EXCLUDED.target_port,
 	missing = EXCLUDED.missing,
 	updated_at = now()
 RETURNING ` + linkCols
@@ -539,7 +543,8 @@ func upsertLink(ctx context.Context, q pmExecutor, l domain.ComponentLink) (doma
 	}
 	row := q.QueryRow(ctx, upsertLinkSQL,
 		l.ID, l.RepositoryID, l.FromComponentID, l.ToComponentID, l.ToResourceID, protocol, l.Detail,
-		envVarsJSON, evidenceJSON, confidence, l.Reason, l.Hint, status, source, l.AutoConfirmed, l.SignalKey, l.Missing)
+		envVarsJSON, evidenceJSON, confidence, l.Reason, l.Hint, status, source, l.AutoConfirmed, l.SignalKey,
+		l.TargetHost, l.TargetPort, l.Missing)
 	out, err := scanLink(row)
 	if err != nil {
 		return domain.ComponentLink{}, fmt.Errorf("upsert link: %w", err)

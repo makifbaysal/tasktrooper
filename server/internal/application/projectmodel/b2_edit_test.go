@@ -174,6 +174,34 @@ func TestB2UpdateComponentReplacesGatesDocsAndStatus(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidInput)
 }
 
+func TestB2UpdateComponentReviewedClearsNeedsReview(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	comp := b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive, NeedsReview: true})
+
+	name := "still needs a look"
+	got, err := svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{Name: domain.Patch[string]{Set: true, Value: &name}})
+	require.NoError(t, err)
+	assert.True(t, got.NeedsReview, "an unrelated patch must not clear the flag")
+
+	got, err = svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{Reviewed: ptr(true)})
+	require.NoError(t, err)
+	assert.False(t, got.NeedsReview, "reviewed:true must clear the flag")
+}
+
+func TestB2UpdateComponentDismissClearsNeedsReview(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	comp := b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive, NeedsReview: true})
+
+	dismissed := domain.ComponentStatusDismissed
+	got, err := svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{Status: &dismissed})
+	require.NoError(t, err)
+	assert.False(t, got.NeedsReview, "dismissing must also clear the flag")
+}
+
 func TestB2AddCheckValidatesManualCheckInput(t *testing.T) {
 	svc, store, repos, _, _, _ := newB2Service(t)
 	ctx := context.Background()
@@ -236,6 +264,33 @@ func TestB2DeleteCheckOnlyAllowsManualChecks(t *testing.T) {
 
 	_, err = store.GetCheck(ctx, manual.ID)
 	assert.Error(t, err, "a deleted check must be gone from the store")
+}
+
+func TestB2UpdateCheckReviewedAndDismissClearNeedsReview(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	comp := b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive})
+	check := b2SeedCheck(t, store, domain.ComponentCheck{
+		RepositoryID: repo.ID, ComponentID: comp.ID, Source: domain.CheckSourceCI, JobKey: "ci-1",
+		Status: domain.ModelStatusActive, NeedsReview: true,
+	})
+
+	got, err := svc.UpdateCheck(ctx, check.ID, domain.CheckPatch{Reviewed: ptr(true)})
+	require.NoError(t, err)
+	assert.False(t, got.NeedsReview, "reviewed:true must clear the flag")
+
+	reflagged, err := store.SaveCheck(ctx, domain.ComponentCheck{
+		ID: check.ID, RepositoryID: repo.ID, ComponentID: comp.ID, Source: domain.CheckSourceCI, JobKey: "ci-1",
+		Status: domain.ModelStatusActive, NeedsReview: true,
+	})
+	require.NoError(t, err)
+	require.True(t, reflagged.NeedsReview)
+
+	dismissed := domain.ModelStatusDismissed
+	got, err = svc.UpdateCheck(ctx, check.ID, domain.CheckPatch{Status: &dismissed})
+	require.NoError(t, err)
+	assert.False(t, got.NeedsReview, "dismissing must also clear the flag")
 }
 
 func b2SeedCheck(t *testing.T, store *b2Store, c domain.ComponentCheck) domain.ComponentCheck {

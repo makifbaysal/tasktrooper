@@ -137,6 +137,12 @@ func (s *Service) UpdateComponent(ctx context.Context, componentID uuid.UUID, pa
 			return domain.Component{}, fmt.Errorf("%w: invalid status %q", ErrInvalidInput, *patch.Status)
 		}
 		comp.Status = *patch.Status
+		if comp.Status == domain.ComponentStatusDismissed {
+			comp.NeedsReview = false
+		}
+	}
+	if patch.Reviewed != nil && *patch.Reviewed {
+		comp.NeedsReview = false
 	}
 
 	saved, err := s.store.SaveComponent(ctx, comp)
@@ -265,6 +271,12 @@ func (s *Service) UpdateCheck(ctx context.Context, checkID uuid.UUID, patch doma
 			return domain.ComponentCheck{}, fmt.Errorf("%w: invalid status %q", ErrInvalidInput, *patch.Status)
 		}
 		chk.Status = *patch.Status
+		if chk.Status == domain.ModelStatusDismissed {
+			chk.NeedsReview = false
+		}
+	}
+	if patch.Reviewed != nil && *patch.Reviewed {
+		chk.NeedsReview = false
 	}
 
 	saved, err := s.store.SaveCheck(ctx, chk)

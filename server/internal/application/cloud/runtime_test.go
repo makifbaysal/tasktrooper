@@ -62,7 +62,16 @@ func (s *RuntimeSuite) TestOverviewUnboundEnvironment() {
 	out, err := s.svc.Overview(s.ctx, unbound.ID)
 	s.Require().NoError(err)
 	s.Equal("not connected to a cloud account", out.Unavailable)
+	s.Equal("not_connected", out.UnavailableCode)
 	s.Nil(out.Detail)
+}
+
+func (s *RuntimeSuite) TestOverviewProviderErrorSetsUnavailableCode() {
+	s.provider.detailErr = context.DeadlineExceeded
+
+	out, err := s.svc.Overview(s.ctx, s.env.ID)
+	s.Require().NoError(err)
+	s.Equal("provider_error", out.UnavailableCode)
 }
 
 func (s *RuntimeSuite) TestOverviewReturnsDetailDeploymentsAndErrors() {
@@ -84,6 +93,7 @@ func (s *RuntimeSuite) TestOverviewProviderAuthErrorMarksAccountAndReportsUnavai
 	out, err := s.svc.Overview(s.ctx, s.env.ID)
 	s.Require().NoError(err)
 	s.Contains(out.Unavailable, "reconnecting")
+	s.Equal("cloud_auth", out.UnavailableCode)
 
 	acct, err := s.svc.GetAccount(s.ctx, s.acct.ID)
 	s.Require().NoError(err)

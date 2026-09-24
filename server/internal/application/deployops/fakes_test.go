@@ -581,20 +581,6 @@ func (f *fakeRepositoryStore) UpdateLifecycleGates(_ context.Context, id uuid.UU
 	return r, nil
 }
 
-func (f *fakeRepositoryStore) UpdateProfile(_ context.Context, id uuid.UUID, profileMD string) (domain.Repository, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	r, ok := f.rows[id]
-	if !ok {
-		return domain.Repository{}, fmt.Errorf("update repository profile: %w", port.ErrNotFound)
-	}
-	r.ProfileMD = profileMD
-	now := time.Now()
-	r.ProfileUpdatedAt = &now
-	f.rows[id] = r
-	return r, nil
-}
-
 func (f *fakeRepositoryStore) UpdateDocs(_ context.Context, id uuid.UUID, docs domain.RepositoryDocs) (domain.Repository, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

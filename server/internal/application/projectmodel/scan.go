@@ -127,7 +127,7 @@ func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan doma
 
 	emit(domain.ScanEvent{Stage: domain.ScanStageMatch, Done: false, At: s.now()})
 
-	summary, err := s.reconcileScan(ctx, repo, scan.ID, result)
+	summary, err := s.reconcileScan(ctx, repo, scan.ID, scan.Trigger, result)
 	if err != nil {
 		s.failScan(ctx, scan, err.Error())
 		s.clearInflight(repo.ID, scan.ID)
@@ -142,6 +142,10 @@ func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan doma
 		if err := s.deployMatcher.MatchScan(ctx, repo.ID, result); err != nil {
 			log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: deploy match failed")
 		}
+	}
+
+	if err := s.Relink(ctx); err != nil {
+		log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: relink failed")
 	}
 
 	scan.Events = append(scan.Events, domain.ScanEvent{

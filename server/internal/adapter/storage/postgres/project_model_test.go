@@ -123,6 +123,24 @@ func (s *ProjectModelStoreSuite) TestSaveComponentRoundTripsFactOverridesAndMobi
 	s.Equal(created.ID, list[0].ID)
 }
 
+func (s *ProjectModelStoreSuite) TestSaveComponentNeedsReviewRoundTrips() {
+	created, err := s.store.SaveComponent(s.ctx, domain.Component{
+		RepositoryID: s.repoA, Path: "apps/worker", NeedsReview: true,
+	})
+	s.Require().NoError(err)
+	s.True(created.NeedsReview)
+
+	got, err := s.store.GetComponent(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.True(got.NeedsReview)
+
+	cleared := got
+	cleared.NeedsReview = false
+	saved, err := s.store.SaveComponent(s.ctx, cleared)
+	s.Require().NoError(err)
+	s.False(saved.NeedsReview)
+}
+
 func (s *ProjectModelStoreSuite) TestSaveComponentMobileNilStaysNil() {
 	created, err := s.store.SaveComponent(s.ctx, domain.Component{RepositoryID: s.repoA, Path: "."})
 	s.Require().NoError(err)
@@ -180,6 +198,50 @@ func (s *ProjectModelStoreSuite) TestSaveCheckRoundTripsLocalCommandsAndGate() {
 	s.Require().NoError(err)
 	s.Require().Len(list, 1)
 	s.Equal(created.ID, list[0].ID)
+}
+
+func (s *ProjectModelStoreSuite) TestSaveCheckNeedsReviewRoundTrips() {
+	comp, err := s.store.SaveComponent(s.ctx, domain.Component{RepositoryID: s.repoA, Path: "."})
+	s.Require().NoError(err)
+
+	created, err := s.store.SaveCheck(s.ctx, domain.ComponentCheck{
+		RepositoryID: s.repoA,
+		ComponentID:  comp.ID,
+		Workflow:     "ci.yml",
+		JobKey:       "test",
+		Gate:         domain.Detected(domain.CheckGateRequired, domain.ConfidenceHigh),
+		NeedsReview:  true,
+	})
+	s.Require().NoError(err)
+	s.True(created.NeedsReview)
+
+	got, err := s.store.GetCheck(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.True(got.NeedsReview)
+}
+
+func (s *ProjectModelStoreSuite) TestSaveLinkTargetHostPortRoundTrips() {
+	comp, err := s.store.SaveComponent(s.ctx, domain.Component{RepositoryID: s.repoA, Path: "."})
+	s.Require().NoError(err)
+
+	created, err := s.store.SaveLink(s.ctx, domain.ComponentLink{
+		RepositoryID:    s.repoA,
+		FromComponentID: comp.ID,
+		Protocol:        domain.LinkHTTP,
+		Status:          domain.LinkSuggested,
+		Confidence:      domain.ConfidenceMedium,
+		Hint:            "billing-svc:8080",
+		TargetHost:      "billing-svc",
+		TargetPort:      8080,
+	})
+	s.Require().NoError(err)
+	s.Equal("billing-svc", created.TargetHost)
+	s.Equal(8080, created.TargetPort)
+
+	got, err := s.store.GetLink(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Equal("billing-svc", got.TargetHost)
+	s.Equal(8080, got.TargetPort)
 }
 
 func (s *ProjectModelStoreSuite) TestSaveLinkToResourceRoundTrips() {

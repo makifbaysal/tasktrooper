@@ -33,7 +33,7 @@ export function DeploymentStatusCell({ cell, repositoryId, onSelect }: Deploymen
 
   if (!cell.configured) {
     return (
-      <Link to={`/repositories/${repositoryId}/deploy`} className={CELL_CLASS}>
+      <Link to={`/repositories/${repositoryId}?tab=deploy`} className={CELL_CLASS}>
         <span className="text-xs text-primary underline underline-offset-2">
           {t("operations.deployments.unconfigured")}
         </span>

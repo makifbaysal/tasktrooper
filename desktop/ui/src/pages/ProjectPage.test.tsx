@@ -2,14 +2,15 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProjectDetail, ProjectsOverview, RepositoryModel } from "@/api";
+import type { ProjectDetail, ProjectMap, ProjectsOverview, RepositoryModel } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { ProjectPage } from "@/pages/ProjectPage";
 
-const { getProjectOverview, getProjectsOverview, getRepositoryModel, setRepositoryProjects } = vi.hoisted(() => ({
+const { getProjectOverview, getProjectsOverview, getRepositoryModel, getProjectMap, setRepositoryProjects } = vi.hoisted(() => ({
   getProjectOverview: vi.fn(),
   getProjectsOverview: vi.fn(),
   getRepositoryModel: vi.fn(),
+  getProjectMap: vi.fn(),
   setRepositoryProjects: vi.fn(),
 }));
 
@@ -22,6 +23,7 @@ vi.mock("@/api", async () => {
       getProjectOverview,
       getProjectsOverview,
       getRepositoryModel,
+      getProjectMap,
       setRepositoryProjects,
     },
   };
@@ -91,6 +93,7 @@ const repo1Model: RepositoryModel = {
       gates: {},
       status: "active",
       manually_added: false,
+      needs_review: false,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     },
@@ -106,6 +109,8 @@ const repo1Model: RepositoryModel = {
 };
 
 const emptyOverview: ProjectsOverview = { projects: [], unassigned: [] };
+
+const emptyMap: ProjectMap = { project: { id: "proj-1", name: "Acme Shop" }, nodes: [], edges: [] };
 
 function renderPage() {
   return render(
@@ -124,11 +129,22 @@ describe("ProjectPage", () => {
     getProjectOverview.mockReset().mockResolvedValue(project);
     getProjectsOverview.mockReset().mockResolvedValue(emptyOverview);
     getRepositoryModel.mockReset().mockResolvedValue(repo1Model);
+    getProjectMap.mockReset().mockResolvedValue(emptyMap);
     setRepositoryProjects.mockReset().mockResolvedValue({});
+  });
+
+  it("opens on the Architecture tab by default when the project has repositories", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("tab", { name: "Architecture", selected: true })).toBeInTheDocument();
+    await waitFor(() => expect(getProjectMap).toHaveBeenCalledWith("proj-1"));
   });
 
   it("renders one repositories-tab row per repository", async () => {
     renderPage();
+    await screen.findByRole("tab", { name: "Architecture" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Repositories" }));
 
     expect(await screen.findByText("acme-platform")).toBeInTheDocument();
     expect(screen.getByText("acme-mobile")).toBeInTheDocument();
@@ -139,7 +155,7 @@ describe("ProjectPage", () => {
 
   it("renders ReviewList for a repository with review_count > 0 on the Review tab", async () => {
     renderPage();
-    await screen.findByText("acme-platform");
+    await screen.findByRole("tab", { name: "Architecture" });
 
     fireEvent.click(screen.getByRole("tab", { name: /Review/ }));
 
@@ -149,7 +165,7 @@ describe("ProjectPage", () => {
 
   it("removing a repository from the project sends its remaining project ids", async () => {
     renderPage();
-    await screen.findByText("acme-platform");
+    await screen.findByRole("tab", { name: "Architecture" });
 
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
 

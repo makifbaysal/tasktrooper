@@ -1,4 +1,4 @@
-import { Box, Globe, Link2 } from "lucide-react";
+import { Box, Globe, Link2, ListChecks, PackagePlus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api, COMPONENT_ROLES } from "@/api";
@@ -33,6 +33,10 @@ export function ReviewList({ model, onChanged, compact = false, className }: Rev
             <RoleReview item={item} model={model} onChanged={onChanged} compact={compact} />
           ) : item.kind === "link" ? (
             <LinkReview item={item} model={model} onChanged={onChanged} compact={compact} />
+          ) : item.kind === "component" ? (
+            <ComponentReview item={item} model={model} onChanged={onChanged} compact={compact} />
+          ) : item.kind === "check" ? (
+            <CheckReview item={item} model={model} onChanged={onChanged} compact={compact} />
           ) : (
             <EnvironmentReview item={item} model={model} onChanged={onChanged} compact={compact} />
           )}
@@ -205,6 +209,86 @@ function EnvironmentReview({ item, model, onChanged, compact: _compact }: ItemPr
       </div>
 
       <EnvironmentCandidates env={env} onChanged={onChanged} className="pl-6" />
+    </div>
+  );
+}
+
+function ComponentReview({ item, model, onChanged, compact }: ItemProps) {
+  const { t } = useI18n();
+  const { busy, run } = useAction(onChanged);
+  const component = model.components.find((c) => c.id === item.entity_id);
+  if (!component) return null;
+  const role = factValue(component.role);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <PackagePlus className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-body font-medium">
+              {t("projectModel.review.componentQuestion", {
+                path: component.path,
+                role: role ? t(`projectModel.roles.${role}`) : "—",
+              })}
+            </span>
+            {!compact && <EvidenceList evidence={component.role.evidence ?? []} />}
+          </div>
+        </div>
+        <ConfidenceBadge confidence={item.confidence} />
+      </div>
+      <div className="flex flex-wrap gap-1.5 pl-6">
+        <Button size="sm" disabled={busy} onClick={() => run(() => api.updateComponent(component.id, { reviewed: true }))}>
+          {t("projectModel.review.keep")}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => run(() => api.updateComponent(component.id, { status: "dismissed" }))}
+        >
+          {t("projectModel.review.dismiss")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CheckReview({ item, model, onChanged }: ItemProps) {
+  const { t } = useI18n();
+  const { busy, run } = useAction(onChanged);
+  const check = model.checks.find((c) => c.id === item.entity_id);
+  const component = model.components.find((c) => c.id === item.component_id);
+  if (!check || !component) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+          <span className="text-body font-medium">
+            {t("projectModel.review.checkQuestion", {
+              workflow: check.workflow_name || check.workflow,
+              job: check.job_name || check.job_key,
+              component: componentLabel(component, model.repository.name),
+            })}
+          </span>
+        </div>
+        <ConfidenceBadge confidence={item.confidence} />
+      </div>
+      <div className="flex flex-wrap gap-1.5 pl-6">
+        <Button size="sm" disabled={busy} onClick={() => run(() => api.updateCheck(check.id, { reviewed: true }))}>
+          {t("projectModel.review.ok")}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => run(() => api.updateCheck(check.id, { gate: "info", reviewed: true }))}
+        >
+          {t("projectModel.review.makeInformative")}
+        </Button>
+      </div>
     </div>
   );
 }

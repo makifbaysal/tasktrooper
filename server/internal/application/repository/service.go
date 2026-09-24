@@ -772,46 +772,9 @@ func (s *Service) Create(ctx context.Context, req domain.CreateRepositoryRequest
 }
 
 func (s *Service) Update(ctx context.Context, id uuid.UUID, req domain.UpdateRepositoryRequest) (domain.Repository, error) {
-	if req.Kind != nil && !domain.ValidRepoKind(strings.TrimSpace(*req.Kind)) {
-		return domain.Repository{}, fmt.Errorf("invalid repository kind: %s", *req.Kind)
-	}
 	repo, err := s.repos.Update(ctx, id, req.Name, req.Description, req.VerifyCommand, req.BuildCommand, req.TestCommand, req.RequireHumanReview)
 	if err != nil {
 		return domain.Repository{}, err
-	}
-
-	if req.Kind != nil {
-		kind := strings.TrimSpace(*req.Kind)
-		var kinds *[]string
-		if req.SubProjects != nil {
-
-			seenKind := map[string]bool{}
-			deduped := make([]string, 0, len(*req.SubProjects))
-			for _, sp := range *req.SubProjects {
-				if !seenKind[sp.Kind] {
-					seenKind[sp.Kind] = true
-					deduped = append(deduped, sp.Kind)
-				}
-			}
-			kinds = &deduped
-		}
-		updated, err := s.repos.UpdateMeta(ctx, id, &kind, kinds, nil)
-		if err != nil {
-			return domain.Repository{}, err
-		}
-		repo = updated
-	}
-
-	if req.MobilePlatform != nil {
-		platform := strings.TrimSpace(*req.MobilePlatform)
-		if err := domain.ValidateMobilePlatform(platform, repo.Kind); err != nil {
-			return domain.Repository{}, err
-		}
-		updated, err := s.repos.UpdateMobilePlatform(ctx, id, platform)
-		if err != nil {
-			return domain.Repository{}, err
-		}
-		repo = updated
 	}
 
 	if req.ReleaseEngine != nil {

@@ -194,7 +194,7 @@ every read CLOSED rather than answering as if a type or stage were simply absent
   every named role's `required_tools`.
 - `GET /v1/role-purposes` / `PUT /v1/role-purposes/{purpose}` `{role_id|null}` — the
   `system_task_assignee` (who `CreateWorkflowSetupTask`/deploy/repodocs/prodops hand their
-  own system-opened tasks to) and `repo_profiler` (who a repository-profile refresh goes
+  own system-opened tasks to) and `repo_profiler` (who a repository notes pass goes
   to) hooks. `role_id: null` clears the hook; nothing resolves for it until set again.
 - `GET /v1/task-types` → `{task_types:[{key,label,key_prefix,position,is_default,
   is_defect,assignee_role_id,assignee_mode,behaviours:[{key,params}],built_in,
@@ -542,7 +542,7 @@ repository's own `local_run` doc (`scripts/dev.sh`).
   Three `X-GitHub-Event` values are handled; anything else (`ping`, `installation`, …) is
   acknowledged with `204` and ignored.
 
-  - `push` to the default branch debounces a reindex + project-profile refresh.
+  - `push` to the default branch debounces a reindex + a project-model rescan (trigger `push`).
   - `workflow_run`, `check_suite`: a **completed** run resolves the task pipelines waiting
     on its `head_sha` (`HandleGitHubWorkflowEvent` → `PipelineRunner.ResolveByHeadSHA`) —
     the `task_pipelines` row is written and the board acts on it: success/skipped hands
@@ -559,17 +559,24 @@ repository's own `local_run` doc (`scripts/dev.sh`).
   Existing hooks are also repaired at boot, without this call and without rotating any
   secret.
 
-## Project profile
+## Project model
 
-- `GET /v1/repositories/{id}/profile` — `{profile_md, profile_updated_at}`: the
-  agent-maintained markdown brief (purpose, stack, layout, commands, conventions).
-  `profile_md` is `""` and `profile_updated_at` `null` until the first analysis lands;
-  404 on an unknown repository.
-- `POST /v1/repositories/{id}/profile/refresh` — 202 `{status: "started" |
-  "already_running"}`. Kicks a background analysis (system-architect's model, read-only
-  code tools against `root_path`); per-repo in-flight dedup makes a second request a
-  no-op. Also rebuilt automatically on import and after a push-triggered reindex when
-  missing or older than 6h.
+Components, checks, links, resources, notes and scans — the full route list and
+payloads are in [projects.md](projects.md) and the domain JSON tags
+(`internal/domain/project_model*.go`, `project_map.go`):
+
+- `GET /v1/projects/overview`, `GET /v1/projects/{id}/overview`, `GET /v1/projects/map`,
+  `GET /v1/projects/{id}/map`
+- `GET /v1/repositories/{id}/model`, `GET /v1/repositories/{id}/brief`
+- `POST /v1/repositories/{id}/scans` (202; 409 while one runs),
+  `GET /v1/repositories/{id}/scans/latest`, `GET /v1/scans/{id}`
+- `POST /v1/repositories/{id}/components`, `PATCH /v1/components/{id}`,
+  `POST /v1/components/{id}/checks`, `PATCH|DELETE /v1/checks/{id}`,
+  `POST /v1/links`, `PATCH|DELETE /v1/links/{id}`,
+  `PUT /v1/repositories/{id}/notes`, `PATCH|DELETE /v1/notes/{id}`
+
+PATCH bodies distinguish an absent field (leave), `null` (revert to detected) and a
+value (set the override). Errors are flat `{"error": "…"}`.
 
 ## Embedding map (UMAP source data)
 

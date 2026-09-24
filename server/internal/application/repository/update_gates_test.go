@@ -15,58 +15,6 @@ func newUpdateTestService(repo domain.Repository) (*Service, *fakeReleaseRepoSto
 	return &Service{repos: repos}, repos
 }
 
-func TestUpdateSetsTheMobilePlatformOnAMobileRepo(t *testing.T) {
-	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindMobile})
-	platform := domain.MobilePlatformAndroid
-
-	repo, err := svc.Update(context.Background(), repos.repo.ID, domain.UpdateRepositoryRequest{MobilePlatform: &platform})
-	require.NoError(t, err)
-	require.Equal(t, domain.MobilePlatformAndroid, repo.MobilePlatform)
-	require.Equal(t, []string{domain.MobilePlatformAndroid}, repos.mobilePlatformWrites)
-}
-
-func TestUpdateAcceptsAPlatformAlongsideTheKindThatJustifiesIt(t *testing.T) {
-	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindBackend})
-	kind := domain.RepoKindMobile
-	platform := domain.MobilePlatformIOS
-
-	repo, err := svc.Update(context.Background(), repos.repo.ID, domain.UpdateRepositoryRequest{
-		Kind: &kind, MobilePlatform: &platform,
-	})
-	require.NoError(t, err)
-	require.Equal(t, domain.MobilePlatformIOS, repo.MobilePlatform)
-}
-
-func TestUpdateRejectsAPlatformOnANonMobileRepo(t *testing.T) {
-	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindBackend})
-	platform := domain.MobilePlatformIOS
-
-	_, err := svc.Update(context.Background(), repos.repo.ID, domain.UpdateRepositoryRequest{MobilePlatform: &platform})
-	require.ErrorContains(t, err, "only meaningful on a mobile project")
-	require.Empty(t, repos.mobilePlatformWrites)
-}
-
-func TestUpdateRejectsAnUnknownPlatform(t *testing.T) {
-	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindMobile})
-	platform := "symbian"
-
-	_, err := svc.Update(context.Background(), repos.repo.ID, domain.UpdateRepositoryRequest{MobilePlatform: &platform})
-	require.ErrorContains(t, err, "invalid mobile platform")
-	require.Empty(t, repos.mobilePlatformWrites)
-}
-
-func TestUpdateClearsThePlatformOnAnyKind(t *testing.T) {
-	svc, repos := newUpdateTestService(domain.Repository{
-		ID: uuid.New(), Kind: domain.RepoKindBackend, MobilePlatform: domain.MobilePlatformIOS,
-	})
-	empty := ""
-
-	repo, err := svc.Update(context.Background(), repos.repo.ID, domain.UpdateRepositoryRequest{MobilePlatform: &empty})
-	require.NoError(t, err)
-	require.Empty(t, repo.MobilePlatform)
-	require.Equal(t, []string{""}, repos.mobilePlatformWrites)
-}
-
 func TestUpdateSetsTheMutationGate(t *testing.T) {
 	svc, repos := newUpdateTestService(domain.Repository{ID: uuid.New(), Kind: domain.RepoKindBackend})
 	on := true

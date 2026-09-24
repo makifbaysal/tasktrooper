@@ -49,7 +49,6 @@ type RepositoryStore interface {
 	// is deliberately not here: it is the bar every change is held to, not a
 	// per-repository choice.
 	UpdateLifecycleGates(ctx context.Context, id uuid.UUID, requireReviewChain, requireReleaseDeploy, requirePipelineForReview, requireOverallCoverage *bool, coverageThreshold *float64) (domain.Repository, error)
-	UpdateProfile(ctx context.Context, id uuid.UUID, profileMD string) (domain.Repository, error)
 	// The secret must never appear in any API response.
 	SetWebhook(ctx context.Context, id uuid.UUID, secret string, hookID int64) error
 	WebhookSecret(ctx context.Context, id uuid.UUID) (string, error)

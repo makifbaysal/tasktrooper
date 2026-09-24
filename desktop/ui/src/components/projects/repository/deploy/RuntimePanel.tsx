@@ -23,13 +23,6 @@ const RESOURCE_STATUS_VARIANT: Record<CloudResourceStatus, NonNullable<BadgeProp
   unknown: "secondary",
 };
 
-// The overview endpoint reports `unavailable` in-band (200, not a thrown
-// error), so isCloudAuthError doesn't apply here — this is the closest
-// signal without the server adding a machine-readable reason to the field.
-function looksLikeAuthIssue(message: string): boolean {
-  return /auth|credential|token|unauthorized|forbidden|expired|401|403/i.test(message);
-}
-
 type RuntimeTab = "errors" | "logs" | "deployments";
 
 interface RuntimePanelProps {
@@ -48,6 +41,7 @@ export function RuntimePanel({ env, accounts, onAccountsChanged, className }: Ru
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<RuntimeTab>("errors");
   const [reconnectOpen, setReconnectOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,7 +67,9 @@ export function RuntimePanel({ env, accounts, onAccountsChanged, className }: Ru
   const detail = overview?.detail;
   const latestDeployment = detail?.latest_deployment ?? overview?.deployments[0];
   const unavailable = overview?.unavailable;
-  const showReconnect = Boolean(unavailable && account && looksLikeAuthIssue(unavailable));
+  // The UI acts on the server's own reason code, not the message text.
+  const showReconnect = overview?.unavailable_code === "cloud_auth" && Boolean(account);
+  const showConnect = overview?.unavailable_code === "not_connected" && Boolean(env.provider);
 
   return (
     <Card className={className}>
@@ -86,6 +82,11 @@ export function RuntimePanel({ env, accounts, onAccountsChanged, className }: Ru
             {showReconnect && (
               <Button size="sm" className="mt-2" onClick={() => setReconnectOpen(true)}>
                 {t("repositoryPage.deploy.runtime.reconnect")}
+              </Button>
+            )}
+            {showConnect && (
+              <Button size="sm" className="mt-2" onClick={() => setConnectOpen(true)}>
+                {t("repositoryPage.deploy.runtime.connect")}
               </Button>
             )}
           </Notice>
@@ -144,6 +145,17 @@ export function RuntimePanel({ env, accounts, onAccountsChanged, className }: Ru
           account={account}
           onSaved={() => {
             setReconnectOpen(false);
+            onAccountsChanged();
+          }}
+        />
+      )}
+      {env.provider && (
+        <CloudAccountDialog
+          open={connectOpen}
+          onOpenChange={setConnectOpen}
+          provider={env.provider}
+          onSaved={() => {
+            setConnectOpen(false);
             onAccountsChanged();
           }}
         />

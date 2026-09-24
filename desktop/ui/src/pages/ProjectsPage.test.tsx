@@ -2,13 +2,14 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { InitiativeProject, ProjectsOverview } from "@/api";
+import type { InitiativeProject, ProjectsOverview, WorkspaceMap } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 
-const { getProjectsOverview, createInitiativeProject } = vi.hoisted(() => ({
+const { getProjectsOverview, createInitiativeProject, getWorkspaceMap } = vi.hoisted(() => ({
   getProjectsOverview: vi.fn(),
   createInitiativeProject: vi.fn(),
+  getWorkspaceMap: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -19,6 +20,7 @@ vi.mock("@/api", async () => {
       ...actual.api,
       getProjectsOverview,
       createInitiativeProject,
+      getWorkspaceMap,
     },
   };
 });
@@ -122,6 +124,7 @@ describe("ProjectsPage", () => {
   beforeEach(() => {
     getProjectsOverview.mockReset().mockResolvedValue(overview);
     createInitiativeProject.mockReset();
+    getWorkspaceMap.mockReset().mockResolvedValue({ projects: [], unassigned: [], edges: [], shared_resources: [] } satisfies WorkspaceMap);
   });
 
   it("renders a card per project and the unassigned repositories from the fixture", async () => {
@@ -182,5 +185,16 @@ describe("ProjectsPage", () => {
       expect(createInitiativeProject).toHaveBeenCalledWith({ name: "New One", description: "" }),
     );
     expect(await screen.findByText("Add repository flow")).toBeInTheDocument();
+  });
+
+  it("switching to the Map view fetches and renders the workspace map, not the cards", async () => {
+    renderPage();
+    await screen.findByText("Acme Shop");
+    expect(getWorkspaceMap).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Map" }));
+
+    await waitFor(() => expect(getWorkspaceMap).toHaveBeenCalled());
+    expect(screen.queryByText("acme-platform")).not.toBeInTheDocument();
   });
 });

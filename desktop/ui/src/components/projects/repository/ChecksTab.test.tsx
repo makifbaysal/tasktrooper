@@ -34,6 +34,7 @@ const component: Component = {
   gates: {},
   status: "active",
   manually_added: false,
+  needs_review: false,
   created_at: "2024-01-01T00:00:00Z",
   updated_at: "2024-01-01T00:00:00Z",
 };
@@ -52,6 +53,7 @@ const requiredCheck: ComponentCheck = {
   dispatchable: false,
   status: "active",
   missing: false,
+  needs_review: false,
   created_at: "2024-01-01T00:00:00Z",
   updated_at: "2024-01-01T00:00:00Z",
 };

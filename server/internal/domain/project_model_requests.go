@@ -49,6 +49,8 @@ type ComponentPatch struct {
 	Gates    *ComponentGates                  `json:"gates,omitempty"`
 	Docs     *RepositoryDocs                  `json:"docs,omitempty"`
 	Status   *ComponentStatus                 `json:"status,omitempty"`
+	// Reviewed true acknowledges a component a later scan added.
+	Reviewed *bool `json:"reviewed,omitempty"`
 }
 
 type NewComponentRequest struct {
@@ -62,6 +64,7 @@ type CheckPatch struct {
 	Gate          Patch[CheckGate]      `json:"gate"`
 	LocalCommands Patch[[]LocalCommand] `json:"local_commands"`
 	Status        *ModelStatus          `json:"status,omitempty"`
+	Reviewed      *bool                 `json:"reviewed,omitempty"`
 }
 
 type NewCheckRequest struct {

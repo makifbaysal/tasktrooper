@@ -2402,6 +2402,9 @@ export interface Component {
   gates: ComponentGates;
   status: ComponentStatus;
   manually_added: boolean;
+  // A later scan (a push, not the first import) found this on its own; the
+  // human keeps (reviewed: true) or dismisses it (status: "dismissed").
+  needs_review: boolean;
   last_scan_id?: string;
   created_at: string;
   updated_at: string;
@@ -2474,6 +2477,10 @@ export interface ComponentCheck {
   dispatchable: boolean;
   status: ModelStatus;
   missing: boolean;
+  // A later scan added this REQUIRED check, which changes what every agent
+  // must pass before hand-off; the human acknowledges (reviewed: true) or
+  // makes it informative (gate: "info", reviewed: true).
+  needs_review: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -2560,6 +2567,11 @@ export interface ComponentLink {
   source: LinkSource;
   auto_confirmed: boolean;
   signal_key?: string;
+  // What an unresolved URL pointed at. When an environment is bound whose URL
+  // host/domain equals it, the link is re-matched to that component
+  // automatically (auto_confirmed).
+  target_host?: string;
+  target_port?: number;
   missing: boolean;
   created_at: string;
   updated_at: string;
@@ -2649,7 +2661,7 @@ export type RepoShape = "single" | "monorepo";
 
 export type ProjectType = "empty" | "single_repo" | "monorepo" | "multi_repo";
 
-export type ReviewKind = "role" | "link" | "environment";
+export type ReviewKind = "role" | "link" | "environment" | "component" | "check";
 
 /** Points at one medium-confidence value waiting for the human; the UI
  * renders it from the entity in the same payload. */
@@ -2776,6 +2788,8 @@ export interface ComponentPatch {
   gates?: ComponentGates | null;
   docs?: RepositoryDocs | null;
   status?: ComponentStatus;
+  /** true acknowledges a component a later scan added (clears needs_review). */
+  reviewed?: boolean;
 }
 
 export interface NewComponentRequest {
@@ -2789,6 +2803,8 @@ export interface CheckPatch {
   gate?: CheckGate | null;
   local_commands?: LocalCommand[] | null;
   status?: ModelStatus;
+  /** true acknowledges a REQUIRED check a later scan added (clears needs_review). */
+  reviewed?: boolean;
 }
 
 /** component_id is redundant with the /v1/components/:componentId/checks URL;
@@ -3032,12 +3048,17 @@ export interface EnvironmentPatch {
 
 /** GET …/environments/:envId/overview — the live picture the Deploy &
  * Runtime tab opens on. */
+export type EnvironmentUnavailableCode = "not_connected" | "cloud_auth" | "provider_error";
+
 export interface EnvironmentRuntime {
   environment: ComponentEnvironment;
   detail?: CloudResourceDetail;
   deployments: CloudDeployment[];
   errors: RuntimeErrorGroup[];
   unavailable?: string;
+  /** Why `unavailable` is set, so the UI can act on it instead of pattern
+   * matching the message text. */
+  unavailable_code?: EnvironmentUnavailableCode;
 }
 
 /** Refreshed by a background sweep so list views never call a provider on
@@ -3061,6 +3082,103 @@ export interface EnvironmentSummary {
   status: LinkStatus;
   health?: CloudResourceStatus;
   error_count_24h: number;
+}
+
+// ---------------------------------------------------------------------------
+// Maps & review (Phase 3): the project architecture map and the all-projects
+// workspace map. Mirrors server/internal/domain/project_map.go's JSON tags
+// exactly. `GET /v1/projects/map` is registered before `/v1/projects/:id`.
+// ---------------------------------------------------------------------------
+
+/** The column a node sits in: callers on the left, what they call to the
+ * right. "library" is shown only when the map's library toggle is on. */
+export type MapTier = "client" | "service" | "library" | "data" | "external";
+
+export type MapNodeKind = "component" | "resource";
+
+/** A component or a resource on one project's architecture map. `foreign`
+ * marks a component of another project, drawn only because one of this
+ * project's edges reaches it. */
+export interface MapNode {
+  id: string;
+  kind: MapNodeKind;
+  tier: MapTier;
+  label: string;
+  role?: ComponentRole;
+  resource_kind?: ResourceKind;
+  vendor?: string;
+  component_id?: string;
+  resource_id?: string;
+  repository_id?: string;
+  repository_name?: string;
+  path?: string;
+  project_ids?: string[];
+  foreign: boolean;
+  stack_summary?: string;
+  provider?: CloudProviderKind;
+  health?: CloudResourceStatus;
+  error_count_24h?: number;
+  /** The other projects linking the same resource. */
+  shared_with?: ProjectRef[];
+}
+
+export interface MapEdge {
+  id: string;
+  link_id: string;
+  from: string;
+  to: string;
+  protocol: LinkProtocol;
+  detail?: string;
+  status: LinkStatus;
+  source: LinkSource;
+  env_vars?: string[];
+  /** Set when the edge leaves the project the map is for. */
+  cross_project: boolean;
+}
+
+/** GET /v1/projects/:projectId/map. */
+export interface ProjectMap {
+  project: ProjectRef;
+  nodes: MapNode[];
+  edges: MapEdge[];
+}
+
+export interface WorkspaceMapRepository {
+  id: string;
+  name: string;
+  shape: RepoShape;
+  components: ComponentSummary[];
+}
+
+export interface WorkspaceMapProject {
+  id: string;
+  name: string;
+  type: ProjectType;
+  repositories: WorkspaceMapRepository[];
+}
+
+/** Aggregates every link between two projects; independent projects simply
+ * have none. */
+export interface WorkspaceMapEdge {
+  from_project_id: string;
+  to_project_id: string;
+  links: number;
+  suggested: number;
+  protocols: LinkProtocol[];
+  examples: string[];
+}
+
+export interface WorkspaceSharedResource {
+  resource: ResourceRefView;
+  project_ids: string[];
+}
+
+/** GET /v1/projects/map. */
+export interface WorkspaceMap {
+  projects: WorkspaceMapProject[];
+  unassigned: WorkspaceMapRepository[];
+  edges: WorkspaceMapEdge[];
+  shared_resources: WorkspaceSharedResource[];
 }
 
 export const api = {
@@ -4420,6 +4538,12 @@ export const api = {
   getProjectsOverview: () => request<ProjectsOverview>("/v1/projects/overview"),
 
   getProjectOverview: (projectId: string) => request<ProjectDetail>(`/v1/projects/${projectId}/overview`),
+
+  // Registered server-side before /v1/projects/:projectId, so "map" is never
+  // read back as a project id.
+  getWorkspaceMap: () => request<WorkspaceMap>("/v1/projects/map"),
+
+  getProjectMap: (projectId: string) => request<ProjectMap>(`/v1/projects/${projectId}/map`),
 
   getRepositoryModel: (repositoryId: string) => request<RepositoryModel>(`/v1/repositories/${repositoryId}/model`),
 

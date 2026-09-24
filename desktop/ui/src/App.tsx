@@ -11,7 +11,6 @@ import { AgentColumnsPage } from "@/pages/AgentColumnsPage";
 import { AddRepositoryPage } from "@/pages/AddRepositoryPage";
 import { ProjectPage } from "@/pages/ProjectPage";
 import { RepositoryPage } from "@/pages/RepositoryPage";
-import { DeploySettingsPage } from "@/pages/DeploySettingsPage";
 import { IncidentsPage } from "@/pages/IncidentsPage";
 import { DeploymentsPage } from "@/pages/DeploymentsPage";
 import { MobileAppsPage } from "@/pages/MobileAppsPage";
@@ -84,7 +83,9 @@ export default function App() {
                 {/* The repository page absorbed Settings as a ?tab= section;
                     this keeps the old settings URL landing somewhere real. */}
                 <Route path="repositories/:repositoryId/settings" element={<RepositorySettingsRedirect />} />
-                <Route path="repositories/:repositoryId/deploy" element={<DeploySettingsPage />} />
+                {/* The Deploy & Runtime tab absorbed this standalone page; the
+                    operations matrix's "not configured" link still points here. */}
+                <Route path="repositories/:repositoryId/deploy" element={<RepositoryDeployRedirect />} />
                 <Route path="operations" element={<OperationsLayout />}>
                   <Route index element={<Navigate to="deployments" replace />} />
                   <Route path="deployments" element={<DeploymentsPage />} />
@@ -146,6 +147,13 @@ export default function App() {
 function RepositorySettingsRedirect() {
   const { repositoryId } = useParams();
   return <Navigate to={`/repositories/${repositoryId}?tab=settings`} replace />;
+}
+
+// /repositories/:id/deploy used to render its own page (DeploySettingsPage);
+// Deploy & Runtime is now a tab on the repository page itself.
+function RepositoryDeployRedirect() {
+  const { repositoryId } = useParams();
+  return <Navigate to={`/repositories/${repositoryId}?tab=deploy`} replace />;
 }
 
 // Old /teams/:teamId/... URLs map onto the single-workspace equivalents.

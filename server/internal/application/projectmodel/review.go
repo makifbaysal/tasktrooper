@@ -6,25 +6,46 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// reviewItems is every medium-confidence value a human hasn't yet looked at:
-// a component whose effective role came from a medium-confidence detection
-// with no override, a link still waiting to be confirmed, and an environment
-// binding MatchScan could not resolve on its own.
-func reviewItems(components []domain.Component, links []domain.ComponentLink, environments []domain.ComponentEnvironment) []domain.ReviewItem {
-	items := make([]domain.ReviewItem, 0, len(components)+len(links)+len(environments))
+// reviewItems is every value a human hasn't yet looked at: a component whose
+// effective role came from a medium-confidence detection with no override, a
+// component or a required check a later scan added on its own (NeedsReview),
+// a link still waiting to be confirmed, and an environment binding MatchScan
+// could not resolve on its own.
+func reviewItems(components []domain.Component, checks []domain.ComponentCheck, links []domain.ComponentLink, environments []domain.ComponentEnvironment) []domain.ReviewItem {
+	items := make([]domain.ReviewItem, 0, len(components)+len(checks)+len(links)+len(environments))
 	for _, c := range components {
 		if c.Status != domain.ComponentStatusActive {
 			continue
 		}
-		if c.Role.Overridden() || c.Role.Confidence != domain.ConfidenceMedium {
+		if !c.Role.Overridden() && c.Role.Confidence == domain.ConfidenceMedium {
+			items = append(items, domain.ReviewItem{
+				Kind:         domain.ReviewRole,
+				EntityID:     c.ID,
+				RepositoryID: c.RepositoryID,
+				ComponentID:  c.ID,
+				Confidence:   c.Role.Confidence,
+			})
+		}
+		if c.NeedsReview {
+			items = append(items, domain.ReviewItem{
+				Kind:         domain.ReviewComponent,
+				EntityID:     c.ID,
+				RepositoryID: c.RepositoryID,
+				ComponentID:  c.ID,
+				Confidence:   domain.ConfidenceMedium,
+			})
+		}
+	}
+	for _, ch := range checks {
+		if ch.Status != domain.ModelStatusActive || ch.Missing || !ch.NeedsReview {
 			continue
 		}
 		items = append(items, domain.ReviewItem{
-			Kind:         domain.ReviewRole,
-			EntityID:     c.ID,
-			RepositoryID: c.RepositoryID,
-			ComponentID:  c.ID,
-			Confidence:   c.Role.Confidence,
+			Kind:         domain.ReviewCheck,
+			EntityID:     ch.ID,
+			RepositoryID: ch.RepositoryID,
+			ComponentID:  ch.ComponentID,
+			Confidence:   domain.ConfidenceMedium,
 		})
 	}
 	for _, l := range links {

@@ -181,9 +181,6 @@ func (f *fakeReleaseRepoStore) UpdateTestStrategy(context.Context, uuid.UUID, st
 func (f *fakeReleaseRepoStore) UpdateLifecycleGates(context.Context, uuid.UUID, *bool, *bool, *bool, *bool, *float64) (domain.Repository, error) {
 	return domain.Repository{}, nil
 }
-func (f *fakeReleaseRepoStore) UpdateProfile(context.Context, uuid.UUID, string) (domain.Repository, error) {
-	return domain.Repository{}, nil
-}
 func (f *fakeReleaseRepoStore) UpdateDocs(context.Context, uuid.UUID, domain.RepositoryDocs) (domain.Repository, error) {
 	return domain.Repository{}, nil
 }

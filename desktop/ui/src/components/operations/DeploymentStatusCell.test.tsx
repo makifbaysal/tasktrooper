@@ -5,6 +5,18 @@ import { type DeploymentRun, type MatrixCell } from "@/api";
 import { DeploymentStatusCell } from "@/components/operations/DeploymentStatusCell";
 import { I18nProvider } from "@/hooks/useI18n";
 
+function unconfiguredCell(): MatrixCell {
+  return {
+    env: "prod",
+    configured: false,
+    dispatchable: false,
+    provider: "vercel",
+    health_url: "",
+    auto_rollback: false,
+    rollback_sha: "",
+  };
+}
+
 function cellWithRun(run: Partial<DeploymentRun>): MatrixCell {
   return {
     env: "prod",
@@ -67,5 +79,18 @@ describe("DeploymentStatusCell status colors", () => {
   it("uses the warning badge variant for a completed-but-cancelled run", () => {
     renderCell({ status: "completed", conclusion: "cancelled" });
     expect(screen.getByText("Cancelled").className).toContain("text-warning");
+  });
+});
+
+describe("DeploymentStatusCell unconfigured link", () => {
+  it("links to the repository page's deploy tab, not the standalone deploy page", () => {
+    render(
+      <I18nProvider>
+        <MemoryRouter>
+          <DeploymentStatusCell cell={unconfiguredCell()} repositoryId="repo-1" onSelect={() => {}} />
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/repositories/repo-1?tab=deploy");
   });
 });

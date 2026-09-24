@@ -102,6 +102,7 @@ func (s *Service) BindEnvironment(ctx context.Context, componentID uuid.UUID, en
 	if err := s.project(ctx, comp.RepositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", comp.RepositoryID.String()).Msg("cloud: projecting after bind failed")
 	}
+	s.triggerRelink()
 	return saved, nil
 }
 
@@ -155,6 +156,9 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 	}
 	if err := s.project(ctx, saved.RepositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", saved.RepositoryID.String()).Msg("cloud: projecting after patch failed")
+	}
+	if saved.Status == domain.LinkConfirmed {
+		s.triggerRelink()
 	}
 	return saved, nil
 }

@@ -79,6 +79,9 @@ func (s *Service) Brief(ctx context.Context, repoID uuid.UUID, scope BriefScope)
 	}
 
 	header := s.briefHeader(repo, active, inScope)
+	if gitBlock := s.briefGitBlock(ctx, repo.ID); gitBlock != "" {
+		header += "\n## Git\n" + gitBlock
+	}
 	if repoNotes := briefNotesFor(notes, nil); repoNotes != "" {
 		header += "\n## Notes\n" + repoNotes
 	}
@@ -170,6 +173,70 @@ func (s *Service) briefHeader(repo domain.Repository, active, inScope []domain.C
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// briefGitBlock reads the latest succeeded scan's git conventions straight
+// off the stored ScanResult — nothing here is re-derived or persisted
+// separately, so it goes stale exactly when the scan does.
+func (s *Service) briefGitBlock(ctx context.Context, repoID uuid.UUID) string {
+	latest, err := s.store.LatestScan(ctx, repoID)
+	if err != nil || latest.Status != domain.ScanSucceeded {
+		return ""
+	}
+	scan, err := s.store.GetScan(ctx, latest.ID)
+	if err != nil || scan.Result == nil {
+		return ""
+	}
+	return renderGitFacts(scan.Result.Git)
+}
+
+func renderGitFacts(g domain.ScanGit) string {
+	var b strings.Builder
+	if g.DefaultBranch != "" {
+		fmt.Fprintf(&b, "- Default branch: %s\n", g.DefaultBranch)
+	}
+	if line := branchNamingLine(g); line != "" {
+		b.WriteString(line)
+	}
+	if g.MergeStyle != "" {
+		fmt.Fprintf(&b, "- Merge style: %s\n", g.MergeStyle)
+	}
+	if g.DirectToMain && g.DefaultBranch != "" {
+		fmt.Fprintf(&b, "- History lands directly on %s\n", g.DefaultBranch)
+	}
+	if g.CommitStyle != "" {
+		fmt.Fprintf(&b, "- Commit style: %s\n", g.CommitStyle)
+	}
+	if len(g.Hotspots) > 0 {
+		top := g.Hotspots
+		if len(top) > 5 {
+			top = top[:5]
+		}
+		parts := make([]string, 0, len(top))
+		for _, h := range top {
+			parts = append(parts, fmt.Sprintf("%s (%d)", h.Path, h.Commits))
+		}
+		fmt.Fprintf(&b, "- Hotspots: %s\n", strings.Join(parts, ", "))
+	}
+	return b.String()
+}
+
+// branchNamingLine turns discovery's "<prefix>/* prefix — N of M recent
+// branches" sentence into a template line an agent can act on directly
+// instead of parsing prose.
+func branchNamingLine(g domain.ScanGit) string {
+	if g.BranchPattern == "" {
+		return ""
+	}
+	prefix := g.BranchPattern
+	if i := strings.Index(prefix, " — "); i >= 0 {
+		prefix = prefix[:i]
+	}
+	label := prefix
+	if trimmed, ok := strings.CutSuffix(prefix, "/* prefix"); ok {
+		label = trimmed + "/<slug>"
+	}
+	return fmt.Sprintf("- Branch naming: %s (from %d recent branches)\n", label, len(g.BranchSamples))
 }
 
 func (s *Service) briefComponentBlock(ctx context.Context, repo domain.Repository, c domain.Component, checks []domain.ComponentCheck, links, incoming []domain.ComponentLink, notes []domain.ProjectNote, environments []domain.ComponentEnvironment) string {

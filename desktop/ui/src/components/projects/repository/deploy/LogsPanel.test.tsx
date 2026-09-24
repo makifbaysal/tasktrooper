@@ -5,7 +5,7 @@ import { LogsPanel } from "@/components/projects/repository/deploy/LogsPanel";
 import { I18nProvider } from "@/hooks/useI18n";
 
 // jsdom has no layout engine, so Radix Select's scroll-into-view-on-open
-// crashes without this — same stub DeploySettingsSection.test.tsx uses.
+// crashes without this — same stub ChecksTab.test.tsx and friends use.
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }

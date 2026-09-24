@@ -81,6 +81,40 @@ func TestPlanReconcileComponentOverridesSurviveRescan(t *testing.T) {
 	assert.Equal(t, in.scanID, *updated.LastScanID)
 }
 
+func TestPlanReconcileNewComponentFlaggedForReviewOnLaterScan(t *testing.T) {
+	repositoryID := uuid.New()
+	existing := componentFixture(repositoryID, "api", domain.ComponentRoleBackend)
+
+	in := basePlanInput(repositoryID)
+	in.existingComponents = []domain.Component{existing}
+	in.flagNewRows = true
+	in.result = domain.ScanResult{Components: []domain.DetectedComponent{
+		{Path: "api", Name: "api", Role: domain.ComponentRoleBackend},
+		{Path: "worker", Name: "worker", Role: domain.ComponentRoleWorker},
+	}}
+
+	out := planReconcile(in)
+	merged, ok := findComponent(out.saveComponents, "api")
+	require.True(t, ok)
+	assert.False(t, merged.NeedsReview, "a component the repository already had must never be flagged")
+
+	created, ok := findComponent(out.saveComponents, "worker")
+	require.True(t, ok)
+	assert.True(t, created.NeedsReview, "a component a later scan adds on its own must be flagged")
+}
+
+func TestPlanReconcileNewComponentNotFlaggedWhenFlagNewRowsIsFalse(t *testing.T) {
+	repositoryID := uuid.New()
+
+	in := basePlanInput(repositoryID)
+	in.flagNewRows = false
+	in.result = domain.ScanResult{Components: []domain.DetectedComponent{{Path: "api", Name: "api", Role: domain.ComponentRoleBackend}}}
+
+	out := planReconcile(in)
+	require.Len(t, out.saveComponents, 1)
+	assert.False(t, out.saveComponents[0].NeedsReview, "an import/migrate scan or a repository's first scan must never flag")
+}
+
 func TestPlanReconcileDismissedComponentSurvivesUndetected(t *testing.T) {
 	repositoryID := uuid.New()
 	existing := domain.Component{
@@ -263,6 +297,32 @@ func TestPlanReconcileChecks(t *testing.T) {
 		assert.Equal(t, domain.CheckGateRequired, created.Gate.Get())
 		assert.Equal(t, domain.CheckSourceCI, created.Source)
 	})
+
+	t.Run("new required check flagged for review on a later scan, info check is not", func(t *testing.T) {
+		in := basePlanInput(repositoryID)
+		in.existingComponents = []domain.Component{comp}
+		in.flagNewRows = true
+		in.result = domain.ScanResult{
+			Components: []domain.DetectedComponent{{Path: "api", Name: "api", Role: domain.ComponentRoleBackend}},
+			Checks: []domain.DetectedCheck{
+				{ComponentPath: "api", Workflow: "ci.yml", JobKey: "test", Purpose: domain.CheckTest, LocalCommands: []domain.LocalCommand{{Argv: []string{"go", "test", "./..."}}}},
+				{ComponentPath: "api", Workflow: "ci.yml", JobKey: "security", Purpose: domain.CheckSecurity},
+			},
+		}
+
+		out := planReconcile(in)
+		byJobKey := map[string]domain.ComponentCheck{}
+		for _, c := range out.saveChecks {
+			byJobKey[c.JobKey] = c
+		}
+		require.Contains(t, byJobKey, "test")
+		assert.Equal(t, domain.CheckGateRequired, byJobKey["test"].Gate.Get())
+		assert.True(t, byJobKey["test"].NeedsReview, "a new required check must be flagged")
+
+		require.Contains(t, byJobKey, "security")
+		assert.Equal(t, domain.CheckGateInfo, byJobKey["security"].Gate.Get())
+		assert.False(t, byJobKey["security"].NeedsReview, "a new info-gate check must not be flagged")
+	})
 }
 
 func linkFixture(repositoryID, fromComponentID uuid.UUID, signalKey string, status domain.LinkStatus, source domain.LinkSource) domain.ComponentLink {
@@ -438,6 +498,33 @@ func TestPlanReconcileUnresolvedLinkMatchedByName(t *testing.T) {
 	assert.False(t, link.AutoConfirmed)
 	require.NotNil(t, link.ToComponentID)
 	assert.Equal(t, target.ID, *link.ToComponentID)
+}
+
+func TestPlanReconcileUnresolvedLinkKeepsTargetHostAndPort(t *testing.T) {
+	repositoryID := uuid.New()
+	source := componentFixture(repositoryID, "api", domain.ComponentRoleBackend)
+
+	in := basePlanInput(repositoryID)
+	in.existingComponents = []domain.Component{source}
+	in.result = domain.ScanResult{
+		Components: []domain.DetectedComponent{{Path: "api", Name: "api", Role: domain.ComponentRoleBackend}},
+		Links: []domain.DetectedLink{
+			{
+				ComponentPath: "api",
+				SignalKey:     "env:BILLING_URL",
+				Target:        domain.LinkTarget{Kind: domain.LinkTargetUnresolved, URLHost: "billing-svc.internal", Port: 8080},
+				Confidence:    domain.ConfidenceMedium,
+			},
+		},
+	}
+
+	out := planReconcile(in)
+	require.Len(t, out.saveLinks, 1)
+	link := out.saveLinks[0]
+	assert.Equal(t, domain.LinkSuggested, link.Status, "no matcher hit, so it stays a suggestion at its detected confidence")
+	assert.Nil(t, link.ToComponentID)
+	assert.Equal(t, "billing-svc.internal", link.TargetHost)
+	assert.Equal(t, 8080, link.TargetPort)
 }
 
 func TestPlanReconcileSelfLinkNeverCreated(t *testing.T) {

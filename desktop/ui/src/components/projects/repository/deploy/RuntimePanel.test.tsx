@@ -76,12 +76,13 @@ describe("RuntimePanel", () => {
     expect(screen.getByText("Healthy")).toBeInTheDocument();
   });
 
-  it("an unavailable auth issue shows Reconnect, which opens the account dialog", async () => {
+  it("unavailable_code cloud_auth shows Reconnect, which opens the account dialog", async () => {
     const overview: EnvironmentRuntime = {
       environment: env,
       deployments: [],
       errors: [],
       unavailable: "The stored credential's token has expired — reconnect this account.",
+      unavailable_code: "cloud_auth",
     };
     getEnvironmentOverview.mockReset().mockResolvedValue(overview);
     renderPanel();
@@ -90,5 +91,21 @@ describe("RuntimePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
 
     await waitFor(() => expect(screen.getByText("Replace the Google Cloud credential")).toBeInTheDocument());
+  });
+
+  it("unavailable_code not_connected shows Connect instead of Reconnect", async () => {
+    const overview: EnvironmentRuntime = {
+      environment: env,
+      deployments: [],
+      errors: [],
+      unavailable: "No cloud account is connected for this environment.",
+      unavailable_code: "not_connected",
+    };
+    getEnvironmentOverview.mockReset().mockResolvedValue(overview);
+    renderPanel();
+
+    await screen.findByText(overview.unavailable!);
+    expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reconnect" })).not.toBeInTheDocument();
   });
 });
