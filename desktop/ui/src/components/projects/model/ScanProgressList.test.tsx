@@ -1,15 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ProjectScan } from "@/api";
-import { ScanProgressList } from "@/components/projects/model/ScanProgressList";
+import { type CloneProgress, ScanProgressList } from "@/components/projects/model/ScanProgressList";
 import { I18nProvider } from "@/hooks/useI18n";
 
-function renderScan(scan: ProjectScan | null) {
+function renderScan(scan: ProjectScan | null, clone?: CloneProgress) {
   return render(
     <I18nProvider>
-      <ScanProgressList scan={scan} />
+      <ScanProgressList scan={scan} clone={clone} />
     </I18nProvider>,
   );
+}
+
+function iconClass(container: HTMLElement, label: string) {
+  const item = Array.from(container.querySelectorAll("li")).find((li) => li.textContent?.startsWith(label));
+  return item?.querySelector("svg")?.getAttribute("class") ?? "";
 }
 
 function makeScan(overrides: Partial<ProjectScan> = {}): ProjectScan {
@@ -27,11 +32,47 @@ function makeScan(overrides: Partial<ProjectScan> = {}): ProjectScan {
 
 describe("ScanProgressList", () => {
   it("renders every stage in the fixed pipeline order", () => {
-    const { container } = renderScan(null);
+    const { container } = renderScan(null, { state: "running" });
     const labels = Array.from(container.querySelectorAll("li")).map((li) => li.textContent);
     expect(labels).toEqual([
       "Clone", "Inventory", "Shape", "Components", "Stack", "Checks", "Links", "Deploy", "Match", "Notes",
     ]);
+  });
+
+  it("leaves the clone stage out of a scan that did not clone", () => {
+    const { container } = renderScan(makeScan());
+    const labels = Array.from(container.querySelectorAll("li")).map((li) => li.textContent);
+    expect(labels[0]).toBe("Inventory");
+  });
+
+  it("drives the clone stage from the caller: spinner, tick, or the error", () => {
+    const running = renderScan(null, { state: "running" });
+    expect(iconClass(running.container, "Clone")).toContain("animate-spin");
+    running.unmount();
+
+    const done = renderScan(makeScan(), { state: "done" });
+    expect(iconClass(done.container, "Clone")).toContain("text-success");
+    done.unmount();
+
+    const failed = renderScan(null, { state: "failed", error: "repository not found" });
+    expect(iconClass(failed.container, "Clone")).toContain("text-destructive");
+    expect(screen.getByText("repository not found")).toBeInTheDocument();
+  });
+
+  it("marks the stage a failed scan stopped on as failed, with the scan's error", () => {
+    const scan = makeScan({
+      status: "failed",
+      stage: "shape",
+      error: "walk: permission denied",
+      events: [
+        { stage: "inventory", done: true, summary: "12 files", at: "2026-01-01T00:00:01Z" },
+        { stage: "shape", done: false, at: "2026-01-01T00:00:02Z" },
+      ],
+    });
+    const { container } = renderScan(scan);
+    expect(iconClass(container, "Shape")).toContain("text-destructive");
+    expect(screen.getByText("walk: permission denied")).toBeInTheDocument();
+    expect(iconClass(container, "Components")).not.toContain("text-destructive");
   });
 
   it("shows a done stage's summary, but only for stages actually marked done", () => {

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api, type RepositoryModel } from "@/api";
 import type { PendingRepo } from "@/components/projects/add/flow-types";
 import { RoleBadge } from "@/components/projects/model/RoleBadge";
-import { ScanProgressList } from "@/components/projects/model/ScanProgressList";
+import { type CloneProgress, ScanProgressList } from "@/components/projects/model/ScanProgressList";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
@@ -19,13 +19,20 @@ interface ScanRepoRowProps {
   onSettledChange: (localId: string, settled: boolean) => void;
 }
 
-/** One row of the Scan step: "Cloning…" while the import call is in flight,
- * then the shared ScanProgressList once a repository id exists, then a
- * summary of what components were found. */
+/** One row of the Scan step: the shared ScanProgressList (a GitHub import's
+ * clone shown as its first stage, driven by the import call), then a summary
+ * of what components were found. */
 export function ScanRepoRow({ repo, onRetry, onSettledChange }: ScanRepoRowProps) {
   const { t } = useI18n();
   const { scan, finished } = useScanProgress(repo.repositoryId, { enabled: repo.status === "ready" });
   const [model, setModel] = useState<RepositoryModel | null>(null);
+  const clones = repo.recipe.method === "github";
+  const clone: CloneProgress | undefined = clones
+    ? {
+        state: repo.status === "importing" ? "running" : repo.status === "ready" ? "done" : "failed",
+        error: repo.error,
+      }
+    : undefined;
 
   useEffect(() => {
     const settled = repo.status === "import_failed" || (repo.status === "ready" && finished);
@@ -51,7 +58,7 @@ export function ScanRepoRow({ repo, onRetry, onSettledChange }: ScanRepoRowProps
       <CardContent className="space-y-2 py-4">
         <div className="flex items-center justify-between gap-3">
           <span className="truncate font-medium">{repo.label}</span>
-          {repo.status === "importing" && (
+          {repo.status === "importing" && !clones && (
             <span className="flex items-center gap-2 text-caption text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
               {t("addRepository.scan.cloning")}
@@ -65,7 +72,7 @@ export function ScanRepoRow({ repo, onRetry, onSettledChange }: ScanRepoRowProps
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
               <div className="flex flex-col">
                 <span className="text-body font-medium text-destructive">{t("addRepository.scan.failedTitle")}</span>
-                {repo.error && <span className="text-caption text-destructive/90">{repo.error}</span>}
+                {repo.error && !clones && <span className="text-caption text-destructive/90">{repo.error}</span>}
               </div>
             </div>
             <Button size="sm" variant="outline" onClick={() => onRetry(repo.localId)}>
@@ -74,9 +81,9 @@ export function ScanRepoRow({ repo, onRetry, onSettledChange }: ScanRepoRowProps
           </div>
         )}
 
-        {repo.status === "ready" && (
+        {(repo.status === "ready" || clones) && (
           <>
-            <ScanProgressList scan={scan} />
+            <ScanProgressList scan={repo.status === "ready" ? scan : null} clone={clone} />
             {finished && scan?.status === "failed" && (
               <p className="text-caption text-muted-foreground">{t("addRepository.scan.scanFailedHint")}</p>
             )}
