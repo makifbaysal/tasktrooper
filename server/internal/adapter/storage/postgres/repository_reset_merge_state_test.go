@@ -143,3 +143,21 @@ func (s *ResetMergeStateSuite) TestResetMergeStateOnAMissingTaskIsANoOp() {
 	err := s.tasks.ResetMergeState(s.ctx, uuid.New())
 	s.Require().NoError(err)
 }
+
+// L6: a rollback's revert sends the task through review again for a fresh PR
+// against reworked code. The before-deploy confirmation a human gave the OLD
+// change must not silently carry over and let the new PR skip the gate.
+func (s *ResetMergeStateSuite) TestResetMergeStateClearsBeforeDeployConfirmation() {
+	task := s.newTask()
+
+	confirmed, err := s.tasks.ConfirmBeforeDeploy(s.ctx, s.repoID, task.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(confirmed.BeforeDeployConfirmedAt)
+
+	err = s.tasks.ResetMergeState(s.ctx, task.ID)
+	s.Require().NoError(err)
+
+	reset, err := s.tasks.Get(s.ctx, s.repoID, task.ID)
+	s.Require().NoError(err)
+	s.Nil(reset.BeforeDeployConfirmedAt, "before-deploy confirmation must not survive a merge-state reset")
+}

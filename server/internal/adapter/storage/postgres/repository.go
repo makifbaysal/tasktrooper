@@ -1443,10 +1443,15 @@ func (s *BoardTaskStore) SetTaskMergeCommit(ctx context.Context, taskID uuid.UUI
 // NULL like their setters above already treat as no PR / not merged;
 // verified_sha is NOT NULL DEFAULT the empty string (migration 078), so it
 // clears to empty rather than NULL.
+//
+// before_deploy_confirmed_at is cleared too: the task is going through review
+// again for a fresh PR, and whatever a human confirmed about the OLD change's
+// before-deploy steps says nothing about the reverted/reworked one.
 func (s *BoardTaskStore) ResetMergeState(ctx context.Context, taskID uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE board_tasks
-		SET pr_url = NULL, pr_number = NULL, merge_commit_sha = NULL, verified_sha = '', updated_at = now()
+		SET pr_url = NULL, pr_number = NULL, merge_commit_sha = NULL, verified_sha = '',
+			before_deploy_confirmed_at = NULL, updated_at = now()
 		WHERE id = $1
 	`, taskID)
 	if err != nil {

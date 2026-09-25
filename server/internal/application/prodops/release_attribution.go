@@ -39,7 +39,7 @@ func (s *Service) attributeAndMaybeRollBack(ctx context.Context, incident domain
 		return incident
 	}
 
-	autoRollback := s.autoRollbackEnabled(ctx, incident.RepositoryID, incident.Env)
+	autoRollback := attribution.AutoRollback
 	s.event(ctx, incident.ID, domain.IncidentEventTriaged, releaseAttributionNote(attribution, s.attributor.HealthWindow(), autoRollback))
 
 	if s.tasks != nil {
@@ -63,23 +63,12 @@ func (s *Service) attributeAndMaybeRollBack(ctx context.Context, incident domain
 	return incident
 }
 
-func (s *Service) autoRollbackEnabled(ctx context.Context, repositoryID uuid.UUID, env string) bool {
-	if s.targets == nil {
-		return false
-	}
-	target, err := s.targets.Get(ctx, repositoryID, "", env)
-	if err != nil {
-		return false
-	}
-	return target.AutoRollback
-}
-
 func releaseAttributionNote(a domain.ReleaseAttribution, window time.Duration, autoRollback bool) string {
 	gap := time.Since(a.DeployedAt).Round(time.Minute)
 	note := fmt.Sprintf("Attributed to release %s (%s): its merge commit %s is what %s is running, deployed %s ago — inside the %s post-release window.",
 		a.TaskKey, a.Title, domain.ShortSHA(a.MergeSHA), a.Env, humanDuration(gap), humanDuration(window))
 	if autoRollback {
-		return note + " auto_rollback is ON for this target: the rollback is being executed."
+		return note + " auto_rollback is ON in this release's delivery profile: the rollback is being executed."
 	}
-	return note + " auto_rollback is OFF for this target: the rollback is proposed and needs a human to confirm it."
+	return note + " auto_rollback is OFF in this release's delivery profile: the rollback is proposed and needs a human to confirm it."
 }

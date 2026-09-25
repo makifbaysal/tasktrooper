@@ -68,7 +68,8 @@ func releaseErr(c *fiber.Ctx, err error) error {
 	case errors.Is(err, domain.ErrReleaseNotFound):
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
 	case errors.Is(err, domain.ErrReleaseWrongStatus), errors.Is(err, domain.ErrReleaseNoDeploy), errors.Is(err, domain.ErrDeliveryUnconfirmed),
-		errors.Is(err, domain.ErrReleaseEmpty), errors.Is(err, domain.ErrReleaseTagExists):
+		errors.Is(err, domain.ErrReleaseEmpty), errors.Is(err, domain.ErrReleaseTagExists),
+		errors.Is(err, domain.ErrBeforeDeployPending), errors.Is(err, domain.ErrDeployDependencyPending):
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
 	case errors.Is(err, domain.ErrInvalidDelivery), errors.Is(err, domain.ErrInvalidVersion):
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})

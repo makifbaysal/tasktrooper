@@ -107,6 +107,11 @@ type ReleaseAttribution struct {
 	MergeSHA   string    `json:"merge_commit_sha"`
 	Env        string    `json:"env"`
 	DeployedAt time.Time `json:"deployed_at"`
+	// AutoRollback is the attributed release's OWN frozen delivery profile
+	// (Release.Profile.AutoRollback), not the legacy deploy target's setting —
+	// a release keeps the profile it was opened with even if the component's
+	// delivery is edited afterwards.
+	AutoRollback bool `json:"auto_rollback"`
 }
 
 // RollbackMechanism is HOW a release is undone, chosen by what the repository

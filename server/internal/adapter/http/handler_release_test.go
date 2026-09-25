@@ -332,6 +332,34 @@ func TestDeployReleaseNoDeployStepIs409(t *testing.T) {
 	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
 }
 
+// L2: before this fix, ErrBeforeDeployPending/ErrDeployDependencyPending fell
+// through releaseErr's default branch to a 500 — a state the caller can wait
+// out (a human confirms before-deploy, or the dependency releases), not a
+// server failure.
+func TestDeployReleaseBeforeDeployPendingIs409(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleasePending, Mode: domain.DeliveryDispatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.deployErr = domain.ErrBeforeDeployPending
+
+	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/deploy", strings.NewReader(`{"confirm":"tasktrooper"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+}
+
+func TestDeployReleaseDeployDependencyPendingIs409(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleasePending, Mode: domain.DeliveryDispatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.deployErr = domain.ErrDeployDependencyPending
+
+	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/deploy", strings.NewReader(`{"confirm":"tasktrooper"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+}
+
 func TestFinishReleasePassesNoteAndHumanActor(t *testing.T) {
 	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseAwaitingVerdict}
 	app, _, svc := newReleaseTestApp(t, r)

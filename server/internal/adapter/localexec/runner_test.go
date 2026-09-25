@@ -186,3 +186,89 @@ func TestRunnerStartFailsOnAnEmptyArgv(t *testing.T) {
 		t.Fatal("expected an error for an empty argv")
 	}
 }
+
+// L6: before Close existed, a still-running local build had nothing to stop
+// it on server shutdown — it (and its detached worktree) outlived the
+// process, or the data directory got torn down from under it. Close must
+// kill the process group promptly (not wait out the run's own long timeout)
+// and remove the worktree before returning.
+func TestRunnerCloseKillsRunningProcessesAndRemovesTheirWorktrees(t *testing.T) {
+	root, headSHA := newRepoFixture(t)
+	logPath := filepath.Join(t.TempDir(), "release.log")
+	script := filepath.Join(t.TempDir(), "hang.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 300 &\nwait\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewRunner()
+	ch, done := waitForRun(t)
+	if err := r.Start(context.Background(), release.LocalRunSpec{
+		// A long timeout — Close must not depend on it firing.
+		RootPath: root, CommitSHA: headSHA, Argv: []string{script}, LogPath: logPath, Timeout: 10 * time.Minute,
+	}, done); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	before := countWorktrees(t, root)
+
+	closeDone := make(chan struct{})
+	start := time.Now()
+	go func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+		close(closeDone)
+	}()
+
+	select {
+	case <-closeDone:
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Fatalf("Close took %s, want it to kill the run promptly rather than wait out its 10m timeout", elapsed)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close never returned — the running process was not killed")
+	}
+
+	select {
+	case res := <-ch:
+		if res.err == nil {
+			t.Fatalf("expected the killed run to report an error, exit code %d", res.exitCode)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("done was never called for the run Close killed")
+	}
+
+	if after := countWorktrees(t, root); after != before-1 {
+		t.Fatalf("worktrees after Close = %d, want %d (the run's worktree removed)", after, before-1)
+	}
+}
+
+// TestRunnerStartAfterCloseIsRefused guards the shutdown ordering: once Close
+// has been called (server is going down), a late Start must not race it by
+// launching a new detached worktree/process that Close will never know about.
+func TestRunnerStartAfterCloseIsRefused(t *testing.T) {
+	root, headSHA := newRepoFixture(t)
+	r := NewRunner()
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	err := r.Start(context.Background(), release.LocalRunSpec{
+		RootPath: root, CommitSHA: headSHA, Argv: []string{"true"}, LogPath: filepath.Join(t.TempDir(), "x.log"),
+	}, func(int, string, error) {})
+	if err == nil {
+		t.Fatal("expected Start after Close to be refused")
+	}
+}
+
+func countWorktrees(t *testing.T, root string) int {
+	t.Helper()
+	out := gitRun(t, root, "worktree", "list", "--porcelain")
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "worktree ") {
+			n++
+		}
+	}
+	return n
+}

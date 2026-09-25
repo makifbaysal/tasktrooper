@@ -25,19 +25,68 @@ const defaultTimeout = 60 * time.Minute
 
 const tailLines = 120
 
-type Runner struct{}
+// Runner tracks every run it has started so Close can kill their process
+// groups and remove their worktrees on server shutdown instead of leaving
+// them to the 60-minute default timeout (or forever, for a run with no
+// timeout set) after the process that owned them is gone.
+type Runner struct {
+	mu     sync.Mutex
+	active map[*run]struct{}
+	closed bool
+}
 
-func NewRunner() *Runner { return &Runner{} }
+type run struct {
+	cancel context.CancelFunc
+}
+
+func NewRunner() *Runner { return &Runner{active: make(map[*run]struct{})} }
 
 var _ release.LocalRunner = (*Runner)(nil)
+
+// Close cancels every run still in flight — which kills its process group via
+// cmd.Cancel exactly as a timeout would — and waits for each one's goroutine
+// to finish closing its log file and removing its worktree before returning,
+// so a shutdown that calls Close does not race the process it is trying to
+// stop against the data directory being torn down around it. Idempotent and
+// safe to call with no runs active.
+func (r *Runner) Close() error {
+	r.mu.Lock()
+	r.closed = true
+	cancels := make([]context.CancelFunc, 0, len(r.active))
+	for a := range r.active {
+		cancels = append(cancels, a.cancel)
+	}
+	r.mu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
+
+	for {
+		r.mu.Lock()
+		remaining := len(r.active)
+		r.mu.Unlock()
+		if remaining == 0 {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
 // Start prepares a detached worktree at spec.CommitSHA, starts spec.Argv in
 // it with output tee'd to spec.LogPath, and returns once the process has
 // started (or failed to). done runs later, from a goroutine, once the
-// process exits, is killed on timeout, or could not be waited on.
+// process exits, is killed on timeout, is killed by Close, or could not be
+// waited on.
 func (r *Runner) Start(ctx context.Context, spec release.LocalRunSpec, done func(exitCode int, tail string, err error)) error {
 	if len(spec.Argv) == 0 {
 		return fmt.Errorf("localexec: no command given")
+	}
+	r.mu.Lock()
+	closed := r.closed
+	r.mu.Unlock()
+	if closed {
+		return fmt.Errorf("localexec: the runner is shutting down")
 	}
 	if err := os.MkdirAll(filepath.Dir(spec.LogPath), 0o755); err != nil {
 		return fmt.Errorf("localexec: creating the log directory: %w", err)
@@ -83,8 +132,18 @@ func (r *Runner) Start(ctx context.Context, spec release.LocalRunSpec, done func
 		return fmt.Errorf("localexec: starting the command: %w", err)
 	}
 
+	self := &run{cancel: cancel}
+	r.mu.Lock()
+	r.active[self] = struct{}{}
+	r.mu.Unlock()
+
 	go func() {
 		defer cancel()
+		defer func() {
+			r.mu.Lock()
+			delete(r.active, self)
+			r.mu.Unlock()
+		}()
 
 		waitErr := cmd.Wait()
 		timedOut := runCtx.Err() != nil

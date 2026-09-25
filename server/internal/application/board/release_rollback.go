@@ -79,10 +79,10 @@ func releaseRollbackRunbook(task domain.BoardTask, incident domain.Incident, aut
 	}
 
 	if autoRollback {
-		sb.WriteString("auto_rollback is ON for this environment: call rollback_task_release with trigger=health_incident. " +
+		sb.WriteString("auto_rollback is ON in this release's delivery profile: call rollback_release with reason=health_incident. " +
 			"It will undo the code — by re-deploying the last good commit where a deploy workflow exists, or by reverting the merge commit on the default branch where the host deploys on push. ")
 	} else {
-		sb.WriteString("auto_rollback is OFF for this environment: call rollback_task_release anyway — it will execute NOTHING and return the written-up proposal (`proposed: true`). " +
+		sb.WriteString("auto_rollback is OFF in this release's delivery profile: call rollback_release with reason=health_incident anyway — it will execute NOTHING and return the written-up proposal (`proposed: true`). " +
 			"That is the correct outcome here. Post what it returns on this task, say plainly that a human has to confirm it, and stop. Do not look for another way to roll production back. ")
 	}
 	sb.WriteString("Then work through the plan above yourself and report every step you performed AND every step you could not — a schema change, a feature flag, anything with a human on the other end. " +

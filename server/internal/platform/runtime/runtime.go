@@ -278,6 +278,11 @@ type engine struct {
 	releaseSvc      *releaseapp.Service
 	deployMonitor   *deployops.Monitor
 	evolutionSvc    *evolution.Service
+	// localRunner is release.Deps.LocalRunner's concrete type, kept here only
+	// so Shutdown can Close it — a batch release's local build/publish command
+	// runs detached from any request and must be killed (and its worktree
+	// removed) on shutdown rather than left to outlive the process.
+	localRunner *localexec.Runner
 	// pgPool is kept beside pgDB for the two jobs that are not row data: pool
 	// close and the pgvector bootstrap. Everything else reaches Postgres through
 	// pgDB.
@@ -585,6 +590,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// 3. Only now cancel anything still holding the run context.
 	s.cancel()
 	// 4. External processes, then the pool everything above was using.
+	if s.engine.localRunner != nil {
+		if err := s.engine.localRunner.Close(); err != nil {
+			log.Warn().Err(err).Msg("closing the local release runner failed")
+		}
+	}
 	if s.engine.mcpManager != nil {
 		s.engine.mcpManager.Close()
 	}
@@ -2246,7 +2256,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					releaseDeps.DeployOrder = relations
 				}
 				releaseDeps.Git = gitClient
-				releaseDeps.LocalRunner = localexec.NewRunner()
+				e.localRunner = localexec.NewRunner()
+				releaseDeps.LocalRunner = e.localRunner
 				releaseDeps.DataDir = opts.DataDir
 				if releaseDeps.DataDir == "" {
 					releaseDeps.DataDir = filepath.Dir(cfg.AgentCatalog.CacheDir)
