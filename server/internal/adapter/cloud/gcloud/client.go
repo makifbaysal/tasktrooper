@@ -1,6 +1,7 @@
 package gcloud
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -115,6 +116,44 @@ func (c *Client) get(ctx context.Context, baseURL, path string, out any) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &apiError{Status: resp.StatusCode, Body: domain.TruncateHead(string(data), 500)}
+	}
+	if out != nil && len(data) > 0 {
+		return json.Unmarshal(data, out)
+	}
+	return nil
+}
+
+// patch issues a PATCH with a JSON body (only services.patch uses this today,
+// to move traffic between revisions) and decodes the response the same way
+// get does.
+func (c *Client) patch(ctx context.Context, baseURL, path string, body any, out any) error {
+	tok, err := c.bearerToken(ctx, cloudPlatformScope)
+	if err != nil {
+		return err
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
