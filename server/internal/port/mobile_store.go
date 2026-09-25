@@ -18,9 +18,8 @@ type StoreAppRef struct {
 	StoreAppID string `json:"store_app_id"` // ASC app resource id; "" for Play, which keys on the package name
 	Identifier string `json:"identifier"`   // bundle ID / package name
 	Name       string `json:"name"`         // display name as the console shows it
-	State string `json:"state,omitempty"`
+	State      string `json:"state,omitempty"`
 }
-
 
 type StoreCredentialStore interface {
 	Set(ctx context.Context, provider string, encrypted []byte) error
@@ -44,14 +43,12 @@ type SigningAssetStore interface {
 	ListExpiring(ctx context.Context, before time.Time) ([]domain.SigningAsset, error)
 }
 
-
 type StoreCert struct {
 	ID        string
 	Serial    string
 	DER       []byte
 	ExpiresAt time.Time
 }
-
 
 type StoreProfile struct {
 	ID        string
@@ -64,7 +61,6 @@ type AppStoreVersionInfo struct {
 	Version string
 	State   string // raw ASC state e.g. READY_FOR_SALE, WAITING_FOR_REVIEW, IN_REVIEW, REJECTED, PENDING_DEVELOPER_RELEASE
 }
-
 
 type AppStoreClient interface {
 	ValidateAuth(ctx context.Context) error
@@ -87,9 +83,8 @@ type PlayTrackInfo struct {
 	UserFraction float64
 }
 
-
 type GooglePlayClient interface {
-	ValidateAuth(ctx context.Context) error          // token exchange only
+	ValidateAuth(ctx context.Context) error // token exchange only
 	AppExists(ctx context.Context, packageName string) (bool, error)
 	TrackInfo(ctx context.Context, packageName, track string) (PlayTrackInfo, error)
 	PromoteTrack(ctx context.Context, packageName, fromTrack, toTrack string, userFraction float64) error

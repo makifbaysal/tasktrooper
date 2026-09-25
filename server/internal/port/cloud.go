@@ -18,6 +18,11 @@ var ErrUnsupported = errors.New("not supported by this provider")
 // say "reconnect" rather than "something failed".
 var ErrCloudAuth = errors.New("the provider rejected the credential")
 
+// ErrCloudWriteDenied is a provider refusing a WRITE the credential can read
+// but not perform (a read-only token, a service account without the update
+// permission).
+var ErrCloudWriteDenied = errors.New("the credential may read but not change this resource")
+
 // ErrVercelUnauthorized is Vercel refusing the stored token ITSELF (a 401 or
 // 403), so the vercel adapter can tell a revoked/expired token apart from
 // "Vercel is down" without the caller inspecting a status code. The adapter
@@ -44,6 +49,20 @@ type EnvironmentStore interface {
 	// Upserts by (component, environment).
 	SaveEnvironment(ctx context.Context, e domain.ComponentEnvironment) (domain.ComponentEnvironment, error)
 	DeleteEnvironment(ctx context.Context, id uuid.UUID) error
+}
+
+// CloudRollbacker is the optional write capability of a provider that can
+// put an earlier deployment back into production without a rebuild. A
+// provider without it (or a credential without write access, which answers
+// ErrCloudWriteDenied) leaves a release's rollback to the pushed revert.
+type CloudRollbacker interface {
+	// RollbackTo makes deploymentID the one serving production.
+	RollbackTo(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, deploymentID string) error
+	// Promote puts deploymentID into production; on Vercel it is also what
+	// re-enables automatic production assignment after a RollbackTo.
+	Promote(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, deploymentID string) error
+	// Current is the deployment serving production right now.
+	Current(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.CloudDeployment, error)
 }
 
 // CloudProvider is one provider adapter. Every call gets the decrypted

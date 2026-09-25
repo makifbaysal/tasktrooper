@@ -124,6 +124,11 @@ const (
 	// single-parent commit, so this is plain `git revert <sha>` — no -m, which
 	// would fail with "mainline was specified but commit is not a merge".
 	RollbackMechanismRevert RollbackMechanism = "revert_push"
+	// RollbackMechanismProvider: the hosting provider put the previous
+	// deployment back into production (Vercel instant rollback, Cloud Run
+	// traffic); the pushed revert still follows so the default branch cannot
+	// ship the bad change again.
+	RollbackMechanismProvider RollbackMechanism = "provider_rollback"
 )
 
 // TaskRollbackResult is what a rollback attempt did, successful or not.

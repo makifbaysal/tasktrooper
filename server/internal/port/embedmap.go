@@ -24,13 +24,13 @@ type EmbeddingFileStats struct {
 }
 
 type EmbeddingRepositorySource struct {
-	RepositoryID uuid.UUID
-	Name         string
-	Branch       string
-	IndexID      uuid.UUID
-	ChunkCount   int
-	FileCount    int
-	IndexedAt    *time.Time
+	RepositoryID   uuid.UUID
+	Name           string
+	Branch         string
+	IndexID        uuid.UUID
+	ChunkCount     int
+	FileCount      int
+	IndexedAt      *time.Time
 	EmbeddingModel string
 	EmbeddingDims  int
 }

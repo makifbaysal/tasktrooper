@@ -65,14 +65,14 @@ type TaskAgentRunStore interface {
 }
 
 type RunClaim struct {
-	RunID  uuid.UUID
-	TaskID uuid.UUID
+	RunID      uuid.UUID
+	TaskID     uuid.UUID
 	LiveWithin time.Duration
 }
 
 type RunClaimResult struct {
 	Claimed bool
-	Reason string
+	Reason  string
 }
 
 type TaskColumnSpanStore interface {

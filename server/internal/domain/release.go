@@ -172,6 +172,10 @@ type ReleaseRollback struct {
 	// revert commit).
 	RestoredRef string `json:"restored_ref,omitempty"`
 	RunURL      string `json:"run_url,omitempty"`
+	// ProviderDeploymentID is the earlier deployment the provider was told to
+	// serve; PromotedDeploymentID the revert's deployment promoted afterwards.
+	ProviderDeploymentID string `json:"provider_deployment_id,omitempty"`
+	PromotedDeploymentID string `json:"promoted_deployment_id,omitempty"`
 	// ManualSteps is what no mechanism can undo (migrations, flags, CDN) —
 	// from the tasks' rollback plans; the agent performs or reports each.
 	ManualSteps []string  `json:"manual_steps,omitempty"`
