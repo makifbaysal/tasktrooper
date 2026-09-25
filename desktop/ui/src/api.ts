@@ -466,121 +466,6 @@ export type DeployEnv = "local" | "stage" | "preprod" | "prod";
 
 export type TestStrategy = "local" | "stage" | "per_step";
 
-export interface EnvFileInventory {
-  path: string;
-  keys: string[];
-}
-
-export interface EnvInventory {
-  files: EnvFileInventory[] | null;
-  keys: string[] | null;
-  targets?: DeployTarget[] | null;
-}
-
-export type DeployProvider =
-  | "gcp_cloud_run"
-  | "gcp_gke"
-  | "aws_ecs"
-  | "aws_lambda"
-  | "vercel"
-  | "fly"
-  | "app_store"
-  | "google_play"
-  | "custom";
-
-export interface DeployTemplateVar {
-  key: string;
-  label: string;
-  example?: string;
-  required: boolean;
-}
-
-export interface DeployTemplate {
-  id: string;
-  provider: DeployProvider;
-  name: string;
-  summary: string;
-  kinds?: string[];
-  envs?: DeployEnv[];
-  required_vars?: DeployTemplateVar[];
-  workflow_file: string;
-  rollback_hint?: string;
-  body?: string;
-}
-
-export interface DeployTarget {
-  id: string;
-  repository_id: string;
-  /** "" = the repository itself; identifies which sub-project this target ships. */
-  sub_project_path?: string;
-  env: DeployEnv;
-  provider: DeployProvider;
-  template_id?: string;
-  vars?: Record<string, string>;
-  health_url?: string;
-  /**
-   * Recent-logs endpoint the application itself serves — the other half of
-   * `health_url`, read on demand by the deploy watch rather than polled.
-   *
-   * Optional for two reasons that look the same on the wire but are not: the
-   * server omits it when it is empty (`omitempty`), AND a server older than
-   * the field never sends it at all. `lib/deployTargets.ts` is what tells the
-   * two apart; nothing should read this field and conclude "unsupported".
-   */
-  logs_url?: string;
-  base_url?: string;
-  /** Android package this env installs as; the guard for the device tools. */
-  app_package?: string;
-  /** Where the installable artifact (.apk) for this env lives. */
-  app_url?: string;
-  auto_rollback: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DeployConfigView {
-  kind: string;
-  targets: DeployTarget[] | null;
-  templates: DeployTemplate[] | null;
-  missing?: Record<string, string[]>;
-  envs: DeployEnv[];
-  /**
-   * Best-effort store identity read off the repository tree (Info.plist /
-   * build.gradle, etc.). Always present once the server ships it, but both
-   * fields may be "" when nothing was detected — never treat presence of the
-   * key as proof either field is populated. Optional here because older
-   * servers omit the field entirely.
-   */
-  detected_app_identity?: {
-    bundle_id: string;
-    package_name: string;
-  };
-}
-
-/**
- * PUT /v1/repositories/:id/deploy/targets is a full upsert of one
- * (repository, env) row: every field the server knows is written from this
- * payload, so an omitted field is a *cleared* field, not an untouched one.
- * Any editor that sends a subset silently wipes the rest — which is why
- * app_package/app_url/logs_url are part of this type even where no form
- * shows them.
- */
-export interface SaveDeployTargetInput {
-  /** See DeployTarget.sub_project_path. */
-  sub_project_path?: string;
-  env: DeployEnv;
-  provider: DeployProvider;
-  template_id?: string;
-  vars?: Record<string, string>;
-  health_url?: string;
-  /** Ignored (not rejected) by servers older than the field. */
-  logs_url?: string;
-  base_url?: string;
-  app_package?: string;
-  app_url?: string;
-  auto_rollback: boolean;
-}
-
 // Mobile store deploy: the credential vault (App Store Connect / Google
 // Play console auth) plus the per-repository store app registry those
 // credentials unlock.
@@ -2253,7 +2138,7 @@ export function attachmentUrl(id: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Project model: Project → Repository → Component → Check/Link/Note.
+// Project model: Project → Repository → Component → Check/Link.
 // Mirrors server/internal/domain/project_model.go and project_model_requests.go
 // JSON tags exactly (Phase 1 HTTP contract). Every detected field is a
 // Fact<T>: effective value = override ?? detected; "edited by you" = override
@@ -2561,44 +2446,6 @@ export interface ComponentLink {
   updated_at: string;
 }
 
-export type NoteTopic =
-  | "purpose"
-  | "entrypoints"
-  | "conventions"
-  | "invariants"
-  | "danger_zones"
-  | "change_recipes"
-  | "gotchas";
-
-export const NOTE_TOPICS: NoteTopic[] = [
-  "purpose",
-  "entrypoints",
-  "conventions",
-  "invariants",
-  "danger_zones",
-  "change_recipes",
-  "gotchas",
-];
-
-export type NoteAuthor = "agent" | "user";
-
-/** Judgment a parser cannot make. An agent may only write one with evidence,
- * and never a locked one. */
-export interface ProjectNote {
-  id: string;
-  repository_id: string;
-  component_id?: string;
-  topic: NoteTopic;
-  body_md: string;
-  evidence?: SourceEvidence[];
-  source_commit?: string;
-  stale: boolean;
-  author: NoteAuthor;
-  locked: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
 export type ScanTrigger = "import" | "manual" | "push" | "stale" | "migrate";
 
 export type ScanStatus = "queued" | "running" | "succeeded" | "failed";
@@ -2612,8 +2459,7 @@ export type ScanStage =
   | "checks"
   | "links"
   | "deploy"
-  | "match"
-  | "notes";
+  | "match";
 
 /** One progress line the add-repository flow streams; summary is a finished
  * sentence of what the stage found. */
@@ -2679,7 +2525,6 @@ export interface RepositoryModel {
   incoming_links: ComponentLink[];
   resources: SystemResource[];
   linked_components: LinkedComponent[];
-  notes: ProjectNote[];
   environments: ComponentEnvironment[];
   review: ReviewItem[];
   latest_scan?: ProjectScan;
@@ -2842,18 +2687,6 @@ export interface NewLinkRequest {
   to_resource?: ResourceRef;
   protocol: LinkProtocol;
   detail?: string;
-}
-
-export interface SaveNoteRequest {
-  component_id?: string;
-  topic: NoteTopic;
-  body_md: string;
-  locked: boolean;
-}
-
-export interface NotePatch {
-  body_md?: string;
-  locked?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -3853,46 +3686,6 @@ export const api = {
   createWorkflowSetupTask: (id: string) =>
     request<BoardTask>(`/v1/repositories/${id}/pipeline/setup-task`, { method: "POST" }),
 
-  getDeployConfig: (id: string, subProjectPath?: string) =>
-    request<DeployConfigView>(
-      `/v1/repositories/${id}/deploy/config${subProjectPath ? `?sub_project_path=${encodeURIComponent(subProjectPath)}` : ""}`,
-    ),
-
-  saveDeployTarget: (id: string, data: SaveDeployTargetInput) =>
-    request<DeployTarget>(`/v1/repositories/${id}/deploy/targets`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-
-  deleteDeployTarget: (id: string, env: DeployEnv, subProjectPath?: string) =>
-    request<void>(
-      `/v1/repositories/${id}/deploy/targets/${env}${subProjectPath ? `?sub_project_path=${encodeURIComponent(subProjectPath)}` : ""}`,
-      { method: "DELETE" },
-    ),
-
-  getDeployInstructions: (id: string, env: DeployEnv) =>
-    request<{ env: string; instructions: string }>(
-      `/v1/repositories/${id}/deploy/targets/${env}/instructions`),
-
-  createDeploySetupTask: (id: string, env: DeployEnv) =>
-    request<BoardTask>(`/v1/repositories/${id}/deploy/targets/${env}/setup-task`, { method: "POST" }),
-
-  createLocalSetupTask: (id: string, subProjectPath?: string) =>
-    request<BoardTask>(
-      `/v1/repositories/${id}/deploy/local-setup-task${subProjectPath ? `?sub_project_path=${encodeURIComponent(subProjectPath)}` : ""}`,
-      { method: "POST" },
-    ),
-
-  listDeployTemplates: (kind?: string) =>
-    request<{ templates: DeployTemplate[]; count: number }>(
-      `/v1/deploy/templates${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`),
-
-  setTestStrategy: (id: string, strategy: TestStrategy) =>
-    request<Repository>(`/v1/repositories/${id}/test-strategy`, {
-      method: "PUT",
-      body: JSON.stringify({ test_strategy: strategy }),
-    }),
-
   // Deploy packages — release trains for repositories that turned per-task
   // auto release off. Listing is not a pure read: the server advances every
   // package on the way out (deploys land out of band), so poll this after any
@@ -3931,14 +3724,6 @@ export const api = {
   releaseDeployPackage: (repositoryId: string, packageId: string) =>
     request<DeployPackage>(`/v1/repositories/${repositoryId}/deploy-packages/${packageId}/release`, {
       method: "POST",
-    }),
-
-  getEnvInventory: (id: string) => request<EnvInventory>(`/v1/repositories/${id}/env-inventory`),
-
-  setIncidentPolicy: (id: string, policy: IncidentPolicy) =>
-    request<Repository>(`/v1/repositories/${id}/incident-policy`, {
-      method: "PUT",
-      body: JSON.stringify({ incident_policy: policy }),
     }),
 
   saveStoreCredential: (provider: StoreCredentialProvider, data: Record<string, string>) =>
@@ -4530,14 +4315,6 @@ export const api = {
 
   getRepositoryModel: (repositoryId: string) => request<RepositoryModel>(`/v1/repositories/${repositoryId}/model`),
 
-  getRepositoryBrief: (repositoryId: string, params: { componentId?: string; area?: ComponentRole } = {}) => {
-    const qs = new URLSearchParams();
-    if (params.componentId) qs.set("component_id", params.componentId);
-    if (params.area) qs.set("area", params.area);
-    const suffix = qs.toString();
-    return request<{ brief: string }>(`/v1/repositories/${repositoryId}/brief${suffix ? `?${suffix}` : ""}`);
-  },
-
   // A scan already running on this repository answers 409, not an error the
   // caller should surface — the running scan is exactly what the add-repository
   // flow wants to poll, so this folds that case back into a normal result.
@@ -4615,17 +4392,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ link_ids: linkIds }),
     }),
-
-  saveNote: (repositoryId: string, body: SaveNoteRequest) =>
-    request<ProjectNote>(`/v1/repositories/${repositoryId}/notes`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
-
-  updateNote: (noteId: string, patch: NotePatch) =>
-    request<ProjectNote>(`/v1/notes/${noteId}`, { method: "PATCH", body: JSON.stringify(patch) }),
-
-  deleteNote: (noteId: string) => request<void>(`/v1/notes/${noteId}`, { method: "DELETE" }),
 
   // ---- Cloud accounts & environments (Phase 2) ---------------------------
 

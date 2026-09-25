@@ -581,55 +581,6 @@ type ComponentLink struct {
 
 func (l ComponentLink) Resolved() bool { return l.ToComponentID != nil || l.ToResourceID != nil }
 
-type NoteTopic string
-
-const (
-	NotePurpose       NoteTopic = "purpose"
-	NoteEntrypoints   NoteTopic = "entrypoints"
-	NoteConventions   NoteTopic = "conventions"
-	NoteInvariants    NoteTopic = "invariants"
-	NoteDangerZones   NoteTopic = "danger_zones"
-	NoteChangeRecipes NoteTopic = "change_recipes"
-	NoteGotchas       NoteTopic = "gotchas"
-)
-
-func AllNoteTopics() []NoteTopic {
-	return []NoteTopic{NotePurpose, NoteEntrypoints, NoteConventions, NoteInvariants, NoteDangerZones, NoteChangeRecipes, NoteGotchas}
-}
-
-func ValidNoteTopic(t NoteTopic) bool {
-	for _, known := range AllNoteTopics() {
-		if t == known {
-			return true
-		}
-	}
-	return false
-}
-
-type NoteAuthor string
-
-const (
-	NoteAuthorAgent NoteAuthor = "agent"
-	NoteAuthorUser  NoteAuthor = "user"
-)
-
-// ProjectNote is judgment a parser cannot make. An agent may only write one
-// with evidence that resolves in the working copy, and never a locked one.
-type ProjectNote struct {
-	ID           uuid.UUID        `json:"id"`
-	RepositoryID uuid.UUID        `json:"repository_id"`
-	ComponentID  *uuid.UUID       `json:"component_id,omitempty"`
-	Topic        NoteTopic        `json:"topic"`
-	BodyMD       string           `json:"body_md"`
-	Evidence     []SourceEvidence `json:"evidence,omitempty"`
-	SourceCommit string           `json:"source_commit,omitempty"`
-	Stale        bool             `json:"stale"`
-	Author       NoteAuthor       `json:"author"`
-	Locked       bool             `json:"locked"`
-	CreatedAt    time.Time        `json:"created_at"`
-	UpdatedAt    time.Time        `json:"updated_at"`
-}
-
 type ScanTrigger string
 
 const (
@@ -661,7 +612,6 @@ const (
 	ScanStageLinks      ScanStage = "links"
 	ScanStageDeploy     ScanStage = "deploy"
 	ScanStageMatch      ScanStage = "match"
-	ScanStageNotes      ScanStage = "notes"
 )
 
 // ScanEvent is one progress line the add-repository flow streams; Summary is

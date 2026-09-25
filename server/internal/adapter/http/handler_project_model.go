@@ -26,7 +26,6 @@ func (h *Handler) registerProjectModelRoutes(app fiber.Router) {
 	app.Get("/v1/projects/:projectId/map", h.ProjectMap)
 
 	app.Get("/v1/repositories/:id/model", h.RepositoryModel)
-	app.Get("/v1/repositories/:id/brief", h.RepositoryBrief)
 
 	app.Post("/v1/repositories/:id/scans", h.StartRepositoryScan)
 	app.Get("/v1/repositories/:id/scans/latest", h.LatestRepositoryScan)
@@ -40,9 +39,6 @@ func (h *Handler) registerProjectModelRoutes(app fiber.Router) {
 	app.Post("/v1/links", h.AddComponentLink)
 	app.Patch("/v1/links/:linkId", h.UpdateComponentLink)
 	app.Delete("/v1/links/:linkId", h.DeleteComponentLink)
-	app.Put("/v1/repositories/:id/notes", h.SaveProjectNote)
-	app.Patch("/v1/notes/:noteId", h.UpdateProjectNote)
-	app.Delete("/v1/notes/:noteId", h.DeleteProjectNote)
 
 	app.Get("/v1/resources", h.ListWorkspaceResources)
 	app.Patch("/v1/resources/:resourceId", h.RenameResource)
@@ -63,11 +59,11 @@ func pmErrMsg(c *fiber.Ctx, status int, msg string) error {
 }
 
 // projectModelErr maps a service error to its contract status: ErrInvalidInput
-// and ErrNoteLocked are the caller's fault (400), ErrConflict is a concurrent
-// edit (409), port.ErrNotFound is an unknown id (404), anything else is ours.
+// is the caller's fault (400), ErrConflict is a concurrent edit (409),
+// port.ErrNotFound is an unknown id (404), anything else is ours.
 func projectModelErr(c *fiber.Ctx, err error) error {
 	switch {
-	case errors.Is(err, projectmodel.ErrInvalidInput), errors.Is(err, projectmodel.ErrNoteLocked):
+	case errors.Is(err, projectmodel.ErrInvalidInput):
 		return pmErr(c, fiber.StatusBadRequest, err)
 	case errors.Is(err, projectmodel.ErrConflict):
 		return pmErr(c, fiber.StatusConflict, err)
@@ -137,27 +133,6 @@ func (h *Handler) RepositoryModel(c *fiber.Ctx) error {
 		return projectModelErr(c, err)
 	}
 	return c.JSON(model)
-}
-
-// RepositoryBrief — GET /v1/repositories/:id/brief?component_id=&area=
-func (h *Handler) RepositoryBrief(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return pmErrMsg(c, fiber.StatusBadRequest, "invalid repository id")
-	}
-	scope := projectmodel.BriefScope{Area: c.Query("area")}
-	if raw := c.Query("component_id"); raw != "" {
-		componentID, err := uuid.Parse(raw)
-		if err != nil {
-			return pmErrMsg(c, fiber.StatusBadRequest, "invalid component_id")
-		}
-		scope.ComponentID = &componentID
-	}
-	brief, err := h.projectModelSvc.Brief(h.enrichContext(c), id, scope)
-	if err != nil {
-		return projectModelErr(c, err)
-	}
-	return c.JSON(fiber.Map{"brief": brief})
 }
 
 // StartRepositoryScan — POST /v1/repositories/:id/scans
@@ -325,52 +300,6 @@ func (h *Handler) DeleteComponentLink(c *fiber.Ctx) error {
 		return pmErrMsg(c, fiber.StatusBadRequest, "invalid link id")
 	}
 	if err := h.projectModelSvc.DeleteLink(h.enrichContext(c), id); err != nil {
-		return projectModelErr(c, err)
-	}
-	return c.SendStatus(fiber.StatusNoContent)
-}
-
-// SaveProjectNote — PUT /v1/repositories/:id/notes
-func (h *Handler) SaveProjectNote(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return pmErrMsg(c, fiber.StatusBadRequest, "invalid repository id")
-	}
-	var req domain.SaveNoteRequest
-	if err := c.BodyParser(&req); err != nil {
-		return pmErrMsg(c, fiber.StatusBadRequest, "invalid request body")
-	}
-	note, err := h.projectModelSvc.SaveUserNote(h.enrichContext(c), id, req)
-	if err != nil {
-		return projectModelErr(c, err)
-	}
-	return c.JSON(note)
-}
-
-// UpdateProjectNote — PATCH /v1/notes/:noteId
-func (h *Handler) UpdateProjectNote(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "noteId")
-	if err != nil {
-		return pmErrMsg(c, fiber.StatusBadRequest, "invalid note id")
-	}
-	var patch domain.NotePatch
-	if err := c.BodyParser(&patch); err != nil {
-		return pmErrMsg(c, fiber.StatusBadRequest, "invalid request body")
-	}
-	note, err := h.projectModelSvc.UpdateNote(h.enrichContext(c), id, patch)
-	if err != nil {
-		return projectModelErr(c, err)
-	}
-	return c.JSON(note)
-}
-
-// DeleteProjectNote — DELETE /v1/notes/:noteId
-func (h *Handler) DeleteProjectNote(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "noteId")
-	if err != nil {
-		return pmErrMsg(c, fiber.StatusBadRequest, "invalid note id")
-	}
-	if err := h.projectModelSvc.DeleteNote(h.enrichContext(c), id); err != nil {
 		return projectModelErr(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)

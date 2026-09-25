@@ -12,11 +12,8 @@ func prependProjectPrompt(history []domain.Message, description string) []domain
 	return append([]domain.Message{{Role: domain.RoleSystem, Content: content}}, history...)
 }
 
-const maxInjectedBriefChars = 8000
-
-func prependProjectBriefPrompt(history []domain.Message, brief string) []domain.Message {
-	content := "## Project brief (maintained by TaskTrooper)\n" + domain.TruncateHead(brief, maxInjectedBriefChars)
-	return append([]domain.Message{{Role: domain.RoleSystem, Content: content}}, history...)
+func prependProjectToolsNotePrompt(history []domain.Message, note string) []domain.Message {
+	return append([]domain.Message{{Role: domain.RoleSystem, Content: note}}, history...)
 }
 
 func prependTaskChatPrompt(history []domain.Message, task TaskBinding) []domain.Message {

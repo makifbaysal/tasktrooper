@@ -108,8 +108,6 @@ func TestB2BriefSingleComponentHeaderAndLayout(t *testing.T) {
 		Status:        domain.ModelStatusActive,
 	})
 	require.NoError(t, err)
-	_, err = store.SaveNote(ctx, domain.ProjectNote{RepositoryID: repo.ID, ComponentID: &comp.ID, Topic: domain.NotePurpose, BodyMD: "Serves the API.", Author: domain.NoteAuthorAgent, Stale: true})
-	require.NoError(t, err)
 
 	brief, err := svc.Brief(ctx, repo.ID, BriefScope{})
 	require.NoError(t, err)
@@ -122,8 +120,6 @@ func TestB2BriefSingleComponentHeaderAndLayout(t *testing.T) {
 	assert.Contains(t, brief, "- build: `go build ./...`")
 	assert.Contains(t, brief, "Before handing off, run what CI runs:")
 	assert.Contains(t, brief, "`go test ./...`")
-	assert.Contains(t, brief, "## Notes")
-	assert.Contains(t, brief, "**Purpose** Serves the API. _(may be outdated)_")
 	assert.Contains(t, brief, "## Reference docs")
 	assert.Contains(t, brief, "coding standards: .ai/coding-standards.md")
 }
@@ -169,11 +165,14 @@ func TestB2BriefTruncatesComponentSectionsFromTheEndButKeepsTheHeader(t *testing
 	svc, store, repos, _, _, _ := newB2Service(t)
 	ctx := context.Background()
 	repo := b2SeedRepo(t, repos, "demo")
-	longBody := strings.Repeat("x", 3000)
+	longCmd := strings.Repeat("x", 3000)
 	for _, p := range []string{"aaa", "bbb", "ccc", "ddd"} {
-		comp := b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: p, Status: domain.ComponentStatusActive, Role: domain.Fact[domain.ComponentRole]{Detected: rolePtr(domain.ComponentRoleBackend)}})
-		_, err := store.SaveNote(ctx, domain.ProjectNote{RepositoryID: repo.ID, ComponentID: &comp.ID, Topic: domain.NoteGotchas, BodyMD: longBody, Author: domain.NoteAuthorAgent})
-		require.NoError(t, err)
+		cmd := longCmd
+		b2SeedComponent(t, store, domain.Component{
+			RepositoryID: repo.ID, Path: p, Status: domain.ComponentStatusActive,
+			Role:     domain.Fact[domain.ComponentRole]{Detected: rolePtr(domain.ComponentRoleBackend)},
+			Commands: []domain.ComponentCommand{{Purpose: domain.CommandBuild, Command: domain.Fact[string]{Detected: &cmd}}},
+		})
 	}
 
 	brief, err := svc.Brief(ctx, repo.ID, BriefScope{})

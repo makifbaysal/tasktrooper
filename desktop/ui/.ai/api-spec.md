@@ -597,9 +597,10 @@ a thin workflow calls it) instead of the four deleted platform deploy templates
 
 Replaced the old repository profile, in Phase 1: instead of one agent-written
 markdown brief, a repository now has a structured model — components, checks,
-links, resources, notes — built by a deterministic scan plus one agent pass.
+links, resources — built by a deterministic scan. Agents fetch project facts
+through tools themselves rather than reading a server-maintained note.
 JSON shapes are the Go types' JSON tags exactly: `server/internal/domain/project_model.go`
-(Component, ComponentCheck, ComponentLink, SystemResource, ProjectNote,
+(Component, ComponentCheck, ComponentLink, SystemResource,
 ProjectScan, `Fact<T>`, enums), `scan_result.go` (ScanResult, inside
 `ProjectScan.result` only), `project_model_requests.go` (patch/request bodies,
 RepositoryModel, ProjectsOverview, ProjectDetail, ReviewItem, summaries),
@@ -626,17 +627,13 @@ Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
 - `GET /v1/repositories/{id}/model` → `RepositoryModel`: `{ repository,
   shape: "single"|"monorepo", components, checks, links (outgoing),
   incoming_links, resources, linked_components (display info for other
-  repositories' components a link points at), notes, review, latest_scan? }`.
-- `GET /v1/repositories/{id}/brief?component_id=&area=` → `{ brief: string }`
-  — the markdown injected into an agent run.
+  repositories' components a link points at), review, latest_scan? }`.
 - `POST /v1/repositories/{id}/scans` → 202 `{ scan }` (409 while one is
   already running). `GET /v1/repositories/{id}/scans/latest` → `{ scan:
   ProjectScan | null }` and `GET /v1/scans/{scanId}` → `{ scan }` (neither
   carries `result`). `ProjectScan.events[]`: `{stage, done, summary?, at}`;
   stages in order: clone, inventory, shape, components, stack, checks, links,
-  deploy, match, notes. The deterministic stages finish in seconds; `notes`
-  (the agent pass) runs after `status` is already `succeeded` and appends its
-  events later. Import (`POST /v1/repositories/import|open`, `POST
+  deploy, match. Import (`POST /v1/repositories/import|open`, `POST
   /v1/repositories`) now starts a scan instead of the old profile refresh —
   poll `GET /v1/repositories/{id}/scans/latest` every 1s until `status` is
   `succeeded`/`failed`.
@@ -656,9 +653,7 @@ Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
   /v1/links/{id}` (same manual-only rule as checks; retargeting a suggested
   link with `PATCH` confirms it; `LinkPatch` also takes `to_resource_id`, to
   point a link at an existing `SystemResource` instead of typing a new one).
-  `PUT /v1/repositories/{id}/notes`
-  (`SaveNoteRequest {component_id?, topic, body_md, locked}`);
-  `PATCH`/`DELETE /v1/notes/{id}`. The "add component" folder picker reuses
+  The "add component" folder picker reuses
   the existing `GET /v1/repositories/{id}/directories?path=`.
 - **Resource unification** (merging duplicate `SystemResource`s a scan split,
   e.g. "Database" + "PostgreSQL" from the same connection string):

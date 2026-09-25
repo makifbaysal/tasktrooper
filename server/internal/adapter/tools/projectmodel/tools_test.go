@@ -3,8 +3,6 @@ package projectmodel
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -47,7 +45,7 @@ func TestNewExecutors(t *testing.T) {
 
 	kit, _, _ := newTestKit(t)
 	execs := NewExecutors(kit)
-	require.Len(t, execs, 4)
+	require.Len(t, execs, 3)
 	names := make(map[string]bool, len(execs))
 	for _, e := range execs {
 		names[e.Name()] = true
@@ -55,7 +53,6 @@ func TestNewExecutors(t *testing.T) {
 	assert.True(t, names[getBriefToolName])
 	assert.True(t, names[listChecksToolName])
 	assert.True(t, names[listLinksToolName])
-	assert.True(t, names[appprojectmodel.RecordNoteToolName])
 }
 
 func TestBriefTool_ScopesToComponent(t *testing.T) {
@@ -240,52 +237,6 @@ func TestLinksTool_InvalidDirectionErrors(t *testing.T) {
 	res := tool.Execute(repoCtx(repoID), `{"direction":"sideways"}`)
 	assert.True(t, res.IsError)
 	assert.Contains(t, res.Content, "invalid direction")
-}
-
-func TestRecordNoteTool_AcceptsWithValidEvidence(t *testing.T) {
-	kit, _, repos := newTestKit(t)
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "main.go"), []byte("package main"), 0o644))
-	repoID := repos.put(domain.Repository{Name: "demo", RootPath: root}).ID
-
-	tool := &recordNoteTool{kit: kit}
-	res := tool.Execute(repoCtx(repoID), `{"notes":[{"topic":"gotchas","body_md":"watch the retry loop","evidence":[{"path":"main.go"}]}]}`)
-	require.False(t, res.IsError, res.Content)
-
-	var payload struct {
-		Results []appprojectmodel.NoteResult `json:"results"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(res.Content), &payload))
-	require.Len(t, payload.Results, 1)
-	assert.True(t, payload.Results[0].Accepted)
-}
-
-func TestRecordNoteTool_RejectsWithoutResolvableEvidence(t *testing.T) {
-	kit, _, repos := newTestKit(t)
-	root := t.TempDir()
-	repoID := repos.put(domain.Repository{Name: "demo", RootPath: root}).ID
-
-	tool := &recordNoteTool{kit: kit}
-	res := tool.Execute(repoCtx(repoID), `{"notes":[{"topic":"gotchas","body_md":"watch the retry loop","evidence":[{"path":"missing.go"}]}]}`)
-	assert.True(t, res.IsError)
-	assert.Contains(t, res.Content, "no note was recorded")
-}
-
-func TestRecordNoteTool_RequiresAtLeastOneNote(t *testing.T) {
-	kit, _, repos := newTestKit(t)
-	repoID := repos.put(domain.Repository{Name: "demo"}).ID
-	tool := &recordNoteTool{kit: kit}
-	res := tool.Execute(repoCtx(repoID), `{"notes":[]}`)
-	assert.True(t, res.IsError)
-	assert.Contains(t, res.Content, "notes is required")
-}
-
-func TestRecordNoteTool_NoRepositoryErrors(t *testing.T) {
-	kit, _, _ := newTestKit(t)
-	tool := &recordNoteTool{kit: kit}
-	res := tool.Execute(context.Background(), `{"notes":[{"topic":"gotchas","body_md":"x","evidence":[{"path":"a.go"}]}]}`)
-	assert.True(t, res.IsError)
-	assert.Contains(t, res.Content, "repository")
 }
 
 func ptr[T any](v T) *T { return &v }

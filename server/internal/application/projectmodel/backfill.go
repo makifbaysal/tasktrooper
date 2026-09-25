@@ -39,11 +39,11 @@ func (s *Service) Boot(ctx context.Context) {
 // first, and turns its legacy kind/sub-projects/pipeline-job rows into
 // overrides on what the scan found; a repository stays at zero components
 // (and so is retried next boot) until this succeeds, which is what makes the
-// phase safe to run on every boot. Phase 2 then carries dependencies and
-// agent notes into links and project_notes for every repository that now has
-// components, guarded per-row by its own idempotency marker instead of a
-// repository-level gate, because those rows can legitimately still be
-// missing on a repository this process itself just gave its first components.
+// phase safe to run on every boot. Phase 2 then carries dependencies into
+// links for every repository that now has components, guarded per-row by its
+// own idempotency marker instead of a repository-level gate, because those
+// rows can legitimately still be missing on a repository this process itself
+// just gave its first components.
 func (s *Service) migrateLegacy(ctx context.Context) {
 	repos, err := s.repos.List(ctx)
 	if err != nil {
@@ -83,7 +83,6 @@ func (s *Service) migrateLegacy(ctx context.Context) {
 			continue
 		}
 		s.migrateLegacyDependencies(ctx, repo, components)
-		s.migrateLegacyNotes(ctx, repo, components)
 	}
 }
 
@@ -423,117 +422,4 @@ func (s *Service) buildLegacyDependencyLink(ctx context.Context, repo domain.Rep
 	}
 
 	return link, true
-}
-
-// legacySectionTopics maps every agent-writable profile section this
-// repository's rows can hold onto its project_notes topic; "notes" is the
-// old free-text catch-all and folds into gotchas.
-var legacySectionTopics = map[string]domain.NoteTopic{
-	domain.ProfileSectionPurpose:       domain.NotePurpose,
-	domain.ProfileSectionEntrypoints:   domain.NoteEntrypoints,
-	domain.ProfileSectionConventions:   domain.NoteConventions,
-	domain.ProfileSectionInvariants:    domain.NoteInvariants,
-	domain.ProfileSectionDangerZones:   domain.NoteDangerZones,
-	domain.ProfileSectionChangeRecipes: domain.NoteChangeRecipes,
-	domain.ProfileSectionGotchas:       domain.NoteGotchas,
-	domain.ProfileSectionNotes:         domain.NoteGotchas,
-}
-
-type pendingLegacyNote struct {
-	componentID  *uuid.UUID
-	topic        domain.NoteTopic
-	body         string
-	evidence     []domain.SourceEvidence
-	sourceCommit string
-}
-
-func noteMergeKey(componentID *uuid.UUID, topic domain.NoteTopic) string {
-	scope := "repo"
-	if componentID != nil {
-		scope = componentID.String()
-	}
-	return scope + "|" + string(topic)
-}
-
-// migrateLegacyNotes carries every not-yet-migrated agent section into
-// project_notes. Two legacy sections can target the same topic (an explicit
-// "gotchas" section and the old catch-all "notes" section both fold into
-// NoteGotchas), so writes are staged by (component, topic) and merged before
-// anything is saved, rather than the second one silently overwriting the
-// first.
-func (s *Service) migrateLegacyNotes(ctx context.Context, repo domain.Repository, components []domain.Component) {
-	if s.legacy == nil {
-		return
-	}
-	sections, err := s.legacy.ListLegacyAgentSections(ctx, repo.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("repository", repo.Name).Msg("project model backfill: listing legacy agent sections failed")
-		return
-	}
-	if len(sections) == 0 {
-		return
-	}
-	existingNotes, err := s.store.ListNotes(ctx, repo.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("repository", repo.Name).Msg("project model backfill: listing notes failed")
-		return
-	}
-
-	pending := map[string]*pendingLegacyNote{}
-	var order []string
-	for _, sec := range sections {
-		topic, ok := legacySectionTopics[sec.Section]
-		if !ok {
-			continue
-		}
-		var componentID *uuid.UUID
-		if sec.SubProjectPath != "" {
-			comp, ok := componentAtPath(components, sec.SubProjectPath)
-			if !ok {
-				continue
-			}
-			id := comp.ID
-			componentID = &id
-		}
-		if _, ok := findNoteByScope(existingNotes, componentID, topic); ok {
-			continue
-		}
-
-		key := noteMergeKey(componentID, topic)
-		if p, ok := pending[key]; ok {
-			p.body = strings.TrimSpace(p.body + "\n\n" + sec.BodyMD)
-			p.evidence = append(p.evidence, sec.Evidence...)
-			if sec.SourceCommit != "" {
-				p.sourceCommit = sec.SourceCommit
-			}
-			continue
-		}
-		pending[key] = &pendingLegacyNote{
-			componentID:  componentID,
-			topic:        topic,
-			body:         strings.TrimSpace(sec.BodyMD),
-			evidence:     append([]domain.SourceEvidence(nil), sec.Evidence...),
-			sourceCommit: sec.SourceCommit,
-		}
-		order = append(order, key)
-	}
-
-	for _, key := range order {
-		p := pending[key]
-		if p.body == "" {
-			continue
-		}
-		if _, err := s.store.SaveNote(ctx, domain.ProjectNote{
-			RepositoryID: repo.ID,
-			ComponentID:  p.componentID,
-			Topic:        p.topic,
-			BodyMD:       p.body,
-			Evidence:     p.evidence,
-			SourceCommit: p.sourceCommit,
-			Author:       domain.NoteAuthorAgent,
-			Stale:        false,
-		}); err != nil {
-			log.Warn().Err(err).Str("repository", repo.Name).Msg("project model backfill: saving legacy note failed")
-		}
-	}
 }

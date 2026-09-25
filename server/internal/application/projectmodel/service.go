@@ -1,7 +1,7 @@
 // Package projectmodel owns the structured knowledge about every repository:
-// its components, the CI checks that verify them, what they connect to, and
-// the judgment notes agents keep. Scans write the detected half; the human
-// writes overrides; agents read both through the brief and the tools.
+// its components, the CI checks that verify them, and what they connect to.
+// Scans write the detected half; the human writes overrides; agents read both
+// through the brief and the tools.
 package projectmodel
 
 import (
@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -50,18 +49,10 @@ type PipelineJobWriter interface {
 	ReplaceForRepository(ctx context.Context, repositoryID uuid.UUID, jobs []domain.RepositoryPipelineJob) ([]domain.RepositoryPipelineJob, error)
 }
 
-type AgentLoop interface {
-	Run(ctx context.Context, messages []domain.Message, model string, provider domain.LLMProviderType, policy domain.ToolPolicy, opts ...agent.RunOption) (domain.AgentResponse, error)
-}
-
-type AgentGetter interface {
-	GetAgent(ctx context.Context, id uuid.UUID) (domain.Agent, error)
-}
-
 // DeployMatcher is cloud.Service narrowed to what a finished scan needs: turn
 // its deploy signals into environment bindings. A local interface rather than
-// an import of the cloud package, the same seam Scanner and AgentLoop use to
-// keep application packages from depending on one another directly.
+// an import of the cloud package, the same seam Scanner uses to keep
+// application packages from depending on one another directly.
 type DeployMatcher interface {
 	MatchScan(ctx context.Context, repositoryID uuid.UUID, result domain.ScanResult) error
 }
@@ -77,10 +68,6 @@ type Service struct {
 	scanner   Scanner
 	legacy    port.LegacyModelSource
 
-	loop   AgentLoop
-	agents AgentGetter
-	roles  port.RoleResolver
-
 	deployMatcher DeployMatcher
 	environments  port.EnvironmentStore
 
@@ -88,9 +75,6 @@ type Service struct {
 
 	mu       sync.Mutex
 	inflight map[uuid.UUID]uuid.UUID
-	// notesWritten counts record_project_note calls per repository during an
-	// agent notes pass, so the pass can tell "wrote nothing" from "wrote".
-	notesWritten map[uuid.UUID]int
 
 	bgCtx context.Context
 }
@@ -107,22 +91,17 @@ type Deps struct {
 
 func NewService(d Deps) *Service {
 	return &Service{
-		store:        d.Store,
-		repos:        d.Repos,
-		projector:    d.Projector,
-		projects:     d.Projects,
-		pipelines:    d.Pipelines,
-		scanner:      d.Scanner,
-		legacy:       d.Legacy,
-		now:          func() time.Time { return time.Now().UTC() },
-		inflight:     make(map[uuid.UUID]uuid.UUID),
-		notesWritten: make(map[uuid.UUID]int),
-		bgCtx:        context.Background(),
+		store:     d.Store,
+		repos:     d.Repos,
+		projector: d.Projector,
+		projects:  d.Projects,
+		pipelines: d.Pipelines,
+		scanner:   d.Scanner,
+		legacy:    d.Legacy,
+		now:       func() time.Time { return time.Now().UTC() },
+		inflight:  make(map[uuid.UUID]uuid.UUID),
+		bgCtx:     context.Background(),
 	}
-}
-
-func (s *Service) SetAgentLoop(loop AgentLoop, agents AgentGetter, roles port.RoleResolver) {
-	s.loop, s.agents, s.roles = loop, agents, roles
 }
 
 // SetDeployMatcher wires cloud.Service.MatchScan behind runScan; nil (the

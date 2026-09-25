@@ -71,15 +71,6 @@ export const projectModel: ProjectModelDict = {
     observability: "Gözlemlenebilirlik",
     other: "Diğer",
   },
-  noteTopics: {
-    purpose: "Amaç",
-    entrypoints: "Giriş noktaları",
-    conventions: "Kurallar",
-    invariants: "Değişmezler",
-    danger_zones: "Tehlikeli bölgeler",
-    change_recipes: "Değişiklik tarifleri",
-    gotchas: "Püf noktaları",
-  },
   scanStages: {
     clone: "Klonlama",
     inventory: "Envanter",
@@ -90,7 +81,6 @@ export const projectModel: ProjectModelDict = {
     links: "Bağlantılar",
     deploy: "Dağıtım",
     match: "Eşleştirme",
-    notes: "Notlar",
   },
   confidence: {
     exact: "Kesin",

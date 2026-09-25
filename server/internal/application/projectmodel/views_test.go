@@ -50,7 +50,6 @@ func (s *ViewsSuite) TestRepositoryModelNeverReturnsNilSlices() {
 	s.NotNil(model.IncomingLinks)
 	s.NotNil(model.Resources)
 	s.NotNil(model.LinkedComponents)
-	s.NotNil(model.Notes)
 	s.NotNil(model.Review)
 	s.Nil(model.LatestScan)
 }

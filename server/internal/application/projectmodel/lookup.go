@@ -34,3 +34,12 @@ func (s *Service) ComponentByPath(ctx context.Context, repositoryID uuid.UUID, p
 	}
 	return domain.Component{}, fmt.Errorf("%w: no active component at path %q", ErrInvalidInput, norm)
 }
+
+func activeComponentByPath(components []domain.Component, path string) (domain.Component, bool) {
+	for _, c := range components {
+		if c.Status == domain.ComponentStatusActive && c.Path == path {
+			return c, true
+		}
+	}
+	return domain.Component{}, false
+}

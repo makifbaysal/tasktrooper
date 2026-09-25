@@ -49,11 +49,12 @@ type RepositoryResolver interface {
 }
 
 // ProjectModel is the structured project model's read surface the board
-// needs: the brief that replaces the old markdown profile injection, and the
-// component scope verification runs against. A nil ProjectModel is the
-// pre-model behaviour — no brief, VerifyCommand/detectBuild verification.
+// needs for verification: which commands CI runs and which components a
+// diff or an agent's area maps to. Agents no longer get this pushed as a
+// brief; ToolsNote tells them the model exists and they pull facts through
+// the project-model tools instead. A nil ProjectModel is the pre-model
+// behaviour — VerifyCommand/detectBuild verification only.
 type ProjectModel interface {
-	Brief(ctx context.Context, repositoryID uuid.UUID, scope projectmodel.BriefScope) (string, error)
 	RequiredCommands(ctx context.Context, repositoryID uuid.UUID, componentIDs []uuid.UUID) ([]domain.LocalCommand, error)
 	ComponentsForPaths(ctx context.Context, repositoryID uuid.UUID, paths []string) ([]uuid.UUID, error)
 	ComponentsForArea(ctx context.Context, repositoryID uuid.UUID, area string) ([]uuid.UUID, error)
@@ -945,25 +946,18 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		prevFailuresMsg = previousRunFailuresMessage(prevRuns, run.ID)
 		resumeCLISession = latestCLISession(prevRuns, run.ID, job.Run.AgentID)
 	}
-	var projectDesc, projectBrief string
+	var projectDesc string
 	if repoCtx, repoCtxErr := r.projects.ResolveRepository(ctx, job.RepositoryID); repoCtxErr == nil {
 		projectDesc = repoCtx.Description
 	}
-	if r.projectModel != nil {
-		scope := projectmodel.BriefScope{ComponentID: job.Task.ComponentID}
-		if scope.ComponentID == nil && r.roles != nil {
-			scope.Area = r.roles.AgentArea(ctx, agentRec.ID)
-		}
-		if brief, briefErr := r.projectModel.Brief(ctx, job.RepositoryID, scope); briefErr == nil {
-			projectBrief = brief
-		} else {
-			log.Warn().Err(briefErr).Str("repository_id", job.RepositoryID.String()).Msg("project brief unavailable; run continues without it")
-		}
-	}
+
+	policy := domain.MergeToolPolicy(r.defaultPolicy, agentRec.ToolPolicy)
+	stage, _ := wf.Stage(job.Task.Column)
+	upliftedPolicy := domain.RestrictToolsForStage(domain.UpliftWorkspaceTools(policy), stage, wf.Type)
 
 	history := []domain.Message{{Role: domain.RoleSystem, Content: systemPrompt}}
 	history = append(history, domain.Message{Role: domain.RoleSystem, Content: prompt.SubtaskWorkspaceNote(workDir)})
-	history = append(history, prependProjectContext(nil, projectDesc, projectBrief)...)
+	history = append(history, prependProjectContext(nil, projectDesc, projectmodel.ToolsNote(upliftedPolicy))...)
 	if scoreMsg != "" {
 		history = append(history, domain.Message{Role: domain.RoleSystem, Content: scoreMsg})
 	}
@@ -1017,10 +1011,6 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	if r.budget.MaxTokens > 0 {
 		history = r.budget.Apply(history)
 	}
-
-	policy := domain.MergeToolPolicy(r.defaultPolicy, agentRec.ToolPolicy)
-	stage, _ := wf.Stage(job.Task.Column)
-	upliftedPolicy := domain.RestrictToolsForStage(domain.UpliftWorkspaceTools(policy), stage, wf.Type)
 
 	var resp domain.AgentResponse
 	cliSession := &agent.CLISession{}
@@ -2248,7 +2238,7 @@ Event rules:
 - Tools that take a repository_id (get_deploy_target, update_deploy_target, list_incidents, create_board_task) want the repository_id UUID from the snapshot below — never the repository name. Tools without that field — list_board_tasks among them — are already scoped to this run's repository; passing one an extra field is a schema error.
 
 Before you finish, in this order — these are calls, not prose in your summary:
-1. Build and test what you changed with run_terminal, and read the output. Red output is fixed in this run, not reported as done. The commands under "Before handing off" in your project brief are what CI runs on this diff — passing them locally is what this step means.
+1. Build and test what you changed with run_terminal, and read the output. Red output is fixed in this run, not reported as done. Call list_component_checks and run the local command of every required check for the components this diff touches — passing them locally is what this step means.
 2. Every acceptance criterion you satisfied: set_criterion_completed with its id — ticked only after step 1 showed it working.
 3. Every criterion you did NOT satisfy: leave it open and say why in a comment.
 %s
@@ -2277,7 +2267,8 @@ func runInstruction(wf domain.Workflow, job RunJob) string {
 }
 
 const verifyBeforeFinishing = "Before you finish, RUN the code you wrote: build it and run the tests with run_terminal " +
-	"(the project's own commands — check package.json / Makefile / go.mod / the README if you do not know them) and READ the output. " +
+	"(call list_component_checks or get_project_brief for the project's own commands when those tools are available; " +
+	"otherwise check package.json / Makefile / go.mod / the README) and READ the output. " +
 	"Writing a file is not verifying it and neither is reading it back; \"it should work\" is not a result. " +
 	"A red build or a failing test is yours to fix in this same run — never hand off red work. " +
 	"If the change cannot be executed here (missing service, no credentials), say exactly that in your closing comment " +
@@ -2409,18 +2400,16 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 	}
 }
 
-const maxInjectedBriefChars = 8000
-
-func prependProjectContext(history []domain.Message, desc, brief string) []domain.Message {
+func prependProjectContext(history []domain.Message, desc, toolsNote string) []domain.Message {
 	var note string
 	if desc != "" {
 		note = "Project context: " + desc
 	}
-	if brief != "" {
+	if toolsNote != "" {
 		if note != "" {
 			note += "\n\n"
 		}
-		note += "## Project brief (maintained by TaskTrooper)\n" + domain.TruncateHead(brief, maxInjectedBriefChars)
+		note += toolsNote
 	}
 	if note == "" {
 		return history

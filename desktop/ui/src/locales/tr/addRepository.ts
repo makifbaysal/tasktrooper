@@ -52,14 +52,14 @@ export const addRepository: AddRepositoryDict = {
   },
   scan: {
     heading: "{names} taranıyor",
-    subheading: "Buldukça gösteriyorum. Ajan özeti arka planda sürer, beklemen gerekmiyor.",
+    subheading: "Buldukça gösteriyorum — bitmesini beklemen gerekmiyor.",
     cloning: "Klonlanıyor…",
     componentsFound: "{count} bileşen bulundu",
     retry: "Tekrar dene",
     failedTitle: "İçe aktarma başarısız",
     scanFailedHint: "Tarama başarısız oldu — repo sayfasından yeniden çalıştırılabilir.",
     continue: "İncelemeye geç",
-    continueHint: "Notlar arka planda sürüyor olabilir",
+    continueHint: "Kod indeksleme arka planda sürüyor olabilir",
   },
   review: {
     heading: "Emin olamadığım birkaç şey",
@@ -79,7 +79,7 @@ export const addRepository: AddRepositoryDict = {
   done: {
     added: "{names}, {project} projesine eklendi",
     backgroundTitle: "Arka planda sürenler",
-    backgroundNote: "Ajan notları ve kod indeksi sürmeye devam ediyor; bitince repo sayfasında görünür.",
+    backgroundNote: "Kod indeksleme sürmeye devam ediyor; bitince repo sayfasında görünür.",
     statComponents: "bileşen",
     statChecks: "kontrol · {required} zorunlu",
     statLinks: "bağlantı",

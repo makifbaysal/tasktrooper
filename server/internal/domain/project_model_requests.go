@@ -137,18 +137,6 @@ type NewLinkRequest struct {
 	Detail          string       `json:"detail,omitempty"`
 }
 
-type SaveNoteRequest struct {
-	ComponentID *uuid.UUID `json:"component_id,omitempty"`
-	Topic       NoteTopic  `json:"topic"`
-	BodyMD      string     `json:"body_md"`
-	Locked      bool       `json:"locked"`
-}
-
-type NotePatch struct {
-	BodyMD *string `json:"body_md,omitempty"`
-	Locked *bool   `json:"locked,omitempty"`
-}
-
 type ReviewKind string
 
 const (
@@ -191,7 +179,6 @@ type RepositoryModel struct {
 	IncomingLinks    []ComponentLink        `json:"incoming_links"`
 	Resources        []SystemResource       `json:"resources"`
 	LinkedComponents []LinkedComponent      `json:"linked_components"`
-	Notes            []ProjectNote          `json:"notes"`
 	Environments     []ComponentEnvironment `json:"environments"`
 	Review           []ReviewItem           `json:"review"`
 	LatestScan       *ProjectScan           `json:"latest_scan,omitempty"`

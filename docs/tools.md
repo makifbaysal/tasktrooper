@@ -76,10 +76,9 @@ Read-only, and available even on a repository with no semantic index yet.
 | `list_repositories` | Lists registered repositories | Every role |
 | `set_repository_projects` | Links a repository to projects | `product-manager` |
 | `list_team` | Lists board member agents | Every role |
-| `get_project_brief` | Reads the structured project model's brief: what a repository/component is, what it runs, what it talks to, plus judgment notes | `system-architect`, developer roles, `qa-agent`, `product-manager` |
+| `get_project_brief` | Reads the structured project model's brief: what a repository/component is, what it runs, what it talks to; fetched on demand, never injected into a run's context | `system-architect`, developer roles, `qa-agent`, `product-manager` |
 | `list_component_checks` | Lists each component's CI checks — workflow, purpose, gate, the exact local command that reproduces it | `system-architect`, developer roles, `qa-agent` |
 | `list_links` | Lists what a component talks to and what talks to it (other components, system resources) | `system-architect`, developer roles, `qa-agent`, `product-manager` |
-| `record_project_note` | Writes the judgment half of the project model (purpose, entrypoints, conventions, invariants, danger zones, change recipes, gotchas) | `system-architect`, developer roles |
 
 ## Cloud runtime
 

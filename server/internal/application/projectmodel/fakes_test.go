@@ -33,7 +33,6 @@ type fakeStore struct {
 	// resourceAliases mirrors system_resource_aliases: an identity key a merge
 	// folded away keeps resolving to its merge target.
 	resourceAliases map[string]uuid.UUID
-	notes           map[uuid.UUID]domain.ProjectNote
 	scans           map[uuid.UUID]domain.ProjectScan
 }
 
@@ -47,7 +46,6 @@ func newFakeStore() *fakeStore {
 		resources:           map[uuid.UUID]domain.SystemResource{},
 		resourcesByIdentity: map[string]uuid.UUID{},
 		resourceAliases:     map[string]uuid.UUID{},
-		notes:               map[uuid.UUID]domain.ProjectNote{},
 		scans:               map[uuid.UUID]domain.ProjectScan{},
 	}
 }
@@ -341,66 +339,6 @@ func (f *fakeStore) MergeResources(ctx context.Context, sourceID, targetID uuid.
 	return nil
 }
 
-func (f *fakeStore) ListNotes(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProjectNote, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []domain.ProjectNote
-	for _, n := range f.notes {
-		if n.RepositoryID == repositoryID {
-			out = append(out, n)
-		}
-	}
-	return out, nil
-}
-
-func (f *fakeStore) GetNote(ctx context.Context, id uuid.UUID) (domain.ProjectNote, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	n, ok := f.notes[id]
-	if !ok {
-		return domain.ProjectNote{}, port.ErrNotFound
-	}
-	return n, nil
-}
-
-func (f *fakeStore) SaveNote(ctx context.Context, n domain.ProjectNote) (domain.ProjectNote, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if n.ID == uuid.Nil {
-		n.ID = uuid.New()
-	}
-	f.notes[n.ID] = n
-	return n, nil
-}
-
-func (f *fakeStore) DeleteNote(ctx context.Context, id uuid.UUID) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.notes, id)
-	return nil
-}
-
-func (f *fakeStore) MarkNotesStale(ctx context.Context, repositoryID uuid.UUID, changedPaths []string) ([]domain.ProjectNote, error) {
-	changed := toStringSet(changedPaths)
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var out []domain.ProjectNote
-	for id, n := range f.notes {
-		if n.RepositoryID != repositoryID {
-			continue
-		}
-		for _, ev := range n.Evidence {
-			if changed[ev.Path] {
-				n.Stale = true
-				f.notes[id] = n
-				out = append(out, n)
-				break
-			}
-		}
-	}
-	return out, nil
-}
-
 func (f *fakeStore) CreateScan(ctx context.Context, sc domain.ProjectScan) (domain.ProjectScan, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -490,14 +428,6 @@ func (f *fakeStore) ApplyReconcile(ctx context.Context, r port.ModelReconcile) e
 		delete(f.links, id)
 	}
 	return nil
-}
-
-func toStringSet(ss []string) map[string]bool {
-	out := make(map[string]bool, len(ss))
-	for _, s := range ss {
-		out[s] = true
-	}
-	return out
 }
 
 // --- fakeRepos: RepositoryReader (+ LegacyProjector target) ---

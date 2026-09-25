@@ -42,15 +42,6 @@ func (s *Service) StartScan(ctx context.Context, repositoryID uuid.UUID, trigger
 		return domain.ProjectScan{}, false, err
 	}
 
-	prevSHA := ""
-	if latest, err := s.store.LatestScan(ctx, repositoryID); err == nil {
-		if latest.Status == domain.ScanSucceeded {
-			prevSHA = latest.CommitSHA
-		}
-	} else if !errors.Is(err, port.ErrNotFound) {
-		log.Warn().Err(err).Str("repository_id", repositoryID.String()).Msg("scan: previous scan lookup failed")
-	}
-
 	scan, err := s.store.CreateScan(ctx, domain.ProjectScan{
 		ID:           uuid.New(),
 		RepositoryID: repositoryID,
@@ -68,7 +59,7 @@ func (s *Service) StartScan(ctx context.Context, repositoryID uuid.UUID, trigger
 	s.inflight[repositoryID] = scan.ID
 	s.mu.Unlock()
 
-	go s.runScanGuarded(repo, scan, prevSHA)
+	go s.runScanGuarded(repo, scan)
 
 	return scan, true, nil
 }
@@ -85,7 +76,7 @@ func (s *Service) clearInflight(repositoryID, scanID uuid.UUID) {
 // scanTimeout under the process-lifetime background context (so a request's
 // cancellation never kills a scan it started) and turns a panic into a
 // failed scan instead of a crashed process.
-func (s *Service) runScanGuarded(repo domain.Repository, scan domain.ProjectScan, prevSHA string) {
+func (s *Service) runScanGuarded(repo domain.Repository, scan domain.ProjectScan) {
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.bgCtx), scanTimeout)
 	defer cancel()
 	defer func() {
@@ -95,10 +86,10 @@ func (s *Service) runScanGuarded(repo domain.Repository, scan domain.ProjectScan
 			s.failScan(context.WithoutCancel(runCtx), scan, fmt.Sprintf("panic: %v", r))
 		}
 	}()
-	s.runScan(runCtx, repo, scan, prevSHA)
+	s.runScan(runCtx, repo, scan)
 }
 
-func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan domain.ProjectScan, prevSHA string) {
+func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan domain.ProjectScan) {
 	scan.Status = domain.ScanRunning
 	if err := s.store.UpdateScan(ctx, scan); err != nil {
 		log.Warn().Err(err).Str("scan_id", scan.ID.String()).Msg("scan: persisting running status failed")
@@ -166,16 +157,6 @@ func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan doma
 	}
 
 	s.clearInflight(repo.ID, scan.ID)
-
-	if scan.Trigger == domain.ScanTriggerPush && prevSHA != "" && result.Git.HeadSHA != "" && prevSHA != result.Git.HeadSHA {
-		if paths := changedPathsSince(ctx, repo.RootPath, prevSHA, result.Git.HeadSHA); len(paths) > 0 {
-			if _, err := s.store.MarkNotesStale(ctx, repo.ID, paths); err != nil {
-				log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: marking notes stale failed")
-			}
-		}
-	}
-
-	s.maybeRunNotesPass(ctx, repo, scan)
 }
 
 func (s *Service) failScan(ctx context.Context, scan domain.ProjectScan, message string) {

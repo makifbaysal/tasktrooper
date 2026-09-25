@@ -51,16 +51,6 @@ type ResourceStore interface {
 	RenameResource(ctx context.Context, id uuid.UUID, name string) (domain.SystemResource, error)
 }
 
-type NoteStore interface {
-	ListNotes(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProjectNote, error)
-	GetNote(ctx context.Context, id uuid.UUID) (domain.ProjectNote, error)
-	// Upserts by (repository, component, topic).
-	SaveNote(ctx context.Context, n domain.ProjectNote) (domain.ProjectNote, error)
-	DeleteNote(ctx context.Context, id uuid.UUID) error
-	// Flags notes whose evidence paths appear in changedPaths and returns them.
-	MarkNotesStale(ctx context.Context, repositoryID uuid.UUID, changedPaths []string) ([]domain.ProjectNote, error)
-}
-
 type ScanStore interface {
 	CreateScan(ctx context.Context, s domain.ProjectScan) (domain.ProjectScan, error)
 	// Rewrites status, stage, events, result, review count, error and
@@ -98,7 +88,6 @@ type ProjectModelStore interface {
 	CheckStore
 	LinkStore
 	ResourceStore
-	NoteStore
 	ScanStore
 	ModelReconciler
 }
@@ -107,5 +96,4 @@ type ProjectModelStore interface {
 // repository, so the human's earlier settings carry over as overrides.
 type LegacyModelSource interface {
 	ListLegacyDependencies(ctx context.Context, repositoryID uuid.UUID) ([]domain.LegacyDependency, error)
-	ListLegacyAgentSections(ctx context.Context, repositoryID uuid.UUID) ([]domain.LegacyAgentSection, error)
 }

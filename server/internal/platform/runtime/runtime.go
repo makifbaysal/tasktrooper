@@ -1232,19 +1232,30 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		var antigravityExecutor port.TaskExecutor
 		var cursorExecutor port.TaskExecutor
 		var opencodeExecutor port.TaskExecutor
-		// The MCP tool endpoint is created with the local executor and only
-		// with it: it exists to serve CLI sessions, so on a host with no CLI
-		// it would be a route nothing can authenticate against. That is also
-		// why it needs no config knob — "enabled" and "the executor is
-		// registered" are the same fact. The endpoint is the one Run already
-		// published the bound address on, so a board run dispatched by the
-		// activation at the end of this function has a reachable URL from
-		// its first millisecond. Allocated here only for the callers that
-		// build a handler without going through Run.
+		// The MCP endpoint/server serve every host CLI provider, not just
+		// claude: cursor, opencode and antigravity all take the SAME claudeMCP
+		// provider below, so a host missing the claude binary still serves
+		// TaskTrooper's tools to whichever of the others IS installed. Built
+		// unconditionally, ahead of every New() call, so none of the four
+		// depends on claude's own executor having registered successfully. The
+		// endpoint is the one Run already published the bound address on, so a
+		// board run dispatched by the activation at the end of this function has
+		// a reachable URL from its first millisecond. Allocated here only for
+		// the callers that build a handler without going through Run.
 		if e.mcpEndpoint == nil {
 			e.mcpEndpoint = &mcpEndpoint{}
 		}
 		claudeMCP := &claudeCodeMCP{endpoint: e.mcpEndpoint, tokens: mcpserver.NewRunTokenRegistry(), registry: toolReg}
+		// toolReg, not the bare registry: the audit and action-ledger
+		// decorators are what make a CLI session's tool call show up in the
+		// same places a loop run's does.
+		e.mcpServer = mcpserver.New(toolReg, claudeMCP.tokens)
+		// This route sits outside the prefixes the auth middlewares gate, so
+		// the per-run token would otherwise be the only thing in front of
+		// this install's board tools. The only legitimate clients are CLI
+		// children on this host.
+		e.mcpServer.SetLoopbackOnly(true)
+
 		if executor, ccErr := claudecode.New(claudecode.Config{
 			Binary:     cfg.ClaudeCode.Binary,
 			MaxTurns:   cfg.ClaudeCode.MaxTurns,
@@ -1260,48 +1271,42 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			log.Info().Err(ccErr).Msg("agent cli executor not registered; agents on the claude_code provider cannot run on this host")
 		} else {
 			claudeExecutor = executor
-			// toolReg, not the bare registry: the audit and action-ledger
-			// decorators are what make a CLI session's tool call show up in the
-			// same places a loop run's does.
-			e.mcpServer = mcpserver.New(toolReg, claudeMCP.tokens)
-			// This route sits outside the prefixes the auth middlewares gate, so
-			// the per-run token would otherwise be the only thing in front of
-			// this install's board tools. The only legitimate client is a claude
-			// child on this host.
-			e.mcpServer.SetLoopbackOnly(true)
 			log.Info().
 				Str("mcp_endpoint", e.mcpEndpoint.get()).
 				Msg("agent cli executor enabled, tasktrooper tools served over mcp")
 		}
 
 		if executor, agErr := antigravity.New(antigravity.Config{
-			Binary:     cfg.Antigravity.Binary,
-			RunTimeout: cfg.Antigravity.RunTimeout,
+			Binary:      cfg.Antigravity.Binary,
+			RunTimeout:  cfg.Antigravity.RunTimeout,
+			MCPProvider: claudeMCP,
 		}); agErr != nil {
 			log.Info().Err(agErr).Msg("antigravity executor not registered; agents on the antigravity provider cannot run on this host")
 		} else {
 			antigravityExecutor = executor
-			log.Info().Msg("antigravity executor enabled")
+			log.Info().Str("mcp_endpoint", e.mcpEndpoint.get()).Msg("antigravity executor enabled, tasktrooper tools served over mcp")
 		}
 
 		if executor, curErr := cursor.New(cursor.Config{
-			Binary:     cfg.CursorAgent.Binary,
-			RunTimeout: cfg.CursorAgent.RunTimeout,
+			Binary:      cfg.CursorAgent.Binary,
+			RunTimeout:  cfg.CursorAgent.RunTimeout,
+			MCPProvider: claudeMCP,
 		}); curErr != nil {
 			log.Info().Err(curErr).Msg("cursor executor not registered; agents on the cursor_agent provider cannot run on this host")
 		} else {
 			cursorExecutor = executor
-			log.Info().Msg("cursor executor enabled")
+			log.Info().Str("mcp_endpoint", e.mcpEndpoint.get()).Msg("cursor executor enabled, tasktrooper tools served over mcp")
 		}
 
 		if executor, ocErr := opencode.New(opencode.Config{
-			Binary:     cfg.Opencode.Binary,
-			RunTimeout: cfg.Opencode.RunTimeout,
+			Binary:      cfg.Opencode.Binary,
+			RunTimeout:  cfg.Opencode.RunTimeout,
+			MCPProvider: claudeMCP,
 		}); ocErr != nil {
 			log.Info().Err(ocErr).Msg("opencode executor not registered; agents on the opencode provider cannot run on this host")
 		} else {
 			opencodeExecutor = executor
-			log.Info().Msg("opencode executor enabled")
+			log.Info().Str("mcp_endpoint", e.mcpEndpoint.get()).Msg("opencode executor enabled, tasktrooper tools served over mcp")
 		}
 
 		mux := &muxExecutor{
@@ -1523,9 +1528,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				Scanner:   discovery.New(),
 				Legacy:    pgstore.NewLegacyModelSource(e.pgDB),
 			})
-			if e.agentRouter != nil && catalogStore != nil && workflowSvc != nil {
-				modelSvc.SetAgentLoop(e.agentRouter, catalogStore, workflowSvc)
-			}
 			modelSvc.SetBackgroundContext(ctx)
 			modelSvc.Boot(ctx)
 			for _, tool := range projectmodeltools.NewExecutors(&projectmodeltools.ToolKit{Model: modelSvc}) {
@@ -2402,9 +2404,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			Actions:            sessionActionStore,
 			Workspace:          sessionWorkspace,
 		})
-		if modelSvc != nil {
-			sessionSvc.SetProjectBriefs(modelSvc)
-		}
 		// Loop closer for human-in-the-loop: a question parks the task on the
 		// clarification chat and answering re-dispatches it; repositorySvc
 		// records the answer on the task so later runs read what was settled.

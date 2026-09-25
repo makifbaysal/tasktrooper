@@ -35,7 +35,7 @@ describe("ScanProgressList", () => {
     const { container } = renderScan(null, { state: "running" });
     const labels = Array.from(container.querySelectorAll("li")).map((li) => li.textContent);
     expect(labels).toEqual([
-      "Clone", "Inventory", "Shape", "Components", "Stack", "Checks", "Links", "Deploy", "Match", "Notes",
+      "Clone", "Inventory", "Shape", "Components", "Stack", "Checks", "Links", "Deploy", "Match",
     ]);
   });
 
@@ -99,7 +99,7 @@ describe("ScanProgressList", () => {
     const items = Array.from(container.querySelectorAll("li"));
     const componentsItem = items.find((li) => li.textContent?.startsWith("Components"));
     expect(componentsItem?.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
-    const notesItem = items.find((li) => li.textContent?.startsWith("Notes"));
-    expect(notesItem?.querySelector("span")?.className).toContain("text-muted-foreground");
+    const matchItem = items.find((li) => li.textContent?.startsWith("Match"));
+    expect(matchItem?.querySelector("span")?.className).toContain("text-muted-foreground");
   });
 });

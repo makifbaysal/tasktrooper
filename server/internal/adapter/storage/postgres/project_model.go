@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +17,7 @@ import (
 
 // ProjectModelStore persists the structured project model (migration 154):
 // components, their CI checks, the edges between components and system
-// resources, human-written notes, and the scans that produce all of it.
+// resources, and the scans that produce all of it.
 type ProjectModelStore struct {
 	pool *DB
 }
@@ -729,140 +728,6 @@ func (s *ProjectModelStore) DeleteLink(ctx context.Context, id uuid.UUID) error 
 		return fmt.Errorf("delete link: %w", port.ErrNotFound)
 	}
 	return nil
-}
-
-// --- ProjectNote ---
-
-const noteCols = `id, repository_id, component_id, topic, body_md, evidence, source_commit, stale, author, locked, created_at, updated_at`
-
-func scanNote(row pgx.Row) (domain.ProjectNote, error) {
-	var n domain.ProjectNote
-	var evidenceJSON []byte
-	if err := row.Scan(
-		&n.ID, &n.RepositoryID, &n.ComponentID, &n.Topic, &n.BodyMD, &evidenceJSON, &n.SourceCommit,
-		&n.Stale, &n.Author, &n.Locked, &n.CreatedAt, &n.UpdatedAt,
-	); err != nil {
-		return domain.ProjectNote{}, err
-	}
-	if err := json.Unmarshal(evidenceJSON, &n.Evidence); err != nil {
-		return domain.ProjectNote{}, fmt.Errorf("unmarshal note evidence: %w", err)
-	}
-	return n, nil
-}
-
-// upsertNoteSQL targets the expression unique index directly (its inference
-// expressions must match idx_project_notes_scope_topic exactly): the nil
-// component sentinel is what lets a repository-level note and a component
-// note share the same topic without colliding.
-const upsertNoteSQL = `
-INSERT INTO project_notes (id, repository_id, component_id, topic, body_md, evidence, source_commit, stale, author, locked)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-ON CONFLICT (repository_id, COALESCE(component_id, '00000000-0000-0000-0000-000000000000'::uuid), topic) DO UPDATE SET
-	body_md = EXCLUDED.body_md,
-	evidence = EXCLUDED.evidence,
-	source_commit = EXCLUDED.source_commit,
-	stale = EXCLUDED.stale,
-	author = EXCLUDED.author,
-	locked = EXCLUDED.locked,
-	updated_at = now()
-RETURNING ` + noteCols
-
-func (s *ProjectModelStore) SaveNote(ctx context.Context, n domain.ProjectNote) (domain.ProjectNote, error) {
-	if n.ID == uuid.Nil {
-		n.ID = uuid.New()
-	}
-	author := n.Author
-	if author == "" {
-		author = domain.NoteAuthorAgent
-	}
-	evidenceJSON, err := json.Marshal(nonNilSlice(n.Evidence))
-	if err != nil {
-		return domain.ProjectNote{}, fmt.Errorf("marshal note evidence: %w", err)
-	}
-	row := s.pool.QueryRow(ctx, upsertNoteSQL,
-		n.ID, n.RepositoryID, n.ComponentID, n.Topic, n.BodyMD, evidenceJSON, n.SourceCommit, n.Stale, author, n.Locked)
-	out, err := scanNote(row)
-	if err != nil {
-		return domain.ProjectNote{}, fmt.Errorf("save note: %w", err)
-	}
-	return out, nil
-}
-
-func (s *ProjectModelStore) ListNotes(ctx context.Context, repositoryID uuid.UUID) ([]domain.ProjectNote, error) {
-	rows, err := s.pool.Query(ctx, `SELECT `+noteCols+`
-		FROM project_notes WHERE repository_id = $1 ORDER BY topic`, repositoryID)
-	if err != nil {
-		return nil, fmt.Errorf("list notes: %w", err)
-	}
-	defer rows.Close()
-	var out []domain.ProjectNote
-	for rows.Next() {
-		n, err := scanNote(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan note: %w", err)
-		}
-		out = append(out, n)
-	}
-	return out, rows.Err()
-}
-
-func (s *ProjectModelStore) GetNote(ctx context.Context, id uuid.UUID) (domain.ProjectNote, error) {
-	n, err := scanNote(s.pool.QueryRow(ctx, `SELECT `+noteCols+`
-		FROM project_notes WHERE id = $1`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ProjectNote{}, fmt.Errorf("get note: %w", port.ErrNotFound)
-	}
-	if err != nil {
-		return domain.ProjectNote{}, fmt.Errorf("get note: %w", err)
-	}
-	return n, nil
-}
-
-func (s *ProjectModelStore) DeleteNote(ctx context.Context, id uuid.UUID) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM project_notes WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("delete note: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("delete note: %w", port.ErrNotFound)
-	}
-	return nil
-}
-
-// MarkNotesStale loads the repository's notes rather than pushing the prefix
-// match into SQL: the match is "evidence path equals or is a directory
-// ancestor of a changed path", which is cheap over the handful of notes one
-// repository holds and far simpler than expressing prefix-of-many in a query.
-func (s *ProjectModelStore) MarkNotesStale(ctx context.Context, repositoryID uuid.UUID, changedPaths []string) ([]domain.ProjectNote, error) {
-	notes, err := s.ListNotes(ctx, repositoryID)
-	if err != nil {
-		return nil, fmt.Errorf("mark notes stale: %w", err)
-	}
-	var out []domain.ProjectNote
-	for _, n := range notes {
-		if !noteEvidenceTouchesAny(n, changedPaths) {
-			continue
-		}
-		updated, err := scanNote(s.pool.QueryRow(ctx, `
-			UPDATE project_notes SET stale = true, updated_at = now() WHERE id = $1
-			RETURNING `+noteCols, n.ID))
-		if err != nil {
-			return nil, fmt.Errorf("mark note stale: %w", err)
-		}
-		out = append(out, updated)
-	}
-	return out, nil
-}
-
-func noteEvidenceTouchesAny(n domain.ProjectNote, changedPaths []string) bool {
-	for _, ev := range n.Evidence {
-		for _, changed := range changedPaths {
-			if ev.Path == changed || strings.HasPrefix(changed, ev.Path+"/") {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // --- ProjectScan ---

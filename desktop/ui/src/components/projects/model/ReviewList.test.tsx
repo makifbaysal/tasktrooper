@@ -58,7 +58,6 @@ function baseModel(environments: ComponentEnvironment[]): RepositoryModel {
     incoming_links: [],
     resources: [],
     linked_components: [],
-    notes: [],
     environments,
     review: environments.map((e) => ({
       kind: "environment",

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -23,7 +22,6 @@ type fakeStore struct {
 	links           map[uuid.UUID]domain.ComponentLink
 	resources       map[uuid.UUID]domain.SystemResource
 	resourceAliases map[string]uuid.UUID
-	notes           map[uuid.UUID]domain.ProjectNote
 	scans           map[uuid.UUID]domain.ProjectScan
 }
 
@@ -34,7 +32,6 @@ func newFakeStore() *fakeStore {
 		checks:          map[uuid.UUID]domain.ComponentCheck{},
 		links:           map[uuid.UUID]domain.ComponentLink{},
 		resources:       map[uuid.UUID]domain.SystemResource{},
-		notes:           map[uuid.UUID]domain.ProjectNote{},
 		scans:           map[uuid.UUID]domain.ProjectScan{},
 	}
 }
@@ -276,65 +273,6 @@ func (s *fakeStore) MergeResources(_ context.Context, sourceID, targetID uuid.UU
 	s.resourceAliases[source.IdentityKey] = targetID
 	delete(s.resources, sourceID)
 	return nil
-}
-
-func (s *fakeStore) ListNotes(_ context.Context, repositoryID uuid.UUID) ([]domain.ProjectNote, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []domain.ProjectNote
-	for _, n := range s.notes {
-		if n.RepositoryID == repositoryID {
-			out = append(out, n)
-		}
-	}
-	return out, nil
-}
-
-func (s *fakeStore) GetNote(_ context.Context, id uuid.UUID) (domain.ProjectNote, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n, ok := s.notes[id]
-	if !ok {
-		return domain.ProjectNote{}, fmt.Errorf("note %s: %w", id, port.ErrNotFound)
-	}
-	return n, nil
-}
-
-func (s *fakeStore) SaveNote(_ context.Context, n domain.ProjectNote) (domain.ProjectNote, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, existing := range s.notes {
-		if existing.RepositoryID == n.RepositoryID && sameComponentScope(existing.ComponentID, n.ComponentID) && existing.Topic == n.Topic {
-			n.ID = id
-			s.notes[id] = n
-			return n, nil
-		}
-	}
-	if n.ID == uuid.Nil {
-		n.ID = uuid.New()
-	}
-	now := time.Now().UTC()
-	n.CreatedAt, n.UpdatedAt = now, now
-	s.notes[n.ID] = n
-	return n, nil
-}
-
-func sameComponentScope(a, b *uuid.UUID) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
-}
-
-func (s *fakeStore) DeleteNote(_ context.Context, id uuid.UUID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.notes, id)
-	return nil
-}
-
-func (s *fakeStore) MarkNotesStale(_ context.Context, _ uuid.UUID, _ []string) ([]domain.ProjectNote, error) {
-	return nil, nil
 }
 
 func (s *fakeStore) CreateScan(_ context.Context, scan domain.ProjectScan) (domain.ProjectScan, error) {

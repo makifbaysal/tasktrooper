@@ -65,13 +65,13 @@ The from-scratch Projects redesign: a projects hub, one page per project, one
 tabbed page per repository, and a full-page wizard for adding repositories.
 Nothing here calls the old repository-profile, repository-dependency or
 pipeline-config endpoints — that model is `RepositoryModel`
-(components/checks/links/notes/scans), read through `useRepositoryModel`.
+(components/checks/links/scans), read through `useRepositoryModel`.
 
 | Piece | What it is |
 |---|---|
 | `pages/ProjectsPage.tsx` | The hub: a Cards/Map segmented toggle (`?view=map`) over either every project as a `hub/ProjectCard` + an unassigned-repositories card + filters, or `map/WorkspaceMapView`; "Add repository" / "New project" either way. |
 | `pages/ProjectPage.tsx` | One project, tabbed (`?tab=`): Architecture (`map/ProjectArchitectureMap`, the default the moment the project has a repository), Repositories table, cross-project Review queue, Settings. |
-| `pages/RepositoryPage.tsx` | One repository, tabbed (`?tab=`): overview, components, checks, links, deploy, knowledge, settings. |
+| `pages/RepositoryPage.tsx` | One repository, tabbed (`?tab=`): overview, components, checks, links, deploy, settings. |
 | `pages/AddRepositoryPage.tsx` | The `/projects/new` wizard: Source → Scan → Review → Done, driven by `add/useAddRepositoryFlow`. |
 | `hooks/useProjectsOverview.ts` | `GET /v1/projects/overview` for the hub; cached (`CACHE_PROJECTS_OVERVIEW`), paints last snapshot on a failed refresh. |
 | `hooks/useProjectOverview.ts` | `GET /v1/projects/:id/overview` for `ProjectPage`; same per-id cache-then-refresh contract as `useRepositoryModel`. |
@@ -98,7 +98,7 @@ no-CI-workflows setup notice, rendered at the top of the tab), `ChecksTab`
 search and sectioned by repo/project/elsewhere; the picker behind both
 "merge with an existing resource" and "link to an existing resource" on a
 link's resource panel, and behind the duplicate-resource notice's merge flow),
-`KnowledgeTab` (+ `NoteDialog`), `SettingsTab`, `LocalCommandsDialog`, and the
+`SettingsTab`, `LocalCommandsDialog`, and the
 Deploy & Runtime tab — `components/projects/repository/deploy/` — below.
 
 `components/projects/repository/deploy/`: the Deploy & Runtime tab, built on
@@ -106,14 +106,13 @@ the Phase 2 cloud accounts/environments model.
 
 | Piece | What it is |
 |---|---|
-| `DeployRuntimeTab` | Organism, the tab's root: the shared `ComponentRail` (production-environment provider mark + health dot per component via `renderTrailing`) + the selected component's `EnvironmentsCard`, `RuntimePanel` and the collapsed `DeliverySettingsPanel`. Owns the connected-accounts list and which environment row is selected. |
+| `DeployRuntimeTab` | Organism, the tab's root: the shared `ComponentRail` (production-environment provider mark + health dot per component via `renderTrailing`) + the selected component's `EnvironmentsCard` and `RuntimePanel` (a mobile component gets `StoreReleasesCard` instead). Owns the connected-accounts list and which environment row is selected. |
 | `EnvironmentsCard` | Organism: production/staging/preview rows (development only when bound) for the selected component — provider, resource, URL, health dot, error count, last deploy, `suggested`/`auto` badges; Connect/Change (`BindEnvironmentDialog`) and Disconnect (`deleteEnvironment`, confirmed); a `noAccountsAtAll` empty state that opens `CloudAccountDialog`. A `suggested` row hands off to `model/EnvironmentCandidates` instead of the usual actions. |
 | `BindEnvironmentDialog` | Organism/dialog: step 1 picks a connected account or "Custom URL"; step 2 is either a searchable, refreshable `listCloudResources` picker or a URL/health-URL pair. Submits `bindEnvironment`. |
 | `RuntimePanel` | Organism: one bound environment's live picture — `getEnvironmentOverview` header (resource status, revision, console link, latest deployment), an `unavailable` `Notice` whose action is read off `unavailable_code` (`"cloud_auth"` → Reconnect, opens `CloudAccountDialog` in replace mode; `"not_connected"` → Connect, opens it in create mode preset to `env.provider`), never the message text, and pill `Tabs` for Errors/Logs/Deployments. |
 | `ErrorsPanel` | 1h/24h/7d `getEnvironmentErrors` list: message (click to expand the sample), count, `new` badge, first/last seen, external link, "Create task" (`createErrorTask`) with a toast linking to the created task. |
 | `LogsPanel` | Severity floor + preset/custom time range + 400ms-debounced search against `getEnvironmentLogs`; a "Live" toggle re-polls every 5s via `hooks/usePolling` (pauses on a hidden tab, stops the moment it's switched off); monospace scroll list, `next_cursor` "Load more", `truncated` notice. |
 | `DeploymentsPanel` (+ `DEPLOYMENT_STATUS_VARIANT`) | `getEnvironmentDeployments` list: status, environment, commit/branch/creator, ready duration, inspect link. |
-| `DeliverySettingsPanel` | Organism: the still-relevant half of the old `DeploySettingsSection` (mobile store panel, `DeployTargetsSection`, incident policy, test strategy, env inventory), scoped to the rail's selected component instead of asking its own scope question. Also reachable stand-alone: `/repositories/:id/deploy` now redirects to `?tab=deploy` on the repository page instead of rendering its own page. |
 
 `components/projects/add/`: `SourceStep`, `ScanStep` (+ `ScanRepoRow`), `ReviewStep`
 (+ `RepoReviewCard`), `DoneStep`, `GitHubRepoPicker`, and the pure
@@ -163,7 +162,14 @@ Deploy & Runtime tab instead); `projects/ProjectProfileCard`,
 `ProjectRepositoriesSection`, `RepositoryRow`, `RepositoryDialogs`,
 `useRepositoryImport`, `InitialSetupDialog`, `RepositoryAnalyzingDialog`,
 `ScopeSetupFields`, `PipelineSlots`, `SubRepoSettingsPanel`;
-`lib/dependencyTargets.ts`. Their jobs are now either the `RepositoryModel`
+`lib/dependencyTargets.ts`; `projects/repository/deploy/DeliverySettingsPanel`,
+`projects/DeployTargetsSection` and `lib/deployTargets.ts` (the Deploy & Runtime
+tab's "Delivery settings" accordion: per-env deploy targets, incident policy,
+test strategy, env inventory — the Environments card covers where a component
+ships); `projects/repository/KnowledgeTab` (+ `NoteDialog`) — the repository
+page's former "Knowledge" tab (project notes, note topics); agents now fetch
+project facts through tools themselves instead of reading a server-maintained
+note. Their jobs are now either the `RepositoryModel`
 tabs above, the add-repository wizard, or (for the deploy page) the Deploy &
 Runtime tab.
 

@@ -6,7 +6,6 @@ import { api } from "@/api";
 import { ChecksTab } from "@/components/projects/repository/ChecksTab";
 import { ComponentsTab } from "@/components/projects/repository/ComponentsTab";
 import { DeployRuntimeTab } from "@/components/projects/repository/deploy/DeployRuntimeTab";
-import { KnowledgeTab } from "@/components/projects/repository/KnowledgeTab";
 import { LinksTab } from "@/components/projects/repository/LinksTab";
 import { OverviewTab } from "@/components/projects/repository/OverviewTab";
 import { RepositoryHeader } from "@/components/projects/repository/RepositoryHeader";
@@ -21,7 +20,7 @@ import { useRepositoryModel } from "@/hooks/useRepositoryModel";
 import { useScanProgress } from "@/hooks/useScanProgress";
 import { reviewCount } from "@/lib/project-model";
 
-const TABS = ["overview", "components", "checks", "links", "deploy", "knowledge", "settings"] as const;
+const TABS = ["overview", "components", "checks", "links", "deploy", "settings"] as const;
 type RepositoryTab = (typeof TABS)[number];
 
 function tabFromParam(raw: string | null): RepositoryTab {
@@ -183,7 +182,6 @@ export function RepositoryPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="deploy">{t("repositoryPage.tabs.deployRuntime")}</TabsTrigger>
-          <TabsTrigger value="knowledge">{t("repositoryPage.tabs.knowledge")}</TabsTrigger>
           <TabsTrigger value="settings">{t("repositoryPage.tabs.settings")}</TabsTrigger>
         </TabsList>
 
@@ -213,9 +211,6 @@ export function RepositoryPage() {
             onSelectComponent={setSelectedComponentId}
             onReload={reload}
           />
-        </TabsContent>
-        <TabsContent value="knowledge">
-          <KnowledgeTab model={model} repositoryId={model.repository.id} onReload={reload} />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab model={model} repositoryId={model.repository.id} onReload={reload} />

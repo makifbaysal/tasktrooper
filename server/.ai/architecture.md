@@ -600,8 +600,7 @@ verdict, run a subtask, profile a repository or reflect on itself.
 
 `agent.Router` implements `agent.Runner` (the loop's own three methods as an interface) and
 every agentic consumer is handed it instead of the bare loop — `board.Runner`,
-`orchestrator.Service`/`Executor`, `projectmodel.Service` (its post-scan notes pass),
-`evolution.Service`:
+`orchestrator.Service`/`Executor`, `evolution.Service`:
 
 ```
 provider is host-executed AND an executor is wired  →  executor.Execute
@@ -673,7 +672,6 @@ On a host **with** a runner, for an agent on `claude_code`:
 | criteria sweep (`board/criteria_sweep.go`) | CLI | router |
 | review verdict sweep + finalize (`board/review_sweep.go`) | CLI | router |
 | orchestrator subtask (`orchestrator/executor.go`) | CLI | router; subtask workspace |
-| project model notes pass (`projectmodel/profiler.go`) | CLI | router; repo root, read-only + `record_project_note` tools |
 | agent reflection with `allow_web_research` (`evolution/reflect.go`) | CLI | router; scratch workspace |
 | chat turn (`session/`) | CLI | `port.ChatExecutor`; resumes the CLI session |
 

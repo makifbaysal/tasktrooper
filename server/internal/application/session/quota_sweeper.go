@@ -110,7 +110,7 @@ func (s *Service) resumeParkedTurn(ctx context.Context, pending domain.PendingSe
 	if err != nil {
 		return err
 	}
-	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding)
+	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding, s.effectiveToolPolicy(ctx, sess, pending.Policy))
 	if err != nil {
 		return err
 	}

@@ -7,7 +7,7 @@ function cacheKey(repositoryId: string): string {
 }
 
 /**
- * One repository's full component/check/link/note model. Paints from the
+ * One repository's full component/check/link model. Paints from the
  * last snapshot for this id (see lib/uiCache) while it refreshes, and keeps
  * that snapshot on a failed reload rather than blanking the page — the same
  * contract useCachedState/useFirstLoad give a fixed-key page, extended to a

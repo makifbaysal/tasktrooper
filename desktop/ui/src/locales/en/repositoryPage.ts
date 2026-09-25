@@ -1,8 +1,8 @@
 // repositoryPage namespace: English source of truth.
-// Covers pages/RepositoryPage (components, checks, links, notes, scan
-// status for one repository) and components/projects/repository/**. Reuses
+// Covers pages/RepositoryPage (components, checks, links, scan status for
+// one repository) and components/projects/repository/**. Reuses
 // projectModel.* for shared vocabulary (roles, purposes, gates, protocols,
-// resource kinds, note topics, confidence) instead of duplicating it.
+// resource kinds, confidence) instead of duplicating it.
 export const repositoryPage = {
   title: "Repository",
   tabs: {
@@ -11,7 +11,6 @@ export const repositoryPage = {
     checks: "Checks",
     links: "Links",
     deployRuntime: "Deploy & Runtime",
-    knowledge: "Knowledge",
     settings: "Settings",
   },
   header: {
@@ -45,8 +44,6 @@ export const repositoryPage = {
     statConfirmedLinks: "Confirmed links",
     statReview: "Needs review",
     needsReview: "Needs your review",
-    purposeTitle: "Purpose",
-    noPurpose: "No purpose note yet.",
     componentsTitle: "Components",
     checksCount: "{count} checks",
   },
@@ -250,35 +247,6 @@ export const repositoryPage = {
     vendor: "Vendor (optional)",
     submit: "Save",
   },
-  knowledge: {
-    briefTitle: "What agents see",
-    notesTitle: "Notes",
-    scope: "Scope",
-    scopeAll: "All components",
-    scopeRoleArea: "{role} components",
-    addNote: "Add note",
-    edit: "Edit",
-    lock: "Lock",
-    unlock: "Unlock",
-    delete: "Delete",
-    stale: "may be outdated",
-    repoLevel: "Repository",
-    authorAgent: "agent",
-    authorYou: "you",
-    empty: "No notes yet",
-    deleteConfirmTitle: "Delete this note?",
-    deleteConfirmDesc: "This cannot be undone.",
-  },
-  addNote: {
-    title: "Add note",
-    editTitle: "Edit note",
-    topic: "Topic",
-    component: "Component",
-    body: "Body",
-    locked: "Locked",
-    lockedHelp: "A locked note cannot be changed by an agent.",
-    submit: "Save",
-  },
   settings: {
     generalTitle: "General",
     generalDesc: "Name, description, projects",
@@ -300,9 +268,6 @@ export const repositoryPage = {
     deleteConfirmDesc: "Its tasks, scans and history are removed for good.",
   },
   deploy: {
-    delivery: {
-      title: "Delivery settings",
-    },
     environments: {
       title: "Environments",
       connect: "Connect",

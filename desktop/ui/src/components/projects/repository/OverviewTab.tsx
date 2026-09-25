@@ -1,11 +1,8 @@
 import { Box } from "lucide-react";
 import type { RepositoryModel } from "@/api";
-import { EvidenceList } from "@/components/projects/model/EvidenceList";
 import { RoleBadge } from "@/components/projects/model/RoleBadge";
 import { ReviewList } from "@/components/projects/model/ReviewList";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { useI18n } from "@/hooks/useI18n";
 import { componentLabel, factValue, requiredChecks, reviewCount, stackSummary } from "@/lib/project-model";
 import { cn } from "@/lib/utils";
@@ -29,7 +26,6 @@ export function OverviewTab({ model, onReload, onOpenComponent }: OverviewTabPro
   const { t } = useI18n();
   const activeComponents = model.components.filter((c) => c.status === "active");
   const confirmedLinks = model.links.filter((l) => l.status === "confirmed").length;
-  const purposeNote = model.notes.find((n) => n.topic === "purpose" && !n.component_id);
 
   return (
     <div className="space-y-6">
@@ -44,19 +40,6 @@ export function OverviewTab({ model, onReload, onOpenComponent }: OverviewTabPro
         <Card className="p-6">
           <h2 className="mb-3 font-semibold">{t("repositoryPage.overview.needsReview")}</h2>
           <ReviewList model={model} onChanged={onReload} />
-        </Card>
-      )}
-
-      {purposeNote && (
-        <Card className="p-6">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="font-semibold">{t("repositoryPage.overview.purposeTitle")}</h2>
-            <Badge variant={purposeNote.author === "agent" ? "info" : "secondary"}>
-              {t(purposeNote.author === "agent" ? "repositoryPage.knowledge.authorAgent" : "repositoryPage.knowledge.authorYou")}
-            </Badge>
-          </div>
-          <MarkdownContent content={purposeNote.body_md} />
-          {(purposeNote.evidence?.length ?? 0) > 0 && <EvidenceList evidence={purposeNote.evidence ?? []} className="mt-3" />}
         </Card>
       )}
 

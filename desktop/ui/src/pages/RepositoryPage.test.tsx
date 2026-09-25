@@ -77,7 +77,6 @@ const model: RepositoryModel = {
   resources: [],
   linked_components: [],
   environments: [],
-  notes: [],
   review: [],
 };
 
@@ -116,9 +115,16 @@ describe("RepositoryPage", () => {
     // The Components tab defaults to the first component and shows its detail.
     await waitFor(() => expect(screen.getByText("Identity")).toBeInTheDocument());
 
-    for (const label of ["Overview", "Components", "Checks", "Links", "Deploy", "Knowledge", "Settings"]) {
+    for (const label of ["Overview", "Components", "Checks", "Links", "Deploy", "Settings"]) {
       expect(screen.getByRole("tab", { name: new RegExp(label) })).toBeInTheDocument();
     }
+  });
+
+  it("falls back to the overview tab for a stale ?tab=knowledge URL", async () => {
+    renderPage("knowledge");
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^Overview/ })).toBeInTheDocument());
+    expect(screen.getByRole("tab", { name: /^Overview/ })).toHaveAttribute("aria-selected", "true");
   });
 
   it("switches tabs on click, updating which panel is shown", async () => {

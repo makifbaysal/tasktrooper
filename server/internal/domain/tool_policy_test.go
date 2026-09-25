@@ -28,7 +28,6 @@ func TestMissingAnalizTools_DeveloperShapedPolicyIsMissingBoardCreateTools(t *te
 		"claim_board_task",
 		"save_memory", "search_memory", "delete_memory",
 		"load_skill", "create_skill",
-		"record_project_note",
 		"get_task_pull_request", "comment_on_pull_request", "commit_task_changes",
 	}}
 	got := domain.MissingAnalizTools(p)
@@ -51,7 +50,6 @@ func TestMissingAnalizTools_ArchitectShapedPolicyHasNoneMissing(t *testing.T) {
 		"get_task_pull_request", "comment_on_pull_request",
 		"save_memory", "search_memory", "delete_memory",
 		"load_skill", "create_skill",
-		"record_project_note",
 	}}
 	got := domain.MissingAnalizTools(p)
 	assert.Empty(t, got)

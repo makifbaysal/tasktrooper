@@ -10,11 +10,9 @@ import {
 } from "@/api";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { ComponentRail } from "@/components/projects/repository/ComponentRail";
-import { DeliverySettingsPanel } from "@/components/projects/repository/deploy/DeliverySettingsPanel";
 import { EnvironmentsCard } from "@/components/projects/repository/deploy/EnvironmentsCard";
 import { RuntimePanel } from "@/components/projects/repository/deploy/RuntimePanel";
 import { StoreReleasesCard } from "@/components/projects/repository/deploy/StoreReleasesCard";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useI18n } from "@/hooks/useI18n";
 import { effectiveRole, factValue } from "@/lib/project-model";
 import { cn } from "@/lib/utils";
@@ -59,9 +57,8 @@ function mobilePlatformOf(model: RepositoryModel, component: Component): MobileP
 }
 
 /**
- * The Deploy & Runtime tab: the component rail, that component's environment
- * bindings and live runtime, and the still-relevant half of the old
- * `DeploySettingsSection` collapsed below.
+ * The Deploy & Runtime tab: the component rail, then that component's
+ * environment bindings and live runtime (or store releases for mobile).
  */
 export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onSelectComponent, onReload }: DeployRuntimeTabProps) {
   const { t } = useI18n();
@@ -140,15 +137,6 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
             )}
           </>
         )}
-
-        <Accordion type="single" collapsible>
-          <AccordionItem value="delivery">
-            <AccordionTrigger>{t("repositoryPage.deploy.delivery.title")}</AccordionTrigger>
-            <AccordionContent>
-              <DeliverySettingsPanel repositoryId={repositoryId} repository={model.repository} component={selected} />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
       </div>
     </div>
   );

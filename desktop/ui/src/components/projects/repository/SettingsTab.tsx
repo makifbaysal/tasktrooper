@@ -96,83 +96,89 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
   const displayPercent = index ? indexProgressPercent(index.files_processed, index.files_total, index.status) : percent;
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <Card className="space-y-4 p-6">
-        <div>
-          <h2 className="font-semibold">{t("repositoryPage.settings.generalTitle")}</h2>
-          <p className="text-caption text-muted-foreground">{t("repositoryPage.settings.generalDesc")}</p>
-        </div>
-        <div className="space-y-2">
-          <Label>{t("repositoryPage.settings.name")}</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="space-y-2">
-          <Label>{t("repositoryPage.settings.description")}</Label>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
-        </div>
-        {initiativeProjects.length > 0 && (
-          <MultiSelectPicker
-            label={t("repositoryPage.settings.projects")}
-            options={initiativeProjects.map((p) => ({ value: p.id, label: p.name }))}
-            selected={projectIds}
-            onChange={setProjectIds}
-          />
-        )}
-        <div className="flex justify-end">
-          <Button onClick={saveGeneral} disabled={saving}>
-            {t("common.save")}
-          </Button>
-        </div>
-      </Card>
-
-      <Card className="space-y-4 p-6">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="font-semibold">{t("repositoryPage.settings.codeIndexTitle")}</h2>
-          <div className="flex items-center gap-2">
-            <ProjectIndexStatus repositoryId={repositoryId} />
-            {watchingIndex && (
-              <Button variant="outline" size="sm" onClick={handleStopIndex}>
-                <Square className="mr-2 h-4 w-4" />
-                {t("repositoryPage.settings.stopIndex")}
-              </Button>
+    <>
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="min-w-0 space-y-6">
+          <Card className="space-y-4 p-6">
+            <div>
+              <h2 className="font-semibold">{t("repositoryPage.settings.generalTitle")}</h2>
+              <p className="text-caption text-muted-foreground">{t("repositoryPage.settings.generalDesc")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label>{t("repositoryPage.settings.name")}</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("repositoryPage.settings.description")}</Label>
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+            </div>
+            {initiativeProjects.length > 0 && (
+              <MultiSelectPicker
+                label={t("repositoryPage.settings.projects")}
+                options={initiativeProjects.map((p) => ({ value: p.id, label: p.name }))}
+                selected={projectIds}
+                onChange={setProjectIds}
+              />
             )}
-            <Button variant="outline" size="sm" onClick={handleReindex} disabled={watchingIndex}>
-              <RefreshCw className={watchingIndex ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
-              {t("repositoryPage.settings.reindex")}
-            </Button>
-          </div>
+            <div className="flex justify-end">
+              <Button onClick={saveGeneral} disabled={saving}>
+                {t("common.save")}
+              </Button>
+            </div>
+          </Card>
+
+          <Card className="space-y-4 p-6">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="font-semibold">{t("repositoryPage.settings.codeIndexTitle")}</h2>
+              <div className="flex items-center gap-2">
+                <ProjectIndexStatus repositoryId={repositoryId} />
+                {watchingIndex && (
+                  <Button variant="outline" size="sm" onClick={handleStopIndex}>
+                    <Square className="mr-2 h-4 w-4" />
+                    {t("repositoryPage.settings.stopIndex")}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={handleReindex} disabled={watchingIndex}>
+                  <RefreshCw className={watchingIndex ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
+                  {t("repositoryPage.settings.reindex")}
+                </Button>
+              </div>
+            </div>
+            {index ? (
+              <div className="grid grid-cols-3 gap-3 text-center text-body">
+                <div>
+                  <p className="text-muted-foreground">{t("repositoryPage.settings.files")}</p>
+                  <p className="font-semibold">{index.file_count}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">{t("repositoryPage.settings.chunks")}</p>
+                  <p className="font-semibold">{index.chunk_count}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">{t("repositoryPage.settings.symbols")}</p>
+                  <p className="font-semibold">{index.symbol_count}</p>
+                </div>
+                <div className="col-span-3 text-caption text-muted-foreground">{displayPercent}%</div>
+              </div>
+            ) : (
+              <p className="text-body text-muted-foreground">{t("repositoryPage.settings.noIndexYet")}</p>
+            )}
+          </Card>
         </div>
-        {index ? (
-          <div className="grid grid-cols-3 gap-3 text-center text-body">
-            <div>
-              <p className="text-muted-foreground">{t("repositoryPage.settings.files")}</p>
-              <p className="font-semibold">{index.file_count}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">{t("repositoryPage.settings.chunks")}</p>
-              <p className="font-semibold">{index.chunk_count}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">{t("repositoryPage.settings.symbols")}</p>
-              <p className="font-semibold">{index.symbol_count}</p>
-            </div>
-            <div className="col-span-3 text-caption text-muted-foreground">{displayPercent}%</div>
-          </div>
-        ) : (
-          <p className="text-body text-muted-foreground">{t("repositoryPage.settings.noIndexYet")}</p>
-        )}
-      </Card>
 
-      <RepoDocsCard repositoryId={repositoryId} title={t("repositoryPage.settings.docsTitle")} />
+        <div className="min-w-0 space-y-6">
+          <RepoDocsCard repositoryId={repositoryId} title={t("repositoryPage.settings.docsTitle")} />
 
-      <Card className="space-y-4 border-destructive/30 p-6">
-        <h2 className="font-semibold text-destructive">{t("repositoryPage.settings.dangerTitle")}</h2>
-        <p className="text-body text-muted-foreground">{t("repositoryPage.settings.deleteRepoWarning")}</p>
-        <Button variant="destructive" onClick={() => setDeleteOpen(true)} className="gap-2">
-          <Trash2 className="h-4 w-4" />
-          {t("repositoryPage.settings.deleteRepo")}
-        </Button>
-      </Card>
+          <Card className="space-y-4 border-destructive/30 p-6">
+            <h2 className="font-semibold text-destructive">{t("repositoryPage.settings.dangerTitle")}</h2>
+            <p className="text-body text-muted-foreground">{t("repositoryPage.settings.deleteRepoWarning")}</p>
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)} className="gap-2">
+              <Trash2 className="h-4 w-4" />
+              {t("repositoryPage.settings.deleteRepo")}
+            </Button>
+          </Card>
+        </div>
+      </div>
 
       <ConfirmDialog
         open={deleteOpen}
@@ -183,6 +189,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
         loading={deleting}
         onConfirm={handleDelete}
       />
-    </div>
+    </>
   );
 }

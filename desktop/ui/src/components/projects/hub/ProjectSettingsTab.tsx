@@ -93,7 +93,7 @@ export function ProjectSettingsTab({ project, onSaved }: ProjectSettingsTabProps
   };
 
   return (
-    <div className="max-w-xl space-y-6">
+    <div className="grid gap-6 lg:grid-cols-2">
       <Card className="space-y-4 p-6">
         <div className="space-y-2">
           <Label htmlFor="project-name">{t("projectsHub.project.settings.nameLabel")}</Label>
@@ -155,7 +155,7 @@ export function ProjectSettingsTab({ project, onSaved }: ProjectSettingsTabProps
         )}
       </Card>
 
-      <Card className="space-y-3 border-destructive/30 p-6">
+      <Card className="space-y-3 border-destructive/30 p-6 lg:col-span-2">
         <h3 className="font-semibold text-destructive">{t("projectsHub.project.settings.dangerZone")}</h3>
         <p className="text-sm text-muted-foreground">{t("projectsHub.project.settings.deleteWarning")}</p>
         <Button variant="destructive" onClick={() => setDeleteOpen(true)} className="gap-2">

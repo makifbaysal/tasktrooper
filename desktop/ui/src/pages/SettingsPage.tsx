@@ -59,7 +59,7 @@ function BoilerplateCatalogCard() {
   };
 
   return (
-    <Card className="mt-4 w-full space-y-3 p-6">
+    <Card className="w-full space-y-3 p-6">
       <Label htmlFor="boilerplate-repo" className="flex items-center gap-2">
         <Package className="h-4 w-4" />
         {t("settings.boilerplate.title")}
@@ -79,7 +79,7 @@ function BoilerplateCatalogCard() {
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
             placeholder="github.com/your-org/boilerplates"
-            className="max-w-md"
+            className="min-w-0 flex-1 basis-64"
           />
           <Button onClick={() => void save(repo)} disabled={saving}>
             <Save className="mr-2 h-4 w-4" />
@@ -141,7 +141,7 @@ function ConcurrencyCard() {
   };
 
   return (
-    <Card className="mt-4 w-full space-y-3 p-6">
+    <Card className="w-full space-y-3 p-6">
       <Label className="flex items-center gap-2">
         <Activity className="h-4 w-4" />
         {t("settings.concurrency.title")}
@@ -149,7 +149,7 @@ function ConcurrencyCard() {
       {loading ? (
         <Skeleton className="h-10 w-full" />
       ) : (
-        <div className="grid max-w-md gap-4">
+        <div className="grid gap-4">
           <div className="space-y-1">
             <Label htmlFor="max-concurrent-agents">{t("settings.concurrency.agentsLabel")}</Label>
             <Input
@@ -238,7 +238,7 @@ function NotificationsCard() {
 
   if (!runner) {
     return (
-      <Card className="mt-4 w-full space-y-2 p-6">
+      <Card className="w-full space-y-2 p-6">
         <Label className="flex items-center gap-2">
           <Bell className="h-4 w-4" />
           {t("settings.notifications.title")}
@@ -249,7 +249,7 @@ function NotificationsCard() {
   }
 
   return (
-    <Card className="mt-4 w-full space-y-4 p-6">
+    <Card className="w-full space-y-4 p-6">
       <div className="space-y-1">
         <Label className="flex items-center gap-2">
           <Bell className="h-4 w-4" />
@@ -348,43 +348,47 @@ export function SettingsPage() {
   };
 
   return (
-    <>
-      {loading ? (
-        <Card className="w-full p-6">
-          <Skeleton className="mb-4 h-10 w-full" />
-          <Skeleton className="h-10 w-32" />
-        </Card>
-      ) : (
-        <Card className="w-full space-y-6 p-6">
-          <div className="space-y-2">
-            <Label htmlFor="language" className="flex items-center gap-2">
-              <Globe className="h-4 w-4" />
-              {t("settings.language.label")}
-            </Label>
-            <Select value={language} onValueChange={handleLanguageChange}>
-              <SelectTrigger id="language">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {languageOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">{t("settings.language.help")}</p>
-          </div>
+    <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="min-w-0 space-y-4">
+        {loading ? (
+          <Card className="w-full p-6">
+            <Skeleton className="mb-4 h-10 w-full" />
+            <Skeleton className="h-10 w-32" />
+          </Card>
+        ) : (
+          <Card className="w-full space-y-6 p-6">
+            <div className="space-y-2">
+              <Label htmlFor="language" className="flex items-center gap-2">
+                <Globe className="h-4 w-4" />
+                {t("settings.language.label")}
+              </Label>
+              <Select value={language} onValueChange={handleLanguageChange}>
+                <SelectTrigger id="language">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {languageOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t("settings.language.help")}</p>
+            </div>
 
-          <Button onClick={handleSave} disabled={saving}>
-            <Save className="mr-2 h-4 w-4" />
-            {saving ? t("common.saving") : t("common.save")}
-          </Button>
-        </Card>
-      )}
-      <BoilerplateCatalogCard />
-      <ConcurrencyCard />
-      <NotificationsCard />
-    </>
+            <Button onClick={handleSave} disabled={saving}>
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? t("common.saving") : t("common.save")}
+            </Button>
+          </Card>
+        )}
+        <ConcurrencyCard />
+      </div>
+      <div className="min-w-0 space-y-4">
+        <BoilerplateCatalogCard />
+        <NotificationsCard />
+      </div>
+    </div>
   );
 }

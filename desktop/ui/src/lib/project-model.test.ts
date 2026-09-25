@@ -79,7 +79,6 @@ function makeModel(overrides: Partial<RepositoryModel> = {}): RepositoryModel {
     resources: [],
     linked_components: [],
     environments: [],
-    notes: [],
     review: [],
     ...overrides,
   };
@@ -450,12 +449,12 @@ describe("reviewCount", () => {
 });
 
 describe("scanStagesInOrder", () => {
-  it("starts with clone and ends with notes, in the server's fixed pipeline order", () => {
+  it("starts with clone and ends with match, in the server's fixed pipeline order", () => {
     const stages = scanStagesInOrder();
     expect(stages[0]).toBe("clone");
-    expect(stages[stages.length - 1]).toBe("notes");
+    expect(stages[stages.length - 1]).toBe("match");
     expect(stages).toEqual([
-      "clone", "inventory", "shape", "components", "stack", "checks", "links", "deploy", "match", "notes",
+      "clone", "inventory", "shape", "components", "stack", "checks", "links", "deploy", "match",
     ]);
   });
 });

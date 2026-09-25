@@ -104,7 +104,6 @@ const repo1Model: RepositoryModel = {
   resources: [],
   linked_components: [],
   environments: [],
-  notes: [],
   review: [{ kind: "role", entity_id: "c1", repository_id: "repo-1", component_id: "c1", confidence: "medium" }],
 };
 

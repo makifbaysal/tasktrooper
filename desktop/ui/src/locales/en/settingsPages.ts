@@ -9,9 +9,6 @@ export const settingsPages = {
 
     // Rendered on a repository's deploy page, where the credential vault used
     // to live, so the #store-credentials link into it still lands somewhere real.
-    movedTitle: "App store credentials",
-    movedBody: "They are saved once for the whole workspace and now live under Settings → Integrations.",
-    movedLink: "Open Integrations",
 
     asc: {
       title: "App Store Connect",

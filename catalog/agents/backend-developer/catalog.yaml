@@ -50,7 +50,6 @@ tool_policy:
         - delete_memory
         - load_skill
         - create_skill
-        - record_project_note
         - get_project_brief
         - list_component_checks
         - list_links

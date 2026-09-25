@@ -20,7 +20,6 @@ everything below this section is the component layer.
 | `component_checks` | One CI job → one component, `purpose`/`gate`/`local_commands` as Facts, `needs_review` (migration 156) |
 | `component_links` | One outgoing edge: to another component or to a `system_resources` row, `status`/`confidence`, `target_host`/`target_port` (migration 156) |
 | `system_resources` | A workspace-wide node (database, queue, SaaS API…), deduped by `identity_key` |
-| `project_notes` | Judgment an agent or a human wrote, evidence-gated |
 | `project_scans` | One scan's progress/events/result, `review_count` |
 | `cloud_accounts` / `component_environments` | Where a component runs — see [Cloud accounts & environments](#cloud-accounts--environments-phase-2) |
 
@@ -50,13 +49,11 @@ Column slugs are global in `board_columns`. Default template: `backlog`, `todo`,
 | GET | `/v1/projects/overview` · `/v1/projects/:projectId/overview` — cards for the projects page; `review_count`, `cross_projects`/`cross_links` (only when a link actually crosses), `shared_resources` |
 | GET | `/v1/projects/map` — `domain.WorkspaceMap`: every project with its repositories/components, aggregated project-pair edges (only where projects actually link), resources shared by ≥2 projects. Registered before `/v1/projects/:projectId` so the literal path wins |
 | GET | `/v1/projects/:projectId/map` — `domain.ProjectMap`: every active component of the project's own repositories, the resources they link to, and — only where a link crosses the boundary — the foreign component on the other end (`foreign: true`); node ids `c:<componentId>`/`r:<resourceId>` |
-| GET | `/v1/repositories/:id/model` — `domain.RepositoryModel`: components, checks, links, incoming links, resources, notes, environments, review queue, latest scan |
-| GET | `/v1/repositories/:id/brief?component_id=&area=` — the markdown injected into every board run and repo-bound chat |
+| GET | `/v1/repositories/:id/model` — `domain.RepositoryModel`: components, checks, links, incoming links, resources, environments, review queue, latest scan |
 | POST | `/v1/repositories/:id/scans` · GET `/v1/repositories/:id/scans/latest` · GET `/v1/scans/:scanId` |
 | POST `/v1/repositories/:id/components` · PATCH `/v1/components/:componentId` |
 | POST `/v1/components/:componentId/checks` · PATCH `/v1/checks/:checkId` · DELETE (manual only) |
 | POST `/v1/links` · PATCH `/v1/links/:linkId` (`to_component_id`/`to_resource`/`to_resource_id`, at most one) · DELETE (user-created only) |
-| PUT `/v1/repositories/:id/notes` · PATCH `/v1/notes/:noteId` · DELETE `/v1/notes/:noteId` |
 | GET `/v1/resources` — `domain.WorkspaceResource[]`: every resource with ≥1 non-dismissed link, its users and projects, `link_count` |
 | PATCH `/v1/resources/:resourceId` (`{"name"}`) · POST `/v1/resources/:resourceId/merge` (`{"into_resource_id"}`) · POST `/v1/resources/:resourceId/split` (`{"link_ids"}`) |
 
@@ -93,10 +90,8 @@ clears it too. `RepositoryModel.review` / `ProjectDetail.review` carry every ope
 `ReviewItem` (`role`, `link`, `environment`, `component`, `check` kinds).
 
 After reconcile: the legacy fields project (below), a finished scan's deploy signals are
-matched into `component_environments` (`cloud.Service.MatchScan`), `projectmodel.Relink`
-re-resolves any link still waiting on a target, and — on the first scan, or when nothing has
-documented the repository's purpose yet, or a stale note needs a rewrite — an agent pass
-writes judgment notes (`internal/application/projectmodel/profiler.go`).
+matched into `component_environments` (`cloud.Service.MatchScan`), and `projectmodel.Relink`
+re-resolves any link still waiting on a target.
 
 ## Checks
 
@@ -144,16 +139,6 @@ merges survive rescans. `POST /v1/resources/:id/split` is the inverse: it pulls 
 `link_ids` off a resource onto a freshly minted one. `PATCH /v1/resources/:id {"name"}` locks
 the name (`name_locked`) so a rescan's detected name can never overwrite a human's rename.
 
-## Notes
-
-`ProjectNote` is judgment a parser cannot make: `purpose`, `entrypoints`, `conventions`,
-`invariants`, `danger_zones`, `change_recipes`, `gotchas` — repository-level or
-component-scoped. An agent may only write one through `record_project_note`, and only with
-at least one evidence path that resolves in the working copy; a locked note, or one whose
-evidence doesn't resolve, is refused. A push marks a note `stale` when a changed path
-touches its evidence, without deleting it, so a stale note is still read (marked
-`(may be outdated)`) until it's rewritten.
-
 ## Cloud accounts & environments (Phase 2; replaced Hosting Links / migration 112)
 
 `repository_hosting_links`/the standalone Vercel settings/GCloud settings are gone. In their
@@ -186,13 +171,13 @@ decides "Reconnect" from the code, not from the message text.
 The structured model's agent-facing surface (`internal/adapter/tools/projectmodel`,
 `internal/adapter/tools/runtime`) is documented in full in
 [Tool Reference](tool-reference.md): `get_project_brief`, `list_component_checks`,
-`list_links`, `record_project_note` read/write the component layer; `get_environment`,
-`query_runtime_logs`, `list_runtime_errors`, `list_deployments` read the cloud layer. The
-brief (`projectmodel.Service.Brief`, `GET /v1/repositories/:id/brief`) is the markdown every
-board run and repo-bound chat gets before it touches a repository: what the repository (or
-one component/area) is, what it runs, what it talks to, the required checks to run before
-hand-off, and the judgment notes on top — capped at 8000 characters, dropping the
-lowest-priority component blocks first rather than truncating mid-sentence.
+`list_links` read the component layer; `get_environment`, `query_runtime_logs`,
+`list_runtime_errors`, `list_deployments` read the cloud layer. The brief
+(`projectmodel.Service.Brief`, fetched on demand through `get_project_brief`, never injected
+into a run's context) is the markdown overview of a repository: what it (or one
+component/area) is, what it runs, what it talks to, and the required checks to run before
+hand-off — capped at 8000 characters, dropping the lowest-priority component blocks first
+rather than truncating mid-sentence.
 
 ## Legacy projection (kind, sub_projects, pipeline slots, deploy targets)
 

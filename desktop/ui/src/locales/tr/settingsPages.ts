@@ -11,9 +11,6 @@ export const settingsPages: SettingsPagesDict = {
 
     // Kimlik bilgisi kasasının eskiden durduğu repo deploy sayfasında görünür;
     // oraya giden #store-credentials bağlantısı hâlâ gerçek bir yere düşsün diye.
-    movedTitle: "Mağaza kimlik bilgileri",
-    movedBody: "Tüm çalışma alanı için bir kez kaydedilir ve artık Ayarlar → Entegrasyonlar altında duruyor.",
-    movedLink: "Entegrasyonlar'ı aç",
 
     asc: {
       title: "App Store Connect",

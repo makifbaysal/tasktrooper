@@ -61,7 +61,6 @@ function makeModel(repo: Repository, opts: { withReview: boolean }): RepositoryM
     resources: [],
     linked_components: [],
     environments: [],
-    notes: [],
     review: opts.withReview
       ? [{ kind: "role", entity_id: component.id, repository_id: repo.id, component_id: component.id, confidence: "medium" }]
       : [],

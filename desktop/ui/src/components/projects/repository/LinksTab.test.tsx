@@ -79,7 +79,6 @@ const model: RepositoryModel = {
   resources: [],
   linked_components: [],
   environments: [],
-  notes: [],
   review: [],
 };
 

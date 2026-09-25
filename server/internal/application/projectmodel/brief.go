@@ -27,10 +27,9 @@ type BriefScope struct {
 	Area        string
 }
 
-// Brief renders the markdown every agent gets before it touches a repository:
-// what it is, what each in-scope component runs, what it talks to and the
-// judgment notes on top. It never fails on a missing note or a broken link —
-// only a store error does.
+// Brief renders the on-demand repository overview get_project_brief returns:
+// what it is, what each in-scope component runs, and what it talks to. It
+// never fails on a broken link — only a store error does.
 func (s *Service) Brief(ctx context.Context, repoID uuid.UUID, scope BriefScope) (string, error) {
 	repo, err := s.repos.Get(ctx, repoID)
 	if err != nil {
@@ -69,10 +68,6 @@ func (s *Service) Brief(ctx context.Context, repoID uuid.UUID, scope BriefScope)
 	if err != nil {
 		return "", fmt.Errorf("brief: %w", err)
 	}
-	notes, err := s.store.ListNotes(ctx, repoID)
-	if err != nil {
-		return "", fmt.Errorf("brief: %w", err)
-	}
 	environments, err := s.listEnvironments(ctx, repoID)
 	if err != nil {
 		return "", fmt.Errorf("brief: %w", err)
@@ -82,15 +77,12 @@ func (s *Service) Brief(ctx context.Context, repoID uuid.UUID, scope BriefScope)
 	if gitBlock := s.briefGitBlock(ctx, repo.ID); gitBlock != "" {
 		header += "\n## Git\n" + gitBlock
 	}
-	if repoNotes := briefNotesFor(notes, nil); repoNotes != "" {
-		header += "\n## Notes\n" + repoNotes
-	}
 	if docs := briefReferenceDocs(repo.Docs, domain.RepositoryDocs{}); docs != "" {
 		header += "\n## Reference docs\n" + docs
 	}
 	blocks := make([]string, 0, len(inScope))
 	for _, c := range inScope {
-		blocks = append(blocks, s.briefComponentBlock(ctx, repo, c, checks, links, incoming, notes, environments))
+		blocks = append(blocks, s.briefComponentBlock(ctx, repo, c, checks, links, incoming, environments))
 	}
 
 	return truncateBriefBlocks(header, blocks), nil
@@ -239,7 +231,7 @@ func branchNamingLine(g domain.ScanGit) string {
 	return fmt.Sprintf("- Branch naming: %s (from %d recent branches)\n", label, len(g.BranchSamples))
 }
 
-func (s *Service) briefComponentBlock(ctx context.Context, repo domain.Repository, c domain.Component, checks []domain.ComponentCheck, links, incoming []domain.ComponentLink, notes []domain.ProjectNote, environments []domain.ComponentEnvironment) string {
+func (s *Service) briefComponentBlock(ctx context.Context, repo domain.Repository, c domain.Component, checks []domain.ComponentCheck, links, incoming []domain.ComponentLink, environments []domain.ComponentEnvironment) string {
 	var b strings.Builder
 	heading := c.Path
 	if heading == "." || heading == "" {
@@ -278,10 +270,6 @@ func (s *Service) briefComponentBlock(ctx context.Context, repo domain.Repositor
 		b.WriteString("Called by:\n" + calledBy)
 	}
 
-	id := c.ID
-	if notesBlock := briefNotesFor(notes, &id); notesBlock != "" {
-		b.WriteString("### Notes\n" + notesBlock)
-	}
 	if docs := briefReferenceDocs(domain.RepositoryDocs{}, c.Docs); docs != "" {
 		b.WriteString("### Reference docs\n" + docs)
 	}
@@ -516,52 +504,6 @@ func (s *Service) briefCalledBy(ctx context.Context, incoming []domain.Component
 			continue
 		}
 		fmt.Fprintf(&b, "- %s/%s (%s)\n", repo.Name, comp.Path, l.Protocol)
-	}
-	return b.String()
-}
-
-func noteTopicTitle(topic domain.NoteTopic) string {
-	switch topic {
-	case domain.NotePurpose:
-		return "Purpose"
-	case domain.NoteEntrypoints:
-		return "Entrypoints"
-	case domain.NoteConventions:
-		return "Conventions"
-	case domain.NoteInvariants:
-		return "Invariants"
-	case domain.NoteDangerZones:
-		return "Danger zones"
-	case domain.NoteChangeRecipes:
-		return "Change recipes"
-	case domain.NoteGotchas:
-		return "Gotchas"
-	default:
-		return string(topic)
-	}
-}
-
-// briefNotesFor renders repository-level notes (componentID nil) or one
-// component's, in topic order.
-func briefNotesFor(notes []domain.ProjectNote, componentID *uuid.UUID) string {
-	var b strings.Builder
-	for _, topic := range domain.AllNoteTopics() {
-		for _, n := range notes {
-			if n.Topic != topic {
-				continue
-			}
-			if componentID == nil && n.ComponentID != nil {
-				continue
-			}
-			if componentID != nil && (n.ComponentID == nil || *n.ComponentID != *componentID) {
-				continue
-			}
-			fmt.Fprintf(&b, "**%s** %s", noteTopicTitle(n.Topic), n.BodyMD)
-			if n.Stale {
-				b.WriteString(" _(may be outdated)_")
-			}
-			b.WriteString("\n")
-		}
 	}
 	return b.String()
 }

@@ -46,9 +46,9 @@ export function IntegrationsSettingsPage() {
         title={t("settingsPages.integrations.title")}
         description={t("settingsPages.integrations.description")}
       />
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(268px,1fr))]">
+      <div className="grid gap-x-4 lg:grid-cols-2">
         <GitHubCard />
-        <CloudAccountsCard className="lg:col-span-2" />
+        <CloudAccountsCard />
         {loading ? (
           <>
             <Skeleton className="mt-4 h-72 w-full" />

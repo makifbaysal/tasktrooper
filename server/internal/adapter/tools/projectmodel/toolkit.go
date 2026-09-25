@@ -1,7 +1,7 @@
-// Package projectmodel exposes the read/write tools agents use against the
-// structured project model: get_project_brief, list_component_checks,
-// list_links and record_project_note. It replaces repoprofile now that the
-// judgment layer lives on components instead of a markdown profile.
+// Package projectmodel exposes the read-only tools agents use against the
+// structured project model: get_project_brief, list_component_checks and
+// list_links. It replaces repoprofile now that this knowledge lives on
+// components instead of a markdown profile.
 package projectmodel
 
 import (
@@ -32,7 +32,6 @@ func NewExecutors(k *ToolKit) []port.ToolExecutor {
 		&briefTool{kit: k},
 		&checksTool{kit: k},
 		&linksTool{kit: k},
-		&recordNoteTool{kit: k},
 	}
 }
 

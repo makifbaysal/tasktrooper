@@ -102,11 +102,6 @@ var (
 		"load_skill",
 		"create_skill",
 	}
-	// The structured project model's write path: judgment notes only, never
-	// stack/commands/CI/links — those are derived and read with roleProjectModelReadTools.
-	roleProfileTools = []string{
-		"record_project_note",
-	}
 	// Read-only project model tools: the brief, CI checks and cross-component
 	// links. Granted to every role that writes or reviews code.
 	roleProjectModelReadTools = []string{
@@ -153,7 +148,6 @@ func developerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleBoardClaimTools...)
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
-	tools = append(tools, roleProfileTools...)
 	tools = append(tools, roleProjectModelReadTools...)
 	tools = append(tools, roleRuntimeReadTools...)
 	tools = append(tools, rolePRReadTools...)
@@ -204,7 +198,6 @@ func architectToolPolicy() domain.ToolPolicy {
 	tools = append(tools, rolePRReplyTools...)
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
-	tools = append(tools, roleProfileTools...)
 	tools = append(tools, roleProjectModelReadTools...)
 	// The two triage tools for judging whether a review's failure is live in
 	// production: where it runs, and what it is erroring on. Not the raw log

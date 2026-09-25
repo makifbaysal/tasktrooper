@@ -153,65 +153,6 @@ func TestB2BackfillDependencyMigrationIsIdempotent(t *testing.T) {
 	assert.Len(t, links, 1, "a dependency already carrying its legacy marker must not be migrated twice")
 }
 
-func TestB2BackfillAgentSectionsBecomeNotesAndMergeTheLegacyNotesSectionIntoGotchas(t *testing.T) {
-	svc, store, repos, _, legacy, _ := newB2Service(t)
-	ctx := context.Background()
-
-	repo := b2SeedRepo(t, repos, "demo")
-	api := b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: "api", Status: domain.ComponentStatusActive})
-
-	legacy.seedSection(repo.ID, domain.LegacyAgentSection{Section: "purpose", BodyMD: "Serves the public API.", SourceCommit: "abc"})
-	legacy.seedSection(repo.ID, domain.LegacyAgentSection{Section: "gotchas", BodyMD: "watch the rate limiter", SubProjectPath: "api"})
-	legacy.seedSection(repo.ID, domain.LegacyAgentSection{Section: "notes", BodyMD: "also: retries are not idempotent", SubProjectPath: "api"})
-	legacy.seedSection(repo.ID, domain.LegacyAgentSection{Section: "stack", BodyMD: "derived, must be ignored"})
-
-	svc.migrateLegacyNotes(ctx, repo, []domain.Component{api})
-
-	notes, err := store.ListNotes(ctx, repo.ID)
-	require.NoError(t, err)
-	require.Len(t, notes, 2, "purpose (repo-level) and the merged gotchas note; the derived 'stack' section must be ignored")
-
-	var purpose, gotchas domain.ProjectNote
-	for _, n := range notes {
-		switch {
-		case n.Topic == domain.NotePurpose:
-			purpose = n
-		case n.Topic == domain.NoteGotchas:
-			gotchas = n
-		}
-	}
-	assert.Nil(t, purpose.ComponentID)
-	assert.Equal(t, "Serves the public API.", purpose.BodyMD)
-	assert.Equal(t, domain.NoteAuthorAgent, purpose.Author)
-
-	require.NotNil(t, gotchas.ComponentID)
-	assert.Equal(t, api.ID, *gotchas.ComponentID)
-	assert.Contains(t, gotchas.BodyMD, "watch the rate limiter")
-	assert.Contains(t, gotchas.BodyMD, "retries are not idempotent")
-
-	svc.migrateLegacyNotes(ctx, repo, []domain.Component{api})
-	notes, err = store.ListNotes(ctx, repo.ID)
-	require.NoError(t, err)
-	assert.Len(t, notes, 2, "a topic that already has a note must not be migrated again")
-}
-
-func TestB2BackfillSkipsALegacySectionWhenANoteAlreadyExistsForThatTopic(t *testing.T) {
-	svc, store, repos, _, legacy, _ := newB2Service(t)
-	ctx := context.Background()
-	repo := b2SeedRepo(t, repos, "demo")
-
-	_, err := store.SaveNote(ctx, domain.ProjectNote{RepositoryID: repo.ID, Topic: domain.NotePurpose, BodyMD: "already documented", Author: domain.NoteAuthorAgent})
-	require.NoError(t, err)
-	legacy.seedSection(repo.ID, domain.LegacyAgentSection{Section: "purpose", BodyMD: "legacy purpose text"})
-
-	svc.migrateLegacyNotes(ctx, repo, nil)
-
-	notes, err := store.ListNotes(ctx, repo.ID)
-	require.NoError(t, err)
-	require.Len(t, notes, 1)
-	assert.Equal(t, "already documented", notes[0].BodyMD)
-}
-
 func TestB2BootFailsInterruptedScansAndMigratesZeroComponentRepositoriesOldestFirst(t *testing.T) {
 	svc, store, repos, _, _, scanner := newB2Service(t)
 	ctx := context.Background()

@@ -91,7 +91,6 @@ function buildModel(overrides: Partial<RepositoryModel> = {}): RepositoryModel {
     resources: [],
     linked_components: [],
     environments: [],
-    notes: [],
     review: [],
     ...overrides,
   };

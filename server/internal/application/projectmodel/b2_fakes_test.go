@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -26,7 +25,6 @@ type b2Store struct {
 	// resourceAliases mirrors system_resource_aliases: an identity key a merge
 	// folded away keeps resolving to its merge target.
 	resourceAliases map[string]uuid.UUID
-	notes           map[uuid.UUID]domain.ProjectNote
 	scans           map[uuid.UUID]domain.ProjectScan
 }
 
@@ -37,7 +35,6 @@ func newB2Store() *b2Store {
 		links:           map[uuid.UUID]domain.ComponentLink{},
 		resources:       map[uuid.UUID]domain.SystemResource{},
 		resourceAliases: map[string]uuid.UUID{},
-		notes:           map[uuid.UUID]domain.ProjectNote{},
 		scans:           map[uuid.UUID]domain.ProjectScan{},
 	}
 }
@@ -317,97 +314,6 @@ func (s *b2Store) MergeResources(_ context.Context, sourceID, targetID uuid.UUID
 	s.resourceAliases[source.IdentityKey] = targetID
 	delete(s.resources, sourceID)
 	return nil
-}
-
-// --- notes ---
-
-func (s *b2Store) ListNotes(_ context.Context, repositoryID uuid.UUID) ([]domain.ProjectNote, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []domain.ProjectNote
-	for _, n := range s.notes {
-		if n.RepositoryID == repositoryID {
-			out = append(out, n)
-		}
-	}
-	return out, nil
-}
-
-func (s *b2Store) GetNote(_ context.Context, id uuid.UUID) (domain.ProjectNote, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n, ok := s.notes[id]
-	if !ok {
-		return domain.ProjectNote{}, fmt.Errorf("note %s: %w", id, port.ErrNotFound)
-	}
-	return n, nil
-}
-
-func (s *b2Store) SaveNote(_ context.Context, n domain.ProjectNote) (domain.ProjectNote, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, existing := range s.notes {
-		if existing.RepositoryID == n.RepositoryID && sameComponentScope(existing.ComponentID, n.ComponentID) && existing.Topic == n.Topic {
-			n.ID = id
-			n.CreatedAt = existing.CreatedAt
-			n.UpdatedAt = time.Now().UTC()
-			s.notes[id] = n
-			return n, nil
-		}
-	}
-	if n.ID == uuid.Nil {
-		n.ID = uuid.New()
-	}
-	now := time.Now().UTC()
-	n.CreatedAt, n.UpdatedAt = now, now
-	s.notes[n.ID] = n
-	return n, nil
-}
-
-func sameComponentScope(a, b *uuid.UUID) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
-}
-
-func (s *b2Store) DeleteNote(_ context.Context, id uuid.UUID) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.notes[id]; !ok {
-		return fmt.Errorf("note %s: %w", id, port.ErrNotFound)
-	}
-	delete(s.notes, id)
-	return nil
-}
-
-func (s *b2Store) MarkNotesStale(_ context.Context, repositoryID uuid.UUID, changedPaths []string) ([]domain.ProjectNote, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	changed := map[string]bool{}
-	for _, p := range changedPaths {
-		changed[p] = true
-	}
-	var out []domain.ProjectNote
-	for id, n := range s.notes {
-		if n.RepositoryID != repositoryID || n.Stale {
-			continue
-		}
-		touched := false
-		for _, ev := range n.Evidence {
-			if changed[ev.Path] {
-				touched = true
-				break
-			}
-		}
-		if !touched {
-			continue
-		}
-		n.Stale = true
-		s.notes[id] = n
-		out = append(out, n)
-	}
-	return out, nil
 }
 
 // --- scans ---
@@ -695,13 +601,12 @@ func (p *b2Pipelines) seed(repositoryID uuid.UUID, jobs []domain.RepositoryPipel
 // b2Legacy is the port.LegacyModelSource fake: the pre-scan rows a real
 // repository would still be carrying at migration time.
 type b2Legacy struct {
-	mu       sync.Mutex
-	deps     map[uuid.UUID][]domain.LegacyDependency
-	sections map[uuid.UUID][]domain.LegacyAgentSection
+	mu   sync.Mutex
+	deps map[uuid.UUID][]domain.LegacyDependency
 }
 
 func newB2Legacy() *b2Legacy {
-	return &b2Legacy{deps: map[uuid.UUID][]domain.LegacyDependency{}, sections: map[uuid.UUID][]domain.LegacyAgentSection{}}
+	return &b2Legacy{deps: map[uuid.UUID][]domain.LegacyDependency{}}
 }
 
 func (l *b2Legacy) seedDependency(repositoryID uuid.UUID, dep domain.LegacyDependency) domain.LegacyDependency {
@@ -715,22 +620,10 @@ func (l *b2Legacy) seedDependency(repositoryID uuid.UUID, dep domain.LegacyDepen
 	return dep
 }
 
-func (l *b2Legacy) seedSection(repositoryID uuid.UUID, sec domain.LegacyAgentSection) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.sections[repositoryID] = append(l.sections[repositoryID], sec)
-}
-
 func (l *b2Legacy) ListLegacyDependencies(_ context.Context, repositoryID uuid.UUID) ([]domain.LegacyDependency, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return append([]domain.LegacyDependency(nil), l.deps[repositoryID]...), nil
-}
-
-func (l *b2Legacy) ListLegacyAgentSections(_ context.Context, repositoryID uuid.UUID) ([]domain.LegacyAgentSection, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return append([]domain.LegacyAgentSection(nil), l.sections[repositoryID]...), nil
 }
 
 var _ port.LegacyModelSource = (*b2Legacy)(nil)
@@ -782,67 +675,8 @@ func (s *b2Scanner) setResultFor(root string, result domain.ScanResult) {
 	s.resultFor[root] = result
 }
 
-// b2Loop is the AgentLoop fake.
-type b2Loop struct {
-	mu    sync.Mutex
-	calls [][]domain.Message
-	fn    func(ctx context.Context, messages []domain.Message) (domain.AgentResponse, error)
-}
-
-func (l *b2Loop) Run(ctx context.Context, messages []domain.Message, _ string, _ domain.LLMProviderType, _ domain.ToolPolicy, _ ...agent.RunOption) (domain.AgentResponse, error) {
-	l.mu.Lock()
-	l.calls = append(l.calls, messages)
-	fn := l.fn
-	l.mu.Unlock()
-	if fn != nil {
-		return fn(ctx, messages)
-	}
-	return domain.AgentResponse{}, nil
-}
-
-func (l *b2Loop) callCount() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return len(l.calls)
-}
-
-// b2Agents is the AgentGetter fake.
-type b2Agents struct {
-	agent domain.Agent
-}
-
-func (a *b2Agents) GetAgent(_ context.Context, id uuid.UUID) (domain.Agent, error) {
-	if a.agent.ID == id {
-		return a.agent, nil
-	}
-	return domain.Agent{}, fmt.Errorf("agent %s: %w", id, port.ErrNotFound)
-}
-
-// b2Roles is the minimal port.RoleResolver fake: only AgentForPurpose is
-// exercised by the notes pass, the rest satisfy the interface.
-type b2Roles struct {
-	agentID *uuid.UUID
-}
-
-func (r *b2Roles) AgentForRole(_ context.Context, _ uuid.UUID, _ string) (*uuid.UUID, error) {
-	return nil, nil
-}
-
-func (r *b2Roles) AgentForPurpose(_ context.Context, _ domain.RolePurposeKey, _ string) (*uuid.UUID, error) {
-	return r.agentID, nil
-}
-
-func (r *b2Roles) AgentArea(_ context.Context, _ uuid.UUID) string { return "" }
-
-func (r *b2Roles) AssigneeForNewTask(_ context.Context, _ domain.TaskType, _ string, requested *uuid.UUID) (*uuid.UUID, error) {
-	return requested, nil
-}
-
-var _ port.RoleResolver = (*b2Roles)(nil)
-
 // newB2Service wires a Service against every b2 fake, with the projector and
-// pipeline writer project() needs on every component/check edit; tests that
-// need the agent notes pass call SetAgentLoop themselves.
+// pipeline writer project() needs on every component/check edit.
 func newB2Service(t interface{ Helper() }) (*Service, *b2Store, *b2Repos, *b2Pipelines, *b2Legacy, *b2Scanner) {
 	t.Helper()
 	store := newB2Store()

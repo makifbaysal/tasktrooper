@@ -71,15 +71,6 @@ export const projectModel = {
     observability: "Observability",
     other: "Other",
   },
-  noteTopics: {
-    purpose: "Purpose",
-    entrypoints: "Entrypoints",
-    conventions: "Conventions",
-    invariants: "Invariants",
-    danger_zones: "Danger zones",
-    change_recipes: "Change recipes",
-    gotchas: "Gotchas",
-  },
   scanStages: {
     clone: "Clone",
     inventory: "Inventory",
@@ -90,7 +81,6 @@ export const projectModel = {
     links: "Links",
     deploy: "Deploy",
     match: "Match",
-    notes: "Notes",
   },
   confidence: {
     exact: "Exact",

@@ -82,14 +82,6 @@ func (s *LegacyModelSourceSuite) insertDependency(repositoryID uuid.UUID, target
 	s.Require().NoError(err)
 }
 
-func (s *LegacyModelSourceSuite) insertProfileSection(repositoryID uuid.UUID, section, bodyMD, origin, sourceCommit, evidenceJSON string) {
-	_, err := s.pool.Exec(s.ctx, `
-		INSERT INTO repository_profile_sections (repository_id, section, body_md, origin, source_commit, evidence)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-	`, repositoryID, section, bodyMD, origin, sourceCommit, evidenceJSON)
-	s.Require().NoError(err)
-}
-
 func (s *LegacyModelSourceSuite) TestListLegacyDependenciesReadsEveryTargetKind() {
 	s.insertDependency(s.repoA, "repo", &s.repoB, "", "", "", 0, "", "calls the public API")
 	s.insertDependency(s.repoA, "database", nil, "Primary DB", "postgres", "db.internal", 5432, "app", "")
@@ -121,32 +113,6 @@ func (s *LegacyModelSourceSuite) TestListLegacyDependenciesIsScopedToItsReposito
 	s.insertDependency(s.repoB, "database", nil, "Other repo's DB", "", "", 0, "", "")
 
 	got, err := s.source.ListLegacyDependencies(s.ctx, s.repoA)
-	s.Require().NoError(err)
-	s.Empty(got)
-}
-
-func (s *LegacyModelSourceSuite) TestListLegacyAgentSectionsOnlyReturnsAgentOrigin() {
-	s.insertProfileSection(s.repoA, "purpose", "Serves the public API.", "agent", "abc123",
-		`[{"path":"main.go","line":3}]`)
-	s.insertProfileSection(s.repoA, "stack", "Go, Postgres", "derived", "", `[]`)
-
-	got, err := s.source.ListLegacyAgentSections(s.ctx, s.repoA)
-	s.Require().NoError(err)
-	s.Require().Len(got, 1, "the derived stack section must never surface as a legacy agent section")
-
-	sec := got[0]
-	s.Equal("purpose", sec.Section)
-	s.Equal("Serves the public API.", sec.BodyMD)
-	s.Equal("abc123", sec.SourceCommit)
-	s.Require().Len(sec.Evidence, 1)
-	s.Equal("main.go", sec.Evidence[0].Path)
-	s.Equal(3, sec.Evidence[0].Line)
-}
-
-func (s *LegacyModelSourceSuite) TestListLegacyAgentSectionsIsScopedToItsRepository() {
-	s.insertProfileSection(s.repoB, "gotchas", "watch out", "agent", "", `[]`)
-
-	got, err := s.source.ListLegacyAgentSections(s.ctx, s.repoA)
 	s.Require().NoError(err)
 	s.Empty(got)
 }

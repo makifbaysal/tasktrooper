@@ -43,7 +43,6 @@ describe("ScanStep", () => {
       resources: [],
       linked_components: [],
       environments: [],
-      notes: [],
       review: [],
     });
   });

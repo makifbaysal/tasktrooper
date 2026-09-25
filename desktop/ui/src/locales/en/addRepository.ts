@@ -53,14 +53,14 @@ export const addRepository = {
   },
   scan: {
     heading: "Scanning {names}",
-    subheading: "Shown as it's found. The agent summary runs in the background — no need to wait.",
+    subheading: "Shown as it's found — no need to wait for it to finish.",
     cloning: "Cloning…",
     componentsFound: "{count} components found",
     retry: "Retry",
     failedTitle: "Import failed",
     scanFailedHint: "The scan failed — it can be re-run from the repository page.",
     continue: "Continue to review",
-    continueHint: "Notes may still be running in the background",
+    continueHint: "Code indexing may still be running in the background",
   },
   review: {
     heading: "A few things I wasn't sure about",
@@ -80,7 +80,7 @@ export const addRepository = {
   done: {
     added: "{names} added to {project}",
     backgroundTitle: "Continuing in the background",
-    backgroundNote: "Agent notes and code indexing keep running; they show up on the repository page when done.",
+    backgroundNote: "Code indexing keeps running; it shows up on the repository page when done.",
     statComponents: "components",
     statChecks: "checks · {required} required",
     statLinks: "links",

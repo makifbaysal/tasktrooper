@@ -39,7 +39,11 @@ func ResolveRunWorkspaceForTest(
 	if err != nil {
 		return "", ctx, nil, err
 	}
-	runCtx, out, err := svc.prepareRunContext(ctx, sess, sess.ID, dir, settings.DefaultLanguage, history, binding)
+	// An empty policy would make ToolsNote list everything (unrestricted means
+	// allow-all); ToolsNote has its own tests, so keep this helper's history
+	// shape as it was before the note existed.
+	toolPolicy := domain.ToolPolicy{AllowTools: []string{"read_file"}}
+	runCtx, out, err := svc.prepareRunContext(ctx, sess, sess.ID, dir, settings.DefaultLanguage, history, binding, toolPolicy)
 	return dir, runCtx, out, err
 }
 

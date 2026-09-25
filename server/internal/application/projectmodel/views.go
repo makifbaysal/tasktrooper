@@ -82,11 +82,6 @@ func (s *Service) RepositoryModel(ctx context.Context, repositoryID uuid.UUID) (
 	if err != nil {
 		return domain.RepositoryModel{}, err
 	}
-	notes, err := s.store.ListNotes(ctx, repositoryID)
-	if err != nil {
-		return domain.RepositoryModel{}, err
-	}
-
 	resources, err := s.store.ListResources(ctx, collectResourceIDs(links, incoming))
 	if err != nil {
 		return domain.RepositoryModel{}, err
@@ -113,7 +108,6 @@ func (s *Service) RepositoryModel(ctx context.Context, repositoryID uuid.UUID) (
 		IncomingLinks:    nonNil(incoming),
 		Resources:        nonNil(resources),
 		LinkedComponents: linkedComponents,
-		Notes:            nonNil(notes),
 		Environments:     nonNil(environments),
 		Review:           nonNil(reviewItems(components, checks, links, environments)),
 		LatestScan:       latestScan,

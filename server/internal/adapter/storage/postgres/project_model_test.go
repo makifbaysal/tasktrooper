@@ -472,95 +472,6 @@ func (s *ProjectModelStoreSuite) TestMergeResourcesUnknownSourceOrTargetReturnsN
 	s.Require().ErrorIs(s.store.MergeResources(s.ctx, target.ID, uuid.New()), port.ErrNotFound)
 }
 
-func (s *ProjectModelStoreSuite) TestSaveNoteUpsertsByRepositoryNilComponentTopic() {
-	first, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA,
-		Topic:        domain.NotePurpose,
-		BodyMD:       "first",
-		Evidence:     []domain.SourceEvidence{{Path: "README.md"}},
-	})
-	s.Require().NoError(err)
-
-	second, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA,
-		Topic:        domain.NotePurpose,
-		BodyMD:       "second",
-	})
-	s.Require().NoError(err)
-
-	s.Equal(first.ID, second.ID, "same repository/topic with no component must update, not duplicate")
-	s.Equal("second", second.BodyMD)
-
-	list, err := s.store.ListNotes(s.ctx, s.repoA)
-	s.Require().NoError(err)
-	s.Require().Len(list, 1)
-}
-
-func (s *ProjectModelStoreSuite) TestSaveNoteUpsertsByComponentAndTopic() {
-	comp, err := s.store.SaveComponent(s.ctx, domain.Component{RepositoryID: s.repoA, Path: "."})
-	s.Require().NoError(err)
-
-	repoLevel, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA, Topic: domain.NoteGotchas, BodyMD: "repo-level",
-	})
-	s.Require().NoError(err)
-
-	componentLevel, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA, ComponentID: &comp.ID, Topic: domain.NoteGotchas, BodyMD: "component-level",
-	})
-	s.Require().NoError(err)
-	s.NotEqual(repoLevel.ID, componentLevel.ID, "a component-scoped note is distinct from the repository-level note on the same topic")
-
-	updated, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA, ComponentID: &comp.ID, Topic: domain.NoteGotchas, BodyMD: "component-level v2",
-	})
-	s.Require().NoError(err)
-	s.Equal(componentLevel.ID, updated.ID)
-	s.Equal("component-level v2", updated.BodyMD)
-
-	list, err := s.store.ListNotes(s.ctx, s.repoA)
-	s.Require().NoError(err)
-	s.Require().Len(list, 2)
-
-	s.Require().NoError(s.store.DeleteNote(s.ctx, repoLevel.ID))
-	_, err = s.store.GetNote(s.ctx, repoLevel.ID)
-	s.Require().ErrorIs(err, port.ErrNotFound)
-}
-
-func (s *ProjectModelStoreSuite) TestMarkNotesStaleMatchesDirectoryPrefix() {
-	inside, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA, Topic: domain.NoteInvariants, BodyMD: "x",
-		Evidence: []domain.SourceEvidence{{Path: "internal/orders"}},
-	})
-	s.Require().NoError(err)
-
-	exact, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA, Topic: domain.NoteConventions, BodyMD: "y",
-		Evidence: []domain.SourceEvidence{{Path: "internal/orders/handler.go"}},
-	})
-	s.Require().NoError(err)
-
-	untouched, err := s.store.SaveNote(s.ctx, domain.ProjectNote{
-		RepositoryID: s.repoA, Topic: domain.NoteGotchas, BodyMD: "z",
-		Evidence: []domain.SourceEvidence{{Path: "internal/billing/handler.go"}},
-	})
-	s.Require().NoError(err)
-
-	stale, err := s.store.MarkNotesStale(s.ctx, s.repoA, []string{"internal/orders/handler.go"})
-	s.Require().NoError(err)
-	s.Require().Len(stale, 2)
-	ids := []uuid.UUID{stale[0].ID, stale[1].ID}
-	s.Contains(ids, inside.ID)
-	s.Contains(ids, exact.ID)
-	for _, n := range stale {
-		s.True(n.Stale)
-	}
-
-	got, err := s.store.GetNote(s.ctx, untouched.ID)
-	s.Require().NoError(err)
-	s.False(got.Stale)
-}
-
 func (s *ProjectModelStoreSuite) TestScanCreateUpdateLatestAndFailInterrupted() {
 	created, err := s.store.CreateScan(s.ctx, domain.ProjectScan{
 		RepositoryID: s.repoA,
@@ -575,7 +486,7 @@ func (s *ProjectModelStoreSuite) TestScanCreateUpdateLatestAndFailInterrupted() 
 
 	updated := created
 	updated.Status = domain.ScanSucceeded
-	updated.Stage = domain.ScanStageNotes
+	updated.Stage = domain.ScanStageMatch
 	updated.CommitSHA = "abc123"
 	updated.Events = []domain.ScanEvent{{Stage: domain.ScanStageClone, Done: true, Summary: "cloned", At: time.Now()}}
 	updated.Result = &domain.ScanResult{
@@ -592,7 +503,7 @@ func (s *ProjectModelStoreSuite) TestScanCreateUpdateLatestAndFailInterrupted() 
 	got, err := s.store.GetScan(s.ctx, created.ID)
 	s.Require().NoError(err)
 	s.Equal(domain.ScanSucceeded, got.Status)
-	s.Equal(domain.ScanStageNotes, got.Stage)
+	s.Equal(domain.ScanStageMatch, got.Stage)
 	s.Equal("abc123", got.CommitSHA)
 	s.Equal(2, got.ReviewCount)
 	s.Require().NotNil(got.Result)

@@ -24,9 +24,9 @@ func (t *briefTool) Definition() domain.ToolDefinition {
 		Type: "function",
 		Function: domain.FunctionDefinition{
 			Name: getBriefToolName,
-			Description: "Read the project brief: what the repository (or one of its components) is, what it runs, what it talks to, " +
-				"and the judgment notes on top. This is what every run is already given at start — call it again when you need the " +
-				"brief for a component or area other than the one you started with.",
+			Description: "Read the repository overview: what it is, its stack, its components and their commands, git conventions, " +
+				"reference docs, what runs where, what it talks to, and the CI checks to run before handing off. Not given to you " +
+				"automatically — call it when you need this, optionally scoped to a component path or area.",
 			Parameters: map[string]interface{}{
 				"type":                 "object",
 				"additionalProperties": false,

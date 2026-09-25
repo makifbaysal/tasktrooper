@@ -34,7 +34,6 @@ const SCAN_STAGES: ScanStage[] = [
   "links",
   "deploy",
   "match",
-  "notes",
 ];
 
 export function factValue<T>(fact: Fact<T> | undefined | null): T | undefined {

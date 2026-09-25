@@ -33,7 +33,6 @@ type Service struct {
 	orchestrator   *orchestrator.Service
 	settings       *appSettings.Service
 	repositories   RepositoryResolver
-	projectBriefs  ProjectBriefs
 	board          port.BoardConfigStore
 	catalog        port.CatalogStore
 	ttl            time.Duration
@@ -99,17 +98,6 @@ type RepositoryResolver interface {
 	ResolveRootPath(ctx context.Context, repositoryID uuid.UUID) (string, error)
 	ResolveDescription(ctx context.Context, repositoryID uuid.UUID) (string, error)
 	ResolveRepository(ctx context.Context, repositoryID uuid.UUID) (domain.Repository, error)
-}
-
-// ProjectBriefs is the structured project model's read surface a chat session
-// needs: the brief that replaces the old ProfileMD injection. A nil
-// ProjectBriefs injects nothing — ProfileMD is dead, never a fallback.
-type ProjectBriefs interface {
-	Brief(ctx context.Context, repositoryID uuid.UUID, scope projectmodel.BriefScope) (string, error)
-}
-
-func (s *Service) SetProjectBriefs(b ProjectBriefs) {
-	s.projectBriefs = b
 }
 
 type IndexInjector interface {
@@ -360,7 +348,7 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding)
+	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding, s.effectiveToolPolicy(ctx, sess, policy))
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
@@ -552,7 +540,7 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding)
+	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding, s.effectiveToolPolicy(ctx, sess, policy))
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
@@ -833,6 +821,20 @@ func (s *Service) ensureSessionWorkspace(ctx context.Context, sess domain.Sessio
 	return workspaceDir, nil, nil
 }
 
+// effectiveToolPolicy resolves the policy this turn actually runs with, ahead
+// of applyAgentContext resolving the same agent record for the system prompt —
+// prepareRunContext needs it early to know which project-model tools to tell
+// the agent about, before the rest of the turn's context is built.
+func (s *Service) effectiveToolPolicy(ctx context.Context, sess domain.Session, policy domain.ToolPolicy) domain.ToolPolicy {
+	agentPolicy := domain.ToolPolicy{}
+	if sess.AgentID != nil && s.catalog != nil {
+		if agentRec, err := s.catalog.GetAgent(ctx, *sess.AgentID); err == nil {
+			agentPolicy = agentRec.ToolPolicy
+		}
+	}
+	return domain.UpliftWorkspaceTools(domain.MergeToolPolicy(policy, agentPolicy))
+}
+
 func (s *Service) prepareRunContext(
 	ctx context.Context,
 	sess domain.Session,
@@ -841,6 +843,7 @@ func (s *Service) prepareRunContext(
 	lang string,
 	history []domain.Message,
 	task *TaskBinding,
+	toolPolicy domain.ToolPolicy,
 ) (context.Context, []domain.Message, error) {
 	ctx = registry.ContextWithSessionID(registry.ContextWithWorkspaceDir(ctx, workspaceDir), sessionID)
 	if task != nil {
@@ -854,10 +857,8 @@ func (s *Service) prepareRunContext(
 				history = prependProjectPrompt(history, repo.Description)
 			}
 		}
-		if s.projectBriefs != nil {
-			if brief, err := s.projectBriefs.Brief(ctx, *sess.ProjectID, projectmodel.BriefScope{}); err == nil && brief != "" {
-				history = prependProjectBriefPrompt(history, brief)
-			}
+		if note := projectmodel.ToolsNote(toolPolicy); note != "" {
+			history = prependProjectToolsNotePrompt(history, note)
 		}
 	}
 	history = prependWorkspacePrompt(history, workspaceDir, lang)

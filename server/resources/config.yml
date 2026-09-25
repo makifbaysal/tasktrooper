@@ -134,7 +134,7 @@ graph:
 
 tools:
   default_policy:
-    allow_tools: ["ask_user", "web_search", "fetch_url", "codebase_search", "grep_code", "get_repo_tree", "get_symbol_skeleton", "expand_symbol_context", "search_boilerplate_catalog", "read_file"]
+    allow_tools: ["ask_user", "web_search", "fetch_url", "codebase_search", "grep_code", "get_repo_tree", "get_symbol_skeleton", "expand_symbol_context", "search_boilerplate_catalog", "read_file", "get_project_brief", "list_component_checks", "list_links"]
   max_tool_output_chars: 16000
   search:
     enabled: true

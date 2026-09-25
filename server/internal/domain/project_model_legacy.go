@@ -27,29 +27,3 @@ type LegacyDependency struct {
 	DatabaseName         string
 	Note                 string
 }
-
-// Legacy repository_profile_sections.section values (migration 086) that
-// LegacyAgentSection.Section can carry — only the agent-writable ones, since
-// LegacyModelSource filters to origin = 'agent' at the query. The backfill
-// maps each onto the project_notes topic it becomes; "notes" is the old
-// free-text catch-all and folds into gotchas.
-const (
-	ProfileSectionPurpose       = "purpose"
-	ProfileSectionEntrypoints   = "entrypoints"
-	ProfileSectionConventions   = "conventions"
-	ProfileSectionInvariants    = "invariants"
-	ProfileSectionChangeRecipes = "change_recipes"
-	ProfileSectionDangerZones   = "danger_zones"
-	ProfileSectionGotchas       = "gotchas"
-	ProfileSectionNotes         = "notes"
-)
-
-// LegacyAgentSection is one agent-written repository_profile_sections row,
-// read only to carry it into project_notes.
-type LegacyAgentSection struct {
-	Section        string
-	BodyMD         string
-	Evidence       []SourceEvidence
-	SourceCommit   string
-	SubProjectPath string
-}

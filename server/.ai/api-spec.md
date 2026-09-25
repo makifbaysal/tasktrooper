@@ -194,8 +194,9 @@ every read CLOSED rather than answering as if a type or stage were simply absent
   every named role's `required_tools`.
 - `GET /v1/role-purposes` / `PUT /v1/role-purposes/{purpose}` `{role_id|null}` — the
   `system_task_assignee` (who `CreateWorkflowSetupTask`/deploy/repodocs/prodops hand their
-  own system-opened tasks to) and `repo_profiler` (who a repository notes pass goes
-  to) hooks. `role_id: null` clears the hook; nothing resolves for it until set again.
+  own system-opened tasks to) and `repo_profiler` (defined for future use; currently has no
+  runtime consumer) hooks. `role_id: null` clears the hook; nothing resolves for it until set
+  again.
 - `GET /v1/task-types` → `{task_types:[{key,label,key_prefix,position,is_default,
   is_defect,assignee_role_id,assignee_mode,behaviours:[{key,params}],built_in,
   task_count}]}`. `assignee_mode` is `none` (task/bug/technical today — the requested
@@ -553,19 +554,19 @@ repository's own `local_run` doc (`scripts/dev.sh`).
 
 ## Project model
 
-Components, checks, links, resources, notes and scans — the full route list and
+Components, checks, links, resources and scans — the full route list and
 payloads are in [projects.md](projects.md) and the domain JSON tags
-(`internal/domain/project_model*.go`, `project_map.go`):
+(`internal/domain/project_model*.go`, `project_map.go`). The brief is not a route: it is
+fetched on demand through the `get_project_brief` tool.
 
 - `GET /v1/projects/overview`, `GET /v1/projects/{id}/overview`, `GET /v1/projects/map`,
   `GET /v1/projects/{id}/map`
-- `GET /v1/repositories/{id}/model`, `GET /v1/repositories/{id}/brief`
+- `GET /v1/repositories/{id}/model`
 - `POST /v1/repositories/{id}/scans` (202; 409 while one runs),
   `GET /v1/repositories/{id}/scans/latest`, `GET /v1/scans/{id}`
 - `POST /v1/repositories/{id}/components`, `PATCH /v1/components/{id}`,
   `POST /v1/components/{id}/checks`, `PATCH|DELETE /v1/checks/{id}`,
-  `POST /v1/links`, `PATCH|DELETE /v1/links/{id}`,
-  `PUT /v1/repositories/{id}/notes`, `PATCH|DELETE /v1/notes/{id}`
+  `POST /v1/links`, `PATCH|DELETE /v1/links/{id}`
 - `GET /v1/resources` — `{"resources": [domain.WorkspaceResource, ...]}`, never `null`
 - `PATCH /v1/resources/{id}` (`{"name": "…"}`) — 200 `domain.SystemResource`, locks the name
   against a later rescan

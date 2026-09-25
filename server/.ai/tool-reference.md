@@ -125,16 +125,15 @@ Refused: `failed` without `actual`, `invalid`/`skipped` without `notes`, duplica
 
 Drops one acceptance criterion from scope with a reason (`task_acceptance_criteria.canceled/cancel_reason`, migration 131). Args: `criterion_id`, `reason`, optional `canceled` (default true). The reason is stored and posted as a task comment; the criteria gates treat a cancelled criterion as settled, never as met. Granted wherever `set_criterion_completed` is.
 
-### `get_project_brief`, `list_component_checks`, `list_links`, `record_project_note`
+### `get_project_brief`, `list_component_checks`, `list_links`
 
-The structured project model's agent-facing surface (`internal/adapter/tools/projectmodel`), replacing the old markdown profile and `update_project_profile`. All four resolve their repository from the run context the way the board tools do, with an optional `repository_id` argument to override it; a call with neither gets an error naming both ways out.
+The structured project model's agent-facing surface (`internal/adapter/tools/projectmodel`), replacing the old markdown profile and `update_project_profile`. All three resolve their repository from the run context the way the board tools do, with an optional `repository_id` argument to override it; a call with neither gets an error naming both ways out. None of these is injected into a run's context automatically — an agent calls them on demand.
 
-- **`get_project_brief`** `{component?, area?}` — the same brief text injected at the start of every board run and repo-bound chat: what the repository (or the named component) is, what it runs, what it talks to, and the judgment notes on top. `component` is a component's own path; `area` is a role like `backend`, ignored when `component` is set.
+- **`get_project_brief`** `{component?, area?}` — the repository overview: what the repository (or the named component) is, its stack, its components and their commands, git conventions, reference docs, what runs where, what it talks to, and the CI checks to run before handing off. `component` is a component's own path; `area` is a role like `backend`, ignored when `component` is set.
 - **`list_component_checks`** `{component?}` — JSON per component: each CI check's workflow, job, purpose, gate, local command in display form (`cd <dir> && <argv>`), and whether it is required/missing. This is how a run finds the exact command CI runs.
 - **`list_links`** `{component?, direction?}` — JSON list of what a component talks to and what talks to it: `direction` is `out`/`in`/`both` (default `both`). Each entry names the other end (`repo/path` for a component, `name (kind)` for a system resource), protocol, env vars, status, confidence and reason.
-- **`record_project_note`** (`RecordNoteToolName = "record_project_note"`) `{notes: [{topic, body_md, evidence, component_path?}]}` — the only write path left: judgment the platform cannot derive (`purpose`, `entrypoints`, `conventions`, `invariants`, `danger_zones`, `change_recipes`, `gotchas`). Never restates what `get_project_brief`/`list_component_checks`/`list_links` already show — stack, commands, CI and links are scanned from the tree. Every note needs at least one evidence path that exists in the working copy or it is rejected; a note the human already wrote or locked is refused outright. Returns one `{topic, component_path?, accepted, reason?}` per note so a rejected write can be corrected and resent in the same run.
 
-Granted: the three read tools to `system-architect`, `backend-developer`, `frontend-developer`, `mobile-developer`, `qa-agent` (every role that writes or reviews code) and, narrower, `get_project_brief` + `list_links` to `product-manager`; `record_project_note` to the developer and architect roles.
+Granted: all three to `system-architect`, `backend-developer`, `frontend-developer`, `mobile-developer`, `qa-agent` (every role that writes or reviews code) and, narrower, `get_project_brief` + `list_links` to `product-manager`.
 
 ### `get_environment`, `query_runtime_logs`, `list_runtime_errors`, `list_deployments`
 
