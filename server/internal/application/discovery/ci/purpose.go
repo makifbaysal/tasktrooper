@@ -191,6 +191,11 @@ func deployEnvironment(wf workflow, j job) domain.DeployEnvironment {
 	return ""
 }
 
+// stagingKeywords must be checked before any "prod" keyword: "preprod"
+// contains "prod" as a substring, so a naive prod-first check would read a
+// pre-production environment as production.
+var stagingKeywords = []string{"preprod", "pre-prod", "pre_prod", "uat", "staging", "stage"}
+
 func normalizeEnvironment(raw string) domain.DeployEnvironment {
 	if !hasStaticEnvironment(raw) {
 		return ""
@@ -199,12 +204,15 @@ func normalizeEnvironment(raw string) domain.DeployEnvironment {
 	switch low {
 	case "prod", "production", "live":
 		return domain.EnvironmentProduction
-	case "stage", "staging":
+	case "stage", "staging", "preprod", "pre-prod", "pre_prod", "uat":
 		return domain.EnvironmentStaging
 	case "preview", "pr":
 		return domain.EnvironmentPreview
 	case "dev", "development":
 		return domain.EnvironmentDevelopment
+	}
+	if containsAny(low, stagingKeywords...) {
+		return domain.EnvironmentStaging
 	}
 	if strings.Contains(low, "prod") {
 		return domain.EnvironmentProduction
@@ -214,10 +222,10 @@ func normalizeEnvironment(raw string) domain.DeployEnvironment {
 
 func envFromKeywords(keyName string) domain.DeployEnvironment {
 	switch {
+	case containsAny(keyName, stagingKeywords...):
+		return domain.EnvironmentStaging
 	case containsAny(keyName, "prod", "production", "live"):
 		return domain.EnvironmentProduction
-	case containsAny(keyName, "staging", "stage"):
-		return domain.EnvironmentStaging
 	case containsAny(keyName, "preview"):
 		return domain.EnvironmentPreview
 	case containsAny(keyName, "development", "dev"):
