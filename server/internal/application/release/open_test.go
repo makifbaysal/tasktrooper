@@ -114,7 +114,7 @@ func TestOpenForMergeNoneMovesTaskToReleased(t *testing.T) {
 	assert.Empty(t, f.store.releases)
 }
 
-func TestOpenForMergeBatchLeavesTaskInDoneWithNoRelease(t *testing.T) {
+func TestOpenForMergeBatchQueuesTheTaskInADraftRelease(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
 	f := newOpenFixture(task)
 	repositoryID := uuid.New()
@@ -127,10 +127,44 @@ func TestOpenForMergeBatchLeavesTaskInDoneWithNoRelease(t *testing.T) {
 
 	assert.Equal(t, domain.DeliveryBatch, opening.Mode)
 	assert.False(t, opening.Released)
-	assert.Nil(t, opening.ReleaseID)
-	assert.Contains(t, opening.Next, "cuts the next one")
-	assert.Empty(t, f.tasks.updates)
-	assert.Empty(t, f.store.releases)
+	require.NotNil(t, opening.ReleaseID)
+	assert.Equal(t, domain.ReleaseDraft, opening.Status)
+	assert.Contains(t, opening.Next, "Queued")
+	assert.Contains(t, opening.Next, "human cuts it")
+	assert.Empty(t, f.tasks.updates, "the task stays in done — no column move")
+
+	draft, err := f.store.Get(context.Background(), *opening.ReleaseID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseDraft, draft.Status)
+	assert.Equal(t, domain.DeliveryBatch, draft.Mode)
+	assert.Empty(t, draft.Version)
+	require.Len(t, draft.Tasks, 1)
+	assert.Equal(t, task.ID, draft.Tasks[0].ID)
+}
+
+func TestOpenForMergeBatchJoinsAnExistingDraft(t *testing.T) {
+	first := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
+	second := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}
+	f := newOpenFixture(first, second)
+	repositoryID := uuid.New()
+	component := confirmedComponent(domain.DeliveryBatch, domain.ExecutorGitHubActions)
+	f.components.add(repositoryID, component)
+	first.ComponentID = &component.ID
+	second.ComponentID = &component.ID
+	f.tasks.tasks[first.ID] = first
+	f.tasks.tasks[second.ID] = second
+
+	firstOpening := f.svc.OpenForMerge(context.Background(), repositoryID, first, "1111111111111111111111111111111111111111")
+	secondOpening := f.svc.OpenForMerge(context.Background(), repositoryID, second, "2222222222222222222222222222222222222222")
+
+	require.NotNil(t, firstOpening.ReleaseID)
+	require.NotNil(t, secondOpening.ReleaseID)
+	assert.Equal(t, *firstOpening.ReleaseID, *secondOpening.ReleaseID, "both merges must join the same draft")
+	assert.Len(t, f.store.releases, 1)
+
+	draft, err := f.store.Get(context.Background(), *firstOpening.ReleaseID)
+	require.NoError(t, err)
+	assert.Len(t, draft.Tasks, 2)
 }
 
 func TestOpenForMergeOnMergeOpensADeployingRelease(t *testing.T) {

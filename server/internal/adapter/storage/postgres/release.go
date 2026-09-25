@@ -31,20 +31,21 @@ func NewReleaseStore(db *DB) *ReleaseStore {
 var _ port.ReleaseStore = (*ReleaseStore)(nil)
 
 const releaseCols = `id, repository_id, component_id, version, mode, executor, status, commit_sha, tag, notes,
-	profile, deploy, checks, verdict, rollback, failure_reason, card_task_id,
+	profile, deploy, checks, verdict, rollback, failure_reason, card_task_id, local_run, store_builds, cut_at,
 	created_at, updated_at, deploy_started_at, deployed_at, verify_until, finished_at`
 
 const releaseColsPrefixed = `r.id, r.repository_id, r.component_id, r.version, r.mode, r.executor, r.status, r.commit_sha, r.tag, r.notes,
-	r.profile, r.deploy, r.checks, r.verdict, r.rollback, r.failure_reason, r.card_task_id,
+	r.profile, r.deploy, r.checks, r.verdict, r.rollback, r.failure_reason, r.card_task_id, r.local_run, r.store_builds, r.cut_at,
 	r.created_at, r.updated_at, r.deploy_started_at, r.deployed_at, r.verify_until, r.finished_at`
 
 func scanRelease(row pgx.Row) (domain.Release, error) {
 	var r domain.Release
 	var mode, executor, status string
-	var profileJSON, checksJSON, deployJSON, rollbackJSON []byte
+	var profileJSON, checksJSON, deployJSON, rollbackJSON, localRunJSON, storeBuildsJSON []byte
 	if err := row.Scan(
 		&r.ID, &r.RepositoryID, &r.ComponentID, &r.Version, &mode, &executor, &status, &r.CommitSHA, &r.Tag, &r.Notes,
 		&profileJSON, &deployJSON, &checksJSON, &r.Verdict, &rollbackJSON, &r.FailureReason, &r.CardTaskID,
+		&localRunJSON, &storeBuildsJSON, &r.CutAt,
 		&r.CreatedAt, &r.UpdatedAt, &r.DeployStartedAt, &r.DeployedAt, &r.VerifyUntil, &r.FinishedAt,
 	); err != nil {
 		return domain.Release{}, err
@@ -71,6 +72,18 @@ func scanRelease(row pgx.Row) (domain.Release, error) {
 			return domain.Release{}, fmt.Errorf("unmarshal release rollback: %w", err)
 		}
 		r.Rollback = &rb
+	}
+	if localRunJSON != nil {
+		var lr domain.ReleaseLocalRun
+		if err := json.Unmarshal(localRunJSON, &lr); err != nil {
+			return domain.Release{}, fmt.Errorf("unmarshal release local_run: %w", err)
+		}
+		r.LocalRun = &lr
+	}
+	if storeBuildsJSON != nil {
+		if err := json.Unmarshal(storeBuildsJSON, &r.StoreBuilds); err != nil {
+			return domain.Release{}, fmt.Errorf("unmarshal release store_builds: %w", err)
+		}
 	}
 	return r, nil
 }
@@ -124,9 +137,9 @@ func (s *ReleaseStore) fillOne(ctx context.Context, r domain.Release) (domain.Re
 const insertReleaseSQL = `
 INSERT INTO releases
 	(id, repository_id, component_id, version, mode, executor, status, commit_sha, tag, notes,
-	 profile, deploy, checks, verdict, rollback, failure_reason, card_task_id,
+	 profile, deploy, checks, verdict, rollback, failure_reason, card_task_id, local_run, store_builds, cut_at,
 	 deploy_started_at, deployed_at, verify_until, finished_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
 RETURNING ` + releaseCols
 
 // Create inserts the release and its starting tasks in one transaction, so a
@@ -159,13 +172,28 @@ func (s *ReleaseStore) Create(ctx context.Context, r domain.Release, taskIDs []u
 			return domain.Release{}, fmt.Errorf("marshal release rollback: %w", err)
 		}
 	}
+	var localRunJSON []byte
+	if r.LocalRun != nil {
+		if localRunJSON, err = json.Marshal(r.LocalRun); err != nil {
+			return domain.Release{}, fmt.Errorf("marshal release local_run: %w", err)
+		}
+	}
+	storeBuilds := r.StoreBuilds
+	if storeBuilds == nil {
+		storeBuilds = []domain.ReleaseStoreBuild{}
+	}
+	storeBuildsJSON, err := json.Marshal(storeBuilds)
+	if err != nil {
+		return domain.Release{}, fmt.Errorf("marshal release store_builds: %w", err)
+	}
 
 	var out domain.Release
 	err = s.pool.InTx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, insertReleaseSQL,
 			r.ID, r.RepositoryID, r.ComponentID, r.Version, string(r.Mode), string(r.Executor), string(r.Status),
 			r.CommitSHA, r.Tag, r.Notes, profileJSON, deployJSON, checksJSON, r.Verdict, rollbackJSON,
-			r.FailureReason, r.CardTaskID, r.DeployStartedAt, r.DeployedAt, r.VerifyUntil, r.FinishedAt)
+			r.FailureReason, r.CardTaskID, localRunJSON, storeBuildsJSON, r.CutAt,
+			r.DeployStartedAt, r.DeployedAt, r.VerifyUntil, r.FinishedAt)
 		created, err := scanRelease(row)
 		if err != nil {
 			return fmt.Errorf("insert release: %w", err)
@@ -311,10 +339,13 @@ UPDATE releases SET
 	rollback = $11,
 	failure_reason = $12,
 	card_task_id = $13,
-	deploy_started_at = $14,
-	deployed_at = $15,
-	verify_until = $16,
-	finished_at = $17,
+	local_run = $14,
+	store_builds = $15,
+	cut_at = $16,
+	deploy_started_at = $17,
+	deployed_at = $18,
+	verify_until = $19,
+	finished_at = $20,
 	updated_at = now()
 WHERE id = $1 AND status = $2
 RETURNING ` + releaseCols
@@ -325,13 +356,14 @@ RETURNING ` + releaseCols
 // does not exist or its status moved out from under the caller; a second read
 // tells the two apart so the error names what actually happened.
 func (s *ReleaseStore) Update(ctx context.Context, r domain.Release, expect domain.ReleaseStatus) (domain.Release, error) {
-	deployJSON, checksJSON, rollbackJSON, err := marshalReleaseMutable(r)
+	deployJSON, checksJSON, rollbackJSON, localRunJSON, storeBuildsJSON, err := marshalReleaseMutable(r)
 	if err != nil {
 		return domain.Release{}, fmt.Errorf("update release: %w", err)
 	}
 	row := s.pool.QueryRow(ctx, updateReleaseSQL,
 		r.ID, string(expect), string(r.Status), r.Version, r.CommitSHA, r.Tag, r.Notes,
 		deployJSON, checksJSON, r.Verdict, rollbackJSON, r.FailureReason, r.CardTaskID,
+		localRunJSON, storeBuildsJSON, r.CutAt,
 		r.DeployStartedAt, r.DeployedAt, r.VerifyUntil, r.FinishedAt)
 	updated, err := scanRelease(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -351,21 +383,33 @@ func (s *ReleaseStore) Update(ctx context.Context, r domain.Release, expect doma
 	return s.fillOne(ctx, updated)
 }
 
-func marshalReleaseMutable(r domain.Release) (deployJSON, checksJSON, rollbackJSON []byte, err error) {
+func marshalReleaseMutable(r domain.Release) (deployJSON, checksJSON, rollbackJSON, localRunJSON, storeBuildsJSON []byte, err error) {
 	if r.Deploy != nil {
 		if deployJSON, err = json.Marshal(r.Deploy); err != nil {
-			return nil, nil, nil, fmt.Errorf("marshal release deploy: %w", err)
+			return nil, nil, nil, nil, nil, fmt.Errorf("marshal release deploy: %w", err)
 		}
 	}
 	if checksJSON, err = json.Marshal(r.Checks); err != nil {
-		return nil, nil, nil, fmt.Errorf("marshal release checks: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("marshal release checks: %w", err)
 	}
 	if r.Rollback != nil {
 		if rollbackJSON, err = json.Marshal(r.Rollback); err != nil {
-			return nil, nil, nil, fmt.Errorf("marshal release rollback: %w", err)
+			return nil, nil, nil, nil, nil, fmt.Errorf("marshal release rollback: %w", err)
 		}
 	}
-	return deployJSON, checksJSON, rollbackJSON, nil
+	if r.LocalRun != nil {
+		if localRunJSON, err = json.Marshal(r.LocalRun); err != nil {
+			return nil, nil, nil, nil, nil, fmt.Errorf("marshal release local_run: %w", err)
+		}
+	}
+	storeBuilds := r.StoreBuilds
+	if storeBuilds == nil {
+		storeBuilds = []domain.ReleaseStoreBuild{}
+	}
+	if storeBuildsJSON, err = json.Marshal(storeBuilds); err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("marshal release store_builds: %w", err)
+	}
+	return deployJSON, checksJSON, rollbackJSON, localRunJSON, storeBuildsJSON, nil
 }
 
 // AddTasks is idempotent: a release the sweeper is superseding and one that is

@@ -84,6 +84,18 @@ func (s *Service) SweepOnce(ctx context.Context) {
 }
 
 func (s *Service) sweepDeploying(ctx context.Context, r domain.Release) {
+	if r.Mode == domain.DeliveryBatch {
+		switch r.Executor {
+		case domain.ExecutorLocal:
+			s.sweepDeployingLocal(ctx, r)
+			return
+		case domain.ExecutorStore:
+			s.sweepDeployingStore(ctx, r)
+			return
+		}
+		// github_actions falls through: it watches the tag's workflow run
+		// exactly the way resolveDeployStatus already does below.
+	}
 	status, err := s.resolveDeployStatus(ctx, r)
 	if err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: resolving deploy status failed")
