@@ -2,7 +2,6 @@ package release
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -21,23 +20,17 @@ const (
 )
 
 // RunSmoke runs the frozen profile's smoke checks against the release's
-// verify target right now, appends the results, and returns them; it never
-// changes the release's status.
+// verify target right now and returns the results. It deliberately does not
+// write them back (L3): an Update here races the sweeper's own Update of the
+// same release, and losing that race used to just log a warning and silently
+// drop the run — a manual on-demand check is not evidence worth persisting
+// badly enough to risk a lost-update with the sweeper's transitions.
 func (s *Service) RunSmoke(ctx context.Context, releaseID uuid.UUID) ([]domain.SmokeResult, error) {
 	r, err := s.store.Get(ctx, releaseID)
 	if err != nil {
 		return nil, err
 	}
-	results := s.runSmokeChecks(ctx, r.Profile.Verify.Smoke, r.Checks.BaseURL)
-
-	expect := r.Status
-	r.Checks.Smoke = appendSmokeCapped(r.Checks.Smoke, results, maxStoredSmoke)
-	if _, err := s.store.Update(ctx, r, expect); err != nil {
-		if !errors.Is(err, domain.ErrReleaseWrongStatus) {
-			log.Warn().Err(err).Str("release_id", releaseID.String()).Msg("release: recording an on-demand smoke run failed")
-		}
-	}
-	return results, nil
+	return s.runSmokeChecks(ctx, r.Profile.Verify.Smoke, r.Checks.BaseURL), nil
 }
 
 func (s *Service) runSmokeChecks(ctx context.Context, checks []domain.SmokeCheck, baseURL string) []domain.SmokeResult {

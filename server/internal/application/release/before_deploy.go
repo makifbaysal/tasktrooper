@@ -24,7 +24,18 @@ func (s *Service) MergeGate(ctx context.Context, repositoryID uuid.UUID, task do
 		return nil
 	}
 	profile, confirmed := domain.DeliveryConfirmed(component.Delivery)
-	if !confirmed || profile.Mode != domain.DeliveryOnMerge {
+	if !confirmed {
+		// The repository's own workflow may still deploy this merge (a push
+		// trigger nobody told the delivery profile about) — refuse rather
+		// than merge blind. OpenPending wakes this task once a human
+		// confirms the profile on the Deploy tab.
+		s.commentOnce(ctx, repositoryID, task.ID, "Waiting to merge: confirm the delivery profile on the Deploy tab first — "+
+			"until then nothing here knows whether merging this deploys it.")
+		return fmt.Errorf("%w: %s's delivery profile is not confirmed. Nothing was merged. "+
+			"Do not retry — you will be woken when a human confirms it: confirm the delivery profile on the Deploy tab first",
+			domain.ErrDeliveryUnconfirmed, name)
+	}
+	if profile.Mode != domain.DeliveryOnMerge {
 		return nil
 	}
 	if pending := s.pendingDeployDependencies(ctx, []uuid.UUID{task.ID}); len(pending) > 0 {

@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -101,6 +102,45 @@ func TestSweepDeployingFailsAPendingDeployAfterSixtyMinutes(t *testing.T) {
 	assert.Equal(t, domain.ReleaseFailed, r.Status)
 	assert.Contains(t, r.FailureReason, "60 minutes")
 	assert.Len(t, f.waker.calls, 1)
+}
+
+// H4: a status-lookup error must not reset the deploy timeout — the release
+// must still fail once 60 minutes have elapsed since DeployStartedAt, purely
+// from elapsed time, even though every sweep in between errored.
+func TestSweepDeployingFailsAfterSixtyMinutesWhenStatusLookupKeepsErroring(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	created, err := f.store.Create(context.Background(), deployingRelease(repositoryID, f.clock.Now()), []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	f.ds.err = errors.New("actions api unavailable")
+
+	f.clock.Advance(61 * time.Minute)
+	f.svc.SweepOnce(context.Background())
+
+	r, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseFailed, r.Status)
+	assert.Contains(t, r.FailureReason, "60 minutes")
+	assert.Contains(t, r.FailureReason, "actions api unavailable")
+	require.Len(t, f.waker.calls, 1)
+}
+
+func TestSweepDeployingKeepsWaitingWhenStatusLookupErrorsUnderTheTimeout(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	created, err := f.store.Create(context.Background(), deployingRelease(repositoryID, f.clock.Now()), []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	f.ds.err = errors.New("actions api unavailable")
+
+	f.clock.Advance(30 * time.Minute)
+	f.svc.SweepOnce(context.Background())
+
+	r, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseDeploying, r.Status)
+	assert.Empty(t, f.waker.calls)
 }
 
 func TestSweepDeployingFailsNoSignalAfterFifteenMinutes(t *testing.T) {
@@ -303,4 +343,66 @@ func TestSweepVerifyingStaysWatchedInsideTheWindowWithNoProblems(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.ReleaseVerifying, got.Status)
 	assert.Empty(t, f.waker.calls)
+}
+
+// M2(a): a card parked on release_watch whose release already settled (a
+// race between the sweeper and Watch, a crash mid hand-back) must be freed
+// and woken immediately, not left stranded until a human notices.
+func TestSweepFreesAStrandedReleaseWatchPark(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	_, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	f.parked.parked[task.ID] = task
+
+	f.svc.SweepOnce(context.Background())
+
+	require.Len(t, f.waker.calls, 1)
+	assert.Equal(t, task.ID, f.waker.calls[0].task.ID)
+	assert.Contains(t, f.parked.taken, task.ID)
+}
+
+// M2(b): an awaiting_verdict/failed release with no parked card (the agent
+// run that would park it is gone, or its hand-back dispatch was dropped) is
+// re-woken on a 10-minute cadence, not left to wait forever.
+func TestSweepRewakesAnUnparkedAwaitingVerdictReleaseAfterTenMinutes(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	_, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	f.svc.SweepOnce(context.Background())
+	require.Len(t, f.waker.calls, 1, "the first sweep after it settled must re-wake it")
+
+	f.svc.SweepOnce(context.Background())
+	assert.Len(t, f.waker.calls, 1, "a sweep inside the 10-minute cool-down must not re-wake it again")
+
+	f.clock.Advance(10 * time.Minute)
+	f.svc.SweepOnce(context.Background())
+	assert.Len(t, f.waker.calls, 2, "past the cool-down, the watchdog re-wakes it")
+}
+
+// M2(b): the re-wake is capped at six times per release so a release that
+// never gets a verdict does not wake the agent forever.
+func TestSweepStopsRewakingAnAwaitingVerdictReleaseAfterSixTimes(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	_, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	for i := 0; i < 8; i++ {
+		f.svc.SweepOnce(context.Background())
+		f.clock.Advance(10 * time.Minute)
+	}
+
+	assert.Len(t, f.waker.calls, 6, "a release that keeps getting re-woken without settling stops after six times")
 }

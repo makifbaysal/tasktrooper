@@ -797,3 +797,20 @@ func (f *fakeDeployTargets) Save(_ context.Context, t domain.DeployTarget) (doma
 	return t, nil
 }
 func (f *fakeDeployTargets) Delete(context.Context, uuid.UUID, string, string) error { return nil }
+
+// ListBlockedByResource is release.ParkedTasks' watchdog read: fakeParked
+// only ever parks on release_watch in this package's tests, so it ignores
+// the resource argument and just returns everything currently parked.
+func (f *fakeParked) ListBlockedByResource(_ context.Context, _ string, limit int) ([]domain.BoardTask, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]domain.BoardTask, 0, len(f.parked))
+	for _, t := range f.parked {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID.String() < out[j].ID.String() })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}

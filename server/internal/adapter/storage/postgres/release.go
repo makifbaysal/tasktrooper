@@ -208,8 +208,13 @@ func (s *ReleaseStore) Create(ctx context.Context, r domain.Release, taskIDs []u
 				continue
 			}
 			seen[taskID] = true
+			// clock_timestamp(), not now(): now() is frozen for the whole
+			// transaction, so every row in this loop would tie and the
+			// caller's insertion order (carried tasks first, the new task
+			// last) would be lost — revert order and "the newest task" both
+			// depend on added_at actually increasing row by row.
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO release_tasks (release_id, task_id) VALUES ($1, $2)
+				INSERT INTO release_tasks (release_id, task_id, added_at) VALUES ($1, $2, clock_timestamp())
 				ON CONFLICT DO NOTHING
 			`, out.ID, taskID); err != nil {
 				return fmt.Errorf("insert release task: %w", err)
@@ -256,15 +261,25 @@ func (s *ReleaseStore) ForTask(ctx context.Context, taskID uuid.UUID) (domain.Re
 	return s.fillOne(ctx, r)
 }
 
+// defaultListLimit / maxListLimit: the HTTP handler's own contract is 20
+// default / 100 max (it must clamp its own user-supplied `limit` — this
+// store no longer does that for it), but an internal caller like the
+// sweeper's watchdog (L1) has to be able to see its whole watched set, not
+// just the first 100 releases.
+const (
+	defaultListLimit = 20
+	maxListLimit     = 1000
+)
+
 // List filters newest first; an empty filter lists every release capped at
 // the default page size.
 func (s *ReleaseStore) List(ctx context.Context, f domain.ReleaseListFilter) ([]domain.Release, error) {
 	limit := f.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = defaultListLimit
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > maxListLimit {
+		limit = maxListLimit
 	}
 
 	conds := make([]string, 0, 4)

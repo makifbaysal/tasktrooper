@@ -38,6 +38,10 @@ type Tasks interface {
 // plumbing, not a gated move.
 type ParkedTasks interface {
 	TakeBlockedResourceTask(ctx context.Context, resource string, taskID uuid.UUID) (domain.BoardTask, bool, error)
+	// ListBlockedByResource reads (claims nothing) every task currently
+	// parked on a resource — the M2 watchdog's source of truth for a park
+	// hand-back never freed (a race, a crash, a dropped dispatch).
+	ListBlockedByResource(ctx context.Context, resource string, limit int) ([]domain.BoardTask, error)
 }
 
 // MergeStateResetter clears a task's merge bookkeeping so a rolled-back task
@@ -257,38 +261,42 @@ type Service struct {
 
 	now func() time.Time
 
-	mu             sync.Mutex
-	lastErrorCheck map[uuid.UUID]time.Time
+	mu                sync.Mutex
+	lastErrorCheck    map[uuid.UUID]time.Time
+	lastHandBackWake  map[uuid.UUID]time.Time
+	handBackWakeCount map[uuid.UUID]int
 }
 
 func New(d Deps) *Service {
 	s := &Service{
-		store:            d.Store,
-		tasks:            d.Tasks,
-		parked:           d.ParkedTasks,
-		mergeState:       d.MergeState,
-		waker:            d.Waker,
-		components:       d.Components,
-		environments:     d.Environments,
-		legacy:           d.LegacyTargets,
-		deployStatus:     d.DeployStatus,
-		actions:          d.Actions,
-		reverter:         d.Reverter,
-		repos:            d.Repos,
-		incidents:        d.Incidents,
-		beforeDeploy:     d.BeforeDeploy,
-		deployOrder:      d.DeployOrder,
-		locator:          d.Locator,
-		healthWindow:     d.HealthWindow,
-		git:              d.Git,
-		localRunner:      d.LocalRunner,
-		storeOps:         d.StoreOps,
-		dataDir:          d.DataDir,
-		coords:           d.RepoCoordinates,
-		refAlreadyExists: d.IsRefAlreadyExists,
-		ciUnavailable:    d.IsCIUnavailableText,
-		now:              d.Clock,
-		lastErrorCheck:   map[uuid.UUID]time.Time{},
+		store:             d.Store,
+		tasks:             d.Tasks,
+		parked:            d.ParkedTasks,
+		mergeState:        d.MergeState,
+		waker:             d.Waker,
+		components:        d.Components,
+		environments:      d.Environments,
+		legacy:            d.LegacyTargets,
+		deployStatus:      d.DeployStatus,
+		actions:           d.Actions,
+		reverter:          d.Reverter,
+		repos:             d.Repos,
+		incidents:         d.Incidents,
+		beforeDeploy:      d.BeforeDeploy,
+		deployOrder:       d.DeployOrder,
+		locator:           d.Locator,
+		healthWindow:      d.HealthWindow,
+		git:               d.Git,
+		localRunner:       d.LocalRunner,
+		storeOps:          d.StoreOps,
+		dataDir:           d.DataDir,
+		coords:            d.RepoCoordinates,
+		refAlreadyExists:  d.IsRefAlreadyExists,
+		ciUnavailable:     d.IsCIUnavailableText,
+		now:               d.Clock,
+		lastErrorCheck:    map[uuid.UUID]time.Time{},
+		lastHandBackWake:  map[uuid.UUID]time.Time{},
+		handBackWakeCount: map[uuid.UUID]int{},
 	}
 	if s.refAlreadyExists == nil {
 		s.refAlreadyExists = func(error) bool { return false }

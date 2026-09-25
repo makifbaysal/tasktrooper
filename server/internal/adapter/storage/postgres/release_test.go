@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -490,4 +491,61 @@ func (s *ReleaseStoreSuite) TestLocalRunAndStoreBuildsAndCutAtRoundTrip() {
 	s.Require().Len(gotBuilds.StoreBuilds, 2)
 	s.Equal("11", gotBuilds.StoreBuilds[0].Build)
 	s.Equal("no engine available", gotBuilds.StoreBuilds[1].Error)
+}
+
+// H5: within one Create, every release_tasks row must get a strictly later
+// added_at than the one before it — revert order (newest-first) and "the
+// newest task" both depend on that, and a shared now() (frozen for the whole
+// transaction) would tie every row inserted in the same Create.
+func (s *ReleaseStoreSuite) TestCreateGivesEachTaskAStrictlyLaterAddedAt() {
+	taskA := s.newTask(domain.TaskColumnDone)
+	taskB := s.newTask(domain.TaskColumnDone)
+	taskC := s.newTask(domain.TaskColumnDone)
+
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Version: "order01", Mode: domain.DeliveryOnMerge,
+		Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseDeploying, CommitSHA: "order01aaa",
+		Profile: testProfile(),
+	}, []uuid.UUID{taskA.ID, taskB.ID, taskC.ID})
+	s.Require().NoError(err)
+
+	rows, err := s.pool.Query(s.ctx, `SELECT added_at FROM release_tasks WHERE release_id = $1 ORDER BY added_at`, created.ID)
+	s.Require().NoError(err)
+	defer rows.Close()
+	var addedAt []time.Time
+	for rows.Next() {
+		var at time.Time
+		s.Require().NoError(rows.Scan(&at))
+		addedAt = append(addedAt, at)
+	}
+	s.Require().NoError(rows.Err())
+	s.Require().Len(addedAt, 3)
+	s.True(addedAt[0].Before(addedAt[1]), "task A must be strictly before task B")
+	s.True(addedAt[1].Before(addedAt[2]), "task B must be strictly before task C")
+
+	s.Require().Len(created.Tasks, 3)
+	s.Equal(taskA.ID, created.Tasks[0].ID)
+	s.Equal(taskB.ID, created.Tasks[1].ID)
+	s.Equal(taskC.ID, created.Tasks[2].ID)
+}
+
+// L1: an internal caller (the sweeper's watchdog) must be able to ask for
+// more than the HTTP API's 100-row page and actually get it — the store used
+// to clamp every caller down to 100, stranding any watched release past the
+// first 100.
+func (s *ReleaseStoreSuite) TestListHonoursALimitAboveTheOldHundredCap() {
+	const total = 101
+	for i := 0; i < total; i++ {
+		task := s.newTask(domain.TaskColumnDone)
+		_, err := s.store.Create(s.ctx, domain.Release{
+			RepositoryID: s.repoID, ComponentID: &s.compID, Version: fmt.Sprintf("cap%04d", i), Mode: domain.DeliveryOnMerge,
+			Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseDeploying, CommitSHA: fmt.Sprintf("cap%04daaa", i),
+			Profile: testProfile(),
+		}, []uuid.UUID{task.ID})
+		s.Require().NoError(err)
+	}
+
+	got, err := s.store.List(s.ctx, domain.ReleaseListFilter{RepositoryID: &s.repoID, Limit: 200})
+	s.Require().NoError(err)
+	s.Require().Len(got, total, "a limit above the old 100-row cap must not be clamped down to it")
 }
