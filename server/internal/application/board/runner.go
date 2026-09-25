@@ -2375,13 +2375,17 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 			"A refusal that names a CONFLICT with the base branch (`dirty`) or a branch the base has moved past (`behind`) is the developer's to fix, not yours: " +
 			"move the task to need_revision with that reason and stop. Any other refusal (a closed PR, a head commit that is not the verified one, an incomplete review chain) " +
 			"means the change is not the change that was approved: put the reason on the task with add_task_comment and stop, because only a human or a new round of review can settle it. " +
-			"2) Read the merge result's `release` field for what happens next: mode `none`/`unconfirmed`/`batch` → nothing to do, stop. " +
+			"2) Read the merge result's `release` field for what happens next: mode `none`/`unconfirmed` → nothing to do, stop. " +
+			"Mode `batch` → the merge joined the component's draft release; nothing to do, stop — a human cuts it later on the Deploy tab. " +
 			"Mode `on_merge` → call watch_release. Mode `dispatch` → call deploy_release, then watch_release. " +
 			"watch_release parks this task while a system sweeper watches the deploy and the post-deploy soak window — do not poll or wait, you are woken when there is something to decide. " +
-			"3) When woken with `awaiting_verdict`: get_release, then read query_runtime_logs (since deployed_at) and list_runtime_errors — a release is never finished on a green deploy alone. " +
-			"Clean evidence → finish_release with a note stating what you checked. A failed smoke check, a failing health sample, or new runtime error groups tied to the change → rollback_release " +
+			"3) When woken with `pending` and mode `batch`: a human just cut this release — call deploy_release (it creates the tag, runs the local command, or starts the store build, per the component's executor), then watch_release. " +
+			"4) When woken with `awaiting_verdict`: get_release, then read query_runtime_logs (since deployed_at) and list_runtime_errors WHEREVER the component has a bound runtime environment — a release is never finished on a green deploy alone. " +
+			"A batch release with no bound runtime environment (most desktop/mobile components) has no logs to read: its evidence is the build/publish result (the workflow run, local_run, or store_builds) plus any smoke checks — say explicitly in the finish note that no runtime environment is bound rather than treating the gap as a pass. " +
+			"Clean evidence → finish_release with a note stating what you checked. A failed smoke check, a failing health sample, a failed build/publish, or new runtime error groups tied to the change → rollback_release " +
 			"(reason and a note stating the evidence), then report every step under `rollback.manual_steps` and call watch_release again to follow the redeploy. " +
-			"When woken with `failed`: get_release, get_deploy_logs if a job failed, then rollback_release (reason deploy_failed) if the bad code is live or on the default branch; otherwise report what failed and stop. " +
+			"For a batch release, rollback_release only reverts the default branch — nothing is redeployed, because a published desktop build or a store build cannot be unpublished by a revert; `rollback.manual_steps` leads with unpublishing or halting that artifact, and you must perform or report that step first. " +
+			"When woken with `failed`: get_release; for a batch local run read local_run.tail (and its log path), for github_actions call get_deploy_logs if a job failed; then rollback_release (reason deploy_failed) if the bad code is live or on the default branch; otherwise report what failed and stop. " +
 			"Do not test anything here (that happened in in_qa), do not edit or commit code, and do NOT move this task to `released` yourself: " +
 			"only finish_release does that, and moving the card there by hand would announce a release that was never verified."
 	case domain.TaskColumnReleased:

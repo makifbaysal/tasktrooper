@@ -155,6 +155,39 @@ func TestGetReleaseToolReportsNextStepPerStatus(t *testing.T) {
 	}
 }
 
+func TestGetReleaseToolReportsNextStepForBatch(t *testing.T) {
+	cases := []struct {
+		name   string
+		status domain.ReleaseStatus
+		want   string
+	}{
+		{"draft", domain.ReleaseDraft, "a human cuts this release"},
+		{"pending", domain.ReleasePending, "A human has cut this release"},
+		{"awaiting_verdict", domain.ReleaseAwaitingVerdict, "bound runtime environment"},
+		{"failed", domain.ReleaseFailed, "local_run.tail"},
+	}
+	repoID, taskID := uuid.New(), uuid.New()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeReleaseService{release: domain.Release{ID: uuid.New(), Status: tc.status, Mode: domain.DeliveryBatch}}
+			tool := newGetReleaseTool(releaseToolKit(repoID, fake))
+			res := tool.Execute(releaseCtx(repoID, taskID), `{}`)
+			if res.IsError {
+				t.Fatalf("unexpected error: %s", res.Content)
+			}
+			var payload struct {
+				Next string `json:"next"`
+			}
+			if err := json.Unmarshal([]byte(res.Content), &payload); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if !strings.Contains(payload.Next, tc.want) {
+				t.Fatalf("status %s (batch): next = %q, want it to mention %q", tc.status, payload.Next, tc.want)
+			}
+		})
+	}
+}
+
 func TestGetReleaseToolExplainsAMissingRelease(t *testing.T) {
 	repoID, taskID := uuid.New(), uuid.New()
 	fake := &fakeReleaseService{forTaskErr: fmt.Errorf("%w", domain.ErrReleaseNotFound)}
@@ -215,6 +248,19 @@ func TestDeployReleaseToolRefusalTellsTheModelNotToRetry(t *testing.T) {
 				t.Errorf("want the refusal to say nothing was deployed, got: %s", res.Content)
 			}
 		})
+	}
+}
+
+// deploy_release's description is the only place the agent learns what each
+// batch executor actually does and that a tag-exists refusal for a cut batch
+// release is a real failure, unlike dispatch's silent success — pin the key
+// phrases so an edit cannot drop them unnoticed.
+func TestDeployReleaseToolDescriptionCoversBatchExecutors(t *testing.T) {
+	desc := newDeployReleaseTool(releaseToolKit(uuid.New(), &fakeReleaseService{})).Definition().Function.Description
+	for _, want := range []string{"batch", "github_actions creates the release tag", "local runs the profile's command", "store starts a store build", "never re-used"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("deploy_release description missing %q: %s", want, desc)
+		}
 	}
 }
 
@@ -464,6 +510,17 @@ func TestRollbackReleaseToolWrongStatusRefusal(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "Do not retry") || !strings.Contains(res.Content, "Nothing was rolled back") {
 		t.Errorf("want a no-retry refusal, got: %s", res.Content)
+	}
+}
+
+// rollback_release's description is where the agent learns a batch rollback
+// never redeploys and leads with unpublishing/halting the artifact — pin it.
+func TestRollbackReleaseToolDescriptionCoversBatch(t *testing.T) {
+	desc := newRollbackReleaseTool(releaseToolKit(uuid.New(), &fakeReleaseService{})).Definition().Function.Description
+	for _, want := range []string{"nothing is redeployed", "cannot be unpublished by a revert", "unpublishing or halting"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("rollback_release description missing %q: %s", want, desc)
+		}
 	}
 }
 

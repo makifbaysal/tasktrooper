@@ -12,15 +12,18 @@ A task in `done` is finished as *work* — reviewed, tested, accepted. Nothing h
 
 ### 2. Act on `release.mode`
 
-- **`release.unconfirmed: true`**, or mode **`none`** or **`batch`** — nothing to do; stop. (An unconfirmed profile and a batch component already carry their own explanation on the card.)
+- **`release.unconfirmed: true`**, or mode **`none`** — nothing to do; stop. (An unconfirmed profile already carries its own explanation on the card.)
+- **`batch`** — the merge joined the component's draft release (created if there was none). Nothing to do; stop — a human cuts it later on the Deploy tab, and you are woken with a `pending` release when they do.
 - **`on_merge`** — call `watch_release`.
 - **`dispatch`** — call `deploy_release`, then `watch_release`.
 
 ### 3. When woken
 
-- **`pending`** — a `dispatch` release opened after its component's delivery profile was confirmed (the task was merged earlier). Call `deploy_release`, then `watch_release`.
+- **`pending`** — either a `dispatch` release opened after its component's delivery profile was confirmed, or a `batch` release a human just cut. Either way: call `deploy_release`, then `watch_release`. For a cut batch release, `deploy_release` creates the tag (`github_actions`), runs the local build/publish command (`local`), or starts the store build (`store`) — read which executor from `get_release` if you need to know what to expect.
 
-- **`awaiting_verdict`** — `get_release`, then read `query_runtime_logs` (since `deployed_at`) and `list_runtime_errors`, and run any extra read-only checks the task's acceptance criteria call for. Then call `finish_release` (note exactly what you checked) when the evidence is clean, or `rollback_release` (reason, note) when it is not. After a rollback: perform or report every `manual_steps` item, then call `watch_release` again.
-- **`failed`** — `get_release`; if a job failed, `get_deploy_logs`. If the bad code is live or sitting on the default branch, call `rollback_release` (reason `deploy_failed`). If nothing actually shipped and there is nothing to undo, report what failed and stop.
+- **`awaiting_verdict`** — `get_release`, then, where the component has a bound runtime environment, read `query_runtime_logs` (since `deployed_at`) and `list_runtime_errors`; run any extra read-only checks the task's acceptance criteria call for. A batch release with no bound runtime environment (most desktop/mobile components) has nothing to read there — its evidence is the build/publish result (`get_release`'s workflow run, `local_run`, or `store_builds`) plus any smoke checks; say so explicitly in your note rather than skipping the check silently. Then call `finish_release` (note exactly what you checked) when the evidence is clean, or `rollback_release` (reason, note) when it is not. After a rollback: perform or report every `manual_steps` item, then call `watch_release` again.
+- **`failed`** — `get_release`; for `github_actions`, `get_deploy_logs` if a job failed; for a batch `local` run, read `get_release`'s `local_run.tail` (and its log path) instead; for `store`, `get_release`'s `store_builds` names the failing platform. If the bad code is live or sitting on the default branch, call `rollback_release` (reason `deploy_failed`). If nothing actually shipped and there is nothing to undo, report what failed and stop.
+
+A batch rollback only reverts the default branch — nothing is redeployed, since a published desktop or store build cannot be unpublished by a revert. `manual_steps` leads with unpublishing or halting that artifact; perform or report that step first.
 
 Never move this task to `released` yourself — only `finish_release` does that.

@@ -37,3 +37,7 @@ Never write, seed, or clean up anything in production to run a check — if a cr
 ## When the evidence is incomplete
 
 A `notes` entry ("no health URL — health not probed", "no bound environment — runtime errors not read") is a gap, not a green light. State it in your `finish_release`/`rollback_release` note exactly as it is: what you could check, what you could not, and why you are finishing anyway (or not).
+
+## Batch releases with no runtime environment
+
+Most desktop and mobile components have no bound runtime environment at all — there is no host to sample health from, no log stream to query, no error groups to list. That is not an incomplete verification, it is a different one: the evidence is what the build/publish step itself reported (`get_release`'s workflow run status, `local_run.tail`/`exit_code`, or `store_builds`) plus any smoke checks the profile configured. Read those, and any read-only check the task's acceptance criteria still allow (`fetch_url`/`browser_navigate` against something the release actually changed). Say explicitly in the `finish_release`/`rollback_release` note that no runtime environment is bound — the same rule as any other gap: never let silence read as a pass.
