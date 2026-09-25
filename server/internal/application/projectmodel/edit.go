@@ -141,6 +141,23 @@ func (s *Service) UpdateComponent(ctx context.Context, componentID uuid.UUID, pa
 			comp.NeedsReview = false
 		}
 	}
+	// deliveryConfirmed tracks a SET (not cleared) override so the hook only
+	// fires when a human just confirmed a profile — not on every unrelated
+	// patch and not on a reset to detected.
+	deliveryConfirmed := false
+	if patch.Delivery.Set {
+		if patch.Delivery.Value != nil {
+			normalized := patch.Delivery.Value.Normalized()
+			if err := normalized.Validate(); err != nil {
+				return domain.Component{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+			}
+			comp.Delivery.Override = &normalized
+			deliveryConfirmed = true
+		} else {
+			comp.Delivery.Override = nil
+		}
+	}
+
 	if patch.Reviewed != nil && *patch.Reviewed {
 		comp.NeedsReview = false
 	}
@@ -150,6 +167,9 @@ func (s *Service) UpdateComponent(ctx context.Context, componentID uuid.UUID, pa
 		return domain.Component{}, fmt.Errorf("update component: %w", err)
 	}
 	s.logProjection(ctx, saved.RepositoryID)
+	if deliveryConfirmed && s.deliveryConfirmedHook != nil {
+		s.deliveryConfirmedHook(ctx, saved.RepositoryID, saved.ID)
+	}
 	return saved, nil
 }
 

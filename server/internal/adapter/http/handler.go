@@ -130,8 +130,11 @@ type Handler struct {
 	storeOpsSvc       *storeops.Service
 	deployOpsSvc      *deployops.Service
 	projectModelSvc   *projectmodel.Service
-	cloudSvc          *cloud.Service
-	localPreviewSvc   *localpreview.Service
+	// releaseSvc is application/release.Service narrowed to ReleaseService
+	// (handler_release.go) so this package need not import application/release.
+	releaseSvc      ReleaseService
+	cloudSvc        *cloud.Service
+	localPreviewSvc *localpreview.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
 	mcpToolServer *mcpserver.Server
@@ -187,6 +190,7 @@ type Config struct {
 	StoreOpsSvc       *storeops.Service
 	DeployOpsSvc      *deployops.Service
 	ProjectModelSvc   *projectmodel.Service
+	ReleaseSvc        ReleaseService
 	CloudSvc          *cloud.Service
 	LocalPreviewSvc   *localpreview.Service
 	MCPToolServer     *mcpserver.Server
@@ -245,6 +249,7 @@ func NewHandler(cfg Config) *Handler {
 		storeOpsSvc:       cfg.StoreOpsSvc,
 		deployOpsSvc:      cfg.DeployOpsSvc,
 		projectModelSvc:   cfg.ProjectModelSvc,
+		releaseSvc:        cfg.ReleaseSvc,
 		cloudSvc:          cfg.CloudSvc,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		mcpToolServer:     cfg.MCPToolServer,
@@ -287,6 +292,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	// registration order, so /v1/projects/overview must be mounted before
 	// /v1/projects/:projectId or the :projectId param would swallow "overview".
 	h.registerProjectModelRoutes(app)
+	h.registerReleaseRoutes(app)
 	h.registerCloudRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)

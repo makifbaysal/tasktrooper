@@ -71,6 +71,11 @@ type Service struct {
 	deployMatcher DeployMatcher
 	environments  port.EnvironmentStore
 
+	// deliveryConfirmedHook wakes the release service when a human confirms a
+	// component's delivery profile, so tasks already merged and waiting in
+	// done get their release opened without a second scan or merge.
+	deliveryConfirmedHook func(ctx context.Context, repositoryID, componentID uuid.UUID)
+
 	now Clock
 
 	mu       sync.Mutex
@@ -114,6 +119,15 @@ func (s *Service) SetDeployMatcher(m DeployMatcher) { s.deployMatcher = m }
 func (s *Service) SetEnvironmentReader(r port.EnvironmentStore) { s.environments = r }
 
 func (s *Service) SetClock(c Clock) { s.now = c }
+
+// SetDeliveryConfirmedHook wires the release service's OpenPending behind an
+// interface this package does not otherwise depend on (release depends on
+// projectmodel for component lookups, so the reverse import would cycle).
+// Nil is the pre-wiring default and a legitimate steady state in any build
+// without a release service.
+func (s *Service) SetDeliveryConfirmedHook(fn func(ctx context.Context, repositoryID, componentID uuid.UUID)) {
+	s.deliveryConfirmedHook = fn
+}
 
 // SetBackgroundContext is the process-lifetime context async scans run
 // under, so a request's cancellation never kills a scan it started.

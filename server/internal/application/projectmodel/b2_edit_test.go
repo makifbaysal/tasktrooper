@@ -174,6 +174,68 @@ func TestB2UpdateComponentReplacesGatesDocsAndStatus(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidInput)
 }
 
+func TestB2UpdateComponentDeliverySetsValidatesAndNormalizes(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	comp := b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive})
+
+	invalid := domain.ComponentDelivery{Mode: "not-a-mode"}
+	_, err := svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{
+		Delivery: domain.Patch[domain.ComponentDelivery]{Set: true, Value: &invalid},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidInput)
+
+	profile := domain.ComponentDelivery{Mode: domain.DeliveryOnMerge, Executor: domain.ExecutorGitHubActions}
+	got, err := svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{
+		Delivery: domain.Patch[domain.ComponentDelivery]{Set: true, Value: &profile},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.Delivery.Override)
+	assert.Equal(t, domain.DefaultSoakMinutes, got.Delivery.Override.Verify.SoakMinutes, "the stored override must be normalized")
+
+	got, err = svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{
+		Delivery: domain.Patch[domain.ComponentDelivery]{Set: true, Value: nil},
+	})
+	require.NoError(t, err)
+	assert.Nil(t, got.Delivery.Override, "a null delivery patch clears the override")
+}
+
+func TestB2UpdateComponentDeliveryFiresConfirmedHookOnlyWhenAnOverrideIsSet(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	comp := b2SeedComponent(t, store, domain.Component{RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive})
+
+	var calls int
+	var gotRepoID, gotComponentID uuid.UUID
+	svc.SetDeliveryConfirmedHook(func(_ context.Context, repositoryID, componentID uuid.UUID) {
+		calls++
+		gotRepoID, gotComponentID = repositoryID, componentID
+	})
+
+	name := "renamed"
+	_, err := svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{Name: domain.Patch[string]{Set: true, Value: &name}})
+	require.NoError(t, err)
+	assert.Zero(t, calls, "an unrelated patch must not fire the hook")
+
+	profile := domain.ComponentDelivery{Mode: domain.DeliveryNone}
+	_, err = svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{
+		Delivery: domain.Patch[domain.ComponentDelivery]{Set: true, Value: &profile},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls, "setting an override must fire the hook exactly once")
+	assert.Equal(t, repo.ID, gotRepoID)
+	assert.Equal(t, comp.ID, gotComponentID)
+
+	_, err = svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{
+		Delivery: domain.Patch[domain.ComponentDelivery]{Set: true, Value: nil},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls, "clearing the override to the detected profile must not fire the hook")
+}
+
 func TestB2UpdateComponentReviewedClearsNeedsReview(t *testing.T) {
 	svc, store, repos, _, _, _ := newB2Service(t)
 	ctx := context.Background()
