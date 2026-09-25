@@ -39,9 +39,9 @@ func (s *Service) prodEnvironment(ctx context.Context, repositoryID uuid.UUID, c
 	return domain.ComponentEnvironment{}, false
 }
 
-// resolveVerifyTarget implements the "Verify target" rules of §3.3: the
-// bound production environment, else the legacy deploy target for prod;
-// gaps are recorded on notes rather than silently probing nothing.
+// resolveVerifyTarget prefers the bound production environment, else the
+// legacy deploy target for prod; gaps are recorded on notes rather than
+// silently probing nothing.
 func (s *Service) resolveVerifyTarget(ctx context.Context, r domain.Release) (verifyTarget, []string) {
 	var notes []string
 

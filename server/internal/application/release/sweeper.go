@@ -262,11 +262,9 @@ func lastTwoFailed(samples []domain.HealthSample) bool {
 }
 
 // errorCheckDue / markErrorChecked / clearErrorCheck rate-limit runtime error
-// reads to "at most every 2 minutes" (§3.3). domain.Release carries no field
-// for this — it is a soft cadence to avoid hammering the runtime errors API,
-// not a correctness invariant the state machine depends on, so an
-// in-process, best-effort cache (reset on restart or between test Services)
-// is the right amount of durability for it.
+// reads to at most every 2 minutes. It's a soft cadence to avoid hammering
+// the runtime errors API, not a correctness invariant, so an in-process,
+// best-effort cache (reset on restart or between test Services) is enough.
 func (s *Service) errorCheckDue(releaseID uuid.UUID, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -293,10 +291,10 @@ func (s *Service) logSweepUpdate(err error, releaseID uuid.UUID) {
 	log.Warn().Err(err).Str("release_id", releaseID.String()).Msg("release sweeper: persisting a transition failed")
 }
 
-// resolveDeployStatus implements the executor branch of §3.3's "deploying"
-// step: github_actions watches the workflow run, vercel matches a cloud
-// deployment by commit prefix when the component has a bound production
-// environment and falls back to the commit-status signal otherwise.
+// resolveDeployStatus: github_actions watches the workflow run; vercel
+// matches a cloud deployment by commit prefix when the component has a
+// bound production environment, falling back to the commit-status signal
+// otherwise.
 func (s *Service) resolveDeployStatus(ctx context.Context, r domain.Release) (domain.DeployWatchStatus, error) {
 	if r.Executor == domain.ExecutorVercel {
 		if env, ok := s.boundVercelEnvironment(ctx, r.RepositoryID, r.ComponentID); ok && s.environments != nil {

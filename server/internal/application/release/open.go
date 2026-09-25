@@ -188,9 +188,6 @@ func (s *Service) findOpenRelease(ctx context.Context, repositoryID, componentID
 	return releases[0], nil
 }
 
-// resolveComponent implements §3.1 step 1: the task's own component, else
-// the repository's only active component, else the component at path ".",
-// else none.
 func (s *Service) resolveComponent(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) (domain.Component, string, bool) {
 	if s.components == nil {
 		return domain.Component{}, "", false

@@ -77,7 +77,7 @@ type TaskPRServiceDeps struct {
 	Agents AgentResolver
 	LLM    port.LLMClient
 	Gates  TaskPRLifecycleGates
-	// Releases opens a release at merge (§3.1). When set, it replaces the
+	// Releases opens a release at merge. When set, it replaces the
 	// legacy Gates.AutoReleaseIfUndeployable call entirely — see
 	// taskpr_merge.go.
 	Releases      ReleaseOpener

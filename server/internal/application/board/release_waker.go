@@ -10,9 +10,9 @@ import (
 
 // ReleaseWaker adapts Dispatcher to application/release's Waker interface.
 // release cannot import board (board already needs to import release for
-// ReleaseOpener in taskpr_merge.go), so the direction is inverted here: the
-// integrator hands *ReleaseWaker to release.Deps.Waker instead of release
-// depending on board directly.
+// ReleaseOpener in taskpr_merge.go), so the direction is inverted here:
+// *ReleaseWaker is handed to release.Deps.Waker instead of release depending
+// on board directly.
 type ReleaseWaker struct {
 	dispatcher *Dispatcher
 }

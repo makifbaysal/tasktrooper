@@ -13,9 +13,6 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// rollbackAllowed implements §3.6's allowed-statuses rule: failed,
-// awaiting_verdict, or released within 24h and still the component's newest
-// released release.
 func (s *Service) rollbackAllowed(ctx context.Context, r domain.Release) (bool, string) {
 	switch r.Status {
 	case domain.ReleaseFailed, domain.ReleaseAwaitingVerdict:
@@ -216,10 +213,8 @@ func revertCommitMessage(r domain.Release) string {
 	return fmt.Sprintf("Revert release %s: %s", r.Version, strings.Join(keys, ", "))
 }
 
-// manualStepsFor renders each task's own rollback runbook (§3.6:
-// "domain.TaskRollbackRunbook(task), non-empty ones, prefixed with the task
-// key"). ReleaseTaskRef does not carry the runbook fields, so the full task
-// is re-read.
+// manualStepsFor renders each task's own rollback runbook. ReleaseTaskRef
+// does not carry the runbook fields, so the full task is re-read.
 func (s *Service) manualStepsFor(ctx context.Context, r domain.Release) []string {
 	if s.tasks == nil {
 		return nil
@@ -242,9 +237,8 @@ func (s *Service) manualStepsFor(ctx context.Context, r domain.Release) []string
 	return steps
 }
 
-// reopenTasks implements the rolled_back half of §3.3: every task is reset
-// and sent back to need_revision, parked cards taken first so the move is
-// always FROM done.
+// reopenTasks resets every task and sends it back to need_revision; parked
+// cards are taken first so the move is always FROM done.
 func (s *Service) reopenTasks(ctx context.Context, r domain.Release) {
 	comment := rollbackReopenComment(r)
 	for _, t := range r.Tasks {
@@ -294,7 +288,7 @@ func rollbackReopenComment(r domain.Release) string {
 }
 
 // sweepRollingBack watches the rollback's deploy (Rollback.RestoredRef is
-// already a commit sha, never a tag — see §3.3).
+// already a commit sha, never a tag).
 func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 	if r.Rollback == nil {
 		log.Warn().Str("release_id", r.ID.String()).Msg("release sweeper: rolling_back release has no rollback record")

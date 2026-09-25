@@ -2979,7 +2979,7 @@ export interface EnvironmentSummary {
 }
 
 // ---------------------------------------------------------------------------
-// Releases (Phase F1): one shipment of one component — the merges it
+// Releases: one shipment of one component — the merges it
 // carries, how it was deployed, what production looked like afterwards, and
 // the verdict. A task reaches `released` only through its release's verdict,
 // never through a deploy job's colour alone. Mirrors
@@ -4691,7 +4691,7 @@ export const api = {
       body: JSON.stringify(group),
     }),
 
-  // ---- Releases & delivery (Phase F1) --------------------------------------
+  // ---- Releases & delivery --------------------------------------
 
   listReleases: (repositoryId: string, opts: { componentId?: string; taskId?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams();

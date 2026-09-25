@@ -184,9 +184,9 @@ func newProjectModelTestApp(t *testing.T, comp domain.Component) (*fiber.App, *f
 	return app, store
 }
 
-// The delivery field is the one thing WP-H adds to ComponentPatch's
-// behaviour; everything else on this endpoint (name/role/commands/gates/...)
-// predates this work package and is covered by projectmodel's own tests.
+// Delivery is the only field this test covers; everything else on this
+// endpoint (name/role/commands/gates/...) is covered by projectmodel's own
+// tests.
 func TestUpdateProjectComponentDeliveryRoundTrips(t *testing.T) {
 	repoID := uuid.New()
 	comp := domain.Component{ID: uuid.New(), RepositoryID: repoID, Path: ".", Status: domain.ComponentStatusActive}

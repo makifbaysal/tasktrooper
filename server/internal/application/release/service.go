@@ -40,8 +40,7 @@ type ParkedTasks interface {
 }
 
 // MergeStateResetter clears a task's merge bookkeeping so a rolled-back task
-// can go through review again and get a fresh PR. WP-A adds this to the
-// postgres board-task store.
+// can go through review again and get a fresh PR.
 type MergeStateResetter interface {
 	ResetMergeState(ctx context.Context, taskID uuid.UUID) error
 }
@@ -57,7 +56,7 @@ type Waker interface {
 // Components resolves the component a merged task ships as. GetComponent and
 // ComponentByPath are satisfied directly by *projectmodel.Service;
 // ListComponents needs a one-line wrapper there (it only has the method on
-// its internal store today) — see the integration note in the WP-B report.
+// its internal store today).
 type Components interface {
 	GetComponent(ctx context.Context, id uuid.UUID) (domain.Component, error)
 	ComponentByPath(ctx context.Context, repositoryID uuid.UUID, path string) (domain.Component, error)
@@ -73,13 +72,13 @@ type Environments interface {
 	Errors(ctx context.Context, envID uuid.UUID, since time.Time) ([]domain.RuntimeErrorGroup, error)
 }
 
-// DeployStatus is WP-F's commit-keyed deploy watch, standing in for the
+// DeployStatus is the commit-keyed deploy watch, standing in for the
 // concrete *deploywatch.Service so this package never imports it.
 type DeployStatus interface {
 	StatusForCommit(ctx context.Context, repositoryID uuid.UUID, sha, workflow string) (domain.DeployWatchStatus, error)
 }
 
-// Reverter is WP-F's safe default-branch revert, standing in for the
+// Reverter is the safe default-branch revert, standing in for the
 // concrete *git.Client.
 type Reverter interface {
 	RevertOnDefaultBranch(ctx context.Context, rootPath string, shas []string, message string) (string, error)
