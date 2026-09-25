@@ -333,6 +333,46 @@ just a recorded address + health check like any other).
 - `GET /v1/repositories/{id}/deploy/targets/{env}/instructions` — recipe rendered with the target's vars (repository-scoped only, no sub_project_path).
 - `POST /v1/repositories/{id}/deploy/targets/{env}/setup-task` — open the board task that authors the deploy workflow (repository-scoped only).
 
+## Releases (migrations 159–161)
+
+A component's delivery profile decides whether a merge deploys on its own (`on_merge`),
+waits to be dispatched (`dispatch`), collects into a release a human cuts (`batch`), or
+ships nothing (`none`) — the `DeliveryCard`/`DeliveryEditDialog` pair on the Deploy &
+Runtime tab edit it. Every WRITE below additionally requires `confirm` to equal the
+repository's name (same guardrail as the deploy-target rollback endpoints).
+
+- `GET /v1/repositories/{id}/releases?component_id=&task_id=&limit=` — `{releases: Release[]}`,
+  newest first; default limit 20, max 100 (`api.listReleases`).
+- `GET /v1/releases/{releaseId}` — one release in full: status, mode/executor, commit/tag,
+  `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new
+  error groups), `verdict`, `rollback`, `tasks` (`api.getRelease`).
+- `GET /v1/releases/{releaseId}/cut-preview` — `ReleaseCutPreview` for a `draft` batch
+  release: suggested/previous version, the tag it would carry, the commit, generated notes,
+  its tasks. 409 off-draft or with no tasks.
+- `POST /v1/releases/{releaseId}/cut` — `{confirm, version, notes}` → `Release`,
+  `draft → pending`; freezes the component's current confirmed delivery profile, stamps
+  every carried task's before-deploy confirmation, wakes the release engineer. Driven by
+  `CutReleaseDialog`.
+- `POST /v1/releases/{releaseId}/deploy` — `{confirm}` → `Release`. `pending` only.
+- `POST /v1/releases/{releaseId}/finish` — `{confirm, note}` → `Release`, every task moved
+  to `released`.
+- `POST /v1/releases/{releaseId}/rollback` — `{confirm, note}` → `Release`, always a manual
+  (human) reason.
+- `POST /v1/repositories/{id}/tasks/{taskId}/before-deploy/confirm` — no body. Stamps
+  `before_deploy_confirmed_at` and, when the task sits in `done`, wakes the release engineer
+  immediately. Driven by `TaskDetailDrawer`'s before-deploy Confirm button
+  (`api.confirmBeforeDeploy`).
+- `PATCH /v1/components/{componentId}` — existing body plus
+  `"delivery": ComponentDelivery | null` (`api.updateComponentDelivery`); `null` clears the
+  human override back to the detected profile. A save that newly CONFIRMS the profile opens
+  releases for every task of that component already sitting in `done`, merged, with none yet.
+
+**Removed.** `GET/POST /v1/repositories/{id}/deploy-packages` and its
+`PATCH`/`DELETE`/`PUT .../tasks`/`POST .../release` siblings are gone — batch releases
+(above) replace the deploy-package "release train". `trigger_release` (the old per-task
+release dispatch) is gone too; a release now opens automatically at merge time, or joins a
+draft.
+
 ## Pipeline setup task
 
 `GET`/`PUT /v1/repositories/{id}/pipeline/config` are gone (Project Model
@@ -479,55 +519,29 @@ Set to `err.Error()` when a reindex pass's git pull from origin fails, so the in
 still runs (indexing slightly old code beats refusing) but a caller can say the code
 it describes may be behind. Cleared by the next pass that pulls cleanly.
 
-## Deploy metadata & deploy packages
+## Deploy metadata
 
 Three optional task fields carry the release runbook, and one relation type carries
-shipping order. Both are read by the release path, not just displayed.
+shipping order.
 
 - Task fields (`before_deploy`, `after_deploy`, `rollback_plan`, all nullable markdown)
   ride on `domain.BoardTask` and are accepted by `POST /v1/repositories/{id}/tasks` and
   `PATCH /v1/repositories/{id}/tasks/{taskId}` — the PATCH follows the usual optional-pointer
-  contract (omitted leaves the value, `""` clears it). `before_deploy` + `rollback_plan` are
-  posted as ONE system comment when `TriggerRelease` dispatches the deploy; `after_deploy`
-  is posted when the prod deploy finalizes successfully. Nothing is posted when the fields
-  are empty.
+  contract (omitted leaves the value, `""` clears it). `before_deploy` is now a gate, not
+  just a checklist comment: an `on_merge` component refuses the merge, and a `dispatch`
+  component refuses `deploy_release`, while any carried task's steps are unconfirmed
+  (`before_deploy_confirmed_at`, confirmed on the task via `api.confirmBeforeDeploy` — see
+  "Releases" above); editing the field's text clears a prior confirmation. `rollback_plan`
+  is read back into a rollback's `manual_steps`; `after_deploy` is posted as one system
+  comment per task once a release finishes.
 - `PATCH /v1/repositories/{id}/tasks/{taskId}` also accepts `deploy_depends_on:
   [{target_task_id | target_key}]`, which REPLACES the task's `deploy_depends_on` relations
   and leaves every other relation type alone (`[]` clears them, omitting the field changes
   nothing). `POST .../tasks` accepts the same edges through the existing `relations` array
-  with `relation_type: "deploy_depends_on"`. A task may not depend on itself (400).
-- The relation is enforced at release time: `TriggerRelease` 400s with
-  `domain.ErrDeployDependencyNotReleased` (and posts a system comment naming the blocking
-  task keys) while any target lacks production evidence — a successful `prod_deploy`, a
-  successful `preprod_deploy` on a repo with no prod workflow mapped, or the `released`
-  column. It runs after the migration gate and before the mobile-store and release-target
-  gates.
-
-Deploy packages batch several tasks into one production deploy instead of releasing each as
-it reaches `done`; the per-task path (`trigger_release`) is always available too. Every other
-release gate still applies per task.
-
-- `GET /v1/repositories/{id}/deploy-packages` — `{packages, count}`. **Not a pure read**: each
-  package is advanced first — members with production evidence are marked, a package whose
-  members are all live becomes `released`, and any member whose dependencies just became
-  satisfied is dispatched. Members carry `{task_id, position, key, title, column, released}`.
-- `POST /v1/repositories/{id}/deploy-packages` — `{name, description?}` → 201, status `draft`.
-- `PATCH /v1/repositories/{id}/deploy-packages/{pkgId}` — `{name?, description?, status?}`.
-  `status` accepts only `"cancelled"`; every other transition is evidence-driven and a client
-  claiming one 400s. Cancelling an already-`released` package 400s. 404 when no such package.
-- `DELETE /v1/repositories/{id}/deploy-packages/{pkgId}` — 204. Membership cascades; the tasks
-  themselves are untouched.
-- `PUT /v1/repositories/{id}/deploy-packages/{pkgId}/tasks` — `{task_ids: []}` replaces the
-  membership, array index becomes `position`. 400 on a task from another repository, or on a
-  package that is `releasing`/`released`.
-- `POST /v1/repositories/{id}/deploy-packages/{pkgId}/release` — 202 with the package. Allowed
-  from `draft` or `failed` (a retry). Members are topologically sorted by their in-package
-  `deploy_depends_on` edges, position breaking ties; a cycle fails the package with
-  `domain.ErrDeployPackageCycle` in `note` and dispatches nothing. Only the FIRST wave is
-  dispatched and the package stays `releasing` — deploys are async, so later waves go out of
-  the advancement that runs on each GET. A member that already has production evidence is
-  skipped, not an error; the first hard refusal moves the package to `failed` with
-  `note = "<task key>: <error>"`.
+  with `relation_type: "deploy_depends_on"`. A task may not depend on itself (400); a cycle
+  is refused where the edge is written. The relation renders the generated ordering block in
+  `before_deploy` and no longer gates a release directly — the old `TriggerRelease`-time
+  check was removed along with `trigger_release` itself.
 
 ## Production incidents
 

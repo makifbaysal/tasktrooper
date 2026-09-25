@@ -45,15 +45,17 @@ no recipe — see [Mobile devices and store releases](mobile-releases.md).
 
 Two fields on a target matter beyond the recipe itself:
 
-- **`health_url`** — what `get_task_deploy_status` and the production health
-  monitor probe to decide whether an environment is up (see
-  [Production incidents](incidents.md)). It only ever answers "is it up"; it
-  says nothing about a deploy that came up but is failing a migration on
-  boot.
-- **`auto_rollback`** — whether a production incident attributed to this
-  environment's most recent release is rolled back automatically, or only
-  proposed for a human to confirm. Off is the safer default for anything
-  without solid staging coverage.
+- **`health_url`** — what the release engineer's soak window and the
+  production health monitor probe to decide whether an environment is up
+  (see [Production incidents](incidents.md)). It only ever answers "is it
+  up"; it says nothing about a deploy that came up but is failing a
+  migration on boot.
+- **`auto_rollback`** — this legacy, per-environment field still drives the
+  generic incident remedy (below) for a component that has no release
+  history to attribute an incident to. For a component that ships through
+  the release engine, use the delivery profile's own `auto_rollback` instead
+  (**Releases**, below) — it is what actually decides whether
+  `rollback_release` may execute on its own or only writes a proposal.
 
 `health_url` and `logs_url` are both validated by the same outbound URL guard
 that covers every agent-writable address (see
@@ -66,7 +68,7 @@ address when it was saved is free to answer `127.0.0.1` later.
 Operations → Deployments shows a matrix of every repository against every
 environment it deploys to, refreshed roughly every 15 seconds. Selecting a
 cell opens the run's detail — the same GitHub Actions run, commit status or
-GitHub Deployment that `get_task_deploy_status` reads (see below) — with
+GitHub Deployment the release engine reads (see **Releases**, below) — with
 rollback where the target allows it.
 
 ## Hosting links
@@ -109,83 +111,173 @@ confirm. A confirmed Vercel hosting link on a repository's root area fills in
 the empty parts of its `prod` deploy target — base URL, health URL, and the
 recipe's own variables — instead of asking you to type them twice.
 
-## Release flow
+## Releases
 
-A task reaches its release only after Done, through `trigger_release`:
+Once a task is signed off in Done, a dedicated **release engineer** agent
+owns everything that happens to it from there: merging its pull request,
+shipping it, watching production afterward, and either confirming it or
+rolling it back. Nobody else merges, deploys or rolls back — not even QA,
+whose job ends at its test verdict.
 
-1. **Released column, or `trigger_release`.** The release is refused outside
-   `done`/`released` — a re-release from `released` is legitimate, anything
-   earlier is not.
-2. **The pre-deploy checklist is posted.** The task's `before_deploy` and
-   `rollback_plan` fields are posted together as one system comment on the
-   card. `before_deploy` carries a generated block naming this task's release
-   order — which tasks it ships after, and which it must be built after —
-   derived from its `deploy_depends_on` and `blocked_by` relations and kept in
-   sync whenever those change; anything you wrote by hand around that block
-   survives regeneration.
-3. **The deploy runs**, dispatched against the task's own merge commit (tagged
-   `release/<short-sha>`), not against whatever the default branch happens to
-   hold — so the release is guaranteed to be the exact commit every earlier
-   gate was evaluated against.
-4. **`after_deploy` is posted** once the production deploy finishes
-   successfully.
+### Set a component's delivery profile first
 
-A schema migration is treated specially: `has_migration` is detected from the
-branch diff, and `trigger_release` refuses to release it unless the task's own
-stage deploy already succeeded (`stage_verified_at` is set) — a migration is
-the one class of change build and test cannot judge, since both stay green
-while the rollout itself breaks production.
+Every **component** (a repository, or one part of a monorepo) has a
+**delivery profile** on its Deploy tab: HOW a merge of that component ships.
 
-## Watching the deploy and rolling it back
-
-Three agent tools carry the release from merge to production, all held by
-the QA agent alone and available in Done and Released — the same tools are
-stripped everywhere else, so nothing can roll production back from inside a
-review column.
-
-**`get_task_deploy_status`** answers what happened to the commit
-`merge_task_pull_request` produced, from whichever of three signals the
-repository actually has:
-
-| Signal | Source |
+| Mode | What happens on merge |
 |---|---|
-| `actions_run` | the DEPLOY job inside a GitHub Actions run for that commit |
-| `commit_status` | the commit status a push-to-deploy provider (`vercel[bot]`, for example) writes |
-| `deployment_status` | the GitHub Deployment opened against the commit |
+| `on_merge` | The merge itself deploys (a workflow that runs on every push to the default branch, or a Vercel git integration). The release engineer only watches, verifies and, if needed, rolls back. |
+| `dispatch` | The release engineer calls a tool to fire a deploy workflow at a tag for this exact commit, once the merge lands. |
+| `batch` | The merge just queues into a **draft release** for the component; nothing ships until a human cuts it (see **Batch releases**, below). This is the default for mobile components. |
+| `none` | Nothing deploys this component (a library, documentation) — the merge itself is the release. |
 
-The answer is one of `success`, `failure`, `pending`, `no_signal` (nothing
-anywhere reports a deploy of this commit — an answer, not a gap) or `unknown`.
-**A `pending` result never makes the agent wait.** The task is parked instead
-— the run ends, the card sits blocked, and a periodic sweep re-checks GitHub
-every couple of minutes and wakes the task the moment the deploy settles, at
-the cost of one API call per pass and no LLM time spent waiting.
+TaskTrooper detects a likely profile from your CI workflows and bound
+environments during a scan (a mobile component → `batch`/App Store or Play;
+a workflow that runs on every push to `main` → `on_merge`; a workflow with a
+manual trigger → `dispatch`; a confirmed Vercel environment → `on_merge`; a
+tag-triggered release workflow → `batch`), and a high-confidence detection is
+used automatically. **A medium-confidence guess is never acted on until you
+confirm it** on the Deploy tab — a merged task simply waits in Done, with one
+comment saying why, until someone does. Confirming (or editing) the profile
+there is what releases any tasks that piled up waiting.
 
-**`get_deploy_logs`** reads the log behind a failed deploy: the Actions job's
-own log, or the target's `logs_url` when the repository deploys on push with
-no workflow. The result is a summary — the error-looking lines lifted out
-first, then the tail — not a raw dump.
+Each profile also carries: which GitHub Actions workflow to dispatch or
+watch, how long to soak production after a deploy before asking for a
+verdict (`soak_minutes`, default 10), how many brand-new runtime error
+groups are tolerated before that soak stops early, a list of read-only
+smoke checks (GET/HEAD only — nothing that could write to production), and
+whether a bad release may be rolled back automatically or only proposed.
 
-**`rollback_task_release`** undoes this task's release, only when the task
-actually owns the environment's current live commit. Which mechanism runs
-depends on what the repository has: a mapped deploy workflow is
-re-dispatched at the last known-good tag (`workflow_dispatch`); a repository
-with no workflow (push-to-deploy) instead gets a plain `git revert` of the
-merge commit, pushed to the default branch — never a force-push, and a
-revert that conflicts is aborted rather than resolved automatically, leaving
-production unchanged and the conflict reported. Every rollback result names
-the `manual_steps` a git revert cannot perform on its own — undoing a
-migration, flipping a feature flag, purging a CDN — pulled from the task's
-own `rollback_plan`.
+### From merge to a verdict
 
-When `auto_rollback` is off, nothing is executed: the proposal is written on
-the card and an incident is opened for a human to confirm through the
-Deployments page instead.
+1. **The release engineer merges the pull request** (`done` wakes it, the
+   same wake QA used to hold) — squash-merge, delete the branch — once the
+   checks are green and the review chain is complete. This opens (`on_merge`
+   / `dispatch`) or joins (`batch`) a **release** for the component. If the
+   task carries `before_deploy` steps that a human has not confirmed yet on
+   an `on_merge` component, the merge itself is refused until someone does
+   (see **Before you ship**, below).
+2. **The deploy happens** — immediately for `on_merge`, or once the release
+   engineer dispatches it for `dispatch`/a cut batch release.
+3. **A soak window runs.** A system sweeper — no agent, no tokens spent —
+   watches the deploy settle, then samples the environment's health, runs
+   the profile's smoke checks, and watches for brand-new runtime error
+   groups, for the configured number of minutes (or until something clearly
+   fails, whichever comes first). The task's card sits parked the whole
+   time; nothing polls or waits idly.
+4. **The release engineer is woken for a verdict.** It reads the runtime
+   logs and errors since the deploy, wherever the component has a bound
+   environment (see "Hosting links" and "Vercel account and detection",
+   above), looks at the soak evidence, and either **finishes** the release
+   (every task it carries moves to Released) or **rolls it back**. A
+   release is never finished on a green deploy alone — the agent has to
+   have actually read the evidence in that same run.
+5. **`after_deploy` is posted** as a comment on each task once the release
+   finishes, if the task has any after-deploy steps written down.
+
+A schema migration is treated specially: `has_migration` is detected from
+the branch diff, and the release engineer's merge is refused unless the
+task's own staging deploy already succeeded — a migration is the one class
+of change build and test cannot judge, since both stay green while the
+rollout itself breaks production.
+
+### Rolling a release back
+
+A rollback is called for on real evidence — a failed deploy, a failing
+smoke check, a health check gone red, or new runtime error groups tied to
+the change — never a hunch, and it always does two things:
+
+1. **Reverts the change on the default branch** (a `git revert` of the
+   merge commits, pushed) — this always happens, so the next release cannot
+   ship the same bad code again.
+2. **Restores production as fast as it can.** If the component's bound
+   production environment is on a provider TaskTrooper can roll back
+   natively (Vercel, Google Cloud Run — see **Provider write scopes**,
+   below), that runs FIRST, in seconds. Otherwise (or in addition, for an
+   `on_merge` component, to re-enable automatic deploys afterward) the
+   previous good version is redeployed, or the revert's own push simply
+   redeploys on merge. A `batch` release (desktop, mobile) is the exception:
+   nothing is redeployed at all, because a published desktop build or an
+   app-store submission cannot be unpublished by a revert — the rollback's
+   manual steps then lead with unpublishing or halting that artifact
+   yourself.
+
+If the profile's `auto_rollback` is off, nothing is executed automatically:
+the release engineer writes up the proposal as a comment on the task, and a
+human confirms it from the release's detail drawer instead.
+
+Every rollback names its **manual steps** — the part no mechanism can
+perform on its own: undoing a database migration, flipping a feature flag,
+purging a CDN, unpublishing an artifact — pulled from the task's own
+`rollback_plan`/`before_deploy`/`after_deploy` fields. The release engineer
+is expected to perform or explicitly report every one of them.
+
+### Before you ship: `before_deploy` confirmation
+
+A task's `before_deploy` text (run a migration, set a secret, flip a
+switch) is work only a HUMAN can do — the release engineer never writes to
+production. Until you confirm it on the task ("Confirm before-deploy
+steps"):
+
+- an `on_merge` component's merge is refused outright (the merge IS the
+  deploy);
+- a `dispatch` component's `deploy_release` is refused instead, once it has
+  merged;
+- cutting a batch release confirms every carried task's steps for you — the
+  cut itself is your confirmation.
+
+Confirming wakes the release engineer immediately if the task was waiting
+on it, instead of leaving it for the next sweep.
+
+### Batch releases: desktop, mobile and anything else you cut by hand
+
+A `batch` component's merges collect into a single **draft release** instead
+of shipping on every merge. The Deploy tab's Releases card shows the draft
+first — "Next release — N merged tasks" — with a **Cut release** button.
+Cutting:
+
+- suggests the next version (a semver patch bump if every carried task is a
+  bug fix, otherwise a minor bump — or `0.1.0` with nothing released yet),
+  generates release notes grouped into Features/Fixes, and shows the exact
+  commit it would cut;
+- lets you edit the version and the notes before confirming;
+- is itself your confirmation of every carried task's `before_deploy` steps.
+
+From there it deploys through whichever **executor** the profile names:
+
+| Executor | What cutting does |
+|---|---|
+| `github_actions` | Tags the cut commit; your own tag-triggered workflow builds and publishes it. A version that was already released refuses to re-cut, rather than silently overwriting it. |
+| `local` | Runs the profile's build-and-publish command on this machine, in a clean detached checkout of the cut commit, and logs it — the release drawer shows the exit code and the log tail. |
+| `store` | Starts an App Store / Google Play release build for every platform the repository has a linked app for (see [Mobile devices and store releases](mobile-releases.md)). |
+
+A cut batch release still goes through the same soak-and-verdict flow as
+any other — most desktop/mobile components simply have no bound runtime
+environment to read logs from, so the evidence is the build/publish result
+and any smoke checks instead.
+
+### Provider write scopes for instant rollback
+
+Rolling back through the provider itself (the fastest path, seconds instead
+of minutes) needs write access, not just read access, to that provider:
+
+- **Vercel** — the connected account's token needs write scope (a
+  read-only token can list deployments but is refused when the release
+  engineer tries to roll one back or promote another).
+- **Google Cloud Run** — the connected service account needs the
+  `run.services.update` permission, to shift traffic between revisions.
+
+Without it, nothing breaks — the rollback simply skips the provider step
+(recorded on the release) and falls back to redeploying/reverting as
+before, just slower.
 
 ## See also
 
 - [Production incidents](incidents.md) — how a failed deploy or a failing
-  health check turns into an incident, and how it gets attributed back to the
-  release that caused it
-- [Agent tools](tools.md) — the full deploy and prod-ops tool list
+  health check turns into an incident, and how it gets attributed back to
+  the release that caused it
+- [Agent tools](tools.md) — the full release and deploy tool list
 - [Git and pull requests](git-and-pull-requests.md) — how a task's commit
-  reaches the merge that release watches
+  reaches the merge that opens its release
+- [Mobile devices and store releases](mobile-releases.md) — the `store`
+  batch executor in full

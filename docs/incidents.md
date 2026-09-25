@@ -110,12 +110,18 @@ to re-open the door at every step. Either way, the ordinary release gates on
 widens what an agent is allowed to attempt, not what is allowed to ship
 unreviewed.
 
-The 15-minute window right after a release is treated specially: an incident
-whose onset falls inside it is attributed to that specific release's task,
-which is what lets a same-task rollback (`rollback_task_release`, see
-[Deploy targets and recipes](deploy.md)) fire automatically when the target's
-`auto_rollback` is on, rather than only producing generic "roll back the last
-deploy" advice with no card to act on.
+The 15-minute window right after a release finishes is treated specially: an
+incident whose onset falls inside it is attributed to that specific release
+and its newest task, which is what wakes the **release engineer** on the
+task's card in Released — see [Deploy targets and recipes](deploy.md) →
+"Releases" — rather than only producing generic "roll back the last deploy"
+advice with no card to act on. The release engineer reads the logs and the
+incident, and either calls `rollback_release` (executed automatically when
+the component's delivery profile has `auto_rollback` on, or written up as a
+proposal for a human to confirm otherwise) or explains why the incident is
+not this release's doing and leaves it alone. A component with no release
+history to attribute to falls back to the older, environment-keyed remedy
+above, gated by the deploy target's own `auto_rollback` field instead.
 
 ## See also
 

@@ -283,12 +283,25 @@ rather than on the git history. QA is dispatched into `done` for exactly this
 | `task_id` | string | no | Board task UUID or board key. Omit in a task-scoped chat or a board run — the task in the run context is used. |
 
 Response JSON is `domain.TaskPRMergeResult`: `{merged, pr_number, pr_url,
-merge_commit_sha, branch, base_branch, branch_deleted, undrafted, message}`. The
-merge commit is recorded in `board_tasks.merge_commit_sha` and the board renders
+merge_commit_sha, branch, base_branch, branch_deleted, undrafted, release, message}`.
+The merge commit is recorded in `board_tasks.merge_commit_sha` and the board renders
 it next to the PR link. A clean merge writes **no** comment (it used to write
 `message` every time — the same fact for the third time); only a merge that left
 something undone does: an undeleted branch, or a merge commit the task could not
 record.
+
+`release` (`domain.ReleaseOpening`) is what the merge set in motion for the
+task's component — `{mode, release_id?, status?, released?, unconfirmed?, next}`
+— read it, do not guess: `unconfirmed: true` means the component's delivery
+profile was never confirmed and the system already commented saying so; mode
+`none` means the merge already was the release; `batch` means the merge joined
+(or opened) the component's draft release and nothing deploys until a human
+cuts it; `on_merge` means the deploy already started, call `watch_release`;
+`dispatch` means call `deploy_release`, then `watch_release`. See "Release
+tools" below and `.ai/architecture.md` → "Releases (migrations 159–161)".
+Before this touches GitHub, an `on_merge` component with a task whose
+`before_deploy` steps are not confirmed refuses the merge outright
+(`ErrBeforeDeployPending`) — a human must confirm them on the task first.
 
 The refusal matrix — every one of these is an error result carrying "Nothing was
 merged. Do not retry", because merging is irreversible and no retry can change
@@ -300,9 +313,10 @@ any of them:
 | nothing to merge | `ErrMergeNoPullRequest` | no `pr_url` recorded, or the URL carries no readable number |
 | already merged | `ErrMergeAlreadyMerged` | `merge_commit_sha` is set, or GitHub reports the PR merged (then the SHA is recorded so `done` stops asking) |
 | closed unmerged | `ErrMergeClosed` | the PR was closed without merging |
-| checks not green | `ErrMergeChecksNotGreen` | GitHub's `mergeable_state` is anything but `clean`/`has_hooks` (`blocked`, `unstable`, `dirty`, `behind`, `unknown`), or the task's last pipeline `failed`. `dirty`/`behind` are the CONFLICT case: the remedy text tells QA to move the task to `need_revision`, because rebasing a branch is the developer's work |
+| checks not green | `ErrMergeChecksNotGreen` | GitHub's `mergeable_state` is anything but `clean`/`has_hooks` (`blocked`, `unstable`, `dirty`, `behind`, `unknown`), or the task's last pipeline `failed`. `dirty`/`behind` are the CONFLICT case: the remedy text tells the release engineer to move the task to `need_revision`, because rebasing a branch is the developer's work |
 | review chain incomplete | `ErrReviewChainIncomplete` / `ErrReviewStageRejected` | a required review stage is missing or was rejected — the review chain is always enforced (no repository opt-out), the same `reviewChainGate` the move into `done` runs, re-asked through `repository.Service.CheckReviewChain` |
 | head drifted | `ErrReleaseTargetMoved` / `ErrReleaseTargetUnverified` | the PR head SHA is not `board_tasks.verified_sha` — the same `domain.VerifiedCommitMatches` comparison the release gate makes, asked of the PR head rather than of the workspace |
+| before-deploy steps pending | `ErrBeforeDeployPending` | the component is `on_merge` and the task's `before_deploy` steps are not confirmed (migration 161) — this one is NOT in the tool's own "do not retry" sentinel list (`isMergeRefusal`), so it surfaces as a plain error without that suffix; the release engineer is woken again once a human confirms, so retrying manually still cannot help |
 
 A missing or `skipped` pipeline does **not** block: that is a repository with no
 CI wired up, where refusing would make the merge unreachable, and GitHub's own
@@ -310,60 +324,141 @@ mergeable state is then the check that remains. The merge request always carries
 the verified head SHA as GitHub's `sha` precondition, so a push that lands
 between the gate and the merge produces a 409 instead of merging unreviewed code.
 
-### `get_task_deploy_status`
+## Release tools
 
-Reports what production did with the commit `merge_task_pull_request` produced —
-the second half of the release loop. **Granted to `qa-agent` alone**, backfilled
-to existing installs by migration 105.
+The release engineer's tool surface from `merge_task_pull_request` onward: read
+the release covering a task, move it through deploy/watch/verify, and close it
+with a verdict. Every tool takes an optional `task_id` (resolved like the other
+task tools) and discovers the release covering that task via `ForTask` — a
+release is never addressed by its own id from the outside. Registered on the
+same condition as the merge tool (`kit.PullRequests != nil`); when
+`kit.Releases` itself is nil, every one of them refuses with "the release
+service is not configured on this deployment".
+
+### `get_release`
+
+Reads the release covering this task: status, mode/executor, commit and tag,
+deploy result (including a batch release's `local_run` or `store_builds`), the
+health/smoke/runtime-error evidence gathered so far (`checks`), verdict and
+rollback (if any), and a `next` sentence for the current status. Changes
+nothing and never parks — call it any time, including right after a merge and
+again whenever the current state is unclear. A `batch` component may return a
+`draft` release still collecting merged tasks: nothing to do until a human
+cuts it. If nothing has opened a release for this task, the error says why
+(never merged, the component's mode never opens one, or its delivery profile
+is unconfirmed) instead of a bare not-found.
+
+### `deploy_release`
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `task_id` | string | no | Board task UUID or board key. Omit in a task-scoped chat or a board run. |
-| `wait` | boolean | no | Default `true`: a deploy that is still running **parks the task and ends the run**. `false` returns `pending` as an ordinary result. |
+| `task_id` | string | no | Board task UUID or board key. |
 
-It is keyed on `board_tasks.merge_commit_sha` and on nothing else. Three signals,
-consulted in order, first answer wins:
+Dispatches the deploy for this task's release. Meaningful for a `dispatch`
+release (the merge did not deploy — this is what tells the workflow to run at
+the release tag) and for a `pending` cut `batch` release, where the executor
+decides what happens: `github_actions` tags the cut commit (the repository's
+own tag-triggered workflow builds and publishes — an "already exists" tag is a
+REAL failure here, unlike `dispatch`, since a batch version is never re-used);
+`local` runs the profile's command in a detached worktree of the cut commit
+and logs it; `store` starts a store build for every platform with a linked
+app. Refused, dispatching nothing, when the release is not `pending` or its
+mode is neither `dispatch` nor a cut `batch` (`ErrReleaseWrongStatus` /
+`ErrReleaseNoDeploy`) — an `on_merge` release already started on its own; call
+`watch_release` for it instead. On success call `watch_release` next; never
+poll `get_release` waiting for the deploy to finish.
 
-| `signal` | Source | Which repository this is |
-|---|---|---|
-| `actions_run` | the DEPLOY job inside an Actions run for the commit (`ListRunsForCommit` → `ListRunJobs`); build/test jobs in the same run are ignored | one whose deploy is a GitHub Actions job |
-| `commit_status` | `GET /repos/{o}/{r}/commits/{sha}/status` — what `vercel[bot]` writes (`success \| Vercel`) | one that deploys on push, with no workflow at all |
-| `deployment_status` | the GitHub Deployment opened against the commit, and its latest status | ditto, richer surface, read second |
+### `watch_release`
 
-Which job counts as "the deploy" is the repository's own `prod_deploy` /
-`preprod_deploy` pipeline mapping when it has one, and a narrow name heuristic
-(`deploy`, `release`, `publish`, `ship`) when it does not — deliberately narrow,
-because an over-eager matcher turns a job called `deployment-docs` into the thing
-an automatic rollback fires on.
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | no | Board task UUID or board key. |
 
-Four states: `success`, `failure`, `pending`, `no_signal` (nothing anywhere
-reports a deploy of this commit — an answer, not a gap), plus `unknown` when the
-watch itself could not look. Response JSON is
-`{status: domain.DeployWatchStatus, next: "<what to do about it>"}`; the status
-carries `signal`, `detail`, `run_url`, `failed_job`, `contexts`, `health_url`,
-`logs_url`, `auto_rollback` and, on success, `health_window_until`.
+Watches this task's release through its deploy and soak window. While the
+release is `Watched()` (deploying, verifying, rolling back) this call PARKS
+the task and ends the run — that is correct and expected, never poll, wait or
+sleep. The release sweeper watches it in the background and re-dispatches the
+task the moment a verdict is needed (`awaiting_verdict`) or something failed;
+you (or the next run) are woken with the answer. Call it right after
+`merge_task_pull_request` for an `on_merge` release, and right after
+`deploy_release` for a `dispatch` or cut `batch` one. Once it returns a result
+instead of parking, read `next` and follow it (the same sentence
+`get_release` gives for that status).
 
-**`pending` returns no result at all.** It hands back a
-`domain.ResourceBlock{Resource: "deploy_watch"}`, the agent loop stops the turn,
-the runner parks the card, and `board.DeploySweeper` (2-minute sweep) claims it
-back once GitHub says the deploy settled. Nothing sleeps in a tool call and no
-agent run is spent waiting: the sweeper's poll costs one API call per parked task
-per pass and zero tokens. Unlike the device park it is per-TASK — two parked
-deploys are two different things and either may settle first — so the sweeper
-lists parked tasks, asks about each, and claims only the ready ones.
+The park is surfaced through a `domain.ResourceBlock{Resource: "release_watch"}`
+exactly the way the old `get_task_deploy_status` surfaced `deploy_watch` — the
+runner parks the card and `Dispatcher.deployWatchWake` accepts
+`resumed_resource == "release_watch"` alongside the legacy `"deploy_watch"`.
+
+### `run_smoke_checks`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | no | Board task UUID or board key. |
+
+Runs this release's frozen smoke checks (GET/HEAD only, read-only) against its
+verify target right now and reports each result plus a one-line pass/fail
+summary — a way to double-check before `finish_release`, or see what the
+automatic soak window already found. It does not change the release's status
+and does not replace reading `query_runtime_logs`/`list_runtime_errors`. No
+smoke checks configured returns an empty result, not a failure.
+
+### `finish_release`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | no | Board task UUID or board key. |
+| `note` | string | yes | What you checked: the log window, the error groups (or their absence), the smoke results. Becomes the release's verdict. |
+
+Confirms this release as shipped: moves every task it carries to `released`.
+This is the ONLY way a task may reach `released` — never move the card there
+yourself. Callable only while the release is `awaiting_verdict`, and only
+after `query_runtime_logs`/`list_runtime_errors` since `deployed_at` have
+actually been read in THIS run wherever the component has a bound runtime
+environment. A `failed` release can only be finished by a human overriding it
+("ship it anyway") — an agent call is refused (`ErrReleaseWrongStatus`).
+
+### `rollback_release`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | no | Board task UUID or board key. |
+| `reason` | string | yes | `deploy_failed`, `verify_failed`, or `health_incident`. |
+| `note` | string | yes | What was actually observed — the failing step, the error, the health check that went red. |
+
+Rolls this release back off production: reverts its merge commits on the
+default branch, then redeploys the previous good release (`dispatch`) or lets
+the revert push itself redeploy (`on_merge`) — a bound production environment
+whose provider supports it (Vercel, Cloud Run) is rolled back FIRST, in
+seconds, before the revert lands. For a `batch` release it only reverts the
+default branch — nothing is redeployed, because a published desktop or store
+build cannot be unpublished by a revert; `rollback.manual_steps` then leads
+with unpublishing or halting the artifact itself. Call it only on EVIDENCE,
+never a hunch, and never for a noisy but PRE-EXISTING error. If the
+component's `auto_rollback` is off, nothing executes: the proposal is written
+on the task for a human to confirm and the result carries `{proposed: true}` —
+stop there, it is a successful call, not a refusal
+(`ErrRollbackNeedsHuman`). On an actual rollback, perform or explicitly report
+EVERY entry in `rollback.manual_steps`, then call `watch_release` to follow
+the rollback deploy. Refused (nothing reverted, nothing redeployed) when the
+release is not `failed`, `awaiting_verdict`, or `released` within 24h and
+still the component's newest released release (`ErrReleaseWrongStatus`).
+
+See `.ai/architecture.md` → "Releases (migrations 159–161)" for the full state
+machine, the provider-rollback mechanism and the Vercel promote trap, and the
+before/after-deploy runbook.
 
 ### `get_deploy_logs`
 
-Reads the log behind a deploy. Granted to `qa-agent` alone (migration 105).
-This is a CI/Actions job's output — a bound environment's own live logs and
-grouped errors come from `query_runtime_logs`/`list_runtime_errors` instead
-(above).
+Reads the log behind a deploy. **Granted to `release-engineer` alone.** This is
+a CI/Actions job's output — a bound environment's own live logs and grouped
+errors come from `query_runtime_logs`/`list_runtime_errors` instead (above).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `task_id` | string | no | Board task UUID or board key. |
 | `source` | string | no | `actions_job` (default) or `logs_url`. |
-| `job_id` | integer | no | Actions job id from `get_task_deploy_status`'s `failed_job`. Omit to use this task's failing deploy job. |
+| `job_id` | integer | no | Actions job id, from `get_release`'s `release.deploy.failed_job`. Omit to default to this task's RELEASE's failing job (`Releases.ForTask(...).Deploy.FailedJob`), falling back to the legacy per-task deploy watch only when the task has no release. |
 | `env` | string | no | Which environment's `logs_url` to read (default `prod`). `source: logs_url` only. |
 
 The result is a **summary**, not a dump: the error-looking lines are lifted out
@@ -386,68 +481,20 @@ An agent running on a **local runner** may additionally use its own shell to
 inspect whatever tooling that host happens to provide; that capability comes from
 the machine, not from this codebase, and nothing here depends on it.
 
-### `rollback_task_release`
-
-Undoes this task's release. **Granted to `qa-agent` alone** (migration 105), and
-`RestrictToolsForVerdictColumn` strips it in every verdict column except `done` —
-a run judging a change on stage must not be able to undo a live release.
-`released` is not a verdict column, so it survives there, which is what lets the
-health-window wake use it.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `task_id` | string | no | Board task UUID or board key. |
-| `trigger` | string | yes | `deploy_failed` or `health_incident`. |
-| `note` | string | no | What you observed. Goes on the card and into the incident. |
-| `env` | string | no | Default `prod`. |
-
-**The mechanism is chosen by what the repository has, not by configuration:**
-
-| Mechanism | When | What it does |
-|---|---|---|
-| `workflow_dispatch` | a deploy workflow is mapped | `deployops.Service.RollbackForTask` — tag the last known-good commit, dispatch the deploy workflow at that tag |
-| `revert_push` | no deploy workflow (push-to-deploy) | `git revert <merge sha>` on the default branch + push. A squash merge is a single-parent commit, so no `-m`. Never force-pushes; a conflicting revert is **aborted**, not resolved |
-
-The refusal matrix — each an error carrying "Do not retry", because only a board
-action or a human can change any of them:
-
-| Refusal | Sentinel |
-|---|---|
-| task never merged | `ErrRollbackNotMerged` |
-| this task's commit is not what the environment is running | `ErrRollbackNotOwner` |
-| nothing actually went wrong | `ErrRollbackNoTrigger` |
-| not in `done`/`released` | `ErrRollbackColumn` |
-| neither a workflow nor a git working copy | `ErrRollbackNoMechanism` |
-
-`auto_rollback: false` on the deploy target is **not** a refusal: the tool
-returns `{proposed: true}` having executed nothing, with the rollback written up
-on the card and an incident opened. The human path
-(`POST /v1/repositories/:id/deploy/:env/rollback`, `Confirm` == repository name)
-is unchanged and is what that human uses.
-
-**Every result carries `manual_steps`.** A rollback undoes code; it does not
-reverse a migration, turn a feature flag off, purge a CDN or un-send anything.
-The task's own `rollback_plan` / `before_deploy` / `after_deploy` say which apply
-and are handed back verbatim, plus an explicit entry when `has_migration` is set.
-The agent must perform or explicitly report each one — a rollback claiming to be
-complete when half of it was not is worse than one that asks.
-
-The tools resolve the task from the `task_id` argument **or** from the run
-context (`registry.ContextWithTaskID`, set for every turn of a task-scoped chat),
-and then resolve the repository the same way the other task tools do — so a
-`task_id` from another repository is not-found instead of another repository's PR.
-They are registered only when a GitHub token store is wired. The first three ride
-with the workspace tools in `domain.workspaceToolAllowPatterns` rather than with
-the read-only uplift: `commit_task_changes` writes to origin and
-`comment_on_pull_request` speaks to reviewers under the deployment's GitHub
-identity. `merge_task_pull_request` is deliberately **not** in that list — an
-uplift may widen what a stale agent row can see or change in its own workspace,
-never what it can land on the default branch. `RestrictToolsForVerdictColumn`
-strips it in every verdict column, so QA holds it in `done` and not in
-`in_qa`/`ready_for_qa`; `done` is itself a verdict column now, which takes the
-writers and `commit_task_changes` away from a merge run (a commit there would
-push the task branch back to origin moments after the merge deleted it) while
-keeping the one write that run exists to make.
+The release tools resolve the task from the `task_id` argument **or** from the
+run context (`registry.ContextWithTaskID`, set for every turn of a task-scoped
+chat), and then resolve the repository the same way the other task tools do —
+so a `task_id` from another repository is not-found instead of another
+repository's PR. `merge_task_pull_request` rides with the workspace tools in
+`domain.workspaceToolAllowPatterns` rather than the read-only uplift, and is
+deliberately **not** in the uplift's own list — an uplift may widen what a
+stale agent row can see or change in its own workspace, never what it can land
+on the default branch. `domain.RestrictToolsForStage` (the `strip_writers`
+stage behaviour, not the old `RestrictToolsForVerdictColumn`) strips it and the
+release-control tools on every stage except the ones whose `allow` param names
+them — `done` keeps both, `released` keeps only the release-control tools; see
+`.ai/orchestration-agents.md` → "`done` / `released` = the columns where the
+release is watched".
 
 ## MCP Tools
 

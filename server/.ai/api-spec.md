@@ -328,6 +328,39 @@ watch keys off rather than the default branch.
 - `POST /v1/repositories/{id}/deploy/targets/{env}/setup-task` — opens the board task that authors the
   deploy workflow.
 
+## Releases (migrations 159–161)
+
+A component's delivery profile decides whether a merge deploys on its own (`on_merge`),
+waits to be dispatched (`dispatch`), collects into a release a human cuts (`batch`), or
+ships nothing (`none`) — see [projects.md](projects.md) → "Component delivery". Every
+route below sits behind the same bearer auth as everything else; every WRITE additionally
+requires `confirm` to equal the repository's name, the same guardrail
+`handler_deployops.go`'s dispatch/rollback routes use (`errReleaseConfirmMismatch` → 400).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/repositories/{id}/releases?component_id=&task_id=&limit=` | `{"releases": domain.Release[]}`, newest first; default limit 20, max 100 |
+| `GET /v1/releases/{releaseId}` | One release in full: status, mode/executor, commit/tag, `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new error groups), `verdict`, `rollback`, `tasks` |
+| `GET /v1/releases/{releaseId}/cut-preview` | `domain.ReleaseCutPreview` for a `draft` batch release: suggested/previous version, the tag it would carry, the commit it would cut at, generated notes, its tasks. 409 `ErrReleaseWrongStatus` off-draft, 409 `ErrReleaseEmpty` with no tasks |
+| `POST /v1/releases/{releaseId}/cut` | `{confirm, version, notes}` → `Release`, `draft → pending`; re-reads and freezes the component's CURRENT confirmed delivery profile, stamps every carried task's before-deploy confirmation, wakes the release engineer. 400 invalid version (`domain.ValidReleaseVersion`) |
+| `POST /v1/releases/{releaseId}/deploy` | `{confirm}` → `Release`. `pending` only; a `dispatch` release dispatches its workflow, a cut `batch` release runs its executor (tag+watch / local command / store build) |
+| `POST /v1/releases/{releaseId}/finish` | `{confirm, note}` → `Release`, verdict recorded, every task moved to `released`. Same states `finish_release` accepts (`awaiting_verdict`, or `failed` — a human overriding it) |
+| `POST /v1/releases/{releaseId}/rollback` | `{confirm, note}` → `Release`, always `domain.RollbackManual` (an agent's own reasons — `deploy_failed`/`verify_failed`/`health_incident` — only come from the `rollback_release` tool) |
+| `POST /v1/repositories/{id}/tasks/{taskId}/before-deploy/confirm` | No body. Stamps `board_tasks.before_deploy_confirmed_at` (`COALESCE`, idempotent) and, when the task sits in `done`, wakes the release engineer on it immediately (`release.Service.WakeTask`) instead of waiting for the next sweep |
+| `PATCH /v1/components/{componentId}` | Existing `ComponentPatch` plus `"delivery": domain.ComponentDelivery \| null` — `null` clears the human override back to the detected profile. A save that newly CONFIRMS the profile (crossing into an override, or a detected exact/high) opens releases for every task of that component already sitting in `done`, merged, with no release yet (`OpenPending`) |
+
+Errors: `ErrReleaseNotFound` → 404; `ErrReleaseWrongStatus`, `ErrReleaseNoDeploy`,
+`ErrDeliveryUnconfirmed`, `ErrReleaseEmpty`, `ErrReleaseTagExists` → 409;
+`ErrInvalidDelivery`, `ErrInvalidVersion`, a confirm mismatch → 400; an unknown
+repository → 404.
+
+**Removed.** The old "release train" — `GET/POST /v1/repositories/{id}/deploy-packages`,
+`PATCH/DELETE .../deploy-packages/{pkgId}`, `PUT .../deploy-packages/{pkgId}/tasks`,
+`POST .../deploy-packages/{pkgId}/release` — is gone; batch releases (above) replace
+shipping several tasks together. `trigger_release`/`TriggerRelease` (the old per-task
+release dispatch) is gone too — a release now opens automatically at merge time (or joins
+a draft), never through a separate trigger call.
+
 ## Cloud accounts, environments & runtime (migration 155, Phase 2)
 
 Replaced the Vercel connection/hosting-links/GCloud settings surface this
@@ -389,15 +422,19 @@ unreachable.
 **Task fields** `before_deploy`, `after_deploy`, `rollback_plan` (nullable markdown) ride
 on `domain.BoardTask` and are accepted by `POST /v1/repositories/{id}/tasks` and
 `PATCH /v1/repositories/{id}/tasks/{taskId}` (the usual optional-pointer contract: omitted leaves the value, `""`
-clears it). `before_deploy` + `rollback_plan` are posted as ONE system comment when
-`TriggerRelease` dispatches the deploy; `after_deploy` when the prod deploy finalizes
-successfully. Empty fields post nothing.
+clears it). `before_deploy` is now a gate, not just a checklist comment (migration 161):
+an `on_merge` component refuses the merge, and a `dispatch` component refuses `deploy_release`,
+while any carried task's steps are unconfirmed; editing the field's text clears a prior
+confirmation. `rollback_plan` is read back into `rollback_release`'s `manual_steps` at
+rollback time (`domain.TaskRollbackRunbook`); `after_deploy` is posted as one system comment
+per task once `finish_release` moves it to `released`. See [architecture.md](architecture.md)
+→ "Releases (migrations 159–161)" → "Before/after-deploy runbook".
 
 **Relations.** Four types, all reachable from the task API:
 
 | Field | Direction | Write semantics | Enforcement |
 |---|---|---|---|
-| `deploy_depends_on: [{target_task_id \| target_key}]` | source = this task | PATCH **replaces** (`[]` clears, omitting changes nothing); POST via `relations` | `TriggerRelease` 400s with `domain.ErrDeployDependencyNotReleased` and comments the blocking keys while any target lacks production evidence |
+| `deploy_depends_on: [{target_task_id \| target_key}]` | source = this task | PATCH **replaces** (`[]` clears, omitting changes nothing); POST via `relations` | Renders the generated ordering block in `before_deploy` (below) and is guarded against cycles at write time; it no longer gates a release directly — the old per-task `TriggerRelease` check (`ErrDeployDependencyNotReleased`) was removed along with `trigger_release` itself and has no replacement in the release engine (migrations 159–161) as of this writing |
 | `blocked_by: [{target_task_id \| target_key}]` | stored as `blocks` with the BLOCKER as `source_task_id` (migration 022) | **ADDS** — a blocker one planner learned must not be silently dropped by another | Work-order park; a move into `todo`/`in_progress` is refused |
 | `derived_from` | source = implementation task, target = the analiz task | via `relations` or `create_board_task` | None — provenance, not order |
 | `discovered_from` | source = the new task, target = the task the run was working on | written automatically by `create_board_task` inside a task run (migration 136); no tool argument | None — provenance, not order |
@@ -405,9 +442,6 @@ successfully. Empty fields post nothing.
 - A task may not depend on itself (400). A **cycle is refused where the edge is
   written**, not at release, naming the chain that closes it (`deploy-order cycle
   refused: T-2 already ships after T-1 (T-2 → T-1)`).
-- Production evidence = a successful `prod_deploy`, a successful `preprod_deploy` on a
-  repo with no prod workflow mapped, or the `released` column. The gate runs after the
-  migration gate and before the mobile-store and release-target gates.
 - `GET /v1/repositories/{id}/tasks/{taskId}` returns both directions: `relations` (edges
   this task is the source of) and `blocked_by` (the `blocks` edges pointing at it, with
   `source_key` / `source_title`). Single-task detail only; bulk lists carry neither.
@@ -426,8 +460,7 @@ successfully. Empty fields post nothing.
 ```
 <!-- tt:order -->
 **Release order (generated from this task's relations — do not edit by hand):**
-- Ships after: T-1 (task export endpoint). Each one must be live in production before this
-  task is released; the release is refused otherwise.
+- Ships after: T-1 (task export endpoint).
 - Built after: T-1 (task export endpoint). Work on this task does not start until those are done.
 <!-- /tt:order -->
 
@@ -435,28 +468,11 @@ Confirm the export feature flag is off in prod.
 ```
 
 Regenerated by `Service.syncOrderNote` wherever the order can move: after `POST .../tasks`
-writes relations, after `PATCH` replaces `deploy_depends_on` or adds `blocked_by`, and
-inside `TriggerRelease` immediately before the pre-deploy checklist is posted. Only the
-fenced region is replaced, so an agent-written runbook survives. Generated rather than
+writes relations, and after `PATCH` replaces `deploy_depends_on` or adds `blocked_by`. Only
+the fenced region is replaced, so an agent-written runbook survives. Generated rather than
 agent-written because a typed-in ordering drifts the moment the relation is edited and
 would then assert an order the release gate does not enforce. The checklist comment
 carries the same text with the markers stripped.
-
-### Deploy packages
-
-An explicitly assembled release train that batches several tasks into one production
-deploy instead of releasing each as it reaches `done`; the per-task path
-(`trigger_release`/`TriggerRelease`) is always available too — release is never a
-per-repository opt-in. Every other release gate still applies per task.
-
-| Endpoint | Notes |
-|---|---|
-| `GET /v1/repositories/{id}/deploy-packages` | `{packages, count}`. **Not a pure read**: each package is advanced first — members with production evidence marked, an all-live package becomes `released`, members whose dependencies just became satisfied are dispatched. Members carry `{task_id, position, key, title, column, released}` |
-| `POST /v1/repositories/{id}/deploy-packages` | `{name, description?}` → 201, status `draft` |
-| `PATCH /v1/repositories/{id}/deploy-packages/{pkgId}` | `{name?, description?, status?}`; `status` accepts only `"cancelled"` (every other transition is evidence-driven → 400), cancelling an already-`released` package 400s, unknown package 404 |
-| `DELETE /v1/repositories/{id}/deploy-packages/{pkgId}` | 204; membership cascades, tasks untouched |
-| `PUT /v1/repositories/{id}/deploy-packages/{pkgId}/tasks` | `{task_ids: []}` replaces membership, array index becomes `position`. 400 on a task from another repository or a `releasing`/`released` package |
-| `POST /v1/repositories/{id}/deploy-packages/{pkgId}/release` | 202 with the package. Allowed from `draft` or `failed` (a retry). Members are topologically sorted by their in-package `deploy_depends_on` edges, position breaking ties; a cycle fails the package with `domain.ErrDeployPackageCycle` in `note` and dispatches nothing. Only the FIRST wave is dispatched and the package stays `releasing` — deploys are async, so later waves ride the advancement on each GET. A member with production evidence is skipped, not an error; the first hard refusal moves the package to `failed` with `note = "<task key>: <error>"` |
 
 ## Production incidents
 
@@ -518,9 +534,10 @@ repository's own `local_run` doc (`scripts/dev.sh`).
     earns it (`done means the task passed its review chain, and this one has not …
     Missing: QA (in_qa) — move it to ready_for_qa`). It still fails closed (400, not
     200) if the span ledger cannot be read.
-  - The **release-deploy gate** is gone entirely: moving into `released` is never
-    gated on a recorded production deploy. `trigger_release` fires from `done`
-    unconditionally.
+  - The **release-deploy gate** is gone entirely, replaced by the release state machine
+    (migrations 159–161, see "Releases" above): a task reaches `released` only through
+    a release's verdict (`POST /v1/releases/{id}/finish`, or the `finish_release` tool),
+    never through a bare column move.
 
 ## GitHub webhook
 

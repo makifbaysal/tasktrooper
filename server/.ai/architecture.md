@@ -332,11 +332,11 @@ The gate is always on — there is no per-repository opt-out any more
 (`repositories.require_review_chain` was dropped in migration 158). It fails closed on an
 unreadable ledger: a check that passes when its evidence cannot be read is not a check.
 
-Release itself (a move into `released`) is no longer gated on any recorded production
-deploy: `repositories.require_release_deploy` and the `require_release_deploy` stage
-behaviour are gone (migration 158). `trigger_release`/`TriggerRelease` fires from `done`
-unconditionally — there is no more "batched release" repository that refuses the
-per-task path.
+Release itself is no longer a column-transition gate at all: `repositories.require_release_deploy`
+and the `require_release_deploy` stage behaviour were dropped by migration 158, and migration 159
+replaced what used to fill that gap. A task now reaches `released` only through a release's own
+verdict (`finish_release`), or through a `none`-mode merge that IS the release — never through a
+bare, ungated column move. See "Releases (migrations 159–161)" below.
 
 ## Merging the task's pull request (migration 104)
 
@@ -348,13 +348,15 @@ task could pass every gate and reach `released` unmerged.
 port method is `EnsurePullRequest`, so no caller can read "draft" and believe it. Nothing
 in the codebase gated on draft state.
 
-**The QA agent merges it, as a tool call, in `done`.** Not a server-side hook: a hook would
-fire on a state change nobody was watching, at a moment nothing had re-checked the build.
-QA last exercised the built product, so `done` wakes QA (`board.Dispatcher.doneMergeWake`,
-narrow enough that the column stays terminal for everything else) and the agent calls
-`merge_task_pull_request`: squash-merge, then delete the branch — refused unless the task is
-in `done`, its PR is open and unmerged, checks are green, the review chain is satisfied
-(always, per the gate above), and the PR head is still `board_tasks.verified_sha`
+**The release engineer merges it, as a tool call, in `done`.** Not a server-side hook: a hook
+would fire on a state change nobody was watching, at a moment nothing had re-checked the
+build. `done` wakes the release engineer (`board.Dispatcher.doneMergeWake`, narrow enough
+that the column stays terminal for everything else — this was QA's wake before migration 159
+moved the subscription) and the agent calls `merge_task_pull_request`: squash-merge, then
+delete the branch — refused unless the task is in `done`, its PR is open and unmerged, checks
+are green, the review chain is satisfied (always, per the gate above), its before-deploy
+steps are confirmed on an `on_merge` component (`release.Service.MergeGate`, migration 161 —
+see "Releases" below), and the PR head is still `board_tasks.verified_sha`
 (`domain.VerifiedCommitMatches`, the same comparison `releaseTargetGate` makes, asked of the
 PR head). The verified SHA travels to GitHub as the merge's `sha` precondition, so a push
 landing between gate and merge is a 409 rather than a silent merge of unreviewed code.
@@ -367,96 +369,316 @@ mutation (keyed by the PR's `node_id`), which is what `gh pr ready` does. It sur
 repair path for PRs opened before this change.
 
 `board_tasks.merge_commit_sha` records the squash commit: the dispatcher's idempotency key
-(an already-merged task stops waking QA) and the commit the deploy watch monitors.
+(an already-merged task stops waking the release engineer) and the commit a release deploys.
+A successful merge opens (or joins) a release — `TaskPRMergeResult.Release` carries what —
+covered next.
 
-## Watching the deploy, and rolling it back (migration 105)
+## Releases (migrations 159–161)
 
-"Merged" and "live and working" are different facts that look alike on a card.
+Merging used to be followed by guesswork: whether anything deployed was read off which
+workflows and deploy targets happened to exist, a green deploy job was the whole of
+"released", and QA — whose rules forbid touching production — was the agent asked to watch
+it. A component now STATES how it ships; every merge opens a release that is deployed, soaked
+and judged; and a dedicated **release-engineer** agent (role `release`) owns everything that
+happens in `done` and `released`. QA was unsubscribed from both columns by migration 159; its
+work now ends at its verdict in `in_qa`/`pm_uat`.
 
-**The release deploys the task's own commit.** `deployRef` used to dispatch the default
-branch unconditionally while every gate above it proved something about the task's commit —
-a release could be gated on one commit and deploy another. It now tags `merge_commit_sha` as
-`release/<short-sha>` and dispatches THAT by name (`workflow_dispatch` takes only a branch
-or tag, the same constraint `deployops.Rollback` works around). The tag is derived from the
-commit, not the clock, so re-releasing reuses it and GitHub's "already exists" is a success.
-A task merged before migration 104, or a token that cannot create tags, falls back to the
-default branch — logged at WARN, so the drift is visible.
+### Delivery profile
 
-**`trigger_release` enforces the column it always claimed.** `releaseColumnGate` refuses
-anything but `done`/`released` (a re-release is legitimate) and comments on the card.
+`project_components.delivery` is a `Fact[domain.ComponentDelivery]` like `name`/`role`/`stack`
+— `mode` (`on_merge` | `dispatch` | `batch` | `none`), `executor` (`github_actions` | `vercel`
+| `local` | `store`), `workflow`, `tag_pattern`, `local_command`, `verify` (`soak_minutes`,
+`max_new_errors`, GET/HEAD-only `smoke` checks), `auto_rollback`. `domain.DeliveryConfirmed`
+is what a release may act on without asking: an `Override` always confirms; a `Detected`
+guess confirms only at `exact`/`high` confidence — a medium guess must not start dispatching
+production deploys nobody asked for.
 
-**One task-scoped abstraction over three deploy signals.** `application/deploywatch`
-answers "what happened in production to THIS task's merge commit":
+`projectmodel.detectDelivery` (`delivery_detect.go`) infers it from a component's own CI
+checks and bound environments, in the priority order a human would read them: a `Mobile` fact
+→ `batch`/`store` (medium); a production deploy check triggered by push to the default branch
+→ `on_merge`/`github_actions` (high); else a dispatchable production deploy check →
+`dispatch`/`github_actions` (medium); else a confirmed (or auto-confirmed) production
+environment on Vercel → `on_merge`/`vercel` (high) — a frontend-role component also gets a
+default `GET /` smoke check; else a tag-triggered release check → `batch`/`github_actions`,
+`tag_pattern: "v{version}"` (medium); else `none` (high). `refreshDeliveryDetection` runs as
+its own pass AFTER a scan's checks are reconciled and `cloud.Service.MatchScan` has written
+any CONFIRMED environments — the Vercel rule needs a confirmed environment, which only exists
+once matching has already returned — and `RefreshDelivery` re-runs it outside a scan whenever
+a binding changes. A detection that newly crosses into exact/high fires the same hook a
+human's confirm does: tasks that merged while the profile was unconfirmed, still sitting in
+`done`, are opened.
 
-| Signal | Read from | The repository this is |
-| --- | --- | --- |
-| `actions_run` | the DEPLOY job inside an Actions run for the commit — build/test jobs in the same run are ignored, or a red unit test would read as a failed deploy | one whose deploy is an Actions job |
-| `commit_status` | `GET /repos/{o}/{r}/commits/{sha}/status` — `vercel[bot]` writes `success \| Vercel` | one that deploys on push and runs no workflow |
-| `deployment_status` | the GitHub Deployment opened against the commit | ditto; richer, consulted second because an unfinished deployment would read as an eternal `pending` |
+A human confirms or edits the profile on the repository's Deploy tab (`DeliveryCard` /
+`DeliveryEditDialog`); `PATCH /v1/components/:id` with `delivery` sets the `Override` (`null`
+clears it back to the detected half). `projectmodel.Service.UpdateComponent` validates it
+(`ComponentDelivery.Validate`) and, on a save that newly confirms it, calls the wired
+`SetDeliveryConfirmedHook` — `release.Service.OpenPending` — synchronously.
 
-No provider credentials exist anywhere in this: every signal is read from GitHub, which all
-these hosts already write to. Which job is "the deploy" is the repository's own
-`prod_deploy`/`preprod_deploy` mapping when it has one, and a narrow name heuristic
-otherwise. Nothing found is `no_signal` — an answer, not a failure and not a wait.
+### The release and its state machine
 
-**A pending deploy parks; it never blocks.** `get_task_deploy_status` returns a
-`domain.ResourceBlock{Resource: "deploy_watch"}`, the loop stops the turn, the runner parks
-the card, and `board.DeploySweeper` re-dispatches when GitHub says the deploy settled. This
-is the device park's mechanism with one structural difference: the device is a QUEUE (one
-phone, any release frees any waiter), while two parked deploys are different things and
-either may settle first — so the sweeper lists without claiming
-(`ListBlockedByResource`), asks about each, and claims only the ready ones
-(`TakeBlockedResourceTask`). Waiting costs one API call per parked task per pass and zero
-LLM tokens.
+`domain.Release` (`releases` + `release_tasks`, migrations 159–160): one shipment of one
+component — the merge commits it carries, how it deployed, what production looked like
+afterward, and the verdict. `draft` (batch only, collecting) → `pending` → `deploying` →
+`verifying` → `awaiting_verdict` → `released` | `rolled_back` | `failed` | `superseded` (+
+`rolling_back` while a rollback's own deploy is watched). `Terminal()` =
+released/rolled_back/superseded; `Open()` = pending/deploying/verifying/awaiting_verdict —
+what a newer merge of the same component must TAKE OVER, not run beside; `Watched()` /
+`Parks()` = deploying/verifying/rolling_back — what the sweeper advances and what parks a
+card.
 
-**The terminal columns stay terminal.** `deployWatchWake` is keyed on a payload key only
-the sweeper and the rollback dispatcher write (`domain.EventPayloadResumedResource`). A
-state-based condition ("in done, merged, deploy unconfirmed") would be reproduced by every
-later comment on the card and `done` would wake QA forever.
+`release.Service.OpenForMerge` is called by `board.TaskPRService` right after a successful
+merge (it never returns an error — a failure to open a release is reported in `Next`, with
+the task left in `done`, because the merge already happened and cannot be undone here):
 
-**The post-release health window makes attribution specific.** `prodops/remedy.go`'s
-45-minute correlation asks about the ENVIRONMENT, so it can only produce "roll back the last
-release", with no card and nobody to wake. `deploywatch.AttributeRelease` asks about a
-COMMIT: the newest *successful* deployment run for this env, finished inside
-`deploy_ops.health_window` (15m) before the incident, carries a head SHA; that SHA is some
-task's `merge_commit_sha`; that task has a key, a rollback plan and an owning role. A FAILED
-deploy is skipped — it left production on the previous commit. Unattributable is `ok=false`,
-never an error: the generic remedy still fires.
+- No component resolvable (none recorded, more than one active component with no `.`-path
+  fallback) → `Unconfirmed: true`, one system comment, no release row.
+- Profile not `DeliveryConfirmed` → the same: `Unconfirmed: true`, one comment naming the
+  component, no row.
+- `none` → the task moves straight to `released` (`MoveReasonMergeReleasedNoDelivery`);
+  `Released: true`.
+- `batch` → joins the component's DRAFT release, creating one if none exists
+  (`idx_releases_one_draft` makes a racing second `Create` fail; the loser re-reads the draft
+  the winner just made and `AddTasks` instead). The task stays in `done`; nothing dispatches
+  until a human cuts it.
+- `on_merge` / `dispatch` → **take over** the component's currently open release, if any: mark
+  it `superseded` (verdict `"superseded by <new version>"`), carry its tasks into the new one,
+  and silently un-park (never wake) any card of the old release still parked on
+  `release_watch` — the new release's card is the one that gets woken. Create the release at
+  `Version = ShortSHA(mergeSHA)`: `on_merge` starts `deploying` immediately (the merge itself
+  deploys); `dispatch` starts `pending` (the agent must call `deploy_release`).
 
-**`deploy_targets.auto_rollback` stops being decorative.** `true` → the attributed task's
-owner is woken with the incident and the task's rollback runbook; `false` → the incident is
-opened, the proposal is written on the card, and a human confirms through the unchanged HTTP
-endpoint. A missing or unreadable target reads as `false`.
+`TaskPRMergeResult.Release` carries the `ReleaseOpening` (`mode`, `release_id`, `status`,
+`unconfirmed`, `next`), so the merging agent knows its next step without another call.
+`AutoReleased` / `repository.Service.AutoReleaseIfUndeployable` only fire on a build with no
+`release.Service` wired at all — every normal install goes through `OpenForMerge` instead.
 
-**Two rollback mechanisms, chosen by what the repository has.** With a deploy workflow:
-`deployops.Service.Rollback` (tag the last known-good commit, `workflow_dispatch` at that
-tag). Without one the repository deploys on push, so what redeploys it is a new commit and
-the rollback is `git revert` of the merge commit plus a push — a plain revert, since a squash
-merge is single-parent (`-m` is for a true merge and fails here). It never force-pushes, and
-a conflicting revert is ABORTED rather than resolved: guessing which side wins in production,
-unattended, is not a thing to do. A failed push says so loudly — the revert exists locally and
-production is UNCHANGED.
+`OpenPending(repositoryID, componentID)` is the catch-up path a human's delivery confirm
+triggers: every task of that component sitting in `done`, merged, and belonging to no release
+yet is opened exactly as `OpenForMerge` would (a `dispatch` release opened this way has no
+live agent run watching it, so it is explicitly woken).
 
-**The agent actor does not type a confirmation phrase.** The human endpoint's
-`Confirm == repository name` guards against a misclick; an agent asked to type the name reads
-it off the record it already holds, which confirms nothing and looks like confirmation in the
-audit log. `deployops.Service.RollbackForTask` — a separate method, not a `SkipConfirm` flag —
-swaps the ritual for four facts checked against the database: the task's merge commit must be
-what the environment is running (`assertOwnsLiveRelease`, failing CLOSED on an unreadable
-ledger), `auto_rollback` must be on, the claimed trigger must be real (`deploy_failed` is
-re-verified against the watch), and the audit entry names the card, commit, trigger and role.
-`Rollback` (the human path) is unchanged.
+### The sweeper
 
-**The half no mechanism can perform is reported, never skipped.** `git revert` does not
-reverse a migration, turn a feature flag off, purge a CDN or un-send anything. What applies is
-in `rollback_plan` / `before_deploy` / `after_deploy`, previously read only on the way OUT and
-now fed back in as the rollback runbook comment the run reads; every rollback result carries
-`manual_steps` the agent must perform or explicitly report.
+`SweepOnce` (default 30s, `Start`) lists every release in a `Watched()` status and advances
+each with an optimistic `store.Update(r, expect=oldStatus)` — `ErrReleaseWrongStatus` means
+someone else (another tick, an agent's `Finish`/`Rollback`) already moved it, and the release
+is skipped rather than fought over.
 
-`deploy_ops.monitor_enabled` defaults to **true**: `deployment_runs` is what the rollback
-reads to find the last good commit and what attribution reads to decide whose release is
-live, and with the monitor off both fall back to "no evidence". Cost is bounded — one API
-call per (repository × environment) with both a target and a mapped workflow, per sweep.
+**`deploying`.** Deploy state for `CommitSHA`: `github_actions` →
+`deploywatch.Service.StatusForCommit` (the same commit-keyed signal `get_deploy_logs` reads a
+job id from) watching `profile.Workflow`; `vercel` → if the component has a bound, confirmed production environment
+with an account and resource, match `cloud.Deployments` by commit prefix (either direction,
+≥7 chars) — `ready`→success, `error`/`canceled`→failure, else pending; no match or no
+environment falls back to the commit-status signal (`vercel[bot]`'s status write). `pending`
+past 60 minutes, `no_signal` past a 15-minute grace, or `unknown` past 60 minutes → `failed`.
+`failure` → `failed` with the status detail, hand back immediately. `success` → the soak
+begins: `DeployedAt = now`, `VerifyUntil = now + profile.Verify.SoakMinutes`, the verify
+target resolved (below), every smoke check run once and one health sample taken; a smoke
+failure on this FIRST round is an early stop straight to `awaiting_verdict` — otherwise →
+`verifying`. Batch releases sweep their own executors here instead — `local` waits for
+`LocalRun.FinishedAt`, `store` polls whether every started platform's build moved past its
+baseline (120-minute timeout), `github_actions` shares the dispatch path above.
+
+**Verify target.** The component's bound, confirmed production environment (`EnvironmentID`,
+`BaseURL`, `HealthURL`); else the legacy `port.DeployTargetStore` target for env `prod`. Gaps
+are recorded on `Checks.Notes` ("no health URL — health not probed", "no bound environment —
+runtime errors not read", "no base URL — relative smoke paths skipped") rather than a probe
+that silently checked nothing.
+
+**`verifying`.** Each tick: one health sample (two consecutive failures is an early stop);
+runtime errors read at most every 2 minutes and once at window end
+(`len(new-error-groups) > profile.Verify.MaxNewErrors` is an early stop); when
+`now >= VerifyUntil`, one final smoke round runs and the release moves to `awaiting_verdict`
+regardless of the early-stop flag. Stored `Health`/`Smoke` are capped at the last 60/40
+samples.
+
+**Hand-back.** `handBack` claims the FIRST parked card of the release's tasks
+(`TakeBlockedResourceTask(release_watch, taskID)`) and wakes it through
+`board.Dispatcher.Dispatch` — payload `resumed_resource: release_watch`,
+`release_status: <status>`, actor system, reason `MoveReasonResourceFree` — exactly like
+`board/deploy_sweeper.go` wakes `deploy_watch`; every OTHER parked card of the same release is
+claimed silently. If nothing was parked (the agent run that would have parked is gone — a cut
+batch release, for instance, has never had one), the newest task of the release is woken
+instead; it is still sitting in `done`. `Dispatcher.deployWatchWake` accepts
+`resumed_resource == release_watch` alongside the legacy `deploy_watch`.
+
+### The release engineer
+
+Role `release` (migration 159), catalog `catalog/agents/release-engineer/`, subscribed to
+`done` and `released`. Its tool policy (`catalog.releaseEngineerToolPolicy`) holds no
+workspace writers and no commit tools: it ships and reverts through the release tools only,
+never by editing. `done`'s `strip_writers` behaviour keeps `merge_task_pull_request` and the
+`release_control` tools (`deploy_release`, `finish_release`, `rollback_release` —
+`domain.ReleaseControlTools`, tested by `domain.IsReleaseControlTool`) even after every writer
+is stripped; `released`'s `strip_writers` allows `release_control` only (no merge tool there).
+
+Wake points:
+
+- **Merge** — `done`'s `merge_pr_on_enter` behaviour (`doneMergeWake`, unchanged mechanism,
+  now resolved to the release engineer's column subscription instead of QA's).
+- **Sweeper hand-back** — `awaiting_verdict` or `failed`; the agent must read
+  `query_runtime_logs`/`list_runtime_errors` since `deployed_at` wherever a runtime
+  environment is bound before calling `finish_release`/`rollback_release` — a hard rule
+  (`release-verify-before-finish`), not only a suggestion.
+- **`OpenPending`** — a `dispatch` release opened by a human's delivery confirm, or a cut
+  batch release (`Cut` calls `wakeNewestTask`), explicitly dispatches a run since there is no
+  live one to hand back to.
+- **A health incident inside `released`'s window** — see Attribution below.
+
+### Verification
+
+A release is never finished on a green deploy alone. `awaiting_verdict` evidence: the
+release's own `Checks` (health samples, smoke results, new runtime error groups, `EarlyStop`,
+`Notes`), plus `query_runtime_logs`/`list_runtime_errors` read fresh in THIS run wherever a
+runtime environment is bound. A batch release with no bound environment (most desktop/mobile
+components) has none of those to read — its evidence is the build/publish result
+(`Deploy`/`LocalRun`/`StoreBuilds`) plus any smoke checks, and the agent must say so
+explicitly in its note rather than silently skipping the step. `finish_release` and
+`rollback_release` both require a non-empty `note` stating what was actually checked.
+
+### Rollback
+
+`Rollback` is allowed on `failed`, `awaiting_verdict`, or `released` within 24h of
+`FinishedAt` AND still the component's newest released release (`LastReleased`) — otherwise
+`ErrReleaseWrongStatus` naming why. `reason` must be `Valid()`; an agent's
+`deploy_failed`/`verify_failed`/`health_incident` are accepted as stated (the evidence is on
+the release); `manual` is human-only. `profile.AutoRollback == false` and the actor is an
+agent → nothing executes: the proposal (reason, note, what would be reverted/redeployed) is
+written as a comment on the newest task and `ErrRollbackNeedsHuman` is returned — a
+SUCCESSFUL call from the tool's point of view (`{proposed: true}`), not an error to route
+around.
+
+**Provider rollback runs first, before the revert** (any mode except `batch`, and never for a
+release that never deployed): if the component's bound production environment's provider
+implements `port.CloudRollbacker` (`CanRollback`), the target deployment is the one whose
+commit matches the previous released release's `CommitSHA` (prefix match), else the newest
+READY deployment created before this release's own deploy started. `RollbackEnvironment`
+success → `Mechanism = provider_rollback`, `ProviderDeploymentID` recorded, and production is
+back on the earlier code in SECONDS rather than the minutes a redeploy or revert-push takes.
+Any failure (`port.ErrCloudWriteDenied` — a Vercel token needs write scope, a Cloud Run
+service account needs `run.services.update` — `port.ErrUnsupported`, no target found, or the
+call itself erroring) is folded into `Rollback.Detail` and the mechanism below proceeds
+regardless; a provider rollback attempt never fails the caller.
+
+**The revert always runs too**, whether or not the provider rollback succeeded:
+`RevertOnDefaultBranch` (`git.Client`) fetches, checks out a DETACHED worktree of
+`origin/<default>` (the root checkout's working tree and index are never touched), runs
+`git revert --no-edit --no-commit` on every task's merge commit newest-first, commits, and
+pushes to the default branch — so the next release cannot ship the bad change again even
+after an instant provider rollback. A conflict aborts the revert and names the conflicting
+paths; a rejected push says the revert was not pushed and production is unchanged.
+`RevertCommitOnDefaultBranch` (the old single-sha path, which used to `reset --hard` in the
+root clone) now delegates to it.
+
+**Then, per mode:** `dispatch` — if the provider rollback already succeeded, nothing more is
+dispatched (production is already restored); otherwise the previous good release's commit is
+redeployed (`LastReleased`, or the revert commit's own tag with no previous release).
+`on_merge` — the revert push itself redeploys; `Mechanism = revert_push` unless the provider
+path ran. `batch` — no redeploy is attempted AT ALL: a published desktop build or store build
+cannot be unpublished by a revert, so the release goes straight to `rolled_back` and
+`ManualSteps` leads with unpublishing or halting the artifact itself (the GitHub
+Release/update feed for `github_actions`/`local`, the store rollout for `store`) before the
+tasks' own rollback runbooks.
+
+**The Vercel promote trap.** Sweeping a `rolling_back` release whose
+`Mechanism == provider_rollback`: once `CurrentDeployment` confirms the earlier deployment is
+live, a `dispatch` release is done (`rolled_back`); an `on_merge` release must ALSO wait for
+the revert commit's own deployment to go READY and `PromoteDeployment` it — on Vercel,
+`RollbackTo` pins production to one specific deployment and turns OFF automatic production
+assignment, so without this step every later merge would build but never go live. A promote
+failure fails the release with a reason that says production is SAFE (still on the earlier
+deployment) but someone has to promote a deployment in the provider's console by hand.
+
+`ManualSteps` is always `TaskRollbackRunbook` per task (`rollback_plan`/`before_deploy`/
+`after_deploy`), prefixed for batch as above. Every rollback carries `Actor`, `StartedAt`,
+`Reason`, `Note`, `Detail`.
+
+### Batch releases (migration 160)
+
+Desktop/mobile (and anything else a human wants to cut deliberately) collect merges into a
+`draft` release instead of shipping on every merge. A human previews
+(`GET /v1/releases/:id/cut-preview`) and cuts it (`POST .../cut`, `{confirm, version, notes}`):
+
+- **Preview.** Previous version: the component's newest released release's `Version`, else
+  the newest git tag matching the tag pattern's glob, else none. Suggested next version: patch
+  bump when every carried task is `bug`, else minor; `0.1.0` with no previous; `""` (a human
+  types it) when the previous version is not plain semver. Commit: the default branch's remote
+  head, checked to actually contain every task's merge commit (`IsAncestor`) — a missing one
+  names which task. Notes: generated markdown, `## <version>` then `### Features`/`### Fixes`
+  by task type.
+- **Cut** re-reads and freezes the component's CURRENT confirmed profile (a draft may have sat
+  open under an older one), sets `Version`/`Tag`/`CommitSHA`/`Notes`/`CutAt`, moves to
+  `pending`, stamps every carried task's before-deploy confirmation (cutting the release IS a
+  human's confirmation — see below), and wakes the release engineer on the newest task.
+
+Deploy per executor (`Deploy` on a `pending` batch release):
+
+- **`github_actions`** — tags the cut commit; unlike `dispatch`, an "already exists" tag is a
+  REAL failure (`ErrReleaseTagExists`) — a batch version is picked once and never silently
+  re-used. The repository's own tag-triggered workflow builds and publishes; nothing is
+  dispatched.
+- **`local`** — `LocalCommand` (with `{version}` substituted) is argv-split (quotes respected,
+  no shell syntax interpreted) and REJECTED outright if it contains `|`, `&&`, `;`, a backtick
+  or `$(` — it runs via `adapter/localexec.Runner`, `exec.CommandContext` directly,
+  `shell: false`, in a DETACHED worktree of the cut commit, env = the server's own +
+  `RELEASE_VERSION`/`RELEASE_TAG`/`RELEASE_COMMIT`, logged to
+  `<data dir>/releases/<release-id>.log`, 60-minute timeout. The runner's callback
+  (`CompleteLocalRun`) records the exit code, log tail and a synthesized `Deploy` status; the
+  sweeper (`sweepDeployingLocal`) reads `LocalRun.FinishedAt` and treats no report within 70
+  minutes as the server having restarted mid-run, not a hang.
+- **`store`** — starts a `storeops` release build on every platform with a linked, identified
+  app, recording each one's baseline internal-channel build first; a platform whose start
+  fails keeps its own error rather than aborting the others (all failed → `failed`). The
+  sweeper polls each platform's track until its build number moves past the baseline
+  (120-minute timeout).
+
+A cut batch release still goes through `verifying`/`awaiting_verdict` exactly like an
+on-merge one — most desktop/mobile components simply have no bound runtime environment, so
+the soak window runs out with nothing to read but the build/publish evidence.
+
+### Before/after-deploy runbook (migration 161)
+
+A task's `before_deploy` text is work a HUMAN performs (a migration, a secret, a switch) — the
+release engineer may not write to production. `board_tasks.before_deploy_confirmed_at`
+records the human's confirmation
+(`POST /v1/repositories/:id/tasks/:taskId/before-deploy/confirm`); any edit that changes
+`before_deploy`'s text clears the confirmation.
+
+- `on_merge` — `release.Service.MergeGate`, called from `taskpr_merge.go` right before
+  anything touches GitHub, refuses the merge itself (the merge IS the deploy) while
+  `task.BeforeDeployPending()`: one comment listing the steps, wrapped `ErrBeforeDeployPending`.
+- `dispatch` — `Deploy`'s `beforeDeployGate` refuses while ANY task of the release has pending
+  steps, commenting once (on the newest task) with the whole list.
+- `batch` — `Cut` stamps every carried task's confirmation itself: cutting the release IS the
+  human's confirmation, shown in `CutReleaseDialog` under "Before this ships".
+- `none` — irrelevant; nothing deploys.
+- Confirming, when the task sits in `done`, wakes the release engineer on it
+  (`release.Service.WakeTask`, the same `release_watch` resumed payload `OpenPending` uses) so
+  a merge/deploy that was only waiting on a human resumes immediately instead of on the next
+  sweep.
+- `Finish` posts one system comment per task carrying `after_deploy` text, once the tasks have
+  already moved to `released`: "Released — do these after-deploy steps now: …".
+
+### Attribution
+
+`release.Service.AttributeRelease` (env `prod` only) finds the newest `released` release of
+the repository whose `FinishedAt` (or `DeployedAt`) falls within `HealthWindow` (15m, mirrors
+`deploywatch.DefaultHealthWindow`) before an incident's onset, and names its newest task — any
+delivery mode, including a push-to-deploy `on_merge` component with no release-tool
+involvement at all. The integrator wires a composite attributor: this release-keyed one
+first, `deploywatch.AttributeRelease`'s older commit-keyed one as fallback (a repository with
+no release history yet, or a release that predates migration 159's rollout). Either way the
+woken run lands on `released`'s `columnInstruction` and calls `rollback_release` with
+`health_incident` — there is no separate rollback code path any more.
+
+### What is gone
+
+`trigger_release`/`TriggerRelease`, `get_task_deploy_status`, `rollback_task_release`,
+`deployops.Service.Rollback`/`RollbackForTask`, and the "deploy package"/release-train HTTP
+endpoints (`repository/deploy_package.go`, `domain/deploy_package.go`) are removed — batch
+releases replace the deploy package's job of shipping several tasks together. QA no longer
+merges, watches or rolls back anything. `AutoReleaseIfUndeployable` is reachable only on a
+build with no `release.Service` wired at all.
 
 ## Work order and the analysis reference (migration 106)
 

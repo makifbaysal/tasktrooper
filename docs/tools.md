@@ -103,23 +103,29 @@ tab" otherwise.
 | `get_task_pull_request` | Reads a task's PR: state, files, review comments, diff | Developer roles, `system-architect`, `qa-agent`, `product-manager` (read-only) |
 | `commit_task_changes` | Commits, pushes to the task branch, opens the PR if needed — the only way a chat's edits reach GitHub | Developer roles only |
 | `comment_on_pull_request` | Posts a PR comment, or replies inside a review thread | Developer roles, `system-architect` |
-| `merge_task_pull_request` | Squash-merges the task's PR and deletes the branch | `qa-agent` only, and only in the Done column |
+| `merge_task_pull_request` | Squash-merges the task's PR and deletes the branch, then opens (or joins) a release | `release-engineer` only, and only in the Done column |
 
 See [Git and pull requests](git-and-pull-requests.md) for the full merge
 refusal matrix.
 
-## Deploy
+## Release
+
+The release engineer's tool surface, from `merge_task_pull_request` onward.
+See [Deploy targets and recipes](deploy.md) → "Releases" for the full flow.
 
 | Tool | What it does | Typically held by |
 |---|---|---|
-| `trigger_release` | Dispatches the production deploy for a task in Done | Whichever role your board wakes on Done (typically `qa-agent`) |
-| `get_task_deploy_status` | Reports what production did with a task's merge commit | `qa-agent` only |
-| `get_deploy_logs` | Reads the log behind a deploy, summarized | `qa-agent` only |
-| `rollback_task_release` | Undoes a task's release | `qa-agent` only, and only in Done/Released |
-| `list_deploy_templates` | Lists the deploy recipe catalog | `qa-agent`, `product-manager` (via `get_deploy_target`) |
+| `get_release` | Reads the release covering a task: status, deploy result, health/smoke/error evidence, verdict, rollback | `release-engineer` only |
+| `deploy_release` | Dispatches a `dispatch`-mode release, or a cut batch release's executor (tag/local command/store build) | `release-engineer` only, and only Done/Released |
+| `watch_release` | Watches a release through its deploy and soak window; parks the task while a system sweeper watches | `release-engineer` only, and only Done/Released |
+| `run_smoke_checks` | Runs the release's frozen smoke checks against production right now, read-only | `release-engineer` only |
+| `finish_release` | Confirms a release as shipped; the only way a task reaches Released | `release-engineer` only, and only Done/Released |
+| `rollback_release` | Rolls a release back off production: reverts the merge, redeploys or lets the provider's own push-to-deploy redeploy | `release-engineer` only, and only Done/Released |
+| `get_deploy_logs` | Reads the log behind a deploy (a release's failed job by default), summarized | `release-engineer` only |
+| `list_deploy_templates` | Lists the deploy recipe catalog | `release-engineer`, `product-manager` (via `get_deploy_target`) |
 | `load_deploy_template` | Reads one recipe in full | Same as above |
-| `get_deploy_target` | How a repository ships to an environment | `qa-agent`, `product-manager` |
-| `update_deploy_target` | Records the address an environment actually answers at (`base_url`/`health_url`/`logs_url`/`app_url` only) | `qa-agent`, `product-manager` |
+| `get_deploy_target` | How a repository ships to an environment (the legacy per-env address record, unrelated to a component's delivery profile) | `release-engineer`, `product-manager` |
+| `update_deploy_target` | Records the address an environment actually answers at (`base_url`/`health_url`/`logs_url`/`app_url` only) | `release-engineer`, `product-manager` |
 | `record_local_deploy` | Records a break-glass deploy run made from a machine directly, so the Deployments page still reflects it | Ops-facing agents with board/deploy write access |
 
 `get_deploy_logs` reads a CI/Actions job's output; a bound environment's own live logs and grouped errors come from `query_runtime_logs`/`list_runtime_errors` in [Cloud runtime](#cloud-runtime) instead.

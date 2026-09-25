@@ -104,6 +104,43 @@ locally-reproducible purposes (lint/typecheck/test/build) that have local comman
 everything else defaults to `info`. `ComponentCheck.Required()` is what the brief and
 `RequiredCommands` read.
 
+## Component delivery (migrations 159–161)
+
+`Component.Delivery` is a `Fact[domain.ComponentDelivery]` (json `delivery`) like every
+other component field — `Override` is the human's word and survives a rescan until
+reverted, `Detected` is what the last scan/environment match found. `domain.DeliveryConfirmed(fact)`
+is what a release may act on without asking a human first: an `Override` always confirms;
+a `Detected` guess confirms only at `Confidence` `exact`/`high` — a `medium` guess must not
+start dispatching production deploys nobody asked for. `ComponentPatch.Delivery`
+(`Patch[ComponentDelivery]`, json `delivery`) follows the same PATCH contract as every other
+field: omitted leaves it, a value sets the `Override`, `null` clears it back to `Detected`.
+
+`ComponentDelivery` itself: `mode` (`on_merge` | `dispatch` | `batch` | `none`), `executor`
+(`github_actions` | `vercel` | `local` | `store`), `workflow` (the deploy workflow's file
+basename), `tag_pattern` / `local_command` (batch only), `verify` (`soak_minutes`,
+`max_new_errors`, GET/HEAD-only `smoke` checks), `auto_rollback`.
+
+`projectmodel.detectDelivery` (`delivery_detect.go`) infers it from the component's own
+`ComponentCheck`s and `ComponentEnvironment`s, in the priority order a human would read
+them: a `Mobile` fact present → `batch`/`store` (medium); a production deploy check
+triggered by push to the default branch → `on_merge`/`github_actions` (high); else a
+dispatchable production deploy check → `dispatch`/`github_actions` (medium); else a
+confirmed (or auto-confirmed) production environment on Vercel → `on_merge`/`vercel`
+(high; a frontend-role component also gets a default `GET /` smoke check); else a
+tag-triggered release check → `batch`/`github_actions`, `tag_pattern: "v{version}"`
+(medium); else nothing deploys → `none` (high). `refreshDeliveryDetection` runs as its own
+pass AFTER a scan's checks are reconciled and `cloud.Service.MatchScan` has written any
+CONFIRMED environments — the Vercel rule needs a confirmed environment, which only exists
+once matching has already returned — so it cannot run inside `reconcileScan` itself.
+`RefreshDelivery` re-runs the same pass outside a scan whenever a binding changes (an
+environment is bound, confirmed or removed on the Deploy tab).
+
+A detection that newly crosses into `exact`/`high` confidence fires the same hook a human's
+manual confirm does (`SetDeliveryConfirmedHook`, wired to `release.Service.OpenPending`):
+tasks that merged while the profile was unconfirmed, and are still sitting in `done`, are
+released. See `.ai/architecture.md` → "Releases (migrations 159–161)" for the release state
+machine, the release engineer and rollback mechanisms this profile drives.
+
 ## Links and resources
 
 `ComponentLink` is one outgoing edge, resolved to exactly one of `ToComponentID` /
