@@ -193,7 +193,12 @@ type ReleaseRollback struct {
 	ManualSteps []string  `json:"manual_steps,omitempty"`
 	Actor       string    `json:"actor,omitempty"`
 	StartedAt   time.Time `json:"started_at"`
-	Detail      string    `json:"detail,omitempty"`
+	// ProgressAt is stamped after every side effect the rollback completes
+	// (provider rollback, revert pushed, redeploy dispatched); an abandoned
+	// rollback is judged from it, not from StartedAt, so a slow revert is
+	// never failed mid-flight.
+	ProgressAt *time.Time `json:"progress_at,omitempty"`
+	Detail     string     `json:"detail,omitempty"`
 }
 
 type Release struct {
@@ -224,15 +229,21 @@ type Release struct {
 	// LocalRun is set for a batch release built on this machine.
 	LocalRun *ReleaseLocalRun `json:"local_run,omitempty"`
 	// StoreBuilds is set for a batch release built through the store pipeline.
-	StoreBuilds     []ReleaseStoreBuild `json:"store_builds,omitempty"`
-	CutAt           *time.Time          `json:"cut_at,omitempty"`
-	Tasks           []ReleaseTaskRef    `json:"tasks"`
-	CreatedAt       time.Time           `json:"created_at"`
-	UpdatedAt       time.Time           `json:"updated_at"`
-	DeployStartedAt *time.Time          `json:"deploy_started_at,omitempty"`
-	DeployedAt      *time.Time          `json:"deployed_at,omitempty"`
-	VerifyUntil     *time.Time          `json:"verify_until,omitempty"`
-	FinishedAt      *time.Time          `json:"finished_at,omitempty"`
+	StoreBuilds []ReleaseStoreBuild `json:"store_builds,omitempty"`
+	CutAt       *time.Time          `json:"cut_at,omitempty"`
+	// HandBackCount / LastHandBackAt / AgentSeenAt let the sweeper re-send a
+	// hand-back the dispatcher dropped — only when no agent has looked at the
+	// release since it was handed back, and a bounded number of times.
+	HandBackCount   int              `json:"hand_back_count,omitempty"`
+	LastHandBackAt  *time.Time       `json:"last_hand_back_at,omitempty"`
+	AgentSeenAt     *time.Time       `json:"agent_seen_at,omitempty"`
+	Tasks           []ReleaseTaskRef `json:"tasks"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
+	DeployStartedAt *time.Time       `json:"deploy_started_at,omitempty"`
+	DeployedAt      *time.Time       `json:"deployed_at,omitempty"`
+	VerifyUntil     *time.Time       `json:"verify_until,omitempty"`
+	FinishedAt      *time.Time       `json:"finished_at,omitempty"`
 }
 
 func (r Release) TaskIDs() []uuid.UUID {
