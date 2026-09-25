@@ -63,12 +63,13 @@ func (s *Service) AttributeRelease(ctx context.Context, repositoryID uuid.UUID, 
 	}
 	newest := live.Tasks[len(live.Tasks)-1]
 	return domain.ReleaseAttribution{
-		TaskID:     newest.ID,
-		TaskKey:    newest.Key,
-		Title:      newest.Title,
-		MergeSHA:   live.CommitSHA,
-		Env:        env,
-		DeployedAt: releaseFinishedAt(live),
+		TaskID:       newest.ID,
+		TaskKey:      newest.Key,
+		Title:        newest.Title,
+		MergeSHA:     live.CommitSHA,
+		Env:          env,
+		DeployedAt:   releaseFinishedAt(live),
+		AutoRollback: live.Profile.AutoRollback,
 	}, true
 }
 
