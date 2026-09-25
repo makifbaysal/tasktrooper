@@ -38,9 +38,11 @@ func TestRunSmokeAgainstTheStoredTargetAppendsResults(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.True(t, results[0].OK)
 
+	// L3: an on-demand run must not write the release — that would race the
+	// sweeper's own Update of the same release.
 	got, err := store.Get(context.Background(), created.ID)
 	require.NoError(t, err)
-	require.Len(t, got.Checks.Smoke, 1)
+	assert.Empty(t, got.Checks.Smoke)
 }
 
 func TestRunSmokeWithoutABaseURLReportsEachRelativeCheckSkipped(t *testing.T) {

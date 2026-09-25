@@ -59,6 +59,28 @@ func TestMergeGateIgnoresADispatchComponent(t *testing.T) {
 	assert.NoError(t, f.svc.MergeGate(context.Background(), repositoryID, task))
 }
 
+func TestMergeGateRefusesAnUnconfirmedComponent(t *testing.T) {
+	task := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
+	f := newOpenFixture(task)
+	repositoryID := uuid.New()
+	component := domain.Component{
+		ID:     uuid.New(),
+		Path:   "api",
+		Status: domain.ComponentStatusActive,
+		Name:   domain.Fact[string]{Override: strPtr("API")},
+	}
+	f.components.add(repositoryID, component)
+	task.ComponentID = &component.ID
+	f.tasks.tasks[task.ID] = task
+
+	err := f.svc.MergeGate(context.Background(), repositoryID, task)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrDeliveryUnconfirmed)
+	assert.Contains(t, err.Error(), "confirm the delivery profile on the Deploy tab first")
+	require.Len(t, f.tasks.comments, 1)
+	assert.Contains(t, f.tasks.comments[0].Content, "confirm the delivery profile on the Deploy tab first")
+}
+
 func TestMergeGateAllowsAnUnresolvedComponent(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone, BeforeDeploy: strPtr("Run a migration")}
 	f := newOpenFixture(task)

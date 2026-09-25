@@ -20,8 +20,18 @@ func (s *Service) Watch(ctx context.Context, releaseID uuid.UUID) (domain.Releas
 	if !r.Status.Watched() {
 		return r, nil, nil
 	}
-	return r, &domain.ResourceBlock{
+	// Re-read right before reporting the park: the sweeper can settle a
+	// release between the read above and here, and parking it after that
+	// would strand the card until the watchdog's re-wake caught it (M2).
+	fresh, err := s.store.Get(ctx, releaseID)
+	if err != nil {
+		return domain.Release{}, nil, err
+	}
+	if !fresh.Status.Watched() {
+		return fresh, nil, nil
+	}
+	return fresh, &domain.ResourceBlock{
 		Resource: domain.ResourceReleaseWatch,
-		Detail:   fmt.Sprintf("release %s is %s — the sweeper is watching it and will wake this task when it needs a verdict or has failed", r.Version, r.Status),
+		Detail:   fmt.Sprintf("release %s is %s — the sweeper is watching it and will wake this task when it needs a verdict or has failed", fresh.Version, fresh.Status),
 	}, nil
 }

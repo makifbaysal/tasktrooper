@@ -15,7 +15,10 @@ import (
 
 const DefaultSweepInterval = 30 * time.Second
 
-const sweepBatch = 200
+// sweepBatch is also the store's raised internal cap (L1): a request this
+// large used to come back silently truncated to the store's old 100-row
+// limit, stranding any watched release past the first 100.
+const sweepBatch = 1000
 
 const (
 	pendingDeployTimeout = 60 * time.Minute
@@ -24,6 +27,13 @@ const (
 	errorCheckInterval   = 2 * time.Minute
 	rollbackTimeout      = 30 * time.Minute
 	rollbackNoSignalWait = 15 * time.Minute
+
+	// handBackReWakeInterval / handBackMaxReWakes bound the watchdog's re-wake
+	// of a settled release nobody is watching (M2): slow enough not to spam a
+	// release a human is simply slow to look at, capped so a release that
+	// never gets a verdict does not wake forever.
+	handBackReWakeInterval = 10 * time.Minute
+	handBackMaxReWakes     = 6
 )
 
 // Start runs SweepOnce on interval (default 30s) until ctx is cancelled.
@@ -51,13 +61,19 @@ func (s *Service) Start(ctx context.Context, interval time.Duration) {
 }
 
 // SweepOnce advances every release the sweeper owns (Status.Watched()) by
-// one step. Every transition is an optimistic store.Update(r, expect): on
-// ErrReleaseWrongStatus the release is skipped — someone else (another
-// sweep tick, an agent's Finish/Rollback) already moved it.
+// one step, then runs the hand-back watchdog (M2). Every transition is an
+// optimistic store.Update(r, expect): on ErrReleaseWrongStatus the release is
+// skipped — someone else (another sweep tick, an agent's Finish/Rollback)
+// already moved it.
 func (s *Service) SweepOnce(ctx context.Context) {
 	if s.store == nil {
 		return
 	}
+	s.sweepWatchedReleases(ctx)
+	s.sweepReleaseWatchdog(ctx)
+}
+
+func (s *Service) sweepWatchedReleases(ctx context.Context) {
 	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
 		Statuses: []domain.ReleaseStatus{domain.ReleaseDeploying, domain.ReleaseVerifying, domain.ReleaseRollingBack},
 		Limit:    sweepBatch,
@@ -83,6 +99,125 @@ func (s *Service) SweepOnce(ctx context.Context) {
 	}
 }
 
+// sweepReleaseWatchdog is the safety net around hand-back itself (M2). A card
+// parked on release_watch whose release already settled (a race between the
+// sweeper and Watch, a crash mid hand-back) is un-stuck immediately. A
+// settled release nobody has a parked card for (the agent run that would
+// park it is gone, or a hand-back's dispatch was dropped) is re-woken on a
+// slow, capped cadence instead of waiting forever — a released/rolled_back
+// release is not re-checked because ReleaseListFilter only asks for
+// awaiting_verdict/failed here.
+func (s *Service) sweepReleaseWatchdog(ctx context.Context) {
+	if s.parked == nil {
+		return
+	}
+	parked, err := s.parked.ListBlockedByResource(ctx, domain.ResourceReleaseWatch, sweepBatch)
+	if err != nil {
+		log.Warn().Err(err).Msg("release sweeper: listing release_watch parks failed")
+		return
+	}
+	parkedTaskIDs := make(map[uuid.UUID]bool, len(parked))
+	for _, t := range parked {
+		parkedTaskIDs[t.ID] = true
+	}
+
+	for _, task := range parked {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		s.freeStrandedPark(ctx, task)
+	}
+
+	s.rewakeUnparkedHandBacks(ctx, parkedTaskIDs)
+}
+
+// freeStrandedPark claims and wakes a release_watch park whose release is no
+// longer Watched(): hand-back already happened (or was never needed) and
+// nothing freed the card.
+func (s *Service) freeStrandedPark(ctx context.Context, parked domain.BoardTask) {
+	r, err := s.store.ForTask(ctx, parked.ID)
+	if err != nil {
+		if !errors.Is(err, domain.ErrReleaseNotFound) {
+			log.Warn().Err(err).Str("task_id", parked.ID.String()).Msg("release sweeper: resolving a parked card's release failed")
+		}
+		return
+	}
+	if r.Status.Watched() {
+		return
+	}
+	task, ok, err := s.parked.TakeBlockedResourceTask(ctx, domain.ResourceReleaseWatch, parked.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", parked.ID.String()).Msg("release sweeper: claiming a stranded release_watch park failed")
+		return
+	}
+	if !ok {
+		return
+	}
+	s.wake(ctx, r, task)
+	s.markHandBackWoken(r.ID, s.now())
+}
+
+func (s *Service) rewakeUnparkedHandBacks(ctx context.Context, parkedTaskIDs map[uuid.UUID]bool) {
+	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
+		Statuses: []domain.ReleaseStatus{domain.ReleaseAwaitingVerdict, domain.ReleaseFailed},
+		Limit:    sweepBatch,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("release sweeper: listing awaiting-verdict/failed releases failed")
+		return
+	}
+	now := s.now()
+	for _, r := range releases {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if releaseHasParkedTask(r, parkedTaskIDs) {
+			continue
+		}
+		if !s.handBackDue(r.ID, now) {
+			continue
+		}
+		s.recordWatchdogRewake(r.ID, now)
+		s.handBack(ctx, r)
+	}
+}
+
+func releaseHasParkedTask(r domain.Release, parkedTaskIDs map[uuid.UUID]bool) bool {
+	for _, t := range r.Tasks {
+		if parkedTaskIDs[t.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) markHandBackWoken(releaseID uuid.UUID, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastHandBackWake[releaseID] = now
+}
+
+func (s *Service) handBackDue(releaseID uuid.UUID, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.handBackWakeCount[releaseID] >= handBackMaxReWakes {
+		return false
+	}
+	last, ok := s.lastHandBackWake[releaseID]
+	return !ok || now.Sub(last) >= handBackReWakeInterval
+}
+
+func (s *Service) recordWatchdogRewake(releaseID uuid.UUID, now time.Time) {
+	s.mu.Lock()
+	s.handBackWakeCount[releaseID]++
+	s.lastHandBackWake[releaseID] = now
+	s.mu.Unlock()
+}
+
 func (s *Service) sweepDeploying(ctx context.Context, r domain.Release) {
 	if r.Mode == domain.DeliveryBatch {
 		switch r.Executor {
@@ -99,6 +234,7 @@ func (s *Service) sweepDeploying(ctx context.Context, r domain.Release) {
 	status, err := s.resolveDeployStatus(ctx, r)
 	if err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: resolving deploy status failed")
+		s.failDeployingOnStatusErrorTimeout(ctx, r, err)
 		return
 	}
 	now := s.now()
@@ -129,6 +265,19 @@ func (s *Service) sweepDeploying(ctx context.Context, r domain.Release) {
 		s.handBack(ctx, updated)
 	case domain.DeployWatchSuccess:
 		s.settleDeploySuccess(ctx, r, status)
+	}
+}
+
+// failDeployingOnStatusErrorTimeout is H4: a status-lookup error must not
+// reset the deploy timeout clock, or a release whose deploy watch keeps
+// erroring (a rate limit, a flaky API) is stranded in deploying forever
+// instead of ever reaching a human.
+func (s *Service) failDeployingOnStatusErrorTimeout(ctx context.Context, r domain.Release, lastErr error) {
+	if r.DeployStartedAt == nil {
+		return
+	}
+	if s.now().Sub(*r.DeployStartedAt) > pendingDeployTimeout {
+		s.failDeploying(ctx, r, fmt.Sprintf("the deploy status could not be read for 60 minutes: %s", lastErr))
 	}
 }
 

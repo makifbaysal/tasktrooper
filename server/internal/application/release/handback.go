@@ -12,7 +12,10 @@ import (
 // sweeper: the first parked card of the release is claimed and woken, every
 // other parked card of the same release is claimed silently, and if none was
 // parked at all (the agent run that would have parked is gone) the newest
-// task is woken instead — it is still sitting in done.
+// task still in done or released is woken instead (L4) — a task a human
+// already moved elsewhere (need_revision, blocked) is left alone; that move
+// is the human's decision, not something a stale release verdict should
+// override.
 func (s *Service) handBack(ctx context.Context, r domain.Release) {
 	if len(r.Tasks) == 0 {
 		return
@@ -30,6 +33,7 @@ func (s *Service) handBack(ctx context.Context, r domain.Release) {
 			}
 			if !woke {
 				s.wake(ctx, r, task)
+				s.markHandBackWoken(r.ID, s.now())
 				woke = true
 			}
 		}
@@ -38,16 +42,23 @@ func (s *Service) handBack(ctx context.Context, r domain.Release) {
 		return
 	}
 
-	newest := r.Tasks[len(r.Tasks)-1]
 	if s.tasks == nil {
 		return
 	}
-	task, err := s.tasks.GetTask(ctx, r.RepositoryID, newest.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("task_id", newest.ID.String()).Msg("release: loading the newest task to hand back failed")
+	for i := len(r.Tasks) - 1; i >= 0; i-- {
+		ref := r.Tasks[i]
+		task, err := s.tasks.GetTask(ctx, r.RepositoryID, ref.ID)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", ref.ID.String()).Msg("release: loading a task to hand back failed")
+			continue
+		}
+		if task.Column != domain.TaskColumnDone && task.Column != domain.TaskColumnReleased {
+			continue
+		}
+		s.wake(ctx, r, task)
+		s.markHandBackWoken(r.ID, s.now())
 		return
 	}
-	s.wake(ctx, r, task)
 }
 
 func (s *Service) wake(ctx context.Context, r domain.Release, task domain.BoardTask) {

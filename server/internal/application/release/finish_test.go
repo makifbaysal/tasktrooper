@@ -83,6 +83,30 @@ func TestFinishAllowsAHumanToShipAFailedRelease(t *testing.T) {
 	assert.Equal(t, domain.ReleaseReleased, updated.Status)
 }
 
+// L4: Finish must only move tasks still sitting in done (or already
+// released, a no-op); a task a human moved elsewhere (need_revision,
+// blocked) is left alone — the release's verdict is not license to override
+// that move.
+func TestFinishLeavesATaskAHumanMovedElsewhereAlone(t *testing.T) {
+	f := newFinishFixture()
+	repositoryID := uuid.New()
+	moved := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnNeedRevision, Key: "T-1"}
+	stillDone := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnDone, Key: "T-2"}
+	f.tasks.tasks[moved.ID] = moved
+	f.tasks.tasks[stillDone.ID] = stillDone
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{moved.ID, stillDone.ID})
+	require.NoError(t, err)
+
+	_, err = f.svc.Finish(context.Background(), created.ID, domain.ReleaseActorAgent, "checked")
+	require.NoError(t, err)
+
+	require.Len(t, f.tasks.updates, 1, "only the task still in done may be moved")
+	assert.Equal(t, domain.TaskColumnReleased, f.tasks.tasks[stillDone.ID].Column)
+	assert.Equal(t, domain.TaskColumnNeedRevision, f.tasks.tasks[moved.ID].Column, "a human's move must not be overridden")
+}
+
 func TestFinishRefusesAReleaseStillDeploying(t *testing.T) {
 	f := newFinishFixture()
 	repositoryID := uuid.New()

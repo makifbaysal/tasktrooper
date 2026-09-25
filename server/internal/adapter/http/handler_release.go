@@ -97,13 +97,15 @@ func (h *Handler) checkReleaseConfirm(ctx context.Context, repositoryID uuid.UUI
 	return nil
 }
 
+const maxReleasePage = 100
+
 // ListReleases — GET /v1/repositories/:id/releases?component_id=&task_id=&limit=
 func (h *Handler) ListReleases(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return badRequest(c, "invalid repository id")
 	}
-	filter := domain.ReleaseListFilter{RepositoryID: &id, Limit: c.QueryInt("limit", 0)}
+	filter := domain.ReleaseListFilter{RepositoryID: &id, Limit: min(c.QueryInt("limit", 0), maxReleasePage)}
 	if raw := c.Query("component_id"); raw != "" {
 		componentID, err := uuid.Parse(raw)
 		if err != nil {

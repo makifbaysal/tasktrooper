@@ -65,6 +65,10 @@ func (s *Service) postAfterDeployComments(ctx context.Context, r domain.Release)
 	}
 }
 
+// releaseTasks moves every task to released, but only the ones still sitting
+// where the release left them (L4): a task already released is a no-op, and
+// a task a human moved elsewhere (need_revision, blocked) is left alone — the
+// release's verdict is not license to override that move.
 func (s *Service) releaseTasks(ctx context.Context, r domain.Release) {
 	if s.tasks == nil {
 		return
@@ -74,6 +78,17 @@ func (s *Service) releaseTasks(ctx context.Context, r domain.Release) {
 			if _, _, err := s.parked.TakeBlockedResourceTask(ctx, domain.ResourceReleaseWatch, t.ID); err != nil {
 				log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: claiming a parked card before releasing it failed")
 			}
+		}
+		current, err := s.tasks.GetTask(ctx, r.RepositoryID, t.ID)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: reading a task before releasing it failed")
+			continue
+		}
+		if current.Column == domain.TaskColumnReleased {
+			continue
+		}
+		if current.Column != domain.TaskColumnDone {
+			continue
 		}
 		col := domain.TaskColumnReleased
 		if _, err := s.tasks.UpdateTask(ctx, r.RepositoryID, t.ID, domain.UpdateBoardTaskRequest{

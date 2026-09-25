@@ -277,6 +277,250 @@ func TestOpenPendingOpensReleasesForAlreadyMergedDoneTasks(t *testing.T) {
 	assert.Len(t, f.store.releases, 1)
 }
 
+// H5: Create must insert the carried (older) task before the new one, so
+// their added_at values (and the tasks slice they populate) preserve that
+// order rather than whichever order a map or a tied timestamp happens to
+// produce.
+func TestOpenForMergeSupersedeCarriesOlderTaskFirstAndNewTaskLast(t *testing.T) {
+	oldTask := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
+	newTask := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}
+	f := newOpenFixture(oldTask, newTask)
+	repositoryID := uuid.New()
+	component := confirmedComponent(domain.DeliveryDispatch, domain.ExecutorGitHubActions)
+	f.components.add(repositoryID, component)
+	oldTask.ComponentID = &component.ID
+	newTask.ComponentID = &component.ID
+	f.tasks.tasks[oldTask.ID] = oldTask
+	f.tasks.tasks[newTask.ID] = newTask
+
+	first := f.svc.OpenForMerge(context.Background(), repositoryID, oldTask, "1111111111111111111111111111111111111111")
+	require.NotNil(t, first.ReleaseID)
+	second := f.svc.OpenForMerge(context.Background(), repositoryID, newTask, "2222222222222222222222222222222222222222")
+	require.NotNil(t, second.ReleaseID)
+
+	newer, err := f.store.Get(context.Background(), *second.ReleaseID)
+	require.NoError(t, err)
+	require.Len(t, newer.Tasks, 2)
+	assert.Equal(t, oldTask.ID, newer.Tasks[0].ID, "the carried task must come first")
+	assert.Equal(t, newTask.ID, newer.Tasks[1].ID, "the just-merged task must come last")
+}
+
+// M1: openRelease must not supersede an open release whose commit is not an
+// ancestor of the new merge — chaining onto an unrelated commit would ship
+// (and judge) a release for a deploy it never carried.
+func TestOpenForMergeDoesNotSupersedeAnOpenReleaseWhoseCommitIsNotAnAncestor(t *testing.T) {
+	oldTask := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
+	newTask := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}
+	f := newOpenFixture(oldTask, newTask)
+	repositoryID := uuid.New()
+	component := confirmedComponent(domain.DeliveryDispatch, domain.ExecutorGitHubActions)
+	f.components.add(repositoryID, component)
+	oldTask.ComponentID = &component.ID
+	newTask.ComponentID = &component.ID
+	f.tasks.tasks[oldTask.ID] = oldTask
+	f.tasks.tasks[newTask.ID] = newTask
+
+	repo := domain.Repository{ID: repositoryID, Name: "app", RootPath: "/repos/app"}
+	git := newFakeGit() // ancestors left empty: nothing is reported as an ancestor of anything
+	f.svc = New(Deps{
+		Store: f.store, Tasks: f.tasks, ParkedTasks: f.parked, Components: f.components,
+		Git: git, Repos: &fakeRepos{repo: repo},
+		Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+
+	oldSHA := "1111111111111111111111111111111111111111"
+	newSHA := "2222222222222222222222222222222222222222"
+	first := f.svc.OpenForMerge(context.Background(), repositoryID, oldTask, oldSHA)
+	require.NotNil(t, first.ReleaseID)
+
+	second := f.svc.OpenForMerge(context.Background(), repositoryID, newTask, newSHA)
+	require.NotNil(t, second.ReleaseID)
+
+	old, err := f.store.Get(context.Background(), *first.ReleaseID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleasePending, old.Status, "an unrelated commit must not supersede the open release")
+
+	newer, err := f.store.Get(context.Background(), *second.ReleaseID)
+	require.NoError(t, err)
+	require.Len(t, newer.Tasks, 1, "the new release must carry only its own task, not the unrelated one")
+	assert.Equal(t, newTask.ID, newer.Tasks[0].ID)
+}
+
+// The mirror of the above: when Git reports the new commit as a genuine
+// descendant, the take-over still happens exactly as before the check.
+func TestOpenForMergeSupersedesWhenTheNewCommitIsADescendant(t *testing.T) {
+	oldTask := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
+	newTask := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}
+	f := newOpenFixture(oldTask, newTask)
+	repositoryID := uuid.New()
+	component := confirmedComponent(domain.DeliveryDispatch, domain.ExecutorGitHubActions)
+	f.components.add(repositoryID, component)
+	oldTask.ComponentID = &component.ID
+	newTask.ComponentID = &component.ID
+	f.tasks.tasks[oldTask.ID] = oldTask
+	f.tasks.tasks[newTask.ID] = newTask
+
+	repo := domain.Repository{ID: repositoryID, Name: "app", RootPath: "/repos/app"}
+	oldSHA := "1111111111111111111111111111111111111111"
+	newSHA := "2222222222222222222222222222222222222222"
+	git := newFakeGit()
+	git.ancestors[oldSHA] = true
+	f.svc = New(Deps{
+		Store: f.store, Tasks: f.tasks, ParkedTasks: f.parked, Components: f.components,
+		Git: git, Repos: &fakeRepos{repo: repo},
+		Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+
+	first := f.svc.OpenForMerge(context.Background(), repositoryID, oldTask, oldSHA)
+	require.NotNil(t, first.ReleaseID)
+	second := f.svc.OpenForMerge(context.Background(), repositoryID, newTask, newSHA)
+	require.NotNil(t, second.ReleaseID)
+
+	old, err := f.store.Get(context.Background(), *first.ReleaseID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseSuperseded, old.Status)
+
+	newer, err := f.store.Get(context.Background(), *second.ReleaseID)
+	require.NoError(t, err)
+	require.Len(t, newer.Tasks, 2)
+}
+
+// L5: Create runs before the old release is marked superseded; if that
+// supersede loses the race (something else already moved the old release on),
+// the old release's current tasks must still be carried into the new one.
+func TestSupersedeReleaseCarriesTasksForwardWhenTheRaceIsLost(t *testing.T) {
+	f := newOpenFixture()
+	repositoryID := uuid.New()
+	oldTask := domain.BoardTask{ID: uuid.New()}
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleasePending,
+	}, []uuid.UUID{oldTask.ID})
+	require.NoError(t, err)
+
+	newRelease, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleasePending,
+	}, nil)
+	require.NoError(t, err)
+
+	// Something else moved the old release on before the supersede lands.
+	raced := created
+	raced.Status = domain.ReleaseFailed
+	_, err = f.store.Update(context.Background(), raced, domain.ReleasePending)
+	require.NoError(t, err)
+
+	f.svc.supersedeRelease(context.Background(), created, newRelease.ID, "v2")
+
+	got, err := f.store.Get(context.Background(), newRelease.ID)
+	require.NoError(t, err)
+	taskIDs := map[uuid.UUID]bool{}
+	for _, tr := range got.Tasks {
+		taskIDs[tr.ID] = true
+	}
+	assert.True(t, taskIDs[oldTask.ID], "the raced-superseded release's task must still be carried forward")
+
+	stillFailed, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseFailed, stillFailed.Status, "the race winner's status must not be overwritten")
+}
+
+// M1: every waiting task of the component must land in ONE release, not one
+// release per task, and the release engineer is woken once.
+func TestOpenPendingOpensOneReleaseForEveryWaitingTaskAndWakesOnce(t *testing.T) {
+	repositoryID := uuid.New()
+	component := confirmedComponent(domain.DeliveryDispatch, domain.ExecutorGitHubActions)
+	taskA := domain.BoardTask{
+		ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone,
+		RepositoryID: repositoryID, ComponentID: &component.ID, MergeCommitSHA: "1111111111111111111111111111111111111111",
+	}
+	taskB := domain.BoardTask{
+		ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone,
+		RepositoryID: repositoryID, ComponentID: &component.ID, MergeCommitSHA: "2222222222222222222222222222222222222222",
+	}
+	f := newOpenFixture(taskA, taskB)
+	f.components.add(repositoryID, component)
+	waker := &fakeWaker{}
+	f.svc = New(Deps{
+		Store: f.store, Tasks: f.tasks, ParkedTasks: f.parked, Components: f.components, Waker: waker,
+		Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+
+	n, err := f.svc.OpenPending(context.Background(), repositoryID, component.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	require.Len(t, f.store.releases, 1, "one release must carry every waiting task, not one release each")
+	require.Len(t, waker.calls, 1, "a pending dispatch release must wake the release engineer exactly once")
+
+	var release domain.Release
+	for _, r := range f.store.releases {
+		release = r
+	}
+	assert.Len(t, release.Tasks, 2)
+}
+
+// M11: a done task that never merged (MergeGate refused it while the
+// delivery profile was unconfirmed) must be woken once the profile is
+// confirmed, or nothing would ever retry its merge.
+func TestOpenPendingWakesUnmergedDoneTasksOfTheComponent(t *testing.T) {
+	repositoryID := uuid.New()
+	component := confirmedComponent(domain.DeliveryOnMerge, domain.ExecutorGitHubActions)
+	unmerged := domain.BoardTask{
+		ID: uuid.New(), Key: "T-9", Column: domain.TaskColumnDone,
+		RepositoryID: repositoryID, ComponentID: &component.ID,
+	}
+	f := newOpenFixture(unmerged)
+	f.components.add(repositoryID, component)
+	waker := &fakeWaker{}
+	f.svc = New(Deps{
+		Store: f.store, Tasks: f.tasks, ParkedTasks: f.parked, Components: f.components, Waker: waker,
+		Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+
+	n, err := f.svc.OpenPending(context.Background(), repositoryID, component.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n, "nothing merged yet, so nothing opened")
+	require.Len(t, waker.calls, 1, "the unmerged task must be woken to retry its merge")
+	assert.Equal(t, unmerged.ID, waker.calls[0].task.ID)
+}
+
+// M8: a task whose only release is a draft left behind by its component
+// leaving batch mode must be pulled out of that draft and opened normally;
+// the emptied draft is marked superseded.
+func TestOpenPendingPullsAStrandedDraftTaskOutWhenComponentLeavesBatchMode(t *testing.T) {
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	task := domain.BoardTask{
+		ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone,
+		RepositoryID: repositoryID, ComponentID: &componentID, MergeCommitSHA: mergeSHA,
+	}
+	f := newOpenFixture(task)
+
+	draftRelease := domain.Release{
+		RepositoryID: repositoryID, ComponentID: &componentID, Mode: domain.DeliveryBatch,
+		Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseDraft,
+		Profile: deliveryProfile(domain.DeliveryBatch, domain.ExecutorGitHubActions),
+	}
+	draft, err := f.store.Create(context.Background(), draftRelease, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	onMergeComponent := confirmedComponent(domain.DeliveryOnMerge, domain.ExecutorGitHubActions)
+	onMergeComponent.ID = componentID
+	f.components.add(repositoryID, onMergeComponent)
+
+	n, err := f.svc.OpenPending(context.Background(), repositoryID, componentID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	emptiedDraft, err := f.store.Get(context.Background(), draft.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseSuperseded, emptiedDraft.Status, "an emptied draft must be superseded")
+	assert.Empty(t, emptiedDraft.Tasks)
+
+	newRelease, err := f.store.ForTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	assert.NotEqual(t, draft.ID, newRelease.ID)
+	assert.Equal(t, domain.ReleaseDeploying, newRelease.Status)
+}
+
 func TestOpenPendingSkipsATaskThatAlreadyHasARelease(t *testing.T) {
 	repositoryID := uuid.New()
 	component := confirmedComponent(domain.DeliveryOnMerge, domain.ExecutorGitHubActions)
