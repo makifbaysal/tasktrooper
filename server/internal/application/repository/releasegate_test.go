@@ -275,6 +275,10 @@ func (f *fakeReleaseTaskStore) BlockOnCancel(context.Context, uuid.UUID, uuid.UU
 	return nil
 }
 
+func (f *fakeReleaseTaskStore) ConfirmBeforeDeploy(context.Context, uuid.UUID, uuid.UUID) (domain.BoardTask, error) {
+	return domain.BoardTask{}, nil
+}
+
 type fakeReleasePipelineStore struct {
 	created []domain.TaskPipeline
 }

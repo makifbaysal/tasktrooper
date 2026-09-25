@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -177,6 +178,10 @@ type fakeReleaseOpener struct {
 	task    domain.BoardTask
 	sha     string
 	opening domain.ReleaseOpening
+
+	mergeGateCalls int
+	mergeGateTask  domain.BoardTask
+	mergeGateErr   error
 }
 
 func (f *fakeReleaseOpener) OpenForMerge(_ context.Context, _ uuid.UUID, task domain.BoardTask, sha string) domain.ReleaseOpening {
@@ -184,6 +189,12 @@ func (f *fakeReleaseOpener) OpenForMerge(_ context.Context, _ uuid.UUID, task do
 	f.task = task
 	f.sha = sha
 	return f.opening
+}
+
+func (f *fakeReleaseOpener) MergeGate(_ context.Context, _ uuid.UUID, task domain.BoardTask) error {
+	f.mergeGateCalls++
+	f.mergeGateTask = task
+	return f.mergeGateErr
 }
 
 func TestMergeTaskPullRequestOpensAReleaseAndSkipsTheLegacyAutoRelease(t *testing.T) {
@@ -216,6 +227,57 @@ func TestMergeTaskPullRequestOpensAReleaseAndSkipsTheLegacyAutoRelease(t *testin
 	assert.Equal(t, domain.DeliveryOnMerge, result.Release.Mode)
 	assert.Contains(t, result.Message, "call watch_release")
 	assert.False(t, result.AutoReleased, "AutoReleased stays false once an opener replaces the legacy path")
+}
+
+func TestMergeTaskPullRequestRefusesOnAPendingBeforeDeployGate(t *testing.T) {
+	task := mergeTask()
+	repositoryID := uuid.New()
+	tasks := &taskChatTaskStore{tasks: map[[2]uuid.UUID]domain.BoardTask{{repositoryID, task.ID}: task}}
+	git := &taskPRGit{hasGit: true, branch: "feature/t-7"}
+	gates := &mergeGates{pipeline: domain.TaskPipeline{Status: domain.PipelineStatusSuccess}}
+	gateErr := fmt.Errorf("wrapped: %w", domain.ErrBeforeDeployPending)
+	opener := &fakeReleaseOpener{mergeGateErr: gateErr}
+	svc := NewTaskPRService(TaskPRServiceDeps{
+		Tasks:         tasks,
+		Repos:         taskChatRepos{root: "/repos/widget"},
+		Git:           git,
+		PRs:           &mergePRs{pr: openCleanPR()},
+		Tokens:        func(context.Context) (string, error) { return "tok", nil },
+		Gates:         gates,
+		Releases:      opener,
+		WorkspaceRoot: "/data/workspaces",
+	})
+
+	_, err := svc.MergeTaskPullRequest(context.Background(), repositoryID, task.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrBeforeDeployPending)
+	assert.Equal(t, 1, opener.mergeGateCalls, "the merge gate must be checked exactly once")
+	assert.Equal(t, 0, opener.calls, "a merge gate refusal must never open a release")
+	assert.Empty(t, git.mergeReqs, "a merge gate refusal must never call GitHub to merge anything")
+}
+
+func TestMergeTaskPullRequestPassesTheMergeGateThenOpensARelease(t *testing.T) {
+	task := mergeTask()
+	repositoryID := uuid.New()
+	tasks := &taskChatTaskStore{tasks: map[[2]uuid.UUID]domain.BoardTask{{repositoryID, task.ID}: task}}
+	git := &taskPRGit{hasGit: true, branch: "feature/t-7"}
+	gates := &mergeGates{pipeline: domain.TaskPipeline{Status: domain.PipelineStatusSuccess}}
+	opener := &fakeReleaseOpener{opening: domain.ReleaseOpening{Mode: domain.DeliveryOnMerge, Next: "call watch_release"}}
+	svc := NewTaskPRService(TaskPRServiceDeps{
+		Tasks:         tasks,
+		Repos:         taskChatRepos{root: "/repos/widget"},
+		Git:           git,
+		PRs:           &mergePRs{pr: openCleanPR()},
+		Tokens:        func(context.Context) (string, error) { return "tok", nil },
+		Gates:         gates,
+		Releases:      opener,
+		WorkspaceRoot: "/data/workspaces",
+	})
+
+	_, err := svc.MergeTaskPullRequest(context.Background(), repositoryID, task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, opener.mergeGateCalls)
+	assert.Equal(t, 1, opener.calls, "a clean merge gate must let the merge proceed to opening a release")
 }
 
 func TestMergeTaskPullRequestWithoutGatesNeverCallsAutoRelease(t *testing.T) {

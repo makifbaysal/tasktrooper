@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Notice } from "@/components/ui/notice";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -154,6 +155,8 @@ export function TaskDetailDrawer({
   const [beforeDeployDraft, setBeforeDeployDraft] = useState("");
   const [afterDeployDraft, setAfterDeployDraft] = useState("");
   const [rollbackDraft, setRollbackDraft] = useState("");
+  const [confirmingBeforeDeploy, setConfirmingBeforeDeploy] = useState(false);
+  const [beforeDeployConfirmOpen, setBeforeDeployConfirmOpen] = useState(false);
   // Deploy dependencies. repoTasks backs both the picker and the status badge
   // next to each dependency — task.relations carries the key but not the
   // column, and "which of these has actually shipped" is the whole question.
@@ -398,6 +401,21 @@ export function TaskDetailDrawer({
   const saveBeforeDeploy = async () => {
     await patchTask({ before_deploy: beforeDeployDraft });
     setEditingBeforeDeploy(false);
+  };
+
+  const confirmBeforeDeploy = async () => {
+    if (!task) return;
+    setConfirmingBeforeDeploy(true);
+    try {
+      await api.confirmBeforeDeploy(repositoryId, task.id);
+      onUpdated();
+      toast.success(t("boardArea.components.taskDetail.beforeDeployConfirmed"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("boardArea.components.taskDetail.updateFailed"));
+    } finally {
+      setConfirmingBeforeDeploy(false);
+      setBeforeDeployConfirmOpen(false);
+    }
   };
 
   const saveAfterDeploy = async () => {
@@ -867,7 +885,27 @@ export function TaskDetailDrawer({
                     {editingBeforeDeploy ? (
                       <MarkdownField value={beforeDeployDraft} onChange={setBeforeDeployDraft} rows={3} />
                     ) : task.before_deploy ? (
-                      <MarkdownContent content={task.before_deploy} />
+                      <>
+                        <MarkdownContent content={task.before_deploy} />
+                        {task.before_deploy_confirmed_at ? (
+                          <p className="text-xs text-muted-foreground">
+                            {t("boardArea.components.taskDetail.beforeDeployConfirmedAt", {
+                              relative: formatRelativeDate(task.before_deploy_confirmed_at),
+                            })}
+                          </p>
+                        ) : (
+                          <Notice variant="warning" title={t("boardArea.components.taskDetail.beforeDeployPending")}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-1"
+                              onClick={() => setBeforeDeployConfirmOpen(true)}
+                            >
+                              {t("boardArea.components.taskDetail.beforeDeployConfirmButton")}
+                            </Button>
+                          </Notice>
+                        )}
+                      </>
                     ) : (
                       <p className="text-xs text-muted-foreground">
                         {t("boardArea.components.taskDetail.beforeDeployHint")}
@@ -1410,6 +1448,17 @@ export function TaskDetailDrawer({
         confirmLabel={t("boardArea.components.taskDetail.runStopConfirm")}
         loading={stopRunId !== null && runActionId === stopRunId}
         onConfirm={stopRun}
+      />
+
+      <ConfirmDialog
+        open={beforeDeployConfirmOpen}
+        onOpenChange={setBeforeDeployConfirmOpen}
+        variant="default"
+        title={t("boardArea.components.taskDetail.beforeDeployConfirmDialogTitle")}
+        description={t("boardArea.components.taskDetail.beforeDeployConfirmDialogDescription")}
+        confirmLabel={t("boardArea.components.taskDetail.beforeDeployConfirmButton")}
+        loading={confirmingBeforeDeploy}
+        onConfirm={confirmBeforeDeploy}
       />
 
       {release && repositoryName && (

@@ -109,6 +109,10 @@ func (f *fakePackageTaskStore) BlockOnCancel(context.Context, uuid.UUID, uuid.UU
 	return nil
 }
 
+func (f *fakePackageTaskStore) ConfirmBeforeDeploy(context.Context, uuid.UUID, uuid.UUID) (domain.BoardTask, error) {
+	return domain.BoardTask{}, nil
+}
+
 func (f *fakePackageTaskStore) FindTaskByMergeCommit(context.Context, uuid.UUID, string) (domain.BoardTask, error) {
 	return domain.BoardTask{}, errors.New("not found")
 }

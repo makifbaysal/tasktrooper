@@ -52,12 +52,17 @@ type TaskPRLifecycleGates interface {
 	AutoReleaseIfUndeployable(ctx context.Context, repositoryID, taskID uuid.UUID) bool
 }
 
-// ReleaseOpener is application/release.Service's OpenForMerge, narrowed to a
-// tiny interface so board can depend on release without release depending
-// back on board (release wakes a parked card through its own Waker
+// ReleaseOpener is application/release.Service's OpenForMerge and MergeGate,
+// narrowed to a tiny interface so board can depend on release without release
+// depending back on board (release wakes a parked card through its own Waker
 // interface instead — see release_waker.go).
 type ReleaseOpener interface {
 	OpenForMerge(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, mergeSHA string) domain.ReleaseOpening
+	// MergeGate refuses a merge whose task carries pending before-deploy steps
+	// on an on_merge component (wrapped domain.ErrBeforeDeployPending); nil
+	// otherwise, including when the component/profile cannot be resolved — the
+	// merge then leaves the task waiting in done anyway (see OpenForMerge).
+	MergeGate(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) error
 }
 
 type RootPathResolver interface {

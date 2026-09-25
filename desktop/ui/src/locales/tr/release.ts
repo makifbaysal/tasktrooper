@@ -125,6 +125,8 @@ export const release: ReleaseDict = {
     tag: "Tag",
     commit: "Commit",
     tasks: "Görevler",
+    beforeThisShips: "Bu çıkmadan önce",
+    beforeThisShipsHint: "Bu release'i kesmek aşağıdaki her görevin deploy öncesi adımlarının yapıldığını onaylar.",
     notes: "Release notları",
     cut: "Release'i kes",
     cutting: "Kesiliyor…",
