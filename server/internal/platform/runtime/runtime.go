@@ -90,6 +90,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	releaseapp "github.com/makifbaysal/tasktrooper/server/internal/application/release"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
@@ -112,6 +113,18 @@ const workflowDir = ".github/workflows/"
 
 // workspaceLister adapts the project + repository stores to the board toolkit's
 // WorkspaceLister so agents can list projects and code repositories.
+// componentPathReader scopes a monorepo task's pipeline mappings to its own
+// component.
+type componentPathReader struct{ model *projectmodel.Service }
+
+func (r componentPathReader) ComponentPath(ctx context.Context, _, componentID uuid.UUID) (string, error) {
+	comp, err := r.model.GetComponent(ctx, componentID)
+	if err != nil {
+		return "", err
+	}
+	return comp.Path, nil
+}
+
 type workspaceLister struct {
 	projects port.InitiativeProjectStore
 	repos    port.RepositoryStore
@@ -245,6 +258,7 @@ type engine struct {
 	storeMonitor    *storeops.Monitor
 	deployOpsSvc    *deployops.Service
 	deployWatchSvc  *deploywatch.Service
+	releaseSvc      *releaseapp.Service
 	deployMonitor   *deployops.Monitor
 	evolutionSvc    *evolution.Service
 	// pgPool is kept beside pgDB for the two jobs that are not row data: pool
@@ -1670,6 +1684,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// after_deploy steps against the current text, not the snapshot the
 			// pipeline was queued with.
 			pipelineRunner.SetTaskReader(repositorySvc)
+			if modelSvc != nil {
+				pipelineRunner.SetComponentPaths(componentPathReader{model: modelSvc})
+			}
 			// Same-commit re-bounce brake. Without it a permanently red check —
 			// a build the branch cannot fix, an Actions account with no credit —
 			// bounces the card to need_revision on every lap of the review
@@ -1810,6 +1827,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				// reads environments back for RepositoryModel/RepositorySummary.
 				modelSvc.SetDeployMatcher(cloudSvc)
 				modelSvc.SetEnvironmentReader(environmentStore)
+				cloudSvc.SetDeliveryRefresher(modelSvc)
 				// A confirmed environment binding can resolve another repository's
 				// dangling link target, the same relationship in reverse.
 				cloudSvc.SetRelinker(modelSvc)
@@ -2190,6 +2208,47 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				e.deployWatchSvc = deployWatchSvc
 				boardKit.DeployWatch = deployWatchSvc
 
+				releaseDeps := releaseapp.Deps{
+					Store:               pgstore.NewReleaseStore(e.pgDB),
+					Tasks:               repositorySvc,
+					ParkedTasks:         boardTaskStore,
+					MergeState:          pgstore.NewBoardTaskStore(e.pgDB),
+					LegacyTargets:       deployTargetStore,
+					DeployStatus:        deployWatchSvc,
+					Actions:             githubapi.NewActionsAPIFor(deployToken),
+					Reverter:            gitClient,
+					Repos:               repositorySvc,
+					Incidents:           prodOpsSvc,
+					RepoCoordinates:     resolveRepoCoordinates,
+					IsRefAlreadyExists:  githubapi.IsRefAlreadyExists,
+					IsCIUnavailableText: githubapi.IsCIUnavailableText,
+				}
+				if modelSvc != nil {
+					releaseDeps.Components = modelSvc
+				}
+				if e.cloudSvc != nil {
+					releaseDeps.Environments = e.cloudSvc
+				}
+				if boardDispatcher != nil {
+					releaseDeps.Waker = boardapp.NewReleaseWaker(boardDispatcher)
+				}
+				releaseSvc := releaseapp.New(releaseDeps)
+				e.releaseSvc = releaseSvc
+				boardKit.Releases = releaseSvc
+				if taskPRSvc != nil {
+					taskPRSvc.SetReleaseOpener(releaseSvc)
+				}
+				if modelSvc != nil {
+					modelSvc.SetDeliveryConfirmedHook(func(ctx context.Context, repositoryID, componentID uuid.UUID) {
+						if _, err := releaseSvc.OpenPending(ctx, repositoryID, componentID); err != nil {
+							log.Warn().Err(err).Str("component_id", componentID.String()).Msg("release: opening releases for tasks waiting on delivery confirmation failed")
+						}
+					})
+				}
+				activateBoard = append(activateBoard, func() {
+					releaseSvc.Start(ctx, releaseapp.DefaultSweepInterval)
+				})
+
 				// The park's release mechanism: without it a task parked on a running
 				// deploy stays blocked forever — the tool that parked it is the
 				// only thing that could unpark it, and it is not running.
@@ -2462,6 +2521,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		}
 	}
 
+	var releaseHTTP httpadapter.ReleaseService
+	if e.releaseSvc != nil {
+		releaseHTTP = e.releaseSvc
+	}
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
 		LLMClient:         llmClient,
@@ -2497,6 +2560,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,
 		CloudSvc:          e.cloudSvc,
+		ReleaseSvc:        releaseHTTP,
 		LocalPreviewSvc:   localPreviewSvc,
 		InitiativeSvc:     initiativeSvc,
 		WorkspaceSvc:      workspaceSvc,

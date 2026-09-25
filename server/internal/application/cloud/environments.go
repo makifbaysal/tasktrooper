@@ -102,6 +102,7 @@ func (s *Service) BindEnvironment(ctx context.Context, componentID uuid.UUID, en
 	if err := s.project(ctx, comp.RepositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", comp.RepositoryID.String()).Msg("cloud: projecting after bind failed")
 	}
+	s.refreshDelivery(ctx, comp.RepositoryID)
 	s.triggerRelink()
 	return saved, nil
 }
@@ -157,6 +158,7 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 	if err := s.project(ctx, saved.RepositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", saved.RepositoryID.String()).Msg("cloud: projecting after patch failed")
 	}
+	s.refreshDelivery(ctx, saved.RepositoryID)
 	if saved.Status == domain.LinkConfirmed {
 		s.triggerRelink()
 	}
@@ -185,5 +187,6 @@ func (s *Service) DeleteEnvironment(ctx context.Context, id uuid.UUID) error {
 	if err := s.project(ctx, existing.RepositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", existing.RepositoryID.String()).Msg("cloud: projecting after delete failed")
 	}
+	s.refreshDelivery(ctx, existing.RepositoryID)
 	return nil
 }

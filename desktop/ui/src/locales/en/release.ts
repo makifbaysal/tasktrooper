@@ -26,7 +26,7 @@ export const release = {
     github_actions: "GitHub Actions",
     vercel: "Vercel",
     local: "Local",
-    store: "App/Play store",
+    store: "App Store / Play Store",
   },
   delivery: {
     title: "Delivery",

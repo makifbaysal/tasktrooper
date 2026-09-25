@@ -97,6 +97,10 @@ type TaskPRService struct {
 	workspaceRoot string
 }
 
+// SetReleaseOpener wires the release service after it is built; it depends
+// on the deploy watch, which is constructed later in boot than this service.
+func (s *TaskPRService) SetReleaseOpener(r ReleaseOpener) { s.releases = r }
+
 func NewTaskPRService(deps TaskPRServiceDeps) *TaskPRService {
 	return &TaskPRService{
 		tasks:         deps.Tasks,

@@ -43,3 +43,7 @@ func activeComponentByPath(components []domain.Component, path string) (domain.C
 	}
 	return domain.Component{}, false
 }
+
+func (s *Service) ListComponents(ctx context.Context, repositoryID uuid.UUID) ([]domain.Component, error) {
+	return s.store.ListComponents(ctx, repositoryID)
+}

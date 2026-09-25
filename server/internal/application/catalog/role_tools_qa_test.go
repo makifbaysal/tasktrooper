@@ -65,9 +65,7 @@ func TestQAPolicyDropsMergeAndReleaseTools(t *testing.T) {
 	policy := qaToolPolicy()
 	for _, name := range []string{
 		domain.MergePullRequestToolName,
-		domain.DeployStatusToolName,
 		domain.DeployLogsToolName,
-		domain.RollbackReleaseToolName,
 		domain.GetReleaseToolName,
 		domain.DeployReleaseToolName,
 		domain.WatchReleaseToolName,
@@ -139,7 +137,6 @@ func TestOnlyReleaseEngineerHoldsTheRollback(t *testing.T) {
 
 func TestWorkspaceUpliftNeverGrantsTheRollback(t *testing.T) {
 	uplifted := domain.UpliftWorkspaceTools(domain.ToolPolicy{AllowTools: []string{"run_terminal"}})
-	assert.NotContains(t, uplifted.AllowTools, domain.RollbackReleaseToolName)
 	assert.NotContains(t, uplifted.AllowTools, domain.ReleaseRollbackToolName)
 	assert.NotContains(t, uplifted.AllowTools, domain.MergePullRequestToolName)
 }

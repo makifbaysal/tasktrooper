@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"reflect"
 	"strings"
 
 	"github.com/google/uuid"
@@ -264,10 +265,28 @@ func (s *Service) refreshDeliveryDetection(ctx context.Context, repositoryID uui
 		if !ok {
 			continue
 		}
-		c.Delivery = c.Delivery.WithDetected(detected)
+		_, wasConfirmed := domain.DeliveryConfirmed(c.Delivery)
+		next := c.Delivery.WithDetected(detected)
+		if reflect.DeepEqual(next, c.Delivery) {
+			continue
+		}
+		c.Delivery = next
 		if _, err := s.store.SaveComponent(ctx, c); err != nil {
 			return fmt.Errorf("save component %s delivery: %w", c.ID, err)
 		}
+		// Tasks merged while the profile was unconfirmed wait in done; a
+		// detection that is now confident enough releases them like a human
+		// confirmation would.
+		if _, nowConfirmed := domain.DeliveryConfirmed(c.Delivery); nowConfirmed && !wasConfirmed && s.deliveryConfirmedHook != nil {
+			s.deliveryConfirmedHook(ctx, repositoryID, c.ID)
+		}
 	}
 	return nil
+}
+
+// RefreshDelivery re-detects delivery profiles outside a scan — after an
+// environment is bound, confirmed or removed, which changes what the Vercel
+// rule can see.
+func (s *Service) RefreshDelivery(ctx context.Context, repositoryID uuid.UUID) error {
+	return s.refreshDeliveryDetection(ctx, repositoryID)
 }

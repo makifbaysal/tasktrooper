@@ -23,7 +23,7 @@ export const release: ReleaseDict = {
     github_actions: "GitHub Actions",
     vercel: "Vercel",
     local: "Yerel",
-    store: "Uygulama/Play mağazası",
+    store: "App Store / Play Store",
   },
   delivery: {
     title: "Teslimat",

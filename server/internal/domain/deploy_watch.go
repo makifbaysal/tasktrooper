@@ -176,18 +176,13 @@ var (
 	ErrRollbackColumn = errors.New("a release can only be rolled back from `done` or `released` — this task has not been released")
 )
 
-// Deploy tools named in domain because the policy layer decides things about
-// them by name in more than one place.
-const (
-	DeployStatusToolName    = "get_task_deploy_status"
-	DeployLogsToolName      = "get_deploy_logs"
-	RollbackReleaseToolName = "rollback_task_release"
-)
+// DeployLogsToolName is named in domain because the policy layer decides
+// things about it by name in more than one place.
+const DeployLogsToolName = "get_deploy_logs"
 
 // ReleaseControlTools are the tools that CHANGE production or a release's
 // outcome. A list so the stage narrowing can iterate it.
 var ReleaseControlTools = []string{
-	RollbackReleaseToolName,
 	DeployReleaseToolName,
 	FinishReleaseToolName,
 	ReleaseRollbackToolName,

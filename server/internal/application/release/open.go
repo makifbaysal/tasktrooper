@@ -249,7 +249,7 @@ func (s *Service) OpenPending(ctx context.Context, repositoryID, componentID uui
 		return 0, err
 	}
 	profile, confirmed := domain.DeliveryConfirmed(component.Delivery)
-	if !confirmed || (profile.Mode != domain.DeliveryOnMerge && profile.Mode != domain.DeliveryDispatch) {
+	if !confirmed || profile.Mode == domain.DeliveryBatch {
 		return 0, nil
 	}
 
@@ -263,22 +263,36 @@ func (s *Service) OpenPending(ctx context.Context, repositoryID, componentID uui
 		if task.Column != domain.TaskColumnDone {
 			continue
 		}
-		if task.ComponentID == nil || *task.ComponentID != componentID {
-			continue
-		}
 		sha := strings.TrimSpace(task.MergeCommitSHA)
 		if sha == "" {
 			continue
 		}
+		if owner, _, ok := s.resolveComponent(ctx, repositoryID, task); !ok || owner.ID != componentID {
+			continue
+		}
 		if _, err := s.store.ForTask(ctx, task.ID); err == nil {
-			continue // already belongs to a release
+			continue
 		} else if !errors.Is(err, domain.ErrReleaseNotFound) {
 			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("release: checking for an existing release during OpenPending failed")
 			continue
 		}
+		if profile.Mode == domain.DeliveryNone {
+			if opening := s.openNone(ctx, repositoryID, task); opening.Released {
+				opened++
+			}
+			continue
+		}
 		opening := s.openRelease(ctx, repositoryID, task, component, profile, sha)
-		if opening.ReleaseID != nil {
-			opened++
+		if opening.ReleaseID == nil {
+			continue
+		}
+		opened++
+		// No agent run is alive for a task merged long ago: a dispatch
+		// release would sit in pending forever without a wake.
+		if opening.Status == domain.ReleasePending && s.waker != nil {
+			if err := s.waker.Wake(ctx, repositoryID, task, domain.ReleasePending); err != nil {
+				log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("release: waking the release engineer for a pending release failed")
+			}
 		}
 	}
 	return opened, nil

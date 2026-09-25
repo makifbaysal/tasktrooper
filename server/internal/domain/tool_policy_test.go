@@ -302,7 +302,7 @@ func TestRestrictToolsForStage_ImplementationStagesKeepEverything(t *testing.T) 
 func TestRestrictToolsForStage_StripWritersOnCodeReview(t *testing.T) {
 	stage, typeDef := wfStage(t, "task", domain.TaskColumnCodeReview)
 	policy := domain.ToolPolicy{AllowTools: append([]string{
-		"run_terminal", "commit_task_changes", domain.MergePullRequestToolName, "rollback_task_release", "get_task_pull_request",
+		"run_terminal", "commit_task_changes", domain.MergePullRequestToolName, domain.ReleaseRollbackToolName, "get_task_pull_request",
 	}, domain.WorkspaceWriteTools...)}
 
 	got := domain.RestrictToolsForStage(policy, stage, typeDef)
@@ -312,7 +312,7 @@ func TestRestrictToolsForStage_StripWritersOnCodeReview(t *testing.T) {
 	}
 	assert.NotContains(t, got.AllowTools, "commit_task_changes")
 	assert.NotContains(t, got.AllowTools, domain.MergePullRequestToolName, "a reviewer must not be able to land the change it is judging")
-	assert.NotContains(t, got.AllowTools, "rollback_task_release")
+	assert.NotContains(t, got.AllowTools, domain.ReleaseRollbackToolName)
 	assert.Contains(t, got.AllowTools, "run_terminal")
 	assert.Contains(t, got.AllowTools, "get_task_pull_request")
 }
@@ -323,7 +323,7 @@ func TestRestrictToolsForStage_StripWritersOnCodeReview(t *testing.T) {
 func TestRestrictToolsForStage_DoneAllowsMergeAndReleaseControl(t *testing.T) {
 	stage, typeDef := wfStage(t, "task", domain.TaskColumnDone)
 	policy := domain.ToolPolicy{AllowTools: append([]string{
-		"run_terminal", "commit_task_changes", domain.MergePullRequestToolName, "rollback_task_release",
+		"run_terminal", "commit_task_changes", domain.MergePullRequestToolName, domain.ReleaseRollbackToolName,
 	}, domain.WorkspaceWriteTools...)}
 
 	got := domain.RestrictToolsForStage(policy, stage, typeDef)
@@ -333,7 +333,7 @@ func TestRestrictToolsForStage_DoneAllowsMergeAndReleaseControl(t *testing.T) {
 	}
 	assert.NotContains(t, got.AllowTools, "commit_task_changes")
 	assert.Contains(t, got.AllowTools, domain.MergePullRequestToolName, "done is the one column dispatched to land the change")
-	assert.Contains(t, got.AllowTools, "rollback_task_release", "done is on the merge -> watch -> rollback sequence")
+	assert.Contains(t, got.AllowTools, domain.ReleaseRollbackToolName, "done is on the merge -> watch -> rollback sequence")
 }
 
 // pm_uat/human_uat carry no_code_reading: PM's verdict must come from the

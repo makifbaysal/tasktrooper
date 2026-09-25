@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -35,6 +36,12 @@ type TaskCreator interface {
 // dangling, so this package pokes projectmodel without importing it.
 type Relinker interface {
 	Relink(ctx context.Context) error
+}
+
+// DeliveryRefresher re-detects a repository's delivery profiles; an
+// environment change moves what a Vercel component's detected profile is.
+type DeliveryRefresher interface {
+	RefreshDelivery(ctx context.Context, repositoryID uuid.UUID) error
 }
 
 type Clock func() time.Time
@@ -79,6 +86,7 @@ type Service struct {
 	tasks         TaskCreator
 	legacy        port.LegacyCloudSource
 	relinker      Relinker
+	delivery      DeliveryRefresher
 
 	now   Clock
 	bgCtx context.Context
@@ -121,6 +129,17 @@ func (s *Service) SetClock(c Clock) { s.now = c }
 // default) leaves a newly confirmed environment's dangling link targets alone
 // until the next scan.
 func (s *Service) SetRelinker(r Relinker) { s.relinker = r }
+
+func (s *Service) SetDeliveryRefresher(r DeliveryRefresher) { s.delivery = r }
+
+func (s *Service) refreshDelivery(ctx context.Context, repositoryID uuid.UUID) {
+	if s.delivery == nil {
+		return
+	}
+	if err := s.delivery.RefreshDelivery(ctx, repositoryID); err != nil {
+		log.Warn().Err(err).Str("repository_id", repositoryID.String()).Msg("cloud: refreshing delivery detection failed")
+	}
+}
 
 // SetBackgroundContext is the process-lifetime context rematchAll and Boot
 // run under, so a request's cancellation never kills work it only started.

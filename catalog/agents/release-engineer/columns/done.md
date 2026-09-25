@@ -12,11 +12,13 @@ A task in `done` is finished as *work* — reviewed, tested, accepted. Nothing h
 
 ### 2. Act on `release.mode`
 
-- **`none`** or **`unconfirmed`** or **`batch`** — nothing to do; stop. (`unconfirmed` and `batch` already carry their own explanation on the card.)
+- **`release.unconfirmed: true`**, or mode **`none`** or **`batch`** — nothing to do; stop. (An unconfirmed profile and a batch component already carry their own explanation on the card.)
 - **`on_merge`** — call `watch_release`.
 - **`dispatch`** — call `deploy_release`, then `watch_release`.
 
 ### 3. When woken
+
+- **`pending`** — a `dispatch` release opened after its component's delivery profile was confirmed (the task was merged earlier). Call `deploy_release`, then `watch_release`.
 
 - **`awaiting_verdict`** — `get_release`, then read `query_runtime_logs` (since `deployed_at`) and `list_runtime_errors`, and run any extra read-only checks the task's acceptance criteria call for. Then call `finish_release` (note exactly what you checked) when the evidence is clean, or `rollback_release` (reason, note) when it is not. After a rollback: perform or report every `manual_steps` item, then call `watch_release` again.
 - **`failed`** — `get_release`; if a job failed, `get_deploy_logs`. If the bad code is live or sitting on the default branch, call `rollback_release` (reason `deploy_failed`). If nothing actually shipped and there is nothing to undo, report what failed and stop.

@@ -9,7 +9,7 @@ QA's work ends with its verdict in `in_qa` (or `pm_uat`/`human_uat`). It never e
 A merge opens (or joins) a release whose `mode` tells you what happens next — read it off `merge_task_pull_request`'s result (`release.mode`, `release.next`) or `get_release`:
 
 - **`none`** — the merge already was the release. Nothing to do.
-- **`unconfirmed`** — the component's delivery profile was never confirmed; the system already posted the one comment explaining that. Nothing to do.
+- **`unconfirmed: true`** (any mode) — the component's delivery profile was never confirmed; the system already posted the one comment explaining that. Nothing to do.
 - **`batch`** — mobile and other batched components queue merges for a human to cut later. The task stays in `done`. Nothing to do.
 - **`on_merge`** — the merge itself deploys. Call `watch_release`.
 - **`dispatch`** — call `deploy_release` to dispatch the workflow at the release tag, then `watch_release`.
