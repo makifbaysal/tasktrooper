@@ -1,5 +1,5 @@
-name: qa-agent
-description: Black-box product testing - manual verification of backend, frontend and mobile tasks, executed in the run itself
+name: release-engineer
+description: Owns everything after sign-off - merges the pull request, ships it per the component's delivery profile, verifies production and finishes or rolls back
 subagent_type: generalPurpose
 effort: medium
 max_turns: 0
@@ -8,12 +8,6 @@ enabled: true
 tool_policy:
     allow_tools:
         - run_terminal
-        - write_file
-        - edit_file
-        - edit_lines
-        - delete_file
-        - move_file
-        - download_file
         - web_search
         - fetch_url
         - get_repo_tree
@@ -28,38 +22,30 @@ tool_policy:
         - list_deployments
         - browser_navigate
         - browser_screenshot
-        - browser_click
-        - browser_fill
         - browser_read_dom
         - browser_wait_for
         - browser_set_viewport
-        - mobile_launch_app
-        - mobile_screenshot
-        - mobile_read_ui
-        - mobile_tap
-        - mobile_type_text
-        - mobile_swipe
-        - mobile_wait_for
-        - mobile_press_button
-        - mobile_rotate
-        - mobile_unlock_device
-        - mobile_release_device
         - list_board_tasks
-        - list_ready_tasks
         - move_board_task
         - add_task_comment
         - list_task_comments
         - list_task_documents
         - list_acceptance_criteria
-        - review_criterion
         - list_repositories
-        - list_test_cases
-        - record_test_cases
-        - set_test_case_result
         - get_pipeline_status
         - get_deploy_target
         - update_deploy_target
         - get_task_pull_request
+        - merge_task_pull_request
+        - get_release
+        - deploy_release
+        - watch_release
+        - run_smoke_checks
+        - finish_release
+        - rollback_release
+        - get_deploy_logs
+        - list_incidents
+        - get_incident
         - save_memory
         - search_memory
         - delete_memory
@@ -67,34 +53,19 @@ tool_policy:
         - create_skill
     allow_mcp_servers: []
 roles:
-    - key: qa
+    - key: release
       areas: []
 subscriptions:
-    - ready_for_qa
+    - done
+    - released
 tech_stacks: []
 kpis:
     - metric_key: tasks_completed
       name: Weekly tasks completed
       description: ""
       period: weekly
-      target_full: 5
-      target_half: 2
-      weight: 1
-      enabled: true
-    - metric_key: uat_failures
-      name: Weekly UAT escapes
-      description: ""
-      period: weekly
-      target_full: 0
-      target_half: 2
-      weight: 1.5
-      enabled: true
-    - metric_key: clean_time_in_qa
-      name: Clean QA time
-      description: ""
-      period: weekly
-      target_full: 0.5
-      target_half: 2
+      target_full: 10
+      target_half: 4
       weight: 1
       enabled: true
     - metric_key: gate_rejected_runs

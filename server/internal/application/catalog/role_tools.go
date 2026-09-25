@@ -131,9 +131,25 @@ var (
 	rolePRCommitTools = []string{
 		"commit_task_changes",
 	}
-	// QA merges, nobody else: the developer must not merge its own branch, QA is the last role to run the build.
+	// The release engineer merges, nobody else: the developer must not merge its own branch, and QA's work ends with its verdict.
 	rolePRMergeTools = []string{
 		domain.MergePullRequestToolName,
+	}
+	// Read-only, wider than roleBrowserTools: the release engineer never fills a form or clicks a button, only looks.
+	roleReleaseBrowserReadTools = []string{
+		"browser_navigate",
+		"browser_screenshot",
+		"browser_read_dom",
+		"browser_wait_for",
+		"browser_set_viewport",
+	}
+	roleReleaseTools = []string{
+		domain.GetReleaseToolName,
+		domain.DeployReleaseToolName,
+		domain.WatchReleaseToolName,
+		domain.RunSmokeChecksToolName,
+		domain.FinishReleaseToolName,
+		domain.ReleaseRollbackToolName,
 	}
 )
 
@@ -222,20 +238,33 @@ func qaToolPolicy() domain.ToolPolicy {
 	// Green CI and stage base_url for the suite; prod requests banned — the rule layer says so separately.
 	tools = append(tools, "get_pipeline_status", "get_deploy_target", "update_deploy_target")
 	tools = append(tools, rolePRReadTools...)
-	// The merge lands only in `done`: RestrictToolsForStage's strip_writers takes it away in in_qa/ready_for_qa.
-	tools = append(tools, rolePRMergeTools...)
-	// QA watches the deploy of the merge it just made and rolls it back if it breaks; rollback is stripped except in `done`/`released`.
-	tools = append(tools, roleReleaseWatchTools...)
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	return domain.ToolPolicy{AllowTools: tools}
 }
 
-// After-the-merge tools; backfilled to existing installs by migration 105.
-var roleReleaseWatchTools = []string{
-	domain.DeployStatusToolName,
-	domain.DeployLogsToolName,
-	domain.RollbackReleaseToolName,
+// The release engineer owns everything after sign-off: merge, deploy, watch,
+// verify, finish or roll back. It holds no workspace writers and no commit
+// tools — it ships and reverts through the release tools, never by editing.
+func releaseEngineerToolPolicy() domain.ToolPolicy {
+	tools := make([]string, 0, 48)
+	tools = append(tools, "run_terminal")
+	tools = append(tools, roleWebTools...)
+	tools = append(tools, roleQALookupTools...)
+	tools = append(tools, roleProjectModelReadTools...)
+	tools = append(tools, roleRuntimeReadTools...)
+	tools = append(tools, roleReleaseBrowserReadTools...)
+	tools = append(tools, "list_board_tasks", "move_board_task", "add_task_comment", "list_task_comments", "list_task_documents", "list_acceptance_criteria", "list_repositories")
+	tools = append(tools, "get_pipeline_status", "get_deploy_target", "update_deploy_target")
+	tools = append(tools, rolePRReadTools...)
+	tools = append(tools, rolePRMergeTools...)
+	tools = append(tools, roleReleaseTools...)
+	// get_deploy_logs stays for a CI job's own output; the release tools above cover the release's own checks.
+	tools = append(tools, domain.DeployLogsToolName)
+	tools = append(tools, "list_incidents", "get_incident")
+	tools = append(tools, roleMemoryTools...)
+	tools = append(tools, roleSkillTools...)
+	return domain.ToolPolicy{AllowTools: tools}
 }
 
 func toolPolicyEqual(a, b domain.ToolPolicy) bool {

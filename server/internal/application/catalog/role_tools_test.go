@@ -19,6 +19,7 @@ func TestCatalogRoleToolPolicies(t *testing.T) {
 		"product-manager":    "productManagerToolPolicy",
 		"qa-agent":           "qaToolPolicy",
 		"system-architect":   "architectToolPolicy",
+		"release-engineer":   "releaseEngineerToolPolicy",
 	}
 	expected := map[string]domain.ToolPolicy{
 		"backend-developer":  developerToolPolicy(),
@@ -27,6 +28,7 @@ func TestCatalogRoleToolPolicies(t *testing.T) {
 		"product-manager":    productManagerToolPolicy(),
 		"qa-agent":           qaToolPolicy(),
 		"system-architect":   architectToolPolicy(),
+		"release-engineer":   releaseEngineerToolPolicy(),
 	}
 	for slug, want := range expected {
 		agent, ok := catalog[slug]

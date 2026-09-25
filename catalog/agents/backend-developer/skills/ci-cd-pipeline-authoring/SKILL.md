@@ -1,13 +1,13 @@
 ---
 name: ci-cd-pipeline-authoring
 category: ci-cd
-description: Use when a repository needs CI/CD - author GitHub Actions workflows so TaskTrooper's pipeline auto-detects your validate/build/test jobs and stage/preprod/prod deploys, and so trigger_release can dispatch the production deploy
+description: Use when a repository needs CI/CD - author GitHub Actions workflows so TaskTrooper's pipeline auto-detects your validate/build/test jobs and stage/preprod/prod deploys, and so a dispatch delivery profile can dispatch the production deploy
 ---
 # CI/CD Pipeline Authoring
 
 ## Overview
 
-TaskTrooper does not run your build — it **reads your GitHub Actions workflows** and maps their jobs and files onto its own pipeline. A task moved to `ready_for_qa` runs your `validate`/`build`/`test` jobs; `trigger_release` dispatches your production deploy workflow. If your workflows are not named the way the detector expects, the pipeline silently skips them and QA/release stalls.
+TaskTrooper does not run your build — it **reads your GitHub Actions workflows** and maps their jobs and files onto its own pipeline. A task moved to `ready_for_qa` runs your `validate`/`build`/`test` jobs; once a component's delivery profile is `dispatch`, the release engineer dispatches your production deploy workflow at the release tag after the merge. If your workflows are not named the way the detector expects, the pipeline silently skips them and QA/release stalls.
 
 **Core principle:** The workflow you author is the contract with the platform. Name jobs and files with the keywords the detector matches, or the stage does not exist as far as TaskTrooper is concerned.
 
@@ -62,11 +62,11 @@ jobs:
       # then a smoke step that curls the health endpoint and fails on non-200.
 ```
 
-Because the file name and `name:` contain `prod`, `trigger_release` finds and dispatches exactly this workflow; the smoke step's exit code decides `released` vs `need_revision`.
+Because the file name and `name:` contain `prod`, the detector maps this workflow to the component's `prod_deploy` check — the file name a `dispatch` delivery profile names as its `workflow`. The release engineer dispatches it at the release tag (`release/<sha12>`) after the merge, then verifies the deploy (health, smoke checks, runtime errors) before finishing or rolling back; this job's own smoke step is a build-time gate, not what decides `released`.
 
 ## Common Mistakes
 
-- A deploy workflow with `on: push` only and no `workflow_dispatch` → `trigger_release` cannot fire it.
+- A deploy workflow with `on: push` only and no `workflow_dispatch` → a `dispatch` delivery profile can never dispatch it; the component needs `on_merge` mode instead, or the workflow needs `workflow_dispatch` added.
 - A `workflow_dispatch` with a `required: true` input → dispatch fails (platform sends no inputs).
 - One `deploy.yml` for all envs → the detector can only map one workflow per slot; you lose stage/preprod separation. Split per env.
 - A prod workflow named `deploy-preprod-and-prod` → `preprod` substring rules it out of the prod slot.

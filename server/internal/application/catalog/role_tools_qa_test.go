@@ -60,33 +60,37 @@ func TestQARunPolicyKeepsTheVerdictTools(t *testing.T) {
 	}
 }
 
-func TestQARunPolicyKeepsTheMergeToolInDone(t *testing.T) {
-	policy := qaRunPolicyIn(t, domain.TaskColumnDone)
-	require.NotEmpty(t, policy.AllowTools)
-
-	assert.True(t, domain.ToolAllowedByPolicy(domain.MergePullRequestToolName, policy))
-	assert.True(t, domain.ToolAllowedByPolicy("get_task_pull_request", policy))
-	assert.True(t, domain.ToolAllowedByPolicy("get_pipeline_status", policy))
-	assert.True(t, domain.ToolAllowedByPolicy("add_task_comment", policy))
-	assert.False(t, domain.ToolAllowedByPolicy("commit_task_changes", policy))
-	assert.False(t, domain.ToolAllowedByPolicy("write_file", policy))
-	assert.False(t, domain.ToolAllowedByPolicy("edit_file", policy))
+// QA's work ends with its verdict in in_qa: it never merges, deploys or rolls back again.
+func TestQAPolicyDropsMergeAndReleaseTools(t *testing.T) {
+	policy := qaToolPolicy()
+	for _, name := range []string{
+		domain.MergePullRequestToolName,
+		domain.DeployStatusToolName,
+		domain.DeployLogsToolName,
+		domain.RollbackReleaseToolName,
+		domain.GetReleaseToolName,
+		domain.DeployReleaseToolName,
+		domain.WatchReleaseToolName,
+		domain.FinishReleaseToolName,
+		domain.ReleaseRollbackToolName,
+	} {
+		assert.NotContains(t, policy.AllowTools, name)
+	}
 }
 
-func TestOnlyQAHoldsTheMergeTool(t *testing.T) {
+func TestOnlyReleaseEngineerHoldsTheMergeTool(t *testing.T) {
 	for name, policy := range map[string]domain.ToolPolicy{
 		"developer":        developerToolPolicy(),
 		"mobile-developer": mobileDeveloperToolPolicy(),
 		"system-architect": architectToolPolicy(),
 		"product-manager":  productManagerToolPolicy(),
+		"qa-agent":         qaToolPolicy(),
 	} {
 		t.Run(name, func(t *testing.T) {
-			for _, tool := range policy.AllowTools {
-				assert.NotEqual(t, domain.MergePullRequestToolName, tool)
-			}
+			assert.NotContains(t, policy.AllowTools, domain.MergePullRequestToolName)
 		})
 	}
-	assert.Contains(t, qaToolPolicy().AllowTools, domain.MergePullRequestToolName)
+	assert.Contains(t, releaseEngineerToolPolicy().AllowTools, domain.MergePullRequestToolName)
 }
 
 func TestWorkspaceUpliftDoesNotGrantTheMergeTool(t *testing.T) {
@@ -96,63 +100,47 @@ func TestWorkspaceUpliftDoesNotGrantTheMergeTool(t *testing.T) {
 	assert.True(t, domain.ToolAllowedByPolicy("commit_task_changes", uplifted))
 }
 
-func TestQAHoldsTheDeployWatchTools(t *testing.T) {
-	policy := qaToolPolicy()
+func TestReleaseEngineerHoldsTheReleaseTools(t *testing.T) {
+	policy := releaseEngineerToolPolicy()
 	for _, name := range []string{
-		domain.DeployStatusToolName,
+		domain.GetReleaseToolName,
+		domain.DeployReleaseToolName,
+		domain.WatchReleaseToolName,
+		domain.RunSmokeChecksToolName,
+		domain.FinishReleaseToolName,
+		domain.ReleaseRollbackToolName,
 		domain.DeployLogsToolName,
-		domain.RollbackReleaseToolName,
+		"list_incidents",
+		"get_incident",
 	} {
 		assert.Contains(t, policy.AllowTools, name)
 	}
+	// No workspace writers, no commit tool: it ships and reverts through the release tools, never by editing.
+	for _, name := range append([]string{"commit_task_changes"}, domain.WorkspaceWriteTools...) {
+		assert.NotContains(t, policy.AllowTools, name)
+	}
 }
 
-func TestOnlyQAHoldsTheRollback(t *testing.T) {
+func TestOnlyReleaseEngineerHoldsTheRollback(t *testing.T) {
 	others := map[string]domain.ToolPolicy{
 		"developer":        developerToolPolicy(),
 		"mobile-developer": mobileDeveloperToolPolicy(),
 		"architect":        architectToolPolicy(),
 		"product-manager":  productManagerToolPolicy(),
+		"qa-agent":         qaToolPolicy(),
 	}
 	for role, policy := range others {
 		t.Run(role, func(t *testing.T) {
-			assert.NotContains(t, policy.AllowTools, domain.RollbackReleaseToolName)
+			assert.NotContains(t, policy.AllowTools, domain.ReleaseRollbackToolName)
 		})
 	}
-}
-
-func TestRollbackSurvivesOnlyInDone(t *testing.T) {
-	assert.Contains(t, qaRunPolicyIn(t, domain.TaskColumnDone).AllowTools, domain.RollbackReleaseToolName)
-
-	for _, column := range []domain.TaskColumn{
-		domain.TaskColumnReadyForQA,
-		domain.TaskColumnInQA,
-		domain.TaskColumnPMUAT,
-		domain.TaskColumnCodeReview,
-	} {
-		t.Run(string(column), func(t *testing.T) {
-			assert.NotContains(t, qaRunPolicyIn(t, column).AllowTools, domain.RollbackReleaseToolName)
-		})
-	}
-}
-
-func TestDeployWatchReadToolsSurviveEveryColumn(t *testing.T) {
-	for _, column := range []domain.TaskColumn{
-		domain.TaskColumnReadyForQA,
-		domain.TaskColumnInQA,
-		domain.TaskColumnDone,
-	} {
-		t.Run(string(column), func(t *testing.T) {
-			allow := qaRunPolicyIn(t, column).AllowTools
-			assert.Contains(t, allow, domain.DeployStatusToolName)
-			assert.Contains(t, allow, domain.DeployLogsToolName)
-		})
-	}
+	assert.Contains(t, releaseEngineerToolPolicy().AllowTools, domain.ReleaseRollbackToolName)
 }
 
 func TestWorkspaceUpliftNeverGrantsTheRollback(t *testing.T) {
 	uplifted := domain.UpliftWorkspaceTools(domain.ToolPolicy{AllowTools: []string{"run_terminal"}})
 	assert.NotContains(t, uplifted.AllowTools, domain.RollbackReleaseToolName)
+	assert.NotContains(t, uplifted.AllowTools, domain.ReleaseRollbackToolName)
 	assert.NotContains(t, uplifted.AllowTools, domain.MergePullRequestToolName)
 }
 
