@@ -252,6 +252,7 @@ func (s *ProjectionSuite) TestPipelineSlotsOneRowPerCategory() {
 		Purpose:      domain.Fact[domain.CheckPurpose]{Detected: ptr(domain.CheckDeploy)},
 		Gate:         domain.Fact[domain.CheckGate]{Detected: ptr(domain.CheckGateInfo)},
 		Environment:  domain.EnvironmentProduction,
+		Dispatchable: true,
 		Status:       domain.ModelStatusActive,
 	})
 	// A check with gate off must never claim a slot.
@@ -299,6 +300,42 @@ func (s *ProjectionSuite) TestPipelineSlotsOneRowPerCategory() {
 		}
 	}
 	s.Equal(1, validateCount)
+}
+
+// TestPipelineSlots_ProdDeployNeedsDispatchable guards the fix: a production
+// deploy check whose workflow only triggers on push cannot be dispatched, so
+// mapping it into the prod_deploy pipeline slot made the release gate try to
+// workflow_dispatch it and get a 422 back from GitHub.
+func (s *ProjectionSuite) TestPipelineSlots_ProdDeployNeedsDispatchable() {
+	comp := s.store.seedComponent(domain.Component{
+		ID:           uuid.New(),
+		RepositoryID: s.repo.ID,
+		Path:         ".",
+		Role:         domain.Fact[domain.ComponentRole]{Detected: ptr(domain.ComponentRoleBackend)},
+		Status:       domain.ComponentStatusActive,
+	})
+	s.store.seedCheck(domain.ComponentCheck{
+		ID:           uuid.New(),
+		RepositoryID: s.repo.ID,
+		ComponentID:  comp.ID,
+		Source:       domain.CheckSourceCI,
+		Workflow:     "deploy-prod.yml",
+		JobKey:       "deploy",
+		Purpose:      domain.Fact[domain.CheckPurpose]{Detected: ptr(domain.CheckDeploy)},
+		Gate:         domain.Fact[domain.CheckGate]{Detected: ptr(domain.CheckGateInfo)},
+		Environment:  domain.EnvironmentProduction,
+		Dispatchable: false,
+		Status:       domain.ModelStatusActive,
+	})
+
+	err := s.svc.project(context.Background(), s.repo.ID)
+	s.Require().NoError(err)
+
+	jobs, err := s.pipelines.ListByRepository(context.Background(), s.repo.ID)
+	s.Require().NoError(err)
+	for _, j := range jobs {
+		s.NotEqual(domain.PipelineCategoryProdDeploy, j.Category, "a push-only deploy workflow must not become a dispatch target")
+	}
 }
 
 func (s *ProjectionSuite) TestPipelineReplaceOnlyWhenChanged() {

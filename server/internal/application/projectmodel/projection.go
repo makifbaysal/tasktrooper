@@ -287,6 +287,12 @@ func pipelineSlotFor(ch domain.ComponentCheck) (category, targetKind, targetRef 
 	case domain.CheckDeploy:
 		switch ch.Environment {
 		case domain.EnvironmentProduction:
+			// A push-only deploy workflow cannot be dispatched: mapping it to
+			// prod_deploy anyway made the release/pipeline gate try to
+			// workflow_dispatch it and get a 422 back from GitHub.
+			if !ch.Dispatchable {
+				return "", "", "", false
+			}
 			category = domain.PipelineCategoryProdDeploy
 		case domain.EnvironmentStaging:
 			category = domain.PipelineCategoryStageDeploy

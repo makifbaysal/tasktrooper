@@ -135,6 +135,12 @@ func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan doma
 		}
 	}
 
+	// Runs after MatchScan: the Vercel on_merge rule needs a production
+	// environment MatchScan may have just confirmed.
+	if err := s.refreshDeliveryDetection(ctx, repo.ID); err != nil {
+		log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: delivery detection failed")
+	}
+
 	if err := s.Relink(ctx); err != nil {
 		log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: relink failed")
 	}

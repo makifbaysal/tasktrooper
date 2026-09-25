@@ -140,6 +140,35 @@ func (s *ScanSuite) TestRunScanCallsDeployMatcherWithTheScanResult() {
 	s.Equal(s.scanner.result, call.result)
 }
 
+func (s *ScanSuite) TestRunScanDetectsDeliveryFromScannedChecks() {
+	s.scanner.result = domain.ScanResult{
+		Git:        domain.ScanGit{HeadSHA: "sha1"},
+		Components: []domain.DetectedComponent{{Path: "."}},
+		Checks: []domain.DetectedCheck{{
+			ComponentPath: ".",
+			Workflow:      ".github/workflows/deploy.yml",
+			JobKey:        "deploy",
+			Purpose:       domain.CheckDeploy,
+			Environment:   domain.EnvironmentProduction,
+			Triggers:      []string{"push:main"},
+			Confidence:    domain.ConfidenceHigh,
+		}},
+	}
+
+	scan, _, err := s.svc.StartScan(context.Background(), s.repo.ID, domain.ScanTriggerImport)
+	s.Require().NoError(err)
+	finished := s.awaitScan(scan.ID)
+	s.Require().Equal(domain.ScanSucceeded, finished.Status)
+
+	components, err := s.store.ListComponents(context.Background(), s.repo.ID)
+	s.Require().NoError(err)
+	s.Require().Len(components, 1)
+	s.Require().NotNil(components[0].Delivery.Detected)
+	s.Equal(domain.DeliveryOnMerge, components[0].Delivery.Detected.Mode)
+	s.Equal(domain.ExecutorGitHubActions, components[0].Delivery.Detected.Executor)
+	s.Equal("deploy.yml", components[0].Delivery.Detected.Workflow)
+}
+
 func (s *ScanSuite) TestRunScanFailurePath() {
 	s.scanner.err = context.DeadlineExceeded
 
