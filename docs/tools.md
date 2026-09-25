@@ -116,11 +116,11 @@ See [Deploy targets and recipes](deploy.md) → "Releases" for the full flow.
 | Tool | What it does | Typically held by |
 |---|---|---|
 | `get_release` | Reads the release covering a task: status, deploy result, health/smoke/error evidence, verdict, rollback | `release-engineer` only |
-| `deploy_release` | Dispatches a `dispatch`-mode release, or a cut batch release's executor (tag/local command/store build) | `release-engineer` only, and only Done/Released |
+| `deploy_release` | Dispatches a `dispatch`-mode release, or a cut batch release's executor (tag/local command/store build); a deploy that never actually starts is left `pending` for a retry rather than `failed` | `release-engineer` only, and only Done/Released |
 | `watch_release` | Watches a release through its deploy and soak window; parks the task while a system sweeper watches | `release-engineer` only, and only Done/Released |
 | `run_smoke_checks` | Runs the release's frozen smoke checks against production right now, read-only | `release-engineer` only |
 | `finish_release` | Confirms a release as shipped; the only way a task reaches Released | `release-engineer` only, and only Done/Released |
-| `rollback_release` | Rolls a release back off production: reverts the merge, redeploys or lets the provider's own push-to-deploy redeploy | `release-engineer` only, and only Done/Released |
+| `rollback_release` | Rolls a release back off production: reverts the merge, redeploys or lets the provider's own push-to-deploy redeploy (instant provider rollback only for an `on_merge` component); refused while a newer release of the component is open or has already shipped | `release-engineer` only, and only Done/Released |
 | `get_deploy_logs` | Reads the log behind a deploy (a release's failed job by default), summarized | `release-engineer` only |
 | `list_deploy_templates` | Lists the deploy recipe catalog | `release-engineer`, `product-manager` (via `get_deploy_target`) |
 | `load_deploy_template` | Reads one recipe in full | Same as above |

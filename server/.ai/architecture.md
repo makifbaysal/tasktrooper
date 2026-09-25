@@ -354,9 +354,11 @@ build. `done` wakes the release engineer (`board.Dispatcher.doneMergeWake`, narr
 that the column stays terminal for everything else — this was QA's wake before migration 159
 moved the subscription) and the agent calls `merge_task_pull_request`: squash-merge, then
 delete the branch — refused unless the task is in `done`, its PR is open and unmerged, checks
-are green, the review chain is satisfied (always, per the gate above), its before-deploy
-steps are confirmed on an `on_merge` component (`release.Service.MergeGate`, migration 161 —
-see "Releases" below), and the PR head is still `board_tasks.verified_sha`
+are green, the review chain is satisfied (always, per the gate above), its component's
+delivery profile is confirmed, any `deploy_depends_on` target it declares has reached
+`released` (`on_merge` only), its before-deploy steps are confirmed on an `on_merge` component
+(`release.Service.MergeGate`, migration 161 — see "Releases" below), and the PR head is still
+`board_tasks.verified_sha`
 (`domain.VerifiedCommitMatches`, the same comparison `releaseTargetGate` makes, asked of the
 PR head). The verified SHA travels to GitHub as the merge's `sha` precondition, so a push
 landing between gate and merge is a 409 rather than a silent merge of unreviewed code.
@@ -453,9 +455,51 @@ the task left in `done`, because the merge already happened and cannot be undone
 `release.Service` wired at all — every normal install goes through `OpenForMerge` instead.
 
 `OpenPending(repositoryID, componentID)` is the catch-up path a human's delivery confirm
-triggers: every task of that component sitting in `done`, merged, and belonging to no release
-yet is opened exactly as `OpenForMerge` would (a `dispatch` release opened this way has no
-live agent run watching it, so it is explicitly woken).
+triggers: it first wakes every `done` task of the component that never merged at all —
+`MergeGate` (below) refused their merge while the profile was unconfirmed, and nothing else
+would retry it once it clears — then opens ONE release covering every already-merged, still
+unreleased `done` task at once, rather than one release per task in board order, which could
+ship an older commit after a newer one and would wake the agent once per task instead of
+once. The commit it opens at follows the mode: `on_merge` uses the GIT-NEWEST of the waiting
+tasks' own merge commits (pairwise `Git.IsAncestor` against a running "best" candidate, not
+board order — a human can drag cards around); `dispatch` still opens at the remote
+default-branch head, since it has no commit of its own to watch. A task whose only release is
+a `draft` left behind by a component that has since left batch mode is pulled out of that
+draft (`RemoveTask`) and treated as unreleased first (an emptied draft is marked superseded).
+A `dispatch` release opened this way has no live agent run watching it, so it is explicitly
+woken.
+
+### Deploying a pending release (claim-first)
+
+`Deploy` (the `deploy_release` tool, and a batch `Cut`'s own dispatch) claims the release
+`pending → deploying` (`DeployStartedAt` stamped) with a conditional `Update` BEFORE the tag
+is created, the workflow dispatched, the local process started, or the store builds begun — a
+second concurrent `Deploy` call then loses its own conditional update and does nothing,
+instead of two dispatches racing. A side effect that started NOTHING AT ALL — a dispatch
+error that is not a CI-unavailable/definitive refusal (a network error, a 5xx), a local
+`Start` error, or a batch store release whose every platform failed to start — reverts the
+claim back to `pending` (`DeployStartedAt` cleared) and returns the error, so `deploy_release`
+or the Deploy button can simply be retried once the problem clears. Only a DEFINITIVE refusal
+— CI unavailable, or GitHub answering 404/422 (the workflow file or its dispatch trigger
+itself is wrong, not a transient hiccup) — becomes `failed`, with a reason stating nothing was
+deployed, so no rollback is needed.
+
+Batch executors extend the same claim: **`store`** records one
+`ReleaseStoreBuild{Platform, BaselineBuild: "?"}` placeholder per linked platform before any
+network call, so the sweeper never reads a `deploying` release with an empty `StoreBuilds` as
+done — it waits, and only fails it ("the store builds never started") after 10 minutes with
+still nothing recorded. The `"?"` baseline is filled by the first successful sweep-time
+`Tracks` read, which does NOT itself count as the new build — a platform only succeeds once a
+build number different from a KNOWN baseline shows up, so a build picked up before the
+baseline was ever confirmed is never mistaken for a new one. **`local`** persists
+`deploying` + `LocalRun{Argv, LogPath, StartedAt}` before `LocalRunner.Start`, so a command
+that finishes very fast still finds the claimed row when its `CompleteLocalRun` callback
+lands. `adapter/localexec.Runner` tracks every run it starts so `Close` (called on server
+shutdown, with a bounded timeout) can kill their process groups and remove their worktrees
+instead of leaving them for a timeout that may never come; the resulting interruption is
+reported distinctly (`localexec.ErrInterrupted`, not a plain timeout) and `CompleteLocalRun`
+maps it to `failed` with "interrupted when TaskTrooper quit — check what was published before
+deploying again; nothing needs rolling back unless a broken build went out".
 
 ### The sweeper
 
@@ -471,7 +515,11 @@ with an account and resource, match `cloud.Deployments` by commit prefix (either
 ≥7 chars) — `ready`→success, `error`/`canceled`→failure, else pending; no match or no
 environment falls back to the commit-status signal (`vercel[bot]`'s status write). `pending`
 past 60 minutes, `no_signal` past a 15-minute grace, or `unknown` past 60 minutes → `failed`.
-`failure` → `failed` with the status detail, hand back immediately. `success` → the soak
+A status LOOKUP ERROR (the provider call itself failing, as opposed to a resolved-but-pending
+status) does not reset that clock either: it still evaluates the same 60-minute window from
+`DeployStartedAt` and fails the release ("the deploy status could not be read for 60 minutes:
+`<lastErr>`") rather than stalling forever on a flaky read. `failure` → `failed` with the
+status detail, hand back immediately. `success` → the soak
 begins: `DeployedAt = now`, `VerifyUntil = now + profile.Verify.SoakMinutes`, the verify
 target resolved (below), every smoke check run once and one health sample taken; a smoke
 failure on this FIRST round is an early stop straight to `awaiting_verdict` — otherwise →
@@ -500,7 +548,30 @@ samples.
 claimed silently. If nothing was parked (the agent run that would have parked is gone — a cut
 batch release, for instance, has never had one), the newest task of the release is woken
 instead; it is still sitting in `done`. `Dispatcher.deployWatchWake` accepts
-`resumed_resource == release_watch` alongside the legacy `deploy_watch`.
+`resumed_resource == release_watch` alongside the legacy `deploy_watch`. Every hand-back —
+whether or not a card was actually parked to claim — stamps `releases.hand_back_count` /
+`last_hand_back_at` on the row first; `merge_task_pull_request`/every release tool resolves
+its release through `(*Service).ForAgent` (`ForTask` + a direct `MarkAgentSeen` write,
+excluded from `Update`'s optimistic SET so a stale copy can never clobber it), stamping
+`agent_seen_at` on every live agent call.
+
+**The hand-back watchdog** (`sweepReleaseWatchdog`, run every sweep tick alongside the
+watched-release sweep) closes two gaps a one-shot hand-back leaves open. It reads persisted
+state off each release row, not a process-memory map, so it survives a desktop relaunch and
+behaves the same across every sweeper instance:
+
+- **A stranded park** — a card still parked on `release_watch` whose release has already
+  settled (a race between the sweeper and `Watch`, a crash mid hand-back) — is claimed and
+  woken immediately (`freeStrandedPark`).
+- **A dropped hand-back** — an `awaiting_verdict`/`failed` release with NO card parked for any
+  of its tasks — is re-woken on a slow, capped cadence (`rewakeUnparkedHandBacks`):
+  `handBackDue` requires `LastHandBackAt` set, more than 10 minutes ago
+  (`handBackReWakeInterval`), `AgentSeenAt` nil or before `LastHandBackAt` (a live `ForAgent`
+  call resets what the watchdog is waiting on — an agent that has already looked at the
+  release is not re-woken for looking slow to answer), `HandBackCount < 6`
+  (`handBackMaxReWakes`), and the release updated within the last 24 hours (older than that is
+  someone else's problem to notice). A `released`/`rolled_back` release is never reconsidered
+  — the watchdog only lists `awaiting_verdict`/`failed`.
 
 ### The release engineer
 
@@ -538,74 +609,134 @@ explicitly in its note rather than silently skipping the step. `finish_release` 
 
 ### Rollback
 
-`Rollback` is allowed on `failed`, `awaiting_verdict`, or `released` within 24h of
-`FinishedAt` AND still the component's newest released release (`LastReleased`) — otherwise
-`ErrReleaseWrongStatus` naming why. `reason` must be `Valid()`; an agent's
-`deploy_failed`/`verify_failed`/`health_incident` are accepted as stated (the evidence is on
-the release); `manual` is human-only. `profile.AutoRollback == false` and the actor is an
-agent → nothing executes: the proposal (reason, note, what would be reverted/redeployed) is
+`Rollback` claims the release FIRST — a conditional `Update` to `rolling_back` carrying the
+`Rollback{Reason, Note, Actor, StartedAt}` record — BEFORE any side effect, so a racing
+`Finish`, a supersede, or a second concurrent `Rollback` call loses its own conditional update
+instead of two callers mutating production together. `rollbackAllowed` accepts
+`failed`/`awaiting_verdict` unless a newer release of the component has already shipped
+(`LastReleased.CreatedAt` after this one's — never roll a failed release back past a newer one
+that has since been released), and accepts `released` only within 24h of `FinishedAt` AND
+still the component's `LastReleased` — otherwise `ErrReleaseWrongStatus` naming why. Either
+way it additionally refuses while the component has a newer OPEN release
+(pending/deploying/verifying/awaiting_verdict created after this one), naming it — rolling
+this one back now would fight that release for the branch/tag. `reason` must be `Valid()`; an
+agent's `deploy_failed`/`verify_failed`/`health_incident` are accepted as stated (the evidence
+is on the release); `manual` is human-only. `profile.AutoRollback == false` and the actor is
+an agent → nothing executes: the proposal (reason, note, what would be reverted/redeployed) is
 written as a comment on the newest task and `ErrRollbackNeedsHuman` is returned — a
 SUCCESSFUL call from the tool's point of view (`{proposed: true}`), not an error to route
-around.
+around. A retry (`Rollback.RevertSHA` already set from an earlier attempt) skips straight to
+the mechanism-specific redeploy/promote — the provider/revert legs are not repeated.
 
-**Provider rollback runs first, before the revert** (any mode except `batch`, and never for a
-release that never deployed): if the component's bound production environment's provider
-implements `port.CloudRollbacker` (`CanRollback`), the target deployment is the one whose
-commit matches the previous released release's `CommitSHA` (prefix match), else the newest
-READY deployment created before this release's own deploy started. `RollbackEnvironment`
-success → `Mechanism = provider_rollback`, `ProviderDeploymentID` recorded, and production is
-back on the earlier code in SECONDS rather than the minutes a redeploy or revert-push takes.
-Any failure (`port.ErrCloudWriteDenied` — a Vercel token needs write scope, a Cloud Run
-service account needs `run.services.update` — `port.ErrUnsupported`, no target found, or the
-call itself erroring) is folded into `Rollback.Detail` and the mechanism below proceeds
-regardless; a provider rollback attempt never fails the caller.
+**Provider rollback runs first, before the revert, `on_merge` ONLY** (never for a release that
+never deployed): `dispatch` skips it entirely — its own redeploy of the previous release would
+immediately undo a pinned provider rollback and leave automatic production assignment off for
+every later deploy — and `batch` has no bound-environment notion to roll back. If the
+component's bound production environment's provider implements `port.CloudRollbacker`
+(`CanRollback`), the target is the one whose commit matches the previous released release's
+`CommitSHA` (prefix match) among the provider's own PRODUCTION-target deployments, else the
+newest READY production deployment created before this release's own deploy started —
+excluding any commit this release itself carries, so a provider rollback target is never a
+preview build or a deployment of the bad release. `RollbackEnvironment` returning success IS
+the confirmation: Vercel has no reliable read of "which deployment production serves right
+now" (`readySubstate: PROMOTED` only means "has ever taken production traffic", a history
+flag), so nothing here re-checks it — `Mechanism = provider_rollback`, `ProviderDeploymentID`
+recorded and persisted immediately, with `ProgressAt` stamped, before the revert risks the
+process dying with that fact nowhere but memory. Production is back on the earlier code in
+SECONDS. Any failure (`port.ErrCloudWriteDenied` — a Vercel token needs write scope, a Cloud
+Run service account needs `run.services.update` — `port.ErrUnsupported`, no target found, or
+the call itself erroring) is folded into `Rollback.Detail` and the revert proceeds regardless;
+a provider rollback attempt never fails the caller.
 
 **The revert always runs too**, whether or not the provider rollback succeeded:
 `RevertOnDefaultBranch` (`git.Client`) fetches, checks out a DETACHED worktree of
-`origin/<default>` (the root checkout's working tree and index are never touched), runs
-`git revert --no-edit --no-commit` on every task's merge commit newest-first, commits, and
-pushes to the default branch — so the next release cannot ship the bad change again even
-after an instant provider rollback. A conflict aborts the revert and names the conflicting
-paths; a rejected push says the revert was not pushed and production is unchanged.
-`RevertCommitOnDefaultBranch` (the old single-sha path, which used to `reset --hard` in the
-root clone) now delegates to it.
+`origin/<default>` (the root checkout's working tree and index are never touched), orders the
+release's task merge commits newest-first by git's OWN commit graph rather than trusting the
+caller's order (`release_tasks.added_at` ties within one `Create`, or an out-of-order carried
+task, would make a caller-supplied order wrong), runs `git revert --no-edit --no-commit` on
+each in that order, commits, and pushes to the default branch — so the next release cannot
+ship the bad change again even after an instant provider rollback. `RevertSHA` (+
+`ProgressAt`) is persisted immediately after the push lands, BEFORE any redeploy/promote step,
+so a crash there does not make a retry re-revert commits no longer on top of the default
+branch. A conflict aborts the revert and names the conflicting paths; a rejected push says the
+revert was not pushed — and when a provider rollback already succeeded, the failure record
+says so explicitly (production WAS rolled back, but the default branch was NOT reverted — a
+human must revert/merge it by hand, and auto-assignment stays off until a promote) rather than
+the stock "production is unchanged". `RevertCommitOnDefaultBranch` (the old single-sha path,
+which used to `reset --hard` in the root clone) now delegates to it.
 
-**Then, per mode:** `dispatch` — if the provider rollback already succeeded, nothing more is
-dispatched (production is already restored); otherwise the previous good release's commit is
-redeployed (`LastReleased`, or the revert commit's own tag with no previous release).
-`on_merge` — the revert push itself redeploys; `Mechanism = revert_push` unless the provider
-path ran. `batch` — no redeploy is attempted AT ALL: a published desktop build or store build
-cannot be unpublished by a revert, so the release goes straight to `rolled_back` and
-`ManualSteps` leads with unpublishing or halting the artifact itself (the GitHub
-Release/update feed for `github_actions`/`local`, the store rollout for `store`) before the
-tasks' own rollback runbooks.
+**Then, per mode:** `dispatch` — the previous good release's commit is redeployed
+(`LastReleased`, or the revert commit's own tag with no previous release); a redeploy that
+fails for ANY reason fails the release (the revert already landed, so production is not
+running the bad code, but nothing new deployed either — a human has to look at it rather than
+the sweeper waiting on a redeploy that was never dispatched). Its own run is watched by
+`StatusForCommitSince(since = Rollback.StartedAt)` — narrowed to Actions runs created at or
+after the rollback started, so an earlier green run of that same commit (its original deploy,
+or a prior failed rollback attempt) is never mistaken for this rollback's. `on_merge` — the
+revert push itself redeploys (`Mechanism = revert_push` unless the provider path already
+succeeded), watched by the plain `StatusForCommit` against the brand-new revert commit
+(commit-status/deployment fallbacks included, so a push-to-deploy provider with no Actions run
+at all is still observable) — its `no_signal` branch still resolves to `rolled_back` 15
+minutes after a successful push with nothing further heard. `batch` — no redeploy is attempted
+AT ALL: a published desktop build or store build cannot be unpublished by a revert, so the
+release goes straight to `rolled_back` and `ManualSteps` leads with unpublishing or halting
+the artifact itself (the GitHub Release/update feed for `github_actions`/`local`, the store
+rollout for `store`) before the tasks' own rollback runbooks. A release that never deployed at
+all skips per-mode handling entirely — only the revert was needed, straight to `rolled_back`.
 
 **The Vercel promote trap.** Sweeping a `rolling_back` release whose
-`Mechanism == provider_rollback`: once `CurrentDeployment` confirms the earlier deployment is
-live, a `dispatch` release is done (`rolled_back`); an `on_merge` release must ALSO wait for
-the revert commit's own deployment to go READY and `PromoteDeployment` it — on Vercel,
-`RollbackTo` pins production to one specific deployment and turns OFF automatic production
-assignment, so without this step every later merge would build but never go live. A promote
-failure fails the release with a reason that says production is SAFE (still on the earlier
-deployment) but someone has to promote a deployment in the provider's console by hand.
+`Mechanism == provider_rollback`: `dispatch` is done the moment the provider call succeeded
+(no redeploy was ever dispatched for it); `on_merge` must ALSO wait for the revert commit's
+own deployment to go READY (matched by commit prefix among the environment's deployments) and
+`PromoteDeployment` it — on Vercel, `RollbackTo` pins production to one specific deployment
+and turns OFF automatic production assignment, so without this step every later merge would
+build but never go live; success records `PromotedDeploymentID`. `Current`/`CurrentDeployment`
+is no longer what any of this depends on — it is left on the adapter as a best-effort read,
+never the verdict. The revert deployment not going READY within 30 minutes, or the promote
+call itself failing, fails the release with a reason that always says production is SAFE
+(still on the earlier deployment) — never "may still run the bad release", since the provider
+success is exactly what makes that untrue — and that a human has to promote a deployment in
+the provider's console by hand.
+
+**Claim-first, with an abandoned-claim grace window.** Every side effect above persists its
+own `ProgressAt` the moment it lands, before the next step, so a process death mid-rollback
+leaves `Rollback.RestoredRef` empty rather than a half-applied state nobody notices. The
+sweeper ignores a `rolling_back` release with an empty `RestoredRef` for 15 minutes, judged
+from `ProgressAt` (falling back to `StartedAt` when no side effect has landed yet — the claim
+itself moves the release to `rolling_back` before any side effect runs, so `RestoredRef` is
+legitimately empty for the moment the revert/dispatch takes); past that window it fails the
+release ("the rollback did not complete — the server may have restarted mid-way"). Once a
+redeploy is in flight, a status-lookup error still evaluates the 30-minute rollback timeout
+from that same `ProgressAt`/`StartedAt` basis rather than stalling forever on a flaky status
+read.
 
 `ManualSteps` is always `TaskRollbackRunbook` per task (`rollback_plan`/`before_deploy`/
 `after_deploy`), prefixed for batch as above. Every rollback carries `Actor`, `StartedAt`,
-`Reason`, `Note`, `Detail`.
+`Reason`, `Note`, `Detail`, and `ProgressAt`.
 
 ### Batch releases (migration 160)
 
 Desktop/mobile (and anything else a human wants to cut deliberately) collect merges into a
 `draft` release instead of shipping on every merge. A human previews
-(`GET /v1/releases/:id/cut-preview`) and cuts it (`POST .../cut`, `{confirm, version, notes}`):
+(`GET /v1/releases/:id/cut-preview`) and cuts it (`POST .../cut`, `{confirm, version, notes}`).
+`recuttable` accepts a `draft`, or a `pending` release `Deploy` was never even attempted on
+(`DeployStartedAt` nil) — a human who picked a version `Cut` then rejected (`ErrReleaseTagExists`,
+an invalid version) can re-cut it with a different one instead of the release being stuck; the
+Deploy tab pins such a release alongside the draft, as its own "Re-cut" row.
 
-- **Preview.** Previous version: the component's newest released release's `Version`, else
-  the newest git tag matching the tag pattern's glob, else none. Suggested next version: patch
-  bump when every carried task is `bug`, else minor; `0.1.0` with no previous; `""` (a human
-  types it) when the previous version is not plain semver. Commit: the default branch's remote
+- **Preview.** Previous version: the HIGHEST semver among the component's newest released
+  release's `Version`, the newest git tag matching the tag pattern's glob, and any release of
+  the component that carries a tag at all (failed/rolled_back included — a version already
+  tagged must never be picked again even if that attempt never shipped). Suggested next
+  version: patch bump when every carried task is `bug`, else minor; `0.1.0` with no previous;
+  `""` (a human types it) when the previous version is not plain semver. `domain.ValidReleaseVersion`
+  additionally enforces git ref rules on whatever a human types: no `..`, no trailing `.`, no
+  `.lock` suffix, no `@{`, no `//`, at most 64 characters. Commit: the default branch's remote
   head, checked to actually contain every task's merge commit (`IsAncestor`) — a missing one
   names which task. Notes: generated markdown, `## <version>` then `### Features`/`### Fixes`
-  by task type.
+  by task type. A pending `deploy_depends_on` refuses the cut itself, naming the blockers —
+  merges only join a release while it is a `draft`; once cut, a later merge of the same
+  component opens or joins its own release instead.
 - **Cut** re-reads and freezes the component's CURRENT confirmed profile (a draft may have sat
   open under an older one), sets `Version`/`Tag`/`CommitSHA`/`Notes`/`CutAt`, moves to
   `pending`, stamps every carried task's before-deploy confirmation (cutting the release IS a
@@ -625,12 +756,18 @@ Deploy per executor (`Deploy` on a `pending` batch release):
   `<data dir>/releases/<release-id>.log`, 60-minute timeout. The runner's callback
   (`CompleteLocalRun`) records the exit code, log tail and a synthesized `Deploy` status; the
   sweeper (`sweepDeployingLocal`) reads `LocalRun.FinishedAt` and treats no report within 70
-  minutes as the server having restarted mid-run, not a hang.
-- **`store`** — starts a `storeops` release build on every platform with a linked, identified
-  app, recording each one's baseline internal-channel build first; a platform whose start
-  fails keeps its own error rather than aborting the others (all failed → `failed`). The
-  sweeper polls each platform's track until its build number moves past the baseline
-  (120-minute timeout).
+  minutes as the server having restarted mid-run, not a hang. Quitting TaskTrooper interrupts
+  any run still going (`Runner.Close`, called with a bounded timeout on shutdown) instead of
+  leaving it to that 70-minute grace: `CompleteLocalRun` reports it as `failed` with
+  "interrupted when TaskTrooper quit", distinct from a timeout or a real command failure.
+- **`store`** — claims with one `ReleaseStoreBuild{Platform, BaselineBuild: "?"}` placeholder
+  per linked platform before any network call, then starts a `storeops` release build on every
+  platform with a linked, identified app, recording each one's actual baseline internal-channel
+  build; a platform whose start fails keeps its own error rather than aborting the others —
+  only when NOTHING started does the claim revert to `pending` (see "Deploying a pending
+  release", above). The sweeper polls each platform's track until its build number moves past a
+  KNOWN baseline (a `"?"` baseline is only ever discovered, never itself counted as new) or
+  10 minutes pass with `StoreBuilds` still empty (120-minute timeout once builds are recorded).
 
 A cut batch release still goes through `verifying`/`awaiting_verdict` exactly like an
 on-merge one — most desktop/mobile components simply have no bound runtime environment, so
@@ -644,11 +781,19 @@ records the human's confirmation
 (`POST /v1/repositories/:id/tasks/:taskId/before-deploy/confirm`); any edit that changes
 `before_deploy`'s text clears the confirmation.
 
-- `on_merge` — `release.Service.MergeGate`, called from `taskpr_merge.go` right before
-  anything touches GitHub, refuses the merge itself (the merge IS the deploy) while
-  `task.BeforeDeployPending()`: one comment listing the steps, wrapped `ErrBeforeDeployPending`.
+- `release.Service.MergeGate`, called from `taskpr_merge.go` right before anything touches
+  GitHub, refuses in order, each posting its own comment and each meaning "do not retry — you
+  are woken when this clears": the component's delivery profile is not `DeliveryConfirmed`
+  (its own workflow might still deploy this merge unwatched) — `ErrDeliveryUnconfirmed`, the
+  task waits until a human confirms the profile on the Deploy tab (`OpenPending` wakes it
+  then); then, `on_merge` only, a `deploy_depends_on` target that has not reached `released`
+  yet — `ErrDeployDependencyPending`, naming the blockers (`finish_release` on the blocker
+  wakes it); then, `on_merge` only (the merge IS the deploy), `task.BeforeDeployPending()` —
+  `ErrBeforeDeployPending`, listing the steps.
 - `dispatch` — `Deploy`'s `beforeDeployGate` refuses while ANY task of the release has pending
-  steps, commenting once (on the newest task) with the whole list.
+  before-deploy steps, commenting once (on the newest task) with the whole list; `Deploy` also
+  refuses a pending `deploy_depends_on` the same way (`pendingDeployDependencies`), and a
+  batch `Cut` refuses the same for its carried tasks.
 - `batch` — `Cut` stamps every carried task's confirmation itself: cutting the release IS the
   human's confirmation, shown in `CutReleaseDialog` under "Before this ships".
 - `none` — irrelevant; nothing deploys.
@@ -658,6 +803,18 @@ records the human's confirmation
   sweep.
 - `Finish` posts one system comment per task carrying `after_deploy` text, once the tasks have
   already moved to `released`: "Released — do these after-deploy steps now: …".
+
+### Deploy dependents wake on any move to `released`
+
+A `deploy_depends_on` waiter is woken wherever its blocker reaches `released` — `finish_release`
+is not the only door: a `none`-mode merge reaches `released` directly, and a human can drag a
+card there by hand. `board.Dispatcher` carries an optional `SetTaskReleasedHook`, called from
+`Dispatch` on every `task.moved` event whose destination column is `released`, whatever moved
+it; `release.Service.WakeDeployDependentsOf` is wired as that hook (`Finish`'s own direct call
+was removed in favor of it — one hook, one call site, regardless of how the move happened). It
+lists the moved task's `deploy_depends_on` waiters, re-checks each one's OWN pending
+dependencies (a waiter with more than one blocker only wakes once all of them clear), and calls
+`WakeTask` on the ones sitting in `done` with nothing left pending.
 
 ### Attribution
 
@@ -669,7 +826,11 @@ involvement at all. The integrator wires a composite attributor: this release-ke
 first, `deploywatch.AttributeRelease`'s older commit-keyed one as fallback (a repository with
 no release history yet, or a release that predates migration 159's rollout). Either way the
 woken run lands on `released`'s `columnInstruction` and calls `rollback_release` with
-`health_incident` — there is no separate rollback code path any more.
+`health_incident` — there is no separate rollback code path any more. Whether that call
+executes or only proposes reads `domain.ReleaseAttribution.AutoRollback` — the ATTRIBUTED
+RELEASE's own delivery profile, not the legacy per-environment `auto_rollback` field (a
+repository with no release history to attribute to still falls back to that legacy field,
+since there is no release profile to read).
 
 ### What is gone
 

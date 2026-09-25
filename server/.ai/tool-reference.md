@@ -292,16 +292,23 @@ record.
 
 `release` (`domain.ReleaseOpening`) is what the merge set in motion for the
 task's component — `{mode, release_id?, status?, released?, unconfirmed?, next}`
-— read it, do not guess: `unconfirmed: true` means the component's delivery
-profile was never confirmed and the system already commented saying so; mode
-`none` means the merge already was the release; `batch` means the merge joined
-(or opened) the component's draft release and nothing deploys until a human
-cuts it; `on_merge` means the deploy already started, call `watch_release`;
-`dispatch` means call `deploy_release`, then `watch_release`. See "Release
-tools" below and `.ai/architecture.md` → "Releases (migrations 159–161)".
-Before this touches GitHub, an `on_merge` component with a task whose
-`before_deploy` steps are not confirmed refuses the merge outright
-(`ErrBeforeDeployPending`) — a human must confirm them on the task first.
+— read it, do not guess: mode `none` means the merge already was the release;
+`batch` means the merge joined (or opened) the component's draft release and
+nothing deploys until a human cuts it; `on_merge` means the deploy already
+started, call `watch_release`; `dispatch` means call `deploy_release`, then
+`watch_release`. `unconfirmed: true` means the delivery profile was
+unconfirmed for a task merged some other way (`OpenForMerge`, not this tool) —
+nothing to do. See "Release tools" below and `.ai/architecture.md` →
+"Releases (migrations 159–161)". Before this touches GitHub, `MergeGate`
+refuses the merge itself — nothing merged, each refusal already commented on
+the card, do not retry — in order: the component's delivery profile is not
+confirmed (`ErrDeliveryUnconfirmed`, its own workflow might still deploy this
+merge unwatched); then, on an `on_merge` component, a `deploy_depends_on`
+target that has not reached `released` yet (`ErrDeployDependencyPending`);
+then, also `on_merge` only, the task's `before_deploy` steps are not confirmed
+(`ErrBeforeDeployPending`, the merge IS the deploy for this mode) — a human
+must confirm them on the task first. You are woken automatically once
+whichever gate refused clears.
 
 The refusal matrix — every one of these is an error result carrying "Nothing was
 merged. Do not retry", because merging is irreversible and no retry can change
@@ -316,7 +323,9 @@ any of them:
 | checks not green | `ErrMergeChecksNotGreen` | GitHub's `mergeable_state` is anything but `clean`/`has_hooks` (`blocked`, `unstable`, `dirty`, `behind`, `unknown`), or the task's last pipeline `failed`. `dirty`/`behind` are the CONFLICT case: the remedy text tells the release engineer to move the task to `need_revision`, because rebasing a branch is the developer's work |
 | review chain incomplete | `ErrReviewChainIncomplete` / `ErrReviewStageRejected` | a required review stage is missing or was rejected — the review chain is always enforced (no repository opt-out), the same `reviewChainGate` the move into `done` runs, re-asked through `repository.Service.CheckReviewChain` |
 | head drifted | `ErrReleaseTargetMoved` / `ErrReleaseTargetUnverified` | the PR head SHA is not `board_tasks.verified_sha` — the same `domain.VerifiedCommitMatches` comparison the release gate makes, asked of the PR head rather than of the workspace |
-| before-deploy steps pending | `ErrBeforeDeployPending` | the component is `on_merge` and the task's `before_deploy` steps are not confirmed (migration 161) — this one is NOT in the tool's own "do not retry" sentinel list (`isMergeRefusal`), so it surfaces as a plain error without that suffix; the release engineer is woken again once a human confirms, so retrying manually still cannot help |
+| delivery profile not confirmed | `ErrDeliveryUnconfirmed` | the component's delivery profile has never been confirmed — its own workflow might still deploy this merge unwatched, so the merge waits rather than guessing; a human confirms it on the Deploy tab and `OpenPending` wakes every task that piled up |
+| deploy dependency pending | `ErrDeployDependencyPending` | the component is `on_merge` and this task declares a `deploy_depends_on` target that has not reached `released` yet — named in the refusal; `finish_release` on the blocker wakes this task |
+| before-deploy steps pending | `ErrBeforeDeployPending` | the component is `on_merge` and the task's `before_deploy` steps are not confirmed (migration 161) — this one, along with the two above, is NOT in the tool's own "do not retry" sentinel list (`isMergeRefusal`), so it surfaces as a plain error without that suffix; the release engineer is woken again once a human confirms, so retrying manually still cannot help |
 
 A missing or `skipped` pipeline does **not** block: that is a repository with no
 CI wired up, where refusing would make the merge unreachable, and GitHub's own
@@ -365,8 +374,19 @@ and logs it; `store` starts a store build for every platform with a linked
 app. Refused, dispatching nothing, when the release is not `pending` or its
 mode is neither `dispatch` nor a cut `batch` (`ErrReleaseWrongStatus` /
 `ErrReleaseNoDeploy`) — an `on_merge` release already started on its own; call
-`watch_release` for it instead. On success call `watch_release` next; never
-poll `get_release` waiting for the deploy to finish.
+`watch_release` for it instead. A `dispatch` release is also refused (and
+nothing claimed) the same two ways a merge is: an unreleased `deploy_depends_on`
+target, or unconfirmed `before_deploy` steps on any of its tasks — each names
+what is pending and comments it. Claims `pending → deploying` BEFORE the tag
+is created, the workflow dispatched, the local process started or the store
+builds begun, so a second concurrent call does nothing; a side effect that
+started NOTHING AT ALL (a transient dispatch error, a local start failure, or
+a store release where every platform failed to start) returns the release to
+`pending` with the error, so this tool (or the Deploy button) can simply be
+retried — only a DEFINITIVE refusal (CI unavailable, or the workflow/dispatch
+trigger itself invalid) becomes `failed`, stating nothing was deployed and no
+rollback is needed. On success call `watch_release` next; never poll
+`get_release` waiting for the deploy to finish.
 
 ### `watch_release`
 
@@ -426,23 +446,36 @@ environment. A `failed` release can only be finished by a human overriding it
 | `reason` | string | yes | `deploy_failed`, `verify_failed`, or `health_incident`. |
 | `note` | string | yes | What was actually observed — the failing step, the error, the health check that went red. |
 
-Rolls this release back off production: reverts its merge commits on the
-default branch, then redeploys the previous good release (`dispatch`) or lets
-the revert push itself redeploy (`on_merge`) — a bound production environment
-whose provider supports it (Vercel, Cloud Run) is rolled back FIRST, in
-seconds, before the revert lands. For a `batch` release it only reverts the
-default branch — nothing is redeployed, because a published desktop or store
-build cannot be unpublished by a revert; `rollback.manual_steps` then leads
-with unpublishing or halting the artifact itself. Call it only on EVIDENCE,
-never a hunch, and never for a noisy but PRE-EXISTING error. If the
-component's `auto_rollback` is off, nothing executes: the proposal is written
-on the task for a human to confirm and the result carries `{proposed: true}` —
-stop there, it is a successful call, not a refusal
-(`ErrRollbackNeedsHuman`). On an actual rollback, perform or explicitly report
-EVERY entry in `rollback.manual_steps`, then call `watch_release` to follow
-the rollback deploy. Refused (nothing reverted, nothing redeployed) when the
-release is not `failed`, `awaiting_verdict`, or `released` within 24h and
-still the component's newest released release (`ErrReleaseWrongStatus`).
+Rolls this release back off production. Claims the release first (before any
+side effect), so a concurrent call or a racing `Finish` loses cleanly. For an
+`on_merge` release only, a bound production environment whose provider
+supports it (Vercel, Cloud Run) is rolled back FIRST, in seconds — its own
+`RollbackTo`/equivalent succeeding IS the confirmation, nothing reads back
+"which deployment is live" — before the revert lands; `dispatch` skips that
+leg (its own redeploy would immediately undo a pinned provider rollback) and
+`batch` has no bound-environment notion to roll back. The default branch is
+always reverted too (task merge commits, newest-first by git's own commit
+graph, in a detached worktree), so the next release cannot ship the bad
+change again. Then, per mode: `dispatch` redeploys the previous good release,
+tracked by the run started after the rollback (an earlier green run of that
+same commit is never mistaken for this one's); `on_merge` lets the revert
+push itself redeploy, then (when the provider leg ran) waits for the revert's
+own deployment to go READY and promotes it — re-enabling Vercel's automatic
+production assignment or Cloud Run's LATEST traffic, off since the provider
+call pinned it; `batch` only reverts the default branch — nothing is
+redeployed, because a published desktop or store build cannot be unpublished
+by a revert; `rollback.manual_steps` then leads with unpublishing or halting
+the artifact itself. Call it only on EVIDENCE, never a hunch, and never for a
+noisy but PRE-EXISTING error. If the component's `auto_rollback` is off,
+nothing executes: the proposal is written on the task for a human to confirm
+and the result carries `{proposed: true}` — stop there, it is a successful
+call, not a refusal (`ErrRollbackNeedsHuman`). On an actual rollback, perform
+or explicitly report EVERY entry in `rollback.manual_steps`, then call
+`watch_release` to follow the rollback deploy. Refused (nothing reverted,
+nothing redeployed) when the release is not `failed`, `awaiting_verdict`, or
+`released` within 24h and still the component's newest released release, OR
+when a newer release of the component is already open or has since shipped
+(`ErrReleaseWrongStatus`, naming which).
 
 See `.ai/architecture.md` → "Releases (migrations 159–161)" for the full state
 machine, the provider-rollback mechanism and the Vercel promote trap, and the

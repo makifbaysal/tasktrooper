@@ -346,14 +346,21 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
 - `GET /v1/releases/{releaseId}` — one release in full: status, mode/executor, commit/tag,
   `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new
   error groups), `verdict`, `rollback`, `tasks` (`api.getRelease`).
-- `GET /v1/releases/{releaseId}/cut-preview` — `ReleaseCutPreview` for a `draft` batch
-  release: suggested/previous version, the tag it would carry, the commit, generated notes,
-  its tasks. 409 off-draft or with no tasks.
+- `GET /v1/releases/{releaseId}/cut-preview` — `ReleaseCutPreview` for a `draft` release, or a
+  `pending` one that has never deployed (a re-cut): suggested/previous version (highest semver
+  among the last released version, the newest matching git tag, and any tag any of the
+  component's releases ever carried), the tag it would carry, the commit, generated notes, its
+  tasks. 409 off draft/re-cuttable-pending, or with no tasks.
 - `POST /v1/releases/{releaseId}/cut` — `{confirm, version, notes}` → `Release`,
-  `draft → pending`; freezes the component's current confirmed delivery profile, stamps
-  every carried task's before-deploy confirmation, wakes the release engineer. Driven by
-  `CutReleaseDialog`.
-- `POST /v1/releases/{releaseId}/deploy` — `{confirm}` → `Release`. `pending` only.
+  `draft → pending` (or re-cutting a never-deployed `pending` release); freezes the
+  component's current confirmed delivery profile, stamps every carried task's before-deploy
+  confirmation, wakes the release engineer. 400 on an invalid version (also rejected: git ref
+  syntax a tag could never hold); 409 while a carried task ships after an unreleased
+  `deploy_depends_on` target. Driven by `CutReleaseDialog`.
+- `POST /v1/releases/{releaseId}/deploy` — `{confirm}` → `Release`. `pending` only; claims the
+  release before the side effect, so a side effect that started nothing at all (a transient
+  error) returns it to `pending` for a retry rather than `failed` — only a definitive refusal
+  becomes `failed`.
 - `POST /v1/releases/{releaseId}/finish` — `{confirm, note}` → `Release`, every task moved
   to `released`.
 - `POST /v1/releases/{releaseId}/rollback` — `{confirm, note}` → `Release`, always a manual

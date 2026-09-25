@@ -296,7 +296,7 @@ The tools themselves, their refusal matrices and the release state machine: `.ai
 
 ### Undeployable is not `need_revision`
 
-When an Actions dispatch is refused **because of the account** (402, spending limit, Actions disabled) the code is not at fault; `reportPipelineFailure` does not move the card in that case and only writes the reason on it (`githubapi.IsCIUnavailableText`, for deploy triggers). What the release engineer does with a `failed` release in `done`:
+When an Actions dispatch is refused **because of the account** (402, spending limit, Actions disabled) the code is not at fault; `reportPipelineFailure` does not move the card in that case and only writes the reason on it (`githubapi.IsCIUnavailableText`, for deploy triggers). The same split applies to a release's own `Deploy` claim: a side effect that started nothing at all (a network error, a 5xx, a local start failure, every store platform failing to start) is silently returned to `pending` for a retry — the release engineer never sees it as `failed`. Only a DEFINITIVE refusal (CI unavailable, or the workflow/dispatch trigger itself invalid) reaches `failed`, always with a reason saying nothing was deployed and no rollback is needed. What the release engineer does with a `failed` release in `done`:
 
 | Situation | Action |
 |---|---|

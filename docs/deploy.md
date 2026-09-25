@@ -153,10 +153,15 @@ whether a bad release may be rolled back automatically or only proposed.
 1. **The release engineer merges the pull request** (`done` wakes it, the
    same wake QA used to hold) — squash-merge, delete the branch — once the
    checks are green and the review chain is complete. This opens (`on_merge`
-   / `dispatch`) or joins (`batch`) a **release** for the component. If the
-   task carries `before_deploy` steps that a human has not confirmed yet on
-   an `on_merge` component, the merge itself is refused until someone does
-   (see **Before you ship**, below).
+   / `dispatch`) or joins (`batch`) a **release** for the component. Three
+   things can still hold the merge itself back, each posting one comment on
+   the task explaining why and waking the release engineer automatically the
+   moment it clears — nobody has to remember to retry it: the component's
+   delivery profile is not confirmed yet (nothing knows whether merging this
+   deploys it); on an `on_merge` component, the task declares a task that
+   must ship first (`deploy_depends_on`) and that task is not live yet; or,
+   also on `on_merge`, the task carries `before_deploy` steps a human has not
+   confirmed (see **Before you ship**, below).
 2. **The deploy happens** — immediately for `on_merge`, or once the release
    engineer dispatches it for `dispatch`/a cut batch release.
 3. **A soak window runs.** A system sweeper — no agent, no tokens spent —
@@ -188,19 +193,27 @@ smoke check, a health check gone red, or new runtime error groups tied to
 the change — never a hunch, and it always does two things:
 
 1. **Reverts the change on the default branch** (a `git revert` of the
-   merge commits, pushed) — this always happens, so the next release cannot
-   ship the same bad code again.
-2. **Restores production as fast as it can.** If the component's bound
-   production environment is on a provider TaskTrooper can roll back
-   natively (Vercel, Google Cloud Run — see **Provider write scopes**,
-   below), that runs FIRST, in seconds. Otherwise (or in addition, for an
-   `on_merge` component, to re-enable automatic deploys afterward) the
-   previous good version is redeployed, or the revert's own push simply
-   redeploys on merge. A `batch` release (desktop, mobile) is the exception:
+   merge commits, newest first, pushed) — this always happens, so the next
+   release cannot ship the same bad code again.
+2. **Restores production as fast as it can.** For an `on_merge` component
+   only, if the bound production environment is on a provider TaskTrooper
+   can roll back natively (Vercel, Google Cloud Run — see **Provider write
+   scopes**, below), that runs FIRST, in seconds — its own success is taken
+   as proof production is restored — before the revert lands; TaskTrooper
+   then waits for the revert's own deploy to go live and re-enables that
+   provider's automatic deploys, which the instant rollback turns off. A
+   `dispatch` component always redeploys the previous good version instead
+   (its own redeploy would undo an instant rollback immediately), and an
+   `on_merge` component with no instant path simply lets the revert's own
+   push redeploy it. A `batch` release (desktop, mobile) is the exception:
    nothing is redeployed at all, because a published desktop build or an
    app-store submission cannot be unpublished by a revert — the rollback's
    manual steps then lead with unpublishing or halting that artifact
    yourself.
+
+A rollback is refused — nothing reverted, nothing redeployed — while a newer
+release of the same component is already open or has already shipped; roll
+that one back (or resolve it) first.
 
 If the profile's `auto_rollback` is off, nothing is executed automatically:
 the release engineer writes up the proposal as a comment on the task, and a
@@ -247,9 +260,16 @@ From there it deploys through whichever **executor** the profile names:
 
 | Executor | What cutting does |
 |---|---|
-| `github_actions` | Tags the cut commit; your own tag-triggered workflow builds and publishes it. A version that was already released refuses to re-cut, rather than silently overwriting it. |
-| `local` | Runs the profile's build-and-publish command on this machine, in a clean detached checkout of the cut commit, and logs it — the release drawer shows the exit code and the log tail. |
+| `github_actions` | Tags the cut commit; your own tag-triggered workflow builds and publishes it. A version that was already tagged refuses to re-cut with it again, rather than silently overwriting it. |
+| `local` | Runs the profile's build-and-publish command on this machine, in a clean detached checkout of the cut commit, and logs it — the release drawer shows the exit code and the log tail. Quitting TaskTrooper while it runs is reported as interrupted, not as a failed command, so you know to check what actually got published before trying again. |
 | `store` | Starts an App Store / Google Play release build for every platform the repository has a linked app for (see [Mobile devices and store releases](mobile-releases.md)). |
+
+If a deploy never actually starts (a tag that already exists, a network
+hiccup, every store platform failing to start), the release simply goes back
+to waiting to be cut — the Deploy tab shows it as a second pinned row next to
+the draft, **Re-cut**, so you can try again with a different version without
+losing the tasks it carries; a new draft keeps collecting merges in the
+meantime, independently.
 
 A cut batch release still goes through the same soak-and-verdict flow as
 any other — most desktop/mobile components simply have no bound runtime
