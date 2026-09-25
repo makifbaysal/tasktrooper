@@ -160,7 +160,7 @@ func (s *Service) freeStrandedPark(ctx context.Context, parked domain.BoardTask)
 }
 
 // rewakeUnparkedHandBacks re-sends a hand-back nothing is parked to receive:
-// handBackDue (N5) reads the persisted bookkeeping straight off each release
+// handBackDue reads the persisted bookkeeping straight off each release
 // row rather than a process-memory map, so this survives a desktop relaunch
 // and behaves the same across every sweeper instance.
 func (s *Service) rewakeUnparkedHandBacks(ctx context.Context, parkedTaskIDs map[uuid.UUID]bool) {

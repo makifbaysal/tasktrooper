@@ -550,7 +550,7 @@ func (s *ReleaseStoreSuite) TestListHonoursALimitAboveTheOldHundredCap() {
 	s.Require().Len(got, total, "a limit above the old 100-row cap must not be clamped down to it")
 }
 
-// N5: HandBackCount/LastHandBackAt persist on the row across a Create default
+// HandBackCount/LastHandBackAt persist on the row across a Create default
 // and an Update round trip — the hand-back watchdog's cooldown and cap must
 // survive a desktop relaunch, not live only in the sweeper's process memory.
 func (s *ReleaseStoreSuite) TestUpdateRoundTripsHandBackBookkeeping() {
@@ -580,7 +580,7 @@ func (s *ReleaseStoreSuite) TestUpdateRoundTripsHandBackBookkeeping() {
 	s.Require().NotNil(reread.LastHandBackAt)
 }
 
-// N5: MarkAgentSeen is the sole writer of agent_seen_at — an Update built
+// MarkAgentSeen is the sole writer of agent_seen_at — an Update built
 // from a copy read before an agent's ForAgent call landed must not carry a
 // stale (nil) AgentSeenAt back over it, or the hand-back watchdog would treat
 // an actively-worked release as dropped.

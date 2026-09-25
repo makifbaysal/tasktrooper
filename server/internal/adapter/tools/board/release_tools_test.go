@@ -163,7 +163,7 @@ func TestGetReleaseToolReportsNextStepPerStatus(t *testing.T) {
 	}
 }
 
-// N5: every release tool must resolve its release through ForAgent (which
+// Every release tool must resolve its release through ForAgent (which
 // stamps AgentSeenAt) rather than ForTask directly — the hand-back
 // watchdog's AgentSeenAt gate depends on a live tool call making that
 // distinction, and only ForAgent does.

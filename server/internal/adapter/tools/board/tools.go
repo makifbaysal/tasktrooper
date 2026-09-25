@@ -83,7 +83,7 @@ type ReleaseService interface {
 	// ForAgent is ForTask stamped with AgentSeenAt — release_tools.go's
 	// resolveRelease resolves every release tool through this, not ForTask,
 	// so the hand-back watchdog's AgentSeenAt gate sees a live agent call
-	// (N5). get_deploy_logs's release fallback still uses plain ForTask: it
+	//. get_deploy_logs's release fallback still uses plain ForTask: it
 	// is a read of another task's release, not the agent working this one.
 	ForAgent(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Release, error)

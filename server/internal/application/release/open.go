@@ -213,7 +213,7 @@ func (s *Service) repoRootPath(ctx context.Context, repositoryID uuid.UUID) (str
 // supersedeRelease marks `open` superseded now that `newReleaseID` already
 // carries its tasks (L5: Create ran first). A conditional Update losing the
 // race means something else already moved `open` on (another supersede, a
-// sweep settling it) — retrySupersedeRace (N12) decides what that means for
+// sweep settling it) — retrySupersedeRace decides what that means for
 // its tasks.
 func (s *Service) supersedeRelease(ctx context.Context, open domain.Release, newReleaseID uuid.UUID, newVersion string) {
 	expect := open.Status
@@ -231,7 +231,7 @@ func (s *Service) supersedeRelease(ctx context.Context, open domain.Release, new
 	s.retrySupersedeRace(ctx, open.ID, newReleaseID, newVersion, true)
 }
 
-// retrySupersedeRace handles a lost CAS on marking `open` superseded (N12):
+// retrySupersedeRace handles a lost CAS on marking `open` superseded:
 // re-read what it is now.
 //   - Still Open() — a sweep transition or another AddTasks landed between
 //     the read and the CAS, not a resolution. Retry the supersede transition
@@ -423,7 +423,7 @@ func (s *Service) OpenPending(ctx context.Context, repositoryID, componentID uui
 		return opened, nil
 	}
 
-	// N6: an on_merge catch-up must ship exactly what these waiting tasks'
+	// An on_merge catch-up must ship exactly what these waiting tasks'
 	// own merge commits cover — RemoteHead can be ahead of them (another
 	// component's merge landed since, or the remote simply moved), which
 	// would misreport what shipped. dispatch has no such commit to watch; it
@@ -500,7 +500,7 @@ func (s *Service) supersedeIfEmptyDraft(ctx context.Context, releaseID uuid.UUID
 	}
 }
 
-// newestWaitingTaskIndex (N6) picks, among `waiting`, the task whose own
+// newestWaitingTaskIndex picks, among `waiting`, the task whose own
 // merge commit is newest in GIT order — board order is not git order: a
 // human can drag cards around, and OpenPending's caller does not guarantee
 // `waiting` is sorted by merge time. Pairwise IsAncestor against a running

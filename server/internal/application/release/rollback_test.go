@@ -956,7 +956,7 @@ func TestSweepRollingBackFailsAnAbandonedClaimAfterTheGraceWindow(t *testing.T) 
 	assert.Contains(t, got.FailureReason, "server may have restarted")
 }
 
-// N9: the abandoned-claim check is judged from ProgressAt when a side effect
+// The abandoned-claim check is judged from ProgressAt when a side effect
 // has already landed, not from the original StartedAt — a rollback whose
 // provider leg reported progress a minute ago must not be failed just
 // because it started 20 minutes ago.

@@ -1113,7 +1113,7 @@ func (s *DispatcherSuite) TestReleasedDoesNotDispatch() {
 	s.Empty(s.runner.jobs)
 }
 
-// N7: dependents must wake on ANY move to released — Finish is not the only
+// Dependents must wake on ANY move to released — Finish is not the only
 // door into it (openNone, a human dragging the card) — so the hook fires
 // even though released is a dispatch-suspended column that starts no agent
 // run of its own (see TestReleasedDoesNotDispatch).

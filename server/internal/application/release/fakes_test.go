@@ -878,7 +878,7 @@ func (f *fakeDeployStatus) StatusForCommitSince(_ context.Context, _ uuid.UUID, 
 }
 
 // MarkAgentSeen is release.Service.ForAgent's out-of-band AgentSeenAt write
-// (N5). The real postgres store excludes agent_seen_at from Update's SET
+// . The real postgres store excludes agent_seen_at from Update's SET
 // clause so a stale copy can never clobber it; this in-memory fake does not
 // need that same care because every caller in this package's tests passes
 // Update a release it just read (its AgentSeenAt is already current) — the

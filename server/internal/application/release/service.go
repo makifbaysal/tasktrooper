@@ -326,7 +326,7 @@ func (s *Service) SetURLPolicy(p urlguard.Policy) { s.policy = p }
 
 // ForAgent is ForTask stamped with AgentSeenAt: every release tool
 // (adapter/tools/board/release_tools.go) resolves through this, not ForTask
-// directly, because the hand-back watchdog's re-wake gate (N5) reads
+// directly, because the hand-back watchdog's re-wake gate reads
 // AgentSeenAt to tell "an agent is actively looking at this" apart from "the
 // hand-back dispatch was dropped" — only a live tool call can make that
 // distinction, a background read cannot.

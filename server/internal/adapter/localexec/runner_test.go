@@ -290,7 +290,7 @@ func TestRunnerCloseStopsWaitingOnceItsContextIsDone(t *testing.T) {
 }
 
 // TestRunnerRegistersTheRunBeforeTheSlowWorktreeAddSoCloseCannotMissIt is
-// N8: before the fix, Start only added the run to the active set after
+// Ubefore the fix, Start only added the run to the active set after
 // cmd.Start() succeeded — well after the (potentially slow) worktree add. A
 // Close racing a Start still inside that add would see an empty active set
 // and return immediately, believing shutdown had nothing left to stop, while

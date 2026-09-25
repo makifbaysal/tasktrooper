@@ -277,7 +277,7 @@ func TestOpenPendingOpensReleasesForAlreadyMergedDoneTasks(t *testing.T) {
 	assert.Len(t, f.store.releases, 1)
 }
 
-// N6: the on_merge catch-up must ship the newest waiting task's own merge
+// The on_merge catch-up must ship the newest waiting task's own merge
 // commit in GIT order, never RemoteHead (which can be ahead of what these
 // tasks actually cover) and never mere board/list order (ListTasks makes no
 // ordering promise). Both waiting tasks are merged; only git.ancestors says
@@ -463,7 +463,7 @@ func TestSupersedeReleaseCarriesTasksForwardWhenTheRaceIsLost(t *testing.T) {
 	assert.Equal(t, domain.ReleaseFailed, stillFailed.Status, "the race winner's status must not be overwritten")
 }
 
-// N12: when the lost-supersede race lands the old release in a TERMINAL
+// When the lost-supersede race lands the old release in a TERMINAL
 // status (released/rolled_back/superseded), it already has its own
 // resolution for its tasks — pulling them into the new release too would
 // contradict that resolution, so they must NOT be carried forward.
@@ -501,7 +501,7 @@ func TestSupersedeReleaseDoesNotCarryTasksWhenTheRaceWinnerIsTerminal(t *testing
 	assert.Equal(t, domain.ReleaseReleased, stillReleased.Status, "the race winner's own terminal status must not be overwritten")
 }
 
-// N12: when the race winner is still Open() (a sweep transition landed
+// When the race winner is still Open() (a sweep transition landed
 // between openReleaseToSupersede's read and the CAS, not a resolution), the
 // supersede transition is retried once, and it succeeds this time.
 func TestSupersedeReleaseRetriesOnceWhenTheRaceWinnerIsStillOpen(t *testing.T) {

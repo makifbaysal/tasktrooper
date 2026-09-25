@@ -16,7 +16,7 @@ import (
 // task still in done or released is woken instead — a task a human
 // already moved elsewhere (need_revision, blocked) is left alone; that move
 // is the human's decision, not something a stale release verdict should
-// override. Every call stamps the persisted hand-back bookkeeping first (N5),
+// override. Every call stamps the persisted hand-back bookkeeping first,
 // whether or not a card was actually parked to claim — the watchdog's
 // cooldown/cap is about "how many times has this been handed back", not
 // "how many times did a park exist to claim".
@@ -65,7 +65,7 @@ func (s *Service) handBack(ctx context.Context, r domain.Release) {
 }
 
 // stampHandBack persists that a hand-back to the agent was attempted —
-// HandBackCount/LastHandBackAt on the row (N5), not process memory, so the
+// HandBackCount/LastHandBackAt on the row, not process memory, so the
 // watchdog's cooldown and cap survive a desktop relaunch and are shared by
 // every sweeper instance. A lost race (something else moved the release
 // meanwhile) is not retried: the release will be picked up fresh on the next

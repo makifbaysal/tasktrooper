@@ -2289,6 +2289,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 						}
 					})
 				}
+				if boardDispatcher != nil {
+					boardDispatcher.SetTaskReleasedHook(releaseSvc.WakeDeployDependentsOf)
+				}
 				activateBoard = append(activateBoard, func() {
 					releaseSvc.Start(ctx, releaseapp.DefaultSweepInterval)
 				})

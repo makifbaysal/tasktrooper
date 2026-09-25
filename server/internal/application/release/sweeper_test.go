@@ -422,7 +422,7 @@ func TestSweepStopsRewakingAnAwaitingVerdictReleaseAfterSixTimes(t *testing.T) {
 	assert.Len(t, f.waker.calls, 1, "a release already re-woken six times must not be woken a seventh")
 }
 
-// N5: a release that has never been handed back through the sweeper's own
+// A release that has never been handed back through the sweeper's own
 // handBack (LastHandBackAt unset) is not something the watchdog invents a
 // first hand-back for — a release only reaches awaiting_verdict/failed
 // through a transition that already calls handBack itself.
@@ -439,7 +439,7 @@ func TestSweepDoesNotRewakeAReleaseThatWasNeverHandedBack(t *testing.T) {
 	assert.Empty(t, f.waker.calls, "nothing was ever handed back for this release; the watchdog must not invent one")
 }
 
-// N5: once an agent has looked at the release (AgentSeenAt, stamped by
+// Once an agent has looked at the release (AgentSeenAt, stamped by
 // Service.ForAgent — every release tool call) since the last hand-back, the
 // watchdog leaves it alone: whatever is slow is the agent's own turn, not a
 // dropped dispatch.
@@ -463,7 +463,7 @@ func TestSweepDoesNotRewakeWhenTheAgentHasSeenItSinceTheHandBack(t *testing.T) {
 	assert.Empty(t, f.waker.calls, "an agent already looked at it after the hand-back; the watchdog must not re-wake it")
 }
 
-// N5: a release nothing has touched in more than a day is not something the
+// A release nothing has touched in more than a day is not something the
 // watchdog keeps pestering forever either — by then it is someone else's job
 // to notice, not the sweeper's.
 func TestSweepDoesNotRewakeAReleaseNotUpdatedInTheLastDay(t *testing.T) {
