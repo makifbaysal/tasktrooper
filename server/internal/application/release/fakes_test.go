@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -21,6 +22,9 @@ type fakeReleaseStore struct {
 	releases  map[uuid.UUID]domain.Release
 	createErr error
 	updateErr error
+	// failCreateTimes makes the next N Create calls fail (then succeed),
+	// simulating idx_releases_one_draft rejecting a losing racer's insert.
+	failCreateTimes int
 }
 
 func newFakeReleaseStore() *fakeReleaseStore {
@@ -32,6 +36,18 @@ func (f *fakeReleaseStore) Create(_ context.Context, r domain.Release, taskIDs [
 	defer f.mu.Unlock()
 	if f.createErr != nil {
 		return domain.Release{}, f.createErr
+	}
+	if f.failCreateTimes > 0 {
+		f.failCreateTimes--
+		// Model what a real unique-violation on idx_releases_one_draft means:
+		// a concurrent racer's insert already committed and is now visible to
+		// a re-read, which is exactly what openBatch does after a failed
+		// Create.
+		winner := r
+		winner.ID = uuid.New()
+		winner.Tasks = nil
+		f.releases[winner.ID] = winner
+		return domain.Release{}, fmt.Errorf("duplicate key value violates unique constraint %q", "idx_releases_one_draft")
 	}
 	r.ID = uuid.New()
 	r.Tasks = nil
@@ -553,6 +569,131 @@ func alwaysCIUnavailable(string) bool { return true }
 func neverCIUnavailable(string) bool { return false }
 
 func alwaysRefExists(error) bool { return true }
+
+// fakeGit is release.Git.
+type isAncestorCall struct{ ancestor, descendant string }
+
+type fakeGit struct {
+	mu   sync.Mutex
+	head string
+	// ancestors maps a sha to whether it is an ancestor of the head passed to
+	// IsAncestor; a sha absent from the map is treated as NOT an ancestor
+	// (never seen on the default branch), matching a merge commit that never
+	// landed rather than an error.
+	ancestors map[string]bool
+	tag       string
+
+	headErr       error
+	isAncestorErr error
+	tagErr        error
+
+	isAncestorCalls []isAncestorCall
+}
+
+func newFakeGit() *fakeGit {
+	return &fakeGit{ancestors: map[string]bool{}}
+}
+
+func (f *fakeGit) RemoteHead(context.Context, string) (string, error) {
+	if f.headErr != nil {
+		return "", f.headErr
+	}
+	return f.head, nil
+}
+
+func (f *fakeGit) IsAncestor(_ context.Context, _, ancestor, descendant string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.isAncestorCalls = append(f.isAncestorCalls, isAncestorCall{ancestor, descendant})
+	if f.isAncestorErr != nil {
+		return false, f.isAncestorErr
+	}
+	return f.ancestors[ancestor], nil
+}
+
+func (f *fakeGit) LatestTag(context.Context, string, string) (string, error) {
+	if f.tagErr != nil {
+		return "", f.tagErr
+	}
+	return f.tag, nil
+}
+
+// fakeLocalRunner is release.LocalRunner: it does not actually run anything —
+// it records the spec and lets the test call the done callback itself,
+// whenever it wants (synchronously, no goroutine race in the test).
+type fakeLocalRunner struct {
+	mu       sync.Mutex
+	startErr error
+	specs    []LocalRunSpec
+	dones    []func(exitCode int, tail string, err error)
+}
+
+func (f *fakeLocalRunner) Start(_ context.Context, spec LocalRunSpec, done func(exitCode int, tail string, err error)) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.startErr != nil {
+		return f.startErr
+	}
+	f.specs = append(f.specs, spec)
+	f.dones = append(f.dones, done)
+	return nil
+}
+
+// fakeStoreOps is release.Store (the storeops slice).
+type fakeStoreBuildCall struct {
+	repositoryID            uuid.UUID
+	platform, engine, actor string
+}
+
+type fakeStoreOps struct {
+	mu     sync.Mutex
+	apps   map[uuid.UUID][]domain.MobileStoreApp
+	tracks map[string]domain.StoreTracks // key: repositoryID|platform
+	// startErr, keyed by platform, fails StartBuild for just that platform.
+	startErr map[string]error
+	// tracksErr, keyed by platform, fails Tracks for just that platform.
+	tracksErr map[string]error
+
+	startCalls []fakeStoreBuildCall
+}
+
+func newFakeStoreOps() *fakeStoreOps {
+	return &fakeStoreOps{
+		apps:      map[uuid.UUID][]domain.MobileStoreApp{},
+		tracks:    map[string]domain.StoreTracks{},
+		startErr:  map[string]error{},
+		tracksErr: map[string]error{},
+	}
+}
+
+func (f *fakeStoreOps) trackKey(repositoryID uuid.UUID, platform string) string {
+	return repositoryID.String() + "|" + platform
+}
+
+func (f *fakeStoreOps) setTracks(repositoryID uuid.UUID, platform string, t domain.StoreTracks) {
+	f.tracks[f.trackKey(repositoryID, platform)] = t
+}
+
+func (f *fakeStoreOps) AppsByRepository(_ context.Context, repositoryID uuid.UUID) ([]domain.MobileStoreApp, error) {
+	return f.apps[repositoryID], nil
+}
+
+func (f *fakeStoreOps) Tracks(_ context.Context, repositoryID uuid.UUID, platform string) (domain.StoreTracks, error) {
+	if err := f.tracksErr[platform]; err != nil {
+		return domain.StoreTracks{}, err
+	}
+	return f.tracks[f.trackKey(repositoryID, platform)], nil
+}
+
+func (f *fakeStoreOps) StartBuild(_ context.Context, repositoryID uuid.UUID, platform, engine, actor string) (storeops.BuildStart, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.startCalls = append(f.startCalls, fakeStoreBuildCall{repositoryID, platform, engine, actor})
+	if err := f.startErr[platform]; err != nil {
+		return storeops.BuildStart{}, err
+	}
+	return storeops.BuildStart{Platform: platform, Engine: "github_actions"}, nil
+}
 
 // fakeDeployTargets is the legacy port.DeployTargetStore fallback.
 type fakeDeployTargets struct {

@@ -394,3 +394,100 @@ func (s *ReleaseStoreSuite) TestAddTasksIdempotentAndRemoveTask() {
 	s.Require().Len(after.Tasks, 1)
 	s.Equal(taskB.ID, after.Tasks[0].ID)
 }
+
+func batchTestProfile(executor domain.DeliveryExecutor) domain.ComponentDelivery {
+	return domain.ComponentDelivery{
+		Mode:         domain.DeliveryBatch,
+		Executor:     executor,
+		TagPattern:   "v{version}",
+		LocalCommand: "./release.sh {version}",
+		Verify:       domain.DeliveryVerify{SoakMinutes: 10},
+	}
+}
+
+// A draft carries no local_run/store_builds/cut_at yet: they must round-trip
+// as nil/empty, not as JSON null errors — the same shape
+// TestCreateWithoutComponentOrDeployRoundTrips checks for deploy/rollback.
+func (s *ReleaseStoreSuite) TestDraftHasNoLocalRunStoreBuildsOrCutAt() {
+	task := s.newTask(domain.TaskColumnDone)
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Mode: domain.DeliveryBatch,
+		Executor: domain.ExecutorLocal, Status: domain.ReleaseDraft,
+		Profile: batchTestProfile(domain.ExecutorLocal),
+	}, []uuid.UUID{task.ID})
+	s.Require().NoError(err)
+	s.Nil(created.LocalRun)
+	s.Empty(created.StoreBuilds)
+	s.Nil(created.CutAt)
+
+	got, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Nil(got.LocalRun)
+	s.Empty(got.StoreBuilds)
+	s.Nil(got.CutAt)
+}
+
+// Cutting and deploying a batch release writes local_run, store_builds and
+// cut_at, and a later Update (the local runner's completion callback, the
+// store sweeper recording a new build) must round-trip every field of both.
+func (s *ReleaseStoreSuite) TestLocalRunAndStoreBuildsAndCutAtRoundTrip() {
+	task := s.newTask(domain.TaskColumnDone)
+	cutAt := time.Now().UTC().Truncate(time.Millisecond)
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Version: "1.2.0", Mode: domain.DeliveryBatch,
+		Executor: domain.ExecutorLocal, Status: domain.ReleasePending, CommitSHA: "cut0001aaa", Tag: "v1.2.0",
+		Profile: batchTestProfile(domain.ExecutorLocal), CutAt: &cutAt,
+	}, []uuid.UUID{task.ID})
+	s.Require().NoError(err)
+	s.Require().NotNil(created.CutAt)
+	s.WithinDuration(cutAt, *created.CutAt, time.Second)
+
+	startedAt := time.Now().UTC().Truncate(time.Millisecond)
+	deploying := created
+	deploying.Status = domain.ReleaseDeploying
+	deploying.LocalRun = &domain.ReleaseLocalRun{
+		Argv: []string{"./release.sh", "1.2.0"}, LogPath: "/data/releases/x.log", StartedAt: startedAt,
+	}
+	updated, err := s.store.Update(s.ctx, deploying, domain.ReleasePending)
+	s.Require().NoError(err)
+	s.Require().NotNil(updated.LocalRun)
+	s.Equal([]string{"./release.sh", "1.2.0"}, updated.LocalRun.Argv)
+	s.Nil(updated.LocalRun.ExitCode)
+
+	finishedAt := startedAt.Add(time.Minute)
+	exitCode := 0
+	completed := updated
+	completed.LocalRun.ExitCode = &exitCode
+	completed.LocalRun.FinishedAt = &finishedAt
+	completed.LocalRun.Tail = "build ok\npublished"
+	completed.Deploy = &domain.DeployWatchStatus{State: domain.DeployWatchSuccess, Signal: "local_run"}
+	final, err := s.store.Update(s.ctx, completed, domain.ReleaseDeploying)
+	s.Require().NoError(err)
+
+	got, err := s.store.Get(s.ctx, final.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.LocalRun)
+	s.Require().NotNil(got.LocalRun.ExitCode)
+	s.Equal(0, *got.LocalRun.ExitCode)
+	s.Require().NotNil(got.LocalRun.FinishedAt)
+	s.WithinDuration(finishedAt, *got.LocalRun.FinishedAt, time.Second)
+	s.Equal("build ok\npublished", got.LocalRun.Tail)
+	s.Require().NotNil(got.Deploy)
+	s.Equal(domain.DeployWatchSuccess, got.Deploy.State)
+
+	storeBuilds := got
+	storeBuilds.StoreBuilds = []domain.ReleaseStoreBuild{
+		{Platform: "ios", Engine: "github_actions", BaselineBuild: "10", Build: "11"},
+		{Platform: "android", Error: "no engine available"},
+	}
+	storeBuilds.Status = domain.ReleaseVerifying
+	savedBuilds, err := s.store.Update(s.ctx, storeBuilds, domain.ReleaseDeploying)
+	s.Require().NoError(err)
+	s.Require().Len(savedBuilds.StoreBuilds, 2)
+
+	gotBuilds, err := s.store.Get(s.ctx, final.ID)
+	s.Require().NoError(err)
+	s.Require().Len(gotBuilds.StoreBuilds, 2)
+	s.Equal("11", gotBuilds.StoreBuilds[0].Build)
+	s.Equal("no engine available", gotBuilds.StoreBuilds[1].Error)
+}

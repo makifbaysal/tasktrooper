@@ -11,8 +11,10 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// Deploy dispatches a dispatch-mode release's deploy workflow at the release
-// tag. on_merge releases have no deploy step: the merge itself deployed.
+// Deploy triggers a pending release's deploy: a dispatch-mode release's deploy
+// workflow at the release tag, or (batch) whichever of the three cut
+// executors the profile names. on_merge releases have no deploy step: the
+// merge itself deployed.
 func (s *Service) Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor) (domain.Release, error) {
 	r, err := s.store.Get(ctx, releaseID)
 	if err != nil {
@@ -22,11 +24,18 @@ func (s *Service) Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.
 		return domain.Release{}, fmt.Errorf("%w: deploy_release only applies to a pending release (this one is %s)",
 			domain.ErrReleaseWrongStatus, r.Status)
 	}
-	if r.Mode != domain.DeliveryDispatch {
+	switch r.Mode {
+	case domain.DeliveryDispatch:
+		return s.deployDispatch(ctx, r, actor)
+	case domain.DeliveryBatch:
+		return s.deployBatch(ctx, r, actor)
+	default:
 		return domain.Release{}, fmt.Errorf("%w: %s releases have no deploy step to trigger — the merge (or its own executor) deploys them",
 			domain.ErrReleaseNoDeploy, r.Mode)
 	}
+}
 
+func (s *Service) deployDispatch(ctx context.Context, r domain.Release, actor domain.ReleaseActor) (domain.Release, error) {
 	repo, err := s.repo(ctx, r.RepositoryID)
 	if err != nil {
 		return domain.Release{}, err
@@ -50,6 +59,36 @@ func (s *Service) Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.
 	}
 	_ = actor
 	return updated, nil
+}
+
+// deployBatchGitHubActions tags the cut commit and stops: the repository's own
+// tag-triggered workflow does the build/publish, and a batch release never
+// dispatches. Unlike dispatch mode, a tag that already exists is refused
+// rather than treated as success — a batch version is picked once at cut time
+// and must not be silently re-used for a different commit.
+func (s *Service) deployBatchGitHubActions(ctx context.Context, r domain.Release) (domain.Release, error) {
+	repo, err := s.repo(ctx, r.RepositoryID)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	if s.actions == nil || s.coords == nil {
+		return domain.Release{}, fmt.Errorf("this deployment has no GitHub Actions access configured")
+	}
+	owner, name, err := s.coords(ctx, repo)
+	if err != nil {
+		return domain.Release{}, fmt.Errorf("resolving the repository's GitHub owner/name: %w", err)
+	}
+	if terr := s.actions.CreateTag(ctx, owner, name, r.Tag, r.CommitSHA); terr != nil {
+		if s.refAlreadyExists(terr) {
+			return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrReleaseTagExists, r.Tag)
+		}
+		return domain.Release{}, fmt.Errorf("tag the release commit: %w", terr)
+	}
+
+	now := s.now()
+	r.Status = domain.ReleaseDeploying
+	r.DeployStartedAt = &now
+	return s.store.Update(ctx, r, domain.ReleasePending)
 }
 
 func (s *Service) failPending(ctx context.Context, r domain.Release, reason string) (domain.Release, error) {

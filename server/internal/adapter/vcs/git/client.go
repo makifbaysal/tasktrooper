@@ -265,6 +265,71 @@ func truncateForLog(s string) string {
 	return s[:max] + " …(truncated)"
 }
 
+// RemoteHead resolves the default branch's head commit on origin — a fetch
+// plus a rev-parse, never touching rootPath's working tree or index.
+func (c *Client) RemoteHead(ctx context.Context, rootPath string) (string, error) {
+	if err := c.FetchLatest(ctx, rootPath); err != nil {
+		return "", fmt.Errorf("git fetch: %w", err)
+	}
+	branch := c.DefaultBranch(ctx, rootPath)
+	if branch == "" {
+		return "", fmt.Errorf("git: origin's default branch could not be resolved")
+	}
+	sha := c.revParse(ctx, rootPath, "origin/"+branch)
+	if sha == "" {
+		return "", fmt.Errorf("git: origin/%s could not be resolved to a commit", branch)
+	}
+	return sha, nil
+}
+
+// IsAncestor reports whether ancestor is reachable from descendant
+// (`git merge-base --is-ancestor`) — read-only, no fetch of its own: callers
+// that need descendant fresh resolve it first (RemoteHead already fetches).
+func (c *Client) IsAncestor(ctx context.Context, rootPath, ancestor, descendant string) (bool, error) {
+	ancestor = strings.TrimSpace(ancestor)
+	descendant = strings.TrimSpace(descendant)
+	if ancestor == "" || descendant == "" {
+		return false, fmt.Errorf("git merge-base --is-ancestor: both commits are required")
+	}
+	out, err := c.run(ctx, rootPath, "git", "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("git merge-base --is-ancestor: %w (%s)", err, strings.TrimSpace(out))
+}
+
+// LatestTag is the newest tag matching glob (by version-aware sort — two tags
+// cut moments apart must not tie on creation-date granularity), fetched fresh
+// from origin first so a tag pushed by another process is seen; "" with a nil
+// error means no matching tag exists yet.
+func (c *Client) LatestTag(ctx context.Context, rootPath, glob string) (string, error) {
+	glob = strings.TrimSpace(glob)
+	if glob == "" {
+		glob = "*"
+	}
+	args := []string{"fetch", "--prune", "--tags", "origin"}
+	if tok := c.token(ctx); tok != "" {
+		args = append(authFlags(tok), args...)
+	}
+	if out, err := c.run(ctx, rootPath, "git", args...); err != nil {
+		return "", fmt.Errorf("git fetch --tags: %w (%s)", err, strings.TrimSpace(out))
+	}
+	out, err := c.run(ctx, rootPath, "git", "tag", "--list", glob, "--sort=-v:refname")
+	if err != nil {
+		return "", fmt.Errorf("git tag --list: %w (%s)", err, strings.TrimSpace(out))
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if tag := strings.TrimSpace(line); tag != "" {
+			return tag, nil
+		}
+	}
+	return "", nil
+}
+
 func (c *Client) EnsureTaskWorkspace(ctx context.Context, projectRoot, workspacePath, branch string) error {
 	if c.HasGit(workspacePath) {
 		return c.refreshTaskWorkspace(ctx, projectRoot, workspacePath, branch)

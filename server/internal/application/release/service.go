@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -95,6 +96,48 @@ type IncidentIngester interface {
 	Ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, error)
 }
 
+// Git is the read-only surface a batch cut needs: the default branch's remote
+// head, whether a task's merge commit is on it, and the newest tag matching a
+// glob (the previous version, when nothing was ever released through this
+// service). All three run read-only plumbing and never touch rootPath's
+// working tree or index — see git.Client's doc comments on
+// RemoteHead/IsAncestor/LatestTag.
+type Git interface {
+	RemoteHead(ctx context.Context, rootPath string) (string, error)
+	IsAncestor(ctx context.Context, rootPath, ancestor, descendant string) (bool, error)
+	LatestTag(ctx context.Context, rootPath, glob string) (string, error)
+}
+
+// LocalRunSpec is one batch release's local build-and-publish command.
+type LocalRunSpec struct {
+	RootPath  string
+	CommitSHA string
+	Argv      []string
+	Env       []string
+	LogPath   string
+	Timeout   time.Duration
+}
+
+// LocalRunner runs a batch release's local command in a detached worktree of
+// CommitSHA. Start returns once the process has started (or failed to) so the
+// caller can record it immediately; done runs later, from a goroutine, once
+// the process exits or is killed on timeout. Implemented by
+// adapter/localexec.Runner.
+type LocalRunner interface {
+	Start(ctx context.Context, run LocalRunSpec, done func(exitCode int, tail string, err error)) error
+}
+
+// Store is the storeops slice a batch store release needs: the repository's
+// linked apps, a fresh read of their tracks (the baseline/new internal-channel
+// build), and starting a release build. Named Store (not StoreOps) in Deps
+// would collide with the ReleaseStore field, so it is StoreOps there; the
+// interface itself is satisfied directly by *storeops.Service.
+type Store interface {
+	AppsByRepository(ctx context.Context, repositoryID uuid.UUID) ([]domain.MobileStoreApp, error)
+	Tracks(ctx context.Context, repositoryID uuid.UUID, platform string) (domain.StoreTracks, error)
+	StartBuild(ctx context.Context, repositoryID uuid.UUID, platform, engine, actor string) (storeops.BuildStart, error)
+}
+
 // Deps wires the release service. Every field is optional except Store: a
 // nil dependency degrades its feature (no component resolved, no HTTP
 // probing, no rollback dispatch) rather than panicking, the same contract
@@ -116,6 +159,16 @@ type Deps struct {
 	Reverter      Reverter
 	Repos         Repos
 	Incidents     IncidentIngester
+
+	// Git, LocalRunner, StoreOps and DataDir are only needed for batch
+	// releases (cut preview/cut, and the three batch executors); nil/empty
+	// degrades the same way the rest of Deps does.
+	Git         Git
+	LocalRunner LocalRunner
+	StoreOps    Store
+	// DataDir is the root a local batch release's log file is written under
+	// (releases/<release-id>.log).
+	DataDir string
 
 	// RepoCoordinates resolves a repository to its GitHub owner/name, the
 	// same func type deploywatch.Deps.RepoCoordinates takes (see
@@ -156,6 +209,11 @@ type Service struct {
 	repos        Repos
 	incidents    IncidentIngester
 
+	git         Git
+	localRunner LocalRunner
+	storeOps    Store
+	dataDir     string
+
 	coords func(ctx context.Context, repo domain.Repository) (string, string, error)
 
 	refAlreadyExists func(err error) bool
@@ -184,6 +242,10 @@ func New(d Deps) *Service {
 		reverter:         d.Reverter,
 		repos:            d.Repos,
 		incidents:        d.Incidents,
+		git:              d.Git,
+		localRunner:      d.LocalRunner,
+		storeOps:         d.StoreOps,
+		dataDir:          d.DataDir,
 		coords:           d.RepoCoordinates,
 		refAlreadyExists: d.IsRefAlreadyExists,
 		ciUnavailable:    d.IsCIUnavailableText,

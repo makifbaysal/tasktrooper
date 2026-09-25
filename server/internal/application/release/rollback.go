@@ -91,6 +91,10 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		StartedAt:   s.now(),
 	}
 
+	if r.Mode == domain.DeliveryBatch {
+		return s.finishBatchRollback(ctx, r, expect, rollback)
+	}
+
 	if r.DeployedAt == nil && r.Status == domain.ReleaseFailed {
 		rollback.Mechanism = domain.RollbackMechanismRevert
 		rollback.RestoredRef = revertSHA
