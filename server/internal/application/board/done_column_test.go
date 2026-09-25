@@ -43,6 +43,23 @@ func TestDoneInstructionIsAboutMergingAndNeverAboutReleasing(t *testing.T) {
 	assert.Contains(t, instruction, "do NOT move this task to `released`")
 }
 
+func TestDoneInstructionCoversBatchReleases(t *testing.T) {
+	instruction := columnInstruction(taskWF, domain.BoardTask{
+		Column:   domain.TaskColumnDone,
+		TaskType: "task",
+	})
+
+	for _, want := range []string{
+		"joined the component's draft release",
+		"a human just cut this release",
+		"no bound runtime environment",
+		"only reverts the default branch",
+		"local_run.tail",
+	} {
+		assert.Contains(t, instruction, want)
+	}
+}
+
 func TestDoneInstructionForAnalizIsUnchanged(t *testing.T) {
 	instruction := columnInstruction(analizWF, domain.BoardTask{
 		Column:   domain.TaskColumnDone,

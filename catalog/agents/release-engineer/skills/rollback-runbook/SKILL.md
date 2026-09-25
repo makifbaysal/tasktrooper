@@ -9,8 +9,9 @@ description: What a rollback mechanism restores, what it cannot, and how to work
 
 - **`dispatch`** — the previous good release's commit is tagged and the deploy workflow is dispatched at it (`Mechanism: workflow_dispatch`). No previous release: it dispatches at the revert commit instead.
 - **`on_merge`** — the revert push itself is the redeploy (`Mechanism: revert_push`); there is nothing else to trigger.
+- **`batch`** (desktop, mobile) — nothing is redeployed. `Status` goes straight to `rolled_back`: a published desktop build or a store build cannot be unpublished by reverting a git commit, so there is no redeploy for `watch_release` to follow.
 
-Either way, `Status` becomes `rolling_back` and you are expected to call `watch_release` again to follow the redeploy through to `rolled_back`.
+For `dispatch`/`on_merge`, `Status` becomes `rolling_back` and you are expected to call `watch_release` again to follow the redeploy through to `rolled_back`.
 
 ## What a revert cannot undo
 
@@ -23,6 +24,15 @@ Either way, `Status` becomes `rolling_back` and you are expected to call `watch_
 - un-send a webhook, an email, or anything else the code triggered while it ran.
 
 `rollback.manual_steps` is exactly this list, built from each rolled-back task's own `rollback_plan`/`before_deploy`/`after_deploy` fields — the developer who made the change is the only one who knew which of these applied.
+
+## Batch releases add one more, first
+
+For a `batch` release, `manual_steps` puts one entry ahead of the tasks' own: unpublish or halt the artifact the revert cannot touch.
+
+- `github_actions`/`local` — unpublish or mark broken whatever was published for the release tag: the GitHub Release, any package manager cask or update feed pointing at it.
+- `store` — halt or stop that platform's store rollout (Operations → Apps) for the build that shipped.
+
+Treat it like any other manual step: perform it if you can, report it if you cannot, and put it first in your report — it is the step that actually stops the bad build reaching more users, not the code revert.
 
 ## Work through it
 

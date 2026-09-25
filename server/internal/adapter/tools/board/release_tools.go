@@ -70,11 +70,22 @@ func (kit *ToolKit) resolveRelease(ctx context.Context, tool, taskRef string) (d
 // across get_release and watch_release rather than each tool inventing its own.
 func releaseNextStep(r domain.Release) string {
 	switch r.Status {
+	case domain.ReleaseDraft:
+		return "Nothing to do — a human cuts this release when they are ready."
 	case domain.ReleaseAwaitingVerdict:
+		if r.Mode == domain.DeliveryBatch {
+			return "Read get_release for the build/publish evidence (workflow run, local_run, or store_builds) and any smoke checks, then call finish_release or rollback_release. Read query_runtime_logs and list_runtime_errors too when the component has a bound runtime environment; when it does not, say so explicitly in the finish note instead of treating the gap as a pass."
+		}
 		return "Read query_runtime_logs and list_runtime_errors since deployed_at, then call finish_release or rollback_release."
 	case domain.ReleaseFailed:
+		if r.Mode == domain.DeliveryBatch {
+			return "Read get_release: for a local run, its local_run.tail (and local_run.log_path); for github_actions, call get_deploy_logs. Then call rollback_release if the bad code is live or sitting on the default branch — or, if nothing can be done from here, report that on the task."
+		}
 		return "Read get_deploy_logs if there is a failed job, then call rollback_release — or, if nothing can be done from here, report that on the task."
 	case domain.ReleasePending:
+		if r.Mode == domain.DeliveryBatch {
+			return "A human has cut this release — call deploy_release."
+		}
 		return "Call deploy_release."
 	case domain.ReleaseDeploying, domain.ReleaseVerifying, domain.ReleaseRollingBack:
 		return "Call watch_release."
@@ -98,8 +109,9 @@ func (t *getReleaseTool) Definition() domain.ToolDefinition {
 		Type: "function",
 		Function: domain.FunctionDefinition{
 			Name: getReleaseToolName,
-			Description: "Read the release covering this task: status, mode/executor, commit and tag, deploy result, the health/smoke/runtime-error evidence gathered so far, verdict and rollback (if any), and what to do next. " +
+			Description: "Read the release covering this task: status, mode/executor, commit and tag, deploy result (including a batch release's local_run or store_builds), the health/smoke/runtime-error evidence gathered so far, verdict and rollback (if any), and what to do next. " +
 				"It changes nothing and never parks the run — call it any time you want the current picture, including right after a merge and again whenever you are unsure what state the release is in. " +
+				"For a `batch` component (mobile and other human-cut releases) it may return a `draft` release still collecting merged tasks — there is nothing to do until a human cuts it. " +
 				"If nothing has opened a release for this task, it says why instead of a bare not-found (never merged, the component does not deploy on merge, or its delivery profile is unconfirmed).",
 			Parameters: map[string]interface{}{
 				"type":                 "object",
@@ -142,8 +154,9 @@ func (t *deployReleaseTool) Definition() domain.ToolDefinition {
 		Type: "function",
 		Function: domain.FunctionDefinition{
 			Name: deployReleaseToolName,
-			Description: "Dispatch the deploy for this task's release. Only meaningful for a `dispatch`-mode component — the merge itself did not deploy, so this is what tells the workflow to run at the release's tag. " +
-				"Refused, dispatching nothing, when the release is not `pending` or the component's mode is not `dispatch` (an `on_merge` release already started deploying on its own; call watch_release for it instead) — retrying will not change either until the state itself does. " +
+			Description: "Dispatch the deploy for this task's release. Meaningful for a `dispatch`-mode component — the merge itself did not deploy, so this is what tells the workflow to run at the release's tag — and for a `batch` release once a human has cut it (its status is `pending`; you never cut a batch release yourself). " +
+				"For a cut batch release the executor decides what happens: github_actions creates the release tag at the cut commit and the repository's own tag-triggered workflow builds and publishes — the tag already existing is a REAL failure here (unlike dispatch, a batch version is never re-used, so do not retry with the same version); local runs the profile's command in a detached worktree of the cut commit and logs it; store starts a store build for every platform with a linked app. " +
+				"Refused, dispatching nothing, when the release is not `pending`, or its mode is neither `dispatch` nor a cut `batch` (an `on_merge` release already started deploying on its own; call watch_release for it instead) — retrying will not change either until the state itself does. " +
 				"On success call watch_release next; do not poll get_release waiting for the deploy to finish.",
 			Parameters: map[string]interface{}{
 				"type":                 "object",
@@ -373,6 +386,7 @@ func (t *rollbackReleaseTool) Definition() domain.ToolDefinition {
 		Function: domain.FunctionDefinition{
 			Name: rollbackReleaseToolName,
 			Description: "Roll this release back off production: reverts its merge commits on the default branch, then redeploys the previous good release (dispatch mode) or lets the revert push itself redeploy (on_merge mode). " +
+				"For a `batch` release (desktop, mobile) it only reverts the default branch — nothing is redeployed, because a published desktop build or a store build cannot be unpublished by a revert; `rollback.manual_steps` then leads with unpublishing or halting the artifact itself (the GitHub Release/update feed for a tag, or the store rollout) before the tasks' own steps, and you must perform or report that first. " +
 				"Call it only on EVIDENCE — `deploy_failed` (the deploy itself failed), `verify_failed` (the soak window found a real problem: failing smoke, health down, new error groups tied to this change), or `health_incident` (a production incident inside this release's window) — never on a hunch, and never for a noisy but PRE-EXISTING error; say in `note` why this evidence is new. " +
 				"If the component's delivery profile has auto_rollback OFF, nothing is executed: the proposal is written on the task for a human to confirm and the result carries `proposed: true` — stop there when you see it, do not look for another way to force the rollback through. " +
 				"On an actual rollback the result carries `rollback.manual_steps` — perform or explicitly report EVERY one of them (a migration, a feature flag, anything code cannot undo) — then call watch_release to follow the rollback deploy. " +

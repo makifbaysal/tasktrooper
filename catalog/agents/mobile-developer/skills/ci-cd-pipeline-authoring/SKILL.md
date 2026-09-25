@@ -41,6 +41,14 @@ A mobile `build` job must **not** contain `docker` (excluded). Give each job a c
 - Deploy job ends with a **health-check / smoke step** that fails the job on a bad deploy — that failure is what TaskTrooper reads to send the task to `need_revision`.
 - Don't author deploy YAML from scratch: `search_boilerplate_catalog` for `deploy <cloud> <type>` (e.g. `deploy gcp backend`), copy that folder's workflow templates, and rename them to `<id>-deploy-<env>.yml`.
 
+## Batch release workflows (a `batch` delivery profile: desktop, mobile, and anything else a human cuts by hand)
+
+A `batch` component never dispatches a workflow — cutting the release creates a tag (or, for a `local` executor, runs a command on the release machine). Author the deploy side of a `batch` component's pipeline around that:
+
+- **`github_actions` executor** — the release/publish workflow triggers on the tag push itself, not on a branch push or `workflow_dispatch`: `on: { push: { tags: ['v*'] } }` (match the component's delivery profile `tag_pattern`, `v*` for the default `v{version}`). Read the version being released from `GITHUB_REF_NAME` (the tag TaskTrooper just pushed) — never from a version file or a bump commit, because cutting a batch release never touches one.
+- **`local` executor** — there is no workflow to author; the command configured on the delivery profile runs directly on this machine in a detached worktree of the cut commit. It receives `RELEASE_VERSION`, `RELEASE_TAG`, and `RELEASE_COMMIT` in its environment — read the version from there, the same way a tag-triggered workflow reads `GITHUB_REF_NAME`.
+- **`store` executor** — see [[app-store-deploy]] (mobile); there is no workflow either, the store build is started directly.
+
 ## Worked Example
 
 `on:` block every deploy workflow needs so the platform can dispatch it:
