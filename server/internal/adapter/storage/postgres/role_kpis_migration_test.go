@@ -17,7 +17,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/migrations"
 )
 
-// monorepoRootCatalog is the repo-root catalog the six role agents live in
+// monorepoRootCatalog is the repo-root catalog the role agents live in
 // now that they are no longer compiled into the binary.
 const monorepoRootCatalog = "../../../../../catalog"
 
@@ -72,6 +72,20 @@ func (s *RoleKPIsMigrationSuite) TearDownSuite() {
 	}
 }
 
+func filterAgentsByName(agents []domain.Agent, names ...string) []domain.Agent {
+	want := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		want[n] = struct{}{}
+	}
+	out := make([]domain.Agent, 0, len(names))
+	for _, a := range agents {
+		if _, ok := want[a.Name]; ok {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 type roleKPISnapshot struct {
 	metricKey  string
 	period     string
@@ -91,8 +105,14 @@ func (s *RoleKPIsMigrationSuite) TestMigrationReconcilesToCurrentDefaults() {
 	s.Require().NoError(err)
 	s.Require().GreaterOrEqual(res.Created, 6, "catalog sync must create the six role agents")
 
-	agents, err := agentsStore.ListAgents(s.ctx)
+	allAgents, err := agentsStore.ListAgents(s.ctx)
 	s.Require().NoError(err)
+	// 142's hand-authored VALUES table only names the six original role agents;
+	// an agent added to the catalog afterwards (release-engineer) syncs its KPIs
+	// straight from its own catalog.yaml and is not part of this migration's golden set.
+	agents := filterAgentsByName(allAgents,
+		"system-architect", "backend-developer", "frontend-developer",
+		"mobile-developer", "qa-agent", "product-manager")
 	s.Require().Len(agents, 6)
 
 	golden := make(map[string]map[string]roleKPISnapshot, 6) // agent name -> lower(trim(kpi name)) -> snapshot

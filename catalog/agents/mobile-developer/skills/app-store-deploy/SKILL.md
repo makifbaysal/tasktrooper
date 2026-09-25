@@ -19,7 +19,7 @@ Mobile does not deploy to a cloud you run — it deploys to **Apple's and Google
 
 - `stage` → internal test track: **TestFlight** (iOS) / Play **internal** track (Android).
 - `preprod` → **TestFlight external** group / Play **closed** (beta) track.
-- `prod` → App Store / Play **production** — the workflow file must contain `prod`/`production`/`release` so `trigger_release` dispatches it.
+- `prod` → App Store / Play **production** — the workflow file must still contain `prod`/`production`/`release` so the pipeline's `prod_deploy` check detects it. Mobile ships through a `batch` delivery profile in this version (release cutting arrives later): a merged mobile task waits in `done` rather than dispatching this workflow itself.
 
 ## iOS — TestFlight
 
@@ -39,7 +39,7 @@ Unlike cloud deploys, mobile signing needs genuine secrets in GitHub `secrets:` 
 
 ## Gate & smoke
 
-The "health check" is the store's own processing/validation. Fail the job if fastlane upload fails or the build is rejected; a successful upload to the track is the pass signal that moves the task to `released`.
+The "health check" is the store's own processing/validation. Fail the job if fastlane upload fails or the build is rejected. A successful upload is the store gate passing — it does not move the task anywhere: mobile is a `batch` delivery profile, so a merged mobile task waits in `done` until release cutting (a later version) ships it.
 
 ## Common Mistakes
 

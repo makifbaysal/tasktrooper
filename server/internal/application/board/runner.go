@@ -2364,35 +2364,37 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 			"reject with a note naming the gap. All approved → move to human_uat and write no comment: the move and the approved criteria are the verdict; " +
 			"any gap → move to need_revision with a numbered gap-list comment. Never approve by reading code — reading source is not verification."
 	case domain.TaskColumnDone:
-		// Reachable only through the merge wake: a done card with an unmerged PR, dispatched to QA and nobody else.
+		// Reachable only through the merge wake or a release hand-back: a done card with an unmerged PR, or a
+		// release the sweeper just settled, dispatched to the release engineer and nobody else.
 		// done must never read the default: its "move on to the next column" sentence is how done tasks drifted into released with no deploy.
 		return "This task is in `done`: the board has signed it off and its work is finished. " +
-			"You are here to LAND the change and then to watch what production does with it — nothing else. " +
+			"You are here to LAND the change, ship it, and verify production — nothing else. " +
 			"1) If the pull request is not merged yet: read it (get_task_pull_request) and the pipeline result (get_pipeline_status) — the checks must be green and " +
-			"the PR must still be at the commit that was verified — then call merge_task_pull_request, which squash-merges it and deletes the task branch. " +
+			"the PR must still be at the commit that was verified — then call merge_task_pull_request, which squash-merges it, deletes the task branch, and opens (or joins) a release. " +
 			"Do NOT retry a refusal and do NOT work around it, and do not comment that the merge worked when it did: the merge commit is recorded on the card by the tool itself. " +
 			"A refusal that names a CONFLICT with the base branch (`dirty`) or a branch the base has moved past (`behind`) is the developer's to fix, not yours: " +
 			"move the task to need_revision with that reason and stop. Any other refusal (a closed PR, a head commit that is not the verified one, an incomplete review chain) " +
 			"means the change is not the change that was approved: put the reason on the task with add_task_comment and stop, because only a human or a new round of review can settle it. " +
-			"2) Once it is merged (or if it already was): call get_task_deploy_status. It reports what production did with THAT commit. " +
-			"If the deploy is still running the call parks this task and your run ends — that is correct, do not poll or wait, you will be woken with the answer. " +
-			"`success` → nothing to write: the board already shows the release, so post no confirmation comment. " +
-			"`no_signal` → nothing deployed this commit. Check whether the repository documents a deploy of its own (a deploy script, a Makefile target, the deploy steps in its README or .ai docs) " +
-			"and, if it does, follow those steps with run_terminal and verify the environment answers afterwards. If it documents none — or the deploy could not run because GitHub Actions is unavailable " +
-			"on this account (billing, spending limit, Actions disabled) and there is no local path either — move the task to `blocked` with that reason. " +
-			"`failure` → read the log with get_deploy_logs, post a summary of what failed, then call rollback_task_release with trigger=deploy_failed and report everything it lists under manual_steps. " +
+			"2) Read the merge result's `release` field for what happens next: mode `none`/`unconfirmed`/`batch` → nothing to do, stop. " +
+			"Mode `on_merge` → call watch_release. Mode `dispatch` → call deploy_release, then watch_release. " +
+			"watch_release parks this task while a system sweeper watches the deploy and the post-deploy soak window — do not poll or wait, you are woken when there is something to decide. " +
+			"3) When woken with `awaiting_verdict`: get_release, then read query_runtime_logs (since deployed_at) and list_runtime_errors — a release is never finished on a green deploy alone. " +
+			"Clean evidence → finish_release with a note stating what you checked. A failed smoke check, a failing health sample, or new runtime error groups tied to the change → rollback_release " +
+			"(reason and a note stating the evidence), then report every step under `rollback.manual_steps` and call watch_release again to follow the redeploy. " +
+			"When woken with `failed`: get_release, get_deploy_logs if a job failed, then rollback_release (reason deploy_failed) if the bad code is live or on the default branch; otherwise report what failed and stop. " +
 			"Do not test anything here (that happened in in_qa), do not edit or commit code, and do NOT move this task to `released` yourself: " +
-			"the release is a production deploy dispatched by its own path, and moving the card there would announce a deploy that never happened."
+			"only finish_release does that, and moving the card there by hand would announce a release that was never verified."
 	case domain.TaskColumnReleased:
-		// Reachable only through the deploy-watch wake: released dispatches nobody for anything else.
+		// Reachable only through a release hand-back for a health incident inside the release's window: released
+		// dispatches the release engineer for nothing else.
 		// released has no next column: the generic default must never fire here, or a card is handed to nobody.
-		return "This task is in `released`: its change is in production. You have been woken for the deploy watch and for nothing else. " +
-			"Call get_task_deploy_status first — it tells you what production did with this task's merge commit. " +
-			"If a rollback runbook was posted on this task, follow it: that is the developer's own instruction and it is the half no tool can perform. " +
-			"`failure`, or an incident attributed to this release → get_deploy_logs, then rollback_task_release (trigger=deploy_failed or health_incident), " +
-			"and report EVERY step it returns under manual_steps — a migration, a feature flag, anything with a human on the other end. " +
+		return "This task is in `released`: its change is in production. You have been woken for a health incident inside this release's window and for nothing else. " +
+			"get_release for the release this task belongs to, then query_runtime_logs and list_runtime_errors since deployed_at, then get_incident or list_incidents for what actually opened. " +
+			"If the incident is genuinely this release's doing — new error groups or a health failure tied to the change, inside the window — call rollback_release with reason health_incident and a note stating the evidence, " +
+			"then report EVERY step it returns under `rollback.manual_steps` — a migration, a feature flag, anything with a human on the other end — and call watch_release to follow the redeploy. " +
 			"A rollback reported as complete when half of it was not is worse than one that says what it could not do. " +
-			"If the rollback tool returns `proposed: true`, auto_rollback is off for this environment: post the proposal, say a human must confirm it, and stop. " +
+			"If rollback_release returns `proposed: true`, auto_rollback is off for this component: post the proposal, say a human must confirm it, and stop. " +
+			"If the incident predates this release or is unrelated to what it changed, say so in one comment and leave the release alone. " +
 			"Do not edit or commit code, do not move this task anywhere, and do not start any other work here."
 	default:
 		return fmt.Sprintf("This task is in `%s`. Do the work that column asks of your role in this run, then move the task on to the next column. "+
