@@ -114,6 +114,22 @@ const workflowDir = ".github/workflows/"
 
 // workspaceLister adapts the project + repository stores to the board toolkit's
 // WorkspaceLister so agents can list projects and code repositories.
+// releaseAttributor asks the release ledger first — it covers every delivery
+// mode, push-to-deploy included — and falls back to the deploy-run ledger for
+// releases that predate it.
+type releaseAttributor struct {
+	primary, fallback prodops.ReleaseAttributor
+}
+
+func (a releaseAttributor) AttributeRelease(ctx context.Context, repositoryID uuid.UUID, env string, onset time.Time) (domain.ReleaseAttribution, bool) {
+	if att, ok := a.primary.AttributeRelease(ctx, repositoryID, env, onset); ok {
+		return att, true
+	}
+	return a.fallback.AttributeRelease(ctx, repositoryID, env, onset)
+}
+
+func (a releaseAttributor) HealthWindow() time.Duration { return a.primary.HealthWindow() }
+
 // componentPathReader scopes a monorepo task's pipeline mappings to its own
 // component.
 type componentPathReader struct{ model *projectmodel.Service }
@@ -2222,6 +2238,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					RepoCoordinates:     resolveRepoCoordinates,
 					IsRefAlreadyExists:  githubapi.IsRefAlreadyExists,
 					IsCIUnavailableText: githubapi.IsCIUnavailableText,
+					HealthWindow:        cfg.DeployOps.HealthWindow,
 				}
 				releaseDeps.Git = gitClient
 				releaseDeps.LocalRunner = localexec.NewRunner()
@@ -2270,7 +2287,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					// auto_rollback is real here: an incident in a release's health window is
 					// attributed to the releasing task and its owner is woken to
 					// roll back (or write the proposal when the flag is off).
-					prodOpsSvc.SetReleaseAttributor(deployWatchSvc)
+					prodOpsSvc.SetReleaseAttributor(releaseAttributor{primary: releaseSvc, fallback: deployWatchSvc})
 					prodOpsSvc.SetReleaseRollbackDispatcher(
 						boardapp.NewReleaseRollbackDispatcher(boardDispatcher, repositorySvc))
 				}
