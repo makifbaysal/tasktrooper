@@ -1709,7 +1709,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// replica the load balancer picks, so an in-memory map only answers
 			// for the pod that got the first attempt.
 			repositorySvc.SetDeliveryLedger(pgstore.NewWebhookDeliveryStore(e.pgDB))
-			repositorySvc.SetDeployPackages(pgstore.NewDeployPackageStore(e.pgDB))
 			repositorySvc.SetPipelineJobStore(pipelineJobStore)
 			if githubTokens != nil {
 				repositorySvc.SetGitHubTokenSource(githubTokens.GitHubToken)

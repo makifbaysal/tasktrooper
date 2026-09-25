@@ -83,4 +83,42 @@ describe("ReleaseDrawer", () => {
     expect(screen.getByRole("button", { name: "Roll back" })).toBeInTheDocument();
     expect(screen.getByText("the deploy job errored")).toBeInTheDocument();
   });
+
+  it("shows the cut date, notes and local run for a batch release", async () => {
+    await renderDrawer(
+      makeRelease("verifying", {
+        mode: "batch",
+        executor: "local",
+        cut_at: "2024-02-01T00:00:00Z",
+        notes: "## 1.0.0\n### Features\n- T-1 Fix the thing",
+        local_run: {
+          argv: ["./scripts/publish.sh", "1.0.0"],
+          exit_code: 0,
+          log_path: "/data/releases/rel-1.log",
+          tail: "publishing…\ndone",
+          started_at: "2024-02-01T00:05:00Z",
+        },
+      }),
+    );
+    expect(screen.getByText(/### Features/)).toBeInTheDocument();
+    expect(screen.getByText("./scripts/publish.sh 1.0.0")).toBeInTheDocument();
+    expect(screen.getByText("/data/releases/rel-1.log")).toBeInTheDocument();
+    expect(screen.getByText(/publishing…/)).toBeInTheDocument();
+  });
+
+  it("shows a store builds table for a batch store release", async () => {
+    await renderDrawer(
+      makeRelease("verifying", {
+        mode: "batch",
+        executor: "store",
+        store_builds: [
+          { platform: "ios", engine: "native", baseline_build: "41", build: "42" },
+          { platform: "android", engine: "native", baseline_build: "41", error: "start failed" },
+        ],
+      }),
+    );
+    expect(screen.getByText("ios")).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("start failed")).toBeInTheDocument();
+  });
 });

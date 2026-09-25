@@ -82,7 +82,9 @@ export function DeliveryCard({ component, onChanged, className }: DeliveryCardPr
             </div>
 
             {effective.mode === "batch" ? (
-              <p className="text-caption text-muted-foreground">{t("release.delivery.batchNote")}</p>
+              effective.executor === "github_actions" && (
+                <p className="text-caption text-muted-foreground">{t("release.delivery.batchGithubActionsHint")}</p>
+              )
             ) : effective.mode === "none" ? null : (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-caption sm:grid-cols-3">
                 {effective.workflow && (

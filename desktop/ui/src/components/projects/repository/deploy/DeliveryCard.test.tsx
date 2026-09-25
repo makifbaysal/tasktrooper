@@ -82,4 +82,16 @@ describe("DeliveryCard", () => {
     expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
     expect(screen.getByText(/Nothing is configured yet/)).toBeInTheDocument();
   });
+
+  it("shows the tag-push workflow hint for a batch component on github_actions", () => {
+    const batchProfile: ComponentDelivery = { mode: "batch", executor: "github_actions", verify: {}, auto_rollback: true };
+    renderCard({ ...baseComponent, delivery: { override: batchProfile, confidence: "exact" } });
+    expect(screen.getByText(/release workflow must run on the tag push/)).toBeInTheDocument();
+  });
+
+  it("shows no workflow hint for a batch component on a non-github_actions executor", () => {
+    const batchProfile: ComponentDelivery = { mode: "batch", executor: "local", local_command: "./release.sh {version}", verify: {}, auto_rollback: true };
+    renderCard({ ...baseComponent, delivery: { override: batchProfile, confidence: "exact" } });
+    expect(screen.queryByText(/release workflow must run on the tag push/)).not.toBeInTheDocument();
+  });
 });

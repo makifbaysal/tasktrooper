@@ -173,19 +173,6 @@ type TaskRelationStore interface {
 	ListUnfinishedBlockers(ctx context.Context) ([]domain.TaskRelation, error)
 }
 
-// DeployPackageStore persists release trains and their membership.
-type DeployPackageStore interface {
-	Create(ctx context.Context, pkg domain.DeployPackage) (domain.DeployPackage, error)
-	Get(ctx context.Context, repositoryID, packageID uuid.UUID) (domain.DeployPackage, error)
-	ListByRepository(ctx context.Context, repositoryID uuid.UUID) ([]domain.DeployPackage, error)
-	// Applies each field only where the pointer is non-nil, so the release
-	// path can move status without touching a name a human is editing.
-	Update(ctx context.Context, repositoryID, packageID uuid.UUID, name, description, status, note *string) (domain.DeployPackage, error)
-	Delete(ctx context.Context, repositoryID, packageID uuid.UUID) error
-	ReplaceTasks(ctx context.Context, packageID uuid.UUID, taskIDs []uuid.UUID) error
-	ListTasks(ctx context.Context, packageID uuid.UUID) ([]domain.DeployPackageTask, error)
-}
-
 type TaskDocumentStore interface {
 	Create(ctx context.Context, doc domain.TaskDocument) (domain.TaskDocument, error)
 	Get(ctx context.Context, taskID, docID uuid.UUID) (domain.TaskDocument, error)

@@ -184,12 +184,25 @@ export function ReleaseDrawer({ releaseId, repositoryName, open, onOpenChange, o
                     <Label className="text-muted-foreground">{t("release.drawer.timeline.title")}</Label>
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-caption sm:grid-cols-3">
                       <TimelineRow label={t("release.drawer.timeline.created")} at={release.created_at} />
+                      <TimelineRow label={t("release.drawer.timeline.cut")} at={release.cut_at} />
                       <TimelineRow label={t("release.drawer.timeline.deployStarted")} at={release.deploy_started_at} />
                       <TimelineRow label={t("release.drawer.timeline.deployed")} at={release.deployed_at} />
                       <TimelineRow label={t("release.drawer.timeline.verifyUntil")} at={release.verify_until} />
                       <TimelineRow label={t("release.drawer.timeline.finished")} at={release.finished_at} />
                     </dl>
                   </section>
+
+                  {release.notes && (
+                    <>
+                      <Separator />
+                      <section className="space-y-2">
+                        <Label className="text-muted-foreground">{t("release.drawer.releaseNotes")}</Label>
+                        <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-caption">
+                          {release.notes}
+                        </pre>
+                      </section>
+                    </>
+                  )}
 
                   {release.deploy && (
                     <>
@@ -210,6 +223,77 @@ export function ReleaseDrawer({ releaseId, repositoryName, open, onOpenChange, o
                               <ExternalLink className="h-3 w-3" />
                             </a>
                           )}
+                        </div>
+                      </section>
+                    </>
+                  )}
+
+                  {release.local_run && (
+                    <>
+                      <Separator />
+                      <section className="space-y-2">
+                        <Label className="text-muted-foreground">{t("release.drawer.localRun.title")}</Label>
+                        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-caption sm:grid-cols-3">
+                          <div>
+                            <dt className="text-muted-foreground">{t("release.drawer.localRun.argv")}</dt>
+                            <dd className="font-mono">{release.local_run.argv.join(" ")}</dd>
+                          </div>
+                          {release.local_run.exit_code !== undefined && (
+                            <div>
+                              <dt className="text-muted-foreground">{t("release.drawer.localRun.exitCode")}</dt>
+                              <dd className="font-mono">{release.local_run.exit_code}</dd>
+                            </div>
+                          )}
+                          {release.local_run.log_path && (
+                            <div>
+                              <dt className="text-muted-foreground">{t("release.drawer.localRun.logPath")}</dt>
+                              <dd className="truncate font-mono">{release.local_run.log_path}</dd>
+                            </div>
+                          )}
+                        </dl>
+                        {release.local_run.error && <p className="text-caption text-destructive">{release.local_run.error}</p>}
+                        {release.local_run.tail && (
+                          <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-micro">
+                            {release.local_run.tail}
+                          </pre>
+                        )}
+                      </section>
+                    </>
+                  )}
+
+                  {(release.store_builds?.length ?? 0) > 0 && (
+                    <>
+                      <Separator />
+                      <section className="space-y-2">
+                        <Label className="text-muted-foreground">{t("release.drawer.storeBuilds.title")}</Label>
+                        <div className="overflow-hidden rounded-lg border border-border">
+                          <table className="w-full text-caption">
+                            <thead className="bg-muted/40 text-muted-foreground">
+                              <tr>
+                                <th className="px-3 py-1.5 text-left font-medium">{t("release.drawer.storeBuilds.platform")}</th>
+                                <th className="px-3 py-1.5 text-left font-medium">{t("release.drawer.storeBuilds.baseline")}</th>
+                                <th className="px-3 py-1.5 text-left font-medium">{t("release.drawer.storeBuilds.build")}</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              {release.store_builds!.map((b) => (
+                                <tr key={b.platform}>
+                                  <td className="px-3 py-1.5">
+                                    {b.platform}
+                                    {b.engine && <span className="ml-1 text-muted-foreground">({b.engine})</span>}
+                                  </td>
+                                  <td className="px-3 py-1.5 font-mono">{b.baseline_build ?? "—"}</td>
+                                  <td className="px-3 py-1.5">
+                                    {b.error ? (
+                                      <span className="text-destructive">{b.error}</span>
+                                    ) : (
+                                      <span className="font-mono">{b.build ?? "—"}</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
                       </section>
                     </>

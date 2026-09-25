@@ -66,7 +66,6 @@ type Service struct {
 	evolution        RevisionNotifier
 	pipelines        *board.PipelineRunner
 	pipelineStore    port.TaskPipelineStore
-	deployPackages   port.DeployPackageStore
 	spans            StageEvidence
 	requireCriteria  bool
 	indexer          *indexer.Service
@@ -2035,71 +2034,6 @@ func (s *Service) LatestTaskPipeline(ctx context.Context, repositoryID, taskID u
 	if pipeline.RepositoryID != repositoryID {
 		return domain.TaskPipeline{}, domain.ErrPipelineNotFound
 	}
-	return pipeline, nil
-}
-
-func (s *Service) TriggerRelease(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskPipeline, error) {
-	return s.triggerRelease(ctx, repositoryID, taskID)
-}
-
-func (s *Service) triggerRelease(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskPipeline, error) {
-	if _, err := s.repos.Get(ctx, repositoryID); err != nil {
-		return domain.TaskPipeline{}, err
-	}
-	task, err := s.tasks.Get(ctx, repositoryID, taskID)
-	if err != nil {
-		return domain.TaskPipeline{}, err
-	}
-	if s.pipelines == nil {
-		return domain.TaskPipeline{}, fmt.Errorf("pipeline runner unavailable")
-	}
-
-	if err := s.releaseColumnGate(ctx, repositoryID, task); err != nil {
-		return domain.TaskPipeline{}, err
-	}
-
-	if err := s.migrationGate(ctx, repositoryID, task); err != nil {
-		return domain.TaskPipeline{}, err
-	}
-
-	if err := s.deployDependencyGate(ctx, repositoryID, task); err != nil {
-		return domain.TaskPipeline{}, err
-	}
-
-	if err := s.mobileStoreGate(ctx, repositoryID, domain.DeployEnvProd); err != nil {
-		if s.comments != nil {
-			_, _ = s.comments.Create(ctx, domain.TaskComment{
-				TaskID:     task.ID,
-				AuthorType: "system",
-				Content:    "Release blocked: " + err.Error(),
-			})
-		}
-		log.Warn().Str("task_id", task.ID.String()).Str("repository_id", repositoryID.String()).
-			Msg("release blocked: mobile app not ready")
-		return domain.TaskPipeline{}, err
-	}
-
-	if err := s.releaseTargetGate(ctx, repositoryID, task); err != nil {
-		return domain.TaskPipeline{}, err
-	}
-
-	trigger := domain.PipelineTriggerProdDeploy
-	if s.pipelineJobs != nil {
-		if jobs, jerr := s.pipelineJobs.ListByRepository(ctx, repositoryID); jerr == nil {
-			for _, j := range jobs {
-				if j.Category == domain.PipelineCategoryPreProdDeploy && j.TargetKind == domain.PipelineTargetWorkflow && strings.TrimSpace(j.TargetRef) != "" {
-					trigger = domain.PipelineTriggerPreProdDeploy
-					break
-				}
-			}
-		}
-	}
-	pipeline, err := s.pipelines.TriggerDeploy(ctx, repositoryID, task, trigger)
-	if err != nil {
-		return domain.TaskPipeline{}, err
-	}
-
-	s.postPreDeployChecklist(ctx, s.syncOrderNote(ctx, task))
 	return pipeline, nil
 }
 

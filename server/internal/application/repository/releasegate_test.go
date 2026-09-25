@@ -3,13 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/board"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -342,137 +340,6 @@ const (
 	movedCommit    = "2222222222222222222222222222222222222222"
 )
 
-func TestTriggerReleaseChecksReleaseTargetBeforeDispatch(t *testing.T) {
-	cases := []struct {
-		name         string
-		verifiedSHA  string
-		headSHA      string
-		hasGit       bool
-		gitErr       error
-		wantDispatch bool
-		wantErr      error
-	}{
-		{
-			name:         "target unchanged dispatches",
-			verifiedSHA:  verifiedCommit,
-			headSHA:      verifiedCommit,
-			hasGit:       true,
-			wantDispatch: true,
-		},
-		{
-			name:         "sha casing is not a mismatch",
-			verifiedSHA:  strings.ToUpper(verifiedCommit[:8]) + verifiedCommit[8:],
-			headSHA:      verifiedCommit,
-			hasGit:       true,
-			wantDispatch: true,
-		},
-		{
-			name:        "target moved is blocked",
-			verifiedSHA: verifiedCommit,
-			headSHA:     movedCommit,
-			hasGit:      true,
-			wantErr:     domain.ErrReleaseTargetMoved,
-		},
-		{
-			name:        "no verified commit fails closed",
-			verifiedSHA: "",
-			headSHA:     verifiedCommit,
-			hasGit:      true,
-			wantErr:     domain.ErrReleaseTargetUnverified,
-		},
-		{
-			name:        "missing workspace fails closed",
-			verifiedSHA: verifiedCommit,
-			headSHA:     verifiedCommit,
-			hasGit:      false,
-			wantErr:     domain.ErrReleaseTargetUnverified,
-		},
-		{
-			name:        "git failure fails closed",
-			verifiedSHA: verifiedCommit,
-			hasGit:      true,
-			gitErr:      errors.New("boom: git is wedged"),
-			wantErr:     domain.ErrReleaseTargetUnverified,
-		},
-		{
-			name:        "empty head sha fails closed",
-			verifiedSHA: verifiedCommit,
-			headSHA:     "",
-			hasGit:      true,
-			wantErr:     domain.ErrReleaseTargetUnverified,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			repoID, taskID := uuid.New(), uuid.New()
-			pipelineStore := &fakeReleasePipelineStore{}
-			comments := &fakeReleaseComments{}
-			svc := &Service{
-				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
-				tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
-					ID:           taskID,
-					RepositoryID: repoID,
-					Column:       domain.TaskColumnDone,
-					VerifiedSHA:  tc.verifiedSHA,
-				}},
-				git:           &fakeReleaseGit{hasGit: tc.hasGit, headSHA: tc.headSHA, infoErr: tc.gitErr},
-				workspaceRoot: t.TempDir(),
-				comments:      comments,
-				pipelines:     board.NewPipelineRunner(board.PipelineRunnerDeps{Store: pipelineStore}),
-			}
-
-			_, err := svc.TriggerRelease(context.Background(), repoID, taskID)
-
-			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("want %v, got %v", tc.wantErr, err)
-				}
-				if len(pipelineStore.created) != 0 {
-					t.Fatalf("a blocked release must not dispatch anything, got %d pipelines", len(pipelineStore.created))
-				}
-				if len(comments.comments) != 1 {
-					t.Fatalf("want the block explained on the task, got %d comments", len(comments.comments))
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !tc.wantDispatch {
-				t.Fatalf("test case declares neither an error nor a dispatch")
-			}
-			if len(pipelineStore.created) != 1 {
-				t.Fatalf("want exactly one dispatched pipeline, got %d", len(pipelineStore.created))
-			}
-			if got := pipelineStore.created[0].Trigger; got != domain.PipelineTriggerProdDeploy {
-				t.Fatalf("want a prod deploy trigger, got %q", got)
-			}
-			if len(comments.comments) != 0 {
-				t.Fatalf("a clean release must not comment a block, got %+v", comments.comments)
-			}
-		})
-	}
-}
-
-func TestReleaseTargetGateErrorNamesBothCommits(t *testing.T) {
-	repoID, taskID := uuid.New(), uuid.New()
-	svc := &Service{
-		git:           &fakeReleaseGit{hasGit: true, headSHA: movedCommit},
-		workspaceRoot: t.TempDir(),
-	}
-	err := svc.releaseTargetGate(context.Background(), repoID,
-		domain.BoardTask{ID: taskID, RepositoryID: repoID, VerifiedSHA: verifiedCommit})
-	if !errors.Is(err, domain.ErrReleaseTargetMoved) {
-		t.Fatalf("want ErrReleaseTargetMoved, got %v", err)
-	}
-	for _, want := range []string{verifiedCommit[:12], movedCommit[:12]} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("want %q named in the block reason, got: %v", want, err)
-		}
-	}
-}
-
 func TestVerifiedSHAForMove(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -551,15 +418,6 @@ func TestVerifiedSHAForMove(t *testing.T) {
 	}
 }
 
-func TestReleaseTargetGateWithoutGitFailsClosed(t *testing.T) {
-	svc := &Service{}
-	err := svc.releaseTargetGate(context.Background(), uuid.New(),
-		domain.BoardTask{ID: uuid.New(), VerifiedSHA: verifiedCommit})
-	if !errors.Is(err, domain.ErrReleaseTargetUnverified) {
-		t.Fatalf("want ErrReleaseTargetUnverified, got %v", err)
-	}
-}
-
 func (f *fakeReleaseTaskStore) FindTaskByMergeCommit(context.Context, uuid.UUID, string) (domain.BoardTask, error) {
 	return domain.BoardTask{}, errors.New("not found")
 }
@@ -576,98 +434,3 @@ func (f *fakeReleaseGit) RevertCommitOnDefaultBranch(context.Context, string, st
 	return "", nil
 }
 
-func TestTriggerReleaseRefusesOutsideDone(t *testing.T) {
-	blocked := []domain.TaskColumn{
-		domain.TaskColumnTodo,
-		domain.TaskColumnInProgress,
-		domain.TaskColumnCodeReview,
-		domain.TaskColumnInQA,
-		domain.TaskColumnPMUAT,
-		domain.TaskColumnNeedRevision,
-	}
-	for _, col := range blocked {
-		t.Run(string(col), func(t *testing.T) {
-			repoID, taskID := uuid.New(), uuid.New()
-			pipelineStore := &fakeReleasePipelineStore{}
-			comments := &fakeReleaseComments{}
-			svc := &Service{
-				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
-				tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
-					ID: taskID, RepositoryID: repoID, Column: col,
-
-					VerifiedSHA: verifiedCommit,
-				}},
-				git:           &fakeReleaseGit{hasGit: true, headSHA: verifiedCommit},
-				workspaceRoot: t.TempDir(),
-				comments:      comments,
-				pipelines:     board.NewPipelineRunner(board.PipelineRunnerDeps{Store: pipelineStore}),
-			}
-
-			_, err := svc.TriggerRelease(context.Background(), repoID, taskID)
-			if !errors.Is(err, ErrReleaseNotDone) {
-				t.Fatalf("err = %v, want ErrReleaseNotDone", err)
-			}
-			if len(pipelineStore.created) != 0 {
-				t.Fatalf("a task in %s must not dispatch a deploy, got %d pipelines", col, len(pipelineStore.created))
-			}
-
-			if len(comments.comments) != 1 {
-				t.Fatalf("want exactly one system comment explaining the block, got %d", len(comments.comments))
-			}
-			if !strings.Contains(comments.comments[0].Content, string(col)) {
-				t.Fatalf("the comment should name the column the task is actually in: %q", comments.comments[0].Content)
-			}
-		})
-	}
-}
-
-func TestTriggerReleaseAllowsDoneAndReleased(t *testing.T) {
-	for _, col := range []domain.TaskColumn{domain.TaskColumnDone, domain.TaskColumnReleased} {
-		t.Run(string(col), func(t *testing.T) {
-			repoID, taskID := uuid.New(), uuid.New()
-			pipelineStore := &fakeReleasePipelineStore{}
-			svc := &Service{
-				repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
-				tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
-					ID: taskID, RepositoryID: repoID, Column: col, VerifiedSHA: verifiedCommit,
-				}},
-				git:           &fakeReleaseGit{hasGit: true, headSHA: verifiedCommit},
-				workspaceRoot: t.TempDir(),
-				comments:      &fakeReleaseComments{},
-				pipelines:     board.NewPipelineRunner(board.PipelineRunnerDeps{Store: pipelineStore}),
-			}
-
-			if _, err := svc.TriggerRelease(context.Background(), repoID, taskID); err != nil {
-				t.Fatalf("TriggerRelease from %s: %v", col, err)
-			}
-			if len(pipelineStore.created) != 1 {
-				t.Fatalf("want one deploy pipeline, got %d", len(pipelineStore.created))
-			}
-		})
-	}
-}
-
-// TestTriggerReleaseNeverRefusesForTheRepository proves release is no longer
-// a per-repository opt-in: a zero-value repository (the old
-// auto_release_on_done default would have been false) still dispatches.
-func TestTriggerReleaseNeverRefusesForTheRepository(t *testing.T) {
-	repoID, taskID := uuid.New(), uuid.New()
-	pipelineStore := &fakeReleasePipelineStore{}
-	svc := &Service{
-		repos: &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
-		tasks: &fakeReleaseTaskStore{task: domain.BoardTask{
-			ID: taskID, RepositoryID: repoID, Column: domain.TaskColumnDone, VerifiedSHA: verifiedCommit,
-		}},
-		git:           &fakeReleaseGit{hasGit: true, headSHA: verifiedCommit},
-		workspaceRoot: t.TempDir(),
-		comments:      &fakeReleaseComments{},
-		pipelines:     board.NewPipelineRunner(board.PipelineRunnerDeps{Store: pipelineStore}),
-	}
-
-	if _, err := svc.TriggerRelease(context.Background(), repoID, taskID); err != nil {
-		t.Fatalf("TriggerRelease must not refuse a batched-looking repository: %v", err)
-	}
-	if len(pipelineStore.created) != 1 {
-		t.Fatalf("want one deploy pipeline, got %d", len(pipelineStore.created))
-	}
-}

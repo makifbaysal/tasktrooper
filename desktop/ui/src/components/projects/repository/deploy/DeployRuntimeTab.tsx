@@ -142,7 +142,7 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
           </>
         )}
 
-        <ReleasesCard repositoryId={repositoryId} repositoryName={model.repository.name} componentId={selected.id} />
+        <ReleasesCard repositoryId={repositoryId} repositoryName={model.repository.name} component={selected} />
       </div>
     </div>
   );
