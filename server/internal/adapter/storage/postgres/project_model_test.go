@@ -86,6 +86,17 @@ func (s *ProjectModelStoreSuite) TestSaveComponentRoundTripsFactOverridesAndMobi
 		},
 		Confidence: domain.ConfidenceExact,
 	}
+	delivery := domain.Fact[domain.ComponentDelivery]{
+		Detected: &domain.ComponentDelivery{
+			Mode: domain.DeliveryOnMerge, Executor: domain.ExecutorGitHubActions, Workflow: "deploy.yml",
+			Verify: domain.DeliveryVerify{SoakMinutes: 10},
+		},
+		Override: &domain.ComponentDelivery{
+			Mode: domain.DeliveryDispatch, Executor: domain.ExecutorGitHubActions, Workflow: "release.yml",
+			Verify: domain.DeliveryVerify{SoakMinutes: 15, MaxNewErrors: 2}, AutoRollback: true,
+		},
+		Confidence: domain.ConfidenceHigh,
+	}
 
 	c := domain.Component{
 		RepositoryID: s.repoA,
@@ -101,6 +112,7 @@ func (s *ProjectModelStoreSuite) TestSaveComponentRoundTripsFactOverridesAndMobi
 		Mobile:        mobile,
 		Docs:          domain.RepositoryDocs{CodingStandards: "docs/standards.md"},
 		Gates:         domain.ComponentGates{CoverageEnabled: ptr(true), CoverageThreshold: ptr(80.0)},
+		Delivery:      delivery,
 		Status:        domain.ComponentStatusActive,
 		ManuallyAdded: true,
 	}
@@ -112,6 +124,8 @@ func (s *ProjectModelStoreSuite) TestSaveComponentRoundTripsFactOverridesAndMobi
 	s.Equal("Public API", created.Name.Get(), "the override must win over the detected value")
 	s.Require().NotNil(created.Mobile)
 	s.Equal("com.acme.app", created.Mobile.Get().Identity.BundleID)
+	s.Equal(domain.DeliveryDispatch, created.Delivery.Get().Mode, "the delivery override must win over the detected value")
+	s.Equal(domain.DeliveryOnMerge, created.Delivery.Detected.Mode, "the detected half must survive alongside the override")
 
 	got, err := s.store.GetComponent(s.ctx, created.ID)
 	s.Require().NoError(err)
@@ -149,6 +163,46 @@ func (s *ProjectModelStoreSuite) TestSaveComponentMobileNilStaysNil() {
 	got, err := s.store.GetComponent(s.ctx, created.ID)
 	s.Require().NoError(err)
 	s.Nil(got.Mobile)
+}
+
+// TestSaveComponentDeliveryScanUpsertPreservesOverride follows the same
+// WithDetected merge a real scan reconcile does (application/projectmodel/
+// reconcile.go): read the stored Fact, replace only its Detected half, save.
+// The store itself never merges — it writes whatever Fact it is given — so
+// this proves the round trip the application layer relies on actually holds.
+func (s *ProjectModelStoreSuite) TestSaveComponentDeliveryScanUpsertPreservesOverride() {
+	override := domain.ComponentDelivery{
+		Mode: domain.DeliveryDispatch, Executor: domain.ExecutorGitHubActions, Workflow: "ship.yml",
+		Verify: domain.DeliveryVerify{SoakMinutes: 20}, AutoRollback: true,
+	}
+	created, err := s.store.SaveComponent(s.ctx, domain.Component{
+		RepositoryID: s.repoA,
+		Path:         "apps/api",
+		Delivery: domain.Fact[domain.ComponentDelivery]{
+			Detected:   &domain.ComponentDelivery{Mode: domain.DeliveryOnMerge, Executor: domain.ExecutorVercel},
+			Override:   &override,
+			Confidence: domain.ConfidenceHigh,
+		},
+	})
+	s.Require().NoError(err)
+	s.Equal(domain.DeliveryDispatch, created.Delivery.Get().Mode)
+
+	rescanDetected := domain.Fact[domain.ComponentDelivery]{
+		Detected:   &domain.ComponentDelivery{Mode: domain.DeliveryNone},
+		Confidence: domain.ConfidenceExact,
+	}
+	merged := created
+	merged.Delivery = created.Delivery.WithDetected(rescanDetected)
+
+	saved, err := s.store.SaveComponent(s.ctx, merged)
+	s.Require().NoError(err)
+	s.Equal(domain.DeliveryDispatch, saved.Delivery.Get().Mode, "the override survives a rescan's detected half changing")
+	s.Equal(override, *saved.Delivery.Override)
+	s.Equal(domain.DeliveryNone, saved.Delivery.Detected.Mode, "the detected half is what the rescan wrote")
+
+	got, err := s.store.GetComponent(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Equal(saved, got)
 }
 
 func (s *ProjectModelStoreSuite) TestSaveComponentUniqueRepositoryPathConflicts() {
