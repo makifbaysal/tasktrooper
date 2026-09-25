@@ -96,7 +96,8 @@ func (s *ReleaseStore) loadTasks(ctx context.Context, releaseIDs []uuid.UUID) (m
 		return nil, nil
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT rt.release_id, bt.id, `+taskKeySQL+`, bt.title, bt.task_type, bt.board_column, bt.merge_commit_sha
+		SELECT rt.release_id, bt.id, `+taskKeySQL+`, bt.title, bt.task_type, bt.board_column, bt.merge_commit_sha,
+		       COALESCE(bt.before_deploy, ''), COALESCE(bt.after_deploy, '')
 		FROM release_tasks rt
 		JOIN board_tasks bt ON bt.id = rt.task_id
 		WHERE rt.release_id = ANY($1)
@@ -112,7 +113,7 @@ func (s *ReleaseStore) loadTasks(ctx context.Context, releaseIDs []uuid.UUID) (m
 		var t domain.ReleaseTaskRef
 		var taskType, col string
 		var mergeSHA *string
-		if err := rows.Scan(&releaseID, &t.ID, &t.Key, &t.Title, &taskType, &col, &mergeSHA); err != nil {
+		if err := rows.Scan(&releaseID, &t.ID, &t.Key, &t.Title, &taskType, &col, &mergeSHA, &t.BeforeDeploy, &t.AfterDeploy); err != nil {
 			return nil, fmt.Errorf("scan release task: %w", err)
 		}
 		t.TaskType = domain.TaskType(taskType)

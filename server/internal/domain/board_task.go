@@ -315,6 +315,10 @@ type BoardTask struct {
 	BeforeDeploy *string `json:"before_deploy,omitempty"`
 	AfterDeploy  *string `json:"after_deploy,omitempty"`
 	RollbackPlan *string `json:"rollback_plan,omitempty"`
+	// BeforeDeployConfirmedAt is when a human confirmed the BeforeDeploy steps
+	// were done; nothing ships a task whose steps are written but unconfirmed.
+	// Editing BeforeDeploy clears it.
+	BeforeDeployConfirmedAt *time.Time `json:"before_deploy_confirmed_at,omitempty"`
 	// PRURL / PRNumber are the pull request this task's branch is reviewed in,
 	// recorded when one is opened, not re-derived on demand. The number may be
 	// 0 while the URL is set: an unrecognised html_url is still stored.
@@ -397,3 +401,9 @@ const (
 	TaskActorAgent  TaskActor = "agent"
 	TaskActorHuman  TaskActor = "human"
 )
+
+// BeforeDeployPending reports steps a human still has to perform before this
+// task may ship.
+func (t BoardTask) BeforeDeployPending() bool {
+	return t.BeforeDeploy != nil && strings.TrimSpace(*t.BeforeDeploy) != "" && t.BeforeDeployConfirmedAt == nil
+}

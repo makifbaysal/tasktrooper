@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,6 +89,17 @@ type ReleaseTaskRef struct {
 	TaskType       TaskType   `json:"task_type,omitempty"`
 	Column         TaskColumn `json:"column,omitempty"`
 	MergeCommitSHA string     `json:"merge_commit_sha,omitempty"`
+	// BeforeDeploy / AfterDeploy are the task's own deploy runbook: what a
+	// human has to do before this ships and right after it went live.
+	BeforeDeploy          string `json:"before_deploy,omitempty"`
+	BeforeDeployConfirmed bool   `json:"before_deploy_confirmed,omitempty"`
+	AfterDeploy           string `json:"after_deploy,omitempty"`
+}
+
+// BeforeDeployPending reports a task whose before-deploy steps a human has not
+// confirmed yet.
+func (t ReleaseTaskRef) BeforeDeployPending() bool {
+	return strings.TrimSpace(t.BeforeDeploy) != "" && !t.BeforeDeployConfirmed
 }
 
 type HealthSample struct {
@@ -268,6 +280,9 @@ var (
 	// ErrRollbackNeedsHuman: auto_rollback is off; the proposal is written and
 	// a human confirms it.
 	ErrRollbackNeedsHuman = errors.New("auto rollback is off for this component — a human must confirm the rollback")
+	// ErrBeforeDeployPending: a task carries before-deploy steps a human has
+	// not confirmed; nothing that would deploy it may run until they do.
+	ErrBeforeDeployPending = errors.New("before-deploy steps are not confirmed")
 )
 
 // Release tools, named in domain because the stage policy decides things

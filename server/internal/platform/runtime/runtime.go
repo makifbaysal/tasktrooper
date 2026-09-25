@@ -38,6 +38,7 @@ import (
 	desktopadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/desktop"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localdevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localtoolchain"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/localexec"
 	mcpadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/mcp"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpserver"
 	pgstore "github.com/makifbaysal/tasktrooper/server/internal/adapter/storage/postgres"
@@ -2221,6 +2222,15 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					RepoCoordinates:     resolveRepoCoordinates,
 					IsRefAlreadyExists:  githubapi.IsRefAlreadyExists,
 					IsCIUnavailableText: githubapi.IsCIUnavailableText,
+				}
+				releaseDeps.Git = gitClient
+				releaseDeps.LocalRunner = localexec.NewRunner()
+				releaseDeps.DataDir = opts.DataDir
+				if releaseDeps.DataDir == "" {
+					releaseDeps.DataDir = filepath.Dir(cfg.AgentCatalog.CacheDir)
+				}
+				if e.storeOpsSvc != nil {
+					releaseDeps.StoreOps = e.storeOpsSvc
 				}
 				if modelSvc != nil {
 					releaseDeps.Components = modelSvc
