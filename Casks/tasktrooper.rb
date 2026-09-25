@@ -9,8 +9,8 @@
 #
 # Refresh it for a release with: scripts/update-cask.sh <version> <path-to-dmg>
 cask "tasktrooper" do
-  version "0.2.0"
-  sha256 "2d2803d07fa8d61597b5f79cb111c7bf3535f7faa85ad42278e3c39f7bbb838d"
+  version "0.2.2"
+  sha256 "ef3c6604daeb0e6989b628e38ddaba3bd497c5f92aca2afa3ebc6335cc4bebeb"
 
   url "https://github.com/makifbaysal/tasktrooper/releases/download/v#{version}/TaskTrooper-#{version}-universal.dmg"
   name "TaskTrooper"
