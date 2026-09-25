@@ -181,6 +181,19 @@ func (f *fakeReleaseStore) AddTasks(_ context.Context, releaseID uuid.UUID, task
 	return nil
 }
 
+func (f *fakeReleaseStore) AddTasksToDraft(ctx context.Context, releaseID uuid.UUID, taskIDs []uuid.UUID) (bool, error) {
+	f.mu.Lock()
+	r, ok := f.releases[releaseID]
+	f.mu.Unlock()
+	if !ok {
+		return false, domain.ErrReleaseNotFound
+	}
+	if r.Status != domain.ReleaseDraft {
+		return false, nil
+	}
+	return true, f.AddTasks(ctx, releaseID, taskIDs)
+}
+
 func (f *fakeReleaseStore) RemoveTask(_ context.Context, releaseID, taskID uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

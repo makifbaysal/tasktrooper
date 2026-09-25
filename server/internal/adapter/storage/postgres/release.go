@@ -433,6 +433,39 @@ func (s *ReleaseStore) AddTasks(ctx context.Context, releaseID uuid.UUID, taskID
 	return nil
 }
 
+func (s *ReleaseStore) AddTasksToDraft(ctx context.Context, releaseID uuid.UUID, taskIDs []uuid.UUID) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("add draft tasks: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT status FROM releases WHERE id = $1 FOR UPDATE`, releaseID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, domain.ErrReleaseNotFound
+		}
+		return false, fmt.Errorf("add draft tasks: %w", err)
+	}
+	if status != string(domain.ReleaseDraft) {
+		return false, nil
+	}
+	for _, taskID := range taskIDs {
+		if taskID == uuid.Nil {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO release_tasks (release_id, task_id, added_at) VALUES ($1, $2, clock_timestamp())
+			ON CONFLICT DO NOTHING
+		`, releaseID, taskID); err != nil {
+			return false, fmt.Errorf("add draft task: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("add draft tasks: %w", err)
+	}
+	return true, nil
+}
+
 func (s *ReleaseStore) RemoveTask(ctx context.Context, releaseID, taskID uuid.UUID) error {
 	if _, err := s.pool.Exec(ctx, `
 		DELETE FROM release_tasks WHERE release_id = $1 AND task_id = $2

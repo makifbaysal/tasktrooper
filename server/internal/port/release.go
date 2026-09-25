@@ -25,6 +25,10 @@ type ReleaseStore interface {
 	// an agent) can never both advance the same release.
 	Update(ctx context.Context, r domain.Release, expect domain.ReleaseStatus) (domain.Release, error)
 	AddTasks(ctx context.Context, releaseID uuid.UUID, taskIDs []uuid.UUID) error
+	// AddTasksToDraft adds only while the release is still a draft, in the same
+	// statement; false means it was cut (or superseded) meanwhile and nothing
+	// was added.
+	AddTasksToDraft(ctx context.Context, releaseID uuid.UUID, taskIDs []uuid.UUID) (bool, error)
 	RemoveTask(ctx context.Context, releaseID, taskID uuid.UUID) error
 	// LastReleased is the newest `released` release of the component finished
 	// before the given time — what a rollback redeploys.
