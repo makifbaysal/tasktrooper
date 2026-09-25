@@ -217,8 +217,8 @@ func (s *Service) sweepRollingBackPromote(ctx context.Context, r domain.Release,
 		}
 		return
 	}
-	revertDeployment, ok := matchVercelDeployment(deployments, r.Rollback.RestoredRef)
-	if !ok || revertDeployment.Status != domain.CloudDeployReady {
+	revertDeployment, ok := s.newestRestoringDeployment(ctx, r, deployments)
+	if !ok {
 		if elapsed > rollbackTimeout {
 			s.failRollbackSafe(ctx, r, "production is SAFE on the earlier deployment, but the revert has not deployed — "+
 				"automatic production assignment stays off until a deployment is promoted in the provider's console")
@@ -234,4 +234,64 @@ func (s *Service) sweepRollingBackPromote(ctx context.Context, r domain.Release,
 
 	r.Rollback.PromotedDeploymentID = revertDeployment.ID
 	s.finishRollback(ctx, r)
+}
+
+// unresolvedProviderPin finds a rollback of the same component that pinned
+// production to an earlier deployment and has not promoted anything since:
+// until it does, a newer deployment can be READY without ever serving.
+func (s *Service) unresolvedProviderPin(ctx context.Context, r domain.Release) (domain.Release, bool) {
+	if r.ComponentID == nil {
+		return domain.Release{}, false
+	}
+	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
+		RepositoryID: &r.RepositoryID,
+		ComponentID:  r.ComponentID,
+		Statuses:     []domain.ReleaseStatus{domain.ReleaseRollingBack, domain.ReleaseFailed},
+		Limit:        20,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: checking for a provider pin failed")
+		return domain.Release{}, false
+	}
+	for _, other := range releases {
+		if other.ID == r.ID || other.Rollback == nil {
+			continue
+		}
+		if other.Rollback.Mechanism == domain.RollbackMechanismProvider && other.Rollback.PromotedDeploymentID == "" {
+			return other, true
+		}
+	}
+	return domain.Release{}, false
+}
+
+// newestRestoringDeployment is the deployment to promote after a provider
+// rollback: the newest READY production deployment whose commit is the
+// revert or builds on it. Promoting exactly the revert would put an older
+// build live than a merge that landed while the rollback was running.
+func (s *Service) newestRestoringDeployment(ctx context.Context, r domain.Release, deployments []domain.CloudDeployment) (domain.CloudDeployment, bool) {
+	revert := strings.TrimSpace(r.Rollback.RestoredRef)
+	var root string
+	if s.git != nil {
+		if repo, err := s.repo(ctx, r.RepositoryID); err == nil {
+			root = repo.RootPath
+		}
+	}
+	var best domain.CloudDeployment
+	found := false
+	for _, d := range deployments {
+		if d.Status != domain.CloudDeployReady || (d.Environment != "" && d.Environment != domain.EnvironmentProduction) {
+			continue
+		}
+		commit := strings.TrimSpace(d.CommitSHA)
+		restores := commitPrefixMatch(commit, revert)
+		if !restores && root != "" && commit != "" {
+			if ok, err := s.git.IsAncestor(ctx, root, revert, commit); err == nil && ok {
+				restores = true
+			}
+		}
+		if restores && (!found || d.CreatedAt.After(best.CreatedAt)) {
+			best, found = d, true
+		}
+	}
+	return best, found
 }

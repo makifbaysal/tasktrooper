@@ -118,7 +118,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 	// a retry: the earlier attempt already resolved this once, and expect at
 	// that point is the earlier attempt's OWN outcome (e.g. failed because
 	// ITS redeploy failed), not the original pre-rollback state.
-	neverDeployed := !retry && r.DeployedAt == nil && expect == domain.ReleaseFailed
+	neverDeployed := !retry && r.DeployedAt == nil && expect == domain.ReleaseFailed && r.Mode != domain.DeliveryOnMerge
 
 	rollback := &domain.ReleaseRollback{
 		Reason:    reason,
@@ -132,7 +132,11 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		rollback.ManualSteps = r.Rollback.ManualSteps
 		if r.Rollback.Mechanism == domain.RollbackMechanismProvider {
 			priorProvider = providerRollbackAttempt{success: true, targetID: r.Rollback.ProviderDeploymentID, detail: r.Rollback.Detail}
+			rollback.Mechanism = r.Rollback.Mechanism
+			rollback.ProviderDeploymentID = r.Rollback.ProviderDeploymentID
+			rollback.PromotedDeploymentID = r.Rollback.PromotedDeploymentID
 		}
+		rollback.ProgressAt = r.Rollback.ProgressAt
 	} else {
 		rollback.ManualSteps = s.manualStepsFor(ctx, r)
 	}

@@ -104,6 +104,13 @@ func (s *Service) retryClaim(ctx context.Context, r domain.Release, expect domai
 	r.DeployStartedAt = nil
 	r.LocalRun = nil
 	r.StoreBuilds = nil
+	// Stamped like a hand-back: when the agent's own retries also fail (the
+	// laptop is offline), the watchdog wakes it again once it has not looked
+	// at the release since, instead of the release sitting in pending until a
+	// human notices.
+	now := s.now()
+	r.LastHandBackAt = &now
+	r.HandBackCount++
 	if _, err := s.store.Update(ctx, r, expect); err != nil {
 		return domain.Release{}, err
 	}

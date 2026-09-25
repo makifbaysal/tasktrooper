@@ -165,7 +165,7 @@ func (s *Service) freeStrandedPark(ctx context.Context, parked domain.BoardTask)
 // and behaves the same across every sweeper instance.
 func (s *Service) rewakeUnparkedHandBacks(ctx context.Context, parkedTaskIDs map[uuid.UUID]bool) {
 	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
-		Statuses: []domain.ReleaseStatus{domain.ReleaseAwaitingVerdict, domain.ReleaseFailed},
+		Statuses: []domain.ReleaseStatus{domain.ReleaseAwaitingVerdict, domain.ReleaseFailed, domain.ReleasePending},
 		Limit:    sweepBatch,
 	})
 	if err != nil {
@@ -268,6 +268,15 @@ func (s *Service) sweepDeploying(ctx context.Context, r domain.Release) {
 		}
 		s.handBack(ctx, updated)
 	case domain.DeployWatchSuccess:
+		if r.Mode == domain.DeliveryOnMerge {
+			if pin, ok := s.unresolvedProviderPin(ctx, r); ok {
+				if startedAt != nil && now.Sub(*startedAt) > pendingDeployTimeout {
+					s.failDeploying(ctx, r, fmt.Sprintf("production is still pinned to an earlier deployment by the provider rollback of %s, "+
+						"so this deploy is built but not live — promote a deployment in the provider's console (or finish that rollback), then deploy again", pin.Version))
+				}
+				return
+			}
+		}
 		s.settleDeploySuccess(ctx, r, status)
 	}
 }
