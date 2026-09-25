@@ -39,7 +39,6 @@ type TaskManager interface {
 	RecordTestCases(ctx context.Context, taskID uuid.UUID, items []domain.TaskTestCaseInput) ([]domain.TaskTestCase, error)
 	SetTestCaseResult(ctx context.Context, testCaseID uuid.UUID, item domain.TaskTestCaseInput) (domain.TaskTestCase, error)
 	LatestTaskPipeline(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskPipeline, error)
-	TriggerRelease(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskPipeline, error)
 }
 
 // WorkspaceLister exposes the board's projects and code repositories so agents
@@ -75,6 +74,24 @@ type ComponentResolver interface {
 	ComponentByPath(ctx context.Context, repositoryID uuid.UUID, path string) (domain.Component, error)
 }
 
+// ReleaseService is the release-engineer's use case as the tools need it
+// (implemented by application/release.Service), narrowed to the calls
+// release_tools.go makes: reading the release covering a task, and moving it
+// through deploy/watch/verify to a verdict.
+type ReleaseService interface {
+	ForTask(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error)
+	Get(ctx context.Context, id uuid.UUID) (domain.Release, error)
+	Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor) (domain.Release, error)
+	// Watch returns a ResourceBlock when the release is still Watched()
+	// (deploying/verifying/rolling_back) — see release_tools.go's
+	// watch_release, which parks the run on it exactly as get_deploy_logs's
+	// predecessor used to for domain.ResourceDeployWatch.
+	Watch(ctx context.Context, releaseID uuid.UUID) (domain.Release, *domain.ResourceBlock, error)
+	RunSmoke(ctx context.Context, releaseID uuid.UUID) ([]domain.SmokeResult, error)
+	Finish(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, note string) (domain.Release, error)
+	Rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error)
+}
+
 type ToolKit struct {
 	Tasks       TaskManager
 	Workspace   WorkspaceLister
@@ -84,11 +101,18 @@ type ToolKit struct {
 	// or no GitHub token store, which is why the three PR tools are registered
 	// conditionally rather than always.
 	PullRequests TaskPullRequests
-	// DeployWatch is the after-the-merge half of the same story: what happened
-	// in production to the commit the merge produced, and how to undo it. Nil
-	// for the same reasons PullRequests is nil — it needs GitHub — and the
-	// three deploy tools are registered on the same condition.
+	// DeployWatch is the legacy per-task deploy signal get_deploy_logs falls
+	// back to for a task with no release. Nil for the same reasons
+	// PullRequests is nil — it needs GitHub.
 	DeployWatch DeployWatch
+	// Releases is the release-engineer's service: the release covering a
+	// task, and the actions that move it — deploy, watch, verify, finish,
+	// roll back. Nil on a build where it has not been wired yet (it is built
+	// later in the boot sequence than this registration runs, the same
+	// reason DeployWatch is read at call time), which is why the six release
+	// tools answer "the release service is not configured on this
+	// deployment" instead of failing to register.
+	Releases ReleaseService
 	// Workflows/Roles back create_task.go's task_type validation and
 	// assignee_role, and list_team.go's roles/subscribed_columns.
 	Workflows port.WorkflowReader
@@ -135,7 +159,6 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 		newSetTestCaseResultTool(kit),
 		newBoardSummaryTool(kit),
 		newGetPipelineStatusTool(kit),
-		newTriggerReleaseTool(kit),
 	}
 	if kit.Workspace != nil {
 		execs = append(execs,
@@ -165,23 +188,27 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 	}
 	if kit.PullRequests != nil {
 		// Registered on the SAME condition as the PR tools — GitHub is wired —
-		// rather than on kit.DeployWatch being set, because the deploy-watch
-		// service is built later in the boot sequence than this registration
-		// runs (it needs the deploy-target and deployment-run stores, which are
-		// opened with the rest of the pipeline wiring). The kit is a pointer
-		// shared with every executor, so the field is read at CALL time; a build
-		// where the later wiring did not happen answers "the deploy watch is not
-		// configured on this deployment" instead of silently missing the tools.
+		// rather than on kit.DeployWatch/kit.Releases being set, because those
+		// services are built later in the boot sequence than this registration
+		// runs (they need the deploy-target/release stores, opened with the
+		// rest of the pipeline wiring). The kit is a pointer shared with every
+		// executor, so the fields are read at CALL time; a build where the
+		// later wiring did not happen answers "... is not configured on this
+		// deployment" instead of silently missing the tools.
 		//
 		// They belong beside the merge for the same reason they belong beside it
 		// in the prompt: merging is what puts a commit in front of a deploy, and
-		// a merge nobody watches is how a task reaches `released` on the
+		// a release nobody watches is how a task reaches `released` on the
 		// strength of a green PR check. Registration is what makes them callable
 		// at all; catalog/role_tools.go decides by whom, and
 		// domain.RestrictToolsForStage's strip_writers behaviour decides in which column.
 		execs = append(execs,
-			newDeployStatusTool(kit),
 			newDeployLogsTool(kit),
+			newGetReleaseTool(kit),
+			newDeployReleaseTool(kit),
+			newWatchReleaseTool(kit),
+			newRunSmokeChecksTool(kit),
+			newFinishReleaseTool(kit),
 			newRollbackReleaseTool(kit),
 		)
 	}
@@ -217,7 +244,7 @@ func (kit *ToolKit) resolveCreateRepositoryID(ctx context.Context, explicit *uui
 // in: the repository the run is bound to, whenever one is bound.
 //
 // That binding is containment, not addressing. This one resolver feeds
-// merge_task_pull_request, trigger_release, delete_board_task, the deploy
+// merge_task_pull_request, deploy_release/watch_release, delete_board_task, the deploy
 // tools and every board write, so a run bound to repository X that could be
 // talked into naming a task in repository Y — by a planted task, a comment,
 // anything the model read — would act on Y's code. It must not, and letting
