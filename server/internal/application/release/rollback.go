@@ -68,6 +68,17 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		return domain.Release{}, fmt.Errorf("no git reverter is configured on this deployment")
 	}
 
+	// Provider rollback runs BEFORE the revert: it is seconds, the revert (and
+	// any dispatch redeploy) is minutes, and production should stop serving
+	// the bad release as fast as possible. Batch releases have no comparable
+	// bound-environment notion, and a release that never deployed put nothing
+	// on the provider to roll back, so neither attempts it.
+	neverDeployed := r.DeployedAt == nil && r.Status == domain.ReleaseFailed
+	var provider providerRollbackAttempt
+	if r.Mode != domain.DeliveryBatch && !neverDeployed {
+		provider = s.attemptProviderRollback(ctx, r)
+	}
+
 	shas := revertSHAsNewestFirst(r.Tasks)
 	if len(shas) == 0 {
 		shas = []string{r.CommitSHA}
@@ -89,13 +100,14 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		ManualSteps: s.manualStepsFor(ctx, r),
 		Actor:       string(actor),
 		StartedAt:   s.now(),
+		Detail:      provider.detail,
 	}
 
 	if r.Mode == domain.DeliveryBatch {
 		return s.finishBatchRollback(ctx, r, expect, rollback)
 	}
 
-	if r.DeployedAt == nil && r.Status == domain.ReleaseFailed {
+	if neverDeployed {
 		rollback.Mechanism = domain.RollbackMechanismRevert
 		rollback.RestoredRef = revertSHA
 		rollback.Detail = "the release never deployed; only the revert was needed"
@@ -113,10 +125,20 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 
 	switch r.Mode {
 	case domain.DeliveryDispatch:
-		s.rollbackDispatch(ctx, repo, &r, rollback)
+		if provider.success {
+			rollback.Mechanism = domain.RollbackMechanismProvider
+			rollback.ProviderDeploymentID = provider.targetID
+			rollback.RestoredRef = revertSHA
+		} else {
+			s.rollbackDispatch(ctx, repo, &r, rollback)
+		}
 	default:
 		rollback.Mechanism = domain.RollbackMechanismRevert
 		rollback.RestoredRef = revertSHA
+		if provider.success {
+			rollback.Mechanism = domain.RollbackMechanismProvider
+			rollback.ProviderDeploymentID = provider.targetID
+		}
 	}
 
 	r.Rollback = rollback
@@ -145,7 +167,11 @@ func (s *Service) rollbackDispatch(ctx context.Context, repo domain.Repository, 
 
 	_, ciUnavailable, err := s.createAndDispatch(ctx, repo, r.Profile.Workflow, restoredRef)
 	if err != nil {
-		rollback.Detail = err.Error()
+		if rollback.Detail != "" {
+			rollback.Detail += "; " + err.Error()
+		} else {
+			rollback.Detail = err.Error()
+		}
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: redeploying the previous good release failed")
 		if ciUnavailable {
 			r.Rollback = rollback
@@ -296,6 +322,10 @@ func rollbackReopenComment(r domain.Release) string {
 func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 	if r.Rollback == nil {
 		log.Warn().Str("release_id", r.ID.String()).Msg("release sweeper: rolling_back release has no rollback record")
+		return
+	}
+	if r.Rollback.Mechanism == domain.RollbackMechanismProvider {
+		s.sweepRollingBackProvider(ctx, r)
 		return
 	}
 	status, err := s.statusForRestoredRef(ctx, r)

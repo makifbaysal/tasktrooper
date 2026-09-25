@@ -115,6 +115,7 @@ func (s *Service) Cut(ctx context.Context, releaseID uuid.UUID, actor domain.Rel
 		return domain.Release{}, err
 	}
 	_ = actor
+	s.stampBeforeDeployConfirmations(ctx, updated)
 	s.wakeNewestTask(ctx, updated, domain.ReleasePending)
 	return updated, nil
 }

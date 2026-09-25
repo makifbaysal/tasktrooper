@@ -332,6 +332,23 @@ func (f *fakeMergeState) ResetMergeState(_ context.Context, taskID uuid.UUID) er
 	return nil
 }
 
+// fakeBeforeDeployConfirmer is release.BeforeDeployConfirmer.
+type fakeBeforeDeployConfirmer struct {
+	mu        sync.Mutex
+	confirmed []uuid.UUID
+	err       error
+}
+
+func (f *fakeBeforeDeployConfirmer) ConfirmBeforeDeploy(_ context.Context, _, taskID uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.confirmed = append(f.confirmed, taskID)
+	return nil
+}
+
 // fakeWaker is release.Waker.
 type wakeCall struct {
 	repositoryID uuid.UUID
@@ -392,17 +409,40 @@ func (f *fakeComponents) ListComponents(_ context.Context, repositoryID uuid.UUI
 
 // fakeEnvironments is release.Environments.
 type fakeEnvironments struct {
+	mu          sync.Mutex
 	envs        map[uuid.UUID][]domain.ComponentEnvironment
 	deployments map[uuid.UUID][]domain.CloudDeployment
 	errorGroups map[uuid.UUID][]domain.RuntimeErrorGroup
 	errorsErr   error
+
+	// rollbackable/current/rollbackErr/promoteErr are keyed by environment id
+	// and drive the WP-M-shaped provider-rollback surface: CanRollback,
+	// CurrentDeployment, RollbackEnvironment, PromoteDeployment.
+	rollbackable map[uuid.UUID]bool
+	current      map[uuid.UUID]domain.CloudDeployment
+	currentErr   map[uuid.UUID]error
+	rollbackErr  map[uuid.UUID]error
+	promoteErr   map[uuid.UUID]error
+
+	rollbackCalls []envDeploymentCall
+	promoteCalls  []envDeploymentCall
+}
+
+type envDeploymentCall struct {
+	envID        uuid.UUID
+	deploymentID string
 }
 
 func newFakeEnvironments() *fakeEnvironments {
 	return &fakeEnvironments{
-		envs:        map[uuid.UUID][]domain.ComponentEnvironment{},
-		deployments: map[uuid.UUID][]domain.CloudDeployment{},
-		errorGroups: map[uuid.UUID][]domain.RuntimeErrorGroup{},
+		envs:         map[uuid.UUID][]domain.ComponentEnvironment{},
+		deployments:  map[uuid.UUID][]domain.CloudDeployment{},
+		errorGroups:  map[uuid.UUID][]domain.RuntimeErrorGroup{},
+		rollbackable: map[uuid.UUID]bool{},
+		current:      map[uuid.UUID]domain.CloudDeployment{},
+		currentErr:   map[uuid.UUID]error{},
+		rollbackErr:  map[uuid.UUID]error{},
+		promoteErr:   map[uuid.UUID]error{},
 	}
 }
 
@@ -419,6 +459,34 @@ func (f *fakeEnvironments) Errors(_ context.Context, envID uuid.UUID, _ time.Tim
 		return nil, f.errorsErr
 	}
 	return f.errorGroups[envID], nil
+}
+
+func (f *fakeEnvironments) CanRollback(_ context.Context, envID uuid.UUID) bool {
+	return f.rollbackable[envID]
+}
+
+func (f *fakeEnvironments) CurrentDeployment(_ context.Context, envID uuid.UUID) (domain.CloudDeployment, error) {
+	if err := f.currentErr[envID]; err != nil {
+		return domain.CloudDeployment{}, err
+	}
+	return f.current[envID], nil
+}
+
+func (f *fakeEnvironments) RollbackEnvironment(_ context.Context, envID uuid.UUID, deploymentID string) error {
+	f.mu.Lock()
+	f.rollbackCalls = append(f.rollbackCalls, envDeploymentCall{envID: envID, deploymentID: deploymentID})
+	f.mu.Unlock()
+	return f.rollbackErr[envID]
+}
+
+func (f *fakeEnvironments) PromoteDeployment(_ context.Context, envID uuid.UUID, deploymentID string) error {
+	f.mu.Lock()
+	f.promoteCalls = append(f.promoteCalls, envDeploymentCall{envID: envID, deploymentID: deploymentID})
+	f.mu.Unlock()
+	if err := f.promoteErr[envID]; err != nil {
+		return err
+	}
+	return nil
 }
 
 // fakeDeployStatus is release.DeployStatus.

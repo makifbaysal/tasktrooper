@@ -26,6 +26,9 @@ func (s *Service) Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.
 	}
 	switch r.Mode {
 	case domain.DeliveryDispatch:
+		if gateErr := s.beforeDeployGate(ctx, r); gateErr != nil {
+			return domain.Release{}, gateErr
+		}
 		return s.deployDispatch(ctx, r, actor)
 	case domain.DeliveryBatch:
 		return s.deployBatch(ctx, r, actor)

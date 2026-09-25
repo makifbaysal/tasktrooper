@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -38,7 +39,29 @@ func (s *Service) Finish(ctx context.Context, releaseID uuid.UUID, actor domain.
 		return domain.Release{}, err
 	}
 	s.releaseTasks(ctx, updated)
+	s.postAfterDeployComments(ctx, updated)
 	return updated, nil
+}
+
+// postAfterDeployComments tells whoever reads the task what to do now that
+// it shipped — one comment per task that carries after-deploy steps, posted
+// once the tasks have already moved to released.
+func (s *Service) postAfterDeployComments(ctx context.Context, r domain.Release) {
+	if s.tasks == nil {
+		return
+	}
+	for _, t := range r.Tasks {
+		text := strings.TrimSpace(t.AfterDeploy)
+		if text == "" {
+			continue
+		}
+		if _, err := s.tasks.AddComment(ctx, r.RepositoryID, t.ID, domain.CreateTaskCommentRequest{
+			AuthorType: "system",
+			Content:    fmt.Sprintf("Released — do these after-deploy steps now: %s", text),
+		}); err != nil {
+			log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: posting an after-deploy comment failed")
+		}
+	}
 }
 
 func (s *Service) releaseTasks(ctx context.Context, r domain.Release) {

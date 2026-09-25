@@ -66,11 +66,27 @@ type Components interface {
 
 // Environments is the slice of *cloud.Service a release needs: the
 // component's bound environments, its deployments (vercel status matching)
-// and its runtime error groups (verify window).
+// and its runtime error groups (verify window), plus the provider-rollback
+// capability (CanRollback/CurrentDeployment/RollbackEnvironment/
+// PromoteDeployment) *cloud.Service grew in WP-M. A provider without the
+// capability answers CanRollback false and the release falls back to the
+// pushed revert, so every method here degrades rather than being required.
 type Environments interface {
 	ListEnvironments(ctx context.Context, repositoryID uuid.UUID) ([]domain.ComponentEnvironment, error)
 	Deployments(ctx context.Context, envID uuid.UUID, limit int) ([]domain.CloudDeployment, error)
 	Errors(ctx context.Context, envID uuid.UUID, since time.Time) ([]domain.RuntimeErrorGroup, error)
+	CanRollback(ctx context.Context, envID uuid.UUID) bool
+	CurrentDeployment(ctx context.Context, envID uuid.UUID) (domain.CloudDeployment, error)
+	RollbackEnvironment(ctx context.Context, envID uuid.UUID, deploymentID string) error
+	PromoteDeployment(ctx context.Context, envID uuid.UUID, deploymentID string) error
+}
+
+// BeforeDeployConfirmer stamps a task's before-deploy confirmation the same
+// way a human's confirm button does — used by Cut, where cutting the batch
+// release IS the human's confirmation for every task it carries. Implemented
+// by *repository.Service (WP-O).
+type BeforeDeployConfirmer interface {
+	ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) error
 }
 
 // DeployStatus is the commit-keyed deploy watch, standing in for the
@@ -159,6 +175,16 @@ type Deps struct {
 	Reverter      Reverter
 	Repos         Repos
 	Incidents     IncidentIngester
+	// BeforeDeploy confirms a task's before-deploy steps from Cut; nil skips
+	// the stamp (the release still opens/deploys — WP-O's own gates are what
+	// actually blocks an unconfirmed task from shipping).
+	BeforeDeploy BeforeDeployConfirmer
+
+	// HealthWindow is how long after a release's FinishedAt/DeployedAt a
+	// production incident is still attributed to it; defaults to
+	// DefaultHealthWindow (15m), the same value deploywatch.Service uses for
+	// its own (task-keyed) attribution.
+	HealthWindow time.Duration
 
 	// Git, LocalRunner, StoreOps and DataDir are only needed for batch
 	// releases (cut preview/cut, and the three batch executors); nil/empty
@@ -208,6 +234,9 @@ type Service struct {
 	reverter     Reverter
 	repos        Repos
 	incidents    IncidentIngester
+	beforeDeploy BeforeDeployConfirmer
+
+	healthWindow time.Duration
 
 	git         Git
 	localRunner LocalRunner
@@ -242,6 +271,8 @@ func New(d Deps) *Service {
 		reverter:         d.Reverter,
 		repos:            d.Repos,
 		incidents:        d.Incidents,
+		beforeDeploy:     d.BeforeDeploy,
+		healthWindow:     d.HealthWindow,
 		git:              d.Git,
 		localRunner:      d.LocalRunner,
 		storeOps:         d.StoreOps,
@@ -265,6 +296,9 @@ func New(d Deps) *Service {
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	if s.healthWindow <= 0 {
+		s.healthWindow = DefaultHealthWindow
 	}
 	return s
 }
