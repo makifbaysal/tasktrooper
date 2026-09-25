@@ -204,14 +204,19 @@ type Release struct {
 	// FailureReason is set with ReleaseFailed.
 	FailureReason string `json:"failure_reason,omitempty"`
 	// CardTaskID is the release card a cut batch runs on.
-	CardTaskID      *uuid.UUID       `json:"card_task_id,omitempty"`
-	Tasks           []ReleaseTaskRef `json:"tasks"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
-	DeployStartedAt *time.Time       `json:"deploy_started_at,omitempty"`
-	DeployedAt      *time.Time       `json:"deployed_at,omitempty"`
-	VerifyUntil     *time.Time       `json:"verify_until,omitempty"`
-	FinishedAt      *time.Time       `json:"finished_at,omitempty"`
+	CardTaskID *uuid.UUID `json:"card_task_id,omitempty"`
+	// LocalRun is set for a batch release built on this machine.
+	LocalRun *ReleaseLocalRun `json:"local_run,omitempty"`
+	// StoreBuilds is set for a batch release built through the store pipeline.
+	StoreBuilds     []ReleaseStoreBuild `json:"store_builds,omitempty"`
+	CutAt           *time.Time          `json:"cut_at,omitempty"`
+	Tasks           []ReleaseTaskRef    `json:"tasks"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+	DeployStartedAt *time.Time          `json:"deploy_started_at,omitempty"`
+	DeployedAt      *time.Time          `json:"deployed_at,omitempty"`
+	VerifyUntil     *time.Time          `json:"verify_until,omitempty"`
+	FinishedAt      *time.Time          `json:"finished_at,omitempty"`
 }
 
 func (r Release) TaskIDs() []uuid.UUID {
