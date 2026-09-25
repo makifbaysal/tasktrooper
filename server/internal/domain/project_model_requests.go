@@ -49,6 +49,9 @@ type ComponentPatch struct {
 	Gates    *ComponentGates                  `json:"gates,omitempty"`
 	Docs     *RepositoryDocs                  `json:"docs,omitempty"`
 	Status   *ComponentStatus                 `json:"status,omitempty"`
+	// Delivery sets the delivery profile's override (validated), or clears it
+	// with null so the detected profile applies again.
+	Delivery Patch[ComponentDelivery] `json:"delivery"`
 	// Reviewed true acknowledges a component a later scan added.
 	Reviewed *bool `json:"reviewed,omitempty"`
 }

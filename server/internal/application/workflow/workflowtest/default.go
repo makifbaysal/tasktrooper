@@ -70,6 +70,7 @@ func Default() Fixture {
 	architectID := RoleID("architect")
 	qaID := RoleID("qa")
 	pmID := RoleID("product_manager")
+	releaseID := RoleID("release")
 
 	roles := []domain.AgentRole{
 		{
@@ -104,6 +105,12 @@ func Default() Fixture {
 			ID: pmID, Key: "product_manager", Name: "Product Manager",
 			Description: "Verifies acceptance criteria against QA's evidence.",
 			Assignments: []domain.RoleAssignment{assignment("product-manager")},
+		},
+		{
+			// No assignment: the release-engineer agent is created by the
+			// catalog sync at boot, after migrations have run.
+			ID: releaseID, Key: "release", Name: "Release Engineer",
+			Description: "Merges signed-off work, ships it, verifies production after the deploy and rolls back what breaks.",
 		},
 	}
 

@@ -83,6 +83,9 @@ type TaskPRMergeResult struct {
 	// the caller must not call trigger_release afterwards — there is nothing
 	// left to deploy or wait on.
 	AutoReleased bool `json:"auto_released,omitempty"`
+	// Release is what the merge set in motion for the task's component: the
+	// release it opened (or joined), or that the merge itself was the release.
+	Release *ReleaseOpening `json:"release,omitempty"`
 	// Message is the human sentence: what merged, and what did not go perfectly
 	// (a branch that could not be deleted, a SHA that could not be recorded)
 	// without pretending the merge itself failed.

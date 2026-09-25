@@ -231,7 +231,10 @@ type Component struct {
 	Mobile       *Fact[MobileFacts]   `json:"mobile,omitempty"`
 	Docs         RepositoryDocs       `json:"docs"`
 	Gates        ComponentGates       `json:"gates"`
-	Status       ComponentStatus      `json:"status"`
+	// Delivery is how a merge reaches production for this component; see
+	// DeliveryConfirmed for when a detected profile may act without a human.
+	Delivery Fact[ComponentDelivery] `json:"delivery"`
+	Status   ComponentStatus         `json:"status"`
 	// ManuallyAdded components are never deleted by a rescan that no longer
 	// finds them.
 	ManuallyAdded bool `json:"manually_added"`

@@ -60,9 +60,16 @@ const (
 	// The repository has no deploy_target rows, so merging the pull request
 	// already was the whole release — no deploy pipeline runs.
 	MoveReasonMergeReleasedNoDeployTarget = "merge_released_no_deploy_target"
-	MoveReasonReconciled                  = "reconciled"
-	MoveReasonQuestionAnswered            = "question_answered"
-	MoveReasonQuotaRenewed                = "quota_renewed"
+	// The component's delivery mode is none: the merge was the release.
+	MoveReasonMergeReleasedNoDelivery = "merge_released_no_delivery"
+	// The task's release was verified in production and finished.
+	MoveReasonReleaseVerified = "release_verified"
+	// The task's release was rolled back; its change is reverted on the
+	// default branch and the task goes back for rework.
+	MoveReasonReleaseRolledBack = "release_rolled_back"
+	MoveReasonReconciled        = "reconciled"
+	MoveReasonQuestionAnswered  = "question_answered"
+	MoveReasonQuotaRenewed      = "quota_renewed"
 	// The resume half of quota_renewed's park; it also releases the deploy
 	// watch and work order. Stays "device_free" because rows already carry it
 	// and renaming would rewrite history.

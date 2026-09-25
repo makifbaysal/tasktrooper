@@ -184,9 +184,14 @@ const (
 	RollbackReleaseToolName = "rollback_task_release"
 )
 
-// ReleaseControlTools are the deploy-watch tools that CHANGE production; only
-// rollback does. A list so the verdict-column narrowing can iterate it.
-var ReleaseControlTools = []string{RollbackReleaseToolName}
+// ReleaseControlTools are the tools that CHANGE production or a release's
+// outcome. A list so the stage narrowing can iterate it.
+var ReleaseControlTools = []string{
+	RollbackReleaseToolName,
+	DeployReleaseToolName,
+	FinishReleaseToolName,
+	ReleaseRollbackToolName,
+}
 
 // IsReleaseControlTool reports whether name can change what is running in
 // production.

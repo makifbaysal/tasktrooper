@@ -15,8 +15,13 @@ const ResourceWorkOrder = "work_order"
 
 const ResourceHumanDecision = "human_decision"
 
+// ResourceReleaseWatch parks the release engineer's card while the release
+// sweeper watches the deploy and the soak window; it is handed back only when
+// a verdict is needed or something failed.
+const ResourceReleaseWatch = "release_watch"
+
 func ValidResource(name string) bool {
 	return name == ResourceMobileDevice || name == ResourceClaudeCodeQuota ||
 		name == ResourceDeployWatch || name == ResourceWorkOrder ||
-		name == ResourceHumanDecision
+		name == ResourceHumanDecision || name == ResourceReleaseWatch
 }

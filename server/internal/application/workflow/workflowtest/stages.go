@@ -122,7 +122,7 @@ var allTypesBehaviours = map[domain.TaskColumn][]domain.BehaviourRef{
 	},
 	domain.TaskColumnReleased: {
 		ref(domain.BehaviourForwardExit), ref(domain.BehaviourRequireCriteriaComplete),
-		ref(domain.BehaviourCommitOnFinish),
+		ref(domain.BehaviourStripWriters, "allow", "release_control"),
 	},
 }
 
@@ -159,7 +159,7 @@ var codingExtra = map[domain.TaskColumn][]domain.BehaviourRef{
 		ref(domain.BehaviourDispatchSuspended), ref(domain.BehaviourMergePROnEnter), ref(domain.BehaviourWatchDeployOnResume),
 	},
 	domain.TaskColumnReleased: {
-		ref(domain.BehaviourBuildVerify), ref(domain.BehaviourWatchDeployOnResume),
+		ref(domain.BehaviourWatchDeployOnResume),
 	},
 }
 
@@ -292,6 +292,7 @@ func technicalOverride(col domain.TaskColumn, extra []domain.BehaviourRef) []dom
 // participantsFor is §3's "Participants (informational in B)" table.
 func participantsFor(taskType domain.TaskType, col domain.TaskColumn) []domain.StageParticipant {
 	developerID, analystID, architectID, qaID, pmID := RoleID("developer"), RoleID("analyst"), RoleID("architect"), RoleID("qa"), RoleID("product_manager")
+	releaseID := RoleID("release")
 	worker := func(roleID uuid.UUID) domain.StageParticipant {
 		return domain.StageParticipant{RoleID: roleID, Mode: domain.ParticipantModeWorker}
 	}
@@ -311,8 +312,10 @@ func participantsFor(taskType domain.TaskType, col domain.TaskColumn) []domain.S
 		return []domain.StageParticipant{worker(developerID)}
 	case domain.TaskColumnCodeReview:
 		return []domain.StageParticipant{approver(architectID)}
-	case domain.TaskColumnReadyForQA, domain.TaskColumnInQA, domain.TaskColumnDone, domain.TaskColumnReleased:
+	case domain.TaskColumnReadyForQA, domain.TaskColumnInQA:
 		return []domain.StageParticipant{worker(qaID)}
+	case domain.TaskColumnDone, domain.TaskColumnReleased:
+		return []domain.StageParticipant{worker(releaseID)}
 	case domain.TaskColumnPMUAT:
 		return []domain.StageParticipant{approver(pmID)}
 	default:
