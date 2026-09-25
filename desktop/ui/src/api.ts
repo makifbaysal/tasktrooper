@@ -1009,32 +1009,6 @@ export interface UpdateBoardTaskInput {
   deploy_depends_on?: TaskRelationInput[];
 }
 
-/** Status of a release train. Only `cancelled` may be requested by a client. */
-export type DeployPackageStatus = "draft" | "releasing" | "released" | "failed" | "cancelled";
-
-export interface DeployPackageTask {
-  task_id: string;
-  position: number;
-  key?: string;
-  title?: string;
-  column?: TaskColumn;
-  /** Whether this member has production evidence yet. */
-  released: boolean;
-}
-
-export interface DeployPackage {
-  id: string;
-  repository_id: string;
-  name: string;
-  description?: string;
-  status: DeployPackageStatus;
-  /** Why a package failed (which member, which error) or was cancelled. */
-  note?: string;
-  created_at: string;
-  updated_at: string;
-  tasks?: DeployPackageTask[];
-}
-
 export interface WorkspaceChunk {
   id: string;
   file_path: string;
@@ -3105,6 +3079,30 @@ export interface DeployWatchStatus {
   checked_at: string;
 }
 
+/** A batch release's build-and-publish command run on this machine (executor
+ * `local`). */
+export interface ReleaseLocalRun {
+  argv: string[];
+  log_path?: string;
+  exit_code?: number;
+  /** The last ~120 lines of the command's combined output. */
+  tail?: string;
+  started_at: string;
+  finished_at?: string;
+  error?: string;
+}
+
+/** One platform's store build of a batch release (executor `store`): the
+ * deploy is done when the store's internal channel shows a build other than
+ * the baseline it had before. */
+export interface ReleaseStoreBuild {
+  platform: string;
+  engine?: string;
+  baseline_build?: string;
+  build?: string;
+  error?: string;
+}
+
 /** One shipment of one component: the merge commits it carries, how it was
  * deployed, what production looked like afterwards and what was decided. */
 export interface Release {
@@ -3124,6 +3122,8 @@ export interface Release {
    * edit cannot change what an in-flight release is judged by. */
   profile: ComponentDelivery;
   deploy?: DeployWatchStatus;
+  local_run?: ReleaseLocalRun;
+  store_builds?: ReleaseStoreBuild[];
   checks: ReleaseChecks;
   /** The release engineer's (or a human's) closing note. */
   verdict?: string;
@@ -3138,6 +3138,26 @@ export interface Release {
   deployed_at?: string;
   verify_until?: string;
   finished_at?: string;
+  /** Set when a human cut this batch release. */
+  cut_at?: string;
+}
+
+/** GET .../cut-preview: what cutting a batch component's draft release right
+ * now would produce, before a human commits to a version. */
+export interface ReleaseCutPreview {
+  suggested_version: string;
+  previous_version?: string;
+  /** The tag `suggested_version` would get, from the profile's tag pattern. */
+  tag?: string;
+  commit_sha: string;
+  /** Generated release notes markdown. */
+  notes: string;
+  tasks: ReleaseTaskRef[];
+}
+
+export interface ReleaseCutRequest {
+  version: string;
+  notes: string;
 }
 
 /** What merging a task set in motion; carried on the merge result so the
@@ -3919,46 +3939,6 @@ export const api = {
   createWorkflowSetupTask: (id: string) =>
     request<BoardTask>(`/v1/repositories/${id}/pipeline/setup-task`, { method: "POST" }),
 
-  // Deploy packages — release trains for repositories that turned per-task
-  // auto release off. Listing is not a pure read: the server advances every
-  // package on the way out (deploys land out of band), so poll this after any
-  // action rather than patching the response into local state.
-  listDeployPackages: (repositoryId: string) =>
-    request<{ packages: DeployPackage[]; count: number }>(
-      `/v1/repositories/${repositoryId}/deploy-packages`),
-
-  createDeployPackage: (repositoryId: string, data: { name: string; description?: string }) =>
-    request<DeployPackage>(`/v1/repositories/${repositoryId}/deploy-packages`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  updateDeployPackage: (
-    repositoryId: string,
-    packageId: string,
-    data: { name?: string; description?: string; status?: "cancelled" },
-  ) =>
-    request<DeployPackage>(`/v1/repositories/${repositoryId}/deploy-packages/${packageId}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
-
-  deleteDeployPackage: (repositoryId: string, packageId: string) =>
-    request<void>(`/v1/repositories/${repositoryId}/deploy-packages/${packageId}`, {
-      method: "DELETE",
-    }),
-
-  setDeployPackageTasks: (repositoryId: string, packageId: string, taskIds: string[]) =>
-    request<DeployPackage>(`/v1/repositories/${repositoryId}/deploy-packages/${packageId}/tasks`, {
-      method: "PUT",
-      body: JSON.stringify({ task_ids: taskIds }),
-    }),
-
-  releaseDeployPackage: (repositoryId: string, packageId: string) =>
-    request<DeployPackage>(`/v1/repositories/${repositoryId}/deploy-packages/${packageId}/release`, {
-      method: "POST",
-    }),
-
   saveStoreCredential: (provider: StoreCredentialProvider, data: Record<string, string>) =>
     request<void>(`/v1/store/credentials/${provider}`, {
       method: "PUT",
@@ -4703,6 +4683,14 @@ export const api = {
   },
 
   getRelease: (releaseId: string) => request<Release>(`/v1/releases/${releaseId}`),
+
+  getReleaseCutPreview: (releaseId: string) => request<ReleaseCutPreview>(`/v1/releases/${releaseId}/cut-preview`),
+
+  cutRelease: (releaseId: string, confirm: string, version: string, notes: string) =>
+    request<Release>(`/v1/releases/${releaseId}/cut`, {
+      method: "POST",
+      body: JSON.stringify({ confirm, version, notes }),
+    }),
 
   deployRelease: (releaseId: string, confirm: string) =>
     request<Release>(`/v1/releases/${releaseId}/deploy`, { method: "POST", body: JSON.stringify({ confirm }) }),

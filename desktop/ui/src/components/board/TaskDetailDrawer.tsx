@@ -1303,8 +1303,14 @@ export function TaskDetailDrawer({
                         onClick={() => setReleaseDrawerOpen(true)}
                         className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60"
                       >
-                        <Badge variant={RELEASE_STATUS_VARIANT[release.status]}>{t(`release.statuses.${release.status}`)}</Badge>
-                        <span className="font-mono text-caption">{release.version}</span>
+                        {release.status === "draft" ? (
+                          <span className="text-caption">{t("release.taskDetail.draftLabel")}</span>
+                        ) : (
+                          <>
+                            <Badge variant={RELEASE_STATUS_VARIANT[release.status]}>{t(`release.statuses.${release.status}`)}</Badge>
+                            <span className="font-mono text-caption">{release.version}</span>
+                          </>
+                        )}
                       </button>
                     </section>
                   )}

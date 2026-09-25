@@ -1,9 +1,11 @@
 import { ExternalLink, PackageCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api, type Release } from "@/api";
+import { api, type Component, type Release } from "@/api";
+import { CutReleaseDialog } from "@/components/projects/repository/deploy/CutReleaseDialog";
 import { RELEASE_ACTIVE_STATUSES, RELEASE_STATUS_VARIANT, ReleaseDrawer } from "@/components/projects/repository/deploy/ReleaseDrawer";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,27 +17,32 @@ const POLL_MS = 15_000;
 interface ReleasesCardProps {
   repositoryId: string;
   repositoryName: string;
-  componentId: string;
+  component: Component;
   className?: string;
 }
 
 /** One component's last 20 releases, newest first. Polls while any of them
  * is still moving (Watched()-like, or waiting on a verdict) so a merge does
- * not require a manual refresh to see settle. */
-export function ReleasesCard({ repositoryId, repositoryName, componentId, className }: ReleasesCardProps) {
+ * not require a manual refresh to see settle. A batch component's draft
+ * release (if any) is pinned first with a Cut release action. */
+export function ReleasesCard({ repositoryId, repositoryName, component, className }: ReleasesCardProps) {
   const { t } = useI18n();
   const [releases, setReleases] = useState<Release[] | null>(null);
   const [openReleaseId, setOpenReleaseId] = useState<string | null>(null);
+  const [cutReleaseId, setCutReleaseId] = useState<string | null>(null);
+
+  const effective = component.delivery?.override ?? component.delivery?.detected ?? null;
+  const isBatch = effective?.mode === "batch";
 
   const load = useCallback(async () => {
     try {
-      const res = await api.listReleases(repositoryId, { componentId, limit: 20 });
+      const res = await api.listReleases(repositoryId, { componentId: component.id, limit: 20 });
       setReleases(res.releases);
     } catch (e) {
       setReleases([]);
       toast.error(e instanceof Error ? e.message : t("release.releases.loadFailed"));
     }
-  }, [repositoryId, componentId, t]);
+  }, [repositoryId, component.id, t]);
 
   useEffect(() => {
     setReleases(null);
@@ -48,6 +55,10 @@ export function ReleasesCard({ repositoryId, repositoryName, componentId, classN
     return () => clearInterval(id);
   }, [releases, load]);
 
+  const draft = isBatch ? releases?.find((r) => r.status === "draft") ?? null : null;
+  const history = releases?.filter((r) => r.status !== "draft") ?? [];
+  const empty = releases !== null && !draft && history.length === 0;
+
   return (
     <Card className={className}>
       <CardHeader>
@@ -58,11 +69,22 @@ export function ReleasesCard({ repositoryId, repositoryName, componentId, classN
           <div className="p-4">
             <Skeleton className="h-24 w-full" />
           </div>
-        ) : releases.length === 0 ? (
+        ) : empty ? (
           <EmptyState icon={PackageCheck} title={t("release.releases.empty")} description={t("release.releases.emptyDesc")} />
         ) : (
           <div className="divide-y divide-border">
-            {releases.map((r) => (
+            {draft && (
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <Badge variant="secondary">{t("release.releases.draftBadge")}</Badge>
+                <span className="text-caption">{t("release.releases.draftLabel", { count: draft.tasks.length })}</span>
+                {draft.tasks.length > 0 && (
+                  <Button size="sm" className="ml-auto" onClick={() => setCutReleaseId(draft.id)}>
+                    {t("release.releases.cutRelease")}
+                  </Button>
+                )}
+              </div>
+            )}
+            {history.map((r) => (
               <button
                 key={r.id}
                 type="button"
@@ -98,6 +120,20 @@ export function ReleasesCard({ repositoryId, repositoryName, componentId, classN
           open={Boolean(openReleaseId)}
           onOpenChange={(open) => !open && setOpenReleaseId(null)}
           onChanged={() => void load()}
+        />
+      )}
+
+      {cutReleaseId && (
+        <CutReleaseDialog
+          open={Boolean(cutReleaseId)}
+          onOpenChange={(open) => !open && setCutReleaseId(null)}
+          releaseId={cutReleaseId}
+          repositoryName={repositoryName}
+          tagPattern={effective?.tag_pattern}
+          onCut={() => {
+            setCutReleaseId(null);
+            void load();
+          }}
         />
       )}
     </Card>

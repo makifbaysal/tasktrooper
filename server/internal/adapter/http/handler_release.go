@@ -24,6 +24,8 @@ type ReleaseService interface {
 	Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor) (domain.Release, error)
 	Finish(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, note string) (domain.Release, error)
 	Rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error)
+	CutPreview(ctx context.Context, releaseID uuid.UUID) (domain.ReleaseCutPreview, error)
+	Cut(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, req domain.ReleaseCutRequest) (domain.Release, error)
 }
 
 // errReleaseConfirmMismatch matches the wording of deployops.ErrConfirmMismatch
@@ -46,6 +48,8 @@ func (h *Handler) registerReleaseRoutes(app fiber.Router) {
 	}
 	app.Get("/v1/repositories/:id/releases", h.ListReleases)
 	app.Get("/v1/releases/:releaseId", h.GetRelease)
+	app.Get("/v1/releases/:releaseId/cut-preview", h.GetReleaseCutPreview)
+	app.Post("/v1/releases/:releaseId/cut", h.CutRelease)
 	app.Post("/v1/releases/:releaseId/deploy", h.DeployRelease)
 	app.Post("/v1/releases/:releaseId/finish", h.FinishRelease)
 	app.Post("/v1/releases/:releaseId/rollback", h.RollbackRelease)
@@ -63,9 +67,10 @@ func releaseErr(c *fiber.Ctx, err error) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	case errors.Is(err, domain.ErrReleaseNotFound):
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
-	case errors.Is(err, domain.ErrReleaseWrongStatus), errors.Is(err, domain.ErrReleaseNoDeploy), errors.Is(err, domain.ErrDeliveryUnconfirmed):
+	case errors.Is(err, domain.ErrReleaseWrongStatus), errors.Is(err, domain.ErrReleaseNoDeploy), errors.Is(err, domain.ErrDeliveryUnconfirmed),
+		errors.Is(err, domain.ErrReleaseEmpty), errors.Is(err, domain.ErrReleaseTagExists):
 		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": err.Error()})
-	case errors.Is(err, domain.ErrInvalidDelivery):
+	case errors.Is(err, domain.ErrInvalidDelivery), errors.Is(err, domain.ErrInvalidVersion):
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	case errors.Is(err, port.ErrNotFound):
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "repository not found"})
@@ -134,6 +139,57 @@ func (h *Handler) GetRelease(c *fiber.Ctx) error {
 		return releaseErr(c, err)
 	}
 	return c.JSON(release)
+}
+
+// GetReleaseCutPreview — GET /v1/releases/:releaseId/cut-preview
+func (h *Handler) GetReleaseCutPreview(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "releaseId")
+	if err != nil {
+		return badRequest(c, "invalid release id")
+	}
+	preview, err := h.releaseSvc.CutPreview(h.enrichContext(c), id)
+	if err != nil {
+		return releaseErr(c, err)
+	}
+	return c.JSON(preview)
+}
+
+// cutReleaseRequest is the cut endpoint's body: the confirm phrase plus the
+// human-chosen version and notes (notes empty regenerates them).
+type cutReleaseRequest struct {
+	Confirm string `json:"confirm"`
+	Version string `json:"version"`
+	Notes   string `json:"notes"`
+}
+
+// CutRelease — POST /v1/releases/:releaseId/cut
+func (h *Handler) CutRelease(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "releaseId")
+	if err != nil {
+		return badRequest(c, "invalid release id")
+	}
+	var req cutReleaseRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+	ctx := h.enrichContext(c)
+
+	release, err := h.releaseSvc.Get(ctx, id)
+	if err != nil {
+		return releaseErr(c, err)
+	}
+	if err := h.checkReleaseConfirm(ctx, release.RepositoryID, req.Confirm); err != nil {
+		return releaseErr(c, err)
+	}
+
+	updated, err := h.releaseSvc.Cut(ctx, id, domain.ReleaseActorHuman, domain.ReleaseCutRequest{
+		Version: req.Version,
+		Notes:   req.Notes,
+	})
+	if err != nil {
+		return releaseErr(c, err)
+	}
+	return c.JSON(updated)
 }
 
 // releaseActionRequest is the body every release write endpoint shares: the

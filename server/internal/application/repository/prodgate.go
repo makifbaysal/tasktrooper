@@ -19,8 +19,6 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-var ErrMigrationNotStaged = errors.New("this task changes the database schema and has not been verified on stage yet — run the stage deploy first")
-
 func (s *Service) DetectTaskMigration(ctx context.Context, task domain.BoardTask) {
 	if s.git == nil || s.workspaceRoot == "" || s.tasks == nil {
 		return
@@ -76,44 +74,6 @@ func (s *Service) MarkTaskStageVerified(ctx context.Context, taskID uuid.UUID) e
 	return s.tasks.MarkStageVerified(ctx, taskID, time.Now())
 }
 
-func (s *Service) migrationGate(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) error {
-	if !task.HasMigration || task.StageVerifiedAt != nil {
-		return nil
-	}
-	if s.comments != nil {
-		_, _ = s.comments.Create(ctx, domain.TaskComment{
-			TaskID:     task.ID,
-			AuthorType: "system",
-			Content: "Release blocked: this task changes the database schema and no stage deploy has succeeded for it. " +
-				"Move it back to ready_for_qa (or dispatch the stage deploy manually), confirm the migration applies, then release.",
-		})
-	}
-	log.Warn().Str("task_id", task.ID.String()).Str("repository_id", repositoryID.String()).
-		Msg("release blocked: unstaged migration")
-	return ErrMigrationNotStaged
-}
-
-var ErrReleaseNotDone = errors.New("a task can only be released from the done column — it has not been signed off")
-
-func (s *Service) releaseColumnGate(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) error {
-	switch task.Column {
-	case domain.TaskColumnDone, domain.TaskColumnReleased:
-		return nil
-	}
-	err := fmt.Errorf("%w (it is in `%s`)", ErrReleaseNotDone, task.Column)
-	if s.comments != nil {
-		_, _ = s.comments.Create(ctx, domain.TaskComment{
-			TaskID:     task.ID,
-			AuthorType: "system",
-			Content: err.Error() + "\n\nMove the task through its review chain to `done` first. " +
-				"Reaching done is also what stamps the verified commit the release is checked against, so releasing from anywhere else could not have shipped reviewed code even if this gate allowed it.",
-		})
-	}
-	log.Warn().Str("task_id", task.ID.String()).Str("repository_id", repositoryID.String()).
-		Str("column", string(task.Column)).Msg("release blocked: task is not in done")
-	return err
-}
-
 const releaseTargetResolveTimeout = 15 * time.Second
 
 func (s *Service) taskWorkspacePath(taskID uuid.UUID) string {
@@ -162,45 +122,6 @@ func (s *Service) verifiedSHAForMove(ctx context.Context, task domain.BoardTask,
 		return task.VerifiedSHA
 	}
 }
-
-func (s *Service) releaseTargetGate(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) error {
-	verified := strings.TrimSpace(task.VerifiedSHA)
-	current, err := s.resolveReleaseTargetSHA(ctx, task.ID)
-	if err != nil {
-		return s.blockRelease(ctx, repositoryID, task,
-			fmt.Errorf("%w: the task branch could not be resolved (%v)", domain.ErrReleaseTargetUnverified, err),
-			"Restore the task workspace (or re-run the task) so the commit being released can be identified, then release again.")
-	}
-
-	switch err := domain.VerifiedCommitMatches(verified, current); {
-	case errors.Is(err, domain.ErrReleaseTargetUnverified):
-		return s.blockRelease(ctx, repositoryID, task,
-			fmt.Errorf("%w: no verified commit is stamped on this task, while its branch is at %s",
-				domain.ErrReleaseTargetUnverified, shortSHA(current)),
-			"Move the task back through review (need_revision → code_review → … → done). Reaching done stamps the commit that was signed off, which is what this gate compares against.")
-	case errors.Is(err, domain.ErrReleaseTargetMoved):
-		return s.blockRelease(ctx, repositoryID, task,
-			fmt.Errorf("%w: verified at %s, but the branch is now at %s",
-				domain.ErrReleaseTargetMoved, shortSHA(verified), shortSHA(current)),
-			"Send the task back through review so the new commits are reviewed and QA'd; returning it to done re-stamps the verified commit and unblocks the release.")
-	}
-	return nil
-}
-
-func (s *Service) blockRelease(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, err error, remedy string) error {
-	if s.comments != nil {
-		_, _ = s.comments.Create(ctx, domain.TaskComment{
-			TaskID:     task.ID,
-			AuthorType: "system",
-			Content:    err.Error() + "\n\n" + remedy,
-		})
-	}
-	log.Warn().Err(err).Str("task_id", task.ID.String()).Str("repository_id", repositoryID.String()).
-		Msg("release blocked: release target is not the verified code")
-	return err
-}
-
-func shortSHA(sha string) string { return domain.ShortSHA(sha) }
 
 func (s *Service) mobileStoreGate(ctx context.Context, repositoryID uuid.UUID, env string) error {
 	if s.deployTargets == nil {

@@ -23,11 +23,15 @@ import (
 type fakeReleaseService struct {
 	releases map[uuid.UUID]domain.Release
 
-	listErr     error
-	getErr      error
-	deployErr   error
-	finishErr   error
-	rollbackErr error
+	listErr       error
+	getErr        error
+	deployErr     error
+	finishErr     error
+	rollbackErr   error
+	cutPreviewErr error
+	cutErr        error
+
+	cutPreview domain.ReleaseCutPreview
 
 	lastDeployActor    domain.ReleaseActor
 	lastFinishActor    domain.ReleaseActor
@@ -35,6 +39,8 @@ type fakeReleaseService struct {
 	lastRollbackActor  domain.ReleaseActor
 	lastRollbackReason domain.RollbackReason
 	lastRollbackNote   string
+	lastCutActor       domain.ReleaseActor
+	lastCutRequest     domain.ReleaseCutRequest
 }
 
 var _ ReleaseService = (*fakeReleaseService)(nil)
@@ -105,6 +111,25 @@ func (f *fakeReleaseService) Rollback(_ context.Context, id uuid.UUID, actor dom
 	}
 	r := f.releases[id]
 	r.Status = domain.ReleaseRollingBack
+	f.releases[id] = r
+	return r, nil
+}
+
+func (f *fakeReleaseService) CutPreview(_ context.Context, _ uuid.UUID) (domain.ReleaseCutPreview, error) {
+	if f.cutPreviewErr != nil {
+		return domain.ReleaseCutPreview{}, f.cutPreviewErr
+	}
+	return f.cutPreview, nil
+}
+
+func (f *fakeReleaseService) Cut(_ context.Context, id uuid.UUID, actor domain.ReleaseActor, req domain.ReleaseCutRequest) (domain.Release, error) {
+	f.lastCutActor, f.lastCutRequest = actor, req
+	if f.cutErr != nil {
+		return domain.Release{}, f.cutErr
+	}
+	r := f.releases[id]
+	r.Status = domain.ReleasePending
+	r.Version = req.Version
 	f.releases[id] = r
 	return r, nil
 }
@@ -224,7 +249,7 @@ func TestGetReleaseReturnsIt(t *testing.T) {
 // The three write actions (deploy/finish/rollback) share the confirm
 // guardrail and error mapping, so they are table-driven over the endpoint
 // path rather than three near-identical copies of each case.
-var releaseWriteEndpoints = []string{"deploy", "finish", "rollback"}
+var releaseWriteEndpoints = []string{"deploy", "finish", "rollback", "cut"}
 
 func TestReleaseWriteActionsRequireConfirm(t *testing.T) {
 	for _, action := range releaseWriteEndpoints {
@@ -356,6 +381,112 @@ func TestRollbackReleaseWrongStatusIs409(t *testing.T) {
 	svc.rollbackErr = domain.ErrReleaseWrongStatus
 
 	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/rollback", strings.NewReader(`{"confirm":"tasktrooper"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+}
+
+func TestGetReleaseCutPreviewRejectsNonUUID(t *testing.T) {
+	app, _, _ := newReleaseTestApp(t)
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/not-a-uuid/cut-preview", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestGetReleaseCutPreviewReturnsIt(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseDraft, Mode: domain.DeliveryBatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.cutPreview = domain.ReleaseCutPreview{
+		SuggestedVersion: "1.2.0",
+		PreviousVersion:  "1.1.0",
+		Tag:              "v1.2.0",
+		CommitSHA:        "abc1234",
+		Notes:            "## 1.2.0\n### Features\n- T-1 Thing",
+		Tasks:            []domain.ReleaseTaskRef{{ID: uuid.New(), Key: "T-1"}},
+	}
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/"+r.ID.String()+"/cut-preview", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	var got domain.ReleaseCutPreview
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, "1.2.0", got.SuggestedVersion)
+	assert.Equal(t, "v1.2.0", got.Tag)
+	assert.Len(t, got.Tasks, 1)
+}
+
+func TestGetReleaseCutPreviewEmptyDraftIs409(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseDraft, Mode: domain.DeliveryBatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.cutPreviewErr = domain.ErrReleaseEmpty
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/"+r.ID.String()+"/cut-preview", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+}
+
+func TestGetReleaseCutPreviewWrongStatusIs409(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleasePending, Mode: domain.DeliveryBatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.cutPreviewErr = domain.ErrReleaseWrongStatus
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/"+r.ID.String()+"/cut-preview", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+}
+
+func TestCutReleaseSucceedsWithHumanActorAndPassesVersionAndNotes(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseDraft, Mode: domain.DeliveryBatch}
+	app, _, svc := newReleaseTestApp(t, r)
+
+	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/cut",
+		strings.NewReader(`{"confirm":"tasktrooper","version":"1.2.0","notes":"custom notes"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	assert.Equal(t, domain.ReleaseActorHuman, svc.lastCutActor)
+	assert.Equal(t, domain.ReleaseCutRequest{Version: "1.2.0", Notes: "custom notes"}, svc.lastCutRequest)
+
+	var got domain.Release
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, "1.2.0", got.Version)
+}
+
+func TestCutReleaseInvalidVersionIs400(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseDraft, Mode: domain.DeliveryBatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.cutErr = domain.ErrInvalidVersion
+
+	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/cut",
+		strings.NewReader(`{"confirm":"tasktrooper","version":"not a version"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestCutReleaseTagExistsIs409(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseDraft, Mode: domain.DeliveryBatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.cutErr = domain.ErrReleaseTagExists
+
+	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/cut",
+		strings.NewReader(`{"confirm":"tasktrooper","version":"1.2.0"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+}
+
+func TestCutReleaseWrongStatusIs409(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleasePending, Mode: domain.DeliveryBatch}
+	app, _, svc := newReleaseTestApp(t, r)
+	svc.cutErr = domain.ErrReleaseWrongStatus
+
+	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/cut",
+		strings.NewReader(`{"confirm":"tasktrooper","version":"1.2.0"}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := app.Test(req)
 	require.NoError(t, err)

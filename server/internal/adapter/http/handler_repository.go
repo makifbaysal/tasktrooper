@@ -7,7 +7,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -60,12 +59,6 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Get("/v1/repositories/:id/tasks/:taskId/pipelines", h.ListTaskPipelines)
 	app.Get("/v1/repositories/:id/tasks/:taskId/pipelines/:pipelineId", h.GetTaskPipeline)
 	app.Post("/v1/repositories/:id/tasks/:taskId/pipelines", h.TriggerTaskPipeline)
-	app.Get("/v1/repositories/:id/deploy-packages", h.ListDeployPackages)
-	app.Post("/v1/repositories/:id/deploy-packages", h.CreateDeployPackage)
-	app.Patch("/v1/repositories/:id/deploy-packages/:pkgId", h.UpdateDeployPackage)
-	app.Delete("/v1/repositories/:id/deploy-packages/:pkgId", h.DeleteDeployPackage)
-	app.Put("/v1/repositories/:id/deploy-packages/:pkgId/tasks", h.SetDeployPackageTasks)
-	app.Post("/v1/repositories/:id/deploy-packages/:pkgId/release", h.ReleaseDeployPackage)
 	app.Post("/v1/repositories/:id/pipeline/setup-task", h.CreateWorkflowSetupTask)
 }
 
@@ -82,146 +75,6 @@ func (h *Handler) CreateWorkflowSetupTask(c *fiber.Ctx) error {
 		return badRequest(c, err.Error())
 	}
 	return c.Status(fiber.StatusCreated).JSON(task)
-}
-
-// Deploy packages — the release path for repositories that turned per-task
-// auto release off. Every handler is scoped by :id, so a package can only ever
-// be read or moved through the repository that owns it.
-
-// ListDeployPackages — GET /v1/repositories/:id/deploy-packages
-// Each package is advanced before it is returned: deploys land out of band and
-// nothing else polls them, so a read is what moves a finished train to
-// released and dispatches the next wave.
-func (h *Handler) ListDeployPackages(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return badRequest(c, "invalid repository id")
-	}
-	packages, err := h.repositorySvc.ListDeployPackages(h.enrichContext(c), id)
-	if err != nil {
-		return internalError(c, err)
-	}
-	if packages == nil {
-		packages = []domain.DeployPackage{}
-	}
-	return c.JSON(fiber.Map{"packages": packages, "count": len(packages)})
-}
-
-// CreateDeployPackage — POST /v1/repositories/:id/deploy-packages
-func (h *Handler) CreateDeployPackage(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return badRequest(c, "invalid repository id")
-	}
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return badRequest(c, "invalid request body")
-	}
-	if req.Name == "" {
-		return badRequest(c, "name is required")
-	}
-	pkg, err := h.repositorySvc.CreateDeployPackage(h.enrichContext(c), id, req.Name, req.Description)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	return c.Status(fiber.StatusCreated).JSON(pkg)
-}
-
-// UpdateDeployPackage — PATCH /v1/repositories/:id/deploy-packages/:pkgId
-// status is accepted only as "cancelled"; every other transition is driven by
-// release evidence, and the service refuses a client that claims one.
-func (h *Handler) UpdateDeployPackage(c *fiber.Ctx) error {
-	repositoryID, packageID, err := parseDeployPackageParams(c)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	var req struct {
-		Name        *string `json:"name"`
-		Description *string `json:"description"`
-		Status      *string `json:"status"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return badRequest(c, "invalid request body")
-	}
-	pkg, err := h.repositorySvc.UpdateDeployPackage(h.enrichContext(c), repositoryID, packageID, req.Name, req.Description, req.Status)
-	if err != nil {
-		return deployPackageError(c, err)
-	}
-	return c.JSON(pkg)
-}
-
-// DeleteDeployPackage — DELETE /v1/repositories/:id/deploy-packages/:pkgId
-func (h *Handler) DeleteDeployPackage(c *fiber.Ctx) error {
-	repositoryID, packageID, err := parseDeployPackageParams(c)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	if err := h.repositorySvc.DeleteDeployPackage(h.enrichContext(c), repositoryID, packageID); err != nil {
-		return deployPackageError(c, err)
-	}
-	return c.SendStatus(fiber.StatusNoContent)
-}
-
-// SetDeployPackageTasks — PUT /v1/repositories/:id/deploy-packages/:pkgId/tasks
-// Replaces the membership wholesale; the array order becomes the declared
-// release order (dependencies still win over it).
-func (h *Handler) SetDeployPackageTasks(c *fiber.Ctx) error {
-	repositoryID, packageID, err := parseDeployPackageParams(c)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	var req struct {
-		TaskIDs []uuid.UUID `json:"task_ids"`
-	}
-	if err := c.BodyParser(&req); err != nil {
-		return badRequest(c, "invalid request body")
-	}
-	pkg, err := h.repositorySvc.SetDeployPackageTasks(h.enrichContext(c), repositoryID, packageID, req.TaskIDs)
-	if err != nil {
-		return deployPackageError(c, err)
-	}
-	return c.JSON(pkg)
-}
-
-// ReleaseDeployPackage — POST /v1/repositories/:id/deploy-packages/:pkgId/release
-// Dispatches the first wave and returns with the package in `releasing`. The
-// train finishes across later GETs, not inside this request: a deploy takes
-// minutes and the pipeline runner finalizes it out of band.
-func (h *Handler) ReleaseDeployPackage(c *fiber.Ctx) error {
-	repositoryID, packageID, err := parseDeployPackageParams(c)
-	if err != nil {
-		return badRequest(c, err.Error())
-	}
-	pkg, err := h.repositorySvc.ReleasePackage(h.enrichContext(c), repositoryID, packageID)
-	if err != nil {
-		return deployPackageError(c, err)
-	}
-	return c.Status(fiber.StatusAccepted).JSON(pkg)
-}
-
-func parseDeployPackageParams(c *fiber.Ctx) (uuid.UUID, uuid.UUID, error) {
-	repositoryID, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return uuid.Nil, uuid.Nil, errors.New("invalid repository id")
-	}
-	packageID, err := uuid.Parse(c.Params("pkgId"))
-	if err != nil {
-		return uuid.Nil, uuid.Nil, errors.New("invalid deploy package id")
-	}
-	return repositoryID, packageID, nil
-}
-
-// deployPackageError distinguishes "no such package" (404) from a refused
-// transition (400). Everything the service refuses carries an explanation the
-// operator can act on, so the message is passed through either way.
-func deployPackageError(c *fiber.Ctx, err error) error {
-	if repository.IsDeployPackageNotFound(err) {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": fiber.Map{"message": err.Error(), "type": "not_found"}})
-	}
-	return badRequest(c, err.Error())
 }
 
 func (h *Handler) registerInitiativeRoutes(app fiber.Router) {

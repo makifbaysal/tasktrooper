@@ -50,7 +50,7 @@ export const release: ReleaseDict = {
     smokeChecksCount: "{count} smoke kontrolü",
     autoRollbackOn: "Otomatik geri alma açık",
     autoRollbackOff: "Otomatik geri alma kapalı",
-    batchNote: "Release kesme daha sonraki bir sürümde geliyor; merge edilen görevler done'da bekler.",
+    batchGithubActionsHint: "Release workflow'un tag push'ta çalışması ve sürümü tag adından okuması gerekir",
     saveFailed: "Teslimat profili kaydedilemedi",
   },
   deliveryEdit: {
@@ -112,6 +112,30 @@ export const release: ReleaseDict = {
     tasksCount: "{count} görev",
     deployRun: "Deploy çalıştırması",
     viewAll: "Tümünü gör",
+    draftBadge: "Taslak",
+    draftLabel: "Sıradaki release — {count} merge edilen görev",
+    cutRelease: "Release'i kes",
+  },
+  cutDialog: {
+    title: "Release'i kes",
+    description: "Bu release'i kesmeden önce sürümü seç ve notları gözden geçir.",
+    loadFailed: "Kesim önizlemesi okunamadı",
+    version: "Sürüm",
+    previousVersion: "Önceki sürüm",
+    tag: "Tag",
+    commit: "Commit",
+    tasks: "Görevler",
+    notes: "Release notları",
+    cut: "Release'i kes",
+    cutting: "Kesiliyor…",
+    succeeded: "Release kesildi",
+    cutFailed: "Release kesilemedi",
+    errors: {
+      versionRequired: "Bir sürüm gerekli",
+      versionTooLong: "En fazla 64 karakter",
+      versionLeadingChar: "Bir sürüm '-' ya da '.' ile başlayamaz",
+      versionChars: "Bir sürüm yalnızca harf, rakam ve . + - _ içerebilir",
+    },
   },
   drawer: {
     commit: "Commit",
@@ -120,16 +144,30 @@ export const release: ReleaseDict = {
     timeline: {
       title: "Zaman çizelgesi",
       created: "Açıldı",
+      cut: "Kesildi",
       deployStarted: "Deploy başladı",
       deployed: "Deploy edildi",
       verifyUntil: "Doğrulama bitişi",
       finished: "Bitti",
     },
+    releaseNotes: "Release notları",
     deployStatus: {
       title: "Deploy durumu",
       signal: "Sinyal",
       detail: "Ayrıntı",
       runLink: "Çalıştırmayı aç",
+    },
+    localRun: {
+      title: "Yerel çalıştırma",
+      argv: "Komut",
+      exitCode: "Çıkış kodu",
+      logPath: "Log yolu",
+    },
+    storeBuilds: {
+      title: "Store build'leri",
+      platform: "Platform",
+      baseline: "Baz alınan build",
+      build: "Build",
     },
     health: {
       title: "Sağlık örneklemeleri",
@@ -199,5 +237,6 @@ export const release: ReleaseDict = {
   taskDetail: {
     label: "Release",
     loadFailed: "Bu görevin release'i okunamadı",
+    draftLabel: "Sıradaki release (taslak)",
   },
 };

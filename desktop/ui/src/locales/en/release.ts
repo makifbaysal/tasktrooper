@@ -53,7 +53,7 @@ export const release = {
     smokeChecksCount: "{count} smoke checks",
     autoRollbackOn: "Auto rollback on",
     autoRollbackOff: "Auto rollback off",
-    batchNote: "Release cutting arrives in a later version; merged tasks wait in done.",
+    batchGithubActionsHint: "Your release workflow must run on the tag push and read the version from the tag name",
     saveFailed: "Could not save the delivery profile",
   },
   deliveryEdit: {
@@ -115,6 +115,30 @@ export const release = {
     tasksCount: "{count} tasks",
     deployRun: "Deploy run",
     viewAll: "View all",
+    draftBadge: "Draft",
+    draftLabel: "Next release — {count} merged tasks",
+    cutRelease: "Cut release",
+  },
+  cutDialog: {
+    title: "Cut release",
+    description: "Pick the version and review the notes before cutting this release.",
+    loadFailed: "Could not load the cut preview",
+    version: "Version",
+    previousVersion: "Previous version",
+    tag: "Tag",
+    commit: "Commit",
+    tasks: "Tasks",
+    notes: "Release notes",
+    cut: "Cut release",
+    cutting: "Cutting…",
+    succeeded: "Release cut",
+    cutFailed: "Could not cut the release",
+    errors: {
+      versionRequired: "A version is required",
+      versionTooLong: "At most 64 characters",
+      versionLeadingChar: "A version cannot start with '-' or '.'",
+      versionChars: "A version may only contain letters, digits and . + - _",
+    },
   },
   drawer: {
     commit: "Commit",
@@ -123,16 +147,30 @@ export const release = {
     timeline: {
       title: "Timeline",
       created: "Opened",
+      cut: "Cut",
       deployStarted: "Deploy started",
       deployed: "Deployed",
       verifyUntil: "Verify until",
       finished: "Finished",
     },
+    releaseNotes: "Release notes",
     deployStatus: {
       title: "Deploy status",
       signal: "Signal",
       detail: "Detail",
       runLink: "Open run",
+    },
+    localRun: {
+      title: "Local run",
+      argv: "Command",
+      exitCode: "Exit code",
+      logPath: "Log path",
+    },
+    storeBuilds: {
+      title: "Store builds",
+      platform: "Platform",
+      baseline: "Baseline build",
+      build: "Build",
     },
     health: {
       title: "Health samples",
@@ -202,6 +240,7 @@ export const release = {
   taskDetail: {
     label: "Release",
     loadFailed: "Could not load this task's release",
+    draftLabel: "Next release (draft)",
   },
 };
 
