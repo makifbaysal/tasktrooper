@@ -797,3 +797,20 @@ func (f *fakeDeployTargets) Save(_ context.Context, t domain.DeployTarget) (doma
 	return t, nil
 }
 func (f *fakeDeployTargets) Delete(context.Context, uuid.UUID, string, string) error { return nil }
+
+// raceyDraftStore wraps fakeReleaseStore to make AddTasksToDraft report a
+// lost race (false, nil) for its first N calls before delegating — modelling
+// a draft that was cut or superseded between openBatch's find and its add,
+// without needing real concurrency in the fake.
+type raceyDraftStore struct {
+	*fakeReleaseStore
+	failAddToDraftTimes int
+}
+
+func (f *raceyDraftStore) AddTasksToDraft(ctx context.Context, releaseID uuid.UUID, taskIDs []uuid.UUID) (bool, error) {
+	if f.failAddToDraftTimes > 0 {
+		f.failAddToDraftTimes--
+		return false, nil
+	}
+	return f.fakeReleaseStore.AddTasksToDraft(ctx, releaseID, taskIDs)
+}

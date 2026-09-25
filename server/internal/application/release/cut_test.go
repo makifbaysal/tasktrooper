@@ -70,7 +70,7 @@ func (f *cutFixture) addDraft(component domain.Component, tasks ...domain.Releas
 }
 
 func taskRef(taskType domain.TaskType) domain.ReleaseTaskRef {
-	return domain.ReleaseTaskRef{ID: uuid.New(), Key: "T-1", Title: "Fix the thing", TaskType: taskType, MergeCommitSHA: mergeSHA}
+	return domain.ReleaseTaskRef{ID: uuid.New(), Key: "T-1", Title: "Fix the thing", TaskType: taskType, MergeCommitSHA: mergeSHA, Column: domain.TaskColumnDone}
 }
 
 func TestCutPreviewRejectsAnEmptyDraft(t *testing.T) {
@@ -87,7 +87,34 @@ func TestCutPreviewRejectsANonDraftRelease(t *testing.T) {
 	f := newCutFixture()
 	component := batchComponent(domain.ExecutorGitHubActions)
 	draft := f.addDraft(component, taskRef(domain.TaskTypeTask))
+	draft.Status = domain.ReleaseDeploying
+	f.store.releases[draft.ID] = draft
+
+	_, err := f.svc.CutPreview(context.Background(), draft.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
+}
+
+func TestCutPreviewAcceptsAPendingReleaseThatNeverDeployed(t *testing.T) {
+	f := newCutFixture()
+	component := batchComponent(domain.ExecutorGitHubActions)
+	draft := f.addDraft(component, taskRef(domain.TaskTypeTask))
 	draft.Status = domain.ReleasePending
+	f.store.releases[draft.ID] = draft
+	f.git.head = "headsha0123456789012345678901234567890123"
+	f.git.ancestors[mergeSHA] = true
+
+	_, err := f.svc.CutPreview(context.Background(), draft.ID)
+	require.NoError(t, err, "a pending release Deploy was never attempted on (DeployStartedAt nil) may be re-cut")
+}
+
+func TestCutPreviewRejectsAPendingReleaseThatAlreadyStartedDeploying(t *testing.T) {
+	f := newCutFixture()
+	component := batchComponent(domain.ExecutorGitHubActions)
+	draft := f.addDraft(component, taskRef(domain.TaskTypeTask))
+	draft.Status = domain.ReleasePending
+	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	draft.DeployStartedAt = &started
 	f.store.releases[draft.ID] = draft
 
 	_, err := f.svc.CutPreview(context.Background(), draft.ID)
@@ -206,12 +233,30 @@ func TestCutRejectsANonDraftRelease(t *testing.T) {
 	f := newCutFixture()
 	component := batchComponent(domain.ExecutorLocal)
 	draft := f.addDraft(component, taskRef(domain.TaskTypeTask))
-	draft.Status = domain.ReleasePending
+	draft.Status = domain.ReleaseDeploying
 	f.store.releases[draft.ID] = draft
 
 	_, err := f.svc.Cut(context.Background(), draft.ID, domain.ReleaseActorHuman, domain.ReleaseCutRequest{Version: "1.0.0"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
+}
+
+func TestCutRecutsAPendingReleaseThatNeverDeployed(t *testing.T) {
+	f := newCutFixture()
+	component := batchComponent(domain.ExecutorLocal)
+	draft := f.addDraft(component, taskRef(domain.TaskTypeTask))
+	draft.Status = domain.ReleasePending
+	draft.Version = "1.0.0"
+	draft.Tag = "v1.0.0"
+	f.store.releases[draft.ID] = draft
+	f.git.head = "headsha0123456789012345678901234567890123"
+	f.git.ancestors[mergeSHA] = true
+
+	updated, err := f.svc.Cut(context.Background(), draft.ID, domain.ReleaseActorHuman, domain.ReleaseCutRequest{Version: "1.0.1"})
+	require.NoError(t, err)
+	assert.Equal(t, "1.0.1", updated.Version)
+	assert.Equal(t, "v1.0.1", updated.Tag)
+	assert.Equal(t, domain.ReleasePending, updated.Status)
 }
 
 func TestCutRefusesWhenTheComponentNoLongerBatches(t *testing.T) {
@@ -229,4 +274,34 @@ func TestCutRefusesWhenTheComponentNoLongerBatches(t *testing.T) {
 	_, err := f.svc.Cut(context.Background(), draft.ID, domain.ReleaseActorHuman, domain.ReleaseCutRequest{Version: "1.0.0"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
+}
+
+func TestCutPreviewPreviousVersionIsTheHighestAmongEveryTaggedSource(t *testing.T) {
+	f := newCutFixture()
+	component := batchComponent(domain.ExecutorGitHubActions)
+	draft := f.addDraft(component, taskRef(domain.TaskTypeTask))
+	f.git.head = "headsha0123456789012345678901234567890123"
+	f.git.ancestors[mergeSHA] = true
+	f.git.tag = "v1.2.3"
+
+	released := domain.Release{
+		ID: uuid.New(), RepositoryID: f.repositoryID, ComponentID: &f.componentID,
+		Status: domain.ReleaseReleased, Version: "1.4.0", Tag: "v1.4.0",
+	}
+	finished := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	released.FinishedAt = &finished
+	f.store.releases[released.ID] = released
+
+	// A failed release never shipped, but its tag is already spent — the
+	// highest version must still count it, or a re-cut could reuse it.
+	failed := domain.Release{
+		ID: uuid.New(), RepositoryID: f.repositoryID, ComponentID: &f.componentID,
+		Status: domain.ReleaseFailed, Tag: "v1.9.0",
+	}
+	f.store.releases[failed.ID] = failed
+
+	preview, err := f.svc.CutPreview(context.Background(), draft.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "1.9.0", preview.PreviousVersion,
+		"the highest version among LastReleased, the latest git tag and every tagged release (incl. failed) must win")
 }

@@ -129,3 +129,34 @@ func TestDeployTreatsAnAlreadyExistingTagAsSuccess(t *testing.T) {
 	assert.Equal(t, domain.ReleaseDeploying, updated.Status)
 	require.Len(t, f.actions.dispatchCalls, 1, "dispatch must still run after an already-exists tag")
 }
+
+func TestDeploySecondConcurrentCallIsRefusedAfterTheFirstClaims(t *testing.T) {
+	f := newDeployFixture()
+	repositoryID := uuid.New()
+	created, err := f.store.Create(context.Background(), pendingDispatchRelease(repositoryID), nil)
+	require.NoError(t, err)
+
+	_, err = f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.NoError(t, err)
+
+	_, err = f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
+	assert.Len(t, f.actions.dispatchCalls, 1, "the second call must never dispatch the workflow again")
+}
+
+func TestDeployPersistsTheClaimBeforeDispatchingSoAGenericFailureIsRecordedNotStuckPending(t *testing.T) {
+	f := newDeployFixture()
+	f.actions.dispatchErr = errors.New("500 internal error")
+	repositoryID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnDone}
+	f.tasks.tasks[task.ID] = task
+	created, err := f.store.Create(context.Background(), pendingDispatchRelease(repositoryID), []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	updated, err := f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.NoError(t, err, "a dispatch failure is reported on the release, not returned as an API error")
+	assert.Equal(t, domain.ReleaseFailed, updated.Status)
+	require.NotNil(t, updated.DeployStartedAt, "the claim must be persisted even though the dispatch itself failed")
+	assert.Len(t, f.waker.calls, 1, "a failed deploy must hand the card back")
+}

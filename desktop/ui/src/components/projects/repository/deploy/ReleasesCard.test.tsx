@@ -123,6 +123,39 @@ describe("ReleasesCard", () => {
     expect(screen.queryByRole("button", { name: "Cut release" })).not.toBeInTheDocument();
   });
 
+  it("pins a pending batch release that never deployed with a re-cut button", async () => {
+    const stuck = makeRelease({
+      id: "rel-stuck",
+      status: "pending",
+      mode: "batch",
+      version: "1.0.0",
+      tasks: [{ id: "task-1", key: "T-1" }],
+    });
+    listReleases.mockResolvedValue({ releases: [stuck] });
+    const component = makeComponent({ delivery: { override: { mode: "batch", executor: "github_actions", verify: {}, auto_rollback: true } } });
+    renderCard(component);
+
+    expect(await screen.findByText("1.0.0 never deployed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-cut" })).toBeInTheDocument();
+  });
+
+  it("does not offer a re-cut once the pending release has started deploying", async () => {
+    const deploying = makeRelease({
+      id: "rel-deploying",
+      status: "pending",
+      mode: "batch",
+      version: "1.0.0",
+      deploy_started_at: "2024-01-01T00:00:00Z",
+      tasks: [{ id: "task-1", key: "T-1" }],
+    });
+    listReleases.mockResolvedValue({ releases: [deploying] });
+    const component = makeComponent({ delivery: { override: { mode: "batch", executor: "github_actions", verify: {}, auto_rollback: true } } });
+    renderCard(component);
+
+    await waitFor(() => expect(listReleases).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Re-cut" })).not.toBeInTheDocument();
+  });
+
   it("does not pin a draft row for a non-batch component", async () => {
     const draft = makeRelease({ id: "rel-draft", status: "draft", tasks: [{ id: "task-1", key: "T-1" }] });
     listReleases.mockResolvedValue({ releases: [draft] });

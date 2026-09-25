@@ -87,8 +87,13 @@ func splitArgv(s string) ([]string, error) {
 
 // deployBatchLocal starts the profile's local command (with {version}
 // substituted) in a detached worktree of the cut commit, argv-split and never
-// shelled out to. It returns as soon as the process has started; the run's
-// outcome arrives later through CompleteLocalRun.
+// shelled out to. The claim (deploying + LocalRun) is persisted BEFORE
+// LocalRunner.Start: a command that finishes very fast could otherwise call
+// CompleteLocalRun before the claim landed, and its conditional Update
+// (expect=deploying) would lose the race against a release still reading as
+// pending — the outcome would be silently dropped. Start returns as soon as
+// the process has started; the run's outcome arrives later through
+// CompleteLocalRun.
 func (s *Service) deployBatchLocal(ctx context.Context, r domain.Release) (domain.Release, error) {
 	if s.localRunner == nil {
 		return domain.Release{}, fmt.Errorf("no local runner is configured on this deployment")
@@ -117,10 +122,19 @@ func (s *Service) deployBatchLocal(ctx context.Context, r domain.Release) (domai
 		"RELEASE_COMMIT="+r.CommitSHA,
 	)
 
-	releaseID := r.ID
+	now := s.now()
+	r.LocalRun = &domain.ReleaseLocalRun{Argv: argv, LogPath: logPath, StartedAt: now}
+	r.Status = domain.ReleaseDeploying
+	r.DeployStartedAt = &now
+	claimed, err := s.store.Update(ctx, r, domain.ReleasePending)
+	if err != nil {
+		return domain.Release{}, err
+	}
+
+	releaseID := claimed.ID
 	spec := LocalRunSpec{
 		RootPath:  repo.RootPath,
-		CommitSHA: r.CommitSHA,
+		CommitSHA: claimed.CommitSHA,
 		Argv:      argv,
 		Env:       env,
 		LogPath:   logPath,
@@ -129,14 +143,10 @@ func (s *Service) deployBatchLocal(ctx context.Context, r domain.Release) (domai
 	if err := s.localRunner.Start(ctx, spec, func(exitCode int, tail string, runErr error) {
 		s.CompleteLocalRun(context.Background(), releaseID, exitCode, tail, runErr)
 	}); err != nil {
-		return domain.Release{}, fmt.Errorf("starting the local release run: %w", err)
+		return s.failClaimed(ctx, claimed, fmt.Sprintf("starting the local release run: %s", err))
 	}
 
-	now := s.now()
-	r.LocalRun = &domain.ReleaseLocalRun{Argv: argv, LogPath: logPath, StartedAt: now}
-	r.Status = domain.ReleaseDeploying
-	r.DeployStartedAt = &now
-	return s.store.Update(ctx, r, domain.ReleasePending)
+	return claimed, nil
 }
 
 // CompleteLocalRun is the LocalRunner's callback: it records the run's

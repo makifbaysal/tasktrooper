@@ -137,10 +137,12 @@ func TestDeployBatchGitHubActionsRefusesAnExistingTag(t *testing.T) {
 	_, err = svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, domain.ErrReleaseTagExists, "a batch release must never silently re-use an already-shipped tag")
+	assert.Contains(t, err.Error(), "re-cut", "the message must tell the human how to recover")
 
 	stillPending, gerr := store.Get(context.Background(), created.ID)
 	require.NoError(t, gerr)
 	assert.Equal(t, domain.ReleasePending, stillPending.Status)
+	assert.Nil(t, stillPending.DeployStartedAt, "left un-claimed so Cut() accepts it back for a re-cut")
 }
 
 func TestRollbackBatchGoesStraightToRolledBackWithNoRedeploy(t *testing.T) {
@@ -215,4 +217,68 @@ func TestRollbackBatchStoreNamesTheBuildsToHalt(t *testing.T) {
 	require.Len(t, updated.Rollback.ManualSteps, 1, "only the platform with an actual build gets a halt step")
 	assert.Contains(t, updated.Rollback.ManualSteps[0], "ios")
 	assert.Contains(t, updated.Rollback.ManualSteps[0], "42")
+}
+
+func TestOpenBatchRetriesOnceWhenAddingToTheDraftLosesARace(t *testing.T) {
+	store := newFakeReleaseStore()
+	racey := &raceyDraftStore{fakeReleaseStore: store, failAddToDraftTimes: 1}
+	svc := New(Deps{Store: racey, Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }})
+
+	repositoryID := uuid.New()
+	component := batchComponent(domain.ExecutorGitHubActions)
+	profile := *component.Delivery.Override
+
+	first := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
+	opening := svc.openBatch(context.Background(), repositoryID, first, component, "widget", profile)
+	require.NotNil(t, opening.ReleaseID)
+
+	second := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}
+	opening2 := svc.openBatch(context.Background(), repositoryID, second, component, "widget", profile)
+	require.NotNil(t, opening2.ReleaseID, "AddTasksToDraft losing the race once must retry and still queue the task")
+
+	draft, err := store.Get(context.Background(), *opening2.ReleaseID)
+	require.NoError(t, err)
+	found := false
+	for _, tk := range draft.Tasks {
+		if tk.ID == second.ID {
+			found = true
+		}
+	}
+	assert.True(t, found, "the task must land in the draft after the retry")
+}
+
+func TestOpenBatchGivesUpAfterOneRetry(t *testing.T) {
+	store := newFakeReleaseStore()
+	racey := &raceyDraftStore{fakeReleaseStore: store, failAddToDraftTimes: 2}
+	svc := New(Deps{Store: racey, Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }})
+
+	repositoryID := uuid.New()
+	component := batchComponent(domain.ExecutorGitHubActions)
+	profile := *component.Delivery.Override
+
+	first := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
+	opening := svc.openBatch(context.Background(), repositoryID, first, component, "widget", profile)
+	require.NotNil(t, opening.ReleaseID)
+
+	second := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}
+	opening2 := svc.openBatch(context.Background(), repositoryID, second, component, "widget", profile)
+	assert.Nil(t, opening2.ReleaseID, "a second lost race must not be retried forever")
+	assert.Contains(t, opening2.Next, "could not open a release")
+}
+
+func TestWakeNewestTaskSkipsATaskNotInDone(t *testing.T) {
+	f := newCutFixture()
+	component := batchComponent(domain.ExecutorLocal)
+	inDone := taskRef(domain.TaskTypeTask)
+	movedElsewhere := taskRef(domain.TaskTypeTask)
+	movedElsewhere.Column = domain.TaskColumnNeedRevision
+	draft := f.addDraft(component, inDone, movedElsewhere)
+	f.git.head = "headsha0123456789012345678901234567890123"
+	f.git.ancestors[mergeSHA] = true
+
+	_, err := f.svc.Cut(context.Background(), draft.ID, domain.ReleaseActorHuman, domain.ReleaseCutRequest{Version: "1.0.0"})
+	require.NoError(t, err)
+
+	require.Len(t, f.waker.calls, 1)
+	assert.Equal(t, inDone.ID, f.waker.calls[0].task.ID, "the newest task not in done must be skipped for one that still is")
 }

@@ -44,30 +44,38 @@ func (s *Service) Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.
 	}
 }
 
+// deployDispatch claims the release (pending -> deploying, DeployStartedAt)
+// BEFORE tagging/dispatching: a second concurrent Deploy call then reads the
+// claim's conditional Update fail with ErrReleaseWrongStatus and does
+// nothing, instead of both calls racing to dispatch the same workflow twice.
+// A dispatch failure after the claim is recorded as failed (expect=deploying)
+// rather than left silently pending — see failClaimed.
 func (s *Service) deployDispatch(ctx context.Context, r domain.Release, actor domain.ReleaseActor) (domain.Release, error) {
 	repo, err := s.repo(ctx, r.RepositoryID)
 	if err != nil {
 		return domain.Release{}, err
 	}
 
-	tag, ciUnavailable, dispatchErr := s.createAndDispatch(ctx, repo, r.Profile.Workflow, r.CommitSHA)
-	if dispatchErr != nil {
-		if ciUnavailable {
-			return s.failPending(ctx, r, "the deploy dispatch was refused: "+dispatchErr.Error())
-		}
-		return domain.Release{}, dispatchErr
-	}
-
 	now := s.now()
-	r.Status = domain.ReleaseDeploying
-	r.Tag = tag
-	r.DeployStartedAt = &now
-	updated, err := s.store.Update(ctx, r, domain.ReleasePending)
+	claim := r
+	claim.Status = domain.ReleaseDeploying
+	claim.Tag = domain.ReleaseTagForCommit(r.CommitSHA)
+	claim.DeployStartedAt = &now
+	claimed, err := s.store.Update(ctx, claim, domain.ReleasePending)
 	if err != nil {
 		return domain.Release{}, err
 	}
+
+	_, ciUnavailable, dispatchErr := s.createAndDispatch(ctx, repo, claimed.Profile.Workflow, claimed.CommitSHA)
+	if dispatchErr != nil {
+		reason := dispatchErr.Error()
+		if ciUnavailable {
+			reason = "the deploy dispatch was refused: " + reason
+		}
+		return s.failClaimed(ctx, claimed, reason)
+	}
 	_ = actor
-	return updated, nil
+	return claimed, nil
 }
 
 // deployBatchGitHubActions tags the cut commit and stops: the repository's own
@@ -89,7 +97,11 @@ func (s *Service) deployBatchGitHubActions(ctx context.Context, r domain.Release
 	}
 	if terr := s.actions.CreateTag(ctx, owner, name, r.Tag, r.CommitSHA); terr != nil {
 		if s.refAlreadyExists(terr) {
-			return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrReleaseTagExists, r.Tag)
+			// Deliberately left pending (not claimed/failed): the version was
+			// never usable, nothing was deployed, and Cut() accepts a pending
+			// release with no DeployStartedAt back for exactly this — the human
+			// picks a different version instead of the release being stuck.
+			return domain.Release{}, fmt.Errorf("%w: %s already exists — re-cut this release with a new version", domain.ErrReleaseTagExists, r.Tag)
 		}
 		return domain.Release{}, fmt.Errorf("tag the release commit: %w", terr)
 	}
@@ -100,10 +112,14 @@ func (s *Service) deployBatchGitHubActions(ctx context.Context, r domain.Release
 	return s.store.Update(ctx, r, domain.ReleasePending)
 }
 
-func (s *Service) failPending(ctx context.Context, r domain.Release, reason string) (domain.Release, error) {
+// failClaimed records a deploy-side-effect failure on a release this call
+// already claimed into deploying (DeployStartedAt set): the release is a
+// normal, informative "failed" instead of returning an API error while
+// silently leaving it stuck deploying forever.
+func (s *Service) failClaimed(ctx context.Context, r domain.Release, reason string) (domain.Release, error) {
 	r.Status = domain.ReleaseFailed
 	r.FailureReason = reason
-	updated, err := s.store.Update(ctx, r, domain.ReleasePending)
+	updated, err := s.store.Update(ctx, r, domain.ReleaseDeploying)
 	if err != nil {
 		return domain.Release{}, err
 	}
