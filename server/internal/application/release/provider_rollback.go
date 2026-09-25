@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -75,16 +76,21 @@ func providerRollbackErrorDetail(err error) string {
 // serve again: the one whose commit matches the previous released release's
 // CommitSHA (prefix match, as the sweeper's vercel status match already
 // does), else the newest READY deployment created before this release's own
-// deploy started.
+// deploy started. Only production-target deployments are considered (§M13) —
+// a preview build, or a deployment of a commit this very release carries, is
+// never a valid rollback target even if it happens to be the newest READY
+// one before the release deployed.
 func (s *Service) providerRollbackTarget(ctx context.Context, r domain.Release, envID uuid.UUID) (domain.CloudDeployment, bool) {
 	deployments, err := s.environments.Deployments(ctx, envID, providerDeploymentLookback)
 	if err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: reading deployments for a provider rollback target failed")
 		return domain.CloudDeployment{}, false
 	}
+	deployments = productionDeployments(deployments)
+	excluded := releaseCommitSHAs(r)
 
 	if prev, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, r.CreatedAt); err == nil {
-		if d, ok := matchVercelDeployment(deployments, prev.CommitSHA); ok {
+		if d, ok := matchVercelDeployment(deployments, prev.CommitSHA); ok && !inReleaseCommits(d.CommitSHA, excluded) {
 			return d, true
 		}
 	} else if !errors.Is(err, domain.ErrReleaseNotFound) {
@@ -101,12 +107,58 @@ func (s *Service) providerRollbackTarget(ctx context.Context, r domain.Release, 
 		if d.Status != domain.CloudDeployReady || !d.CreatedAt.Before(before) {
 			continue
 		}
+		if inReleaseCommits(d.CommitSHA, excluded) {
+			continue
+		}
 		if !found || d.CreatedAt.After(best.CreatedAt) {
 			best = d
 			found = true
 		}
 	}
 	return best, found
+}
+
+// productionDeployments keeps only deployments the provider itself marked as
+// serving production — a provider rollback target must never be a preview
+// build the provider happened to list alongside production ones.
+func productionDeployments(deployments []domain.CloudDeployment) []domain.CloudDeployment {
+	out := make([]domain.CloudDeployment, 0, len(deployments))
+	for _, d := range deployments {
+		if d.Environment == domain.EnvironmentProduction {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// releaseCommitSHAs collects every commit the release itself carries (its own
+// CommitSHA plus every task's merge commit), so a provider rollback target is
+// never mistaken for "the previous good release" just because a deployment
+// exists for one of the release's own (bad) commits.
+func releaseCommitSHAs(r domain.Release) []string {
+	shas := make([]string, 0, len(r.Tasks)+1)
+	if sha := strings.TrimSpace(r.CommitSHA); sha != "" {
+		shas = append(shas, sha)
+	}
+	for _, t := range r.Tasks {
+		if sha := strings.TrimSpace(t.MergeCommitSHA); sha != "" {
+			shas = append(shas, sha)
+		}
+	}
+	return shas
+}
+
+func inReleaseCommits(deploymentSHA string, releaseSHAs []string) bool {
+	deploymentSHA = strings.TrimSpace(deploymentSHA)
+	if deploymentSHA == "" {
+		return false
+	}
+	for _, sha := range releaseSHAs {
+		if commitPrefixMatch(deploymentSHA, sha) {
+			return true
+		}
+	}
+	return false
 }
 
 // sweepRollingBackProvider watches a provider-mechanism rollback: production

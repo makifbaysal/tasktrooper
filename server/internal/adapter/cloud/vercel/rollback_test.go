@@ -3,6 +3,8 @@
 //     (POST /v1/projects/{projectId}/rollback/{deploymentId})
 //   - https://vercel.com/docs/rest-api/projects/point-production-traffic-to-a-given-deployment
 //     (POST /v10/projects/{projectId}/promote/{deploymentId})
+//   - https://vercel.com/docs/rest-api/deployments/list-deployments
+//     (GET /v6/deployments — readySubstate PROMOTED/ROLLING/STAGED)
 //   - https://vercel.com/docs/instant-rollback#undo-a-rollback (automatic
 //     production-domain assignment is turned off by a rollback and only a
 //     promote turns it back on)
@@ -134,6 +136,40 @@ func TestCurrentReturnsTheNewestProductionDeployment(t *testing.T) {
 	assert.Equal(t, "production", gotTarget)
 	assert.Equal(t, "dpl_current", d.ID)
 	assert.Equal(t, domain.CloudDeployReady, d.Status)
+}
+
+// §H2: Current must answer the deployment production actually serves, not
+// merely the newest one built with target=production — an instant rollback
+// (or a slow rollout) leaves an earlier deployment PROMOTED while a newer
+// one sits STAGED, never having taken production traffic.
+func TestCurrentReturnsThePromotedDeploymentEvenWhenItIsNotTheNewest(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"deployments":[
+			{"uid":"dpl_newer_but_staged","readyState":"READY","target":"production","createdAt":1700000100000,"readySubstate":"STAGED"},
+			{"uid":"dpl_older_but_promoted","readyState":"READY","target":"production","createdAt":1700000000000,"readySubstate":"PROMOTED"}
+		]}`))
+	}))
+	p := NewProvider(c)
+	cred := domain.CloudCredential{Fields: map[string]string{"token": "tok"}}
+
+	d, err := p.Current(context.Background(), cred, domain.CloudResourceRef{ID: "prj_1"})
+	require.NoError(t, err)
+	assert.Equal(t, "dpl_older_but_promoted", d.ID, "the PROMOTED deployment is the one actually serving production, regardless of which is newer")
+}
+
+// A response with no readySubstate at all (an older API shape, or a project
+// that has never taken production traffic) falls back to the newest
+// production-target deployment rather than erroring out.
+func TestCurrentFallsBackToNewestWhenNothingIsPromoted(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"deployments":[{"uid":"dpl_current","readyState":"READY","target":"production","createdAt":1700000000000}]}`))
+	}))
+	p := NewProvider(c)
+	cred := domain.CloudCredential{Fields: map[string]string{"token": "tok"}}
+
+	d, err := p.Current(context.Background(), cred, domain.CloudResourceRef{ID: "prj_1"})
+	require.NoError(t, err)
+	assert.Equal(t, "dpl_current", d.ID)
 }
 
 func TestCurrentNoProductionDeploymentIsNotFound(t *testing.T) {

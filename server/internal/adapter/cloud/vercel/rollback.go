@@ -8,18 +8,24 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// Provider implements port.CloudRollbacker against the two write routes
-// verified live against Vercel's REST API reference (2026-09-25):
+// Provider implements port.CloudRollbacker against the routes verified live
+// against Vercel's REST API reference (2026-09-25):
 //   - rollback: https://vercel.com/docs/rest-api/projects/point-production-traffic-to-a-previous-production-deployment-by-id
 //     POST /v1/projects/{projectId}/rollback/{deploymentId}
 //   - promote:  https://vercel.com/docs/rest-api/projects/point-production-traffic-to-a-given-deployment
 //     POST /v10/projects/{projectId}/promote/{deploymentId}
+//   - current:  https://vercel.com/docs/rest-api/deployments/list-deployments
+//     GET /v6/deployments?projectId=&target=production — each deployment's
+//     readySubstate (PROMOTED/ROLLING/STAGED) says whether it has actually
+//     taken production traffic; target=production alone only says it was
+//     BUILT for production (see Current's doc comment).
 //
 // Per https://vercel.com/docs/instant-rollback#undo-a-rollback, an instant
 // rollback turns OFF automatic assignment of production domains to new
@@ -124,11 +130,32 @@ func (p *Provider) Promote(ctx context.Context, cred domain.CloudCredential, ref
 	return nil
 }
 
-// Current reads the project's production target the same way Resource does:
-// the newest deployment aliased to the production target. Vercel's project
-// object also carries targets.production, but that only names the current
-// alias target, not a full deployment record (creator, commit, timestamps),
-// so the deployments listing is the richer and already-used source.
+// currentDeploymentLookback bounds how many of the project's production-
+// target deployments Current scans for the one actually PROMOTED — an
+// instant rollback or a slow rollout can leave several READY production
+// deployments behind the one currently live.
+const currentDeploymentLookback = 20
+
+// vercelListedDeployment widens rawDeployment with readySubstate, which
+// list-deployments carries but rawDeployment (shared with the rest of this
+// package) does not decode: PROMOTED means the deployment has actually taken
+// production traffic, vs. STAGED (built for production, never aliased) or
+// ROLLING (a gradual rollout still in progress). See
+// https://vercel.com/docs/rest-api/deployments/list-deployments.
+type vercelListedDeployment struct {
+	deploymentWithCreator
+	ReadySubstate string `json:"readySubstate"`
+}
+
+// Current reads the deployment production actually serves — NOT merely the
+// newest one built with target=production, which the old implementation
+// used: a project can carry several READY production-target deployments at
+// once (an instant rollback pins traffic to an EARLIER one without deleting
+// the newer, now-unserved ones), so "newest" and "the one currently live" are
+// different deployments. readySubstate=PROMOTED is Vercel's own answer to
+// which one that is; falling back to the newest when none carries it (an
+// older API response, or a project that has never seen production traffic)
+// keeps the old behaviour as a last resort rather than erroring out.
 func (p *Provider) Current(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.CloudDeployment, error) {
 	token, teamID, err := vercelCredentials(cred)
 	if err != nil {
@@ -136,12 +163,23 @@ func (p *Provider) Current(ctx context.Context, cred domain.CloudCredential, ref
 	}
 	teamID = rollbackTeamID(cred, ref, teamID)
 
-	deployments, err := p.listDeployments(ctx, token, teamID, ref.ID, domain.VercelTargetProduction, 1)
-	if err != nil {
+	q := withTeam(url.Values{}, teamID)
+	q.Set("projectId", ref.ID)
+	q.Set("target", domain.VercelTargetProduction)
+	q.Set("limit", strconv.Itoa(currentDeploymentLookback))
+	var out struct {
+		Deployments []vercelListedDeployment `json:"deployments"`
+	}
+	if err := p.client.getJSON(ctx, token, "/v6/deployments", q, &out); err != nil {
 		return domain.CloudDeployment{}, wrapVercelErr(err)
 	}
-	if len(deployments) == 0 {
+	if len(out.Deployments) == 0 {
 		return domain.CloudDeployment{}, fmt.Errorf("vercel: %s has no production deployment: %w", ref.Name, port.ErrNotFound)
 	}
-	return deployments[0].toCloudDeployment(), nil
+	for _, d := range out.Deployments {
+		if strings.EqualFold(d.ReadySubstate, "PROMOTED") {
+			return d.toCloudDeployment(), nil
+		}
+	}
+	return out.Deployments[0].toCloudDeployment(), nil
 }

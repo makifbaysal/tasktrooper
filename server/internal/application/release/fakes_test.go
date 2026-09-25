@@ -831,3 +831,23 @@ func (f *fakeParked) ListBlockedByResource(_ context.Context, _ string, limit in
 	}
 	return out, nil
 }
+
+// StatusForCommitSince is release.DeployStatus's since-narrowed method: keyed the same as StatusForCommit but recorded under its own key
+// so a test can assert the sweeper asked for the since-narrowed run rather
+// than silently reusing the plain-commit fixture.
+func (f *fakeDeployStatus) setSince(sha, workflow string, since time.Time, status domain.DeployWatchStatus) {
+	f.byKey[sha+"|"+workflow+"|since|"+since.String()] = status
+}
+
+func (f *fakeDeployStatus) StatusForCommitSince(_ context.Context, _ uuid.UUID, sha, workflow string, since time.Time) (domain.DeployWatchStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, deployStatusCall{sha, workflow})
+	if f.err != nil {
+		return domain.DeployWatchStatus{}, f.err
+	}
+	if st, ok := f.byKey[sha+"|"+workflow+"|since|"+since.String()]; ok {
+		return st, nil
+	}
+	return domain.DeployWatchStatus{State: domain.DeployWatchPending}, nil
+}

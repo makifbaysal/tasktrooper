@@ -752,6 +752,11 @@ func (c *Client) RevertOnDefaultBranch(ctx context.Context, rootPath string, sha
 			return "", fmt.Errorf("git revert: %s is not a commit in this repository (%s)", sha, strings.TrimSpace(out))
 		}
 	}
+	// The caller's order (e.g. release.revertSHAsNewestFirst, which only
+	// reverses release_tasks.added_at) is not trustworthy on its own — ties or
+	// out-of-order carried tasks make it wrong — so the actual git history is
+	// the source of truth here, regardless of what order was given.
+	valid = c.revertOrderNewestFirst(ctx, rootPath, valid)
 
 	parent, err := os.MkdirTemp("", "tasktrooper-revert-")
 	if err != nil {
@@ -809,6 +814,38 @@ func (c *Client) RevertOnDefaultBranch(ctx context.Context, rootPath string, sha
 		return "", fmt.Errorf("git revert: the revert was pushed but its commit could not be read back")
 	}
 	return revertSHA, nil
+}
+
+// revertOrderNewestFirst sorts shas newest-first by git's own commit graph
+// (§H5), ignoring whatever order the caller passed in — release_tasks'
+// added_at (what the caller's best-effort order is built from) can tie or be
+// out of order for carried tasks, and reverting out of order conflicts with
+// itself (undoing an older change while a newer one still sits on top of it).
+// `git rev-list --no-walk=sorted` (commit-date order) was tried first and
+// rejected: task merge commits landing within the same wall-clock second give
+// it nothing to break the tie with, so its order is not reliable. Ancestry
+// is: every one of a release's own commits sits on the SAME default-branch
+// history, so any two of them are always comparable — one is always an
+// ancestor of the other — which a plain insertion sort on `git merge-base
+// --is-ancestor` gets right regardless of timestamps.
+func (c *Client) revertOrderNewestFirst(ctx context.Context, rootPath string, shas []string) []string {
+	ordered := append([]string{}, shas...)
+	for i := 1; i < len(ordered); i++ {
+		// ordered[j-1] being an ancestor of ordered[j] means it is the OLDER
+		// of the two, so newest-first puts it after — swap leftward until
+		// that is no longer true (or the two are unrelated).
+		for j := i; j > 0 && c.isAncestor(ctx, rootPath, ordered[j-1], ordered[j]); j-- {
+			ordered[j], ordered[j-1] = ordered[j-1], ordered[j]
+		}
+	}
+	return ordered
+}
+
+// isAncestor reports whether ancestor is an ancestor of (or equal to)
+// descendant.
+func (c *Client) isAncestor(ctx context.Context, rootPath, ancestor, descendant string) bool {
+	_, err := c.run(ctx, rootPath, "git", "merge-base", "--is-ancestor", ancestor, descendant)
+	return err == nil
 }
 
 // conflictingPaths reads the paths a failed `git revert` left unmerged, so

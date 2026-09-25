@@ -307,3 +307,55 @@ func TestRevertOnDefaultBranchRefusesNoCommits(t *testing.T) {
 		t.Fatal("an empty commit list must be refused")
 	}
 }
+
+// §H5: the caller's order is not trusted — RevertOnDefaultBranch reorders by
+// the actual git history itself. Reverting T-1 (v2) while T-2 (v3) still sits
+// on top of it is a conflict (the file is at v3, not the v2 the T-1 revert
+// expects); passing them oldest-first — the WRONG order — must still
+// succeed, because the method reorders them newest-first regardless of what
+// was given.
+func TestRevertOnDefaultBranchOrdersCommitsByTopologyRegardlessOfInputOrder(t *testing.T) {
+	base := t.TempDir()
+	origin := filepath.Join(base, "origin.git")
+	gitRun(t, base, "init", "--bare", "--initial-branch=main", origin)
+
+	author := filepath.Join(base, "author")
+	gitRun(t, base, "clone", origin, author)
+	write := func(content string) {
+		if err := os.WriteFile(filepath.Join(author, "app.txt"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("v1\n")
+	gitRun(t, author, "add", ".")
+	gitRun(t, author, "commit", "-m", "base")
+	gitRun(t, author, "push", "origin", "main")
+
+	write("v2\n")
+	gitRun(t, author, "add", ".")
+	gitRun(t, author, "commit", "-m", "T-1")
+	gitRun(t, author, "push", "origin", "main")
+	sha1 := gitRun(t, author, "rev-parse", "HEAD")
+
+	write("v3\n")
+	gitRun(t, author, "add", ".")
+	gitRun(t, author, "commit", "-m", "T-2")
+	gitRun(t, author, "push", "origin", "main")
+	sha2 := gitRun(t, author, "rev-parse", "HEAD")
+
+	root := filepath.Join(base, "root")
+	gitRun(t, base, "clone", origin, root)
+
+	// Oldest-first: the wrong order for a naive sequential revert.
+	revertSHA, err := NewClient().RevertOnDefaultBranch(context.Background(), root, []string{sha1, sha2}, "revert: T-1, T-2 (given out of order)")
+	if err != nil {
+		t.Fatalf("RevertOnDefaultBranch with commits given oldest-first: %v", err)
+	}
+	if revertSHA == "" {
+		t.Fatal("no revert commit sha returned")
+	}
+	content := gitRun(t, origin, "show", "main:app.txt")
+	if strings.TrimSpace(content) != "v1" {
+		t.Fatalf("app.txt on origin = %q, want both commits undone back to v1 even though they were given oldest-first", content)
+	}
+}

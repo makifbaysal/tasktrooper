@@ -163,7 +163,7 @@ func TestRollbackBatchGoesStraightToRolledBackWithNoRedeploy(t *testing.T) {
 		Clock:       func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
 	})
 
-	task := domain.BoardTask{ID: uuid.New(), Key: "T-1", RepositoryID: repositoryID}
+	task := domain.BoardTask{ID: uuid.New(), Key: "T-1", RepositoryID: repositoryID, Column: domain.TaskColumnDone}
 	tasks.tasks[task.ID] = task
 
 	r := pendingBatchRelease(repositoryID, domain.ExecutorGitHubActions)

@@ -97,6 +97,11 @@ type BeforeDeployConfirmer interface {
 // concrete *deploywatch.Service so this package never imports it.
 type DeployStatus interface {
 	StatusForCommit(ctx context.Context, repositoryID uuid.UUID, sha, workflow string) (domain.DeployWatchStatus, error)
+	// StatusForCommitSince is StatusForCommit narrowed to Actions runs
+	// created at/after since — the rolling_back sweep's redeploy watch (see
+	// rollback.go), which reuses the SAME sha/workflow an earlier release or
+	// attempt already ran and must not read that other run as its own.
+	StatusForCommitSince(ctx context.Context, repositoryID uuid.UUID, sha, workflow string, since time.Time) (domain.DeployWatchStatus, error)
 }
 
 // Reverter is the safe default-branch revert, standing in for the
