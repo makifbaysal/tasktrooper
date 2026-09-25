@@ -124,6 +124,45 @@ func (s *Service) StatusForTask(ctx context.Context, task domain.BoardTask) (dom
 	return s.statusForTask(ctx, task)
 }
 
+// StatusForCommit is the same resolution as StatusForTask, keyed on a commit
+// instead of a task — a release has no single owning card. workflow, when
+// set, narrows Actions runs to one workflow file (the release's frozen
+// delivery profile) so an unrelated run for the same commit cannot stand in
+// for it; "" keeps the task-watch behaviour of considering every run.
+func (s *Service) StatusForCommit(ctx context.Context, repositoryID uuid.UUID, sha, workflow string) (domain.DeployWatchStatus, error) {
+	if s.actions == nil || s.coords == nil {
+		return domain.DeployWatchStatus{}, ErrNotConfigured
+	}
+	sha = strings.TrimSpace(sha)
+	out := domain.DeployWatchStatus{
+		RepositoryID: repositoryID,
+		Env:          domain.DeployEnvProd,
+		MergeSHA:     sha,
+		State:        domain.DeployWatchUnknown,
+		Signal:       domain.DeploySignalNone,
+		CheckedAt:    s.now(),
+	}
+	if s.targets != nil {
+		if target, terr := s.targets.Get(ctx, repositoryID, "", out.Env); terr == nil {
+			out.HealthURL = target.HealthURL
+			out.LogsURL = target.LogsURL
+			out.AutoRollback = target.AutoRollback
+		} else if !errors.Is(terr, port.ErrNotFound) {
+			log.Warn().Err(terr).Str("repository_id", repositoryID.String()).Msg("deploy watch: reading deploy target failed")
+		}
+	}
+	if sha == "" {
+		out.Detail = "No commit sha was given to watch."
+		return out, nil
+	}
+
+	resolved, err := s.resolveForCommit(ctx, repositoryID, sha, workflow)
+	if err != nil {
+		return out, err
+	}
+	return s.finish(mergeStatus(out, resolved)), nil
+}
+
 func (s *Service) statusForTask(ctx context.Context, task domain.BoardTask) (domain.DeployWatchStatus, error) {
 	out := domain.DeployWatchStatus{
 		TaskID:       task.ID,
@@ -151,33 +190,45 @@ func (s *Service) statusForTask(ctx context.Context, task domain.BoardTask) (dom
 		return out, nil
 	}
 
-	repo, err := s.repos.Get(ctx, task.RepositoryID)
+	resolved, err := s.resolveForCommit(ctx, task.RepositoryID, out.MergeSHA, "")
 	if err != nil {
-		return out, fmt.Errorf("deploy watch: loading repository: %w", err)
+		return out, err
+	}
+	return s.finish(mergeStatus(out, resolved)), nil
+}
+
+// resolveForCommit is the Actions-run / commit-status resolution shared by
+// statusForTask and StatusForCommit; only the workflow filter differs between
+// the two callers.
+func (s *Service) resolveForCommit(ctx context.Context, repositoryID uuid.UUID, sha, workflow string) (domain.DeployWatchStatus, error) {
+	repo, err := s.repos.Get(ctx, repositoryID)
+	if err != nil {
+		return domain.DeployWatchStatus{}, fmt.Errorf("deploy watch: loading repository: %w", err)
 	}
 	owner, name, err := s.coords(ctx, repo)
 	if err != nil {
-		return out, fmt.Errorf("deploy watch: resolving repository coordinates: %w", err)
+		return domain.DeployWatchStatus{}, fmt.Errorf("deploy watch: resolving repository coordinates: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
 
-	if resolved, ok, rerr := s.actionsSignal(ctx, task.RepositoryID, owner, name, out.MergeSHA); rerr != nil {
-		return out, rerr
+	if resolved, ok, rerr := s.actionsSignal(ctx, repositoryID, owner, name, sha, workflow); rerr != nil {
+		return domain.DeployWatchStatus{}, rerr
 	} else if ok {
-		return s.finish(mergeStatus(out, resolved)), nil
+		return resolved, nil
 	}
 
-	signal, err := s.actions.CommitDeployStatus(ctx, owner, name, out.MergeSHA)
+	signal, err := s.actions.CommitDeployStatus(ctx, owner, name, sha)
 	if err != nil {
-		return out, fmt.Errorf("deploy watch: reading commit deploy status: %w", err)
+		return domain.DeployWatchStatus{}, fmt.Errorf("deploy watch: reading commit deploy status: %w", err)
 	}
+	var out domain.DeployWatchStatus
 	if signal.Kind == "" {
 		out.State = domain.DeployWatchNoSignal
 		out.Signal = domain.DeploySignalNone
 		out.Detail = fmt.Sprintf("Nothing reports a deploy of %s: no Actions run carries a deploy job for it, and no commit status or GitHub Deployment was written against it. "+
-			"This repository does not deploy on merge (or its deploy has not started yet and has left no trace).", domain.ShortSHA(out.MergeSHA))
+			"This repository does not deploy on merge (or its deploy has not started yet and has left no trace).", domain.ShortSHA(sha))
 		return out, nil
 	}
 	out.Signal = signal.Kind
@@ -190,19 +241,30 @@ func (s *Service) statusForTask(ctx context.Context, task domain.BoardTask) (dom
 	default:
 		out.State = domain.DeployWatchPending
 	}
-	out.Detail = describeCommitSignal(signal, out.MergeSHA)
-	return s.finish(out), nil
+	out.Detail = describeCommitSignal(signal, sha)
+	return out, nil
 }
 
-func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, owner, name, sha string) (domain.DeployWatchStatus, bool, error) {
-	runs, err := s.actions.ListRunsForCommit(ctx, owner, name, sha)
+// actionsSignal resolves Actions runs for sha into a status, or (_, false,
+// nil) when nothing there speaks to a deploy at all. workflow == "" considers
+// every run for the commit, matching jobs by name and — for a run whose own
+// workflow file is one of the repository's mapped prod/preprod deploy targets
+// — the whole run's conclusion when no job matches by name. workflow != ""
+// restricts to that workflow's runs outright, so every one of them counts as
+// a deploy run by the same whole-run rule.
+func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, owner, name, sha, workflow string) (domain.DeployWatchStatus, bool, error) {
+	runs, err := s.deployRunsForCommit(ctx, owner, name, sha, workflow)
 	if err != nil {
-		return domain.DeployWatchStatus{}, false, fmt.Errorf("deploy watch: listing runs for commit: %w", err)
+		return domain.DeployWatchStatus{}, false, err
 	}
 	if len(runs) == 0 {
 		return domain.DeployWatchStatus{}, false, nil
 	}
-	matcher := s.deployJobMatcher(ctx, repositoryID)
+
+	var mappedRunIDs map[int64]bool
+	if workflow == "" {
+		mappedRunIDs = s.mappedDeployRunIDs(ctx, repositoryID, owner, name, sha)
+	}
 
 	out := domain.DeployWatchStatus{Signal: domain.DeploySignalActionsRun}
 	found := false
@@ -210,15 +272,22 @@ func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, own
 	for _, run := range runs {
 		jobs, jerr := s.actions.ListRunJobs(ctx, owner, name, run.ID)
 		if jerr != nil {
-
+			// A jobs-list failure must never read as "nothing here" — that
+			// silently drops back to the commit-status fallback while an
+			// Actions deploy may well be running.
 			log.Warn().Err(jerr).Int64("run_id", run.ID).Msg("deploy watch: listing run jobs failed")
-			pending = true
-			continue
+			out.State = domain.DeployWatchPending
+			out.RunID = run.ID
+			out.RunURL = run.HTMLURL
+			out.Detail = "could not read the run's jobs"
+			return out, true, nil
 		}
+		matchedJob := false
 		for _, job := range jobs {
-			if !matcher(job.Name) {
+			if !matchesDeployJobName(job.Name) {
 				continue
 			}
+			matchedJob = true
 			found = true
 			out.RunID = run.ID
 			out.RunURL = run.HTMLURL
@@ -240,9 +309,28 @@ func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, own
 				return out, true, nil
 			}
 		}
+		if matchedJob {
+			continue
+		}
+		if workflow == "" && !mappedRunIDs[run.ID] {
+			continue
+		}
+		found = true
+		out.RunID = run.ID
+		out.RunURL = run.HTMLURL
+		switch {
+		case run.Status != "completed":
+			pending = true
+		case run.Conclusion == "success":
+
+		default:
+			out.State = domain.DeployWatchFailure
+			out.Detail = fmt.Sprintf("The run for %s concluded %q.", domain.ShortSHA(sha), run.Conclusion)
+			return out, true, nil
+		}
 	}
 	if !found {
-		return domain.DeployWatchStatus{}, pending, nil
+		return domain.DeployWatchStatus{}, false, nil
 	}
 	if pending {
 		out.State = domain.DeployWatchPending
@@ -254,37 +342,99 @@ func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, own
 	return out, true, nil
 }
 
-func (s *Service) deployJobMatcher(ctx context.Context, repositoryID uuid.UUID) func(string) bool {
-	mapped := map[string]bool{}
-	if s.pipeline != nil {
-		if jobs, err := s.pipeline.ListByRepository(ctx, repositoryID); err == nil {
-			for _, j := range jobs {
-				switch j.Category {
-				case domain.PipelineCategoryProdDeploy, domain.PipelineCategoryPreProdDeploy:
-					if ref := strings.TrimSpace(j.TargetRef); ref != "" {
-						mapped[strings.ToLower(ref)] = true
-					}
-				}
-			}
-		} else {
-			log.Warn().Err(err).Str("repository_id", repositoryID.String()).Msg("deploy watch: reading pipeline mappings failed")
+// deployRunsForCommit lists the Actions runs to inspect for sha: every run
+// for the commit when workflow is unset, or just that workflow file's runs —
+// listed by file rather than filtered by name afterwards, because a run does
+// not otherwise carry its workflow file — narrowed to the ones whose head sha
+// is the commit.
+func (s *Service) deployRunsForCommit(ctx context.Context, owner, name, sha, workflow string) ([]port.ActionsRun, error) {
+	if workflow == "" {
+		runs, err := s.actions.ListRunsForCommit(ctx, owner, name, sha)
+		if err != nil {
+			return nil, fmt.Errorf("deploy watch: listing runs for commit: %w", err)
+		}
+		return runs, nil
+	}
+	runs, err := s.actions.ListWorkflowRuns(ctx, owner, name, workflow, "")
+	if err != nil {
+		return nil, fmt.Errorf("deploy watch: listing %s runs: %w", workflow, err)
+	}
+	out := make([]port.ActionsRun, 0, len(runs))
+	for _, r := range runs {
+		if strings.EqualFold(strings.TrimSpace(r.HeadSHA), sha) {
+			out = append(out, r)
 		}
 	}
-	return func(jobName string) bool {
-		lower := strings.ToLower(strings.TrimSpace(jobName))
-		if lower == "" {
+	return out, nil
+}
+
+// mappedDeployRunIDs answers, for the repository's mapped prod/preprod deploy
+// workflows, which of their runs are for sha — the whole-run rule's other
+// half: a run's own workflow file counting as a deploy run even when none of
+// its jobs matches by name.
+func (s *Service) mappedDeployRunIDs(ctx context.Context, repositoryID uuid.UUID, owner, name, sha string) map[int64]bool {
+	out := map[int64]bool{}
+	if s.pipeline == nil {
+		return out
+	}
+	jobs, err := s.pipeline.ListByRepository(ctx, repositoryID)
+	if err != nil {
+		log.Warn().Err(err).Str("repository_id", repositoryID.String()).Msg("deploy watch: reading pipeline mappings failed")
+		return out
+	}
+	seen := map[string]bool{}
+	for _, j := range jobs {
+		if j.Category != domain.PipelineCategoryProdDeploy && j.Category != domain.PipelineCategoryPreProdDeploy {
+			continue
+		}
+		ref := strings.TrimSpace(j.TargetRef)
+		key := strings.ToLower(ref)
+		if ref == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		runs, rerr := s.actions.ListWorkflowRuns(ctx, owner, name, ref, "")
+		if rerr != nil {
+			log.Warn().Err(rerr).Str("workflow", ref).Msg("deploy watch: listing mapped deploy workflow runs failed")
+			continue
+		}
+		for _, r := range runs {
+			if strings.EqualFold(strings.TrimSpace(r.HeadSHA), sha) {
+				out[r.ID] = true
+			}
+		}
+	}
+	return out
+}
+
+// deployJobTokens / deployJobExcludedTokens are whole tokens, not substrings —
+// "deployment-docs" must not match on "deploy" bleeding into "deployment"
+// while missing that "docs" disqualifies the whole job.
+var deployJobTokens = map[string]bool{
+	"deploy": true, "deployment": true, "release": true, "publish": true, "ship": true, "rollout": true,
+}
+
+var deployJobExcludedTokens = map[string]bool{
+	"docs": true, "doc": true, "drafter": true, "notes": true, "changelog": true, "storybook": true, "preview": true,
+}
+
+func matchesDeployJobName(jobName string) bool {
+	matched := false
+	for _, token := range tokenizeJobName(jobName) {
+		if deployJobExcludedTokens[token] {
 			return false
 		}
-		if mapped[lower] {
-			return true
+		if deployJobTokens[token] {
+			matched = true
 		}
-		for _, kw := range []string{"deploy", "release", "publish", "ship"} {
-			if strings.Contains(lower, kw) {
-				return true
-			}
-		}
-		return false
 	}
+	return matched
+}
+
+func tokenizeJobName(name string) []string {
+	return strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	})
 }
 
 func mergeStatus(base, resolved domain.DeployWatchStatus) domain.DeployWatchStatus {

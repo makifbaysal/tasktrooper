@@ -20,7 +20,10 @@ type Rollbacker interface {
 }
 
 type GitReverter interface {
-	RevertCommitOnDefaultBranch(ctx context.Context, rootPath, sha, message string) (string, error)
+	// RevertOnDefaultBranch never touches the root checkout's working tree —
+	// it runs in a detached worktree, so an unattended rollback cannot
+	// destroy a human's uncommitted work in the repository's clone.
+	RevertOnDefaultBranch(ctx context.Context, rootPath string, shas []string, message string) (string, error)
 	HasGit(rootPath string) bool
 }
 
@@ -222,7 +225,7 @@ func (s *Service) revertRollback(ctx context.Context, task domain.BoardTask, rc 
 	}
 	message := fmt.Sprintf("revert: roll back %s (%s)\n\nThis reverts commit %s.\nRolled back automatically by TaskTrooper: %s.",
 		task.Key, task.Title, rc.MergeSHA, rc.Trigger)
-	revertSHA, err := s.git.RevertCommitOnDefaultBranch(ctx, root, rc.MergeSHA, message)
+	revertSHA, err := s.git.RevertOnDefaultBranch(ctx, root, []string{rc.MergeSHA}, message)
 	if err != nil {
 		return executedRollback{}, fmt.Errorf("reverting %s on the default branch: %w", domain.ShortSHA(rc.MergeSHA), err)
 	}

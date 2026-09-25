@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -33,9 +34,12 @@ func TestDeployRefDispatchesTheMergeCommitAsATag(t *testing.T) {
 		return nil
 	}, "main")
 
-	ref := deployRef(context.Background(), "tok",
+	ref, err := deployRef(context.Background(), "tok",
 		domain.TaskGitInfo{Owner: "acme-org", Repo: "acme"},
 		domain.BoardTask{ID: uuid.New(), MergeCommitSHA: deployRefSHA})
+	if err != nil {
+		t.Fatalf("deployRef: %v", err)
+	}
 
 	if ref == "main" {
 		t.Fatal("the release still dispatched the default branch — this is the drift bug")
@@ -57,41 +61,53 @@ func TestDeployRefReusesAnExistingReleaseTag(t *testing.T) {
 		return githubAlreadyExists()
 	}, "main")
 
-	ref := deployRef(context.Background(), "tok",
+	ref, err := deployRef(context.Background(), "tok",
 		domain.TaskGitInfo{Owner: "acme-org", Repo: "acme"},
 		domain.BoardTask{ID: uuid.New(), MergeCommitSHA: deployRefSHA})
+	if err != nil {
+		t.Fatalf("deployRef: %v", err)
+	}
 
 	if ref != domain.ReleaseTagForCommit(deployRefSHA) {
 		t.Fatalf("ref = %q, want the existing release tag reused", ref)
 	}
 }
 
-func TestDeployRefFallsBackToTheDefaultBranchWithoutAMergeCommit(t *testing.T) {
+// A prod/preprod deploy ships the exact commit a task merged; falling back to
+// whatever the default branch currently points at could ship other merges
+// that landed after this task's, or none of this task's change at all if the
+// PR was never actually merged. It must refuse instead of guessing.
+func TestDeployRefRefusesWithoutAMergeCommit(t *testing.T) {
 	tagged := false
 	swapDeployRefDeps(t, func(context.Context, string, string, string, string, string) error {
 		tagged = true
 		return nil
 	}, "trunk")
 
-	ref := deployRef(context.Background(), "tok",
-		domain.TaskGitInfo{Owner: "acme-org", Repo: "acme"},
-		domain.BoardTask{ID: uuid.New()})
-
-	if ref != "trunk" {
-		t.Fatalf("ref = %q, want the repository's default branch", ref)
+	task := domain.BoardTask{ID: uuid.New(), Key: "T-9"}
+	_, err := deployRef(context.Background(), "tok", domain.TaskGitInfo{Owner: "acme-org", Repo: "acme"}, task)
+	if err == nil {
+		t.Fatal("a task with no merge commit must refuse, not fall back to the default branch")
+	}
+	if !strings.Contains(err.Error(), "T-9") || !strings.Contains(err.Error(), "no merge commit") {
+		t.Fatalf("err = %v, want it to name the task and say why", err)
 	}
 	if tagged {
 		t.Fatal("nothing should be tagged for a task with no merge commit")
 	}
 }
+
 func TestDeployRefFallsBackWhenTaggingFails(t *testing.T) {
 	swapDeployRefDeps(t, func(context.Context, string, string, string, string, string) error {
 		return errors.New("403 Resource not accessible by integration")
 	}, "main")
 
-	ref := deployRef(context.Background(), "tok",
+	ref, err := deployRef(context.Background(), "tok",
 		domain.TaskGitInfo{Owner: "acme-org", Repo: "acme"},
 		domain.BoardTask{ID: uuid.New(), MergeCommitSHA: deployRefSHA})
+	if err != nil {
+		t.Fatalf("deployRef: %v", err)
+	}
 
 	if ref != "main" {
 		t.Fatalf("ref = %q, want the default-branch fallback", ref)
@@ -99,9 +115,17 @@ func TestDeployRefFallsBackWhenTaggingFails(t *testing.T) {
 }
 
 func TestDeployRefLastResortIsMain(t *testing.T) {
-	swapDeployRefDeps(t, func(context.Context, string, string, string, string, string) error { return nil }, "")
+	swapDeployRefDeps(t, func(context.Context, string, string, string, string, string) error {
+		return errors.New("403 Resource not accessible by integration")
+	}, "")
 
-	if ref := deployRef(context.Background(), "tok", domain.TaskGitInfo{}, domain.BoardTask{}); ref != "main" {
+	ref, err := deployRef(context.Background(), "tok",
+		domain.TaskGitInfo{Owner: "acme-org", Repo: "acme"},
+		domain.BoardTask{ID: uuid.New(), MergeCommitSHA: deployRefSHA})
+	if err != nil {
+		t.Fatalf("deployRef: %v", err)
+	}
+	if ref != "main" {
 		t.Fatalf("ref = %q, want main", ref)
 	}
 }

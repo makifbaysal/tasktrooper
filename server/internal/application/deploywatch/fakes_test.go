@@ -138,10 +138,11 @@ func (f *fakeRuns) Stamp(context.Context, uuid.UUID, int64, string, string, stri
 
 type fakePipelineJobs struct {
 	jobs []domain.RepositoryPipelineJob
+	err  error
 }
 
 func (f *fakePipelineJobs) ListByRepository(context.Context, uuid.UUID) ([]domain.RepositoryPipelineJob, error) {
-	return f.jobs, nil
+	return f.jobs, f.err
 }
 func (f *fakePipelineJobs) ListAll(context.Context) ([]domain.RepositoryPipelineJob, error) {
 	return f.jobs, nil
@@ -151,19 +152,26 @@ func (f *fakePipelineJobs) ReplaceForRepository(context.Context, uuid.UUID, []do
 }
 
 type fakeActions struct {
-	runsForCommit  []port.ActionsRun
-	runsErr        error
-	jobsByRun      map[int64][]port.ActionsJob
-	jobsErr        error
-	logs           map[int64]string
-	commitSignal   port.CommitDeploySignal
-	commitErr      error
-	commitCalls    int
-	dispatchedRefs []string
+	runsForCommit     []port.ActionsRun
+	runsErr           error
+	jobsByRun         map[int64][]port.ActionsJob
+	jobsErr           error
+	logs              map[int64]string
+	commitSignal      port.CommitDeploySignal
+	commitErr         error
+	commitCalls       int
+	dispatchedRefs    []string
+	workflowRuns      map[string][]port.ActionsRun
+	workflowRunsErr   error
+	workflowRunsCalls []string
 }
 
-func (f *fakeActions) ListWorkflowRuns(context.Context, string, string, string, string) ([]port.ActionsRun, error) {
-	return nil, nil
+func (f *fakeActions) ListWorkflowRuns(_ context.Context, _, _, workflowFile, _ string) ([]port.ActionsRun, error) {
+	f.workflowRunsCalls = append(f.workflowRunsCalls, workflowFile)
+	if f.workflowRunsErr != nil {
+		return nil, f.workflowRunsErr
+	}
+	return f.workflowRuns[workflowFile], nil
 }
 func (f *fakeActions) DispatchWorkflow(_ context.Context, _, _, _, ref string) error {
 	f.dispatchedRefs = append(f.dispatchedRefs, ref)
@@ -205,8 +213,8 @@ type fakeGit struct {
 }
 
 func (f *fakeGit) HasGit(string) bool { return f.hasGit }
-func (f *fakeGit) RevertCommitOnDefaultBranch(_ context.Context, _, sha, _ string) (string, error) {
-	f.reverted = append(f.reverted, sha)
+func (f *fakeGit) RevertOnDefaultBranch(_ context.Context, _ string, shas []string, _ string) (string, error) {
+	f.reverted = append(f.reverted, shas...)
 	if f.err != nil {
 		return "", f.err
 	}
@@ -233,6 +241,14 @@ func actionRuns(rs ...port.ActionsRun) []port.ActionsRun { return rs }
 
 func actionRun(id int64, htmlURL string) port.ActionsRun {
 	return port.ActionsRun{ID: id, HTMLURL: htmlURL}
+}
+
+// deployRun builds a run carrying the fields the whole-run rule and the
+// workflow-filtered lookup need: a head sha to match the release commit
+// against, and a status/conclusion to fall back on when no job in the run
+// matches by name.
+func deployRun(id int64, headSHA, status, conclusion string) port.ActionsRun {
+	return port.ActionsRun{ID: id, HeadSHA: headSHA, Status: status, Conclusion: conclusion}
 }
 
 func jobs(js ...port.ActionsJob) []port.ActionsJob { return js }

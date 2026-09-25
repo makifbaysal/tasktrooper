@@ -46,6 +46,7 @@ type harness struct {
 	rollback  *fakeRollbacker
 	runs      *fakeRuns
 	targets   *fakeTargets
+	pipeline  *fakePipelineJobs
 }
 
 func newHarness(t *testing.T, task domain.BoardTask, target domain.DeployTarget, opts ...func(*deploywatch.Deps)) *harness {
@@ -58,6 +59,7 @@ func newHarness(t *testing.T, task domain.BoardTask, target domain.DeployTarget,
 		rollback:  &fakeRollbacker{},
 		runs:      &fakeRuns{byEnv: map[string][]domain.DeploymentRun{}},
 		targets:   &fakeTargets{byEnv: map[string]domain.DeployTarget{domain.DeployEnvProd: target}},
+		pipeline:  &fakePipelineJobs{},
 	}
 	deps := deploywatch.Deps{
 		Tasks:     newFakeTasks(task),
@@ -65,7 +67,7 @@ func newHarness(t *testing.T, task domain.BoardTask, target domain.DeployTarget,
 		Targets:   h.targets,
 		Repos:     &fakeRepos{repo: domain.Repository{ID: repoID, Name: "acme", RootPath: "/tmp/acme"}},
 		Runs:      h.runs,
-		Pipeline:  &fakePipelineJobs{},
+		Pipeline:  h.pipeline,
 		Actions:   h.actions,
 		Rollbacks: h.rollback,
 		Git:       h.git,
@@ -512,5 +514,184 @@ func TestRollbackRefusesFromANonReleasedColumn(t *testing.T) {
 	_, err := h.svc.Rollback(context.Background(), rollbackReq())
 	if !errors.Is(err, domain.ErrRollbackColumn) {
 		t.Fatalf("err = %v, want ErrRollbackColumn", err)
+	}
+}
+
+// StatusForCommit is StatusForTask keyed on a commit instead of a task — a
+// release has no single owning card.
+
+func TestStatusForCommitWithWorkflowUsesOnlyThatWorkflowsRuns(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	h.actions.workflowRuns = map[string][]port.ActionsRun{
+		"deploy-prod.yml": {deployRun(55, mergeSHA, "completed", "success")},
+	}
+	h.actions.jobsByRun[55] = jobs(job(1, "deploy", "completed", "success"))
+
+	got, err := h.svc.StatusForCommit(context.Background(), repoID, mergeSHA, "deploy-prod.yml")
+	if err != nil {
+		t.Fatalf("StatusForCommit: %v", err)
+	}
+	if got.State != domain.DeployWatchSuccess {
+		t.Fatalf("state = %q, want success (detail: %s)", got.State, got.Detail)
+	}
+	if len(h.actions.workflowRunsCalls) != 1 || h.actions.workflowRunsCalls[0] != "deploy-prod.yml" {
+		t.Fatalf("workflow runs calls = %v, want exactly one for deploy-prod.yml", h.actions.workflowRunsCalls)
+	}
+	if h.actions.runsErr == nil && h.actions.commitCalls != 0 {
+		t.Fatalf("commit status consulted despite a matching Actions run")
+	}
+}
+
+func TestStatusForCommitWorkflowFilterIgnoresRunsForAnotherCommit(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	h.actions.workflowRuns = map[string][]port.ActionsRun{
+		"deploy-prod.yml": {deployRun(1, "0000000000000000000000000000000000000000", "completed", "success")},
+	}
+
+	got, err := h.svc.StatusForCommit(context.Background(), repoID, mergeSHA, "deploy-prod.yml")
+	if err != nil {
+		t.Fatalf("StatusForCommit: %v", err)
+	}
+	if got.State != domain.DeployWatchNoSignal {
+		t.Fatalf("state = %q, want no_signal — the only run in that workflow was for a different commit", got.State)
+	}
+}
+
+// The whole-run rule: inside a run matched by workflow (or by a mapped
+// prod/preprod target), a run with no job matching by name still counts —
+// its own conclusion is the deploy result.
+
+func TestStatusForCommitWholeRunRuleUsesRunConclusionWhenNoJobMatches(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	h.actions.workflowRuns = map[string][]port.ActionsRun{
+		"deploy-prod.yml": {deployRun(60, mergeSHA, "completed", "success")},
+	}
+	h.actions.jobsByRun[60] = jobs(job(1, "build", "completed", "success"), job(2, "test", "completed", "success"))
+
+	got, err := h.svc.StatusForCommit(context.Background(), repoID, mergeSHA, "deploy-prod.yml")
+	if err != nil {
+		t.Fatalf("StatusForCommit: %v", err)
+	}
+	if got.State != domain.DeployWatchSuccess {
+		t.Fatalf("state = %q, want success from the whole run's own conclusion", got.State)
+	}
+}
+
+func TestStatusForCommitWholeRunRuleFailsOnRunConclusion(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	h.actions.workflowRuns = map[string][]port.ActionsRun{
+		"deploy-prod.yml": {deployRun(61, mergeSHA, "completed", "failure")},
+	}
+	h.actions.jobsByRun[61] = jobs(job(1, "build", "completed", "success"))
+
+	got, err := h.svc.StatusForCommit(context.Background(), repoID, mergeSHA, "deploy-prod.yml")
+	if err != nil {
+		t.Fatalf("StatusForCommit: %v", err)
+	}
+	if got.State != domain.DeployWatchFailure {
+		t.Fatalf("state = %q, want failure from the whole run's own conclusion", got.State)
+	}
+}
+
+// Without a workflow filter, the whole-run rule only fires for a run whose
+// own workflow file is one of the repository's mapped prod/preprod deploy
+// targets — otherwise an unrelated run with no matching job must stay silent
+// rather than being read as a deploy.
+
+func TestStatusMappedWorkflowWholeRunRuleAppliesWithoutAnExplicitWorkflow(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	h.pipeline.jobs = []domain.RepositoryPipelineJob{
+		{Category: domain.PipelineCategoryProdDeploy, TargetKind: domain.PipelineTargetWorkflow, TargetRef: "deploy-prod.yml"},
+	}
+	h.actions.runsForCommit = actionRuns(deployRun(70, mergeSHA, "completed", "success"))
+	h.actions.jobsByRun[70] = jobs(job(1, "build", "completed", "success"))
+	h.actions.workflowRuns = map[string][]port.ActionsRun{
+		"deploy-prod.yml": {deployRun(70, mergeSHA, "completed", "success")},
+	}
+
+	got, err := h.svc.Status(context.Background(), repoID, taskID)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.State != domain.DeployWatchSuccess {
+		t.Fatalf("state = %q, want success — run 70 is the mapped prod_deploy workflow's run for this commit", got.State)
+	}
+}
+
+func TestStatusUnmappedRunWithNoMatchingJobIsNotADeploy(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	h.actions.runsForCommit = actionRuns(deployRun(71, mergeSHA, "completed", "success"))
+	h.actions.jobsByRun[71] = jobs(job(1, "build", "completed", "success"))
+
+	got, err := h.svc.Status(context.Background(), repoID, taskID)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.State != domain.DeployWatchNoSignal {
+		t.Fatalf("state = %q, want no_signal — nothing maps this run to a deploy", got.State)
+	}
+}
+
+// The deploy job matcher: whole tokens only, and a docs/notes/preview token
+// anywhere in the job name disqualifies it even alongside a deploy word.
+
+func TestDeployJobNameMatcherExcludesDocVariants(t *testing.T) {
+	cases := []string{"deployment-docs", "release-drafter", "publish-docs", "deploy-preview", "changelog-deploy"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+			h.actions.runsForCommit = actionRuns(actionRun(80, ""))
+			h.actions.jobsByRun[80] = jobs(job(1, name, "completed", "success"))
+
+			got, err := h.svc.Status(context.Background(), repoID, taskID)
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if got.State != domain.DeployWatchNoSignal {
+				t.Fatalf("job %q: state = %q, want no_signal (excluded token present)", name, got.State)
+			}
+		})
+	}
+}
+
+func TestDeployJobNameMatcherAcceptsWholeTokens(t *testing.T) {
+	cases := []string{"deploy", "deploy-prod", "rollout-canary", "deployment", "ship-it"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+			h.actions.runsForCommit = actionRuns(actionRun(81, ""))
+			h.actions.jobsByRun[81] = jobs(job(1, name, "completed", "success"))
+
+			got, err := h.svc.Status(context.Background(), repoID, taskID)
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if got.State != domain.DeployWatchSuccess {
+				t.Fatalf("job %q: state = %q, want success", name, got.State)
+			}
+		})
+	}
+}
+
+// A run whose jobs could not be listed must never read as "nothing here" —
+// that would silently fall back to the commit-status path while an Actions
+// deploy may well be running.
+func TestStatusJobsListErrorReturnsPendingNotEmpty(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	h.actions.runsForCommit = actionRuns(actionRun(90, "https://gh/run/90"))
+	h.actions.jobsErr = errors.New("github: 502")
+
+	got, err := h.svc.Status(context.Background(), repoID, taskID)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got.State != domain.DeployWatchPending {
+		t.Fatalf("state = %q, want pending — a jobs-list failure must not read as no signal", got.State)
+	}
+	if !strings.Contains(got.Detail, "could not read the run's jobs") {
+		t.Fatalf("detail = %q, want it to say the jobs could not be read", got.Detail)
+	}
+	if h.actions.commitCalls != 0 {
+		t.Fatal("a jobs-list failure must not fall through to the commit-status path")
 	}
 }
