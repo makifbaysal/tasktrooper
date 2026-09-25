@@ -277,6 +277,46 @@ func TestOpenPendingOpensReleasesForAlreadyMergedDoneTasks(t *testing.T) {
 	assert.Len(t, f.store.releases, 1)
 }
 
+// N6: the on_merge catch-up must ship the newest waiting task's own merge
+// commit in GIT order, never RemoteHead (which can be ahead of what these
+// tasks actually cover) and never mere board/list order (ListTasks makes no
+// ordering promise). Both waiting tasks are merged; only git.ancestors says
+// which is newer.
+func TestOpenPendingOnMergeUsesGitOrderNotRemoteHeadForTheCatchUpCommit(t *testing.T) {
+	repositoryID := uuid.New()
+	component := confirmedComponent(domain.DeliveryOnMerge, domain.ExecutorGitHubActions)
+	older := domain.BoardTask{
+		ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone,
+		RepositoryID: repositoryID, ComponentID: &component.ID, MergeCommitSHA: "1111111111111111111111111111111111111111",
+	}
+	newer := domain.BoardTask{
+		ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone,
+		RepositoryID: repositoryID, ComponentID: &component.ID, MergeCommitSHA: "2222222222222222222222222222222222222222",
+	}
+	f := newOpenFixture(older, newer)
+	f.components.add(repositoryID, component)
+	git := newFakeGit()
+	git.ancestors[older.MergeCommitSHA] = true
+	git.head = "9999999999999999999999999999999999999999" // must never be used for on_merge
+	f.svc = New(Deps{
+		Store: f.store, Tasks: f.tasks, ParkedTasks: f.parked, Components: f.components,
+		Git: git, Repos: &fakeRepos{repo: domain.Repository{RootPath: "/repo"}},
+		Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) },
+	})
+
+	n, err := f.svc.OpenPending(context.Background(), repositoryID, component.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	require.Len(t, f.store.releases, 1)
+	var release domain.Release
+	for _, r := range f.store.releases {
+		release = r
+	}
+	assert.Equal(t, newer.MergeCommitSHA, release.CommitSHA,
+		"the newest waiting task's own merge commit must be used, never RemoteHead or board order")
+}
+
 // Create must insert the carried (older) task before the new one, so
 // their added_at values (and the tasks slice they populate) preserve that
 // order rather than whichever order a map or a tied timestamp happens to
@@ -421,6 +461,75 @@ func TestSupersedeReleaseCarriesTasksForwardWhenTheRaceIsLost(t *testing.T) {
 	stillFailed, err := f.store.Get(context.Background(), created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, domain.ReleaseFailed, stillFailed.Status, "the race winner's status must not be overwritten")
+}
+
+// N12: when the lost-supersede race lands the old release in a TERMINAL
+// status (released/rolled_back/superseded), it already has its own
+// resolution for its tasks — pulling them into the new release too would
+// contradict that resolution, so they must NOT be carried forward.
+func TestSupersedeReleaseDoesNotCarryTasksWhenTheRaceWinnerIsTerminal(t *testing.T) {
+	f := newOpenFixture()
+	repositoryID := uuid.New()
+	oldTask := domain.BoardTask{ID: uuid.New()}
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleasePending,
+	}, []uuid.UUID{oldTask.ID})
+	require.NoError(t, err)
+
+	newRelease, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleasePending,
+	}, nil)
+	require.NoError(t, err)
+
+	// Something else already finished the old release before the supersede
+	// lands — its task was already moved to released by that Finish.
+	raced := created
+	raced.Status = domain.ReleaseReleased
+	now := time.Now()
+	raced.FinishedAt = &now
+	_, err = f.store.Update(context.Background(), raced, domain.ReleasePending)
+	require.NoError(t, err)
+
+	f.svc.supersedeRelease(context.Background(), created, newRelease.ID, "v2")
+
+	got, err := f.store.Get(context.Background(), newRelease.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.Tasks, "a terminal race winner's tasks must not be pulled into the new release")
+
+	stillReleased, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseReleased, stillReleased.Status, "the race winner's own terminal status must not be overwritten")
+}
+
+// N12: when the race winner is still Open() (a sweep transition landed
+// between openReleaseToSupersede's read and the CAS, not a resolution), the
+// supersede transition is retried once, and it succeeds this time.
+func TestSupersedeReleaseRetriesOnceWhenTheRaceWinnerIsStillOpen(t *testing.T) {
+	f := newOpenFixture()
+	repositoryID := uuid.New()
+	oldTask := domain.BoardTask{ID: uuid.New()}
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleasePending,
+	}, []uuid.UUID{oldTask.ID})
+	require.NoError(t, err)
+
+	newRelease, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleasePending,
+	}, nil)
+	require.NoError(t, err)
+
+	// A sweep moved it from pending to deploying — still Open(), not a
+	// resolution — between openReleaseToSupersede's read and this CAS.
+	raced := created
+	raced.Status = domain.ReleaseDeploying
+	_, err = f.store.Update(context.Background(), raced, domain.ReleasePending)
+	require.NoError(t, err)
+
+	f.svc.supersedeRelease(context.Background(), created, newRelease.ID, "v2")
+
+	stillOpen, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseSuperseded, stillOpen.Status, "the retry must have superseded it on the second attempt")
 }
 
 // every waiting task of the component must land in ONE release, not one

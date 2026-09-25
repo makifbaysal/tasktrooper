@@ -213,33 +213,76 @@ func (s *Service) repoRootPath(ctx context.Context, repositoryID uuid.UUID) (str
 // supersedeRelease marks `open` superseded now that `newReleaseID` already
 // carries its tasks (L5: Create ran first). A conditional Update losing the
 // race means something else already moved `open` on (another supersede, a
-// sweep settling it) — re-read what it carries now and fold those tasks into
-// the new release too, so a task added to it in that window is not left
-// behind, without touching whatever `open`'s own status raced to.
+// sweep settling it) — retrySupersedeRace (N12) decides what that means for
+// its tasks.
 func (s *Service) supersedeRelease(ctx context.Context, open domain.Release, newReleaseID uuid.UUID, newVersion string) {
 	expect := open.Status
 	open.Status = domain.ReleaseSuperseded
 	open.Verdict = "superseded by " + newVersion
 	updated, err := s.store.Update(ctx, open, expect)
-	if err != nil {
-		if errors.Is(err, domain.ErrReleaseWrongStatus) {
-			if latest, gerr := s.store.Get(ctx, open.ID); gerr == nil {
-				if aerr := s.store.AddTasks(ctx, newReleaseID, latest.TaskIDs()); aerr != nil {
-					log.Warn().Err(aerr).Str("release_id", open.ID.String()).Msg("release: carrying a raced-superseded release's tasks forward failed")
-				}
-			} else {
-				log.Warn().Err(gerr).Str("release_id", open.ID.String()).Msg("release: re-reading a raced-superseded release failed")
-			}
-		} else {
-			log.Warn().Err(err).Str("release_id", open.ID.String()).Msg("release: superseding the open release failed")
-		}
+	if err == nil {
+		s.unparkSupersededTasks(ctx, updated)
 		return
 	}
-	if s.parked != nil {
-		for _, t := range updated.Tasks {
-			if _, _, err := s.parked.TakeBlockedResourceTask(ctx, domain.ResourceReleaseWatch, t.ID); err != nil {
-				log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: un-parking a superseded release's card failed")
-			}
+	if !errors.Is(err, domain.ErrReleaseWrongStatus) {
+		log.Warn().Err(err).Str("release_id", open.ID.String()).Msg("release: superseding the open release failed")
+		return
+	}
+	s.retrySupersedeRace(ctx, open.ID, newReleaseID, newVersion, true)
+}
+
+// retrySupersedeRace handles a lost CAS on marking `open` superseded (N12):
+// re-read what it is now.
+//   - Still Open() — a sweep transition or another AddTasks landed between
+//     the read and the CAS, not a resolution. Retry the supersede transition
+//     once more (not indefinitely: a release racing this hard is someone
+//     else's problem too) and, on success, its tasks are already current on
+//     the row being marked superseded — nothing further to carry.
+//   - Reached a terminal status (released/rolled_back/superseded) — it
+//     already has its own resolution for its tasks (moved to released,
+//     reopened to need_revision, folded into whatever superseded it); pulling
+//     them into this new release too would contradict that resolution, so
+//     they are left alone.
+//   - Anything else (failed) is not rediscoverable via findOpenRelease again
+//     (it filters on Open() statuses only), so its tasks are simply carried
+//     forward without forcing another status transition on it.
+func (s *Service) retrySupersedeRace(ctx context.Context, openID, newReleaseID uuid.UUID, newVersion string, allowRetry bool) {
+	latest, err := s.store.Get(ctx, openID)
+	if err != nil {
+		log.Warn().Err(err).Str("release_id", openID.String()).Msg("release: re-reading a raced-superseded release failed")
+		return
+	}
+	if latest.Status.Terminal() {
+		return
+	}
+	if latest.Status.Open() && allowRetry {
+		expect := latest.Status
+		latest.Status = domain.ReleaseSuperseded
+		latest.Verdict = "superseded by " + newVersion
+		updated, err := s.store.Update(ctx, latest, expect)
+		if err == nil {
+			s.unparkSupersededTasks(ctx, updated)
+			return
+		}
+		if !errors.Is(err, domain.ErrReleaseWrongStatus) {
+			log.Warn().Err(err).Str("release_id", openID.String()).Msg("release: retrying the superseded transition failed")
+			return
+		}
+		s.retrySupersedeRace(ctx, openID, newReleaseID, newVersion, false)
+		return
+	}
+	if err := s.store.AddTasks(ctx, newReleaseID, latest.TaskIDs()); err != nil {
+		log.Warn().Err(err).Str("release_id", openID.String()).Msg("release: carrying a raced-superseded release's tasks forward failed")
+	}
+}
+
+func (s *Service) unparkSupersededTasks(ctx context.Context, r domain.Release) {
+	if s.parked == nil {
+		return
+	}
+	for _, t := range r.Tasks {
+		if _, _, err := s.parked.TakeBlockedResourceTask(ctx, domain.ResourceReleaseWatch, t.ID); err != nil {
+			log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: un-parking a superseded release's card failed")
 		}
 	}
 }
@@ -380,10 +423,25 @@ func (s *Service) OpenPending(ctx context.Context, repositoryID, componentID uui
 		return opened, nil
 	}
 
-	mergeSHA := s.remoteHeadOrNewestMerge(ctx, repositoryID, waiting)
-	primary := waiting[len(waiting)-1]
+	// N6: an on_merge catch-up must ship exactly what these waiting tasks'
+	// own merge commits cover — RemoteHead can be ahead of them (another
+	// component's merge landed since, or the remote simply moved), which
+	// would misreport what shipped. dispatch has no such commit to watch; it
+	// keeps deploying at RemoteHead as before.
+	primaryIdx := len(waiting) - 1
+	var mergeSHA string
+	if profile.Mode == domain.DeliveryOnMerge {
+		primaryIdx = s.newestWaitingTaskIndex(ctx, repositoryID, waiting)
+		mergeSHA = strings.TrimSpace(waiting[primaryIdx].MergeCommitSHA)
+	} else {
+		mergeSHA = s.remoteHeadOrNewestMerge(ctx, repositoryID, waiting)
+	}
+	primary := waiting[primaryIdx]
 	extra := make([]uuid.UUID, 0, len(waiting)-1)
-	for _, t := range waiting[:len(waiting)-1] {
+	for i, t := range waiting {
+		if i == primaryIdx {
+			continue
+		}
 		extra = append(extra, t.ID)
 	}
 	opening := s.openReleaseForTasks(ctx, repositoryID, primary, extra, component, profile, mergeSHA)
@@ -440,6 +498,43 @@ func (s *Service) supersedeIfEmptyDraft(ctx context.Context, releaseID uuid.UUID
 	if _, err := s.store.Update(ctx, r, expect); err != nil && !errors.Is(err, domain.ErrReleaseWrongStatus) {
 		log.Warn().Err(err).Str("release_id", releaseID.String()).Msg("release: superseding an emptied draft failed")
 	}
+}
+
+// newestWaitingTaskIndex (N6) picks, among `waiting`, the task whose own
+// merge commit is newest in GIT order — board order is not git order: a
+// human can drag cards around, and OpenPending's caller does not guarantee
+// `waiting` is sorted by merge time. Pairwise IsAncestor against a running
+// "best" candidate is enough (not a full topological sort): the ancestry
+// check is a safety net here, same as openReleaseToSupersede's, not a hard
+// requirement, so git == nil, an unresolved root path, or a comparison error
+// all fall back to the last item in board order.
+func (s *Service) newestWaitingTaskIndex(ctx context.Context, repositoryID uuid.UUID, waiting []domain.BoardTask) int {
+	fallback := len(waiting) - 1
+	if s.git == nil {
+		return fallback
+	}
+	rootPath, ok := s.repoRootPath(ctx, repositoryID)
+	if !ok {
+		return fallback
+	}
+	best := 0
+	for i := 1; i < len(waiting); i++ {
+		bestSHA := strings.TrimSpace(waiting[best].MergeCommitSHA)
+		candidateSHA := strings.TrimSpace(waiting[i].MergeCommitSHA)
+		if bestSHA == "" || candidateSHA == "" {
+			continue
+		}
+		isAncestor, err := s.git.IsAncestor(ctx, rootPath, bestSHA, candidateSHA)
+		if err != nil {
+			log.Warn().Err(err).Str("repository_id", repositoryID.String()).
+				Msg("release: comparing waiting tasks' merge commits failed")
+			return fallback
+		}
+		if isAncestor {
+			best = i
+		}
+	}
+	return best
 }
 
 func (s *Service) remoteHeadOrNewestMerge(ctx context.Context, repositoryID uuid.UUID, waiting []domain.BoardTask) string {

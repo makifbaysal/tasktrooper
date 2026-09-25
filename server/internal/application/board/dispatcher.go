@@ -40,6 +40,21 @@ type Dispatcher struct {
 	reviewLoop   *ReviewLoopGuard
 	workflows    port.WorkflowReader
 	roles        port.RoleResolver
+	// taskReleasedHook fires for every task.moved event that lands the task
+	// in released — whatever moved it (a release's Finish, openNone, a
+	// human) — unlike the rest of Dispatch it runs even when released is a
+	// dispatch-suspended column (isDispatchSuspendedTask), because it wakes
+	// deploy dependents, not an agent run.
+	taskReleasedHook TaskReleasedHook
+}
+
+// TaskReleasedHook is released.Service.WakeDeployDependentsOf, injected so
+// this package need not import release (see release.Waker for the reverse
+// direction).
+type TaskReleasedHook func(ctx context.Context, task domain.BoardTask)
+
+func (d *Dispatcher) SetTaskReleasedHook(h TaskReleasedHook) {
+	d.taskReleasedHook = h
 }
 
 // An unreadable workflow must never read the same as an empty one.
@@ -143,6 +158,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, input DispatchInput) error {
 		} else {
 			d.notifier.TaskMoved(ctx, input.Task)
 		}
+	}
+
+	if d.taskReleasedHook != nil && input.EventType == domain.BoardEventTaskMoved && input.Task.Column == domain.TaskColumnReleased {
+		d.taskReleasedHook(ctx, input.Task)
 	}
 
 	mergeWake := doneMergeWake(wf, wfOK, input)

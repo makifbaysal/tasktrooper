@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -266,42 +267,38 @@ type Service struct {
 
 	now func() time.Time
 
-	mu                sync.Mutex
-	lastErrorCheck    map[uuid.UUID]time.Time
-	lastHandBackWake  map[uuid.UUID]time.Time
-	handBackWakeCount map[uuid.UUID]int
+	mu             sync.Mutex
+	lastErrorCheck map[uuid.UUID]time.Time
 }
 
 func New(d Deps) *Service {
 	s := &Service{
-		store:             d.Store,
-		tasks:             d.Tasks,
-		parked:            d.ParkedTasks,
-		mergeState:        d.MergeState,
-		waker:             d.Waker,
-		components:        d.Components,
-		environments:      d.Environments,
-		legacy:            d.LegacyTargets,
-		deployStatus:      d.DeployStatus,
-		actions:           d.Actions,
-		reverter:          d.Reverter,
-		repos:             d.Repos,
-		incidents:         d.Incidents,
-		beforeDeploy:      d.BeforeDeploy,
-		deployOrder:       d.DeployOrder,
-		locator:           d.Locator,
-		healthWindow:      d.HealthWindow,
-		git:               d.Git,
-		localRunner:       d.LocalRunner,
-		storeOps:          d.StoreOps,
-		dataDir:           d.DataDir,
-		coords:            d.RepoCoordinates,
-		refAlreadyExists:  d.IsRefAlreadyExists,
-		ciUnavailable:     d.IsCIUnavailableText,
-		now:               d.Clock,
-		lastErrorCheck:    map[uuid.UUID]time.Time{},
-		lastHandBackWake:  map[uuid.UUID]time.Time{},
-		handBackWakeCount: map[uuid.UUID]int{},
+		store:            d.Store,
+		tasks:            d.Tasks,
+		parked:           d.ParkedTasks,
+		mergeState:       d.MergeState,
+		waker:            d.Waker,
+		components:       d.Components,
+		environments:     d.Environments,
+		legacy:           d.LegacyTargets,
+		deployStatus:     d.DeployStatus,
+		actions:          d.Actions,
+		reverter:         d.Reverter,
+		repos:            d.Repos,
+		incidents:        d.Incidents,
+		beforeDeploy:     d.BeforeDeploy,
+		deployOrder:      d.DeployOrder,
+		locator:          d.Locator,
+		healthWindow:     d.HealthWindow,
+		git:              d.Git,
+		localRunner:      d.LocalRunner,
+		storeOps:         d.StoreOps,
+		dataDir:          d.DataDir,
+		coords:           d.RepoCoordinates,
+		refAlreadyExists: d.IsRefAlreadyExists,
+		ciUnavailable:    d.IsCIUnavailableText,
+		now:              d.Clock,
+		lastErrorCheck:   map[uuid.UUID]time.Time{},
 	}
 	if s.refAlreadyExists == nil {
 		s.refAlreadyExists = func(error) bool { return false }
@@ -326,3 +323,23 @@ func New(d Deps) *Service {
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
 
 func (s *Service) SetURLPolicy(p urlguard.Policy) { s.policy = p }
+
+// ForAgent is ForTask stamped with AgentSeenAt: every release tool
+// (adapter/tools/board/release_tools.go) resolves through this, not ForTask
+// directly, because the hand-back watchdog's re-wake gate (N5) reads
+// AgentSeenAt to tell "an agent is actively looking at this" apart from "the
+// hand-back dispatch was dropped" — only a live tool call can make that
+// distinction, a background read cannot.
+func (s *Service) ForAgent(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error) {
+	r, err := s.ForTask(ctx, repositoryID, taskID)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	now := s.now()
+	if err := s.store.MarkAgentSeen(ctx, r.ID, now); err != nil {
+		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: marking a release agent-seen failed")
+		return r, nil
+	}
+	r.AgentSeenAt = &now
+	return r, nil
+}

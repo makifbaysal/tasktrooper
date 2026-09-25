@@ -32,11 +32,13 @@ var _ port.ReleaseStore = (*ReleaseStore)(nil)
 
 const releaseCols = `id, repository_id, component_id, version, mode, executor, status, commit_sha, tag, notes,
 	profile, deploy, checks, verdict, rollback, failure_reason, card_task_id, local_run, store_builds, cut_at,
-	created_at, updated_at, deploy_started_at, deployed_at, verify_until, finished_at`
+	created_at, updated_at, deploy_started_at, deployed_at, verify_until, finished_at,
+	hand_back_count, last_hand_back_at, agent_seen_at`
 
 const releaseColsPrefixed = `r.id, r.repository_id, r.component_id, r.version, r.mode, r.executor, r.status, r.commit_sha, r.tag, r.notes,
 	r.profile, r.deploy, r.checks, r.verdict, r.rollback, r.failure_reason, r.card_task_id, r.local_run, r.store_builds, r.cut_at,
-	r.created_at, r.updated_at, r.deploy_started_at, r.deployed_at, r.verify_until, r.finished_at`
+	r.created_at, r.updated_at, r.deploy_started_at, r.deployed_at, r.verify_until, r.finished_at,
+	r.hand_back_count, r.last_hand_back_at, r.agent_seen_at`
 
 func scanRelease(row pgx.Row) (domain.Release, error) {
 	var r domain.Release
@@ -47,6 +49,7 @@ func scanRelease(row pgx.Row) (domain.Release, error) {
 		&profileJSON, &deployJSON, &checksJSON, &r.Verdict, &rollbackJSON, &r.FailureReason, &r.CardTaskID,
 		&localRunJSON, &storeBuildsJSON, &r.CutAt,
 		&r.CreatedAt, &r.UpdatedAt, &r.DeployStartedAt, &r.DeployedAt, &r.VerifyUntil, &r.FinishedAt,
+		&r.HandBackCount, &r.LastHandBackAt, &r.AgentSeenAt,
 	); err != nil {
 		return domain.Release{}, err
 	}
@@ -141,8 +144,9 @@ const insertReleaseSQL = `
 INSERT INTO releases
 	(id, repository_id, component_id, version, mode, executor, status, commit_sha, tag, notes,
 	 profile, deploy, checks, verdict, rollback, failure_reason, card_task_id, local_run, store_builds, cut_at,
-	 deploy_started_at, deployed_at, verify_until, finished_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+	 deploy_started_at, deployed_at, verify_until, finished_at,
+	 hand_back_count, last_hand_back_at, agent_seen_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
 RETURNING ` + releaseCols
 
 // Create inserts the release and its starting tasks in one transaction, so a
@@ -196,7 +200,8 @@ func (s *ReleaseStore) Create(ctx context.Context, r domain.Release, taskIDs []u
 			r.ID, r.RepositoryID, r.ComponentID, r.Version, string(r.Mode), string(r.Executor), string(r.Status),
 			r.CommitSHA, r.Tag, r.Notes, profileJSON, deployJSON, checksJSON, r.Verdict, rollbackJSON,
 			r.FailureReason, r.CardTaskID, localRunJSON, storeBuildsJSON, r.CutAt,
-			r.DeployStartedAt, r.DeployedAt, r.VerifyUntil, r.FinishedAt)
+			r.DeployStartedAt, r.DeployedAt, r.VerifyUntil, r.FinishedAt,
+			r.HandBackCount, r.LastHandBackAt, r.AgentSeenAt)
 		created, err := scanRelease(row)
 		if err != nil {
 			return fmt.Errorf("insert release: %w", err)
@@ -364,6 +369,8 @@ UPDATE releases SET
 	deployed_at = $18,
 	verify_until = $19,
 	finished_at = $20,
+	hand_back_count = $21,
+	last_hand_back_at = $22,
 	updated_at = now()
 WHERE id = $1 AND status = $2
 RETURNING ` + releaseCols
@@ -373,6 +380,11 @@ RETURNING ` + releaseCols
 // cannot both advance the same release. Zero rows means either the release
 // does not exist or its status moved out from under the caller; a second read
 // tells the two apart so the error names what actually happened.
+//
+// agent_seen_at is deliberately not in the SET list: MarkAgentSeen is its
+// sole writer, so a caller updating other fields from a copy read before an
+// agent's own ForAgent call landed can never carry a stale (older or nil)
+// AgentSeenAt back over it.
 func (s *ReleaseStore) Update(ctx context.Context, r domain.Release, expect domain.ReleaseStatus) (domain.Release, error) {
 	deployJSON, checksJSON, rollbackJSON, localRunJSON, storeBuildsJSON, err := marshalReleaseMutable(r)
 	if err != nil {
@@ -382,7 +394,8 @@ func (s *ReleaseStore) Update(ctx context.Context, r domain.Release, expect doma
 		r.ID, string(expect), string(r.Status), r.Version, r.CommitSHA, r.Tag, r.Notes,
 		deployJSON, checksJSON, r.Verdict, rollbackJSON, r.FailureReason, r.CardTaskID,
 		localRunJSON, storeBuildsJSON, r.CutAt,
-		r.DeployStartedAt, r.DeployedAt, r.VerifyUntil, r.FinishedAt)
+		r.DeployStartedAt, r.DeployedAt, r.VerifyUntil, r.FinishedAt,
+		r.HandBackCount, r.LastHandBackAt)
 	updated, err := scanRelease(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var actual string
@@ -513,4 +526,14 @@ func (s *ReleaseStore) LastReleased(ctx context.Context, repositoryID uuid.UUID,
 		return domain.Release{}, fmt.Errorf("last released: %w", err)
 	}
 	return s.fillOne(ctx, r)
+}
+
+// MarkAgentSeen stamps agent_seen_at directly, outside the optimistic
+// Update(r, expect) path — see the port doc comment on why it must be the
+// only writer of that column.
+func (s *ReleaseStore) MarkAgentSeen(ctx context.Context, id uuid.UUID, at time.Time) error {
+	if _, err := s.pool.Exec(ctx, `UPDATE releases SET agent_seen_at = $2 WHERE id = $1`, id, at); err != nil {
+		return fmt.Errorf("mark release agent seen: %w", err)
+	}
+	return nil
 }

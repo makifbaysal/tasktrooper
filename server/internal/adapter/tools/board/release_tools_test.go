@@ -14,15 +14,18 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// fakeReleaseService scripts kit.Releases for the release tools' tests. Only
-// ForTask is ever asked to resolve a task into a release — every other call
-// is addressed by the release id the tool already holds, so the fakes for
-// those just return what the test scripted and record what they were asked.
+// fakeReleaseService scripts kit.Releases for the release tools' tests.
+// ForAgent (not ForTask) is what every release tool resolves through — see
+// resolveRelease — so it is the one that records what it was asked; every
+// other call is addressed by the release id the tool already holds, so the
+// fakes for those just return what the test scripted and record what they
+// were asked.
 type fakeReleaseService struct {
-	release    domain.Release
-	forTaskErr error
-	gotTaskID  uuid.UUID
-	gotRepoID  uuid.UUID
+	release       domain.Release
+	forTaskErr    error
+	gotTaskID     uuid.UUID
+	gotRepoID     uuid.UUID
+	forAgentCalls int
 
 	deployErr error
 	deployRel domain.Release
@@ -50,6 +53,11 @@ type fakeReleaseService struct {
 func (f *fakeReleaseService) ForTask(_ context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error) {
 	f.gotRepoID, f.gotTaskID = repositoryID, taskID
 	return f.release, f.forTaskErr
+}
+
+func (f *fakeReleaseService) ForAgent(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error) {
+	f.forAgentCalls++
+	return f.ForTask(ctx, repositoryID, taskID)
 }
 
 func (f *fakeReleaseService) Get(context.Context, uuid.UUID) (domain.Release, error) {
@@ -152,6 +160,28 @@ func TestGetReleaseToolReportsNextStepPerStatus(t *testing.T) {
 				t.Fatalf("release was not resolved from the task in context: got task=%s repo=%s", fake.gotTaskID, fake.gotRepoID)
 			}
 		})
+	}
+}
+
+// N5: every release tool must resolve its release through ForAgent (which
+// stamps AgentSeenAt) rather than ForTask directly — the hand-back
+// watchdog's AgentSeenAt gate depends on a live tool call making that
+// distinction, and only ForAgent does.
+func TestReleaseToolsResolveTheReleaseThroughForAgent(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	fake := &fakeReleaseService{release: domain.Release{ID: uuid.New(), Status: domain.ReleaseAwaitingVerdict}}
+	kit := releaseToolKit(repoID, fake)
+	ctx := releaseCtx(repoID, taskID)
+
+	tools := []port.ToolExecutor{
+		newGetReleaseTool(kit), newWatchReleaseTool(kit), newRunSmokeChecksTool(kit),
+	}
+	for _, tool := range tools {
+		fake.forAgentCalls = 0
+		tool.Execute(ctx, `{}`)
+		if fake.forAgentCalls != 1 {
+			t.Fatalf("%s: resolveRelease must call ForAgent exactly once, got %d calls", tool.Name(), fake.forAgentCalls)
+		}
 	}
 }
 

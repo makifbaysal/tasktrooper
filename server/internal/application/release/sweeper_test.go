@@ -365,32 +365,68 @@ func TestSweepFreesAStrandedReleaseWatchPark(t *testing.T) {
 	assert.Contains(t, f.parked.taken, task.ID)
 }
 
-// M2(b): an awaiting_verdict/failed release with no parked card (the agent
+// M2(b)/N5: an awaiting_verdict/failed release with no parked card (the agent
 // run that would park it is gone, or its hand-back dispatch was dropped) is
-// re-woken on a 10-minute cadence, not left to wait forever.
+// re-woken on a 10-minute cadence, not left to wait forever. The bookkeeping
+// is read off the release row (HandBackCount/LastHandBackAt), not a
+// process-memory map, so the fixture simulates "already handed back once,
+// eleven minutes ago" directly on the stored release.
 func TestSweepRewakesAnUnparkedAwaitingVerdictReleaseAfterTenMinutes(t *testing.T) {
 	f := newSweepFixture()
 	repositoryID := uuid.New()
 	task := f.withTask(repositoryID)
-	_, err := f.store.Create(context.Background(), domain.Release{
+	created, err := f.store.Create(context.Background(), domain.Release{
 		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
 	}, []uuid.UUID{task.ID})
 	require.NoError(t, err)
+	past := f.clock.Now().Add(-11 * time.Minute)
+	created.HandBackCount = 1
+	created.LastHandBackAt = &past
+	created.UpdatedAt = f.clock.Now()
+	f.store.releases[created.ID] = created
 
 	f.svc.SweepOnce(context.Background())
-	require.Len(t, f.waker.calls, 1, "the first sweep after it settled must re-wake it")
+	require.Len(t, f.waker.calls, 1, "more than ten minutes past the last hand-back, the watchdog re-wakes it")
 
 	f.svc.SweepOnce(context.Background())
-	assert.Len(t, f.waker.calls, 1, "a sweep inside the 10-minute cool-down must not re-wake it again")
+	assert.Len(t, f.waker.calls, 1, "a sweep inside the fresh 10-minute cool-down must not re-wake it again")
 
 	f.clock.Advance(10 * time.Minute)
 	f.svc.SweepOnce(context.Background())
-	assert.Len(t, f.waker.calls, 2, "past the cool-down, the watchdog re-wakes it")
+	assert.Len(t, f.waker.calls, 2, "past the cool-down again, the watchdog re-wakes it")
 }
 
-// M2(b): the re-wake is capped at six times per release so a release that
-// never gets a verdict does not wake the agent forever.
+// M2(b)/N5: the re-wake is capped at six times per release so a release that
+// never gets a verdict does not wake the agent forever; the cap is
+// HandBackCount on the row, so a release that already has five recorded
+// hand-backs gets exactly one more before the watchdog stops.
 func TestSweepStopsRewakingAnAwaitingVerdictReleaseAfterSixTimes(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	past := f.clock.Now().Add(-11 * time.Minute)
+	created.HandBackCount = 5
+	created.LastHandBackAt = &past
+	created.UpdatedAt = f.clock.Now()
+	f.store.releases[created.ID] = created
+
+	f.svc.SweepOnce(context.Background())
+	require.Len(t, f.waker.calls, 1, "the sixth hand-back still fires")
+
+	f.clock.Advance(15 * time.Minute)
+	f.svc.SweepOnce(context.Background())
+	assert.Len(t, f.waker.calls, 1, "a release already re-woken six times must not be woken a seventh")
+}
+
+// N5: a release that has never been handed back through the sweeper's own
+// handBack (LastHandBackAt unset) is not something the watchdog invents a
+// first hand-back for — a release only reaches awaiting_verdict/failed
+// through a transition that already calls handBack itself.
+func TestSweepDoesNotRewakeAReleaseThatWasNeverHandedBack(t *testing.T) {
 	f := newSweepFixture()
 	repositoryID := uuid.New()
 	task := f.withTask(repositoryID)
@@ -399,10 +435,52 @@ func TestSweepStopsRewakingAnAwaitingVerdictReleaseAfterSixTimes(t *testing.T) {
 	}, []uuid.UUID{task.ID})
 	require.NoError(t, err)
 
-	for i := 0; i < 8; i++ {
-		f.svc.SweepOnce(context.Background())
-		f.clock.Advance(10 * time.Minute)
-	}
+	f.svc.SweepOnce(context.Background())
+	assert.Empty(t, f.waker.calls, "nothing was ever handed back for this release; the watchdog must not invent one")
+}
 
-	assert.Len(t, f.waker.calls, 6, "a release that keeps getting re-woken without settling stops after six times")
+// N5: once an agent has looked at the release (AgentSeenAt, stamped by
+// Service.ForAgent — every release tool call) since the last hand-back, the
+// watchdog leaves it alone: whatever is slow is the agent's own turn, not a
+// dropped dispatch.
+func TestSweepDoesNotRewakeWhenTheAgentHasSeenItSinceTheHandBack(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	past := f.clock.Now().Add(-30 * time.Minute)
+	seen := f.clock.Now().Add(-20 * time.Minute)
+	created.HandBackCount = 1
+	created.LastHandBackAt = &past
+	created.AgentSeenAt = &seen
+	created.UpdatedAt = f.clock.Now()
+	f.store.releases[created.ID] = created
+
+	f.svc.SweepOnce(context.Background())
+	assert.Empty(t, f.waker.calls, "an agent already looked at it after the hand-back; the watchdog must not re-wake it")
+}
+
+// N5: a release nothing has touched in more than a day is not something the
+// watchdog keeps pestering forever either — by then it is someone else's job
+// to notice, not the sweeper's.
+func TestSweepDoesNotRewakeAReleaseNotUpdatedInTheLastDay(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	past := f.clock.Now().Add(-30 * time.Minute)
+	stale := f.clock.Now().Add(-25 * time.Hour)
+	created.HandBackCount = 1
+	created.LastHandBackAt = &past
+	created.UpdatedAt = stale
+	f.store.releases[created.ID] = created
+
+	f.svc.SweepOnce(context.Background())
+	assert.Empty(t, f.waker.calls, "a release untouched for more than 24 hours must not be woken by the watchdog")
 }

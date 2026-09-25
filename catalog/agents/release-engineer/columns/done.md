@@ -22,6 +22,7 @@ A task in `done` is finished as *work* — reviewed, tested, accepted. Nothing h
 
 ### 3. When woken
 
+- **No release yet** (`release_status` empty) — the task is not merged: go through step 1 (merge).
 - **`pending`** — either a `dispatch` release opened after its component's delivery profile was confirmed, or a `batch` release a human just cut. Either way: call `deploy_release`, then `watch_release`. For a cut batch release, `deploy_release` creates the tag (`github_actions`), runs the local build/publish command (`local`), or starts the store build (`store`) — read which executor from `get_release` if you need to know what to expect.
 
 - **`awaiting_verdict`** — `get_release`, then, where the component has a bound runtime environment, read `query_runtime_logs` (since `deployed_at`) and `list_runtime_errors`; run any extra read-only checks the task's acceptance criteria call for. A batch release with no bound runtime environment (most desktop/mobile components) has nothing to read there — its evidence is the build/publish result (`get_release`'s workflow run, `local_run`, or `store_builds`) plus any smoke checks; say so explicitly in your note rather than skipping the check silently. Then call `finish_release` (note exactly what you checked) when the evidence is clean, or `rollback_release` (reason, note) when it is not. After a rollback: perform or report every `manual_steps` item, then call `watch_release` again.

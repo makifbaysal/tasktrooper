@@ -1113,6 +1113,45 @@ func (s *DispatcherSuite) TestReleasedDoesNotDispatch() {
 	s.Empty(s.runner.jobs)
 }
 
+// N7: dependents must wake on ANY move to released — Finish is not the only
+// door into it (openNone, a human dragging the card) — so the hook fires
+// even though released is a dispatch-suspended column that starts no agent
+// run of its own (see TestReleasedDoesNotDispatch).
+func (s *DispatcherSuite) TestTaskReleasedHookFiresOnAnyMoveToReleased() {
+	repositoryID := uuid.New()
+	var got []domain.BoardTask
+	s.disp.SetTaskReleasedHook(func(_ context.Context, task domain.BoardTask) {
+		got = append(got, task)
+	})
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnReleased, TaskType: "task"}
+
+	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+		RepositoryID: repositoryID,
+		Task:         task,
+		EventType:    domain.BoardEventTaskMoved,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(got, 1, "any move that lands the task in released must fire the hook")
+	s.Equal(task.ID, got[0].ID)
+}
+
+func (s *DispatcherSuite) TestTaskReleasedHookDoesNotFireForOtherColumns() {
+	repositoryID := uuid.New()
+	fired := false
+	s.disp.SetTaskReleasedHook(func(context.Context, domain.BoardTask) { fired = true })
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnDone, TaskType: "task"}
+
+	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+		RepositoryID: repositoryID,
+		Task:         task,
+		EventType:    domain.BoardEventTaskMoved,
+	})
+
+	s.Require().NoError(err)
+	s.False(fired, "the hook is only for a move that lands in released")
+}
+
 func (s *DispatcherSuite) TestCommentInQAReachesQANotAssignee() {
 	assignee := uuid.New()
 	agentQA := uuid.New()
