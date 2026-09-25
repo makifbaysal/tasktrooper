@@ -161,46 +161,47 @@ func inReleaseCommits(deploymentSHA string, releaseSHAs []string) bool {
 	return false
 }
 
-// sweepRollingBackProvider watches a provider-mechanism rollback: production
-// is safe as soon as the provider serves ProviderDeploymentID again; an
-// on_merge release then also has to wait for the revert push's own
-// deployment and promote it, or automatic production assignment stays off.
+// sweepRollingBackProvider watches a provider-mechanism rollback. RollbackTo
+// having returned success (recorded when Mechanism was set to
+// RollbackMechanismProvider) IS the confirmation that production is
+// restored — Vercel has no reliable read of "which deployment production
+// serves right now" (readySubstate=PROMOTED only means "has ever taken
+// production traffic", a history flag), so nothing here re-checks it.
+// Dispatch has nothing left to wait for: no redeploy of the previous good
+// release was made (Rollback skipped it once the provider succeeded). An
+// on_merge release still has to get the revert's own deployment live and
+// promoted, or automatic production assignment stays off.
 func (s *Service) sweepRollingBackProvider(ctx context.Context, r domain.Release) {
-	now := s.now()
-	elapsed := now.Sub(r.Rollback.StartedAt)
-
-	env, ok := s.prodEnvironment(ctx, r.RepositoryID, r.ComponentID)
-	if !ok || s.environments == nil {
-		log.Warn().Str("release_id", r.ID.String()).Msg("release sweeper: the bound production environment for a provider rollback is gone")
-		if elapsed > rollbackTimeout {
-			s.failRollback(ctx, r, "the bound production environment could not be resolved to verify the provider rollback")
-		}
-		return
-	}
-
-	current, err := s.environments.CurrentDeployment(ctx, env.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: reading the provider's current deployment failed")
-		if elapsed > rollbackTimeout {
-			s.failRollback(ctx, r, "checking the provider's current deployment failed: "+err.Error())
-		}
-		return
-	}
-	if current.ID != r.Rollback.ProviderDeploymentID {
-		if elapsed > rollbackTimeout {
-			s.failRollback(ctx, r, "the provider rollback did not take effect within 30 minutes — production may still run the bad release")
-		}
-		return
-	}
-
 	if r.Mode != domain.DeliveryOnMerge {
-		// dispatch: the provider already serves the earlier deployment; no
-		// redeploy of the previous good release was made (Rollback skipped
-		// it), so there is nothing left to wait for.
 		s.finishRollback(ctx, r)
 		return
 	}
+
+	elapsed := s.now().Sub(r.Rollback.StartedAt)
+	env, ok := s.prodEnvironment(ctx, r.RepositoryID, r.ComponentID)
+	if !ok {
+		log.Warn().Str("release_id", r.ID.String()).Msg("release sweeper: the bound production environment for a provider rollback is gone")
+		if elapsed > rollbackTimeout {
+			s.failRollbackSafe(ctx, r, "production is SAFE on the earlier deployment, but the bound production environment could not be resolved to promote the revert")
+		}
+		return
+	}
 	s.sweepRollingBackPromote(ctx, r, env.ID, elapsed)
+}
+
+// failRollbackSafe fails a rollback whose provider mechanism already
+// confirmed production restored — unlike failRollback, the message must
+// never say production "may still run the bad release": that provider
+// success is exactly what makes it not true here.
+func (s *Service) failRollbackSafe(ctx context.Context, r domain.Release, reason string) {
+	r.Status = domain.ReleaseFailed
+	r.FailureReason = reason
+	updated, err := s.store.Update(ctx, r, domain.ReleaseRollingBack)
+	if err != nil {
+		s.logSweepUpdate(err, r.ID)
+		return
+	}
+	s.handBack(ctx, updated)
 }
 
 // sweepRollingBackPromote waits for the revert commit's own deployment to go
@@ -212,28 +213,22 @@ func (s *Service) sweepRollingBackPromote(ctx context.Context, r domain.Release,
 	if err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: reading deployments to find the revert commit's deployment failed")
 		if elapsed > rollbackTimeout {
-			s.failRollback(ctx, r, "reading deployments to find the revert commit's deployment failed: "+err.Error())
+			s.failRollbackSafe(ctx, r, "production is SAFE on the earlier deployment, but reading deployments to find the revert failed: "+err.Error())
 		}
 		return
 	}
 	revertDeployment, ok := matchVercelDeployment(deployments, r.Rollback.RestoredRef)
 	if !ok || revertDeployment.Status != domain.CloudDeployReady {
 		if elapsed > rollbackTimeout {
-			s.failRollback(ctx, r, "the revert commit's deployment did not become ready within 30 minutes to promote")
+			s.failRollbackSafe(ctx, r, "production is SAFE on the earlier deployment, but the revert has not deployed — "+
+				"automatic production assignment stays off until a deployment is promoted in the provider's console")
 		}
 		return
 	}
 
 	if err := s.environments.PromoteDeployment(ctx, envID, revertDeployment.ID); err != nil {
-		r.Status = domain.ReleaseFailed
-		r.FailureReason = "production is SAFE (still on the earlier deployment) but automatic production assignment is off " +
-			"until someone promotes a deployment in the provider's console: " + err.Error()
-		updated, uerr := s.store.Update(ctx, r, domain.ReleaseRollingBack)
-		if uerr != nil {
-			s.logSweepUpdate(uerr, r.ID)
-			return
-		}
-		s.handBack(ctx, updated)
+		s.failRollbackSafe(ctx, r, "production is SAFE (still on the earlier deployment) but automatic production assignment is off "+
+			"until someone promotes a deployment in the provider's console: "+err.Error())
 		return
 	}
 

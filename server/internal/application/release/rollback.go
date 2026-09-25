@@ -165,6 +165,28 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		provider = s.attemptProviderRollback(ctx, r)
 	}
 
+	// A successful provider rollback already moved production — persisted
+	// right away, before the revert risks the process dying with that fact
+	// nowhere but memory, which would otherwise strand "production is
+	// already safe" nowhere durable. A retry's provider outcome was already
+	// persisted by the attempt it came from.
+	if !retry && provider.success {
+		rollback.Mechanism = domain.RollbackMechanismProvider
+		rollback.ProviderDeploymentID = provider.targetID
+		if provider.detail != "" {
+			rollback.Detail = provider.detail
+		}
+		progressAt := s.now()
+		rollback.ProgressAt = &progressAt
+		r.Rollback = rollback
+		persisted, perr := s.store.Update(ctx, r, domain.ReleaseRollingBack)
+		if perr != nil {
+			return domain.Release{}, perr
+		}
+		r = persisted
+		rollback = r.Rollback
+	}
+
 	var revertSHA string
 	if retry {
 		revertSHA = rollback.RevertSHA
@@ -180,6 +202,18 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		}
 		revertSHA = sha
 		rollback.RevertSHA = revertSHA
+		// Persisted immediately, before any redeploy/promote step below, so a
+		// crash after the push lands does not make a retry re-revert commits
+		// no longer on top of the default branch.
+		progressAt := s.now()
+		rollback.ProgressAt = &progressAt
+		r.Rollback = rollback
+		persisted, perr := s.store.Update(ctx, r, domain.ReleaseRollingBack)
+		if perr != nil {
+			return domain.Release{}, perr
+		}
+		r = persisted
+		rollback = r.Rollback
 	}
 	if provider.detail != "" {
 		rollback.Detail = provider.detail
@@ -453,11 +487,24 @@ func rollbackReopenComment(r domain.Release) string {
 }
 
 // rollbackClaimGrace is how long a rolling_back release may sit with
-// Rollback.RestoredRef still empty before the sweeper gives up on it.
-// Rollback claims rolling_back BEFORE any side effect runs, so RestoredRef is
-// legitimately empty for the moment the revert/dispatch takes; past this
-// window it means the process died in between and nothing will ever fill it.
-const rollbackClaimGrace = 5 * time.Minute
+// Rollback.RestoredRef still empty before the sweeper gives up on it, judged
+// from ProgressAt (falling back to StartedAt when no side effect has landed
+// yet) — a provider leg that already reported progress must not be judged
+// abandoned by how long ago the claim itself started. Rollback claims
+// rolling_back BEFORE any side effect runs, so RestoredRef is legitimately
+// empty for the moment the revert/dispatch takes; past this window with no
+// progress at all it means the process died in between and nothing will ever
+// fill it.
+const rollbackClaimGrace = 15 * time.Minute
+
+// rollbackProgressBasis is when the rollback last provably did something:
+// ProgressAt once a side effect has landed, else StartedAt.
+func rollbackProgressBasis(rb *domain.ReleaseRollback) time.Time {
+	if rb.ProgressAt != nil {
+		return *rb.ProgressAt
+	}
+	return rb.StartedAt
+}
 
 // sweepRollingBack watches the rollback's deploy (Rollback.RestoredRef is
 // already a commit sha, never a tag).
@@ -467,7 +514,7 @@ func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 		return
 	}
 	if strings.TrimSpace(r.Rollback.RestoredRef) == "" {
-		if s.now().Sub(r.Rollback.StartedAt) < rollbackClaimGrace {
+		if s.now().Sub(rollbackProgressBasis(r.Rollback)) < rollbackClaimGrace {
 			return
 		}
 		s.failRollback(ctx, r, "the rollback did not complete — the server may have restarted mid-way")
@@ -480,6 +527,12 @@ func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 	status, err := s.statusForRestoredRef(ctx, r)
 	if err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: resolving the rollback deploy status failed")
+		// A status-lookup error must not stall a rolling_back release
+		// forever — the 30-minute timeout still applies, judged the same way
+		// a resolved-but-unsettled status would be.
+		if s.now().Sub(rollbackProgressBasis(r.Rollback)) > rollbackTimeout {
+			s.failRollback(ctx, r, "the rollback deploy status could not be checked: "+err.Error())
+		}
 		return
 	}
 
@@ -506,17 +559,24 @@ func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 	}
 }
 
-// statusForRestoredRef watches the rollback's OWN redeploy run, keyed by
-// since = Rollback.StartedAt: RestoredRef is frequently the same sha or
-// tag an earlier attempt (the release itself, or a prior failed rollback try)
-// already deployed, so a plain by-sha watch would read that OTHER run's
-// (already green) conclusion as if it were this rollback's — the release
-// would show rolled_back while production still served the bad release.
+// statusForRestoredRef watches the rollback's own redeploy. The workflow
+// mechanism redeploys the previous release's OWN sha/tag, which an earlier
+// run (that release's original deploy, or a prior failed rollback attempt)
+// may already have built green — StatusForCommitSince, keyed by since =
+// Rollback.StartedAt, is what keeps that stale run from being read as this
+// rollback's. The revert mechanism watches a brand-new commit no earlier run
+// has ever touched, so it uses the plain StatusForCommit instead — Since is
+// narrowed to Actions runs only, and the plain call's commit-status/
+// deployment fallbacks are what make a push-to-deploy provider (no Actions
+// run at all) observable here.
 func (s *Service) statusForRestoredRef(ctx context.Context, r domain.Release) (domain.DeployWatchStatus, error) {
 	if s.deployStatus == nil {
 		return domain.DeployWatchStatus{State: domain.DeployWatchUnknown}, nil
 	}
-	return s.deployStatus.StatusForCommitSince(ctx, r.RepositoryID, r.Rollback.RestoredRef, r.Profile.Workflow, r.Rollback.StartedAt)
+	if r.Rollback.Mechanism == domain.RollbackMechanismWorkflow {
+		return s.deployStatus.StatusForCommitSince(ctx, r.RepositoryID, r.Rollback.RestoredRef, r.Profile.Workflow, r.Rollback.StartedAt)
+	}
+	return s.deployStatus.StatusForCommit(ctx, r.RepositoryID, r.Rollback.RestoredRef, r.Profile.Workflow)
 }
 
 func (s *Service) finishRollback(ctx context.Context, r domain.Release) {

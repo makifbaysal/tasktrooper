@@ -439,6 +439,10 @@ type fakeEnvironments struct {
 
 	rollbackCalls []envDeploymentCall
 	promoteCalls  []envDeploymentCall
+	// currentCalls records every CurrentDeployment call — used to prove a
+	// provider-rollback verdict never reads it (H2: RollbackTo succeeding is
+	// the only confirmation used).
+	currentCalls []uuid.UUID
 }
 
 type envDeploymentCall struct {
@@ -479,6 +483,9 @@ func (f *fakeEnvironments) CanRollback(_ context.Context, envID uuid.UUID) bool 
 }
 
 func (f *fakeEnvironments) CurrentDeployment(_ context.Context, envID uuid.UUID) (domain.CloudDeployment, error) {
+	f.mu.Lock()
+	f.currentCalls = append(f.currentCalls, envID)
+	f.mu.Unlock()
 	if err := f.currentErr[envID]; err != nil {
 		return domain.CloudDeployment{}, err
 	}
@@ -541,6 +548,10 @@ type fakeActions struct {
 	tagCalls       []string
 	dispatchCalls  []string
 	commitStatuses map[string]port.CommitDeploySignal
+	// beforeDispatch, when set, runs at the top of DispatchWorkflow — lets a
+	// test observe what was persisted to the store before the redeploy it
+	// triggers actually goes out.
+	beforeDispatch func()
 }
 
 func newFakeActions() *fakeActions { return &fakeActions{} }
@@ -550,6 +561,9 @@ func (f *fakeActions) ListWorkflowRuns(context.Context, string, string, string, 
 }
 
 func (f *fakeActions) DispatchWorkflow(_ context.Context, _, _, workflowFile, ref string) error {
+	if f.beforeDispatch != nil {
+		f.beforeDispatch()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.dispatchCalls = append(f.dispatchCalls, workflowFile+"@"+ref)
