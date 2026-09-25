@@ -2,6 +2,7 @@ package release
 
 import (
 	"fmt"
+	"strings"
 
 	"context"
 
@@ -68,14 +69,45 @@ func (s *Service) deployDispatch(ctx context.Context, r domain.Release, actor do
 
 	_, ciUnavailable, dispatchErr := s.createAndDispatch(ctx, repo, claimed.Profile.Workflow, claimed.CommitSHA)
 	if dispatchErr != nil {
-		reason := dispatchErr.Error()
-		if ciUnavailable {
-			reason = "the deploy dispatch was refused: " + reason
+		if definitiveDispatchRefusal(dispatchErr, ciUnavailable) {
+			return s.failClaimed(ctx, claimed, fmt.Sprintf(
+				"the deploy dispatch was refused: %s — nothing was deployed, so no rollback is needed", dispatchErr))
 		}
-		return s.failClaimed(ctx, claimed, reason)
+		return s.retryClaim(ctx, claimed, domain.ReleaseDeploying, fmt.Sprintf(
+			"starting the deploy failed: %s — nothing was deployed; retry the deploy once the problem clears", dispatchErr))
 	}
 	_ = actor
 	return claimed, nil
+}
+
+// definitiveDispatchRefusal reports a dispatch failure retrying will never
+// fix: CI itself refused it (billing, disabled Actions) or GitHub answered
+// 404/422 (the workflow file or its dispatch trigger is wrong, not a
+// transient hiccup). Anything else — a network error, a 5xx — never actually
+// shipped anything, so the release goes back to pending instead of failed.
+func definitiveDispatchRefusal(err error, ciUnavailable bool) bool {
+	if ciUnavailable {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "github api: 404") || strings.Contains(msg, "github api: 422")
+}
+
+// retryClaim undoes a claim that started nothing at all (a non-definitive
+// dispatch failure, a local Start error, or a store release where every
+// platform failed to start): the release goes back to pending — clearing the
+// side-effect state the claim recorded — so deploy_release (the Deploy
+// button) can retry, rather than being stuck failed over something transient
+// that never actually shipped.
+func (s *Service) retryClaim(ctx context.Context, r domain.Release, expect domain.ReleaseStatus, reason string) (domain.Release, error) {
+	r.Status = domain.ReleasePending
+	r.DeployStartedAt = nil
+	r.LocalRun = nil
+	r.StoreBuilds = nil
+	if _, err := s.store.Update(ctx, r, expect); err != nil {
+		return domain.Release{}, err
+	}
+	return domain.Release{}, fmt.Errorf("%s", reason)
 }
 
 // deployBatchGitHubActions tags the cut commit and stops: the repository's own

@@ -14,6 +14,12 @@ import (
 const (
 	storeReleaseActor = "release engineer"
 	storeBuildTimeout = 120 * time.Minute
+	// storeBuildsNeverStartedTimeout bounds how long a deploying release may
+	// carry an empty StoreBuilds: the claim always records one placeholder per
+	// linked platform before any network call (see deployBatchStore), so an
+	// empty slice this long after DeployStartedAt means the claim's own
+	// StoreBuilds update never landed — not that every platform is done.
+	storeBuildsNeverStartedTimeout = 10 * time.Minute
 	// baselineBuildUnknown marks a ReleaseStoreBuild whose pre-release Tracks
 	// read failed: distinct from "" (a confirmed baseline of no prior internal
 	// build), so the sweeper never mistakes "we never actually checked" for
@@ -22,12 +28,13 @@ const (
 )
 
 // deployBatchStore claims the release (pending -> deploying, DeployStartedAt)
-// BEFORE starting any platform's build, then starts a release build on every
-// platform the repository has a linked, identified store app for. A platform
-// whose start fails keeps its error on the record rather than aborting the
-// others; only when every platform failed does the whole release fail
-// (recorded via failClaimed, expect=deploying, since the claim already
-// landed).
+// with one placeholder ReleaseStoreBuild per linked platform BEFORE any
+// network call — so the sweeper never reads "deploying with no StoreBuilds
+// yet" as done — then starts a release build on every platform the
+// repository has a linked, identified store app for. A platform whose start
+// fails keeps its error on the record rather than aborting the others; only
+// when NOTHING started (every platform failed) does the claim revert to
+// pending via retryClaim, since nothing was actually deployed.
 func (s *Service) deployBatchStore(ctx context.Context, r domain.Release) (domain.Release, error) {
 	if s.storeOps == nil {
 		return domain.Release{}, fmt.Errorf("no store release integration is configured on this deployment")
@@ -46,9 +53,15 @@ func (s *Service) deployBatchStore(ctx context.Context, r domain.Release) (domai
 		return domain.Release{}, fmt.Errorf("this repository has no linked store app to release")
 	}
 
+	placeholders := make([]domain.ReleaseStoreBuild, len(identified))
+	for i, app := range identified {
+		placeholders[i] = domain.ReleaseStoreBuild{Platform: app.Platform, BaselineBuild: baselineBuildUnknown}
+	}
+
 	now := s.now()
 	r.Status = domain.ReleaseDeploying
 	r.DeployStartedAt = &now
+	r.StoreBuilds = placeholders
 	claimed, err := s.store.Update(ctx, r, domain.ReleasePending)
 	if err != nil {
 		return domain.Release{}, err
@@ -78,7 +91,7 @@ func (s *Service) deployBatchStore(ctx context.Context, r domain.Release) (domai
 	claimed.StoreBuilds = builds
 	if !anyStarted {
 		reason := "starting the store build failed for every platform: " + storeBuildErrorsSummary(builds)
-		return s.failClaimed(ctx, claimed, reason)
+		return s.retryClaim(ctx, claimed, domain.ReleaseDeploying, reason)
 	}
 
 	updated, err := s.store.Update(ctx, claimed, domain.ReleaseDeploying)
@@ -112,6 +125,12 @@ func (s *Service) sweepDeployingStore(ctx context.Context, r domain.Release) {
 		return
 	}
 	now := s.now()
+	if len(r.StoreBuilds) == 0 {
+		if r.DeployStartedAt != nil && now.Sub(*r.DeployStartedAt) > storeBuildsNeverStartedTimeout {
+			s.failDeploying(ctx, r, "the store builds never started")
+		}
+		return
+	}
 	allDone := true
 	changed := false
 	var waiting []string

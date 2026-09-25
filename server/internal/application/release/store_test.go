@@ -96,7 +96,7 @@ func TestDeployBatchStorePartialStartFailureKeepsGoingDeploying(t *testing.T) {
 	assert.Empty(t, iosBuild.Error)
 }
 
-func TestDeployBatchStoreFailsWhenEveryPlatformFailsToStart(t *testing.T) {
+func TestDeployBatchStoreReturnsToPendingWhenEveryPlatformFailsToStart(t *testing.T) {
 	f := newStoreFixture()
 	repositoryID := f.repos.repo.ID
 	f.storeOps.apps[repositoryID] = []domain.MobileStoreApp{
@@ -110,11 +110,58 @@ func TestDeployBatchStoreFailsWhenEveryPlatformFailsToStart(t *testing.T) {
 	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
 	require.NoError(t, err)
 
-	updated, err := f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
-	require.NoError(t, err, "a store start failure is recorded on the release, not returned as an error")
-	assert.Equal(t, domain.ReleaseFailed, updated.Status)
-	assert.NotEmpty(t, updated.FailureReason)
-	assert.Len(t, f.waker.calls, 1)
+	_, err = f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.Error(t, err, "nothing started on any platform — deploy_release must be retryable, not stuck failed")
+	assert.Empty(t, f.waker.calls, "nothing was deployed — there is no card to hand back")
+
+	after, gerr := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, gerr)
+	assert.Equal(t, domain.ReleasePending, after.Status)
+	assert.Nil(t, after.DeployStartedAt)
+	assert.Nil(t, after.StoreBuilds, "no build ever started, so StoreBuilds must not linger on the reverted claim")
+}
+
+// TestDeployBatchStoreRecordsPlaceholdersBeforeAnyNetworkCall is N1: the
+// claim (pending -> deploying) must carry one placeholder ReleaseStoreBuild
+// per linked platform BEFORE Tracks/StartBuild ever runs — a Tracks call that
+// fails on every platform must never leave the release's persisted
+// StoreBuilds empty, which the sweeper would otherwise read as "nothing to
+// wait on, all done".
+func TestDeployBatchStoreRecordsPlaceholdersBeforeAnyNetworkCall(t *testing.T) {
+	f := newStoreFixture()
+	repositoryID := f.repos.repo.ID
+	f.storeOps.apps[repositoryID] = []domain.MobileStoreApp{
+		{Platform: "ios", Identifier: "com.acme.app"},
+		{Platform: "android", Identifier: "com.acme.app"},
+	}
+	f.storeOps.tracksErr["ios"] = errors.New("timeout reading tracks")
+	f.storeOps.tracksErr["android"] = errors.New("timeout reading tracks")
+
+	r := pendingBatchRelease(repositoryID, domain.ExecutorStore)
+	created, err := f.store.Create(context.Background(), r, nil)
+	require.NoError(t, err)
+
+	checkedClaim := false
+	f.store.beforeUpdate = func(candidate domain.Release) {
+		if checkedClaim || candidate.ID != created.ID || candidate.Status != domain.ReleaseDeploying {
+			return
+		}
+		checkedClaim = true
+		if len(f.storeOps.tracksCalls) != 0 || len(f.storeOps.startCalls) != 0 {
+			t.Fatalf("a network call happened before the claim (with its placeholders) was persisted")
+		}
+		if len(candidate.StoreBuilds) != 2 {
+			t.Fatalf("claim StoreBuilds = %d entries, want 2 placeholders before any network call", len(candidate.StoreBuilds))
+		}
+		for _, b := range candidate.StoreBuilds {
+			if b.BaselineBuild != baselineBuildUnknown {
+				t.Fatalf("placeholder baseline = %q, want %q (engine unknown yet)", b.BaselineBuild, baselineBuildUnknown)
+			}
+		}
+	}
+
+	_, err = f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.NoError(t, err)
 }
 
 func TestDeployBatchStoreMarksBaselineUnknownWhenTheInitialTracksReadFails(t *testing.T) {
@@ -213,6 +260,41 @@ func TestSweepDeployingStoreWaitsWhenABuildHasNotChanged(t *testing.T) {
 	after, err := f.store.Get(context.Background(), created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, domain.ReleaseDeploying, after.Status)
+}
+
+// TestSweepDeployingStoreNeverTreatsAnEmptyStoreBuildsAsAllDone guards the
+// other half of N1: even if a release somehow reaches deploying with no
+// StoreBuilds recorded (stale data predating the claim-records-placeholders
+// fix, or a dropped write), the sweeper must wait/fail it rather than read
+// "nothing to check" as "everything finished".
+func TestSweepDeployingStoreNeverTreatsAnEmptyStoreBuildsAsAllDone(t *testing.T) {
+	f := newStoreFixture()
+	repositoryID := f.repos.repo.ID
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnDone}
+	f.tasks.tasks[task.ID] = task
+	r := pendingBatchRelease(repositoryID, domain.ExecutorStore)
+	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	created.StoreBuilds = nil
+	created.Status = domain.ReleaseDeploying
+	started := f.clock.Now()
+	created.DeployStartedAt = &started
+	f.store.releases[created.ID] = created
+
+	f.svc.SweepOnce(context.Background())
+
+	stillWaiting, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseDeploying, stillWaiting.Status, "an empty StoreBuilds must be waited on, never read as done")
+
+	f.clock.Advance(11 * time.Minute)
+	f.svc.SweepOnce(context.Background())
+
+	after, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseFailed, after.Status)
+	assert.Contains(t, after.FailureReason, "never started")
+	assert.Len(t, f.waker.calls, 1)
 }
 
 func TestSweepDeployingStoreFailsAfter120Minutes(t *testing.T) {

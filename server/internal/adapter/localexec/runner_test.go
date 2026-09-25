@@ -2,6 +2,7 @@ package localexec
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -214,7 +215,7 @@ func TestRunnerCloseKillsRunningProcessesAndRemovesTheirWorktrees(t *testing.T) 
 	closeDone := make(chan struct{})
 	start := time.Now()
 	go func() {
-		if err := r.Close(); err != nil {
+		if err := r.Close(context.Background()); err != nil {
 			t.Errorf("Close: %v", err)
 		}
 		close(closeDone)
@@ -231,8 +232,8 @@ func TestRunnerCloseKillsRunningProcessesAndRemovesTheirWorktrees(t *testing.T) 
 
 	select {
 	case res := <-ch:
-		if res.err == nil {
-			t.Fatalf("expected the killed run to report an error, exit code %d", res.exitCode)
+		if !errors.Is(res.err, ErrInterrupted) {
+			t.Fatalf("done err = %v, want it to wrap ErrInterrupted (a Close must be reported distinctly from a timeout)", res.err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("done was never called for the run Close killed")
@@ -249,7 +250,7 @@ func TestRunnerCloseKillsRunningProcessesAndRemovesTheirWorktrees(t *testing.T) 
 func TestRunnerStartAfterCloseIsRefused(t *testing.T) {
 	root, headSHA := newRepoFixture(t)
 	r := NewRunner()
-	if err := r.Close(); err != nil {
+	if err := r.Close(context.Background()); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
@@ -258,6 +259,89 @@ func TestRunnerStartAfterCloseIsRefused(t *testing.T) {
 	}, func(int, string, error) {})
 	if err == nil {
 		t.Fatal("expected Start after Close to be refused")
+	}
+}
+
+// TestRunnerCloseStopsWaitingOnceItsContextIsDone guards N8's Close(ctx)
+// bound: a run whose goroutine never clears itself from the active set (a
+// worktree removal wedged on a locked file, a process that ignores SIGKILL on
+// some platform) must not hang shutdown forever — Close gives up once ctx is
+// done and reports that, rather than blocking until every run finishes.
+func TestRunnerCloseStopsWaitingOnceItsContextIsDone(t *testing.T) {
+	r := NewRunner()
+	stuck := &run{cancel: func() {}}
+	r.mu.Lock()
+	r.active[stuck] = struct{}{}
+	r.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := r.Close(ctx)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close err = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("Close took %s, want it to return once its context is done rather than waiting forever", elapsed)
+	}
+}
+
+// TestRunnerRegistersTheRunBeforeTheSlowWorktreeAddSoCloseCannotMissIt is
+// N8: before the fix, Start only added the run to the active set after
+// cmd.Start() succeeded — well after the (potentially slow) worktree add. A
+// Close racing a Start still inside that add would see an empty active set
+// and return immediately, believing shutdown had nothing left to stop, while
+// the Start kept going and its process (and worktree) outlived the shutdown
+// that thought it was done. Registration must happen under the same lock as
+// the closed-check, before the worktree add even begins.
+func TestRunnerRegistersTheRunBeforeTheSlowWorktreeAddSoCloseCannotMissIt(t *testing.T) {
+	root, headSHA := newRepoFixture(t)
+	logPath := filepath.Join(t.TempDir(), "release.log")
+
+	entered := make(chan struct{})
+	proceed := make(chan struct{})
+	original := addDetachedWorktree
+	addDetachedWorktree = func(ctx context.Context, rootPath, sha string) (string, func(), error) {
+		close(entered)
+		<-proceed
+		return original(ctx, rootPath, sha)
+	}
+	defer func() { addDetachedWorktree = original }()
+
+	r := NewRunner()
+	ch, done := waitForRun(t)
+	startErrCh := make(chan error, 1)
+	go func() {
+		startErrCh <- r.Start(context.Background(), release.LocalRunSpec{
+			RootPath: root, CommitSHA: headSHA, Argv: []string{"true"}, LogPath: logPath, Timeout: 30 * time.Second,
+		}, done)
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start never reached the worktree add")
+	}
+
+	r.mu.Lock()
+	active := len(r.active)
+	r.mu.Unlock()
+	if active != 1 {
+		t.Fatalf("active runs while still inside the worktree add = %d, want 1 — the run must be registered before the slow step, or Close can miss it entirely", active)
+	}
+
+	close(proceed)
+	if err := <-startErrCh; err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal("done was never called")
 	}
 }
 

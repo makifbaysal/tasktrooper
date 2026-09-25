@@ -145,7 +145,7 @@ func TestDeploySecondConcurrentCallIsRefusedAfterTheFirstClaims(t *testing.T) {
 	assert.Len(t, f.actions.dispatchCalls, 1, "the second call must never dispatch the workflow again")
 }
 
-func TestDeployPersistsTheClaimBeforeDispatchingSoAGenericFailureIsRecordedNotStuckPending(t *testing.T) {
+func TestDeployReturnsToPendingWhenNothingWasActuallyDispatched(t *testing.T) {
 	f := newDeployFixture()
 	f.actions.dispatchErr = errors.New("500 internal error")
 	repositoryID := uuid.New()
@@ -154,9 +154,28 @@ func TestDeployPersistsTheClaimBeforeDispatchingSoAGenericFailureIsRecordedNotSt
 	created, err := f.store.Create(context.Background(), pendingDispatchRelease(repositoryID), []uuid.UUID{task.ID})
 	require.NoError(t, err)
 
+	_, err = f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.Error(t, err, "a non-definitive dispatch failure (a 5xx, a network error) must be returned so deploy_release can retry")
+	assert.Empty(t, f.waker.calls, "nothing was deployed — there is no card to hand back")
+
+	after, gerr := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, gerr)
+	assert.Equal(t, domain.ReleasePending, after.Status, "the claim must revert to pending, not get stuck failed, when nothing actually deployed")
+	assert.Nil(t, after.DeployStartedAt, "DeployStartedAt must be cleared so the release reads as never having tried")
+}
+
+func TestDeployFailsOnA404WorkflowNotDispatchableEvenWithoutTheCIUnavailableClassifier(t *testing.T) {
+	f := newDeployFixture()
+	f.actions.dispatchErr = errors.New("github api: 404 Not Found")
+	repositoryID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnDone}
+	f.tasks.tasks[task.ID] = task
+	created, err := f.store.Create(context.Background(), pendingDispatchRelease(repositoryID), []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
 	updated, err := f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
-	require.NoError(t, err, "a dispatch failure is reported on the release, not returned as an API error")
+	require.NoError(t, err, "a definitive refusal is reported on the release, not returned as an API error")
 	assert.Equal(t, domain.ReleaseFailed, updated.Status)
-	require.NotNil(t, updated.DeployStartedAt, "the claim must be persisted even though the dispatch itself failed")
+	assert.Contains(t, updated.FailureReason, "no rollback is needed")
 	assert.Len(t, f.waker.calls, 1, "a failed deploy must hand the card back")
 }

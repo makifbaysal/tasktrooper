@@ -143,17 +143,33 @@ func (s *Service) deployBatchLocal(ctx context.Context, r domain.Release) (domai
 	if err := s.localRunner.Start(ctx, spec, func(exitCode int, tail string, runErr error) {
 		s.CompleteLocalRun(context.Background(), releaseID, exitCode, tail, runErr)
 	}); err != nil {
-		return s.failClaimed(ctx, claimed, fmt.Sprintf("starting the local release run: %s", err))
+		return s.retryClaim(ctx, claimed, domain.ReleaseDeploying, fmt.Sprintf(
+			"starting the local release run failed: %s — nothing ran; retry the deploy", err))
 	}
 
 	return claimed, nil
 }
 
+// localRunInterruptedMarker matches localexec.ErrInterrupted's message by
+// text, not errors.Is: application must not import the adapter package that
+// defines it. CompleteLocalRun runs synchronously off Close's own
+// cancellation during server shutdown, when the sweeper's loop may already be
+// stopping, so an interrupted run must resolve to failed here and now — a
+// release left at deploying, waiting for a sweep tick that may never come
+// before the process exits, would be stranded.
+const localRunInterruptedMarker = "localexec: interrupted"
+
+func localRunInterrupted(runErr error) bool {
+	return runErr != nil && strings.Contains(runErr.Error(), localRunInterruptedMarker)
+}
+
 // CompleteLocalRun is the LocalRunner's callback: it records the run's
-// outcome and a synthesized Deploy status but leaves Status at deploying (a
-// plain optimistic Update expecting deploying) — the sweeper is what reads
-// LocalRun.FinishedAt/Deploy and advances the release, the same way it reads
-// an Actions run's conclusion for github_actions.
+// outcome and, for an ordinary finish, a synthesized Deploy status while
+// leaving Status at deploying (a plain optimistic Update expecting deploying)
+// — the sweeper is what reads LocalRun.FinishedAt/Deploy and advances the
+// release from there, the same way it reads an Actions run's conclusion for
+// github_actions. An interruption (see localRunInterrupted) skips that
+// hand-off and fails the release immediately instead.
 func (s *Service) CompleteLocalRun(ctx context.Context, releaseID uuid.UUID, exitCode int, tail string, runErr error) {
 	r, err := s.store.Get(ctx, releaseID)
 	if err != nil {
@@ -172,6 +188,18 @@ func (s *Service) CompleteLocalRun(ctx context.Context, releaseID uuid.UUID, exi
 	r.LocalRun.Tail = tail
 	if runErr != nil {
 		r.LocalRun.Error = runErr.Error()
+	}
+
+	if localRunInterrupted(runErr) {
+		r.Status = domain.ReleaseFailed
+		r.FailureReason = "interrupted when TaskTrooper quit — check what was published before deploying again; nothing needs rolling back unless a broken build went out"
+		updated, uerr := s.store.Update(ctx, r, domain.ReleaseDeploying)
+		if uerr != nil {
+			s.logSweepUpdate(uerr, r.ID)
+			return
+		}
+		s.handBack(ctx, updated)
+		return
 	}
 
 	status := domain.DeployWatchStatus{

@@ -31,8 +31,10 @@ function recuttable(r: Release): boolean {
 /** One component's last 20 releases, newest first. Polls while any of them
  * is still moving (Watched()-like, or waiting on a verdict) so a merge does
  * not require a manual refresh to see settle. A batch component's draft
- * release (if any), or a pending one still eligible for a re-cut, is pinned
- * first with a Cut/Re-cut release action. */
+ * release (if any) AND a pending one still eligible for a re-cut (if any) are
+ * both pinned first, each with its own Cut/Re-cut action — they are
+ * independent: a re-cuttable release that never deployed does not stop a new
+ * draft from collecting the tasks merged since. */
 export function ReleasesCard({ repositoryId, repositoryName, component, className }: ReleasesCardProps) {
   const { t } = useI18n();
   const [releases, setReleases] = useState<Release[] | null>(null);
@@ -64,10 +66,11 @@ export function ReleasesCard({ repositoryId, repositoryName, component, classNam
   }, [releases, load]);
 
   const draft = isBatch ? releases?.find((r) => r.status === "draft") ?? null : null;
-  const recut = !draft && isBatch ? releases?.find((r) => r.mode === "batch" && recuttable(r)) ?? null : null;
-  const pinned = draft ?? recut;
-  const history = releases?.filter((r) => r.id !== pinned?.id) ?? [];
-  const empty = releases !== null && !pinned && history.length === 0;
+  const recut = isBatch ? releases?.find((r) => r.mode === "batch" && recuttable(r)) ?? null : null;
+  const pinned = [draft, recut].filter((r): r is Release => r !== null);
+  const pinnedIds = new Set(pinned.map((r) => r.id));
+  const history = releases?.filter((r) => !pinnedIds.has(r.id)) ?? [];
+  const empty = releases !== null && pinned.length === 0 && history.length === 0;
 
   return (
     <Card className={className}>
@@ -83,23 +86,23 @@ export function ReleasesCard({ repositoryId, repositoryName, component, classNam
           <EmptyState icon={PackageCheck} title={t("release.releases.empty")} description={t("release.releases.emptyDesc")} />
         ) : (
           <div className="divide-y divide-border">
-            {pinned && (
-              <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+            {pinned.map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                 <Badge variant="secondary">
-                  {pinned.status === "draft" ? t("release.releases.draftBadge") : t(`release.statuses.${pinned.status}`)}
+                  {p.status === "draft" ? t("release.releases.draftBadge") : t(`release.statuses.${p.status}`)}
                 </Badge>
                 <span className="text-caption">
-                  {pinned.status === "draft"
-                    ? t("release.releases.draftLabel", { count: pinned.tasks.length })
-                    : t("release.releases.recutLabel", { version: pinned.version })}
+                  {p.status === "draft"
+                    ? t("release.releases.draftLabel", { count: p.tasks.length })
+                    : t("release.releases.recutLabel", { version: p.version })}
                 </span>
-                {pinned.tasks.length > 0 && (
-                  <Button size="sm" className="ml-auto" onClick={() => setCutReleaseId(pinned.id)}>
-                    {pinned.status === "draft" ? t("release.releases.cutRelease") : t("release.releases.recutRelease")}
+                {p.tasks.length > 0 && (
+                  <Button size="sm" className="ml-auto" onClick={() => setCutReleaseId(p.id)}>
+                    {p.status === "draft" ? t("release.releases.cutRelease") : t("release.releases.recutRelease")}
                   </Button>
                 )}
               </div>
-            )}
+            ))}
             {history.map((r) => (
               <button
                 key={r.id}

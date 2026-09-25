@@ -591,9 +591,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.cancel()
 	// 4. External processes, then the pool everything above was using.
 	if s.engine.localRunner != nil {
-		if err := s.engine.localRunner.Close(); err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		if err := s.engine.localRunner.Close(closeCtx); err != nil {
 			log.Warn().Err(err).Msg("closing the local release runner failed")
 		}
+		cancel()
 	}
 	if s.engine.mcpManager != nil {
 		s.engine.mcpManager.Close()
