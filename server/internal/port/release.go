@@ -33,4 +33,10 @@ type ReleaseStore interface {
 	// LastReleased is the newest `released` release of the component finished
 	// before the given time — what a rollback redeploys.
 	LastReleased(ctx context.Context, repositoryID uuid.UUID, componentID *uuid.UUID, before time.Time) (domain.Release, error)
+	// MarkAgentSeen stamps AgentSeenAt now, out of band from Update: it is the
+	// sole writer of that column, so a caller updating other fields from a
+	// copy read before an agent's own look cannot clobber it back to an
+	// older value — the hand-back watchdog's AgentSeenAt-vs-LastHandBackAt
+	// race depends on that.
+	MarkAgentSeen(ctx context.Context, id uuid.UUID, at time.Time) error
 }

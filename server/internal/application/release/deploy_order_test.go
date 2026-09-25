@@ -124,6 +124,21 @@ func TestADependencyInsideTheSameReleaseDoesNotBlockIt(t *testing.T) {
 	assert.NotEmpty(t, f.svc.pendingDeployDependencies(context.Background(), []uuid.UUID{dependent.ID}))
 }
 
+// N7: dependents must wake on ANY move to released, not only a release's own
+// Finish — board.Dispatcher's SetTaskReleasedHook calls this directly for a
+// task that just landed in released with no release row involved at all
+// (mode none, or a human moving the card).
+func TestWakeDeployDependentsOfWakesATaskWaitingOnAPlainReleasedMove(t *testing.T) {
+	dependency := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnReleased}
+	dependent := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}
+	f := newOrderFixture(domain.DeliveryOnMerge, dependent, dependency)
+
+	f.svc.WakeDeployDependentsOf(context.Background(), dependency)
+
+	require.Len(t, f.waker.calls, 1)
+	assert.Equal(t, dependent.ID, f.waker.calls[0].task.ID)
+}
+
 func TestFinishWakesATaskThatWasWaitingOnTheRelease(t *testing.T) {
 	dependency := domain.BoardTask{ID: uuid.New(), Key: "T-1", Column: domain.TaskColumnDone}
 	dependent := domain.BoardTask{ID: uuid.New(), Key: "T-2", Column: domain.TaskColumnDone}

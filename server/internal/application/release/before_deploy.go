@@ -12,12 +12,16 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// MergeGate refuses a merge whose task still has pending before-deploy steps
-// on an on_merge component — the merge itself is what would deploy them, and
-// a human has to perform those steps first. It resolves the component the
-// same way OpenForMerge would; an unresolved or unconfirmed component is not
-// refused here — the merge goes through and the task simply waits in done
-// the way OpenForMerge already handles that case.
+// MergeGate refuses a task's merge for any of three reasons, checked in
+// order: the component's delivery profile is not confirmed (its own workflow
+// may still deploy this merge unwatched, so refusing beats guessing); it
+// declares a deploy_depends_on task that has not reached released yet; or, on
+// an on_merge component, it still has pending before-deploy steps — the
+// merge itself is what would deploy them, and a human has to perform those
+// steps first. It resolves the component the same way OpenForMerge would; an
+// UNRESOLVED component (none recorded on the task or the repository at all)
+// is not refused here — the merge goes through and the task simply waits in
+// done the way OpenForMerge already handles that case.
 func (s *Service) MergeGate(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) error {
 	component, name, ok := s.resolveComponent(ctx, repositoryID, task)
 	if !ok {

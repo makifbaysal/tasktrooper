@@ -53,7 +53,7 @@ func (kit *ToolKit) resolveRelease(ctx context.Context, tool, taskRef string) (d
 	if res != nil {
 		return domain.Release{}, res
 	}
-	rel, err := kit.Releases.ForTask(ctx, repositoryID, taskID)
+	rel, err := kit.Releases.ForAgent(ctx, repositoryID, taskID)
 	if err != nil {
 		msg := err.Error()
 		if errors.Is(err, domain.ErrReleaseNotFound) {

@@ -80,6 +80,12 @@ type ComponentResolver interface {
 // through deploy/watch/verify to a verdict.
 type ReleaseService interface {
 	ForTask(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error)
+	// ForAgent is ForTask stamped with AgentSeenAt — release_tools.go's
+	// resolveRelease resolves every release tool through this, not ForTask,
+	// so the hand-back watchdog's AgentSeenAt gate sees a live agent call
+	// (N5). get_deploy_logs's release fallback still uses plain ForTask: it
+	// is a read of another task's release, not the agent working this one.
+	ForAgent(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Release, error)
 	Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor) (domain.Release, error)
 	// Watch returns a ResourceBlock when the release is still Watched()

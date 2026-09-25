@@ -155,10 +155,14 @@ func (s *Service) freeStrandedPark(ctx context.Context, parked domain.BoardTask)
 	if !ok {
 		return
 	}
+	r = s.stampHandBack(ctx, r)
 	s.wake(ctx, r, task)
-	s.markHandBackWoken(r.ID, s.now())
 }
 
+// rewakeUnparkedHandBacks re-sends a hand-back nothing is parked to receive:
+// handBackDue (N5) reads the persisted bookkeeping straight off each release
+// row rather than a process-memory map, so this survives a desktop relaunch
+// and behaves the same across every sweeper instance.
 func (s *Service) rewakeUnparkedHandBacks(ctx context.Context, parkedTaskIDs map[uuid.UUID]bool) {
 	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
 		Statuses: []domain.ReleaseStatus{domain.ReleaseAwaitingVerdict, domain.ReleaseFailed},
@@ -178,10 +182,9 @@ func (s *Service) rewakeUnparkedHandBacks(ctx context.Context, parkedTaskIDs map
 		if releaseHasParkedTask(r, parkedTaskIDs) {
 			continue
 		}
-		if !s.handBackDue(r.ID, now) {
+		if !handBackDue(r, now) {
 			continue
 		}
-		s.recordWatchdogRewake(r.ID, now)
 		s.handBack(ctx, r)
 	}
 }
@@ -195,27 +198,28 @@ func releaseHasParkedTask(r domain.Release, parkedTaskIDs map[uuid.UUID]bool) bo
 	return false
 }
 
-func (s *Service) markHandBackWoken(releaseID uuid.UUID, now time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lastHandBackWake[releaseID] = now
-}
-
-func (s *Service) handBackDue(releaseID uuid.UUID, now time.Time) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.handBackWakeCount[releaseID] >= handBackMaxReWakes {
+// handBackDue is N5's persisted re-wake gate, read straight off the release
+// row rather than a process-memory map: a hand-back must actually have
+// happened (LastHandBackAt set — the watchdog never invents a first one),
+// more than ten minutes must have passed since it, no agent may have looked
+// at the release since (AgentSeenAt nil or before LastHandBackAt — a live
+// ForAgent call resets what the watchdog is waiting on), the re-wake cap
+// must not be hit, and the release must not simply be abandoned (untouched
+// for more than a day is someone else's problem to notice by then).
+func handBackDue(r domain.Release, now time.Time) bool {
+	if r.LastHandBackAt == nil {
 		return false
 	}
-	last, ok := s.lastHandBackWake[releaseID]
-	return !ok || now.Sub(last) >= handBackReWakeInterval
-}
-
-func (s *Service) recordWatchdogRewake(releaseID uuid.UUID, now time.Time) {
-	s.mu.Lock()
-	s.handBackWakeCount[releaseID]++
-	s.lastHandBackWake[releaseID] = now
-	s.mu.Unlock()
+	if now.Sub(*r.LastHandBackAt) < handBackReWakeInterval {
+		return false
+	}
+	if r.AgentSeenAt != nil && !r.AgentSeenAt.Before(*r.LastHandBackAt) {
+		return false
+	}
+	if r.HandBackCount >= handBackMaxReWakes {
+		return false
+	}
+	return now.Sub(r.UpdatedAt) <= 24*time.Hour
 }
 
 func (s *Service) sweepDeploying(ctx context.Context, r domain.Release) {

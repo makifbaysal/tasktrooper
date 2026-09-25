@@ -90,12 +90,25 @@ func (s *Service) commentDeployDependencies(ctx context.Context, repositoryID, t
 // wakeDeployDependents resumes tasks in done that were held back only by the
 // tasks this release just shipped.
 func (s *Service) wakeDeployDependents(ctx context.Context, r domain.Release) {
-	if s.deployOrder == nil || s.waker == nil || len(r.Tasks) == 0 {
+	s.wakeDeployDependentsOfTasks(ctx, r.TaskIDs())
+}
+
+// WakeDeployDependentsOf is N7's entry point for board.Dispatcher's
+// SetTaskReleasedHook: a task can reach `released` with no release row at
+// all (delivery mode none, or a human moving the card directly), and its
+// deploy_depends_on waiters must still wake regardless of what moved it —
+// Finish is not the only door into released.
+func (s *Service) WakeDeployDependentsOf(ctx context.Context, task domain.BoardTask) {
+	s.wakeDeployDependentsOfTasks(ctx, []uuid.UUID{task.ID})
+}
+
+func (s *Service) wakeDeployDependentsOfTasks(ctx context.Context, taskIDs []uuid.UUID) {
+	if s.deployOrder == nil || s.waker == nil || len(taskIDs) == 0 {
 		return
 	}
-	rels, err := s.deployOrder.ListDeployDependents(ctx, r.TaskIDs())
+	rels, err := s.deployOrder.ListDeployDependents(ctx, taskIDs)
 	if err != nil {
-		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: listing deploy dependents failed")
+		log.Warn().Err(err).Msg("release: listing deploy dependents failed")
 		return
 	}
 	woken := map[uuid.UUID]bool{}

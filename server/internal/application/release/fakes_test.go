@@ -876,3 +876,21 @@ func (f *fakeDeployStatus) StatusForCommitSince(_ context.Context, _ uuid.UUID, 
 	}
 	return domain.DeployWatchStatus{State: domain.DeployWatchPending}, nil
 }
+
+// MarkAgentSeen is release.Service.ForAgent's out-of-band AgentSeenAt write
+// (N5). The real postgres store excludes agent_seen_at from Update's SET
+// clause so a stale copy can never clobber it; this in-memory fake does not
+// need that same care because every caller in this package's tests passes
+// Update a release it just read (its AgentSeenAt is already current) — the
+// clobber race is exercised at the postgres layer instead.
+func (f *fakeReleaseStore) MarkAgentSeen(_ context.Context, id uuid.UUID, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.releases[id]
+	if !ok {
+		return domain.ErrReleaseNotFound
+	}
+	r.AgentSeenAt = &at
+	f.releases[id] = r
+	return nil
+}

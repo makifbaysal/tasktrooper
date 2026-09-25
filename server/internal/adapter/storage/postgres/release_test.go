@@ -549,3 +549,63 @@ func (s *ReleaseStoreSuite) TestListHonoursALimitAboveTheOldHundredCap() {
 	s.Require().NoError(err)
 	s.Require().Len(got, total, "a limit above the old 100-row cap must not be clamped down to it")
 }
+
+// N5: HandBackCount/LastHandBackAt persist on the row across a Create default
+// and an Update round trip — the hand-back watchdog's cooldown and cap must
+// survive a desktop relaunch, not live only in the sweeper's process memory.
+func (s *ReleaseStoreSuite) TestUpdateRoundTripsHandBackBookkeeping() {
+	task := s.newTask(domain.TaskColumnDone)
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Version: "hb00001", Mode: domain.DeliveryOnMerge,
+		Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseAwaitingVerdict, CommitSHA: "hb00001bbb",
+		Profile: testProfile(),
+	}, []uuid.UUID{task.ID})
+	s.Require().NoError(err)
+	s.Equal(0, created.HandBackCount)
+	s.Nil(created.LastHandBackAt)
+
+	handedBack := created
+	handedBack.HandBackCount = 1
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	handedBack.LastHandBackAt = &now
+	updated, err := s.store.Update(s.ctx, handedBack, domain.ReleaseAwaitingVerdict)
+	s.Require().NoError(err)
+	s.Equal(1, updated.HandBackCount)
+	s.Require().NotNil(updated.LastHandBackAt)
+	s.WithinDuration(now, *updated.LastHandBackAt, time.Millisecond)
+
+	reread, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Equal(1, reread.HandBackCount)
+	s.Require().NotNil(reread.LastHandBackAt)
+}
+
+// N5: MarkAgentSeen is the sole writer of agent_seen_at — an Update built
+// from a copy read before an agent's ForAgent call landed must not carry a
+// stale (nil) AgentSeenAt back over it, or the hand-back watchdog would treat
+// an actively-worked release as dropped.
+func (s *ReleaseStoreSuite) TestMarkAgentSeenSurvivesAConcurrentUpdate() {
+	task := s.newTask(domain.TaskColumnDone)
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Version: "as00001", Mode: domain.DeliveryOnMerge,
+		Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseAwaitingVerdict, CommitSHA: "as00001bbb",
+		Profile: testProfile(),
+	}, []uuid.UUID{task.ID})
+	s.Require().NoError(err)
+	s.Nil(created.AgentSeenAt, "a fresh release has never been seen by an agent")
+
+	seenAt := time.Now().UTC().Truncate(time.Millisecond)
+	s.Require().NoError(s.store.MarkAgentSeen(s.ctx, created.ID, seenAt))
+
+	// created still has AgentSeenAt == nil from before MarkAgentSeen ran —
+	// exactly the stale copy a sweep tick or another writer might hold.
+	stale := created
+	stale.Notes = "sweep touched it"
+	_, err = s.store.Update(s.ctx, stale, domain.ReleaseAwaitingVerdict)
+	s.Require().NoError(err)
+
+	reread, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(reread.AgentSeenAt, "Update must not have clobbered agent_seen_at back to nil")
+	s.WithinDuration(seenAt, *reread.AgentSeenAt, time.Millisecond)
+}

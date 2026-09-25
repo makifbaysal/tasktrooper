@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"errors"
 
 	"github.com/rs/zerolog/log"
 
@@ -15,11 +16,15 @@ import (
 // task still in done or released is woken instead — a task a human
 // already moved elsewhere (need_revision, blocked) is left alone; that move
 // is the human's decision, not something a stale release verdict should
-// override.
+// override. Every call stamps the persisted hand-back bookkeeping first (N5),
+// whether or not a card was actually parked to claim — the watchdog's
+// cooldown/cap is about "how many times has this been handed back", not
+// "how many times did a park exist to claim".
 func (s *Service) handBack(ctx context.Context, r domain.Release) {
 	if len(r.Tasks) == 0 {
 		return
 	}
+	r = s.stampHandBack(ctx, r)
 	woke := false
 	if s.parked != nil {
 		for _, t := range r.Tasks {
@@ -33,7 +38,6 @@ func (s *Service) handBack(ctx context.Context, r domain.Release) {
 			}
 			if !woke {
 				s.wake(ctx, r, task)
-				s.markHandBackWoken(r.ID, s.now())
 				woke = true
 			}
 		}
@@ -56,9 +60,29 @@ func (s *Service) handBack(ctx context.Context, r domain.Release) {
 			continue
 		}
 		s.wake(ctx, r, task)
-		s.markHandBackWoken(r.ID, s.now())
 		return
 	}
+}
+
+// stampHandBack persists that a hand-back to the agent was attempted —
+// HandBackCount/LastHandBackAt on the row (N5), not process memory, so the
+// watchdog's cooldown and cap survive a desktop relaunch and are shared by
+// every sweeper instance. A lost race (something else moved the release
+// meanwhile) is not retried: the release will be picked up fresh on the next
+// sweep tick, and this caller's own view of it is already stale.
+func (s *Service) stampHandBack(ctx context.Context, r domain.Release) domain.Release {
+	expect := r.Status
+	r.HandBackCount++
+	now := s.now()
+	r.LastHandBackAt = &now
+	updated, err := s.store.Update(ctx, r, expect)
+	if err != nil {
+		if !errors.Is(err, domain.ErrReleaseWrongStatus) {
+			log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: stamping a hand-back failed")
+		}
+		return r
+	}
+	return updated
 }
 
 func (s *Service) wake(ctx context.Context, r domain.Release, task domain.BoardTask) {
