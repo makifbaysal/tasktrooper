@@ -4,9 +4,9 @@ package board
 //
 // It is a tool rather than a hook on the done column on purpose. A server-side
 // automatic merge would fire on a state change nobody was looking at, at a
-// moment nothing had checked whether the checks were still green — and the
-// board has one role whose whole job is having exercised the built product:
-// QA. So QA is woken when a task reaches done, reads the PR, and decides.
+// moment nothing had checked whether the checks were still green. So the
+// release engineer is woken when a task reaches done, reads the PR, and
+// decides.
 //
 // Everything this file does is argument handling and reporting. Every refusal
 // lives in application/board.TaskPRService.MergeTaskPullRequest, because the
@@ -52,7 +52,7 @@ func (t *mergeTaskPullRequestTool) Definition() domain.ToolDefinition {
 				"It refuses, without merging anything, when: the task is not in `done`; the PR is already merged or was closed unmerged; the checks are not green (GitHub reports anything but a clean mergeable state, or the task's last pipeline failed); the repository requires the full review chain and a stage is missing; the PR's head commit is no longer the commit the task was verified at — which means someone pushed after sign-off and the change must go back through review; or, on an `on_merge` component, the task carries before-deploy steps a human has not confirmed yet (the merge IS the deploy for this mode) — the system comments the steps on the task and you are woken once a human presses Confirm before-deploy steps, so do not chase it further. " +
 				"Retrying a refusal changes nothing: act on what it said instead — a refusal naming a CONFLICT with the base branch (`dirty`) or an out-of-date branch (`behind`) is the developer's to resolve, so move the task to need_revision with that reason. " +
 				"On success it records the merge commit on the task and the card shows it: do NOT write a comment saying the merge happened. " +
-				"The result's `release` field says what the merge set in motion for the component, and what to do next — read it, do not guess: `unconfirmed: true` means the component's delivery profile was never confirmed, the task waits in done, and the system has already commented saying so — do not chase it further; otherwise mode `none` means the merge already released the task (nothing left to do); `on_merge` means the deploy is already running, call watch_release; `dispatch` means call deploy_release, then watch_release; `batch` means the merge joined the component's draft release (created if there was none) — the task waits in done and nothing to do now, a human cuts that release later and you are woken with a `pending` release to deploy_release/watch_release when they do.",
+				"The result's `release` field says what the merge set in motion for the component, and what to do next — read it, do not guess: (the merge itself is refused — nothing merged — while the component's delivery profile is unconfirmed, while a deploy dependency is not released, and, for an on_merge component, while the task's before-deploy steps are unconfirmed; each refusal is already commented on the card and you are woken when it clears, so stop and do not retry) `unconfirmed: true` means the profile was unconfirmed for a task merged some other way — stop; otherwise mode `none` means the merge already released the task (nothing left to do); `on_merge` means the deploy is already running, call watch_release; `dispatch` means call deploy_release, then watch_release; `batch` means the merge joined the component's draft release (created if there was none) — the task waits in done and nothing to do now, a human cuts that release later and you are woken with a `pending` release to deploy_release/watch_release when they do.",
 			Parameters: map[string]interface{}{
 				"type":                 "object",
 				"additionalProperties": false,

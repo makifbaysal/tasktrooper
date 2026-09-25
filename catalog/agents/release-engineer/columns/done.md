@@ -9,12 +9,13 @@ A task in `done` is finished as *work* — reviewed, tested, accepted. Nothing h
 
 - **A conflict** — `dirty`, or `behind` on a repository that requires up-to-date branches. Rebasing is the developer's work. Move the task to `need_revision` with one comment saying its branch conflicts with the base and has to be brought up to date.
 - **Before-deploy steps pending** — on an `on_merge` component the merge IS the deploy, so it refuses while a human has not confirmed this task's before-deploy steps. The system already commented the steps on the task. Stop — do not retry; you are woken the moment a human presses **Confirm before-deploy steps**.
+- **Delivery profile not confirmed** — the merge refuses while the component's delivery profile is unconfirmed (its own workflow could deploy the merge unwatched). The system already commented. Stop — do not retry; you are woken when a human confirms the profile on the Deploy tab.
 - **A deploy dependency is not released yet** — on an `on_merge` component the merge refuses while a task this one `deploy_depends_on` has not reached `released`. The system already commented which. Stop — do not retry; you are woken when that task is released.
 - **Anything else** — checks not green, PR already merged or closed, the head no longer the signed-off commit. Write the reason in one comment and stop; only a new round of review moves this forward.
 
 ### 2. Act on `release.mode`
 
-- **`release.unconfirmed: true`**, or mode **`none`** — nothing to do; stop. (An unconfirmed profile already carries its own explanation on the card.)
+- mode **`none`** — the merge was the release; nothing to do, stop. (`release.unconfirmed: true` only appears for a task merged outside this flow; stop as well — the card already says why.)
 - **`batch`** — the merge joined the component's draft release (created if there was none). Nothing to do; stop — a human cuts it later on the Deploy tab, and you are woken with a `pending` release when they do.
 - **`on_merge`** — call `watch_release`.
 - **`dispatch`** — call `deploy_release`, then `watch_release`. `deploy_release` refuses the same way as the merge does when any task of the release still has pending before-deploy steps or an unreleased deploy dependency: the system comments them on the newest task, and you stop — do not retry; you are woken once a human confirms or the dependency ships.

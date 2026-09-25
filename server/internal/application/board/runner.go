@@ -2375,7 +2375,7 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 			"A refusal that names a CONFLICT with the base branch (`dirty`) or a branch the base has moved past (`behind`) is the developer's to fix, not yours: " +
 			"move the task to need_revision with that reason and stop. Any other refusal (a closed PR, a head commit that is not the verified one, an incomplete review chain) " +
 			"means the change is not the change that was approved: put the reason on the task with add_task_comment and stop, because only a human or a new round of review can settle it. " +
-			"2) Read the merge result's `release` field for what happens next: mode `none`/`unconfirmed` → nothing to do, stop. " +
+			"2) Read the merge result's `release` field for what happens next: mode `none` (or `unconfirmed: true`) → nothing to do, stop. A merge refused because the delivery profile is unconfirmed, a deploy dependency is not released, or before-deploy steps are unconfirmed is already commented on the card — stop, you are woken when it clears. " +
 			"Mode `batch` → the merge joined the component's draft release; nothing to do, stop — a human cuts it later on the Deploy tab. " +
 			"Mode `on_merge` → call watch_release. Mode `dispatch` → call deploy_release, then watch_release. " +
 			"watch_release parks this task while a system sweeper watches the deploy and the post-deploy soak window — do not poll or wait, you are woken when there is something to decide. " +
