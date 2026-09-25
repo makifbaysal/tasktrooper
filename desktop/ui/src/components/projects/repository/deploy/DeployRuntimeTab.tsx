@@ -10,7 +10,9 @@ import {
 } from "@/api";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { ComponentRail } from "@/components/projects/repository/ComponentRail";
+import { DeliveryCard } from "@/components/projects/repository/deploy/DeliveryCard";
 import { EnvironmentsCard } from "@/components/projects/repository/deploy/EnvironmentsCard";
+import { ReleasesCard } from "@/components/projects/repository/deploy/ReleasesCard";
 import { RuntimePanel } from "@/components/projects/repository/deploy/RuntimePanel";
 import { StoreReleasesCard } from "@/components/projects/repository/deploy/StoreReleasesCard";
 import { useI18n } from "@/hooks/useI18n";
@@ -113,6 +115,8 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
         renderTrailing={(c) => railHealth(model.environments, c.id)}
       />
       <div className="min-w-0 flex-1 space-y-4">
+        <DeliveryCard key={selected.id} component={selected} onChanged={onReload} />
+
         {effectiveRole(selected) === "mobile" ? (
           <StoreReleasesCard
             key={selected.id}
@@ -137,6 +141,8 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
             )}
           </>
         )}
+
+        <ReleasesCard repositoryId={repositoryId} repositoryName={model.repository.name} componentId={selected.id} />
       </div>
     </div>
   );

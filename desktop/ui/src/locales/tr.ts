@@ -11,6 +11,7 @@ import { operations } from "@/locales/tr/operations";
 import { projectAdmin } from "@/locales/tr/projectAdmin";
 import { projectModel } from "@/locales/tr/projectModel";
 import { projectsHub } from "@/locales/tr/projectsHub";
+import { release } from "@/locales/tr/release";
 import { repositoryPage } from "@/locales/tr/repositoryPage";
 import { settingsPages } from "@/locales/tr/settingsPages";
 import { setup } from "@/locales/tr/setup";
@@ -102,6 +103,7 @@ export const tr: Dict = {
   projectAdmin,
   projectModel,
   projectsHub,
+  release,
   repositoryPage,
   settingsPages,
   setup,

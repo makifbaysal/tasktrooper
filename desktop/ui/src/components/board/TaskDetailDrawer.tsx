@@ -1,4 +1,4 @@
-import { Bot, Check, CircleStop, Clock, Cog, ExternalLink, FileText, FlaskConical, GitBranch, GitPullRequest, HelpCircle, History, Loader2, MessageSquare, MessagesSquare, Minus, Paperclip, Plus, Rocket, RotateCcw, User, X } from "lucide-react";
+import { Bot, Check, CircleStop, Clock, Cog, ExternalLink, FileText, FlaskConical, GitBranch, GitPullRequest, HelpCircle, History, Loader2, MessageSquare, MessagesSquare, Minus, PackageCheck, Paperclip, Plus, Rocket, RotateCcw, User, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   type CriterionReviewRole,
   type BoardTask,
   type InitiativeProject,
+  type Release,
   type Repository,
   type SessionRun,
   type TaskAgentRun,
@@ -32,6 +33,7 @@ import { PlanView } from "@/components/chat/PlanView";
 import { HumanUatDecision } from "@/components/board/HumanUatDecision";
 import { AnalizReviewDecision } from "@/components/board/AnalizReviewDecision";
 import { PipelineSection } from "@/components/board/PipelineSection";
+import { RELEASE_STATUS_VARIANT, ReleaseDrawer } from "@/components/projects/repository/deploy/ReleaseDrawer";
 import { TaskAssigneeFields } from "@/components/board/TaskAssigneeFields";
 import { TaskDocumentList } from "@/components/board/TaskDocumentList";
 import { TaskHistory } from "@/components/board/TaskHistory";
@@ -128,6 +130,8 @@ export function TaskDetailDrawer({
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [criteria, setCriteria] = useState<AcceptanceCriterion[]>([]);
   const [testCases, setTestCases] = useState<TaskTestCase[]>([]);
+  const [release, setRelease] = useState<Release | null>(null);
+  const [releaseDrawerOpen, setReleaseDrawerOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -192,13 +196,14 @@ export function TaskDetailDrawer({
   // Settled per call so one failing section doesn't blank the others.
   const loadDetails = useCallback(async () => {
     if (!task || !repositoryId) return;
-    const [c, r, d, cr, at, tc] = await Promise.allSettled([
+    const [c, r, d, cr, at, tc, rel] = await Promise.allSettled([
       api.listTaskComments(repositoryId, task.id),
       api.listTaskAgentRuns(repositoryId, task.id),
       api.listTaskDocuments(repositoryId, task.id),
       api.listAcceptanceCriteria(repositoryId, task.id),
       api.listTaskAttachments(repositoryId, task.id),
       api.listTestCases(repositoryId, task.id),
+      api.listReleases(repositoryId, { taskId: task.id, limit: 1 }),
     ]);
     if (c.status === "fulfilled") setComments(c.value.comments ?? []);
     if (r.status === "fulfilled") setRuns(r.value.runs ?? []);
@@ -206,6 +211,7 @@ export function TaskDetailDrawer({
     if (cr.status === "fulfilled") setCriteria(cr.value.items ?? []);
     if (at.status === "fulfilled") setAttachments(at.value.attachments ?? []);
     if (tc.status === "fulfilled") setTestCases(tc.value.items ?? []);
+    if (rel.status === "fulfilled") setRelease(rel.value.releases[0] ?? null);
   }, [repositoryId, task]);
 
   // Reset the editing state only when a different task is shown. The board polls
@@ -1286,6 +1292,23 @@ export function TaskDetailDrawer({
                     </section>
                   )}
 
+                  {release && (
+                    <section className="space-y-2">
+                      <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <PackageCheck className="h-3.5 w-3.5" />
+                        {t("release.taskDetail.label")}
+                      </Label>
+                      <button
+                        type="button"
+                        onClick={() => setReleaseDrawerOpen(true)}
+                        className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60"
+                      >
+                        <Badge variant={RELEASE_STATUS_VARIANT[release.status]}>{t(`release.statuses.${release.status}`)}</Badge>
+                        <span className="font-mono text-caption">{release.version}</span>
+                      </button>
+                    </section>
+                  )}
+
                   {/* Talking to the agent about this task — and about the pull
                       request opened for it — never depends on a parked question
                       or a finished run, so the action is always on offer. */}
@@ -1382,6 +1405,16 @@ export function TaskDetailDrawer({
         loading={stopRunId !== null && runActionId === stopRunId}
         onConfirm={stopRun}
       />
+
+      {release && repositoryName && (
+        <ReleaseDrawer
+          releaseId={release.id}
+          repositoryName={repositoryName}
+          open={releaseDrawerOpen}
+          onOpenChange={setReleaseDrawerOpen}
+          onChanged={loadDetails}
+        />
+      )}
     </>
   );
 }
