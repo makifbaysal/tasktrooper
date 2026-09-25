@@ -32,7 +32,7 @@ func newHandBackFixture() *handBackFixture {
 	return &handBackFixture{svc: svc, store: store, tasks: tasks, parked: parked, waker: waker}
 }
 
-// L4: the no-parked-card fallback must walk back to the newest task that is
+// the no-parked-card fallback must walk back to the newest task that is
 // still in done (or released), skipping one a human already moved elsewhere
 // — a stale release verdict must not wake a card that left done for a
 // reason.

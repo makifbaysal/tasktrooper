@@ -138,7 +138,7 @@ func TestCurrentReturnsTheNewestProductionDeployment(t *testing.T) {
 	assert.Equal(t, domain.CloudDeployReady, d.Status)
 }
 
-// §H2: Current must answer the deployment production actually serves, not
+// Current must answer the deployment production actually serves, not
 // merely the newest one built with target=production — an instant rollback
 // (or a slow rollout) leaves an earlier deployment PROMOTED while a newer
 // one sits STAGED, never having taken production traffic.

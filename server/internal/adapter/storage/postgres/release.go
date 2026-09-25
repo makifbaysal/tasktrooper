@@ -264,7 +264,7 @@ func (s *ReleaseStore) ForTask(ctx context.Context, taskID uuid.UUID) (domain.Re
 // defaultListLimit / maxListLimit: the HTTP handler's own contract is 20
 // default / 100 max (it must clamp its own user-supplied `limit` — this
 // store no longer does that for it), but an internal caller like the
-// sweeper's watchdog (L1) has to be able to see its whole watched set, not
+// sweeper's watchdog has to be able to see its whole watched set, not
 // just the first 100 releases.
 const (
 	defaultListLimit = 20

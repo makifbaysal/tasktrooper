@@ -65,7 +65,7 @@ func (s *settlesOnSecondGetStore) Get(ctx context.Context, id uuid.UUID) (domain
 	return r, nil
 }
 
-// Watch must re-read the release right before reporting the park (M2): a
+// Watch must re-read the release right before reporting the park: a
 // release the sweeper settles between the first read and the decision to
 // park must come back as settled, not stuck behind a stale park.
 func TestWatchReReadsBeforeParkingSoASweeperSettleWinsTheRace(t *testing.T) {

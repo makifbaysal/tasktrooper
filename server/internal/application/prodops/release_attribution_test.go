@@ -61,7 +61,7 @@ func (f *fakeAutoRollbackTargets) Delete(context.Context, uuid.UUID, string, str
 }
 
 // TestIngestReadsAutoRollbackFromTheAttributedReleaseNotTheLegacyTarget guards
-// M12: a repository's legacy deploy target and the release that is actually
+// a repository's legacy deploy target and the release that is actually
 // live can disagree (the target is a leftover from before delivery profiles
 // existed, or was edited after this release shipped). The dispatched
 // auto_rollback bit must follow the release's own frozen profile

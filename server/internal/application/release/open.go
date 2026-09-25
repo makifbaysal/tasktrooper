@@ -91,8 +91,8 @@ func (s *Service) openRelease(ctx context.Context, repositoryID uuid.UUID, task 
 // openReleaseForTasks opens (or takes over) a release carrying `primary` plus
 // any `extraTaskIDs` — OpenPending's other waiting tasks of the same
 // component, collected so one delivery-confirmation catch-up never opens more
-// than one release (M1). The release row is created BEFORE the component's
-// currently open release (if any) is marked superseded (L5): if Create itself
+// than one release. The release row is created BEFORE the component's
+// currently open release (if any) is marked superseded: if Create itself
 // fails, nothing about the old release changed and its tasks are exactly
 // where they were — superseding first and then failing to create would have
 // orphaned them.
@@ -102,7 +102,7 @@ func (s *Service) openReleaseForTasks(ctx context.Context, repositoryID uuid.UUI
 
 	open, hasOpen := s.openReleaseToSupersede(ctx, repositoryID, componentID, mergeSHA)
 
-	// H5: carried (older) tasks first, the primary task last, each getting a
+	// carried (older) tasks first, the primary task last, each getting a
 	// strictly later added_at than the one before it (postgres Create uses
 	// clock_timestamp() for that) — revert order and "the newest task" both
 	// depend on this.
@@ -165,7 +165,7 @@ func (s *Service) openReleaseForTasks(ctx context.Context, repositoryID uuid.UUI
 
 // openReleaseToSupersede finds the component's currently open release and
 // reports whether it should be taken over: never when the new merge's commit
-// is not a git descendant of it (M1) — chaining onto an unrelated or older
+// is not a git descendant of it — chaining onto an unrelated or older
 // commit would misreport what shipped, and the older release would be judged
 // for a deploy it never carried. Git == nil, or the repository's root path
 // cannot be resolved, allows the take-over exactly as before the check
@@ -310,11 +310,11 @@ func (s *Service) commentOnce(ctx context.Context, repositoryID, taskID uuid.UUI
 }
 
 // OpenPending is called when a component's delivery override is saved. It:
-//   - wakes the component's done tasks that never merged (M11) — MergeGate
+//   - wakes the component's done tasks that never merged — MergeGate
 //     refuses their merge while the delivery profile is unconfirmed, and
 //     nothing else would retry it for them once it is;
 //   - opens ONE release covering every already-merged, still-unreleased done
-//     task of the component at once, at the remote default-branch head (M1) —
+//     task of the component at once, at the remote default-branch head —
 //     opening one release per task in board order could ship an older commit
 //     after a newer one, and would wake the agent once per task instead of
 //     once.

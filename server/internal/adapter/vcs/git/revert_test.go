@@ -308,7 +308,7 @@ func TestRevertOnDefaultBranchRefusesNoCommits(t *testing.T) {
 	}
 }
 
-// §H5: the caller's order is not trusted — RevertOnDefaultBranch reorders by
+// The caller's order is not trusted — RevertOnDefaultBranch reorders by
 // the actual git history itself. Reverting T-1 (v2) while T-2 (v3) still sits
 // on top of it is a conflict (the file is at v3, not the v2 the T-1 revert
 // expects); passing them oldest-first — the WRONG order — must still

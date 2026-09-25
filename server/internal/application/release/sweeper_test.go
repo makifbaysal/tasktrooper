@@ -104,7 +104,7 @@ func TestSweepDeployingFailsAPendingDeployAfterSixtyMinutes(t *testing.T) {
 	assert.Len(t, f.waker.calls, 1)
 }
 
-// H4: a status-lookup error must not reset the deploy timeout — the release
+// a status-lookup error must not reset the deploy timeout — the release
 // must still fail once 60 minutes have elapsed since DeployStartedAt, purely
 // from elapsed time, even though every sweep in between errored.
 func TestSweepDeployingFailsAfterSixtyMinutesWhenStatusLookupKeepsErroring(t *testing.T) {

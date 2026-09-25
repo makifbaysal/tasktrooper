@@ -144,7 +144,7 @@ func (s *ResetMergeStateSuite) TestResetMergeStateOnAMissingTaskIsANoOp() {
 	s.Require().NoError(err)
 }
 
-// L6: a rollback's revert sends the task through review again for a fresh PR
+// a rollback's revert sends the task through review again for a fresh PR
 // against reworked code. The before-deploy confirmation a human gave the OLD
 // change must not silently carry over and let the new PR skip the gate.
 func (s *ResetMergeStateSuite) TestResetMergeStateClearsBeforeDeployConfirmation() {

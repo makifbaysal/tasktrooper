@@ -101,7 +101,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		return domain.Release{}, fmt.Errorf("no git reverter is configured on this deployment")
 	}
 
-	// A retry (§M4): the previous attempt already landed a revert (its sha
+	// A retry: the previous attempt already landed a revert (its sha
 	// survived onto r.Rollback even if that attempt then failed a later
 	// step), so redoing it would try to revert commits no longer on top of
 	// the default branch. Only the mechanism-specific redeploy/promote is
@@ -133,7 +133,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		rollback.ManualSteps = s.manualStepsFor(ctx, r)
 	}
 
-	// Claim BEFORE any side effect (§M3): a Finish, a supersede or a second
+	// Claim BEFORE any side effect: a Finish, a supersede or a second
 	// concurrent Rollback racing this one now loses its own conditional
 	// Update instead of the two mutating production together. Should the
 	// process die between this claim and the outcome Update below, the
@@ -149,7 +149,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 	r = claimed
 	rollback = r.Rollback
 
-	// Provider rollback runs BEFORE the revert (on_merge only — §H2): it is
+	// Provider rollback runs BEFORE the revert (on_merge only): it is
 	// seconds, the revert (and any dispatch redeploy) is minutes, and
 	// production should stop serving the bad release as fast as possible.
 	// Dispatch redeploys the previous release's own workflow run, which would
@@ -224,7 +224,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 	}
 
 	// r.Status only changes above (rollbackDispatch's ANY-error path sets it
-	// to failed — §H1); it is never reset to rolling_back here, or a failed
+	// to failed); it is never reset to rolling_back here, or a failed
 	// redeploy would look like an in-flight rollback the sweeper waits on
 	// forever instead of a release a human must look at.
 	r.Rollback = rollback
@@ -268,7 +268,7 @@ func (s *Service) recordRevertFailure(ctx context.Context, r domain.Release, rol
 
 // rollbackDispatch resolves and redeploys the previous good release for a
 // dispatch-mode component. A redeploy that fails for ANY reason fails the
-// release (§H1): the revert already landed, so production is not running the
+// release: the revert already landed, so production is not running the
 // bad code, but nothing new was deployed either — a human has to look at it
 // rather than the sweeper waiting on a redeploy that was never dispatched.
 func (s *Service) rollbackDispatch(ctx context.Context, repo domain.Repository, r *domain.Release, rollback *domain.ReleaseRollback) {
@@ -385,7 +385,7 @@ func (s *Service) manualStepsFor(ctx context.Context, r domain.Release) []string
 // move is always FROM done. A task a human already moved somewhere else
 // (back into review, blocked, …) is left there — only commented on — since
 // the rollback should explain itself without fighting a move nobody but that
-// human asked for (§L4).
+// human asked for.
 func (s *Service) reopenTasks(ctx context.Context, r domain.Release) {
 	comment := rollbackReopenComment(r)
 	for _, t := range r.Tasks {
@@ -425,7 +425,7 @@ func (s *Service) reopenTasks(ctx context.Context, r domain.Release) {
 // r.Tasks (a snapshot from whenever the release was last read, and
 // reopenTasks always runs a beat after that — the parked-card claim and
 // merge-state reset above both precede it): cheap insurance against moving a
-// task the human already moved out of done/released in that gap (§L4). A
+// task the human already moved out of done/released in that gap. A
 // read failure moves it anyway — the old, safe default — rather than
 // silently stranding a task nobody will look at again.
 func (s *Service) shouldMoveReopenedTask(ctx context.Context, repositoryID, taskID uuid.UUID) bool {
@@ -453,7 +453,7 @@ func rollbackReopenComment(r domain.Release) string {
 }
 
 // rollbackClaimGrace is how long a rolling_back release may sit with
-// Rollback.RestoredRef still empty before the sweeper gives up on it (§M3).
+// Rollback.RestoredRef still empty before the sweeper gives up on it.
 // Rollback claims rolling_back BEFORE any side effect runs, so RestoredRef is
 // legitimately empty for the moment the revert/dispatch takes; past this
 // window it means the process died in between and nothing will ever fill it.
@@ -507,7 +507,7 @@ func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 }
 
 // statusForRestoredRef watches the rollback's OWN redeploy run, keyed by
-// since = Rollback.StartedAt (§H1): RestoredRef is frequently the same sha or
+// since = Rollback.StartedAt: RestoredRef is frequently the same sha or
 // tag an earlier attempt (the release itself, or a prior failed rollback try)
 // already deployed, so a plain by-sha watch would read that OTHER run's
 // (already green) conclusion as if it were this rollback's — the release

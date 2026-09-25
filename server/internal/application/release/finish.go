@@ -66,7 +66,7 @@ func (s *Service) postAfterDeployComments(ctx context.Context, r domain.Release)
 }
 
 // releaseTasks moves every task to released, but only the ones still sitting
-// where the release left them (L4): a task already released is a no-op, and
+// where the release left them: a task already released is a no-op, and
 // a task a human moved elsewhere (need_revision, blocked) is left alone — the
 // release's verdict is not license to override that move.
 func (s *Service) releaseTasks(ctx context.Context, r domain.Release) {

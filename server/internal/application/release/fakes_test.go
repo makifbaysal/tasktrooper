@@ -429,7 +429,7 @@ type fakeEnvironments struct {
 	errorsErr   error
 
 	// rollbackable/current/rollbackErr/promoteErr are keyed by environment id
-	// and drive the WP-M-shaped provider-rollback surface: CanRollback,
+	// and drive the provider-rollback surface: CanRollback,
 	// CurrentDeployment, RollbackEnvironment, PromoteDeployment.
 	rollbackable map[uuid.UUID]bool
 	current      map[uuid.UUID]domain.CloudDeployment

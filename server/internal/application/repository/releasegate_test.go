@@ -437,4 +437,3 @@ func (f *fakeReleaseTaskStore) TakeBlockedResourceTask(context.Context, string, 
 func (f *fakeReleaseGit) RevertCommitOnDefaultBranch(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
-

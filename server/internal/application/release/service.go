@@ -72,7 +72,7 @@ type Components interface {
 // component's bound environments, its deployments (vercel status matching)
 // and its runtime error groups (verify window), plus the provider-rollback
 // capability (CanRollback/CurrentDeployment/RollbackEnvironment/
-// PromoteDeployment) *cloud.Service grew in WP-M. A provider without the
+// PromoteDeployment) *cloud.Service provides. A provider without the
 // capability answers CanRollback false and the release falls back to the
 // pushed revert, so every method here degrades rather than being required.
 type Environments interface {
@@ -88,7 +88,7 @@ type Environments interface {
 // BeforeDeployConfirmer stamps a task's before-deploy confirmation the same
 // way a human's confirm button does — used by Cut, where cutting the batch
 // release IS the human's confirmation for every task it carries. Implemented
-// by *repository.Service (WP-O).
+// by *repository.Service.
 type BeforeDeployConfirmer interface {
 	ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) error
 }

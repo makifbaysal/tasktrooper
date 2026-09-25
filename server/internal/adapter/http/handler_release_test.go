@@ -332,7 +332,7 @@ func TestDeployReleaseNoDeployStepIs409(t *testing.T) {
 	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
 }
 
-// L2: before this fix, ErrBeforeDeployPending/ErrDeployDependencyPending fell
+// before this fix, ErrBeforeDeployPending/ErrDeployDependencyPending fell
 // through releaseErr's default branch to a 500 — a state the caller can wait
 // out (a human confirms before-deploy, or the dependency releases), not a
 // server failure.

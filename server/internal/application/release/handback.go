@@ -12,7 +12,7 @@ import (
 // sweeper: the first parked card of the release is claimed and woken, every
 // other parked card of the same release is claimed silently, and if none was
 // parked at all (the agent run that would have parked is gone) the newest
-// task still in done or released is woken instead (L4) — a task a human
+// task still in done or released is woken instead — a task a human
 // already moved elsewhere (need_revision, blocked) is left alone; that move
 // is the human's decision, not something a stale release verdict should
 // override.

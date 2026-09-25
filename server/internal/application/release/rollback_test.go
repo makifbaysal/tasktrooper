@@ -289,7 +289,7 @@ func TestSweepRollingBackToRolledBackReopensTasks(t *testing.T) {
 	}
 	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
 	require.NoError(t, err)
-	// Keyed by since = Rollback.StartedAt (§H1) — a plain by-sha watch would
+	// Keyed by since = Rollback.StartedAt — a plain by-sha watch would
 	// also read the release's OWN original deploy of this tag, if any, as
 	// though it were the rollback's.
 	ds.setSince("revert00000000000000000000000000000000", "deploy.yml", startedAt, domain.DeployWatchStatus{State: domain.DeployWatchSuccess})
@@ -341,7 +341,7 @@ func TestSweepRollingBackFailureIngestsAnIncident(t *testing.T) {
 	require.Len(t, f.incidents.ingested, 1)
 }
 
-// --- WP-N: provider rollback ---
+// --- provider rollback ---
 
 func TestRollbackProviderSuccessOnMergeMatchesPreviousReleaseCommit(t *testing.T) {
 	f := newRollbackFixture()
@@ -378,7 +378,7 @@ func TestRollbackProviderSuccessOnMergeMatchesPreviousReleaseCommit(t *testing.T
 	require.Len(t, f.reverter.calls, 1, "the revert always runs, provider rollback or not")
 }
 
-// §H2: dispatch mode redeploys the previous release itself, so a provider
+// Dispatch mode redeploys the previous release itself, so a provider
 // rollback must never even be attempted for it — pinning production via the
 // provider would immediately be undone by that redeploy, and then leave
 // automatic production assignment off for every later deploy.
@@ -432,7 +432,7 @@ func TestRollbackProviderDeniedFallsBackToTheF1Mechanism(t *testing.T) {
 	assert.Empty(t, updated.Rollback.ProviderDeploymentID)
 }
 
-// on_merge, not dispatch (§H2) — an unsupported provider still falls back to
+// on_merge, not dispatch — an unsupported provider still falls back to
 // the revert-push mechanism cleanly.
 func TestRollbackProviderUnsupportedFallsBackToTheF1Mechanism(t *testing.T) {
 	f := newRollbackFixture()
@@ -523,7 +523,7 @@ func TestRollbackProviderBatchNeverAttemptsIt(t *testing.T) {
 
 func timePtr(t time.Time) *time.Time { return &t }
 
-// --- WP-N: sweeping a provider-mechanism rollback ---
+// --- sweeping a provider-mechanism rollback ---
 
 func providerRollingBackRelease(repositoryID, componentID uuid.UUID, mode domain.DeliveryMode, startedAt time.Time) domain.Release {
 	return domain.Release{
@@ -644,7 +644,7 @@ func TestSweepRollingBackProviderTimesOutAfterThirtyMinutes(t *testing.T) {
 	assert.Contains(t, got.FailureReason, "did not take effect")
 }
 
-// --- §H1: a dispatch redeploy that fails must fail the release, and that
+// --- a dispatch redeploy that fails must fail the release, and that
 // status must survive, not be overwritten by rolling_back. ---
 
 func TestRollbackDispatchRedeployFailureForAnyReasonFailsTheRelease(t *testing.T) {
@@ -709,7 +709,7 @@ func TestSweepRollingBackIgnoresARunThatStartedBeforeTheRollback(t *testing.T) {
 	assert.Equal(t, domain.ReleaseRollingBack, got.Status, "the stale run must not be read as the rollback's own")
 }
 
-// --- §H3: a revert failure after a successful provider rollback must say so
+// --- a revert failure after a successful provider rollback must say so
 // and keep the provider outcome on the record. ---
 
 func TestRollbackRevertFailureAfterProviderSuccessKeepsTheProviderOutcome(t *testing.T) {
@@ -743,7 +743,7 @@ func TestRollbackRevertFailureAfterProviderSuccessKeepsTheProviderOutcome(t *tes
 	assert.Contains(t, f.parked.taken, task.ID, "a revert failure must still hand back so a human is woken")
 }
 
-// --- §M3: Rollback claims rolling_back BEFORE any side effect. ---
+// --- Rollback claims rolling_back BEFORE any side effect. ---
 
 func TestRollbackClaimsRollingBackBeforeTheRevertRuns(t *testing.T) {
 	f := newRollbackFixture()
@@ -767,7 +767,7 @@ func TestRollbackClaimsRollingBackBeforeTheRevertRuns(t *testing.T) {
 
 // observingReverter is release.Reverter: it reads the release straight out of
 // the store the instant it is invoked, so a test can see exactly what
-// Rollback persisted before running any side effect (§M3).
+// Rollback persisted before running any side effect.
 type observingReverter struct {
 	store     *fakeReleaseStore
 	releaseID uuid.UUID
@@ -824,7 +824,7 @@ func TestSweepRollingBackFailsAnAbandonedClaimAfterTheGraceWindow(t *testing.T) 
 	assert.Contains(t, got.FailureReason, "server may have restarted")
 }
 
-// --- §M4: retrying a failed rollback must not re-revert. ---
+// --- retrying a failed rollback must not re-revert. ---
 
 func TestRollbackRetryAfterAFailedRedeploySkipsTheRevert(t *testing.T) {
 	f := newRollbackFixture()
@@ -853,7 +853,7 @@ func TestRollbackRetryAfterAFailedRedeploySkipsTheRevert(t *testing.T) {
 	require.Len(t, f.actions.dispatchCalls, 1, "the redeploy itself is retried")
 }
 
-// --- §M5: refuse to roll back a released release while the component has a
+// --- refuse to roll back a released release while the component has a
 // newer open release. ---
 
 func TestRollbackRefusesAReleasedReleaseWithANewerOpenRelease(t *testing.T) {

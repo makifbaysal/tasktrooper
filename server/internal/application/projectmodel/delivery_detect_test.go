@@ -103,7 +103,10 @@ func TestDetectDelivery_PushToMainBeatsDispatchable(t *testing.T) {
 func TestDetectDelivery_MissingOrDismissedChecksIgnored(t *testing.T) {
 	checks := []domain.ComponentCheck{
 		deployCheck(func(c *domain.ComponentCheck) { c.Triggers = []string{"push:main"}; c.Missing = true }),
-		deployCheck(func(c *domain.ComponentCheck) { c.Triggers = []string{"push:main"}; c.Status = domain.ModelStatusDismissed }),
+		deployCheck(func(c *domain.ComponentCheck) {
+			c.Triggers = []string{"push:main"}
+			c.Status = domain.ModelStatusDismissed
+		}),
 	}
 	fact, ok := detectDelivery(domain.Component{}, checks, nil)
 	require.True(t, ok)

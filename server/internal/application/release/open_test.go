@@ -277,7 +277,7 @@ func TestOpenPendingOpensReleasesForAlreadyMergedDoneTasks(t *testing.T) {
 	assert.Len(t, f.store.releases, 1)
 }
 
-// H5: Create must insert the carried (older) task before the new one, so
+// Create must insert the carried (older) task before the new one, so
 // their added_at values (and the tasks slice they populate) preserve that
 // order rather than whichever order a map or a tied timestamp happens to
 // produce.
@@ -305,7 +305,7 @@ func TestOpenForMergeSupersedeCarriesOlderTaskFirstAndNewTaskLast(t *testing.T) 
 	assert.Equal(t, newTask.ID, newer.Tasks[1].ID, "the just-merged task must come last")
 }
 
-// M1: openRelease must not supersede an open release whose commit is not an
+// openRelease must not supersede an open release whose commit is not an
 // ancestor of the new merge — chaining onto an unrelated commit would ship
 // (and judge) a release for a deploy it never carried.
 func TestOpenForMergeDoesNotSupersedeAnOpenReleaseWhoseCommitIsNotAnAncestor(t *testing.T) {
@@ -385,7 +385,7 @@ func TestOpenForMergeSupersedesWhenTheNewCommitIsADescendant(t *testing.T) {
 	require.Len(t, newer.Tasks, 2)
 }
 
-// L5: Create runs before the old release is marked superseded; if that
+// Create runs before the old release is marked superseded; if that
 // supersede loses the race (something else already moved the old release on),
 // the old release's current tasks must still be carried into the new one.
 func TestSupersedeReleaseCarriesTasksForwardWhenTheRaceIsLost(t *testing.T) {
@@ -423,7 +423,7 @@ func TestSupersedeReleaseCarriesTasksForwardWhenTheRaceIsLost(t *testing.T) {
 	assert.Equal(t, domain.ReleaseFailed, stillFailed.Status, "the race winner's status must not be overwritten")
 }
 
-// M1: every waiting task of the component must land in ONE release, not one
+// every waiting task of the component must land in ONE release, not one
 // release per task, and the release engineer is woken once.
 func TestOpenPendingOpensOneReleaseForEveryWaitingTaskAndWakesOnce(t *testing.T) {
 	repositoryID := uuid.New()
@@ -457,7 +457,7 @@ func TestOpenPendingOpensOneReleaseForEveryWaitingTaskAndWakesOnce(t *testing.T)
 	assert.Len(t, release.Tasks, 2)
 }
 
-// M11: a done task that never merged (MergeGate refused it while the
+// a done task that never merged (MergeGate refused it while the
 // delivery profile was unconfirmed) must be woken once the profile is
 // confirmed, or nothing would ever retry its merge.
 func TestOpenPendingWakesUnmergedDoneTasksOfTheComponent(t *testing.T) {
@@ -482,7 +482,7 @@ func TestOpenPendingWakesUnmergedDoneTasksOfTheComponent(t *testing.T) {
 	assert.Equal(t, unmerged.ID, waker.calls[0].task.ID)
 }
 
-// M8: a task whose only release is a draft left behind by its component
+// a task whose only release is a draft left behind by its component
 // leaving batch mode must be pulled out of that draft and opened normally;
 // the emptied draft is marked superseded.
 func TestOpenPendingPullsAStrandedDraftTaskOutWhenComponentLeavesBatchMode(t *testing.T) {

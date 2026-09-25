@@ -1,6 +1,6 @@
 package release
 
-// §M13: a provider rollback target must be a production-target deployment
+// A provider rollback target must be a production-target deployment
 // that is NOT one of the release's own (bad) commits — never a preview build,
 // and never a deployment the review found reachable simply because it was
 // the newest READY one before the release's own deploy started.

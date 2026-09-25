@@ -697,7 +697,7 @@ func TestStatusJobsListErrorReturnsPendingNotEmpty(t *testing.T) {
 }
 
 // StatusForCommitSince narrows StatusForCommit to Actions runs started at or
-// after since — a release rollback's redeploy watch (§H1), which reuses the
+// after since — a release rollback's redeploy watch, which reuses the
 // SAME sha/workflow an earlier release (or a prior failed rollback attempt)
 // already ran and must not read that other run's outcome as its own.
 

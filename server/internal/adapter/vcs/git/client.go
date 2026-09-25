@@ -817,7 +817,7 @@ func (c *Client) RevertOnDefaultBranch(ctx context.Context, rootPath string, sha
 }
 
 // revertOrderNewestFirst sorts shas newest-first by git's own commit graph
-// (§H5), ignoring whatever order the caller passed in — release_tasks'
+// , ignoring whatever order the caller passed in — release_tasks'
 // added_at (what the caller's best-effort order is built from) can tie or be
 // out of order for carried tasks, and reverting out of order conflicts with
 // itself (undoing an older change while a newer one still sits on top of it).

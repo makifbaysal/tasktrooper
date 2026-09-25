@@ -22,7 +22,7 @@ func (s *Service) Watch(ctx context.Context, releaseID uuid.UUID) (domain.Releas
 	}
 	// Re-read right before reporting the park: the sweeper can settle a
 	// release between the read above and here, and parking it after that
-	// would strand the card until the watchdog's re-wake caught it (M2).
+	// would strand the card until the watchdog's re-wake caught it.
 	fresh, err := s.store.Get(ctx, releaseID)
 	if err != nil {
 		return domain.Release{}, nil, err

@@ -15,7 +15,7 @@ import (
 
 const DefaultSweepInterval = 30 * time.Second
 
-// sweepBatch is also the store's raised internal cap (L1): a request this
+// sweepBatch is also the store's raised internal cap: a request this
 // large used to come back silently truncated to the store's old 100-row
 // limit, stranding any watched release past the first 100.
 const sweepBatch = 1000
@@ -29,7 +29,7 @@ const (
 	rollbackNoSignalWait = 15 * time.Minute
 
 	// handBackReWakeInterval / handBackMaxReWakes bound the watchdog's re-wake
-	// of a settled release nobody is watching (M2): slow enough not to spam a
+	// of a settled release nobody is watching: slow enough not to spam a
 	// release a human is simply slow to look at, capped so a release that
 	// never gets a verdict does not wake forever.
 	handBackReWakeInterval = 10 * time.Minute
@@ -61,7 +61,7 @@ func (s *Service) Start(ctx context.Context, interval time.Duration) {
 }
 
 // SweepOnce advances every release the sweeper owns (Status.Watched()) by
-// one step, then runs the hand-back watchdog (M2). Every transition is an
+// one step, then runs the hand-back watchdog. Every transition is an
 // optimistic store.Update(r, expect): on ErrReleaseWrongStatus the release is
 // skipped — someone else (another sweep tick, an agent's Finish/Rollback)
 // already moved it.
@@ -99,7 +99,7 @@ func (s *Service) sweepWatchedReleases(ctx context.Context) {
 	}
 }
 
-// sweepReleaseWatchdog is the safety net around hand-back itself (M2). A card
+// sweepReleaseWatchdog is the safety net around hand-back itself. A card
 // parked on release_watch whose release already settled (a race between the
 // sweeper and Watch, a crash mid hand-back) is un-stuck immediately. A
 // settled release nobody has a parked card for (the agent run that would

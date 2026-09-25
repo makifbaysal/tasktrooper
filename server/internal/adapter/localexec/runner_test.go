@@ -187,7 +187,7 @@ func TestRunnerStartFailsOnAnEmptyArgv(t *testing.T) {
 	}
 }
 
-// L6: before Close existed, a still-running local build had nothing to stop
+// before Close existed, a still-running local build had nothing to stop
 // it on server shutdown — it (and its detached worktree) outlived the
 // process, or the data directory got torn down from under it. Close must
 // kill the process group promptly (not wait out the run's own long timeout)

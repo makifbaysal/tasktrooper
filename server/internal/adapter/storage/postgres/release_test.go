@@ -493,7 +493,7 @@ func (s *ReleaseStoreSuite) TestLocalRunAndStoreBuildsAndCutAtRoundTrip() {
 	s.Equal("no engine available", gotBuilds.StoreBuilds[1].Error)
 }
 
-// H5: within one Create, every release_tasks row must get a strictly later
+// within one Create, every release_tasks row must get a strictly later
 // added_at than the one before it — revert order (newest-first) and "the
 // newest task" both depend on that, and a shared now() (frozen for the whole
 // transaction) would tie every row inserted in the same Create.
@@ -529,7 +529,7 @@ func (s *ReleaseStoreSuite) TestCreateGivesEachTaskAStrictlyLaterAddedAt() {
 	s.Equal(taskC.ID, created.Tasks[2].ID)
 }
 
-// L1: an internal caller (the sweeper's watchdog) must be able to ask for
+// an internal caller (the sweeper's watchdog) must be able to ask for
 // more than the HTTP API's 100-row page and actually get it — the store used
 // to clamp every caller down to 100, stranding any watched release past the
 // first 100.

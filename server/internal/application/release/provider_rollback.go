@@ -76,7 +76,7 @@ func providerRollbackErrorDetail(err error) string {
 // serve again: the one whose commit matches the previous released release's
 // CommitSHA (prefix match, as the sweeper's vercel status match already
 // does), else the newest READY deployment created before this release's own
-// deploy started. Only production-target deployments are considered (§M13) —
+// deploy started. Only production-target deployments are considered —
 // a preview build, or a deployment of a commit this very release carries, is
 // never a valid rollback target even if it happens to be the newest READY
 // one before the release deployed.

@@ -21,7 +21,7 @@ const (
 
 // RunSmoke runs the frozen profile's smoke checks against the release's
 // verify target right now and returns the results. It deliberately does not
-// write them back (L3): an Update here races the sweeper's own Update of the
+// write them back: an Update here races the sweeper's own Update of the
 // same release, and losing that race used to just log a warning and silently
 // drop the run — a manual on-demand check is not evidence worth persisting
 // badly enough to risk a lost-update with the sweeper's transitions.

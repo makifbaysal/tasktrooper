@@ -83,7 +83,7 @@ func TestFinishAllowsAHumanToShipAFailedRelease(t *testing.T) {
 	assert.Equal(t, domain.ReleaseReleased, updated.Status)
 }
 
-// L4: Finish must only move tasks still sitting in done (or already
+// Finish must only move tasks still sitting in done (or already
 // released, a no-op); a task a human moved elsewhere (need_revision,
 // blocked) is left alone — the release's verdict is not license to override
 // that move.
