@@ -1428,6 +1428,27 @@ func (s *BoardTaskStore) SetTaskMergeCommit(ctx context.Context, taskID uuid.UUI
 	return nil
 }
 
+// ResetMergeState undoes what SetTaskPullRequest/SetTaskMergeCommit recorded,
+// after a release rollback reverts the merge: the task must go through review
+// again and land on a fresh PR, and a stale merge_commit_sha would otherwise
+// have the deploy sweeper keep watching a commit production no longer runs.
+//
+// pr_url, pr_number and merge_commit_sha are nullable columns, cleared to
+// NULL like their setters above already treat as no PR / not merged;
+// verified_sha is NOT NULL DEFAULT the empty string (migration 078), so it
+// clears to empty rather than NULL.
+func (s *BoardTaskStore) ResetMergeState(ctx context.Context, taskID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE board_tasks
+		SET pr_url = NULL, pr_number = NULL, merge_commit_sha = NULL, verified_sha = '', updated_at = now()
+		WHERE id = $1
+	`, taskID)
+	if err != nil {
+		return fmt.Errorf("reset merge state: %w", err)
+	}
+	return nil
+}
+
 // FindTaskByMergeCommit resolves the task whose merge produced sha — the
 // reverse of SetTaskMergeCommit, asked from production's end when an
 // environment is unhealthy and the only thing known about it is which commit it
