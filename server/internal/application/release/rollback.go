@@ -16,7 +16,11 @@ import (
 func (s *Service) rollbackAllowed(ctx context.Context, r domain.Release) (bool, string) {
 	switch r.Status {
 	case domain.ReleaseFailed, domain.ReleaseAwaitingVerdict:
-		// fall through to the newer-open-release check below
+		// A newer release already shipped over this one: undoing this one now
+		// would redeploy past it.
+		if last, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, s.now()); err == nil && last.CreatedAt.After(r.CreatedAt) {
+			return false, fmt.Sprintf("a newer release (%s) has since shipped for this component", last.Version)
+		}
 	case domain.ReleaseReleased:
 		if r.FinishedAt == nil || s.now().Sub(*r.FinishedAt) > 24*time.Hour {
 			return false, "this release finished more than 24 hours ago"

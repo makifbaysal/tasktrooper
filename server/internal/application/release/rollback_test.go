@@ -1137,3 +1137,27 @@ func TestRollbackRefusesAFailedReleaseWithANewerOpenRelease(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
 	assert.Contains(t, err.Error(), "newer00")
 }
+
+func TestRollbackRefusesAFailedReleaseOnceANewerReleaseShipped(t *testing.T) {
+	store := newFakeReleaseStore()
+	componentID := uuid.New()
+	repoID := uuid.New()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	failed, err := store.Create(context.Background(), domain.Release{
+		RepositoryID: repoID, ComponentID: &componentID, Mode: domain.DeliveryDispatch,
+		Status: domain.ReleaseFailed, CommitSHA: "aaaaaaaaaaaa", CreatedAt: base,
+	}, nil)
+	require.NoError(t, err)
+	finished := base.Add(2 * time.Hour)
+	_, err = store.Create(context.Background(), domain.Release{
+		RepositoryID: repoID, ComponentID: &componentID, Mode: domain.DeliveryDispatch, Version: "bbbbbbbbbbbb",
+		Status: domain.ReleaseReleased, CommitSHA: "bbbbbbbbbbbb", CreatedAt: base.Add(time.Hour), FinishedAt: &finished,
+	}, nil)
+	require.NoError(t, err)
+	svc := New(Deps{Store: store, Clock: func() time.Time { return base.Add(3 * time.Hour) }})
+
+	_, err = svc.Rollback(context.Background(), failed.ID, domain.ReleaseActorHuman, domain.RollbackManual, "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
+	assert.Contains(t, err.Error(), "newer release")
+}
