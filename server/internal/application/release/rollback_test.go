@@ -275,6 +275,7 @@ func TestSweepRollingBackToRolledBackReopensTasks(t *testing.T) {
 	task := f.withTask(repositoryID, "T-1", mergeSHA)
 	f.parked.parked[task.ID] = task
 
+	startedAt := f.clock.Now()
 	r := domain.Release{
 		RepositoryID: repositoryID, ComponentID: &componentID, Status: domain.ReleaseRollingBack,
 		Version: "abcdef0", CommitSHA: mergeSHA,
@@ -283,12 +284,15 @@ func TestSweepRollingBackToRolledBackReopensTasks(t *testing.T) {
 			Reason: domain.RollbackHealthIncident, RevertSHA: "revert00000000000000000000000000000000",
 			RestoredRef: "revert00000000000000000000000000000000",
 			Mechanism:   domain.RollbackMechanismRevert,
-			StartedAt:   f.clock.Now(),
+			StartedAt:   startedAt,
 		},
 	}
 	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
 	require.NoError(t, err)
-	ds.set("revert00000000000000000000000000000000", "deploy.yml", domain.DeployWatchStatus{State: domain.DeployWatchSuccess})
+	// Keyed by since = Rollback.StartedAt (§H1) — a plain by-sha watch would
+	// also read the release's OWN original deploy of this tag, if any, as
+	// though it were the rollback's.
+	ds.setSince("revert00000000000000000000000000000000", "deploy.yml", startedAt, domain.DeployWatchStatus{State: domain.DeployWatchSuccess})
 
 	f.svc.sweepRollingBack(context.Background(), created)
 
@@ -314,18 +318,19 @@ func TestSweepRollingBackFailureIngestsAnIncident(t *testing.T) {
 	componentID := uuid.New()
 	task := f.withTask(repositoryID, "T-1", mergeSHA)
 
+	startedAt := f.clock.Now()
 	r := domain.Release{
 		RepositoryID: repositoryID, ComponentID: &componentID, Status: domain.ReleaseRollingBack,
 		CommitSHA: mergeSHA,
 		Profile:   deliveryProfile(domain.DeliveryDispatch, domain.ExecutorGitHubActions),
 		Rollback: &domain.ReleaseRollback{
 			Reason: domain.RollbackDeployFailed, RestoredRef: "restore0000000000000000000000000000000",
-			Mechanism: domain.RollbackMechanismWorkflow, StartedAt: f.clock.Now(),
+			Mechanism: domain.RollbackMechanismWorkflow, StartedAt: startedAt,
 		},
 	}
 	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
 	require.NoError(t, err)
-	ds.set("restore0000000000000000000000000000000", "deploy.yml", domain.DeployWatchStatus{State: domain.DeployWatchFailure, Detail: "workflow errored"})
+	ds.setSince("restore0000000000000000000000000000000", "deploy.yml", startedAt, domain.DeployWatchStatus{State: domain.DeployWatchFailure, Detail: "workflow errored"})
 
 	f.svc.sweepRollingBack(context.Background(), created)
 
@@ -352,7 +357,7 @@ func TestRollbackProviderSuccessOnMergeMatchesPreviousReleaseCommit(t *testing.T
 	}, nil)
 	require.NoError(t, err)
 	f.envs.deployments[envID] = []domain.CloudDeployment{
-		{ID: "dpl_prev", CommitSHA: "prevgoodsha0000000000000000000000000000", Status: domain.CloudDeployReady, CreatedAt: prevFinished},
+		{ID: "dpl_prev", CommitSHA: "prevgoodsha0000000000000000000000000000", Status: domain.CloudDeployReady, CreatedAt: prevFinished, Environment: domain.EnvironmentProduction},
 	}
 
 	task := f.withTask(repositoryID, "T-1", mergeSHA)
@@ -373,14 +378,18 @@ func TestRollbackProviderSuccessOnMergeMatchesPreviousReleaseCommit(t *testing.T
 	require.Len(t, f.reverter.calls, 1, "the revert always runs, provider rollback or not")
 }
 
-func TestRollbackProviderSuccessDispatchSkipsRedeployingPreviousRelease(t *testing.T) {
+// §H2: dispatch mode redeploys the previous release itself, so a provider
+// rollback must never even be attempted for it — pinning production via the
+// provider would immediately be undone by that redeploy, and then leave
+// automatic production assignment off for every later deploy.
+func TestRollbackDispatchNeverAttemptsAProviderRollback(t *testing.T) {
 	f := newRollbackFixture()
 	repositoryID := uuid.New()
 	componentID := uuid.New()
 	envID := f.bindProdEnv(repositoryID, componentID)
 	f.envs.rollbackable[envID] = true
 	f.envs.deployments[envID] = []domain.CloudDeployment{
-		{ID: "dpl_ready", Status: domain.CloudDeployReady, CreatedAt: f.clock.Now().Add(-30 * time.Minute)},
+		{ID: "dpl_ready", Status: domain.CloudDeployReady, CreatedAt: f.clock.Now().Add(-30 * time.Minute), Environment: domain.EnvironmentProduction},
 	}
 
 	task := f.withTask(repositoryID, "T-1", mergeSHA)
@@ -393,9 +402,10 @@ func TestRollbackProviderSuccessDispatchSkipsRedeployingPreviousRelease(t *testi
 	require.NoError(t, err)
 
 	require.NotNil(t, updated.Rollback)
-	assert.Equal(t, domain.RollbackMechanismProvider, updated.Rollback.Mechanism)
-	assert.Equal(t, "dpl_ready", updated.Rollback.ProviderDeploymentID)
-	assert.Empty(t, f.actions.dispatchCalls, "production is already restored — dispatch must not also redeploy the previous release")
+	assert.Equal(t, domain.RollbackMechanismWorkflow, updated.Rollback.Mechanism)
+	assert.Empty(t, updated.Rollback.ProviderDeploymentID)
+	assert.Empty(t, f.envs.rollbackCalls, "dispatch must never call the provider's rollback route")
+	require.Len(t, f.actions.dispatchCalls, 1, "dispatch redeploys the revert commit since there is no previous released release")
 }
 
 func TestRollbackProviderDeniedFallsBackToTheF1Mechanism(t *testing.T) {
@@ -405,7 +415,7 @@ func TestRollbackProviderDeniedFallsBackToTheF1Mechanism(t *testing.T) {
 	envID := f.bindProdEnv(repositoryID, componentID)
 	f.envs.rollbackable[envID] = true
 	f.envs.deployments[envID] = []domain.CloudDeployment{
-		{ID: "dpl_ready", Status: domain.CloudDeployReady, CreatedAt: f.clock.Now().Add(-30 * time.Minute)},
+		{ID: "dpl_ready", Status: domain.CloudDeployReady, CreatedAt: f.clock.Now().Add(-30 * time.Minute), Environment: domain.EnvironmentProduction},
 	}
 	f.envs.rollbackErr[envID] = port.ErrCloudWriteDenied
 
@@ -422,6 +432,8 @@ func TestRollbackProviderDeniedFallsBackToTheF1Mechanism(t *testing.T) {
 	assert.Empty(t, updated.Rollback.ProviderDeploymentID)
 }
 
+// on_merge, not dispatch (§H2) — an unsupported provider still falls back to
+// the revert-push mechanism cleanly.
 func TestRollbackProviderUnsupportedFallsBackToTheF1Mechanism(t *testing.T) {
 	f := newRollbackFixture()
 	repositoryID := uuid.New()
@@ -429,21 +441,21 @@ func TestRollbackProviderUnsupportedFallsBackToTheF1Mechanism(t *testing.T) {
 	envID := f.bindProdEnv(repositoryID, componentID)
 	f.envs.rollbackable[envID] = true
 	f.envs.deployments[envID] = []domain.CloudDeployment{
-		{ID: "dpl_ready", Status: domain.CloudDeployReady, CreatedAt: f.clock.Now().Add(-30 * time.Minute)},
+		{ID: "dpl_ready", Status: domain.CloudDeployReady, CreatedAt: f.clock.Now().Add(-30 * time.Minute), Environment: domain.EnvironmentProduction},
 	}
 	f.envs.rollbackErr[envID] = port.ErrUnsupported
 
 	task := f.withTask(repositoryID, "T-1", mergeSHA)
-	created, err := f.store.Create(context.Background(), awaitingVerdictRelease(repositoryID, componentID, domain.DeliveryDispatch, true), []uuid.UUID{task.ID})
+	created, err := f.store.Create(context.Background(), awaitingVerdictRelease(repositoryID, componentID, domain.DeliveryOnMerge, true), []uuid.UUID{task.ID})
 	require.NoError(t, err)
 
-	updated, err := f.svc.Rollback(context.Background(), created.ID, domain.ReleaseActorAgent, domain.RollbackDeployFailed, "deploy job red")
+	updated, err := f.svc.Rollback(context.Background(), created.ID, domain.ReleaseActorAgent, domain.RollbackHealthIncident, "health failing")
 	require.NoError(t, err)
 
 	require.NotNil(t, updated.Rollback)
-	assert.Equal(t, domain.RollbackMechanismWorkflow, updated.Rollback.Mechanism)
+	assert.Equal(t, domain.RollbackMechanismRevert, updated.Rollback.Mechanism)
 	assert.Contains(t, updated.Rollback.Detail, "not supported")
-	require.Len(t, f.actions.dispatchCalls, 1, "dispatch still redeploys the previous good release")
+	assert.Empty(t, f.actions.dispatchCalls, "on_merge never dispatches — the revert push itself redeploys")
 }
 
 func TestRollbackProviderCapabilityAbsentSkipsTheAttemptSilently(t *testing.T) {
@@ -630,4 +642,266 @@ func TestSweepRollingBackProviderTimesOutAfterThirtyMinutes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.ReleaseFailed, got.Status)
 	assert.Contains(t, got.FailureReason, "did not take effect")
+}
+
+// --- §H1: a dispatch redeploy that fails must fail the release, and that
+// status must survive, not be overwritten by rolling_back. ---
+
+func TestRollbackDispatchRedeployFailureForAnyReasonFailsTheRelease(t *testing.T) {
+	f := newRollbackFixture()
+	f.actions.dispatchErr = errors.New("connection reset by peer") // NOT a CI-unavailable text
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	task := f.withTask(repositoryID, "T-1", mergeSHA)
+	f.parked.parked[task.ID] = task
+	created, err := f.store.Create(context.Background(), awaitingVerdictRelease(repositoryID, componentID, domain.DeliveryDispatch, true), []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	updated, err := f.svc.Rollback(context.Background(), created.ID, domain.ReleaseActorAgent, domain.RollbackDeployFailed, "deploy job red")
+	require.NoError(t, err, "the revert itself succeeded — Rollback only reports an error when the revert fails")
+
+	assert.Equal(t, domain.ReleaseFailed, updated.Status, "a redeploy failure for ANY reason must fail the release, not leave it rolling_back")
+	assert.Contains(t, updated.FailureReason, "connection reset by peer")
+	require.NotNil(t, updated.Rollback)
+	assert.Equal(t, domain.RollbackMechanismWorkflow, updated.Rollback.Mechanism)
+	assert.NotEmpty(t, updated.Rollback.RevertSHA, "the revert landed even though the redeploy failed")
+	assert.Contains(t, f.parked.taken, task.ID, "a failed redeploy must hand back so the agent is woken")
+
+	got, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseFailed, got.Status, "the persisted status must also be failed, never rolling_back")
+}
+
+// The old by-sha watch would resolve the rollback's redeploy from the stale
+// (already green) run its own original release deploy left behind at the
+// same sha/workflow — StatusForCommitSince (keyed on Rollback.StartedAt) must
+// ignore it and keep the release rolling_back until a NEW run appears.
+func TestSweepRollingBackIgnoresARunThatStartedBeforeTheRollback(t *testing.T) {
+	f := newRollbackFixture()
+	ds := newFakeDeployStatus()
+	f.svc.deployStatus = ds
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	task := f.withTask(repositoryID, "T-1", mergeSHA)
+
+	startedAt := f.clock.Now()
+	r := domain.Release{
+		RepositoryID: repositoryID, ComponentID: &componentID, Status: domain.ReleaseRollingBack,
+		CommitSHA: mergeSHA,
+		Profile:   deliveryProfile(domain.DeliveryOnMerge, domain.ExecutorGitHubActions),
+		Rollback: &domain.ReleaseRollback{
+			Reason: domain.RollbackHealthIncident, RevertSHA: "revert00000000000000000000000000000000",
+			RestoredRef: "revert00000000000000000000000000000000",
+			Mechanism:   domain.RollbackMechanismRevert,
+			StartedAt:   startedAt,
+		},
+	}
+	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	// A stale run for the very same sha/workflow, from before the rollback
+	// even started (e.g. the release's own original deploy of this tag).
+	ds.set("revert00000000000000000000000000000000", "deploy.yml", domain.DeployWatchStatus{State: domain.DeployWatchSuccess})
+
+	f.svc.sweepRollingBack(context.Background(), created)
+
+	got, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseRollingBack, got.Status, "the stale run must not be read as the rollback's own")
+}
+
+// --- §H3: a revert failure after a successful provider rollback must say so
+// and keep the provider outcome on the record. ---
+
+func TestRollbackRevertFailureAfterProviderSuccessKeepsTheProviderOutcome(t *testing.T) {
+	f := newRollbackFixture()
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	envID := f.bindProdEnv(repositoryID, componentID)
+	f.envs.rollbackable[envID] = true
+	f.envs.deployments[envID] = []domain.CloudDeployment{
+		{ID: "dpl_prev", Status: domain.CloudDeployReady, CreatedAt: f.clock.Now().Add(-time.Hour), Environment: domain.EnvironmentProduction},
+	}
+	f.reverter.err = errors.New("conflict in server/internal/foo.go")
+
+	task := f.withTask(repositoryID, "T-1", mergeSHA)
+	f.parked.parked[task.ID] = task
+	created, err := f.store.Create(context.Background(), awaitingVerdictRelease(repositoryID, componentID, domain.DeliveryOnMerge, true), []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	_, err = f.svc.Rollback(context.Background(), created.ID, domain.ReleaseActorAgent, domain.RollbackHealthIncident, "health failing")
+	require.Error(t, err)
+
+	got, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseFailed, got.Status)
+	assert.Contains(t, got.FailureReason, "production WAS rolled back")
+	assert.Contains(t, got.FailureReason, "was NOT reverted")
+	require.NotNil(t, got.Rollback, "the provider outcome must survive the revert failure")
+	assert.Equal(t, domain.RollbackMechanismProvider, got.Rollback.Mechanism)
+	assert.Equal(t, "dpl_prev", got.Rollback.ProviderDeploymentID)
+	require.Len(t, f.envs.rollbackCalls, 1)
+	assert.Contains(t, f.parked.taken, task.ID, "a revert failure must still hand back so a human is woken")
+}
+
+// --- §M3: Rollback claims rolling_back BEFORE any side effect. ---
+
+func TestRollbackClaimsRollingBackBeforeTheRevertRuns(t *testing.T) {
+	f := newRollbackFixture()
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	task := f.withTask(repositoryID, "T-1", mergeSHA)
+	created, err := f.store.Create(context.Background(), awaitingVerdictRelease(repositoryID, componentID, domain.DeliveryOnMerge, true), []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	observed := observingReverter{store: f.store, releaseID: created.ID, sha: "revertobserved00000000000000000000000000"}
+	f.svc.reverter = &observed
+
+	updated, err := f.svc.Rollback(context.Background(), created.ID, domain.ReleaseActorAgent, domain.RollbackHealthIncident, "health failing")
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseRollingBack, updated.Status)
+
+	require.True(t, observed.sawClaim, "the reverter must run after the claiming Update, not before")
+	assert.Equal(t, domain.ReleaseRollingBack, observed.statusAtRevertTime)
+	assert.Empty(t, observed.restoredRefAtRevertTime, "RestoredRef is not filled until the outcome Update, after the revert")
+}
+
+// observingReverter is release.Reverter: it reads the release straight out of
+// the store the instant it is invoked, so a test can see exactly what
+// Rollback persisted before running any side effect (§M3).
+type observingReverter struct {
+	store     *fakeReleaseStore
+	releaseID uuid.UUID
+	sha       string
+
+	sawClaim                bool
+	statusAtRevertTime      domain.ReleaseStatus
+	restoredRefAtRevertTime string
+}
+
+func (o *observingReverter) RevertOnDefaultBranch(ctx context.Context, _ string, _ []string, _ string) (string, error) {
+	r, err := o.store.Get(ctx, o.releaseID)
+	if err == nil {
+		o.sawClaim = true
+		o.statusAtRevertTime = r.Status
+		if r.Rollback != nil {
+			o.restoredRefAtRevertTime = r.Rollback.RestoredRef
+		}
+	}
+	return o.sha, nil
+}
+
+// A rolling_back release whose Rollback.RestoredRef never got filled (the
+// process died between the claim and the outcome Update) must eventually be
+// failed by the sweeper, not left stuck forever — but only after a grace
+// window, since a brand-new claim looks the same for the moment its own
+// side effects take.
+func TestSweepRollingBackFailsAnAbandonedClaimAfterTheGraceWindow(t *testing.T) {
+	f := newRollbackFixture()
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	task := f.withTask(repositoryID, "T-1", mergeSHA)
+	startedAt := f.clock.Now()
+	r := domain.Release{
+		RepositoryID: repositoryID, ComponentID: &componentID, Status: domain.ReleaseRollingBack,
+		CommitSHA: mergeSHA,
+		Profile:   deliveryProfile(domain.DeliveryOnMerge, domain.ExecutorGitHubActions),
+		Rollback:  &domain.ReleaseRollback{Reason: domain.RollbackHealthIncident, StartedAt: startedAt},
+	}
+	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	f.svc.sweepRollingBack(context.Background(), created)
+	stillWaiting, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseRollingBack, stillWaiting.Status, "within the grace window a claim with no RestoredRef yet is normal")
+
+	f.clock.Advance(6 * time.Minute)
+	f.svc.sweepRollingBack(context.Background(), stillWaiting)
+
+	got, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseFailed, got.Status)
+	assert.Contains(t, got.FailureReason, "server may have restarted")
+}
+
+// --- §M4: retrying a failed rollback must not re-revert. ---
+
+func TestRollbackRetryAfterAFailedRedeploySkipsTheRevert(t *testing.T) {
+	f := newRollbackFixture()
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	task := f.withTask(repositoryID, "T-1", mergeSHA)
+	failed := awaitingVerdictRelease(repositoryID, componentID, domain.DeliveryDispatch, true)
+	failed.Status = domain.ReleaseFailed
+	deployedAt := f.clock.Now().Add(-2 * time.Hour)
+	failed.DeployedAt = &deployedAt
+	failed.FailureReason = "the rollback deploy failed — production may still run the bad release: boom"
+	failed.Rollback = &domain.ReleaseRollback{
+		Reason: domain.RollbackDeployFailed, RevertSHA: "revertalreadydone000000000000000000000000",
+		Mechanism: domain.RollbackMechanismWorkflow, Actor: string(domain.ReleaseActorAgent), StartedAt: f.clock.Now().Add(-time.Minute),
+	}
+	created, err := f.store.Create(context.Background(), failed, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	updated, err := f.svc.Rollback(context.Background(), created.ID, domain.ReleaseActorAgent, domain.RollbackDeployFailed, "retrying")
+	require.NoError(t, err)
+
+	assert.Equal(t, domain.ReleaseRollingBack, updated.Status)
+	require.NotNil(t, updated.Rollback)
+	assert.Equal(t, "revertalreadydone000000000000000000000000", updated.Rollback.RevertSHA, "the earlier revert is reused, not redone")
+	assert.Empty(t, f.reverter.calls, "a retry must never revert a second time")
+	require.Len(t, f.actions.dispatchCalls, 1, "the redeploy itself is retried")
+}
+
+// --- §M5: refuse to roll back a released release while the component has a
+// newer open release. ---
+
+func TestRollbackRefusesAReleasedReleaseWithANewerOpenRelease(t *testing.T) {
+	f := newRollbackFixture()
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	finishedAt := f.clock.Now().Add(-time.Hour)
+	old, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, ComponentID: &componentID, Status: domain.ReleaseReleased,
+		CommitSHA: mergeSHA, FinishedAt: &finishedAt, CreatedAt: f.clock.Now().Add(-2 * time.Hour),
+		Profile: domain.ComponentDelivery{AutoRollback: true},
+	}, nil)
+	require.NoError(t, err)
+	_, err = f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, ComponentID: &componentID, Status: domain.ReleaseDeploying,
+		CommitSHA: "newer0000000000000000000000000000000000", CreatedAt: f.clock.Now(),
+		Version: "newer00",
+	}, nil)
+	require.NoError(t, err)
+
+	_, err = f.svc.Rollback(context.Background(), old.ID, domain.ReleaseActorAgent, domain.RollbackHealthIncident, "note")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
+	assert.Contains(t, err.Error(), "newer00")
+	assert.Empty(t, f.reverter.calls, "a refused rollback must never touch the default branch")
+}
+
+// A failed/awaiting_verdict release is neither Open() nor Terminal(), so a
+// later merge's OpenForMerge never supersedes it — the newer-open-release
+// check has to apply to it too, not just to released.
+func TestRollbackRefusesAFailedReleaseWithANewerOpenRelease(t *testing.T) {
+	f := newRollbackFixture()
+	repositoryID := uuid.New()
+	componentID := uuid.New()
+	task := f.withTask(repositoryID, "T-1", mergeSHA)
+	stuck := awaitingVerdictRelease(repositoryID, componentID, domain.DeliveryDispatch, true)
+	stuck.Status = domain.ReleaseFailed
+	stuck.CreatedAt = f.clock.Now().Add(-time.Hour)
+	old, err := f.store.Create(context.Background(), stuck, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	_, err = f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, ComponentID: &componentID, Status: domain.ReleasePending,
+		CommitSHA: "newer0000000000000000000000000000000000", CreatedAt: f.clock.Now(), Version: "newer00",
+	}, nil)
+	require.NoError(t, err)
+
+	_, err = f.svc.Rollback(context.Background(), old.ID, domain.ReleaseActorAgent, domain.RollbackDeployFailed, "note")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, domain.ErrReleaseWrongStatus)
+	assert.Contains(t, err.Error(), "newer00")
 }

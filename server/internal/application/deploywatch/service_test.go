@@ -695,3 +695,65 @@ func TestStatusJobsListErrorReturnsPendingNotEmpty(t *testing.T) {
 		t.Fatal("a jobs-list failure must not fall through to the commit-status path")
 	}
 }
+
+// StatusForCommitSince narrows StatusForCommit to Actions runs started at or
+// after since — a release rollback's redeploy watch (§H1), which reuses the
+// SAME sha/workflow an earlier release (or a prior failed rollback attempt)
+// already ran and must not read that other run's outcome as its own.
+
+func TestStatusForCommitSinceIgnoresARunStartedBeforeSince(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	since := fixed
+	h.actions.workflowRuns = map[string][]port.ActionsRun{
+		"deploy-prod.yml": {deployRunAt(1, mergeSHA, "completed", "success", since.Add(-time.Hour))},
+	}
+
+	got, err := h.svc.StatusForCommitSince(context.Background(), repoID, mergeSHA, "deploy-prod.yml", since)
+	if err != nil {
+		t.Fatalf("StatusForCommitSince: %v", err)
+	}
+	if got.State != domain.DeployWatchPending {
+		t.Fatalf("state = %q, want pending — the only run for this sha/workflow started before the rollback began", got.State)
+	}
+	if h.actions.commitCalls != 0 {
+		t.Fatal("a since-narrowed miss must not fall back to the commit-status signal — it carries no timestamp to pin to since either")
+	}
+}
+
+func TestStatusForCommitSinceFindsARunStartedAfterSince(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	since := fixed
+	h.actions.workflowRuns = map[string][]port.ActionsRun{
+		"deploy-prod.yml": {
+			deployRunAt(1, mergeSHA, "completed", "success", since.Add(-time.Hour)), // the OLD, stale run
+			deployRunAt(2, mergeSHA, "completed", "success", since.Add(time.Minute)),
+		},
+	}
+	h.actions.jobsByRun[2] = jobs(job(1, "deploy", "completed", "success"))
+
+	got, err := h.svc.StatusForCommitSince(context.Background(), repoID, mergeSHA, "deploy-prod.yml", since)
+	if err != nil {
+		t.Fatalf("StatusForCommitSince: %v", err)
+	}
+	if got.State != domain.DeployWatchSuccess {
+		t.Fatalf("state = %q, want success — run 2 started after since", got.State)
+	}
+	if got.RunID != 2 {
+		t.Fatalf("run id = %d, want the new run (2), not the stale one (1)", got.RunID)
+	}
+}
+
+func TestStatusForCommitSinceStillFindsARunWhenNoWorkflowFilterIsGiven(t *testing.T) {
+	h := newHarness(t, releasedTask(), domain.DeployTarget{Env: domain.DeployEnvProd})
+	since := fixed
+	h.actions.runsForCommit = actionRuns(deployRunAt(3, mergeSHA, "completed", "success", since.Add(time.Minute)))
+	h.actions.jobsByRun[3] = jobs(job(1, "deploy", "completed", "success"))
+
+	got, err := h.svc.StatusForCommitSince(context.Background(), repoID, mergeSHA, "", since)
+	if err != nil {
+		t.Fatalf("StatusForCommitSince: %v", err)
+	}
+	if got.State != domain.DeployWatchSuccess {
+		t.Fatalf("state = %q, want success from the matched deploy job", got.State)
+	}
+}

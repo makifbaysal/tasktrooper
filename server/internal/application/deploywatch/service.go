@@ -156,9 +156,61 @@ func (s *Service) StatusForCommit(ctx context.Context, repositoryID uuid.UUID, s
 		return out, nil
 	}
 
-	resolved, err := s.resolveForCommit(ctx, repositoryID, sha, workflow)
+	resolved, err := s.resolveForCommit(ctx, repositoryID, sha, workflow, time.Time{})
 	if err != nil {
 		return out, err
+	}
+	return s.finish(mergeStatus(out, resolved)), nil
+}
+
+// StatusForCommitSince is StatusForCommit narrowed to Actions runs started at
+// or after since. A rollback redeploys the same sha/workflow an earlier
+// release already ran (dispatch mode reuses the previous release's tag, and a
+// retry reuses the failed attempt's own tag), so watching by sha alone would
+// read that OTHER run's outcome as if it were the rollback's; since pins the
+// watch to a run that only exists because the rollback dispatched it. It does
+// not fall back to the commit-status signal (StatusForCommit's plain-commit
+// fallback carries no timestamp of its own, so it cannot be pinned to since
+// either) — no qualifying run is reported pending, exactly like a deploy that
+// has dispatched but not shown up yet.
+func (s *Service) StatusForCommitSince(ctx context.Context, repositoryID uuid.UUID, sha, workflow string, since time.Time) (domain.DeployWatchStatus, error) {
+	if s.actions == nil || s.coords == nil {
+		return domain.DeployWatchStatus{}, ErrNotConfigured
+	}
+	sha = strings.TrimSpace(sha)
+	out := domain.DeployWatchStatus{
+		RepositoryID: repositoryID,
+		Env:          domain.DeployEnvProd,
+		MergeSHA:     sha,
+		State:        domain.DeployWatchPending,
+		Signal:       domain.DeploySignalNone,
+		CheckedAt:    s.now(),
+	}
+	if sha == "" {
+		out.State = domain.DeployWatchUnknown
+		out.Detail = "No commit sha was given to watch."
+		return out, nil
+	}
+
+	repo, err := s.repos.Get(ctx, repositoryID)
+	if err != nil {
+		return domain.DeployWatchStatus{}, fmt.Errorf("deploy watch: loading repository: %w", err)
+	}
+	owner, name, err := s.coords(ctx, repo)
+	if err != nil {
+		return domain.DeployWatchStatus{}, fmt.Errorf("deploy watch: resolving repository coordinates: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+	defer cancel()
+
+	resolved, ok, err := s.actionsSignal(ctx, repositoryID, owner, name, sha, workflow, since)
+	if err != nil {
+		return domain.DeployWatchStatus{}, err
+	}
+	if !ok {
+		out.Detail = fmt.Sprintf("No Actions run for %s has started since the rollback began.", domain.ShortSHA(sha))
+		return out, nil
 	}
 	return s.finish(mergeStatus(out, resolved)), nil
 }
@@ -190,7 +242,7 @@ func (s *Service) statusForTask(ctx context.Context, task domain.BoardTask) (dom
 		return out, nil
 	}
 
-	resolved, err := s.resolveForCommit(ctx, task.RepositoryID, out.MergeSHA, "")
+	resolved, err := s.resolveForCommit(ctx, task.RepositoryID, out.MergeSHA, "", time.Time{})
 	if err != nil {
 		return out, err
 	}
@@ -199,8 +251,10 @@ func (s *Service) statusForTask(ctx context.Context, task domain.BoardTask) (dom
 
 // resolveForCommit is the Actions-run / commit-status resolution shared by
 // statusForTask and StatusForCommit; only the workflow filter differs between
-// the two callers.
-func (s *Service) resolveForCommit(ctx context.Context, repositoryID uuid.UUID, sha, workflow string) (domain.DeployWatchStatus, error) {
+// the two callers. since is always zero here — StatusForCommitSince does its
+// own resolution because a since-narrowed miss must not fall back to the
+// commit-status signal (see its doc comment).
+func (s *Service) resolveForCommit(ctx context.Context, repositoryID uuid.UUID, sha, workflow string, since time.Time) (domain.DeployWatchStatus, error) {
 	repo, err := s.repos.Get(ctx, repositoryID)
 	if err != nil {
 		return domain.DeployWatchStatus{}, fmt.Errorf("deploy watch: loading repository: %w", err)
@@ -213,7 +267,7 @@ func (s *Service) resolveForCommit(ctx context.Context, repositoryID uuid.UUID, 
 	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
 
-	if resolved, ok, rerr := s.actionsSignal(ctx, repositoryID, owner, name, sha, workflow); rerr != nil {
+	if resolved, ok, rerr := s.actionsSignal(ctx, repositoryID, owner, name, sha, workflow, since); rerr != nil {
 		return domain.DeployWatchStatus{}, rerr
 	} else if ok {
 		return resolved, nil
@@ -251,9 +305,10 @@ func (s *Service) resolveForCommit(ctx context.Context, repositoryID uuid.UUID, 
 // workflow file is one of the repository's mapped prod/preprod deploy targets
 // — the whole run's conclusion when no job matches by name. workflow != ""
 // restricts to that workflow's runs outright, so every one of them counts as
-// a deploy run by the same whole-run rule.
-func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, owner, name, sha, workflow string) (domain.DeployWatchStatus, bool, error) {
-	runs, err := s.deployRunsForCommit(ctx, owner, name, sha, workflow)
+// a deploy run by the same whole-run rule. since, when non-zero, drops runs
+// started before it (StatusForCommitSince).
+func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, owner, name, sha, workflow string, since time.Time) (domain.DeployWatchStatus, bool, error) {
+	runs, err := s.deployRunsForCommit(ctx, owner, name, sha, workflow, since)
 	if err != nil {
 		return domain.DeployWatchStatus{}, false, err
 	}
@@ -346,22 +401,35 @@ func (s *Service) actionsSignal(ctx context.Context, repositoryID uuid.UUID, own
 // for the commit when workflow is unset, or just that workflow file's runs —
 // listed by file rather than filtered by name afterwards, because a run does
 // not otherwise carry its workflow file — narrowed to the ones whose head sha
-// is the commit.
-func (s *Service) deployRunsForCommit(ctx context.Context, owner, name, sha, workflow string) ([]port.ActionsRun, error) {
+// is the commit, and, when since is non-zero, to the ones started at or after
+// it.
+func (s *Service) deployRunsForCommit(ctx context.Context, owner, name, sha, workflow string, since time.Time) ([]port.ActionsRun, error) {
+	var runs []port.ActionsRun
 	if workflow == "" {
-		runs, err := s.actions.ListRunsForCommit(ctx, owner, name, sha)
+		found, err := s.actions.ListRunsForCommit(ctx, owner, name, sha)
 		if err != nil {
 			return nil, fmt.Errorf("deploy watch: listing runs for commit: %w", err)
 		}
-		return runs, nil
+		runs = found
+	} else {
+		found, err := s.actions.ListWorkflowRuns(ctx, owner, name, workflow, "")
+		if err != nil {
+			return nil, fmt.Errorf("deploy watch: listing %s runs: %w", workflow, err)
+		}
+		out := make([]port.ActionsRun, 0, len(found))
+		for _, r := range found {
+			if strings.EqualFold(strings.TrimSpace(r.HeadSHA), sha) {
+				out = append(out, r)
+			}
+		}
+		runs = out
 	}
-	runs, err := s.actions.ListWorkflowRuns(ctx, owner, name, workflow, "")
-	if err != nil {
-		return nil, fmt.Errorf("deploy watch: listing %s runs: %w", workflow, err)
+	if since.IsZero() {
+		return runs, nil
 	}
 	out := make([]port.ActionsRun, 0, len(runs))
 	for _, r := range runs {
-		if strings.EqualFold(strings.TrimSpace(r.HeadSHA), sha) {
+		if !r.RunStartedAt.Before(since) {
 			out = append(out, r)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -263,4 +264,13 @@ func commitSignal(kind, state, ctxName string) port.CommitDeploySignal {
 		sig.Contexts = []string{ctxName}
 	}
 	return sig
+}
+
+// deployRunAt is deployRun plus RunStartedAt, for StatusForCommitSince tests
+// (§H1): the since-narrowed watch only counts runs started at or after a
+// given time, which deployRun's fixed zero-value RunStartedAt cannot exercise.
+func deployRunAt(id int64, headSHA, status, conclusion string, startedAt time.Time) port.ActionsRun {
+	r := deployRun(id, headSHA, status, conclusion)
+	r.RunStartedAt = startedAt
+	return r
 }

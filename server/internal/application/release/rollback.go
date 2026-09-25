@@ -16,25 +16,58 @@ import (
 func (s *Service) rollbackAllowed(ctx context.Context, r domain.Release) (bool, string) {
 	switch r.Status {
 	case domain.ReleaseFailed, domain.ReleaseAwaitingVerdict:
-		return true, ""
+		// fall through to the newer-open-release check below
 	case domain.ReleaseReleased:
+		if r.FinishedAt == nil || s.now().Sub(*r.FinishedAt) > 24*time.Hour {
+			return false, "this release finished more than 24 hours ago"
+		}
+		last, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, s.now())
+		if err != nil {
+			if errors.Is(err, domain.ErrReleaseNotFound) {
+				return false, "no released release was found for this component"
+			}
+			return false, "the component's newest released release could not be resolved: " + err.Error()
+		}
+		if last.ID != r.ID {
+			return false, fmt.Sprintf("a newer release (%s) has since shipped for this component", last.Version)
+		}
 	default:
 		return false, fmt.Sprintf("this release is %s", r.Status)
 	}
-	if r.FinishedAt == nil || s.now().Sub(*r.FinishedAt) > 24*time.Hour {
-		return false, "this release finished more than 24 hours ago"
-	}
-	last, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, s.now())
-	if err != nil {
-		if errors.Is(err, domain.ErrReleaseNotFound) {
-			return false, "no released release was found for this component"
-		}
-		return false, "the component's newest released release could not be resolved: " + err.Error()
-	}
-	if last.ID != r.ID {
-		return false, fmt.Sprintf("a newer release (%s) has since shipped for this component", last.Version)
+	// A failed/awaiting_verdict release is neither Open() nor Terminal(), so
+	// OpenForMerge's take-over-an-open-release logic never supersedes it —
+	// a later merge can open its own release right beside it. Rolling this
+	// one back now would fight that newer release for the branch/tag.
+	if version, ok := s.newerOpenRelease(ctx, r); ok {
+		return false, fmt.Sprintf("the component has a newer open release (%s) — resolve that one first", version)
 	}
 	return true, ""
+}
+
+// newerOpenRelease answers whether the component has an Open() release
+// created after r that is not r itself.
+func (s *Service) newerOpenRelease(ctx context.Context, r domain.Release) (string, bool) {
+	if r.ComponentID == nil {
+		return "", false
+	}
+	componentID := *r.ComponentID
+	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
+		RepositoryID: &r.RepositoryID,
+		ComponentID:  &componentID,
+		Statuses: []domain.ReleaseStatus{
+			domain.ReleasePending, domain.ReleaseDeploying, domain.ReleaseVerifying, domain.ReleaseAwaitingVerdict,
+		},
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: checking for a newer open release before rollback failed")
+		return "", false
+	}
+	for _, other := range releases {
+		if other.ID != r.ID && other.CreatedAt.After(r.CreatedAt) {
+			return other.Version, true
+		}
+	}
+	return "", false
 }
 
 // Rollback undoes a release: it always reverts the release's merge commits
@@ -68,43 +101,92 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		return domain.Release{}, fmt.Errorf("no git reverter is configured on this deployment")
 	}
 
-	// Provider rollback runs BEFORE the revert: it is seconds, the revert (and
-	// any dispatch redeploy) is minutes, and production should stop serving
-	// the bad release as fast as possible. Batch releases have no comparable
-	// bound-environment notion, and a release that never deployed put nothing
-	// on the provider to roll back, so neither attempts it.
-	neverDeployed := r.DeployedAt == nil && r.Status == domain.ReleaseFailed
+	// A retry (§M4): the previous attempt already landed a revert (its sha
+	// survived onto r.Rollback even if that attempt then failed a later
+	// step), so redoing it would try to revert commits no longer on top of
+	// the default branch. Only the mechanism-specific redeploy/promote is
+	// retried.
+	retry := r.Rollback != nil && strings.TrimSpace(r.Rollback.RevertSHA) != ""
+	// A release that never deployed put nothing on the provider or the
+	// default branch's HEAD build to roll back beyond the revert itself —
+	// computed from expect (the status as read) because the claim below
+	// moves r.Status to rolling_back before this is used again. Never true on
+	// a retry: the earlier attempt already resolved this once, and expect at
+	// that point is the earlier attempt's OWN outcome (e.g. failed because
+	// ITS redeploy failed), not the original pre-rollback state.
+	neverDeployed := !retry && r.DeployedAt == nil && expect == domain.ReleaseFailed
+
+	rollback := &domain.ReleaseRollback{
+		Reason:    reason,
+		Note:      note,
+		Actor:     string(actor),
+		StartedAt: s.now(),
+	}
+	var priorProvider providerRollbackAttempt
+	if retry {
+		rollback.RevertSHA = r.Rollback.RevertSHA
+		rollback.ManualSteps = r.Rollback.ManualSteps
+		if r.Rollback.Mechanism == domain.RollbackMechanismProvider {
+			priorProvider = providerRollbackAttempt{success: true, targetID: r.Rollback.ProviderDeploymentID, detail: r.Rollback.Detail}
+		}
+	} else {
+		rollback.ManualSteps = s.manualStepsFor(ctx, r)
+	}
+
+	// Claim BEFORE any side effect (§M3): a Finish, a supersede or a second
+	// concurrent Rollback racing this one now loses its own conditional
+	// Update instead of the two mutating production together. Should the
+	// process die between this claim and the outcome Update below, the
+	// release is left rolling_back with Rollback.RestoredRef still empty —
+	// the sweeper's grace window (sweepRollingBack) is what notices and
+	// fails it instead of leaving it stuck forever.
+	r.Rollback = rollback
+	r.Status = domain.ReleaseRollingBack
+	claimed, err := s.store.Update(ctx, r, expect)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	r = claimed
+	rollback = r.Rollback
+
+	// Provider rollback runs BEFORE the revert (on_merge only — §H2): it is
+	// seconds, the revert (and any dispatch redeploy) is minutes, and
+	// production should stop serving the bad release as fast as possible.
+	// Dispatch redeploys the previous release's own workflow run, which would
+	// immediately undo a pinned provider rollback and then leave automatic
+	// production assignment off for every later deploy; batch releases have
+	// no comparable bound-environment notion. A retry reuses whatever the
+	// earlier attempt already recorded instead of repeating it.
 	var provider providerRollbackAttempt
-	if r.Mode != domain.DeliveryBatch && !neverDeployed {
+	switch {
+	case retry:
+		provider = priorProvider
+	case r.Mode == domain.DeliveryOnMerge && !neverDeployed:
 		provider = s.attemptProviderRollback(ctx, r)
 	}
 
-	shas := revertSHAsNewestFirst(r.Tasks)
-	if len(shas) == 0 {
-		shas = []string{r.CommitSHA}
-	}
-	revertSHA, revertErr := s.reverter.RevertOnDefaultBranch(ctx, repo.RootPath, shas, revertCommitMessage(r))
-	if revertErr != nil {
-		r.Status = domain.ReleaseFailed
-		r.FailureReason = "nothing was reverted; production is unchanged: " + revertErr.Error()
-		if _, uerr := s.store.Update(ctx, r, expect); uerr != nil {
-			log.Warn().Err(uerr).Str("release_id", r.ID.String()).Msg("release: recording a failed revert failed")
+	var revertSHA string
+	if retry {
+		revertSHA = rollback.RevertSHA
+	} else {
+		shas := revertSHAsNewestFirst(r.Tasks)
+		if len(shas) == 0 {
+			shas = []string{r.CommitSHA}
 		}
-		return domain.Release{}, fmt.Errorf("reverting the release's commits on the default branch: %w", revertErr)
+		sha, revertErr := s.reverter.RevertOnDefaultBranch(ctx, repo.RootPath, shas, revertCommitMessage(r))
+		if revertErr != nil {
+			s.recordRevertFailure(ctx, r, rollback, provider, revertErr)
+			return domain.Release{}, fmt.Errorf("reverting the release's commits on the default branch: %w", revertErr)
+		}
+		revertSHA = sha
+		rollback.RevertSHA = revertSHA
 	}
-
-	rollback := &domain.ReleaseRollback{
-		Reason:      reason,
-		Note:        note,
-		RevertSHA:   revertSHA,
-		ManualSteps: s.manualStepsFor(ctx, r),
-		Actor:       string(actor),
-		StartedAt:   s.now(),
-		Detail:      provider.detail,
+	if provider.detail != "" {
+		rollback.Detail = provider.detail
 	}
 
 	if r.Mode == domain.DeliveryBatch {
-		return s.finishBatchRollback(ctx, r, expect, rollback)
+		return s.finishBatchRollback(ctx, r, domain.ReleaseRollingBack, rollback)
 	}
 
 	if neverDeployed {
@@ -115,7 +197,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		r.Status = domain.ReleaseRolledBack
 		now := s.now()
 		r.FinishedAt = &now
-		updated, uerr := s.store.Update(ctx, r, expect)
+		updated, uerr := s.store.Update(ctx, r, domain.ReleaseRollingBack)
 		if uerr != nil {
 			return domain.Release{}, uerr
 		}
@@ -141,19 +223,54 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		}
 	}
 
+	// r.Status only changes above (rollbackDispatch's ANY-error path sets it
+	// to failed — §H1); it is never reset to rolling_back here, or a failed
+	// redeploy would look like an in-flight rollback the sweeper waits on
+	// forever instead of a release a human must look at.
 	r.Rollback = rollback
-	r.Status = domain.ReleaseRollingBack
-	updated, err := s.store.Update(ctx, r, expect)
+	updated, err := s.store.Update(ctx, r, domain.ReleaseRollingBack)
 	if err != nil {
 		return domain.Release{}, err
+	}
+	if updated.Status == domain.ReleaseFailed {
+		s.handBack(ctx, updated)
 	}
 	return updated, nil
 }
 
+// recordRevertFailure persists why the revert did not land. When a provider
+// rollback ran first and succeeded, production already stopped serving the
+// bad release even though the default branch was not touched — the outcome
+// says so explicitly (a stock "production is unchanged" would be false) and
+// keeps the provider mechanism on the record, so a human knows the branch
+// itself still needs a revert/merge; auto-assignment stays off until this
+// release reaches released again.
+func (s *Service) recordRevertFailure(ctx context.Context, r domain.Release, rollback *domain.ReleaseRollback, provider providerRollbackAttempt, revertErr error) {
+	r.Status = domain.ReleaseFailed
+	if provider.success {
+		rollback.Mechanism = domain.RollbackMechanismProvider
+		rollback.ProviderDeploymentID = provider.targetID
+		rollback.Detail = provider.detail
+		r.Rollback = rollback
+		r.FailureReason = fmt.Sprintf(
+			"production WAS rolled back to the provider's earlier deployment %s, but the default branch was NOT reverted (%s) — a human must revert or merge the fix; auto-assignment stays off until a promote.",
+			provider.targetID, revertErr.Error())
+	} else {
+		r.FailureReason = "nothing was reverted; production is unchanged: " + revertErr.Error()
+	}
+	updated, uerr := s.store.Update(ctx, r, domain.ReleaseRollingBack)
+	if uerr != nil {
+		log.Warn().Err(uerr).Str("release_id", r.ID.String()).Msg("release: recording a failed revert failed")
+		return
+	}
+	s.handBack(ctx, updated)
+}
+
 // rollbackDispatch resolves and redeploys the previous good release for a
-// dispatch-mode component; a dispatch refused for a CI-unavailable reason
-// fails the release immediately (the revert already landed, so production
-// is not running the bad code even though nothing new was deployed).
+// dispatch-mode component. A redeploy that fails for ANY reason fails the
+// release (§H1): the revert already landed, so production is not running the
+// bad code, but nothing new was deployed either — a human has to look at it
+// rather than the sweeper waiting on a redeploy that was never dispatched.
 func (s *Service) rollbackDispatch(ctx context.Context, repo domain.Repository, r *domain.Release, rollback *domain.ReleaseRollback) {
 	restoredRef := rollback.RevertSHA
 	if prev, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, r.CreatedAt); err == nil {
@@ -165,19 +282,15 @@ func (s *Service) rollbackDispatch(ctx context.Context, repo domain.Repository, 
 	rollback.Mechanism = domain.RollbackMechanismWorkflow
 	rollback.RestoredRef = restoredRef
 
-	_, ciUnavailable, err := s.createAndDispatch(ctx, repo, r.Profile.Workflow, restoredRef)
-	if err != nil {
+	if _, _, err := s.createAndDispatch(ctx, repo, r.Profile.Workflow, restoredRef); err != nil {
 		if rollback.Detail != "" {
 			rollback.Detail += "; " + err.Error()
 		} else {
 			rollback.Detail = err.Error()
 		}
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: redeploying the previous good release failed")
-		if ciUnavailable {
-			r.Rollback = rollback
-			r.Status = domain.ReleaseFailed
-			r.FailureReason = "the rollback deploy failed — production may still run the bad release: " + err.Error()
-		}
+		r.Status = domain.ReleaseFailed
+		r.FailureReason = "the rollback deploy failed — production may still run the bad release: " + err.Error()
 	}
 }
 
@@ -267,8 +380,12 @@ func (s *Service) manualStepsFor(ctx context.Context, r domain.Release) []string
 	return steps
 }
 
-// reopenTasks resets every task and sends it back to need_revision; parked
-// cards are taken first so the move is always FROM done.
+// reopenTasks resets every task and sends the ones still sitting in
+// done/released back to need_revision; parked cards are taken first so that
+// move is always FROM done. A task a human already moved somewhere else
+// (back into review, blocked, …) is left there — only commented on — since
+// the rollback should explain itself without fighting a move nobody but that
+// human asked for (§L4).
 func (s *Service) reopenTasks(ctx context.Context, r domain.Release) {
 	comment := rollbackReopenComment(r)
 	for _, t := range r.Tasks {
@@ -285,13 +402,15 @@ func (s *Service) reopenTasks(ctx context.Context, r domain.Release) {
 		if s.tasks == nil {
 			continue
 		}
-		col := domain.TaskColumnNeedRevision
-		if _, err := s.tasks.UpdateTask(ctx, r.RepositoryID, t.ID, domain.UpdateBoardTaskRequest{
-			Column:       &col,
-			SystemReason: domain.MoveReasonReleaseRolledBack,
-		}); err != nil {
-			log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: moving a rolled-back task to need_revision failed")
-			continue
+		if s.shouldMoveReopenedTask(ctx, r.RepositoryID, t.ID) {
+			col := domain.TaskColumnNeedRevision
+			if _, err := s.tasks.UpdateTask(ctx, r.RepositoryID, t.ID, domain.UpdateBoardTaskRequest{
+				Column:       &col,
+				SystemReason: domain.MoveReasonReleaseRolledBack,
+			}); err != nil {
+				log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: moving a rolled-back task to need_revision failed")
+				continue
+			}
 		}
 		if _, err := s.tasks.AddComment(ctx, r.RepositoryID, t.ID, domain.CreateTaskCommentRequest{
 			AuthorType: "system",
@@ -300,6 +419,22 @@ func (s *Service) reopenTasks(ctx context.Context, r domain.Release) {
 			log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: posting the rollback comment failed")
 		}
 	}
+}
+
+// shouldMoveReopenedTask re-reads the task's live column rather than trusting
+// r.Tasks (a snapshot from whenever the release was last read, and
+// reopenTasks always runs a beat after that — the parked-card claim and
+// merge-state reset above both precede it): cheap insurance against moving a
+// task the human already moved out of done/released in that gap (§L4). A
+// read failure moves it anyway — the old, safe default — rather than
+// silently stranding a task nobody will look at again.
+func (s *Service) shouldMoveReopenedTask(ctx context.Context, repositoryID, taskID uuid.UUID) bool {
+	task, err := s.tasks.GetTask(ctx, repositoryID, taskID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("release: reading a task's live column before reopening it failed")
+		return true
+	}
+	return task.Column == domain.TaskColumnDone || task.Column == domain.TaskColumnReleased
 }
 
 func rollbackReopenComment(r domain.Release) string {
@@ -317,11 +452,25 @@ func rollbackReopenComment(r domain.Release) string {
 	return sb.String()
 }
 
+// rollbackClaimGrace is how long a rolling_back release may sit with
+// Rollback.RestoredRef still empty before the sweeper gives up on it (§M3).
+// Rollback claims rolling_back BEFORE any side effect runs, so RestoredRef is
+// legitimately empty for the moment the revert/dispatch takes; past this
+// window it means the process died in between and nothing will ever fill it.
+const rollbackClaimGrace = 5 * time.Minute
+
 // sweepRollingBack watches the rollback's deploy (Rollback.RestoredRef is
 // already a commit sha, never a tag).
 func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 	if r.Rollback == nil {
 		log.Warn().Str("release_id", r.ID.String()).Msg("release sweeper: rolling_back release has no rollback record")
+		return
+	}
+	if strings.TrimSpace(r.Rollback.RestoredRef) == "" {
+		if s.now().Sub(r.Rollback.StartedAt) < rollbackClaimGrace {
+			return
+		}
+		s.failRollback(ctx, r, "the rollback did not complete — the server may have restarted mid-way")
 		return
 	}
 	if r.Rollback.Mechanism == domain.RollbackMechanismProvider {
@@ -357,11 +506,17 @@ func (s *Service) sweepRollingBack(ctx context.Context, r domain.Release) {
 	}
 }
 
+// statusForRestoredRef watches the rollback's OWN redeploy run, keyed by
+// since = Rollback.StartedAt (§H1): RestoredRef is frequently the same sha or
+// tag an earlier attempt (the release itself, or a prior failed rollback try)
+// already deployed, so a plain by-sha watch would read that OTHER run's
+// (already green) conclusion as if it were this rollback's — the release
+// would show rolled_back while production still served the bad release.
 func (s *Service) statusForRestoredRef(ctx context.Context, r domain.Release) (domain.DeployWatchStatus, error) {
 	if s.deployStatus == nil {
 		return domain.DeployWatchStatus{State: domain.DeployWatchUnknown}, nil
 	}
-	return s.deployStatus.StatusForCommit(ctx, r.RepositoryID, r.Rollback.RestoredRef, r.Profile.Workflow)
+	return s.deployStatus.StatusForCommitSince(ctx, r.RepositoryID, r.Rollback.RestoredRef, r.Profile.Workflow, r.Rollback.StartedAt)
 }
 
 func (s *Service) finishRollback(ctx context.Context, r domain.Release) {
