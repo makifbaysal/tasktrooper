@@ -8,6 +8,7 @@ A task in `done` is finished as *work* — reviewed, tested, accepted. Nothing h
 **A refusal is final, not a retry:**
 
 - **A conflict** — `dirty`, or `behind` on a repository that requires up-to-date branches. Rebasing is the developer's work. Move the task to `need_revision` with one comment saying its branch conflicts with the base and has to be brought up to date.
+- **Before-deploy steps pending** — on an `on_merge` component the merge IS the deploy, so it refuses while a human has not confirmed this task's before-deploy steps. The system already commented the steps on the task. Stop — do not retry; you are woken the moment a human presses **Confirm before-deploy steps**.
 - **Anything else** — checks not green, PR already merged or closed, the head no longer the signed-off commit. Write the reason in one comment and stop; only a new round of review moves this forward.
 
 ### 2. Act on `release.mode`
@@ -15,7 +16,7 @@ A task in `done` is finished as *work* — reviewed, tested, accepted. Nothing h
 - **`release.unconfirmed: true`**, or mode **`none`** — nothing to do; stop. (An unconfirmed profile already carries its own explanation on the card.)
 - **`batch`** — the merge joined the component's draft release (created if there was none). Nothing to do; stop — a human cuts it later on the Deploy tab, and you are woken with a `pending` release when they do.
 - **`on_merge`** — call `watch_release`.
-- **`dispatch`** — call `deploy_release`, then `watch_release`.
+- **`dispatch`** — call `deploy_release`, then `watch_release`. `deploy_release` refuses the same way as the merge does when any task of the release still has pending before-deploy steps: the system comments them on the newest task, and you stop — do not retry; you are woken once a human confirms.
 
 ### 3. When woken
 

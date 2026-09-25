@@ -162,6 +162,23 @@ export function CutReleaseDialog({ open, onOpenChange, releaseId, repositoryName
             </div>
           </div>
 
+          {preview.tasks.some((task) => task.before_deploy) && (
+            <div className="space-y-1.5 rounded-md border border-border p-3">
+              <Label>{t("release.cutDialog.beforeThisShips")}</Label>
+              <p className="text-micro text-muted-foreground">{t("release.cutDialog.beforeThisShipsHint")}</p>
+              <div className="space-y-2">
+                {preview.tasks
+                  .filter((task) => task.before_deploy)
+                  .map((task) => (
+                    <div key={task.id} className="text-caption">
+                      <span className="font-mono">{task.key ?? task.id.slice(0, 8)}</span>
+                      <p className="whitespace-pre-wrap text-muted-foreground">{task.before_deploy}</p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="cut-release-notes">{t("release.cutDialog.notes")}</Label>
             <Textarea

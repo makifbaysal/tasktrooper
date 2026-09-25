@@ -692,7 +692,7 @@ const boardTaskColumns = `id, repository_id, task_number, title, task_type,
 		blocked_resource,
 		clarification_session_id,
 		has_migration, stage_verified_at, verified_sha,
-		before_deploy, after_deploy, rollback_plan,
+		before_deploy, after_deploy, rollback_plan, before_deploy_confirmed_at,
 		pr_url, pr_number, merge_commit_sha, component_id,
 		NULL::timestamptz, NULL::timestamptz,
 		(SELECT key_prefix FROM task_types WHERE key = task_type)`
@@ -714,7 +714,7 @@ const boardTaskSelect = `
 		bt.blocked_resource,
 		bt.clarification_session_id,
 		bt.has_migration, bt.stage_verified_at, bt.verified_sha,
-		bt.before_deploy, bt.after_deploy, bt.rollback_plan,
+		bt.before_deploy, bt.after_deploy, bt.rollback_plan, bt.before_deploy_confirmed_at,
 		bt.pr_url, bt.pr_number, bt.merge_commit_sha, bt.component_id,
 		sp.entered_at, qr.quota_resume_at,
 		tt.key_prefix
@@ -753,7 +753,7 @@ func scanBoardTask(scanner interface {
 		&blockedResource,
 		&task.ClarificationSessionID,
 		&task.HasMigration, &task.StageVerifiedAt, &task.VerifiedSHA,
-		&task.BeforeDeploy, &task.AfterDeploy, &task.RollbackPlan,
+		&task.BeforeDeploy, &task.AfterDeploy, &task.RollbackPlan, &task.BeforeDeployConfirmedAt,
 		&prURL, &prNumber, &mergeCommitSHA, &task.ComponentID,
 		&task.ColumnEnteredAt, &task.BlockedResumeAt,
 		&keyPrefix,
@@ -1013,6 +1013,11 @@ func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (dom
 			after_deploy = $15,
 			rollback_plan = $16,
 			component_id = $17,
+			-- Written unconditionally like before_deploy itself: UpdateTask clears
+			-- this on the same request that changes before_deploy's text (see
+			-- repository.Service.UpdateTask), so a non-editing update round-trips
+			-- whatever was stored.
+			before_deploy_confirmed_at = $18,
 			updated_at = now()
 		WHERE id = $1 AND repository_id = $2
 		RETURNING `+boardTaskColumns+`
@@ -1020,7 +1025,8 @@ func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (dom
 		task.TechnicalDescription, task.InitiativeProjectID, string(task.Column),
 		task.Position, string(task.Priority), task.AssigneeAgentID,
 		string(domain.TaskColumnBlocked), task.VerifiedSHA,
-		task.BeforeDeploy, task.AfterDeploy, task.RollbackPlan, task.ComponentID)
+		task.BeforeDeploy, task.AfterDeploy, task.RollbackPlan, task.ComponentID,
+		task.BeforeDeployConfirmedAt)
 	updated, err := scanBoardTask(row)
 	if err != nil {
 		return domain.BoardTask{}, fmt.Errorf("update board task: %w", err)
@@ -1447,6 +1453,28 @@ func (s *BoardTaskStore) ResetMergeState(ctx context.Context, taskID uuid.UUID) 
 		return fmt.Errorf("reset merge state: %w", err)
 	}
 	return nil
+}
+
+// ConfirmBeforeDeploy stamps a human's confirmation that BeforeDeploy's steps
+// were performed. COALESCE keeps the first confirmation's time on a repeated
+// call, so pressing the button twice cannot restart the "confirmed <time>"
+// clock the UI shows.
+func (s *BoardTaskStore) ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE board_tasks
+		SET before_deploy_confirmed_at = COALESCE(before_deploy_confirmed_at, now()),
+			updated_at = now()
+		WHERE id = $1 AND repository_id = $2
+		RETURNING `+boardTaskColumns+`
+	`, taskID, repositoryID)
+	task, err := scanBoardTask(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.BoardTask{}, fmt.Errorf("%w: %s", domain.ErrBoardTaskNotFound, taskID)
+	}
+	if err != nil {
+		return domain.BoardTask{}, fmt.Errorf("confirm before-deploy: %w", err)
+	}
+	return task, nil
 }
 
 // FindTaskByMergeCommit resolves the task whose merge produced sha — the

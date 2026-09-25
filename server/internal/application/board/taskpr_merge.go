@@ -69,6 +69,17 @@ func (s *TaskPRService) MergeTaskPullRequest(ctx context.Context, repositoryID, 
 		return domain.TaskPRMergeResult{}, s.refuse(task, err)
 	}
 
+	// The last gate before anything touches GitHub: an on_merge component's
+	// deploy IS the merge, so a task with unconfirmed before-deploy steps must
+	// not land — a human has to perform them and press "Confirm before-deploy
+	// steps" first. release.Service.MergeGate posts that explanation as a
+	// comment itself; the wrapped error already says not to retry.
+	if s.releases != nil {
+		if err := s.releases.MergeGate(ctx, repositoryID, task); err != nil {
+			return domain.TaskPRMergeResult{}, s.refuse(task, err)
+		}
+	}
+
 	owner, repo, err := s.ownerRepo(ctx, repositoryID, taskID)
 	if err != nil {
 		return domain.TaskPRMergeResult{}, s.refuse(task, fmt.Errorf(

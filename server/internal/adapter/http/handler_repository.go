@@ -1,14 +1,24 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
+
+// ReleaseWaker is application/release.Service's WakeTask, narrowed so this
+// package need not import application/release. Declared separately from
+// ReleaseService (handler_release.go): the before-deploy confirm route below
+// must keep working on a build with no release service wired up at all.
+type ReleaseWaker interface {
+	WakeTask(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) error
+}
 
 func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	if h.repositorySvc == nil {
@@ -35,6 +45,7 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Post("/v1/repositories/:id/tasks", h.CreateRepositoryTask)
 	app.Patch("/v1/repositories/:id/tasks/:taskId", h.UpdateRepositoryTask)
 	app.Delete("/v1/repositories/:id/tasks/:taskId", h.DeleteRepositoryTask)
+	app.Post("/v1/repositories/:id/tasks/:taskId/before-deploy/confirm", h.ConfirmTaskBeforeDeploy)
 	app.Get("/v1/repositories/:id/tasks/:taskId/comments", h.ListTaskComments)
 	app.Post("/v1/repositories/:id/tasks/:taskId/comments", h.CreateTaskComment)
 	app.Get("/v1/repositories/:id/tasks/:taskId/documents", h.ListTaskDocuments)
@@ -389,6 +400,37 @@ func (h *Handler) DeleteRepositoryTask(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": fiber.Map{"message": err.Error(), "type": "not_found"}})
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// ConfirmTaskBeforeDeploy — POST /v1/repositories/:id/tasks/:taskId/before-deploy/confirm
+//
+// No body: this is a single-user app, and the confirmation IS the human
+// having clicked the button after the UI asked "did you do these steps?".
+// When the task is sitting in done, this also wakes the release engineer on
+// it — the same nudge a newly-confirmed delivery profile gives — so a late
+// confirmation does not have to wait for the next poll.
+func (h *Handler) ConfirmTaskBeforeDeploy(c *fiber.Ctx) error {
+	repositoryID, taskID, err := parseRepositoryTaskParams(c)
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	ctx := h.enrichContext(c)
+	task, err := h.repositorySvc.ConfirmBeforeDeploy(ctx, repositoryID, taskID)
+	if err != nil {
+		if errors.Is(err, domain.ErrBoardTaskNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(errorResponse{
+				Error: errorDetail{Message: err.Error(), Type: "not_found"},
+			})
+		}
+		return internalError(c, err)
+	}
+	if h.releaseWaker != nil && task.Column == domain.TaskColumnDone {
+		if werr := h.releaseWaker.WakeTask(ctx, repositoryID, task); werr != nil {
+			log.Warn().Err(werr).Str("task_id", taskID.String()).
+				Msg("wake release engineer after before-deploy confirm failed")
+		}
+	}
+	return c.JSON(task)
 }
 
 func (h *Handler) ListTaskDocuments(c *fiber.Ctx) error {

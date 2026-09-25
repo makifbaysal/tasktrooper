@@ -132,7 +132,12 @@ type Handler struct {
 	projectModelSvc   *projectmodel.Service
 	// releaseSvc is application/release.Service narrowed to ReleaseService
 	// (handler_release.go) so this package need not import application/release.
-	releaseSvc      ReleaseService
+	releaseSvc ReleaseService
+	// releaseWaker is application/release.Service narrowed to ReleaseWaker
+	// (handler_repository.go's before-deploy confirm route). A separate small
+	// interface from releaseSvc rather than folded into it: the confirm route
+	// must keep working on a build with releaseSvc nil.
+	releaseWaker    ReleaseWaker
 	cloudSvc        *cloud.Service
 	localPreviewSvc *localpreview.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
@@ -191,6 +196,7 @@ type Config struct {
 	DeployOpsSvc      *deployops.Service
 	ProjectModelSvc   *projectmodel.Service
 	ReleaseSvc        ReleaseService
+	ReleaseWaker      ReleaseWaker
 	CloudSvc          *cloud.Service
 	LocalPreviewSvc   *localpreview.Service
 	MCPToolServer     *mcpserver.Server
@@ -250,6 +256,7 @@ func NewHandler(cfg Config) *Handler {
 		deployOpsSvc:      cfg.DeployOpsSvc,
 		projectModelSvc:   cfg.ProjectModelSvc,
 		releaseSvc:        cfg.ReleaseSvc,
+		releaseWaker:      cfg.ReleaseWaker,
 		cloudSvc:          cfg.CloudSvc,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		mcpToolServer:     cfg.MCPToolServer,

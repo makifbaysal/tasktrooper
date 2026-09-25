@@ -112,6 +112,10 @@ func (f *controlTaskStore) BlockOnCancel(_ context.Context, _, taskID uuid.UUID,
 	return nil
 }
 
+func (f *controlTaskStore) ConfirmBeforeDeploy(context.Context, uuid.UUID, uuid.UUID) (domain.BoardTask, error) {
+	return domain.BoardTask{}, nil
+}
+
 func (f *controlTaskStore) Create(context.Context, domain.BoardTask) (domain.BoardTask, error) {
 	return domain.BoardTask{}, nil
 }

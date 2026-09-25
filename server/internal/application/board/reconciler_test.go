@@ -97,6 +97,10 @@ func (f *fakeBoardTaskStore) BlockOnCancel(context.Context, uuid.UUID, uuid.UUID
 	return nil
 }
 
+func (f *fakeBoardTaskStore) ConfirmBeforeDeploy(context.Context, uuid.UUID, uuid.UUID) (domain.BoardTask, error) {
+	return domain.BoardTask{}, nil
+}
+
 type ReconcilerSuite struct {
 	suite.Suite
 	board  *fakeBoardConfigStore

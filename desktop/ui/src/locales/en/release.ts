@@ -128,6 +128,8 @@ export const release = {
     tag: "Tag",
     commit: "Commit",
     tasks: "Tasks",
+    beforeThisShips: "Before this ships",
+    beforeThisShipsHint: "Cutting this release confirms every task's before-deploy steps below were performed.",
     notes: "Release notes",
     cut: "Cut release",
     cutting: "Cutting…",

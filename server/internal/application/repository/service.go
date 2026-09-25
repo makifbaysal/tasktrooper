@@ -1489,6 +1489,11 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		task.InitiativeProjectID = req.InitiativeProjectID
 	}
 	if req.BeforeDeploy != nil {
+		// Any write that changes the text re-arms the gate: a human confirmed the
+		// OLD steps, not whatever replaced them.
+		if task.BeforeDeploy == nil || *task.BeforeDeploy != *req.BeforeDeploy {
+			task.BeforeDeployConfirmedAt = nil
+		}
 		task.BeforeDeploy = req.BeforeDeploy
 	}
 	if req.AfterDeploy != nil {
@@ -1684,6 +1689,35 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		updated = s.syncOrderNote(ctx, updated)
 	}
 	return s.enrichTask(ctx, updated)
+}
+
+// ConfirmBeforeDeploy records a human's confirmation that BeforeDeploy's
+// steps were performed — the release engineer may not write to production
+// itself, so nothing ships a task whose steps are written but unconfirmed
+// (domain.BoardTask.BeforeDeployPending). Idempotent at the store: a repeated
+// confirm keeps the first timestamp rather than restarting the clock the UI
+// shows.
+func (s *Service) ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error) {
+	task, err := s.tasks.ConfirmBeforeDeploy(ctx, repositoryID, taskID)
+	if err != nil {
+		return domain.BoardTask{}, err
+	}
+	return s.enrichTask(ctx, task)
+}
+
+// BeforeDeployConfirmer adapts ConfirmBeforeDeploy to the error-only
+// signature application/release's own Tasks-side dependency expects
+// (ConfirmBeforeDeploy(ctx, repositoryID, taskID) error) — Cut stamps every
+// task's confirmation through it. *Service cannot satisfy that interface
+// directly: it already has a ConfirmBeforeDeploy that returns the updated
+// domain.BoardTask for the HTTP handler, and Go has no overloading, so the
+// integrator wires BeforeDeployConfirmer{Service: repoSvc} wherever the
+// error-only shape is asked for instead.
+type BeforeDeployConfirmer struct{ Service *Service }
+
+func (a BeforeDeployConfirmer) ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) error {
+	_, err := a.Service.ConfirmBeforeDeploy(ctx, repositoryID, taskID)
+	return err
 }
 
 func (s *Service) ReplaceDeployDependencies(ctx context.Context, taskID uuid.UUID, inputs []domain.TaskRelationInput) ([]domain.TaskRelation, error) {

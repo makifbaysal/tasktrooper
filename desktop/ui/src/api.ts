@@ -942,6 +942,13 @@ export interface BoardTask {
   stage_verified_at?: string;
   /** Pre-deploy checklist; posted on the task automatically when the release is dispatched. */
   before_deploy?: string;
+  /**
+   * When a human confirmed before_deploy's steps were performed. Absent/null
+   * while before_deploy is set and unconfirmed — nothing ships the task until
+   * then (domain.BoardTask.BeforeDeployPending). Editing before_deploy clears
+   * it.
+   */
+  before_deploy_confirmed_at?: string | null;
   /** Post-deploy steps; posted automatically when the production deploy succeeds. */
   after_deploy?: string;
   /** How to undo this change; posted alongside the pre-deploy checklist. */
@@ -2983,6 +2990,10 @@ export interface ReleaseTaskRef {
   task_type?: TaskType;
   column?: TaskColumn;
   merge_commit_sha?: string;
+  /** The task's own before-deploy checklist, frozen onto the release the same way. */
+  before_deploy?: string;
+  /** Whether a human confirmed before_deploy's steps. */
+  before_deploy_confirmed?: boolean;
 }
 
 export interface HealthSample {
@@ -4150,6 +4161,13 @@ export const api = {
 
   deleteProjectTask: (repositoryId: string, taskId: string) =>
     api.deleteRepositoryTask(repositoryId, taskId),
+
+  // No body: the confirmation IS the human clicking the button after the
+  // dialog asked "did you do these steps?".
+  confirmBeforeDeploy: (repositoryId: string, taskId: string) =>
+    request<BoardTask>(`/v1/repositories/${repositoryId}/tasks/${taskId}/before-deploy/confirm`, {
+      method: "POST",
+    }),
 
   listTaskDocuments: (repositoryId: string, taskId: string) =>
     request<{ documents: TaskDocument[] }>(

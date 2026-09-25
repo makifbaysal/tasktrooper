@@ -122,6 +122,10 @@ type BoardTaskStore interface {
 	// time on its own row, so the due check and the claim are one statement.
 	TakeQuotaResumable(ctx context.Context, now time.Time) (domain.BoardTask, bool, error)
 	BlockOnCancel(ctx context.Context, repositoryID, taskID uuid.UUID, reason string) error
+	// ConfirmBeforeDeploy stamps before_deploy_confirmed_at; idempotent, so the
+	// confirm endpoint need not read the task first to know whether it already
+	// happened.
+	ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error)
 }
 
 type AcceptanceCriterionStore interface {
