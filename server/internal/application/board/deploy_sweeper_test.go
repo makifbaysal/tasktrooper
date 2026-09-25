@@ -128,6 +128,10 @@ func TestDeployWatchWakeOnlyFiresForTheSweepersResumePayload(t *testing.T) {
 	}{
 		{"sweeper resume in done", deployParkedTask(domain.TaskColumnDone), domain.BoardEventTaskMoved, resume, true},
 		{"sweeper resume in released", deployParkedTask(domain.TaskColumnReleased), domain.BoardEventTaskMoved, resume, true},
+		{"release sweeper resume in done", deployParkedTask(domain.TaskColumnDone), domain.BoardEventTaskMoved,
+			map[string]interface{}{domain.EventPayloadResumedResource: domain.ResourceReleaseWatch}, true},
+		{"release sweeper resume in released", deployParkedTask(domain.TaskColumnReleased), domain.BoardEventTaskMoved,
+			map[string]interface{}{domain.EventPayloadResumedResource: domain.ResourceReleaseWatch}, true},
 		{"an ordinary move into done", deployParkedTask(domain.TaskColumnDone), domain.BoardEventTaskMoved, nil, false},
 		{"a comment on a done card", deployParkedTask(domain.TaskColumnDone), domain.BoardEventTaskCommented, resume, false},
 		{"a resume payload in a working column", deployParkedTask(domain.TaskColumnInProgress), domain.BoardEventTaskMoved, resume, false},

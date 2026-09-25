@@ -52,6 +52,14 @@ type TaskPRLifecycleGates interface {
 	AutoReleaseIfUndeployable(ctx context.Context, repositoryID, taskID uuid.UUID) bool
 }
 
+// ReleaseOpener is application/release.Service's OpenForMerge, narrowed to a
+// tiny interface so board can depend on release without release depending
+// back on board (release wakes a parked card through its own Waker
+// interface instead — see release_waker.go).
+type ReleaseOpener interface {
+	OpenForMerge(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, mergeSHA string) domain.ReleaseOpening
+}
+
 type RootPathResolver interface {
 	ResolveRootPath(ctx context.Context, repositoryID uuid.UUID) (string, error)
 }
@@ -61,14 +69,18 @@ type AgentResolver interface {
 }
 
 type TaskPRServiceDeps struct {
-	Tasks         TaskPRTasks
-	Repos         RootPathResolver
-	Git           TaskPRGit
-	PRs           port.PullRequestClient
-	Tokens        TokenSource
-	Agents        AgentResolver
-	LLM           port.LLMClient
-	Gates         TaskPRLifecycleGates
+	Tasks  TaskPRTasks
+	Repos  RootPathResolver
+	Git    TaskPRGit
+	PRs    port.PullRequestClient
+	Tokens TokenSource
+	Agents AgentResolver
+	LLM    port.LLMClient
+	Gates  TaskPRLifecycleGates
+	// Releases opens a release at merge (§3.1). When set, it replaces the
+	// legacy Gates.AutoReleaseIfUndeployable call entirely — see
+	// taskpr_merge.go.
+	Releases      ReleaseOpener
 	WorkspaceRoot string
 }
 
@@ -81,6 +93,7 @@ type TaskPRService struct {
 	agents        AgentResolver
 	llm           port.LLMClient
 	gates         TaskPRLifecycleGates
+	releases      ReleaseOpener
 	workspaceRoot string
 }
 
@@ -94,6 +107,7 @@ func NewTaskPRService(deps TaskPRServiceDeps) *TaskPRService {
 		agents:        deps.Agents,
 		llm:           deps.LLM,
 		gates:         deps.Gates,
+		releases:      deps.Releases,
 		workspaceRoot: deps.WorkspaceRoot,
 	}
 }

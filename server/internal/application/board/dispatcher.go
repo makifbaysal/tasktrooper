@@ -300,7 +300,7 @@ func deployWatchWake(wf domain.Workflow, wfOK bool, input DispatchInput) bool {
 		return false
 	}
 	resource, _ := input.Payload[domain.EventPayloadResumedResource].(string)
-	return resource == domain.ResourceDeployWatch
+	return resource == domain.ResourceDeployWatch || resource == domain.ResourceReleaseWatch
 }
 
 func parkResume(payload map[string]interface{}) (string, bool) {

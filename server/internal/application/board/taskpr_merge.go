@@ -147,7 +147,12 @@ func (s *TaskPRService) MergeTaskPullRequest(ctx context.Context, repositoryID, 
 		Undrafted:      merge.Undrafted,
 	}
 	recordErr := s.recordMergeCommit(ctx, taskID, merge.MergeCommitSHA, prURL)
-	if s.gates != nil {
+	if s.releases != nil {
+		mergedTask := task
+		mergedTask.MergeCommitSHA = merge.MergeCommitSHA
+		opening := s.releases.OpenForMerge(ctx, repositoryID, mergedTask, merge.MergeCommitSHA)
+		out.Release = &opening
+	} else if s.gates != nil {
 		out.AutoReleased = s.gates.AutoReleaseIfUndeployable(ctx, repositoryID, taskID)
 	}
 	out.Message = mergeMessage(out, merge.BranchDeleteError, recordErr)
@@ -252,7 +257,10 @@ func mergeMessage(out domain.TaskPRMergeResult, branchDeleteErr string, recordEr
 	if out.Undrafted {
 		sb.WriteString(" The PR was still a draft and was marked ready for review first.")
 	}
-	if out.AutoReleased {
+	switch {
+	case out.Release != nil:
+		sb.WriteString(" " + out.Release.Next)
+	case out.AutoReleased:
 		sb.WriteString(" This repository has no deploy target configured, so the merge released the task directly — do not call trigger_release.")
 	}
 	switch {

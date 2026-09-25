@@ -172,6 +172,52 @@ func TestMergeTaskPullRequestWithoutAutoReleaseReportsNone(t *testing.T) {
 	assert.NotContains(t, result.Message, "trigger_release")
 }
 
+type fakeReleaseOpener struct {
+	calls   int
+	task    domain.BoardTask
+	sha     string
+	opening domain.ReleaseOpening
+}
+
+func (f *fakeReleaseOpener) OpenForMerge(_ context.Context, _ uuid.UUID, task domain.BoardTask, sha string) domain.ReleaseOpening {
+	f.calls++
+	f.task = task
+	f.sha = sha
+	return f.opening
+}
+
+func TestMergeTaskPullRequestOpensAReleaseAndSkipsTheLegacyAutoRelease(t *testing.T) {
+	task := mergeTask()
+	repositoryID := uuid.New()
+	tasks := &taskChatTaskStore{tasks: map[[2]uuid.UUID]domain.BoardTask{{repositoryID, task.ID}: task}}
+	git := &taskPRGit{hasGit: true, branch: "feature/t-7"}
+	gates := &mergeGates{pipeline: domain.TaskPipeline{Status: domain.PipelineStatusSuccess}}
+	opener := &fakeReleaseOpener{opening: domain.ReleaseOpening{Mode: domain.DeliveryOnMerge, Next: "call watch_release"}}
+	svc := NewTaskPRService(TaskPRServiceDeps{
+		Tasks:         tasks,
+		Repos:         taskChatRepos{root: "/repos/widget"},
+		Git:           git,
+		PRs:           &mergePRs{pr: openCleanPR()},
+		Tokens:        func(context.Context) (string, error) { return "tok", nil },
+		Gates:         gates,
+		Releases:      opener,
+		WorkspaceRoot: "/data/workspaces",
+	})
+
+	result, err := svc.MergeTaskPullRequest(context.Background(), repositoryID, task.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, opener.calls, "the release opener must be called exactly once")
+	assert.Equal(t, 0, gates.autoReleaseCalls, "the legacy auto-release gate must not run once an opener is wired")
+	assert.Equal(t, "mergecommitsha0000000000000000000000000", opener.sha)
+	assert.Equal(t, "mergecommitsha0000000000000000000000000", opener.task.MergeCommitSHA,
+		"the task handed to OpenForMerge must carry the merge commit that was just recorded")
+	require.NotNil(t, result.Release)
+	assert.Equal(t, domain.DeliveryOnMerge, result.Release.Mode)
+	assert.Contains(t, result.Message, "call watch_release")
+	assert.False(t, result.AutoReleased, "AutoReleased stays false once an opener replaces the legacy path")
+}
+
 func TestMergeTaskPullRequestWithoutGatesNeverCallsAutoRelease(t *testing.T) {
 	task := mergeTask()
 	repositoryID := uuid.New()
