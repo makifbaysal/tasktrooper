@@ -26,6 +26,12 @@ func (s *Service) Deploy(ctx context.Context, releaseID uuid.UUID, actor domain.
 	}
 	switch r.Mode {
 	case domain.DeliveryDispatch:
+		if pending := s.pendingDeployDependencies(ctx, r.TaskIDs()); len(pending) > 0 {
+			if len(r.Tasks) > 0 {
+				s.commentDeployDependencies(ctx, r.RepositoryID, r.Tasks[len(r.Tasks)-1].ID, pending)
+			}
+			return domain.Release{}, deployDependencyError(pending)
+		}
 		if gateErr := s.beforeDeployGate(ctx, r); gateErr != nil {
 			return domain.Release{}, gateErr
 		}

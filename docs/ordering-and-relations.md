@@ -53,11 +53,14 @@ an API that has to exist in production before the client calling it can go
 out. Two tasks can be developed fully in parallel (neither blocks the
 other's work) and still have a hard deploy order.
 
-Releasing a task is refused while any of its deploy dependencies lacks
-production evidence — a successful production deploy, a successful staging
-deploy on a repository with no production workflow mapped, or having reached
-the Released column itself — and the release is refused with the blocking
-keys named, not just a generic failure.
+A task does not ship while any of its deploy dependencies has not reached the
+Released column (a dependency shipping in the same release counts as
+satisfied). What "does not ship" means follows the component's delivery mode:
+an `on_merge` task is not merged (the merge would deploy it), a `dispatch`
+release is not deployed, and a `batch` release cannot be cut. The task gets
+one comment naming the blocking keys; when the last dependency is released,
+the release engineer is woken on it and carries on by itself. A dependency
+may live in another repository.
 
 Unlike `blocked_by`, setting `deploy_depends_on` **replaces** the whole set:
 the release path always reads it as one complete statement, so a caller

@@ -40,6 +40,7 @@ func (s *Service) Finish(ctx context.Context, releaseID uuid.UUID, actor domain.
 	}
 	s.releaseTasks(ctx, updated)
 	s.postAfterDeployComments(ctx, updated)
+	s.wakeDeployDependents(ctx, updated)
 	return updated, nil
 }
 

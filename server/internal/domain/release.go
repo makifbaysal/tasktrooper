@@ -283,6 +283,10 @@ var (
 	// ErrBeforeDeployPending: a task carries before-deploy steps a human has
 	// not confirmed; nothing that would deploy it may run until they do.
 	ErrBeforeDeployPending = errors.New("before-deploy steps are not confirmed")
+	// ErrDeployDependencyPending: a task declares deploy_depends_on another
+	// task that has not reached production; shipping it first would break the
+	// order the dependency exists for.
+	ErrDeployDependencyPending = errors.New("a deploy dependency has not been released yet")
 )
 
 // Release tools, named in domain because the stage policy decides things

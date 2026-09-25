@@ -2240,6 +2240,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					IsCIUnavailableText: githubapi.IsCIUnavailableText,
 					HealthWindow:        cfg.DeployOps.HealthWindow,
 					BeforeDeploy:        repository.BeforeDeployConfirmer{Service: repositorySvc},
+					Locator:             repositorySvc,
+				}
+				if relations, ok := relationStore.(*pgstore.TaskRelationStore); ok {
+					releaseDeps.DeployOrder = relations
 				}
 				releaseDeps.Git = gitClient
 				releaseDeps.LocalRunner = localexec.NewRunner()

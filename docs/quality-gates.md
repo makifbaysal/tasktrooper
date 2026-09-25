@@ -92,11 +92,12 @@ every faster path has already had a chance to answer.
 
 ## The deploy dependency gate
 
-At release time, a task with `deploy_depends_on` relations is refused if any
-of those tasks lacks production evidence yet — see [Ordering and
+A task with `deploy_depends_on` relations does not ship until every one of
+those tasks has been released — see [Ordering and
 relations](ordering-and-relations.md#deploy_depends_on--shipping-order) for
-what counts as evidence and how the relation is set. The release is refused
-with the blocking task keys named, rather than shipping out of order.
+what that holds back in each delivery mode and how the relation is set. The
+task says which keys it is waiting on, and it resumes on its own once they
+ship.
 
 ## Clarification
 

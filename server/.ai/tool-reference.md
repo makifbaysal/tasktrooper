@@ -167,7 +167,7 @@ Three arguments on the task-writing tools, all pointing the same way — **this 
 | Argument | Relation written | Enforced by |
 |---|---|---|
 | `blocked_by: ["T-1"]` | `blocks`, with the BLOCKER as `source_task_id` | `board.WorkOrder` in the dispatcher parks the card on `domain.ResourceWorkOrder`; `board.WorkOrderSweeper` (1 min) releases it when every blocker reaches done/released or disappears. `repository.Service.validateMoveAllowed` additionally refuses a move into `todo`/`in_progress`. |
-| `deploy_depends_on: ["T-1"]` | `deploy_depends_on`, source = this task | `repository.Service.deployDependencyGate` refuses the release and comments why. |
+| `deploy_depends_on: ["T-1"]` | `deploy_depends_on`, source = this task | The release engine holds the task back until every target is `released`: `merge_task_pull_request` refuses an `on_merge` task, `deploy_release` a `dispatch` release, and a human's cut a `batch` release (`ErrDeployDependencyPending`); one comment names the blockers, and `finish_release` on the blocker wakes the waiting task. |
 | `derived_from: ["A-12"]` | `derived_from`, source = this task | Nothing — it is provenance, not order. It is what feeds the analysis's documents into the run. |
 | *(no argument)* | `discovered_from`, source = this task, target = the task the run was working on | Nothing — provenance only. Written automatically by `create_board_task` inside a task run (migration 136) so an agent cannot forget where a task came from; skipped when `derived_from` already names that same task. It never feeds documents: only `derived_from` is read by `AnalysisReferences`. |
 

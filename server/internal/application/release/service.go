@@ -176,9 +176,12 @@ type Deps struct {
 	Repos         Repos
 	Incidents     IncidentIngester
 	// BeforeDeploy confirms a task's before-deploy steps from Cut; nil skips
-	// the stamp (the release still opens/deploys — WP-O's own gates are what
-	// actually blocks an unconfirmed task from shipping).
+	// the stamp.
 	BeforeDeploy BeforeDeployConfirmer
+	// DeployOrder and Locator enforce deploy_depends_on; nil lets tasks ship
+	// in any order.
+	DeployOrder DeployOrder
+	Locator     TaskLocator
 
 	// HealthWindow is how long after a release's FinishedAt/DeployedAt a
 	// production incident is still attributed to it; defaults to
@@ -235,6 +238,8 @@ type Service struct {
 	repos        Repos
 	incidents    IncidentIngester
 	beforeDeploy BeforeDeployConfirmer
+	deployOrder  DeployOrder
+	locator      TaskLocator
 
 	healthWindow time.Duration
 
@@ -272,6 +277,8 @@ func New(d Deps) *Service {
 		repos:            d.Repos,
 		incidents:        d.Incidents,
 		beforeDeploy:     d.BeforeDeploy,
+		deployOrder:      d.DeployOrder,
+		locator:          d.Locator,
 		healthWindow:     d.HealthWindow,
 		git:              d.Git,
 		localRunner:      d.LocalRunner,

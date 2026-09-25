@@ -2046,6 +2046,35 @@ func (s *TaskRelationStore) ListBlockedBy(ctx context.Context, targetTaskID uuid
 	return rels, rows.Err()
 }
 
+// ListDeployDependents returns the deploy_depends_on rows whose target is one
+// of targetTaskIDs — the tasks waiting for them to reach production.
+func (s *TaskRelationStore) ListDeployDependents(ctx context.Context, targetTaskIDs []uuid.UUID) ([]domain.TaskRelation, error) {
+	if len(targetTaskIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT tr.id, tr.source_task_id, tr.target_task_id, tr.relation_type, tr.created_at,
+			`+taskKeySQL+`, bt.title
+		FROM task_relations tr
+		JOIN board_tasks bt ON bt.id = tr.source_task_id
+		WHERE tr.target_task_id = ANY($1) AND tr.relation_type = 'deploy_depends_on'
+		ORDER BY tr.created_at
+	`, targetTaskIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list deploy dependents: %w", err)
+	}
+	defer rows.Close()
+	var rels []domain.TaskRelation
+	for rows.Next() {
+		var r domain.TaskRelation
+		if err := rows.Scan(&r.ID, &r.SourceTaskID, &r.TargetTaskID, &r.RelationType, &r.CreatedAt, &r.SourceKey, &r.SourceTitle); err != nil {
+			return nil, err
+		}
+		rels = append(rels, r)
+	}
+	return rels, rows.Err()
+}
+
 // AddBlockers records that each source must be finished before targetTaskID may
 // be worked on.
 //

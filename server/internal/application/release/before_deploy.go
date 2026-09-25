@@ -19,9 +19,6 @@ import (
 // refused here — the merge goes through and the task simply waits in done
 // the way OpenForMerge already handles that case.
 func (s *Service) MergeGate(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) error {
-	if !task.BeforeDeployPending() {
-		return nil
-	}
 	component, name, ok := s.resolveComponent(ctx, repositoryID, task)
 	if !ok {
 		return nil
@@ -30,9 +27,20 @@ func (s *Service) MergeGate(ctx context.Context, repositoryID uuid.UUID, task do
 	if !confirmed || profile.Mode != domain.DeliveryOnMerge {
 		return nil
 	}
+	if pending := s.pendingDeployDependencies(ctx, []uuid.UUID{task.ID}); len(pending) > 0 {
+		s.commentDeployDependencies(ctx, repositoryID, task.ID, pending)
+		return fmt.Errorf("%s deploys on merge, so the merge waits: %w", name, deployDependencyError(pending))
+	}
+	if !task.BeforeDeployPending() {
+		return nil
+	}
+	steps := strings.TrimSpace(*task.BeforeDeploy)
+	s.commentOnce(ctx, repositoryID, task.ID, "Waiting to merge: "+name+" deploys on merge, and this task has before-deploy steps "+
+		"a human must perform first. Do them, then press \"Confirm before-deploy steps\" on the task:\n\n"+steps)
 	return fmt.Errorf("%w: %s deploys on merge, and this task's before-deploy steps are not confirmed — "+
-		"a human must perform them and press \"Confirm before-deploy steps\" on the task before it can merge:\n\n%s",
-		domain.ErrBeforeDeployPending, name, strings.TrimSpace(*task.BeforeDeploy))
+		"a human must perform them and press \"Confirm before-deploy steps\" on the task before it can merge. "+
+		"Nothing was merged. Do not retry — you will be woken when a human confirms:\n\n%s",
+		domain.ErrBeforeDeployPending, name, steps)
 }
 
 // WakeTask wakes the release engineer on a task sitting in `done` — used by

@@ -83,6 +83,10 @@ func (s *Service) Cut(ctx context.Context, releaseID uuid.UUID, actor domain.Rel
 	if err != nil {
 		return domain.Release{}, err
 	}
+	if pending := s.pendingDeployDependencies(ctx, r.TaskIDs()); len(pending) > 0 {
+		return domain.Release{}, fmt.Errorf("%w: this release must ship after %s — release those first, or drop the dependency",
+			domain.ErrDeployDependencyPending, strings.Join(pending, ", "))
+	}
 
 	repo, err := s.repo(ctx, r.RepositoryID)
 	if err != nil {
