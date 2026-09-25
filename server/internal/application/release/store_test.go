@@ -117,6 +117,52 @@ func TestDeployBatchStoreFailsWhenEveryPlatformFailsToStart(t *testing.T) {
 	assert.Len(t, f.waker.calls, 1)
 }
 
+func TestDeployBatchStoreMarksBaselineUnknownWhenTheInitialTracksReadFails(t *testing.T) {
+	f := newStoreFixture()
+	repositoryID := f.repos.repo.ID
+	f.storeOps.apps[repositoryID] = []domain.MobileStoreApp{{Platform: "ios", Identifier: "com.acme.app"}}
+	f.storeOps.tracksErr["ios"] = errors.New("timeout reading tracks")
+
+	r := pendingBatchRelease(repositoryID, domain.ExecutorStore)
+	created, err := f.store.Create(context.Background(), r, nil)
+	require.NoError(t, err)
+
+	updated, err := f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.NoError(t, err)
+	require.Len(t, updated.StoreBuilds, 1)
+	assert.Equal(t, baselineBuildUnknown, updated.StoreBuilds[0].BaselineBuild)
+}
+
+func TestSweepDeployingStoreDoesNotTreatDiscoveringTheBaselineAsANewBuild(t *testing.T) {
+	f := newStoreFixture()
+	repositoryID := f.repos.repo.ID
+	r := pendingBatchRelease(repositoryID, domain.ExecutorStore)
+	created, err := f.store.Create(context.Background(), r, nil)
+	require.NoError(t, err)
+	created.StoreBuilds = []domain.ReleaseStoreBuild{{Platform: "ios", BaselineBuild: baselineBuildUnknown}}
+	created.Status = domain.ReleaseDeploying
+	now := f.clock.Now()
+	created.DeployStartedAt = &now
+	f.store.releases[created.ID] = created
+
+	f.storeOps.setTracks(repositoryID, "ios", domain.StoreTracks{Internal: domain.TrackRelease{Build: "15"}})
+	f.svc.SweepOnce(context.Background())
+
+	after, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseDeploying, after.Status, "discovering the baseline must not itself count as a new build")
+	require.Len(t, after.StoreBuilds, 1)
+	assert.Equal(t, "15", after.StoreBuilds[0].BaselineBuild, "the first successful read sets the baseline")
+	assert.Empty(t, after.StoreBuilds[0].Build)
+
+	f.storeOps.setTracks(repositoryID, "ios", domain.StoreTracks{Internal: domain.TrackRelease{Build: "16"}})
+	f.svc.SweepOnce(context.Background())
+
+	final, err := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseVerifying, final.Status, "a build different from the now-known baseline succeeds")
+}
+
 func TestSweepDeployingStoreSucceedsWhenEveryStartedPlatformHasANewBuild(t *testing.T) {
 	f := newStoreFixture()
 	repositoryID := f.repos.repo.ID

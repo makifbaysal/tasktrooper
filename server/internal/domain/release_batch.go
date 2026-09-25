@@ -23,8 +23,12 @@ type ReleaseLocalRun struct {
 // deploy is done when the store's internal channel shows a build other than
 // the one it had before.
 type ReleaseStoreBuild struct {
-	Platform      string `json:"platform"`
-	Engine        string `json:"engine,omitempty"`
+	Platform string `json:"platform"`
+	Engine   string `json:"engine,omitempty"`
+	// BaselineBuild is "?" when the pre-release read of it failed: distinct
+	// from "" (a confirmed baseline of no prior internal build) so a build
+	// number that shows up before the baseline was ever confirmed is not
+	// mistaken for a new one.
 	BaselineBuild string `json:"baseline_build,omitempty"`
 	Build         string `json:"build,omitempty"`
 	Error         string `json:"error,omitempty"`
@@ -62,6 +66,10 @@ func ReleaseTag(pattern, version string) string {
 	return strings.ReplaceAll(pattern, "{version}", strings.TrimSpace(version))
 }
 
+// ValidReleaseVersion also enforces the git ref rules a version becomes part
+// of (the release tag): none of these are legal inside a ref, so letting one
+// through here would surface as a confusing tag-creation failure much later,
+// after a draft has already been cut.
 func ValidReleaseVersion(v string) error {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -72,6 +80,21 @@ func ValidReleaseVersion(v string) error {
 	}
 	if strings.HasPrefix(v, "-") || strings.HasPrefix(v, ".") {
 		return fmt.Errorf("%w: %q cannot start with '-' or '.'", ErrInvalidVersion, v)
+	}
+	if strings.HasSuffix(v, ".") {
+		return fmt.Errorf("%w: %q cannot end with '.'", ErrInvalidVersion, v)
+	}
+	if strings.HasSuffix(v, ".lock") {
+		return fmt.Errorf("%w: %q cannot end with '.lock'", ErrInvalidVersion, v)
+	}
+	if strings.Contains(v, "..") {
+		return fmt.Errorf("%w: %q cannot contain '..'", ErrInvalidVersion, v)
+	}
+	if strings.Contains(v, "@{") {
+		return fmt.Errorf("%w: %q cannot contain '@{'", ErrInvalidVersion, v)
+	}
+	if strings.Contains(v, "//") {
+		return fmt.Errorf("%w: %q cannot contain '//'", ErrInvalidVersion, v)
 	}
 	for _, r := range v {
 		switch {

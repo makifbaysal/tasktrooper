@@ -115,6 +115,8 @@ export const release: ReleaseDict = {
     draftBadge: "Taslak",
     draftLabel: "Sıradaki release — {count} merge edilen görev",
     cutRelease: "Release'i kes",
+    recutLabel: "{version} hiç deploy edilmedi",
+    recutRelease: "Yeniden kes",
   },
   cutDialog: {
     title: "Release'i kes",

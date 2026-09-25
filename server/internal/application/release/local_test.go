@@ -95,6 +95,23 @@ func TestDeployBatchLocalRejectsShellMetacharacters(t *testing.T) {
 	assert.Empty(t, f.runner.specs, "the runner must never see a rejected command")
 }
 
+func TestDeployBatchLocalRecordsFailedWhenStartingTheRunFails(t *testing.T) {
+	f := newLocalFixture()
+	f.runner.startErr = errors.New("fork/exec: resource temporarily unavailable")
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: f.repos.repo.ID, Column: domain.TaskColumnDone}
+	f.tasks.tasks[task.ID] = task
+	r := pendingBatchRelease(f.repos.repo.ID, domain.ExecutorLocal)
+	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+
+	updated, err := f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.NoError(t, err, "a local-run start failure is recorded on the release, not returned as an error")
+	assert.Equal(t, domain.ReleaseFailed, updated.Status)
+	require.NotNil(t, updated.DeployStartedAt, "the claim (deploying + LocalRun) must be persisted before Start is even attempted")
+	require.NotNil(t, updated.LocalRun)
+	assert.Len(t, f.waker.calls, 1)
+}
+
 func TestCompleteLocalRunSuccessLeavesStatusDeployingForTheSweeper(t *testing.T) {
 	f := newLocalFixture()
 	r := pendingBatchRelease(f.repos.repo.ID, domain.ExecutorLocal)

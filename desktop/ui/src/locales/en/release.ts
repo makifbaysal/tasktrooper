@@ -118,6 +118,8 @@ export const release = {
     draftBadge: "Draft",
     draftLabel: "Next release — {count} merged tasks",
     cutRelease: "Cut release",
+    recutLabel: "{version} never deployed",
+    recutRelease: "Re-cut",
   },
   cutDialog: {
     title: "Cut release",

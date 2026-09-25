@@ -12,20 +12,47 @@ import (
 )
 
 // openBatch adds the task to the component's draft release, creating it if
-// none exists. Two merges can race to create the draft: idx_releases_one_draft
-// makes the loser's Create fail, so the loser re-reads the draft the winner
-// just created and joins it with AddTasks instead.
+// none exists, via joinDraftRelease.
 func (s *Service) openBatch(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, component domain.Component, name string, profile domain.ComponentDelivery) domain.ReleaseOpening {
-	componentID := component.ID
+	draft, err := s.joinDraftRelease(ctx, repositoryID, component.ID, task, profile, true)
+	if err != nil {
+		log.Warn().Err(err).Str("component_id", component.ID.String()).Msg("release: opening the draft release failed")
+		return domain.ReleaseOpening{Mode: domain.DeliveryBatch, Next: fmt.Sprintf("could not open a release: %s", err)}
+	}
 
+	id := draft.ID
+	return domain.ReleaseOpening{
+		Mode:      domain.DeliveryBatch,
+		ReleaseID: &id,
+		Status:    domain.ReleaseDraft,
+		Next:      fmt.Sprintf("Queued in the next release of %s. A human cuts it on the Deploy tab; nothing to do now.", name),
+	}
+}
+
+// joinDraftRelease finds (or, on a race, creates) the component's draft
+// release and adds task to it with AddTasksToDraft, which only succeeds
+// while the release is still a draft. Two merges can race to create the
+// draft: idx_releases_one_draft makes the loser's Create fail, so the loser
+// re-reads the draft the winner just created and joins it. A false result
+// from AddTasksToDraft means the draft was cut or superseded between the
+// find and the add (including a racing winner's draft that got cut just as
+// fast); allowRetry re-finds/creates once more and tries again — a second
+// loss is reported rather than looping forever.
+func (s *Service) joinDraftRelease(ctx context.Context, repositoryID, componentID uuid.UUID, task domain.BoardTask, profile domain.ComponentDelivery, allowRetry bool) (domain.Release, error) {
 	draft, err := s.findDraftRelease(ctx, repositoryID, componentID)
 	switch {
 	case err == nil:
-		if addErr := s.store.AddTasks(ctx, draft.ID, []uuid.UUID{task.ID}); addErr != nil {
-			log.Warn().Err(addErr).Str("task_id", task.ID.String()).Str("release_id", draft.ID.String()).
-				Msg("release: joining a task to the draft release failed")
-			return domain.ReleaseOpening{Mode: domain.DeliveryBatch, Next: fmt.Sprintf("could not queue this task in the draft release: %s", addErr)}
+		ok, addErr := s.store.AddTasksToDraft(ctx, draft.ID, []uuid.UUID{task.ID})
+		if addErr != nil {
+			return domain.Release{}, addErr
 		}
+		if ok {
+			return draft, nil
+		}
+		if !allowRetry {
+			return domain.Release{}, fmt.Errorf("the draft release was cut before this task could be queued")
+		}
+		return s.joinDraftRelease(ctx, repositoryID, componentID, task, profile, false)
 	case errors.Is(err, domain.ErrReleaseNotFound):
 		now := s.now()
 		r := domain.Release{
@@ -40,31 +67,15 @@ func (s *Service) openBatch(ctx context.Context, repositoryID uuid.UUID, task do
 			UpdatedAt:    now,
 		}
 		created, cerr := s.store.Create(ctx, r, []uuid.UUID{task.ID})
-		if cerr != nil {
-			again, ferr := s.findDraftRelease(ctx, repositoryID, componentID)
-			if ferr != nil {
-				log.Warn().Err(cerr).Str("component_id", componentID.String()).Msg("release: creating the draft release failed")
-				return domain.ReleaseOpening{Mode: domain.DeliveryBatch, Next: fmt.Sprintf("could not open a release: %s", cerr)}
-			}
-			draft = again
-			if addErr := s.store.AddTasks(ctx, draft.ID, []uuid.UUID{task.ID}); addErr != nil {
-				log.Warn().Err(addErr).Str("task_id", task.ID.String()).Str("release_id", draft.ID.String()).
-					Msg("release: joining a task to the draft release created by a racing merge failed")
-			}
-		} else {
-			draft = created
+		if cerr == nil {
+			return created, nil
 		}
+		if !allowRetry {
+			return domain.Release{}, cerr
+		}
+		return s.joinDraftRelease(ctx, repositoryID, componentID, task, profile, false)
 	default:
-		log.Warn().Err(err).Str("component_id", componentID.String()).Msg("release: finding the draft release failed")
-		return domain.ReleaseOpening{Mode: domain.DeliveryBatch, Next: fmt.Sprintf("could not open a release: %s", err)}
-	}
-
-	id := draft.ID
-	return domain.ReleaseOpening{
-		Mode:      domain.DeliveryBatch,
-		ReleaseID: &id,
-		Status:    domain.ReleaseDraft,
-		Next:      fmt.Sprintf("Queued in the next release of %s. A human cuts it on the Deploy tab; nothing to do now.", name),
+		return domain.Release{}, err
 	}
 }
 
@@ -105,23 +116,32 @@ func (s *Service) findDraftRelease(ctx context.Context, repositoryID, componentI
 }
 
 // wakeNewestTask wakes the release engineer on the newest task of a release
-// that has no parked card to hand back to yet — a cut batch release has never
-// had an agent run watching it, so there is nothing to un-park, unlike
-// handBack's use of the same fallback.
+// that is still in done — a cut batch release has never had an agent run
+// watching it, so there is nothing to un-park, unlike handBack's use of the
+// same fallback. A task a human already moved elsewhere (need_revision, a
+// re-merge under way, …) is skipped: waking it there would surface a release
+// card on a column nothing about it expects.
 func (s *Service) wakeNewestTask(ctx context.Context, r domain.Release, status domain.ReleaseStatus) {
-	if s.waker == nil || s.tasks == nil || len(r.Tasks) == 0 {
+	if s.waker == nil || s.tasks == nil {
 		return
 	}
-	newest := r.Tasks[len(r.Tasks)-1]
-	task, err := s.tasks.GetTask(ctx, r.RepositoryID, newest.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("task_id", newest.ID.String()).Msg("release: loading the newest task to wake after a cut failed")
+	for i := len(r.Tasks) - 1; i >= 0; i-- {
+		ref := r.Tasks[i]
+		if ref.Column != domain.TaskColumnDone {
+			continue
+		}
+		task, err := s.tasks.GetTask(ctx, r.RepositoryID, ref.ID)
+		if err != nil {
+			log.Warn().Err(err).Str("task_id", ref.ID.String()).Msg("release: loading the newest task to wake after a cut failed")
+			return
+		}
+		if err := s.waker.Wake(ctx, r.RepositoryID, task, status); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID.String()).Str("release_id", r.ID.String()).
+				Msg("release: waking the release engineer for a cut release failed")
+		}
 		return
 	}
-	if err := s.waker.Wake(ctx, r.RepositoryID, task, status); err != nil {
-		log.Warn().Err(err).Str("task_id", task.ID.String()).Str("release_id", r.ID.String()).
-			Msg("release: waking the release engineer for a cut release failed")
-	}
+	log.Warn().Str("release_id", r.ID.String()).Msg("release: no task in done to wake after a cut")
 }
 
 // finishBatchRollback is Rollback's batch path: the revert already landed (the

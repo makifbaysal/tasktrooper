@@ -21,8 +21,8 @@ func (s *Service) CutPreview(ctx context.Context, releaseID uuid.UUID) (domain.R
 	if err != nil {
 		return domain.ReleaseCutPreview{}, err
 	}
-	if r.Status != domain.ReleaseDraft {
-		return domain.ReleaseCutPreview{}, fmt.Errorf("%w: a cut preview only applies to a draft release (this one is %s)",
+	if !recuttable(r) {
+		return domain.ReleaseCutPreview{}, fmt.Errorf("%w: a cut preview only applies to a draft release, or a pending one that has never deployed (this one is %s)",
 			domain.ErrReleaseWrongStatus, r.Status)
 	}
 	if len(r.Tasks) == 0 {
@@ -67,8 +67,8 @@ func (s *Service) Cut(ctx context.Context, releaseID uuid.UUID, actor domain.Rel
 	if err != nil {
 		return domain.Release{}, err
 	}
-	if r.Status != domain.ReleaseDraft {
-		return domain.Release{}, fmt.Errorf("%w: cut only applies to a draft release (this one is %s)",
+	if !recuttable(r) {
+		return domain.Release{}, fmt.Errorf("%w: cut only applies to a draft release, or a pending one that has never deployed (this one is %s)",
 			domain.ErrReleaseWrongStatus, r.Status)
 	}
 	if len(r.Tasks) == 0 {
@@ -174,6 +174,17 @@ func (s *Service) resolveCutCommit(ctx context.Context, repo domain.Repository, 
 	return head, nil
 }
 
+// recuttable is a draft, or a pending release Deploy has never even been
+// attempted on (DeployStartedAt nil — Deploy claims it the moment it tries):
+// a human who picked the wrong version, or hit ErrReleaseTagExists, can pick
+// a different one instead of the release being stuck.
+func recuttable(r domain.Release) bool {
+	if r.Status == domain.ReleaseDraft {
+		return true
+	}
+	return r.Status == domain.ReleasePending && r.DeployStartedAt == nil
+}
+
 func taskLabel(t domain.ReleaseTaskRef) string {
 	if t.Key != "" {
 		return t.Key
@@ -181,34 +192,110 @@ func taskLabel(t domain.ReleaseTaskRef) string {
 	return t.ID.String()
 }
 
-// previousVersion is the component's newest released release with a version,
-// else the newest git tag matching the profile's tag pattern, stripped to its
-// version part, else "" (nothing was ever released).
+// previousVersion is the highest semver version among: the component's
+// newest released release, the newest git tag matching the profile's tag
+// pattern, and any release of the component that carries a tag at all
+// (failed/rolled_back included — a version that was already tagged must
+// never be picked again even if that attempt never shipped). When none of
+// the three parses as semver, the first non-empty one is returned as-is (for
+// display) and SuggestedVersion is left for a human to type.
 func (s *Service) previousVersion(ctx context.Context, repo domain.Repository, r domain.Release) string {
+	best := versionCandidate{}
+
 	if last, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, s.now()); err == nil {
-		if v := strings.TrimSpace(last.Version); v != "" {
-			return v
-		}
+		best = higherCandidate(best, newVersionCandidate(last.Version))
 	} else if !errors.Is(err, domain.ErrReleaseNotFound) {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: finding the previous released version for a cut preview failed")
 	}
 
-	if s.git == nil {
-		return ""
-	}
 	pattern := r.Profile.TagPattern
 	if strings.TrimSpace(pattern) == "" {
 		pattern = domain.DefaultReleaseTagPattern
 	}
-	tag, err := s.git.LatestTag(ctx, repo.RootPath, tagGlob(pattern))
+
+	if s.git != nil {
+		tag, err := s.git.LatestTag(ctx, repo.RootPath, tagGlob(pattern))
+		if err != nil {
+			log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: finding the previous tag for a cut preview failed")
+		} else if tag != "" {
+			best = higherCandidate(best, newVersionCandidate(versionFromTag(pattern, tag)))
+		}
+	}
+
+	best = higherCandidate(best, newVersionCandidate(s.highestTaggedComponentVersion(ctx, r, pattern)))
+
+	return best.value
+}
+
+// highestTaggedComponentVersion scans every release of the component
+// (any status, any outcome) for the highest version its Tag decodes to.
+func (s *Service) highestTaggedComponentVersion(ctx context.Context, r domain.Release, pattern string) string {
+	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
+		RepositoryID: &r.RepositoryID,
+		ComponentID:  r.ComponentID,
+		Limit:        100,
+	})
 	if err != nil {
-		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: finding the previous tag for a cut preview failed")
+		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: listing the component's releases for a cut preview failed")
 		return ""
 	}
-	if tag == "" {
-		return ""
+	best := versionCandidate{}
+	for _, rel := range releases {
+		if strings.TrimSpace(rel.Tag) == "" {
+			continue
+		}
+		best = higherCandidate(best, newVersionCandidate(versionFromTag(pattern, rel.Tag)))
 	}
-	return versionFromTag(pattern, tag)
+	return best.value
+}
+
+// versionCandidate lets previousVersion compare values that may or may not
+// parse as semver: a semver candidate always outranks a non-semver one, two
+// semver candidates compare numerically, and two non-semver ones keep
+// whichever was found first (the old LastReleased-then-git-tag priority).
+type versionCandidate struct {
+	value               string
+	major, minor, patch int
+	semver              bool
+}
+
+func newVersionCandidate(v string) versionCandidate {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return versionCandidate{}
+	}
+	major, minor, patch, ok := parseSemver(v)
+	return versionCandidate{value: v, major: major, minor: minor, patch: patch, semver: ok}
+}
+
+func higherCandidate(a, b versionCandidate) versionCandidate {
+	switch {
+	case a.value == "":
+		return b
+	case b.value == "":
+		return a
+	case a.semver && b.semver:
+		if a.major != b.major {
+			if b.major > a.major {
+				return b
+			}
+			return a
+		}
+		if a.minor != b.minor {
+			if b.minor > a.minor {
+				return b
+			}
+			return a
+		}
+		if b.patch > a.patch {
+			return b
+		}
+		return a
+	case b.semver:
+		return b
+	default:
+		return a
+	}
 }
 
 func patternPrefixSuffix(pattern string) (prefix, suffix string) {
