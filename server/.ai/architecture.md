@@ -479,7 +479,10 @@ instead of two dispatches racing. A side effect that started NOTHING AT ALL — 
 error that is not a CI-unavailable/definitive refusal (a network error, a 5xx), a local
 `Start` error, or a batch store release whose every platform failed to start — reverts the
 claim back to `pending` (`DeployStartedAt` cleared) and returns the error, so `deploy_release`
-or the Deploy button can simply be retried once the problem clears. Only a DEFINITIVE refusal
+or the Deploy button can simply be retried once the problem clears. That revert is stamped like
+a hand-back (`LastHandBackAt`, `HandBackCount`), so when the agent's own retries fail too (the
+machine is offline) the watchdog wakes it again once it has not looked at the release since —
+`pending` is one of the statuses the watchdog re-wakes. Only a DEFINITIVE refusal
 — CI unavailable, or GitHub answering 404/422 (the workflow file or its dispatch trigger
 itself is wrong, not a transient hiccup) — becomes `failed`, with a reason stating nothing was
 deployed, so no rollback is needed.
@@ -686,9 +689,10 @@ all skips per-mode handling entirely — only the revert was needed, straight to
 
 **The Vercel promote trap.** Sweeping a `rolling_back` release whose
 `Mechanism == provider_rollback`: `dispatch` is done the moment the provider call succeeded
-(no redeploy was ever dispatched for it); `on_merge` must ALSO wait for the revert commit's
-own deployment to go READY (matched by commit prefix among the environment's deployments) and
-`PromoteDeployment` it — on Vercel, `RollbackTo` pins production to one specific deployment
+(no redeploy was ever dispatched for it); `on_merge` must ALSO wait for a READY production
+deployment that is the revert or builds on it (`Git.IsAncestor(revert, commit)`) and
+`PromoteDeployment` the NEWEST such one — promoting exactly the revert would put an older build
+live than a merge that landed while the rollback ran — on Vercel, `RollbackTo` pins production to one specific deployment
 and turns OFF automatic production assignment, so without this step every later merge would
 build but never go live; success records `PromotedDeploymentID`. `Current`/`CurrentDeployment`
 is no longer what any of this depends on — it is left on the adapter as a best-effort read,
@@ -697,6 +701,15 @@ call itself failing, fails the release with a reason that always says production
 (still on the earlier deployment) — never "may still run the bad release", since the provider
 success is exactly what makes that untrue — and that a human has to promote a deployment in
 the provider's console by hand.
+
+**While a pin is unresolved, nothing else counts as live.** A component with a rollback whose
+`Mechanism == provider_rollback` and no `PromotedDeploymentID` (still `rolling_back`, or
+`failed`) has production pinned to an earlier deployment: a newer on_merge deploy can go READY
+without ever serving. The sweeper therefore holds such a release in `deploying` instead of
+verifying it against the old deployment, and fails it after 60 minutes with a reason naming the
+pinning rollback. A failed `on_merge` release that never reached `verifying` is rolled back
+through `rolling_back` like any other (the revert push redeploys it and that deploy is watched);
+only `dispatch`/`batch` releases that never deployed go straight to `rolled_back`.
 
 **Claim-first, with an abandoned-claim grace window.** Every side effect above persists its
 own `ProgressAt` the moment it lands, before the next step, so a process death mid-rollback
