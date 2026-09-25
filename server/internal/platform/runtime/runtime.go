@@ -2239,6 +2239,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					IsRefAlreadyExists:  githubapi.IsRefAlreadyExists,
 					IsCIUnavailableText: githubapi.IsCIUnavailableText,
 					HealthWindow:        cfg.DeployOps.HealthWindow,
+					BeforeDeploy:        repository.BeforeDeployConfirmer{Service: repositorySvc},
 				}
 				releaseDeps.Git = gitClient
 				releaseDeps.LocalRunner = localexec.NewRunner()
@@ -2548,8 +2549,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	}
 
 	var releaseHTTP httpadapter.ReleaseService
+	var releaseWaker httpadapter.ReleaseWaker
 	if e.releaseSvc != nil {
 		releaseHTTP = e.releaseSvc
+		releaseWaker = e.releaseSvc
 	}
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
@@ -2587,6 +2590,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		ProjectModelSvc:   e.projectModelSvc,
 		CloudSvc:          e.cloudSvc,
 		ReleaseSvc:        releaseHTTP,
+		ReleaseWaker:      releaseWaker,
 		LocalPreviewSvc:   localPreviewSvc,
 		InitiativeSvc:     initiativeSvc,
 		WorkspaceSvc:      workspaceSvc,
