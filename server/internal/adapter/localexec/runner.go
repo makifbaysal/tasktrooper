@@ -7,6 +7,7 @@ package localexec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,13 @@ import (
 const defaultTimeout = 60 * time.Minute
 
 const tailLines = 120
+
+// ErrInterrupted marks a run's done callback as having been cut short by
+// Close (server shutdown) rather than by its own timeout or the command's own
+// exit — CompleteLocalRun (release/local.go) maps it to a distinct "check
+// what was published before deploying again" message instead of a plain
+// timeout that would misreport why the run stopped.
+var ErrInterrupted = errors.New("localexec: interrupted by shutdown")
 
 // Runner tracks every run it has started so Close can kill their process
 // groups and remove their worktrees on server shutdown instead of leaving
@@ -47,9 +55,11 @@ var _ release.LocalRunner = (*Runner)(nil)
 // cmd.Cancel exactly as a timeout would — and waits for each one's goroutine
 // to finish closing its log file and removing its worktree before returning,
 // so a shutdown that calls Close does not race the process it is trying to
-// stop against the data directory being torn down around it. Idempotent and
-// safe to call with no runs active.
-func (r *Runner) Close() error {
+// stop against the data directory being torn down around it. It stops
+// waiting as soon as ctx is done (the runtime passes a bounded timeout so
+// shutdown itself cannot hang forever on a run that will not die). Idempotent
+// and safe to call with no runs active.
+func (r *Runner) Close(ctx context.Context) error {
 	r.mu.Lock()
 	r.closed = true
 	cancels := make([]context.CancelFunc, 0, len(r.active))
@@ -69,7 +79,11 @@ func (r *Runner) Close() error {
 		if remaining == 0 {
 			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
 
@@ -77,30 +91,13 @@ func (r *Runner) Close() error {
 // it with output tee'd to spec.LogPath, and returns once the process has
 // started (or failed to). done runs later, from a goroutine, once the
 // process exits, is killed on timeout, is killed by Close, or could not be
-// waited on.
+// waited on. The run is registered (and the closed-check made) under the
+// same lock, before the slow worktree add: a Close racing a Start that has
+// not reached the worktree add yet must still see and cancel it, or Close
+// could return believing nothing is in flight while this call keeps going.
 func (r *Runner) Start(ctx context.Context, spec release.LocalRunSpec, done func(exitCode int, tail string, err error)) error {
 	if len(spec.Argv) == 0 {
 		return fmt.Errorf("localexec: no command given")
-	}
-	r.mu.Lock()
-	closed := r.closed
-	r.mu.Unlock()
-	if closed {
-		return fmt.Errorf("localexec: the runner is shutting down")
-	}
-	if err := os.MkdirAll(filepath.Dir(spec.LogPath), 0o755); err != nil {
-		return fmt.Errorf("localexec: creating the log directory: %w", err)
-	}
-
-	worktree, cleanup, err := addDetachedWorktree(context.WithoutCancel(ctx), spec.RootPath, spec.CommitSHA)
-	if err != nil {
-		return fmt.Errorf("localexec: preparing the detached worktree: %w", err)
-	}
-
-	logFile, err := os.Create(spec.LogPath)
-	if err != nil {
-		cleanup()
-		return fmt.Errorf("localexec: creating the log file: %w", err)
 	}
 
 	timeout := spec.Timeout
@@ -108,6 +105,43 @@ func (r *Runner) Start(ctx context.Context, spec release.LocalRunSpec, done func
 		timeout = defaultTimeout
 	}
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+
+	self := &run{cancel: cancel}
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		cancel()
+		return fmt.Errorf("localexec: the runner is shutting down")
+	}
+	r.active[self] = struct{}{}
+	r.mu.Unlock()
+
+	unregister := func() {
+		r.mu.Lock()
+		delete(r.active, self)
+		r.mu.Unlock()
+	}
+
+	if err := os.MkdirAll(filepath.Dir(spec.LogPath), 0o755); err != nil {
+		cancel()
+		unregister()
+		return fmt.Errorf("localexec: creating the log directory: %w", err)
+	}
+
+	worktree, cleanup, err := addDetachedWorktree(context.WithoutCancel(ctx), spec.RootPath, spec.CommitSHA)
+	if err != nil {
+		cancel()
+		unregister()
+		return fmt.Errorf("localexec: preparing the detached worktree: %w", err)
+	}
+
+	logFile, err := os.Create(spec.LogPath)
+	if err != nil {
+		cancel()
+		unregister()
+		cleanup()
+		return fmt.Errorf("localexec: creating the log file: %w", err)
+	}
 
 	cmd := exec.CommandContext(runCtx, spec.Argv[0], spec.Argv[1:]...)
 	cmd.Dir = worktree
@@ -127,33 +161,27 @@ func (r *Runner) Start(ctx context.Context, spec release.LocalRunSpec, done func
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		unregister()
 		_ = logFile.Close()
 		cleanup()
 		return fmt.Errorf("localexec: starting the command: %w", err)
 	}
 
-	self := &run{cancel: cancel}
-	r.mu.Lock()
-	r.active[self] = struct{}{}
-	r.mu.Unlock()
-
 	go func() {
 		defer cancel()
-		defer func() {
-			r.mu.Lock()
-			delete(r.active, self)
-			r.mu.Unlock()
-		}()
+		defer unregister()
 
 		waitErr := cmd.Wait()
-		timedOut := runCtx.Err() != nil
 
 		exitCode := 0
 		var runErr error
 		switch {
-		case timedOut:
+		case errors.Is(runCtx.Err(), context.DeadlineExceeded):
 			exitCode = -1
 			runErr = fmt.Errorf("the command timed out after %s and was killed", timeout)
+		case errors.Is(runCtx.Err(), context.Canceled):
+			exitCode = -1
+			runErr = fmt.Errorf("%w: killed while running", ErrInterrupted)
 		case waitErr == nil:
 		default:
 			if exitErr, ok := waitErr.(*exec.ExitError); ok {
@@ -178,7 +206,10 @@ func (r *Runner) Start(ctx context.Context, spec release.LocalRunSpec, done func
 	return nil
 }
 
-func addDetachedWorktree(ctx context.Context, rootPath, sha string) (worktree string, cleanup func(), err error) {
+// addDetachedWorktree is a var (not a plain func) so a test can wrap it with
+// a delay to exercise the register-before-the-slow-add ordering in Start
+// that lets Close never miss an in-flight run.
+var addDetachedWorktree = func(ctx context.Context, rootPath, sha string) (worktree string, cleanup func(), err error) {
 	parent, err := os.MkdirTemp("", "tasktrooper-local-release-")
 	if err != nil {
 		return "", nil, fmt.Errorf("creating the worktree directory: %w", err)

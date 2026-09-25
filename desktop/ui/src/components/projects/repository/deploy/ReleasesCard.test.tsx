@@ -156,6 +156,25 @@ describe("ReleasesCard", () => {
     expect(screen.queryByRole("button", { name: "Re-cut" })).not.toBeInTheDocument();
   });
 
+  it("pins both a new draft and a still-recuttable pending release as two separate rows", async () => {
+    const stuck = makeRelease({
+      id: "rel-stuck",
+      status: "pending",
+      mode: "batch",
+      version: "1.0.0",
+      tasks: [{ id: "task-1", key: "T-1" }],
+    });
+    const draft = makeRelease({ id: "rel-draft", status: "draft", tasks: [{ id: "task-2", key: "T-2" }] });
+    listReleases.mockResolvedValue({ releases: [draft, stuck] });
+    const component = makeComponent({ delivery: { override: { mode: "batch", executor: "github_actions", verify: {}, auto_rollback: true } } });
+    renderCard(component);
+
+    expect(await screen.findByText("1.0.0 never deployed")).toBeInTheDocument();
+    expect(screen.getByText("Next release — 1 merged tasks")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-cut" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cut release" })).toBeInTheDocument();
+  });
+
   it("does not pin a draft row for a non-batch component", async () => {
     const draft = makeRelease({ id: "rel-draft", status: "draft", tasks: [{ id: "task-1", key: "T-1" }] });
     listReleases.mockResolvedValue({ releases: [draft] });

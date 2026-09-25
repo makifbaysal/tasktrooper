@@ -95,7 +95,7 @@ func TestDeployBatchLocalRejectsShellMetacharacters(t *testing.T) {
 	assert.Empty(t, f.runner.specs, "the runner must never see a rejected command")
 }
 
-func TestDeployBatchLocalRecordsFailedWhenStartingTheRunFails(t *testing.T) {
+func TestDeployBatchLocalReturnsToPendingWhenStartingTheRunFails(t *testing.T) {
 	f := newLocalFixture()
 	f.runner.startErr = errors.New("fork/exec: resource temporarily unavailable")
 	task := domain.BoardTask{ID: uuid.New(), RepositoryID: f.repos.repo.ID, Column: domain.TaskColumnDone}
@@ -104,12 +104,15 @@ func TestDeployBatchLocalRecordsFailedWhenStartingTheRunFails(t *testing.T) {
 	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
 	require.NoError(t, err)
 
-	updated, err := f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
-	require.NoError(t, err, "a local-run start failure is recorded on the release, not returned as an error")
-	assert.Equal(t, domain.ReleaseFailed, updated.Status)
-	require.NotNil(t, updated.DeployStartedAt, "the claim (deploying + LocalRun) must be persisted before Start is even attempted")
-	require.NotNil(t, updated.LocalRun)
-	assert.Len(t, f.waker.calls, 1)
+	_, err = f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.Error(t, err, "a local-run start failure must be returned so deploy_release can retry — nothing ran")
+	assert.Empty(t, f.waker.calls, "nothing was deployed — there is no card to hand back")
+
+	after, gerr := f.store.Get(context.Background(), created.ID)
+	require.NoError(t, gerr)
+	assert.Equal(t, domain.ReleasePending, after.Status, "the claim must revert to pending, not get stuck failed")
+	assert.Nil(t, after.DeployStartedAt)
+	assert.Nil(t, after.LocalRun, "no run was ever started, so LocalRun must not linger on the reverted claim")
 }
 
 func TestCompleteLocalRunSuccessLeavesStatusDeployingForTheSweeper(t *testing.T) {
@@ -185,6 +188,32 @@ func TestSweepDeployingLocalFailsOnANonZeroExit(t *testing.T) {
 	assert.Equal(t, domain.ReleaseFailed, after.Status)
 	assert.NotEmpty(t, after.FailureReason)
 	assert.Len(t, f.waker.calls, 1, "a failed local run must hand the card back")
+}
+
+// TestCompleteLocalRunMapsAnInterruptionToFailedImmediately is N8's local.go
+// half: an interruption (Close killing the run on server shutdown) must fail
+// the release right away, in the callback itself, rather than leave it at
+// deploying for the sweeper to notice — the sweeper's own loop may already be
+// stopping when this callback runs.
+func TestCompleteLocalRunMapsAnInterruptionToFailedImmediately(t *testing.T) {
+	f := newLocalFixture()
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: f.repos.repo.ID, Column: domain.TaskColumnDone}
+	f.tasks.tasks[task.ID] = task
+	r := pendingBatchRelease(f.repos.repo.ID, domain.ExecutorLocal)
+	created, err := f.store.Create(context.Background(), r, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	deployed, err := f.svc.Deploy(context.Background(), created.ID, domain.ReleaseActorAgent)
+	require.NoError(t, err)
+
+	f.svc.CompleteLocalRun(context.Background(), deployed.ID, -1, "publishing...",
+		errors.New("localexec: interrupted by shutdown: killed while running"))
+
+	after, err := f.store.Get(context.Background(), deployed.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ReleaseFailed, after.Status, "an interrupted run must fail the release immediately, not wait for the sweeper")
+	assert.Contains(t, after.FailureReason, "interrupted when TaskTrooper quit")
+	assert.Contains(t, after.FailureReason, "nothing needs rolling back")
+	assert.Len(t, f.waker.calls, 1, "an immediately-failed release must still hand the card back")
 }
 
 func TestSweepDeployingLocalFailsWhenNoReportWithin70Minutes(t *testing.T) {

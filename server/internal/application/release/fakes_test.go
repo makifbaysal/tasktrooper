@@ -25,6 +25,10 @@ type fakeReleaseStore struct {
 	// failCreateTimes makes the next N Create calls fail (then succeed),
 	// simulating idx_releases_one_draft rejecting a losing racer's insert.
 	failCreateTimes int
+	// beforeUpdate is called with the candidate release right before an
+	// otherwise-successful Update persists it — a hook for asserting ordering
+	// (e.g. a claim landing before any network call the caller makes next).
+	beforeUpdate func(domain.Release)
 }
 
 func newFakeReleaseStore() *fakeReleaseStore {
@@ -157,6 +161,9 @@ func (f *fakeReleaseStore) Update(_ context.Context, r domain.Release, expect do
 		r.Tasks = cur.Tasks
 	}
 	r.UpdatedAt = time.Now()
+	if f.beforeUpdate != nil {
+		f.beforeUpdate(r)
+	}
 	f.releases[r.ID] = r
 	return r, nil
 }
@@ -749,7 +756,8 @@ type fakeStoreOps struct {
 	// tracksErr, keyed by platform, fails Tracks for just that platform.
 	tracksErr map[string]error
 
-	startCalls []fakeStoreBuildCall
+	startCalls  []fakeStoreBuildCall
+	tracksCalls []string // platform, one entry per Tracks call
 }
 
 func newFakeStoreOps() *fakeStoreOps {
@@ -774,6 +782,9 @@ func (f *fakeStoreOps) AppsByRepository(_ context.Context, repositoryID uuid.UUI
 }
 
 func (f *fakeStoreOps) Tracks(_ context.Context, repositoryID uuid.UUID, platform string) (domain.StoreTracks, error) {
+	f.mu.Lock()
+	f.tracksCalls = append(f.tracksCalls, platform)
+	f.mu.Unlock()
 	if err := f.tracksErr[platform]; err != nil {
 		return domain.StoreTracks{}, err
 	}
