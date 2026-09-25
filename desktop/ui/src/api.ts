@@ -2256,6 +2256,56 @@ export interface ComponentGates {
 
 export type ComponentStatus = "active" | "dismissed";
 
+export type DeliveryMode = "on_merge" | "dispatch" | "batch" | "none";
+
+export const DELIVERY_MODES: DeliveryMode[] = ["on_merge", "dispatch", "batch", "none"];
+
+export type DeliveryExecutor = "github_actions" | "vercel" | "local" | "store";
+
+export const DELIVERY_EXECUTORS: DeliveryExecutor[] = ["github_actions", "vercel", "local", "store"];
+
+export const DEFAULT_SOAK_MINUTES = 10;
+export const MAX_SOAK_MINUTES = 120;
+export const MAX_SMOKE_CHECKS = 20;
+
+/** One read-only request sent to production after a deploy — only GET/HEAD
+ * exist; a smoke check that could write would be a test against production. */
+export interface SmokeCheck {
+  method?: string;
+  /** Relative to the environment's URL ("/api/health"), or an absolute http(s) URL. */
+  path: string;
+  /** Absent/0 means any 2xx/3xx. */
+  expect_status?: number;
+  /** Must appear in the response body, when set. */
+  contains?: string;
+}
+
+export interface DeliveryVerify {
+  /** How long production is watched after the deploy settles before a
+   * verdict is asked for. */
+  soak_minutes?: number;
+  /** How many new runtime error groups are tolerated before the soak stops early. */
+  max_new_errors?: number;
+  smoke?: SmokeCheck[];
+}
+
+/** A component's delivery profile: WHAT a merge sets in motion and WHO
+ * carries it out. Mirrors server/internal/domain/delivery.go's JSON tags
+ * exactly. */
+export interface ComponentDelivery {
+  mode: DeliveryMode;
+  executor?: DeliveryExecutor;
+  /** The deploy workflow's file basename ("deploy.yml"). */
+  workflow?: string;
+  /** Names a batch release's tag; "{version}" is substituted. */
+  tag_pattern?: string;
+  /** Runs a batch release on this machine; "{version}" is substituted. */
+  local_command?: string;
+  verify: DeliveryVerify;
+  /** Off: a bad release is written up for a human instead of rolled back on its own. */
+  auto_rollback: boolean;
+}
+
 export interface Component {
   id: string;
   repository_id: string;
@@ -2267,6 +2317,11 @@ export interface Component {
   mobile?: Fact<MobileFacts>;
   docs: RepositoryDocs;
   gates: ComponentGates;
+  /** How a merge of this component reaches production; unconfirmed (no
+   * override and detected confidence below high) means nothing deploys it.
+   * Optional here, though the server always sends it, so pre-existing
+   * Component fixtures elsewhere in the test suite need no update. */
+  delivery?: Fact<ComponentDelivery>;
   status: ComponentStatus;
   manually_added: boolean;
   // A later scan (a push, not the first import) found this on its own; the
@@ -2635,6 +2690,8 @@ export interface ComponentPatch {
   commands?: Partial<Record<CommandPurpose, string | null>>;
   gates?: ComponentGates | null;
   docs?: RepositoryDocs | null;
+  /** null clears the override and reverts to the detected profile. */
+  delivery?: ComponentDelivery | null;
   status?: ComponentStatus;
   /** true acknowledges a component a later scan added (clears needs_review). */
   reviewed?: boolean;
@@ -2919,6 +2976,182 @@ export interface EnvironmentSummary {
   status: LinkStatus;
   health?: CloudResourceStatus;
   error_count_24h: number;
+}
+
+// ---------------------------------------------------------------------------
+// Releases (Phase F1): one shipment of one component — the merges it
+// carries, how it was deployed, what production looked like afterwards, and
+// the verdict. A task reaches `released` only through its release's verdict,
+// never through a deploy job's colour alone. Mirrors
+// server/internal/domain/release.go and deploy_watch.go's JSON tags exactly.
+// ---------------------------------------------------------------------------
+
+export type ReleaseStatus =
+  | "draft"
+  | "pending"
+  | "deploying"
+  | "verifying"
+  | "awaiting_verdict"
+  | "rolling_back"
+  | "released"
+  | "rolled_back"
+  | "failed"
+  | "superseded";
+
+/** Who performed a release action; an agent is refused what only a human may
+ * confirm (a rollback with auto_rollback off). */
+export type ReleaseActor = "agent" | "human" | "system";
+
+export interface ReleaseTaskRef {
+  id: string;
+  key?: string;
+  title?: string;
+  task_type?: TaskType;
+  column?: TaskColumn;
+  merge_commit_sha?: string;
+}
+
+export interface HealthSample {
+  at: string;
+  status?: number;
+  ok: boolean;
+  latency_ms?: number;
+  error?: string;
+}
+
+export interface SmokeResult {
+  check: SmokeCheck;
+  url: string;
+  at: string;
+  status?: number;
+  ok: boolean;
+  latency_ms?: number;
+  error?: string;
+}
+
+/** The evidence gathered while a release was verified. */
+export interface ReleaseChecks {
+  /** The bound production environment the runtime reads came from; absent
+   * when the component has none (health/smoke only). */
+  environment_id?: string;
+  base_url?: string;
+  health_url?: string;
+  health?: HealthSample[];
+  smoke?: SmokeResult[];
+  /** Runtime error groups whose first occurrence is after the deploy settled. */
+  new_errors?: RuntimeErrorGroup[];
+  /** Gaps the verifier hit ("no health URL", "logs not readable"), so a
+   * clean result is never mistaken for a checked one. */
+  notes?: string[];
+  /** Why the soak ended before its window did. */
+  early_stop?: string;
+}
+
+export type RollbackReason = "deploy_failed" | "verify_failed" | "health_incident" | "manual";
+
+export const ROLLBACK_REASONS: RollbackReason[] = ["deploy_failed", "verify_failed", "health_incident", "manual"];
+
+/** HOW a release was undone: redeploying the previous good release
+ * (dispatch) or a pushed revert that redeploys on merge (on_merge). */
+export type RollbackMechanism = "workflow_dispatch" | "revert_push";
+
+export interface ReleaseRollback {
+  reason: RollbackReason;
+  note?: string;
+  mechanism?: RollbackMechanism;
+  /** The commit on the default branch that undoes the release's merges —
+   * pushed in every mode, so the next release cannot ship the bad change again. */
+  revert_sha?: string;
+  /** What was redeployed: the previous release's tag or the revert commit. */
+  restored_ref?: string;
+  run_url?: string;
+  /** What no mechanism can undo (migrations, flags, CDN) — from the tasks'
+   * own rollback plans; the agent performs or reports each. */
+  manual_steps?: string[];
+  actor?: string;
+  started_at: string;
+  detail?: string;
+}
+
+export type DeployWatchState = "pending" | "success" | "failure" | "no_signal" | "unknown";
+
+/** One job inside the Actions run that carried the deploy. */
+export interface DeployWatchJob {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string;
+  url?: string;
+}
+
+/** One task-commit's deploy-watch answer, carried on a release's `deploy` field. */
+export interface DeployWatchStatus {
+  task_id: string;
+  task_key?: string;
+  repository_id: string;
+  env: string;
+  merge_commit_sha: string;
+  state: DeployWatchState;
+  signal: string;
+  detail?: string;
+  run_id?: number;
+  run_url?: string;
+  failed_job?: DeployWatchJob;
+  contexts?: string[];
+  health_url?: string;
+  logs_url?: string;
+  auto_rollback: boolean;
+  health_window_until?: string;
+  checked_at: string;
+}
+
+/** One shipment of one component: the merge commits it carries, how it was
+ * deployed, what production looked like afterwards and what was decided. */
+export interface Release {
+  id: string;
+  repository_id: string;
+  component_id?: string;
+  version: string;
+  mode: DeliveryMode;
+  executor?: DeliveryExecutor;
+  status: ReleaseStatus;
+  /** The commit this release puts in production: the task's merge commit, or
+   * the default branch head a batch was cut at. */
+  commit_sha?: string;
+  tag?: string;
+  notes?: string;
+  /** The delivery profile the release was opened under, frozen so a later
+   * edit cannot change what an in-flight release is judged by. */
+  profile: ComponentDelivery;
+  deploy?: DeployWatchStatus;
+  checks: ReleaseChecks;
+  /** The release engineer's (or a human's) closing note. */
+  verdict?: string;
+  rollback?: ReleaseRollback;
+  /** Set with status `failed`. */
+  failure_reason?: string;
+  card_task_id?: string;
+  tasks: ReleaseTaskRef[];
+  created_at: string;
+  updated_at: string;
+  deploy_started_at?: string;
+  deployed_at?: string;
+  verify_until?: string;
+  finished_at?: string;
+}
+
+/** What merging a task set in motion; carried on the merge result so the
+ * release engineer knows its next step without another call. */
+export interface ReleaseOpening {
+  mode: DeliveryMode;
+  release_id?: string;
+  status?: ReleaseStatus;
+  /** True when the merge was the whole release (mode none). */
+  released?: boolean;
+  /** True when the component's delivery profile has not been confirmed:
+   * nothing deploys and the task waits in done. */
+  unconfirmed?: boolean;
+  next: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -4456,5 +4689,40 @@ export const api = {
     request<BoardTask>(`/v1/environments/${envId}/errors/task`, {
       method: "POST",
       body: JSON.stringify(group),
+    }),
+
+  // ---- Releases & delivery (Phase F1) --------------------------------------
+
+  listReleases: (repositoryId: string, opts: { componentId?: string; taskId?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.componentId) qs.set("component_id", opts.componentId);
+    if (opts.taskId) qs.set("task_id", opts.taskId);
+    if (opts.limit) qs.set("limit", String(opts.limit));
+    const suffix = qs.toString();
+    return request<{ releases: Release[] }>(`/v1/repositories/${repositoryId}/releases${suffix ? `?${suffix}` : ""}`);
+  },
+
+  getRelease: (releaseId: string) => request<Release>(`/v1/releases/${releaseId}`),
+
+  deployRelease: (releaseId: string, confirm: string) =>
+    request<Release>(`/v1/releases/${releaseId}/deploy`, { method: "POST", body: JSON.stringify({ confirm }) }),
+
+  finishRelease: (releaseId: string, confirm: string, note: string) =>
+    request<Release>(`/v1/releases/${releaseId}/finish`, {
+      method: "POST",
+      body: JSON.stringify({ confirm, note }),
+    }),
+
+  rollbackRelease: (releaseId: string, confirm: string, note: string) =>
+    request<Release>(`/v1/releases/${releaseId}/rollback`, {
+      method: "POST",
+      body: JSON.stringify({ confirm, note }),
+    }),
+
+  // PATCHes the component with only {delivery}: a value sets the override, null clears it.
+  updateComponentDelivery: (componentId: string, delivery: ComponentDelivery | null) =>
+    request<Component>(`/v1/components/${componentId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ delivery }),
     }),
 };
