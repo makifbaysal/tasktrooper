@@ -114,16 +114,19 @@ func (a *ActionsAPI) CommitDeployStatus(ctx context.Context, owner, repo, sha st
 		return port.CommitDeploySignal{}, err
 	}
 	if combined.HasSignal() {
-		signal := port.CommitDeploySignal{
-			Kind:     domain.DeploySignalCommitStatus,
-			State:    normalizeStatusState(combined.State),
-			Contexts: combined.Contexts(),
+		if deploy := deployProviderStatuses(combined.Statuses); len(deploy) > 0 {
+			signal := port.CommitDeploySignal{
+				Kind:     domain.DeploySignalCommitStatus,
+				State:    aggregateStatusState(deploy),
+				Contexts: statusContexts(deploy),
+			}
+			signal.Description = deploy[0].Description
+			signal.URL = deploy[0].TargetURL
+			return signal, nil
 		}
-		if len(combined.Statuses) > 0 {
-			signal.Description = combined.Statuses[0].Description
-			signal.URL = combined.Statuses[0].TargetURL
-		}
-		return signal, nil
+		// Every status was a CI context (codecov, ci/*, build, test, lint, …),
+		// none of it a deploy provider — fall through to deployments rather
+		// than reading a red test run as a failed deploy.
 	}
 
 	deployments, err := listDeploymentsForSHAAt(ctx, a.baseURL, token, owner, repo, sha)
@@ -164,6 +167,64 @@ func mapActionsRuns(runs []WorkflowRun) []port.ActionsRun {
 			Event:        r.Event,
 			RunStartedAt: r.RunStartedAt,
 			UpdatedAt:    r.UpdatedAt,
+		}
+	}
+	return out
+}
+
+// deployProviderTokens are substrings that mark a commit-status context as a
+// deploy provider rather than a CI check. "deploy" alone also matches
+// "deployment", so it is not listed separately.
+var deployProviderTokens = []string{"vercel", "netlify", "render", "cloudflare", "heroku", "fly", "deploy"}
+
+// deployProviderStatuses keeps only the statuses that look like a deploy
+// provider wrote them — a red codecov, ci/*, build, test or lint context must
+// never read as a deploy failure.
+func deployProviderStatuses(statuses []CommitStatus) []CommitStatus {
+	out := make([]CommitStatus, 0, len(statuses))
+	for _, s := range statuses {
+		if looksLikeDeployContext(s.Context) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func looksLikeDeployContext(context string) bool {
+	lower := strings.ToLower(strings.TrimSpace(context))
+	if lower == "" {
+		return false
+	}
+	for _, token := range deployProviderTokens {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// aggregateStatusState mirrors GitHub's own combined-status rule (any
+// failure wins, then any pending, else success) but computed over the
+// deploy-provider subset only, since combined.State was computed over every
+// status including the CI ones this filter just dropped.
+func aggregateStatusState(statuses []CommitStatus) string {
+	state := "success"
+	for _, s := range statuses {
+		switch normalizeStatusState(s.State) {
+		case "failure":
+			return "failure"
+		case "pending":
+			state = "pending"
+		}
+	}
+	return state
+}
+
+func statusContexts(statuses []CommitStatus) []string {
+	out := make([]string, 0, len(statuses))
+	for _, s := range statuses {
+		if s.Context != "" {
+			out = append(out, s.Context)
 		}
 	}
 	return out

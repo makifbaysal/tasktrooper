@@ -2,6 +2,8 @@ package board
 
 import (
 	"context"
+	"errors"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -614,5 +617,148 @@ func TestFailedDeployStillBouncesToNeedRevision(t *testing.T) {
 
 	if len(tasks.calls) != 1 || tasks.calls[0].Column == nil || *tasks.calls[0].Column != domain.TaskColumnNeedRevision {
 		t.Fatalf("a genuinely failed deploy must return the task to need_revision, got %+v", tasks.calls)
+	}
+}
+
+type fakePipelineGit struct {
+	ensureCalls int
+	pushCalls   int
+	gitInfo     domain.TaskGitInfo
+}
+
+func (f *fakePipelineGit) TaskGitInfo(context.Context, string) (domain.TaskGitInfo, error) {
+	return f.gitInfo, nil
+}
+func (f *fakePipelineGit) EnsurePullRequest(context.Context, string) (string, error) {
+	f.ensureCalls++
+	return "https://github.com/acme/repo/pull/1", nil
+}
+func (f *fakePipelineGit) PushBranch(context.Context, string) error {
+	f.pushCalls++
+	return nil
+}
+
+func newResolveGitInfoJob(t *testing.T, trigger domain.PipelineTrigger) (pipelineJob, string) {
+	t.Helper()
+	root := t.TempDir()
+	taskID := uuid.New()
+	dir, err := workspace.TaskDir(root, taskID)
+	if err != nil {
+		t.Fatalf("workspace.TaskDir: %v", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir task workspace: %v", err)
+	}
+	return pipelineJob{
+		Pipeline:     domain.TaskPipeline{Trigger: trigger},
+		RepositoryID: uuid.New(),
+		Task:         domain.BoardTask{ID: taskID, Key: "T-1"},
+	}, root
+}
+
+// A prod/preprod deploy runs after the merge, whose branch is already
+// deleted: ensuring/pushing a PR here would recreate that branch and open a
+// stray PR against a merge that already happened.
+func TestResolveGitInfoSkipsPullRequestOpsForProdAndPreProdDeploy(t *testing.T) {
+	for _, trigger := range []domain.PipelineTrigger{domain.PipelineTriggerProdDeploy, domain.PipelineTriggerPreProdDeploy} {
+		t.Run(string(trigger), func(t *testing.T) {
+			job, root := newResolveGitInfoJob(t, trigger)
+			git := &fakePipelineGit{}
+			runner := &PipelineRunner{git: git, workspaceRoot: root}
+
+			if _, err := runner.resolveGitInfo(context.Background(), job); err != nil {
+				t.Fatalf("resolveGitInfo: %v", err)
+			}
+			if git.ensureCalls != 0 || git.pushCalls != 0 {
+				t.Fatalf("a %s pipeline must not touch the PR: ensure=%d push=%d", trigger, git.ensureCalls, git.pushCalls)
+			}
+		})
+	}
+}
+
+// Every other trigger (QA gate, stage deploy) keeps ensuring the PR exists —
+// this is the only behaviour that changed.
+func TestResolveGitInfoStillEnsuresPullRequestForNonReleaseDeployTriggers(t *testing.T) {
+	for _, trigger := range []domain.PipelineTrigger{domain.PipelineTriggerReadyForQA, domain.PipelineTriggerStageDeploy} {
+		t.Run(string(trigger), func(t *testing.T) {
+			job, root := newResolveGitInfoJob(t, trigger)
+			git := &fakePipelineGit{}
+			runner := &PipelineRunner{git: git, workspaceRoot: root}
+
+			if _, err := runner.resolveGitInfo(context.Background(), job); err != nil {
+				t.Fatalf("resolveGitInfo: %v", err)
+			}
+			if git.ensureCalls != 1 {
+				t.Fatalf("a %s pipeline must still ensure the PR, got %d calls", trigger, git.ensureCalls)
+			}
+		})
+	}
+}
+
+type fakeComponentPaths struct {
+	byID map[uuid.UUID]string
+	err  error
+}
+
+func (f *fakeComponentPaths) ComponentPath(_ context.Context, _, componentID uuid.UUID) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.byID[componentID], nil
+}
+
+func TestResolveComponentPathNilForARootTask(t *testing.T) {
+	runner := &PipelineRunner{components: &fakeComponentPaths{}}
+	if got := runner.resolveComponentPath(context.Background(), uuid.New(), nil); got != nil {
+		t.Fatalf("path = %v, want nil — a task with no component scopes nothing", got)
+	}
+}
+
+func TestResolveComponentPathNilWhenResolverNotWired(t *testing.T) {
+	runner := &PipelineRunner{}
+	componentID := uuid.New()
+	if got := runner.resolveComponentPath(context.Background(), uuid.New(), &componentID); got != nil {
+		t.Fatalf("path = %v, want nil — without a resolver wired, every mapping still runs", got)
+	}
+}
+
+func TestResolveComponentPathNilWhenResolutionFails(t *testing.T) {
+	runner := &PipelineRunner{components: &fakeComponentPaths{err: errors.New("boom")}}
+	componentID := uuid.New()
+	if got := runner.resolveComponentPath(context.Background(), uuid.New(), &componentID); got != nil {
+		t.Fatalf("path = %v, want nil on a resolution failure — never silently drop every mapping", got)
+	}
+}
+
+func TestResolveComponentPathReturnsTheResolvedPath(t *testing.T) {
+	componentID := uuid.New()
+	runner := &PipelineRunner{components: &fakeComponentPaths{byID: map[uuid.UUID]string{componentID: "apps/api"}}}
+	got := runner.resolveComponentPath(context.Background(), uuid.New(), &componentID)
+	if got == nil || *got != "apps/api" {
+		t.Fatalf("path = %v, want apps/api", got)
+	}
+}
+
+func TestScopeMappingsToComponent(t *testing.T) {
+	mappings := []domain.RepositoryPipelineJob{
+		{SubProjectPath: "apps/api", Category: domain.PipelineCategoryBuild, TargetKind: domain.PipelineTargetJob, TargetRef: "api-build"},
+		{SubProjectPath: "apps/web", Category: domain.PipelineCategoryBuild, TargetKind: domain.PipelineTargetJob, TargetRef: "web-build"},
+		{SubProjectPath: "", Category: domain.PipelineCategoryBuild, TargetKind: domain.PipelineTargetJob, TargetRef: "root-build"},
+	}
+
+	if got := scopeMappingsToComponent(mappings, nil); len(got) != 3 {
+		t.Fatalf("nil componentPath must keep every mapping, got %d", len(got))
+	}
+
+	api := "apps/api"
+	scoped := scopeMappingsToComponent(mappings, &api)
+	if len(scoped) != 1 || scoped[0].TargetRef != "api-build" {
+		t.Fatalf("scoped to apps/api = %+v, want only api-build", scoped)
+	}
+
+	root := "."
+	scopedRoot := scopeMappingsToComponent(mappings, &root)
+	if len(scopedRoot) != 1 || scopedRoot[0].TargetRef != "root-build" {
+		t.Fatalf("scoped to \".\" (root) = %+v, want only root-build — \".\" and \"\" mean the same thing", scopedRoot)
 	}
 }

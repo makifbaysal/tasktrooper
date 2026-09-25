@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -630,15 +631,50 @@ func (c *Client) PushBranch(ctx context.Context, workspacePath string) error {
 	return nil
 }
 
+// RevertCommitOnDefaultBranch is RevertOnDefaultBranch for a single commit,
+// kept for callers with only one sha to undo.
 func (c *Client) RevertCommitOnDefaultBranch(ctx context.Context, rootPath, sha, message string) (string, error) {
+	return c.RevertOnDefaultBranch(ctx, rootPath, []string{sha}, message)
+}
+
+var revertSHARe = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
+
+func validateRevertSHA(sha string) (string, error) {
 	sha = strings.TrimSpace(sha)
 	if sha == "" {
 		return "", fmt.Errorf("git revert: no commit given")
 	}
-
 	if strings.HasPrefix(sha, "-") {
 		return "", fmt.Errorf("git revert: %q is not a commit", sha)
 	}
+	if !revertSHARe.MatchString(sha) {
+		return "", fmt.Errorf("git revert: %q is not a commit", sha)
+	}
+	return sha, nil
+}
+
+// RevertOnDefaultBranch is the rollback mechanism for a repository with no
+// deploy workflow to dispatch: it undoes shas (in the given order) on the
+// default branch and pushes. It runs entirely inside a detached git worktree
+// cloned off origin — never `checkout`/`reset --hard` in rootPath itself — so
+// an unattended rollback can never discard a human's uncommitted work sitting
+// in the repository's root clone; the old behaviour did exactly that.
+func (c *Client) RevertOnDefaultBranch(ctx context.Context, rootPath string, shas []string, message string) (string, error) {
+	if len(shas) == 0 {
+		return "", fmt.Errorf("git revert: no commits given")
+	}
+	valid := make([]string, 0, len(shas))
+	for _, sha := range shas {
+		v, err := validateRevertSHA(sha)
+		if err != nil {
+			return "", err
+		}
+		valid = append(valid, v)
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "Revert " + strings.Join(shasLabel(valid), ", ")
+	}
+
 	if err := c.FetchLatest(ctx, rootPath); err != nil {
 		return "", fmt.Errorf("git fetch: %w", err)
 	}
@@ -646,44 +682,92 @@ func (c *Client) RevertCommitOnDefaultBranch(ctx context.Context, rootPath, sha,
 	if branch == "" {
 		return "", fmt.Errorf("git revert: origin's default branch could not be resolved")
 	}
-	if out, err := c.run(ctx, rootPath, "git", "checkout", branch); err != nil {
-		return "", fmt.Errorf("git checkout %s: %w (%s)", branch, err, strings.TrimSpace(out))
+	for _, sha := range valid {
+		if out, err := c.run(ctx, rootPath, "git", "cat-file", "-e", sha+"^{commit}"); err != nil {
+			return "", fmt.Errorf("git revert: %s is not a commit in this repository (%s)", sha, strings.TrimSpace(out))
+		}
 	}
-	if out, err := c.run(ctx, rootPath, "git", "reset", "--hard", "origin/"+branch); err != nil {
-		return "", fmt.Errorf("git reset onto origin/%s: %w (%s)", branch, err, strings.TrimSpace(out))
+
+	parent, err := os.MkdirTemp("", "tasktrooper-revert-")
+	if err != nil {
+		return "", fmt.Errorf("git revert: creating the detached worktree directory: %w", err)
 	}
-	if out, err := c.run(ctx, rootPath, "git", "cat-file", "-e", sha+"^{commit}"); err != nil {
-		return "", fmt.Errorf("git revert: %s is not a commit in this repository (%s)", sha, strings.TrimSpace(out))
+	defer func() {
+		if rmErr := os.RemoveAll(parent); rmErr != nil {
+			log.Warn().Err(rmErr).Str("dir", parent).Msg("git revert: removing the worktree's temp directory failed")
+		}
+	}()
+	worktree := filepath.Join(parent, "wt")
+
+	if out, err := c.run(ctx, rootPath, "git", "worktree", "add", "--detach", worktree, "origin/"+branch); err != nil {
+		return "", fmt.Errorf("git worktree add: %w (%s)", err, strings.TrimSpace(out))
 	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if out, rmErr := c.run(cleanupCtx, rootPath, "git", "worktree", "remove", "--force", worktree); rmErr != nil {
+			log.Warn().Str("output", strings.TrimSpace(out)).Err(rmErr).Msg("git revert: removing the detached worktree failed")
+		}
+		if out, pruneErr := c.run(cleanupCtx, rootPath, "git", "worktree", "prune"); pruneErr != nil {
+			log.Warn().Str("output", strings.TrimSpace(out)).Err(pruneErr).Msg("git revert: pruning worktrees failed")
+		}
+	}()
 
 	author := c.commitAuthorEnv(ctx)
 
-	if out, err := c.runEnv(ctx, rootPath, author, "git", "revert", "--no-edit", sha); err != nil {
-		if abortOut, abortErr := c.run(ctx, rootPath, "git", "revert", "--abort"); abortErr != nil {
+	revertArgs := append([]string{"revert", "--no-edit", "--no-commit"}, valid...)
+	if out, err := c.runEnv(ctx, worktree, author, "git", revertArgs...); err != nil {
+		detail := strings.TrimSpace(out)
+		if conflicts := c.conflictingPaths(ctx, worktree); len(conflicts) > 0 {
+			detail = "conflicts in " + strings.Join(conflicts, ", ")
+		}
+		if abortOut, abortErr := c.run(ctx, worktree, "git", "revert", "--abort"); abortErr != nil {
 			log.Debug().Str("output", strings.TrimSpace(abortOut)).Msg("git revert --abort after a failed revert")
 		}
-		return "", fmt.Errorf("git revert %s: %w (%s)", domain.ShortSHA(sha), err, strings.TrimSpace(out))
-	}
-	if strings.TrimSpace(message) != "" {
-		if out, err := c.runEnv(ctx, rootPath, author, "git", "commit", "--amend", "-m", message); err != nil {
-			return "", fmt.Errorf("git commit --amend on the revert: %w (%s)", err, strings.TrimSpace(out))
-		}
+		return "", fmt.Errorf("git revert %s: %w (%s)", strings.Join(shasLabel(valid), ", "), err, detail)
 	}
 
-	pushArgs := []string{"push", "origin", branch}
+	if out, err := c.runEnv(ctx, worktree, author, "git", "commit", "-m", message); err != nil {
+		return "", fmt.Errorf("git commit on the revert: %w (%s)", err, strings.TrimSpace(out))
+	}
+
+	pushArgs := []string{"push", "origin", "HEAD:refs/heads/" + branch}
 	if tok := c.token(ctx); tok != "" {
 		pushArgs = append(authFlags(tok), pushArgs...)
 	}
-	if out, err := c.run(ctx, rootPath, "git", pushArgs...); err != nil {
-
-		return "", fmt.Errorf("git push of the revert to origin/%s failed — the revert was made locally and production is UNCHANGED: %w (%s)",
+	if out, err := c.run(ctx, worktree, "git", pushArgs...); err != nil {
+		return "", fmt.Errorf("git push of the revert to origin/%s failed — the revert was NOT pushed and production is unchanged: %w (%s)",
 			branch, err, strings.TrimSpace(out))
 	}
-	revertSHA := c.revParse(ctx, rootPath, "HEAD")
+	revertSHA := c.revParse(ctx, worktree, "HEAD")
 	if revertSHA == "" {
 		return "", fmt.Errorf("git revert: the revert was pushed but its commit could not be read back")
 	}
 	return revertSHA, nil
+}
+
+// conflictingPaths reads the paths a failed `git revert` left unmerged, so
+// the caller's error can name them instead of dumping raw git output.
+func (c *Client) conflictingPaths(ctx context.Context, dir string) []string {
+	out, err := c.run(ctx, dir, "git", "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil
+	}
+	var paths []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			paths = append(paths, line)
+		}
+	}
+	return paths
+}
+
+func shasLabel(shas []string) []string {
+	out := make([]string, len(shas))
+	for i, s := range shas {
+		out[i] = domain.ShortSHA(s)
+	}
+	return out
 }
 
 func (c *Client) EnsurePullRequest(ctx context.Context, workspacePath string) (string, error) {

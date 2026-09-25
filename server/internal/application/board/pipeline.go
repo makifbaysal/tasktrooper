@@ -98,6 +98,7 @@ type PipelineRunner struct {
 	prRecorder TaskPRRecorder
 	taskReader TaskRunbookReader
 	workflows  port.WorkflowReader
+	components ComponentPaths
 	// Nil bounce guard keeps old behaviour: every failed pipeline sends the task back.
 	bounces *PipelineBounceGuard
 }
@@ -282,22 +283,32 @@ func (p *PipelineRunner) resolveGitInfo(ctx context.Context, job pipelineJob) (d
 	if _, statErr := os.Stat(dir); statErr != nil {
 		return domain.TaskGitInfo{}, fmt.Errorf("task workspace not found: %s", dir)
 	}
-	if prURL, prErr := p.git.EnsurePullRequest(ctx, dir); prErr != nil {
-		if pushErr := p.git.PushBranch(ctx, dir); pushErr != nil {
-			log.Warn().Err(pushErr).Str("task_id", job.Task.ID.String()).Msg("publishing the task branch before the pipeline failed")
-		} else if retryURL, retryErr := p.git.EnsurePullRequest(ctx, dir); retryErr != nil {
-			log.Warn().Err(retryErr).Str("task_id", job.Task.ID.String()).Msg("ensure pull request before pipeline failed")
+	// A prod/preprod deploy runs after the merge, whose branch delete already
+	// happened; ensuring/pushing a PR here recreated the deleted task branch
+	// and opened a fresh PR against a merge that was already done.
+	if !isProdOrPreProdDeployTrigger(job.Pipeline.Trigger) {
+		if prURL, prErr := p.git.EnsurePullRequest(ctx, dir); prErr != nil {
+			if pushErr := p.git.PushBranch(ctx, dir); pushErr != nil {
+				log.Warn().Err(pushErr).Str("task_id", job.Task.ID.String()).Msg("publishing the task branch before the pipeline failed")
+			} else if retryURL, retryErr := p.git.EnsurePullRequest(ctx, dir); retryErr != nil {
+				log.Warn().Err(retryErr).Str("task_id", job.Task.ID.String()).Msg("ensure pull request before pipeline failed")
+			} else {
+				recordTaskPR(ctx, p.prRecorder, job.Task.ID, retryURL)
+			}
 		} else {
-			recordTaskPR(ctx, p.prRecorder, job.Task.ID, retryURL)
+			recordTaskPR(ctx, p.prRecorder, job.Task.ID, prURL)
 		}
-	} else {
-		recordTaskPR(ctx, p.prRecorder, job.Task.ID, prURL)
 	}
 	return p.git.TaskGitInfo(ctx, dir)
 }
 
+func isProdOrPreProdDeployTrigger(t domain.PipelineTrigger) bool {
+	return t == domain.PipelineTriggerPreProdDeploy || t == domain.PipelineTriggerProdDeploy
+}
+
 func (p *PipelineRunner) runQAGate(ctx context.Context, job pipelineJob, pipeline domain.TaskPipeline, gitInfo domain.TaskGitInfo, token string, mappings []domain.RepositoryPipelineJob) error {
-	targets := filterMappings(mappings, domain.PipelineTargetJob,
+	componentPath := p.resolveComponentPath(ctx, job.RepositoryID, job.Task.ComponentID)
+	targets := filterMappings(scopeMappingsToComponent(mappings, componentPath), domain.PipelineTargetJob,
 		domain.PipelineCategoryValidate, domain.PipelineCategoryBuild,
 		domain.PipelineCategoryTest, domain.PipelineCategoryMutationTest)
 
@@ -316,15 +327,20 @@ func (p *PipelineRunner) runQAGate(ctx context.Context, job pipelineJob, pipelin
 func (p *PipelineRunner) runDeploy(ctx context.Context, job pipelineJob, pipeline domain.TaskPipeline, repo domain.Repository, gitInfo domain.TaskGitInfo, token string, mappings []domain.RepositoryPipelineJob) error {
 	category := domain.PipelineCategoryStageDeploy
 	ref := gitInfo.Branch
-	switch pipeline.Trigger {
-	case domain.PipelineTriggerPreProdDeploy:
-		category = domain.PipelineCategoryPreProdDeploy
-		ref = deployRef(ctx, token, gitInfo, job.Task)
-	case domain.PipelineTriggerProdDeploy:
-		category = domain.PipelineCategoryProdDeploy
-		ref = deployRef(ctx, token, gitInfo, job.Task)
+	if isProdOrPreProdDeployTrigger(pipeline.Trigger) {
+		if pipeline.Trigger == domain.PipelineTriggerPreProdDeploy {
+			category = domain.PipelineCategoryPreProdDeploy
+		} else {
+			category = domain.PipelineCategoryProdDeploy
+		}
+		resolved, err := deployRef(ctx, token, gitInfo, job.Task)
+		if err != nil {
+			return p.finishNoWorkspace(ctx, job, pipeline, err.Error())
+		}
+		ref = resolved
 	}
-	targets := filterMappings(mappings, domain.PipelineTargetWorkflow, category)
+	componentPath := p.resolveComponentPath(ctx, job.RepositoryID, job.Task.ComponentID)
+	targets := filterMappings(scopeMappingsToComponent(mappings, componentPath), domain.PipelineTargetWorkflow, category)
 	if len(targets) == 0 {
 		return p.finishNoChecks(ctx, job, pipeline, "no "+category+" workflow configured")
 	}
@@ -335,6 +351,42 @@ func (p *PipelineRunner) runDeploy(ctx context.Context, job pipelineJob, pipelin
 		return p.finishInterrupted(ctx, pipeline, jobs)
 	}
 	return p.finalize(ctx, job, pipeline, status, jobs)
+}
+
+// ComponentPaths resolves a task's component to the path pipeline mappings
+// scope on ("" for the repository itself). Optional and nil-safe: without it
+// wired, mappings run unfiltered by component, same as before this existed.
+type ComponentPaths interface {
+	ComponentPath(ctx context.Context, repositoryID, componentID uuid.UUID) (string, error)
+}
+
+func (p *PipelineRunner) SetComponentPaths(c ComponentPaths) { p.components = c }
+
+// resolveComponentPath answers nil when the task is not scoped to one
+// component (the whole repository, every mapping applies) or the resolver
+// is not wired/fails — a monorepo that filtered out every mapping because a
+// path could not be read would silently stop deploying and testing.
+func (p *PipelineRunner) resolveComponentPath(ctx context.Context, repositoryID uuid.UUID, componentID *uuid.UUID) *string {
+	if componentID == nil || p.components == nil {
+		return nil
+	}
+	path, err := p.components.ComponentPath(ctx, repositoryID, *componentID)
+	if err != nil {
+		log.Warn().Err(err).Str("component_id", componentID.String()).Msg("pipeline: resolving the task's component path failed; running every mapped check")
+		return nil
+	}
+	return &path
+}
+
+// normalizeComponentPath treats "." (Component.Path's root marker) and ""
+// (RepositoryPipelineJob.SubProjectPath's) as the same thing: the repository
+// itself.
+func normalizeComponentPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "." {
+		return ""
+	}
+	return p
 }
 
 func (p *PipelineRunner) markProvider(ctx context.Context, pipeline domain.TaskPipeline, provider string) domain.TaskPipeline {
@@ -387,6 +439,23 @@ func filterMappings(mappings []domain.RepositoryPipelineJob, targetKind string, 
 			label = m.SubRepoKind + ":" + m.Category
 		}
 		out = append(out, mappingTarget{label: label, ref: m.TargetRef, category: m.Category})
+	}
+	return out
+}
+
+// scopeMappingsToComponent narrows mappings to one monorepo sub-project's
+// before filterMappings runs — componentPath nil (a root task, or a
+// component whose path could not be resolved) runs every mapping unchanged.
+func scopeMappingsToComponent(mappings []domain.RepositoryPipelineJob, componentPath *string) []domain.RepositoryPipelineJob {
+	if componentPath == nil {
+		return mappings
+	}
+	want := normalizeComponentPath(*componentPath)
+	out := make([]domain.RepositoryPipelineJob, 0, len(mappings))
+	for _, m := range mappings {
+		if normalizeComponentPath(m.SubProjectPath) == want {
+			out = append(out, m)
+		}
 	}
 	return out
 }
@@ -919,22 +988,28 @@ func (p *PipelineRunner) reportPipelineFailure(ctx context.Context, job pipeline
 
 const pipelineMaxWaitLabel = "30m"
 
-func deployRef(ctx context.Context, token string, gitInfo domain.TaskGitInfo, task domain.BoardTask) string {
-	if sha := strings.TrimSpace(task.MergeCommitSHA); sha != "" {
-		tag := domain.ReleaseTagForCommit(sha)
-		err := createReleaseTag(ctx, token, gitInfo.Owner, gitInfo.Repo, tag, sha)
-		if err == nil || githubapi.IsRefAlreadyExists(err) {
-			log.Info().Str("task_id", task.ID.String()).Str("ref", tag).Str("sha", domain.ShortSHA(sha)).
-				Msg("release dispatching at the task's merge commit")
-			return tag
-		}
-		log.Warn().Err(err).Str("task_id", task.ID.String()).Str("sha", domain.ShortSHA(sha)).
-			Msg("tagging the merge commit for release failed; falling back to the default branch, which may carry other merges")
+// deployRef refuses rather than falling back to the default branch when the
+// task carries no merge commit: dispatching the default branch would ship
+// whatever else has landed there since, not this task's change — the caller
+// fails the pipeline with the returned reason instead of guessing a ref.
+func deployRef(ctx context.Context, token string, gitInfo domain.TaskGitInfo, task domain.BoardTask) (string, error) {
+	sha := strings.TrimSpace(task.MergeCommitSHA)
+	if sha == "" {
+		return "", fmt.Errorf("task %s has no merge commit recorded — a prod/preprod deploy ships the exact commit a task merged, not whatever the default branch currently points at", task.Key)
 	}
+	tag := domain.ReleaseTagForCommit(sha)
+	err := createReleaseTag(ctx, token, gitInfo.Owner, gitInfo.Repo, tag, sha)
+	if err == nil || githubapi.IsRefAlreadyExists(err) {
+		log.Info().Str("task_id", task.ID.String()).Str("ref", tag).Str("sha", domain.ShortSHA(sha)).
+			Msg("release dispatching at the task's merge commit")
+		return tag, nil
+	}
+	log.Warn().Err(err).Str("task_id", task.ID.String()).Str("sha", domain.ShortSHA(sha)).
+		Msg("tagging the merge commit for release failed; falling back to the default branch, which may carry other merges")
 	if branch := repoDefaultBranch(ctx, token, gitInfo.Owner, gitInfo.Repo); branch != "" {
-		return branch
+		return branch, nil
 	}
-	return "main"
+	return "main", nil
 }
 
 var (
