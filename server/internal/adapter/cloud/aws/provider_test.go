@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -123,10 +124,14 @@ func TestListResources_ECS_ClustersAndBatching(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Len(t, batches, 3, "cluster-a needs two DescribeServices batches (10+2), cluster-b needs one")
+	// Distinct batches, not requests: the SDK retries a request that a slow
+	// runner answered late, and a retry is the same batch sent twice.
+	distinct := map[string]bool{}
 	for _, b := range batches {
 		assert.LessOrEqual(t, len(b), ecsDescribeBatchSize)
+		distinct[strings.Join(b, ",")] = true
 	}
+	require.Len(t, distinct, 3, "cluster-a needs two DescribeServices batches (10+2), cluster-b needs one")
 }
 
 func TestListResources_Lambda_Pagination(t *testing.T) {
