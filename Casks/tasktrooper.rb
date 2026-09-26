@@ -7,7 +7,8 @@
 # the release URL with no credentials. scripts/install.sh is the path that works
 # while it is private, because it can use an authenticated `gh`.
 #
-# Refresh it for a release with: scripts/update-cask.sh <version> <path-to-dmg>
+# release.yml's cask job refreshes version and sha256 after every release tag;
+# by hand: scripts/update-cask.sh <version> <path-to-dmg>
 cask "tasktrooper" do
   version "0.2.2"
   sha256 "ef3c6604daeb0e6989b628e38ddaba3bd497c5f92aca2afa3ebc6335cc4bebeb"

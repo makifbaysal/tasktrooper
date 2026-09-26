@@ -106,10 +106,9 @@ and `tr`; a key present in one and not the other fails it.
 
 A release is a tag push, handled by `.github/workflows/release.yml`:
 
-1. **The tag must equal `desktop/package.json`'s `version`.** A `v0.4.2` tag
-   is checked against that file before anything builds; a mismatch fails the
-   workflow immediately rather than shipping an app that reports the wrong
-   version to its own updater.
+1. **The tag is the version.** Each platform job writes the tag (minus its
+   `v`) into `desktop/package.json` before building, so cutting a release is
+   only pushing an annotated `vX.Y.Z` tag — no version-bump commit first.
 2. **One GitHub Release is created first**, then macOS, Windows and Linux
    build in parallel, each on its own runner (the backend's cgo dependency
    means each OS needs its own toolchain — MSYS2/gcc on Windows, for
@@ -118,11 +117,13 @@ A release is a tag push, handled by `.github/workflows/release.yml`:
 3. Running the workflow by hand (`workflow_dispatch`, or a non-tag ref)
    builds all three platforms as workflow artifacts without publishing or
    signing — useful for checking the build itself without cutting a release.
-4. **The Homebrew cask is updated separately, after the fact:**
-   `scripts/update-cask.sh <version> <dmg>` rewrites `version` and `sha256`
-   in `Casks/tasktrooper.rb` from the built `.dmg`. This repository is the
-   tap, so committing and pushing that file is what publishes the cask
-   update — the script itself never pushes.
+4. **The Homebrew cask follows automatically.** Once the macOS job has
+   uploaded the `.dmg`, the `cask` job downloads it, runs
+   `scripts/update-cask.sh <version> <dmg>` to rewrite `version` and
+   `sha256` in `Casks/tasktrooper.rb`, and commits that to `main`. This
+   repository is the tap, so that commit is what publishes the update. It
+   skips pre-release tags (`v1.2.3-beta`) and never moves the cask back to an
+   older version. The script still works by hand for a one-off fix.
 
 ## Contributing rules
 

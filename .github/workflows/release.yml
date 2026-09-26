@@ -3,8 +3,9 @@ name: release
 # A `v*` tag builds TaskTrooper for macOS, Windows and Linux, each on its own
 # runner because the backend links C code (cgo), and publishes every installer
 # plus the updater feeds (latest-mac.yml, latest.yml, latest-linux.yml) to that
-# tag's GitHub Release. Run it by hand to build all three without publishing:
-# the installers are attached to the run as artifacts.
+# tag's GitHub Release, then points the Homebrew cask on main at the new dmg.
+# Run it by hand to build all three without publishing: the installers are
+# attached to the run as artifacts.
 #
 # The tag alone drives the version: each platform job writes the tag (minus
 # its `v`) into desktop/package.json before building, so cutting a release is
@@ -298,3 +299,48 @@ jobs:
           path: |
             desktop/release/*.AppImage
             desktop/release/*.deb
+
+  # This repository is its own Homebrew tap, so publishing the cask is a commit
+  # to main. It has to hash the dmg the mac job actually uploaded, which is why
+  # it runs after that job instead of alongside the build.
+  cask:
+    needs: mac
+    if: ${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') && needs.mac.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Point the cask at this release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          current="$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/tasktrooper.rb)"
+          # A re-run of an older tag must not roll the cask back past a newer release.
+          if [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n1)" != "$version" ]; then
+            echo "Cask is already at $current, newer than $version; left alone." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          dmg="TaskTrooper-$version-universal.dmg"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern "$dmg" --dir "$RUNNER_TEMP"
+          scripts/update-cask.sh "$version" "$RUNNER_TEMP/$dmg"
+          if git diff --quiet -- Casks/tasktrooper.rb; then
+            echo "Cask already points at $version." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "chore(cask): tasktrooper $version" -- Casks/tasktrooper.rb
+          # main can move while the platforms build; rebase onto it and retry.
+          pushed=0
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then pushed=1; break; fi
+            git pull --rebase origin main
+          done
+          [ "$pushed" = 1 ] || { echo "::error title=Cask not published::could not push Casks/tasktrooper.rb to main"; exit 1; }
+          echo "Cask points at $version: $(grep -E '^  sha256 ' Casks/tasktrooper.rb)" >> "$GITHUB_STEP_SUMMARY"
