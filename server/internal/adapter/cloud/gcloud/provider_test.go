@@ -509,7 +509,7 @@ func TestDeploymentsListsServiceRevisionsNewestFirst(t *testing.T) {
 	cred := testCredential(t, uuid.New(), tok.URL)
 	ref := domain.CloudResourceRef{Kind: domain.CloudResourceCloudRunService, ID: "projects/demo-project/locations/us-central1/services/api", Name: "api", Region: "us-central1", Extra: map[string]string{"project_id": "demo-project"}}
 
-	deployments, err := p.Deployments(context.Background(), cred, ref, 5)
+	deployments, err := p.Deployments(context.Background(), cred, ref, "", 5)
 	if err != nil {
 		t.Fatalf("Deployments: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestDeploymentsListsJobExecutionsAndDetectsCancellation(t *testing.T) {
 	cred := testCredential(t, uuid.New(), tok.URL)
 	ref := domain.CloudResourceRef{Kind: domain.CloudResourceCloudRunJob, ID: "projects/demo-project/locations/us-central1/jobs/nightly", Name: "nightly", Region: "us-central1"}
 
-	deployments, err := p.Deployments(context.Background(), cred, ref, 10)
+	deployments, err := p.Deployments(context.Background(), cred, ref, "", 10)
 	if err != nil {
 		t.Fatalf("Deployments: %v", err)
 	}

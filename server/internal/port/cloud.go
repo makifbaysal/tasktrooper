@@ -65,6 +65,25 @@ type CloudRollbacker interface {
 	Current(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.CloudDeployment, error)
 }
 
+// CloudPreviewer is the optional capability of a provider that builds one
+// deployment per branch (Vercel previews), detected by type assertion.
+type CloudPreviewer interface {
+	// Preview is the newest non-production deployment of branch, preferring
+	// the one built from sha when sha is set and such a build exists; ok is
+	// false when the branch has none yet.
+	Preview(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, branch, sha string) (d domain.CloudDeployment, ok bool, err error)
+	// PreviewAccess reads the resource's preview protection; its
+	// BypassSecret must never leave the server.
+	PreviewAccess(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.PreviewAccess, error)
+}
+
+// CloudErrorSurface is implemented by a provider that can say without a call
+// that it has nothing to read errors from for env; a provider without it is
+// assumed to have one.
+type CloudErrorSurface interface {
+	ErrorsSupported(env domain.DeployEnvironment) bool
+}
+
 // CloudProvider is one provider adapter. Every call gets the decrypted
 // credential; adapters keep no account state of their own.
 type CloudProvider interface {
@@ -73,7 +92,11 @@ type CloudProvider interface {
 	Verify(ctx context.Context, cred domain.CloudCredential) (map[string]string, error)
 	ListResources(ctx context.Context, cred domain.CloudCredential) ([]domain.CloudResource, error)
 	Resource(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.CloudResourceDetail, error)
-	Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, limit int) ([]domain.CloudDeployment, error)
+	// Deployments are newest first. env narrows a resource that serves
+	// several environments (a Vercel project builds production and every
+	// preview) to that environment's own; a provider whose resource IS one
+	// environment ignores it, and "" means unfiltered.
+	Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, env domain.DeployEnvironment, limit int) ([]domain.CloudDeployment, error)
 	Logs(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, q domain.RuntimeLogQuery) (domain.RuntimeLogPage, error)
 	// Errors returns ErrUnsupported when the provider has no native grouping.
 	Errors(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, since time.Time) ([]domain.RuntimeErrorGroup, error)

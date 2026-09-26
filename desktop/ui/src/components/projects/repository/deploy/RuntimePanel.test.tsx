@@ -6,14 +6,15 @@ import type { CloudAccount, ComponentEnvironment, EnvironmentRuntime } from "@/a
 import { RuntimePanel } from "@/components/projects/repository/deploy/RuntimePanel";
 import { I18nProvider } from "@/hooks/useI18n";
 
-const { getEnvironmentOverview, getEnvironmentErrors } = vi.hoisted(() => ({
+const { getEnvironmentOverview, getEnvironmentErrors, getEnvironmentLogs } = vi.hoisted(() => ({
   getEnvironmentOverview: vi.fn(),
   getEnvironmentErrors: vi.fn(),
+  getEnvironmentLogs: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, getEnvironmentOverview, getEnvironmentErrors } };
+  return { ...actual, api: { ...actual.api, getEnvironmentOverview, getEnvironmentErrors, getEnvironmentLogs } };
 });
 
 const account: CloudAccount = {
@@ -41,11 +42,19 @@ const env: ComponentEnvironment = {
   updated_at: "2024-01-01T00:00:00Z",
 };
 
-function renderPanel() {
+const previewEnv: ComponentEnvironment = {
+  ...env,
+  id: "env-prev",
+  environment: "preview",
+  provider: "vercel",
+  per_branch: true,
+};
+
+function renderPanel(target: ComponentEnvironment = env) {
   return render(
     <MemoryRouter>
       <I18nProvider>
-        <RuntimePanel env={env} accounts={[account]} onAccountsChanged={() => {}} />
+        <RuntimePanel env={target} accounts={[account]} onAccountsChanged={() => {}} />
       </I18nProvider>
     </MemoryRouter>,
   );
@@ -54,6 +63,7 @@ function renderPanel() {
 describe("RuntimePanel", () => {
   beforeEach(() => {
     getEnvironmentErrors.mockReset().mockResolvedValue({ errors: [] });
+    getEnvironmentLogs.mockReset().mockResolvedValue({ entries: [] });
   });
 
   it("shows resource status and the latest deployment when the overview is available", async () => {
@@ -107,5 +117,78 @@ describe("RuntimePanel", () => {
     await screen.findByText(overview.unavailable!);
     expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reconnect" })).not.toBeInTheDocument();
+  });
+
+  it("a protected per-branch env shows its protection mode and warns when no automation bypass exists", async () => {
+    const overview: EnvironmentRuntime = {
+      environment: previewEnv,
+      deployments: [],
+      errors: [],
+      errors_supported: false,
+      preview_access: { protected: true, mode: "vercel_authentication", bypass_configured: false },
+    };
+    getEnvironmentOverview.mockReset().mockResolvedValue(overview);
+    renderPanel(previewEnv);
+
+    await screen.findByText("Protected (Vercel Authentication)");
+    expect(screen.getByText("Agents can't open these previews yet")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /How to bypass protection for automation/ })).toHaveAttribute(
+      "href",
+      "https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation",
+    );
+  });
+
+  it("a protected per-branch env with a bypass configured shows no warning", async () => {
+    const overview: EnvironmentRuntime = {
+      environment: previewEnv,
+      deployments: [],
+      errors: [],
+      preview_access: { protected: true, mode: "vercel_authentication", bypass_configured: true },
+    };
+    getEnvironmentOverview.mockReset().mockResolvedValue(overview);
+    renderPanel(previewEnv);
+
+    await screen.findByText("Protected (Vercel Authentication)");
+    expect(screen.queryByText("Agents can't open these previews yet")).not.toBeInTheDocument();
+  });
+
+  it("an unprotected per-branch env reads as public", async () => {
+    const overview: EnvironmentRuntime = {
+      environment: previewEnv,
+      deployments: [],
+      errors: [],
+      preview_access: { protected: false, mode: "none", bypass_configured: false },
+    };
+    getEnvironmentOverview.mockReset().mockResolvedValue(overview);
+    renderPanel(previewEnv);
+
+    await screen.findByText("Public");
+    expect(screen.queryByText("Agents can't open these previews yet")).not.toBeInTheDocument();
+  });
+
+  it("hides the Errors tab and never asks for errors when errors_supported is false", async () => {
+    const overview: EnvironmentRuntime = {
+      environment: previewEnv,
+      deployments: [],
+      errors: [],
+      errors_supported: false,
+      preview_access: { protected: false, mode: "none", bypass_configured: false },
+    };
+    getEnvironmentOverview.mockReset().mockResolvedValue(overview);
+    renderPanel(previewEnv);
+
+    await screen.findByText("Public");
+    expect(screen.queryByRole("tab", { name: "Errors" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Logs" })).toHaveAttribute("aria-selected", "true");
+    expect(getEnvironmentErrors).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Errors tab when errors_supported is absent", async () => {
+    const overview: EnvironmentRuntime = { environment: env, deployments: [], errors: [] };
+    getEnvironmentOverview.mockReset().mockResolvedValue(overview);
+    renderPanel();
+
+    await waitFor(() => expect(getEnvironmentErrors).toHaveBeenCalled());
+    expect(screen.getByRole("tab", { name: "Errors" })).toHaveAttribute("aria-selected", "true");
   });
 });

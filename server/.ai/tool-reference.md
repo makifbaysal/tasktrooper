@@ -109,6 +109,23 @@ Response JSON: `{status, trigger, created_at, note, jobs: [{name, status, exit_c
 
 Repository-scoped like the other task tools: the task is resolved against the agent's context-bound repository (registry context), so a `task_id` from another repository returns not-found instead of that repository's build logs.
 
+### `get_task_preview`
+
+The task branch's per-branch preview deployment (`internal/adapter/tools/board/task_preview.go`, backed by `cloud.Service.TaskPreviews`). Read-only, held by `qa-agent`. Optional `task_id` (UUID or board key; defaults to the run's task), repository-scoped like `get_pipeline_status`.
+
+It looks at every active component whose `preview` environment is `per_branch` (bound to a Vercel project) and asks Vercel for the newest non-production deployment of the task's branch — the PR's head branch when GitHub is connected, else `domain.TaskBranchName` — preferring the one built from the PR head commit.
+
+Response JSON: `{branch, pr_head_sha?, previews: [...], note?}`. Each preview is the `TaskPreview` of `GET /v1/repositories/:id/tasks/:taskId/previews` plus:
+
+| Field | Meaning |
+|---|---|
+| `built_from_pr_head` | `commit_sha` is the PR head (absent when the head is unknown) |
+| `open_url` | `branch_url` (else `url`); for a protected preview with a Protection Bypass for Automation it carries `x-vercel-protection-bypass=<secret>&x-vercel-set-bypass-cookie=true` |
+| `request_headers` | `{"x-vercel-protection-bypass": "<secret>"}` for HTTP clients, protected previews only |
+| `notes` | still building, older than the PR head, failed build, or protected with no bypass (the human creates one in the Vercel project's Settings → Deployment Protection) |
+
+The bypass secret reaches only this tool's output: the HTTP API returns `bypass_configured`, never the secret, and nothing logs it.
+
 ### `record_test_cases` / `set_test_case_result` / `list_test_cases`
 
 The task's test round, stored next to its acceptance criteria (`task_test_cases`, migration 130). QA writes it; every other role reads it.

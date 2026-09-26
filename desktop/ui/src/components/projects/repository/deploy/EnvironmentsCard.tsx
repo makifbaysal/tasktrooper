@@ -199,6 +199,9 @@ function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDis
   const bound = row?.status === "confirmed";
   const suggested = row?.status === "suggested";
   const health = row?.health?.status ?? "unknown";
+  // A per-branch environment has no single address: each PR/branch push gets
+  // its own deployment, and its health is the newest one's state.
+  const perBranch = bound && Boolean(row?.per_branch);
 
   return (
     <div
@@ -222,9 +225,20 @@ function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDis
             ) : (
               <Globe className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
             )}
-            <span className="min-w-0 truncate font-mono text-caption">
-              {row.resource ? [row.resource.name, row.resource.region].filter(Boolean).join(" · ") : row.url}
-            </span>
+            {perBranch ? (
+              <>
+                <span className="shrink-0 text-caption font-medium">{t("cloud.preview.autoLabel")}</span>
+                {row.resource && (
+                  <span className="min-w-0 truncate font-mono text-caption text-muted-foreground">
+                    {row.resource.name}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="min-w-0 truncate font-mono text-caption">
+                {row.resource ? [row.resource.name, row.resource.region].filter(Boolean).join(" · ") : row.url}
+              </span>
+            )}
           </button>
         ) : suggested && row ? (
           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -262,7 +276,7 @@ function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDis
 
       {bound && row && (
         <div className="flex flex-wrap items-center gap-3 pl-[5.75rem] text-micro text-muted-foreground">
-          {row.url && (
+          {row.url && !perBranch && (
             <a
               href={row.url}
               target="_blank"
@@ -291,6 +305,7 @@ function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDis
               ? t("repositoryPage.deploy.environments.lastDeploy", { time: formatRelativeDate(row.health.last_deploy_at) })
               : t("repositoryPage.deploy.environments.neverDeployed")}
           </span>
+          {perBranch && <span>{t("cloud.preview.hint")}</span>}
           {row.auto_confirmed && <Badge variant="secondary">{t("repositoryPage.deploy.environments.auto")}</Badge>}
           {delivery && delivery.mode !== "none" && (
             <Badge variant="outline" className="text-micro">

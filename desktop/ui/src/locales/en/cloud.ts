@@ -99,6 +99,48 @@ export const cloud = {
     connectAction: "Connect",
     notNow: "Not now",
   },
+  preview: {
+    autoLabel: "Auto for every PR",
+    hint: "Vercel builds a separate address for every PR and branch push",
+    bindHint:
+      "Vercel builds a separate preview for every PR and branch push, so no single URL is stored here — pick the project and each PR's address is read from its own deployment.",
+    branchUrl: "Branch address",
+    commitUrl: "This commit",
+    prNumber: "PR #{number}",
+    access: {
+      public: "Public",
+      protected: "Protected ({mode})",
+      protectedShort: "Protected",
+      mode: {
+        none: "none",
+        vercel_authentication: "Vercel Authentication",
+        password: "Password",
+        vercel_authentication_and_password: "Vercel Authentication + Password",
+      },
+    },
+    bypass: {
+      warningTitle: "Agents can't open these previews yet",
+      warningDesc:
+        "The previews are protected and no automation bypass exists — create a \"Protection Bypass for Automation\" secret in the Vercel project → Settings → Deployment Protection.",
+      learnMore: "How to bypass protection for automation",
+      tooltip:
+        "Agents can't open this preview until a \"Protection Bypass for Automation\" secret is created in the Vercel project → Settings → Deployment Protection.",
+    },
+    task: {
+      label: "Preview",
+      refresh: "Refresh previews",
+      open: "Open",
+      loadFailed: "Could not load the previews",
+      status: {
+        queued: "Preparing",
+        building: "Preparing",
+        ready: "Ready",
+        error: "Failed",
+        canceled: "Canceled",
+        none: "Not yet",
+      },
+    },
+  },
 };
 
 export type CloudDict = typeof cloud;

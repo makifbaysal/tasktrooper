@@ -351,6 +351,34 @@ func (s *TaskPRService) CommentOnPullRequest(ctx context.Context, repositoryID, 
 	return mapPRComment(comment), nil
 }
 
+// PullRequestHead is the task pull request's head branch and commit — what a
+// per-branch preview should have been built from. Empty, not an error, when
+// there is no PR or no way to read it, since the caller then falls back to
+// the task branch alone.
+func (s *TaskPRService) PullRequestHead(ctx context.Context, repositoryID, taskID uuid.UUID) (string, string, error) {
+	task, err := s.tasks.Get(ctx, repositoryID, taskID)
+	if err != nil {
+		return "", "", err
+	}
+	number, prURL := taskPRRef(task)
+	if prURL == "" || number <= 0 {
+		return "", "", nil
+	}
+	token := s.token(ctx)
+	if token == "" {
+		return "", "", nil
+	}
+	owner, repo, err := s.ownerRepo(ctx, repositoryID, taskID)
+	if err != nil {
+		return "", "", nil
+	}
+	pr, err := s.prs.GetPullRequest(ctx, token, owner, repo, number)
+	if err != nil {
+		return "", "", fmt.Errorf("read pull request #%d: %w", number, err)
+	}
+	return pr.HeadRef, pr.HeadSHA, nil
+}
+
 func taskPRRef(task domain.BoardTask) (int, string) {
 	url := strings.TrimSpace(task.PRURL)
 	number := task.PRNumber

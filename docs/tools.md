@@ -95,6 +95,7 @@ tab" otherwise.
 | `query_runtime_logs` | Reads an environment's live application logs (not a CI job's output — that is `get_deploy_logs`), newest first | Developer roles, `qa-agent` |
 | `list_runtime_errors` | Lists an environment's runtime errors, grouped and deduplicated, with a `new` flag for errors that started in the window | `system-architect`, developer roles, `qa-agent` |
 | `list_deployments` | Lists an environment's recent deployments as the provider reports them | Developer roles, `qa-agent` |
+| `get_task_preview` | Finds the task branch's own Vercel preview deployment: status, branch URL, the commit it was built from, and how to get past Deployment Protection | `qa-agent` |
 
 ## Pull requests
 

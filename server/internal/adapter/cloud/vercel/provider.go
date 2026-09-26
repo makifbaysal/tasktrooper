@@ -309,6 +309,7 @@ func (d deploymentWithCreator) toCloudDeployment() domain.CloudDeployment {
 		CommitSHA:     metaString(d.Meta, "githubCommitSha", "gitlabCommitSha", "bitbucketCommitSha"),
 		CommitMessage: metaString(d.Meta, "githubCommitMessage", "gitlabCommitMessage", "bitbucketCommitMessage"),
 		Branch:        metaString(d.Meta, "githubCommitRef", "gitlabCommitRef", "bitbucketCommitRef"),
+		PRNumber:      metaInt(d.Meta, "githubPrId"),
 	}
 	if d.URL != "" {
 		cd.URL = httpsOf(d.URL)
@@ -365,7 +366,33 @@ func (p *Provider) listDeployments(ctx context.Context, token, teamID, projectID
 	return out.Deployments, nil
 }
 
-func (p *Provider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, limit int) ([]domain.CloudDeployment, error) {
+// deploymentTarget is the target query for env and whether a listed
+// deployment belongs to it. Only production and preview are Vercel targets
+// every project has; any other environment is read as "not production",
+// since a custom environment's slug is the project's own choice.
+func deploymentTarget(env domain.DeployEnvironment) (string, func(target string) bool) {
+	switch env {
+	case "":
+		return "", func(string) bool { return true }
+	case domain.EnvironmentProduction:
+		return domain.VercelTargetProduction, func(t string) bool { return t == domain.VercelTargetProduction }
+	case domain.EnvironmentPreview:
+		return vercelTargetPreview, func(t string) bool { return t == "" || t == vercelTargetPreview }
+	default:
+		return "", func(t string) bool { return t != domain.VercelTargetProduction }
+	}
+}
+
+const vercelTargetPreview = "preview"
+
+func (d deploymentWithCreator) target() string {
+	if d.Target == nil {
+		return ""
+	}
+	return *d.Target
+}
+
+func (p *Provider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, env domain.DeployEnvironment, limit int) ([]domain.CloudDeployment, error) {
 	token, teamID, err := vercelCredentials(cred)
 	if err != nil {
 		return nil, err
@@ -379,13 +406,16 @@ func (p *Provider) Deployments(ctx context.Context, cred domain.CloudCredential,
 		limit = maxDeploymentsLimit
 	}
 
-	raw, err := p.listDeployments(ctx, token, teamID, ref.ID, "", limit)
+	target, belongs := deploymentTarget(env)
+	raw, err := p.listDeployments(ctx, token, teamID, ref.ID, target, limit)
 	if err != nil {
 		return nil, wrapVercelErr(err)
 	}
 	out := make([]domain.CloudDeployment, 0, len(raw))
 	for _, d := range raw {
-		out = append(out, d.toCloudDeployment())
+		if belongs(d.target()) {
+			out = append(out, d.toCloudDeployment())
+		}
 	}
 	return out, nil
 }

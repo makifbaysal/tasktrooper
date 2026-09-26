@@ -30,6 +30,13 @@ func (s *Service) ListEnvironments(ctx context.Context, repoID uuid.UUID) ([]dom
 	return envs, nil
 }
 
+// adoptsResourceURL: a Vercel project's listed URL is its production address.
+// Any other environment of it (a per-branch preview, a custom environment)
+// answers elsewhere, so defaulting to it would open and probe production.
+func adoptsResourceURL(provider domain.CloudProviderKind, env domain.DeployEnvironment) bool {
+	return provider != domain.CloudVercel || env == domain.EnvironmentProduction
+}
+
 // resourceURL looks up a specific resource's URL from the account's (cached)
 // listing, so BindEnvironment can default URL without the caller having to
 // paste it in from the resource picker.
@@ -83,7 +90,7 @@ func (s *Service) BindEnvironment(ctx context.Context, componentID uuid.UUID, en
 		row.AccountID = req.AccountID
 		row.Resource = req.Resource
 		row.URL = strings.TrimSpace(req.URL)
-		if row.URL == "" {
+		if row.URL == "" && adoptsResourceURL(row.Provider, env) {
 			row.URL = s.resourceURL(ctx, *req.AccountID, *req.Resource)
 		}
 		row.HealthURL = strings.TrimSpace(req.HealthURL)
@@ -141,7 +148,10 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 		row.Provider = acct.Provider
 		row.AccountID = patch.AccountID
 		row.Resource = patch.Resource
-		row.URL = s.resourceURL(ctx, *patch.AccountID, *patch.Resource)
+		row.URL = ""
+		if adoptsResourceURL(row.Provider, row.Environment) {
+			row.URL = s.resourceURL(ctx, *patch.AccountID, *patch.Resource)
+		}
 		row.Status = domain.LinkConfirmed
 		row.Candidates = nil
 		row.AutoConfirmed = false

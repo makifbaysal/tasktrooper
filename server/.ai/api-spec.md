@@ -409,18 +409,46 @@ unreachable.
   its `account_id` + `resource.ref` with `status: "confirmed"`.
   `DELETE /v1/environments/{envId}` — a user-made binding is deleted outright; a
   scan-sourced one is only dismissed, so the next scan does not resurrect it.
+  Every environment row carries the derived `per_branch: boolean` — true for a
+  `preview` environment on Vercel, which is one deployment per branch/PR rather than one
+  address. A non-production environment bound to a Vercel project never defaults its `url`
+  to the project's (production) URL, by bind, candidate pick or scan; the health sweep
+  never probes a `per_branch` row's URL — its `health.status` is the newest preview
+  build's (`ready`→`healthy`, building→`deploying`, error→`failed`, none→`unknown`).
 - `GET /v1/environments/{envId}/overview` — `{environment, detail?, deployments[],
-  errors[], unavailable?}`; never errors for "not connected" or a provider auth
-  refusal, both go through `unavailable` instead.
+  errors[], unavailable?, errors_supported, preview_access?}`; never errors for "not
+  connected" or a provider auth refusal, both go through `unavailable` instead.
+  `errors_supported` is false when the provider has no error surface for the environment
+  (Vercel, any `per_branch` row) — `errors` is then `[]` and not a verdict.
+  `preview_access` (`per_branch` rows only) is `{protected, mode:
+  "none"|"vercel_authentication"|"password"|"vercel_authentication_and_password",
+  bypass_configured}` — whether a "Protection Bypass for Automation" exists, never the
+  secret. For a `per_branch` row `detail` describes the newest preview build, not the
+  project's production.
 - `GET /v1/environments/{envId}/logs?since=&until=&min_severity=&q=&limit=&cursor=` —
   `since`/`until` RFC3339, `min_severity` ∈ `debug|info|warning|error|critical`, defaults
   last hour / 200 entries.
   `GET …/errors?since=` (default 24h) — `{errors: RuntimeErrorGroup[]}`, provider-native
   grouping where there is one (GCP Error Reporting), a message-fingerprint grouping over
   error-level logs otherwise.
-  `GET …/deployments?limit=` — `{deployments: CloudDeployment[]}`.
+  A `per_branch` row's logs are the newest READY preview deployment's (an empty page when
+  there is none), and its `errors` are always `[]`.
+  `GET …/deployments?limit=` — `{deployments: CloudDeployment[]}`, only the environment's
+  own target: production → production builds, preview → preview builds, staging/development
+  → everything but production. `CloudDeployment` has `pr_number?` (Vercel
+  `meta.githubPrId`) and `branch_url?` (the stable `-git-` alias, when known).
   `POST …/errors/task` body one `RuntimeErrorGroup` (as returned) — opens a bug task with
   the error, a sample and recent log lines; component set from the environment.
+- `GET /v1/repositories/{id}/tasks/{taskId}/previews` — `{previews: TaskPreview[]}`
+  (`domain.TaskPreview`), one per active component whose confirmed `preview` environment
+  is `per_branch`; `[]` when there is none. `TaskPreview` = `{component_id,
+  component_name, environment_id, provider, status:
+  "building"|"ready"|"error"|"canceled"|"none", url, branch_url, pr_number, commit_sha,
+  created_at, ready_at?, inspect_url, protected, bypass_configured}`. The deployment is the
+  newest non-production build of the task's branch (the PR's head branch when GitHub is
+  connected, else the task branch), preferring the one built from the PR's head commit;
+  `status: "none"` (other fields empty) when Vercel has not built the branch yet. Cached
+  30s per environment. 404 unknown task.
 - `RepositoryModel.environments` (`GET /v1/repositories/{id}/model`) and
   `RepositorySummary.environments` (`GET /v1/projects/overview`, from stored health only)
   carry the same rows for the UI; agents read the equivalent through `get_environment` /

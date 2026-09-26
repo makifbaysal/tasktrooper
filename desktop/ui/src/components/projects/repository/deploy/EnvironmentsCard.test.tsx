@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { CloudAccount, ComponentDelivery, ComponentEnvironment } from "@/api";
@@ -109,6 +109,52 @@ describe("EnvironmentsCard", () => {
     ]);
     expect(screen.getByText("web-app")).toBeInTheDocument();
     expect(screen.getAllByText("needs your answer").length).toBeGreaterThan(0);
+  });
+
+  it("renders a per-branch preview row as auto-per-PR instead of a single URL, and keeps it selectable", () => {
+    const onSelectEnv = vi.fn();
+    const preview = makeEnv({
+      id: "env-prev",
+      environment: "preview",
+      provider: "vercel",
+      account_id: "acc-2",
+      per_branch: true,
+      resource: { kind: "vercel_project", id: "prj_1", name: "web-app" },
+      url: "https://web-app.vercel.app",
+      health: {
+        status: "deploying",
+        error_count_24h: 0,
+        checked_at: "2024-01-01T00:00:00Z",
+        last_deploy_at: "2024-01-01T00:00:00Z",
+      },
+    });
+    render(
+      <MemoryRouter>
+        <I18nProvider>
+          <EnvironmentsCard
+            environments={[preview]}
+            accounts={[account]}
+            accountsLoading={false}
+            selectedEnvId={null}
+            onSelectEnv={onSelectEnv}
+            delivery={null}
+            onRequestBind={() => {}}
+            onChanged={() => {}}
+            onAccountsChanged={() => {}}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+    const row = within(screen.getByTestId("env-row-preview"));
+    expect(row.getByText("Auto for every PR")).toBeInTheDocument();
+    expect(row.getByText("web-app")).toBeInTheDocument();
+    expect(row.getByText("Deploying")).toBeInTheDocument();
+    expect(row.getByText(/^deployed /)).toBeInTheDocument();
+    expect(row.getByText("Vercel builds a separate address for every PR and branch push")).toBeInTheDocument();
+    expect(row.queryByText("https://web-app.vercel.app")).not.toBeInTheDocument();
+
+    fireEvent.click(row.getByText("Auto for every PR"));
+    expect(onSelectEnv).toHaveBeenCalledWith(preview);
   });
 
   it("shows a Connect action for an unbound environment", () => {

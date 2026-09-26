@@ -125,6 +125,8 @@ export function BindEnvironmentDialog({
   };
 
   const availableAccounts = provider ? accounts.filter((a) => a.provider === provider) : accounts;
+  const perBranchPreview =
+    environment === "preview" && accounts.find((a) => a.id === accountId)?.provider === "vercel";
 
   const filteredResources = (resources ?? []).filter((r) =>
     r.ref.name.toLowerCase().includes(resourceQuery.trim().toLowerCase()),
@@ -225,6 +227,7 @@ export function BindEnvironmentDialog({
 
       {step === "resource" && (
         <div className="space-y-2">
+          {perBranchPreview && <p className="text-caption text-muted-foreground">{t("cloud.preview.bindHint")}</p>}
           <div className="flex items-center gap-2">
             <Input
               value={resourceQuery}

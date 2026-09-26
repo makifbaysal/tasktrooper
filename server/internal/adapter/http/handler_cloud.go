@@ -38,6 +38,8 @@ func (h *Handler) registerCloudRoutes(app fiber.Router) {
 	app.Get("/v1/environments/:envId/errors", h.EnvironmentErrors)
 	app.Get("/v1/environments/:envId/deployments", h.EnvironmentDeployments)
 	app.Post("/v1/environments/:envId/errors/task", h.CreateEnvironmentErrorTask)
+
+	app.Get("/v1/repositories/:id/tasks/:taskId/previews", h.ListTaskPreviews)
 }
 
 // cErr writes the flat `{"error": "message"}` shape the cloud/runtime
@@ -363,6 +365,27 @@ func (h *Handler) EnvironmentDeployments(c *fiber.Ctx) error {
 		deployments = []domain.CloudDeployment{}
 	}
 	return c.JSON(fiber.Map{"deployments": deployments})
+}
+
+// ListTaskPreviews — GET /v1/repositories/:id/tasks/:taskId/previews
+// One entry per active component whose preview environment is per-branch.
+func (h *Handler) ListTaskPreviews(c *fiber.Ctx) error {
+	repoID, err := parseUUIDParam(c, "id")
+	if err != nil {
+		return cErrMsg(c, fiber.StatusBadRequest, "invalid repository id")
+	}
+	taskID, err := parseUUIDParam(c, "taskId")
+	if err != nil {
+		return cErrMsg(c, fiber.StatusBadRequest, "invalid task id")
+	}
+	previews, err := h.cloudSvc.TaskPreviews(h.enrichContext(c), repoID, taskID)
+	if err != nil {
+		if errors.Is(err, domain.ErrBoardTaskNotFound) {
+			return cErr(c, fiber.StatusNotFound, err)
+		}
+		return cloudErr(c, err)
+	}
+	return c.JSON(fiber.Map{"previews": previews.Previews})
 }
 
 // CreateEnvironmentErrorTask — POST /v1/environments/:envId/errors/task

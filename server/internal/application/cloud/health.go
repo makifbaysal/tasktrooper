@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 const (
@@ -84,6 +85,10 @@ func (s *Service) healthCheckOne(ctx context.Context, e domain.ComponentEnvironm
 		s.saveHealth(ctx, e, domain.EnvironmentHealth{Status: domain.CloudStatusUnknown, Detail: err.Error(), CheckedAt: s.now()})
 		return
 	}
+	if e.PerBranch() {
+		s.saveHealth(ctx, e, s.previewHealth(ctx, provider, cred, e))
+		return
+	}
 	detail, err := provider.Resource(ctx, cred, *e.Resource)
 	if err != nil {
 		s.saveHealth(ctx, e, domain.EnvironmentHealth{Status: domain.CloudStatusUnknown, Detail: err.Error(), CheckedAt: s.now()})
@@ -91,9 +96,11 @@ func (s *Service) healthCheckOne(ctx context.Context, e domain.ComponentEnvironm
 	}
 
 	errCount := 0
-	if groups, err := s.Errors(ctx, e.ID, s.now().Add(-24*time.Hour)); err == nil {
-		for _, g := range groups {
-			errCount += g.Count
+	if s.errorsSupported(e) {
+		if groups, err := s.Errors(ctx, e.ID, s.now().Add(-24*time.Hour)); err == nil {
+			for _, g := range groups {
+				errCount += g.Count
+			}
 		}
 	}
 
@@ -103,6 +110,22 @@ func (s *Service) healthCheckOne(ctx context.Context, e domain.ComponentEnvironm
 		health.LastDeployAt = &t
 	}
 	s.saveHealth(ctx, e, health)
+}
+
+// previewHealth is a per-branch environment's health: it has no address of
+// its own to probe and the resource's status is production's, so it is the
+// state of the newest preview build.
+func (s *Service) previewHealth(ctx context.Context, provider port.CloudProvider, cred domain.CloudCredential, e domain.ComponentEnvironment) domain.EnvironmentHealth {
+	deployments, err := provider.Deployments(ctx, cred, *e.Resource, e.Environment, 1)
+	if err != nil {
+		return domain.EnvironmentHealth{Status: domain.CloudStatusUnknown, Detail: err.Error(), CheckedAt: s.now()}
+	}
+	if len(deployments) == 0 {
+		return domain.EnvironmentHealth{Status: domain.CloudStatusUnknown, Detail: "no preview deployment yet", CheckedAt: s.now()}
+	}
+	newest := deployments[0]
+	createdAt := newest.CreatedAt
+	return domain.EnvironmentHealth{Status: previewHealthStatus(newest.Status), LastDeployAt: &createdAt, CheckedAt: s.now()}
 }
 
 func (s *Service) saveHealth(ctx context.Context, e domain.ComponentEnvironment, h domain.EnvironmentHealth) {

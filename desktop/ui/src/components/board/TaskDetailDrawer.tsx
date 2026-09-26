@@ -33,6 +33,7 @@ import { PlanView } from "@/components/chat/PlanView";
 import { HumanUatDecision } from "@/components/board/HumanUatDecision";
 import { AnalizReviewDecision } from "@/components/board/AnalizReviewDecision";
 import { PipelineSection } from "@/components/board/PipelineSection";
+import { TaskPreviewsSection } from "@/components/board/TaskPreviewsSection";
 import { RELEASE_STATUS_VARIANT, ReleaseDrawer } from "@/components/projects/repository/deploy/ReleaseDrawer";
 import { TaskAssigneeFields } from "@/components/board/TaskAssigneeFields";
 import { TaskDocumentList } from "@/components/board/TaskDocumentList";
@@ -1329,6 +1330,8 @@ export function TaskDetailDrawer({
                       )}
                     </section>
                   )}
+
+                  {task.pr_url && <TaskPreviewsSection key={task.id} repositoryId={repositoryId} taskId={task.id} />}
 
                   {release && (
                     <section className="space-y-2">

@@ -9,7 +9,7 @@ description: Boot the backend API and its worker from the task branch and execut
 
 Manual verification of a backend task means booting the real service (and its worker, if the repo has one) from the task branch and executing your scenario plan against it. The scenario plan comes first and comes from the task description and acceptance criteria alone (scenario-plan-first) — you never derive cases from the diff or the source.
 
-**Preconditions:** scenario list posted as a comment; environment chosen per test-environment-selection (workspace boot by default, stage base_url otherwise; never prod).
+**Preconditions:** scenario list posted as a comment; environment chosen per test-environment-selection (the task's Vercel preview when it is ready and built from the PR head, else a workspace boot, stage base_url otherwise; never prod).
 
 ## Booting in the workspace
 

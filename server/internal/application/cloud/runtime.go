@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -38,6 +39,10 @@ func (s *Service) resolveRuntimeBound(ctx context.Context, envID uuid.UUID) (run
 	if err != nil {
 		return runtimeBound{}, err
 	}
+	return s.bindRuntime(ctx, env)
+}
+
+func (s *Service) bindRuntime(ctx context.Context, env domain.ComponentEnvironment) (runtimeBound, error) {
 	if !env.Bound() {
 		return runtimeBound{env: env}, ErrNotConnected
 	}
@@ -88,12 +93,12 @@ func (s *Service) Overview(ctx context.Context, envID uuid.UUID) (domain.Environ
 	bound, err := s.resolveRuntimeBound(ctx, envID)
 	if err != nil {
 		if errors.Is(err, ErrNotConnected) {
-			return domain.EnvironmentRuntime{Environment: bound.env, Unavailable: "not connected to a cloud account", UnavailableCode: "not_connected"}, nil
+			return domain.EnvironmentRuntime{Environment: bound.env, Unavailable: "not connected to a cloud account", UnavailableCode: "not_connected", ErrorsSupported: s.errorsSupported(bound.env)}, nil
 		}
 		return domain.EnvironmentRuntime{}, err
 	}
 	env := bound.env
-	out := domain.EnvironmentRuntime{Environment: env}
+	out := domain.EnvironmentRuntime{Environment: env, ErrorsSupported: s.errorsSupported(env)}
 
 	key := runtimeCacheKey{envID, "resource", ""}
 	v, err := s.runtimeCached(key, func() (interface{}, error) {
@@ -111,15 +116,94 @@ func (s *Service) Overview(ctx context.Context, envID uuid.UUID) (domain.Environ
 		return out, nil
 	}
 	detail := v.(domain.CloudResourceDetail)
-	out.Detail = &detail
 
-	if deployments, err := s.Deployments(ctx, envID, defaultDeployments); err == nil {
+	deployments, err := s.Deployments(ctx, envID, defaultDeployments)
+	if err == nil {
 		out.Deployments = deployments
 	}
-	if groups, err := s.Errors(ctx, envID, s.now().Add(-overviewErrorsWindow)); err == nil {
-		out.ErrorsLast = groups
+	if env.PerBranch() {
+		detail = withNewestPreview(detail, deployments)
+	}
+	out.Detail = &detail
+
+	if out.ErrorsSupported {
+		if groups, err := s.Errors(ctx, envID, s.now().Add(-overviewErrorsWindow)); err == nil {
+			out.ErrorsLast = groups
+		}
+	} else {
+		out.ErrorsLast = []domain.RuntimeErrorGroup{}
+	}
+	if env.PerBranch() {
+		if access, ok := s.previewAccess(ctx, bound); ok {
+			out.PreviewAccess = &access
+		}
 	}
 	return out, nil
+}
+
+// errorsSupported: a per-branch environment has no one deployment whose
+// errors mean anything; otherwise the provider decides, and one that does
+// not say is assumed to have an error surface.
+func (s *Service) errorsSupported(env domain.ComponentEnvironment) bool {
+	if env.PerBranch() {
+		return false
+	}
+	provider, ok := s.providerFor(env.Provider)
+	if !ok {
+		return true
+	}
+	if surface, ok := provider.(port.CloudErrorSurface); ok {
+		return surface.ErrorsSupported(env.Environment)
+	}
+	return true
+}
+
+// withNewestPreview replaces what Resource reported — the project's
+// production status and addresses — with the newest preview build's, which
+// is all a per-branch environment has of its own.
+func withNewestPreview(detail domain.CloudResourceDetail, deployments []domain.CloudDeployment) domain.CloudResourceDetail {
+	detail.URL = ""
+	detail.Domains = nil
+	detail.Status = domain.CloudStatusUnknown
+	detail.Revision = ""
+	detail.LatestDeployment = nil
+	if len(deployments) > 0 {
+		d := deployments[0]
+		detail.Status = previewHealthStatus(d.Status)
+		detail.Revision = d.ID
+		detail.LatestDeployment = &d
+	}
+	return detail
+}
+
+func previewHealthStatus(s domain.CloudDeploymentStatus) domain.CloudResourceStatus {
+	switch s {
+	case domain.CloudDeployReady:
+		return domain.CloudStatusHealthy
+	case domain.CloudDeployBuilding:
+		return domain.CloudStatusDeploying
+	case domain.CloudDeployError:
+		return domain.CloudStatusFailed
+	}
+	return domain.CloudStatusUnknown
+}
+
+func (s *Service) previewAccess(ctx context.Context, bound runtimeBound) (domain.PreviewAccess, bool) {
+	previewer, ok := bound.provider.(port.CloudPreviewer)
+	if !ok {
+		return domain.PreviewAccess{}, false
+	}
+	v, err := s.runtimeCached(runtimeCacheKey{bound.env.ID, "preview_access", ""}, func() (interface{}, error) {
+		return previewer.PreviewAccess(ctx, bound.cred, *bound.env.Resource)
+	})
+	if err != nil {
+		if errors.Is(err, port.ErrCloudAuth) {
+			s.markAccountError(ctx, *bound.env.AccountID, err)
+		}
+		log.Warn().Err(err).Str("environment_id", bound.env.ID.String()).Msg("cloud: reading preview protection failed")
+		return domain.PreviewAccess{}, false
+	}
+	return v.(domain.PreviewAccess), true
 }
 
 func normalizeLogQuery(now time.Time, q domain.RuntimeLogQuery) domain.RuntimeLogQuery {
@@ -152,9 +236,17 @@ func (s *Service) Logs(ctx context.Context, envID uuid.UUID, q domain.RuntimeLog
 	}
 	q = normalizeLogQuery(s.now(), q)
 
-	key := runtimeCacheKey{envID, "logs", logQueryCacheParams(q)}
+	ref, ok, err := s.logRef(ctx, bound)
+	if err != nil {
+		return domain.RuntimeLogPage{}, err
+	}
+	if !ok {
+		return domain.RuntimeLogPage{Entries: []domain.RuntimeLogEntry{}}, nil
+	}
+
+	key := runtimeCacheKey{envID, "logs", ref.Extra[domain.CloudRefDeploymentID] + "|" + logQueryCacheParams(q)}
 	v, err := s.runtimeCached(key, func() (interface{}, error) {
-		return bound.provider.Logs(ctx, bound.cred, *bound.env.Resource, q)
+		return bound.provider.Logs(ctx, bound.cred, ref, q)
 	})
 	if err != nil {
 		if errors.Is(err, port.ErrCloudAuth) {
@@ -165,6 +257,33 @@ func (s *Service) Logs(ctx context.Context, envID uuid.UUID, q domain.RuntimeLog
 	return v.(domain.RuntimeLogPage), nil
 }
 
+// logRef is the ref runtime logs are read from. A per-branch environment's
+// resource is the whole project, whose logs default to production, so it is
+// pinned to the newest READY preview instead; ok is false when there is none.
+func (s *Service) logRef(ctx context.Context, bound runtimeBound) (domain.CloudResourceRef, bool, error) {
+	ref := *bound.env.Resource
+	if !bound.env.PerBranch() {
+		return ref, true, nil
+	}
+	deployments, err := s.Deployments(ctx, bound.env.ID, defaultDeployments)
+	if err != nil {
+		return ref, false, err
+	}
+	for _, d := range deployments {
+		if d.Status != domain.CloudDeployReady {
+			continue
+		}
+		extra := make(map[string]string, len(ref.Extra)+1)
+		for k, v := range ref.Extra {
+			extra[k] = v
+		}
+		extra[domain.CloudRefDeploymentID] = d.ID
+		ref.Extra = extra
+		return ref, true, nil
+	}
+	return ref, false, nil
+}
+
 // Errors is the provider's native error grouping when it has one; when it
 // returns port.ErrUnsupported, error-level logs over the window are fetched
 // instead and grouped locally (grouping.go).
@@ -172,6 +291,9 @@ func (s *Service) Errors(ctx context.Context, envID uuid.UUID, since time.Time) 
 	bound, err := s.resolveRuntimeBound(ctx, envID)
 	if err != nil {
 		return nil, err
+	}
+	if bound.env.PerBranch() {
+		return []domain.RuntimeErrorGroup{}, nil
 	}
 
 	key := runtimeCacheKey{envID, "errors", since.Truncate(time.Minute).Format(time.RFC3339)}
@@ -211,7 +333,7 @@ func (s *Service) Deployments(ctx context.Context, envID uuid.UUID, limit int) (
 
 	key := runtimeCacheKey{envID, "deployments", strconv.Itoa(limit)}
 	v, err := s.runtimeCached(key, func() (interface{}, error) {
-		return bound.provider.Deployments(ctx, bound.cred, *bound.env.Resource, limit)
+		return bound.provider.Deployments(ctx, bound.cred, *bound.env.Resource, bound.env.Environment, limit)
 	})
 	if err != nil {
 		if errors.Is(err, port.ErrCloudAuth) {

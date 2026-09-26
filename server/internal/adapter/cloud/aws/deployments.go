@@ -25,7 +25,7 @@ const defaultDeploymentLimit = 10
 // that publish on every commit can otherwise have thousands of versions.
 const maxVersionPages = 10
 
-func (p *Provider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, limit int) ([]domain.CloudDeployment, error) {
+func (p *Provider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, _ domain.DeployEnvironment, limit int) ([]domain.CloudDeployment, error) {
 	cfg, err := p.config(cred)
 	if err != nil {
 		return nil, err

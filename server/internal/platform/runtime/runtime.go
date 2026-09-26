@@ -1865,6 +1865,15 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				// dangling link target, the same relationship in reverse.
 				cloudSvc.SetRelinker(modelSvc)
 			}
+			// A task's Vercel previews are keyed by its branch and PR head; with
+			// no GitHub the head-commit preference is all that is lost. The nil
+			// branch keeps a typed-nil *TaskPRService out of the interface.
+			if taskPRSvc != nil {
+				cloudSvc.SetTaskPreviewSources(repositorySvc, taskPRSvc)
+			} else {
+				cloudSvc.SetTaskPreviewSources(repositorySvc, nil)
+			}
+			boardKit.Previews = cloudSvc
 			for _, tool := range runtimetools.NewExecutors(&runtimetools.ToolKit{Components: cloudComponents, Cloud: cloudSvc}) {
 				e.reg.Register(tool)
 			}

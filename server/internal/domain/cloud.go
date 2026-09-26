@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -82,6 +83,10 @@ type CloudResourceRef struct {
 	Extra  map[string]string `json:"extra,omitempty"`
 }
 
+// CloudRefDeploymentID in a ref's Extra pins a runtime read (logs) to one
+// deployment instead of the provider's default of the live production one.
+const CloudRefDeploymentID = "deployment_id"
+
 // CloudResource is one row of an account's resource listing; Labels carry
 // what the matcher compares against deploy signals (git repo slug, root
 // directory, framework, custom domains).
@@ -141,6 +146,13 @@ type CloudDeployment struct {
 	CreatedAt     time.Time             `json:"created_at"`
 	ReadyAt       *time.Time            `json:"ready_at,omitempty"`
 	InspectURL    string                `json:"inspect_url,omitempty"`
+	// PRNumber is the pull request this deployment was built for (Vercel's
+	// meta.githubPrId); zero when the deployment did not come from a PR.
+	PRNumber int `json:"pr_number,omitempty"`
+	// BranchURL is the provider's stable per-branch alias (Vercel's
+	// `-git-<branch>-` alias), when one is known — unlike URL it stays the
+	// same across every deployment pushed to that branch.
+	BranchURL string `json:"branch_url,omitempty"`
 }
 
 type LogSeverity string
@@ -247,6 +259,24 @@ type ComponentEnvironment struct {
 
 func (e ComponentEnvironment) Bound() bool { return e.AccountID != nil && e.Resource != nil }
 
+// PerBranch reports an environment that is not one address but one
+// deployment per branch/pull request: Vercel builds every non-production push
+// as its own preview, so the environment row has no single URL to probe.
+func (e ComponentEnvironment) PerBranch() bool {
+	return e.Environment == EnvironmentPreview && e.Provider == CloudVercel
+}
+
+// MarshalJSON adds the derived per_branch flag, so every response carrying an
+// environment (the repository model included) says so without each call site
+// remembering to set it.
+func (e ComponentEnvironment) MarshalJSON() ([]byte, error) {
+	type plain ComponentEnvironment
+	return json.Marshal(struct {
+		plain
+		PerBranch bool `json:"per_branch"`
+	}{plain(e), e.PerBranch()})
+}
+
 type SaveEnvironmentRequest struct {
 	AccountID *uuid.UUID        `json:"account_id,omitempty"`
 	Resource  *CloudResourceRef `json:"resource,omitempty"`
@@ -265,6 +295,12 @@ type EnvironmentRuntime struct {
 	// UnavailableCode lets the UI act on why: "not_connected", "cloud_auth"
 	// (reconnect the account) or "provider_error".
 	UnavailableCode string `json:"unavailable_code,omitempty"`
+	// PreviewAccess is set for a PerBranch environment only.
+	PreviewAccess *PreviewAccess `json:"preview_access,omitempty"`
+	// ErrorsSupported is false when the provider has no error surface for
+	// this environment, so the UI hides the Errors tab instead of showing an
+	// empty one that looks like "no errors".
+	ErrorsSupported bool `json:"errors_supported"`
 }
 
 // EnvironmentHealth is refreshed by a background sweep so list views never

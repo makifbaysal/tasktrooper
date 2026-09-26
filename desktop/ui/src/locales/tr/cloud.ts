@@ -99,4 +99,46 @@ export const cloud: CloudDict = {
     connectAction: "Bağla",
     notNow: "Şimdi değil",
   },
+  preview: {
+    autoLabel: "Her PR için otomatik",
+    hint: "Vercel her PR ve branch push'u için ayrı bir adres üretir",
+    bindHint:
+      "Vercel her PR ve branch push'u için ayrı bir preview üretir; bu yüzden burada tek bir URL saklanmaz — projeyi seç, her PR'ın adresi kendi deployment'ından okunur.",
+    branchUrl: "Branch adresi",
+    commitUrl: "Bu commit",
+    prNumber: "PR #{number}",
+    access: {
+      public: "Herkese açık",
+      protected: "Korumalı ({mode})",
+      protectedShort: "Korumalı",
+      mode: {
+        none: "yok",
+        vercel_authentication: "Vercel Authentication",
+        password: "Parola",
+        vercel_authentication_and_password: "Vercel Authentication + Parola",
+      },
+    },
+    bypass: {
+      warningTitle: "Agent'lar bu preview'ları henüz açamıyor",
+      warningDesc:
+        "Preview'lar korumalı ve otomasyon için bir bypass yok — Vercel projesinde Settings → Deployment Protection altında bir \"Protection Bypass for Automation\" secret'ı oluştur.",
+      learnMore: "Otomasyon için korumayı aşma",
+      tooltip:
+        "Vercel projesinde Settings → Deployment Protection altında bir \"Protection Bypass for Automation\" secret'ı oluşturulana kadar agent'lar bu preview'ı açamaz.",
+    },
+    task: {
+      label: "Preview",
+      refresh: "Preview'ları yenile",
+      open: "Aç",
+      loadFailed: "Preview'lar okunamadı",
+      status: {
+        queued: "Hazırlanıyor",
+        building: "Hazırlanıyor",
+        ready: "Hazır",
+        error: "Hata",
+        canceled: "İptal edildi",
+        none: "Henüz yok",
+      },
+    },
+  },
 };

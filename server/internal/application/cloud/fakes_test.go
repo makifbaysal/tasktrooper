@@ -610,11 +610,13 @@ type fakeProvider struct {
 	detail    domain.CloudResourceDetail
 	detailErr error
 
-	deployments    []domain.CloudDeployment
-	deploymentsErr error
+	deployments     []domain.CloudDeployment
+	deploymentsErr  error
+	deploymentsEnvs []domain.DeployEnvironment
 
-	logs    domain.RuntimeLogPage
-	logsErr error
+	logs     domain.RuntimeLogPage
+	logsErr  error
+	logsRefs []domain.CloudResourceRef
 
 	errorGroups []domain.RuntimeErrorGroup
 	errorsErr   error
@@ -642,11 +644,17 @@ func (f *fakeProvider) Resource(ctx context.Context, cred domain.CloudCredential
 	return f.detail, f.detailErr
 }
 
-func (f *fakeProvider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, limit int) ([]domain.CloudDeployment, error) {
+func (f *fakeProvider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, env domain.DeployEnvironment, limit int) ([]domain.CloudDeployment, error) {
+	f.mu.Lock()
+	f.deploymentsEnvs = append(f.deploymentsEnvs, env)
+	f.mu.Unlock()
 	return f.deployments, f.deploymentsErr
 }
 
 func (f *fakeProvider) Logs(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, q domain.RuntimeLogQuery) (domain.RuntimeLogPage, error) {
+	f.mu.Lock()
+	f.logsRefs = append(f.logsRefs, ref)
+	f.mu.Unlock()
 	return f.logs, f.logsErr
 }
 

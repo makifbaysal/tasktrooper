@@ -433,11 +433,20 @@ in `review` with `kind:"environment"`, rendered by `projects/model/ReviewList`):
   → `ComponentEnvironment` — choosing one of the row's `candidates` means sending
   its `account_id` + `resource.ref` with `status:"confirmed"` (`api.patchEnvironment`).
 - `DELETE /v1/environments/{envId}` → 204.
-- `GET /v1/environments/{envId}/overview` → `EnvironmentRuntime {environment, detail?, deployments[], errors[], unavailable?}`.
+- `GET /v1/environments/{envId}/overview` → `EnvironmentRuntime {environment, detail?, deployments[], errors[], unavailable?,
+  errors_supported, preview_access?}` — `errors_supported: false` hides the Errors tab; `preview_access
+  {protected, mode, bypass_configured}` is set only for a `per_branch` environment.
 - `GET /v1/environments/{envId}/logs?since=&until=&min_severity=&q=&limit=&cursor=` → `RuntimeLogPage` (default: last hour, 200).
 - `GET /v1/environments/{envId}/errors?since=` → `{errors: RuntimeErrorGroup[]}` (default last 24h).
-- `GET /v1/environments/{envId}/deployments?limit=` → `{deployments: CloudDeployment[]}`.
+- `GET /v1/environments/{envId}/deployments?limit=` → `{deployments: CloudDeployment[]}` — only that
+  environment's own deployments; a preview deployment carries `pr_number?` and `branch_url?`.
+- `GET /v1/repositories/{id}/tasks/{taskId}/previews` → `{previews: TaskPreview[]}` — one row per component
+  with a `per_branch` environment, for the task's branch (`status: "none"` = nothing deployed yet); empty
+  when no component has one (`board/TaskPreviewsSection` then renders nothing).
 - `POST /v1/environments/{envId}/errors/task` body `RuntimeErrorGroup` → 201 `BoardTask`.
+
+A `ComponentEnvironment` with `per_branch: true` (PREVIEW on Vercel) stores no single `url`: Vercel builds one
+deployment per PR/branch push, and the row's health is the newest preview deployment's state.
 
 `RepositorySummary.environments[]` (`EnvironmentSummary`) comes from stored health
 only — cheap, no provider call — and is what `projects/hub/EnvironmentChips`

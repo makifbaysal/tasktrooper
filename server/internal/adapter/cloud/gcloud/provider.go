@@ -617,7 +617,7 @@ func jobExecutionsPage(ctx context.Context, c *Client, ref domain.CloudResourceR
 	return resp.Executions, nil
 }
 
-func (p *Provider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, limit int) ([]domain.CloudDeployment, error) {
+func (p *Provider) Deployments(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, _ domain.DeployEnvironment, limit int) ([]domain.CloudDeployment, error) {
 	c, err := p.clientFor(cred)
 	if err != nil {
 		return nil, err

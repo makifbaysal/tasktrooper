@@ -59,6 +59,7 @@ tool_policy:
         - get_pipeline_status
         - get_deploy_target
         - update_deploy_target
+        - get_task_preview
         - get_task_pull_request
         - save_memory
         - search_memory

@@ -277,7 +277,7 @@ func TestDeploymentsMapsEnvironmentCommitAndCreator(t *testing.T) {
 	cred := domain.CloudCredential{Fields: map[string]string{"token": "tok", "team_id": "team_1"}}
 	ref := domain.CloudResourceRef{ID: "prj_1"}
 
-	deployments, err := p.Deployments(context.Background(), cred, ref, 5)
+	deployments, err := p.Deployments(context.Background(), cred, ref, "", 5)
 	require.NoError(t, err)
 	require.Len(t, deployments, 2)
 
@@ -317,7 +317,7 @@ func TestDeploymentsRateLimited(t *testing.T) {
 	p := NewProvider(c)
 	cred := domain.CloudCredential{Fields: map[string]string{"token": "tok"}}
 
-	_, err := p.Deployments(context.Background(), cred, domain.CloudResourceRef{ID: "prj_1"}, 5)
+	_, err := p.Deployments(context.Background(), cred, domain.CloudResourceRef{ID: "prj_1"}, "", 5)
 	require.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "rate limit")
 	assert.False(t, errors.Is(err, port.ErrCloudAuth))

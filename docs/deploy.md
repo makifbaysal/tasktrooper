@@ -111,6 +111,25 @@ confirm. A confirmed Vercel hosting link on a repository's root area fills in
 the empty parts of its `prod` deploy target — base URL, health URL, and the
 recipe's own variables — instead of asking you to type them twice.
 
+### Vercel preview environments
+
+Vercel builds every pushed branch and every pull request as its own preview
+deployment and comments its address on the PR. To use those, bind the
+component's **preview** environment to the same Vercel project as production
+and leave its URL empty. The environment is then marked **per branch**: it has
+no single address, so TaskTrooper does not probe one. Its health is the newest
+preview build's state, and its deployments list shows preview builds only.
+
+TaskTrooper finds each task's preview by the task's branch, preferring the
+build of the PR's head commit. The QA agent tests on it with
+`get_task_preview` when it is ready and built from that commit, and falls back
+to booting the branch locally otherwise. When
+the project uses Deployment Protection (Vercel Authentication or a password),
+automated requests reach a login page unless the project has a **Protection
+Bypass for Automation**. Create one in the Vercel project under Settings →
+Deployment Protection. TaskTrooper reads it from Vercel and never shows the
+secret in the UI or the API.
+
 ## Releases
 
 Once a task is signed off in Done, a dedicated **release engineer** agent

@@ -31,7 +31,7 @@ const (
 // deployment among the last few — the newest one is sometimes still building,
 // which has no runtime logs yet.
 func (p *Provider) resolveDeploymentID(ctx context.Context, token, teamID string, ref domain.CloudResourceRef) (string, error) {
-	if id := ref.Extra["deployment_id"]; id != "" {
+	if id := ref.Extra[domain.CloudRefDeploymentID]; id != "" {
 		return id, nil
 	}
 	deployments, err := p.listDeployments(ctx, token, teamID, ref.ID, domain.VercelTargetProduction, deploymentPageLimit)

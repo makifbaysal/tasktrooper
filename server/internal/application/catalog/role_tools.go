@@ -237,6 +237,8 @@ func qaToolPolicy() domain.ToolPolicy {
 	tools = append(tools, "list_test_cases", "record_test_cases", "set_test_case_result")
 	// Green CI and stage base_url for the suite; prod requests banned — the rule layer says so separately.
 	tools = append(tools, "get_pipeline_status", "get_deploy_target", "update_deploy_target")
+	// The task branch's own Vercel preview, the first choice of test environment when it is built from the PR head.
+	tools = append(tools, "get_task_preview")
 	tools = append(tools, rolePRReadTools...)
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)

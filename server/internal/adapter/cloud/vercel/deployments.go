@@ -2,6 +2,8 @@ package vercel
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -56,6 +58,23 @@ func metaString(meta map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// metaInt reads a numeric git metadata key; githubPrId is documented as a
+// string, but a number is accepted rather than silently dropped.
+func metaInt(meta map[string]any, key string) int {
+	switch v := meta[key].(type) {
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil && n > 0 {
+			return n
+		}
+	case float64:
+		if v > 0 {
+			return int(v)
+		}
+	}
+	return 0
 }
 
 func msTime(ms int64) time.Time {

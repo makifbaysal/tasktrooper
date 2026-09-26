@@ -190,7 +190,7 @@ func (p *fakeCloudProvider) Resource(context.Context, domain.CloudCredential, do
 	return domain.CloudResourceDetail{Status: domain.CloudStatusHealthy}, nil
 }
 
-func (p *fakeCloudProvider) Deployments(context.Context, domain.CloudCredential, domain.CloudResourceRef, int) ([]domain.CloudDeployment, error) {
+func (p *fakeCloudProvider) Deployments(context.Context, domain.CloudCredential, domain.CloudResourceRef, domain.DeployEnvironment, int) ([]domain.CloudDeployment, error) {
 	if p.deployErr != nil {
 		return nil, p.deployErr
 	}

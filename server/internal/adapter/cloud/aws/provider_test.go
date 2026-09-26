@@ -643,7 +643,7 @@ func TestDeployments_ECS(t *testing.T) {
 		Extra: map[string]string{extraClusterARN: "arn:aws:ecs:us-east-1:111122223333:cluster/cluster-a"},
 	}
 
-	deployments, err := p.Deployments(context.Background(), testCred(), ref, 0)
+	deployments, err := p.Deployments(context.Background(), testCred(), ref, "", 0)
 
 	require.NoError(t, err)
 	require.Len(t, deployments, 2)
@@ -664,7 +664,7 @@ func TestDeployments_Lambda(t *testing.T) {
 	p := testProvider(srv.URL)
 	ref := domain.CloudResourceRef{Kind: domain.CloudResourceLambdaFunction, ID: fnArn, Name: "fn-1"}
 
-	deployments, err := p.Deployments(context.Background(), testCred(), ref, 0)
+	deployments, err := p.Deployments(context.Background(), testCred(), ref, "", 0)
 
 	require.NoError(t, err)
 	require.Len(t, deployments, 2)
@@ -684,7 +684,7 @@ func TestDeployments_AppRunner(t *testing.T) {
 	p := testProvider(srv.URL)
 	ref := domain.CloudResourceRef{Kind: domain.CloudResourceAppRunnerService, ID: serviceArn, Name: "svc-a"}
 
-	deployments, err := p.Deployments(context.Background(), testCred(), ref, 0)
+	deployments, err := p.Deployments(context.Background(), testCred(), ref, "", 0)
 
 	require.NoError(t, err)
 	require.Len(t, deployments, 2)

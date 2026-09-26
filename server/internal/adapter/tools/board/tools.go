@@ -131,6 +131,9 @@ type ToolKit struct {
 	// argument. Nil means the argument is accepted but ignored — a build with
 	// no project model still runs the rest of the tool.
 	Components ComponentResolver
+	// Previews backs get_task_preview. Built after this registration (it is
+	// the cloud service), so it is read at call time like Releases.
+	Previews TaskPreviewReader
 }
 
 // SubscriptionLister is the read-only slice of port.BoardConfigStore
@@ -165,6 +168,7 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 		newSetTestCaseResultTool(kit),
 		newBoardSummaryTool(kit),
 		newGetPipelineStatusTool(kit),
+		newGetTaskPreviewTool(kit),
 	}
 	if kit.Workspace != nil {
 		execs = append(execs,

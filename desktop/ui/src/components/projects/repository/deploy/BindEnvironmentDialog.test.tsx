@@ -64,6 +64,7 @@ function renderDialog(
     accounts?: CloudAccount[];
     provider?: "vercel" | "gcp" | "aws";
     existing?: ComponentEnvironment;
+    environment?: ComponentEnvironment["environment"];
   } = {},
 ) {
   const onBound = options.onBound ?? vi.fn();
@@ -74,7 +75,7 @@ function renderDialog(
           open
           onOpenChange={() => {}}
           componentId="comp-1"
-          environment="production"
+          environment={options.environment ?? "production"}
           accounts={options.accounts ?? [account]}
           provider={options.provider}
           existing={options.existing}
@@ -134,6 +135,30 @@ describe("BindEnvironmentDialog", () => {
       }),
     );
     await waitFor(() => expect(onBound).toHaveBeenCalled());
+  });
+
+  it("explains per-PR previews when binding PREVIEW to a Vercel account", async () => {
+    listCloudResources.mockResolvedValue({ resources: [vercelResource] });
+    renderDialog({ accounts: [account, vercelAccount], environment: "preview" });
+
+    fireEvent.click(screen.getByText("acme-vercel"));
+    await screen.findByText("pishio-web");
+    expect(screen.getByText(/Vercel builds a separate preview for every PR and branch push/)).toBeInTheDocument();
+  });
+
+  it("does not show the per-PR hint for a non-Vercel account", async () => {
+    renderDialog({ accounts: [account, vercelAccount], environment: "preview" });
+    fireEvent.click(screen.getByText("acme-prod"));
+    await screen.findByText("acme-api");
+    expect(screen.queryByText(/Vercel builds a separate preview/)).not.toBeInTheDocument();
+  });
+
+  it("does not show the per-PR hint when binding PRODUCTION to Vercel", async () => {
+    listCloudResources.mockResolvedValue({ resources: [vercelResource] });
+    renderDialog({ accounts: [vercelAccount] });
+    fireEvent.click(screen.getByText("acme-vercel"));
+    await screen.findByText("pishio-web");
+    expect(screen.queryByText(/Vercel builds a separate preview/)).not.toBeInTheDocument();
   });
 
   it("with a provider set, offers only that provider's accounts", async () => {

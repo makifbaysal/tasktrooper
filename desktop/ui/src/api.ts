@@ -2828,6 +2828,11 @@ export interface CloudDeployment {
   created_at: string;
   ready_at?: string;
   inspect_url?: string;
+  /** Set on a Vercel preview deployment — the PR it was built for. */
+  pr_number?: number;
+  /** The stable `<project>-git-<branch>-<scope>.vercel.app` address, unlike
+   * `url`'s per-commit one. */
+  branch_url?: string;
 }
 
 export type LogSeverity = "debug" | "info" | "warning" | "error" | "critical";
@@ -2907,6 +2912,10 @@ export interface ComponentEnvironment {
   signal_key?: string;
   /** The last background probe's summary; absent until one ran. */
   health?: EnvironmentHealth;
+  /** True for a PREVIEW environment on a provider (Vercel) that builds one
+   * deployment per PR/branch rather than one stable production URL — the
+   * environment row has no single `url` of its own to show. */
+  per_branch?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -2930,6 +2939,18 @@ export interface EnvironmentPatch {
  * Runtime tab opens on. */
 export type EnvironmentUnavailableCode = "not_connected" | "cloud_auth" | "provider_error";
 
+export type PreviewAccessMode = "none" | "vercel_authentication" | "password" | "vercel_authentication_and_password";
+
+/** A per-branch environment's Vercel Deployment Protection state — read on
+ * `overview` since it governs whether an agent can even open the preview. */
+export interface PreviewAccess {
+  protected: boolean;
+  mode: PreviewAccessMode;
+  /** A "Protection Bypass for Automation" secret exists on the Vercel project
+   * — without it, a protected preview 401s every automated request. */
+  bypass_configured: boolean;
+}
+
 export interface EnvironmentRuntime {
   environment: ComponentEnvironment;
   detail?: CloudResourceDetail;
@@ -2939,6 +2960,33 @@ export interface EnvironmentRuntime {
   /** Why `unavailable` is set, so the UI can act on it instead of pattern
    * matching the message text. */
   unavailable_code?: EnvironmentUnavailableCode;
+  /** Set for a `per_branch` environment. */
+  preview_access?: PreviewAccess;
+  /** False when the provider has no error-tracking surface for this
+   * environment (e.g. a Vercel preview) — absent/true keeps today's Errors tab. */
+  errors_supported?: boolean;
+}
+
+export type TaskPreviewStatus = "queued" | "building" | "ready" | "error" | "canceled" | "none";
+
+/** GET /v1/repositories/:id/tasks/:taskId/previews — one component's preview
+ * deployment for this task's branch. `status: "none"` means the branch has
+ * no deployment yet on that component's per-branch environment. */
+export interface TaskPreview {
+  component_id: string;
+  component_name: string;
+  environment_id: string;
+  provider: string;
+  status: TaskPreviewStatus;
+  url: string;
+  branch_url: string;
+  pr_number: number;
+  commit_sha: string;
+  created_at: string;
+  ready_at?: string;
+  inspect_url: string;
+  protected: boolean;
+  bypass_configured: boolean;
 }
 
 /** Refreshed by a background sweep so list views never call a provider on
@@ -4726,6 +4774,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(group),
     }),
+
+  getTaskPreviews: (repositoryId: string, taskId: string) =>
+    request<{ previews: TaskPreview[] }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/previews`),
 
   // ---- Releases & delivery --------------------------------------
 

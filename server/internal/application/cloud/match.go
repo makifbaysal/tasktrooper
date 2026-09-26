@@ -341,7 +341,10 @@ func applyMatchOutcome(existing domain.ComponentEnvironment, hasExisting bool, r
 	row.Provider = providerKind
 	row.AccountID = out.accountID
 	row.Resource = out.resource
-	row.URL = out.url
+	row.URL = ""
+	if adoptsResourceURL(providerKind, env) {
+		row.URL = out.url
+	}
 	row.Status = out.status
 	row.Source = domain.LinkSourceScan
 	row.Confidence = out.confidence

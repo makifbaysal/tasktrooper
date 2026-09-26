@@ -61,6 +61,9 @@ export function DeploymentsPanel({ envId, className }: DeploymentsPanelProps) {
           <div key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
             <Badge variant={DEPLOYMENT_STATUS_VARIANT[d.status]}>{t(`repositoryPage.deploy.runtime.deployments.status.${d.status}`)}</Badge>
             {d.environment && <Badge variant="outline">{t(`cloud.environments.${d.environment}`)}</Badge>}
+            {d.pr_number ? (
+              <Badge variant="secondary">{t("cloud.preview.prNumber", { number: d.pr_number })}</Badge>
+            ) : null}
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">
                 {d.commit_sha && <span className="font-mono text-xs text-muted-foreground">{d.commit_sha.slice(0, 7)}</span>}{" "}
@@ -72,20 +75,28 @@ export function DeploymentsPanel({ envId, className }: DeploymentsPanelProps) {
                   .join(" · ")}
               </p>
             </div>
+            {d.branch_url && <DeploymentLink href={d.branch_url} label={t("cloud.preview.branchUrl")} />}
+            {d.url && <DeploymentLink href={d.url} label={t("cloud.preview.commitUrl")} />}
             {d.inspect_url && (
-              <a
-                href={d.inspect_url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 text-caption text-info hover:underline"
-              >
-                {t("repositoryPage.deploy.runtime.deployments.inspect")}
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              <DeploymentLink href={d.inspect_url} label={t("repositoryPage.deploy.runtime.deployments.inspect")} />
             )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+function DeploymentLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex shrink-0 items-center gap-1 text-caption text-info hover:underline"
+    >
+      {label}
+      <ExternalLink className="h-3 w-3" />
+    </a>
   );
 }

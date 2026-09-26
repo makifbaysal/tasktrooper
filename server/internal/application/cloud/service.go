@@ -91,6 +91,8 @@ type Service struct {
 	legacy        port.LegacyCloudSource
 	relinker      Relinker
 	delivery      DeliveryRefresher
+	taskReader    TaskReader
+	prHeads       PullRequestHeads
 
 	now   Clock
 	bgCtx context.Context
