@@ -204,12 +204,23 @@ func (s *Service) applyLegacyOverrides(ctx context.Context, repo domain.Reposito
 			}
 			components = upsertComponentInList(components, saved)
 		}
-	} else if role, mappable := legacyKindToRole[repo.Kind]; mappable {
-		if root, ok := componentAtPath(components, "."); ok && root.Role.Get().LegacyRepoKind() != repo.Kind {
+	} else if root, ok := componentAtPath(components, "."); ok {
+		changed := false
+		if role, mappable := legacyKindToRole[repo.Kind]; mappable && root.Role.Get().LegacyRepoKind() != repo.Kind {
 			root.Role.Override = &role
+			changed = true
+		}
+		// Reference docs are per component; migration 163 only reached root
+		// components that already existed, so a repository first backfilled
+		// after it still carries its docs on the repository row.
+		if docsIsZero(root.Docs) && !docsIsZero(repo.Docs) {
+			root.Docs = repo.Docs
+			changed = true
+		}
+		if changed {
 			saved, err := s.store.SaveComponent(ctx, root)
 			if err != nil {
-				log.Warn().Err(err).Str("repository", repo.Name).Msg("project model backfill: saving root component role failed")
+				log.Warn().Err(err).Str("repository", repo.Name).Msg("project model backfill: saving root component failed")
 			} else {
 				components = upsertComponentInList(components, saved)
 			}

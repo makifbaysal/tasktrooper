@@ -2,22 +2,6 @@ import type { ProjectAdminDict } from "@/locales/en/projectAdmin";
 
 // projectAdmin namespace: Turkish. Typed as ProjectAdminDict; mirrors en keys exactly.
 export const projectAdmin: ProjectAdminDict = {
-  projectSettings: {
-    docsSaved: "Referans dokümanlar kaydedildi",
-    docsQueue: "Kuyruğa al",
-    docsQueued: "Kuyrukta",
-    docsQueuedCount: "{count} doküman kuyrukta",
-    docsGenerateBundle: "Oluştur",
-    docsBundleCreated: "Doküman görevi açıldı. Kuyruktakiler tek PR'da gelir.",
-    docsTaskRunningTitle: "Doküman görevi çalışıyor",
-    docsTaskRunning: "Bir ajan kuyruktaki dokümanları yazıyor. Durum: {status}",
-    docsPrReadyTitle: "PR hazır",
-    docsPrReady: "Üretilen dokümanlar bir pull request'te bekliyor.",
-    docsPrLink: "PR'ı aç",
-    docsSaveAndMerge: "Kaydet ve PR'ı main'e merge et",
-    docsMerged: "Dokümanlar main'e merge edildi",
-    docsMergeFailed: "PR merge edilemedi",
-  },
   projects: {
     nameRequired: "Proje adı gerekli",
     updated: "Proje güncellendi",
@@ -39,11 +23,6 @@ export const projectAdmin: ProjectAdminDict = {
     indexErrorGeneric: "Index hatası",
   },
   initialSetup: {
-    docsLabel: "Referans dokümanlar",
-    docsCodingStandards: "Coding standartları",
-    docsTestStandards: "Test standartları",
-    docsArchitecture: "Mimari",
-    docsLocalRun: "Local çalıştırma scripti",
     subProjectRoot: "Depo kökü",
     subProjectPickerTitle: "Klasör seç",
     subProjectPickerUp: "Yukarı",

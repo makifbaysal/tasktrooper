@@ -70,6 +70,38 @@ func (f *fakeTasks) GetTask(_ context.Context, _ uuid.UUID, taskID uuid.UUID) (d
 	return f.task, nil
 }
 
+type fakeComponents struct {
+	components map[uuid.UUID]domain.Component
+}
+
+func newFakeComponents(comps ...domain.Component) *fakeComponents {
+	m := make(map[uuid.UUID]domain.Component, len(comps))
+	for _, c := range comps {
+		m[c.ID] = c
+	}
+	return &fakeComponents{components: m}
+}
+
+func (f *fakeComponents) GetComponent(_ context.Context, id uuid.UUID) (domain.Component, error) {
+	c, ok := f.components[id]
+	if !ok {
+		return domain.Component{}, errors.New("component not found")
+	}
+	return c, nil
+}
+
+func (f *fakeComponents) UpdateComponent(_ context.Context, id uuid.UUID, patch domain.ComponentPatch) (domain.Component, error) {
+	c, ok := f.components[id]
+	if !ok {
+		return domain.Component{}, errors.New("component not found")
+	}
+	if patch.Docs != nil {
+		c.Docs = *patch.Docs
+	}
+	f.components[id] = c
+	return c, nil
+}
+
 type fakeMerger struct {
 	calls  []uuid.UUID
 	result domain.TaskPRMergeResult
@@ -359,4 +391,78 @@ func TestBundleDescriptionListsEveryDocBeforeDetailingThem(t *testing.T) {
 
 	require.Less(t, strings.Index(desc, "1. `.ai/coding-standards.md`"),
 		strings.Index(desc, "## `.ai/coding-standards.md`"))
+}
+
+func TestCreateDocsBundleTaskTargetsComponentAtRepositoryRoot(t *testing.T) {
+	svc, repos, tasks := newFixture(t, domain.Repository{Kind: domain.RepoKindBackend})
+	comp := domain.Component{ID: uuid.New(), RepositoryID: repos.repo.ID, Path: "."}
+	components := newFakeComponents(comp)
+	svc.SetComponents(components)
+
+	_, err := svc.CreateDocsBundleTask(context.Background(), repos.repo.ID, []repodocs.DocItem{
+		{Kind: domain.RepoDocArchitecture, ComponentID: comp.ID.String()},
+	})
+	require.NoError(t, err)
+
+	desc := tasks.created[0].Description
+	require.Contains(t, desc, "`.ai/architecture.md`")
+	require.NotContains(t, desc, "./.ai/architecture.md", "a root component's path must not be prefixed")
+
+	require.Equal(t, ".ai/architecture.md", components.components[comp.ID].Docs.Architecture)
+	require.Empty(t, repos.repo.Docs.Architecture, "a component-targeted doc must not touch the legacy repo.Docs")
+}
+
+func TestCreateDocsBundleTaskTargetsComponentAtASubPath(t *testing.T) {
+	svc, repos, tasks := newFixture(t, domain.Repository{Kind: domain.RepoKindMonorepo})
+	comp := domain.Component{ID: uuid.New(), RepositoryID: repos.repo.ID, Path: "apps/web"}
+	components := newFakeComponents(comp)
+	svc.SetComponents(components)
+
+	_, err := svc.CreateDocsBundleTask(context.Background(), repos.repo.ID, []repodocs.DocItem{
+		{Kind: domain.RepoDocArchitecture, ComponentID: comp.ID.String()},
+	})
+	require.NoError(t, err)
+
+	desc := tasks.created[0].Description
+	require.Contains(t, desc, "apps/web/.ai/architecture.md")
+
+	require.Equal(t, ".ai/architecture.md", components.components[comp.ID].Docs.Architecture,
+		"the component's own Docs store the path unprefixed; the component's Path supplies the prefix")
+}
+
+func TestCreateDocsBundleTaskRejectsAComponentFromAnotherRepository(t *testing.T) {
+	svc, repos, tasks := newFixture(t, domain.Repository{Kind: domain.RepoKindBackend})
+	comp := domain.Component{ID: uuid.New(), RepositoryID: uuid.New(), Path: "."}
+	components := newFakeComponents(comp)
+	svc.SetComponents(components)
+
+	_, err := svc.CreateDocsBundleTask(context.Background(), repos.repo.ID, []repodocs.DocItem{
+		{Kind: domain.RepoDocArchitecture, ComponentID: comp.ID.String()},
+	})
+	require.Error(t, err)
+	require.Empty(t, tasks.created)
+}
+
+func TestCreateDocsBundleTaskRejectsAComponentIDWithoutComponentsWired(t *testing.T) {
+	svc, repos, tasks := newFixture(t, domain.Repository{Kind: domain.RepoKindBackend})
+
+	_, err := svc.CreateDocsBundleTask(context.Background(), repos.repo.ID, []repodocs.DocItem{
+		{Kind: domain.RepoDocArchitecture, ComponentID: uuid.New().String()},
+	})
+	require.Error(t, err)
+	require.Empty(t, tasks.created)
+}
+
+func TestCreateDocsBundleTaskRejectsTheSameComponentAndKindTwice(t *testing.T) {
+	svc, repos, tasks := newFixture(t, domain.Repository{Kind: domain.RepoKindBackend})
+	comp := domain.Component{ID: uuid.New(), RepositoryID: repos.repo.ID, Path: "."}
+	components := newFakeComponents(comp)
+	svc.SetComponents(components)
+
+	_, err := svc.CreateDocsBundleTask(context.Background(), repos.repo.ID, []repodocs.DocItem{
+		{Kind: domain.RepoDocArchitecture, ComponentID: comp.ID.String()},
+		{Kind: domain.RepoDocArchitecture, ComponentID: comp.ID.String()},
+	})
+	require.ErrorContains(t, err, "duplicate doc kind")
+	require.Empty(t, tasks.created)
 }

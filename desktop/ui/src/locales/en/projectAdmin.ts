@@ -1,25 +1,9 @@
 // projectAdmin namespace: English source of truth.
 // Covers components/projects/* not yet moved under the projectsHub/projectModel/
-// repositoryPage namespaces: reference docs, production ops, store connection,
-// Vercel/Google Cloud hosting.
+// repositoryPage namespaces: production ops, store connection, Vercel/Google
+// Cloud hosting.
 // Interpolation uses {name} placeholders.
 export const projectAdmin = {
-  projectSettings: {
-    docsSaved: "Reference docs saved",
-    docsQueue: "Queue",
-    docsQueued: "Queued",
-    docsQueuedCount: "{count} queued",
-    docsGenerateBundle: "Generate",
-    docsBundleCreated: "Docs task created. The queued docs arrive in one PR.",
-    docsTaskRunningTitle: "Docs task running",
-    docsTaskRunning: "An agent is writing the queued docs. Status: {status}",
-    docsPrReadyTitle: "PR ready",
-    docsPrReady: "The generated docs are waiting in a pull request.",
-    docsPrLink: "Open the PR",
-    docsSaveAndMerge: "Save and merge the PR into main",
-    docsMerged: "Docs merged into main",
-    docsMergeFailed: "The PR could not be merged",
-  },
   projects: {
     nameRequired: "Project name is required",
     updated: "Project updated",
@@ -41,11 +25,6 @@ export const projectAdmin = {
     indexErrorGeneric: "Index error",
   },
   initialSetup: {
-    docsLabel: "Reference docs",
-    docsCodingStandards: "Coding standards",
-    docsTestStandards: "Test standards",
-    docsArchitecture: "Architecture",
-    docsLocalRun: "Local run script",
     subProjectRoot: "Repository root",
     subProjectPickerTitle: "Choose a folder",
     subProjectPickerUp: "Up",

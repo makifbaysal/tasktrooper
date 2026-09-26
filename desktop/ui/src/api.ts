@@ -3930,9 +3930,12 @@ export const api = {
   },
 
   /** Kicks off one docs-setup task that writes/refreshes several reference
-   * docs (repo-level and/or per-sub-project) in a single PR, unlike
+   * docs (per component, by component_id) in a single PR, unlike
    * createRepoDocTask which is one doc at a time. */
-  createRepoDocsBundleTask: (repositoryId: string, items: Array<{ kind: RepoDocKind; sub_project_path?: string; path?: string }>) =>
+  createRepoDocsBundleTask: (
+    repositoryId: string,
+    items: Array<{ kind: RepoDocKind; sub_project_path?: string; component_id?: string; path?: string }>,
+  ) =>
     request<{ task_id: string }>(`/v1/repositories/${repositoryId}/docs/setup-task`, {
       method: "POST",
       body: JSON.stringify({ items }),

@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { api, type InitiativeProject, type RepositoryModel } from "@/api";
 import { MultiSelectPicker } from "@/components/admin/MultiSelectPicker";
 import { ProjectIndexStatus } from "@/components/projects/ProjectIndexStatus";
-import { RepoDocsCard } from "@/components/projects/RepoDocsCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -167,8 +166,6 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
         </div>
 
         <div className="min-w-0 space-y-6">
-          <RepoDocsCard repositoryId={repositoryId} title={t("repositoryPage.settings.docsTitle")} />
-
           <Card className="space-y-4 border-destructive/30 p-6">
             <h2 className="font-semibold text-destructive">{t("repositoryPage.settings.dangerTitle")}</h2>
             <p className="text-body text-muted-foreground">{t("repositoryPage.settings.deleteRepoWarning")}</p>

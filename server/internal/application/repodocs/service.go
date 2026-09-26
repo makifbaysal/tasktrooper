@@ -28,10 +28,19 @@ type RepositoryStore interface {
 	SetDocsTaskID(ctx context.Context, id uuid.UUID, taskID string) error
 }
 
+// ComponentStore lets a doc target a project_components row instead of the
+// legacy repository/sub-project fields, which projectmodel's projection
+// overwrites from components anyway.
+type ComponentStore interface {
+	GetComponent(ctx context.Context, id uuid.UUID) (domain.Component, error)
+	UpdateComponent(ctx context.Context, componentID uuid.UUID, patch domain.ComponentPatch) (domain.Component, error)
+}
+
 type Service struct {
-	repos  RepositoryStore
-	tasks  TaskCreator
-	merger TaskPRMerger
+	repos      RepositoryStore
+	tasks      TaskCreator
+	merger     TaskPRMerger
+	components ComponentStore
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
@@ -39,6 +48,7 @@ type Service struct {
 
 func (s *Service) SetWorkflows(w port.WorkflowReader)  { s.workflows = w }
 func (s *Service) SetRoleResolver(r port.RoleResolver) { s.roles = r }
+func (s *Service) SetComponents(c ComponentStore)      { s.components = c }
 
 func NewService(repos RepositoryStore) *Service {
 	return &Service{repos: repos}
@@ -56,11 +66,11 @@ func (s *Service) CreateDocTask(ctx context.Context, repositoryID uuid.UUID, sub
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
-	doc, err := resolveDoc(repo, DocItem{Kind: kind, SubProjectPath: subProjectPath, Path: path})
+	doc, err := s.resolveDoc(ctx, repo, DocItem{Kind: kind, SubProjectPath: subProjectPath, Path: path})
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
-	if err := s.setDocPath(ctx, repo, doc.subProjectPath, doc.kind, doc.path); err != nil {
+	if err := s.setDocPath(ctx, repo, doc); err != nil {
 		return domain.BoardTask{}, err
 	}
 
@@ -85,6 +95,7 @@ func (s *Service) CreateDocTask(ctx context.Context, repositoryID uuid.UUID, sub
 
 type DocItem struct {
 	Kind           string `json:"kind"`
+	ComponentID    string `json:"component_id,omitempty"`
 	SubProjectPath string `json:"sub_project_path,omitempty"`
 	Path           string `json:"path,omitempty"`
 }
@@ -92,16 +103,57 @@ type DocItem struct {
 type resolvedDoc struct {
 	kind           string
 	subProjectPath string
+	componentID    string
+	componentPath  string
 	path           string
 	fullPath       string
 	kindLabel      string
 }
 
-func resolveDoc(repo domain.Repository, item DocItem) (resolvedDoc, error) {
+// resolveDoc figures out where a requested doc lives. A ComponentID targets a
+// project_components row (the current model); everything else falls back to
+// the legacy repository/sub-project scoping so the per-kind route keeps
+// working unchanged.
+func (s *Service) resolveDoc(ctx context.Context, repo domain.Repository, item DocItem) (resolvedDoc, error) {
 	kind := strings.TrimSpace(item.Kind)
 	if !domain.ValidRepoDocKind(kind) {
 		return resolvedDoc{}, fmt.Errorf("invalid doc kind %q", kind)
 	}
+
+	componentID := strings.TrimSpace(item.ComponentID)
+	if componentID != "" {
+		if s.components == nil {
+			return resolvedDoc{}, fmt.Errorf("components are not available")
+		}
+		id, err := uuid.Parse(componentID)
+		if err != nil {
+			return resolvedDoc{}, fmt.Errorf("invalid component id %q", componentID)
+		}
+		comp, err := s.components.GetComponent(ctx, id)
+		if err != nil {
+			return resolvedDoc{}, err
+		}
+		if comp.RepositoryID != repo.ID {
+			return resolvedDoc{}, fmt.Errorf("component %s does not belong to this repository", componentID)
+		}
+		out := resolvedDoc{
+			kind:          kind,
+			componentID:   comp.ID.String(),
+			componentPath: comp.Path,
+			kindLabel:     comp.Role.Get().LegacyRepoKind(),
+		}
+		dir := ""
+		if comp.Path != "." {
+			dir = comp.Path + "/"
+		}
+		out.path = strings.TrimSpace(item.Path)
+		if out.path == "" {
+			out.path = domain.DefaultRepoDocPath(kind)
+		}
+		out.fullPath = dir + out.path
+		return out, nil
+	}
+
 	out := resolvedDoc{kind: kind, kindLabel: repo.Kind, subProjectPath: strings.TrimSpace(item.SubProjectPath)}
 	dir := ""
 	if out.subProjectPath != "" {
@@ -161,11 +213,15 @@ func (s *Service) CreateDocsBundleTask(ctx context.Context, repositoryID uuid.UU
 	docs := make([]resolvedDoc, 0, len(items))
 	seen := make(map[string]bool, len(items))
 	for _, item := range items {
-		doc, err := resolveDoc(repo, item)
+		doc, err := s.resolveDoc(ctx, repo, item)
 		if err != nil {
 			return domain.BoardTask{}, err
 		}
-		key := doc.subProjectPath + "\x00" + doc.kind
+		scopeKey := doc.subProjectPath
+		if doc.componentID != "" {
+			scopeKey = doc.componentID
+		}
+		key := scopeKey + "\x00" + doc.kind
 		if seen[key] {
 			return domain.BoardTask{}, fmt.Errorf("duplicate doc kind %q for %s", doc.kind, docScopeLabel(doc))
 		}
@@ -179,7 +235,7 @@ func (s *Service) CreateDocsBundleTask(ctx context.Context, repositoryID uuid.UU
 		if err != nil {
 			return domain.BoardTask{}, err
 		}
-		if err := s.setDocPath(ctx, current, doc.subProjectPath, doc.kind, doc.path); err != nil {
+		if err := s.setDocPath(ctx, current, doc); err != nil {
 			return domain.BoardTask{}, err
 		}
 	}
@@ -234,6 +290,12 @@ func docKindLabel(kind string) string {
 }
 
 func docScopeLabel(doc resolvedDoc) string {
+	if doc.componentID != "" {
+		if doc.componentPath == "." {
+			return "the repository (" + doc.kindLabel + ")"
+		}
+		return doc.componentPath + " (" + doc.kindLabel + ")"
+	}
 	if doc.subProjectPath == "" {
 		return "the repository (" + doc.kindLabel + ")"
 	}
@@ -337,10 +399,24 @@ func (s *Service) alreadyMergedResult(ctx context.Context, repositoryID uuid.UUI
 	}, nil
 }
 
-func (s *Service) setDocPath(ctx context.Context, repo domain.Repository, subProjectPath, kind, path string) error {
-	if subProjectPath == "" {
+func (s *Service) setDocPath(ctx context.Context, repo domain.Repository, doc resolvedDoc) error {
+	if doc.componentID != "" {
+		id, err := uuid.Parse(doc.componentID)
+		if err != nil {
+			return fmt.Errorf("invalid component id %q", doc.componentID)
+		}
+		comp, err := s.components.GetComponent(ctx, id)
+		if err != nil {
+			return err
+		}
+		docs := comp.Docs
+		setDocKind(&docs, doc.kind, doc.path)
+		_, err = s.components.UpdateComponent(ctx, id, domain.ComponentPatch{Docs: &docs})
+		return err
+	}
+	if doc.subProjectPath == "" {
 		docs := repo.Docs
-		setDocKind(&docs, kind, path)
+		setDocKind(&docs, doc.kind, doc.path)
 		_, err := s.repos.Update(ctx, repo.ID, domain.UpdateRepositoryRequest{Docs: &docs})
 		return err
 	}
@@ -348,14 +424,14 @@ func (s *Service) setDocPath(ctx context.Context, repo domain.Repository, subPro
 	copy(subs, repo.SubProjects)
 	found := false
 	for i := range subs {
-		if subs[i].Path == subProjectPath {
-			setDocKind(&subs[i].Docs, kind, path)
+		if subs[i].Path == doc.subProjectPath {
+			setDocKind(&subs[i].Docs, doc.kind, doc.path)
 			found = true
 			break
 		}
 	}
 	if !found {
-		return fmt.Errorf("sub-project not found: %s", subProjectPath)
+		return fmt.Errorf("sub-project not found: %s", doc.subProjectPath)
 	}
 	_, err := s.repos.Update(ctx, repo.ID, domain.UpdateRepositoryRequest{SubProjects: &subs})
 	return err

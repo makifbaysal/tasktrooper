@@ -1811,6 +1811,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			if taskPRSvc != nil {
 				repoDocsSvc.SetTaskPRMerger(taskPRSvc)
 			}
+			if modelSvc != nil {
+				repoDocsSvc.SetComponents(modelSvc)
+			}
 			e.repoDocsSvc = repoDocsSvc
 
 			// Cloud accounts, environments and runtime: which provider account backs

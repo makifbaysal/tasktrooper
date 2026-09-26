@@ -124,6 +124,24 @@ func TestB2BriefSingleComponentHeaderAndLayout(t *testing.T) {
 	assert.Contains(t, brief, "coding standards: .ai/coding-standards.md")
 }
 
+func TestB2BriefNeverPrintsRepositoryLevelDocs(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := repos.put(domain.Repository{
+		ID: uuid.New(), Name: "demo", RootPath: t.TempDir(),
+		Docs: domain.RepositoryDocs{CodingStandards: "REPO-LEVEL-STANDARDS.md"},
+	})
+	b2SeedComponent(t, store, domain.Component{
+		RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive,
+		Role: domain.Fact[domain.ComponentRole]{Detected: rolePtr(domain.ComponentRoleBackend)},
+	})
+
+	brief, err := svc.Brief(ctx, repo.ID, BriefScope{})
+	require.NoError(t, err)
+	assert.NotContains(t, brief, "REPO-LEVEL-STANDARDS.md", "reference docs come from components only; repo.Docs must never surface in the brief")
+	assert.NotContains(t, brief, "Reference docs", "the component has no docs of its own, so no reference-docs block should render at all")
+}
+
 func rolePtr(r domain.ComponentRole) *domain.ComponentRole  { return &r }
 func purposePtr(p domain.CheckPurpose) *domain.CheckPurpose { return &p }
 func gatePtr(g domain.CheckGate) *domain.CheckGate          { return &g }

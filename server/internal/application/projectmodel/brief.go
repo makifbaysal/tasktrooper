@@ -77,9 +77,6 @@ func (s *Service) Brief(ctx context.Context, repoID uuid.UUID, scope BriefScope)
 	if gitBlock := s.briefGitBlock(ctx, repo.ID); gitBlock != "" {
 		header += "\n## Git\n" + gitBlock
 	}
-	if docs := briefReferenceDocs(repo.Docs, domain.RepositoryDocs{}); docs != "" {
-		header += "\n## Reference docs\n" + docs
-	}
 	blocks := make([]string, 0, len(inScope))
 	for _, c := range inScope {
 		blocks = append(blocks, s.briefComponentBlock(ctx, repo, c, checks, links, incoming, environments))
@@ -270,7 +267,7 @@ func (s *Service) briefComponentBlock(ctx context.Context, repo domain.Repositor
 		b.WriteString("Called by:\n" + calledBy)
 	}
 
-	if docs := briefReferenceDocs(domain.RepositoryDocs{}, c.Docs); docs != "" {
+	if docs := briefReferenceDocs(c.Docs); docs != "" {
 		b.WriteString("### Reference docs\n" + docs)
 	}
 
@@ -508,25 +505,19 @@ func (s *Service) briefCalledBy(ctx context.Context, incoming []domain.Component
 	return b.String()
 }
 
-func briefReferenceDocs(repoDocs, componentDocs domain.RepositoryDocs) string {
+func briefReferenceDocs(docs domain.RepositoryDocs) string {
 	type doc struct {
 		label string
 		path  string
 	}
-	pick := func(component, repo string) string {
-		if component != "" {
-			return component
-		}
-		return repo
-	}
-	docs := []doc{
-		{"coding standards", pick(componentDocs.CodingStandards, repoDocs.CodingStandards)},
-		{"test standards", pick(componentDocs.TestStandards, repoDocs.TestStandards)},
-		{"architecture", pick(componentDocs.Architecture, repoDocs.Architecture)},
-		{"local run", pick(componentDocs.LocalRun, repoDocs.LocalRun)},
+	items := []doc{
+		{"coding standards", docs.CodingStandards},
+		{"test standards", docs.TestStandards},
+		{"architecture", docs.Architecture},
+		{"local run", docs.LocalRun},
 	}
 	var b strings.Builder
-	for _, d := range docs {
+	for _, d := range items {
 		if d.path == "" {
 			continue
 		}

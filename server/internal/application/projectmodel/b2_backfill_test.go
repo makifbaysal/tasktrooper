@@ -67,6 +67,29 @@ func TestB2BackfillMonorepoRoleOverridesOnlyWhenDifferentAndCreatesManualCompone
 
 func boolPtr(b bool) *bool { return &b }
 
+func TestB2BackfillSingleRepoMovesRepositoryDocsOntoTheRootComponent(t *testing.T) {
+	svc, store, repos, _, _, scanner := newB2Service(t)
+	ctx := context.Background()
+
+	repo := b2SeedRepo(t, repos, "demo")
+	repo.Kind = domain.RepoKindBackend
+	repo.Docs = domain.RepositoryDocs{CodingStandards: ".ai/coding-standards.md", LocalRun: "scripts/dev.sh"}
+	repo = repos.put(repo)
+
+	scanner.result = domain.ScanResult{
+		Components: []domain.DetectedComponent{{Path: ".", Name: "demo", Role: domain.ComponentRoleBackend, RoleConfidence: domain.ConfidenceExact}},
+	}
+
+	svc.migrateLegacy(ctx)
+
+	components, err := store.ListComponents(ctx, repo.ID)
+	require.NoError(t, err)
+	root, ok := componentAtPath(components, ".")
+	require.True(t, ok)
+	assert.Equal(t, repo.Docs, root.Docs)
+	assert.False(t, root.Role.Overridden(), "the scanned role already matched the legacy kind")
+}
+
 func TestB2BackfillPipelineMappingSetsGateAndDeployOverrides(t *testing.T) {
 	svc, store, repos, pipelines, _, scanner := newB2Service(t)
 	ctx := context.Background()

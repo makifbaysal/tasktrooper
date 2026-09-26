@@ -10,10 +10,10 @@ import {
   type ComponentGates,
   type CommandPurpose,
   type ComponentRole,
-  type RepositoryDocs,
   type RepositoryModel,
 } from "@/api";
 import { AddComponentDialog } from "@/components/projects/repository/AddComponentDialog";
+import { ComponentDocsCard } from "@/components/projects/repository/ComponentDocsCard";
 import { ComponentRail } from "@/components/projects/repository/ComponentRail";
 import { RepositoryReviewSettings } from "@/components/projects/repository/RepositoryReviewSettings";
 import { evidenceLabel } from "@/components/projects/model/EvidenceList";
@@ -92,7 +92,7 @@ export function ComponentsTab({ model, repositoryId, selectedComponentId, onSele
           }
         />
         <div className="min-w-0 flex-1 space-y-4">
-          <ComponentDetail key={selected.id} component={selected} model={model} onReload={onReload} />
+          <ComponentDetail key={selected.id} component={selected} model={model} repositoryId={repositoryId} onReload={onReload} />
         </div>
         <AddComponentDialog
           open={addOpen}
@@ -109,7 +109,17 @@ export function ComponentsTab({ model, repositoryId, selectedComponentId, onSele
   );
 }
 
-function ComponentDetail({ component, model, onReload }: { component: Component; model: RepositoryModel; onReload: () => void }) {
+function ComponentDetail({
+  component,
+  model,
+  repositoryId,
+  onReload,
+}: {
+  component: Component;
+  model: RepositoryModel;
+  repositoryId: string;
+  onReload: () => void;
+}) {
   const { t } = useI18n();
   const [dismissOpen, setDismissOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -149,7 +159,7 @@ function ComponentDetail({ component, model, onReload }: { component: Component;
       <StackCard component={component} />
       <CommandsCard component={component} patch={patch} />
       <GatesCard component={component} patch={patch} />
-      <DocsCard component={component} patch={patch} />
+      <ComponentDocsCard repositoryId={repositoryId} component={component} onReload={onReload} />
       {factValue(component.role) === "mobile" && <MobileCard component={component} />}
 
       <ConfirmDialog
@@ -424,39 +434,6 @@ function GatesCard({ component, patch }: CardProps) {
             onChange={(e) => setGate({ ...gates, mutation_threshold: e.target.value === "" ? undefined : Number(e.target.value) })}
           />
         </div>
-      </div>
-    </Card>
-  );
-}
-
-function DocsCard({ component, patch }: CardProps) {
-  const { t } = useI18n();
-  const [docs, setDocs] = useState<RepositoryDocs>(component.docs ?? {});
-
-  useEffect(() => setDocs(component.docs ?? {}), [component.id]);
-
-  const fields: { key: keyof RepositoryDocs; labelKey: string }[] = [
-    { key: "coding_standards", labelKey: "repositoryPage.components.docsCodingStandards" },
-    { key: "test_standards", labelKey: "repositoryPage.components.docsTestStandards" },
-    { key: "architecture", labelKey: "repositoryPage.components.docsArchitecture" },
-    { key: "local_run", labelKey: "repositoryPage.components.docsLocalRun" },
-  ];
-
-  return (
-    <Card className="space-y-3 p-6">
-      <h3 className="font-semibold">{t("repositoryPage.components.docsTitle")}</h3>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {fields.map((f) => (
-          <div key={f.key} className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">{t(f.labelKey)}</Label>
-            <Input value={docs[f.key] ?? ""} onChange={(e) => setDocs((prev) => ({ ...prev, [f.key]: e.target.value }))} />
-          </div>
-        ))}
-      </div>
-      <div className="flex justify-end">
-        <Button size="sm" onClick={() => void patch({ docs })}>
-          {t("common.save")}
-        </Button>
       </div>
     </Card>
   );

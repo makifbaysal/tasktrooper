@@ -39,7 +39,7 @@ func (h *Handler) CreateRepoDocTask(c *fiber.Ctx) error {
 }
 
 // CreateRepoDocsBundleTask — POST /v1/repositories/:id/docs/setup-task
-// Body: {"items":[{"kind":"architecture","sub_project_path":"","path":""}]}
+// Body: {"items":[{"kind":"architecture","component_id":"","path":""}]}
 // Opens one board task for every requested doc, so all of them arrive in a
 // single pull request.
 func (h *Handler) CreateRepoDocsBundleTask(c *fiber.Ctx) error {
