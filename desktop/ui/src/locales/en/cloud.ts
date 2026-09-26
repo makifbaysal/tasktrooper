@@ -128,6 +128,11 @@ export const cloud = {
     },
     task: {
       label: "Preview",
+      openInPreview: "Open preview",
+      openInPreviewNamed: "Open {name} preview",
+      building: "Preview building…",
+      failed: "Preview build failed",
+      protectedHint: "Protected by Vercel — opens with your Vercel login",
       refresh: "Refresh previews",
       open: "Open",
       loadFailed: "Could not load the previews",

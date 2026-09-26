@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, type BoardTask } from "@/api";
 import { LocalPreviewPanel } from "@/components/board/LocalPreviewPanel";
+import { TaskPreviewActions } from "@/components/board/TaskPreviewActions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -100,7 +101,11 @@ export function HumanUatDecision({ task, repositoryId, onUpdated }: HumanUatDeci
               {t("boardArea.components.taskDetail.humanUatDecline")}
             </Button>
           </div>
-          <LocalPreviewPanel task={task} repositoryId={repositoryId} />
+          <LocalPreviewPanel
+            task={task}
+            repositoryId={repositoryId}
+            actions={task.pr_url ? <TaskPreviewActions repositoryId={repositoryId} taskId={task.id} /> : undefined}
+          />
         </>
       ) : (
         <div className="space-y-2">

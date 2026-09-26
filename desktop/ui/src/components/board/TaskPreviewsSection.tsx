@@ -1,16 +1,13 @@
 import { ExternalLink, Eye, Lock, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { api, type TaskPreview, type TaskPreviewStatus } from "@/api";
+import { type TaskPreviewStatus } from "@/api";
 import { type BadgeProps, Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/hooks/useI18n";
+import { useTaskPreviews } from "@/hooks/useTaskPreviews";
 import { cn } from "@/lib/utils";
-
-const POLL_MS = 15_000;
-
-const ACTIVE_STATUSES: TaskPreviewStatus[] = ["queued", "building"];
 
 const STATUS_VARIANT: Record<TaskPreviewStatus, NonNullable<BadgeProps["variant"]>> = {
   queued: "info",
@@ -31,29 +28,13 @@ interface TaskPreviewsSectionProps {
  * has one, and polls only while a preview is still being built. */
 export function TaskPreviewsSection({ repositoryId, taskId }: TaskPreviewsSectionProps) {
   const { t } = useI18n();
-  const [previews, setPreviews] = useState<TaskPreview[] | null>(null);
+  const { previews, reload } = useTaskPreviews(repositoryId, taskId);
   const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    const res = await api.getTaskPreviews(repositoryId, taskId);
-    setPreviews(res.previews ?? []);
-  }, [repositoryId, taskId]);
-
-  useEffect(() => {
-    setPreviews(null);
-    load().catch(() => setPreviews([]));
-  }, [load]);
-
-  useEffect(() => {
-    if (!previews?.some((p) => ACTIVE_STATUSES.includes(p.status))) return;
-    const id = setInterval(() => void load().catch(() => {}), POLL_MS);
-    return () => clearInterval(id);
-  }, [previews, load]);
 
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await load();
+      await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("cloud.preview.task.loadFailed"));
     } finally {

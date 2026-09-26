@@ -1,5 +1,5 @@
 import { ExternalLink, Loader2, Play, Square } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { api, type BoardTask, type LocalPreview } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { usePolling } from "@/hooks/usePolling";
 interface LocalPreviewPanelProps {
   task: BoardTask;
   repositoryId: string;
+  /** Other ways to try the task, shown beside "Run locally" (e.g. its hosted preview). */
+  actions?: ReactNode;
 }
 
 /**
@@ -22,7 +24,7 @@ interface LocalPreviewPanelProps {
  * whatever else was running, which is why the panel also has to render the
  * case where the repository's active preview belongs to a DIFFERENT task.
  */
-export function LocalPreviewPanel({ task, repositoryId }: LocalPreviewPanelProps) {
+export function LocalPreviewPanel({ task, repositoryId, actions }: LocalPreviewPanelProps) {
   const { t } = useI18n();
   const [preview, setPreview] = useState<LocalPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -122,6 +124,7 @@ export function LocalPreviewPanel({ task, repositoryId }: LocalPreviewPanelProps
             {preview && <span className="text-xs text-muted-foreground">{t("boardArea.components.taskDetail.previewOtherTask")}</span>}
           </>
         )}
+        {actions}
       </div>
       {isThisTask && preview.status === "failed" && preview.detail && (
         <p className="text-xs text-destructive">{preview.detail}</p>

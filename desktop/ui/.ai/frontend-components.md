@@ -129,6 +129,8 @@ steps** button (a `ConfirmDialog`, then `api.confirmBeforeDeploy`) — confirmed
 "confirmed \<relative time\>" instead. Under the PR row, `board/TaskPreviewsSection` lists the task's per-branch
 preview deployments (`getTaskPreviews`): component, status, "Open" (`branch_url || url`), PR #, a "Protected"
 badge; a refresh button, polling every 15s while any is queued/building; nothing at all for an empty list.
+In the human UAT box, `board/TaskPreviewActions` puts an "Open preview" button per ready preview beside
+`LocalPreviewPanel`'s "Run locally" (its `actions` slot); both read `hooks/useTaskPreviews`.
 
 `components/projects/add/`: `SourceStep`, `ScanStep` (+ `ScanRepoRow`), `ReviewStep`
 (+ `RepoReviewCard`), `DoneStep`, `GitHubRepoPicker`, and the pure

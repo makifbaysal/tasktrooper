@@ -128,6 +128,11 @@ export const cloud: CloudDict = {
     },
     task: {
       label: "Preview",
+      openInPreview: "Preview'da aç",
+      openInPreviewNamed: "{name} preview'ını aç",
+      building: "Preview hazırlanıyor…",
+      failed: "Preview derlenemedi",
+      protectedHint: "Vercel ile korumalı — Vercel oturumunla açılır",
       refresh: "Preview'ları yenile",
       open: "Aç",
       loadFailed: "Preview'lar okunamadı",
