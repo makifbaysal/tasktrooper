@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="A card dragged from Todo to In Progress; the backend-developer agent starts a Claude Code session, reads the repo, writes the rate limiter and runs the tests." width="100%">
+  <img src="docs/assets/demo.gif" alt="A card dragged from Todo to In Progress; the backend-developer agent starts a headless agent CLI session, reads the repo, writes the rate limiter and runs the tests." width="100%">
 </p>
 # TaskTrooper
 
@@ -21,8 +21,9 @@
 
 A local-first agent platform for software teams of one. A board of tasks, a set
 of role agents (product manager, architect, backend, frontend, QA), and a
-runtime that hands each task to Claude Code (or another agent CLI) on your own
-machine — clone, plan, implement, test, open the PR — while you watch the run.
+runtime that hands each task to an agent CLI on your own machine — Claude Code,
+Cursor, Antigravity or OpenCode — or to a model API you bring a key for: clone,
+plan, implement, test, open the PR, while you watch the run.
 
 Everything runs on your Mac: the desktop app starts an embedded Postgres and the
 Go backend, serves the UI, and runs the agent sessions locally. No account, no
@@ -33,10 +34,11 @@ agent that owns its column picks it up on its own, does the work and hands the
 task on to the next column, where the next agent takes over. Nobody has to press
 run.
 
-**A usage limit doesn't lose work.** When Claude Code runs out of its usage
-limit in the middle of a task, the agent stops and the task waits on Blocked.
-Once the limit resets, TaskTrooper resumes the same Claude Code session, so the
-agent carries on from where it stopped instead of starting over.
+**A usage limit doesn't lose work.** When an agent CLI runs out of its usage
+limit in the middle of a task, the agent stops and the task waits on Blocked
+instead of failing. Once the limit resets, TaskTrooper picks the task back up by
+itself; on a CLI that can resume a session, such as Claude Code, the agent
+carries on from where it stopped instead of starting over.
 
 ## Features
 
@@ -54,10 +56,11 @@ agent carries on from where it stopped instead of starting over.
   once it is signed off, a dedicated release engineer merges it, ships it per
   the component's delivery profile, verifies production afterward, and
   finishes or rolls back the release — never on a green deploy alone.
-- When Claude Code hits its usage limit, the task is parked on Blocked until the
-  limit resets. Then it resumes by itself with `claude --resume` on the parked
-  session, so the agent keeps what it already read and wrote and continues from
-  where it stopped.
+- When an agent CLI hits its usage limit, the task is parked on Blocked until
+  the limit resets, and other runs on the same CLI are held instead of hitting
+  the same wall. Then the task continues by itself. Claude Code resumes the
+  parked session (`--resume`), so the agent keeps what it already read and
+  wrote.
 
 ### Role agents
 
@@ -128,10 +131,9 @@ Agents rewrite their own playbooks from how their work actually went.
 
 ### Runtimes, models and tools
 
-- Agent CLIs run as local processes: Claude Code, Cursor, Antigravity and
-  OpenCode. A Claude Code session gets TaskTrooper's board tools over MCP with a
-  per-run token, and never loads a repository's `.mcp.json` or your personal
-  Claude Code settings.
+- Agent CLIs run as local, headless processes: Claude Code, Cursor, Antigravity
+  and OpenCode. Every session gets TaskTrooper's board tools over MCP with a
+  per-run token that is revoked when the run ends.
 - API providers for agents that do not use a CLI: OpenAI, Anthropic, Google
   Gemini, Groq, or any OpenAI-compatible endpoint such as LM Studio, Ollama or
   vLLM.
@@ -163,9 +165,9 @@ Agents rewrite their own playbooks from how their work actually went.
 ### First run
 
 A guided setup checks this Mac (git, the agent CLIs you have, and optionally
-Chrome, Xcode, Appium and the Android SDK), lets you connect any of Claude Code,
-Cursor, Antigravity and OpenCode, or an API provider with your own key, then
-connects GitHub and imports your first project.
+Chrome, Xcode, Appium and the Android SDK), lets you connect any agent CLI you
+have (Claude Code, Cursor, Antigravity, OpenCode) or an API provider with your
+own key, then connects GitHub and imports your first project.
 
 ## Install
 
@@ -190,8 +192,8 @@ and the cask both clear the quarantine flag for you.
 
 First launch downloads two things into the app's data directory: the Postgres
 binaries (~30 MB) and the embedding model (~140 MB). You need `git` and at least
-one way to run agents: the Claude Code, Cursor, Antigravity or OpenCode CLI, or
-an API key for a model provider. The app checks what is installed and shows the
+one way to run agents: an agent CLI (Claude Code, Cursor, Antigravity or
+OpenCode), or an API key for a model provider. The app checks what is installed and shows the
 exact command for anything missing.
 
 Or grab the `.dmg` from [Releases](https://github.com/makifbaysal/tasktrooper/releases) and drag TaskTrooper to Applications.
@@ -274,8 +276,7 @@ flowchart LR
 - **The server owns its database.** Empty `DATABASE_URL` means it starts its
   own Postgres from the bundled binaries under the data directory.
 - **Agents are child processes, not a service.** Each task run is one headless
-  CLI session with a per-run MCP token; the repo's `.mcp.json` and your
-  personal CLI settings are never loaded.
+  CLI session with a per-run MCP token, on whichever CLI that agent is set to.
 - **Code understanding stays on the machine.** Repositories are parsed with
   tree-sitter and embedded with the bundled model; the vectors live in the same
   Postgres.
@@ -286,8 +287,9 @@ The long version: [docs/architecture.md](docs/architecture.md).
 
 1. You put a card on the board (or a product-manager agent drafts it).
 2. The backend prepares a git workspace under the data directory and starts a
-   headless `claude -p` session with the agent's prompt, skills and a per-run
-   MCP token that lets the session update acceptance criteria and move the
+   headless session on the agent's runtime (`claude -p`, `cursor-agent -p`,
+   `agy -p` or `opencode run`, or an API model) with the agent's prompt, skills
+   and a per-run MCP token that lets the session update acceptance criteria and move the
    card.
 3. The session's output streams to the card. When it finishes, QA agents run
    the test round; CI status is polled from GitHub Actions.
@@ -325,7 +327,7 @@ Open-source projects that also put coding agents to work on your own machine. Th
 
 ### Hosted and single-agent tools
 
-The agent products most people already use. Several of these are what TaskTrooper runs underneath rather than rivals: it needs Claude Code or another agent CLI installed, and it reads the PRs and CI these tools produce.
+The agent products most people already use. Several of these are what TaskTrooper runs underneath rather than rivals: it runs on an agent CLI you already have (Claude Code, Cursor, Antigravity or OpenCode) or on a plain API key, and it reads the PRs and CI these tools produce.
 
 | | [TaskTrooper](https://github.com/makifbaysal/tasktrooper) | [Claude Code](https://claude.com/claude-code) | [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent) | [Devin](https://devin.ai) | [Copilot coding agent](https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-coding-agent) | [OpenHands](https://github.com/OpenHands/OpenHands) | [Xirp](https://xirp.spotify.com/) |
 |---|---|---|---|---|---|---|---|
@@ -338,14 +340,14 @@ The agent products most people already use. Several of these are what TaskTroope
 | Lifecycle | Thirteen columns: analysis review, code review, QA, PM UAT, human UAT, merge and release owned by a release engineer | None | Task in, PR out | Ticket to draft PR; take over in its IDE | Issue to PR | Conversation and task list | Work items and sessions in a workspace |
 | QA | A separate QA agent that must execute: requests, browser, simulators | Whatever you ask it to run | Self-verification with screenshots and logs | Self-tests; your CI | Your CI on the PR | Whatever the agent runs | Not part of the product |
 | After merge | Deploy recipes, health checks, incidents, rollback, store releases | None | None | None | None | Scriptable automations | Not part of the product |
-| Usage limits | Each task parks with a resume time, other runs are held, sessions resume with --resume; unattended | Interactive session waits and continues at reset (esc to cancel); headless runs do not | Spend limit per agent at API rates | Plan limits | Premium request quota per plan | Your provider's limits | Beta |
+| Usage limits | Each task parks with a resume time, other runs on that CLI are held, the task continues at reset (Claude Code sessions resume with --resume); unattended | Interactive session waits and continues at reset (esc to cancel); headless runs do not | Spend limit per agent at API rates | Plan limits | Premium request quota per plan | Your provider's limits | Beta |
 | Data | Stays on the machine | Your machine; model calls to Anthropic | Code leaves your machine | Repos and secrets in Devin's environment | GitHub-hosted repos only | Wherever you host it | Your organisation's portal |
-| Price | Free, Apache-2.0; your own model or CLI subscription | Claude subscription or API | Cursor plan plus API-rate usage | Individual and Teams plans | Paid Copilot plans | Free, MIT; cloud option | Beta; plans page |
-| Runs under TaskTrooper? | — | Yes, the default runtime | Yes, the Cursor CLI | No | No; its PRs and CI are read | No | No |
+| Price | Free, Apache-2.0; your own CLI subscription or model API key | Claude subscription or API | Cursor plan plus API-rate usage | Individual and Teams plans | Paid Copilot plans | Free, MIT; cloud option | Beta; plans page |
+| Runs under TaskTrooper? | — | Yes, one of its agent CLIs | Yes, the Cursor CLI | No | No; its PRs and CI are read | No | No |
 
 Per-project write-ups, same content as [tasktrooper.ai/compare](https://tasktrooper.ai/compare):
 
-- [TaskTrooper vs Claude Code](docs/compare/claude-code.md) — The terminal agent TaskTrooper runs underneath.
+- [TaskTrooper vs Claude Code](docs/compare/claude-code.md) — A terminal agent, and one of the CLIs TaskTrooper runs underneath.
 - [TaskTrooper vs Cursor Cloud Agents](docs/compare/cursor.md) — Parallel agents in cloud VMs that open merge-ready PRs.
 - [TaskTrooper vs Devin](docs/compare/devin.md) — A cloud AI engineer you assign tickets to from Slack, Linear or Jira.
 - [TaskTrooper vs GitHub Copilot coding agent](docs/compare/github-copilot.md) — Assign an issue to Copilot and get a PR from a GitHub Actions runner.

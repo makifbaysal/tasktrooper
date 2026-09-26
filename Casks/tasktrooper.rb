@@ -14,7 +14,7 @@ cask "tasktrooper" do
 
   url "https://github.com/makifbaysal/tasktrooper/releases/download/v#{version}/TaskTrooper-#{version}-universal.dmg"
   name "TaskTrooper"
-  desc "Local-first agent platform that runs Claude Code on your own Mac"
+  desc "Local-first agent platform that runs coding agent CLIs on your own Mac"
   homepage "https://github.com/makifbaysal/tasktrooper"
 
   depends_on macos: :ventura

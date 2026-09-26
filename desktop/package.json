@@ -3,7 +3,7 @@
   "productName": "TaskTrooper",
   "private": true,
   "version": "0.1.11",
-  "description": "TaskTrooper for Mac — runs the whole product on this machine: the backend, the database and Claude Code.",
+  "description": "TaskTrooper for Mac — runs the whole product on this machine: the backend, the database and the agent CLI sessions.",
   "type": "module",
   "main": "dist/main/index.cjs",
   "scripts": {

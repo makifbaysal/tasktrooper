@@ -1,8 +1,8 @@
 # TaskTrooper Desktop
 
 The macOS app. It starts the backend, the database and the embedding engine on
-this machine, serves the web UI from inside the bundle, and runs Claude Code
-here. One user, one machine, no cloud.
+this machine, serves the web UI from inside the bundle, and runs the agent CLI sessions
+(Claude Code, Cursor, Antigravity or OpenCode) here. One user, one machine, no cloud.
 
 ## What runs when you open it
 

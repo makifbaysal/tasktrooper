@@ -6,7 +6,7 @@
 |---|---|---|
 | Go | see `server/go.mod` | backend |
 | Node | 22+ | UI and desktop shell |
-| `claude` CLI | 2.x, signed in | runs the agents |
+| an agent CLI (`claude`, `cursor-agent`, `agy` or `opencode`), or a model API key | signed in | runs the agents |
 | `git`, `rg` | any | clones, `grep_code` tool |
 
 Postgres is not a prerequisite: the backend downloads and runs an embedded one under `server/data/` (or the app's data directory).
