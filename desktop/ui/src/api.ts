@@ -2248,6 +2248,7 @@ export const DELIVERY_EXECUTORS: DeliveryExecutor[] = ["github_actions", "vercel
 export const DEFAULT_SOAK_MINUTES = 10;
 export const MAX_SOAK_MINUTES = 120;
 export const MAX_SMOKE_CHECKS = 20;
+export const MAX_SMOKE_LATENCY_MS = 10000;
 
 /** One read-only request sent to production after a deploy — only GET/HEAD
  * exist; a smoke check that could write would be a test against production. */
@@ -2259,6 +2260,10 @@ export interface SmokeCheck {
   expect_status?: number;
   /** Must appear in the response body, when set. */
   contains?: string;
+  /** Shown in results in place of the method+path when set; max 80 chars. */
+  name?: string;
+  /** Absent means no limit. */
+  max_latency_ms?: number;
 }
 
 export interface DeliveryVerify {
@@ -3012,6 +3017,36 @@ export interface SmokeResult {
   ok: boolean;
   latency_ms?: number;
   error?: string;
+}
+
+/** Nothing persisted — a draft run of the smoke checks against the
+ * component's production URL, so an edit can be tried before it's saved. */
+export interface SmokeTestResponse {
+  base_url: string;
+  results: SmokeResult[];
+}
+
+export type SmokeGenerationStatus = "running" | "done" | "failed" | "cancelled";
+
+/**
+ * A release-engineer agent's async run to draft smoke checks from the repo's
+ * code — the server validates, dedupes against `existing` and test-runs
+ * whatever the agent proposes before this ever reaches `done`. `results[i]`
+ * belongs to `checks[i]`; both arrays are never null. A `done` job can still
+ * have zero checks, with `error` explaining why.
+ */
+export interface SmokeGenerationJob {
+  job_id: string;
+  component_id: string;
+  status: SmokeGenerationStatus;
+  agent_name: string;
+  started_at: string;
+  finished_at?: string;
+  checks: SmokeCheck[];
+  results: SmokeResult[];
+  base_url: string;
+  dropped: number;
+  error: string;
 }
 
 /** The evidence gathered while a release was verified. */
@@ -4734,4 +4769,24 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ delivery }),
     }),
+
+  // Nothing persisted — runs the draft checks against production right now.
+  testSmokeChecks: (componentId: string, checks: SmokeCheck[]) =>
+    request<SmokeTestResponse>(`/v1/components/${componentId}/smoke-checks/test`, {
+      method: "POST",
+      body: JSON.stringify({ checks }),
+    }),
+
+  // 202 either starts a new run or hands back the one already in flight for
+  // this component — never two at once.
+  generateSmokeChecks: (componentId: string, existing: SmokeCheck[]) =>
+    request<SmokeGenerationJob>(`/v1/components/${componentId}/smoke-checks/generate`, {
+      method: "POST",
+      body: JSON.stringify({ existing }),
+    }),
+
+  getSmokeGeneration: (jobId: string) => request<SmokeGenerationJob>(`/v1/smoke-check-generations/${jobId}`),
+
+  cancelSmokeGeneration: (jobId: string) =>
+    request<void>(`/v1/smoke-check-generations/${jobId}`, { method: "DELETE" }),
 };

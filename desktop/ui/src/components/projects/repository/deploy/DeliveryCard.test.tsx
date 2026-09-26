@@ -177,4 +177,25 @@ describe("DeliveryCard", () => {
     expect(screen.queryByText("PROD environment isn't bound to Vercel")).not.toBeInTheDocument();
     expect(screen.queryByText("Target:")).not.toBeInTheDocument();
   });
+
+  it("lists up to 3 smoke checks compactly, with a '+N more' line beyond that", () => {
+    const withSmoke: ComponentDelivery = {
+      ...profile,
+      verify: {
+        ...profile.verify,
+        smoke: [
+          { name: "Health", method: "GET", path: "/health", expect_status: 200 },
+          { method: "GET", path: "/api/health", expect_status: 200 },
+          { method: "HEAD", path: "/" },
+          { method: "GET", path: "/extra" },
+        ],
+      },
+    };
+    renderCard({ ...baseComponent, delivery: { override: withSmoke, confidence: "exact" } });
+    expect(screen.getByText("Health → 200")).toBeInTheDocument();
+    expect(screen.getByText("GET /api/health → 200")).toBeInTheDocument();
+    expect(screen.getByText("HEAD /")).toBeInTheDocument();
+    expect(screen.queryByText(/extra/)).not.toBeInTheDocument();
+    expect(screen.getByText("+1 more")).toBeInTheDocument();
+  });
 });

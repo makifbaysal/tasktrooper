@@ -138,6 +138,7 @@ type Handler struct {
 	// interface from releaseSvc rather than folded into it: the confirm route
 	// must keep working on a build with releaseSvc nil.
 	releaseWaker    ReleaseWaker
+	smokeGenSvc     SmokeGenService
 	cloudSvc        *cloud.Service
 	localPreviewSvc *localpreview.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
@@ -197,6 +198,7 @@ type Config struct {
 	ProjectModelSvc   *projectmodel.Service
 	ReleaseSvc        ReleaseService
 	ReleaseWaker      ReleaseWaker
+	SmokeGenSvc       SmokeGenService
 	CloudSvc          *cloud.Service
 	LocalPreviewSvc   *localpreview.Service
 	MCPToolServer     *mcpserver.Server
@@ -257,6 +259,7 @@ func NewHandler(cfg Config) *Handler {
 		projectModelSvc:   cfg.ProjectModelSvc,
 		releaseSvc:        cfg.ReleaseSvc,
 		releaseWaker:      cfg.ReleaseWaker,
+		smokeGenSvc:       cfg.SmokeGenSvc,
 		cloudSvc:          cfg.CloudSvc,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		mcpToolServer:     cfg.MCPToolServer,
@@ -300,6 +303,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	// /v1/projects/:projectId or the :projectId param would swallow "overview".
 	h.registerProjectModelRoutes(app)
 	h.registerReleaseRoutes(app)
+	h.registerSmokeGenRoutes(app)
 	h.registerCloudRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)

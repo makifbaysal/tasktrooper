@@ -96,7 +96,9 @@ describe("DeliveryEditDialog", () => {
       verify: { ...onMergeProfile.verify, smoke: [{ method: "GET", path: "health" }] },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Path must start with / (or be an absolute URL)")).toBeInTheDocument();
+    // Shown twice now: the dialog's aggregate error list, and inline under
+    // the smoke check's own path field.
+    expect((await screen.findAllByText("Path must start with / (or be an absolute URL)")).length).toBeGreaterThan(0);
     expect(updateComponentDelivery).not.toHaveBeenCalled();
   });
 

@@ -55,9 +55,14 @@ func (e DeliveryExecutor) Valid() bool {
 }
 
 const (
-	DefaultSoakMinutes = 10
-	MaxSoakMinutes     = 120
-	MaxSmokeChecks     = 20
+	DefaultSoakMinutes   = 10
+	MaxSoakMinutes       = 120
+	MaxSmokeChecks       = 20
+	MaxSmokeCheckNameLen = 80
+	// MaxSmokeLatencyMS cannot exceed the probe's own timeout
+	// (release.probeTimeout, also 10s) — a budget looser than the timeout
+	// would never trip.
+	MaxSmokeLatencyMS = 10000
 )
 
 // SmokeCheck is one read-only request sent to production after a deploy. Only
@@ -72,6 +77,12 @@ type SmokeCheck struct {
 	ExpectStatus int `json:"expect_status,omitempty"`
 	// Contains, when set, must appear in the response body.
 	Contains string `json:"contains,omitempty"`
+	// Name is an optional human label shown instead of method+path in a
+	// results list.
+	Name string `json:"name,omitempty"`
+	// MaxLatencyMS 0 means no limit; otherwise 1-10000. It can only tighten
+	// the probe's own 10s timeout, never loosen it.
+	MaxLatencyMS int `json:"max_latency_ms,omitempty"`
 }
 
 func (c SmokeCheck) Normalized() SmokeCheck {
@@ -80,6 +91,7 @@ func (c SmokeCheck) Normalized() SmokeCheck {
 		c.Method = "GET"
 	}
 	c.Path = strings.TrimSpace(c.Path)
+	c.Name = strings.TrimSpace(c.Name)
 	return c
 }
 
@@ -174,10 +186,20 @@ func (d ComponentDelivery) Validate() error {
 	if d.Verify.SoakMinutes > MaxSoakMinutes {
 		return fmt.Errorf("%w: soak_minutes is at most %d", ErrInvalidDelivery, MaxSoakMinutes)
 	}
-	if len(d.Verify.Smoke) > MaxSmokeChecks {
+	return ValidateSmokeChecks(d.Verify.Smoke)
+}
+
+// ValidateSmokeChecks enforces the rules shared by a component's stored
+// delivery profile and the ad-hoc smoke-check test endpoint, so the two
+// paths cannot drift: at most MaxSmokeChecks, GET/HEAD only, a relative path
+// or absolute http(s) URL, a plausible expect_status, a name within
+// MaxSmokeCheckNameLen, and a max_latency_ms of 0 (no limit) or
+// 1..MaxSmokeLatencyMS.
+func ValidateSmokeChecks(checks []SmokeCheck) error {
+	if len(checks) > MaxSmokeChecks {
 		return fmt.Errorf("%w: at most %d smoke checks", ErrInvalidDelivery, MaxSmokeChecks)
 	}
-	for i, c := range d.Verify.Smoke {
+	for i, c := range checks {
 		c = c.Normalized()
 		if c.Method != "GET" && c.Method != "HEAD" {
 			return fmt.Errorf("%w: smoke check %d uses %s — only GET and HEAD may be sent to production", ErrInvalidDelivery, i+1, c.Method)
@@ -195,6 +217,12 @@ func (d ComponentDelivery) Validate() error {
 		}
 		if c.ExpectStatus != 0 && (c.ExpectStatus < 100 || c.ExpectStatus > 599) {
 			return fmt.Errorf("%w: smoke check %d expects an impossible status %d", ErrInvalidDelivery, i+1, c.ExpectStatus)
+		}
+		if len(c.Name) > MaxSmokeCheckNameLen {
+			return fmt.Errorf("%w: smoke check %d name is longer than %d characters", ErrInvalidDelivery, i+1, MaxSmokeCheckNameLen)
+		}
+		if c.MaxLatencyMS != 0 && (c.MaxLatencyMS < 1 || c.MaxLatencyMS > MaxSmokeLatencyMS) {
+			return fmt.Errorf("%w: smoke check %d max_latency_ms must be 0 (no limit) or 1-%d", ErrInvalidDelivery, i+1, MaxSmokeLatencyMS)
 		}
 	}
 	return nil

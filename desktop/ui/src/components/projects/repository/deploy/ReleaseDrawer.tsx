@@ -342,9 +342,18 @@ export function ReleaseDrawer({ releaseId, repositoryName, open, onOpenChange, o
                             <Badge variant={result.ok ? "success" : "destructive"} className="shrink-0">
                               {result.status ?? (result.ok ? "ok" : "error")}
                             </Badge>
-                            <span className="font-mono">
-                              {result.check.method ?? "GET"} {result.check.path}
-                            </span>
+                            {result.check.name?.trim() ? (
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate">{result.check.name}</span>
+                                <span className="truncate font-mono text-micro text-muted-foreground">
+                                  {result.check.method ?? "GET"} {result.check.path}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="font-mono">
+                                {result.check.method ?? "GET"} {result.check.path}
+                              </span>
+                            )}
                             {result.latency_ms !== undefined && <span className="text-muted-foreground">{result.latency_ms}ms</span>}
                             <span className="ml-auto text-muted-foreground">{formatRelativeDate(result.at)}</span>
                             {result.error && <span className="w-full truncate text-destructive">{result.error}</span>}

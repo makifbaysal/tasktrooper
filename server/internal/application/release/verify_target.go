@@ -43,9 +43,17 @@ func (s *Service) prodEnvironment(ctx context.Context, repositoryID uuid.UUID, c
 // legacy deploy target for prod; gaps are recorded on notes rather than
 // silently probing nothing.
 func (s *Service) resolveVerifyTarget(ctx context.Context, r domain.Release) (verifyTarget, []string) {
+	return s.resolveVerifyTargetFor(ctx, r.RepositoryID, r.ComponentID)
+}
+
+// resolveVerifyTargetFor is resolveVerifyTarget's resolution rule taken by
+// repository/component id directly, so a caller with no domain.Release (the
+// ad-hoc smoke-check test endpoint, TestSmoke) can resolve the same base URL
+// a release's verify window would.
+func (s *Service) resolveVerifyTargetFor(ctx context.Context, repositoryID uuid.UUID, componentID *uuid.UUID) (verifyTarget, []string) {
 	var notes []string
 
-	if env, ok := s.prodEnvironment(ctx, r.RepositoryID, r.ComponentID); ok {
+	if env, ok := s.prodEnvironment(ctx, repositoryID, componentID); ok {
 		id := env.ID
 		target := verifyTarget{EnvironmentID: &id, BaseURL: env.URL, HealthURL: env.HealthURL}
 		if target.HealthURL == "" {
@@ -60,7 +68,7 @@ func (s *Service) resolveVerifyTarget(ctx context.Context, r domain.Release) (ve
 	notes = append(notes, "no bound environment — runtime errors not read")
 
 	if s.legacy != nil {
-		if t, err := s.legacy.Get(ctx, r.RepositoryID, "", domain.DeployEnvProd); err == nil {
+		if t, err := s.legacy.Get(ctx, repositoryID, "", domain.DeployEnvProd); err == nil {
 			target := verifyTarget{BaseURL: t.BaseURL, HealthURL: t.HealthURL}
 			if target.HealthURL == "" {
 				notes = append(notes, "no health URL — health not probed")
@@ -70,12 +78,28 @@ func (s *Service) resolveVerifyTarget(ctx context.Context, r domain.Release) (ve
 			}
 			return target, notes
 		} else if !errors.Is(err, port.ErrNotFound) {
-			log.Warn().Err(err).Str("repository_id", r.RepositoryID.String()).Msg("release: reading the legacy deploy target failed")
+			log.Warn().Err(err).Str("repository_id", repositoryID.String()).Msg("release: reading the legacy deploy target failed")
 		}
 	}
 
 	notes = append(notes, "no health URL — health not probed", "no base URL — relative smoke paths skipped")
 	return verifyTarget{}, notes
+}
+
+// ProductionBaseURL resolves the same production base URL TestSmoke would
+// probe against, without needing any checks to run yet — the smoke-check
+// generator's "what host is this" question, asked before it has proposed
+// anything to test.
+func (s *Service) ProductionBaseURL(ctx context.Context, componentID uuid.UUID) (string, error) {
+	if s.components == nil {
+		return "", port.ErrNotFound
+	}
+	comp, err := s.components.GetComponent(ctx, componentID)
+	if err != nil {
+		return "", err
+	}
+	target, _ := s.resolveVerifyTargetFor(ctx, comp.RepositoryID, &comp.ID)
+	return target.BaseURL, nil
 }
 
 // boundVercelEnvironment is the stricter condition the vercel deploy-status

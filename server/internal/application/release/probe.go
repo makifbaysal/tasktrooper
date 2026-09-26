@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 const (
@@ -88,7 +90,34 @@ func (s *Service) runSmokeCheck(ctx context.Context, c domain.SmokeCheck, baseUR
 			res.Error = "response did not contain the expected text"
 		}
 	}
+	if res.OK && c.MaxLatencyMS > 0 && res.LatencyMS > int64(c.MaxLatencyMS) {
+		res.OK = false
+		res.Error = fmt.Sprintf("slower than %d ms (%d ms)", c.MaxLatencyMS, res.LatencyMS)
+	}
 	return res
+}
+
+// TestSmoke validates and runs an ad-hoc set of smoke checks against a
+// component's resolved production base URL right now, without opening or
+// touching a release — the UI's "try this draft against production" action
+// before the checks are ever saved to a delivery profile. Nothing here is
+// persisted.
+func (s *Service) TestSmoke(ctx context.Context, componentID uuid.UUID, checks []domain.SmokeCheck) (string, []domain.SmokeResult, error) {
+	if len(checks) == 0 {
+		return "", nil, fmt.Errorf("%w: at least one smoke check is required", domain.ErrInvalidDelivery)
+	}
+	if err := domain.ValidateSmokeChecks(checks); err != nil {
+		return "", nil, err
+	}
+	if s.components == nil {
+		return "", nil, port.ErrNotFound
+	}
+	comp, err := s.components.GetComponent(ctx, componentID)
+	if err != nil {
+		return "", nil, err
+	}
+	target, _ := s.resolveVerifyTargetFor(ctx, comp.RepositoryID, &comp.ID)
+	return target.BaseURL, s.runSmokeChecks(ctx, checks, target.BaseURL), nil
 }
 
 func (s *Service) probeHealth(ctx context.Context, healthURL string) (domain.HealthSample, bool) {

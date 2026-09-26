@@ -15,6 +15,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 // fakeReleaseService is an in-memory ReleaseService. Get returns
@@ -30,8 +31,13 @@ type fakeReleaseService struct {
 	rollbackErr   error
 	cutPreviewErr error
 	cutErr        error
+	testSmokeErr  error
 
-	cutPreview domain.ReleaseCutPreview
+	cutPreview        domain.ReleaseCutPreview
+	testSmokeBaseURL  string
+	testSmokeResults  []domain.SmokeResult
+	lastTestSmokeID   uuid.UUID
+	lastTestSmokeReqs []domain.SmokeCheck
 
 	lastDeployActor    domain.ReleaseActor
 	lastFinishActor    domain.ReleaseActor
@@ -120,6 +126,14 @@ func (f *fakeReleaseService) CutPreview(_ context.Context, _ uuid.UUID) (domain.
 		return domain.ReleaseCutPreview{}, f.cutPreviewErr
 	}
 	return f.cutPreview, nil
+}
+
+func (f *fakeReleaseService) TestSmoke(_ context.Context, componentID uuid.UUID, checks []domain.SmokeCheck) (string, []domain.SmokeResult, error) {
+	f.lastTestSmokeID, f.lastTestSmokeReqs = componentID, checks
+	if f.testSmokeErr != nil {
+		return "", nil, f.testSmokeErr
+	}
+	return f.testSmokeBaseURL, f.testSmokeResults, nil
 }
 
 func (f *fakeReleaseService) Cut(_ context.Context, id uuid.UUID, actor domain.ReleaseActor, req domain.ReleaseCutRequest) (domain.Release, error) {
@@ -519,4 +533,63 @@ func TestCutReleaseWrongStatusIs409(t *testing.T) {
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+}
+
+func TestTestComponentSmokeChecksRejectsNonUUID(t *testing.T) {
+	app, _, _ := newReleaseTestApp(t)
+	req := httptest.NewRequest("POST", "/v1/components/not-a-uuid/smoke-checks/test", strings.NewReader(`{"checks":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestTestComponentSmokeChecksReturnsResults(t *testing.T) {
+	app, _, svc := newReleaseTestApp(t)
+	componentID := uuid.New()
+	svc.testSmokeBaseURL = "https://example.com"
+	svc.testSmokeResults = []domain.SmokeResult{{Check: domain.SmokeCheck{Method: "GET", Path: "/health"}, URL: "https://example.com/health", OK: true, Status: 200}}
+
+	body := `{"checks":[{"method":"GET","path":"/health"}]}`
+	req := httptest.NewRequest("POST", "/v1/components/"+componentID.String()+"/smoke-checks/test", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	var got struct {
+		BaseURL string               `json:"base_url"`
+		Results []domain.SmokeResult `json:"results"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, "https://example.com", got.BaseURL)
+	require.Len(t, got.Results, 1)
+	assert.True(t, got.Results[0].OK)
+
+	assert.Equal(t, componentID, svc.lastTestSmokeID)
+	require.Len(t, svc.lastTestSmokeReqs, 1)
+	assert.Equal(t, "/health", svc.lastTestSmokeReqs[0].Path)
+}
+
+func TestTestComponentSmokeChecksInvalidIs400(t *testing.T) {
+	app, _, svc := newReleaseTestApp(t)
+	svc.testSmokeErr = domain.ErrInvalidDelivery
+
+	req := httptest.NewRequest("POST", "/v1/components/"+uuid.New().String()+"/smoke-checks/test", strings.NewReader(`{"checks":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestTestComponentSmokeChecksUnknownComponentIs404(t *testing.T) {
+	app, _, svc := newReleaseTestApp(t)
+	svc.testSmokeErr = port.ErrNotFound
+
+	req := httptest.NewRequest("POST", "/v1/components/"+uuid.New().String()+"/smoke-checks/test",
+		strings.NewReader(`{"checks":[{"method":"GET","path":"/health"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
 }

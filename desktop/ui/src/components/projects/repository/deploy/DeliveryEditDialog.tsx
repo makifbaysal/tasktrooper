@@ -1,10 +1,9 @@
-import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
   api,
   DELIVERY_MODES,
-  MAX_SMOKE_CHECKS,
+  MAX_SMOKE_LATENCY_MS,
   MAX_SOAK_MINUTES,
   type Component,
   type ComponentDelivery,
@@ -14,6 +13,7 @@ import {
   type SmokeCheck,
 } from "@/api";
 import { FormDialog } from "@/components/admin/FormDialog";
+import { MAX_SMOKE_NAME_LEN, SmokeChecksEditor } from "@/components/projects/repository/deploy/SmokeChecksEditor";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
@@ -33,8 +33,6 @@ const EXECUTORS_FOR_MODE: Record<DeliveryMode, DeliveryExecutor[]> = {
   batch: ["github_actions", "local", "store"],
   none: [],
 };
-
-const SMOKE_METHODS = ["GET", "HEAD"] as const;
 
 function defaultDelivery(production?: ComponentEnvironment | null): ComponentDelivery {
   return production?.provider === "vercel"
@@ -91,16 +89,6 @@ export function DeliveryEditDialog({ open, onOpenChange, componentId, current, h
 
   const setSmoke = (next: SmokeCheck[]) => setDraft((d) => ({ ...d, verify: { ...d.verify, smoke: next } }));
 
-  const addSmoke = () => {
-    if ((draft.verify.smoke?.length ?? 0) >= MAX_SMOKE_CHECKS) return;
-    setSmoke([...(draft.verify.smoke ?? []), { method: "GET", path: "/" }]);
-  };
-
-  const removeSmoke = (index: number) => setSmoke((draft.verify.smoke ?? []).filter((_, i) => i !== index));
-
-  const updateSmoke = (index: number, patch: Partial<SmokeCheck>) =>
-    setSmoke((draft.verify.smoke ?? []).map((c, i) => (i === index ? { ...c, ...patch } : c)));
-
   const validate = (d: ComponentDelivery): string[] => {
     const out: string[] = [];
     if (d.mode === "none") return out;
@@ -131,6 +119,12 @@ export function DeliveryEditDialog({ open, onOpenChange, componentId, current, h
       }
       if (c.expect_status && (c.expect_status < 100 || c.expect_status > 599)) {
         out.push(t("release.deliveryEdit.errors.smokeExpectStatus"));
+      }
+      if ((c.name?.length ?? 0) > MAX_SMOKE_NAME_LEN) {
+        out.push(t("release.deliveryEdit.errors.smokeName", { max: MAX_SMOKE_NAME_LEN }));
+      }
+      if (c.max_latency_ms !== undefined && (c.max_latency_ms < 1 || c.max_latency_ms > MAX_SMOKE_LATENCY_MS)) {
+        out.push(t("release.deliveryEdit.errors.smokeLatency", { max: MAX_SMOKE_LATENCY_MS }));
       }
     }
     return Array.from(new Set(out));
@@ -320,81 +314,12 @@ export function DeliveryEditDialog({ open, onOpenChange, componentId, current, h
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>{t("release.deliveryEdit.smoke.title")}</Label>
-                  <p className="text-micro text-muted-foreground">{t("release.deliveryEdit.smoke.description")}</p>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={addSmoke}
-                  disabled={(draft.verify.smoke?.length ?? 0) >= MAX_SMOKE_CHECKS}
-                >
-                  <Plus className="mr-1 h-3.5 w-3.5" />
-                  {t("release.deliveryEdit.smoke.add")}
-                </Button>
-              </div>
-
-              {(draft.verify.smoke?.length ?? 0) === 0 ? (
-                <p className="text-caption text-muted-foreground">{t("release.deliveryEdit.smoke.empty")}</p>
-              ) : (
-                <div className="space-y-2 rounded-lg border border-border p-3">
-                  {(draft.verify.smoke ?? []).map((check, index) => (
-                    <div key={index} className="flex flex-wrap items-center gap-2">
-                      <Select value={check.method ?? "GET"} onValueChange={(v) => updateSmoke(index, { method: v })}>
-                        <SelectTrigger className="w-24 shrink-0">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {SMOKE_METHODS.map((m) => (
-                            <SelectItem key={m} value={m}>
-                              {m}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        value={check.path}
-                        onChange={(e) => updateSmoke(index, { path: e.target.value })}
-                        placeholder={t("release.deliveryEdit.smoke.pathPlaceholder")}
-                        className="min-w-40 flex-1 font-mono"
-                      />
-                      <Input
-                        type="number"
-                        min={100}
-                        max={599}
-                        value={check.expect_status ?? ""}
-                        onChange={(e) => updateSmoke(index, { expect_status: e.target.value === "" ? undefined : Number(e.target.value) })}
-                        placeholder={t("release.deliveryEdit.smoke.expectStatusPlaceholder")}
-                        className="w-28 shrink-0"
-                      />
-                      <Input
-                        value={check.contains ?? ""}
-                        onChange={(e) => updateSmoke(index, { contains: e.target.value })}
-                        placeholder={t("release.deliveryEdit.smoke.containsPlaceholder")}
-                        className="min-w-32 flex-1"
-                      />
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 shrink-0"
-                        onClick={() => removeSmoke(index)}
-                        aria-label={t("release.deliveryEdit.smoke.remove")}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {(draft.verify.smoke?.length ?? 0) >= MAX_SMOKE_CHECKS && (
-                <p className="text-micro text-muted-foreground">{t("release.deliveryEdit.smoke.maxReached", { max: MAX_SMOKE_CHECKS })}</p>
-              )}
-            </div>
+            <SmokeChecksEditor
+              checks={draft.verify.smoke ?? []}
+              onChange={setSmoke}
+              componentId={componentId}
+              baseUrl={production?.url}
+            />
 
             <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
               <div>

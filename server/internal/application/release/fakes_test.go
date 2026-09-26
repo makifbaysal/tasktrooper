@@ -410,7 +410,7 @@ func (f *fakeComponents) add(repositoryID uuid.UUID, c domain.Component) domain.
 func (f *fakeComponents) GetComponent(_ context.Context, id uuid.UUID) (domain.Component, error) {
 	c, ok := f.byID[id]
 	if !ok {
-		return domain.Component{}, fmt.Errorf("component not found")
+		return domain.Component{}, fmt.Errorf("get component: %w", port.ErrNotFound)
 	}
 	return c, nil
 }

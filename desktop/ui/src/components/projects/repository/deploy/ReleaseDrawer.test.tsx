@@ -106,6 +106,27 @@ describe("ReleaseDrawer", () => {
     expect(screen.getByText(/publishing…/)).toBeInTheDocument();
   });
 
+  it("shows a smoke check's name as its label, with method+path as secondary text", async () => {
+    await renderDrawer(
+      makeRelease("verifying", {
+        checks: {
+          smoke: [
+            {
+              check: { name: "Health", method: "GET", path: "/health", expect_status: 200 },
+              url: "https://example.com/health",
+              at: "2024-02-01T00:05:00Z",
+              status: 200,
+              ok: true,
+              latency_ms: 42,
+            },
+          ],
+        },
+      }),
+    );
+    expect(screen.getByText("Health")).toBeInTheDocument();
+    expect(screen.getByText("GET /health")).toBeInTheDocument();
+  });
+
   it("shows a store builds table for a batch store release", async () => {
     await renderDrawer(
       makeRelease("verifying", {

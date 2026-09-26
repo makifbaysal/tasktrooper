@@ -96,6 +96,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/settings"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/smokegen"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops/pipeline"
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
@@ -276,6 +277,7 @@ type engine struct {
 	deployOpsSvc    *deployops.Service
 	deployWatchSvc  *deploywatch.Service
 	releaseSvc      *releaseapp.Service
+	smokeGenSvc     *smokegen.Service
 	deployMonitor   *deployops.Monitor
 	evolutionSvc    *evolution.Service
 	// localRunner is release.Deps.LocalRunner's concrete type, kept here only
@@ -2281,6 +2283,22 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				}
 				releaseSvc := releaseapp.New(releaseDeps)
 				e.releaseSvc = releaseSvc
+				// Drafting smoke checks is an agent run over the repository's own
+				// checkout, test-run through the release service's own probe.
+				if modelSvc != nil && catalogStore != nil && e.agentRouter != nil && repositoryStore != nil {
+					model := modelSvc
+					e.smokeGenSvc = smokegen.New(smokegen.Deps{
+						Components: model,
+						Repos:      repositoryStore,
+						Agents:     catalogStore,
+						Runner:     e.agentRouter,
+						Smoke:      releaseSvc,
+						Brief: func(ctx context.Context, repositoryID, componentID uuid.UUID) (string, error) {
+							return model.Brief(ctx, repositoryID, projectmodel.BriefScope{ComponentID: &componentID})
+						},
+						Background: ctx,
+					})
+				}
 				boardKit.Releases = releaseSvc
 				if taskPRSvc != nil {
 					taskPRSvc.SetReleaseOpener(releaseSvc)
@@ -2577,6 +2595,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		releaseHTTP = e.releaseSvc
 		releaseWaker = e.releaseSvc
 	}
+	var smokeGenHTTP httpadapter.SmokeGenService
+	if e.smokeGenSvc != nil {
+		smokeGenHTTP = e.smokeGenSvc
+	}
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
 		LLMClient:         llmClient,
@@ -2613,6 +2635,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		ProjectModelSvc:   e.projectModelSvc,
 		CloudSvc:          e.cloudSvc,
 		ReleaseSvc:        releaseHTTP,
+		SmokeGenSvc:       smokeGenHTTP,
 		ReleaseWaker:      releaseWaker,
 		LocalPreviewSvc:   localPreviewSvc,
 		InitiativeSvc:     initiativeSvc,

@@ -26,6 +26,10 @@ type ReleaseService interface {
 	Rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error)
 	CutPreview(ctx context.Context, releaseID uuid.UUID) (domain.ReleaseCutPreview, error)
 	Cut(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, req domain.ReleaseCutRequest) (domain.Release, error)
+	// TestSmoke runs a draft set of smoke checks against a component's
+	// resolved production base URL right now, without a release or a saved
+	// delivery profile.
+	TestSmoke(ctx context.Context, componentID uuid.UUID, checks []domain.SmokeCheck) (baseURL string, results []domain.SmokeResult, err error)
 }
 
 // errReleaseConfirmMismatch matches the wording of deployops.ErrConfirmMismatch
@@ -53,6 +57,7 @@ func (h *Handler) registerReleaseRoutes(app fiber.Router) {
 	app.Post("/v1/releases/:releaseId/deploy", h.DeployRelease)
 	app.Post("/v1/releases/:releaseId/finish", h.FinishRelease)
 	app.Post("/v1/releases/:releaseId/rollback", h.RollbackRelease)
+	app.Post("/v1/components/:componentId/smoke-checks/test", h.TestComponentSmokeChecks)
 }
 
 // releaseErr maps a release action's error onto the status the UI branches
@@ -285,4 +290,49 @@ func (h *Handler) RollbackRelease(c *fiber.Ctx) error {
 		return releaseErr(c, err)
 	}
 	return c.JSON(updated)
+}
+
+// testSmokeChecksRequest is the smoke-check test endpoint's body: a draft
+// set of checks, never persisted.
+type testSmokeChecksRequest struct {
+	Checks []domain.SmokeCheck `json:"checks"`
+}
+
+// testSmokeChecksErr maps TestSmoke's errors: an unknown component is 404,
+// an invalid checks list is the caller's fault (400), anything else is ours.
+// Distinct from releaseErr, whose port.ErrNotFound branch answers "repository
+// not found" — wrong noun for this endpoint.
+func testSmokeChecksErr(c *fiber.Ctx, err error) error {
+	switch {
+	case errors.Is(err, domain.ErrInvalidDelivery):
+		return badRequest(c, err.Error())
+	case errors.Is(err, port.ErrNotFound):
+		return c.Status(fiber.StatusNotFound).JSON(errorResponse{Error: errorDetail{Message: "component not found", Type: "not_found_error"}})
+	default:
+		return internalError(c, err)
+	}
+}
+
+// TestComponentSmokeChecks — POST /v1/components/:componentId/smoke-checks/test
+// runs a draft set of smoke checks against the component's resolved
+// production base URL right now, so the UI can show what a set of checks
+// would do before they are ever saved to the delivery profile.
+func (h *Handler) TestComponentSmokeChecks(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "componentId")
+	if err != nil {
+		return badRequest(c, "invalid component id")
+	}
+	var req testSmokeChecksRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+
+	baseURL, results, err := h.releaseSvc.TestSmoke(h.enrichContext(c), id, req.Checks)
+	if err != nil {
+		return testSmokeChecksErr(c, err)
+	}
+	if results == nil {
+		results = []domain.SmokeResult{}
+	}
+	return c.JSON(fiber.Map{"base_url": baseURL, "results": results})
 }

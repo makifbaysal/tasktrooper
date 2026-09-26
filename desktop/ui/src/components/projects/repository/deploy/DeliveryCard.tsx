@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { api, type CloudProviderKind, type Component, type ComponentDelivery, type ComponentEnvironment } from "@/api";
+import { api, type CloudProviderKind, type Component, type ComponentDelivery, type ComponentEnvironment, type SmokeCheck } from "@/api";
 import { DeliveryEditDialog } from "@/components/projects/repository/deploy/DeliveryEditDialog";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,11 @@ interface DeliveryCardProps {
 
 function resourceLabel(env: ComponentEnvironment): string | undefined {
   return env.resource?.name ?? env.url;
+}
+
+function smokeCheckSummary(check: SmokeCheck): string {
+  const label = check.name?.trim() || `${check.method ?? "GET"} ${check.path}`;
+  return check.expect_status ? `${label} → ${check.expect_status}` : label;
 }
 
 /**
@@ -193,7 +198,24 @@ export function DeliveryCard({
                 </div>
                 <div>
                   <dt className="text-muted-foreground">{t("release.deliveryEdit.smoke.title")}</dt>
-                  <dd>{t("release.delivery.smokeChecksCount", { count: effective.verify.smoke?.length ?? 0 })}</dd>
+                  <dd>
+                    {(effective.verify.smoke?.length ?? 0) === 0 ? (
+                      t("release.delivery.smokeChecksCount", { count: 0 })
+                    ) : (
+                      <ul className="space-y-0.5">
+                        {effective.verify.smoke!.slice(0, 3).map((check, i) => (
+                          <li key={i} className="truncate font-mono text-caption">
+                            {smokeCheckSummary(check)}
+                          </li>
+                        ))}
+                        {effective.verify.smoke!.length > 3 && (
+                          <li className="text-caption text-muted-foreground">
+                            {t("release.delivery.smokeMore", { count: effective.verify.smoke!.length - 3 })}
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">{t("release.deliveryEdit.autoRollback")}</dt>
