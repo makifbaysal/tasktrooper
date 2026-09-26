@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ComponentDelivery } from "@/api";
+import type { ComponentDelivery, ComponentEnvironment } from "@/api";
 import { DeliveryEditDialog } from "@/components/projects/repository/deploy/DeliveryEditDialog";
 import { I18nProvider } from "@/hooks/useI18n";
 
@@ -22,10 +22,38 @@ const onMergeProfile: ComponentDelivery = {
   auto_rollback: true,
 };
 
-function renderDialog(current: ComponentDelivery | null, onSaved = vi.fn()) {
+function makeEnv(overrides: Partial<ComponentEnvironment>): ComponentEnvironment {
+  return {
+    id: "env-1",
+    repository_id: "repo-1",
+    component_id: "comp-1",
+    environment: "production",
+    status: "confirmed",
+    source: "user",
+    confidence: "exact",
+    auto_confirmed: false,
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function renderDialog(
+  current: ComponentDelivery | null,
+  options: { onSaved?: (c: unknown) => void; production?: ComponentEnvironment | null } = {},
+) {
+  const onSaved = options.onSaved ?? vi.fn();
   render(
     <I18nProvider>
-      <DeliveryEditDialog open onOpenChange={() => {}} componentId="comp-1" current={current} hasOverride={Boolean(current)} onSaved={onSaved} />
+      <DeliveryEditDialog
+        open
+        onOpenChange={() => {}}
+        componentId="comp-1"
+        current={current}
+        hasOverride={Boolean(current)}
+        production={options.production ?? null}
+        onSaved={onSaved}
+      />
     </I18nProvider>,
   );
   return { onSaved };
@@ -89,6 +117,20 @@ describe("DeliveryEditDialog", () => {
     fireEvent.click(buttons[buttons.length - 1]);
 
     await waitFor(() => expect(updateComponentDelivery).toHaveBeenCalledWith("comp-1", null));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("defaults a fresh profile to on_merge/vercel when production is on Vercel", () => {
+    renderDialog(null, { production: makeEnv({ provider: "vercel", resource: { kind: "vercel_project", id: "prj_1", name: "pishio-web" } }) });
+    expect(screen.getByText("Vercel project: pishio-web (from the PROD environment)")).toBeInTheDocument();
+  });
+
+  it("warns, without blocking save, when executor is vercel and production isn't a Vercel project", async () => {
+    const { onSaved } = renderDialog({ ...onMergeProfile, executor: "vercel" });
+    expect(screen.getByText("Bind PROD to a Vercel project, or the deploy can't be tracked.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateComponentDelivery).toHaveBeenCalled());
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 });

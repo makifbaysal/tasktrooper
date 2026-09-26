@@ -298,6 +298,9 @@ export const repositoryPage: RepositoryPageDict = {
         "Bu bileşenin ortamlarını bağlamak için bir Vercel, Google Cloud ya da AWS hesabı bağla, ya da her satıra özel bir URL gir.",
       connectAccount: "Bir bulut hesabı bağla",
       goToIntegrations: "Ayarlar › Entegrasyonlar",
+      deployBadge: "Deploy: {mode} · {executor}",
+      disconnectConfirmDescProduction:
+        "Teslimat profili buraya deploy ediyor — bağlantıyı kestikten sonra deploy'lar doğrulanamaz ya da geri alınamaz.",
     },
     stores: {
       noAccountsTitle: "Bağlı mağaza hesabı yok",
@@ -310,6 +313,7 @@ export const repositoryPage: RepositoryPageDict = {
       changeTitle: "{environment} ortamını değiştir",
       chooseAccount: "Bağlı bir hesap seç, ya da özel bir URL gir.",
       noAccounts: "Henüz bağlı bir bulut hesabı yok.",
+      noProviderAccounts: "Henüz bağlı bir {provider} hesabı yok.",
       customUrlOption: "Özel URL",
       searchPlaceholder: "Kaynaklarda ara…",
       refresh: "Yenile",

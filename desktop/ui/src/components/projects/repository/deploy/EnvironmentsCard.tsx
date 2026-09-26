@@ -7,14 +7,13 @@ import {
   CLOUD_PROVIDERS,
   type CloudAccount,
   type CloudProviderKind,
-  type Component,
+  type ComponentDelivery,
   type ComponentEnvironment,
   type DeployEnvironment,
 } from "@/api";
 import { CloudAccountDialog } from "@/components/admin/CloudAccountDialog";
 import { EnvironmentCandidates } from "@/components/projects/model/EnvironmentCandidates";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
-import { BindEnvironmentDialog } from "@/components/projects/repository/deploy/BindEnvironmentDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,13 +35,16 @@ const HEALTH_DOT: Record<string, string> = {
 };
 
 interface EnvironmentsCardProps {
-  component: Component;
-  /** Already filtered to this component by the caller. */
+  /** Already filtered to the selected component by the caller. */
   environments: ComponentEnvironment[];
   accounts: CloudAccount[];
   accountsLoading: boolean;
   selectedEnvId: string | null;
   onSelectEnv: (env: ComponentEnvironment) => void;
+  /** The effective delivery profile — the production row shows what deploys there. */
+  delivery: ComponentDelivery | null;
+  /** Opens the (parent-owned) bind dialog for this environment; `existing` seeds a re-bind. */
+  onRequestBind: (environment: DeployEnvironment, existing?: ComponentEnvironment) => void;
   onChanged: () => void;
   onAccountsChanged: () => void;
   className?: string;
@@ -55,20 +57,18 @@ interface EnvironmentsCardProps {
  * instead of the usual actions, same as the review queue.
  */
 export function EnvironmentsCard({
-  component,
   environments,
   accounts,
   accountsLoading,
   selectedEnvId,
   onSelectEnv,
+  delivery,
+  onRequestBind,
   onChanged,
   onAccountsChanged,
   className,
 }: EnvironmentsCardProps) {
   const { t } = useI18n();
-  const [bindTarget, setBindTarget] = useState<{ environment: DeployEnvironment; existing?: ComponentEnvironment } | null>(
-    null,
-  );
   const [connectProvider, setConnectProvider] = useState<CloudProviderKind | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<ComponentEnvironment | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -140,30 +140,16 @@ export function EnvironmentsCard({
                   row={row}
                   selected={Boolean(row && row.id === selectedEnvId)}
                   onSelect={() => row?.account_id && onSelectEnv(row)}
-                  onConnect={() => setBindTarget({ environment: env, existing: row })}
+                  onConnect={() => onRequestBind(env, row)}
                   onDisconnect={() => row && setDisconnectTarget(row)}
                   onChanged={onChanged}
+                  delivery={env === "production" ? delivery : null}
                 />
               );
             })}
           </div>
         )}
       </CardContent>
-
-      {bindTarget && (
-        <BindEnvironmentDialog
-          open={Boolean(bindTarget)}
-          onOpenChange={(open) => !open && setBindTarget(null)}
-          componentId={component.id}
-          environment={bindTarget.environment}
-          existing={bindTarget.existing}
-          accounts={accounts}
-          onBound={() => {
-            setBindTarget(null);
-            onChanged();
-          }}
-        />
-      )}
 
       {connectProvider && (
         <CloudAccountDialog
@@ -183,7 +169,11 @@ export function EnvironmentsCard({
         title={t("repositoryPage.deploy.environments.disconnectConfirmTitle", {
           environment: disconnectTarget ? t(`cloud.environments.${disconnectTarget.environment}`) : "",
         })}
-        description={t("repositoryPage.deploy.environments.disconnectConfirmDesc")}
+        description={
+          disconnectTarget?.environment === "production" && delivery && delivery.mode !== "none"
+            ? t("repositoryPage.deploy.environments.disconnectConfirmDescProduction")
+            : t("repositoryPage.deploy.environments.disconnectConfirmDesc")
+        }
         confirmLabel={t("repositoryPage.deploy.environments.disconnect")}
         loading={disconnecting}
         onConfirm={disconnect}
@@ -200,9 +190,11 @@ interface EnvironmentRowProps {
   onConnect: () => void;
   onDisconnect: () => void;
   onChanged: () => void;
+  /** Set only for the production row — what deploys here, if anything. */
+  delivery: ComponentDelivery | null;
 }
 
-function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDisconnect, onChanged }: EnvironmentRowProps) {
+function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDisconnect, onChanged, delivery }: EnvironmentRowProps) {
   const { t } = useI18n();
   const bound = row?.status === "confirmed";
   const suggested = row?.status === "suggested";
@@ -300,6 +292,14 @@ function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDis
               : t("repositoryPage.deploy.environments.neverDeployed")}
           </span>
           {row.auto_confirmed && <Badge variant="secondary">{t("repositoryPage.deploy.environments.auto")}</Badge>}
+          {delivery && delivery.mode !== "none" && (
+            <Badge variant="outline" className="text-micro">
+              {t("repositoryPage.deploy.environments.deployBadge", {
+                mode: t(`release.modes.${delivery.mode}`),
+                executor: delivery.executor ? t(`release.executors.${delivery.executor}`) : "—",
+              })}
+            </Badge>
+          )}
         </div>
       )}
 

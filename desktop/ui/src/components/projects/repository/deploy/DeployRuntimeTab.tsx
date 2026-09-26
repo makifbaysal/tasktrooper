@@ -3,13 +3,16 @@ import { toast } from "sonner";
 import {
   api,
   type CloudAccount,
+  type CloudProviderKind,
   type Component,
   type ComponentEnvironment,
+  type DeployEnvironment,
   type MobilePlatform,
   type RepositoryModel,
 } from "@/api";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { ComponentRail } from "@/components/projects/repository/ComponentRail";
+import { BindEnvironmentDialog } from "@/components/projects/repository/deploy/BindEnvironmentDialog";
 import { DeliveryCard } from "@/components/projects/repository/deploy/DeliveryCard";
 import { EnvironmentsCard } from "@/components/projects/repository/deploy/EnvironmentsCard";
 import { ReleasesCard } from "@/components/projects/repository/deploy/ReleasesCard";
@@ -67,6 +70,11 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
   const [accounts, setAccounts] = useState<CloudAccount[] | null>(null);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
+  const [bindTarget, setBindTarget] = useState<{
+    environment: DeployEnvironment;
+    existing?: ComponentEnvironment;
+    provider?: CloudProviderKind;
+  } | null>(null);
 
   const loadAccounts = useCallback(async () => {
     setAccountsLoading(true);
@@ -100,7 +108,18 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
     return bound.find((e) => e.environment === "production") ?? bound[0] ?? null;
   }, [selectedEnvId, componentEnvs]);
 
+  // The release engine's actual deploy target: the confirmed production
+  // binding, not just any row named "production".
+  const productionEnv = useMemo(
+    () => componentEnvs.find((e) => e.environment === "production" && e.status === "confirmed") ?? null,
+    [componentEnvs],
+  );
+  const productionRow = useMemo(() => componentEnvs.find((e) => e.environment === "production"), [componentEnvs]);
+
   if (!selected) return null;
+
+  const isMobile = effectiveRole(selected) === "mobile";
+  const effectiveDelivery = selected.delivery?.override ?? selected.delivery?.detected ?? null;
 
   return (
     <div className="flex gap-6">
@@ -115,9 +134,16 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
         renderTrailing={(c) => railHealth(model.environments, c.id)}
       />
       <div className="min-w-0 flex-1 space-y-4">
-        <DeliveryCard key={selected.id} component={selected} onChanged={onReload} />
+        <DeliveryCard
+          key={selected.id}
+          component={selected}
+          onChanged={onReload}
+          production={isMobile ? null : productionEnv}
+          coupled={!isMobile}
+          onBindProduction={(provider) => setBindTarget({ environment: "production", existing: productionRow, provider })}
+        />
 
-        {effectiveRole(selected) === "mobile" ? (
+        {isMobile ? (
           <StoreReleasesCard
             key={selected.id}
             repositoryId={repositoryId}
@@ -126,12 +152,13 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
         ) : (
           <>
             <EnvironmentsCard
-              component={selected}
               environments={componentEnvs}
               accounts={accounts ?? []}
               accountsLoading={accountsLoading}
               selectedEnvId={selectedEnv?.id ?? null}
               onSelectEnv={(env) => setSelectedEnvId(env.id)}
+              delivery={effectiveDelivery}
+              onRequestBind={(environment, existing) => setBindTarget({ environment, existing })}
               onChanged={onReload}
               onAccountsChanged={loadAccounts}
             />
@@ -144,6 +171,22 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
 
         <ReleasesCard repositoryId={repositoryId} repositoryName={model.repository.name} component={selected} />
       </div>
+
+      {bindTarget && (
+        <BindEnvironmentDialog
+          open={Boolean(bindTarget)}
+          onOpenChange={(open) => !open && setBindTarget(null)}
+          componentId={selected.id}
+          environment={bindTarget.environment}
+          existing={bindTarget.existing}
+          provider={bindTarget.provider}
+          accounts={accounts ?? []}
+          onBound={() => {
+            setBindTarget(null);
+            onReload();
+          }}
+        />
+      )}
     </div>
   );
 }

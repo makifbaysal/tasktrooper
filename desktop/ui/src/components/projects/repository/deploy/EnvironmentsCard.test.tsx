@@ -1,8 +1,8 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import type { CloudAccount, Component, ComponentEnvironment } from "@/api";
+import type { CloudAccount, ComponentDelivery, ComponentEnvironment } from "@/api";
 import { EnvironmentsCard } from "@/components/projects/repository/deploy/EnvironmentsCard";
 import { I18nProvider } from "@/hooks/useI18n";
 
@@ -13,23 +13,6 @@ vi.mock("@/api", async () => {
     api: { ...actual.api, deleteEnvironment: vi.fn(), patchEnvironment: vi.fn(), listCloudResources: vi.fn() },
   };
 });
-
-const component: Component = {
-  id: "comp-1",
-  repository_id: "repo-1",
-  path: "services/api",
-  name: { detected: "api" },
-  role: { detected: "backend" },
-  stack: { detected: {} },
-  commands: [],
-  docs: {},
-  gates: {},
-  status: "active",
-  manually_added: false,
-  needs_review: false,
-  created_at: "2024-01-01T00:00:00Z",
-  updated_at: "2024-01-01T00:00:00Z",
-};
 
 const account: CloudAccount = {
   id: "acc-1",
@@ -57,23 +40,32 @@ function makeEnv(overrides: Partial<ComponentEnvironment>): ComponentEnvironment
   };
 }
 
-function renderCard(environments: ComponentEnvironment[], accounts: CloudAccount[] = [account]) {
-  return render(
-    <MemoryRouter>
-      <I18nProvider>
-        <EnvironmentsCard
-          component={component}
-          environments={environments}
-          accounts={accounts}
-          accountsLoading={false}
-          selectedEnvId={null}
-          onSelectEnv={() => {}}
-          onChanged={() => {}}
-          onAccountsChanged={() => {}}
-        />
-      </I18nProvider>
-    </MemoryRouter>,
-  );
+function renderCard(
+  environments: ComponentEnvironment[],
+  accounts: CloudAccount[] = [account],
+  options: { delivery?: ComponentDelivery | null; onRequestBind?: (env: ComponentEnvironment["environment"], existing?: ComponentEnvironment) => void } = {},
+) {
+  const onRequestBind = options.onRequestBind ?? vi.fn();
+  return {
+    onRequestBind,
+    ...render(
+      <MemoryRouter>
+        <I18nProvider>
+          <EnvironmentsCard
+            environments={environments}
+            accounts={accounts}
+            accountsLoading={false}
+            selectedEnvId={null}
+            onSelectEnv={() => {}}
+            delivery={options.delivery ?? null}
+            onRequestBind={onRequestBind}
+            onChanged={() => {}}
+            onAccountsChanged={() => {}}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    ),
+  };
 }
 
 describe("EnvironmentsCard", () => {
@@ -128,5 +120,42 @@ describe("EnvironmentsCard", () => {
     renderCard([], []);
     expect(screen.getByText("No cloud accounts connected")).toBeInTheDocument();
     expect(screen.getByText("Connect a cloud account")).toBeInTheDocument();
+  });
+
+  it("asks the caller to open the bind dialog instead of owning it", () => {
+    const { onRequestBind } = renderCard([]);
+    fireEvent.click(screen.getAllByText("Connect")[0]);
+    expect(onRequestBind).toHaveBeenCalledWith("production", undefined);
+  });
+
+  it("shows a deploy badge on the production row when the delivery profile deploys there", () => {
+    const delivery: ComponentDelivery = { mode: "on_merge", executor: "vercel", verify: {}, auto_rollback: true };
+    renderCard(
+      [
+        makeEnv({
+          environment: "production",
+          provider: "vercel",
+          resource: { kind: "vercel_project", id: "prj_1", name: "pishio-web" },
+        }),
+      ],
+      [account],
+      { delivery },
+    );
+    expect(screen.getByText("Deploy: On merge · Vercel")).toBeInTheDocument();
+  });
+
+  it("does not show a deploy badge when delivery mode is none", () => {
+    const delivery: ComponentDelivery = { mode: "none", verify: {}, auto_rollback: true };
+    renderCard([makeEnv({ environment: "production", provider: "vercel" })], [account], { delivery });
+    expect(screen.queryByText(/^Deploy:/)).not.toBeInTheDocument();
+  });
+
+  it("warns more strongly before disconnecting production when a delivery profile deploys there", () => {
+    const delivery: ComponentDelivery = { mode: "on_merge", executor: "vercel", verify: {}, auto_rollback: true };
+    renderCard([makeEnv({ environment: "production" })], [account], { delivery });
+    fireEvent.click(screen.getByText("Disconnect"));
+    expect(
+      screen.getByText("The delivery profile deploys here — after disconnecting, deploys can't be verified or rolled back."),
+    ).toBeInTheDocument();
   });
 });

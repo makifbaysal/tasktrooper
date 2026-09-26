@@ -20,6 +20,7 @@ type EnvironmentsSuite struct {
 	components *fakeComponents
 	deploys    *fakeDeployTargets
 	vercel     *fakeProvider
+	delivery   *fakeDeliveryRefresher
 	svc        *cloud.Service
 
 	repoID uuid.UUID
@@ -37,6 +38,7 @@ func (s *EnvironmentsSuite) SetupTest() {
 	s.components = newFakeComponents()
 	s.deploys = newFakeDeployTargets()
 	s.vercel = &fakeProvider{kind: domain.CloudVercel}
+	s.delivery = &fakeDeliveryRefresher{}
 
 	s.repoID = uuid.New()
 	s.comp = s.components.seed(domain.Component{RepositoryID: s.repoID, Path: "."})
@@ -50,6 +52,7 @@ func (s *EnvironmentsSuite) SetupTest() {
 		Repos:         newFakeRepos(domain.Repository{ID: s.repoID, Name: "acme"}),
 		DeployTargets: s.deploys,
 	})
+	s.svc.SetDeliveryRefresher(s.delivery)
 }
 
 func (s *EnvironmentsSuite) createAccount() domain.CloudAccount {
@@ -169,4 +172,64 @@ func (s *EnvironmentsSuite) TestListEnvironmentsNeverReturnsNil() {
 	envs, err := s.svc.ListEnvironments(s.ctx, s.repoID)
 	s.Require().NoError(err)
 	s.NotNil(envs)
+}
+
+func (s *EnvironmentsSuite) TestBindEnvironmentProductionVercelAlignsDelivery() {
+	acct := s.createAccount()
+	ref := domain.CloudResourceRef{Kind: domain.CloudResourceVercelProject, ID: "prj_1"}
+
+	_, err := s.svc.BindEnvironment(s.ctx, s.comp.ID, domain.EnvironmentProduction, domain.SaveEnvironmentRequest{AccountID: &acct.ID, Resource: &ref})
+	s.Require().NoError(err)
+
+	s.Require().Equal(1, s.delivery.alignCallCount())
+	call := s.delivery.lastAlignCall()
+	s.Equal(s.comp.ID, call.componentID)
+	s.Equal(domain.CloudVercel, call.provider)
+}
+
+func (s *EnvironmentsSuite) TestBindEnvironmentStagingVercelDoesNotAlignDelivery() {
+	acct := s.createAccount()
+	ref := domain.CloudResourceRef{Kind: domain.CloudResourceVercelProject, ID: "prj_1"}
+
+	_, err := s.svc.BindEnvironment(s.ctx, s.comp.ID, domain.EnvironmentStaging, domain.SaveEnvironmentRequest{AccountID: &acct.ID, Resource: &ref})
+	s.Require().NoError(err)
+
+	s.Equal(0, s.delivery.alignCallCount())
+}
+
+func (s *EnvironmentsSuite) TestBindEnvironmentProductionCustomURLDoesNotAlignDelivery() {
+	_, err := s.svc.BindEnvironment(s.ctx, s.comp.ID, domain.EnvironmentProduction, domain.SaveEnvironmentRequest{URL: "https://prod.example.com"})
+	s.Require().NoError(err)
+
+	s.Equal(0, s.delivery.alignCallCount())
+}
+
+func (s *EnvironmentsSuite) TestPatchEnvironmentConfirmingSuggestedProductionVercelAlignsDelivery() {
+	acct := s.createAccount()
+	seeded := s.envs.seed(domain.ComponentEnvironment{
+		RepositoryID: s.repoID, ComponentID: s.comp.ID, Environment: domain.EnvironmentProduction,
+		Provider: domain.CloudVercel, AccountID: &acct.ID, Status: domain.LinkSuggested, Source: domain.LinkSourceScan,
+	})
+
+	confirmed := domain.LinkConfirmed
+	_, err := s.svc.PatchEnvironment(s.ctx, seeded.ID, cloud.EnvironmentPatch{Status: &confirmed})
+	s.Require().NoError(err)
+
+	s.Require().Equal(1, s.delivery.alignCallCount())
+	call := s.delivery.lastAlignCall()
+	s.Equal(s.comp.ID, call.componentID)
+	s.Equal(domain.CloudVercel, call.provider)
+}
+
+func (s *EnvironmentsSuite) TestPatchEnvironmentDismissingDoesNotAlignDelivery() {
+	seeded := s.envs.seed(domain.ComponentEnvironment{
+		RepositoryID: s.repoID, ComponentID: s.comp.ID, Environment: domain.EnvironmentProduction,
+		Provider: domain.CloudVercel, Status: domain.LinkSuggested, Source: domain.LinkSourceScan,
+	})
+
+	dismissed := domain.LinkDismissed
+	_, err := s.svc.PatchEnvironment(s.ctx, seeded.ID, cloud.EnvironmentPatch{Status: &dismissed})
+	s.Require().NoError(err)
+
+	s.Equal(0, s.delivery.alignCallCount())
 }

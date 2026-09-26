@@ -42,6 +42,10 @@ type Relinker interface {
 // environment change moves what a Vercel component's detected profile is.
 type DeliveryRefresher interface {
 	RefreshDelivery(ctx context.Context, repositoryID uuid.UUID) error
+	// AlignDeliveryToProduction pulls a human override back in line with
+	// production once it is bound (or confirmed) to provider: detection
+	// alone would follow the environment, but an override hides detection.
+	AlignDeliveryToProduction(ctx context.Context, componentID uuid.UUID, provider domain.CloudProviderKind) error
 }
 
 type Clock func() time.Time
@@ -138,6 +142,17 @@ func (s *Service) refreshDelivery(ctx context.Context, repositoryID uuid.UUID) {
 	}
 	if err := s.delivery.RefreshDelivery(ctx, repositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", repositoryID.String()).Msg("cloud: refreshing delivery detection failed")
+	}
+}
+
+// alignDeliveryToProduction never fails the bind/confirm it runs inside of;
+// production being live matters more than the delivery profile catching up.
+func (s *Service) alignDeliveryToProduction(ctx context.Context, componentID uuid.UUID, provider domain.CloudProviderKind) {
+	if s.delivery == nil {
+		return
+	}
+	if err := s.delivery.AlignDeliveryToProduction(ctx, componentID, provider); err != nil {
+		log.Warn().Err(err).Str("component_id", componentID.String()).Msg("cloud: aligning delivery to production failed")
 	}
 }
 

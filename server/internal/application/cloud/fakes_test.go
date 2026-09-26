@@ -551,6 +551,48 @@ func (f *fakeLegacy) ListLegacyGCloudResourceBindings(ctx context.Context) ([]do
 	return f.gcloudBinds, nil
 }
 
+// --- fakeDeliveryRefresher: cloud.DeliveryRefresher ---
+
+type alignCall struct {
+	componentID uuid.UUID
+	provider    domain.CloudProviderKind
+}
+
+type fakeDeliveryRefresher struct {
+	mu           sync.Mutex
+	refreshCalls []uuid.UUID
+	alignCalls   []alignCall
+	alignErr     error
+}
+
+var _ cloud.DeliveryRefresher = (*fakeDeliveryRefresher)(nil)
+
+func (f *fakeDeliveryRefresher) RefreshDelivery(ctx context.Context, repositoryID uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refreshCalls = append(f.refreshCalls, repositoryID)
+	return nil
+}
+
+func (f *fakeDeliveryRefresher) AlignDeliveryToProduction(ctx context.Context, componentID uuid.UUID, provider domain.CloudProviderKind) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.alignCalls = append(f.alignCalls, alignCall{componentID: componentID, provider: provider})
+	return f.alignErr
+}
+
+func (f *fakeDeliveryRefresher) alignCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.alignCalls)
+}
+
+func (f *fakeDeliveryRefresher) lastAlignCall() alignCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.alignCalls[len(f.alignCalls)-1]
+}
+
 // --- fakeProvider: port.CloudProvider ---
 
 type fakeProvider struct {

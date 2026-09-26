@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { api, type Component, type ComponentDelivery } from "@/api";
+import { api, type CloudProviderKind, type Component, type ComponentDelivery, type ComponentEnvironment } from "@/api";
 import { DeliveryEditDialog } from "@/components/projects/repository/deploy/DeliveryEditDialog";
+import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +12,18 @@ import { useI18n } from "@/hooks/useI18n";
 interface DeliveryCardProps {
   component: Component;
   onChanged: (component: Component) => void;
+  /** The confirmed production environment — the release engine's actual
+   * deploy target. Only meaningful when `coupled`. */
+  production?: ComponentEnvironment | null;
+  onBindProduction?: (provider?: CloudProviderKind) => void;
+  /** False for mobile: a mobile component ships through store releases, not
+   * an environment binding, so the delivery↔environment coupling doesn't apply. */
+  coupled?: boolean;
   className?: string;
+}
+
+function resourceLabel(env: ComponentEnvironment): string | undefined {
+  return env.resource?.name ?? env.url;
 }
 
 /**
@@ -20,10 +32,18 @@ interface DeliveryCardProps {
  * — a mobile component's profile is `batch`/`store`, still worth confirming
  * or editing here rather than only implied by its role.
  */
-export function DeliveryCard({ component, onChanged, className }: DeliveryCardProps) {
+export function DeliveryCard({
+  component,
+  onChanged,
+  production = null,
+  onBindProduction = () => {},
+  coupled = false,
+  className,
+}: DeliveryCardProps) {
   const { t } = useI18n();
   const [editOpen, setEditOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [switchingToVercel, setSwitchingToVercel] = useState(false);
 
   const fact = component.delivery;
   const override = fact?.override ?? null;
@@ -34,6 +54,10 @@ export function DeliveryCard({ component, onChanged, className }: DeliveryCardPr
   // guess must not start dispatching production deploys nobody asked for.
   const confirmed = Boolean(override) || (Boolean(detected) && (confidence === "exact" || confidence === "high"));
   const effective: ComponentDelivery | null = override ?? detected;
+
+  const prodIsVercel = production?.provider === "vercel";
+  const executorIsVercel = effective?.executor === "vercel";
+  const executorIsGithubActions = effective?.executor === "github_actions";
 
   const confirmDetected = async () => {
     if (!detected) return;
@@ -46,6 +70,27 @@ export function DeliveryCard({ component, onChanged, className }: DeliveryCardPr
       toast.error(e instanceof Error ? e.message : t("release.delivery.saveFailed"));
     } finally {
       setConfirming(false);
+    }
+  };
+
+  const deliverWithVercel = async () => {
+    if (!effective) return;
+    setSwitchingToVercel(true);
+    try {
+      const saved = await api.updateComponentDelivery(component.id, {
+        ...effective,
+        mode: "on_merge",
+        executor: "vercel",
+        workflow: undefined,
+        tag_pattern: undefined,
+        local_command: undefined,
+      });
+      toast.success(t("release.delivery.deliverWithVercelDone"));
+      onChanged(saved);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("release.delivery.saveFailed"));
+    } finally {
+      setSwitchingToVercel(false);
     }
   };
 
@@ -78,8 +123,53 @@ export function DeliveryCard({ component, onChanged, className }: DeliveryCardPr
                 {override ? t("release.delivery.setByYou") : t("release.delivery.detectedBadge", { confidence: t(`release.delivery.confidence.${confidence}`) })}
               </Badge>
               <Badge variant="outline">{t(`release.modes.${effective.mode}`)}</Badge>
-              {effective.executor && <Badge variant="outline">{t(`release.executors.${effective.executor}`)}</Badge>}
+              {effective.executor && (
+                <Badge variant="outline">
+                  {executorIsVercel && prodIsVercel && production
+                    ? t("release.delivery.executorWithResource", {
+                        executor: t("release.executors.vercel"),
+                        resource: resourceLabel(production) ?? "",
+                      })
+                    : t(`release.executors.${effective.executor}`)}
+                </Badge>
+              )}
             </div>
+
+            {coupled && effective.mode !== "none" && production && resourceLabel(production) && (
+              <div className="flex flex-wrap items-center gap-1.5 text-caption text-muted-foreground">
+                <span>{t("release.delivery.target")}:</span>
+                <Badge variant="outline" className="font-mono uppercase">
+                  {t("release.delivery.prodBadge")}
+                </Badge>
+                {production.provider && <ProviderIcon provider={production.provider} className="h-3.5 w-3.5" />}
+                <span className="truncate font-mono">{resourceLabel(production)}</span>
+              </div>
+            )}
+
+            {coupled && executorIsVercel && (!production || !prodIsVercel) && (
+              <Notice variant="warning" title={t("release.delivery.vercelNotBoundTitle")}>
+                <p>{t("release.delivery.vercelNotBoundBody")}</p>
+                <Button size="sm" className="mt-2" onClick={() => onBindProduction("vercel")}>
+                  {t("release.delivery.bindProduction")}
+                </Button>
+              </Notice>
+            )}
+
+            {coupled && effective.mode !== "none" && executorIsGithubActions && !production && (
+              <Notice variant="info" title={t("release.delivery.githubActionsNotBoundTitle")}>
+                <Button size="sm" className="mt-2" onClick={() => onBindProduction()}>
+                  {t("release.delivery.bindProduction")}
+                </Button>
+              </Notice>
+            )}
+
+            {coupled && prodIsVercel && (effective.mode === "none" || (!executorIsVercel && !executorIsGithubActions)) && (
+              <Notice variant="warning" title={t("release.delivery.vercelReadyTitle")}>
+                <Button size="sm" className="mt-2" onClick={() => void deliverWithVercel()} disabled={switchingToVercel}>
+                  {t("release.delivery.deliverWithVercel")}
+                </Button>
+              </Notice>
+            )}
 
             {effective.mode === "batch" ? (
               effective.executor === "github_actions" && (
@@ -125,6 +215,7 @@ export function DeliveryCard({ component, onChanged, className }: DeliveryCardPr
           componentId={component.id}
           current={effective}
           hasOverride={Boolean(override)}
+          production={coupled ? production : null}
           onSaved={(saved) => {
             setEditOpen(false);
             onChanged(saved);

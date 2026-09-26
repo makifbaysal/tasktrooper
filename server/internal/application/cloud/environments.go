@@ -102,6 +102,9 @@ func (s *Service) BindEnvironment(ctx context.Context, componentID uuid.UUID, en
 	if err := s.project(ctx, comp.RepositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", comp.RepositoryID.String()).Msg("cloud: projecting after bind failed")
 	}
+	if saved.Environment == domain.EnvironmentProduction && saved.Provider == domain.CloudVercel {
+		s.alignDeliveryToProduction(ctx, componentID, domain.CloudVercel)
+	}
 	s.refreshDelivery(ctx, comp.RepositoryID)
 	s.triggerRelink()
 	return saved, nil
@@ -126,6 +129,7 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 		return domain.ComponentEnvironment{}, err
 	}
 
+	confirmedByThisPatch := false
 	if patch.AccountID != nil || patch.Resource != nil {
 		if patch.AccountID == nil || patch.Resource == nil {
 			return domain.ComponentEnvironment{}, fmt.Errorf("account_id and resource must be set together: %w", ErrInvalidInput)
@@ -141,6 +145,7 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 		row.Status = domain.LinkConfirmed
 		row.Candidates = nil
 		row.AutoConfirmed = false
+		confirmedByThisPatch = true
 	}
 
 	if patch.Status != nil {
@@ -148,6 +153,9 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 		row.AutoConfirmed = false
 		if row.Status == domain.LinkDismissed {
 			row.Candidates = nil
+		}
+		if row.Status == domain.LinkConfirmed {
+			confirmedByThisPatch = true
 		}
 	}
 
@@ -157,6 +165,9 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 	}
 	if err := s.project(ctx, saved.RepositoryID); err != nil {
 		log.Warn().Err(err).Str("repository_id", saved.RepositoryID.String()).Msg("cloud: projecting after patch failed")
+	}
+	if confirmedByThisPatch && saved.Environment == domain.EnvironmentProduction && saved.Status == domain.LinkConfirmed && saved.Provider == domain.CloudVercel {
+		s.alignDeliveryToProduction(ctx, saved.ComponentID, domain.CloudVercel)
 	}
 	s.refreshDelivery(ctx, saved.RepositoryID)
 	if saved.Status == domain.LinkConfirmed {

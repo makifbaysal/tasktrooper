@@ -1,9 +1,11 @@
 import { RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
   type CloudAccount,
+  type CloudProviderKind,
   type CloudResource,
   type ComponentEnvironment,
   type DeployEnvironment,
@@ -31,6 +33,9 @@ interface BindEnvironmentDialogProps {
   accounts: CloudAccount[];
   /** The row being re-bound; absent for a first-time connect. */
   existing?: ComponentEnvironment;
+  /** Restricts step 1 to this provider's accounts — set when the caller already
+   * knows which provider the target must be (e.g. "bind PROD to Vercel"). */
+  provider?: CloudProviderKind;
   onBound: (env: ComponentEnvironment) => void;
 }
 
@@ -47,6 +52,7 @@ export function BindEnvironmentDialog({
   environment,
   accounts,
   existing,
+  provider,
   onBound,
 }: BindEnvironmentDialogProps) {
   const { t } = useI18n();
@@ -76,28 +82,40 @@ export function BindEnvironmentDialog({
     if (!open) return;
     setResourceQuery("");
     setResources(null);
-    if (existing?.account_id) {
-      setAccountId(existing.account_id);
-      setSelectedResourceId(existing.resource?.id ?? "");
+    // A row on another provider can't satisfy a provider-bound request, so it
+    // only seeds the dialog when it already matches.
+    const seed = provider && existing?.provider !== provider ? undefined : existing;
+    if (seed?.account_id) {
+      setAccountId(seed.account_id);
+      setSelectedResourceId(seed.resource?.id ?? "");
       setUrl("");
       setHealthUrl("");
       setStep("resource");
-      void fetchResources(existing.account_id);
-    } else if (existing?.url) {
+      void fetchResources(seed.account_id);
+    } else if (seed?.url) {
       setAccountId("");
       setSelectedResourceId("");
-      setUrl(existing.url);
-      setHealthUrl(existing.health_url ?? "");
+      setUrl(seed.url);
+      setHealthUrl(seed.health_url ?? "");
       setStep("custom");
     } else {
-      setAccountId("");
       setSelectedResourceId("");
       setUrl("");
       setHealthUrl("");
-      setStep("account");
+      // A caller that already knows the required provider (e.g. "bind PROD to
+      // Vercel") skips the account step when it isn't even a choice.
+      const matching = provider ? accounts.filter((a) => a.provider === provider) : accounts;
+      if (provider && matching.length === 1) {
+        setAccountId(matching[0].id);
+        setStep("resource");
+        void fetchResources(matching[0].id);
+      } else {
+        setAccountId("");
+        setStep("account");
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, existing, environment]);
+  }, [open, existing, environment, provider]);
 
   const chooseAccount = (account: CloudAccount) => {
     setAccountId(account.id);
@@ -105,6 +123,8 @@ export function BindEnvironmentDialog({
     setStep("resource");
     void fetchResources(account.id);
   };
+
+  const availableAccounts = provider ? accounts.filter((a) => a.provider === provider) : accounts;
 
   const filteredResources = (resources ?? []).filter((r) =>
     r.ref.name.toLowerCase().includes(resourceQuery.trim().toLowerCase()),
@@ -165,10 +185,10 @@ export function BindEnvironmentDialog({
     >
       {step === "account" && (
         <div className="space-y-2">
-          {accounts.length > 0 ? (
+          {availableAccounts.length > 0 ? (
             <fieldset className="divide-y divide-border rounded-lg border border-border">
               <legend className="sr-only">{t("repositoryPage.deploy.bind.chooseAccount")}</legend>
-              {accounts.map((account) => (
+              {availableAccounts.map((account) => (
                 <button
                   key={account.id}
                   type="button"
@@ -182,11 +202,24 @@ export function BindEnvironmentDialog({
               ))}
             </fieldset>
           ) : (
-            <p className="text-caption text-muted-foreground">{t("repositoryPage.deploy.bind.noAccounts")}</p>
+            <div className="space-y-1">
+              <p className="text-caption text-muted-foreground">
+                {provider
+                  ? t("repositoryPage.deploy.bind.noProviderAccounts", { provider: t(`cloud.providers.${provider}`) })
+                  : t("repositoryPage.deploy.bind.noAccounts")}
+              </p>
+              {provider && (
+                <Button variant="link" size="sm" className="h-auto p-0" asChild>
+                  <Link to="/settings/integrations">{t("repositoryPage.deploy.environments.goToIntegrations")}</Link>
+                </Button>
+              )}
+            </div>
           )}
-          <Button type="button" variant="outline" className="w-full" onClick={() => setStep("custom")}>
-            {t("repositoryPage.deploy.bind.customUrlOption")}
-          </Button>
+          {!provider && (
+            <Button type="button" variant="outline" className="w-full" onClick={() => setStep("custom")}>
+              {t("repositoryPage.deploy.bind.customUrlOption")}
+            </Button>
+          )}
         </div>
       )}
 

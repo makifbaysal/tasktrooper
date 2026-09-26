@@ -8,6 +8,7 @@ import {
   MAX_SOAK_MINUTES,
   type Component,
   type ComponentDelivery,
+  type ComponentEnvironment,
   type DeliveryExecutor,
   type DeliveryMode,
   type SmokeCheck,
@@ -35,13 +36,20 @@ const EXECUTORS_FOR_MODE: Record<DeliveryMode, DeliveryExecutor[]> = {
 
 const SMOKE_METHODS = ["GET", "HEAD"] as const;
 
-function defaultDelivery(): ComponentDelivery {
-  return {
-    mode: "on_merge",
-    executor: "github_actions",
-    verify: { soak_minutes: 10, max_new_errors: 0, smoke: [] },
-    auto_rollback: true,
-  };
+function defaultDelivery(production?: ComponentEnvironment | null): ComponentDelivery {
+  return production?.provider === "vercel"
+    ? {
+        mode: "on_merge",
+        executor: "vercel",
+        verify: { soak_minutes: 10, max_new_errors: 0, smoke: [] },
+        auto_rollback: true,
+      }
+    : {
+        mode: "on_merge",
+        executor: "github_actions",
+        verify: { soak_minutes: 10, max_new_errors: 0, smoke: [] },
+        auto_rollback: true,
+      };
 }
 
 interface DeliveryEditDialogProps {
@@ -52,6 +60,8 @@ interface DeliveryEditDialogProps {
   current: ComponentDelivery | null;
   /** Only an override can be reset — there is nothing to fall back to otherwise. */
   hasOverride: boolean;
+  /** The confirmed production environment, when this component is coupled to one. */
+  production?: ComponentEnvironment | null;
   onSaved: (component: Component) => void;
 }
 
@@ -62,9 +72,9 @@ interface DeliveryEditDialogProps {
  * and the server's own 400 message is shown verbatim for whatever this pass
  * misses.
  */
-export function DeliveryEditDialog({ open, onOpenChange, componentId, current, hasOverride, onSaved }: DeliveryEditDialogProps) {
+export function DeliveryEditDialog({ open, onOpenChange, componentId, current, hasOverride, production = null, onSaved }: DeliveryEditDialogProps) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState<ComponentDelivery>(() => current ?? defaultDelivery());
+  const [draft, setDraft] = useState<ComponentDelivery>(() => current ?? defaultDelivery(production));
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -231,6 +241,14 @@ export function DeliveryEditDialog({ open, onOpenChange, componentId, current, h
             </div>
           )}
         </div>
+
+        {draft.executor === "vercel" && (
+          <p className="text-caption text-muted-foreground">
+            {production?.provider === "vercel"
+              ? t("release.deliveryEdit.vercelProjectFromProd", { name: production.resource?.name ?? production.url ?? "" })
+              : t("release.deliveryEdit.vercelNoProdWarning")}
+          </p>
+        )}
 
         {showWorkflow && (
           <div className="space-y-1.5">

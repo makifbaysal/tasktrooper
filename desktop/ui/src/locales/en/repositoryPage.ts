@@ -299,6 +299,9 @@ export const repositoryPage = {
         "Connect a Vercel, Google Cloud or AWS account to bind this component's environments, or set a custom URL on each row.",
       connectAccount: "Connect a cloud account",
       goToIntegrations: "Settings › Integrations",
+      deployBadge: "Deploy: {mode} · {executor}",
+      disconnectConfirmDescProduction:
+        "The delivery profile deploys here — after disconnecting, deploys can't be verified or rolled back.",
     },
     stores: {
       noAccountsTitle: "No store accounts connected",
@@ -311,6 +314,7 @@ export const repositoryPage = {
       changeTitle: "Change {environment}",
       chooseAccount: "Choose a connected account, or set a custom URL.",
       noAccounts: "No cloud accounts connected yet.",
+      noProviderAccounts: "No {provider} account connected yet.",
       customUrlOption: "Custom URL",
       searchPlaceholder: "Search resources…",
       refresh: "Refresh",
