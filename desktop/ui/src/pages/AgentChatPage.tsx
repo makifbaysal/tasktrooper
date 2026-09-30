@@ -229,6 +229,41 @@ export function AgentChatPage() {
     }
   }, [activeSessionId, loadMessages, loadSessionActivity]);
 
+  // Regaining focus is the moment a run that finished while this window was
+  // backgrounded (or a whole relaunch, see the desktop shell's close-hides-not-
+  // destroys fix) needs to surface: the local `sending` flag never survived
+  // that gap, so only the server's own view of the session can be trusted.
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const refresh = () => {
+      void loadMessages(activeSessionId);
+      void loadSessionActivity();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [activeSessionId, loadMessages, loadSessionActivity]);
+
+  // The renderer can vanish (window close, App Nap) without this chat screen
+  // ever unmounting cleanly, so the shell needs an explicit signal for which
+  // session is open rather than inferring it from window focus alone.
+  useEffect(() => {
+    const runner = window.__tasktrooperDesktop?.runner;
+    if (!runner) return;
+    if (agentId && activeSessionId) {
+      void runner.reportChatFocus({ agentId, sessionId: activeSessionId });
+    }
+    return () => {
+      void runner.reportChatFocus(null);
+    };
+  }, [agentId, activeSessionId]);
+
   const hasActiveRun = sessionRuns.some((run) => isActiveRunStatus(run.status));
   const showActivitySidebar = sending || hasActiveRun;
   const shouldPollSession = !!activeSessionId && (sending || hasActiveRun);
@@ -507,7 +542,7 @@ export function AgentChatPage() {
               <MessageList
                 messages={messages}
                 endRef={endRef}
-                isAwaitingResponse={sending}
+                isAwaitingResponse={sending || hasActiveRun}
                 streamingContent={streamingContent}
                 streamingReasoning={streamingReasoning}
                 reasoningByMessageId={reasoningByMessageId}
