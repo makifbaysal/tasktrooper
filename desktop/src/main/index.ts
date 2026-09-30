@@ -109,6 +109,9 @@ registerAppSchemePrivileges();
 const shellWindow = new Shell({
   origin: () => APP_ORIGIN,
   onCloudStatus: (status) => broadcast(SHELL_EVENTS.cloudStatus, status),
+  // `quit` is assigned further down, but this closure is not called until the
+  // window's close event actually fires — well after that assignment runs.
+  quitStarted: () => quit.started,
 });
 
 // --- helpers ----------------------------------------------------------------

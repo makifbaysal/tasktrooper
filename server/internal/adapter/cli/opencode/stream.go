@@ -34,8 +34,10 @@ type textPart struct {
 
 type toolPart struct {
 	CallID string `json:"callID"`
-	Tool   string `json:"tool"`
-	State  struct {
+	// ID is the call id on 2.x, which dropped callID; on 1.x it is the part id.
+	ID    string `json:"id"`
+	Tool  string `json:"tool"`
+	State struct {
 		Status string          `json:"status"`
 		Input  json.RawMessage `json:"input"`
 		Output string          `json:"output"`
@@ -101,6 +103,9 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 		case "tool_use":
 			var p toolPart
 			if json.Unmarshal(ev.Part, &p) == nil {
+				if p.CallID == "" {
+					p.CallID = p.ID
+				}
 				switch p.State.Status {
 				case "completed", "error":
 					out.ToolCalls++

@@ -45,6 +45,13 @@ export interface WindowDeps {
   origin: () => string;
   /** Told whenever the web app starts loading, loads, or fails to. */
   onCloudStatus: (status: CloudStatus) => void;
+  /**
+   * True once `quit.run()` has been entered (`main/quit.ts`). The red close
+   * button hides the window while this is false — a menu-bar app's window is
+   * not the process — and lets the close through once it is true, so Cmd-Q and
+   * the tray's Quit still end the app.
+   */
+  quitStarted: () => boolean;
 }
 
 export class Shell {
@@ -121,6 +128,16 @@ export class Shell {
     });
 
     window.once("ready-to-show", () => window.show());
+    // The default close action destroys the window (and the WebContentsView
+    // riding on it — the React tree, the open SSE reader, every in-flight
+    // chat's state) even though the product is a menu-bar app whose backend
+    // keeps running. Hiding instead keeps all of that alive; `quitStarted()`
+    // is the one case where the close must actually go through.
+    window.on("close", (event) => {
+      if (this.#deps.quitStarted()) return;
+      event.preventDefault();
+      window.hide();
+    });
     window.on("closed", () => {
       this.#window = null;
       this.#cloud = null;

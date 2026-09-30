@@ -32,6 +32,13 @@
 #                       executor sets it directly on cmd.Env rather than
 #                       writing it to a file
 
+# The executor asks for the version (in a scratch dir) before its first run;
+# 1.x prints the bare version.
+if [ "$1" = "--version" ]; then
+    echo "1.18.33"
+    exit 0
+fi
+
 calls=1
 if [ -f calls.txt ]; then
     calls=$(( $(cat calls.txt) + 1 ))

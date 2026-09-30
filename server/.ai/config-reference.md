@@ -429,6 +429,14 @@ role file becomes the ACTIVE persona from `run`, so role + rules go into the pro
 MCP tools reach the session via `OPENCODE_CONFIG_CONTENT` (inline JSON env var) — nothing is
 written to the workspace at all.
 
+OpenCode 2.x (`@opencode/cli`, `opencode --version` prints `opencode v2.…`) runs every
+`opencode run` on a shared background service that was started with someone else's
+environment, so it never sees that env var. On 2.x each run therefore gets a private
+`opencode serve --stdio` started with the config (tools direct, not behind code mode), waits
+until `/api/mcp` reports the `tasktrooper` server connected, and attaches with
+`opencode run --server`; the server's lease ends with the run. The version is read once per
+binary and re-read when the file changes.
+
 | Key | Env | Default | Description |
 |---|---|---|---|
 | `binary` | `OPENCODE_BIN` | `opencode` | Resolved on PATH at boot |

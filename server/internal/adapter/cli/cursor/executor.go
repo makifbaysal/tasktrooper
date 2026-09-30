@@ -145,7 +145,7 @@ func buildArgs(inv core.Invocation) []string {
 
 // applyMCP merges the run's MCP server into the developer's .cursor/mcp.json
 // for the run only.
-func applyMCP(ctx context.Context, workDir string, cfg core.MCPConfig) ([]string, func(), error) {
+func applyMCP(ctx context.Context, workDir string, cfg core.MCPConfig) (core.Launch, error) {
 	cleanup, err := writeMCPConfigFile(workDir, cfg)
-	return nil, cleanup, err
+	return core.Launch{Cleanup: cleanup}, err
 }

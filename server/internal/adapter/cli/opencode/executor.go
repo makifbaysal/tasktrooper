@@ -56,7 +56,6 @@ var familySpec = core.FamilySpec{
 	QuotaLogMsg:            "opencode provider rate limit reached, parking the task",
 	BuildArgs:              buildArgs,
 	Parse:                  parseStream,
-	ApplyMCP:               applyMCP,
 	WatchStderr:            watchStderr,
 	AllowCleanExitAsResult: true,
 	TraceStep:              "opencode_session",
@@ -74,8 +73,10 @@ func New(cfg Config) (*Executor, error) {
 	if runTimeout <= 0 {
 		runTimeout = DefaultRunTimeout
 	}
+	spec := familySpec
+	spec.ApplyMCP = (&launcher{bin: resolved, gen: &generation{bin: resolved}}).applyMCP
 	return &Executor{
-		family: *core.NewFamily(familySpec, resolved, runTimeout, cfg.MCP, cfg.MCPProvider, cfg.Usage),
+		family: *core.NewFamily(spec, resolved, runTimeout, cfg.MCP, cfg.MCPProvider, cfg.Usage),
 		now:    time.Now,
 	}, nil
 }
@@ -190,18 +191,53 @@ func buildArgs(inv core.Invocation) []string {
 	return args
 }
 
+type launcher struct {
+	bin string
+	gen *generation
+}
+
 // applyMCP hands the run's MCP server to opencode as an inline config env var,
-// so nothing is ever written into the workspace (no file to clean up).
-func applyMCP(ctx context.Context, workDir string, cfg core.MCPConfig) ([]string, func(), error) {
+// so nothing is ever written into the workspace. On 2.x that env var only
+// reaches a server started with it, so the run gets a private one.
+func (l *launcher) applyMCP(ctx context.Context, workDir string, cfg core.MCPConfig) (core.Launch, error) {
+	if l.gen.serverBased(ctx) {
+		return l.applyPrivateServer(ctx, workDir, cfg)
+	}
 	configContent, err := mcpConfigContentEnv(cfg)
+	if err != nil || configContent == "" {
+		return core.Launch{}, err
+	}
+	return core.Launch{Env: []string{"OPENCODE_CONFIG_CONTENT=" + configContent}}, nil
+}
+
+func (l *launcher) applyPrivateServer(ctx context.Context, workDir string, cfg core.MCPConfig) (core.Launch, error) {
+	configContent, err := mcpServersConfigContent(cfg)
 	if err != nil {
-		return nil, nil, err
+		return core.Launch{}, err
 	}
-	noop := func() {}
-	if configContent == "" {
-		return nil, noop, nil
+	env := core.ChildEnv(ctx, false, nil)
+	if configContent != "" {
+		env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
 	}
-	return []string{"OPENCODE_CONFIG_CONTENT=" + configContent}, noop, nil
+	srv, err := startPrivateServer(ctx, l.bin, workDir, env)
+	if err != nil {
+		return core.Launch{}, err
+	}
+	if cfg.Set() {
+		if err := srv.waitForMCP(ctx, locationDirectory(workDir)); err != nil {
+			if ctx.Err() != nil {
+				srv.stop()
+				return core.Launch{}, ctx.Err()
+			}
+			log.Warn().Err(err).Str("work_dir", workDir).
+				Msg("opencode session starts before its tasktrooper tools connected; its first turn may not see them")
+		}
+	}
+	return core.Launch{
+		Env:     []string{"OPENCODE_PASSWORD=" + srv.password},
+		Args:    []string{"--server", srv.url},
+		Cleanup: srv.stop,
+	}, nil
 }
 
 // watchStderr keeps the stderr tail for the finish messages while feeding raw

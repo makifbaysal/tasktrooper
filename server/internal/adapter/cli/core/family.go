@@ -51,10 +51,9 @@ type FamilySpec struct {
 	SinceOwnTool func(string) bool
 	LedgerTool   func(string) string
 	// ApplyMCP hands the run's MCP config to the CLI the way only it can: a
-	// config file in the workspace (cursor, antigravity) or an inline env var
-	// (opencode). It returns extra env entries and a cleanup for the run's
-	// credential.
-	ApplyMCP func(ctx context.Context, workDir string, cfg MCPConfig) (env []string, cleanup func(), err error)
+	// config file in the workspace (cursor, antigravity), an inline env var
+	// (opencode 1.x) or a private server the run attaches to (opencode 2.x).
+	ApplyMCP func(ctx context.Context, workDir string, cfg MCPConfig) (Launch, error)
 	// WatchStderr wraps the stderr tail with anything that needs raw stderr
 	// (opencode's rate-limit watcher). nil means the tail is all there is.
 	WatchStderr func(cancel context.CancelFunc, tail io.Writer) io.Writer
@@ -64,6 +63,20 @@ type FamilySpec struct {
 	AllowCleanExitAsResult bool
 	// BlockFrom detects a spent-subscription outcome for this CLI.
 	BlockFrom func(out Outcome, stderrTail, sessionID string, now time.Time) *domain.QuotaBlock
+}
+
+// Launch is what ApplyMCP adds to one run: env entries, args appended after
+// BuildArgs', and a cleanup that runs once the session has ended.
+type Launch struct {
+	Env     []string
+	Args    []string
+	Cleanup func()
+}
+
+func (l Launch) cleanup() {
+	if l.Cleanup != nil {
+		l.Cleanup()
+	}
 }
 
 // Family is the shared role-CLI executor. A flavor package embeds it as a
@@ -98,11 +111,11 @@ func (f *Family) Execute(ctx context.Context, req domain.TaskExecution, now func
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	extraEnv, cleanupMCP, err := f.spec.ApplyMCP(ctx, req.WorkDir, mcpCfg)
+	launch, err := f.spec.ApplyMCP(ctx, req.WorkDir, mcpCfg)
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	defer cleanupMCP()
+	defer launch.cleanup()
 
 	inv := Invocation{
 		Trace:   NewTrace(ctx, req.TaskKey, f.spec.TraceStep, f.spec.SinceOwnTool, f.spec.LedgerTool),
@@ -111,7 +124,7 @@ func (f *Family) Execute(ctx context.Context, req domain.TaskExecution, now func
 		Model:   req.Model,
 		Label:   req.TaskKey,
 	}
-	s, err := f.spawn(ctx, inv, extraEnv)
+	s, err := f.spawn(ctx, inv, launch)
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
@@ -128,11 +141,11 @@ func (f *Family) ExecuteChat(ctx context.Context, req domain.ChatExecution, out 
 	if err != nil {
 		return domain.ChatResult{}, err
 	}
-	extraEnv, cleanupMCP, err := f.spec.ApplyMCP(ctx, req.WorkDir, mcpCfg)
+	launch, err := f.spec.ApplyMCP(ctx, req.WorkDir, mcpCfg)
 	if err != nil {
 		return domain.ChatResult{}, err
 	}
-	defer cleanupMCP()
+	defer launch.cleanup()
 
 	inv := Invocation{
 		Trace:   NewTrace(ctx, req.SessionID, f.spec.TraceStep, f.spec.SinceOwnTool, f.spec.LedgerTool),
@@ -142,7 +155,7 @@ func (f *Family) ExecuteChat(ctx context.Context, req domain.ChatExecution, out 
 		Label:   req.SessionID,
 		Stream:  out,
 	}
-	s, err := f.spawn(ctx, inv, extraEnv)
+	s, err := f.spawn(ctx, inv, launch)
 	if err != nil {
 		return domain.ChatResult{}, err
 	}
@@ -150,14 +163,14 @@ func (f *Family) ExecuteChat(ctx context.Context, req domain.ChatExecution, out 
 	return domain.ChatResult{Response: resp}, err
 }
 
-func (f *Family) spawn(ctx context.Context, inv Invocation, extraEnv []string) (Session, error) {
+func (f *Family) spawn(ctx context.Context, inv Invocation, launch Launch) (Session, error) {
 	runCtx, cancel := context.WithTimeout(ctx, f.runTimeout)
 	defer cancel()
 
-	args := f.spec.BuildArgs(inv)
+	args := append(f.spec.BuildArgs(inv), launch.Args...)
 	cmd := exec.CommandContext(runCtx, f.bin, args...)
 	cmd.Dir = inv.WorkDir
-	cmd.Env = append(ChildEnv(ctx, false, nil), extraEnv...)
+	cmd.Env = append(ChildEnv(ctx, false, nil), launch.Env...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

@@ -18,6 +18,7 @@ type recordingSink struct {
 	turns     int
 	texts     []string
 	toolUses  []string
+	callIDs   []string
 	toolDone  []string
 	toolFails []bool
 }
@@ -29,6 +30,7 @@ func (r *recordingSink) OnTurn()                     { r.turns++ }
 func (r *recordingSink) OnAssistantText(text string) { r.texts = append(r.texts, text) }
 func (r *recordingSink) OnToolUse(callID, name, arguments string) {
 	r.toolUses = append(r.toolUses, name)
+	r.callIDs = append(r.callIDs, callID)
 }
 func (r *recordingSink) OnToolResult(callID, name, content string, isError bool) {
 	r.toolDone = append(r.toolDone, name)
@@ -145,4 +147,18 @@ func TestParseStreamReportsNoTerminalEventAsSuchWhenNothingHappened(t *testing.T
 	require.NoError(t, err)
 	assert.False(t, out.SawResult)
 	assert.Empty(t, out.Text)
+}
+
+// 2.x dropped callID from a tool part and carries the call id as "id"; 1.x's
+// "id" is the part id and must not win over its callID.
+func TestParseStreamReadsTheCallIDOfBothGenerations(t *testing.T) {
+	body := `{"type":"tool_use","sessionID":"ses_1","part":{"id":"prt_1","callID":"call_v1","tool":"read","state":{"status":"completed","input":{},"output":"x"}}}
+{"type":"tool_use","sessionID":"ses_1","part":{"partID":"prt_2","id":"call_v2","tool":"tasktrooper_list_board_tasks","state":{"status":"completed","input":{},"output":"ok"}}}
+`
+	sink := &recordingSink{}
+	_, err := parseStream(strings.NewReader(body), sink)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"call_v1", "call_v2"}, sink.callIDs)
+	assert.Equal(t, []string{"read", "tasktrooper_list_board_tasks"}, sink.toolUses)
 }
