@@ -274,11 +274,6 @@ export class NotificationWatcher {
   // one thing polling `/v1/tasks` every tick — a second poller would just be
   // this one's data fetched twice.
   #wakeBlockerId: number | null = null;
-  // Which agent-chat session the page reports as on screen, if any. Not yet
-  // read anywhere in this class — a future chat-turn notification would check
-  // it before firing, the same way `hasRunningTask` already gates the wake
-  // blocker above.
-  #focusedChat: { agentId: string; sessionId: string } | null = null;
   // A second, separate blocker: `prevent-display-sleep` (above) only keeps the
   // screen on, which does nothing for a minimized/backgrounded window macOS
   // can still App-Nap into suspension. `prevent-app-suspension` is what
