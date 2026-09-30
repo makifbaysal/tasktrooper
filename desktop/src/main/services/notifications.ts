@@ -212,8 +212,20 @@ export class NotificationWatcher {
   // actually keeps this process's JS running while any run — board task or
   // agent chat — is in flight.
   #suspensionBlockerId: number | null = null;
+  // Which agent-chat session the page reports as on screen, if any. A
+  // chat-turn notification checks it before firing, the same way
+  // `hasRunningTask` already gates the wake blocker above.
+  #focusedChat: { agentId: string; sessionId: string } | null = null;
 
   constructor(private readonly options: NotificationWatcherOptions) {}
+
+  setFocusedChat(focus: { agentId: string; sessionId: string } | null): void {
+    this.#focusedChat = focus;
+  }
+
+  get focusedChat(): { agentId: string; sessionId: string } | null {
+    return this.#focusedChat;
+  }
 
   start(): void {
     if (this.#timer) return;

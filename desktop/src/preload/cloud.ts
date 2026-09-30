@@ -88,6 +88,11 @@ const runner: DesktopRunnerHost = {
     call<string | null>(CLOUD_CHANNELS.chooseDirectory, options),
   reveal: (what) => call<void>(CLOUD_CHANNELS.reveal, { what }),
   openExternal: (url) => call<boolean>(CLOUD_CHANNELS.openExternal, { url }),
+  reportChatFocus: (focus) =>
+    call<void>(CLOUD_CHANNELS.chatReportFocus, {
+      agentId: focus?.agentId ?? null,
+      sessionId: focus?.sessionId ?? null,
+    }),
 
   preflight: (force?: boolean) => call<PreflightReport>(CLOUD_CHANNELS.preflight, { force }),
 

@@ -354,6 +354,12 @@ const services: IpcServices = {
 
   openExternal: (url) => openExternally(url),
 
+  reportChatFocus: (focus) => {
+    notifications.setFocusedChat(
+      focus.agentId && focus.sessionId ? { agentId: focus.agentId, sessionId: focus.sessionId } : null,
+    );
+  },
+
   /**
    * The environment checklist. Answered from the last sweep unless the caller
    * asks for a fresh one, because the caller that asks is the one whose user

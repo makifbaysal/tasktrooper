@@ -155,6 +155,14 @@ export interface DesktopRunnerHost {
   openExternal(url: string): Promise<boolean>;
 
   /**
+   * Tells the shell which agent-chat session, if any, is on screen — the main
+   * process cannot render a screen itself, so it needs this to decide whether
+   * a finished turn's notification would just repeat what the user is already
+   * looking at. `null` means no chat screen is open.
+   */
+  reportChatFocus(focus: { agentId: string; sessionId: string } | null): Promise<void>;
+
+  /**
    * The environment checklist, and the whole of the setup screen's data.
    *
    * `force` re-runs every probe. It is what the "Check again" button calls

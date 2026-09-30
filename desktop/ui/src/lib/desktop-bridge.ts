@@ -285,6 +285,14 @@ export interface DesktopRunnerHost {
   setOverrides(patch: DesktopOverrides): Promise<DesktopDiagnostics>;
 
   /**
+   * Tells the shell which agent-chat session, if any, is on screen — the main
+   * process cannot render a screen itself, so it needs this to decide whether
+   * a finished turn's notification would just repeat what the user is already
+   * looking at. `null` means no chat screen is open.
+   */
+  reportChatFocus(focus: { agentId: string; sessionId: string } | null): Promise<void>;
+
+  /**
    * The environment preflight checklist — the bundled server binary, the
    * Postgres cache, the Claude binary and its account, and the rest of
    * `DESKTOP_PREFLIGHT_IDS`. `force` re-runs every probe rather than

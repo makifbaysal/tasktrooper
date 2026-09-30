@@ -204,3 +204,87 @@ describe("AgentChatPage sidebar title refresh", () => {
     expect(screen.queryByText("Rex ile sohbet")).not.toBeInTheDocument();
   });
 });
+
+describe("AgentChatPage server-driven typing indicator and focus refresh", () => {
+  const session = {
+    id: "session-1",
+    title: "Rex ile sohbet",
+    model: "",
+    agent_id: "agent-1",
+    created_at: "2026-09-23T10:00:00Z",
+    updated_at: "2026-09-23T10:00:00Z",
+  };
+  const runningRun = {
+    id: "run-1",
+    request_id: "req-1",
+    status: "running",
+    started_at: "2026-09-23T10:00:00Z",
+  };
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getAgent.mockReset().mockResolvedValue(agent);
+    listFiles.mockReset().mockResolvedValue({ files: [] });
+    listAgents.mockReset().mockResolvedValue({ agents: [] });
+    listInitiativeProjects.mockReset().mockResolvedValue({ projects: [] });
+    listRepositories.mockReset().mockResolvedValue({ repositories: [] });
+    listAgentSessions.mockReset().mockResolvedValue({ sessions: [session] });
+    getSession.mockReset().mockResolvedValue({ session, messages: [], actions: [] });
+    activeRuns.mockReset().mockResolvedValue({ runs: [] });
+  });
+
+  it("shows the typing indicator immediately when the server reports an active run on a fresh mount", async () => {
+    sessionActivity.mockReset().mockResolvedValue({ runs: [runningRun] });
+
+    renderChatPage("/agents/agent-1/chat/session-1");
+
+    expect(await screen.findByLabelText("Assistant is typing")).toBeInTheDocument();
+  });
+
+  it("does not show the typing indicator when the server's run is already finished", async () => {
+    sessionActivity.mockReset().mockResolvedValue({ runs: [{ ...runningRun, status: "completed" }] });
+
+    renderChatPage("/agents/agent-1/chat/session-1");
+
+    await waitFor(() => expect(sessionActivity).toHaveBeenCalled());
+    expect(screen.queryByLabelText("Assistant is typing")).not.toBeInTheDocument();
+  });
+
+  it("refreshes the message list and session activity when the window regains focus", async () => {
+    sessionActivity.mockReset().mockResolvedValue({ runs: [] });
+
+    renderChatPage("/agents/agent-1/chat/session-1");
+
+    await waitFor(() => expect(getSession).toHaveBeenCalled());
+    await waitFor(() => expect(sessionActivity).toHaveBeenCalled());
+    const getSessionCallsBeforeFocus = getSession.mock.calls.length;
+    const sessionActivityCallsBeforeFocus = sessionActivity.mock.calls.length;
+
+    fireEvent.focus(window);
+
+    await waitFor(() =>
+      expect(getSession.mock.calls.length).toBeGreaterThan(getSessionCallsBeforeFocus),
+    );
+    await waitFor(() =>
+      expect(sessionActivity.mock.calls.length).toBeGreaterThan(sessionActivityCallsBeforeFocus),
+    );
+  });
+
+  it("reports and clears chat focus on the desktop bridge as the session mounts and unmounts", async () => {
+    sessionActivity.mockReset().mockResolvedValue({ runs: [] });
+    const reportChatFocus = vi.fn();
+    window.__tasktrooperDesktop = { runner: { reportChatFocus } as never };
+
+    const { unmount } = renderChatPage("/agents/agent-1/chat/session-1");
+
+    await waitFor(() =>
+      expect(reportChatFocus).toHaveBeenCalledWith({ agentId: "agent-1", sessionId: "session-1" }),
+    );
+
+    unmount();
+
+    expect(reportChatFocus).toHaveBeenLastCalledWith(null);
+
+    delete window.__tasktrooperDesktop;
+  });
+});
