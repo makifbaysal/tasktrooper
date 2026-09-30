@@ -41,6 +41,7 @@ export function defaultSettings(): UserSettings {
       humanUat: true,
       humanNeeded: true,
       agentComments: true,
+      agentChatReplies: true,
     },
   };
 }

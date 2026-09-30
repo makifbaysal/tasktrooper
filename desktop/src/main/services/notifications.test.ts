@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationPreferences } from "../../ipc/types.js";
 import {
+  type ActiveChatSnapshot,
+  diffChatCompletions,
   diffForNotifications,
   hasActiveRun,
   NotificationWatcher,
   POLL_INTERVAL_MS,
+  type RemoteActiveRun,
   type RemoteActivityItem,
   type RemoteTask,
 } from "./notifications.js";
@@ -25,7 +28,14 @@ vi.mock("electron", () => ({
 }));
 
 function allOn(): NotificationPreferences {
-  return { enabled: true, analizReview: true, humanUat: true, humanNeeded: true, agentComments: true };
+  return {
+    enabled: true,
+    analizReview: true,
+    humanUat: true,
+    humanNeeded: true,
+    agentComments: true,
+    agentChatReplies: true,
+  };
 }
 
 function task(overrides: Partial<RemoteTask> & Pick<RemoteTask, "id" | "key">): RemoteTask {
@@ -144,6 +154,79 @@ describe("hasActiveRun", () => {
   });
 });
 
+describe("diffChatCompletions", () => {
+  const chatRun = (overrides: Partial<RemoteActiveRun> = {}): RemoteActiveRun => ({
+    id: "r1",
+    session_id: "s1",
+    agent_id: "a1",
+    title: "Refactor the auth flow",
+    ...overrides,
+  });
+
+  function running(run: RemoteActiveRun): ActiveChatSnapshot {
+    return diffChatCompletions(new Map(), [run], null, false, allOn()).nextSnapshot;
+  }
+
+  it("does not notify while the session is still running", () => {
+    const result = diffChatCompletions(new Map(), [chatRun()], null, false, allOn());
+    expect(result.toNotify).toEqual([]);
+    expect(result.nextSnapshot.get("s1")).toEqual({ agentId: "a1", title: "Refactor the auth flow" });
+  });
+
+  it("suppresses the notification when the window is focused on that exact chat", () => {
+    const prev = running(chatRun());
+    const result = diffChatCompletions(prev, [], { agentId: "a1", sessionId: "s1" }, true, allOn());
+    expect(result.toNotify).toEqual([]);
+  });
+
+  it("notifies when the window is unfocused/backgrounded, even if that chat was the one open", () => {
+    const prev = running(chatRun());
+    const result = diffChatCompletions(prev, [], { agentId: "a1", sessionId: "s1" }, false, allOn());
+    expect(result.toNotify).toEqual([
+      {
+        taskId: "s1",
+        title: "Refactor the auth flow",
+        body: "The agent finished replying.",
+        route: "/agents/a1/chat/s1",
+      },
+    ]);
+  });
+
+  it("notifies when the window is focused but on a different screen or session", () => {
+    const prev = running(chatRun());
+
+    const differentSession = diffChatCompletions(prev, [], { agentId: "a1", sessionId: "s2" }, true, allOn());
+    expect(differentSession.toNotify).toHaveLength(1);
+
+    const noChatOpen = diffChatCompletions(prev, [], null, true, allOn());
+    expect(noChatOpen.toNotify).toHaveLength(1);
+  });
+
+  it("falls back to a generic title when the session has none yet", () => {
+    const prev = running(chatRun({ title: undefined }));
+    const result = diffChatCompletions(prev, [], null, false, allOn());
+    expect(result.toNotify).toEqual([
+      { taskId: "s1", title: "Agent chat", body: "The agent finished replying.", route: "/agents/a1/chat/s1" },
+    ]);
+  });
+
+  it("respects the agentChatReplies preference", () => {
+    const prev = running(chatRun());
+    const prefs: NotificationPreferences = { ...allOn(), agentChatReplies: false };
+    const result = diffChatCompletions(prev, [], null, false, prefs);
+    expect(result.toNotify).toEqual([]);
+  });
+
+  it("does not notify for a board-task run without a session/agent id", () => {
+    const boardRun: RemoteActiveRun = { id: "r2" };
+    const seeded = diffChatCompletions(new Map(), [boardRun], null, false, allOn());
+    expect(seeded.nextSnapshot.size).toBe(0);
+
+    const result = diffChatCompletions(seeded.nextSnapshot, [], null, false, allOn());
+    expect(result.toNotify).toEqual([]);
+  });
+});
+
 /**
  * The suspension guard, exercised through `NotificationWatcher#tick` rather
  * than in isolation: what matters is that `/v1/activity/active` actually
@@ -190,6 +273,7 @@ describe("NotificationWatcher — prevent-app-suspension", () => {
       apiToken: () => "token",
       getPreferences: prefs,
       onNotificationClick: () => {},
+      isWindowFocused: () => false,
     });
 
     watcher.start();
@@ -206,6 +290,7 @@ describe("NotificationWatcher — prevent-app-suspension", () => {
       apiToken: () => "token",
       getPreferences: prefs,
       onNotificationClick: () => {},
+      isWindowFocused: () => false,
     });
 
     watcher.start();
@@ -241,6 +326,7 @@ describe("NotificationWatcher — prevent-app-suspension", () => {
       apiToken: () => "token",
       getPreferences: prefs,
       onNotificationClick: () => {},
+      isWindowFocused: () => false,
     });
 
     watcher.start();

@@ -178,7 +178,7 @@ export function validateLogsRequest(raw: unknown): HostLogsRequest {
 }
 
 /**
- * The five notification switches, always given together — the settings page
+ * The six notification switches, always given together — the settings page
  * always sends the full object (spread of the current value plus the one
  * field the user just toggled), so there is no partial-merge case to handle
  * here or in `SettingsStore`.
@@ -191,6 +191,7 @@ function asNotifications(value: unknown, what: string): NotificationPreferences 
     humanUat: asBoolean(o.humanUat, `${what}.humanUat`),
     humanNeeded: asBoolean(o.humanNeeded, `${what}.humanNeeded`),
     agentComments: asBoolean(o.agentComments, `${what}.agentComments`),
+    agentChatReplies: asBoolean(o.agentChatReplies, `${what}.agentChatReplies`),
   };
 }
 

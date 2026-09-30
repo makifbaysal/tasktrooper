@@ -122,14 +122,30 @@ func (a *ActivityStore) ListStepsByRun(ctx context.Context, runID uuid.UUID) ([]
 
 func (a *ActivityStore) ListActiveRuns(ctx context.Context) ([]domain.SessionRun, error) {
 	rows, err := a.pool.Query(ctx, `
-		SELECT id, session_id, request_id, status, model, started_at, completed_at
-		FROM session_runs WHERE status = 'running' ORDER BY started_at DESC
+		SELECT sr.id, sr.session_id, sr.request_id, sr.status, sr.model, sr.started_at, sr.completed_at,
+			s.agent_id, s.title
+		FROM session_runs sr
+		LEFT JOIN sessions s ON s.id = sr.session_id
+		WHERE sr.status = 'running' ORDER BY sr.started_at DESC
 	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanRuns(rows)
+	var runs []domain.SessionRun
+	for rows.Next() {
+		var r domain.SessionRun
+		var title *string
+		if err := rows.Scan(&r.ID, &r.SessionID, &r.RequestID, &r.Status, &r.Model, &r.StartedAt, &r.CompletedAt,
+			&r.AgentID, &title); err != nil {
+			return nil, err
+		}
+		if title != nil {
+			r.Title = *title
+		}
+		runs = append(runs, r)
+	}
+	return runs, rows.Err()
 }
 
 func scanRuns(rows interface {

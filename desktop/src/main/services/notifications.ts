@@ -53,6 +53,8 @@ export interface NotificationCandidate {
   taskId: string;
   title: string;
   body: string;
+  /** Where a click should navigate to. `undefined` means the board default. */
+  route?: string;
 }
 
 export interface DiffResult {
@@ -73,6 +75,11 @@ export function hasRunningTask(tasks: RemoteTask[]): boolean {
 
 export interface RemoteActiveRun {
   id: string;
+  // Both present only for an agent-chat run — a board-task run's session has
+  // no agent, and the notification below only ever fires for a chat.
+  session_id?: string | null;
+  agent_id?: string | null;
+  title?: string;
 }
 
 /**
@@ -83,6 +90,65 @@ export interface RemoteActiveRun {
  */
 export function hasActiveRun(runs: RemoteActiveRun[]): boolean {
   return runs.length > 0;
+}
+
+export interface ActiveChatSession {
+  agentId: string;
+  title?: string;
+}
+
+/** Keyed by session id — the identity a chat-turn notification fires about. */
+export type ActiveChatSnapshot = Map<string, ActiveChatSession>;
+
+export interface ChatCompletionDiffResult {
+  toNotify: NotificationCandidate[];
+  nextSnapshot: ActiveChatSnapshot;
+}
+
+/**
+ * Diffs one poll's `/v1/activity/active` against the previous poll's set of
+ * running chat sessions and returns a notification for every session that
+ * dropped out of the running set (the turn finished, one way or another)
+ * since the last tick.
+ *
+ * Unlike `diffForNotifications`, there is no seeding step: a session that was
+ * already running at launch and finishes on the very next tick genuinely just
+ * finished from this watcher's point of view, and should notify like any
+ * other completion.
+ */
+export function diffChatCompletions(
+  prevSnapshot: ActiveChatSnapshot,
+  runs: RemoteActiveRun[],
+  focusedChat: { agentId: string; sessionId: string } | null,
+  isWindowFocused: boolean,
+  prefs: NotificationPreferences,
+): ChatCompletionDiffResult {
+  const nextSnapshot: ActiveChatSnapshot = new Map();
+  for (const run of runs) {
+    if (!run.session_id || !run.agent_id) continue;
+    nextSnapshot.set(run.session_id, { agentId: run.agent_id, title: run.title });
+  }
+
+  const toNotify: NotificationCandidate[] = [];
+  if (prefs.agentChatReplies) {
+    for (const [sessionId, session] of prevSnapshot) {
+      if (nextSnapshot.has(sessionId)) continue;
+
+      // The only case a chat-turn notification is suppressed: the window is
+      // focused AND that exact session's chat screen is the one on screen.
+      const onScreen = isWindowFocused && focusedChat?.agentId === session.agentId && focusedChat.sessionId === sessionId;
+      if (onScreen) continue;
+
+      toNotify.push({
+        taskId: sessionId,
+        title: session.title ? truncate(session.title) : "Agent chat",
+        body: "The agent finished replying.",
+        route: `/agents/${session.agentId}/chat/${sessionId}`,
+      });
+    }
+  }
+
+  return { toNotify, nextSnapshot };
 }
 
 function truncate(s: string, max = BODY_MAX): string {
@@ -187,7 +253,9 @@ export interface NotificationWatcherOptions {
   apiBase: () => string | null;
   apiToken: () => string | null;
   getPreferences: () => NotificationPreferences;
-  onNotificationClick: () => void;
+  onNotificationClick: (route?: string) => void;
+  /** Whether the shell's own window currently has OS focus. */
+  isWindowFocused: () => boolean;
 }
 
 /**
@@ -216,6 +284,9 @@ export class NotificationWatcher {
   // chat-turn notification checks it before firing, the same way
   // `hasRunningTask` already gates the wake blocker above.
   #focusedChat: { agentId: string; sessionId: string } | null = null;
+  // The running chat sessions as of the last tick, so the next one can tell
+  // which ones dropped out (finished) since then.
+  #chatSnapshot: ActiveChatSnapshot = new Map();
 
   constructor(private readonly options: NotificationWatcherOptions) {}
 
@@ -319,10 +390,19 @@ export class NotificationWatcher {
     this.#snapshot = nextSnapshot;
     this.#cursor = nextCursor;
 
+    const chatDiff = diffChatCompletions(
+      this.#chatSnapshot,
+      activeRuns,
+      this.#focusedChat,
+      this.options.isWindowFocused(),
+      prefs,
+    );
+    this.#chatSnapshot = chatDiff.nextSnapshot;
+
     if (!prefs.enabled || !Notification.isSupported()) return;
-    for (const candidate of toNotify) {
+    for (const candidate of [...toNotify, ...chatDiff.toNotify]) {
       const notification = new Notification({ title: candidate.title, body: candidate.body });
-      notification.on("click", this.options.onNotificationClick);
+      notification.on("click", () => this.options.onNotificationClick(candidate.route));
       notification.show();
     }
   }

@@ -76,6 +76,7 @@ export const tr: Dict = {
       humanUat: "UAT'ını bekliyor",
       humanNeeded: "Bir agent insan kararına ihtiyaç duyuyor",
       agentComments: "Yeni agent yorumları",
+      agentChatReplies: "Agent sohbet cevapları",
       loadFailed: "Ayarlar yüklenemedi",
       saveFailed: "Kaydetme başarısız",
     },

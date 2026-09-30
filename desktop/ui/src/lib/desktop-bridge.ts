@@ -97,6 +97,7 @@ export interface DesktopNotificationPreferences {
   humanUat: boolean;
   humanNeeded: boolean;
   agentComments: boolean;
+  agentChatReplies: boolean;
 }
 
 export interface DesktopSettings {

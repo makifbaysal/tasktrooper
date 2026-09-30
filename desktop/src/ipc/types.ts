@@ -175,6 +175,8 @@ export interface NotificationPreferences {
   humanUat: boolean;
   humanNeeded: boolean;
   agentComments: boolean;
+  /** A chat turn finished replying while nobody was looking at that session. */
+  agentChatReplies: boolean;
 }
 
 /**

@@ -68,7 +68,8 @@ const notifications = new NotificationWatcher({
   apiBase: () => supervisor.apiBase ?? null,
   apiToken: () => secrets?.api_token ?? null,
   getPreferences: () => settingsStore.get().notifications,
-  onNotificationClick: () => showWindow("/board"),
+  onNotificationClick: (route) => showWindow(route ?? "/board"),
+  isWindowFocused: () => shellWindow.window?.isFocused() ?? false,
 });
 
 /**

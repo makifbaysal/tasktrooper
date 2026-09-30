@@ -77,6 +77,7 @@ export const en = {
       humanUat: "Awaiting your UAT",
       humanNeeded: "An agent needs a human decision",
       agentComments: "New agent comments",
+      agentChatReplies: "Agent chat replies",
       loadFailed: "Failed to load settings",
       saveFailed: "Failed to save",
     },

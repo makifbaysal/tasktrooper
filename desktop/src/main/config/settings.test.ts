@@ -27,6 +27,7 @@ describe("SettingsStore notifications", () => {
       humanUat: true,
       humanNeeded: true,
       agentComments: true,
+      agentChatReplies: true,
     });
   });
 
@@ -43,6 +44,7 @@ describe("SettingsStore notifications", () => {
       humanUat: false,
       humanNeeded: true,
       agentComments: true,
+      agentChatReplies: true,
     });
   });
 

@@ -17,6 +17,7 @@ const NOTIFICATIONS = {
   humanUat: false,
   humanNeeded: true,
   agentComments: true,
+  agentChatReplies: true,
 };
 
 /**

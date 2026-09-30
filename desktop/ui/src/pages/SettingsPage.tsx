@@ -12,7 +12,13 @@ import { Switch } from "@/components/ui/switch";
 import { tStatic, useI18n, type Lang } from "@/hooks/useI18n";
 import { desktopRunner, type DesktopNotificationPreferences } from "@/lib/desktop-bridge";
 
-const NOTIFICATION_CATEGORY_FIELDS = ["analizReview", "humanUat", "humanNeeded", "agentComments"] as const;
+const NOTIFICATION_CATEGORY_FIELDS = [
+  "analizReview",
+  "humanUat",
+  "humanNeeded",
+  "agentComments",
+  "agentChatReplies",
+] as const;
 type NotificationCategoryField = (typeof NOTIFICATION_CATEGORY_FIELDS)[number];
 
 const languageOptions = [

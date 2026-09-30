@@ -23,8 +23,14 @@ const (
 )
 
 type SessionRun struct {
-	ID          uuid.UUID  `json:"id"`
-	SessionID   *uuid.UUID `json:"session_id,omitempty"`
+	ID        uuid.UUID  `json:"id"`
+	SessionID *uuid.UUID `json:"session_id,omitempty"`
+	// AgentID and Title come from the owning session, not session_runs itself
+	// (see ActivityStore.ListActiveRuns) — the desktop shell needs them to
+	// build a chat-turn notification and its /agents/:agentId/chat/:sessionId
+	// route without a second round trip per run.
+	AgentID     *uuid.UUID `json:"agent_id,omitempty"`
+	Title       string     `json:"title,omitempty"`
 	RequestID   string     `json:"request_id"`
 	Status      string     `json:"status"`
 	Model       string     `json:"model,omitempty"`
