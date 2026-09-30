@@ -118,6 +118,14 @@ export const CLOUD_CHANNELS = {
   openExternal: "cloud:open-external",
 
   /**
+   * Which agent-chat session, if any, is on screen right now — the main
+   * process cannot see the SPA's own router, so the page has to say. Fired on
+   * mount/session-change and on unmount with `null`; it is not a request/
+   * response the page waits on, just a fact for the shell to keep.
+   */
+  chatReportFocus: "cloud:chat:report-focus",
+
+  /**
    * The environment preflight — what this Mac can and cannot do, item by item,
    * with the sentence that fixes each one.
    *
@@ -156,6 +164,12 @@ export interface RevealRequest {
 
 export interface OpenExternalRequest {
   url: string;
+}
+
+/** `null`/`null` means no chat screen is open. */
+export interface ChatFocusRequest {
+  agentId: string | null;
+  sessionId: string | null;
 }
 
 export interface ChooseDirectoryRequest {

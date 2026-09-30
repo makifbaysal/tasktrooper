@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ValidationError,
+  validateChatFocus,
   validateChooseDirectory,
   validateOpenExternal,
   validateOverrides,
@@ -75,6 +76,42 @@ describe("validateOpenExternal", () => {
 
   it("refuses a url with a control character", () => {
     expect(() => validateOpenExternal({ url: "https://example.com\n/evil" })).toThrow(ValidationError);
+  });
+});
+
+describe("validateChatFocus", () => {
+  it("accepts a matched agent and session id", () => {
+    expect(validateChatFocus({ agentId: "agent-1", sessionId: "session-1" })).toEqual({
+      agentId: "agent-1",
+      sessionId: "session-1",
+    });
+  });
+
+  it("accepts both fields null, meaning no chat screen is open", () => {
+    expect(validateChatFocus({ agentId: null, sessionId: null })).toEqual({ agentId: null, sessionId: null });
+  });
+
+  it("refuses one id set without the other", () => {
+    const refused: unknown[] = [
+      { agentId: "agent-1", sessionId: null },
+      { agentId: null, sessionId: "session-1" },
+    ];
+    for (const payload of refused) {
+      expect(() => validateChatFocus(payload), JSON.stringify(payload)).toThrow(ValidationError);
+    }
+  });
+
+  it("refuses an empty, missing or non-string id", () => {
+    const refused: unknown[] = [
+      undefined,
+      null,
+      {},
+      { agentId: "", sessionId: "session-1" },
+      { agentId: "agent-1", sessionId: 3 },
+    ];
+    for (const payload of refused) {
+      expect(() => validateChatFocus(payload), JSON.stringify(payload) ?? "undefined").toThrow(ValidationError);
+    }
   });
 });
 

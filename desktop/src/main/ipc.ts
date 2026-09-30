@@ -18,6 +18,7 @@ import type {
 } from "../ipc/types.js";
 import {
   ValidationError,
+  validateChatFocus,
   validateChooseDirectory,
   validateDiagnosticsRequest,
   validateLogsRequest,
@@ -89,6 +90,7 @@ export interface IpcServices {
   chooseDirectory(options?: ChooseDirectoryRequest): Promise<string | null>;
   reveal(what: "workspace" | "previous-workspace" | "logs"): void;
   openExternal(url: string): boolean;
+  reportChatFocus(focus: { agentId: string | null; sessionId: string | null }): void;
 
   preflight(force: boolean): Promise<PreflightReport>;
   diagnostics(force: boolean): Promise<Diagnostics>;
@@ -222,6 +224,9 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
     services.reveal(validateReveal(payload).what);
   });
   cloud(CLOUD_CHANNELS.openExternal, (payload) => services.openExternal(validateOpenExternal(payload).url));
+  cloud(CLOUD_CHANNELS.chatReportFocus, (payload) => {
+    services.reportChatFocus(validateChatFocus(payload));
+  });
 
   cloud(CLOUD_CHANNELS.preflight, (payload) => services.preflight(validatePreflightRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.diagnostics, (payload) => services.diagnostics(validateDiagnosticsRequest(payload).force ?? false));

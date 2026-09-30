@@ -16,6 +16,7 @@
 
 import { CHILD_IDS, type ChildId, type NotificationPreferences, type UserSettings } from "./types.js";
 import type {
+  ChatFocusRequest,
   ChooseDirectoryRequest,
   DiagnosticsRequest,
   OpenExternalRequest,
@@ -112,6 +113,21 @@ export function validateReveal(raw: unknown): RevealRequest {
 export function validateOpenExternal(raw: unknown): OpenExternalRequest {
   const o = asRecord(raw, "openExternal");
   return { url: asCleanNonEmpty(o.url, "openExternal.url") };
+}
+
+/**
+ * Both fields null (no chat open) or both non-empty ids — never one of each,
+ * since a session id with no agent id (or the reverse) is not a screen this
+ * app can render.
+ */
+export function validateChatFocus(raw: unknown): ChatFocusRequest {
+  const o = asRecord(raw, "chatFocus");
+  const agentId = o.agentId === null ? null : asCleanNonEmpty(o.agentId, "chatFocus.agentId", { max: 256 });
+  const sessionId = o.sessionId === null ? null : asCleanNonEmpty(o.sessionId, "chatFocus.sessionId", { max: 256 });
+  if ((agentId === null) !== (sessionId === null)) {
+    fail("chatFocus: agentId and sessionId must both be null or both set");
+  }
+  return { agentId, sessionId };
 }
 
 export function validateDiagnosticsRequest(raw: unknown): DiagnosticsRequest {

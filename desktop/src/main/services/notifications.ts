@@ -192,8 +192,21 @@ export class NotificationWatcher {
   // one thing polling `/v1/tasks` every tick — a second poller would just be
   // this one's data fetched twice.
   #wakeBlockerId: number | null = null;
+  // Which agent-chat session the page reports as on screen, if any. Not yet
+  // read anywhere in this class — a future chat-turn notification would check
+  // it before firing, the same way `hasRunningTask` already gates the wake
+  // blocker above.
+  #focusedChat: { agentId: string; sessionId: string } | null = null;
 
   constructor(private readonly options: NotificationWatcherOptions) {}
+
+  setFocusedChat(focus: { agentId: string; sessionId: string } | null): void {
+    this.#focusedChat = focus;
+  }
+
+  get focusedChat(): { agentId: string; sessionId: string } | null {
+    return this.#focusedChat;
+  }
 
   start(): void {
     if (this.#timer) return;
