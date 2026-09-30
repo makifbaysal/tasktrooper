@@ -941,7 +941,8 @@ func (h *Handler) sessionMessageStream(c *fiber.Ctx, sessionID uuid.UUID, req do
 		}
 	}
 	// One `data:` frame, flushed. A write or flush failure here means the client
-	// is gone — every caller has to act on that, not ignore it.
+	// is gone — callers use that to stop writing further frames, not to abort
+	// the run itself (see clientGone below).
 	writeFrame := func(w *bufio.Writer, chunk streamChunkEvent) error {
 		data, _ := json.Marshal(chunk)
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
@@ -969,6 +970,15 @@ func (h *Handler) sessionMessageStream(c *fiber.Ctx, sessionID uuid.UUID, req do
 	c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
 		defer streamCancel()
 
+		// A write failure here means the client is gone, but the run must not
+		// be cancelled for it: the answer is still worth producing and
+		// persisting even if nobody is left to read this stream — a client
+		// that reconnects later gets it from GET /v1/sessions/:id instead.
+		// Only a real user stop (POST .../cancel, handle.stop()) aborts a run.
+		// clientGone just stops further write attempts on a pipe already
+		// known to be broken.
+		var clientGone bool
+
 		var err error
 		if orchestrated {
 			var resp domain.AgentResponse
@@ -977,7 +987,7 @@ func (h *Handler) sessionMessageStream(c *fiber.Ctx, sessionID uuid.UUID, req do
 				if writeErr := writeFrame(w, newChunk(streamChoiceEvent{
 					Index: 0, Delta: streamDeltaEvent{Content: resp.Message.Content},
 				})); writeErr != nil {
-					return
+					clientGone = true
 				}
 			}
 		} else {
@@ -988,21 +998,29 @@ func (h *Handler) sessionMessageStream(c *fiber.Ctx, sessionID uuid.UUID, req do
 			// client can only show them as one message and then drop the first half
 			// when the real reply is committed.
 			segmented := agent.WithSegmentBreak(streamCtx, func() {
+				if clientGone {
+					return
+				}
 				if writeErr := writeFrame(w, newChunk(streamChoiceEvent{
 					Index: 0, Delta: streamDeltaEvent{Phase: "reasoning_end"},
 				})); writeErr != nil {
-					streamCancel()
+					clientGone = true
 				}
 			})
 			_, err = h.sessionSvc.SendMessageStream(segmented, sessionID, req, policy, func(token string) {
+				if clientGone {
+					return
+				}
 				if writeErr := writeFrame(w, newChunk(streamChoiceEvent{
 					Index: 0, Delta: streamDeltaEvent{Content: token},
 				})); writeErr != nil {
-					// The client is gone. Without this the agent loop kept running —
-					// and kept spending the user's budget — on a stream nobody reads.
-					streamCancel()
+					clientGone = true
 				}
 			})
+		}
+
+		if clientGone {
+			return
 		}
 
 		// A turn the user stopped is not a failure, so it must not go out as an

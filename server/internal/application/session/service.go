@@ -370,7 +370,13 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	runCtx, cancelRun := context.WithCancel(runCtx)
+	// The caller's ctx can die under this turn — a dropped connection, a torn
+	// down request scope — well before the agent is done producing an answer.
+	// WithoutCancel keeps every value on runCtx (workspace dir, request id,
+	// recorder, ...) while detaching it from that: from here on, only a real
+	// user stop (registerRun's cancelRun, driven by CancelSession/handle.stop)
+	// may end the run early.
+	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(runCtx))
 	defer cancelRun()
 	handle, deregister := s.registerRun(sessionID, rec.RunID(), cancelRun)
 	defer deregister()
@@ -479,6 +485,11 @@ func (s *Service) maybeAutoTitle(ctx context.Context, sess domain.Session, sessi
 	}
 }
 
+// The context this turn ran on may already be cancelled by the time we get
+// here — a dropped client connection, a torn-down request scope — so the
+// write always runs on its own detached, timed-out context (persistCtx)
+// rather than the caller's. Otherwise a cancelled ctx silently drops the
+// AppendMessage write and the answer the agent already produced is lost.
 func (s *Service) persistAssistantResponse(ctx context.Context, sessionID uuid.UUID, resp domain.AgentResponse) {
 	if strings.TrimSpace(resp.Message.Content) == "" && len(resp.Message.ToolCalls) == 0 && resp.Clarification == nil {
 		log.Warn().Str("session_id", sessionID.String()).Msg("assistant produced an empty turn; not persisting it")
@@ -489,7 +500,9 @@ func (s *Service) persistAssistantResponse(ctx context.Context, sessionID uuid.U
 	if resp.Clarification != nil {
 		clarificationJSON, _ = json.Marshal(resp.Clarification)
 	}
-	_, _ = s.store.AppendMessage(ctx, sessionID, resp.Message.Role, resp.Message.Content, toolCallsJSON, clarificationJSON)
+	writeCtx, cancel := persistCtx(ctx)
+	defer cancel()
+	_, _ = s.store.AppendMessage(writeCtx, sessionID, resp.Message.Role, resp.Message.Content, toolCallsJSON, clarificationJSON)
 }
 
 func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy, onToken func(string)) (resp domain.AgentResponse, err error) {
@@ -562,7 +575,13 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	runCtx, cancelRun := context.WithCancel(runCtx)
+	// The caller's ctx can die under this turn — a dropped connection, a torn
+	// down request scope — well before the agent is done producing an answer.
+	// WithoutCancel keeps every value on runCtx (workspace dir, request id,
+	// recorder, ...) while detaching it from that: from here on, only a real
+	// user stop (registerRun's cancelRun, driven by CancelSession/handle.stop)
+	// may end the run early.
+	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(runCtx))
 	defer cancelRun()
 	handle, deregister := s.registerRun(sessionID, rec.RunID(), cancelRun)
 	defer deregister()
@@ -880,21 +899,26 @@ func (s *Service) parkTurnOnQuota(ctx context.Context, sessionID uuid.UUID, req 
 	return notice
 }
 
+// Same detached-context reasoning as persistAssistantResponse: this runs on
+// the error path of a turn whose ctx may already be cancelled (a dropped SSE
+// connection), so the note must not be lost with it.
 func (s *Service) appendAssistantError(ctx context.Context, sessionID uuid.UUID, err error) {
 	if err == nil {
 		return
 	}
+	writeCtx, cancel := persistCtx(ctx)
+	defer cancel()
 
 	if rl, ok := domain.RateLimitOf(err); ok {
-		_, _ = s.store.AppendMessage(ctx, sessionID, domain.RoleAssistant, domain.RateLimitNoticePrefix+" "+rl.UserMessage(), nil, nil)
+		_, _ = s.store.AppendMessage(writeCtx, sessionID, domain.RoleAssistant, domain.RateLimitNoticePrefix+" "+rl.UserMessage(), nil, nil)
 		return
 	}
 
 	if _, ok := domain.QuotaBlockOf(err); ok {
-		_, _ = s.store.AppendMessage(ctx, sessionID, domain.RoleAssistant, domain.RateLimitNoticePrefix+" "+err.Error(), nil, nil)
+		_, _ = s.store.AppendMessage(writeCtx, sessionID, domain.RoleAssistant, domain.RateLimitNoticePrefix+" "+err.Error(), nil, nil)
 		return
 	}
-	_, _ = s.store.AppendMessage(ctx, sessionID, domain.RoleAssistant, fmt.Sprintf("**Error:** %s", err.Error()), nil, nil)
+	_, _ = s.store.AppendMessage(writeCtx, sessionID, domain.RoleAssistant, fmt.Sprintf("**Error:** %s", err.Error()), nil, nil)
 }
 
 func (s *Service) validateCreateRequest(ctx context.Context, req domain.CreateSessionRequest) error {

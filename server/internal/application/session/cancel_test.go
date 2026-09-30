@@ -21,6 +21,13 @@ type cancelSessionStore struct {
 	port.SessionStore
 	session domain.Session
 
+	// rejectCancelledCtx makes AppendMessage fail the write when the ctx it
+	// receives is already done — the shape a raw, un-detached ctx would have
+	// if a dropped SSE connection cancelled it out from under a still-running
+	// turn. It catches a caller that passes that ctx straight to the store
+	// instead of a persistCtx-derived one.
+	rejectCancelledCtx bool
+
 	mu       sync.Mutex
 	appended []domain.SessionMessage
 }
@@ -37,13 +44,16 @@ func (s *cancelSessionStore) ListMessages(context.Context, uuid.UUID) ([]domain.
 }
 
 func (s *cancelSessionStore) AppendMessage(
-	_ context.Context,
+	ctx context.Context,
 	sessionID uuid.UUID,
 	role domain.Role,
 	content string,
 	_ []byte,
 	_ []byte,
 ) (domain.SessionMessage, error) {
+	if s.rejectCancelledCtx && ctx.Err() != nil {
+		return domain.SessionMessage{}, ctx.Err()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	msg := domain.SessionMessage{ID: uuid.New(), SessionID: sessionID, Role: role, Content: content}

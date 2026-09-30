@@ -236,9 +236,7 @@ func (s *Service) persistCancelledTurn(ctx context.Context, sessionID uuid.UUID,
 	if partial == "" {
 		return
 	}
-	writeCtx, cancel := persistCtx(ctx)
-	defer cancel()
-	s.persistAssistantResponse(writeCtx, sessionID, domain.AgentResponse{
+	s.persistAssistantResponse(ctx, sessionID, domain.AgentResponse{
 		Message: domain.Message{Role: domain.RoleAssistant, Content: partial},
 	})
 }
