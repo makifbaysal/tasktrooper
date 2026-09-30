@@ -285,7 +285,8 @@ export class NotificationWatcher {
       const activeRunsBody = (await activeRunsRes.json()) as { runs: RemoteActiveRun[] };
       tasks = tasksBody.tasks;
       activityItems = activityBody.items;
-      activeRuns = activeRunsBody.runs;
+      // The endpoint serializes an empty Go slice as `null`, not `[]`.
+      activeRuns = activeRunsBody.runs ?? [];
     } catch {
       // A network blip or a backend mid-restart is "try again next tick", not
       // a reason to treat the next real poll as a seed.

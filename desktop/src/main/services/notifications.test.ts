@@ -160,7 +160,11 @@ describe("NotificationWatcher — prevent-app-suspension", () => {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
     }
     if (url.endsWith("/v1/activity/active")) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ runs: activeRuns }) });
+      // The real backend serializes an empty Go slice as `null`, not `[]` —
+      // reproduce that here rather than the friendlier `[]` a naive mock
+      // would return, since that is exactly what let the null-handling bug
+      // through review once already.
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ runs: activeRuns.length > 0 ? activeRuns : null }) });
     }
     throw new Error(`unexpected fetch: ${url}`);
   }
@@ -212,6 +216,40 @@ describe("NotificationWatcher — prevent-app-suspension", () => {
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
 
     expect(powerSaveBlockerStop).toHaveBeenCalledWith(7);
+    watcher.stop();
+  });
+
+  // Regression: `/v1/activity/active` answering `{"runs":null}` (the real
+  // shape once no run is in flight) used to throw inside `#tick` on
+  // `null.length`, which — because the throw happened before the tasks/
+  // activity fetch results were ever diffed — also silently stopped board
+  // notifications (analiz review, human UAT, comments) from firing.
+  it("tolerates runs:null without throwing and keeps polling board tasks", async () => {
+    activeRuns = [];
+    let tasksPolled = 0;
+    const originalFetch = fetchMock;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/v1/tasks")) tasksPolled += 1;
+        return originalFetch(url);
+      }),
+    );
+
+    const watcher = new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1234",
+      apiToken: () => "token",
+      getPreferences: prefs,
+      onNotificationClick: () => {},
+    });
+
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+
+    expect(tasksPolled).toBeGreaterThanOrEqual(3);
+    expect(powerSaveBlockerStart).not.toHaveBeenCalledWith("prevent-app-suspension");
     watcher.stop();
   });
 });

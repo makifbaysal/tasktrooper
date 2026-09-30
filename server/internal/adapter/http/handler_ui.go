@@ -271,6 +271,9 @@ func (h *Handler) ActiveRuns(c *fiber.Ctx) error {
 	if err != nil {
 		return internalError(c, err)
 	}
+	if runs == nil {
+		runs = []domain.SessionRun{}
+	}
 	return c.JSON(fiber.Map{"runs": runs, "count": len(runs)})
 }
 
