@@ -71,6 +71,20 @@ export function hasRunningTask(tasks: RemoteTask[]): boolean {
   return tasks.some((task) => task.column === "in_progress");
 }
 
+export interface RemoteActiveRun {
+  id: string;
+}
+
+/**
+ * Whether `GET /v1/activity/active` reports any run in flight — board task or
+ * agent-chat turn alike. Unlike `hasRunningTask`, this also covers a chat
+ * session that has no board task attached, which is exactly the case that
+ * used to let macOS App Nap suspend the process mid-turn.
+ */
+export function hasActiveRun(runs: RemoteActiveRun[]): boolean {
+  return runs.length > 0;
+}
+
 function truncate(s: string, max = BODY_MAX): string {
   if (s.length <= max) return s;
   return `${s.slice(0, max - 1).trimEnd()}…`;
@@ -192,6 +206,12 @@ export class NotificationWatcher {
   // one thing polling `/v1/tasks` every tick — a second poller would just be
   // this one's data fetched twice.
   #wakeBlockerId: number | null = null;
+  // A second, separate blocker: `prevent-display-sleep` (above) only keeps the
+  // screen on, which does nothing for a minimized/backgrounded window macOS
+  // can still App-Nap into suspension. `prevent-app-suspension` is what
+  // actually keeps this process's JS running while any run — board task or
+  // agent chat — is in flight.
+  #suspensionBlockerId: number | null = null;
 
   constructor(private readonly options: NotificationWatcherOptions) {}
 
@@ -208,6 +228,7 @@ export class NotificationWatcher {
     // polling, app quitting) — holding the blocker past that point has no
     // signal left that could ever release it.
     this.#releaseWakeBlocker();
+    this.#releaseSuspensionBlocker();
   }
 
   #syncWakeGuard(tasks: RemoteTask[]): void {
@@ -225,23 +246,46 @@ export class NotificationWatcher {
     this.#wakeBlockerId = null;
   }
 
+  #syncSuspensionGuard(runs: RemoteActiveRun[]): void {
+    const shouldBlock = hasActiveRun(runs);
+    if (shouldBlock && this.#suspensionBlockerId === null) {
+      // Electron reports a start failure as -1 rather than throwing; treating
+      // it as "unsupported here" instead of storing it keeps a later, real id
+      // (0 is valid) from being mistaken for "not blocked".
+      const id = powerSaveBlocker.start("prevent-app-suspension");
+      if (id >= 0) this.#suspensionBlockerId = id;
+    } else if (!shouldBlock) {
+      this.#releaseSuspensionBlocker();
+    }
+  }
+
+  #releaseSuspensionBlocker(): void {
+    if (this.#suspensionBlockerId === null) return;
+    powerSaveBlocker.stop(this.#suspensionBlockerId);
+    this.#suspensionBlockerId = null;
+  }
+
   async #tick(): Promise<void> {
     const base = this.options.apiBase();
     if (!base) return;
 
     let tasks: RemoteTask[];
     let activityItems: RemoteActivityItem[];
+    let activeRuns: RemoteActiveRun[];
     try {
       const headers = { Authorization: `Bearer ${this.options.apiToken() ?? ""}` };
-      const [tasksRes, activityRes] = await Promise.all([
+      const [tasksRes, activityRes, activeRunsRes] = await Promise.all([
         fetch(`${base}/v1/tasks`, { headers }),
         fetch(`${base}/v1/activity?limit=50`, { headers }),
+        fetch(`${base}/v1/activity/active`, { headers }),
       ]);
-      if (!tasksRes.ok || !activityRes.ok) return;
+      if (!tasksRes.ok || !activityRes.ok || !activeRunsRes.ok) return;
       const tasksBody = (await tasksRes.json()) as { tasks: RemoteTask[] };
       const activityBody = (await activityRes.json()) as { items: RemoteActivityItem[] };
+      const activeRunsBody = (await activeRunsRes.json()) as { runs: RemoteActiveRun[] };
       tasks = tasksBody.tasks;
       activityItems = activityBody.items;
+      activeRuns = activeRunsBody.runs;
     } catch {
       // A network blip or a backend mid-restart is "try again next tick", not
       // a reason to treat the next real poll as a seed.
@@ -249,6 +293,7 @@ export class NotificationWatcher {
     }
 
     this.#syncWakeGuard(tasks);
+    this.#syncSuspensionGuard(activeRuns);
 
     const prefs = this.options.getPreferences();
     const { toNotify, nextSnapshot, nextCursor } = diffForNotifications(

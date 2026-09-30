@@ -131,6 +131,10 @@ class FakeBrowserWindow extends EventEmitter {
     return Promise.resolve();
   }
   show(): void {}
+  hide(): void {
+    this.hidden = true;
+  }
+  hidden = false;
   focus(): void {}
   restore(): void {}
   isMinimized(): boolean {
@@ -162,22 +166,30 @@ const { HOME_ROUTE, Shell, openExternally } = await import("./window.js");
 
 interface Harness {
   shell: InstanceType<typeof Shell>;
+  window: FakeBrowserWindow;
   view: FakeView;
   contents: FakeWebContents;
   statuses: CloudStatus[];
   last: () => CloudStatus;
 }
 
-function start(origin = ORIGIN): Harness {
+function start(origin = ORIGIN, quitStarted: () => boolean = () => false): Harness {
   const statuses: CloudStatus[] = [];
-  const shell = new Shell({ origin: () => origin, onCloudStatus: (s) => statuses.push(s) });
+  const shell = new Shell({ origin: () => origin, onCloudStatus: (s) => statuses.push(s), quitStarted });
   shell.create();
   // The web app's view is attached only once the backend answers, which is what
   // the main process signals with serve(). Every case below is about a window
   // that has one.
   shell.serve();
   const view = views.at(-1)!;
-  return { shell, view, contents: view.webContents, statuses, last: () => statuses.at(-1)! };
+  return {
+    shell,
+    window: shell.window as unknown as FakeBrowserWindow,
+    view,
+    contents: view.webContents,
+    statuses,
+    last: () => statuses.at(-1)!,
+  };
 }
 
 beforeEach(() => {
@@ -202,7 +214,7 @@ describe("where the window opens", () => {
    * permanently pointed at nothing, so `create()` alone must not make one.
    */
   it("does not load the web app until the backend has answered", () => {
-    const shell = new Shell({ origin: () => ORIGIN, onCloudStatus: () => {} });
+    const shell = new Shell({ origin: () => ORIGIN, onCloudStatus: () => {}, quitStarted: () => false });
     shell.create();
     expect(views).toHaveLength(0);
     expect(shell.cloudContents).toBeNull();
@@ -219,7 +231,7 @@ describe("where the window opens", () => {
   /** The chrome's offline screen is the only thing on screen if the backend never comes up. */
   it("reports an unavailable backend as a failed load, with the sentence that explains it", () => {
     const statuses: CloudStatus[] = [];
-    const shell = new Shell({ origin: () => ORIGIN, onCloudStatus: (s) => statuses.push(s) });
+    const shell = new Shell({ origin: () => ORIGIN, onCloudStatus: (s) => statuses.push(s), quitStarted: () => false });
     shell.create();
     shell.markUnavailable("The local server did not start.");
     expect(statuses.at(-1)).toMatchObject({ state: "failed", description: "The local server did not start." });
@@ -359,6 +371,24 @@ describe("the navigation boundary is unchanged", () => {
     contents.emit("will-navigate", { preventDefault: () => (prevented = true) }, `${ORIGIN}/settings/llm`);
     expect(prevented).toBe(false);
     expect(openedExternally).toEqual([]);
+  });
+});
+
+describe("closing the window", () => {
+  it("hides the window instead of destroying it while quit has not started", () => {
+    const { window } = start(ORIGIN, () => false);
+    let prevented = false;
+    window.emit("close", { preventDefault: () => (prevented = true) });
+    expect(prevented).toBe(true);
+    expect(window.hidden).toBe(true);
+  });
+
+  it("lets the close through once quit.run() has been entered", () => {
+    const { window } = start(ORIGIN, () => true);
+    let prevented = false;
+    window.emit("close", { preventDefault: () => (prevented = true) });
+    expect(prevented).toBe(false);
+    expect(window.hidden).toBe(false);
   });
 });
 

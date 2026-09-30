@@ -1,6 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationPreferences } from "../../ipc/types.js";
-import { diffForNotifications, type RemoteActivityItem, type RemoteTask } from "./notifications.js";
+import {
+  diffForNotifications,
+  hasActiveRun,
+  NotificationWatcher,
+  POLL_INTERVAL_MS,
+  type RemoteActivityItem,
+  type RemoteTask,
+} from "./notifications.js";
+
+const powerSaveBlockerStart = vi.fn<(type: string) => number>();
+const powerSaveBlockerStop = vi.fn<(id: number) => void>();
+
+vi.mock("electron", () => ({
+  Notification: class {
+    static isSupported(): boolean {
+      return false;
+    }
+  },
+  powerSaveBlocker: {
+    start: (type: string) => powerSaveBlockerStart(type),
+    stop: (id: number) => powerSaveBlockerStop(id),
+  },
+}));
 
 function allOn(): NotificationPreferences {
   return { enabled: true, analizReview: true, humanUat: true, humanNeeded: true, agentComments: true };
@@ -112,5 +134,84 @@ describe("diffForNotifications", () => {
     ];
     const result = diffForNotifications(seed.nextSnapshot, after, [], seed.nextCursor, prefs);
     expect(result.toNotify).toEqual([{ taskId: "t2", title: "T-2 — Ready for your review", body: "A task title" }]);
+  });
+});
+
+describe("hasActiveRun", () => {
+  it("is false for an empty run list and true once one exists", () => {
+    expect(hasActiveRun([])).toBe(false);
+    expect(hasActiveRun([{ id: "r1" }])).toBe(true);
+  });
+});
+
+/**
+ * The suspension guard, exercised through `NotificationWatcher#tick` rather
+ * than in isolation: what matters is that `/v1/activity/active` actually
+ * drives `powerSaveBlocker`, not just that `hasActiveRun` computes the right
+ * boolean in a vacuum.
+ */
+describe("NotificationWatcher — prevent-app-suspension", () => {
+  let activeRuns: Array<{ id: string }> = [];
+  const prefs = (): NotificationPreferences => allOn();
+
+  function fetchMock(url: string): Promise<{ ok: boolean; json: () => Promise<unknown> }> {
+    if (url.endsWith("/v1/tasks")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ tasks: [] }) });
+    if (url.endsWith("/v1/activity?limit=50")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
+    }
+    if (url.endsWith("/v1/activity/active")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ runs: activeRuns }) });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }
+
+  beforeEach(() => {
+    activeRuns = [];
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(fetchMock));
+    powerSaveBlockerStart.mockReset();
+    powerSaveBlockerStart.mockReturnValue(7);
+    powerSaveBlockerStop.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("starts prevent-app-suspension once /v1/activity/active reports a run", async () => {
+    activeRuns = [{ id: "r1" }];
+    const watcher = new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1234",
+      apiToken: () => "token",
+      getPreferences: prefs,
+      onNotificationClick: () => {},
+    });
+
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(powerSaveBlockerStart).toHaveBeenCalledWith("prevent-app-suspension");
+    watcher.stop();
+  });
+
+  it("releases prevent-app-suspension once the run list goes empty", async () => {
+    activeRuns = [{ id: "r1" }];
+    const watcher = new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1234",
+      apiToken: () => "token",
+      getPreferences: prefs,
+      onNotificationClick: () => {},
+    });
+
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(powerSaveBlockerStart).toHaveBeenCalledWith("prevent-app-suspension");
+
+    activeRuns = [];
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+
+    expect(powerSaveBlockerStop).toHaveBeenCalledWith(7);
+    watcher.stop();
   });
 });
