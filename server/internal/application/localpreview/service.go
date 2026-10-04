@@ -19,6 +19,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 )
 
 type TaskReader interface {
@@ -96,6 +97,7 @@ func (s *Service) reapStale() {
 type process struct {
 	preview domain.LocalPreview
 	cmd     *exec.Cmd
+	tree    *proctree.Tree
 	done    chan struct{}
 
 	mu      sync.Mutex
@@ -224,9 +226,11 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 		status: domain.LocalPreviewStarting,
 	}
 
-	if err := cmd.Start(); err != nil {
+	tree, err := proctree.Start(cmd)
+	if err != nil {
 		return domain.LocalPreview{}, fmt.Errorf("start %q: %w", command, err)
 	}
+	p.tree = tree
 
 	s.active[repositoryID] = p
 	s.persistLocked()
@@ -322,15 +326,37 @@ func (s *Service) stopProcess(p *process) {
 	if p.cmd.Process == nil || p.exited() {
 		return
 	}
-	pgid := p.cmd.Process.Pid
-	terminateProcessGroup(pgid)
+	terminateProcessGroup(p.cmd.Process.Pid)
 	select {
 	case <-p.done:
-		return
 	case <-time.After(stopGrace):
+		p.tree.Kill()
+		<-p.done
 	}
-	killProcessGroup(pgid)
-	<-p.done
+	p.tree.Close()
+}
+
+// Close stops every active preview and forgets them, so the next boot finds
+// nothing of this process's to reap. Safe to call more than once.
+func (s *Service) Close() {
+	s.mu.Lock()
+	procs := make([]*process, 0, len(s.active))
+	for _, p := range s.active {
+		procs = append(procs, p)
+	}
+	s.active = make(map[uuid.UUID]*process)
+	s.persistLocked()
+	s.mu.Unlock()
+
+	var wg sync.WaitGroup
+	for _, p := range procs {
+		wg.Add(1)
+		go func(p *process) {
+			defer wg.Done()
+			s.stopProcess(p)
+		}(p)
+	}
+	wg.Wait()
 }
 
 // DetectRunCommand returns the shell command to run dir's project locally.

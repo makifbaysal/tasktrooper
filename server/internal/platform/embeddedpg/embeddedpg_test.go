@@ -39,3 +39,25 @@ func TestStartExplainsAnOSLevelExecFailure(t *testing.T) {
 		t.Fatalf("error message is only the generic text, no OS-level detail: %v", err)
 	}
 }
+
+func TestStopAdoptedRunsPgCtlFastStopOnTheDataDir(t *testing.T) {
+	var gotName string
+	var gotArgs []string
+	stopAdopted("/cache", "/data/postgres", func(_ context.Context, name string, args ...string) ([]byte, error) {
+		gotName, gotArgs = name, args
+		return nil, nil
+	})
+	if gotName != pgCtlPath("/cache") {
+		t.Fatalf("name = %q", gotName)
+	}
+	want := "stop -D /data/postgres -m fast -w -t 30"
+	if got := strings.Join(gotArgs, " "); got != want {
+		t.Fatalf("args = %q, want %q", got, want)
+	}
+}
+
+func TestStopAdoptedSurvivesAFailingPgCtl(t *testing.T) {
+	stopAdopted("/cache", "/data/postgres", func(context.Context, string, ...string) ([]byte, error) {
+		return []byte("boom"), errors.New("exit 1")
+	})
+}

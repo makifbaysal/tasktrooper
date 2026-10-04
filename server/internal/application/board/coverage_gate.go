@@ -18,6 +18,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/toolchain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 )
 
 const DefaultCoverageThreshold = 90.0
@@ -118,7 +119,7 @@ func runCoverage(ctx context.Context, dir string, stage *coverageStage, timeout 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	err := cmd.Run()
+	err := runTree(cmd)
 	out := buf.String()
 
 	defer func() {
@@ -325,4 +326,15 @@ func mutationWarning(percent, threshold float64) string {
 		Percent:   fmt.Sprintf("%.1f", percent),
 		Threshold: fmt.Sprintf("%.0f", threshold),
 	})
+}
+
+// runTree runs cmd and kills whatever it left behind, so a test runner's
+// workers cannot outlive the step that started them.
+func runTree(cmd *exec.Cmd) error {
+	tree, err := proctree.Start(cmd)
+	if err != nil {
+		return err
+	}
+	defer tree.Close()
+	return cmd.Wait()
 }

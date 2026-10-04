@@ -1,7 +1,8 @@
 import path from "node:path";
 import { downloadAllWithRetry, MAX_BACKOFF_MS, MIN_BACKOFF_MS } from "./download.js";
 import { loadEngine } from "./engine.js";
-import { createEmbeddingsServer } from "./server.js";
+import { createEmbeddingsServer, DEFAULT_IDLE_UNLOAD_MS } from "./server.js";
+import { armParentWatchdog } from "./watchdog.js";
 
 /**
  * Entrypoint: parse `--cache-dir`, bind a loopback port the OS assigns, print
@@ -61,6 +62,12 @@ async function loadModelForever(cacheDir: string, wasmDir: string) {
   }
 }
 
+function idleUnloadMs(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_IDLE_UNLOAD_MS;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 ? value : DEFAULT_IDLE_UNLOAD_MS;
+}
+
 function main(): void {
   const cacheDir = parseCacheDir(process.argv.slice(2));
 
@@ -69,7 +76,26 @@ function main(): void {
   // than left to onnxruntime-web's relative auto-resolution.
   const wasmDir = __dirname;
 
-  const { server, setEngine } = createEmbeddingsServer();
+  const { server, setEngine } = createEmbeddingsServer({
+    idleUnloadMs: idleUnloadMs(process.env.EMBEDDER_IDLE_UNLOAD_MS),
+    load: () => loadModelForever(cacheDir, wasmDir),
+  });
+
+  let shuttingDown = false;
+  const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    setTimeout(() => process.exit(0), 2_000).unref();
+    server.close(() => process.exit(0));
+    server.closeAllConnections();
+  };
+  armParentWatchdog({
+    env: process.env,
+    stdin: process.stdin,
+    kill: (pid, signal) => process.kill(pid, signal),
+    setInterval,
+    shutdown,
+  });
 
   server.on("error", (err) => {
     process.stderr.write(`[embedder] fatal: HTTP server error: ${err instanceof Error ? err.message : String(err)}\n`);

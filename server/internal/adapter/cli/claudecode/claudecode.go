@@ -14,11 +14,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/activity"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
-	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -52,12 +53,12 @@ func normalizeSettingSources(raw string) string {
 }
 
 type Config struct {
-	Binary string
-	MaxTurns int
-	RunTimeout time.Duration
-	SettingSources string
-	MCP MCPConfig
-	MCPProvider MCPProvider
+	Binary                string
+	MaxTurns              int
+	RunTimeout            time.Duration
+	SettingSources        string
+	MCP                   MCPConfig
+	MCPProvider           MCPProvider
 	MaxConcurrentSessions int
 	// Usage is where every session's token spend is metered, both into the
 	// run's context accumulator and (kind=cli) the usage dashboard. Nil is
@@ -66,17 +67,17 @@ type Config struct {
 }
 
 type Executor struct {
-	bin        string
-	maxTurns   int
-	runTimeout time.Duration
+	bin            string
+	maxTurns       int
+	runTimeout     time.Duration
 	settingSources string
 	mcp            MCPConfig
 	mcpProvider    MCPProvider
 	usage          *usageapp.Meter
-	now func() time.Time
-	sem     chan struct{}
-	slotCap int
-	active int64
+	now            func() time.Time
+	sem            chan struct{}
+	slotCap        int
+	active         int64
 	gateMu         sync.Mutex
 	quotaUntil     time.Time
 	quotaDetail    string
@@ -328,19 +329,19 @@ func (e *Executor) Execute(ctx context.Context, req domain.TaskExecution) (domai
 }
 
 type invocation struct {
-	workDir string
+	workDir         string
 	env             []string
 	systemPrompt    string
 	prompt          string
 	model           string
 	resumeSessionID string
-	maxTurns int
-	effort string
-	tools []string
-	label string
-	mcpPath string
-	trace *core.Trace
-	stream port.ChatStream
+	maxTurns        int
+	effort          string
+	tools           []string
+	label           string
+	mcpPath         string
+	trace           *core.Trace
+	stream          port.ChatStream
 }
 
 func (e *Executor) spawn(ctx context.Context, inv invocation) (session, error) {
@@ -366,9 +367,14 @@ func (e *Executor) spawn(ctx context.Context, inv invocation) (session, error) {
 	stderr := core.NewTailWriter(core.StderrTailMax)
 	cmd.Stderr = stderr
 
-	if err := cmd.Start(); err != nil {
+	tree, err := proctree.Start(cmd)
+	if err != nil {
 		return session{}, fmt.Errorf("start agent cli: %w", err)
 	}
+	defer func() {
+		tree.Terminate(3 * time.Second)
+		tree.Close()
+	}()
 
 	trace := inv.trace
 	if trace == nil {
@@ -392,14 +398,14 @@ func (e *Executor) spawn(ctx context.Context, inv invocation) (session, error) {
 	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 
 	return session{
-		out:             out,
-		trace:           trace,
-		stderrTail:      stderr.String(),
-		parseErr:        parseErr,
-		waitErr:         waitErr,
-		timedOut:        timedOut,
-		initFault:       guard.fault,
-		requestedModel:  inv.model,
+		out:            out,
+		trace:          trace,
+		stderrTail:     stderr.String(),
+		parseErr:       parseErr,
+		waitErr:        waitErr,
+		timedOut:       timedOut,
+		initFault:      guard.fault,
+		requestedModel: inv.model,
 	}, nil
 }
 
@@ -408,7 +414,7 @@ type initGuard struct {
 	label   string
 	require bool
 	cancel  context.CancelFunc
-	fault error
+	fault   error
 }
 
 func (g *initGuard) OnInit(init sessionInit) {
@@ -444,7 +450,7 @@ type session struct {
 	parseErr   error
 	waitErr    error
 	timedOut   bool
-	initFault error
+	initFault  error
 	// requestedModel is the invocation's own model flag, used when the CLI's
 	// init event never reports one (e.g. the session died before init).
 	requestedModel string
@@ -553,7 +559,7 @@ func (f sessionFinisher) finish(ctx context.Context, label string, s session) (d
 
 	if rec := activity.FromContext(ctx); rec != nil {
 		rec.Step("claude_code_result", map[string]any{
-			"subtype": out.Subtype,
+			"subtype":        out.Subtype,
 			"num_turns":      out.NumTurns,
 			"turns":          s.trace.Turns(),
 			"cost_usd":       out.CostUSD,
@@ -572,8 +578,8 @@ func (f sessionFinisher) finish(ctx context.Context, label string, s session) (d
 		Msg("agent cli session finished")
 
 	resp := domain.AgentResponse{
-		Message: domain.Message{Role: domain.RoleAssistant, Content: out.Text},
-		Usage:   out.Usage,
+		Message:      domain.Message{Role: domain.RoleAssistant, Content: out.Text},
+		Usage:        out.Usage,
 		CLISessionID: sessionID,
 	}
 

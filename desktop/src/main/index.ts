@@ -43,7 +43,8 @@ import { openExternally, Shell } from "./window.js";
 // One instance. Two supervisors on one Mac would each start a backend against
 // the same data directory, and embedded Postgres would refuse the second — or,
 // worse, not refuse it.
-if (!app.requestSingleInstanceLock()) app.quit();
+const gotInstanceLock = app.requestSingleInstanceLock();
+if (!gotInstanceLock) app.quit();
 
 const settingsStore = new SettingsStore();
 const secretStore = new SecretStore();
@@ -481,6 +482,10 @@ async function startBackend(): Promise<void> {
 
 app.whenReady().then(
   () => {
+    // app.quit() does not stop this callback; a losing instance must not spawn
+    // a backend or an embedder it would then orphan.
+    if (!gotInstanceLock) return;
+
     // Before any window exists: the first thing the shell does is load a URL in
     // this scheme, and a handler registered after that is a blank frame.
     serveAppScheme();
@@ -499,6 +504,7 @@ app.whenReady().then(
     // child's resolved loopback URL, and a cold model download benefits from
     // every second before that. Never awaited — it never blocks app startup,
     // and the supervisor reports its own failures.
+    void supervisor.reapStale();
     void supervisor.startEmbedder();
 
     // Built before the tray, because the tray renders the update state.
@@ -581,7 +587,10 @@ app.whenReady().then(
       );
     }
   },
-  () => app.exit(1),
+  () => {
+    const giveUp = new Promise<void>((resolve) => setTimeout(resolve, 10_000).unref());
+    void Promise.race([supervisor.drain().then(() => undefined, () => undefined), giveUp]).then(() => app.exit(1));
+  },
 );
 
 // A menu-bar app: closing the window hides the UI, it does not stop the
@@ -603,3 +612,9 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   void quit.run();
 });
+
+// A terminal Ctrl-C, `kill`, or a closing console would otherwise end this
+// process without the drain and leave every detached child running.
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+  process.on(signal, () => void quit.run());
+}

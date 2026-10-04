@@ -3,10 +3,14 @@ package session
 import (
 	"context"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -102,3 +106,10 @@ func errNoChatWorkspace(lang string, provider domain.LLMProviderType) error {
 type chatSetupError struct{ msg string }
 
 func (e *chatSetupError) Error() string { return e.msg }
+
+// withTurnScope scopes processes a turn's tools background (dev servers) to the
+// turn, so they die when it returns instead of outliving it.
+func withTurnScope(ctx context.Context, sessionID uuid.UUID) (context.Context, func()) {
+	scope := "turn:" + sessionID.String() + ":" + uuid.NewString()
+	return proctree.WithScope(ctx, scope), func() { proctree.Default.KillScope(scope, 3*time.Second) }
+}

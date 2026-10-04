@@ -378,6 +378,8 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 	// may end the run early.
 	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(runCtx))
 	defer cancelRun()
+	runCtx, endTurnScope := withTurnScope(runCtx, sessionID)
+	defer endTurnScope()
 	handle, deregister := s.registerRun(sessionID, rec.RunID(), cancelRun)
 	defer deregister()
 	if rec != nil {
@@ -583,6 +585,8 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 	// may end the run early.
 	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(runCtx))
 	defer cancelRun()
+	runCtx, endTurnScope := withTurnScope(runCtx, sessionID)
+	defer endTurnScope()
 	handle, deregister := s.registerRun(sessionID, rec.RunID(), cancelRun)
 	defer deregister()
 	if rec != nil {

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { ChildId, ChildState, ChildStatus } from "../../ipc/types.js";
 import { LineSplitter } from "./log-buffer.js";
+import { killTree, signalTree, type RecordedChild } from "./reaper.js";
 
 /**
  * One supervised child process.
@@ -30,6 +31,11 @@ export interface ChildSpec {
   stdinPipe?: boolean;
   /** Restart on an unexpected exit. False for one-shot children (none today). */
   restart: boolean;
+}
+
+export interface ChildHooks {
+  onSpawn?: (entry: RecordedChild) => void;
+  onExit?: (id: ChildId, pid: number) => void;
 }
 
 export interface ChildEvents {
@@ -74,10 +80,13 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
   /** True between stop() and the exit it caused, so that exit is not a crash. */
   #stopping = false;
 
-  constructor(spec: ChildSpec) {
+  readonly #hooks: ChildHooks;
+
+  constructor(spec: ChildSpec, hooks: ChildHooks = {}) {
     super();
     this.id = spec.id;
     this.#spec = spec;
+    this.#hooks = hooks;
   }
 
   get state(): ChildState {
@@ -159,6 +168,19 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
       }
 
       this.#proc = proc;
+      const spawnedPid = proc.pid;
+      if (spawnedPid !== undefined) {
+        try {
+          this.#hooks.onSpawn?.({
+            id: this.id,
+            pid: spawnedPid,
+            command: [this.#spec.command, ...this.#spec.args].join(" "),
+            startedAt: Date.now(),
+          });
+        } catch {
+          // Bookkeeping for the next boot's reaper must never fail a spawn.
+        }
+      }
       // The child exiting first turns the eventual end() into EPIPE.
       proc.stdin?.on("error", () => undefined);
       this.#stopping = false;
@@ -185,6 +207,13 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
       });
 
       proc.once("exit", (code, signal) => {
+        if (spawnedPid !== undefined) {
+          try {
+            this.#hooks.onExit?.(this.id, spawnedPid);
+          } catch {
+            // See onSpawn.
+          }
+        }
         this.#onExit(code, signal);
         if (!settled) {
           settled = true;
@@ -273,6 +302,14 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
     this.#lastExitSignal = null;
   }
 
+  #signal(proc: ChildProcess, signal: NodeJS.Signals): void {
+    try {
+      proc.kill(signal);
+    } catch {
+      // Raced with its own exit.
+    }
+  }
+
   /**
    * SIGTERM, then SIGKILL after `TERM_GRACE_MS`.
    *
@@ -292,28 +329,33 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
     this.#setState("stopping");
 
     const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
+    const pid = proc.pid;
+    const win = process.platform === "win32";
     // Closing stdin is the request that works everywhere. Windows has no
-    // SIGTERM: kill() there is TerminateProcess, which would skip the backend's
-    // drain and orphan its Postgres.
+    // SIGTERM, and a child without a stdin pipe there has no graceful channel
+    // at all, so waiting out the grace would only be a 30 s hang.
     proc.stdin?.end();
-    if (process.platform !== "win32") {
-      try {
-        proc.kill("SIGTERM");
-      } catch {
-        // Already gone between the check and the signal.
-      }
+    if (!win) {
+      if (pid !== undefined) signalTree(pid, "SIGTERM");
+      else this.#signal(proc, "SIGTERM");
     }
 
-    const timer = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), TERM_GRACE_MS));
-    const outcome = await Promise.race([exited.then(() => "exited" as const), timer]);
+    const noGracefulChannel = win && !this.#spec.stdinPipe;
+    let timer: NodeJS.Timeout | undefined;
+    let outcome: "exited" | "timeout" = "timeout";
+    if (!noGracefulChannel) {
+      const timeout = new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), TERM_GRACE_MS);
+      });
+      outcome = await Promise.race([exited.then(() => "exited" as const), timeout]);
+      clearTimeout(timer);
+    }
     if (outcome === "timeout") {
-      this.emit("log", "stderr", `[supervisor] ${this.id} did not stop within ${TERM_GRACE_MS / 1000}s; killing it`);
-      try {
-        if (process.platform === "win32") proc.kill();
-        else proc.kill("SIGKILL");
-      } catch {
-        // Raced with its own exit; the await below settles either way.
+      if (!noGracefulChannel) {
+        this.emit("log", "stderr", `[supervisor] ${this.id} did not stop within ${TERM_GRACE_MS / 1000}s; killing it`);
       }
+      if (pid !== undefined) await killTree(pid);
+      else this.#signal(proc, "SIGKILL");
       await exited;
     }
     this.#stopping = false;

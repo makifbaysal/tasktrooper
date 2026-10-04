@@ -12,6 +12,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 )
 
 const WorkspaceReaperInterval = time.Hour
@@ -100,6 +101,9 @@ func (r *WorkspaceReaper) Sweep(ctx context.Context) {
 		path := filepath.Join(root, entry.Name())
 		if !r.eligible(ctx, taskID, byID, path) {
 			continue
+		}
+		if _, err := proctree.KillProcessesUnder(path, 3*time.Second); err != nil {
+			log.Warn().Err(err).Str("task_id", taskID.String()).Msg("workspace reaper: stopping processes still running in the workspace failed")
 		}
 		if err := workspace.RemoveDirWithin(root, path); err != nil {
 			log.Warn().Err(err).Str("task_id", taskID.String()).Msg("workspace reaper: removing a finished task's workspace failed")

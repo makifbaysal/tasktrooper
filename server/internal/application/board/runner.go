@@ -26,6 +26,7 @@ import (
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/rs/zerolog/log"
 )
@@ -678,6 +679,10 @@ func (r *Runner) alreadyStopped(ctx context.Context, runID uuid.UUID) bool {
 
 func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc, job RunJob) error {
 	run := job.Run
+
+	scope := "run:" + run.ID.String()
+	ctx = proctree.WithScope(ctx, scope)
+	defer proctree.Default.KillScope(scope, 3*time.Second)
 
 	if r.runs != nil {
 		claim, err := r.runs.ClaimRun(ctx, port.RunClaim{

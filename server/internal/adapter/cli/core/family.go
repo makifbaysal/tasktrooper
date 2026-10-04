@@ -14,6 +14,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -184,9 +185,14 @@ func (f *Family) spawn(ctx context.Context, inv Invocation, launch Launch) (Sess
 		}
 	}
 
-	if err := cmd.Start(); err != nil {
+	tree, err := proctree.Start(cmd)
+	if err != nil {
 		return Session{}, fmt.Errorf(f.spec.StartFmt, err)
 	}
+	defer func() {
+		tree.Terminate(3 * time.Second)
+		tree.Close()
+	}()
 
 	out, parseErr := f.spec.Parse(stdout, NewStreamingSink(inv.Trace, inv.Stream))
 	if parseErr != nil {

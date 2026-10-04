@@ -134,6 +134,8 @@ func (s *Service) resumeParkedTurn(ctx context.Context, pending domain.PendingSe
 	}
 	runCtx, cancelRun := context.WithCancel(runCtx)
 	defer cancelRun()
+	runCtx, endTurnScope := withTurnScope(runCtx, sessionID)
+	defer endTurnScope()
 	handle, deregister := s.registerRun(sessionID, rec.RunID(), cancelRun)
 	defer deregister()
 	if rec != nil {

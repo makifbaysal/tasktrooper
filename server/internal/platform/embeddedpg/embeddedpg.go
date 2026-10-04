@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -56,7 +57,7 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 				Msg("postgres is already running on this data directory, so no copy was taken before migration 133")
 		}
 		log.Info().Uint32("port", port).Msg("reusing the embedded postgres already running on this data directory")
-		return dsn(port), func() {}, nil
+		return dsn(port), func() { stopAdopted(cacheDir, pgData, runPgCtl) }, nil
 	}
 	// A dead postmaster.pid blocks pg_ctl, which is how a crash turns into a
 	// desktop that never starts again.
@@ -133,6 +134,35 @@ func wrapStartError(err error) error {
 		return fmt.Errorf("start embedded postgres: %w (the OS could not launch the postgres binary; on Windows this usually means it was blocked by antivirus/Defender or a required system runtime library is missing)", err)
 	}
 	return fmt.Errorf("start embedded postgres: %w", err)
+}
+
+// pgCtlStopTimeout is pg_ctl's own -t wait; the context bound sits above it.
+const pgCtlStopTimeout = 30 * time.Second
+
+func pgCtlPath(cacheDir string) string {
+	name := "pg_ctl"
+	if runtime.GOOS == "windows" {
+		name = "pg_ctl.exe"
+	}
+	return filepath.Join(cacheDir, "bin", name)
+}
+
+func runPgCtl(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+// stopAdopted stops a cluster this process did not start. pg.Stop() is not an
+// option for it: the library only stops what it launched, and without this a
+// cluster adopted after a hard kill would outlive every later server.
+func stopAdopted(cacheDir, pgData string, run func(ctx context.Context, name string, args ...string) ([]byte, error)) {
+	ctx, cancel := context.WithTimeout(context.Background(), pgCtlStopTimeout+10*time.Second)
+	defer cancel()
+	out, err := run(ctx, pgCtlPath(cacheDir), "stop", "-D", pgData, "-m", "fast", "-w", "-t", strconv.Itoa(int(pgCtlStopTimeout/time.Second)))
+	if err != nil {
+		log.Error().Err(err).Str("output", strings.TrimSpace(string(out))).Msg("stopping the adopted embedded postgres failed")
+		return
+	}
+	log.Info().Msg("stopped the adopted embedded postgres")
 }
 
 func dsn(port uint32) string {

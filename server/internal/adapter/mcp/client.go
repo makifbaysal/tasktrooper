@@ -92,6 +92,7 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 	}, nil)
 
 	var transport sdkmcp.Transport
+	var stdioCmd *exec.Cmd
 	switch cfg.Transport {
 	case "stdio":
 		if cfg.Command == "" {
@@ -99,6 +100,8 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 		}
 		cmd := exec.Command(cfg.Command, cfg.Args...)
 		cmd.Env = stdioServerEnv(cfg.Env)
+		isolateStdio(cmd)
+		stdioCmd = cmd
 		transport = &sdkmcp.CommandTransport{Command: cmd}
 	case "http":
 		if cfg.URL == "" {
@@ -119,12 +122,18 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
+		if stdioCmd != nil {
+			killStdioTree(stdioCmd)
+		}
 		return nil, nil, fmt.Errorf("connect: %w", err)
 	}
 
 	closeFunc := func() {
 		if err := session.Close(); err != nil {
 			log.Warn().Err(err).Str("server", cfg.ID).Msg("mcp session close error")
+		}
+		if stdioCmd != nil {
+			killStdioTree(stdioCmd)
 		}
 	}
 

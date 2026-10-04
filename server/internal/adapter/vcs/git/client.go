@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/rs/zerolog/log"
 )
 
@@ -1071,8 +1073,15 @@ func (c *Client) runEnv(ctx context.Context, dir string, extra []string, name st
 	cmd.Env = append(os.Environ(), "PATH="+os.Getenv("PATH")+":/opt/homebrew/bin:/usr/local/bin")
 	cmd.Env = append(cmd.Env, commitIdentityEnv()...)
 	cmd.Env = append(cmd.Env, extra...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	tree, err := proctree.Start(cmd)
+	if err == nil {
+		err = cmd.Wait()
+		tree.Close()
+	}
+	return out.String(), err
 }
 
 func (c *Client) commitAuthorEnv(ctx context.Context) []string {

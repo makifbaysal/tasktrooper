@@ -76,6 +76,11 @@ export class Engine {
     return this.#tokenizer.encode(text, { return_token_type_ids: true }).ids.length;
   }
 
+  /** Frees the ONNX session's native memory. The engine must not be used afterwards. */
+  release(): Promise<void> {
+    return this.#session.release();
+  }
+
   async #run(
     text: string,
   ): Promise<{ lastHiddenState: Float32Array; attentionMask: number[]; seqLen: number; hidden: number }> {

@@ -1,5 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { Engine } from "./engine.js";
+
+export interface EmbeddingEngine {
+  embed(text: string): Promise<Float64Array>;
+  tokenCount(text: string): number;
+  release(): Promise<void>;
+}
 
 /**
  * An OpenAI-compatible embeddings server on loopback.
@@ -49,17 +54,86 @@ interface EmbeddingsRequestBody {
   encoding_format?: unknown;
 }
 
+/** Release the model after this long without an embedding request. */
+export const DEFAULT_IDLE_UNLOAD_MS = 10 * 60_000;
+
+export interface EmbeddingsServerOptions {
+  /** 0 disables unloading. */
+  idleUnloadMs?: number;
+  /** Brings the model back after an idle unload; never called before the first `setEngine`. */
+  load?: () => Promise<EmbeddingEngine>;
+  log?: (message: string) => void;
+}
+
 export interface EmbedderServer {
   server: Server;
   /** Flip from "not ready" to "ready" once the model has loaded. */
-  setEngine(engine: Engine): void;
+  setEngine(engine: EmbeddingEngine): void;
 }
 
-export function createEmbeddingsServer(): EmbedderServer {
-  let engine: Engine | null = null;
+export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): EmbedderServer {
+  const idleUnloadMs = options.idleUnloadMs ?? DEFAULT_IDLE_UNLOAD_MS;
+  const log = options.log ?? ((message: string) => process.stderr.write(`[embedder] ${message}\n`));
+
+  let engine: EmbeddingEngine | null = null;
+  let everLoaded = false;
+  let reloading: Promise<EmbeddingEngine> | null = null;
+  let inFlight = 0;
+  let idleTimer: NodeJS.Timeout | null = null;
+
+  const disarm = (): void => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+  };
+
+  const arm = (): void => {
+    disarm();
+    if (idleUnloadMs <= 0 || !engine) return;
+    idleTimer = setTimeout(unload, idleUnloadMs);
+    idleTimer.unref();
+  };
+
+  function unload(): void {
+    idleTimer = null;
+    // A request that began after the timer was armed has not re-armed it yet.
+    if (inFlight > 0 || !engine) return;
+    const released = engine;
+    engine = null;
+    log(`idle for ${Math.round(idleUnloadMs / 1000)}s; unloading the embedding model.`);
+    released.release().catch((err) => log(`releasing the embedding model failed: ${describe(err)}`));
+  }
+
+  const install = (next: EmbeddingEngine): void => {
+    engine = next;
+    everLoaded = true;
+    arm();
+  };
+
+  const acquire = async (): Promise<EmbeddingEngine | null> => {
+    if (engine) return engine;
+    if (!everLoaded || !options.load) return null;
+    if (!reloading) {
+      log("reloading the embedding model for a new request.");
+      reloading = options
+        .load()
+        .then((loaded) => {
+          install(loaded);
+          return loaded;
+        })
+        .finally(() => {
+          reloading = null;
+        });
+    }
+    try {
+      return await reloading;
+    } catch (err) {
+      log(`reloading the embedding model failed: ${describe(err)}`);
+      return null;
+    }
+  };
 
   const server = createServer((req, res) => {
-    handle(req, res, () => engine).catch((err) => {
+    handle(req, res, { acquire, begin: () => { inFlight++; disarm(); }, end: () => { inFlight--; arm(); } }).catch((err) => {
       // A handler that throws after headers were already sent cannot be
       // answered again; this is the last-resort log for that case.
       if (!res.headersSent) sendJson(res, 500, errorBody("internal_error", describe(err)));
@@ -69,18 +143,19 @@ export function createEmbeddingsServer(): EmbedderServer {
 
   server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
   server.headersTimeout = HEADERS_TIMEOUT_MS;
-  return {
-    server,
-    setEngine: (next) => {
-      engine = next;
-    },
-  };
+  return { server, setEngine: install };
+}
+
+interface Lifecycle {
+  acquire(): Promise<EmbeddingEngine | null>;
+  begin(): void;
+  end(): void;
 }
 
 const EMBEDDINGS_PATHS = new Set(["/embeddings", "/v1/embeddings"]);
 const MODELS_PATHS = new Set(["/models", "/v1/models"]);
 
-async function handle(req: IncomingMessage, res: ServerResponse, getEngine: () => Engine | null): Promise<void> {
+async function handle(req: IncomingMessage, res: ServerResponse, life: Lifecycle): Promise<void> {
   const route = (req.url ?? "").split("?")[0] ?? "";
 
   // Listed whether or not the weights have finished downloading: the question
@@ -103,7 +178,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, getEngine: () =
     return;
   }
 
-  const engine = getEngine();
+  life.begin();
+  try {
+    await embeddings(req, res, life);
+  } finally {
+    life.end();
+  }
+}
+
+async function embeddings(req: IncomingMessage, res: ServerResponse, life: Lifecycle): Promise<void> {
+  const engine = await life.acquire();
   if (!engine) {
     sendJson(res, 503, errorBody("not_ready", "The embedding model is still downloading or loading on this Mac."));
     return;

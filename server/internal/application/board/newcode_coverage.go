@@ -2,6 +2,7 @@ package board
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -65,8 +66,10 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, "git", args...)
 	cmd.Dir = dir
-	out, err := cmd.Output()
-	return string(out), err
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := runTree(cmd)
+	return out.String(), err
 }
 
 var hunkHeader = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)

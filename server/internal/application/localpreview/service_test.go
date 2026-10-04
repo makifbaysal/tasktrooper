@@ -355,3 +355,12 @@ func TestAppendLinePrefersExplicitURLOverPort(t *testing.T) {
 	p.appendLine("Local: http://localhost:3000/")
 	assert.Equal(t, "http://127.0.0.1:8080", p.url, "the first match wins; a later line must not override it")
 }
+
+func TestCloseIsSafeWithNothingActive(t *testing.T) {
+	s := NewService(Deps{})
+	s.Close()
+	s.Close()
+	if len(s.active) != 0 {
+		t.Fatalf("active = %d after Close", len(s.active))
+	}
+}

@@ -25,7 +25,9 @@ import {
 } from "../services/detect.js";
 import { waitForHealth } from "../services/health.js";
 import { ensureWorkspace } from "../config/workspace.js";
+import { join } from "node:path";
 import { SupervisedChild, type ChildSpec } from "./child.js";
+import { ChildRegistry, reapWithin } from "./reaper.js";
 import { parseEmbedderListening } from "./embedder-log.js";
 import { LogStore } from "./log-buffer.js";
 import { agentServerEnv, appiumArgs, childEnv } from "./env.js";
@@ -97,6 +99,8 @@ const LOG_FLUSH_MS = 120;
  */
 const EMBEDDER_URL_WAIT_MS = 8_000;
 
+const REAP_CAP_MS = 5_000;
+
 export class Supervisor extends EventEmitter<SupervisorEvents> {
   readonly #children = new Map<ChildId, SupervisedChild>();
   readonly #logs = new LogStore();
@@ -133,10 +137,21 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   /** Serialises start/stop so two clicks cannot interleave two teardowns. */
   #transition: Promise<unknown> = Promise.resolve();
 
+  readonly #registry = new ChildRegistry(join(app.getPath("userData"), "children.json"), (line) =>
+    this.#note(line),
+  );
+  #reaped: Promise<void> = Promise.resolve();
+
   constructor() {
     super();
     for (const id of CHILD_IDS) {
-      const child = new SupervisedChild({ id, command: "", args: [], env: {}, restart: true });
+      const child = new SupervisedChild(
+        { id, command: "", args: [], env: {}, restart: true },
+        {
+          onSpawn: (entry) => this.#registry.record(entry),
+          onExit: (cid, pid) => this.#registry.forget(cid, pid),
+        },
+      );
       child.on("log", (stream, text) => this.#onChildLog(id, stream, text));
       child.on("state", () => this.#emitState());
       child.on("crashed", () => this.#onChildCrashed(id));
@@ -206,6 +221,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
    * backend, only a reason embeddings stay unavailable until it can.
    */
   async startEmbedder(): Promise<void> {
+    await this.#reaped;
     const child = this.#child("embedder");
     child.update(this.#embedderSpec());
     try {
@@ -220,8 +236,25 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     }
   }
 
+  /**
+   * Kill children an earlier run of this app left running. Call once at boot,
+   * before `startEmbedder()` and `connect()`, both of which wait for it. Bounded
+   * and never rejects.
+   */
+  reapStale(): Promise<void> {
+    this.#reaped = reapWithin(REAP_CAP_MS, {
+      registry: this.#registry,
+      userData: app.getPath("userData"),
+      log: (line) => this.#note(line),
+    });
+    return this.#reaped;
+  }
+
   connect(): Promise<SupervisorSnapshot> {
-    return this.#serialise(() => this.#connect());
+    return this.#serialise(async () => {
+      await this.#reaped;
+      return this.#connect();
+    });
   }
 
   disconnect(): Promise<SupervisorSnapshot> {
@@ -508,7 +541,15 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       id: "embedder",
       command: process.execPath,
       args: [embedderScriptPath(), "--cache-dir", app.getPath("userData")],
-      env: { ...childEnv(this.#preflight), ELECTRON_RUN_AS_NODE: "1" },
+      // Closing its stdin is how it is asked to stop, and the parent pid is how
+      // it notices this process died without closing anything.
+      stdinPipe: true,
+      env: {
+        ...childEnv(this.#preflight),
+        ELECTRON_RUN_AS_NODE: "1",
+        TASKTROOPER_EXIT_ON_STDIN_CLOSE: "1",
+        TASKTROOPER_PARENT_PID: String(process.pid),
+      },
       restart: true,
     };
   }

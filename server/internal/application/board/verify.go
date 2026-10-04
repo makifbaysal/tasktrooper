@@ -275,7 +275,7 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
-		err := cmd.Run()
+		err := runTree(cmd)
 		cancel()
 		if err == nil {
 			continue

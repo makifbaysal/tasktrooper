@@ -17,6 +17,7 @@ import (
 )
 
 func main() {
+	ignoreBrokenPipe()
 	cfg, err := optionsFromEnv(os.Getenv)
 	if err != nil {
 		log.Fatal().Err(err).Msg("agent-server configuration error")

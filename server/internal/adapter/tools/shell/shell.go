@@ -19,6 +19,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/rs/zerolog/log"
 )
@@ -187,7 +188,15 @@ func (s *shellTool) Execute(ctx context.Context, arguments string) domain.ToolRe
 
 	log.Debug().Str("command", a.Command).Str("working_dir", workDir).Msg("executing shell command")
 
-	err := cmd.Run()
+	tree, err := proctree.Start(cmd)
+	if err == nil {
+		err = cmd.Wait()
+		if execCtx.Err() == nil && backgrounded.MatchString(strings.TrimSpace(a.Command)) {
+			proctree.Default.Track(proctree.ScopeFrom(ctx), tree)
+		} else {
+			tree.Close()
+		}
+	}
 	output := out.String()
 
 	if execCtx.Err() == context.DeadlineExceeded {

@@ -106,6 +106,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain/secrets"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -288,6 +289,9 @@ type engine struct {
 	// runs detached from any request and must be killed (and its worktree
 	// removed) on shutdown rather than left to outlive the process.
 	localRunner *localexec.Runner
+	// localPreview is stopped on shutdown: a preview is a dev server that
+	// would otherwise outlive the app.
+	localPreview *localpreviewapp.Service
 	// pgPool is kept beside pgDB for the two jobs that are not row data: pool
 	// close and the pgvector bootstrap. Everything else reaches Postgres through
 	// pgDB.
@@ -397,6 +401,8 @@ func Run(ctx context.Context, opts Options) (*Server, error) {
 	if err := e.load(opts); err != nil {
 		return nil, err
 	}
+
+	e.reapWorkspaceLeftovers()
 
 	// Prompts are embedded in the binary and must never depend on the async
 	// catalog DB sync below; a broken one is a build defect, so it fails
@@ -609,6 +615,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// 3. Only now cancel anything still holding the run context.
 	s.cancel()
 	// 4. External processes, then the pool everything above was using.
+	proctree.Default.KillAll(3 * time.Second)
+	if s.engine.localPreview != nil {
+		s.engine.localPreview.Close()
+	}
 	if s.engine.localRunner != nil {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		if err := s.engine.localRunner.Close(closeCtx); err != nil {
@@ -652,6 +662,37 @@ func (e *engine) load(opts Options) error {
 		Msg("config loaded")
 
 	return e.registerBuiltinTools(cfg)
+}
+
+// reapWorkspaceLeftovers ends processes a previous server that died hard left
+// running in task workspaces. It runs before anything can dispatch, so every
+// process found there is a leftover.
+func (e *engine) reapWorkspaceLeftovers() {
+	e.mu.RLock()
+	root := e.cfg.Storage.Sessions.WorkspaceRoot
+	e.mu.RUnlock()
+	if root == "" {
+		return
+	}
+	type result struct {
+		killed int
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		n, err := proctree.KillProcessesUnder(root, 3*time.Second)
+		done <- result{n, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			log.Warn().Err(r.err).Str("root", root).Msg("could not look for processes left in the task workspaces")
+		} else if r.killed > 0 {
+			log.Info().Int("count", r.killed).Str("root", root).Msg("stopped processes left running in task workspaces by a previous server")
+		}
+	case <-time.After(10 * time.Second):
+		log.Warn().Str("root", root).Msg("reaping processes left in the task workspaces is taking too long; continuing boot")
+	}
 }
 
 func applyLocalOverrides(cfg *domain.Config, opts Options) {
@@ -1710,6 +1751,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			WorkspaceRoot: cfg.Storage.Sessions.WorkspaceRoot,
 		})
 		boardKit.LocalPreviews = localPreviewSvc
+		e.localPreview = localPreviewSvc
 
 		if settingsStore != nil && cfg.Tools.BoilerplateCatalog.Enabled {
 			e.reg.Register(boilerplatetools.New(settingsStore))
