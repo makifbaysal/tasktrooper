@@ -59,6 +59,8 @@ func TestSanitizeStripsEventHandlersAndScriptURLs(t *testing.T) {
 		<a href="  JaVa&#x09;Script:alert(1)">b</a>
 		<a href="vbscript:msgbox">c</a>
 		<a href="data:text/html;base64,PHNjcmlwdD4=">d</a>
+		<a href="data:application/xhtml+xml;base64,PHNjcmlwdD4=">x</a>
+		<a href="data:text/plain,hi">p</a>
 		<div onmouseover="x()" ONLOAD="y()">e</div>
 		<svg><a xlink:href="javascript:alert(1)"><text>f</text></a></svg>
 		<a href="https://example.com/ok">ok</a>
@@ -67,6 +69,8 @@ func TestSanitizeStripsEventHandlersAndScriptURLs(t *testing.T) {
 	assert.NotContains(t, lower, "javascript:")
 	assert.NotContains(t, lower, "vbscript:")
 	assert.NotContains(t, lower, "data:text/html")
+	assert.NotContains(t, lower, "data:application")
+	assert.NotContains(t, lower, "data:text/plain")
 	assert.NotContains(t, lower, "onclick")
 	assert.NotContains(t, lower, "onmouseover")
 	assert.NotContains(t, lower, "onload")

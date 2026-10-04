@@ -126,12 +126,16 @@ func cleanAttributes(attrs []html.Attribute) []html.Attribute {
 // dangerousURL normalizes the way a browser does before checking the scheme:
 // "java\tscript:" and " JavaScript:" are both javascript: to a URL parser. The
 // comma case is srcset, a list of URLs where only the first is at the start.
+// Any data: URL is a document the page author fully controls (text/html,
+// image/svg+xml, application/xhtml+xml all run script), so only raster-or-svg
+// image data — which an <img> never executes — survives.
 func dangerousURL(raw string) bool {
 	u := normalizeURL(raw)
 	return strings.HasPrefix(u, "javascript:") ||
 		strings.HasPrefix(u, "vbscript:") ||
-		strings.HasPrefix(u, "data:text/html") ||
-		strings.Contains(u, ",javascript:")
+		(strings.HasPrefix(u, "data:") && !strings.HasPrefix(u, "data:image/")) ||
+		strings.Contains(u, ",javascript:") ||
+		strings.Contains(u, ",data:")
 }
 
 func allowedImageSource(raw string) bool {

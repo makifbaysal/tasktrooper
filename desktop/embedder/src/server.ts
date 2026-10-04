@@ -133,10 +133,11 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
   };
 
   const server = createServer((req, res) => {
-    handle(req, res, { acquire, begin: () => { inFlight++; disarm(); }, end: () => { inFlight--; arm(); } }).catch((err) => {
+    handle(req, res, { acquire, log, begin: () => { inFlight++; disarm(); }, end: () => { inFlight--; arm(); } }).catch((err) => {
       // A handler that throws after headers were already sent cannot be
       // answered again; this is the last-resort log for that case.
-      if (!res.headersSent) sendJson(res, 500, errorBody("internal_error", describe(err)));
+      log(`request failed: ${describe(err)}`);
+      if (!res.headersSent) sendJson(res, 500, errorBody("internal_error", "The embedder failed to answer this request."));
       else res.end();
     });
   });
@@ -147,6 +148,7 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
 }
 
 interface Lifecycle {
+  log: (message: string) => void;
   acquire(): Promise<EmbeddingEngine | null>;
   begin(): void;
   end(): void;
@@ -197,7 +199,8 @@ async function embeddings(req: IncomingMessage, res: ServerResponse, life: Lifec
   try {
     body = await readJsonBody(req);
   } catch (err) {
-    sendJson(res, 400, errorBody("bad_request", describe(err)));
+    life.log(`rejected a request body: ${describe(err)}`);
+    sendJson(res, 400, errorBody("bad_request", "Request body is not valid JSON."));
     return;
   }
 
@@ -225,7 +228,10 @@ async function embeddings(req: IncomingMessage, res: ServerResponse, life: Lifec
       usage: { prompt_tokens: promptTokens, total_tokens: promptTokens },
     });
   } catch (err) {
-    sendJson(res, 500, errorBody("inference_failed", describe(err)));
+    // Details stay in the log: an error's text can carry internals (paths,
+    // stack frames) that do not belong in a response.
+    life.log(`inference failed: ${describe(err)}`);
+    sendJson(res, 500, errorBody("inference_failed", "Computing the embedding failed."));
   }
 }
 

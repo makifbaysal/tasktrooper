@@ -174,9 +174,10 @@ function htmlText(html: string): string {
     .replace(/<(script|style|head|template)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
+    // Last, or "&amp;lt;" would decode twice into "<".
+    .replace(/&amp;/gi, "&")
     .replace(/\s+/g, " ")
     .trim();
 }

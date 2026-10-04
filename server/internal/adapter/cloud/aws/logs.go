@@ -40,12 +40,11 @@ func (p *Provider) Logs(ctx context.Context, cred domain.CloudCredential, ref do
 		return domain.RuntimeLogPage{}, err
 	}
 
-	limit := q.Limit
-	if limit <= 0 {
-		limit = defaultLogLimit
-	}
-	if limit > maxLogLimit {
+	limit := int32(defaultLogLimit)
+	if q.Limit > maxLogLimit {
 		limit = maxLogLimit
+	} else if q.Limit > 0 {
+		limit = int32(q.Limit)
 	}
 
 	end := q.Until
@@ -63,7 +62,7 @@ func (p *Provider) Logs(ctx context.Context, cred domain.CloudCredential, ref do
 		LogGroupName: aws.String(target.group),
 		StartTime:    aws.Int64(start.UnixMilli()),
 		EndTime:      aws.Int64(end.UnixMilli()),
-		Limit:        aws.Int32(int32(limit)),
+		Limit:        aws.Int32(limit),
 	}
 	if pattern != "" {
 		input.FilterPattern = aws.String(pattern)
