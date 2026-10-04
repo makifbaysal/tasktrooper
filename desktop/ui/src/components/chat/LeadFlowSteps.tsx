@@ -31,7 +31,8 @@ const STEPS: Step[] = [
 ];
 
 const tileByActor: Record<Actor, string> = {
-  human: "border-info/60 bg-info/10 text-info",
+  // Opaque on purpose: a translucent tint lets the connector line show through the tile.
+  human: "border-info/60 bg-[color-mix(in_oklch,var(--info)_12%,var(--card))] text-info",
   lead: "border-accent-warm/60 text-accent-warm",
   team: "border-border text-muted-foreground",
 };
@@ -59,14 +60,14 @@ export function LeadFlowSteps({ agent }: LeadFlowStepsProps) {
           {STEPS.map(({ key, actor, icon: Icon }, index) => (
             <li key={key} className="relative flex flex-col items-center gap-2 text-center">
               {index < STEPS.length - 1 && (
-                <span aria-hidden className="absolute top-4 left-1/2 h-px w-full bg-border" />
+                <span aria-hidden className="absolute top-4 left-1/2 z-0 h-px w-full bg-border" />
               )}
               {key === "lead" ? (
-                <AgentAvatar name={agent.name} lead size="md" className="relative ring-offset-card" />
+                <AgentAvatar name={agent.name} lead size="md" className="relative z-10 ring-offset-card" />
               ) : (
                 <span
                   className={cn(
-                    "relative flex h-8 w-8 items-center justify-center rounded-lg border bg-card",
+                    "relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border bg-card",
                     tileByActor[actor],
                   )}
                 >
