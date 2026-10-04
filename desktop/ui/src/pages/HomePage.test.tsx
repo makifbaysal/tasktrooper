@@ -6,7 +6,16 @@ import { describe, expect, it, vi } from "vitest";
 const createSession = vi.hoisted(() => vi.fn());
 vi.mock("@/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api")>();
-  return { ...actual, api: { ...actual.api, createSession } };
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      createSession,
+      listAgents: () => Promise.resolve({ agents: [] }),
+      listInitiativeProjects: () => Promise.resolve({ projects: [] }),
+      listRepositories: () => Promise.resolve({ repositories: [] }),
+    },
+  };
 });
 import type { Agent } from "@/api";
 import type { WorkspaceOutletContext } from "@/hooks/useWorkspaceOutlet";

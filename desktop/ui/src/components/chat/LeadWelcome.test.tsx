@@ -3,15 +3,18 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Agent } from "@/api";
 import { LeadWelcome } from "@/components/chat/LeadWelcome";
+import type { MentionOption } from "@/components/chat/MentionMenu";
 import { I18nProvider } from "@/hooks/useI18n";
 
 const lead = { id: "pm", name: "Pia", enabled: true } as Agent;
+
+const repo: MentionOption = { kind: "repository", id: "r-1", name: "acme-web" };
 
 function setup() {
   const onSubmit = vi.fn();
   render(
     <I18nProvider>
-      <LeadWelcome agent={lead} onSubmit={onSubmit} />
+      <LeadWelcome agent={lead} onSubmit={onSubmit} mentionOptions={[repo]} />
     </I18nProvider>,
   );
   const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
@@ -23,7 +26,7 @@ describe("LeadWelcome", () => {
     const { onSubmit, textarea } = setup();
     fireEvent.change(textarea, { target: { value: "  ship it  " } });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith("ship it");
+    expect(onSubmit).toHaveBeenCalledWith("ship it", []);
   });
 
   it("does not submit on Shift+Enter", () => {
@@ -48,5 +51,17 @@ describe("LeadWelcome", () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(textarea.value).not.toBe("");
     expect(textarea).toHaveFocus();
+  });
+
+  it("tags an entity with @ and submits it alongside the text", () => {
+    const { onSubmit, textarea } = setup();
+    fireEvent.change(textarea, { target: { value: "@acm", selectionStart: 4 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("@acme-web ");
+
+    fireEvent.change(textarea, { target: { value: "@acme-web kupon ekleyelim" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith("@acme-web kupon ekleyelim", [repo]);
   });
 });

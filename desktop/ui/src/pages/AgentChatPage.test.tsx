@@ -351,6 +351,17 @@ describe("AgentChatPage lead agent", () => {
     expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1);
   });
 
+  it("sends the @-mentions handed over with autoSend, like ones picked in this composer", async () => {
+    const repo = { kind: "repository" as const, id: "r-1", name: "acme-web" };
+    renderChatPage({
+      pathname: "/agents/agent-1/chat/session-1",
+      state: { autoSend: "@acme-web kupon ekleyelim", autoSendMentions: [repo] },
+    });
+
+    await waitFor(() => expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1));
+    expect(sendSessionMessageWithRecovery.mock.calls[0][2].mentions).toEqual([repo]);
+  });
+
   it("gives the lead its own header but a normal chat page — the welcome lives on /home", async () => {
     renderInWorkspace("agent-1");
 

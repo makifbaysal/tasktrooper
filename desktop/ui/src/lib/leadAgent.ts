@@ -1,5 +1,5 @@
 import type { NavigateFunction } from "react-router-dom";
-import { api, type Agent, type Role } from "@/api";
+import { api, type Agent, type MessageMention, type Role } from "@/api";
 
 /**
  * The lead agent is the one the stakeholder talks to: the product manager,
@@ -47,7 +47,8 @@ export async function startLeadConversation(
   agentId: string,
   message: string,
   title: string,
+  mentions: MessageMention[] = [],
 ): Promise<void> {
   const session = await api.createSession({ title, agent_id: agentId });
-  navigate(`/agents/${agentId}/chat/${session.id}`, { state: { autoSend: message } });
+  navigate(`/agents/${agentId}/chat/${session.id}`, { state: { autoSend: message, autoSendMentions: mentions } });
 }

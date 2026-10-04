@@ -2,11 +2,13 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import type { MessageMention } from "@/api";
 import { LeadWelcome } from "@/components/chat/LeadWelcome";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
+import { useMentionOptions } from "@/hooks/useMentionOptions";
 import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 import { startLeadConversation } from "@/lib/leadAgent";
 
@@ -15,10 +17,11 @@ export function HomePage() {
   const navigate = useNavigate();
   const ctx = useWorkspaceOutlet();
   const [starting, setStarting] = useState(false);
+  const mentionOptions = useMentionOptions();
   const lead = ctx?.leadAgent ?? null;
 
   if (lead) {
-    const start = async (message: string) => {
+    const start = async (message: string, mentions: MessageMention[]) => {
       if (starting) return;
       setStarting(true);
       try {
@@ -27,6 +30,7 @@ export function HomePage() {
           lead.id,
           message,
           t("agentArea.chat.newSessionTitle", { name: lead.name }),
+          mentions,
         );
       } catch {
         toast.error(t("agentArea.chat.lead.welcome.failed"));
@@ -35,7 +39,7 @@ export function HomePage() {
     };
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
-        <LeadWelcome agent={lead} onSubmit={start} busy={starting} />
+        <LeadWelcome agent={lead} onSubmit={start} busy={starting} mentionOptions={mentionOptions} />
       </div>
     );
   }

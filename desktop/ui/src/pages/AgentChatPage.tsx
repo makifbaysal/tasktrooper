@@ -23,6 +23,7 @@ import { LeadChatHeader } from "@/components/chat/LeadChatHeader";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 import { useI18n } from "@/hooks/useI18n";
+import { useMentionOptions } from "@/hooks/useMentionOptions";
 import { useRunActivity } from "@/hooks/useRunActivity";
 import { useAgentSessions } from "@/hooks/useAgentSessions";
 import { usePolling } from "@/hooks/usePolling";
@@ -59,6 +60,9 @@ export function AgentChatPage() {
   // The message a caller wants sent into this session, passed as router state
   // because the chat URL is the only place the page can be entered from.
   const autoSend = typeof location.state?.autoSend === "string" ? location.state.autoSend : "";
+  const autoSendMentions: MessageMention[] = Array.isArray(location.state?.autoSendMentions)
+    ? location.state.autoSendMentions
+    : [];
   const workspace = useWorkspaceOutlet();
   const isLead = !!agentId && workspace?.leadAgent?.id === agentId;
   const team = useMemo(
@@ -118,40 +122,10 @@ export function AgentChatPage() {
     api.listFiles().then((data) => setFiles(data.files ?? [])).catch(() => setFiles([]));
   }, [agentId]);
 
-  // @-mention roster: agents, projects, repositories. Partial failures just
-  // shrink the list.
-  const [mentionOptions, setMentionOptions] = useState<MentionOption[]>([]);
+  const mentionOptions = useMentionOptions();
   // Entities picked from the autocomplete for the message being composed. A
   // ref, not state: only send-time reads it, no render depends on it.
   const selectedMentionsRef = useRef<MentionOption[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    Promise.allSettled([api.listAgents(), api.listInitiativeProjects(), api.listRepositories()]).then(
-      ([agentsRes, projectsRes, reposRes]) => {
-        if (cancelled) return;
-        const options: MentionOption[] = [];
-        if (agentsRes.status === "fulfilled") {
-          for (const a of agentsRes.value.agents ?? []) {
-            if (a.enabled) options.push({ id: a.id, name: a.name, kind: "agent", description: a.description });
-          }
-        }
-        if (projectsRes.status === "fulfilled") {
-          for (const p of projectsRes.value.projects ?? []) {
-            options.push({ id: p.id, name: p.name, kind: "project", description: p.description });
-          }
-        }
-        if (reposRes.status === "fulfilled") {
-          for (const r of reposRes.value.repositories ?? []) {
-            options.push({ id: r.id, name: r.name, kind: "repository", description: r.description });
-          }
-        }
-        setMentionOptions(options);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     setActiveSessionId(sessionId ?? null);
@@ -527,6 +501,9 @@ export function AgentChatPage() {
     const key = `${activeSessionId}\u0000${autoSend}`;
     if (autoSendRef.current === key) return;
     autoSendRef.current = key;
+    // handleSend reads the picked entities from this ref and keeps those whose
+    // @Name is still in the text, exactly as for a message typed here.
+    selectedMentionsRef.current = autoSendMentions;
     void handleSend(autoSend);
     window.history.replaceState({ ...(window.history.state ?? {}), usr: null }, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; the key ref guards re-sends

@@ -1,39 +1,41 @@
-import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { ArrowUp } from "lucide-react";
-import type { Agent } from "@/api";
+import type { Agent, MessageMention } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { LeadFlowSteps } from "@/components/chat/LeadFlowSteps";
+import type { MentionOption } from "@/components/chat/MentionMenu";
+import { MentionTextarea } from "@/components/chat/MentionTextarea";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
 
 interface LeadWelcomeProps {
   agent: Agent;
-  onSubmit: (message: string) => void | Promise<void>;
+  /** `mentions` are the @-picked entities whose @Name is still in the message. */
+  onSubmit: (message: string, mentions: MessageMention[]) => void | Promise<void>;
   busy?: boolean;
+  mentionOptions?: MentionOption[];
 }
 
 
-export function LeadWelcome({ agent, onSubmit, busy = false }: LeadWelcomeProps) {
+export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = [] }: LeadWelcomeProps) {
   const { t } = useI18n();
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pickedRef = useRef<MentionOption[]>([]);
   const canSend = value.trim() !== "" && !busy;
 
   const submit = () => {
     const text = value.trim();
     if (!text || busy) return;
-    void onSubmit(text);
+    const fold = text.toLocaleLowerCase("tr");
+    const mentions = pickedRef.current
+      .filter((m) => fold.includes(`@${m.name.toLocaleLowerCase("tr")}`))
+      .map(({ kind, id, name }) => ({ kind, id, name }));
+    void onSubmit(text, mentions);
   };
 
   const handleSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    submit();
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     submit();
   };
@@ -69,11 +71,17 @@ export function LeadWelcome({ agent, onSubmit, busy = false }: LeadWelcomeProps)
         <div className="flex flex-col gap-3">
           <Card className="p-3">
             <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-              <Textarea
+              <MentionTextarea
                 ref={textareaRef}
                 value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={handleKeyDown}
+                onChange={setValue}
+                onSubmit={submit}
+                mentionOptions={mentionOptions}
+                onMentionSelect={(option) => {
+                  if (!pickedRef.current.some((m) => m.kind === option.kind && m.id === option.id)) {
+                    pickedRef.current = [...pickedRef.current, option];
+                  }
+                }}
                 rows={2}
                 autoFocus
                 aria-label={t("agentArea.chat.lead.welcome.label", { name: agent.name })}
@@ -100,7 +108,7 @@ export function LeadWelcome({ agent, onSubmit, busy = false }: LeadWelcomeProps)
                   size="sm"
                   className="rounded-full"
                   disabled={busy && send}
-                  onClick={() => (send ? void onSubmit(message) : prefill(message))}
+                  onClick={() => (send ? void onSubmit(message, []) : prefill(message))}
                 >
                   {t(`agentArea.chat.lead.welcome.suggestions.${key}.label`)}
                 </Button>
