@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 interface SidebarNavLinkProps {
   to: string;
   label: string;
-  icon: LucideIcon;
+  icon?: LucideIcon;
+  /** Replaces the icon, for rows that lead with an avatar. */
+  leading?: ReactNode;
+  className?: string;
   collapsed: boolean;
   end?: boolean;
   onClick?: () => void;
@@ -23,6 +26,8 @@ export function SidebarNavLink({
   to,
   label,
   icon: Icon,
+  leading,
+  className,
   collapsed,
   end,
   onClick,
@@ -36,6 +41,7 @@ export function SidebarNavLink({
       className={({ isActive }) =>
         cn(
           "flex items-center gap-3 rounded-lg px-3 py-2 text-body font-medium transition-colors active:scale-[0.98]",
+          className,
           collapsed && "justify-center px-2",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -44,7 +50,7 @@ export function SidebarNavLink({
       }
       title={collapsed ? label : undefined}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      {leading ?? (Icon && <Icon className="h-4 w-4 shrink-0" />)}
       {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
       {!collapsed && trailing}
     </NavLink>

@@ -7,6 +7,12 @@ export const frame: FrameDict = {
     header: {
       lightTheme: "Açık tema",
       darkTheme: "Koyu tema",
+      leadAsk: {
+        label: "{name} için mesaj",
+        placeholder: "PM'den iste…",
+        shortcut: "⌘K",
+        failed: "Sohbet başlatılamadı",
+      },
       notificationCenter: {
         title: "Bildirimler",
         empty: "Henüz bildirim yok",
@@ -47,6 +53,7 @@ export const frame: FrameDict = {
       workspace: "Çalışma Alanı",
       projects: "Projeler",
       agentChats: "Ajan Sohbetleri",
+      team: "Ekip",
       newAgent: "Yeni ajan",
       unreadAgent: "Yeni mesaj",
       management: "Yönetim",

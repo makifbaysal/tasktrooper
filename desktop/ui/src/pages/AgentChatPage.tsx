@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
@@ -19,7 +19,10 @@ import { Composer } from "@/components/chat/Composer";
 import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MessageList } from "@/components/chat/MessageList";
 import { SessionSidebar } from "@/components/chat/SessionSidebar";
+import { LeadChatHeader } from "@/components/chat/LeadChatHeader";
+import { LeadWelcome } from "@/components/chat/LeadWelcome";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 import { useI18n } from "@/hooks/useI18n";
 import { useRunActivity } from "@/hooks/useRunActivity";
 import { useAgentSessions } from "@/hooks/useAgentSessions";
@@ -53,6 +56,17 @@ export function AgentChatPage() {
   const { t } = useI18n();
   const { agentId, sessionId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // The message a caller wants sent into this session, passed as router state
+  // because the chat URL is the only place the page can be entered from.
+  const autoSend = typeof location.state?.autoSend === "string" ? location.state.autoSend : "";
+  const workspace = useWorkspaceOutlet();
+  const isLead = !!agentId && workspace?.leadAgent?.id === agentId;
+  const team = useMemo(
+    () => (workspace?.agents ?? []).filter((a) => a.id !== workspace?.leadAgent?.id),
+    [workspace?.agents, workspace?.leadAgent?.id],
+  );
+  const [starting, setStarting] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const {
     sessions,
@@ -72,6 +86,10 @@ export function AgentChatPage() {
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
   const [loadingMessages, setLoadingMessages] = useState(false);
+  // Which session's transcript is on screen. `loadingMessages` alone cannot
+  // answer "are this session's messages in yet?" — it reads false on the first
+  // render, before the load effect has even started.
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -196,6 +214,7 @@ export function AgentChatPage() {
         }
         setMessages(data.messages ?? []);
         setActions(data.actions ?? []);
+        setLoadedSessionId(id);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : t("agentArea.chat.toast.loadFailed"));
         setMessages([]);
@@ -497,27 +516,63 @@ export function AgentChatPage() {
     }
   };
 
+  // A caller hands its opening message over as router state, because the chat
+  // URL is all it knows about the session it wants opened. The ref covers
+  // StrictMode's double effect; the state is dropped from the history entry
+  // itself (React Router keeps it under `usr`) so a reload or a back-navigation
+  // does not send it again. Not navigate(): a navigation gives `navigate` a new
+  // identity, which reloads the transcript mid-send.
+  const autoSendRef = useRef("");
+  useEffect(() => {
+    if (!autoSend || !activeSessionId || loadedSessionId !== activeSessionId) return;
+    if (sending || stopping) return;
+    const key = `${activeSessionId}\u0000${autoSend}`;
+    if (autoSendRef.current === key) return;
+    autoSendRef.current = key;
+    void handleSend(autoSend);
+    window.history.replaceState({ ...(window.history.state ?? {}), usr: null }, "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; the key ref guards re-sends
+  }, [autoSend, activeSessionId, loadedSessionId, sending, stopping]);
+
+  const startFromWelcome = async (message: string) => {
+    if (!agentId || starting) return;
+    setStarting(true);
+    try {
+      const name = agent?.name ?? workspace?.leadAgent?.name ?? "";
+      const session = await createSession(t("agentArea.chat.newSessionTitle", { name }));
+      navigate(`/agents/${agentId}/chat/${session.id}`, { replace: true, state: { autoSend: message } });
+    } catch {
+      toast.error(t("agentArea.chat.lead.welcome.failed"));
+    } finally {
+      setStarting(false);
+    }
+  };
+
   if (!agentId) return null;
+
+  const leadAgent = agent ?? workspace?.leadAgent ?? null;
+  const headerActions = (
+    <div className="flex items-center gap-2">
+      <Button variant="outline" asChild>
+        <Link to={`/agents/${agentId}/settings`}>{t("agentArea.chat.settingsLink")}</Link>
+      </Button>
+      <Button variant="outline" asChild>
+        <Link to={`/agents/${agentId}/memory`}>{t("agentArea.chat.memoryLink")}</Link>
+      </Button>
+      <Button variant="outline" asChild>
+        <Link to={`/agents/${agentId}/performance`}>{t("agentArea.chat.performanceLink")}</Link>
+      </Button>
+    </div>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-border px-6 py-4">
-        <PageHeader
-          title={agent?.name ?? t("agentArea.chat.header.title")}
-          action={
-            <div className="flex items-center gap-2">
-              <Button variant="outline" asChild>
-                <Link to={`/agents/${agentId}/settings`}>{t("agentArea.chat.settingsLink")}</Link>
-              </Button>
-              <Button variant="outline" asChild>
-                <Link to={`/agents/${agentId}/memory`}>{t("agentArea.chat.memoryLink")}</Link>
-              </Button>
-              <Button variant="outline" asChild>
-                <Link to={`/agents/${agentId}/performance`}>{t("agentArea.chat.performanceLink")}</Link>
-              </Button>
-            </div>
-          }
-        />
+        {isLead && leadAgent ? (
+          <LeadChatHeader agent={leadAgent} team={team} actions={headerActions} />
+        ) : (
+          <PageHeader title={agent?.name ?? t("agentArea.chat.header.title")} action={headerActions} />
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -576,6 +631,8 @@ export function AgentChatPage() {
                 }}
               />
             </>
+          ) : isLead && leadAgent && !loadingMessages ? (
+            <LeadWelcome agent={leadAgent} onSubmit={startFromWelcome} busy={starting} />
           ) : (
             <div className="flex flex-1 items-center justify-center p-8 text-center text-muted-foreground">
               {loadingMessages ? t("agentArea.chat.loading") : t("agentArea.chat.emptyState")}

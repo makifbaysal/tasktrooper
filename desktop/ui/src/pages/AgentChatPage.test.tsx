@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Agent } from "@/api";
 import { AgentChatPage } from "@/pages/AgentChatPage";
@@ -75,7 +75,7 @@ const agent: Agent = {
   created_at: "2026-09-17T10:00:00Z",
 };
 
-function renderChatPage(initialEntry = "/agents/agent-1/chat") {
+function renderChatPage(initialEntry: string | { pathname: string; state?: unknown } = "/agents/agent-1/chat") {
   return render(
     <I18nProvider>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -286,5 +286,81 @@ describe("AgentChatPage server-driven typing indicator and focus refresh", () =>
     expect(reportChatFocus).toHaveBeenLastCalledWith(null);
 
     delete window.__tasktrooperDesktop;
+  });
+});
+
+describe("AgentChatPage lead agent", () => {
+  const session = {
+    id: "session-1",
+    title: "Rex ile sohbet",
+    model: "",
+    agent_id: "agent-1",
+    created_at: "2026-09-23T10:00:00Z",
+    updated_at: "2026-09-23T10:00:00Z",
+  };
+  const teammate: Agent = { ...agent, id: "agent-2", name: "Dev" };
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getAgent.mockReset().mockResolvedValue(agent);
+    listFiles.mockReset().mockResolvedValue({ files: [] });
+    listAgents.mockReset().mockResolvedValue({ agents: [] });
+    listInitiativeProjects.mockReset().mockResolvedValue({ projects: [] });
+    listRepositories.mockReset().mockResolvedValue({ repositories: [] });
+    listAgentSessions.mockReset().mockResolvedValue({ sessions: [session] });
+    getSession.mockReset().mockResolvedValue({ session, messages: [], actions: [] });
+    sessionActivity.mockReset().mockResolvedValue({ runs: [] });
+    activeRuns.mockReset().mockResolvedValue({ runs: [] });
+    sendSessionMessageWithRecovery.mockReset().mockResolvedValue({
+      status: "response",
+      response: { message: { role: "assistant", content: "ok" } },
+      messages: [],
+      actions: [],
+    });
+  });
+
+  function renderInWorkspace(leadId: string, initialEntry = "/agents/agent-1/chat") {
+    const context = {
+      agents: [agent, teammate],
+      leadAgent: { ...agent, id: leadId },
+      workspaceLoading: false,
+      config: null,
+      refreshWorkspace: () => {},
+    };
+    return render(
+      <I18nProvider>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <Routes>
+            <Route element={<Outlet context={context} />}>
+              <Route path="agents/:agentId/chat" element={<AgentChatPage />} />
+              <Route path="agents/:agentId/chat/:sessionId" element={<AgentChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+  }
+
+  it("sends the router-state autoSend message exactly once", async () => {
+    renderChatPage({ pathname: "/agents/agent-1/chat/session-1", state: { autoSend: "Merhaba PM" } });
+
+    await waitFor(() => expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1));
+    expect(sendSessionMessageWithRecovery.mock.calls[0][1]).toBe("Merhaba PM");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the lead welcome screen and team count when no session is open", async () => {
+    renderInWorkspace("agent-1");
+
+    expect(await screen.findByRole("heading", { level: 2, name: "What shall we work on?" })).toBeInTheDocument();
+    expect(screen.getByText("1 agents on the team")).toBeInTheDocument();
+  });
+
+  it("keeps the plain empty state for a non-lead agent", async () => {
+    renderInWorkspace("agent-2");
+
+    expect(await screen.findByText("Select a chat on the left or start a new chat.")).toBeInTheDocument();
+    expect(screen.queryByText("1 agents on the team")).not.toBeInTheDocument();
   });
 });

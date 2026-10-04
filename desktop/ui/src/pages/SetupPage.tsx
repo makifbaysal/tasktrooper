@@ -46,9 +46,9 @@ export function SetupPage() {
   }, [steps, selected]);
 
   if (complete) {
-    // Nothing left to ask. Someone who typed the URL gets the board, which is
+    // Nothing left to ask. Someone who typed the URL gets home, which is
     // where the "all set" state of this screen would have sent them anyway.
-    return <Navigate to="/board" replace />;
+    return <Navigate to="/home" replace />;
   }
 
   const index = SETUP_STEP_IDS.indexOf(shown);
@@ -83,7 +83,7 @@ export function SetupPage() {
         className="w-full"
         onClick={() => {
           dismiss();
-          navigate("/board");
+          navigate("/home");
         }}
       >
         {t("setup.later")}

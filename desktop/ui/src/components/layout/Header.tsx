@@ -1,6 +1,9 @@
 import { Menu, Moon, Sun } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import type { Agent } from "@/api";
 import { Button } from "@/components/ui/button";
 import { HealthStatus } from "@/components/layout/HealthStatus";
+import { LeadQuickAsk } from "@/components/layout/LeadQuickAsk";
 import { NotificationCenter } from "@/components/layout/NotificationCenter";
 import { SidebarBrand } from "@/components/layout/SidebarBrand";
 import { useI18n } from "@/hooks/useI18n";
@@ -12,9 +15,16 @@ interface HeaderProps {
   sidebarCollapsed?: boolean;
   /** Advances an agent's sidebar "last viewed" from a notification-center click. Optional so a Header shown outside WorkspaceShell (none today) still renders without a bell. */
   onAgentSeen?: (agentId: string, iso: string) => void;
+  leadAgent?: Agent | null;
 }
 
-export function Header({ title, onMenuClick, sidebarCollapsed = false, onAgentSeen }: HeaderProps) {
+function LeadAskSlot({ agent }: { agent: Agent }) {
+  const { pathname } = useLocation();
+  if (pathname.startsWith(`/agents/${agent.id}/chat`)) return null;
+  return <LeadQuickAsk agent={agent} />;
+}
+
+export function Header({ title, onMenuClick, sidebarCollapsed = false, onAgentSeen, leadAgent = null }: HeaderProps) {
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
 
@@ -40,7 +50,9 @@ export function Header({ title, onMenuClick, sidebarCollapsed = false, onAgentSe
         {title && <h1 className="truncate text-title font-semibold">{title}</h1>}
       </div>
 
-      <div className="min-w-0 flex-1 self-stretch" aria-hidden />
+      <div className="flex min-w-0 flex-1 items-center justify-center self-stretch px-4">
+        {leadAgent && <LeadAskSlot agent={leadAgent} />}
+      </div>
 
       <div className="flex items-center gap-2">
         {onAgentSeen && <NotificationCenter onAgentSeen={onAgentSeen} />}

@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import type { Agent } from "@/api";
 import { Header } from "@/components/layout/Header";
 import { I18nProvider } from "@/hooks/useI18n";
 import { SetupProvider } from "@/hooks/useSetup";
@@ -59,5 +61,39 @@ describe("Header logo alignment", () => {
     const brand = logo?.closest("div")?.parentElement;
     expect(brand?.className).toContain("-ml-1");
     delete window.__tasktrooperDesktop;
+  });
+});
+
+describe("Header lead quick-ask", () => {
+  const lead = { id: "pm", name: "Product Manager", enabled: true } as Agent;
+  const ASK = /message product manager|product manager/i;
+
+  function renderAt(path: string, leadAgent: Agent | null) {
+    return render(
+      <I18nProvider>
+        <ThemeProvider>
+          <SetupProvider>
+            <MemoryRouter initialEntries={[path]}>
+              <Header leadAgent={leadAgent} />
+            </MemoryRouter>
+          </SetupProvider>
+        </ThemeProvider>
+      </I18nProvider>,
+    );
+  }
+
+  it("renders the ask field on another route when a lead exists", () => {
+    renderAt("/board", lead);
+    expect(screen.getByRole("textbox", { name: ASK })).toBeTruthy();
+  });
+
+  it("hides it on the lead's own chat route", () => {
+    renderAt("/agents/pm/chat/s1", lead);
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("hides it when there is no lead", () => {
+    renderAt("/board", null);
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });

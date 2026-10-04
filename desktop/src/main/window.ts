@@ -32,13 +32,14 @@ export const CHROME_HEIGHT = 44;
  * the right first screen for somebody deciding whether to install this app and
  * the wrong one for somebody who already has.
  *
- * `/board` is where the SPA's own catch-all route sends everything else, so
- * this is the web app's idea of home rather than a second one invented here.
+ * `/home` is the SPA's own home route — the product manager's chat when there
+ * is one, the board otherwise — and its catch-all sends everything else there,
+ * so this is the web app's idea of home rather than a second one invented here.
  *
  * The landing page is not unreachable, only un-opened: it is same-origin, so a
  * link to `/` inside the app navigates there normally.
  */
-export const HOME_ROUTE = "/board";
+export const HOME_ROUTE = "/home";
 
 export interface WindowDeps {
   /** Where the web app is served from: this app's own scheme. */

@@ -272,6 +272,34 @@ export const agentArea: AgentAreaDict = {
     performanceLink: "Performans",
     loading: "Yükleniyor...",
     emptyState: "Soldan bir sohbet seçin veya yeni sohbet başlatın.",
+    lead: {
+      description: "İsteğini görevlere böler, ekibe dağıtır ve iş bitince kabul için sana getirir.",
+      teamCount: "{count} ajan bağlı",
+      welcome: {
+        title: "Bugün ne yapalım?",
+        label: "{name} için mesaj",
+        placeholder: "Bir özellik iste, bir hata bildir ya da board'u sor…",
+        send: "Gönder",
+        hint: "Enter ile gönder · Shift+Enter ile yeni satır",
+        failed: "Sohbet başlatılamadı",
+        suggestions: {
+          board: { label: "Board'da ne var?", message: "Board'da şu an ne var?" },
+          feature: { label: "Yeni özellik iste", message: "Yeni bir özellik istiyorum: " },
+          bug: { label: "Hata bildir", message: "Bir hata bildirmek istiyorum: " },
+          projects: { label: "Projeleri düzenle", message: "Projelerimi ve depolarımı düzenleyelim." },
+        },
+        flow: {
+          title: "İş nasıl akıyor",
+          you: "Sen",
+          analysis: "Analiz",
+          build: "Geliştirme",
+          qa: "QA",
+          acceptance: "PM kabulü",
+          approval: "Son onay: sen",
+          caption: "PM her isteği board görevine çevirir; teknik yol belirsizse önce analiz açar. Kodu ekip yazar, PM kabul eder, son onay senindir.",
+        },
+      },
+    },
   },
   columns: {
     toast: {

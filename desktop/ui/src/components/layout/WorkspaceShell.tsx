@@ -8,6 +8,7 @@ import { useAgentUnread } from "@/hooks/useAgentUnread";
 interface WorkspaceShellProps {
   config: WorkspaceConfig | null;
   agents: Agent[];
+  leadAgent?: Agent | null;
   loading: boolean;
   fullBleed?: boolean;
   onRefresh: () => void;
@@ -17,6 +18,7 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({
   config,
   agents,
+  leadAgent = null,
   loading,
   fullBleed = false,
   onRefresh,
@@ -39,11 +41,13 @@ export function WorkspaceShell({
         onMenuClick={() => setMobileOpen(true)}
         sidebarCollapsed={collapsed}
         onAgentSeen={markAgentSeen}
+        leadAgent={leadAgent}
       />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <WorkspaceSidebar
           config={config}
           agents={agents}
+          leadAgent={leadAgent}
           loading={loading}
           collapsed={collapsed}
           onToggle={() => setCollapsed((v) => !v)}

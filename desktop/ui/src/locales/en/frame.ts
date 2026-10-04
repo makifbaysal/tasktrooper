@@ -6,6 +6,12 @@ export const frame = {
     header: {
       lightTheme: "Light theme",
       darkTheme: "Dark theme",
+      leadAsk: {
+        label: "Message {name}",
+        placeholder: "Ask the PM…",
+        shortcut: "⌘K",
+        failed: "Couldn't start a conversation",
+      },
       notificationCenter: {
         title: "Notifications",
         empty: "No notifications yet",
@@ -46,6 +52,7 @@ export const frame = {
       workspace: "Workspace",
       projects: "Projects",
       agentChats: "Agent Chats",
+      team: "Team",
       newAgent: "New agent",
       unreadAgent: "New message",
       management: "Management",

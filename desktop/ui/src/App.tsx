@@ -32,6 +32,7 @@ import { ProjectsPage } from "@/pages/ProjectsPage";
 import { WorkspaceLayout } from "@/components/layout/WorkspaceLayout";
 import { BacklogPage } from "@/pages/BacklogPage";
 import { ReleasedPage } from "@/pages/ReleasedPage";
+import { HomePage } from "@/pages/HomePage";
 import { BoardPage } from "@/pages/BoardPage";
 import { AgentChatPage } from "@/pages/AgentChatPage";
 import { AnalysisReviewPage } from "@/pages/AnalysisReviewPage";
@@ -49,10 +50,11 @@ export default function App() {
         <SetupProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Navigate to="/board" replace />} />
+            <Route path="/" element={<Navigate to="/home" replace />} />
             <Route element={<ProtectedRoute />}>
               <Route path="/setup" element={<SetupPage />} />
               <Route element={<WorkspaceLayout />}>
+                <Route path="home" element={<HomePage />} />
                 <Route path="board" element={<BoardPage />} />
                 <Route path="backlog" element={<BacklogPage />} />
                 <Route path="released" element={<ReleasedPage />} />
@@ -134,7 +136,7 @@ export default function App() {
               <Route path="/profile" element={<Navigate to="/board" replace />} />
               <Route path="/llm" element={<Navigate to="/settings/llm" replace />} />
             </Route>
-            <Route path="*" element={<Navigate to="/board" replace />} />
+            <Route path="*" element={<Navigate to="/home" replace />} />
           </Routes>
         </BrowserRouter>
         <Toaster richColors position="top-right" closeButton />

@@ -204,8 +204,8 @@ afterEach(() => {
 describe("where the window opens", () => {
   it("opens the product's home route, not the marketing landing page", () => {
     const { contents } = start();
-    expect(HOME_ROUTE).toBe("/board");
-    expect(contents.loaded).toEqual([`${ORIGIN}/board`]);
+    expect(HOME_ROUTE).toBe("/home");
+    expect(contents.loaded).toEqual([`${ORIGIN}/home`]);
   });
 
   /**
@@ -221,7 +221,7 @@ describe("where the window opens", () => {
 
     shell.serve();
     expect(views).toHaveLength(1);
-    expect(views[0]!.webContents.loaded).toEqual([`${ORIGIN}/board`]);
+    expect(views[0]!.webContents.loaded).toEqual([`${ORIGIN}/home`]);
 
     // Called again on every backend restart; it must not stack up views.
     shell.serve();
@@ -345,7 +345,7 @@ describe("failures still reach the offline screen", () => {
     shell.reloadCloud();
 
     expect(contents.reloads).toBe(1);
-    expect(contents.loaded).toEqual([`${ORIGIN}/board`]);
+    expect(contents.loaded).toEqual([`${ORIGIN}/home`]);
   });
 });
 
@@ -362,7 +362,7 @@ describe("the navigation boundary is unchanged", () => {
     const { contents } = start();
     contents.loaded.length = 0;
     contents.emit("did-navigate", {}, "https://evil.example.com/", 200, "");
-    expect(contents.loaded).toEqual([`${ORIGIN}/board`]);
+    expect(contents.loaded).toEqual([`${ORIGIN}/home`]);
   });
 
   it("lets a same-origin navigation through", () => {

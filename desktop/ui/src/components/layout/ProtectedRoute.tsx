@@ -5,7 +5,7 @@ import { SETUP_PATH } from "@/lib/setup";
 
 /**
  * Not an auth gate — there is no sign-in. Its one job is the guided first-run
- * sequence: the desktop shell opens this app on /board, so without it a person
+ * sequence: the desktop shell opens this app on /home, so without it a person
  * who has just installed it lands in a workspace with no Claude Code connected,
  * no GitHub and no repository, and is expected to find the three unrelated
  * screens that fix that.

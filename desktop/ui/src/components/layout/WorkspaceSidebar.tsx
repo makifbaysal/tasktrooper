@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bot, Brain, FileText, Inbox, Kanban, Layers, ListChecks, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Rocket, Settings, Users } from "lucide-react";
 import type { Agent, WorkspaceConfig } from "@/api";
+import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
 interface WorkspaceSidebarProps {
   config: WorkspaceConfig | null;
   agents: Agent[];
+  leadAgent?: Agent | null;
   loading: boolean;
   collapsed: boolean;
   onToggle: () => void;
@@ -25,6 +27,7 @@ interface WorkspaceSidebarProps {
 
 export function WorkspaceSidebar({
   agents,
+  leadAgent = null,
   loading,
   collapsed,
   onToggle,
@@ -40,6 +43,44 @@ export function WorkspaceSidebar({
   // does not redirect. Shown on `needsWork` and not on `!complete`: a step
   // this surface could not READ is not something to nag about.
   const { needsWork } = useSetup();
+
+  const unreadDot = (agentId: string) =>
+    unreadAgentIds.has(agentId) ? (
+      // A dot, not a Badge: there is no count to show (the server has no
+      // per-viewer read state to count against, see useAgentUnread), only
+      // "something changed here".
+      <span
+        className="h-2 w-2 shrink-0 rounded-full bg-primary"
+        title={t("frame.layout.sidebar.unreadAgent")}
+      />
+    ) : null;
+
+  const newAgentButton = collapsed ? (
+    <button
+      type="button"
+      className="mt-2 flex w-full items-center justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+      title={t("frame.layout.sidebar.newAgent")}
+      onClick={() => setNewAgentOpen(true)}
+    >
+      <Plus className="h-4 w-4" />
+    </button>
+  ) : null;
+
+  const newAgentHeader = (label: string, className: string) => (
+    <div className={cn("flex items-center justify-between px-3 pb-1", className)}>
+      <span className="text-micro font-medium tracking-wide text-muted-foreground uppercase">{label}</span>
+      <button
+        type="button"
+        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        title={t("frame.layout.sidebar.newAgent")}
+        onClick={() => setNewAgentOpen(true)}
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+
+  const teamAgents = leadAgent ? agents.filter((a) => a.id !== leadAgent.id) : [];
 
   return (
     <>
@@ -83,6 +124,44 @@ export function WorkspaceSidebar({
                 onClick={onMobileClose}
               />
             )}
+            {leadAgent && (
+              <>
+                {collapsed ? newAgentButton : newAgentHeader(t("frame.layout.sidebar.team"), "pt-1")}
+                <SidebarNavLink
+                  to={`/agents/${leadAgent.id}/chat`}
+                  label={leadAgent.name}
+                  leading={<AgentAvatar name={leadAgent.name} lead size="sm" />}
+                  end={false}
+                  collapsed={collapsed}
+                  onClick={onMobileClose}
+                  className="font-semibold"
+                  trailing={unreadDot(leadAgent.id)}
+                />
+                {teamAgents.length > 0 && (
+                  <div
+                    className={cn(
+                      "space-y-0.5",
+                      !collapsed && "ml-[22px] border-l border-sidebar-border pl-1.5",
+                    )}
+                  >
+                    {teamAgents.map((agent) => (
+                      <SidebarNavLink
+                        key={agent.id}
+                        to={`/agents/${agent.id}/chat`}
+                        label={agent.name}
+                        leading={<AgentAvatar name={agent.name} size="xs" />}
+                        end={false}
+                        collapsed={collapsed}
+                        onClick={onMobileClose}
+                        className="px-2 py-1.5"
+                        trailing={unreadDot(agent.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+                <div className="mx-3 my-2 border-t border-sidebar-border" aria-hidden />
+              </>
+            )}
             <SidebarNavLink
               to="/board"
               label="Board"
@@ -116,52 +195,23 @@ export function WorkspaceSidebar({
               onClick={onMobileClose}
             />
 
-            {!collapsed ? (
-              <div className="flex items-center justify-between px-3 pt-4 pb-1">
-                <span className="text-micro font-medium tracking-wide text-muted-foreground uppercase">
-                  {t("frame.layout.sidebar.agentChats")}
-                </span>
-                <button
-                  type="button"
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  title={t("frame.layout.sidebar.newAgent")}
-                  onClick={() => setNewAgentOpen(true)}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="mt-2 flex w-full items-center justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                title={t("frame.layout.sidebar.newAgent")}
-                onClick={() => setNewAgentOpen(true)}
-              >
-                <Plus className="h-4 w-4" />
-              </button>
+            {!leadAgent && (
+              <>
+                {collapsed ? newAgentButton : newAgentHeader(t("frame.layout.sidebar.agentChats"), "pt-4")}
+                {agents.map((agent) => (
+                  <SidebarNavLink
+                    key={agent.id}
+                    to={`/agents/${agent.id}/chat`}
+                    label={agent.name}
+                    icon={collapsed ? Bot : MessageSquare}
+                    end={false}
+                    collapsed={collapsed}
+                    onClick={onMobileClose}
+                    trailing={unreadDot(agent.id)}
+                  />
+                ))}
+              </>
             )}
-            {agents.map((agent) => (
-              <SidebarNavLink
-                key={agent.id}
-                to={`/agents/${agent.id}/chat`}
-                label={agent.name}
-                icon={collapsed ? Bot : MessageSquare}
-                end={false}
-                collapsed={collapsed}
-                onClick={onMobileClose}
-                trailing={
-                  unreadAgentIds.has(agent.id) ? (
-                    // A dot, not a Badge: there is no count to show (the
-                    // server has no per-viewer read state to count against,
-                    // see useAgentUnread), only "something changed here".
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                      title={t("frame.layout.sidebar.unreadAgent")}
-                    />
-                  ) : null
-                }
-              />
-            ))}
             {!loading && !collapsed && agents.length === 0 && (
               <EmptyState
                 icon={Users}

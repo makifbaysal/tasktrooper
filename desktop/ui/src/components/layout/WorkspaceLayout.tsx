@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef } from "react";
 import { api, type Agent, type WorkspaceConfig } from "@/api";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
+import type { WorkspaceOutletContext } from "@/hooks/useWorkspaceOutlet";
+import { resolveLeadAgent } from "@/lib/leadAgent";
 import { CACHE_CONFIG } from "@/lib/project-board";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +20,7 @@ const SEED_POLL_MAX_ATTEMPTS = 20;
 // The sidebar shows only enabled agents, so it caches that filtered list under
 // its own key rather than sharing the board's full roster.
 const SIDEBAR_AGENTS_CACHE = "workspace.sidebarAgents";
+const LEAD_AGENT_CACHE = "workspace.leadAgentId";
 
 export function WorkspaceLayout() {
   const { pathname } = useLocation();
@@ -32,7 +35,10 @@ export function WorkspaceLayout() {
   // instead of holding it on skeletons until the server answers.
   const [config, setConfig] = useCachedState<WorkspaceConfig | null>(CACHE_CONFIG, null);
   const [agents, setAgents] = useCachedState<Agent[]>(SIDEBAR_AGENTS_CACHE, []);
-  const [loading, setLoading] = useFirstLoad(CACHE_CONFIG, SIDEBAR_AGENTS_CACHE);
+  const [leadAgentId, setLeadAgentId] = useCachedState<string | null>(LEAD_AGENT_CACHE, null);
+  // The lead's key gates loading too: /home must not read "no lead cached yet"
+  // as "no lead" and send the first launch after an upgrade to the board.
+  const [loading, setLoading] = useFirstLoad(CACHE_CONFIG, SIDEBAR_AGENTS_CACHE, LEAD_AGENT_CACHE);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const load = useCallback(async () => {
@@ -45,7 +51,11 @@ export function WorkspaceLayout() {
     };
 
     const attempt = async (tries: number): Promise<void> => {
-      const [cfg, catalog] = await Promise.all([api.getWorkspaceConfig(), api.listAgents()]);
+      const [cfg, catalog, rolesResult] = await Promise.all([
+        api.getWorkspaceConfig(),
+        api.listAgents(),
+        api.listRoles().catch(() => null),
+      ]);
       setConfig(cfg);
       if (catalog.seeding && tries < SEED_POLL_MAX_ATTEMPTS) {
         // The retry is fire-and-forget, so it must handle its own rejection —
@@ -56,7 +66,9 @@ export function WorkspaceLayout() {
         }, SEED_POLL_INTERVAL_MS);
         return;
       }
-      setAgents((catalog.agents ?? []).filter((a) => a.enabled));
+      const enabledAgents = (catalog.agents ?? []).filter((a) => a.enabled);
+      setAgents(enabledAgents);
+      setLeadAgentId(resolveLeadAgent(enabledAgents, rolesResult?.roles ?? null)?.id ?? null);
       setLoading(false);
     };
 
@@ -65,17 +77,33 @@ export function WorkspaceLayout() {
     } catch {
       fail();
     }
-  }, [setConfig, setAgents, setLoading]);
+  }, [setConfig, setAgents, setLeadAgentId, setLoading]);
 
   useEffect(() => {
     load();
     return () => clearTimeout(pollTimer.current);
   }, [load]);
 
+  const leadAgent = agents.find((a) => a.id === leadAgentId) ?? null;
+  const outletContext: WorkspaceOutletContext = {
+    config,
+    agents,
+    refreshWorkspace: load,
+    leadAgent,
+    workspaceLoading: loading,
+  };
+
   return (
-    <WorkspaceShell config={config} agents={agents} loading={loading} fullBleed={fullBleed} onRefresh={load}>
+    <WorkspaceShell
+      config={config}
+      agents={agents}
+      leadAgent={leadAgent}
+      loading={loading}
+      fullBleed={fullBleed}
+      onRefresh={load}
+    >
       <div className={cn("flex min-h-0 flex-1 flex-col", fullBleed ? "h-full overflow-hidden" : "")}>
-        <Outlet context={{ config, agents, refreshWorkspace: load }} />
+        <Outlet context={outletContext} />
       </div>
     </WorkspaceShell>
   );
