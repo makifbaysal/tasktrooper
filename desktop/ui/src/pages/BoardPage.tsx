@@ -7,6 +7,7 @@ import {
   HelpCircle,
   Inbox,
   Loader2,
+  PackageCheck,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   type BoardColumn,
   type BoardTask,
   type InitiativeProject,
+  type Release,
   type Repository,
   type TaskColumn,
   type TaskTypeWorkflow,
@@ -67,7 +69,9 @@ import {
   taskTypeLabel,
   workOrderBlockerLabel,
 } from "@/lib/project-board";
+import { BOARD_RELEASE_STATUSES, openReleaseByTask, verifyMinutesLeft } from "@/lib/release-board";
 import { cn, formatDate } from "@/lib/utils";
+import { RELEASE_STATUS_VARIANT } from "@/components/projects/repository/deploy/ReleaseDrawer";
 
 // Coarse on purpose: the badge answers "is this stuck?", and a minute-accurate
 // figure on a card that re-renders on every poll only adds noise.
@@ -93,6 +97,9 @@ function withPipelineFrom(previous: BoardTask, updated: BoardTask): BoardTask {
 // The board is a shared surface: agents move cards on their own, and until this
 // poll existed the only way to see that was to reload the page.
 const TASK_POLL_MS = 5000;
+// A release moves on the sweeper's 30s tick, so polling it as often as the
+// cards would only repeat the same answer.
+const RELEASE_POLL_MS = 15000;
 
 export function BoardPage() {
   const { t } = useI18n();
@@ -116,6 +123,7 @@ export function BoardPage() {
   const [selectedTask, setSelectedTask] = useState<BoardTask | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeAgentTaskIds, setActiveAgentTaskIds] = useState<Set<string>>(new Set());
+  const [releasesByTask, setReleasesByTask] = useState<Map<string, Release>>(new Map());
   const [activityOpen, setActivityOpen] = useState(false);
   const [fetched, setFetched] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -299,6 +307,17 @@ export function BoardPage() {
 
   usePolling(pollAgentActivity, 2000, !loading);
 
+  const pollReleases = useCallback(async () => {
+    try {
+      const data = await api.listAllReleases({ statuses: BOARD_RELEASE_STATUSES, limit: 200 });
+      setReleasesByTask(openReleaseByTask(data.releases ?? []));
+    } catch {
+      // The badge is a hint; a failed poll keeps the last one.
+    }
+  }, []);
+
+  usePolling(pollReleases, RELEASE_POLL_MS, !loading);
+
   const agentName = useCallback(
     (id?: string) => (id ? agents.find((a) => a.id === id)?.name : undefined),
     [agents],
@@ -448,6 +467,8 @@ export function BoardPage() {
     const pipelineIcon = taskPipelineCardIcon(task.latest_pipeline_status, task.latest_pipeline_gate_reason);
     // A skipped gate explains itself; an ordinary pipeline just names its status.
     const pipelineGateNote = pipelineGateReasonLabel(task.latest_pipeline_gate_reason);
+    const release = task.column === "done" ? releasesByTask.get(task.id) : undefined;
+    const releaseMinutes = release ? verifyMinutesLeft(release) : undefined;
     return (
       <Card
         key={task.id}
@@ -588,6 +609,29 @@ export function BoardPage() {
                     {t("boardArea.board.awaitingAnswer")}
                   </Badge>
                 ))}
+              {release && (
+                <Badge
+                  variant={RELEASE_STATUS_VARIANT[release.status]}
+                  className="gap-1 text-micro"
+                  title={
+                    release.status === "verifying"
+                      ? t("boardArea.board.releaseTitle.verifying", {
+                          time: release.verify_until ? formatDate(release.verify_until) : "",
+                        })
+                      : release.status === "failed"
+                      ? t("boardArea.board.releaseTitle.failed", { reason: release.failure_reason ?? "" })
+                      : t(`boardArea.board.releaseTitle.${release.status}`)
+                  }
+                >
+                  <PackageCheck className="h-3 w-3" />
+                  {releaseMinutes !== undefined
+                    ? t("boardArea.board.releaseBadgeVerifying", {
+                        status: t(`release.statuses.${release.status}`),
+                        minutes: releaseMinutes,
+                      })
+                    : t(`release.statuses.${release.status}`)}
+                </Badge>
+              )}
               {task.column_entered_at && (
                 <Badge
                   variant="outline"

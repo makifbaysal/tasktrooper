@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BoardColumn, BoardTask, InitiativeProject, Repository, WorkspaceConfig } from "@/api";
+import type { BoardColumn, BoardTask, InitiativeProject, Release, Repository, WorkspaceConfig } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { PROJECT_SCOPE_STORAGE_KEY } from "@/hooks/useProjectScope";
 import {
@@ -29,6 +29,7 @@ const api = vi.hoisted(() => ({
   listAgents: vi.fn(),
   listWorkflows: vi.fn(),
   listActivity: vi.fn(),
+  listAllReleases: vi.fn(),
   listTaskTypes: vi.fn(),
   createRepositoryTask: vi.fn(),
 }));
@@ -159,6 +160,7 @@ describe("BoardPage project scope", () => {
     api.listAgents.mockReset().mockResolvedValue({ agents: [] });
     api.listWorkflows.mockReset().mockResolvedValue({ workflows: [] });
     api.listActivity.mockReset().mockResolvedValue({ items: [] });
+    api.listAllReleases.mockReset().mockResolvedValue({ releases: [] });
     api.listTaskTypes.mockReset().mockResolvedValue({ task_types: [] });
     api.createRepositoryTask.mockReset().mockResolvedValue(tasks[0]);
   });
@@ -273,6 +275,51 @@ describe("BoardPage project scope", () => {
         "repo-shop",
         expect.objectContaining({ title: "Gift cards", initiative_project_id: "proj-shop" }),
       ),
+    );
+  });
+});
+
+describe("BoardPage release badge", () => {
+  const doneConfig = {
+    columns: [column("backlog", 0, true), column("todo", 1), column("done", 2)],
+  } as WorkspaceConfig;
+  const shipped = task("t-9", "SHOP-9", "Press card crop", "repo-shop", { column: "done" });
+  const verifying: Release = {
+    id: "rel-1",
+    repository_id: "repo-shop",
+    version: "b53ee526cc18",
+    mode: "on_merge",
+    status: "verifying",
+    profile: { mode: "on_merge" } as Release["profile"],
+    checks: {} as Release["checks"],
+    tasks: [{ id: "t-9" }, { id: "t-1" }],
+    created_at: stamp,
+    updated_at: stamp,
+    verify_until: new Date(Date.now() + 7 * 60000 + 5000).toISOString(),
+  };
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    seedCache([shipped, tasks[0]]);
+    writeCache(CACHE_CONFIG, doneConfig);
+    api.listAllTasks.mockReset().mockResolvedValue({ tasks: [shipped, tasks[0]] });
+    api.getWorkspaceConfig.mockReset().mockResolvedValue(doneConfig);
+    api.listRepositories.mockReset().mockResolvedValue({ repositories });
+    api.listInitiativeProjects.mockReset().mockResolvedValue({ projects });
+    api.listAgents.mockReset().mockResolvedValue({ agents: [] });
+    api.listWorkflows.mockReset().mockResolvedValue({ workflows: [] });
+    api.listActivity.mockReset().mockResolvedValue({ items: [] });
+    api.listAllReleases.mockReset().mockResolvedValue({ releases: [verifying] });
+  });
+
+  it("says a merged card in done is verifying and when it moves on, but only on the done card", async () => {
+    renderBoard("/board");
+
+    const badge = await within(cardOf("Press card crop")).findByText("Verifying · ~8m");
+    expect(badge.closest("[title]")?.getAttribute("title")).toMatch(/moves to Released by itself/);
+    expect(within(cardOf("Checkout button")).queryByText(/Verifying/)).not.toBeInTheDocument();
+    expect(api.listAllReleases).toHaveBeenCalledWith(
+      expect.objectContaining({ statuses: expect.arrayContaining(["deploying", "verifying", "awaiting_verdict"]) }),
     );
   });
 });

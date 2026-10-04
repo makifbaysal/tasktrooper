@@ -201,19 +201,28 @@ func releaseHasParkedTask(r domain.Release, parkedTaskIDs map[uuid.UUID]bool) bo
 // handBackDue is N5's persisted re-wake gate, read straight off the release
 // row rather than a process-memory map: a hand-back must actually have
 // happened (LastHandBackAt set — the watchdog never invents a first one),
-// more than ten minutes must have passed since it, no agent may have looked
-// at the release since (AgentSeenAt nil or before LastHandBackAt — a live
-// ForAgent call resets what the watchdog is waiting on), the re-wake cap
-// must not be hit, and the release must not simply be abandoned (untouched
-// for more than a day is someone else's problem to notice by then).
+// more than ten minutes must have passed since it, the re-wake cap must not
+// be hit, and the release must not simply be abandoned (untouched for more
+// than a day is someone else's problem to notice by then).
+//
+// An agent looking at the release since the hand-back (AgentSeenAt, every
+// ForAgent call) means different things by status. For failed or pending the
+// look was the answer: a report, or a deploy the agent chose not to start.
+// For awaiting_verdict only finish_release or rollback_release answers, so a
+// look merely restarts the cooldown — a verdict run that ended without one
+// used to strand the release, and its tasks in done, for good.
 func handBackDue(r domain.Release, now time.Time) bool {
 	if r.LastHandBackAt == nil {
 		return false
 	}
-	if now.Sub(*r.LastHandBackAt) < handBackReWakeInterval {
-		return false
-	}
+	quietSince := *r.LastHandBackAt
 	if r.AgentSeenAt != nil && !r.AgentSeenAt.Before(*r.LastHandBackAt) {
+		if r.Status != domain.ReleaseAwaitingVerdict {
+			return false
+		}
+		quietSince = *r.AgentSeenAt
+	}
+	if now.Sub(quietSince) < handBackReWakeInterval {
 		return false
 	}
 	if r.HandBackCount >= handBackMaxReWakes {

@@ -779,7 +779,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			return fail(fmt.Errorf("task workspace path could not be resolved, agent was not started: %w", wsPathErr))
 		}
 		branch := domain.TaskBranchName(job.Task)
-		if wsErr := r.git.EnsureTaskWorkspace(ctx, rootPath, wsPath, branch); wsErr != nil {
+		if wsErr := r.prepareTaskWorkspace(ctx, job.Task, rootPath, wsPath, branch); wsErr != nil {
 			return fail(fmt.Errorf("task workspace could not be prepared (repo clone/branch creation failed), agent was not started: %w", wsErr))
 		}
 		workDir = wsPath
@@ -1369,6 +1369,27 @@ func (r *Runner) clarificationSession(ctx context.Context, job RunJob, agentRec 
 		return uuid.Nil, false
 	}
 	return sess.ID, true
+}
+
+// prepareTaskWorkspace refreshes the task's workspace, except that a merged
+// task in done or released runs on the workspace as it is when the refresh
+// fails. Its branch already landed (squash-merged and usually deleted), so a
+// refresh can only conflict, and the release engineer reads the pull request
+// and the release over the API rather than the tree: refusing to start it
+// left the release without a verdict and the task in done, re-woken until
+// the watchdog gave up (T-64).
+func (r *Runner) prepareTaskWorkspace(ctx context.Context, task domain.BoardTask, rootPath, wsPath, branch string) error {
+	err := r.git.EnsureTaskWorkspace(ctx, rootPath, wsPath, branch)
+	if err == nil {
+		return nil
+	}
+	shipped := task.Column == domain.TaskColumnDone || task.Column == domain.TaskColumnReleased
+	if !shipped || strings.TrimSpace(task.MergeCommitSHA) == "" || !r.git.HasGit(wsPath) {
+		return err
+	}
+	log.Warn().Err(err).Str("task_id", task.ID.String()).Str("workspace", wsPath).
+		Msg("task workspace: refreshing a merged task's workspace failed, running on it as it is")
+	return nil
 }
 
 func (r *Runner) ensureWorkingCopy(ctx context.Context, repo domain.Repository, rootPath string) error {

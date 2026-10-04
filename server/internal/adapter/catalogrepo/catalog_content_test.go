@@ -162,6 +162,19 @@ func TestReleaseEngineerReleasedCarriesTheProposedRollbackRule(t *testing.T) {
 	}
 }
 
+// A human dragging a card to released while its release is still verifying
+// used to strand the release: the verdict wake landed in released.md, which
+// only knew health incidents, so the agent left the release open (T-75).
+func TestReleaseEngineerReleasedStillGivesAPendingVerdict(t *testing.T) {
+	agents := repoCatalogAgents(t)
+	got := columnInstruction(t, agents, "release-engineer", domain.TaskColumnReleased)
+	for _, want := range []string{"release_status: awaiting_verdict", "finish_release", "rollback_release"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("release-engineer/released: missing %q for a verdict woken after a human moved the card:\n%s", want, got)
+		}
+	}
+}
+
 // The batch-release handling (joined draft release, a human cutting it
 // later, no-bound-runtime-environment evidence, batch rollback only
 // reverting the default branch, local_run.tail for a failed local run) used

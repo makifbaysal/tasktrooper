@@ -496,16 +496,16 @@ func TestSweepDoesNotRewakeAReleaseThatWasNeverHandedBack(t *testing.T) {
 	assert.Empty(t, f.waker.calls, "nothing was ever handed back for this release; the watchdog must not invent one")
 }
 
-// Once an agent has looked at the release (AgentSeenAt, stamped by
+// Once an agent has looked at a failed release (AgentSeenAt, stamped by
 // Service.ForAgent — every release tool call) since the last hand-back, the
-// watchdog leaves it alone: whatever is slow is the agent's own turn, not a
-// dropped dispatch.
-func TestSweepDoesNotRewakeWhenTheAgentHasSeenItSinceTheHandBack(t *testing.T) {
+// watchdog leaves it alone: reporting the failure is the agent's whole
+// answer, and only a human can ship a failed release anyway.
+func TestSweepDoesNotRewakeAFailedReleaseTheAgentHasSeenSinceTheHandBack(t *testing.T) {
 	f := newSweepFixture()
 	repositoryID := uuid.New()
 	task := f.withTask(repositoryID)
 	created, err := f.store.Create(context.Background(), domain.Release{
-		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+		RepositoryID: repositoryID, Status: domain.ReleaseFailed,
 	}, []uuid.UUID{task.ID})
 	require.NoError(t, err)
 	past := f.clock.Now().Add(-30 * time.Minute)
@@ -517,7 +517,36 @@ func TestSweepDoesNotRewakeWhenTheAgentHasSeenItSinceTheHandBack(t *testing.T) {
 	f.store.releases[created.ID] = created
 
 	f.svc.SweepOnce(context.Background())
-	assert.Empty(t, f.waker.calls, "an agent already looked at it after the hand-back; the watchdog must not re-wake it")
+	assert.Empty(t, f.waker.calls, "an agent already looked at the failed release after the hand-back; the watchdog must not re-wake it")
+}
+
+// An awaiting_verdict release the agent looked at but never finished or
+// rolled back is re-woken once it has been quiet for the cooldown: that is
+// how T-75's release sat in awaiting_verdict, its task in done, until a later
+// merge superseded it. A recent look still holds the re-wake off.
+func TestSweepRewakesAnAwaitingVerdictReleaseTheAgentLookedAtButLeftOpen(t *testing.T) {
+	f := newSweepFixture()
+	repositoryID := uuid.New()
+	task := f.withTask(repositoryID)
+	created, err := f.store.Create(context.Background(), domain.Release{
+		RepositoryID: repositoryID, Status: domain.ReleaseAwaitingVerdict,
+	}, []uuid.UUID{task.ID})
+	require.NoError(t, err)
+	past := f.clock.Now().Add(-30 * time.Minute)
+	seen := f.clock.Now().Add(-5 * time.Minute)
+	created.HandBackCount = 1
+	created.LastHandBackAt = &past
+	created.AgentSeenAt = &seen
+	created.UpdatedAt = f.clock.Now()
+	f.store.releases[created.ID] = created
+
+	f.svc.SweepOnce(context.Background())
+	assert.Empty(t, f.waker.calls, "the agent looked five minutes ago; it may still be working on the verdict")
+
+	f.clock.Advance(6 * time.Minute)
+	f.svc.SweepOnce(context.Background())
+	require.Len(t, f.waker.calls, 1, "ten quiet minutes after the agent's last look, a release still awaiting a verdict is re-woken")
+	assert.Equal(t, task.ID, f.waker.calls[0].task.ID)
 }
 
 // A release nothing has touched in more than a day is not something the

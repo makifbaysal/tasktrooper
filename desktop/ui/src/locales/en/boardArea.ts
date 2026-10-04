@@ -75,6 +75,19 @@ export const boardArea = {
     taskDeleted: "Task deleted",
     deleteFailed: "Failed to delete task",
     agentRunning: "Agent running",
+    releaseBadgeVerifying: "{status} · ~{minutes}m",
+    releaseTitle: {
+      pending:
+        "Merged. Waiting for the release engineer to start the deploy; the card moves to Released by itself once the release is signed off.",
+      deploying:
+        "Merged and deploying. The card moves to Released by itself once the deploy is live, has passed its verify window and the release engineer has signed it off.",
+      verifying:
+        "Deployed. Health and errors are watched until {time}; then the release engineer signs it off and the card moves to Released by itself. Moving it by hand leaves the release unchecked.",
+      awaiting_verdict:
+        "The verify window is over. Waiting for the release engineer's sign-off, which moves the card to Released.",
+      rolling_back: "This release is being rolled back.",
+      failed: "The release failed: {reason}. Open the task to see the release and decide.",
+    },
     pipelineTitle: "Pipeline: {status}",
     title: "Board",
     description: "Active workflow. Backlog tasks are on the Backlog screen.",

@@ -72,6 +72,19 @@ export const boardArea: BoardAreaDict = {
     taskDeleted: "Görev silindi",
     deleteFailed: "Görev silinemedi",
     agentRunning: "Ajan çalışıyor",
+    releaseBadgeVerifying: "{status} · ~{minutes} dk",
+    releaseTitle: {
+      pending:
+        "Merge edildi. Release engineer'ın deploy'u başlatması bekleniyor; release onaylanınca kart kendiliğinden Released kolonuna geçer.",
+      deploying:
+        "Merge edildi, deploy sürüyor. Deploy canlıya çıkıp doğrulama süresini geçince ve release engineer onaylayınca kart kendiliğinden Released kolonuna geçer.",
+      verifying:
+        "Deploy edildi. Sağlık ve hatalar {time} saatine kadar izleniyor; ardından release engineer onaylar ve kart kendiliğinden Released kolonuna geçer. Elle taşımak release'i kontrolsüz bırakır.",
+      awaiting_verdict:
+        "Doğrulama süresi bitti. Kartı Released kolonuna taşıyacak release engineer onayı bekleniyor.",
+      rolling_back: "Bu release geri alınıyor.",
+      failed: "Release başarısız oldu: {reason}. Release'i görmek ve karar vermek için görevi aç.",
+    },
     pipelineTitle: "Pipeline: {status}",
     title: "Board",
     description: "Aktif iş akışı. Backlog'daki görevler Backlog ekranında.",

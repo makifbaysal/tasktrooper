@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -147,4 +148,45 @@ func TestEnsureWorkingCopy_RefusesADifferentRepository(t *testing.T) {
 	assert.NotContains(t, err.Error(), "rival", "the refusal must not name the other repository")
 	assert.Empty(t, g.cloneCalls, "the refusal must not clone over the directory")
 	assert.DirExists(t, root, "the refusal must not remove what it refused")
+}
+
+type refreshFailingGit struct {
+	workingCopyGit
+	ensureCalls int
+}
+
+func (g *refreshFailingGit) EnsureTaskWorkspace(context.Context, string, string, string) error {
+	g.ensureCalls++
+	return errors.New("task branch feature/t-64 conflicts with origin/main and could not be rebased onto it")
+}
+
+func TestPrepareTaskWorkspace_MergedTaskRunsOnTheWorkspaceAsItIs(t *testing.T) {
+	existing := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(existing, ".git"), 0o755))
+	missing := filepath.Join(t.TempDir(), "never-cloned")
+
+	cases := []struct {
+		name    string
+		task    domain.BoardTask
+		ws      string
+		wantErr bool
+	}{
+		{name: "merged task in done", task: domain.BoardTask{Column: domain.TaskColumnDone, MergeCommitSHA: "b53ee526cc18"}, ws: existing},
+		{name: "merged task in released", task: domain.BoardTask{Column: domain.TaskColumnReleased, MergeCommitSHA: "b53ee526cc18"}, ws: existing},
+		{name: "unmerged task in done", task: domain.BoardTask{Column: domain.TaskColumnDone}, ws: existing, wantErr: true},
+		{name: "merged task sent back to need_revision", task: domain.BoardTask{Column: domain.TaskColumnNeedRevision, MergeCommitSHA: "b53ee526cc18"}, ws: existing, wantErr: true},
+		{name: "merged task with no workspace on disk", task: domain.BoardTask{Column: domain.TaskColumnDone, MergeCommitSHA: "b53ee526cc18"}, ws: missing, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := &refreshFailingGit{}
+			err := (&Runner{git: g}).prepareTaskWorkspace(context.Background(), tc.task, "/root", tc.ws, "feature/t-64")
+			assert.Equal(t, 1, g.ensureCalls)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

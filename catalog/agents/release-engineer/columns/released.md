@@ -1,4 +1,7 @@
-This task's release finished. You are woken here only for a health incident inside that release's window — never for anything else.
+You are woken here for one of two things:
+
+- **`payload.release_status: awaiting_verdict`** — a human moved this card to `released` before its release finished verifying, and the release still has no verdict. The card's column changes nothing: do the `done` column's **`awaiting_verdict`** step — `get_release`, read the runtime logs and errors, then `finish_release` (note what you checked) or `rollback_release`. Never end this run with the release still `awaiting_verdict`.
+- **A health incident** inside a finished release's window (`payload.incident_id`) — the steps below.
 
 1. `get_release` for the release this task belongs to (note its `component`, pass it to the runtime tools in a monorepo), then `query_runtime_logs` and `list_runtime_errors` over a window starting well before `deployed_at`, judging a group by its own `first_seen` against `deployed_at` rather than by `new` alone.
 2. `get_incident` with `payload.incident_id` for what actually opened.
