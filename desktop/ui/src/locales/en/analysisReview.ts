@@ -48,6 +48,12 @@ export const analysisReview = {
     confirm: "Send comments",
     sent: "Comments sent ({count}). The agent is revising the analysis.",
     failed: "The comments could not be sent",
+    answersOnlyTitle: "Send your answers to the agent? ({count})",
+    answersOnlyDescription:
+      "Your answers to the open questions go to the agent. The task moves to Needs revision; the agent updates the analysis with them and sends it back for your review.",
+    answersIncluded: "Your answers to {count} open question(s) go with them.",
+    answersOnlyConfirm: "Send answers",
+    answersSent: "Answers sent ({count}). The agent is updating the analysis.",
   },
   panel: {
     title: "Comments",

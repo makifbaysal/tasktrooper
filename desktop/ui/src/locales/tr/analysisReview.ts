@@ -47,6 +47,12 @@ export const analysisReview: AnalysisReviewDict = {
     confirm: "Yorumları gönder",
     sent: "Yorumlar gönderildi ({count}). Agent analizi revize ediyor.",
     failed: "Yorumlar gönderilemedi",
+    answersOnlyTitle: "Cevapların agent'a gönderilsin mi? ({count})",
+    answersOnlyDescription:
+      "Açık sorulara verdiğin cevaplar agent'a gider. Görev Revizyon gerekiyor koluna taşınır; agent analizi bu cevaplarla günceller ve incelemen için geri gönderir.",
+    answersIncluded: "{count} açık soruya verdiğin cevaplar da onlarla birlikte gider.",
+    answersOnlyConfirm: "Cevapları gönder",
+    answersSent: "Cevaplar gönderildi ({count}). Agent analizi güncelliyor.",
   },
   panel: {
     title: "Yorumlar",

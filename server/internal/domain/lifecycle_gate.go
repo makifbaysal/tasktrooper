@@ -17,6 +17,11 @@ var (
 	// visit to a review stage ended in a recorded rejection — having visited a
 	// gate is not the same as having passed it.
 	ErrReviewStageRejected = errors.New("a review stage rejected this task and it has not been re-reviewed since")
+	// ErrReviewStageSkipped refuses an agent handing a task out of a review
+	// stage past the next stage of its review chain. Unlike the two above it
+	// fires at the move that skips, not later at done, where only a human
+	// could send the task back.
+	ErrReviewStageSkipped = errors.New("an agent cannot hand a task past a review stage it has not been through")
 )
 
 // ReviewStage is one mandatory step of a task's review chain.

@@ -283,6 +283,25 @@ describe("AnalysisReviewPage", () => {
     expect(sendComments).not.toBeDisabled();
   });
 
+  it("sends answers alone through the submit dialog when there is no comment", async () => {
+    listTaskAnnotations.mockResolvedValue({ annotations: [] });
+    listTaskQuestions.mockResolvedValue({
+      questions: [makeQuestion({ blocking: false, status: "answered", answer: "Redis", submitted_at: null })],
+    });
+    submitTaskAnnotations.mockResolvedValue({ submitted: 0, task: makeTask({ column: "need_revision" }) });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Send comments (1)" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Send your answers to the agent? (1)")).toBeInTheDocument();
+    const confirm = within(dialog).getByRole("button", { name: "Send answers" });
+    expect(confirm).not.toBeDisabled();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(submitTaskAnnotations).toHaveBeenCalledWith("repo-1", "task-1", undefined));
+    expect(await screen.findByText("board at /board?task=task-1")).toBeInTheDocument();
+  });
+
   it("notes unsent answers when approving, alongside unsent comments", async () => {
     listTaskQuestions.mockResolvedValue({
       questions: [makeQuestion({ blocking: false, status: "answered", answer: "Redis", submitted_at: null })],

@@ -224,3 +224,33 @@ func (w Workflow) ReviewChain() []ReviewStage {
 	})
 	return chain
 }
+
+// ReviewStagesBetween is the review chain stages lying strictly between from
+// and to on the happy path, in path order. Empty when either column is off
+// the path or to does not come after from.
+func (w Workflow) ReviewStagesBetween(from, to TaskColumn) []ReviewStage {
+	path := w.sortedOnPath()
+	fromIdx, toIdx := -1, -1
+	for i, s := range path {
+		switch s.Column {
+		case from:
+			fromIdx = i
+		case to:
+			toIdx = i
+		}
+	}
+	if fromIdx < 0 || toIdx <= fromIdx+1 {
+		return nil
+	}
+	between := make(map[TaskColumn]bool, toIdx-fromIdx-1)
+	for _, s := range path[fromIdx+1 : toIdx] {
+		between[s.Column] = true
+	}
+	var out []ReviewStage
+	for _, stage := range w.ReviewChain() {
+		if between[stage.Column] {
+			out = append(out, stage)
+		}
+	}
+	return out
+}

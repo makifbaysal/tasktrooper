@@ -403,3 +403,133 @@ func TestReviewChainGateEnforcedWithNoRepoFlag(t *testing.T) {
 		t.Fatalf("want ErrReviewChainIncomplete even with no repo flag set, got %v", err)
 	}
 }
+
+// TestUpdateTaskRefusesAgentSkippingAReviewStage pins the move that left
+// tasks stuck at done: QA judged a task/bug "pure backend" and moved it from
+// in_qa straight to human_uat, so done later refused it for a pm_uat it never
+// had and a human had to send it back to the PM by hand.
+func TestUpdateTaskRefusesAgentSkippingAReviewStage(t *testing.T) {
+	cases := []struct {
+		name     string
+		taskType domain.TaskType
+		actor    domain.TaskActor
+		from     domain.TaskColumn
+		to       domain.TaskColumn
+		spans    *fakeStageEvidence
+		board    *fakeColumns
+		wantErr  error
+		wantNext string
+	}{
+		{
+			name: "QA cannot move a task from in_qa to human_uat", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
+		},
+		{
+			name: "nor a bug", taskType: "bug", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
+		},
+		{
+			name: "a pm_uat visit from an earlier round does not cover this round", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+			spans:   visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
+			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
+		},
+		{
+			name: "QA cannot jump to done either", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnDone,
+			spans:   visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
+			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
+		},
+		{
+			name: "QA cannot test from the queue and skip in_qa", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnReadyForQA, to: domain.TaskColumnPMUAT,
+			wantErr: domain.ErrReviewStageSkipped, wantNext: "in_qa",
+		},
+		{
+			name: "a technical task does go from in_qa to human_uat", taskType: "technical", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+		},
+		{
+			name: "QA passes a task to pm_uat", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnPMUAT,
+		},
+		{
+			name: "QA rejects to need_revision", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnNeedRevision,
+		},
+		{
+			name: "QA takes a task into in_qa", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnReadyForQA, to: domain.TaskColumnInQA,
+		},
+		{
+			name: "PM passes a task to human_uat", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnPMUAT, to: domain.TaskColumnHumanUAT,
+		},
+		{
+			name: "a developer's incident suggestion leaves in_progress for human_uat", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInProgress, to: domain.TaskColumnHumanUAT,
+		},
+		{
+			name: "a human may still drag past pm_uat", taskType: "task", actor: domain.TaskActorHuman,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+		},
+		{
+			name: "a board without pm_uat has no UAT stage to skip", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+			board: boardWith(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA, domain.TaskColumnInQA,
+				domain.TaskColumnHumanUAT, domain.TaskColumnDone),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agentID := uuid.New()
+			repoID, taskID := uuid.New(), uuid.New()
+			tasks := &fakeReleaseTaskStore{task: domain.BoardTask{
+				ID: taskID, RepositoryID: repoID, Key: "APP-87", TaskType: tc.taskType, Column: tc.from,
+			}}
+			spans := tc.spans
+			if spans == nil {
+				spans = visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA)
+			}
+			svc := &Service{
+				repos:         &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}},
+				tasks:         tasks,
+				spans:         spans,
+				pipelineStore: &fakeDeployPipelines{},
+				workflows:     workflowtest.Default().Reader(),
+			}
+			if tc.board != nil {
+				svc.columns = tc.board
+			}
+
+			target := tc.to
+			_, err := svc.UpdateTask(context.Background(), repoID, taskID, domain.UpdateBoardTaskRequest{
+				Column:       &target,
+				Actor:        tc.actor,
+				ActorAgentID: &agentID,
+			})
+
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("want %v, got %v", tc.wantErr, err)
+				}
+				if !strings.Contains(err.Error(), "Move it to "+tc.wantNext) {
+					t.Fatalf("want the refusal to name %s as the next column, got: %v", tc.wantNext, err)
+				}
+				if tasks.updated.Column == target {
+					t.Fatalf("a refused move must not be persisted, task landed in %s", tasks.updated.Column)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tasks.updated.Column != target {
+				t.Fatalf("want the task moved to %s, got %s", target, tasks.updated.Column)
+			}
+		})
+	}
+}

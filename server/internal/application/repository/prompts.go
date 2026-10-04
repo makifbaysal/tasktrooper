@@ -113,6 +113,12 @@ var reviewChainMissingStagesKey = prompt.Define("guard.review_chain_missing_stag
 	Task: "T-1", Target: "done", Missing: "QA (in_qa) — needs a verdict",
 })
 
+type reviewStageSkippedInput struct{ Task, From, Target, TaskType, Skipped, Next string }
+
+var reviewStageSkippedKey = prompt.Define("guard.review_stage_skipped", reviewStageSkippedInput{
+	Task: "T-1", From: "in_qa", Target: "human_uat", TaskType: "task", Skipped: "UAT (pm_uat)", Next: "pm_uat",
+})
+
 type workflowSetupTaskBriefInput struct{ Kind string }
 
 var workflowSetupTaskBriefKey = prompt.Define("repository.workflow_setup_task_brief", workflowSetupTaskBriefInput{Kind: "backend"})

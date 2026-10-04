@@ -1610,6 +1610,9 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 			return domain.BoardTask{}, err
 		}
 
+		if err := s.reviewStageSkipGate(ctx, task, prevColumn, *req.Column, req.Actor); err != nil {
+			return domain.BoardTask{}, err
+		}
 		if err := s.reviewChainGate(ctx, repo, task, prevColumn, *req.Column); err != nil {
 			return domain.BoardTask{}, err
 		}

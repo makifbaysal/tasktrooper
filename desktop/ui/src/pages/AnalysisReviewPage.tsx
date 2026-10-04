@@ -203,10 +203,15 @@ export function AnalysisReviewPage() {
   };
 
   const submit = async (note: string) => {
+    const answerCount = unsubmittedAnswers.length;
     try {
       const result = await api.submitTaskAnnotations(repositoryId, taskId, note || undefined);
       setSubmitOpen(false);
-      toast.success(t("analysisReview.submit.sent", { count: result.submitted }));
+      toast.success(
+        result.submitted > 0
+          ? t("analysisReview.submit.sent", { count: result.submitted })
+          : t("analysisReview.submit.answersSent", { count: answerCount }),
+      );
       navigate(boardPath);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("analysisReview.submit.failed"));
@@ -373,7 +378,13 @@ export function AnalysisReviewPage() {
           onRemove={remove}
         />
       </div>
-      <SubmitAnnotationsDialog open={submitOpen} onOpenChange={setSubmitOpen} openCount={openCount} onSubmit={submit} />
+      <SubmitAnnotationsDialog
+        open={submitOpen}
+        onOpenChange={setSubmitOpen}
+        openCount={openCount}
+        answerCount={unsubmittedAnswers.length}
+        onSubmit={submit}
+      />
       <ConfirmDialog
         open={approveConfirmOpen}
         onOpenChange={setApproveConfirmOpen}

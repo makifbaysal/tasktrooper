@@ -123,6 +123,47 @@ func (s *Service) reviewChainGate(ctx context.Context, repo domain.Repository, t
 	return nil
 }
 
+// reviewStageSkipGate refuses an agent handing a task out of a review stage
+// past the next stage of its review chain — QA moving a task/bug from in_qa
+// straight to human_uat because the work "looked technical". Visited or not
+// does not matter here: the stage has to see this round's diff. Only a stage
+// with a review_verdict_sweep is a hand-off point; a developer's in_progress
+// → human_uat on an incident suggestion is not one.
+//
+// It fails open on an unreadable workflow because reviewChainGate still
+// fails closed at done.
+func (s *Service) reviewStageSkipGate(ctx context.Context, task domain.BoardTask, prev, target domain.TaskColumn, actor domain.TaskActor) error {
+	if actor != domain.TaskActorAgent || prev == target {
+		return nil
+	}
+	wf, err := s.workflow(ctx, task.TaskType)
+	if err != nil {
+		return nil
+	}
+	if passTo, ok := wf.Param(prev, domain.BehaviourReviewVerdictSweep, "pass_to"); !ok || passTo == "" {
+		return nil
+	}
+	var skipped []string
+	var next domain.TaskColumn
+	for _, stage := range wf.ReviewStagesBetween(prev, target) {
+		if !s.boardHasColumn(ctx, stage.Column) {
+			continue
+		}
+		if next == "" {
+			next = stage.Column
+		}
+		skipped = append(skipped, fmt.Sprintf("%s (%s)", stage.Label, stage.Column))
+	}
+	if len(skipped) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w — %s", domain.ErrReviewStageSkipped,
+		reviewStageSkippedKey.Render(reviewStageSkippedInput{
+			Task: taskLabel(task), From: string(prev), Target: string(target), TaskType: string(task.TaskType),
+			Skipped: strings.Join(skipped, ", "), Next: string(next),
+		}))
+}
+
 func (s *Service) CheckReviewChain(ctx context.Context, repositoryID, taskID uuid.UUID) error {
 	if s.repos == nil || s.tasks == nil {
 		return fmt.Errorf("repository store unavailable")

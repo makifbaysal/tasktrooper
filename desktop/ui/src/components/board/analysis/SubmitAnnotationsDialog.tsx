@@ -10,10 +10,17 @@ interface SubmitAnnotationsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   openCount: number;
+  answerCount: number;
   onSubmit: (note: string) => Promise<void>;
 }
 
-export function SubmitAnnotationsDialog({ open, onOpenChange, openCount, onSubmit }: SubmitAnnotationsDialogProps) {
+export function SubmitAnnotationsDialog({
+  open,
+  onOpenChange,
+  openCount,
+  answerCount,
+  onSubmit,
+}: SubmitAnnotationsDialogProps) {
   const { t } = useI18n();
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -35,16 +42,25 @@ export function SubmitAnnotationsDialog({ open, onOpenChange, openCount, onSubmi
     <FormDialog
       open={open}
       onOpenChange={(next) => !submitting && onOpenChange(next)}
-      title={t("analysisReview.submit.title", { count: openCount })}
-      description={t("analysisReview.submit.description")}
+      title={
+        openCount > 0
+          ? t("analysisReview.submit.title", { count: openCount })
+          : t("analysisReview.submit.answersOnlyTitle", { count: answerCount })
+      }
+      description={[
+        openCount > 0 ? t("analysisReview.submit.description") : t("analysisReview.submit.answersOnlyDescription"),
+        openCount > 0 && answerCount > 0 ? t("analysisReview.submit.answersIncluded", { count: answerCount }) : null,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       footer={
         <>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={submit} disabled={submitting || openCount === 0}>
+          <Button onClick={submit} disabled={submitting || openCount + answerCount === 0}>
             {submitting ? <Loader2 className="animate-spin" /> : <Send />}
-            {t("analysisReview.submit.confirm")}
+            {openCount > 0 ? t("analysisReview.submit.confirm") : t("analysisReview.submit.answersOnlyConfirm")}
           </Button>
         </>
       }
