@@ -48,10 +48,18 @@ export const frame = {
       workflows: "Workflows",
       catalog: "Catalog",
     },
+    home: {
+      preparing: {
+        title: "Getting your team ready",
+        description: "The agents are still arriving from the catalog. The product manager's chat opens here as soon as it is in.",
+        toBoard: "Go to the board",
+      },
+    },
     sidebar: {
       workspace: "Workspace",
       projects: "Projects",
       agentChats: "Agent Chats",
+      home: "Home",
       team: "Team",
       newAgent: "New agent",
       unreadAgent: "New message",

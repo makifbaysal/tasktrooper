@@ -92,6 +92,11 @@ describe("Header lead quick-ask", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
+  it("hides it on /home, whose own message box is the ask", () => {
+    renderAt("/home", lead);
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
   it("hides it when there is no lead", () => {
     renderAt("/board", null);
     expect(screen.queryByRole("textbox")).toBeNull();

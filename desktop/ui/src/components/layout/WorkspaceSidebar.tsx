@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, Brain, FileText, Inbox, Kanban, Layers, ListChecks, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Rocket, Settings, Users } from "lucide-react";
+import { Bot, Brain, FileText, House, Inbox, Kanban, Layers, ListChecks, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Rocket, Settings, Users } from "lucide-react";
 import type { Agent, WorkspaceConfig } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Button } from "@/components/ui/button";
@@ -125,42 +125,14 @@ export function WorkspaceSidebar({
               />
             )}
             {leadAgent && (
-              <>
-                {collapsed ? newAgentButton : newAgentHeader(t("frame.layout.sidebar.team"), "pt-1")}
-                <SidebarNavLink
-                  to={`/agents/${leadAgent.id}/chat`}
-                  label={leadAgent.name}
-                  leading={<AgentAvatar name={leadAgent.name} lead size="sm" />}
-                  end={false}
-                  collapsed={collapsed}
-                  onClick={onMobileClose}
-                  className="font-semibold"
-                  trailing={unreadDot(leadAgent.id)}
-                />
-                {teamAgents.length > 0 && (
-                  <div
-                    className={cn(
-                      "space-y-0.5",
-                      !collapsed && "ml-[22px] border-l border-sidebar-border pl-1.5",
-                    )}
-                  >
-                    {teamAgents.map((agent) => (
-                      <SidebarNavLink
-                        key={agent.id}
-                        to={`/agents/${agent.id}/chat`}
-                        label={agent.name}
-                        leading={<AgentAvatar name={agent.name} size="xs" />}
-                        end={false}
-                        collapsed={collapsed}
-                        onClick={onMobileClose}
-                        className="px-2 py-1.5"
-                        trailing={unreadDot(agent.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-                <div className="mx-3 my-2 border-t border-sidebar-border" aria-hidden />
-              </>
+              <SidebarNavLink
+                to="/home"
+                label={t("frame.layout.sidebar.home")}
+                icon={House}
+                end={true}
+                collapsed={collapsed}
+                onClick={onMobileClose}
+              />
             )}
             <SidebarNavLink
               to="/board"
@@ -195,6 +167,43 @@ export function WorkspaceSidebar({
               onClick={onMobileClose}
             />
 
+            {leadAgent && (
+              <>
+                {collapsed ? newAgentButton : newAgentHeader(t("frame.layout.sidebar.team"), "pt-4")}
+                <SidebarNavLink
+                  to={`/agents/${leadAgent.id}/chat`}
+                  label={leadAgent.name}
+                  leading={<AgentAvatar name={leadAgent.name} lead size="sm" />}
+                  end={false}
+                  collapsed={collapsed}
+                  onClick={onMobileClose}
+                  className="font-semibold"
+                  trailing={unreadDot(leadAgent.id)}
+                />
+                {teamAgents.length > 0 && (
+                  <div
+                    className={cn(
+                      "space-y-0.5",
+                      !collapsed && "ml-[22px] border-l border-sidebar-border pl-1.5",
+                    )}
+                  >
+                    {teamAgents.map((agent) => (
+                      <SidebarNavLink
+                        key={agent.id}
+                        to={`/agents/${agent.id}/chat`}
+                        label={agent.name}
+                        leading={<AgentAvatar name={agent.name} size="xs" />}
+                        end={false}
+                        collapsed={collapsed}
+                        onClick={onMobileClose}
+                        className="px-2 py-1.5"
+                        trailing={unreadDot(agent.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
             {!leadAgent && (
               <>
                 {collapsed ? newAgentButton : newAgentHeader(t("frame.layout.sidebar.agentChats"), "pt-4")}

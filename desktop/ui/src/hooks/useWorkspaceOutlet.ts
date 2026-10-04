@@ -10,6 +10,8 @@ export interface WorkspaceOutletContext {
   leadAgent: Agent | null;
   /** True until the first roster load settles — "no lead yet" is not "no lead". */
   workspaceLoading: boolean;
+  /** The catalog's first sync is still creating agents and the lead is not among them yet. */
+  teamPreparing: boolean;
 }
 
 /** Undefined outside WorkspaceLayout (e.g. a page rendered alone in a test). */

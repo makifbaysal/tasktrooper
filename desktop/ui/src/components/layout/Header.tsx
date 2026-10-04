@@ -20,7 +20,7 @@ interface HeaderProps {
 
 function LeadAskSlot({ agent }: { agent: Agent }) {
   const { pathname } = useLocation();
-  if (pathname.startsWith(`/agents/${agent.id}/chat`)) return null;
+  if (pathname === "/home" || pathname.startsWith(`/agents/${agent.id}/chat`)) return null;
   return <LeadQuickAsk agent={agent} />;
 }
 

@@ -20,7 +20,6 @@ import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MessageList } from "@/components/chat/MessageList";
 import { SessionSidebar } from "@/components/chat/SessionSidebar";
 import { LeadChatHeader } from "@/components/chat/LeadChatHeader";
-import { LeadWelcome } from "@/components/chat/LeadWelcome";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 import { useI18n } from "@/hooks/useI18n";
@@ -66,7 +65,6 @@ export function AgentChatPage() {
     () => (workspace?.agents ?? []).filter((a) => a.id !== workspace?.leadAgent?.id),
     [workspace?.agents, workspace?.leadAgent?.id],
   );
-  const [starting, setStarting] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const {
     sessions,
@@ -534,20 +532,6 @@ export function AgentChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; the key ref guards re-sends
   }, [autoSend, activeSessionId, loadedSessionId, sending, stopping]);
 
-  const startFromWelcome = async (message: string) => {
-    if (!agentId || starting) return;
-    setStarting(true);
-    try {
-      const name = agent?.name ?? workspace?.leadAgent?.name ?? "";
-      const session = await createSession(t("agentArea.chat.newSessionTitle", { name }));
-      navigate(`/agents/${agentId}/chat/${session.id}`, { replace: true, state: { autoSend: message } });
-    } catch {
-      toast.error(t("agentArea.chat.lead.welcome.failed"));
-    } finally {
-      setStarting(false);
-    }
-  };
-
   if (!agentId) return null;
 
   const leadAgent = agent ?? workspace?.leadAgent ?? null;
@@ -631,8 +615,6 @@ export function AgentChatPage() {
                 }}
               />
             </>
-          ) : isLead && leadAgent && !loadingMessages ? (
-            <LeadWelcome agent={leadAgent} onSubmit={startFromWelcome} busy={starting} />
           ) : (
             <div className="flex flex-1 items-center justify-center p-8 text-center text-muted-foreground">
               {loadingMessages ? t("agentArea.chat.loading") : t("agentArea.chat.emptyState")}

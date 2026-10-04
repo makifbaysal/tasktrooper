@@ -144,6 +144,10 @@ export class Shell {
       this.#cloud = null;
     });
     window.on("resize", () => this.#layout());
+    // Full screen hides the traffic lights, so the strip kept for them would be
+    // dead space above the header; both transitions re-place the view.
+    window.on("enter-full-screen", () => this.#layout());
+    window.on("leave-full-screen", () => this.#layout());
 
     hardenShellNavigation(window);
 
@@ -331,16 +335,17 @@ export class Shell {
     this.#deps.onCloudStatus(status);
   }
 
-  /** Position the web app under the title bar. */
+  /** Position the web app under the title bar — or flush to the top in full screen, where there is none. */
   #layout(): void {
     const window = this.#window;
     if (!window || window.isDestroyed() || !this.#cloud) return;
     const [width, height] = window.getContentSize();
+    const top = window.isFullScreen() ? 0 : CHROME_HEIGHT;
     this.#cloud.setBounds({
       x: 0,
-      y: CHROME_HEIGHT,
+      y: top,
       width: Math.max(0, width),
-      height: Math.max(0, height - CHROME_HEIGHT),
+      height: Math.max(0, height - top),
     });
   }
 }

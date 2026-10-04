@@ -324,6 +324,7 @@ describe("AgentChatPage lead agent", () => {
       agents: [agent, teammate],
       leadAgent: { ...agent, id: leadId },
       workspaceLoading: false,
+      teamPreparing: false,
       config: null,
       refreshWorkspace: () => {},
     };
@@ -350,11 +351,12 @@ describe("AgentChatPage lead agent", () => {
     expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the lead welcome screen and team count when no session is open", async () => {
+  it("gives the lead its own header but a normal chat page — the welcome lives on /home", async () => {
     renderInWorkspace("agent-1");
 
-    expect(await screen.findByRole("heading", { level: 2, name: "What shall we work on?" })).toBeInTheDocument();
-    expect(screen.getByText("1 agents on the team")).toBeInTheDocument();
+    expect(await screen.findByText("1 agents on the team")).toBeInTheDocument();
+    expect(screen.getByText("Select a chat on the left or start a new chat.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "What shall we work on?" })).not.toBeInTheDocument();
   });
 
   it("keeps the plain empty state for a non-lead agent", async () => {

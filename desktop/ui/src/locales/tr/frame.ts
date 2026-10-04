@@ -49,10 +49,18 @@ export const frame: FrameDict = {
       workflows: "İş Akışları",
       catalog: "Katalog",
     },
+    home: {
+      preparing: {
+        title: "Ekibin hazırlanıyor",
+        description: "Ajanlar katalogdan yükleniyor. PM hazır olur olmaz sohbeti burada açılacak.",
+        toBoard: "Board'a git",
+      },
+    },
     sidebar: {
       workspace: "Çalışma Alanı",
       projects: "Projeler",
       agentChats: "Ajan Sohbetleri",
+      home: "Ana Sayfa",
       team: "Ekip",
       newAgent: "Yeni ajan",
       unreadAgent: "Yeni mesaj",

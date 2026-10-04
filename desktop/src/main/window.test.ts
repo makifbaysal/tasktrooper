@@ -140,6 +140,10 @@ class FakeBrowserWindow extends EventEmitter {
   isMinimized(): boolean {
     return false;
   }
+  fullScreen = false;
+  isFullScreen(): boolean {
+    return this.fullScreen;
+  }
 }
 
 const openedExternally: string[] = [];
@@ -199,6 +203,21 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("where the web app sits in the window", () => {
+  it("sits under the title bar, and flush to the top in full screen where the traffic lights are hidden", () => {
+    const { window, view } = start();
+    expect(view.bounds).toEqual({ x: 0, y: 44, width: 1180, height: 756 });
+
+    window.fullScreen = true;
+    window.emit("enter-full-screen");
+    expect(view.bounds).toEqual({ x: 0, y: 0, width: 1180, height: 800 });
+
+    window.fullScreen = false;
+    window.emit("leave-full-screen");
+    expect(view.bounds).toEqual({ x: 0, y: 44, width: 1180, height: 756 });
+  });
 });
 
 describe("where the window opens", () => {
