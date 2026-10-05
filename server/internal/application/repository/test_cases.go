@@ -231,7 +231,7 @@ func (s *Service) testCaseGate(ctx context.Context, taskID uuid.UUID, taskType d
 		return nil
 	}
 	if len(items) == 0 {
-		return fmt.Errorf("%s", testCasesMissingKey.Render(testCasesMissingInput{Target: string(target)}))
+		return domain.RefuseMove(fmt.Errorf("%s", testCasesMissingKey.Render(testCasesMissingInput{Target: string(target)})))
 	}
 	var planned []string
 	for _, c := range items {
@@ -240,7 +240,7 @@ func (s *Service) testCaseGate(ctx context.Context, taskID uuid.UUID, taskType d
 		}
 	}
 	if len(planned) > 0 {
-		return fmt.Errorf("%s", testCasesPlannedKey.Render(testCasesPlannedInput{Target: string(target), Count: len(planned), Planned: planned}))
+		return domain.RefuseMove(fmt.Errorf("%s", testCasesPlannedKey.Render(testCasesPlannedInput{Target: string(target), Count: len(planned), Planned: planned})))
 	}
 	return nil
 }

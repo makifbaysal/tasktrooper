@@ -1867,9 +1867,9 @@ func validateAgentSelfMove(task domain.BoardTask, req domain.UpdateBoardTaskRequ
 	}
 	switch *req.Column {
 	case domain.TaskColumnNeedRevision:
-		return fmt.Errorf("%s", prompt.Text(selfMoveNeedRevisionKey))
+		return domain.RefuseMove(fmt.Errorf("%s", prompt.Text(selfMoveNeedRevisionKey)))
 	case domain.TaskColumnTodo:
-		return fmt.Errorf("%s", prompt.Text(selfMoveTodoKey))
+		return domain.RefuseMove(fmt.Errorf("%s", prompt.Text(selfMoveTodoKey)))
 	}
 	return nil
 }

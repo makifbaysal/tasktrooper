@@ -128,7 +128,7 @@ func (s *Service) ValidateTransition(ctx context.Context, from, to string) error
 		}
 	}
 	if hasOutgoing {
-		return errors.New(prompt.Text(transitionNotAllowedKey))
+		return domain.RefuseMove(errors.New(prompt.Text(transitionNotAllowedKey)))
 	}
 	return nil
 }

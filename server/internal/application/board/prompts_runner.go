@@ -157,3 +157,5 @@ type handoffReasonInput struct{ Reason string }
 
 var handoffCodeReviewRefusedKey = prompt.Define("guard.handoff_code_review_refused", handoffReasonInput{Reason: "x"})
 var handoffAnalizReviewRefusedKey = prompt.Define("guard.handoff_analiz_review_refused", handoffReasonInput{Reason: "x"})
+var handoffCodeReviewRefusedRevisionKey = prompt.Define("guard.handoff_code_review_refused_revision", handoffReasonInput{Reason: "x"})
+var handoffAnalizReviewRefusedRevisionKey = prompt.Define("guard.handoff_analiz_review_refused_revision", handoffReasonInput{Reason: "x"})

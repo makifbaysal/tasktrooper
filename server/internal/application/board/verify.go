@@ -108,7 +108,7 @@ func (r *Runner) verifyAndFix(
 		if attempt >= attempts {
 			r.reportVerificationFailure(ctx, job, failReport)
 			resp.Message.Content = strings.TrimSpace(resp.Message.Content +
-				"\n\n[verification] Build/vet checks still failing after " + fmt.Sprint(attempts) + " fix attempts; task moved back to in_progress.")
+				"\n\n" + verificationExhaustedNoteKey.Render(verificationExhaustedNoteInput{Attempts: attempts}))
 			return resp, false, nil
 		}
 		history = append(history, domain.Message{Role: domain.RoleAssistant, Content: resp.Message.Content})
@@ -150,7 +150,8 @@ func withFindingsDigest(history []domain.Message, digest string) []domain.Messag
 	return append(out, domain.Message{Role: domain.RoleSystem, Content: digest})
 }
 
-// Verdict only: the build gate's failure is what moves the task, not this.
+// Comment only: the runner moves the task (to need_revision, reason
+// plan_verification_failed) once the whole run is settled.
 func (r *Runner) reportPlanVerificationFailure(ctx context.Context, job RunJob, verdict domain.VerificationResult) {
 	if r.taskUpdater == nil {
 		return
@@ -179,6 +180,9 @@ func planVerificationFailureComment(verdict domain.VerificationResult) string {
 	return sb.String()
 }
 
+// reportVerificationFailure comments the failing report. The runner then sends
+// the task back to need_revision; only a workflow without that stage falls back
+// to a move into the working column here.
 func (r *Runner) reportVerificationFailure(ctx context.Context, job RunJob, failReport string) {
 	if r.taskUpdater == nil {
 		return
@@ -186,13 +190,22 @@ func (r *Runner) reportVerificationFailure(ctx context.Context, job RunJob, fail
 	if len(failReport) > 3000 {
 		failReport = truncateHead(failReport, 3000) + "\n…(truncated)"
 	}
+	wf := r.workflowFor(ctx, job.Task.TaskType)
+	_, hasRevision := wf.Stage(domain.TaskColumnNeedRevision)
+	comment := verificationFailureComment(failReport)
+	if hasRevision {
+		comment = verificationFailureRevisionCommentKey.Render(verificationFailureCommentInput{Report: failReport})
+	}
 	if _, err := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
 		AuthorType: "system",
-		Content:    verificationFailureComment(failReport),
+		Content:    comment,
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("verification failure comment failed")
 	}
-	col, ok := r.workflowFor(ctx, job.Task.TaskType).WorkColumn()
+	if hasRevision {
+		return
+	}
+	col, ok := wf.WorkColumn()
 	if !ok {
 		col = domain.TaskColumnInProgress
 	}

@@ -282,6 +282,13 @@ func TestGoldenHandoffComments(t *testing.T) {
 	assertGolden(t, "handoff_analiz_review_refused_comment", analizRefusedUpdater.comments[0].Content)
 }
 
+func TestGoldenHandoffRevisionComments(t *testing.T) {
+	assertGolden(t, "handoff_code_review_refused_revision_comment",
+		handoffCodeReviewRefusedRevisionKey.Render(handoffReasonInput{Reason: "criteria are open"}))
+	assertGolden(t, "handoff_analiz_review_refused_revision_comment",
+		handoffAnalizReviewRefusedRevisionKey.Render(handoffReasonInput{Reason: "criteria are open"}))
+}
+
 func require1(t *testing.T, cond bool, msg string) {
 	t.Helper()
 	if !cond {

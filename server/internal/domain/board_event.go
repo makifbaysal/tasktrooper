@@ -52,8 +52,16 @@ const (
 	// No pipeline result ever arrived and the gate was opened anyway; distinct
 	// from passed because only one of them means the build was green.
 	MoveReasonPipelineGateOpened = "pipeline_gate_opened"
-	// Post-run build/vet checks still failed; task bounced to in_progress.
+	// Post-run build/vet checks still failed after every fix round; the task
+	// went back to need_revision (to the working column on a workflow with no
+	// need_revision stage).
 	MoveReasonVerificationFailed = "verification_failed"
+	// The run's plan verification verdict failed; same bounce as
+	// verification_failed, for the verdict gate.
+	MoveReasonPlanVerificationFailed = "plan_verification_failed"
+	// The workflow or a gate refused the automatic code_review/analiz_review
+	// hand-off; the task went back to need_revision with the reason commented.
+	MoveReasonHandoffRefused = "handoff_refused"
 	// Either a real deploy succeeded, or no workflow was mapped and the
 	// pipeline was skipped — which is on the pipeline row, not this code.
 	MoveReasonDeployReleased = "deploy_released"

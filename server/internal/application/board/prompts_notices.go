@@ -30,6 +30,12 @@ type verificationFailureCommentInput struct{ Report string }
 
 var verificationFailureCommentKey = prompt.Define("notices.verification_failure_comment", verificationFailureCommentInput{Report: "exit status 1"})
 
+var verificationFailureRevisionCommentKey = prompt.Define("notices.verification_failure_revision_comment", verificationFailureCommentInput{Report: "exit status 1"})
+
+type verificationExhaustedNoteInput struct{ Attempts int }
+
+var verificationExhaustedNoteKey = prompt.Define("notices.verification_exhausted_note", verificationExhaustedNoteInput{Attempts: 1})
+
 type stuckVerdictNoteInput struct {
 	Count int
 	Role  string

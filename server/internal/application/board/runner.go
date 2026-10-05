@@ -1098,6 +1098,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	}
 
 	buildVerified := true
+	sendBackReason := ""
 	if r.verifyEnabled && taskWorkspace != "" && resp.Clarification == nil && resp.ResourceBlock == nil &&
 		wf.Has(job.Task.Column, domain.BehaviourBuildVerify) {
 		var quotaBlock *domain.QuotaBlock
@@ -1107,9 +1108,15 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			stampTokenUsage(&run, tokenUsage)
 			return r.quotaOrPark(ctx, job, run, agentRec, prevRuns, cliSession, quotaBlock, fail)
 		}
+		if !buildVerified {
+			sendBackReason = domain.MoveReasonVerificationFailed
+		}
 	}
 	if resp.Verification != nil && !resp.Verification.Passed {
 		buildVerified = false
+		if sendBackReason == "" {
+			sendBackReason = domain.MoveReasonPlanVerificationFailed
+		}
 		r.reportPlanVerificationFailure(ctx, job, *resp.Verification)
 	}
 
@@ -1186,9 +1193,12 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			if !r.blockOnPendingQuestions(ctx, job) {
 				r.advanceToAnalizReview(ctx, job, wf, toolUsage)
 			}
+		} else if r.sendBackForRevision(ctx, job, wf, "", sendBackReason) {
+			log.Info().Str("task_id", job.Task.ID.String()).Str("reason", sendBackReason).
+				Msg("hand-off: verification failed, task sent back for revision")
 		} else {
-			log.Info().Str("task_id", job.Task.ID.String()).
-				Msg("hand-off: build verification failed after every fix round, task stays in the working column")
+			log.Info().Str("task_id", job.Task.ID.String()).Str("reason", sendBackReason).
+				Msg("hand-off: verification failed, task stays in the working column")
 		}
 	}
 	pctx, cancelPersist := persistCtx(ctx)
@@ -1534,12 +1544,7 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 		ActorAgentID: &agentID,
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: automatic move to code_review failed")
-		if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
-			AuthorType: "system",
-			Content:    handoffCodeReviewRefusedKey.Render(handoffReasonInput{Reason: err.Error()}),
-		}); cErr != nil {
-			log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: refusal comment failed")
-		}
+		r.handleRefusedAdvance(ctx, job, wf, err, handoffCodeReviewRefusedKey, handoffCodeReviewRefusedRevisionKey)
 		return
 	}
 	log.Info().Str("task_id", job.Task.ID.String()).Str("agent_id", agentID.String()).
@@ -1547,14 +1552,59 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 }
 
 func (r *Runner) refuseHandoff(ctx context.Context, job RunJob, wf domain.Workflow, key prompt.Key[struct{}], reason string) {
+	r.sendBackForRevision(ctx, job, wf, prompt.Text(key), reason)
+}
+
+// handleRefusedAdvance answers a refused automatic hand-off. Only a refusal
+// the next run can act on (a workflow rule or gate) bounces the task; an
+// infrastructure error would fail the same way, so it is commented and left.
+func (r *Runner) handleRefusedAdvance(ctx context.Context, job RunJob, wf domain.Workflow, moveErr error,
+	stayKey, revisionKey prompt.Key[handoffReasonInput]) {
+	data := handoffReasonInput{Reason: moveErr.Error()}
+	_, hasRevision := wf.Stage(domain.TaskColumnNeedRevision)
+	if hasRevision && domain.IsMoveRefusal(moveErr) {
+		r.sendBackForRevision(ctx, job, wf, revisionKey.Render(data), domain.MoveReasonHandoffRefused)
+		return
+	}
+	r.commentSystem(ctx, job, stayKey.Render(data))
+}
+
+func (r *Runner) commentSystem(ctx context.Context, job RunJob, content string) {
+	if content == "" {
+		return
+	}
 	if _, err := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
 		AuthorType: "system",
-		Content:    prompt.Text(key),
+		Content:    content,
 	}); err != nil {
-		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: refusal comment failed")
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: system comment failed")
 	}
+}
+
+func (r *Runner) taskLeftColumn(ctx context.Context, job RunJob) bool {
+	reader, ok := r.taskUpdater.(taskColumnReader)
+	if !ok {
+		return false
+	}
+	fresh, err := reader.GetTask(ctx, job.RepositoryID, job.Task.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: task re-read failed, using the run's snapshot")
+		return false
+	}
+	return fresh.Column != job.Task.Column
+}
+
+// sendBackForRevision moves a task whose run ended without a hand-off back to
+// need_revision, which re-dispatches the developer; ReviewLoopGuard parks it
+// for a human after repeated entries. A task that already left its column
+// during the run is never touched. It reports whether the task was moved.
+func (r *Runner) sendBackForRevision(ctx context.Context, job RunJob, wf domain.Workflow, comment, reason string) bool {
+	if r.taskUpdater == nil || r.taskLeftColumn(ctx, job) {
+		return false
+	}
+	r.commentSystem(ctx, job, comment)
 	if _, ok := wf.Stage(domain.TaskColumnNeedRevision); !ok {
-		return
+		return false
 	}
 	column := domain.TaskColumnNeedRevision
 	if _, err := r.taskUpdater.UpdateTask(ctx, job.RepositoryID, job.Task.ID, domain.UpdateBoardTaskRequest{
@@ -1563,7 +1613,9 @@ func (r *Runner) refuseHandoff(ctx context.Context, job RunJob, wf domain.Workfl
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Str("reason", reason).
 			Msg("hand-off: sending the task back to need_revision failed, it stays in the working column")
+		return false
 	}
+	return true
 }
 
 func (r *Runner) advanceToAnalizReview(ctx context.Context, job RunJob, wf domain.Workflow, usage *registry.ToolUsage) {
@@ -1599,12 +1651,7 @@ func (r *Runner) advanceToAnalizReview(ctx context.Context, job RunJob, wf domai
 		ActorAgentID: &agentID,
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: automatic move to analiz_review failed")
-		if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
-			AuthorType: "system",
-			Content:    handoffAnalizReviewRefusedKey.Render(handoffReasonInput{Reason: err.Error()}),
-		}); cErr != nil {
-			log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: refusal comment failed")
-		}
+		r.handleRefusedAdvance(ctx, job, wf, err, handoffAnalizReviewRefusedKey, handoffAnalizReviewRefusedRevisionKey)
 		return
 	}
 	log.Info().Str("task_id", job.Task.ID.String()).Str("agent_id", agentID.String()).

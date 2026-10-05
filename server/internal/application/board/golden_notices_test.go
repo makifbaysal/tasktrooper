@@ -71,6 +71,15 @@ func TestGolden_VerificationFailureComment(t *testing.T) {
 		verificationFailureComment("exit status 1"))
 }
 
+func TestGolden_VerificationRevisionTexts(t *testing.T) {
+	assert.Equal(t,
+		"Automated verification failed — build/vet errors. The task was sent back for revision (need_revision):\n\n```\nexit status 1\n```",
+		verificationFailureRevisionCommentKey.Render(verificationFailureCommentInput{Report: "exit status 1"}))
+	assert.Equal(t,
+		"[verification] Build/vet checks still failing after 2 fix attempts; the task did not advance.",
+		verificationExhaustedNoteKey.Render(verificationExhaustedNoteInput{Attempts: 2}))
+}
+
 func TestGolden_StuckColumnComment(t *testing.T) {
 	assert.Equal(t,
 		"Review tamamlandı ama kart hâlâ `code_review` kolonunda: değerlendirme sonrası "+
