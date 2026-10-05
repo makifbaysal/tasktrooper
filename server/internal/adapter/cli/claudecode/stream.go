@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -16,6 +17,7 @@ const maxStreamLine = 8 << 20
 
 type event struct {
 	Type    string `json:"type"`
+	ParentToolUseID string `json:"parent_tool_use_id"`
 	Subtype string `json:"subtype"`
 	SessionID string `json:"session_id"`
 	Model     string `json:"model"`
@@ -169,6 +171,14 @@ type streamingSink struct {
 	inner sink
 	out   port.ChatStream
 	streamed bool
+	parent   string
+}
+
+func (s *streamingSink) SetParentCall(callID string) {
+	s.parent = callID
+	if ps, ok := s.inner.(core.ParentScoper); ok {
+		ps.SetParentCall(callID)
+	}
 }
 
 func newStreamingSink(inner sink, out port.ChatStream) sink {
@@ -184,6 +194,9 @@ func (s *streamingSink) OnTurn() { s.inner.OnTurn() }
 
 func (s *streamingSink) OnAssistantText(text string) {
 	s.inner.OnAssistantText(text)
+	if s.parent != "" {
+		return
+	}
 	if s.streamed {
 		s.out.Text("\n\n")
 	}
@@ -193,7 +206,7 @@ func (s *streamingSink) OnAssistantText(text string) {
 
 func (s *streamingSink) OnToolUse(callID, name, arguments string) {
 	s.inner.OnToolUse(callID, name, arguments)
-	if s.streamed {
+	if s.parent == "" && s.streamed {
 		s.out.SegmentBreak()
 		s.streamed = false
 	}
@@ -256,6 +269,7 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 				reportInit(s, out.Init)
 			}
 		case "assistant":
+			scopeParent(s, ev.ParentToolUseID)
 			blocks := decodeBlocks(ev.Message)
 			if turnHasContent(blocks) {
 				s.OnTurn()
@@ -266,7 +280,9 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 					if strings.TrimSpace(block.Text) == "" {
 						continue
 					}
-					lastAssistantText = block.Text
+					if ev.ParentToolUseID == "" {
+						lastAssistantText = block.Text
+					}
 					s.OnAssistantText(block.Text)
 				case "tool_use":
 					toolNames[block.ID] = block.Name
@@ -274,6 +290,7 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 				}
 			}
 		case "user":
+			scopeParent(s, ev.ParentToolUseID)
 			for _, block := range decodeBlocks(ev.Message) {
 				if block.Type != "tool_result" {
 					continue
@@ -307,6 +324,12 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 		out.Text = lastAssistantText
 	}
 	return out, nil
+}
+
+func scopeParent(s sink, parentCallID string) {
+	if ps, ok := s.(core.ParentScoper); ok {
+		ps.SetParentCall(parentCallID)
+	}
 }
 
 func turnHasContent(blocks []contentBlock) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -219,4 +220,8 @@ func lastUserContent(messages []domain.Message) string {
 
 func (c *findingsCatalog) ListTechStacksByAgent(context.Context, uuid.UUID) ([]domain.TechStack, error) {
 	return nil, nil
+}
+
+func (s *tracedStore) ListStepsByRunSince(ctx context.Context, runID uuid.UUID, _ time.Time) ([]domain.SessionStep, error) {
+	return s.ListStepsByRun(ctx, runID)
 }

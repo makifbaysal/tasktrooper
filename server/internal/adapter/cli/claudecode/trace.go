@@ -15,6 +15,8 @@ var nativeToolNames = map[string]string{
 	"Write":     "write_file",
 	"WebFetch":  "fetch_url",
 	"WebSearch": "web_search",
+	"Task":      "subagent",
+	"Agent":     "subagent",
 }
 
 func ledgerToolName(native string) string {

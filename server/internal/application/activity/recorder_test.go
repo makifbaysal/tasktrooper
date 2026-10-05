@@ -3,6 +3,7 @@ package activity_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -77,4 +78,54 @@ func TestRecorderPersistsTerminalStateAfterContextCancelled(t *testing.T) {
 
 	assert.Equal(t, []string{"subtask_failed"}, store.steps)
 	assert.Equal(t, "failed", store.runStatus)
+}
+
+func (s *recordingStore) ListStepsByRunSince(ctx context.Context, runID uuid.UUID, _ time.Time) ([]domain.SessionStep, error) {
+	return s.ListStepsByRun(ctx, runID)
+}
+
+type payloadStore struct {
+	recordingStore
+	payloads []string
+}
+
+func (s *payloadStore) AppendStep(ctx context.Context, runID uuid.UUID, stepType string, payload []byte) error {
+	s.payloads = append(s.payloads, string(payload))
+	return s.recordingStore.AppendStep(ctx, runID, stepType, payload)
+}
+
+func TestWithStepTagMergesIntoObjectPayloads(t *testing.T) {
+	store := &payloadStore{}
+	ctx, _, err := activity.StartRun(context.Background(), store, nil, "req", "m")
+	require.NoError(t, err)
+
+	tagged := activity.WithStepTag(ctx, "task_key", "t1")
+	activity.FromContext(tagged).Step("a", map[string]string{"x": "1"})
+	activity.FromContext(tagged).Step("b", map[string]string{"task_key": "own"})
+	activity.FromContext(tagged).Step("c", []string{"x"})
+	activity.FromContext(tagged).Step("d", nil)
+	activity.FromContext(ctx).Step("e", map[string]string{"x": "1"})
+
+	assert.JSONEq(t, `{"x":"1","task_key":"t1"}`, store.payloads[0])
+	assert.JSONEq(t, `{"task_key":"own"}`, store.payloads[1], "a key the caller set is never overwritten")
+	assert.JSONEq(t, `["x"]`, store.payloads[2], "non-object payloads are left alone")
+	assert.JSONEq(t, `{"task_key":"t1"}`, store.payloads[3])
+	assert.JSONEq(t, `{"x":"1"}`, store.payloads[4], "the parent ctx is not tagged by a child")
+}
+
+func TestWithStepTagNestsAndKeepsRunID(t *testing.T) {
+	store := &payloadStore{}
+	ctx, rec, err := activity.StartRun(context.Background(), store, nil, "req", "m")
+	require.NoError(t, err)
+
+	nested := activity.WithStepTag(activity.WithStepTag(ctx, "task_key", "t1"), "wave", "2")
+	activity.FromContext(nested).Step("a", map[string]string{})
+
+	assert.JSONEq(t, `{"task_key":"t1","wave":"2"}`, store.payloads[0])
+	assert.Equal(t, rec.RunID(), activity.FromContext(nested).RunID())
+}
+
+func TestWithStepTagWithoutRecorderIsANoop(t *testing.T) {
+	ctx := context.Background()
+	assert.Equal(t, ctx, activity.WithStepTag(ctx, "k", "v"))
 }

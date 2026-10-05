@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/activity"
@@ -31,6 +32,10 @@ func (runRecorderStore) AppendStep(_ context.Context, _ uuid.UUID, _ string, _ [
 func (runRecorderStore) CompleteRun(_ context.Context, _ uuid.UUID, _ string) error { return nil }
 
 // A store with no trace is the "no findings to carry" retry case.
+func (runRecorderStore) ListStepsByRunSince(context.Context, uuid.UUID, time.Time) ([]domain.SessionStep, error) {
+	return nil, nil
+}
+
 func (runRecorderStore) ListStepsByRun(_ context.Context, _ uuid.UUID) ([]domain.SessionStep, error) {
 	return nil, nil
 }

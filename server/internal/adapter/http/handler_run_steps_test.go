@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -26,6 +27,16 @@ type stepsActivityStore struct {
 
 func (s *stepsActivityStore) ListStepsByRun(_ context.Context, runID uuid.UUID) ([]domain.SessionStep, error) {
 	return s.bySessionRun[runID], nil
+}
+
+func (s *stepsActivityStore) ListStepsByRunSince(_ context.Context, runID uuid.UUID, since time.Time) ([]domain.SessionStep, error) {
+	var out []domain.SessionStep
+	for _, st := range s.bySessionRun[runID] {
+		if !st.CreatedAt.Before(since) {
+			out = append(out, st)
+		}
+	}
+	return out, nil
 }
 
 // stepsTaskRunStore is task_agent_runs: the table the board's run list is built
@@ -173,4 +184,33 @@ func TestRunStepsWithoutTaskRunStore(t *testing.T) {
 
 	require.Len(t, getRunSteps(t, app, sessionRunID), 1)
 	require.Empty(t, getRunSteps(t, app, uuid.New()))
+}
+
+func TestRunStepsSinceFiltersInclusively(t *testing.T) {
+	runID := uuid.New()
+	base := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	at := func(sec int) domain.SessionStep {
+		return domain.SessionStep{ID: uuid.New(), RunID: runID, StepType: "x", Payload: json.RawMessage(`{}`), CreatedAt: base.Add(time.Duration(sec) * time.Second)}
+	}
+	activity := &stepsActivityStore{bySessionRun: map[uuid.UUID][]domain.SessionStep{runID: {at(0), at(1), at(2)}}}
+	app := newRunStepsApp(&Handler{sessionSvc: session.NewService(nil, activity, nil, nil, nil, 0, nil, nil)})
+
+	get := func(since string) (int, int) {
+		resp, err := app.Test(httptest.NewRequest("GET", "/v1/runs/"+runID.String()+"/steps?since="+since, nil))
+		require.NoError(t, err)
+		var body struct {
+			Count int `json:"count"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body.Count
+	}
+
+	code, n := get(base.Add(time.Second).Format(time.RFC3339Nano))
+	require.Equal(t, fiber.StatusOK, code)
+	require.Equal(t, 2, n, "since is inclusive")
+
+	code, _ = get("yesterday")
+	require.Equal(t, fiber.StatusBadRequest, code)
+
+	require.Len(t, getRunSteps(t, app, runID), 3)
 }

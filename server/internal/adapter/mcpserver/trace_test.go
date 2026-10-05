@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -158,4 +159,8 @@ func TestCallToolWithoutARecorder(t *testing.T) {
 	_, isError := callResultOf(t, body)
 	assert.False(t, isError)
 	assert.Len(t, reg.calls(), 1)
+}
+
+func (s *traceStore) ListStepsByRunSince(ctx context.Context, runID uuid.UUID, _ time.Time) ([]domain.SessionStep, error) {
+	return s.ListStepsByRun(ctx, runID)
 }

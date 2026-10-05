@@ -22,6 +22,7 @@ type Recorder struct {
 	store port.ActivityStore
 	runID uuid.UUID
 	ctx   context.Context
+	tags  map[string]string
 }
 
 func StartRun(ctx context.Context, store port.ActivityStore, sessionID *uuid.UUID, requestID, model string) (context.Context, *Recorder, error) {
@@ -39,6 +40,49 @@ func StartRun(ctx context.Context, store port.ActivityStore, sessionID *uuid.UUI
 func FromContext(ctx context.Context) *Recorder {
 	rec, _ := ctx.Value(recorderKey).(*Recorder)
 	return rec
+}
+
+// WithStepTag makes every object-shaped step recorded under the returned ctx
+// carry key=value, so interleaved parallel work stays attributable. A key the
+// caller already put in the payload is never overwritten.
+func WithStepTag(ctx context.Context, key, value string) context.Context {
+	rec := FromContext(ctx)
+	if rec == nil {
+		return ctx
+	}
+	tags := make(map[string]string, len(rec.tags)+1)
+	for k, v := range rec.tags {
+		tags[k] = v
+	}
+	tags[key] = value
+	clone := *rec
+	clone.tags = tags
+	return context.WithValue(ctx, recorderKey, &clone)
+}
+
+func mergeTags(data []byte, tags map[string]string) []byte {
+	if len(tags) == 0 {
+		return data
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil || obj == nil {
+		return data
+	}
+	for k, v := range tags {
+		if _, set := obj[k]; set {
+			continue
+		}
+		raw, err := json.Marshal(v)
+		if err != nil {
+			continue
+		}
+		obj[k] = raw
+	}
+	merged, err := json.Marshal(obj)
+	if err != nil {
+		return data
+	}
+	return merged
 }
 
 func (r *Recorder) RunID() uuid.UUID {
@@ -61,6 +105,7 @@ func (r *Recorder) Step(stepType string, payload any) {
 	if err != nil || len(data) == 0 || string(data) == "null" {
 		data = []byte("{}")
 	}
+	data = mergeTags(data, r.tags)
 	ctx, cancel := r.persistCtx()
 	defer cancel()
 	_ = r.store.AppendStep(ctx, r.runID, stepType, data)

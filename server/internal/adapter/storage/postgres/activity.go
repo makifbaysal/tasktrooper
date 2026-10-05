@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -100,12 +101,28 @@ func (a *ActivityStore) ListRunsBySession(ctx context.Context, sessionID uuid.UU
 func (a *ActivityStore) ListStepsByRun(ctx context.Context, runID uuid.UUID) ([]domain.SessionStep, error) {
 	rows, err := a.pool.Query(ctx, `
 		SELECT id, run_id, step_type, payload, created_at
-		FROM session_steps WHERE run_id = $1 ORDER BY created_at ASC
+		FROM session_steps WHERE run_id = $1 ORDER BY created_at ASC, id ASC
 	`, runID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanSteps(rows)
+}
+
+func (a *ActivityStore) ListStepsByRunSince(ctx context.Context, runID uuid.UUID, since time.Time) ([]domain.SessionStep, error) {
+	rows, err := a.pool.Query(ctx, `
+		SELECT id, run_id, step_type, payload, created_at
+		FROM session_steps WHERE run_id = $1 AND created_at >= $2 ORDER BY created_at ASC, id ASC
+	`, runID, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSteps(rows)
+}
+
+func scanSteps(rows pgx.Rows) ([]domain.SessionStep, error) {
 	var steps []domain.SessionStep
 	for rows.Next() {
 		var s domain.SessionStep

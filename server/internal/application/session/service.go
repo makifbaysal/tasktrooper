@@ -665,6 +665,13 @@ func (s *Service) ListRunSteps(ctx context.Context, runID uuid.UUID) ([]domain.S
 	return s.activityStore.ListStepsByRun(ctx, runID)
 }
 
+func (s *Service) ListRunStepsSince(ctx context.Context, runID uuid.UUID, since time.Time) ([]domain.SessionStep, error) {
+	if s.activityStore == nil {
+		return nil, fmt.Errorf("activity tracking not enabled")
+	}
+	return s.activityStore.ListStepsByRunSince(ctx, runID, since)
+}
+
 func (s *Service) ListActiveRuns(ctx context.Context) ([]domain.SessionRun, error) {
 	if s.activityStore == nil {
 		return nil, fmt.Errorf("activity tracking not enabled")

@@ -2,6 +2,7 @@ package port
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -18,6 +19,9 @@ type ActivityStore interface {
 	AppendStep(ctx context.Context, runID uuid.UUID, stepType string, payload []byte) error
 	ListRunsBySession(ctx context.Context, sessionID uuid.UUID, limit int) ([]domain.SessionRun, error)
 	ListStepsByRun(ctx context.Context, runID uuid.UUID) ([]domain.SessionStep, error)
+	// ListStepsByRunSince returns steps with created_at >= since, inclusive so
+	// clients can de-duplicate by id across equal timestamps.
+	ListStepsByRunSince(ctx context.Context, runID uuid.UUID, since time.Time) ([]domain.SessionStep, error)
 	ListActiveRuns(ctx context.Context) ([]domain.SessionRun, error)
 }
 

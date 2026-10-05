@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -241,4 +242,8 @@ func messageContents(messages []domain.Message) string {
 		all += m.Content + "\n"
 	}
 	return all
+}
+
+func (s *tracedStore) ListStepsByRunSince(ctx context.Context, runID uuid.UUID, _ time.Time) ([]domain.SessionStep, error) {
+	return s.ListStepsByRun(ctx, runID)
 }

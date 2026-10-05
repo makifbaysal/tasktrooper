@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -232,4 +233,8 @@ func TestExecuteWorksWithoutARecorder(t *testing.T) {
 	resp, err := ex.Execute(ctx, taskExecution(workDir))
 	require.NoError(t, err)
 	assert.Equal(t, "Fixed the dispatch switch and moved the card to code review.", resp.Message.Content)
+}
+
+func (s *traceStore) ListStepsByRunSince(ctx context.Context, runID uuid.UUID, _ time.Time) ([]domain.SessionStep, error) {
+	return s.ListStepsByRun(ctx, runID)
 }

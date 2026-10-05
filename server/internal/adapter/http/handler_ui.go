@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
@@ -237,13 +238,26 @@ func (h *Handler) RunSteps(c *fiber.Ctx) error {
 	if err != nil {
 		return badRequest(c, "invalid run id")
 	}
+	var since *time.Time
+	if raw := c.Query("since"); raw != "" {
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return badRequest(c, "invalid since")
+		}
+		since = &t
+	}
 	ctx := h.enrichContext(c)
 	runID, taskRun, ok := h.activityRunID(ctx, id)
 	if !ok {
 		// A queued board run that never started has nothing behind it yet.
 		return c.JSON(fiber.Map{"steps": []domain.SessionStep{}, "count": 0})
 	}
-	steps, err := h.sessionSvc.ListRunSteps(ctx, runID)
+	var steps []domain.SessionStep
+	if since != nil {
+		steps, err = h.sessionSvc.ListRunStepsSince(ctx, runID, *since)
+	} else {
+		steps, err = h.sessionSvc.ListRunSteps(ctx, runID)
+	}
 	if err != nil {
 		return internalError(c, err)
 	}

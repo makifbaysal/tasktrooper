@@ -235,6 +235,7 @@ func (e *Executor) runTask(ctx context.Context, planID uuid.UUID, tc taskContext
 		return "", err
 	}
 	taskCtx := registry.ContextWithSubtaskWorkspace(ctx, subtaskWorkspace)
+	taskCtx = activity.WithStepTag(taskCtx, "task_key", tc.planTask.TaskKey)
 
 	if rec := activity.FromContext(ctx); rec != nil {
 		// model/provider are recorded together or an invalid-model name reads like a provider switch.

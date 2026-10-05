@@ -20,6 +20,13 @@ type Sink interface {
 	OnToolResult(callID, name, content string, isError bool)
 }
 
+// ParentScoper is implemented by sinks that can attribute the steps they
+// record to a parent tool call (a sub-agent's work under its Task call). A
+// parser calls it before dispatching an event's blocks; "" is the main agent.
+type ParentScoper interface {
+	SetParentCall(callID string)
+}
+
 // NewStreamingSink wraps an inner sink with a ChatStream so a caller watching
 // the turn sees assistant text and turn boundaries as they are produced. With
 // no watcher it is the inner sink itself. (Claude Code's stream wiring echoes
@@ -35,6 +42,12 @@ type streamingSink struct {
 	inner    Sink
 	out      port.ChatStream
 	streamed bool
+}
+
+func (s *streamingSink) SetParentCall(callID string) {
+	if ps, ok := s.inner.(ParentScoper); ok {
+		ps.SetParentCall(callID)
+	}
 }
 
 func (s *streamingSink) OnSession(sessionID, model string) { s.inner.OnSession(sessionID, model) }
@@ -76,6 +89,26 @@ type Trace struct {
 	sessionID string
 	model     string
 	turns     int
+	parent    string
+}
+
+func (t *Trace) SetParentCall(callID string) {
+	t.mu.Lock()
+	t.parent = callID
+	t.mu.Unlock()
+}
+
+func (t *Trace) parentCall() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.parent
+}
+
+func (t *Trace) withParent(payload map[string]any) map[string]any {
+	if p := t.parentCall(); p != "" {
+		payload["parent_call_id"] = p
+	}
+	return payload
 }
 
 func NewTrace(ctx context.Context, taskKey, step string, sinceOwnTool func(string) bool, ledgerTool func(string) string) *Trace {
@@ -101,7 +134,7 @@ func (t *Trace) OnTurn() {
 	turn := t.turns
 	t.mu.Unlock()
 	if rec := activity.FromContext(t.ctx); rec != nil {
-		rec.Step("iteration_start", map[string]any{"iteration": turn})
+		rec.Step("iteration_start", t.withParent(map[string]any{"iteration": turn}))
 	}
 }
 
@@ -125,7 +158,7 @@ func (t *Trace) SessionID() string {
 
 func (t *Trace) OnAssistantText(text string) {
 	if rec := activity.FromContext(t.ctx); rec != nil {
-		rec.Step("assistant_message", map[string]string{"content": text})
+		rec.Step("assistant_message", t.withParent(map[string]any{"content": text}))
 	}
 }
 
@@ -134,9 +167,9 @@ func (t *Trace) OnToolUse(callID, name, arguments string) {
 		return
 	}
 	if rec := activity.FromContext(t.ctx); rec != nil {
-		rec.Step("tool_call_start", map[string]string{
+		rec.Step("tool_call_start", t.withParent(map[string]any{
 			"tool": t.ledgerTool(name), "call_id": callID, "arguments": arguments,
-		})
+		}))
 	}
 }
 
@@ -151,11 +184,11 @@ func (t *Trace) OnToolResult(callID, name, content string, isError bool) {
 		registry.ToolUsageFromContext(t.ctx).Record(ledgerName)
 	}
 	if rec := activity.FromContext(t.ctx); rec != nil {
-		rec.Step("tool_call_result", map[string]any{
+		rec.Step("tool_call_result", t.withParent(map[string]any{
 			"tool": ledgerName, "call_id": callID,
 			"content":  domain.TruncateHead(content, tracePreviewMax),
 			"is_error": isError,
-		})
+		}))
 	}
 }
 
