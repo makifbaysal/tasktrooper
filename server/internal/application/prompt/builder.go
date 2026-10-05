@@ -256,6 +256,7 @@ var (
 	languageInstructionKey    = Define("agent.language_instruction", struct{ Locale string }{Locale: "English"})
 	subtaskWorkspaceNoteKey   = Define("agent.subtask_workspace_note", struct{ Dir string }{Dir: "/tmp/subtask"})
 	skillsOnDiskKey           = Define("agent.skills_on_disk", struct{ CanCreate bool }{CanCreate: true})
+	subagentDelegationKey     = Define[struct{}]("agent.subagent_delegation", struct{}{})
 )
 
 func CommitLanguageGuidance() string {
@@ -332,6 +333,8 @@ func BuildSystemPromptFor(agent domain.Agent, skills []domain.Skill, stacks []do
 	// Same split as the skill index: a CLI run reaches TaskTrooper's tools over MCP, where ask_user is refused before any policy filtering, so naming it would point at a tool it does not hold.
 	if delivery == SkillsOnDisk {
 		parts = append(parts, CLIClarificationGuidance())
+		// Only the agent CLIs carry a subagent tool; an HTTP run is split by the orchestrator instead.
+		parts = append(parts, Text(subagentDelegationKey))
 	} else {
 		parts = append(parts, ClarificationGuidance())
 	}

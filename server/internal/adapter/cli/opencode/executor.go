@@ -62,6 +62,7 @@ var familySpec = core.FamilySpec{
 	SinceOwnTool:           recordedElsewhere,
 	LedgerTool:             ledgerToolName,
 	BlockFrom:              quotaBlockFrom,
+	ChildUsage:             childUsage,
 }
 
 func New(cfg Config) (*Executor, error) {

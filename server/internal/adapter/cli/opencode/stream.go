@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
-	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
 const maxStreamLine = 8 << 20
@@ -38,12 +38,35 @@ type toolPart struct {
 	ID    string `json:"id"`
 	Tool  string `json:"tool"`
 	State struct {
-		Status string          `json:"status"`
-		Input  json.RawMessage `json:"input"`
-		Output string          `json:"output"`
+		Status   string          `json:"status"`
+		Input    json.RawMessage `json:"input"`
+		Output   string          `json:"output"`
+		Metadata struct {
+			SessionID       string `json:"sessionId"`
+			ParentSessionID string `json:"parentSessionId"`
+		} `json:"metadata"`
 	} `json:"state"`
 }
 
+const taskTool = "task"
+
+var taskResultID = regexp.MustCompile(`<task id="([^"]+)"`)
+
+// childSessionID is the subagent session a finished task call ran in. The
+// metadata is the source of truth; the output header is the fallback for
+// versions that omit it.
+func childSessionID(p toolPart) string {
+	if id := strings.TrimSpace(p.State.Metadata.SessionID); id != "" {
+		return id
+	}
+	if m := taskResultID.FindStringSubmatch(p.State.Output); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// finishPart is one step's spend: opencode emits a step_finish per model
+// step, so the run's total is their sum.
 type finishPart struct {
 	Reason string  `json:"reason"`
 	Cost   float64 `json:"cost"`
@@ -113,6 +136,11 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 					if isErr {
 						out.ToolFailures++
 					}
+					if p.Tool == taskTool && !isErr {
+						if id := childSessionID(p); id != "" {
+							out.ChildSessions = append(out.ChildSessions, id)
+						}
+					}
 					s.OnToolUse(p.CallID, p.Tool, string(p.State.Input))
 					s.OnToolResult(p.CallID, p.Tool, p.State.Output, isErr)
 				default:
@@ -124,13 +152,12 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 			if json.Unmarshal(ev.Part, &p) == nil {
 				out.SawResult = true
 				out.Status = p.Reason
-				out.CostUSD = p.Cost
-				out.Usage = domain.Usage{
-					PromptTokens:     p.Tokens.Input,
-					CompletionTokens: p.Tokens.Output,
-					TotalTokens:      p.Tokens.Input + p.Tokens.Output,
-					CacheReadTokens:  p.Tokens.Cache.Read,
-				}
+				out.CostUSD += p.Cost
+				out.Usage.PromptTokens += p.Tokens.Input
+				out.Usage.CompletionTokens += p.Tokens.Output
+				out.Usage.TotalTokens = out.Usage.PromptTokens + out.Usage.CompletionTokens
+				out.Usage.CacheReadTokens += p.Tokens.Cache.Read
+				out.Usage.CacheWriteTokens += p.Tokens.Cache.Write
 			}
 		case "error":
 			out.SawResult = true

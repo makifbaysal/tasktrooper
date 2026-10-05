@@ -1,0 +1,7 @@
+{"type":"step_start","sessionID":"ses_parent1"}
+{"type":"step_finish","sessionID":"ses_parent1","part":{"reason":"tool-calls","cost":0.01,"tokens":{"input":1000,"output":100,"reasoning":0,"cache":{"read":5000,"write":300}}}}
+{"type":"step_start","sessionID":"ses_parent1"}
+{"type":"tool_use","sessionID":"ses_parent1","part":{"callID":"call_task1","tool":"task","state":{"status":"completed","input":{"description":"scan","prompt":"look around","subagent_type":"explore"},"output":"<task id=\"ses_child1\" state=\"completed\"><task_result>done</task_result></task>","metadata":{"parentSessionId":"ses_parent1","sessionId":"ses_child1","truncated":false}}}}
+{"type":"step_finish","sessionID":"ses_parent1","part":{"reason":"tool-calls","cost":0.02,"tokens":{"input":2000,"output":200,"reasoning":0,"cache":{"read":6000,"write":0}}}}
+{"type":"text","sessionID":"ses_parent1","part":{"id":"prt_1","text":"All done."}}
+{"type":"step_finish","sessionID":"ses_parent1","part":{"reason":"stop","cost":0.03,"tokens":{"input":3000,"output":300,"reasoning":0,"cache":{"read":7000,"write":50}}}}

@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess-sub2","model":"sonnet-4-thinking"}
+{"type":"tool_call","session_id":"sess-sub2","call_id":"call_1","subtype":"started","tool_call":{"taskToolCall":{"args":{"description":"Run the build","prompt":"go build ./...","subagentType":{"shell":{}}}}}}
+{"type":"tool_call","session_id":"sess-sub2","call_id":"call_1","subtype":"completed","tool_call":{"taskToolCall":{"args":{"description":"Run the build","prompt":"go build ./...","subagentType":{"shell":{}}},"result":{"error":{"error":"subagent aborted: tool budget exhausted"}}}}}
+{"type":"result","subtype":"success","session_id":"sess-sub2","is_error":false,"result":"The subagent failed."}

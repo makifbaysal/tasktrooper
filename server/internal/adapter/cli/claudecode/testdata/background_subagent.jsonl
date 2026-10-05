@@ -1,0 +1,11 @@
+{"type":"system","subtype":"init","session_id":"sess-bg","model":"claude-haiku-4-5","tools":["Agent","Read"]}
+{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","id":"toolu_agent","name":"Agent","input":{"description":"survey","prompt":"p","subagent_type":"general-purpose"}}],"usage":{"input_tokens":8,"output_tokens":4}}}
+{"type":"system","subtype":"task_started","task_id":"t1","tool_use_id":"toolu_agent","is_backgrounded":true,"session_id":"sess-bg"}
+{"type":"user","parent_tool_use_id":null,"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_agent","content":[{"type":"text","text":"Async agent launched successfully."}]}]}}
+{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Subagent spawned, waiting for it."}]}}
+{"type":"assistant","parent_tool_use_id":"toolu_agent","message":{"content":[{"type":"text","text":"SUBAGENT final"}]}}
+{"type":"system","subtype":"task_notification","task_id":"t1","tool_use_id":"toolu_agent","status":"completed","session_id":"sess-bg"}
+{"type":"system","subtype":"init","session_id":"sess-bg","model":"claude-haiku-4-5","tools":["Agent","Read"]}
+{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"The survey is done."}]}}
+{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"Subagent spawned, waiting for it.","session_id":"sess-bg","total_cost_usd":0.0288,"usage":{"input_tokens":18,"cache_creation_input_tokens":6656,"cache_read_input_tokens":16606,"output_tokens":569},"modelUsage":{"claude-haiku-4-5":{"inputTokens":1016,"outputTokens":927,"cacheReadInputTokens":28660,"cacheCreationInputTokens":11887,"costUSD":0.0288}}}
+{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"The survey is done.","session_id":"sess-bg","total_cost_usd":0.0288,"usage":{"input_tokens":10,"cache_creation_input_tokens":555,"cache_read_input_tokens":12054,"output_tokens":146},"modelUsage":{"claude-haiku-4-5":{"inputTokens":1016,"outputTokens":927,"cacheReadInputTokens":28660,"cacheCreationInputTokens":11887,"costUSD":0.0288}}}

@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestParseStreamReadsAFinishedSession(t *testing.T) {
 	assert.Equal(t, "Hello", out.Text)
 	assert.Equal(t, "stop", out.Status)
 	assert.Equal(t, 0.02, out.CostUSD)
-	assert.Equal(t, domain.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120, CacheReadTokens: 10}, out.Usage)
+	assert.Equal(t, domain.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120, CacheReadTokens: 10, CacheWriteTokens: 1}, out.Usage)
 
 	assert.Equal(t, []string{"ses_1"}, sink.sessions)
 	assert.Equal(t, 1, sink.turns)
@@ -161,4 +162,42 @@ func TestParseStreamReadsTheCallIDOfBothGenerations(t *testing.T) {
 
 	assert.Equal(t, []string{"call_v1", "call_v2"}, sink.callIDs)
 	assert.Equal(t, []string{"read", "tasktrooper_list_board_tasks"}, sink.toolUses)
+}
+
+func TestParseStreamSumsStepsAndCapturesSubagentSessions(t *testing.T) {
+	f, err := os.Open("testdata/subagent.jsonl")
+	require.NoError(t, err)
+	defer f.Close()
+
+	sink := &recordingSink{}
+	out, err := parseStream(f, sink)
+	require.NoError(t, err)
+
+	assert.True(t, out.SawResult)
+	assert.Equal(t, "stop", out.Status)
+	assert.InDelta(t, 0.06, out.CostUSD, 1e-9)
+	assert.Equal(t, domain.Usage{
+		PromptTokens: 6000, CompletionTokens: 600, TotalTokens: 6600,
+		CacheReadTokens: 18000, CacheWriteTokens: 350,
+	}, out.Usage)
+	assert.Equal(t, []string{"ses_child1"}, out.ChildSessions)
+	assert.Equal(t, "subagent", ledgerToolName("task"))
+	assert.Equal(t, []string{"task"}, sink.toolDone)
+}
+
+func TestChildSessionIDFallsBackToTheOutputHeader(t *testing.T) {
+	var withMeta, headerOnly, neither toolPart
+	withMeta.State.Metadata.SessionID = "ses_meta"
+	withMeta.State.Output = `<task id="ses_header" state="completed">`
+	headerOnly.State.Output = `<task id="ses_header" state="completed">`
+	for name, tc := range map[string]struct {
+		part toolPart
+		want string
+	}{
+		"metadata wins": {withMeta, "ses_meta"},
+		"header":        {headerOnly, "ses_header"},
+		"none":          {neither, ""},
+	} {
+		assert.Equal(t, tc.want, childSessionID(tc.part), name)
+	}
 }

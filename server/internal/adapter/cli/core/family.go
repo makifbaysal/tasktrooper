@@ -64,6 +64,10 @@ type FamilySpec struct {
 	AllowCleanExitAsResult bool
 	// BlockFrom detects a spent-subscription outcome for this CLI.
 	BlockFrom func(out Outcome, stderrTail, sessionID string, now time.Time) *domain.QuotaBlock
+	// ChildUsage prices the subagent sessions in Outcome.ChildSessions, which
+	// the CLI's own stream leaves out. nil means the stream's usage is all
+	// there is.
+	ChildUsage func(ctx context.Context, bin string, sessionIDs []string) domain.Usage
 }
 
 // Launch is what ApplyMCP adds to one run: env entries, args appended after
@@ -213,6 +217,14 @@ func (f *Family) spawn(ctx context.Context, inv Invocation, launch Launch) (Sess
 
 func (f *Family) finishInner(ctx context.Context, label string, s Session, now func() time.Time) (domain.AgentResponse, error) {
 	out := s.Out
+	if f.spec.ChildUsage != nil && len(out.ChildSessions) > 0 {
+		child := f.spec.ChildUsage(ctx, f.bin, out.ChildSessions)
+		out.Usage.PromptTokens += child.PromptTokens
+		out.Usage.CompletionTokens += child.CompletionTokens
+		out.Usage.TotalTokens += child.TotalTokens
+		out.Usage.CacheReadTokens += child.CacheReadTokens
+		out.Usage.CacheWriteTokens += child.CacheWriteTokens
+	}
 	// At the top, ahead of every failure branch below: a session that timed
 	// out or hit its quota still burned the tokens the CLI reports, and those
 	// must still count against the run and the dashboard.

@@ -1,0 +1,201 @@
+{
+ "messages": [
+  {
+   "info": {
+    "role": "user"
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 4098,
+     "input": 3612,
+     "output": 170,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 316
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 5452,
+     "input": 1220,
+     "output": 283,
+     "reasoning": 21,
+     "cache": {
+      "write": 0,
+      "read": 3928
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 6298,
+     "input": 545,
+     "output": 400,
+     "reasoning": 205,
+     "cache": {
+      "write": 0,
+      "read": 5148
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 7973,
+     "input": 1788,
+     "output": 336,
+     "reasoning": 156,
+     "cache": {
+      "write": 0,
+      "read": 5693
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 8322,
+     "input": 562,
+     "output": 279,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 7481
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 9957,
+     "input": 1693,
+     "output": 159,
+     "reasoning": 62,
+     "cache": {
+      "write": 0,
+      "read": 8043
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 11159,
+     "input": 880,
+     "output": 434,
+     "reasoning": 109,
+     "cache": {
+      "write": 0,
+      "read": 9736
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 14180,
+     "input": 3204,
+     "output": 186,
+     "reasoning": 174,
+     "cache": {
+      "write": 0,
+      "read": 10616
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 15831,
+     "input": 1690,
+     "output": 321,
+     "reasoning": 0,
+     "cache": {
+      "write": 0,
+      "read": 13820
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 18965,
+     "input": 2834,
+     "output": 397,
+     "reasoning": 224,
+     "cache": {
+      "write": 0,
+      "read": 15510
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 20718,
+     "input": 1394,
+     "output": 605,
+     "reasoning": 375,
+     "cache": {
+      "write": 0,
+      "read": 18344
+     }
+    }
+   }
+  },
+  {
+   "info": {
+    "role": "assistant",
+    "cost": 0,
+    "tokens": {
+     "total": 24807,
+     "input": 3298,
+     "output": 1515,
+     "reasoning": 256,
+     "cache": {
+      "write": 0,
+      "read": 19738
+     }
+    }
+   }
+  }
+ ]
+}

@@ -62,13 +62,13 @@ func TestNativeToolsForPolicyHonoursPatterns(t *testing.T) {
 	assert.Subset(t, got, []string{"Bash", "Write", "Edit", "WebSearch", "WebFetch"})
 }
 
-// Task spawns another whole session. No TaskTrooper capability implies "you may
-// fan out", so it is never inferred — an agent that should delegate is given it
-// deliberately, not as a side effect of being allowed a shell.
-func TestNativeToolsForPolicyNeverInfersSubagentSpawning(t *testing.T) {
-	got := domain.NativeToolsForPolicy(domain.ToolPolicy{AllowTools: []string{"*"}})
-
-	assert.NotContains(t, got, "Task")
+// Delegating is the agent's call on every CLI: cursor-agent, opencode and agy
+// expose their subagent tools with no switch, so a restricted claude_code
+// policy keeps Task too. The subagent inherits this same surface, so it buys
+// no reach the policy withheld.
+func TestNativeToolsForPolicyKeepsTheSubagentTool(t *testing.T) {
+	assert.Contains(t, domain.NativeToolsForPolicy(domain.ToolPolicy{AllowTools: []string{"read_file"}}), domain.NativeSubagentTool)
+	assert.Contains(t, domain.NativeToolsForPolicy(domain.ToolPolicy{AllowTools: []string{"*"}}), domain.NativeSubagentTool)
 }
 
 // Two runs of the same agent must produce byte-identical command lines, for the

@@ -29,6 +29,7 @@ type event struct {
 	NumTurns     int       `json:"num_turns"`
 	TotalCostUSD float64   `json:"total_cost_usd"`
 	Usage        *cliUsage `json:"usage"`
+	ModelUsage   map[string]cliModelUsage `json:"modelUsage"`
 	Error string `json:"error"`
 	APIErrorStatus int `json:"api_error_status"`
 	RateLimit *rateLimitInfo `json:"rate_limit_info"`
@@ -159,6 +160,40 @@ func (u *cliUsage) toDomain() domain.Usage {
 	}
 }
 
+// cliModelUsage is one model's share of the whole session. Unlike a result's
+// usage, which covers only the query that produced it, it is cumulative and
+// includes the session's subagents.
+type cliModelUsage struct {
+	InputTokens              int `json:"inputTokens"`
+	OutputTokens             int `json:"outputTokens"`
+	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
+}
+
+func sessionUsage(models map[string]cliModelUsage) (domain.Usage, bool) {
+	if len(models) == 0 {
+		return domain.Usage{}, false
+	}
+	var u cliUsage
+	for _, m := range models {
+		u.InputTokens += m.InputTokens
+		u.OutputTokens += m.OutputTokens
+		u.CacheReadInputTokens += m.CacheReadInputTokens
+		u.CacheCreationInputTokens += m.CacheCreationInputTokens
+	}
+	return u.toDomain(), true
+}
+
+func addUsage(a, b domain.Usage) domain.Usage {
+	return domain.Usage{
+		PromptTokens:     a.PromptTokens + b.PromptTokens,
+		CompletionTokens: a.CompletionTokens + b.CompletionTokens,
+		TotalTokens:      a.TotalTokens + b.TotalTokens,
+		CacheReadTokens:  a.CacheReadTokens + b.CacheReadTokens,
+		CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens,
+	}
+}
+
 type sink interface {
 	OnSession(sessionID, model string)
 	OnTurn()
@@ -237,6 +272,7 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 	scanner.Buffer(make([]byte, 0, 64<<10), maxStreamLine)
 
 	var out outcome
+	var queryUsage domain.Usage
 	lastAssistantText := ""
 	toolNames := map[string]string{}
 
@@ -306,9 +342,15 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 			out.SawResult = true
 			out.Subtype = ev.Subtype
 			out.IsError = ev.IsError
-			out.NumTurns = ev.NumTurns
+			// A run whose main agent waited on a background subagent emits one
+			// result per query; the last one carries the answer.
+			out.NumTurns += ev.NumTurns
 			out.CostUSD = ev.TotalCostUSD
-			out.Usage = ev.Usage.toDomain()
+			queryUsage = addUsage(queryUsage, ev.Usage.toDomain())
+			out.Usage = queryUsage
+			if total, ok := sessionUsage(ev.ModelUsage); ok {
+				out.Usage = total
+			}
 			out.Text = firstNonEmpty(ev.Result, ev.Error, lastAssistantText)
 			out.APIErrorStatus = ev.APIErrorStatus
 		case "rate_limit_event":

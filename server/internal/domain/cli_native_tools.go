@@ -21,22 +21,26 @@ import "sort"
 // imply one, so this is a translation between vocabularies, not a lookup table
 // that could be generated.
 
+// NativeSubagentTool is the built-in that hands work to a subagent session.
+// The CLI resolves its newer name, Agent, to this one.
+const NativeSubagentTool = "Task"
+
 // nativeAlways are the built-ins every session keeps regardless of policy.
 //
 // Read/Glob/Grep are read-only and are how a session orients itself in a
 // workspace it has never seen; a run that cannot list a directory burns its
 // turns guessing at paths. TodoWrite writes nothing outside the transcript.
 // Withholding these buys no safety and costs the run its footing.
-var nativeAlways = []string{"Read", "Glob", "Grep", "TodoWrite"}
+//
+// Task is here because delegating is the agent's call on every CLI, not a
+// grant: cursor-agent, opencode and agy expose their subagent tools with no
+// switch, and a subagent cannot reach past the session it was spawned from —
+// it inherits this same --tools surface and the run's MCP policy.
+var nativeAlways = []string{"Read", "Glob", "Grep", "TodoWrite", NativeSubagentTool}
 
 // nativeByCapability maps a TaskTrooper tool name to the built-ins that grant
 // the same reach. A capability absent from an agent's policy takes its CLI
 // equivalents with it.
-//
-// Task (subagent spawning) is deliberately absent from every row: it is the one
-// built-in whose cost is another whole session, and no TaskTrooper capability
-// implies "you may fan out". An agent that should delegate gets Task added
-// explicitly, not inferred from run_terminal.
 var nativeByCapability = map[string][]string{
 	"run_terminal": {"Bash", "BashOutput", "KillShell"},
 	"write_file":   {"Write", "Edit", "NotebookEdit"},

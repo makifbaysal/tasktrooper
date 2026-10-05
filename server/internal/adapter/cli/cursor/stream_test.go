@@ -1,11 +1,14 @@
 package cursor
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
 // recordingSink captures every callback parseStream makes, so a test can
@@ -17,15 +20,19 @@ type recordingSink struct {
 	texts     []string
 	toolUses  []string
 	toolDones []string
+	contents  []string
 }
 
-func (s *recordingSink) OnSession(sessionID, model string) { s.sessions = append(s.sessions, sessionID) }
-func (s *recordingSink) OnTurn()                            { s.turns++ }
-func (s *recordingSink) OnAssistantText(text string)        { s.texts = append(s.texts, text) }
+func (s *recordingSink) OnSession(sessionID, model string) {
+	s.sessions = append(s.sessions, sessionID)
+}
+func (s *recordingSink) OnTurn()                     { s.turns++ }
+func (s *recordingSink) OnAssistantText(text string) { s.texts = append(s.texts, text) }
 func (s *recordingSink) OnToolUse(callID, name, arguments string) {
 	s.toolUses = append(s.toolUses, name)
 }
 func (s *recordingSink) OnToolResult(callID, name, content string, isError bool) {
+	s.contents = append(s.contents, content)
 	label := name
 	if isError {
 		label += ":error"
@@ -112,4 +119,63 @@ func TestParseStreamMarksAnErrorResult(t *testing.T) {
 	assert.True(t, out.IsError)
 	assert.Equal(t, "error_during_execution", out.Status)
 	assert.Equal(t, "blocked", out.Text)
+}
+
+func TestParseStreamReadsASubagentCall(t *testing.T) {
+	f, err := os.Open("testdata/subagent.jsonl")
+	require.NoError(t, err)
+	defer f.Close()
+
+	sink := &recordingSink{}
+	out, err := parseStream(f, sink)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"task"}, sink.toolUses)
+	assert.Equal(t, "subagent", ledgerToolName("task"))
+	assert.Equal(t, []string{"Dispatch lives in runner.go and executor.go."}, sink.contents,
+		"the reply is the last assistant step, not the result suffix")
+	assert.Equal(t, 1, out.ToolCalls)
+	assert.Equal(t, 0, out.ToolFailures)
+	assert.Equal(t, domain.Usage{
+		PromptTokens:     7000,
+		CompletionTokens: 340,
+		TotalTokens:      7340,
+		CacheReadTokens:  5000,
+		CacheWriteTokens: 800,
+	}, out.Usage)
+}
+
+func TestParseStreamFallsBackToTheSubagentResultSuffix(t *testing.T) {
+	body := strings.Join([]string{
+		`{"type":"tool_call","call_id":"c1","subtype":"completed","tool_call":{"taskToolCall":{"result":{"success":{"conversationSteps":[{"toolCall":{}}],"resultSuffix":"agentId: a1"}}}}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"ok"}`,
+	}, "\n")
+
+	sink := &recordingSink{}
+	_, err := parseStream(strings.NewReader(body), sink)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"agentId: a1"}, sink.contents)
+}
+
+func TestParseStreamCountsAFailedSubagentCall(t *testing.T) {
+	f, err := os.Open("testdata/subagent_error.jsonl")
+	require.NoError(t, err)
+	defer f.Close()
+
+	sink := &recordingSink{}
+	out, err := parseStream(f, sink)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, out.ToolFailures)
+	assert.Equal(t, []string{"task:error"}, sink.toolDones)
+	assert.Equal(t, []string{"subagent aborted: tool budget exhausted"}, sink.contents)
+	assert.Equal(t, domain.Usage{}, out.Usage, "a result without usage stays unmetered")
+}
+
+func TestParseStreamKeepsTheMessageErrorShapeForOtherTools(t *testing.T) {
+	body := `{"type":"tool_call","call_id":"c1","subtype":"completed","tool_call":{"shellToolCall":{"result":{"error":{"message":"exit status 2"}}}}}`
+	sink := &recordingSink{}
+	_, err := parseStream(strings.NewReader(body), sink)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"exit status 2"}, sink.contents)
 }

@@ -5,4 +5,4 @@
 {"type":"tool_call","session_id":"sess-abc123","call_id":"call_2","subtype":"started","tool_call":{"shellToolCall":{"args":{"command":"go build ./..."}}}}
 {"type":"tool_call","session_id":"sess-abc123","call_id":"call_2","subtype":"completed","tool_call":{"shellToolCall":{"args":{"command":"go build ./..."},"result":{"error":{"message":"exit status 2: undefined: foo"}}}}}
 {"type":"assistant","session_id":"sess-abc123","message":{"content":[{"type":"text","text":"Fixed the undefined symbol and the build is green."}]}}
-{"type":"result","subtype":"success","session_id":"sess-abc123","is_error":false,"result":"Added the executor seam and wired it in. Build and vet are green."}
+{"type":"result","subtype":"success","session_id":"sess-abc123","is_error":false,"result":"Added the executor seam and wired it in. Build and vet are green.","usage":{"inputTokens":900,"outputTokens":120,"cacheReadTokens":300,"cacheWriteTokens":50}}

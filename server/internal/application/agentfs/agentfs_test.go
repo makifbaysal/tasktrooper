@@ -94,6 +94,9 @@ func TestMaterializeClaudeWritesToolsForRestrictedPolicy(t *testing.T) {
 	if strings.Contains(agent, "Bash") {
 		t.Errorf("policy without run_terminal granted Bash:\n%s", agent)
 	}
+	if strings.Contains(agent, domain.NativeSubagentTool) {
+		t.Errorf("the role's own subagent definition can spawn subagents:\n%s", agent)
+	}
 }
 
 func TestMaterializeCursorRoleIsAlwaysAppliedAndSortsFirst(t *testing.T) {

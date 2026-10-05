@@ -24,6 +24,9 @@ type Outcome struct {
 	ToolCalls int
 	ToolFailures int
 	SawResult bool
+	// ChildSessions are subagent sessions the CLI ran on the parent's behalf
+	// whose usage its own stream never reports.
+	ChildSessions []string
 }
 
 // Init is a CLI session's self-description (model, tools, MCP servers), used

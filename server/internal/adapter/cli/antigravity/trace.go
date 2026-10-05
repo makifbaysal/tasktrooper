@@ -18,6 +18,7 @@ var nativeToolNames = map[string]string{
 	"run_shell_command":          "run_terminal",
 	"read_url":                   "fetch_url",
 	"google_web_search":          "web_search",
+	"invoke_subagent":            "subagent",
 }
 
 const ownToolMarker = "tasktrooper"

@@ -116,6 +116,39 @@ func TestParseStreamNormalizesCacheTokensIntoTheTotal(t *testing.T) {
 	assert.Equal(t, out.Usage.PromptTokens+out.Usage.CompletionTokens, out.Usage.TotalTokens)
 }
 
+// A main agent that waits on a background subagent ends its first query and
+// is woken again, so the run emits one result per query. Each result's usage
+// covers only its own query; modelUsage is the whole session, subagent
+// included. Keeping just the last usage metered a fraction of what was spent.
+func TestParseStreamMetersTheWholeSessionAcrossResults(t *testing.T) {
+	out, err := parseStream(fixture(t, "background_subagent.jsonl"), &recordingSink{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "The survey is done.", out.Text, "the last query's result is the answer")
+	assert.Equal(t, 3, out.NumTurns)
+	assert.Equal(t, 1016+11887+28660, out.Usage.PromptTokens)
+	assert.Equal(t, 927, out.Usage.CompletionTokens)
+	assert.Equal(t, 28660, out.Usage.CacheReadTokens)
+	assert.Equal(t, 11887, out.Usage.CacheWriteTokens)
+	assert.Equal(t, out.Usage.PromptTokens+out.Usage.CompletionTokens, out.Usage.TotalTokens)
+}
+
+func TestParseStreamSumsResultUsageWithoutModelUsage(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"result","subtype":"success","num_turns":2,"result":"first","usage":{"input_tokens":10,"cache_read_input_tokens":100,"output_tokens":5}}`,
+		`{"type":"result","subtype":"success","num_turns":1,"result":"second","usage":{"input_tokens":20,"cache_creation_input_tokens":50,"output_tokens":7}}`,
+	}, "\n")
+
+	out, err := parseStream(strings.NewReader(raw), &recordingSink{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "second", out.Text)
+	assert.Equal(t, 10+100+20+50, out.Usage.PromptTokens)
+	assert.Equal(t, 12, out.Usage.CompletionTokens)
+	assert.Equal(t, 100, out.Usage.CacheReadTokens)
+	assert.Equal(t, 50, out.Usage.CacheWriteTokens)
+}
+
 // The stream is a subprocess's stdout: a wrapper script's warning or a
 // half-flushed line can land in it. One unparseable line must cost that line,
 // not the task.

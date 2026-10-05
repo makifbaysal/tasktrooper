@@ -85,6 +85,11 @@ func TestExecuteReturnsTheSessionsAnswer(t *testing.T) {
 
 	assert.Equal(t, domain.RoleAssistant, resp.Message.Role)
 	assert.Equal(t, "Added the executor seam and wired it in. Build and vet are green.", resp.Message.Content)
+	assert.Equal(t, 1250, resp.Usage.PromptTokens, "inputTokens excludes the cache buckets, which are added back")
+	assert.Equal(t, 120, resp.Usage.CompletionTokens)
+	assert.Equal(t, 1370, resp.Usage.TotalTokens)
+	assert.Equal(t, 300, resp.Usage.CacheReadTokens)
+	assert.Equal(t, 50, resp.Usage.CacheWriteTokens)
 }
 
 // The invocation is the contract with the CLI: --model only travels when the

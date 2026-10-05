@@ -8,6 +8,7 @@ import "strings"
 var nativeToolNames = map[string]string{
 	"read":  "read_file",
 	"write": "write_file",
+	"task":  "subagent",
 }
 
 const ownToolMarker = "tasktrooper"
