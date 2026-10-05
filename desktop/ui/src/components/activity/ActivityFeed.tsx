@@ -1,5 +1,5 @@
 import { Activity } from "lucide-react";
-import { useCallback, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import type { SessionStep } from "@/api";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -21,14 +21,36 @@ interface ActivityFeedProps {
   className?: string;
 }
 
-export function ActivityFeed({ feed, live, agentNameMap, rawSteps, emptyLabel, className }: ActivityFeedProps) {
+// A long run is hundreds of rows, and while it is live every poll rebuilds the
+// feed; rendering only the tail keeps each tick cheap. Older rows are a click away.
+const VISIBLE_TAIL = 120;
+
+// Memoized: the drawer and the chat page re-render on every 2s poll, and a
+// feed whose inputs did not change must not re-render hundreds of rows.
+export const ActivityFeed = memo(function ActivityFeed({
+  feed,
+  live,
+  agentNameMap,
+  rawSteps,
+  emptyLabel,
+  className,
+}: ActivityFeedProps) {
   const { t } = useI18n();
   const [focus, setFocus] = useState<FeedFocus | null>(null);
   const [rawOpen, setRawOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
-  const jumpTo = useCallback((id: string) => setFocus((prev) => ({ id, nonce: (prev?.nonce ?? 0) + 1 })), []);
-  const ctx = { plan: feed.plan, agentNameMap, focus };
+  const jumpTo = useCallback((id: string) => {
+    setShowAll(true);
+    setFocus((prev) => ({ id, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
+  const ctx = useMemo(() => ({ plan: feed.plan, agentNameMap, focus }), [feed.plan, agentNameMap, focus]);
   const empty = feed.items.length === 0;
+  const hiddenCount = showAll ? 0 : Math.max(0, feed.items.length - VISIBLE_TAIL);
+  const visibleItems = useMemo(
+    () => (hiddenCount > 0 ? feed.items.slice(hiddenCount) : feed.items),
+    [feed.items, hiddenCount],
+  );
 
   return (
     <div className={cn("min-w-0 space-y-3", className)}>
@@ -60,7 +82,20 @@ export function ActivityFeed({ feed, live, agentNameMap, rawSteps, emptyLabel, c
       {empty && !live ? (
         <EmptyState icon={Activity} title={emptyLabel ?? t("activityArea.runs.noSteps")} className="py-8" />
       ) : (
-        <FeedItemList items={feed.items} ctx={ctx} />
+        <>
+          {hiddenCount > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full px-2 text-micro font-normal text-muted-foreground"
+              onClick={() => setShowAll(true)}
+            >
+              {t("activityArea.feed.showEarlier", { count: hiddenCount })}
+            </Button>
+          )}
+          <FeedItemList items={visibleItems} ctx={ctx} />
+        </>
       )}
 
       {live && (
@@ -87,4 +122,4 @@ export function ActivityFeed({ feed, live, agentNameMap, rawSteps, emptyLabel, c
       )}
     </div>
   );
-}
+});

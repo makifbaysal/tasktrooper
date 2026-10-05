@@ -56,6 +56,7 @@ export const activityArea: ActivityAreaDict = {
     hidePlan: "Planı gizle",
     rawSteps: "Ham adımlar ({count})",
     rawEmpty: "Kayıtlı adım yok.",
+    showEarlier: "Önceki {count} öğeyi göster",
   },
   lane: {
     subagent: "Sub-agent",

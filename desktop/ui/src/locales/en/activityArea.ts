@@ -55,6 +55,7 @@ export const activityArea = {
     hidePlan: "Hide plan",
     rawSteps: "Raw steps ({count})",
     rawEmpty: "No steps recorded.",
+    showEarlier: "Show {count} earlier",
   },
   lane: {
     subagent: "Sub-agent",

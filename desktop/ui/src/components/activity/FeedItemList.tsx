@@ -330,9 +330,13 @@ function LaneBlock({ lane, ctx }: { lane: FeedLane; ctx: FeedContext }) {
   const open = userOpen ?? (lane.status === "running" || lane.status === "failed");
   const [resultOpen, setResultOpen] = useState(false);
 
+  // The feed is rebuilt on every poll, so `lane` is a new object each time; a
+  // jump must be acted on once, not again on every tick after it.
   const focus = ctx.focus;
+  const handledFocus = useRef<FeedFocus | null>(null);
   useEffect(() => {
-    if (!focus) return;
+    if (!focus || handledFocus.current === focus) return;
+    handledFocus.current = focus;
     if (focus.id === lane.id) {
       setUserOpen(true);
       const frame = requestAnimationFrame(() => ref.current?.scrollIntoView?.({ block: "nearest" }));

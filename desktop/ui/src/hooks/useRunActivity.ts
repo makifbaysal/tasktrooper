@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type OrchestrationPlan, type SessionStep } from "@/api";
-import { buildActivityFeed, isRunLive, mergeSteps } from "@/lib/activityFeed";
-import { currentLabel } from "@/lib/activityFeedLabels";
+import { isRunLive, mergeSteps } from "@/lib/activityFeed";
 import { tStatic } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
 
@@ -81,10 +80,5 @@ export function useRunActivity(runId: string | null, enabled: boolean, runStatus
 
   usePolling(fetchData, 2000, isLive);
 
-  const liveSummary = useMemo(
-    () => (isLive ? currentLabel(tStatic, buildActivityFeed([{ runId: runId ?? "", live: true, steps, plan }]).current) : null),
-    [isLive, runId, steps, plan],
-  );
-
-  return { steps, plan, liveSummary, isLive, loading, error };
+  return { steps, plan, isLive, loading, error };
 }

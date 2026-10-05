@@ -10,7 +10,6 @@ vi.mock("@/hooks/useRunActivity", () => ({
       ? [{ id: `${runId}-1`, run_id: runId, step_type: "assistant_message", payload: { content: `said in ${runId}` }, created_at: "2026-01-01T10:00:00Z" }]
       : [],
     plan: null,
-    liveSummary: null,
     isLive: status === "running",
     loading: false,
     error: null,

@@ -101,6 +101,15 @@ const TASK_POLL_MS = 5000;
 // cards would only repeat the same answer.
 const RELEASE_POLL_MS = 15000;
 
+// The agent-activity poll runs every 2s; handing React a fresh Set each time
+// re-rendered the whole board — and an open task drawer with it — on every
+// tick, even when nothing had changed.
+function sameIds(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
+
 export function BoardPage() {
   const { t } = useI18n();
   // Cached across navigations: coming back to the board paints the last known
@@ -299,9 +308,9 @@ export function BoardPage() {
           ids.add(item.task_id);
         }
       }
-      setActiveAgentTaskIds(ids);
+      setActiveAgentTaskIds((prev) => (sameIds(prev, ids) ? prev : ids));
     } catch {
-      setActiveAgentTaskIds(new Set());
+      setActiveAgentTaskIds((prev) => (prev.size === 0 ? prev : new Set()));
     }
   }, []);
 

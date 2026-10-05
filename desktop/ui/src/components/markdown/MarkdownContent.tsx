@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
+
+const REMARK_PLUGINS = [remarkGfm];
 
 interface MarkdownContentProps {
   content: string;
@@ -19,8 +21,12 @@ interface MarkdownContentProps {
  * container's width in auto table layout, so it — and with it the whole
  * comment card — spills past the page instead of staying put. Wrapping it in
  * its own `overflow-x: auto` box keeps the scrollbar local to the table.
+ *
+ * Memoized because parsing is the expensive part and its callers sit under
+ * 2s polls: an agent's activity feed holds one block per narration message,
+ * and re-parsing all of them on every tick pinned slower machines' CPU.
  */
-export function MarkdownContent({ content, className }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, className }: MarkdownContentProps) {
   const { t } = useI18n();
 
   const components = useMemo<Components>(
@@ -44,9 +50,9 @@ export function MarkdownContent({ content, className }: MarkdownContentProps) {
   }
   return (
     <div className={cn("prose-chat", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
         {content}
       </ReactMarkdown>
     </div>
   );
-}
+});

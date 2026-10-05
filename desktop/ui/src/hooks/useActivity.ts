@@ -14,9 +14,12 @@ export function useActivity(limit: number, intervalMs: number): { items: Activit
   const load = useCallback(async () => {
     try {
       const data = await api.listActivity(limit);
-      setItems(data.items ?? []);
+      const next = data.items ?? [];
+      // Most 2s ticks return the same feed; keeping the old array skips a
+      // re-render of every row.
+      setItems((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     } catch {
-      setItems([]);
+      setItems((prev) => (prev.length === 0 ? prev : []));
     } finally {
       setLoading(false);
     }

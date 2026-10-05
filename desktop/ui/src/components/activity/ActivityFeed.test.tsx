@@ -103,3 +103,18 @@ describe("AgentRunHeader", () => {
     expect(screen.getByText(/^2:1\d$/)).toBeInTheDocument();
   });
 });
+
+describe("ActivityFeed on a long run", () => {
+  it("renders only the newest rows until earlier ones are asked for", () => {
+    const notes = Array.from({ length: 130 }, (_, i) => `note ${i}`);
+    renderFeed(notes.map((content) => step("assistant_message", { content })));
+    const first = notes[0];
+    const last = notes[notes.length - 1];
+    expect(screen.queryByText(first)).toBeNull();
+    expect(screen.getByText(last)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Show \d+ earlier$/ }));
+    expect(screen.getByText(first)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Show \d+ earlier$/ })).toBeNull();
+  });
+});
