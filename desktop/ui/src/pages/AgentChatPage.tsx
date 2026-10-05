@@ -13,27 +13,35 @@ import {
   type SessionRun,
 } from "@/api";
 import { Button } from "@/components/ui/button";
-import { ActivityPanel } from "@/components/chat/ActivityPanel";
 import { ChatTaskDrawer } from "@/components/chat/ChatTaskDrawer";
 import { Composer } from "@/components/chat/Composer";
 import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MessageList } from "@/components/chat/MessageList";
+import { SessionActivityPanel } from "@/components/chat/SessionActivityPanel";
 import { SessionSidebar } from "@/components/chat/SessionSidebar";
 import { LeadChatHeader } from "@/components/chat/LeadChatHeader";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 import { useI18n } from "@/hooks/useI18n";
 import { useMentionOptions } from "@/hooks/useMentionOptions";
-import { useRunActivity } from "@/hooks/useRunActivity";
 import { useAgentSessions } from "@/hooks/useAgentSessions";
 import { usePolling } from "@/hooks/usePolling";
 import { isAbortError } from "@/lib/errors";
+import { loadQueue, mergeQueued, saveQueue, type QueuedMessage } from "@/lib/chatQueue";
 import { QUOTA_QUEUED_ERROR_TYPE, RATE_LIMIT_ERROR_TYPE } from "@/lib/chat";
 import { AgentStreamError, countAssistantMessages, sendSessionMessageWithRecovery } from "@/lib/sessionSend";
 
 function isActiveRunStatus(status: string): boolean {
   const normalized = status.toLowerCase();
   return normalized === "running" || normalized === "pending";
+}
+
+interface SendOptions {
+  content?: string;
+  mentions?: MessageMention[];
+  attachments?: AttachmentMeta[];
+  fileIds?: string[];
+  fromQueue?: boolean;
 }
 
 function mergeServerMessages(
@@ -113,8 +121,16 @@ export function AgentChatPage() {
   // Binary attachments queued in the composer for the next message.
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentMeta[]>([]);
   const [sessionRuns, setSessionRuns] = useState<SessionRun[]>([]);
-  const [globalActiveRuns, setGlobalActiveRuns] = useState<SessionRun[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  // Which session's run list is in. Until it is, `hasActiveRun` reads false
+  // for a session whose run is still going, and the queue must not flush into it.
+  const [runsLoadedFor, setRunsLoadedFor] = useState<string | null>(null);
+  // Tagged with its session so a queue is never saved under the session that
+  // replaced it between the switch and the load effect.
+  const [queueState, setQueueState] = useState<{ sessionId: string | null; items: QueuedMessage[] }>({
+    sessionId: null,
+    items: [],
+  });
+  const flushingRef = useRef(false);
 
   useEffect(() => {
     if (!agentId) return;
@@ -139,7 +155,7 @@ export function AgentChatPage() {
     setPendingAttachments([]);
     selectedMentionsRef.current = [];
     setSessionRuns([]);
-    setSelectedRunId(null);
+    setRunsLoadedFor(null);
     // Without this the composer stays disabled in the new session while the old
     // session's send is still in flight.
     setSending(false);
@@ -151,6 +167,18 @@ export function AgentChatPage() {
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
   }, [agentId, sessionId]);
+
+  useEffect(() => {
+    setQueueState({ sessionId: activeSessionId, items: activeSessionId ? loadQueue(activeSessionId) : [] });
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (queueState.sessionId) saveQueue(queueState.sessionId, queueState.items);
+  }, [queueState]);
+
+  const queue = queueState.sessionId === activeSessionId ? queueState.items : [];
+  const updateQueue = (fn: (items: QueuedMessage[]) => QueuedMessage[]) =>
+    setQueueState((s) => ({ ...s, items: fn(s.items) }));
 
   // Same reasoning for leaving the chat entirely — including a full page
   // navigation, where nothing else would ever close the request.
@@ -201,15 +229,12 @@ export function AgentChatPage() {
   const loadSessionActivity = useCallback(async () => {
     if (!activeSessionId) return;
     try {
-      const [activity, active] = await Promise.all([
-        api.sessionActivity(activeSessionId),
-        api.activeRuns(),
-      ]);
+      const activity = await api.sessionActivity(activeSessionId);
       setSessionRuns(activity.runs ?? []);
-      setGlobalActiveRuns(active.runs ?? []);
+      setRunsLoadedFor(activeSessionId);
     } catch {
-      setSessionRuns([]);
-      setGlobalActiveRuns([]);
+      // Keep the last known runs: blanking them on a blip would read as "no run
+      // is going" and let the message queue flush into a turn still running.
     }
   }, [activeSessionId]);
 
@@ -256,21 +281,20 @@ export function AgentChatPage() {
   }, [agentId, activeSessionId]);
 
   const hasActiveRun = sessionRuns.some((run) => isActiveRunStatus(run.status));
-  const showActivitySidebar = sending || hasActiveRun;
+  const busy = sending || hasActiveRun;
   const shouldPollSession = !!activeSessionId && (sending || hasActiveRun);
 
   const pollSession = useCallback(async () => {
     if (!activeSessionId) return;
     try {
-      const [sessionData, activity, active] = await Promise.all([
+      const [sessionData, activity] = await Promise.all([
         api.getSession(activeSessionId),
         api.sessionActivity(activeSessionId),
-        api.activeRuns(),
       ]);
       setMessages((current) => mergeServerMessages(sessionData.messages ?? [], current));
       setActions(sessionData.actions ?? []);
       setSessionRuns(activity.runs ?? []);
-      setGlobalActiveRuns(active.runs ?? []);
+      setRunsLoadedFor(activeSessionId);
     } catch {
       /* retry on next tick */
     }
@@ -279,35 +303,9 @@ export function AgentChatPage() {
   usePolling(pollSession, 2000, shouldPollSession);
   usePolling(loadSessionActivity, 2000, !!activeSessionId && !shouldPollSession);
 
-  const latestRunId = useMemo(() => {
-    const sorted = [...sessionRuns].sort(
-      (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
-    );
-    return sorted[0]?.id ?? null;
-  }, [sessionRuns]);
-
-  const activityRunId = selectedRunId ?? latestRunId;
-  // The run row's own status: a run whose process died stops emitting steps
-  // without ever writing a terminal one, and the graph would stay "live".
-  const activityRunStatus = useMemo(
-    () => sessionRuns.find((run) => run.id === activityRunId)?.status ?? null,
-    [sessionRuns, activityRunId],
-  );
-  const { steps, plan, isLive } = useRunActivity(
-    activityRunId,
-    showActivitySidebar && !!activityRunId,
-    activityRunStatus,
-  );
-
-  useEffect(() => {
-    if (sending && latestRunId) {
-      setSelectedRunId(latestRunId);
-    }
-  }, [sending, latestRunId]);
-
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, queue]);
 
   const selectSession = (id: string) => {
     setActiveSessionId(id);
@@ -327,11 +325,40 @@ export function AgentChatPage() {
     }
   };
 
-  const handleSend = async (contentOverride?: string) => {
-    const content = (contentOverride ?? input).trim();
+  const handleSend = async (options: SendOptions = {}) => {
+    const { fromQueue = false } = options;
+    const isOverride = options.content !== undefined;
+    const ownsComposer = !isOverride && !fromQueue;
+    const content = (options.content ?? input).trim();
     const sessionAtSend = activeSessionId;
-    if (!sessionAtSend || !content || sending) return;
-    if (!contentOverride) setInput("");
+    if (!sessionAtSend || !content) return;
+    // Only tags whose @Name still appears in the outgoing text count — the
+    // user may have deleted a tag after picking it from the autocomplete.
+    const contentFold = content.toLocaleLowerCase("tr");
+    const mentions: MessageMention[] =
+      options.mentions ??
+      selectedMentionsRef.current
+        .filter((m) => contentFold.includes(`@${m.name.toLocaleLowerCase("tr")}`))
+        .map((m) => ({ kind: m.kind, id: m.id, name: m.name }));
+    if (ownsComposer && busy) {
+      updateQueue((items) => [
+        ...items,
+        {
+          id: `queued-${Date.now()}-${items.length}`,
+          content,
+          mentions,
+          attachments: pendingAttachments,
+          fileIds: selectedFileIds,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setInput("");
+      setPendingAttachments([]);
+      selectedMentionsRef.current = [];
+      return;
+    }
+    if (sending) return;
+    if (ownsComposer) setInput("");
     setSending(true);
     setStreamingContent(null);
     setStreamingReasoning([]);
@@ -347,24 +374,18 @@ export function AgentChatPage() {
     // send belongs to — otherwise switching sessions mid-send paints session
     // A's reply into session B.
     const stillHere = () => activeSessionIdRef.current === sessionAtSend;
-    // Only tags whose @Name still appears in the outgoing text count — the
-    // user may have deleted a tag after picking it from the autocomplete.
-    const contentFold = content.toLocaleLowerCase("tr");
-    const mentions: MessageMention[] = selectedMentionsRef.current
-      .filter((m) => contentFold.includes(`@${m.name.toLocaleLowerCase("tr")}`))
-      .map((m) => ({ kind: m.kind, id: m.id, name: m.name }));
     // Snapshot + clear like the input text: a failed send restores them below
     // so nothing has to be re-attached from scratch.
-    const attachmentsAtSend = pendingAttachments;
+    const attachmentsAtSend = fromQueue ? (options.attachments ?? []) : pendingAttachments;
     const attachmentIds = attachmentsAtSend.map((a) => a.id);
-    if (!contentOverride) setPendingAttachments([]);
+    if (ownsComposer) setPendingAttachments([]);
     const abort = new AbortController();
     streamAbortRef.current = abort;
     let reasoningSoFar: string[] = [];
     try {
       const result = await sendSessionMessageWithRecovery(sessionAtSend, content, {
-        fileIds: selectedFileIds,
-        attachmentIds: contentOverride ? undefined : attachmentIds,
+        fileIds: fromQueue ? (options.fileIds ?? []) : selectedFileIds,
+        attachmentIds: isOverride && !fromQueue ? undefined : attachmentIds,
         // Off by default, which is what makes the reply stream: the backend
         // refuses to stream an orchestrated turn, so forcing this on meant the
         // web client always waited for one whole answer. iOS has always sent
@@ -386,7 +407,7 @@ export function AgentChatPage() {
         },
       });
       if (!stillHere()) return;
-      if (!contentOverride) selectedMentionsRef.current = [];
+      if (ownsComposer) selectedMentionsRef.current = [];
       setMessages(result.messages);
       setActions(result.actions);
       // File this turn's reasoning under the message it produced, so it stays
@@ -437,10 +458,25 @@ export function AgentChatPage() {
         // Hand the text back so the send can be retried — reloading the server
         // transcript drops the optimistic bubble, and the user would otherwise
         // have to retype from memory.
-        if (!contentOverride) setInput((prev) => prev || content);
+        if (ownsComposer) setInput((prev) => prev || content);
         // Same for the queued attachments: they are already uploaded, only the
         // message that was to carry them failed.
-        if (!contentOverride) setPendingAttachments((prev) => (prev.length > 0 ? prev : attachmentsAtSend));
+        if (ownsComposer) setPendingAttachments((prev) => (prev.length > 0 ? prev : attachmentsAtSend));
+        if (fromQueue) {
+          // The composer may hold something newer by now, so this appends
+          // instead of the keep-what-is-there rule above.
+          setInput((prev) => (prev.trim() ? `${content}\n\n${prev}` : content));
+          setPendingAttachments((prev) => [
+            ...attachmentsAtSend,
+            ...prev.filter((a) => !attachmentsAtSend.some((b) => b.id === a.id)),
+          ]);
+          selectedMentionsRef.current = [
+            ...selectedMentionsRef.current,
+            ...mentions.filter(
+              (m) => !selectedMentionsRef.current.some((x) => x.kind === m.kind && x.id === m.id),
+            ),
+          ];
+        }
       }
       await loadMessages(sessionAtSend);
     } finally {
@@ -461,9 +497,26 @@ export function AgentChatPage() {
   // the run would finish server-side and land in the transcript afterwards.
   const handleStop = async () => {
     const sessionAtStop = activeSessionId;
-    if (!sessionAtStop || !sending || stopping) return;
+    if (!sessionAtStop || !busy || stopping) return;
     setStopping(true);
     stopRequestedRef.current = true;
+    // The user stopped to change course, so nothing queued goes out on its own.
+    if (queue.length > 0) {
+      const returned = mergeQueued(queue);
+      updateQueue(() => []);
+      setInput((prev) => (prev.trim() ? `${prev}\n\n${returned.content}` : returned.content));
+      setPendingAttachments((prev) => [
+        ...prev,
+        ...returned.attachments.filter((a) => !prev.some((b) => b.id === a.id)),
+      ]);
+      selectedMentionsRef.current = [
+        ...selectedMentionsRef.current,
+        ...returned.mentions.filter(
+          (m) => !selectedMentionsRef.current.some((x) => x.kind === m.kind && x.id === m.id),
+        ),
+      ];
+      toast.info(t("chatArea.chat.message.queuedReturned"));
+    }
     try {
       // `cancelled: false` means the answer beat the button — a race the user
       // cannot win from the UI and has nothing to fix, so it gets no error toast.
@@ -504,10 +557,30 @@ export function AgentChatPage() {
     // handleSend reads the picked entities from this ref and keeps those whose
     // @Name is still in the text, exactly as for a message typed here.
     selectedMentionsRef.current = autoSendMentions;
-    void handleSend(autoSend);
+    void handleSend({ content: autoSend });
     window.history.replaceState({ ...(window.history.state ?? {}), usr: null }, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; the key ref guards re-sends
   }, [autoSend, activeSessionId, loadedSessionId, sending, stopping]);
+
+  // Runs after the effects above on purpose: autoSend takes a free session
+  // before a stored queue does.
+  useEffect(() => {
+    if (busy || stopping || queue.length === 0 || flushingRef.current) return;
+    if (!activeSessionId || loadedSessionId !== activeSessionId || runsLoadedFor !== activeSessionId) return;
+    flushingRef.current = true;
+    const merged = mergeQueued(queue);
+    updateQueue(() => []);
+    void handleSend({
+      content: merged.content,
+      mentions: merged.mentions,
+      attachments: merged.attachments,
+      fileIds: merged.fileIds,
+      fromQueue: true,
+    }).finally(() => {
+      flushingRef.current = false;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; flushingRef guards re-entry
+  }, [busy, stopping, queue, activeSessionId, loadedSessionId, runsLoadedFor]);
 
   if (!agentId) return null;
 
@@ -536,7 +609,7 @@ export function AgentChatPage() {
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <SessionSidebar
           sessions={sessions}
           activeSessionId={activeSessionId}
@@ -564,14 +637,17 @@ export function AgentChatPage() {
                 reasoningByMessageId={reasoningByMessageId}
                 actions={actions}
                 onOpenTask={(action) => setOpenTaskId(action.entity_id ?? null)}
-                onSubmitClarification={(answer) => handleSend(answer)}
+                onSubmitClarification={(answer) => handleSend({ content: answer })}
                 clarificationDisabled={sending}
+                queued={queue}
+                onRemoveQueued={(id) => updateQueue((items) => items.filter((i) => i.id !== id))}
               />
               <Composer
                 value={input}
                 onChange={setInput}
                 onSend={() => handleSend()}
-                sending={sending}
+                sending={busy}
+                queueing
                 onStop={() => void handleStop()}
                 stopping={stopping}
                 files={files}
@@ -599,16 +675,16 @@ export function AgentChatPage() {
           )}
         </div>
 
-        {activeSessionId && showActivitySidebar && (
-          <ActivityPanel
-            embedded={false}
-            activeRuns={globalActiveRuns}
+        {activeSessionId && (
+          <SessionActivityPanel
+            key={activeSessionId}
+            sessionId={activeSessionId}
+            agentName={agent?.name ?? leadAgent?.name ?? ""}
+            lead={isLead}
             runs={sessionRuns}
-            selectedRunId={activityRunId}
-            onSelectRun={setSelectedRunId}
-            steps={steps}
-            plan={plan}
-            isLive={isLive || sending}
+            sending={sending}
+            onStop={() => void handleStop()}
+            stopping={stopping}
           />
         )}
       </div>

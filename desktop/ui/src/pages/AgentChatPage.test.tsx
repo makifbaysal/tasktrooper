@@ -377,3 +377,59 @@ describe("AgentChatPage lead agent", () => {
     expect(screen.queryByText("1 agents on the team")).not.toBeInTheDocument();
   });
 });
+
+describe("AgentChatPage message queue", () => {
+  const session = {
+    id: "session-1",
+    title: "Rex ile sohbet",
+    model: "",
+    agent_id: "agent-1",
+    created_at: "2026-09-23T10:00:00Z",
+    updated_at: "2026-09-23T10:00:00Z",
+  };
+  const runningRun = { id: "run-1", request_id: "req-1", status: "running", started_at: "2026-09-23T10:00:00Z" };
+
+  beforeEach(() => {
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    getAgent.mockReset().mockResolvedValue(agent);
+    listFiles.mockReset().mockResolvedValue({ files: [] });
+    listAgents.mockReset().mockResolvedValue({ agents: [] });
+    listInitiativeProjects.mockReset().mockResolvedValue({ projects: [] });
+    listRepositories.mockReset().mockResolvedValue({ repositories: [] });
+    listAgentSessions.mockReset().mockResolvedValue({ sessions: [session] });
+    getSession.mockReset().mockResolvedValue({ session, messages: [], actions: [] });
+    activeRuns.mockReset().mockResolvedValue({ runs: [] });
+    sessionActivity.mockReset().mockResolvedValue({ runs: [runningRun] });
+    sendSessionMessageWithRecovery.mockReset().mockResolvedValue({
+      status: "response",
+      response: { message: { role: "assistant", content: "ok" } },
+      messages: [],
+      actions: [],
+    });
+  });
+
+  it("queues a message sent during a run and sends it once, merged, when the run ends", async () => {
+    renderChatPage("/agents/agent-1/chat/session-1");
+    await screen.findByLabelText("Assistant is typing");
+
+    const textarea = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(textarea, { target: { value: "first follow-up" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.change(textarea, { target: { value: "second follow-up" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(await screen.findByText("first follow-up")).toBeInTheDocument();
+    expect(screen.getAllByText("Queued")).toHaveLength(2);
+    expect(sendSessionMessageWithRecovery).not.toHaveBeenCalled();
+
+    sessionActivity.mockReset().mockResolvedValue({ runs: [{ ...runningRun, status: "completed" }] });
+    fireEvent.focus(window);
+
+    await waitFor(() => expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1));
+    expect(sendSessionMessageWithRecovery.mock.calls[0][1]).toBe("first follow-up\n\nsecond follow-up");
+    await waitFor(() => expect(screen.queryByText("Queued")).not.toBeInTheDocument());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1);
+  });
+});

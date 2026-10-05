@@ -336,7 +336,6 @@ export const boardArea: BoardAreaDict = {
       tokenCacheRead: "önbellekten",
       tokenCacheWrite: "önbelleğe yazılan",
       tokenTotal: "toplam",
-      orchestrationPlan: "Orkestrasyon planı",
       pipeline: "Pipeline",
       discuss: "Ajanla konuş",
       discussOpening: "Sohbet açılıyor…",

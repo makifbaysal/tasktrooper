@@ -1,4 +1,5 @@
 import type { Dict } from "@/locales/en";
+import { activityArea } from "@/locales/tr/activityArea";
 import { addRepository } from "@/locales/tr/addRepository";
 import { agentArea } from "@/locales/tr/agentArea";
 import { analysisReview } from "@/locales/tr/analysisReview";
@@ -97,6 +98,7 @@ export const tr: Dict = {
   agentArea,
   analysisReview,
   boardArea,
+  activityArea,
   chatArea,
   cloud,
   content,

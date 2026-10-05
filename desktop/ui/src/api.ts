@@ -3791,8 +3791,10 @@ export const api = {
   sessionActivity: (sessionId: string) =>
     request<{ runs: SessionRun[] }>(`/v1/sessions/${sessionId}/activity`),
 
-  runSteps: (runId: string) =>
-    request<{ steps: SessionStep[] }>(`/v1/runs/${runId}/steps`),
+  runSteps: (runId: string, since?: string) =>
+    request<{ steps: SessionStep[] }>(
+      `/v1/runs/${runId}/steps${since ? `?since=${encodeURIComponent(since)}` : ""}`,
+    ),
 
   getRunPlan: (runId: string) => request<OrchestrationPlan>(`/v1/runs/${runId}/plan`),
 

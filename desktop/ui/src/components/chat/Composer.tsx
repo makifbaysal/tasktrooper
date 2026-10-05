@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CircleStop, Paperclip, Send } from "lucide-react";
+import { CircleStop, ListPlus, Paperclip, Send } from "lucide-react";
 import { toast } from "sonner";
 import type { AttachmentMeta, FileRecord } from "@/api";
 import { AttachmentDropzone, uploadAttachmentFiles } from "@/components/attachments/AttachmentDropzone";
@@ -37,6 +37,11 @@ interface ComposerProps {
   onStop?: () => void;
   /** The stop request is in flight (keeps the button from being pressed twice). */
   stopping?: boolean;
+  /**
+   * Keep typing and attaching while `sending`: the send button queues the
+   * message instead, and Stop sits beside it rather than replacing it.
+   */
+  queueing?: boolean;
 }
 
 export function Composer({
@@ -53,10 +58,13 @@ export function Composer({
   onPendingAttachmentsChange,
   onStop,
   stopping = false,
+  queueing = false,
 }: ComposerProps) {
   const { t } = useI18n();
   const [pastingAttachment, setPastingAttachment] = useState(false);
   const attachmentsEnabled = Boolean(onPendingAttachmentsChange);
+  const locked = sending && !queueing;
+  const queuesNext = sending && queueing;
 
   // Paste-into-textarea attach: files on the clipboard become pending
   // attachments through the same upload path the dropzone button uses.
@@ -134,12 +142,12 @@ export function Composer({
           placeholder={t("chatArea.chat.composer.placeholder")}
           rows={3}
           className="min-h-[72px] w-full resize-none"
-          disabled={sending}
+          disabled={locked}
         />
         {attachmentsEnabled && (
           <AttachmentDropzone
             variant="button"
-            disabled={sending || pastingAttachment}
+            disabled={locked || pastingAttachment}
             onUploaded={(metas) =>
               onPendingAttachmentsChange?.([...pendingAttachments, ...metas])
             }
@@ -147,8 +155,19 @@ export function Composer({
         )}
         {/* One slot, two jobs: while the agent is answering, the only useful
             action on it is stopping — a disabled send button gave the user no way
-            out of a turn that had gone wrong. */}
-        {sending && onStop ? (
+            out of a turn that had gone wrong. A queueing composer needs both. */}
+        {(!sending || queueing || !onStop) && (
+          <Button
+            onClick={onSend}
+            disabled={locked || !value.trim()}
+            size="icon"
+            title={queuesNext ? t("chatArea.chat.composer.queue") : t("chatArea.chat.composer.send")}
+            aria-label={queuesNext ? t("chatArea.chat.composer.queue") : t("chatArea.chat.composer.send")}
+          >
+            {queuesNext ? <ListPlus className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+          </Button>
+        )}
+        {sending && onStop && (
           <Button
             onClick={onStop}
             disabled={stopping}
@@ -158,16 +177,6 @@ export function Composer({
             aria-label={t("chatArea.chat.composer.runStop")}
           >
             {stopping ? <Spinner size="sm" className="text-current" /> : <CircleStop className="h-4 w-4" />}
-          </Button>
-        ) : (
-          <Button
-            onClick={onSend}
-            disabled={sending || !value.trim()}
-            size="icon"
-            title={t("chatArea.chat.composer.send")}
-            aria-label={t("chatArea.chat.composer.send")}
-          >
-            <Send className="h-4 w-4" />
           </Button>
         )}
       </div>

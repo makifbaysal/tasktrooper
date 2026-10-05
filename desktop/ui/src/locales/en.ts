@@ -1,6 +1,7 @@
 // English dictionary — source of truth for UI strings.
 // Shape here defines `Dict`; tr.ts must match it (missing/extra keys fail typecheck).
 // Namespaced by page/component. Interpolation uses {name} placeholders.
+import { activityArea } from "@/locales/en/activityArea";
 import { addRepository } from "@/locales/en/addRepository";
 import { agentArea } from "@/locales/en/agentArea";
 import { analysisReview } from "@/locales/en/analysisReview";
@@ -98,6 +99,7 @@ export const en = {
   agentArea,
   analysisReview,
   boardArea,
+  activityArea,
   chatArea,
   cloud,
   content,

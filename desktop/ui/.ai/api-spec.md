@@ -230,6 +230,20 @@ choice. `LLMProvidersResponse` carries no `embedding_provider` /
 `GET /v1/llm/embedding-status`, `POST /v1/llm/reindex-all` — those routes
 still exist server-side (admin API) but nothing here should call them.
 
+## Run activity (agent feed)
+
+The activity feed (`components/activity`, `lib/activityFeed`) reads a run's recorded steps.
+
+- `GET /v1/sessions/{id}/activity` → `{runs: SessionRun[]}`, newest first, at most 50.
+- `GET /v1/runs/{runId}/steps[?since=<RFC3339 created_at>]` → `{steps: SessionStep[]}` ordered by
+  `created_at`. With `since`, only steps with `created_at >= since` (inclusive, so the boundary step
+  repeats: callers de-duplicate by `id`). `api.runSteps(runId, since?)`; `hooks/useRunActivity` and
+  `hooks/useSessionActivity` poll incrementally with the last step's `created_at`.
+- `GET /v1/runs/{runId}/plan` → `OrchestrationPlan`, `404` when the run has no plan; fetched only once an
+  `orchestration_plan_created` step exists.
+- Claude Code sub-agent steps carry `payload.parent_call_id` (the call id of the parent's `subagent`
+  tool call); orchestrator sub-task steps carry `payload.task_key`. Older runs have neither.
+
 ## Board run control
 
 The task drawer's stop / re-run buttons. Both return the run under a `run` key

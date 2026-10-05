@@ -1,20 +1,14 @@
 import { AlertCircle, CheckCircle2, Circle, Loader2, Target, XCircle } from "lucide-react";
 import type { OrchestrationPlan } from "@/api";
-import { AgentStepList } from "@/components/chat/AgentSteps";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { groupTasksByWaves, planStatusLabel, taskStatusVariant } from "@/lib/planUtils";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
-import type { GraphIteration } from "@/lib/sessionGraph";
 
 interface PlanViewProps {
   plan: OrchestrationPlan;
   agentNameMap?: Record<string, string>;
-  // What each subtask actually did, keyed by plan task key (see
-  // subtaskActivityByKey). Optional: a plan rendered without the run's step
-  // stream still shows titles, statuses and results.
-  activityByTaskKey?: Record<string, GraphIteration[]>;
 }
 
 function StatusIcon({ status, className }: { status: string; className?: string }) {
@@ -35,7 +29,7 @@ function resolveAgentName(agentId: string, agentNameMap?: Record<string, string>
   return agentNameMap?.[agentId] ?? agentId;
 }
 
-export function PlanView({ plan, agentNameMap, activityByTaskKey }: PlanViewProps) {
+export function PlanView({ plan, agentNameMap }: PlanViewProps) {
   const { t } = useI18n();
   const waves = groupTasksByWaves(plan.tasks ?? []);
 
@@ -119,7 +113,6 @@ export function PlanView({ plan, agentNameMap, activityByTaskKey }: PlanViewProp
                         ))}
                       </div>
                     )}
-                    <AgentStepList iterations={activityByTaskKey?.[task.task_key] ?? []} compact />
                     {task.result && (
                       <pre className="mt-2 max-h-24 overflow-auto rounded bg-muted p-2 text-micro">{task.result}</pre>
                     )}

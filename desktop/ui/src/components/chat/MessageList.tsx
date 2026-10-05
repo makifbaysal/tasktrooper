@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { X } from "lucide-react";
 import type { ClarificationRequest, SessionAction, SessionMessage } from "@/api";
 import { AttachmentList } from "@/components/attachments/AttachmentList";
 import { ClarificationCard } from "@/components/chat/ClarificationCard";
@@ -8,6 +9,8 @@ import { SessionActionCard } from "@/components/chat/SessionActionCard";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { useI18n } from "@/hooks/useI18n";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import {
   isAssistantErrorMessage,
@@ -17,6 +20,7 @@ import {
   rateLimitMessageBody,
 } from "@/lib/chat";
 import { findClarificationAnswer, parseClarificationAnswers } from "@/lib/clarification";
+import type { QueuedMessage } from "@/lib/chatQueue";
 import { groupActionsByMessage } from "@/lib/sessionActions";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -35,6 +39,9 @@ interface MessageListProps {
   /** Answering the still-open question, if one is waiting. */
   onSubmitClarification?: (answer: string) => void;
   clarificationDisabled?: boolean;
+  /** Messages typed while the agent was busy, sent when its turn ends. */
+  queued?: QueuedMessage[];
+  onRemoveQueued?: (id: string) => void;
 }
 
 export function MessageList({
@@ -48,6 +55,8 @@ export function MessageList({
   onOpenTask,
   onSubmitClarification,
   clarificationDisabled = false,
+  queued = [],
+  onRemoveQueued,
 }: MessageListProps) {
   const { t } = useI18n();
   const showStreamingBubble = isAwaitingResponse || streamingContent !== null;
@@ -225,6 +234,43 @@ export function MessageList({
           </div>
         </div>
       )}
+
+      {queued.map((item, index) => (
+        <div key={item.id} className="space-y-1">
+          <div className="flex justify-end">
+            <div
+              data-testid="queued-message"
+              className="min-w-0 max-w-[85%] rounded-2xl border border-dashed border-primary/50 bg-primary/10 px-4 py-3 text-foreground opacity-80"
+            >
+              <div className="mb-1 flex items-center gap-2">
+                <span className="text-caption font-medium opacity-80">{t("chatArea.chat.message.you")}</span>
+                <Badge variant="secondary">{t("chatArea.chat.message.queuedBadge")}</Badge>
+                {onRemoveQueued && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto h-6 w-6"
+                    title={t("chatArea.chat.message.queuedRemove")}
+                    aria-label={t("chatArea.chat.message.queuedRemove")}
+                    onClick={() => onRemoveQueued(item.id)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+              <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{item.content}</p>
+              {item.attachments.length > 0 && (
+                <AttachmentList compact className="mt-2" attachments={item.attachments} />
+              )}
+            </div>
+          </div>
+          {index === queued.length - 1 && (
+            <p className="text-right text-caption text-muted-foreground">
+              {t("chatArea.chat.message.queuedHint")}
+            </p>
+          )}
+        </div>
+      ))}
 
       <div ref={endRef} />
     </div>

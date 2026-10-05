@@ -346,7 +346,6 @@ export const boardArea = {
       tokenCacheRead: "cached",
       tokenCacheWrite: "cache write",
       tokenTotal: "total",
-      orchestrationPlan: "Orchestration plan",
       pipeline: "Pipeline",
       discuss: "Discuss with the agent",
       discussOpening: "Opening chat…",
