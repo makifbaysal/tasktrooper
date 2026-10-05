@@ -61,7 +61,7 @@ export const content: ContentDict = {
     emptyPointsDescription:
       "Bu kaynağın henüz gömülmüş parçası yok. Yeniden indexleyip tekrar deneyin.",
     goToRepositories: "Kod depoları",
-    legendHint: "Vurgulamak için üzerine gelin, sabitlemek için tıklayın",
+    legendHint: "Vurgulamak için üzerine gelin, ayrıntı için tıklayın",
     legendOther: "Diğer ({count})",
     canvasLabel: "{groups} gruptaki {count} parçanın dağılım grafiği",
     canvasDescription:
@@ -103,6 +103,21 @@ export const content: ContentDict = {
     rootDirectory: "(kök dizin)",
     unknownLanguage: "Bilinmiyor",
     advancedTitle: "Gelişmiş izdüşüm ayarları",
+    search: {
+      title: "Arama: “{query}”",
+      hint: "Kod aramasının döndürdüğü {count} parça, numaralı halkalarla. Her biri en benzer örneklenmiş parçanın yerinde durur.",
+      locating: "Sonuçlar haritaya yerleştiriliyor…",
+      groupHits: "{count} sonuç",
+      unplaced: "{count} sonuç haritaya yerleştirilemedi.",
+      clear: "Aramayı temizle",
+      failed: "Arama sonuçları haritaya yerleştirilemedi",
+    },
+    detail: {
+      files: "En çok parçası olan dosyalar",
+      samples: "Örnek parçalar",
+      close: "Ayrıntıyı kapat",
+      chunks: "{count} parça",
+    },
     summary: {
       statChunks: "Indexlenen parça",
       statChunksFoot: "{count} dosya",
@@ -115,7 +130,10 @@ export const content: ContentDict = {
       compositionItem: "{label} %{pct}",
       generatedWarningTitle: "Mock ve üretilmiş kod payı: %{pct}",
       generatedWarningBody:
-        "Ajanlar kod aradığında bu parçalar gerçek kodunuzla yarışır. Nerede yoğunlaştıklarını görmek için haritayı türe göre renklendirin.",
+        "Ajanlar kod aradığında bu parçalar gerçek kodunuzla yarışır. Yeni indexlemeler mock ve üretilmiş kodu dışarıda bırakır; temizlemek için bu depoyu yeniden indexleyin.",
+      reindex: "Yeniden indexle",
+      reindexStarted: "Yeniden indexleme başladı. Bitince haritayı yenileyin.",
+      reindexFailed: "Yeniden indexleme başlatılamadı",
       showKinds: "Türe göre renklendir",
       staleTitle: "Bu index farklı bir gömme modeliyle oluşturulmuş",
       staleBody:

@@ -112,6 +112,9 @@ indexer:
   # Set it only on a self-hosted install that keeps checkouts elsewhere.
   allowed_roots: []
   query_rewrite: true
+  # true also indexes generated code and mocks (mockery, protoc, *_gen.go, ...).
+  # .tasktrooperignore at the repository root is honoured either way.
+  index_generated: false
   concurrency: 1
 
 embedding:

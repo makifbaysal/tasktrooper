@@ -17,6 +17,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import { CACHE_REPOS } from "@/lib/project-board";
+import type { EmbeddingMapSearch } from "@/lib/embeddingMapSearch";
 import { formatDate, formatFileSize } from "@/lib/utils";
 
 const CACHE_FILES = "content.files";
@@ -27,6 +28,7 @@ export function FilesPage() {
   const [repositories, setRepositories] = useCachedState<Repository[]>(CACHE_REPOS, []);
   const [reposLoading, setReposLoading] = useFirstLoad(CACHE_REPOS);
   const [loading, setLoading] = useFirstLoad(CACHE_FILES);
+  const [codeSearch, setCodeSearch] = useState<EmbeddingMapSearch | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -116,9 +118,13 @@ export function FilesPage() {
       />
 
       <PageContent className="space-y-8 pb-8">
-        <CodeIndexSearchPanel repositories={repositories} loading={reposLoading} />
+        <CodeIndexSearchPanel
+          repositories={repositories}
+          loading={reposLoading}
+          onSearchResults={setCodeSearch}
+        />
 
-        <EmbeddingMapPanel />
+        <EmbeddingMapPanel search={codeSearch} onClearSearch={() => setCodeSearch(null)} />
 
         <div className="space-y-3">
           <div>

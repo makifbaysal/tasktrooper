@@ -359,6 +359,8 @@ This file is linked from `CLAUDE.md`. Any UI task must follow it: reuse existing
 |---|---|
 | `rag/EmbeddingMapPanel.tsx` | Organism: loads sources and chunks, runs the UMAP+clustering worker, owns the "color by" mode and the advanced projection accordion. |
 | `rag/EmbeddingMapSummary.tsx` | Molecule: stat tiles, file-kind composition bar, stale-model and mock/generated warnings. |
+| `rag/EmbeddingMapSearchSummary.tsx` | Molecule: code-search hits placed on the map, grouped by the active color mode, with a clear action. |
+| `rag/EmbeddingGroupDetail.tsx` | Molecule: detail card for the pinned group (share, top files, sample chunks). |
 | `rag/EmbeddingMapLegend.tsx` | Molecule: clickable legend rows with shares; hover highlights, click pins. |
 | `rag/EmbeddingScatterCanvas.tsx` | Canvas scatter with zoom/pan, hover tooltip and direct topic labels. |
 | `rag/embeddingMap.worker.ts` | Worker: UMAP layout then HDBSCAN clusters, off the main thread. |

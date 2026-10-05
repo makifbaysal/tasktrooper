@@ -284,7 +284,7 @@ func (s *Service) IndexSession(ctx context.Context, sessionID uuid.UUID, rootPat
 		return domain.WorkspaceIndex{}, fmt.Errorf("resolve root path: %w", err)
 	}
 
-	paths, err := WalkIndexableFiles(absRoot)
+	paths, err := WalkIndexableFiles(absRoot, IndexWalkOptions{IncludeGenerated: s.cfg.IndexGenerated})
 	if err != nil {
 		return domain.WorkspaceIndex{}, err
 	}
@@ -346,7 +346,7 @@ func (s *Service) indexProject(ctx context.Context, projectID uuid.UUID, rootPat
 		}
 	}
 
-	paths, err := WalkIndexableFiles(absRoot)
+	paths, err := WalkIndexableFiles(absRoot, IndexWalkOptions{IncludeGenerated: s.cfg.IndexGenerated})
 	if err != nil {
 		return domain.WorkspaceIndex{}, err
 	}
@@ -390,7 +390,7 @@ func (s *Service) IndexBranch(ctx context.Context, projectID uuid.UUID, branch, 
 	if err != nil {
 		return domain.WorkspaceIndex{}, fmt.Errorf("resolve workspace path: %w", err)
 	}
-	paths, err := WalkIndexableFiles(absRoot)
+	paths, err := WalkIndexableFiles(absRoot, IndexWalkOptions{IncludeGenerated: s.cfg.IndexGenerated})
 	if err != nil {
 		return domain.WorkspaceIndex{}, err
 	}

@@ -240,6 +240,10 @@ type IndexerConfig struct {
 	// EmbedConcurrency bounds embedding calls across every index job; 0 = the
 	// indexer's default (2).
 	EmbedConcurrency int `koanf:"embed_concurrency"`
+	// IndexGenerated keeps generated code and mocks in the code index; false
+	// (the default) leaves them out so they do not crowd real code out of
+	// search results.
+	IndexGenerated bool `koanf:"index_generated"`
 }
 
 // EmbeddingConfig paces embedding requests (one per chunk back to back used to

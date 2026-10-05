@@ -211,6 +211,31 @@ func (s *EmbeddingMapStore) SampleCodeChunks(ctx context.Context, indexID uuid.U
 	return total, out, rows.Err()
 }
 
+func (s *EmbeddingMapStore) ChunkEmbeddings(ctx context.Context, indexID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID][]float32, error) {
+	out := make(map[uuid.UUID][]float32, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id, embedding FROM workspace_chunks WHERE index_id = $1 AND id = ANY($2)`, indexID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load workspace chunk embeddings: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var embJSON []byte
+		if err := rows.Scan(&id, &embJSON); err != nil {
+			return nil, fmt.Errorf("scan workspace chunk embedding: %w", err)
+		}
+		var embedding []float32
+		if err := json.Unmarshal(embJSON, &embedding); err != nil {
+			continue
+		}
+		out[id] = embedding
+	}
+	return out, rows.Err()
+}
+
 // evenSamplePredicate keeps a row when floor(rn·limit/total) steps up at rn —
 // the step function rises exactly `limit` times across rn = 1..total, so the
 // sample is exactly `limit` rows spread evenly over the whole ordering. $1 is

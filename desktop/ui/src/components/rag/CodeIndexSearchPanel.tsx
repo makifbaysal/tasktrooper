@@ -20,10 +20,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
+import type { EmbeddingMapSearch } from "@/lib/embeddingMapSearch";
 
 type CodeIndexSearchPanelProps = {
   repositories: Repository[];
   loading?: boolean;
+  onSearchResults?: (search: EmbeddingMapSearch | null) => void;
 };
 
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
@@ -49,7 +51,11 @@ function truncateContent(content: string, max = 320): string {
   return trimmed.slice(0, max) + "…";
 }
 
-export function CodeIndexSearchPanel({ repositories, loading = false }: CodeIndexSearchPanelProps) {
+export function CodeIndexSearchPanel({
+  repositories,
+  loading = false,
+  onSearchResults,
+}: CodeIndexSearchPanelProps) {
   const { t } = useI18n();
   const [selectedId, setSelectedId] = useState<string>("");
   const [index, setIndex] = useState<WorkspaceIndex | null>(null);
@@ -81,6 +87,7 @@ export function CodeIndexSearchPanel({ repositories, loading = false }: CodeInde
   }, []);
 
   useEffect(() => {
+    onSearchResults?.(null);
     if (!selectedId) {
       setIndex(null);
       setResults([]);
@@ -88,7 +95,7 @@ export function CodeIndexSearchPanel({ repositories, loading = false }: CodeInde
     }
     void loadIndexStatus(selectedId);
     setResults([]);
-  }, [selectedId, loadIndexStatus]);
+  }, [selectedId, loadIndexStatus, onSearchResults]);
 
   const handleSearch = async () => {
     const trimmed = query.trim();
@@ -96,13 +103,28 @@ export function CodeIndexSearchPanel({ repositories, loading = false }: CodeInde
     setSearching(true);
     try {
       const data = await api.searchRepositoryIndex(selectedId, trimmed);
-      setResults(data.results ?? []);
-      if ((data.results ?? []).length === 0) {
+      const found = data.results ?? [];
+      setResults(found);
+      onSearchResults?.(
+        found.length === 0
+          ? null
+          : {
+              repositoryId: selectedId,
+              query: trimmed,
+              hits: found.map((r) => ({
+                id: r.id,
+                path: r.file_path,
+                symbol: r.symbol_name || undefined,
+              })),
+            },
+      );
+      if (found.length === 0) {
         toast.info(t("chatArea.rag.codeSearch.noMatches"));
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("chatArea.rag.codeSearch.searchFailed"));
       setResults([]);
+      onSearchResults?.(null);
     } finally {
       setSearching(false);
     }

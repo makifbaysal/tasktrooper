@@ -25,6 +25,8 @@ export interface EmbeddingMapSummaryProps {
   /** Server text (English), shown small under the localized body. */
   staleDetail?: string;
   onColorByKind?: () => void;
+  onReindex?: () => void;
+  reindexing?: boolean;
 }
 
 export function EmbeddingMapSummary({
@@ -41,6 +43,8 @@ export function EmbeddingMapSummary({
   stale,
   staleDetail,
   onColorByKind,
+  onReindex,
+  reindexing = false,
 }: EmbeddingMapSummaryProps) {
   const { t, lang } = useI18n();
   const s = (key: string, params?: Record<string, string | number>) =>
@@ -138,11 +142,18 @@ export function EmbeddingMapSummary({
       {code && generatedShare >= GENERATED_WARNING_SHARE && (
         <Notice variant="warning" title={s("generatedWarningTitle", { pct: percent(generatedShare) })}>
           {s("generatedWarningBody")}
-          {onColorByKind && (
-            <div>
-              <Button size="sm" variant="outline" className="mt-2" onClick={onColorByKind}>
-                {s("showKinds")}
-              </Button>
+          {(onColorByKind || onReindex) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {onReindex && (
+                <Button size="sm" variant="outline" onClick={onReindex} disabled={reindexing}>
+                  {s("reindex")}
+                </Button>
+              )}
+              {onColorByKind && (
+                <Button size="sm" variant="outline" onClick={onColorByKind}>
+                  {s("showKinds")}
+                </Button>
+              )}
             </div>
           )}
         </Notice>

@@ -905,6 +905,14 @@ is ~25 MB of JSON; the same points at 50 dimensions are ~400 KB.
   An empty source is `200` with `"points": []` and `"total": 0`, not an error —
   including `source=code` for a repository that has never been indexed.
 
+- `POST /v1/embedding-map/locate` — where code-search hits sit on the map.
+  Body `{ "repository_id", "anchor_ids": string[] (≤ 5000), "chunk_ids": string[] (≤ 50) }`;
+  `anchor_ids` are the ids of the points the map currently shows, `chunk_ids`
+  the ids code search returned. Answers `200 { "locations": [{ "chunk_id",
+  "anchor_id", "similarity" }] }`: each chunk's most similar anchor, in request
+  order, unknown ids omitted; a chunk that is itself an anchor maps to itself.
+  The UI draws numbered rings at the anchors' positions.
+
 Reduction is PCA computed in-process (`application/embedmap`): L2-normalize,
 mean-center, then block power iteration with Gram-Schmidt deflation against the
 covariance action `Xᵀ(Xv)` — the d×d covariance matrix is never materialized.

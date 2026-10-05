@@ -3,9 +3,12 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +29,8 @@ type fakeEmbedMapStore struct {
 	total     int
 	chunks    []port.EmbeddingChunk
 	lastLimit int
+
+	embeddings map[uuid.UUID][]float32
 }
 
 var _ port.EmbeddingMapStore = (*fakeEmbedMapStore)(nil)
@@ -55,6 +60,16 @@ func (f *fakeEmbedMapStore) SampleFileChunks(_ context.Context, limit int) (int,
 func (f *fakeEmbedMapStore) SampleCodeChunks(_ context.Context, _ uuid.UUID, limit int) (int, []port.EmbeddingChunk, error) {
 	f.lastLimit = limit
 	return f.total, f.chunks, nil
+}
+
+func (f *fakeEmbedMapStore) ChunkEmbeddings(_ context.Context, _ uuid.UUID, ids []uuid.UUID) (map[uuid.UUID][]float32, error) {
+	out := map[uuid.UUID][]float32{}
+	for _, id := range ids {
+		if v, ok := f.embeddings[id]; ok {
+			out[id] = v
+		}
+	}
+	return out, nil
 }
 
 func embedMapChunks(n, dim int) []port.EmbeddingChunk {
@@ -253,4 +268,85 @@ func TestEmbeddingMapRoutesAbsentWithoutService(t *testing.T) {
 	resp, err := app.Test(httptest.NewRequest("GET", "/v1/embedding-map?source=files", nil))
 	require.NoError(t, err)
 	require.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+}
+
+func postLocate(t *testing.T, app *fiber.App, body string, out any) int {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/v1/embedding-map/locate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	if out != nil {
+		require.NoError(t, json.Unmarshal(raw, out))
+	}
+	return resp.StatusCode
+}
+
+func TestEmbeddingMapLocateShape(t *testing.T) {
+	repoID, indexID := uuid.New(), uuid.New()
+	anchor, hit := uuid.New(), uuid.New()
+	app := newEmbedMapTestApp(&fakeEmbedMapStore{
+		repos:      []port.EmbeddingRepositorySource{{RepositoryID: repoID, IndexID: indexID}},
+		embeddings: map[uuid.UUID][]float32{anchor: {1, 0}, hit: {2, 0}},
+	})
+	body := fmt.Sprintf(`{"repository_id":%q,"anchor_ids":[%q],"chunk_ids":[%q,%q]}`,
+		repoID, anchor, hit, uuid.New())
+
+	var out struct {
+		Locations []struct {
+			ChunkID    string  `json:"chunk_id"`
+			AnchorID   string  `json:"anchor_id"`
+			Similarity float64 `json:"similarity"`
+		} `json:"locations"`
+	}
+	require.Equal(t, fiber.StatusOK, postLocate(t, app, body, &out))
+	require.Len(t, out.Locations, 1)
+	require.Equal(t, hit.String(), out.Locations[0].ChunkID)
+	require.Equal(t, anchor.String(), out.Locations[0].AnchorID)
+	require.InDelta(t, 1, out.Locations[0].Similarity, 1e-9)
+}
+
+func TestEmbeddingMapLocateNoIndexIsEmptyArray(t *testing.T) {
+	app := newEmbedMapTestApp(&fakeEmbedMapStore{})
+	id := uuid.NewString()
+	body := fmt.Sprintf(`{"repository_id":%q,"anchor_ids":[%q],"chunk_ids":[%q]}`, uuid.NewString(), id, id)
+	resp, err := app.Test(func() *http.Request {
+		r := httptest.NewRequest("POST", "/v1/embedding-map/locate", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	}())
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	require.JSONEq(t, `{"locations":[]}`, string(raw))
+}
+
+func TestEmbeddingMapLocateBadRequests(t *testing.T) {
+	app := newEmbedMapTestApp(&fakeEmbedMapStore{})
+	id := uuid.NewString()
+	ids := func(n int) string {
+		parts := make([]string, n)
+		for i := range parts {
+			parts[i] = fmt.Sprintf("%q", uuid.NewString())
+		}
+		return strings.Join(parts, ",")
+	}
+	cases := map[string]string{
+		"malformed json":   `{`,
+		"missing repo":     fmt.Sprintf(`{"anchor_ids":[%q],"chunk_ids":[%q]}`, id, id),
+		"bad repo":         fmt.Sprintf(`{"repository_id":"x","anchor_ids":[%q],"chunk_ids":[%q]}`, id, id),
+		"empty anchors":    fmt.Sprintf(`{"repository_id":%q,"anchor_ids":[],"chunk_ids":[%q]}`, id, id),
+		"empty chunks":     fmt.Sprintf(`{"repository_id":%q,"anchor_ids":[%q],"chunk_ids":[]}`, id, id),
+		"too many anchors": fmt.Sprintf(`{"repository_id":%q,"anchor_ids":[%s],"chunk_ids":[%q]}`, id, ids(embedmap.MaxLimit+1), id),
+		"too many chunks":  fmt.Sprintf(`{"repository_id":%q,"anchor_ids":[%q],"chunk_ids":[%s]}`, id, id, ids(embedmap.MaxLocateChunks+1)),
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, fiber.StatusBadRequest, postLocate(t, app, body, nil))
+		})
+	}
 }

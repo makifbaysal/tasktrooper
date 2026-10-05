@@ -1208,6 +1208,13 @@ export interface EmbeddingMapPoint {
   vector: number[];
 }
 
+/** Where a code-search hit sits on the map: the sampled chunk most similar to it. */
+export interface EmbeddingMapLocation {
+  chunk_id: string;
+  anchor_id: string;
+  similarity: number;
+}
+
 export interface EmbeddingMapResponse {
   source: EmbeddingMapSource;
   /** Empty string for the RAG document source. */
@@ -4359,6 +4366,12 @@ export const api = {
     if (params.dims) query.set("dims", String(params.dims));
     return request<EmbeddingMapResponse>(`/v1/embedding-map?${query.toString()}`);
   },
+
+  locateEmbeddingMapChunks: (repositoryId: string, anchorIds: string[], chunkIds: string[]) =>
+    request<{ locations: EmbeddingMapLocation[] }>("/v1/embedding-map/locate", {
+      method: "POST",
+      body: JSON.stringify({ repository_id: repositoryId, anchor_ids: anchorIds, chunk_ids: chunkIds }),
+    }),
 
   listRepositoryTasks: (repositoryId: string) =>
     request<{ tasks: BoardTask[] }>(`/v1/repositories/${repositoryId}/tasks`),

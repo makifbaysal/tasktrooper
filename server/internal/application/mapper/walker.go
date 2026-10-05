@@ -28,6 +28,9 @@ var defaultIgnoreDirs = map[string]struct{}{
 
 type WalkOptions struct {
 	UseGitignore bool
+	// ExtraIgnoreFiles are root-relative files in .gitignore syntax whose
+	// patterns apply on top of .gitignore (or alone when UseGitignore is off).
+	ExtraIgnoreFiles []string
 }
 
 func Walk(root string, opts WalkOptions) ([]string, error) {
@@ -49,6 +52,14 @@ func Walk(root string, opts WalkOptions) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	for _, name := range opts.ExtraIgnoreFiles {
+		extra, loadErr := loadIgnoreFile(absRoot, name)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		gitignore = append(gitignore, extra...)
 	}
 
 	var paths []string
@@ -95,13 +106,17 @@ func GitignorePatterns(root string) ([]string, error) {
 }
 
 func loadGitignore(root string) ([]string, error) {
-	path := filepath.Join(root, ".gitignore")
+	return loadIgnoreFile(root, ".gitignore")
+}
+
+func loadIgnoreFile(root, name string) ([]string, error) {
+	path := filepath.Join(root, name)
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("open gitignore: %w", err)
+		return nil, fmt.Errorf("open %s: %w", name, err)
 	}
 	defer f.Close()
 
@@ -119,7 +134,7 @@ func loadGitignore(root string) ([]string, error) {
 		patterns = append(patterns, line)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read gitignore: %w", err)
+		return nil, fmt.Errorf("read %s: %w", name, err)
 	}
 	return patterns, nil
 }

@@ -24,6 +24,8 @@ const (
 	MinLimit     = 100
 	MaxLimit     = 5000
 
+	MaxLocateChunks = 50
+
 	DefaultDims = 50
 	MinDims     = 2
 	MaxDims     = 128
@@ -37,6 +39,12 @@ var (
 	ErrRepositoryRequired = errors.New("repository_id is required when source=code")
 
 	ErrUnavailable = errors.New("embedding map unavailable")
+
+	ErrLocateRepositoryRequired = errors.New("repository_id is required")
+	ErrLocateAnchorsRequired    = errors.New("anchor_ids must not be empty")
+	ErrLocateChunksRequired     = errors.New("chunk_ids must not be empty")
+	ErrLocateTooManyAnchors     = fmt.Errorf("anchor_ids holds at most %d ids", MaxLimit)
+	ErrLocateTooManyChunks      = fmt.Errorf("chunk_ids holds at most %d ids", MaxLocateChunks)
 )
 
 type Service struct {

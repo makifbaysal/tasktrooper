@@ -52,6 +52,10 @@ func (s *stubStore) SampleCodeChunks(_ context.Context, indexID uuid.UUID, limit
 	return s.total, s.chunks, s.err
 }
 
+func (s *stubStore) ChunkEmbeddings(context.Context, uuid.UUID, []uuid.UUID) (map[uuid.UUID][]float32, error) {
+	return map[uuid.UUID][]float32{}, s.err
+}
+
 func arcChunks(n, dim int) []port.EmbeddingChunk {
 	out := make([]port.EmbeddingChunk, n)
 	for i := range out {

@@ -19,6 +19,7 @@ func (h *Handler) registerEmbeddingMapRoutes(app fiber.Router) {
 	}
 	app.Get("/v1/embedding-map/sources", h.EmbeddingMapSources)
 	app.Get("/v1/embedding-map", h.EmbeddingMap)
+	app.Post("/v1/embedding-map/locate", h.EmbeddingMapLocate)
 }
 
 func (h *Handler) EmbeddingMapSources(c *fiber.Ctx) error {
@@ -51,6 +52,37 @@ func (h *Handler) EmbeddingMap(c *fiber.Ctx) error {
 	result, err := h.embedMapSvc.Build(h.enrichContext(c), q)
 	if err != nil {
 		if errors.Is(err, embedmap.ErrInvalidSource) || errors.Is(err, embedmap.ErrRepositoryRequired) {
+			return badRequest(c, err.Error())
+		}
+		return internalError(c, err)
+	}
+	return c.JSON(result)
+}
+
+type embeddingMapLocateRequest struct {
+	RepositoryID string   `json:"repository_id"`
+	AnchorIDs    []string `json:"anchor_ids"`
+	ChunkIDs     []string `json:"chunk_ids"`
+}
+
+func (h *Handler) EmbeddingMapLocate(c *fiber.Ctx) error {
+	var req embeddingMapLocateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+	repoID, err := uuid.Parse(req.RepositoryID)
+	if err != nil {
+		return badRequest(c, embedmap.ErrLocateRepositoryRequired.Error())
+	}
+	result, err := h.embedMapSvc.Locate(h.enrichContext(c), embedmap.LocateQuery{
+		RepositoryID: repoID,
+		AnchorIDs:    req.AnchorIDs,
+		ChunkIDs:     req.ChunkIDs,
+	})
+	if err != nil {
+		if errors.Is(err, embedmap.ErrLocateAnchorsRequired) || errors.Is(err, embedmap.ErrLocateChunksRequired) ||
+			errors.Is(err, embedmap.ErrLocateTooManyAnchors) || errors.Is(err, embedmap.ErrLocateTooManyChunks) ||
+			errors.Is(err, embedmap.ErrLocateRepositoryRequired) {
 			return badRequest(c, err.Error())
 		}
 		return internalError(c, err)

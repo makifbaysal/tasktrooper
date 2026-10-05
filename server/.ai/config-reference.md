@@ -217,6 +217,7 @@ every call — no restart needed.
 | Key | Default | Description |
 |---|---|---|
 | `indexer.query_rewrite` | `false` | Rewrites the task text into 2 extra code-search queries (multi-query retrieval) |
+| `indexer.index_generated` | `false` | `true` also indexes generated code and mocks (mockery, protoc, `*_gen.go`, `__generated__`, ...); `false` leaves them out. `.tasktrooperignore` at the repository root (`.gitignore` syntax) is honoured either way |
 | `indexer.allowed_roots` | `[]` | Roots a repository or session may be pointed at, **in addition to** `storage.sessions.workspace_root`, which is always allowed |
 
 `allowed_roots` only ever WIDENS the set. Empty means nothing extra — not

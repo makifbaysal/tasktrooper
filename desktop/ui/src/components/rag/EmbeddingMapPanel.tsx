@@ -4,14 +4,21 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
+  type EmbeddingMapLocation,
   type EmbeddingMapPoint,
   type EmbeddingMapResponse,
   type EmbeddingMapSource,
   type EmbeddingMapSources,
 } from "@/api";
+import { EmbeddingGroupDetail } from "@/components/rag/EmbeddingGroupDetail";
 import { EmbeddingMapLegend } from "@/components/rag/EmbeddingMapLegend";
+import { EmbeddingMapSearchSummary } from "@/components/rag/EmbeddingMapSearchSummary";
 import { EmbeddingMapSummary } from "@/components/rag/EmbeddingMapSummary";
-import { EmbeddingScatterCanvas, type EmbeddingCanvasLabel } from "@/components/rag/EmbeddingScatterCanvas";
+import {
+  EmbeddingScatterCanvas,
+  type EmbeddingCanvasLabel,
+  type EmbeddingCanvasMarker,
+} from "@/components/rag/EmbeddingScatterCanvas";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -46,6 +53,13 @@ import {
   type EmbeddingMapWorkerRequest,
   type EmbeddingMapWorkerResponse,
 } from "@/lib/embeddingMap";
+import {
+  groupMembers,
+  nearestMembers,
+  placeMarkers,
+  topFiles,
+  type EmbeddingMapSearch,
+} from "@/lib/embeddingMapSearch";
 import {
   CHUNK_KINDS,
   classifyChunkKind,
@@ -97,7 +111,15 @@ function truncateSnippet(snippet: string): string {
   return `${trimmed.slice(0, SNIPPET_MAX)}…`;
 }
 
-export function EmbeddingMapPanel() {
+const DETAIL_SAMPLES = 3;
+const DETAIL_FILES = 5;
+
+export interface EmbeddingMapPanelProps {
+  search?: EmbeddingMapSearch | null;
+  onClearSearch?: () => void;
+}
+
+export function EmbeddingMapPanel({ search = null, onClearSearch }: EmbeddingMapPanelProps) {
   const { t } = useI18n();
   const { theme } = useTheme();
 
@@ -124,7 +146,13 @@ export function EmbeddingMapPanel() {
   const [hoverGroupId, setHoverGroupId] = useState<string | null>(null);
   const [pinnedGroupId, setPinnedGroupId] = useState<string | null>(null);
 
+  const [locations, setLocations] = useState<EmbeddingMapLocation[] | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
+
   const fetchIdRef = useRef(0);
+  const locateIdRef = useRef(0);
+  const switchedForSearchRef = useRef<EmbeddingMapSearch | null>(null);
   const projectionIdRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
   const nNeighborsId = useId();
@@ -469,12 +497,6 @@ export function EmbeddingMapPanel() {
 
   const activeGroupId = hoverGroupId ?? pinnedGroupId;
 
-  const highlightedGroupIds = useMemo(() => {
-    if (!activeGroupId) return null;
-    if (activeGroupId === OTHER_GROUP_ID) return scale.otherGroupIds;
-    return new Set([activeGroupId]);
-  }, [activeGroupId, scale]);
-
   const paramsDirty =
     draft.nNeighbors !== applied.nNeighbors ||
     draft.minDist !== applied.minDist ||
@@ -509,6 +531,153 @@ export function EmbeddingMapPanel() {
   const toggleGroup = useCallback((groupId: string) => {
     setPinnedGroupId((prev) => (prev === groupId ? null : groupId));
   }, []);
+
+  // Only the search itself moves the map; afterwards the user may pick another
+  // repository without being pulled back.
+  useEffect(() => {
+    if (!search || switchedForSearchRef.current === search) return;
+    if (!repositories.some((repo) => repo.id === search.repositoryId)) return;
+    switchedForSearchRef.current = search;
+    if (source !== "code") handleSourceChange("code");
+    if (repositoryId !== search.repositoryId) handleRepositoryChange(search.repositoryId);
+  }, [search, repositories, source, repositoryId, handleSourceChange, handleRepositoryChange]);
+
+  const searchShown = Boolean(search && code && repositoryId === search.repositoryId);
+  const pointIndexById = useMemo(() => new Map(points.map((point, i) => [point.id, i])), [points]);
+
+  useEffect(() => {
+    const locateId = ++locateIdRef.current;
+    setLocations(null);
+    if (!search || !searchShown || !readyLayout || points.length === 0) {
+      setLocating(false);
+      return;
+    }
+    setLocating(true);
+    api
+      .locateEmbeddingMapChunks(
+        search.repositoryId,
+        points.map((point) => point.id),
+        search.hits.map((hit) => hit.id),
+      )
+      .then((res) => {
+        if (locateId !== locateIdRef.current) return;
+        setLocations(res.locations ?? []);
+      })
+      .catch(() => {
+        if (locateId !== locateIdRef.current) return;
+        setLocations([]);
+        toast.error(t("content.embeddingMap.search.failed"));
+      })
+      .finally(() => {
+        if (locateId === locateIdRef.current) setLocating(false);
+      });
+  }, [search, searchShown, readyLayout, points, t]);
+
+  const anchorIndexByHitId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const location of locations ?? []) {
+      const index = pointIndexById.get(location.anchor_id);
+      if (index !== undefined) map.set(location.chunk_id, index);
+    }
+    return map;
+  }, [locations, pointIndexById]);
+
+  const placedMarkers = useMemo(
+    () =>
+      search && searchShown && readyLayout
+        ? placeMarkers(search.hits, anchorIndexByHitId, readyLayout.positions)
+        : [],
+    [search, searchShown, readyLayout, anchorIndexByHitId],
+  );
+
+  const canvasMarkers = useMemo<EmbeddingCanvasMarker[] | undefined>(
+    () =>
+      placedMarkers.length > 0
+        ? placedMarkers.map((marker) => ({ x: marker.x, y: marker.y, label: String(marker.rank) }))
+        : undefined,
+    [placedMarkers],
+  );
+
+  const searchGroups = useMemo(() => {
+    const counts = new Map<string, { label: string; count: number }>();
+    for (const marker of placedMarkers) {
+      const index = anchorIndexByHitId.get(marker.hitId);
+      if (index === undefined) continue;
+      const id = pointGroupIds[index];
+      const existing = counts.get(id);
+      if (existing) existing.count++;
+      else counts.set(id, { label: entries[index].label, count: 1 });
+    }
+    return [...counts]
+      .map(([id, group]) => ({
+        id,
+        label: group.label,
+        count: group.count,
+        color: scale.colorByGroupId.get(id) ?? "#8a8a94",
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [placedMarkers, anchorIndexByHitId, pointGroupIds, entries, scale]);
+
+  const searchGroupIds = useMemo(
+    () => (searchGroups.length > 0 ? new Set(searchGroups.map((group) => group.id)) : null),
+    [searchGroups],
+  );
+
+  const highlightedGroupIds = useMemo(() => {
+    if (!activeGroupId) return searchGroupIds;
+    if (activeGroupId === OTHER_GROUP_ID) return scale.otherGroupIds;
+    return new Set([activeGroupId]);
+  }, [activeGroupId, scale, searchGroupIds]);
+
+  const handlePointClick = useCallback(
+    (index: number) => {
+      const groupId = pointGroupIds[index];
+      if (groupId !== undefined) setPinnedGroupId((prev) => (prev === groupId ? null : groupId));
+    },
+    [pointGroupIds],
+  );
+
+  const groupDetail = useMemo(() => {
+    if (!readyLayout || !pinnedGroupId || pinnedGroupId === OTHER_GROUP_ID) return null;
+    const members = groupMembers(pointGroupIds, pinnedGroupId);
+    if (members.length === 0) return null;
+    const cluster = readyLayout.clusters[members[0]] ?? -1;
+    const topic = activeColorBy === "topic" && cluster >= 0 ? topicByCluster.get(cluster) : undefined;
+    return {
+      title: entries[members[0]].label,
+      subtitle: topic?.topDirectory || undefined,
+      color: scale.colorByGroupId.get(pinnedGroupId) ?? "#8a8a94",
+      count: members.length,
+      share: t("content.embeddingMap.legendShare", {
+        pct: Math.round((members.length / points.length) * 100),
+      }),
+      files: topFiles(
+        points.map((point) => point.group_label),
+        members,
+        DETAIL_FILES,
+      ),
+      samples: nearestMembers(readyLayout.positions, members, DETAIL_SAMPLES).map((i) => ({
+        path: points[i].group_label,
+        symbol: points[i].symbol || undefined,
+        snippet: points[i].snippet,
+      })),
+    };
+  }, [readyLayout, pinnedGroupId, pointGroupIds, entries, points, scale, topicByCluster, activeColorBy, t]);
+
+  const handleReindex = useCallback(async () => {
+    if (!repositoryId) return;
+    setReindexing(true);
+    try {
+      await api.reindexRepository(repositoryId);
+      toast.success(t("content.embeddingMap.summary.reindexStarted"));
+    } catch (e) {
+      toast.error(t("content.embeddingMap.summary.reindexFailed"), {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setReindexing(false);
+    }
+  }, [repositoryId, t]);
 
   const renderTooltip = useCallback(
     (index: number) => {
@@ -738,7 +907,20 @@ export function EmbeddingMapPanel() {
             stale={Boolean(mapData.embedding_stale || selectedRepo?.embedding_stale)}
             staleDetail={mapData.embedding_warning || selectedRepo?.embedding_warning}
             onColorByKind={activeColorBy === "kind" ? undefined : () => handleColorByChange("kind")}
+            onReindex={code && repositoryId ? () => void handleReindex() : undefined}
+            reindexing={reindexing}
           />
+
+          {search && searchShown && (
+            <EmbeddingMapSearchSummary
+              query={search.query}
+              total={search.hits.length}
+              placed={placedMarkers.length}
+              groups={searchGroups}
+              locating={locating}
+              onClear={onClearSearch}
+            />
+          )}
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
             <EmbeddingScatterCanvas
@@ -759,6 +941,8 @@ export function EmbeddingMapPanel() {
               zoomOutLabel={t("content.embeddingMap.zoomOut")}
               resetLabel={t("content.embeddingMap.resetView")}
               renderTooltip={renderTooltip}
+              markers={canvasMarkers}
+              onPointClick={handlePointClick}
             />
             <EmbeddingMapLegend
               legend={scale.legend}
@@ -777,6 +961,19 @@ export function EmbeddingMapPanel() {
               mono={MONO_COLOR_MODES.includes(activeColorBy)}
             />
           </div>
+
+          {groupDetail && (
+            <EmbeddingGroupDetail
+              {...groupDetail}
+              onClose={() => setPinnedGroupId(null)}
+              labels={{
+                files: t("content.embeddingMap.detail.files"),
+                samples: t("content.embeddingMap.detail.samples"),
+                close: t("content.embeddingMap.detail.close"),
+                chunks: (count) => t("content.embeddingMap.detail.chunks", { count }),
+              }}
+            />
+          )}
 
           <p className="text-xs text-muted-foreground">
             {mapData.truncated &&

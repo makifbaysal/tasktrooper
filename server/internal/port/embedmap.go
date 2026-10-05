@@ -41,4 +41,5 @@ type EmbeddingMapStore interface {
 	RepositorySource(ctx context.Context, repositoryID uuid.UUID) (EmbeddingRepositorySource, error)
 	SampleFileChunks(ctx context.Context, limit int) (total int, chunks []EmbeddingChunk, err error)
 	SampleCodeChunks(ctx context.Context, indexID uuid.UUID, limit int) (total int, chunks []EmbeddingChunk, err error)
+	ChunkEmbeddings(ctx context.Context, indexID uuid.UUID, ids []uuid.UUID) (map[uuid.UUID][]float32, error)
 }

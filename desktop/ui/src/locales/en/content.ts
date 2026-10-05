@@ -60,7 +60,7 @@ export const content = {
     emptyPointsTitle: "No chunks in this source",
     emptyPointsDescription: "This source has no embedded chunks yet. Re-index it and try again.",
     goToRepositories: "Code repositories",
-    legendHint: "Hover to highlight, click to pin",
+    legendHint: "Hover to highlight, click for details",
     legendOther: "Other ({count})",
     canvasLabel: "Scatter plot of {count} chunks in {groups} groups",
     canvasDescription:
@@ -102,6 +102,21 @@ export const content = {
     rootDirectory: "(root)",
     unknownLanguage: "Unknown",
     advancedTitle: "Advanced projection settings",
+    search: {
+      title: "Search: “{query}”",
+      hint: "The {count} chunks code search returned, as numbered rings. Each sits where its most similar sampled chunk is.",
+      locating: "Placing results on the map…",
+      groupHits: "{count} hits",
+      unplaced: "{count} results could not be placed.",
+      clear: "Clear search",
+      failed: "Couldn't place the search results on the map",
+    },
+    detail: {
+      files: "Files with the most chunks",
+      samples: "Sample chunks",
+      close: "Close details",
+      chunks: "{count} chunks",
+    },
     summary: {
       statChunks: "Indexed chunks",
       statChunksFoot: "{count} files",
@@ -114,7 +129,10 @@ export const content = {
       compositionItem: "{label} {pct}%",
       generatedWarningTitle: "Mocks and generated code: {pct}% of the index",
       generatedWarningBody:
-        "These chunks compete with your real code when agents search the index. Color the map by kind to see where they sit.",
+        "These chunks compete with your real code when agents search the index. New index runs leave mocks and generated code out — re-index this repository to drop them.",
+      reindex: "Re-index",
+      reindexStarted: "Re-indexing started. Reload the map when it finishes.",
+      reindexFailed: "Couldn't start re-indexing",
       showKinds: "Color by kind",
       staleTitle: "This index was built with a different embedding model",
       staleBody:

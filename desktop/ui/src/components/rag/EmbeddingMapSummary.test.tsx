@@ -53,6 +53,16 @@ describe("EmbeddingMapSummary", () => {
     expect(onColorByKind).toHaveBeenCalledTimes(1);
   });
 
+  it("offers a re-index action and disables it while one is starting", () => {
+    const onReindex = vi.fn();
+    const { unmount } = renderSummary({ onReindex });
+    fireEvent.click(screen.getByRole("button", { name: "Re-index" }));
+    expect(onReindex).toHaveBeenCalledTimes(1);
+    unmount();
+    renderSummary({ onReindex, reindexing: true });
+    expect(screen.getByRole("button", { name: "Re-index" })).toBeDisabled();
+  });
+
   it("stays quiet when mocks and generated code are a small share", () => {
     renderSummary({ composition: composition({ source: 95, mock: 3, generated: 2 }) });
     expect(screen.queryByText(/Mocks and generated code/)).not.toBeInTheDocument();

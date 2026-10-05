@@ -797,6 +797,26 @@ L2-normalizes them and reduces the dimensions before they cross the wire — a r
   `"total": 0`, not an error — including `source=code` for a repository that was never
   indexed.
 
+- `POST /v1/embedding-map/locate` — where search hits sit on the map. A hit may not be in
+  the map's sample, so each hit chunk is mapped to the most similar sampled ("anchor")
+  chunk, whose position the UI draws it at.
+
+  ```json
+  {"repository_id": "uuid", "anchor_ids": ["chunk-uuid"], "chunk_ids": ["chunk-uuid"]}
+  ```
+
+  ```json
+  {"locations": [{"chunk_id": "uuid", "anchor_id": "uuid", "similarity": 0.93}]}
+  ```
+
+  One entry per requested chunk that exists in the repository's current index, in request
+  order; unknown ids and chunks with an unusable embedding are omitted. A chunk that is
+  itself an anchor maps to itself with similarity `1`. Similarity is cosine over
+  L2-normalized embeddings; ties go to the first anchor in request order. `400` for a
+  missing or malformed `repository_id`, an empty `anchor_ids` or `chunk_ids`, more than
+  5000 anchors or more than 50 chunk ids; malformed uuids inside the arrays are skipped.
+  A repository without an index is `200` with `{"locations": []}`.
+
 Reduction is PCA computed in-process (`application/embedmap`): L2-normalize, mean-center,
 then block power iteration with Gram-Schmidt deflation against the covariance action
 `Xᵀ(Xv)` — the d×d covariance matrix is never materialized. It is deterministic down to
