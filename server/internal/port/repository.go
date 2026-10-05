@@ -41,6 +41,7 @@ type RepositoryStore interface {
 	// (projectmodel.LegacyProjector).
 	UpdateQualityGates(ctx context.Context, id uuid.UUID, coverage, mutation domain.QualityGate) (domain.Repository, error)
 	SetDocsTaskID(ctx context.Context, id uuid.UUID, taskID string) error
+	SetCISetupTaskID(ctx context.Context, id uuid.UUID, taskID string) error
 	// Separate from UpdateMeta: sub_repo_kinds is the pipeline's routing key
 	// set, and a writer of one must not be able to blank the other.
 	UpdateSubProjects(ctx context.Context, id uuid.UUID, subProjects []domain.RepoSubProject) (domain.Repository, error)

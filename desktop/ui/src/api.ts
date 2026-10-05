@@ -4186,6 +4186,9 @@ export const api = {
   createWorkflowSetupTask: (id: string) =>
     request<BoardTask>(`/v1/repositories/${id}/pipeline/setup-task`, { method: "POST" }),
 
+  getWorkflowSetupTask: (id: string) =>
+    request<{ task: BoardTask | null }>(`/v1/repositories/${id}/pipeline/setup-task`),
+
   saveStoreCredential: (provider: StoreCredentialProvider, data: Record<string, string>) =>
     request<void>(`/v1/store/credentials/${provider}`, {
       method: "PUT",

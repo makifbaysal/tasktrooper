@@ -464,7 +464,11 @@ draft.
 Phase 1 — see "Project model" below); only the setup task survives:
 
 - `POST /v1/repositories/{id}/pipeline/setup-task` — open the board task that
-  writes this repository's CI workflows (`api.createWorkflowSetupTask`).
+  writes this repository's CI workflows (`api.createWorkflowSetupTask`). One at
+  a time: while the last one exists and is not done/released, it answers 200
+  with that task instead of opening another (201 when it opens a new one).
+- `GET /v1/repositories/{id}/pipeline/setup-task` → `{task}` — that open task,
+  `null` when none (`api.getWorkflowSetupTask`).
 
 ## GitHub connection
 

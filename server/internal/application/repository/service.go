@@ -116,6 +116,8 @@ type Service struct {
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
+
+	ciSetupMu sync.Mutex
 }
 
 func NewService(
@@ -495,10 +497,20 @@ func (s *Service) workflow(ctx context.Context, taskType domain.TaskType) (domai
 	return s.workflows.Workflow(ctx, taskType)
 }
 
-func (s *Service) CreateWorkflowSetupTask(ctx context.Context, repositoryID uuid.UUID) (domain.BoardTask, error) {
+// CreateWorkflowSetupTask opens the board task that authors the repo's CI
+// workflows — at most one at a time. While the last one is still on the board
+// and not done/released it is returned as is (created == false), so repeated
+// clicks on the "no CI workflows" notice cannot pile up duplicates.
+func (s *Service) CreateWorkflowSetupTask(ctx context.Context, repositoryID uuid.UUID) (task domain.BoardTask, created bool, err error) {
+	s.ciSetupMu.Lock()
+	defer s.ciSetupMu.Unlock()
+
 	repo, err := s.repos.Get(ctx, repositoryID)
 	if err != nil {
-		return domain.BoardTask{}, err
+		return domain.BoardTask{}, false, err
+	}
+	if open, ok, err := s.openWorkflowSetupTask(ctx, repo); err != nil || ok {
+		return open, false, err
 	}
 	var assignee *uuid.UUID
 	if s.roles != nil {
@@ -509,7 +521,7 @@ func (s *Service) CreateWorkflowSetupTask(ctx context.Context, repositoryID uuid
 	}
 	desc := workflowSetupTaskBrief(repo.Kind)
 
-	return s.CreateTask(ctx, repositoryID, domain.CreateBoardTaskRequest{
+	task, err = s.CreateTask(ctx, repositoryID, domain.CreateBoardTaskRequest{
 		Title:           "Set up GitHub Actions CI/CD workflows",
 		Description:     desc,
 		Priority:        domain.TaskPriorityHigh,
@@ -517,6 +529,44 @@ func (s *Service) CreateWorkflowSetupTask(ctx context.Context, repositoryID uuid
 		CreatedBy:       "system",
 		AssigneeAgentID: assignee,
 	})
+	if err != nil {
+		return domain.BoardTask{}, false, err
+	}
+	if err := s.repos.SetCISetupTaskID(ctx, repositoryID, task.ID.String()); err != nil {
+		return domain.BoardTask{}, false, err
+	}
+	return task, true, nil
+}
+
+// WorkflowSetupTask reports the CI setup task this repository is still waiting
+// on, if any.
+func (s *Service) WorkflowSetupTask(ctx context.Context, repositoryID uuid.UUID) (domain.BoardTask, bool, error) {
+	repo, err := s.repos.Get(ctx, repositoryID)
+	if err != nil {
+		return domain.BoardTask{}, false, err
+	}
+	return s.openWorkflowSetupTask(ctx, repo)
+}
+
+// openWorkflowSetupTask: a deleted task, or one that reached done/released
+// while the repo still has no CI, no longer holds the slot — the next click
+// opens a fresh one.
+func (s *Service) openWorkflowSetupTask(ctx context.Context, repo domain.Repository) (domain.BoardTask, bool, error) {
+	id, err := uuid.Parse(strings.TrimSpace(repo.CISetupTaskID))
+	if err != nil {
+		return domain.BoardTask{}, false, nil
+	}
+	task, err := s.tasks.Get(ctx, repo.ID, id)
+	if errors.Is(err, domain.ErrBoardTaskNotFound) || errors.Is(err, port.ErrNotFound) {
+		return domain.BoardTask{}, false, nil
+	}
+	if err != nil {
+		return domain.BoardTask{}, false, err
+	}
+	if task.Column == domain.TaskColumnDone || task.Column == domain.TaskColumnReleased {
+		return domain.BoardTask{}, false, nil
+	}
+	return task, true, nil
 }
 
 func workflowSetupTaskBrief(kind string) string {

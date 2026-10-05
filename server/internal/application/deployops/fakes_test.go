@@ -520,6 +520,18 @@ func (f *fakeRepositoryStore) SetDocsTaskID(_ context.Context, id uuid.UUID, tas
 	return nil
 }
 
+func (f *fakeRepositoryStore) SetCISetupTaskID(_ context.Context, id uuid.UUID, taskID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.rows[id]
+	if !ok {
+		return fmt.Errorf("set repository ci setup task: %w", port.ErrNotFound)
+	}
+	r.CISetupTaskID = taskID
+	f.rows[id] = r
+	return nil
+}
+
 func (f *fakeRepositoryStore) UpdateSubProjects(_ context.Context, id uuid.UUID, subProjects []domain.RepoSubProject) (domain.Repository, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

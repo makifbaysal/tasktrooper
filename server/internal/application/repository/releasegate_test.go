@@ -160,6 +160,10 @@ func (f *fakeReleaseRepoStore) SetDocsTaskID(_ context.Context, _ uuid.UUID, tas
 	f.repo.DocsTaskID = taskID
 	return nil
 }
+func (f *fakeReleaseRepoStore) SetCISetupTaskID(_ context.Context, _ uuid.UUID, taskID string) error {
+	f.repo.CISetupTaskID = taskID
+	return nil
+}
 func (f *fakeReleaseRepoStore) UpdateSubProjects(_ context.Context, _ uuid.UUID, subProjects []domain.RepoSubProject) (domain.Repository, error) {
 	f.subProjectWrites = append(f.subProjectWrites, subProjects)
 	f.repo.SubProjects = subProjects

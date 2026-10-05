@@ -79,8 +79,11 @@ type Repository struct {
 	Docs RepositoryDocs `json:"docs"`
 	// DocsTaskID is the board task of the last reference-doc bundle asked for;
 	// overwritten by the next and cleared when its PR merges.
-	DocsTaskID string      `json:"docs_task_id,omitempty"`
-	ProjectIDs []uuid.UUID `json:"project_ids,omitempty"`
+	DocsTaskID string `json:"docs_task_id,omitempty"`
+	// CISetupTaskID is the board task the "no CI workflows" notice opened; it
+	// blocks a second one until it is deleted or reaches done/released.
+	CISetupTaskID string      `json:"ci_setup_task_id,omitempty"`
+	ProjectIDs    []uuid.UUID `json:"project_ids,omitempty"`
 	// GitWarning is the finished sentence the repository card shows above its
 	// root path. Rendered verbatim by the web app — server-composed English,
 	// not a translation key, so localising it would mean threading a language

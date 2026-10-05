@@ -12,10 +12,11 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
-const { updateComponent, updateRepository, createWorkflowSetupTask } = vi.hoisted(() => ({
+const { updateComponent, updateRepository, createWorkflowSetupTask, getWorkflowSetupTask } = vi.hoisted(() => ({
   updateComponent: vi.fn(),
   updateRepository: vi.fn(),
   createWorkflowSetupTask: vi.fn(),
+  getWorkflowSetupTask: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -27,6 +28,7 @@ vi.mock("@/api", async () => {
       updateComponent,
       updateRepository,
       createWorkflowSetupTask,
+      getWorkflowSetupTask,
     },
   };
 });
@@ -116,7 +118,8 @@ describe("ComponentsTab", () => {
   beforeEach(() => {
     updateComponent.mockReset().mockResolvedValue(component);
     updateRepository.mockReset().mockResolvedValue(model.repository);
-    createWorkflowSetupTask.mockReset().mockResolvedValue({});
+    createWorkflowSetupTask.mockReset().mockResolvedValue({ key: "CI-1" });
+    getWorkflowSetupTask.mockReset().mockResolvedValue({ task: null });
   });
 
   it("changing the role select calls updateComponent with the new role", async () => {
@@ -161,6 +164,26 @@ describe("ComponentsTab", () => {
   it("shows the no-CI-workflows notice when no check has source ci", async () => {
     renderTab("comp-api");
     await waitFor(() => expect(screen.getByText("No CI workflows")).toBeInTheDocument());
+  });
+
+  it("opens the CI setup task once and then says it is open", async () => {
+    renderTab("comp-api");
+    const open = await screen.findByRole("button", { name: "Open setup task" });
+
+    fireEvent.click(open);
+
+    const opened = await screen.findByRole("button", { name: "Task opened · CI-1" });
+    expect(opened).toBeDisabled();
+    fireEvent.click(opened);
+    expect(createWorkflowSetupTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the button disabled while a CI setup task is already on the board", async () => {
+    getWorkflowSetupTask.mockResolvedValue({ task: { key: "CI-7" } });
+    renderTab("comp-api");
+
+    expect(await screen.findByRole("button", { name: "Task opened · CI-7" })).toBeDisabled();
+    expect(createWorkflowSetupTask).not.toHaveBeenCalled();
   });
 
   it("hides the no-CI-workflows notice once a ci check exists", async () => {

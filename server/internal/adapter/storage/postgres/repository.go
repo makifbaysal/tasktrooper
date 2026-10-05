@@ -81,7 +81,7 @@ func (s *RepositoryStore) localizeRootPath(r *domain.Repository) {
 
 // repositoryCols is the canonical repositories column list shared by every
 // SELECT/RETURNING below so the read order can never drift from scanRepository.
-const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, require_human_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, created_at, updated_at`
+const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, ci_setup_task_id, require_human_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, created_at, updated_at`
 
 // scanRepository reads a single repositories row in repositoryCols order and
 // re-anchors its root_path onto this host. Every SELECT/RETURNING in this file
@@ -107,7 +107,7 @@ func scanRepositoryRow(row interface{ Scan(dest ...any) error }) (domain.Reposit
 		&r.ID, &r.Name, &r.Description, &r.RootPath, &r.RemoteURL, &r.VerifyCommand, &r.BuildCommand, &r.TestCommand,
 		&r.Kind, &r.MobilePlatform, &r.DetectedAppIdentity.BundleID, &r.DetectedAppIdentity.PackageName,
 		&r.DetectedBuildTargets.XcodeScheme, &r.DetectedBuildTargets.GradleModule, &r.ReleaseEngine,
-		&r.SubRepoKinds, &subProjectsJSON, &docsJSON, &r.DocsTaskID,
+		&r.SubRepoKinds, &subProjectsJSON, &docsJSON, &r.DocsTaskID, &r.CISetupTaskID,
 		&r.RequireHumanReview, &incidentPolicy,
 		&r.TestStrategy, &r.CoverageThreshold, &r.RequireOverallCoverage, &r.MutationEnabled, &r.MutationThreshold,
 		&webhookHookID, &r.CreatedAt, &r.UpdatedAt,
@@ -543,6 +543,21 @@ func (s *RepositoryStore) SetDocsTaskID(ctx context.Context, id uuid.UUID, taskI
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("set repository docs task: %w", port.ErrNotFound)
+	}
+	return nil
+}
+
+// SetCISetupTaskID records (or, with "", clears) the CI workflow setup task
+// this repository is waiting on.
+func (s *RepositoryStore) SetCISetupTaskID(ctx context.Context, id uuid.UUID, taskID string) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE repositories SET ci_setup_task_id = $2, updated_at = now() WHERE id = $1
+	`, id, taskID)
+	if err != nil {
+		return fmt.Errorf("set repository ci setup task: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("set repository ci setup task: %w", port.ErrNotFound)
 	}
 	return nil
 }

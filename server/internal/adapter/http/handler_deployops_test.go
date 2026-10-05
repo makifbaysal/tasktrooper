@@ -174,6 +174,16 @@ func (f *fakeDeployOpsRepositoryStore) SetDocsTaskID(_ context.Context, id uuid.
 	return nil
 }
 
+func (f *fakeDeployOpsRepositoryStore) SetCISetupTaskID(_ context.Context, id uuid.UUID, taskID string) error {
+	r, ok := f.rows[id]
+	if !ok {
+		return fmt.Errorf("set repository ci setup task: %w", port.ErrNotFound)
+	}
+	r.CISetupTaskID = taskID
+	f.rows[id] = r
+	return nil
+}
+
 func (f *fakeDeployOpsRepositoryStore) UpdateSubProjects(_ context.Context, id uuid.UUID, subProjects []domain.RepoSubProject) (domain.Repository, error) {
 	r, ok := f.rows[id]
 	if !ok {

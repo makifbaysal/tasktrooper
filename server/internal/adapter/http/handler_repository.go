@@ -73,22 +73,44 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Get("/v1/repositories/:id/tasks/:taskId/pipelines", h.ListTaskPipelines)
 	app.Get("/v1/repositories/:id/tasks/:taskId/pipelines/:pipelineId", h.GetTaskPipeline)
 	app.Post("/v1/repositories/:id/tasks/:taskId/pipelines", h.TriggerTaskPipeline)
+	app.Get("/v1/repositories/:id/pipeline/setup-task", h.GetWorkflowSetupTask)
 	app.Post("/v1/repositories/:id/pipeline/setup-task", h.CreateWorkflowSetupTask)
 }
 
 // CreateWorkflowSetupTask — POST /v1/repositories/:id/pipeline/setup-task
 // Opens a board task (assigned by repo kind) to author the repo's CI/CD
-// GitHub Actions workflows, for repos that have none yet.
+// GitHub Actions workflows, for repos that have none yet. While the previous
+// one is still open it answers 200 with that task instead of opening another.
 func (h *Handler) CreateWorkflowSetupTask(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return badRequest(c, "invalid repository id")
 	}
-	task, err := h.repositorySvc.CreateWorkflowSetupTask(h.enrichContext(c), id)
+	task, created, err := h.repositorySvc.CreateWorkflowSetupTask(h.enrichContext(c), id)
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
+	if !created {
+		return c.JSON(task)
+	}
 	return c.Status(fiber.StatusCreated).JSON(task)
+}
+
+// GetWorkflowSetupTask — GET /v1/repositories/:id/pipeline/setup-task
+// The CI setup task still open for this repository; {"task": null} when none.
+func (h *Handler) GetWorkflowSetupTask(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "invalid repository id")
+	}
+	task, ok, err := h.repositorySvc.WorkflowSetupTask(h.enrichContext(c), id)
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	if !ok {
+		return c.JSON(fiber.Map{"task": nil})
+	}
+	return c.JSON(fiber.Map{"task": task})
 }
 
 func (h *Handler) registerInitiativeRoutes(app fiber.Router) {
