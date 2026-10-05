@@ -104,6 +104,12 @@ const (
 	// The human sent answers to an analiz task's open questions
 	// (/questions/submit); the block clears and the analyst resumes with them.
 	MoveReasonQuestionsAnswered = "questions_answered"
+	// The run wrote a diff but executed no command, so the automatic
+	// code_review hand-off was refused and the task went back to the developer.
+	MoveReasonHandoffUnverified = "handoff_unverified"
+	// The run changed the UI but never looked at the screen; same bounce as
+	// handoff_unverified, for the visual evidence guard.
+	MoveReasonHandoffUnseenUI = "handoff_unseen_ui"
 )
 
 type BoardEvent struct {

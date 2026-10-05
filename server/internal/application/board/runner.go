@@ -1496,15 +1496,20 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 		return
 	}
 
+	if reader, ok := r.taskUpdater.(taskColumnReader); ok {
+		if fresh, err := reader.GetTask(ctx, job.RepositoryID, job.Task.ID); err != nil {
+			log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: task re-read failed, using the run's snapshot")
+		} else if fresh.Column != job.Task.Column {
+			log.Info().Str("task_id", job.Task.ID.String()).Str("column", string(fresh.Column)).
+				Msg("hand-off: task already left the column during the run")
+			return
+		}
+	}
+
 	if usage != nil && !usage.UsedAny(domain.ImplementationVerificationTools...) {
 		log.Warn().Str("task_id", job.Task.ID.String()).
-			Msg("hand-off: run wrote a diff but never executed a command, staying in the working column")
-		if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
-			AuthorType: "system",
-			Content:    prompt.Text(handoffUnverifiedRunKey),
-		}); cErr != nil {
-			log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: unverified-run comment failed")
-		}
+			Msg("hand-off: run wrote a diff but never executed a command, sending the task back for revision")
+		r.refuseHandoff(ctx, job, wf, handoffUnverifiedRunKey, domain.MoveReasonHandoffUnverified)
 		return
 	}
 
@@ -1515,23 +1520,8 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 		}
 		if needsUI {
 			log.Warn().Str("task_id", job.Task.ID.String()).
-				Msg("hand-off: UI change never observed, staying in the working column")
-			if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
-				AuthorType: "system",
-				Content:    prompt.Text(handoffUnseenUIKey),
-			}); cErr != nil {
-				log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: unseen-UI comment failed")
-			}
-			return
-		}
-	}
-
-	if reader, ok := r.taskUpdater.(taskColumnReader); ok {
-		if fresh, err := reader.GetTask(ctx, job.RepositoryID, job.Task.ID); err != nil {
-			log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: task re-read failed, using the run's snapshot")
-		} else if fresh.Column != job.Task.Column {
-			log.Info().Str("task_id", job.Task.ID.String()).Str("column", string(fresh.Column)).
-				Msg("hand-off: task already left the column during the run")
+				Msg("hand-off: UI change never observed, sending the task back for revision")
+			r.refuseHandoff(ctx, job, wf, handoffUnseenUIKey, domain.MoveReasonHandoffUnseenUI)
 			return
 		}
 	}
@@ -1554,6 +1544,26 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 	}
 	log.Info().Str("task_id", job.Task.ID.String()).Str("agent_id", agentID.String()).
 		Msg("hand-off: implementation run finished with a diff, task moved to code_review")
+}
+
+func (r *Runner) refuseHandoff(ctx context.Context, job RunJob, wf domain.Workflow, key prompt.Key[struct{}], reason string) {
+	if _, err := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
+		AuthorType: "system",
+		Content:    prompt.Text(key),
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: refusal comment failed")
+	}
+	if _, ok := wf.Stage(domain.TaskColumnNeedRevision); !ok {
+		return
+	}
+	column := domain.TaskColumnNeedRevision
+	if _, err := r.taskUpdater.UpdateTask(ctx, job.RepositoryID, job.Task.ID, domain.UpdateBoardTaskRequest{
+		Column:       &column,
+		SystemReason: reason,
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Str("reason", reason).
+			Msg("hand-off: sending the task back to need_revision failed, it stays in the working column")
+	}
 }
 
 func (r *Runner) advanceToAnalizReview(ctx context.Context, job RunJob, wf domain.Workflow, usage *registry.ToolUsage) {

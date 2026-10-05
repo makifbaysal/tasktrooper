@@ -122,6 +122,17 @@ PM had no equivalent of `isUngroundedQA`: a `pm_uat` run could approve every cri
 - **`pmApprovedUncoveredCriterion`** closes a narrower hole: QA's `review_criterion(approved=true)` is a claim, not proof, when nothing in QA's own recorded round backs it. For every criterion this run's PM approved, the gate looks for a `domain.TaskTestCase` (read via `port.TaskTestCaseStore.ListByTask` / `list_test_cases`) with a matching `criterion_id` and `Status == passed`. If every approval this run made has one, the gate passes; if even one does not, the run also needs `PMUATExecutionTools` usage — approving an uncovered criterion off QA's note and board reads alone fails the run the same way `isUngroundedPMUAT` does.
 - `pm-uat-review/SKILL.md` step 3 has PM call `list_test_cases` and check, criterion by criterion, for a `passed` case before approving off QA's note; step 5 requires PM's own `browser_*`/`mobile_*` walk-through for anything the case list does not already cover.
 
+### Code-review hand-off evidence guards (`advanceToCodeReview`)
+
+After a developer run in a column with `advance_on_diff`, `Runner.advanceToCodeReview` re-reads the task first (a task a human or agent already moved is left alone), then applies two evidence guards before moving it to `code_review`:
+
+- **Unverified run** (`guard.handoff_unverified_run`): a diff but no call from `domain.ImplementationVerificationTools` (no command executed).
+- **Unseen UI** (`guard.handoff_unseen_ui`): the repository is frontend/mobile, the run used no `domain.UIObservationTools`, and `domain.DiffNeedsUIEvidence(changed files)` is true.
+
+When a guard trips, the runner comments (system author) and moves the task to `need_revision` as a system actor with `MoveReasonHandoffUnverified` / `MoveReasonHandoffUnseenUI`, only if the workflow has a `need_revision` stage (otherwise it comments and stays). The system move re-dispatches the assignee with the comments in context, exactly like a `pipeline_failed` bounce; the move counts toward `ReviewLoopGuard` (`maxReviewLoopEntries` = 3 `need_revision` entries with no human in between), after which the task is parked for a person.
+
+`DiffNeedsUIEvidence` treats a path as non-visual (no screenshot needed) when it is docs/scripts/tooling, a lockfile or build/deploy config (`package.json`, `vercel.json`, `.env*`, ...), `.sql`/`.prisma`/`.toml`, a test file (`*.test.*`, `*.spec.*`, `*_test.go`), or sits under a directory segment such as `api`, `server`, `functions`, `supabase`, `prisma`, `migrations`, `test(s)`, `__tests__`, `e2e`, `cypress`, `playwright`, `mocks`, `__mocks__`. Anything else, including CSS, Tailwind/framework config, `index.html` and `public/`, still needs visual evidence.
+
 ### Column-scoped code-tool restriction for verification (`RestrictCodeToolsForVerification`)
 
 `RestrictToolsForVerdictColumn` only ever stripped writers/commit/merge/rollback; it never touched the read-only code tools, so QA and PM kept full code-reading access throughout `in_qa`/`ready_for_qa`/`pm_uat`/`human_uat` — enforced only by prompt wording (`qa-agent.md`, `product-manager.md`), not by anything the runtime checked.

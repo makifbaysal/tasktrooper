@@ -2,6 +2,7 @@ package domain
 
 import (
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -91,24 +92,42 @@ func RepoHasUI(repo Repository) bool {
 var nonUIPathExtensions = map[string]bool{
 	".md": true, ".mdx": true, ".rst": true, ".txt": true,
 	".sh": true, ".bash": true, ".zsh": true,
+	".sql": true, ".prisma": true, ".toml": true,
 }
 
-// nonUIPathBasenames are exact, case-insensitive basenames that are docs or
-// dependency lockfiles regardless of extension.
+// nonUIPathBasenames are exact, case-insensitive basenames that are docs,
+// dependency lockfiles or build/deploy configuration regardless of extension.
 var nonUIPathBasenames = map[string]bool{
 	"license": true, "license.md": true, "changelog.md": true, "notice": true,
 	"package-lock.json": true, "yarn.lock": true, "pnpm-lock.yaml": true,
 	"go.sum": true, "go.mod": true,
+	"package.json": true, "tsconfig.json": true, "vercel.json": true, "netlify.toml": true,
+	".gitignore": true, ".npmrc": true, ".nvmrc": true,
+	"dockerfile": true, "docker-compose.yml": true, "docker-compose.yaml": true,
 }
 
-// nonUIPathDirs are directories that hold repo tooling and docs.
-var nonUIPathDirs = []string{".ai", ".github", "docs", "scripts"}
+var nonUIPathBasenamePrefixes = []string{".env", ".eslintrc", ".prettierrc"}
+
+// nonUIPathDirs are directory segments, at any depth, that hold repo tooling,
+// docs, server-side code, schema or tests. "api" covers Vercel api/, Next
+// pages/api and app/api, and frontend API clients.
+var nonUIPathDirs = map[string]bool{
+	".ai": true, ".github": true, "docs": true, "scripts": true,
+	"api": true, "server": true, "functions": true,
+	"supabase": true, "prisma": true, "migrations": true,
+	"__tests__": true, "test": true, "tests": true,
+	"e2e": true, "cypress": true, "playwright": true,
+	"__mocks__": true, "mocks": true,
+}
+
+var testFileName = regexp.MustCompile(`\.(test|spec)\.[a-z0-9]+$`)
 
 // DiffNeedsUIEvidence reports whether a changed-file set could be confirmed or
 // refuted by a screenshot/DOM read. The default is to REQUIRE evidence: an
-// empty path list or any path outside the narrow non-visual categories counts
-// as UI-relevant; a repo-kind check alone would hold a docs-only run on a
-// frontend repo for evidence that cannot exist.
+// empty path list or any path outside the non-visual categories (docs, tooling,
+// lockfiles and build config, server-side and API code, schema and
+// migrations, tests and mocks) counts as UI-relevant. Style, Tailwind and
+// framework config, index.html and public assets change pixels and stay UI.
 func DiffNeedsUIEvidence(paths []string) bool {
 	if len(paths) == 0 {
 		return true
@@ -129,19 +148,22 @@ func isUIRelevantPath(p string) bool {
 	lower := strings.ToLower(p)
 	base := path.Base(lower)
 
-	if nonUIPathBasenames[base] {
+	if nonUIPathBasenames[base] || nonUIPathExtensions[path.Ext(base)] {
 		return false
 	}
-	if nonUIPathExtensions[path.Ext(base)] {
-		return false
-	}
-	dir := ""
-	if idx := strings.LastIndex(lower, "/"); idx >= 0 {
-		dir = lower[:idx]
-	}
-	for _, d := range nonUIPathDirs {
-		if dir == d || strings.Contains("/"+dir+"/", "/"+d+"/") {
+	for _, prefix := range nonUIPathBasenamePrefixes {
+		if strings.HasPrefix(base, prefix) {
 			return false
+		}
+	}
+	if testFileName.MatchString(base) || strings.HasSuffix(base, "_test.go") {
+		return false
+	}
+	if idx := strings.LastIndex(lower, "/"); idx >= 0 {
+		for _, seg := range strings.Split(lower[:idx], "/") {
+			if nonUIPathDirs[seg] {
+				return false
+			}
 		}
 	}
 	return true

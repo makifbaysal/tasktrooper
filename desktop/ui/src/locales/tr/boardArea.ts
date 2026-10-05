@@ -176,6 +176,8 @@ export const boardArea: BoardAreaDict = {
       reason: {
         pipeline_passed: "Pipeline geçti. Göreve bakacak ajana devredildi.",
         pipeline_failed: "Pipeline başarısız. Revizyona gönderildi.",
+        handoff_unverified: "Devir reddedildi: run hiç komut çalıştırmadı. Revizyona gönderildi.",
+        handoff_unseen_ui: "Devir reddedildi: arayüz değişikliğine hiç bakılmadı. Revizyona gönderildi.",
         pipeline_gate_opened: "Build sonucu gelmedi. Reviewer yine de atandı.",
         verification_failed: "Build/vet kontrolleri başarısız. In Progress'e geri alındı.",
         deploy_released: "Deploy başarılı. Görev yayınlandı.",

@@ -75,9 +75,74 @@ func TestAdvanceToCodeReviewHoldsAnUnverifiedRun(t *testing.T) {
 
 	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", usage)
 
-	assert.Empty(t, updater.calls, "an unexecuted diff must stay in the working column")
 	require.Len(t, updater.comments, 1, "the next run has to be told why the card did not move")
 	assert.Contains(t, updater.comments[0].Content, "run_terminal")
+	requireSentBack(t, updater, domain.MoveReasonHandoffUnverified)
+}
+
+func requireSentBack(t *testing.T, updater *fakeTaskUpdater, reason string) {
+	t.Helper()
+	require.Len(t, updater.calls, 1, "a refused hand-off must send the task back, not leave it stalled")
+	require.NotNil(t, updater.calls[0].Column)
+	assert.Equal(t, domain.TaskColumnNeedRevision, *updater.calls[0].Column)
+	assert.Equal(t, reason, updater.calls[0].SystemReason)
+	assert.Equal(t, domain.TaskActorSystem, updater.calls[0].Actor, "an agent actor would make the dispatcher skip the developer")
+	assert.Nil(t, updater.calls[0].ActorAgentID)
+}
+
+func workflowWithoutNeedRevision() domain.Workflow {
+	wf := domain.Workflow{Type: taskWF.Type}
+	for _, s := range taskWF.Stages {
+		if s.Column != domain.TaskColumnNeedRevision {
+			wf.Stages = append(wf.Stages, s)
+		}
+	}
+	return wf
+}
+
+func TestAdvanceToCodeReviewStaysPutWithoutANeedRevisionColumn(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	r := handoffRunner(updater, &handoffGit{diff: "diff"})
+	usage := registry.NewToolUsage()
+	usage.Record("edit_file")
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), workflowWithoutNeedRevision(), "/w/task-1", usage)
+
+	require.Len(t, updater.comments, 1)
+	assert.Empty(t, updater.calls)
+}
+
+func TestAdvanceToCodeReviewDoesNotCommentOrBounceATaskThatAlreadyMoved(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &readableUpdater{
+		fakeTaskUpdater: fakeTaskUpdater{task: task},
+		fresh:           domain.BoardTask{ID: task.ID, Column: domain.TaskColumnBlocked},
+	}
+	r := handoffRunner(updater, &handoffGit{diff: "diff"})
+	usage := registry.NewToolUsage()
+	usage.Record("edit_file")
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", usage)
+
+	assert.Empty(t, updater.calls)
+	assert.Empty(t, updater.comments)
+}
+
+func TestAdvanceToCodeReviewKeepsServerlessOnlyDiffOutOfTheUIGate(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	git := &handoffGit{diff: "diff", files: []string{"api/login.ts", "api/_lib/session.ts", "package.json", "vercel.json"}}
+	r := handoffRunnerWithProjects(updater, git, uiKindRepos{kind: domain.RepoKindFrontend})
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", verifiedUsage())
+
+	require.Len(t, updater.calls, 1)
+	assert.Equal(t, domain.TaskColumnCodeReview, *updater.calls[0].Column)
+	assert.Empty(t, updater.comments)
 }
 
 func TestAdvanceToCodeReviewMovesWhenUsageIsUnmeasured(t *testing.T) {
@@ -229,7 +294,7 @@ func TestAdvanceToCodeReviewStillBlocksUIGateForRealUIDiffOnFrontendRepo(t *test
 
 	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", verifiedUsage())
 
-	assert.Empty(t, updater.calls)
+	requireSentBack(t, updater, domain.MoveReasonHandoffUnseenUI)
 	require.Len(t, updater.comments, 1)
 	assert.Contains(t, updater.comments[0].Content, "ekrana hiç bakmadı")
 }
@@ -243,7 +308,7 @@ func TestAdvanceToCodeReviewUIGateDefaultsToBlockingWhenChangedFilesUnreadable(t
 
 	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", verifiedUsage())
 
-	assert.Empty(t, updater.calls)
+	requireSentBack(t, updater, domain.MoveReasonHandoffUnseenUI)
 	require.Len(t, updater.comments, 1)
 	assert.Contains(t, updater.comments[0].Content, "ekrana hiç bakmadı")
 }

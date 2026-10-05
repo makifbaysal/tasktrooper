@@ -183,6 +183,8 @@ export const boardArea = {
       reason: {
         pipeline_passed: "Pipeline passed. Handed to the reviewer.",
         pipeline_failed: "Pipeline failed. Sent back for revision.",
+        handoff_unverified: "Hand-off refused: the run never ran a command. Sent back for revision.",
+        handoff_unseen_ui: "Hand-off refused: the UI change was never looked at. Sent back for revision.",
         pipeline_gate_opened: "No build result arrived. The reviewer was dispatched anyway.",
         verification_failed: "Build/vet checks failed. Sent back to In Progress.",
         deploy_released: "Deploy succeeded. Task released.",

@@ -1,5 +1,5 @@
 ---
 key: guard.handoff_unverified_run
-version: 1
+version: 2
 ---
-Otomatik code_review geçişi yapılmadı: bu run kod yazdı ama hiçbir komut çalıştırmadı (run_terminal ile build/test kaydı yok). Değişiklik branch'te duruyor. Bir sonraki run projenin build ve test komutlarını çalıştırıp çıktıyı okumalı, kırmızıysa bu run içinde düzeltmeli.
+Otomatik code_review geçişi yapılmadı ve görev revizyona (need_revision) geri gönderildi: bu run kod yazdı ama hiçbir komut çalıştırmadı (run_terminal ile build/test kaydı yok). Değişiklik branch'te duruyor. Bir sonraki run projenin build ve test komutlarını çalıştırıp çıktıyı okumalı, kırmızıysa bu run içinde düzeltmeli. Aynı eksiklik tekrarlanırsa görev bir insana park edilir.
