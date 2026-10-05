@@ -3,9 +3,9 @@ import type { RepositoryModel } from "@/api";
 import { RoleBadge } from "@/components/projects/model/RoleBadge";
 import { ReviewList } from "@/components/projects/model/ReviewList";
 import { Card } from "@/components/ui/card";
+import { StatTile } from "@/components/ui/stat-tile";
 import { useI18n } from "@/hooks/useI18n";
 import { componentLabel, factValue, requiredChecks, reviewCount, stackSummary } from "@/lib/project-model";
-import { cn } from "@/lib/utils";
 
 interface OverviewTabProps {
   model: RepositoryModel;
@@ -13,19 +13,11 @@ interface OverviewTabProps {
   onOpenComponent: (componentId: string) => void;
 }
 
-function StatTile({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
-  return (
-    <Card className="p-4">
-      <p className="text-caption text-muted-foreground">{label}</p>
-      <p className={cn("text-display font-semibold", warn && value > 0 && "text-warning")}>{value}</p>
-    </Card>
-  );
-}
-
 export function OverviewTab({ model, onReload, onOpenComponent }: OverviewTabProps) {
   const { t } = useI18n();
   const activeComponents = model.components.filter((c) => c.status === "active");
   const confirmedLinks = model.links.filter((l) => l.status === "confirmed").length;
+  const reviewTotal = reviewCount(model.review);
 
   return (
     <div className="space-y-6">
@@ -33,7 +25,7 @@ export function OverviewTab({ model, onReload, onOpenComponent }: OverviewTabPro
         <StatTile label={t("repositoryPage.overview.statComponents")} value={activeComponents.length} />
         <StatTile label={t("repositoryPage.overview.statRequiredChecks")} value={requiredChecks(model.checks)} />
         <StatTile label={t("repositoryPage.overview.statConfirmedLinks")} value={confirmedLinks} />
-        <StatTile label={t("repositoryPage.overview.statReview")} value={reviewCount(model.review)} warn />
+        <StatTile label={t("repositoryPage.overview.statReview")} value={reviewTotal} tone={reviewTotal > 0 ? "warning" : "default"} />
       </div>
 
       {model.review.length > 0 && (

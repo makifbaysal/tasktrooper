@@ -37,6 +37,20 @@ function plotMetrics(width: number, height: number): PlotMetrics {
   };
 }
 
+export interface EmbeddingCanvasLabel {
+  groupId: string;
+  text: string;
+  /** Normalized [0, 1] like `positions`. */
+  x: number;
+  y: number;
+  weight: number;
+}
+
+const LABEL_FONT = '600 12px "Inter Variable", Inter, system-ui, sans-serif';
+const LABEL_MAX_CHARS = 28;
+const LABEL_MAX_DRAWN = 16;
+const LABEL_OFFSET_PX = 12;
+
 export interface EmbeddingScatterCanvasProps {
   /** `2 * n` interleaved x/y pairs normalized into [0, 1]. */
   positions: Float32Array;
@@ -56,6 +70,9 @@ export interface EmbeddingScatterCanvasProps {
   resetLabel: string;
   /** Tooltip body for the hovered point index. */
   renderTooltip: (index: number) => ReactNode;
+  /** Direct labels drawn over the plot, heaviest first. */
+  labels?: EmbeddingCanvasLabel[];
+  labelColor?: string;
   className?: string;
 }
 
@@ -72,6 +89,8 @@ export function EmbeddingScatterCanvas({
   zoomOutLabel,
   resetLabel,
   renderTooltip,
+  labels,
+  labelColor = "#1c1c21",
   className,
 }: EmbeddingScatterCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -194,6 +213,39 @@ export function EmbeddingScatterCanvas({
         ctx.arc(x, y, radius + 4.5, 0, Math.PI * 2);
         ctx.stroke();
       }
+
+      if (labels && labels.length > 0) {
+        ctx.font = LABEL_FONT;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.lineJoin = "round";
+        ctx.lineWidth = 4;
+        const placed: { left: number; right: number; top: number; bottom: number }[] = [];
+        const ordered = [...labels].sort((a, b) => b.weight - a.weight);
+        for (const label of ordered) {
+          if (placed.length >= LABEL_MAX_DRAWN) break;
+          if (highlightedGroupIds !== null && !highlightedGroupIds.has(label.groupId)) continue;
+          const text =
+            label.text.length > LABEL_MAX_CHARS ? `${label.text.slice(0, LABEL_MAX_CHARS - 1)}…` : label.text;
+          const anchorX = (PADDING_PX + label.x * spanX) * scale + tx;
+          const anchorY = (PADDING_PX + label.y * spanY) * scale + ty;
+          if (anchorX < 0 || anchorX > width || anchorY < 0 || anchorY > height) continue;
+          const halfW = (ctx.measureText(text).width + 8) / 2;
+          // Sit just above the anchor so a tight cluster stays visible under its
+          // label, and slide inward rather than clip at the plot's edges.
+          const x = Math.min(Math.max(anchorX, halfW + 2), width - halfW - 2);
+          const y = Math.min(Math.max(anchorY - LABEL_OFFSET_PX, 10), height - 10);
+          const rect = { left: x - halfW, right: x + halfW, top: y - 8, bottom: y + 8 };
+          if (placed.some((p) => rect.left < p.right && rect.right > p.left && rect.top < p.bottom && rect.bottom > p.top)) {
+            continue;
+          }
+          placed.push(rect);
+          ctx.strokeStyle = surfaceColor;
+          ctx.strokeText(text, x, y);
+          ctx.fillStyle = labelColor;
+          ctx.fillText(text, x, y);
+        }
+      }
     };
     requestDraw();
   });
@@ -222,6 +274,9 @@ export function EmbeddingScatterCanvas({
   useEffect(
     () => () => {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      // requestDraw skips while a frame is pending; a cancelled frame left here
+      // would silence every draw after a remount (StrictMode does exactly that).
+      frameRef.current = null;
     },
     [],
   );

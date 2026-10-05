@@ -1,4 +1,5 @@
 import { UMAP } from "umap-js";
+import { clusterPositions, defaultClusterOptions } from "@/lib/embeddingMapClusters";
 import {
   clampNeighbors,
   normalizePositions,
@@ -64,12 +65,21 @@ function project(request: EmbeddingMapWorkerRequest): void {
   const { requestId, count, dims } = request;
 
   if (count === 0) {
-    ctx.postMessage({ type: "done", requestId, positions: new Float32Array(0) });
+    ctx.postMessage({
+      type: "done",
+      requestId,
+      positions: new Float32Array(0),
+      clusters: new Int32Array(0),
+    });
     return;
   }
   if (count <= 2) {
     const positions = trivialLayout(count);
-    ctx.postMessage({ type: "done", requestId, positions }, [positions.buffer]);
+    const clusters = new Int32Array(count);
+    ctx.postMessage({ type: "done", requestId, positions, clusters }, [
+      positions.buffer,
+      clusters.buffer,
+    ]);
     return;
   }
 
@@ -102,7 +112,12 @@ function project(request: EmbeddingMapWorkerRequest): void {
   }
 
   const positions = normalizePositions(umap.getEmbedding());
-  ctx.postMessage({ type: "done", requestId, positions }, [positions.buffer]);
+  ctx.postMessage({ type: "progress", requestId, phase: "clusters", ratio: 0 });
+  const clusters = clusterPositions(positions, defaultClusterOptions(count));
+  ctx.postMessage({ type: "done", requestId, positions, clusters }, [
+    positions.buffer,
+    clusters.buffer,
+  ]);
 }
 
 ctx.addEventListener("message", (event) => {

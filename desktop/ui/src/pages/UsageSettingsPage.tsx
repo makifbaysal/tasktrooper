@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type UsageByModel, type UsageSummary } from "@/api";
@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatTile } from "@/components/ui/stat-tile";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UsageDailyChart, type DailySeries } from "@/components/admin/UsageDailyChart";
 import { useCachedState } from "@/hooks/useCachedState";
@@ -171,18 +172,21 @@ export function UsageSettingsPage() {
         <div className={cn("space-y-6 transition-opacity duration-200", loading && "opacity-60")} aria-busy={loading}>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatTile
+              className="p-5"
               label={u("inputTokens")}
               value={formatCompact(generation.prompt_tokens)}
               title={formatInteger(generation.prompt_tokens, lang)}
               foot={perSession(generation.prompt_tokens)}
             />
             <StatTile
+              className="p-5"
               label={u("outputTokens")}
               value={formatCompact(generation.completion_tokens)}
               title={formatInteger(generation.completion_tokens, lang)}
               foot={perSession(generation.completion_tokens)}
             />
             <StatTile
+              className="p-5"
               label={u("cacheHit")}
               value={hit !== null ? formatPercent(hit, lang) : "—"}
               foot={u("cacheHitFoot")}
@@ -192,6 +196,7 @@ export function UsageSettingsPage() {
               </div>
             </StatTile>
             <StatTile
+              className="p-5"
               label={u("sessions")}
               value={formatInteger(generation.calls, lang)}
               foot={u("sessionsFoot", { cli: formatInteger(cli.calls, lang), api: formatInteger(apiTotals.calls, lang) })}
@@ -309,31 +314,6 @@ export function UsageSettingsPage() {
         </div>
       )}
     </div>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  title,
-  foot,
-  children,
-}: {
-  label: string;
-  value: string;
-  title?: string;
-  foot?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <Card className="flex flex-col p-5">
-      <p className="text-caption text-muted-foreground">{label}</p>
-      <p className="mt-1.5 text-display font-semibold" title={title}>
-        {value}
-      </p>
-      {children}
-      {foot && <p className="mt-auto pt-2 text-caption text-muted-foreground">{foot}</p>}
-    </Card>
   );
 }
 

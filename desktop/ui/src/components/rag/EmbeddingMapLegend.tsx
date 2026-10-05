@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { OTHER_GROUP_ID, type EmbeddingGroup } from "@/lib/embeddingMap";
+import { shortenPath } from "@/lib/embeddingMapTopics";
 import { cn } from "@/lib/utils";
 
 export interface EmbeddingMapLegendProps {
@@ -20,12 +21,20 @@ export interface EmbeddingMapLegendProps {
   onToggleGroup: (groupId: string) => void;
   title: string;
   hint: string;
+  /** Points in the sample, the denominator for the shares. */
+  total: number;
+  /** Already-translated share, e.g. "%12". */
+  formatShare: (pct: string) => string;
+  /** Labels are paths: monospace, shortened to their informative tail. */
+  mono?: boolean;
 }
 
 interface LegendRowProps {
   id: string;
   label: string;
-  count: number;
+  sublabel?: string;
+  share: string;
+  mono: boolean;
   color: string;
   active: boolean;
   pinned: boolean;
@@ -36,7 +45,9 @@ interface LegendRowProps {
 function LegendRow({
   id,
   label,
-  count,
+  sublabel,
+  share,
+  mono,
   color,
   active,
   pinned,
@@ -64,11 +75,18 @@ function LegendRow({
         className="h-2.5 w-2.5 shrink-0 rounded-full"
         style={{ backgroundColor: color }}
       />
-      <span className="min-w-0 flex-1 truncate font-mono" title={label}>
-        {label}
+      <span className="min-w-0 flex-1">
+        <span className={cn("block truncate", mono && "font-mono")} title={label}>
+          {mono ? shortenPath(label) : label}
+        </span>
+        {sublabel && (
+          <span className="block truncate font-mono text-micro text-muted-foreground" title={sublabel}>
+            {sublabel}
+          </span>
+        )}
       </span>
       <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-micro">
-        {count}
+        {share}
       </Badge>
     </Button>
   );
@@ -86,8 +104,16 @@ export function EmbeddingMapLegend({
   onToggleGroup,
   title,
   hint,
+  total,
+  formatShare,
+  mono = false,
 }: EmbeddingMapLegendProps) {
   if (legend.length === 0) return null;
+
+  const shareOf = (count: number) => {
+    const pct = total > 0 ? (count / total) * 100 : 0;
+    return formatShare(pct < 1 ? "<1" : String(Math.round(pct)));
+  };
 
   return (
     <div className="space-y-2">
@@ -95,13 +121,15 @@ export function EmbeddingMapLegend({
         <h3 className="text-sm font-medium">{title}</h3>
         <p className="text-xs text-muted-foreground">{hint}</p>
       </div>
-      <div className="max-h-56 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1.5">
+      <div className="max-h-[420px] space-y-0.5 overflow-y-auto rounded-lg border border-border p-1.5">
         {legend.map((group) => (
           <LegendRow
             key={group.id}
             id={group.id}
             label={group.label}
-            count={group.count}
+            sublabel={group.sublabel}
+            share={shareOf(group.count)}
+            mono={mono}
             color={group.color}
             active={activeGroupId === group.id}
             pinned={pinnedGroupId === group.id}
@@ -113,7 +141,8 @@ export function EmbeddingMapLegend({
           <LegendRow
             id={OTHER_GROUP_ID}
             label={otherLabel}
-            count={otherPointCount}
+            share={shareOf(otherPointCount)}
+            mono={false}
             color={otherColor}
             active={activeGroupId === OTHER_GROUP_ID}
             pinned={pinnedGroupId === OTHER_GROUP_ID}

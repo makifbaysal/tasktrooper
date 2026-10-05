@@ -4,8 +4,11 @@
 /** Bucket id used for every group that does not fit in the legend. */
 export const OTHER_GROUP_ID = "__other__";
 
-/** How many groups the legend lists before folding the rest into "other". */
-export const MAX_LEGEND_GROUPS = 24;
+/**
+ * Categorical hues are never cycled: past this many groups the rest fold into
+ * "other" and share one neutral.
+ */
+export const MAX_COLORED_GROUPS = 8;
 
 export const DEFAULT_N_NEIGHBORS = 15;
 export const DEFAULT_MIN_DIST = 0.1;
@@ -27,13 +30,17 @@ export interface EmbeddingMapWorkerRequest {
   minDist: number;
 }
 
+export type EmbeddingMapProgressPhase = "neighbors" | "layout" | "clusters";
+
 export type EmbeddingMapWorkerResponse =
-  | { type: "progress"; requestId: number; phase: "neighbors" | "layout"; ratio: number }
+  | { type: "progress"; requestId: number; phase: EmbeddingMapProgressPhase; ratio: number }
   | {
       type: "done";
       requestId: number;
       /** `2 * count` interleaved x/y pairs, already normalized into [0, 1]. */
       positions: Float32Array;
+      /** Per-point cluster id over `positions`: 0..k-1 by size, -1 for noise. */
+      clusters: Int32Array;
     }
   | { type: "error"; requestId: number; message: string };
 
@@ -138,21 +145,6 @@ const CATEGORICAL_DARK = [
   "#e66767",
 ];
 
-// Lightness offsets (OKLab L) applied once the eight hues are exhausted, so a
-// cycled hue never looks identical to its neighbour on the palette wheel.
-// The light surface steps mostly darker and the dark surface mostly lighter, so
-// a cycled color never drifts into its own background.
-const LIGHTNESS_TIERS = {
-  light: [0, -0.13, 0.09, -0.24, 0.04, -0.19, -0.07],
-  dark: [0, 0.13, -0.09, 0.24, -0.04, 0.19, 0.07],
-} as const;
-
-// Keep cycled steps clear of the surface they are drawn on.
-const LIGHTNESS_BOUNDS = {
-  light: { min: 0.3, max: 0.7 },
-  dark: { min: 0.5, max: 0.9 },
-} as const;
-
 export type EmbeddingMapTheme = "light" | "dark";
 
 /** Neutral used for the folded "other" bucket. */
@@ -160,119 +152,106 @@ export function otherGroupColor(theme: EmbeddingMapTheme): string {
   return theme === "dark" ? "#7c7c86" : "#9a9aa4";
 }
 
-function srgbToLinear(channel: number): number {
-  return channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
-}
-
-function linearToSrgb(channel: number): number {
-  return channel <= 0.0031308 ? channel * 12.92 : 1.055 * Math.pow(channel, 1 / 2.4) - 0.055;
-}
-
-interface OkLab {
-  l: number;
-  a: number;
-  b: number;
-}
-
-function hexToOkLab(hex: string): OkLab {
-  const value = hex.replace("#", "");
-  const r = srgbToLinear(parseInt(value.slice(0, 2), 16) / 255);
-  const g = srgbToLinear(parseInt(value.slice(2, 4), 16) / 255);
-  const b = srgbToLinear(parseInt(value.slice(4, 6), 16) / 255);
-
-  const lCone = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-  const mCone = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-  const sCone = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-
-  return {
-    l: 0.2104542553 * lCone + 0.793617785 * mCone - 0.0040720468 * sCone,
-    a: 1.9779984951 * lCone - 2.428592205 * mCone + 0.4505937099 * sCone,
-    b: 0.0259040371 * lCone + 0.7827717662 * mCone - 0.808675766 * sCone,
-  };
-}
-
-function toHexChannel(value: number): string {
-  const clamped = Math.max(0, Math.min(255, Math.round(value * 255)));
-  return clamped.toString(16).padStart(2, "0");
-}
-
-function okLabToHex({ l, a, b }: OkLab): string {
-  const lCone = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const mCone = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const sCone = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
-
-  const r = linearToSrgb(4.0767416621 * lCone - 3.3077115913 * mCone + 0.2309699292 * sCone);
-  const g = linearToSrgb(-1.2684380046 * lCone + 2.6097574011 * mCone - 0.3413193965 * sCone);
-  const bl = linearToSrgb(-0.0041960863 * lCone - 0.7034186147 * mCone + 1.707614701 * sCone);
-
-  return `#${toHexChannel(r)}${toHexChannel(g)}${toHexChannel(bl)}`;
-}
-
 /**
- * Deterministic color for the Nth distinct group. Slots 0-7 are the validated
- * hues in fixed order; beyond that the hue cycles while the OKLab lightness
- * steps, so adjacent indices stay distinguishable.
+ * The Nth categorical slot, or the neutral once the validated hues run out —
+ * a generated ninth hue would be indistinguishable from its neighbours.
  */
 export function groupColorAt(index: number, theme: EmbeddingMapTheme): string {
   const palette = theme === "dark" ? CATEGORICAL_DARK : CATEGORICAL_LIGHT;
-  const hex = palette[index % palette.length];
-  const tiers = LIGHTNESS_TIERS[theme];
-  const tier = tiers[Math.floor(index / palette.length) % tiers.length];
-  if (tier === 0) return hex;
-  const lab = hexToOkLab(hex);
-  const bounds = LIGHTNESS_BOUNDS[theme];
-  const l = Math.max(bounds.min, Math.min(bounds.max, lab.l + tier));
-  return okLabToHex({ ...lab, l });
+  if (index < 0 || index >= palette.length) return otherGroupColor(theme);
+  return palette[index];
 }
 
 export interface EmbeddingGroup {
   id: string;
   label: string;
+  /** Secondary line under the label, e.g. a topic's dominant directory. */
+  sublabel?: string;
   count: number;
   color: string;
 }
 
 export interface EmbeddingGroupScale {
-  /** Every distinct group, sorted by label — the color assignment order. */
+  /** Every distinct group, biggest first. */
   groups: EmbeddingGroup[];
-  /** Legend rows: the biggest groups first, capped at `MAX_LEGEND_GROUPS`. */
+  /** Legend rows: the colored groups in slot order, then the neutral ones. */
   legend: EmbeddingGroup[];
   /** Groups folded into the "other" legend row (empty when nothing folded). */
   otherGroupIds: Set<string>;
   colorByGroupId: Map<string, string>;
 }
 
-/**
- * Build the categorical scale. Sorting the distinct labels before assigning
- * slots is what keeps a file's color stable across re-projections.
- */
+export interface EmbeddingGroupScaleOptions {
+  /**
+   * Slot assignment. "count" (default) colors the biggest groups; an explicit
+   * id list pins each id to its index so an entity keeps its hue whether or
+   * not its neighbours are present.
+   */
+  order?: "count" | readonly string[];
+  /** Groups drawn in the neutral without taking a slot (e.g. unclustered noise). */
+  neutralGroupIds?: ReadonlySet<string>;
+  /**
+   * Fold groups past the colored slots into one "other" row (default). Off,
+   * they keep their own neutral legend rows — for groups the plot labels
+   * directly, where one row per group is still worth hovering.
+   */
+  foldOverflow?: boolean;
+}
+
 export function buildGroupScale(
-  entries: { groupId: string; label: string }[],
+  entries: { groupId: string; label: string; sublabel?: string }[],
   theme: EmbeddingMapTheme,
+  options: EmbeddingGroupScaleOptions = {},
 ): EmbeddingGroupScale {
-  const counts = new Map<string, { label: string; count: number }>();
+  const byId = new Map<string, EmbeddingGroup>();
   for (const entry of entries) {
-    const existing = counts.get(entry.groupId);
+    const existing = byId.get(entry.groupId);
     if (existing) {
       existing.count += 1;
     } else {
-      counts.set(entry.groupId, { label: entry.label, count: 1 });
+      byId.set(entry.groupId, {
+        id: entry.groupId,
+        label: entry.label,
+        sublabel: entry.sublabel,
+        count: 1,
+        color: "",
+      });
     }
   }
 
-  const groups: EmbeddingGroup[] = [...counts.entries()]
-    .map(([id, value]) => ({ id, label: value.label, count: value.count, color: "" }))
-    .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
-
+  const groups = [...byId.values()].sort(
+    (a, b) => b.count - a.count || a.label.localeCompare(b.label) || a.id.localeCompare(b.id),
+  );
+  const neutralIds = options.neutralGroupIds ?? new Set<string>();
+  const neutral = otherGroupColor(theme);
   const colorByGroupId = new Map<string, string>();
-  groups.forEach((group, index) => {
-    group.color = groupColorAt(index, theme);
-    colorByGroupId.set(group.id, group.color);
-  });
+  const colored: { group: EmbeddingGroup; slot: number }[] = [];
+  const otherGroupIds = new Set<string>();
 
-  const byCount = [...groups].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  const legend = byCount.slice(0, MAX_LEGEND_GROUPS);
-  const otherGroupIds = new Set(byCount.slice(MAX_LEGEND_GROUPS).map((group) => group.id));
+  const order = options.order ?? "count";
+  let nextSlot = 0;
+  for (const group of groups) {
+    if (neutralIds.has(group.id)) continue;
+    const slot = order === "count" ? nextSlot++ : order.indexOf(group.id);
+    if (slot >= 0 && slot < MAX_COLORED_GROUPS) {
+      colored.push({ group, slot });
+    } else {
+      otherGroupIds.add(group.id);
+    }
+  }
+
+  for (const group of groups) group.color = neutral;
+  for (const { group, slot } of colored) group.color = groupColorAt(slot, theme);
+  for (const group of groups) colorByGroupId.set(group.id, group.color);
+
+  const overflow = options.foldOverflow === false ? groups.filter((group) => otherGroupIds.has(group.id)) : [];
+  if (options.foldOverflow === false) otherGroupIds.clear();
+
+  const legend = [
+    ...colored.sort((a, b) => a.slot - b.slot).map(({ group }) => group),
+    ...overflow,
+    ...groups.filter((group) => neutralIds.has(group.id)),
+  ];
 
   return { groups, legend, otherGroupIds, colorByGroupId };
 }

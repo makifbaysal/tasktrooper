@@ -14,7 +14,7 @@ The web UI (`src`) follows **Atomic Design**. Every piece of UI is one of: **ato
 
 | Level | What it is | Lives in | Examples |
 |-------|-----------|----------|----------|
-| **Atom** | Single-purpose primitive, no business logic, style-only | `components/ui/` | `button`, `card`, `badge`, `input`, `label`, `checkbox`, `switch`, `select`, `textarea`, `dialog`, `separator`, `skeleton`, `spinner`, `progress`, `scroll-area`, `empty-state` |
+| **Atom** | Single-purpose primitive, no business logic, style-only | `components/ui/` | `button`, `card`, `badge`, `input`, `label`, `checkbox`, `switch`, `select`, `textarea`, `dialog`, `separator`, `skeleton`, `spinner`, `progress`, `scroll-area`, `empty-state`, `stat-tile` (label/value/foot KPI tile, `tone="warning"`) |
 | **Molecule** | Small composition of atoms, reusable, little/no state | `components/admin/`, `components/layout/`, `components/markdown/`, `components/attachments/`, feature dirs | `PageHeader`, `FormDialog`, `KeyValueEditor`, `MultiSelectPicker`, `ToolPolicyForm`, `PageContent`, `SidebarNavLink`, `layout/LeadQuickAsk` (header "Ask the PM" field), `agent/AgentAvatar` (initials avatar; `lead` variant marks the lead agent), `HealthStatus`, `MarkdownContent`, `MarkdownField`, `ActivityFeedItem`, `WizardStepper`, `TypingIndicator`, `chat/MentionTextarea` (textarea with the @-mention menu; every message box that can tag agents/projects/repos uses it, roster from `useMentionOptions`), `ClarificationCard`, `ClarificationSummary`, `SessionActionCard`, `ProjectIndexStatus`, `TaskRunSteps`, `AgentStepList` (+ the graph node parts in `chat/AgentSteps.tsx`), `confirm-dialog`, `AttachmentDropzone`, `AttachmentList`, `setup/SetupShell`, `setup/SetupStepList`, `setup/DesktopOnlyNotice`, `runner/BlockerNotice`, `projects/ProjectFormDialog`, `admin/StoreCredentialForm` (per-provider credential block, exported from `StoreCredentialsSection.tsx`) |
 | **Organism** | Larger, often stateful feature block; composes molecules+atoms | feature dirs (`chat/`, `board/`, `workspace/`, `agent/`, `projects/`, `admin/`, `runner/`, `setup/`) | `Composer`, `MessageList`, `SessionSidebar`, `chat/LeadChatHeader`, `chat/LeadWelcome` (the lead agent's chat header and the /home welcome), `chat/LeadFlowSteps` (the delivery-flow strip; human approval stages in the info tone), `ActivityPanel`, `PlanView`, `SessionGraphView`, `CreateTaskDialog`, `TaskDetailDrawer`, `TaskAssigneeFields`, `ChatTaskDrawer`, `ActivityFeed`, `NewAgentDialog`, `NoProjectsNotice`, `AgentKPISection`, `MCPServerForm`, `admin/CloudAccountsCard` (connected Vercel/GCP/AWS provider accounts — verify/rename/replace/remove, "Connect" menu), `runner/LocalCliCard`, `runner/EnvironmentPreflight` (+ the pure `runner/claudeCodeConnect.ts` connect-flow helper), `setup/EnvironmentStep`/`ClaudeCodeStep`/`GitHubStep`/`FirstProjectStep`, `admin/GitHubCard`, `admin/AppStoreConnectCard`, `admin/GooglePlayCard`, `admin/StoreAppPickerDialog` (+ `StoreAppsBrowser` and the `useStoreAppListing` hook, same file), `projects/MobileStorePanel`, `operations/StoreReleaseControls` (store channel vocabulary + `ChannelPromoteButton`), and the projects hub/repository/add organisms — see "Projects (hub, repository, add)" below |
 | **Template** | Page shell / layout that arranges organisms; provides sidebar, header, routing outlet | `components/layout/` | `WorkspaceLayout`, `WorkspaceShell`, `WorkspaceSidebar`, `WorkspaceAgentLayout`, `SettingsLayout`, `Header`, `ProtectedRoute` |
@@ -350,3 +350,17 @@ Shared components have many callers. When editing one:
 ## Where this is enforced
 
 This file is linked from `CLAUDE.md`. Any UI task must follow it: reuse existing components, place new ones at the right level, and update shared components safely.
+
+## RAG / index map
+
+`pages/FilesPage` hosts the embedding map panel; its pieces live in `components/rag/`.
+
+| Piece | What it is |
+|---|---|
+| `rag/EmbeddingMapPanel.tsx` | Organism: loads sources and chunks, runs the UMAP+clustering worker, owns the "color by" mode and the advanced projection accordion. |
+| `rag/EmbeddingMapSummary.tsx` | Molecule: stat tiles, file-kind composition bar, stale-model and mock/generated warnings. |
+| `rag/EmbeddingMapLegend.tsx` | Molecule: clickable legend rows with shares; hover highlights, click pins. |
+| `rag/EmbeddingScatterCanvas.tsx` | Canvas scatter with zoom/pan, hover tooltip and direct topic labels. |
+| `rag/embeddingMap.worker.ts` | Worker: UMAP layout then HDBSCAN clusters, off the main thread. |
+| `lib/embeddingMap.ts` | Group color scale, worker protocol, viewport helpers. |
+| `lib/embeddingMapClusters.ts`, `lib/embeddingMapTopics.ts` | Pure: clustering, chunk kinds, topic terms, directory helpers. |

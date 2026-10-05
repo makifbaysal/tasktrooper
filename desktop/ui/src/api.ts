@@ -1180,6 +1180,10 @@ export interface EmbeddingMapRepositorySource {
   chunk_count: number;
   file_count: number;
   indexed_at?: string;
+  embedding_model?: string;
+  /** The index was embedded with a different model than the one configured now. */
+  embedding_stale?: boolean;
+  embedding_warning?: string;
 }
 
 export interface EmbeddingMapSources {
@@ -1214,6 +1218,8 @@ export interface EmbeddingMapResponse {
   sampled: number;
   truncated: boolean;
   points: EmbeddingMapPoint[] | null;
+  embedding_stale?: boolean;
+  embedding_warning?: string;
 }
 
 /** One registered test phone, as the settings page sees it. */
