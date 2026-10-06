@@ -153,6 +153,13 @@ var outOfBudgetCommentKey = prompt.Define("guard.out_of_budget_comment", outOfBu
 var handoffUnverifiedRunKey = prompt.Define("guard.handoff_unverified_run", struct{}{})
 var handoffUnseenUIKey = prompt.Define("guard.handoff_unseen_ui", struct{}{})
 
+var pushWorkflowScopeCommentKey = prompt.Define("notices.push_workflow_scope_comment", struct{}{})
+var pushWorkflowScopeDetailKey = prompt.Define("notices.push_workflow_scope_detail", struct{}{})
+
+type handoffFailedCommandsInput struct{ Failed int }
+
+var handoffFailedCommandsKey = prompt.Define("guard.handoff_failed_commands", handoffFailedCommandsInput{Failed: 3})
+
 type handoffReasonInput struct{ Reason string }
 
 var handoffCodeReviewRefusedKey = prompt.Define("guard.handoff_code_review_refused", handoffReasonInput{Reason: "x"})

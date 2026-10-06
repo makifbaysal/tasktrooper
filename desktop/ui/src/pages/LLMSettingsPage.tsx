@@ -1,16 +1,5 @@
-import {
-  CheckCircle2,
-  Circle,
-  Link2,
-  Loader2,
-  Pencil,
-  Plug,
-  Plus,
-  Server,
-  Trash2,
-  Unplug,
-} from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Link2, Loader2, MoreHorizontal, Pencil, Plug, Plus, Star, Trash2, Unplug } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   type AgentCLIFlavor,
@@ -21,6 +10,8 @@ import {
   type LLMProviderView,
   type SaveLLMEndpointRequest,
 } from "@/api";
+import { IntegrationCard } from "@/components/admin/IntegrationCard";
+import { LLMEndpointIcon, LLMProviderIcon } from "@/components/admin/LLMProviderIcon";
 import { EnvironmentPreflight, type EnvironmentBlocker } from "@/components/runner/EnvironmentPreflight";
 import { LocalCliCard } from "@/components/runner/LocalCliCard";
 import {
@@ -31,9 +22,7 @@ import {
 } from "@/components/runner/claudeCodeConnect";
 import { useDesktopHost, useRunnerSnapshot } from "@/components/runner/useDesktopRunner";
 import { useSetup } from "@/hooks/useSetup";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -42,6 +31,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -56,21 +51,11 @@ import { useI18n } from "@/hooks/useI18n";
 import { isHostExecutedProvider, isProviderAvailable } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
-// Native cards shown as fixed provider cards. local/openai/groq are hidden — they
-// live as OpenAI-compatible endpoint presets below.
-//
-// This is an allowlist on purpose, and the host-executed providers are
-// deliberately absent from it: they have no base URL and no API key to enter,
-// and the server rejects connect/test/activate/set-embedding for them. They get
-// their own section further down, which explains where their connection
-// actually is instead of offering a form that cannot be submitted.
-const NATIVE_CARD_TYPES: LLMProviderType[] = ["gemini", "anthropic"];
-
-const providerAccent: Partial<Record<LLMProviderType, string>> = {
-  gemini: "border-amber-500/40 bg-amber-500/5",
-  anthropic: "border-violet-500/40 bg-violet-500/5",
-  claude_code: "border-orange-500/40 bg-orange-500/5",
-};
+// The API providers drawn as fixed cards. local/openai/groq are not: they are
+// endpoint presets. The host-executed providers are absent on purpose — they
+// have no base URL or key, and the server rejects connect/test/activate for
+// them; they get the agent CLI cards instead.
+const NATIVE_CARD_TYPES: LLMProviderType[] = ["anthropic", "gemini"];
 
 // Endpoint presets pre-fill the add form. "custom" leaves everything blank.
 // labelKey is an i18n key resolved at render time.
@@ -93,18 +78,58 @@ const ENDPOINT_PRESETS: EndpointPreset[] = [
   { id: "custom", labelKey: "settingsPages.llm.presetCustom", name: "", base_url: "", model: "" },
 ];
 
-function nativeStatusBadge(
-  view: LLMProviderView,
-  isDefault: boolean,
-  t: (key: string, params?: Record<string, string | number>) => string,
-) {
-  if (isDefault && view.config.configured) {
-    return <Badge variant="success">{t("settingsPages.llm.badgeDefault")}</Badge>;
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+function connectionStatus(configured: boolean, isDefault: boolean, t: Translate) {
+  if (configured && isDefault) return { tone: "connected" as const, label: t("settingsPages.llm.badgeDefault") };
+  if (configured) return { tone: "connected" as const, label: t("settingsPages.llm.badgeConnected") };
+  return { tone: "idle" as const, label: t("settingsPages.llm.badgeNotConnected") };
+}
+
+function endpointSummary(ep: LLMEndpoint): string {
+  let host = ep.base_url;
+  try {
+    host = new URL(ep.base_url).host;
+  } catch {
+    // Not a parseable URL; show it as typed.
   }
-  if (view.config.configured) {
-    return <Badge variant="secondary">{t("settingsPages.llm.badgeConnected")}</Badge>;
-  }
-  return <Badge variant="outline" className="whitespace-nowrap">{t("settingsPages.llm.badgeNotConnected")}</Badge>;
+  return [host, ep.default_model].filter(Boolean).join(" · ");
+}
+
+function ProviderGroup({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <h2 className="text-body font-semibold">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function RowMenu({ label, items }: { label: string; items: { label: string; icon: ReactNode; onSelect: () => void; destructive?: boolean }[] }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={label} title={label}>
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.label}
+            onSelect={item.onSelect}
+            className={cn("gap-2", item.destructive && "text-destructive focus:text-destructive")}
+          >
+            {item.icon}
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function LLMSettingsPage() {
@@ -424,232 +449,133 @@ export function LLMSettingsPage() {
     }
   };
 
+  const makeDefaultButton = (busy: boolean, onClick: () => void) => (
+    <Button size="sm" variant="outline" onClick={onClick} disabled={busy}>
+      {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Star className="mr-1.5 h-3.5 w-3.5" />}
+      {t("settingsPages.llm.makeDefault")}
+    </Button>
+  );
+
   return (
     <>
       {loading ? (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-44 w-full" />
+            <Skeleton key={i} className="h-20 w-full rounded-xl" />
           ))}
         </div>
       ) : (
-        <>
-          {/* OpenAI-compatible endpoints */}
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold">{t("settingsPages.llm.endpointsTitle")}</h2>
-              <p className="text-xs text-muted-foreground">
-                {t("settingsPages.llm.endpointsDesc")}
-              </p>
+        <div className="space-y-8">
+          <ProviderGroup title={t("settingsPages.llm.cliTitle")}>
+            <EnvironmentPreflight host={host} onBlockingChange={setEnvBlocker} blockersOnly />
+            <div className="grid items-start gap-4 lg:grid-cols-2">
+              {cliCards.map((view) => {
+                const type = view.definition.type;
+                const flavor = flavorOf(type);
+                return (
+                  <LocalCliCard
+                    key={type}
+                    view={view}
+                    flavor={flavor}
+                    available={isProviderAvailable(type, view.definition)}
+                    cliState={cliState}
+                    busy={flavor !== null && cliBusy === flavor}
+                    anyBusy={cliBusy !== null}
+                    step={flavor !== null && cliBusy === flavor ? cliStep : null}
+                    error={flavor !== null && cliError?.flavor === flavor ? cliError.message : ""}
+                    host={host}
+                    snapshot={snapshot}
+                    onConnect={() => flavor && handleCliConnect(flavor)}
+                    onDisconnect={() => flavor && handleCliDisconnect(flavor)}
+                    {...(envBlocker ? { environmentBlockingLabel: envBlocker.label } : {})}
+                  />
+                );
+              })}
             </div>
-            <Button size="sm" onClick={openCreateEndpoint}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {t("settingsPages.llm.addEndpoint")}
-            </Button>
-          </div>
-          <div className="mb-6 grid gap-4 md:grid-cols-2">
-            {endpoints.length === 0 && (
-              <Card className="col-span-full flex items-center gap-3 border-dashed p-6 text-sm text-muted-foreground">
-                <Server className="h-5 w-5" />
-                {t("settingsPages.llm.endpointsEmpty")}
-              </Card>
-            )}
-            {endpoints.map((ep) => {
-              const isDefault = ep.id === activeProvider;
-              const busy = epBusyId === ep.id;
-              return (
-                <Card
-                  key={ep.id}
-                  className={cn(
-                    "flex flex-col border p-4",
-                    ep.configured && "border-emerald-500/40 bg-emerald-500/5",
-                  )}
-                >
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Server className="h-4 w-4 shrink-0 text-success" />
-                        <h3 className="truncate font-semibold">{ep.name}</h3>
-                      </div>
-                    </div>
-                    {isDefault ? (
-                      <Badge variant="success">{t("settingsPages.llm.badgeDefault")}</Badge>
-                    ) : (
-                      <Badge variant="secondary">{t("settingsPages.llm.badgeConnected")}</Badge>
-                    )}
-                  </div>
-                  <div className="mb-3 space-y-1 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-                    <p className="truncate">
-                      <span className="font-medium text-foreground">{t("settingsPages.llm.urlLabel")}</span> {ep.base_url}
-                    </p>
-                    {ep.default_model && (
-                      <p className="truncate">
-                        <span className="font-medium text-foreground">{t("settingsPages.llm.modelLabel")}</span> {ep.default_model}
-                      </p>
-                    )}
-                    {ep.has_api_key && (
-                      <p>
-                        <span className="font-medium text-foreground">{t("settingsPages.llm.apiKeyLabel")}</span> {t("settingsPages.llm.apiKeyStored")}
-                      </p>
-                    )}
-                    {ep.timeout_seconds > 0 && (
-                      <p>
-                        <span className="font-medium text-foreground">{t("settingsPages.llm.timeoutLabel")}</span>{" "}
-                        {t("settingsPages.llm.secondsValue", { seconds: ep.timeout_seconds })}
-                      </p>
-                    )}
-                  </div>
-                  <div className="mt-auto flex flex-wrap gap-2">
-                    <Button size="sm" variant="default" onClick={() => openEditEndpoint(ep)} disabled={busy}>
-                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                      {t("settingsPages.llm.edit")}
-                    </Button>
-                    {!isDefault && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleEndpointActivate(ep.id)}
-                        disabled={busy}
-                      >
-                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("settingsPages.llm.makeDefault")}
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setDeleteEndpointTarget(ep)}
-                      disabled={busy}
-                    >
-                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                      {t("settingsPages.llm.delete")}
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
+          </ProviderGroup>
 
-          {/* Native providers (fixed): Gemini + Anthropic */}
-          <h2 className="mb-3 text-sm font-semibold">{t("settingsPages.llm.nativeTitle")}</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            {nativeCards.map((view) => {
-              const type = view.definition.type;
-              const busy = busyType === type;
-              const isDefault = type === activeProvider;
-              return (
-                <Card
-                  key={type}
-                  className={cn(
-                    "flex flex-col border p-4",
-                    view.config.configured && providerAccent[type],
-                  )}
-                >
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        {view.config.configured ? (
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-                        ) : (
-                          <Circle className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <h3 className="font-semibold">{view.definition.label}</h3>
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground">{view.definition.description}</p>
-                    </div>
-                    {nativeStatusBadge(view, isDefault, t)}
-                  </div>
-
-                  {view.config.configured && (
-                    <div className="mb-3 space-y-1 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
-                      <p className="truncate">
-                        <span className="font-medium text-foreground">{t("settingsPages.llm.urlLabel")}</span> {view.config.base_url}
-                      </p>
-                      {view.config.default_model && (
-                        <p className="truncate">
-                          <span className="font-medium text-foreground">{t("settingsPages.llm.modelLabel")}</span> {view.config.default_model}
-                        </p>
-                      )}
-                      {view.config.has_api_key && (
-                        <p>
-                          <span className="font-medium text-foreground">{t("settingsPages.llm.apiKeyLabel")}</span> {t("settingsPages.llm.apiKeyStored")}
-                        </p>
-                      )}
-                      {view.config.timeout_seconds > 0 && (
-                        <p>
-                          <span className="font-medium text-foreground">{t("settingsPages.llm.timeoutLabel")}</span>{" "}
-                          {t("settingsPages.llm.secondsValue", { seconds: view.config.timeout_seconds })}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-auto flex flex-wrap gap-2">
-                    <Button size="sm" variant="default" onClick={() => openConnect(view)} disabled={busy}>
-                      <Plug className="mr-1.5 h-3.5 w-3.5" />
-                      {view.config.configured ? t("settingsPages.llm.reconnect") : t("settingsPages.llm.connect")}
-                    </Button>
-                    {view.config.configured && !isDefault && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleActivate(type)}
-                        disabled={busy}
-                      >
-                        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("settingsPages.llm.makeDefault")}
-                      </Button>
-                    )}
-                    {view.config.configured && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDisconnect(type)}
-                        disabled={busy}
-                      >
-                        <Unplug className="mr-1.5 h-3.5 w-3.5" />
-                        {t("settingsPages.llm.disconnectShort")}
-                      </Button>
-                    )}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-
-          {/* Local agent CLIs (host-executed): Claude Code, Cursor, Antigravity,
-              OpenCode. The environment checklist applies to this MACHINE, not
-              to any one of these CLIs, so it renders once here rather than
-              being duplicated onto every card. */}
-          <h2 className="mb-1 mt-8 text-sm font-semibold">{t("settingsPages.llm.cliTitle")}</h2>
-          <p className="mb-3 text-sm text-muted-foreground">{t("settingsPages.llm.cliDesc")}</p>
-
-          <EnvironmentPreflight host={host} onBlockingChange={setEnvBlocker} />
-
-          <div className="grid gap-4 md:grid-cols-2">
-            {cliCards.map((view) => {
-              const type = view.definition.type;
-              const flavor = flavorOf(type);
-              return (
-                <LocalCliCard
-                  key={type}
-                  view={view}
-                  flavor={flavor}
-                  available={isProviderAvailable(type, view.definition)}
-                  cliState={cliState}
-                  busy={flavor !== null && cliBusy === flavor}
-                  anyBusy={cliBusy !== null}
-                  step={flavor !== null && cliBusy === flavor ? cliStep : null}
-                  error={flavor !== null && cliError?.flavor === flavor ? cliError.message : ""}
-                  host={host}
-                  snapshot={snapshot}
-                  onConnect={() => flavor && handleCliConnect(flavor)}
-                  onDisconnect={() => flavor && handleCliDisconnect(flavor)}
-                  {...(providerAccent[type] ? { accentClassName: providerAccent[type] } : {})}
-                  {...(envBlocker ? { environmentBlockingLabel: envBlocker.label } : {})}
-                />
-              );
-            })}
-          </div>
-        </>
+          <ProviderGroup
+            title={t("settingsPages.llm.apiTitle")}
+            action={
+              <Button size="sm" variant="outline" onClick={openCreateEndpoint}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t("settingsPages.llm.addEndpoint")}
+              </Button>
+            }
+          >
+            <div className="grid items-start gap-4 lg:grid-cols-2">
+              {nativeCards.map((view) => {
+                const type = view.definition.type;
+                const busy = busyType === type;
+                const configured = view.config.configured;
+                const isDefault = type === activeProvider;
+                return (
+                  <IntegrationCard
+                    key={type}
+                    icon={<LLMProviderIcon type={type} />}
+                    name={view.definition.label}
+                    {...(configured && view.config.default_model ? { description: view.config.default_model } : {})}
+                    status={connectionStatus(configured, isDefault, t)}
+                    actions={
+                      configured ? (
+                        <>
+                          {!isDefault && makeDefaultButton(busy, () => void handleActivate(type))}
+                          <RowMenu
+                            label={t("settingsPages.llm.moreActions")}
+                            items={[
+                              { label: t("settingsPages.llm.edit"), icon: <Pencil className="h-3.5 w-3.5" />, onSelect: () => openConnect(view) },
+                              {
+                                label: t("settingsPages.llm.disconnect"),
+                                icon: <Unplug className="h-3.5 w-3.5" />,
+                                onSelect: () => void handleDisconnect(type),
+                                destructive: true,
+                              },
+                            ]}
+                          />
+                        </>
+                      ) : (
+                        <Button size="sm" onClick={() => openConnect(view)} disabled={busy}>
+                          <Plug className="mr-1.5 h-3.5 w-3.5" />
+                          {t("settingsPages.llm.connect")}
+                        </Button>
+                      )
+                    }
+                  />
+                );
+              })}
+              {endpoints.map((ep) => {
+                const busy = epBusyId === ep.id;
+                const isDefault = ep.id === activeProvider;
+                return (
+                  <IntegrationCard
+                    key={ep.id}
+                    icon={<LLMEndpointIcon baseURL={ep.base_url} />}
+                    name={ep.name}
+                    description={endpointSummary(ep)}
+                    status={connectionStatus(true, isDefault, t)}
+                    actions={
+                      <>
+                        {!isDefault && makeDefaultButton(busy, () => void handleEndpointActivate(ep.id))}
+                        <RowMenu
+                          label={t("settingsPages.llm.moreActions")}
+                          items={[
+                            { label: t("settingsPages.llm.edit"), icon: <Pencil className="h-3.5 w-3.5" />, onSelect: () => openEditEndpoint(ep) },
+                            {
+                              label: t("settingsPages.llm.delete"),
+                              icon: <Trash2 className="h-3.5 w-3.5" />,
+                              onSelect: () => setDeleteEndpointTarget(ep),
+                              destructive: true,
+                            },
+                          ]}
+                        />
+                      </>
+                    }
+                  />
+                );
+              })}
+            </div>
+          </ProviderGroup>
+        </div>
       )}
 
       <ConfirmDialog
@@ -710,9 +636,6 @@ export function LLMSettingsPage() {
                   value={timeoutSeconds}
                   onChange={(e) => setTimeoutSeconds(Math.max(30, Number(e.target.value) || 0))}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {t("settingsPages.llm.timeoutHint")}
-                </p>
               </div>
             </div>
           )}

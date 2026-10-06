@@ -26,6 +26,54 @@ INSERT INTO board_columns (slug, label, position, is_backlog) VALUES
     ('released',      'Released',      12, false)
 ON CONFLICT DO NOTHING;
 
+-- The recommended transition rules (domain.DefaultBoardTransitions; the same
+-- set migration 172 gives a rule-less install). Only onto an empty table: a
+-- graph someone already drew is theirs.
+INSERT INTO board_column_transitions (from_slug, to_slug)
+SELECT v.from_slug, v.to_slug FROM (VALUES
+    ('backlog', 'todo'),
+    ('todo', 'in_progress'),
+    ('in_progress', 'code_review'),
+    ('in_progress', 'analiz_review'),
+    ('in_progress', 'need_revision'),
+    ('in_progress', 'human_uat'),
+    ('analiz_review', 'done'),
+    ('analiz_review', 'need_revision'),
+    ('code_review', 'ready_for_qa'),
+    ('code_review', 'need_revision'),
+    ('ready_for_qa', 'in_qa'),
+    ('ready_for_qa', 'need_revision'),
+    ('in_qa', 'pm_uat'),
+    ('in_qa', 'human_uat'),
+    ('in_qa', 'need_revision'),
+    ('need_revision', 'in_progress'),
+    ('need_revision', 'code_review'),
+    ('need_revision', 'analiz_review'),
+    ('pm_uat', 'human_uat'),
+    ('pm_uat', 'need_revision'),
+    ('human_uat', 'done'),
+    ('human_uat', 'need_revision'),
+    ('done', 'released'),
+    ('done', 'need_revision'),
+    ('released', 'need_revision'),
+    ('todo', 'need_revision'),
+    ('in_progress', 'todo'),
+    ('ready_for_qa', 'pm_uat'),
+    ('ready_for_qa', 'human_uat'),
+    ('todo', 'blocked'),
+    ('in_progress', 'blocked'),
+    ('analiz_review', 'blocked'),
+    ('code_review', 'blocked'),
+    ('ready_for_qa', 'blocked'),
+    ('in_qa', 'blocked'),
+    ('need_revision', 'blocked'),
+    ('pm_uat', 'blocked'),
+    ('human_uat', 'blocked'),
+    ('done', 'blocked')
+) AS v(from_slug, to_slug)
+WHERE NOT EXISTS (SELECT 1 FROM board_column_transitions)
+ON CONFLICT DO NOTHING;
+
 -- One counter per task type. They exist up front so the first task of each
 -- type takes number 1 rather than racing to create its own row.
 INSERT INTO board_task_counters (task_type, last_number) VALUES

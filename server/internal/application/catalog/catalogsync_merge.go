@@ -58,6 +58,7 @@ func (s *Service) mergeSkill(ctx context.Context, agent domain.Agent, local doma
 	if name == "" {
 		name = local.Name
 	}
+	ctx = WithVersionSource(ctx, VersionSource{Source: domain.CatalogVersionSourceMerge})
 	_, err = s.UpdateSkillForAgent(ctx, agent.ID, local.ID, domain.UpdateSkillRequest{
 		Name: name, Description: meta["description"], Category: meta["category"],
 		Tags: local.Tags, Content: body, Enabled: usk.Enabled, TechStackID: local.TechStackID,

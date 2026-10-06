@@ -24,7 +24,6 @@ func subscriptionSyncFixture(t *testing.T) (*memCatalogStore, *memSyncStore, *me
 		nil, nil,
 	)
 	svc := NewService(store, fixingLLMClient{}, "")
-	svc.SetSkillBudget(25)
 	svc.SetBoardConfigStore(board)
 	return store, syncStore, board, svc, dir
 }

@@ -9,8 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { tStatic, useI18n, type Lang } from "@/hooks/useI18n";
+import { tStatic, useI18n } from "@/hooks/useI18n";
 import { desktopRunner, type DesktopNotificationPreferences } from "@/lib/desktop-bridge";
+import { LANGUAGE_OPTIONS, normalizeLang, type Lang } from "@/lib/languages";
 
 const NOTIFICATION_CATEGORY_FIELDS = [
   "analizReview",
@@ -20,12 +21,6 @@ const NOTIFICATION_CATEGORY_FIELDS = [
   "agentChatReplies",
 ] as const;
 type NotificationCategoryField = (typeof NOTIFICATION_CATEGORY_FIELDS)[number];
-
-const languageOptions = [
-  { value: "tr", label: "Türkçe" },
-  { value: "en", label: "English" },
-];
-
 
 function BoilerplateCatalogCard() {
   const { t } = useI18n();
@@ -299,7 +294,7 @@ export function SettingsPage() {
   const { t, setLang } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [language, setLanguage] = useState<string>("en");
+  const [language, setLanguage] = useState<Lang>("en");
 
   // Deliberately not depending on `t`: switching the language changes `t`'s
   // identity, which would refire this loader and overwrite the just-picked
@@ -312,7 +307,7 @@ export function SettingsPage() {
       // Only seed the form. Applying the server value to the live UI here made
       // merely opening Settings switch the app's language (and persist it) to
       // whatever the server last stored.
-      setLanguage(data.default_language ?? "en");
+      setLanguage(normalizeLang(data.default_language));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : tStatic("settings.loadFailed"));
     } finally {
@@ -328,16 +323,17 @@ export function SettingsPage() {
   // Applied only after an explicit Save: the user just chose this language, so
   // the live UI and the persisted locale follow the server's echo of it.
   const applySettings = (data: AppSettings) => {
-    const next = data.default_language ?? "en";
+    const next = normalizeLang(data.default_language);
     setLanguage(next);
     setStoredLocale(next);
-    setLang(next === "tr" ? "tr" : "en");
+    setLang(next);
   };
 
   // Switch the UI language instantly; the backend default_language is persisted on Save.
   const handleLanguageChange = (value: string) => {
-    setLanguage(value);
-    setLang(value === "tr" ? ("tr" as Lang) : ("en" as Lang));
+    const next = normalizeLang(value);
+    setLanguage(next);
+    setLang(next);
   };
 
   const handleSave = async () => {
@@ -373,7 +369,7 @@ export function SettingsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {languageOptions.map((opt) => (
+                  {LANGUAGE_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
                     </SelectItem>

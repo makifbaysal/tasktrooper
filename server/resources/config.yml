@@ -197,7 +197,7 @@ evolution:
   revision_debounce: "30m"
   impact_window: "168h"
   golden_gate: true        # degisiklik oncesi/sonrasi golden kosulur, kotulesirse geri alinir
-  max_skills_per_agent: 25 # ajan basina toplam skill butcesi (dolunca create reddedilir)
+  max_skills_per_agent: 100 # ajan basina toplam skill butcesi (dolunca create reddedilir)
   max_rules_per_agent: 15
   # model: ""          # reflection + golden eval icin model override
   # provider_type: ""

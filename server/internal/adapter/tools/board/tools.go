@@ -143,6 +143,9 @@ type ToolKit struct {
 	// (it needs the workspace root and git wiring), so it is read at call
 	// time like Previews.
 	LocalPreviews LocalPreviewRunner
+	// EnvRequirements backs declare_env_vars. Built after this registration
+	// (it needs the cloud service), so it is read at call time.
+	EnvRequirements EnvDeclarer
 }
 
 // SubscriptionLister is the read-only slice of port.BoardConfigStore
@@ -183,6 +186,7 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 		newGetPipelineStatusTool(kit),
 		newGetTaskPreviewTool(kit),
 		newStartTaskPreviewTool(kit),
+		newDeclareEnvVarsTool(kit),
 	}
 	if kit.Workspace != nil {
 		execs = append(execs,

@@ -1,4 +1,4 @@
-import { ExternalLink, Globe } from "lucide-react";
+import { ExternalLink, Globe, KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import {
 } from "@/api";
 import { CloudAccountDialog } from "@/components/admin/CloudAccountDialog";
 import { EnvironmentCandidates } from "@/components/projects/model/EnvironmentCandidates";
+import { EnvVarsDialog, managesEnvVars } from "@/components/projects/repository/deploy/EnvVarsDialog";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -196,6 +197,7 @@ interface EnvironmentRowProps {
 
 function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDisconnect, onChanged, delivery }: EnvironmentRowProps) {
   const { t } = useI18n();
+  const [envVarsOpen, setEnvVarsOpen] = useState(false);
   const bound = row?.status === "confirmed";
   const suggested = row?.status === "suggested";
   const health = row?.health?.status ?? "unknown";
@@ -259,6 +261,12 @@ function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDis
         <div className="ml-auto flex shrink-0 gap-1.5">
           {bound ? (
             <>
+              {environment === "production" && row && managesEnvVars(row.resource) && (
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => setEnvVarsOpen(true)}>
+                  <KeyRound className="h-3.5 w-3.5" />
+                  {t("cloud.envVars.manage")}
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={onConnect}>
                 {t("repositoryPage.deploy.environments.change")}
               </Button>
@@ -319,6 +327,15 @@ function EnvironmentRow({ environment, row, selected, onSelect, onConnect, onDis
       )}
 
       {suggested && row && <EnvironmentCandidates env={row} onChanged={onChanged} className="pl-[5.75rem]" />}
+
+      {envVarsOpen && row && (
+        <EnvVarsDialog
+          open={envVarsOpen}
+          onOpenChange={setEnvVarsOpen}
+          repositoryId={row.repository_id}
+          componentId={row.component_id}
+        />
+      )}
     </div>
   );
 }

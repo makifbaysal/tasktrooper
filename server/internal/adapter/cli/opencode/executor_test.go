@@ -78,13 +78,13 @@ func TestExecuteReturnsTheSessionsAnswer(t *testing.T) {
 	assert.Equal(t, domain.RoleAssistant, resp.Message.Role)
 	assert.Equal(t, "Reading the runner to see how the task is dispatched. Fixed the undefined symbol and the build is green.",
 		resp.Message.Content)
-	assert.Equal(t, 1500, resp.Usage.PromptTokens)
+	assert.Equal(t, 13700, resp.Usage.PromptTokens, "input 1500 + cache read 12000 + cache write 200")
 	assert.Equal(t, 800, resp.Usage.CompletionTokens)
 	assert.Equal(t, 12000, resp.Usage.CacheReadTokens)
 
 	totals := tokens.Totals()
 	assert.Equal(t, 1, totals.LLMCalls, "finish must stamp the run's own usage onto the context accumulator")
-	assert.Equal(t, int64(1500), totals.PromptTokens)
+	assert.Equal(t, int64(13700), totals.PromptTokens)
 }
 
 // opencode run takes the prompt as a positional argument, not on stdin the

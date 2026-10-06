@@ -15,6 +15,7 @@ import { ComponentRail } from "@/components/projects/repository/ComponentRail";
 import { BindEnvironmentDialog } from "@/components/projects/repository/deploy/BindEnvironmentDialog";
 import { DeliveryCard } from "@/components/projects/repository/deploy/DeliveryCard";
 import { EnvironmentsCard } from "@/components/projects/repository/deploy/EnvironmentsCard";
+import { EnvVarsCard } from "@/components/projects/repository/deploy/EnvVarsCard";
 import { ReleasesCard } from "@/components/projects/repository/deploy/ReleasesCard";
 import { RuntimePanel } from "@/components/projects/repository/deploy/RuntimePanel";
 import { StoreReleasesCard } from "@/components/projects/repository/deploy/StoreReleasesCard";
@@ -162,6 +163,10 @@ export function DeployRuntimeTab({ model, repositoryId, selectedComponentId, onS
               onChanged={onReload}
               onAccountsChanged={loadAccounts}
             />
+
+            {productionEnv?.account_id && (
+              <EnvVarsCard key={selected.id} repositoryId={repositoryId} componentId={selected.id} />
+            )}
 
             {selectedEnv?.account_id && (
               <RuntimePanel env={selectedEnv} accounts={accounts ?? []} onAccountsChanged={loadAccounts} />

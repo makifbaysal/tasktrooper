@@ -26,6 +26,35 @@ const ResourceReleaseWatch = "release_watch"
 // repository.Service.SubmitQuestions rather than a *_sweeper.go.
 const ResourceAnalysisQuestions = "analysis_questions"
 
+// The merge holds record why release.Service.MergeGate is refusing a done
+// task's merge, so the card says what it waits for instead of the reason
+// living only in a comment. Like work_order they never move board_column. The
+// gate itself sets and clears them, so ValidResource does not accept them: an
+// agent parking itself on one would be a hold nothing ever re-evaluates.
+const (
+	// ResourceDeployOrder: a deploy_depends_on task is not released yet.
+	// Released automatically when it is.
+	ResourceDeployOrder = "deploy_order"
+	// ResourceBeforeDeploy: human-written before-deploy steps are unconfirmed.
+	ResourceBeforeDeploy = "before_deploy"
+	// ResourceDeliveryProfile: the component's delivery profile is unconfirmed.
+	ResourceDeliveryProfile = "delivery_profile"
+	// ResourceDeployEnv: the deploy target lacks environment variables a
+	// human has to enter, or they could not be read.
+	ResourceDeployEnv = "deploy_env"
+)
+
+var MergeHoldResources = []string{ResourceDeployOrder, ResourceBeforeDeploy, ResourceDeliveryProfile, ResourceDeployEnv}
+
+func IsMergeHold(resource string) bool {
+	for _, r := range MergeHoldResources {
+		if r == resource {
+			return true
+		}
+	}
+	return false
+}
+
 func ValidResource(name string) bool {
 	return name == ResourceMobileDevice || name == ResourceClaudeCodeQuota ||
 		name == ResourceDeployWatch || name == ResourceWorkOrder ||

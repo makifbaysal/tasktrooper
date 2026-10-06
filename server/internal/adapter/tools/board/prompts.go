@@ -45,6 +45,7 @@ var deployReleaseRefusedKey = prompt.Define("guard.board_deploy_release_refused"
 var finishReleaseRefusedKey = prompt.Define("guard.board_finish_release_refused", struct{}{})
 var rollbackReleaseRefusedKey = prompt.Define("guard.board_rollback_release_refused", struct{}{})
 var mergeTaskRefusedKey = prompt.Define("guard.board_merge_task_refused", struct{}{})
+var pushWorkflowScopeToolKey = prompt.Define("guard.board_push_workflow_scope", struct{}{})
 
 type ungroundedAnalysisGroundingInput struct{ Tools []string }
 

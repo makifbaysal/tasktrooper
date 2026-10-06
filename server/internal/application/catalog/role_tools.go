@@ -176,6 +176,8 @@ func developerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, "search_boilerplate_catalog")
 	// need_revision: the failed QA-gate jobs and their output say why the task came back.
 	tools = append(tools, "get_pipeline_status")
+	// The implementer is the one who knows a new variable exists; the merge waits until it is set.
+	tools = append(tools, "declare_env_vars")
 	return domain.ToolPolicy{AllowTools: tools}
 }
 

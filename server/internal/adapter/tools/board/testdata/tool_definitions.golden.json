@@ -405,6 +405,64 @@
   {
     "type": "function",
     "function": {
+      "name": "declare_env_vars",
+      "description": "Declare the environment variables your change needs in its deployed environment, in the same run that adds the code reading them. Before the task ships, TaskTrooper sets value and generated variables on the deploy target itself and asks a human on the task for human_secret and human_bcrypt ones; the merge waits until every non-optional variable is set. You never see, choose or handle a secret value — so never generate, write, commit or comment one, and do not ask the human for it yourself. Keep .env.example in step: an undeclared name found there still blocks the ship until a human classifies it. Re-declaring a name updates it; a human's own classification of a name is kept.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "description": "Board task UUID or its board key (e.g. \"T-1\"). Optional in a run that is already about one task — omit it there and the task in context is used.",
+            "type": "string"
+          },
+          "vars": {
+            "description": "Every environment variable your change makes the deployed app read — new, renamed, or newly required. One entry each.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "description": "What the app uses it for, in one line — a person reads it when entering the value.",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "value: a non-secret literal you know now (owner/repo, a branch name, a public URL) — put it in value. generated: a random secret nobody has to know (a session, signing or encryption key). human_secret: a credential only a person can obtain (an API key, a personal access token). human_bcrypt: the bcrypt hash of a password a person chooses (the app compares a password against it). optional: the deployed app runs without it — leave it unset there.",
+                  "enum": [
+                    "value",
+                    "generated",
+                    "human_secret",
+                    "human_bcrypt",
+                    "optional"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "description": "The variable's name exactly as the code reads it (e.g. SESSION_SECRET).",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Only for kind=value, and only a non-secret. Never put a key, token, password or hash here.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "vars"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "delete_board_task",
       "description": "Delete a board task permanently, with everything on it: comments, acceptance criteria, documents and relations. There is no undo. Use it when the user asks for a task to be removed — a duplicate, a task opened by mistake, or work that was merged into another task. When several tasks are being merged into one, delete the ones that were merged away instead of leaving them open. A task that has left backlog/todo is refused unless force=true: past those columns it carries a branch and a work history, and cancelled work belongs in a terminal column, not erased.",
       "parameters": {

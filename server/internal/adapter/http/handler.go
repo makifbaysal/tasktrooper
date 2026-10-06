@@ -90,6 +90,7 @@ type Handler struct {
 	settingsSvc     *settings.Service
 	mobileDeviceSvc *mobiledevice.Service
 	githubTokens    port.GitHubTokenStore
+	githubApp       GitHubAppService
 	llmProviderSvc  *llmprovider.Service
 	agentCLISvc     *agentcliapp.Service
 	jobSvc          *job.Service
@@ -142,6 +143,7 @@ type Handler struct {
 	releaseWaker    ReleaseWaker
 	smokeGenSvc     SmokeGenService
 	cloudSvc        *cloud.Service
+	envRequirements EnvRequirementService
 	localPreviewSvc *localpreview.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
@@ -160,6 +162,7 @@ type Config struct {
 	SettingsSvc       *settings.Service
 	MobileDeviceSvc   *mobiledevice.Service
 	GitHubTokens      port.GitHubTokenStore
+	GitHubApp         GitHubAppService
 	LLMProviderSvc    *llmprovider.Service
 	AgentCLISvc       *agentcliapp.Service
 	JobSvc            *job.Service
@@ -203,6 +206,7 @@ type Config struct {
 	ReleaseWaker      ReleaseWaker
 	SmokeGenSvc       SmokeGenService
 	CloudSvc          *cloud.Service
+	EnvRequirements   EnvRequirementService
 	LocalPreviewSvc   *localpreview.Service
 	MCPToolServer     *mcpserver.Server
 	BootSeed          BootSeed
@@ -221,6 +225,7 @@ func NewHandler(cfg Config) *Handler {
 		settingsSvc:       cfg.SettingsSvc,
 		mobileDeviceSvc:   cfg.MobileDeviceSvc,
 		githubTokens:      cfg.GitHubTokens,
+		githubApp:         cfg.GitHubApp,
 		llmProviderSvc:    cfg.LLMProviderSvc,
 		agentCLISvc:       cfg.AgentCLISvc,
 		jobSvc:            cfg.JobSvc,
@@ -265,6 +270,7 @@ func NewHandler(cfg Config) *Handler {
 		releaseWaker:      cfg.ReleaseWaker,
 		smokeGenSvc:       cfg.SmokeGenSvc,
 		cloudSvc:          cfg.CloudSvc,
+		envRequirements:   cfg.EnvRequirements,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		mcpToolServer:     cfg.MCPToolServer,
 		bootSeed:          cfg.BootSeed,
@@ -310,6 +316,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerReleaseRoutes(app)
 	h.registerSmokeGenRoutes(app)
 	h.registerCloudRoutes(app)
+	h.registerEnvRequirementRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)
 	h.registerRepoDocsRoutes(app)

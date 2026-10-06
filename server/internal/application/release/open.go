@@ -389,6 +389,7 @@ func (s *Service) OpenPending(ctx context.Context, repositoryID, componentID uui
 		}
 		sha := strings.TrimSpace(task.MergeCommitSHA)
 		if sha == "" {
+			s.releaseMergeHold(ctx, task, domain.ResourceDeliveryProfile)
 			if err := s.WakeTask(ctx, repositoryID, task); err != nil {
 				log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("release: waking an unmerged task after a delivery confirmation failed")
 			}

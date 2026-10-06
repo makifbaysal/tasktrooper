@@ -71,6 +71,13 @@ export const boardArea = {
     blockedHumanDecisionReason:
       "CI stayed red for the same commit, or the review loop repeated without human input",
     blockedHumanDecisionTitle: "{reason}. Move the card out of Blocked yourself once you have decided.",
+    // Card tooltip for a merge hold; {detail} is board_tasks.blocked_question.
+    mergeHoldTitle: {
+      deploy_order: "Merges by itself once these ship: {detail}",
+      before_deploy: "Perform the before-deploy steps and confirm them on the task; it merges right after.",
+      delivery_profile: "Confirm {detail}'s delivery profile on the repository's Deploy tab; it merges right after.",
+      deploy_env: "Production needs environment variables only you can enter: {detail}. Enter them on the task; it ships right after.",
+    },
     moveFailed: "Failed to move task",
     taskDeleted: "Task deleted",
     deleteFailed: "Failed to delete task",
@@ -202,6 +209,7 @@ export const boardArea = {
         // human_decision parks: no sweeper writes a resume half for these.
         pipeline_loop_parked: "Parked: CI stayed red for the same commit, no new commit arrived",
         review_loop_parked: "Parked: sent back to revision repeatedly without human input",
+        push_workflow_scope: "Parked: GitHub refused the push — the token lacks the workflow scope",
       },
     },
     taskRunSteps: {
@@ -224,6 +232,13 @@ export const boardArea = {
       blockedResumeAt: "Resumes in ~{relative}, around {absolute}",
       blockedNoResume: "Resumes as soon as the resource frees up.",
       blockedHumanDecision: "Waiting for you: decide, then move the card out of Blocked yourself.",
+      mergeHold: {
+        deploy_order: "This task must ship after the tasks above. The merge goes ahead by itself once they are released.",
+        before_deploy: "Waiting for you: perform these steps, then confirm them. The merge goes ahead right after.",
+        delivery_profile: "Waiting for you: confirm {detail}'s delivery profile on the Deploy tab. The merge goes ahead right after.",
+        deploy_env: "Waiting for you: production needs these environment variables. The values go straight to the provider; the merge goes ahead once they are set.",
+      },
+      mergeHoldOpenDeploy: "Open the Deploy tab",
       humanUatHeading: "Your decision is needed",
       humanUatApprove: "Approve",
       humanUatDecline: "Decline",

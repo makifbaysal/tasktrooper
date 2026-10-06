@@ -1,13 +1,13 @@
-import { ChevronDown, Cloud, Pencil, Plug, RefreshCw, Trash2 } from "lucide-react";
+import { KeyRound, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, CLOUD_PROVIDERS, type CloudAccount, type CloudProviderKind } from "@/api";
 import { CloudAccountDialog } from "@/components/admin/CloudAccountDialog";
 import { FormDialog } from "@/components/admin/FormDialog";
+import { IntegrationCard, type IntegrationStatusTone } from "@/components/admin/IntegrationCard";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
@@ -109,44 +109,76 @@ function AccountRow({ account, verifying, onVerify, onRename, onReplace, onRemov
   const identity = accountIdentity(account.meta);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-      <div className="flex min-w-0 items-start gap-2.5">
-        <ProviderIcon provider={account.provider} className="mt-0.5 h-4 w-4 shrink-0" />
-        <div className="min-w-0 space-y-0.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate text-sm font-medium">{account.label}</span>
+    <div className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate text-sm font-medium">{account.label}</span>
+          {account.status !== "ok" && (
             <Badge variant={STATUS_VARIANT[account.status]}>{t(`cloud.accounts.status.${account.status}`)}</Badge>
-          </div>
-          {identity && <p className="truncate font-mono text-xs text-muted-foreground">{identity}</p>}
-          {account.status === "error" && account.status_detail && (
-            <p className="text-xs text-destructive">{account.status_detail}</p>
           )}
-          <p className="text-xs text-muted-foreground">
-            {account.verified_at
-              ? t("cloud.accounts.verifiedAt", { date: formatDate(account.verified_at) })
-              : t("cloud.accounts.neverVerified")}
-          </p>
         </div>
+        {identity && <p className="truncate font-mono text-xs text-muted-foreground">{identity}</p>}
+        {account.status === "error" && account.status_detail && (
+          <p className="text-xs text-destructive">{account.status_detail}</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {account.verified_at
+            ? t("cloud.accounts.verifiedAt", { date: formatDate(account.verified_at) })
+            : t("cloud.accounts.neverVerified")}
+        </p>
       </div>
-      <div className="flex shrink-0 flex-wrap gap-1.5">
-        <Button variant="outline" size="sm" onClick={onVerify} disabled={verifying}>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button variant="ghost" size="sm" onClick={onVerify} disabled={verifying}>
           <RefreshCw className={cn("mr-1.5 h-3 w-3", verifying && "animate-spin")} />
           {t("cloud.accounts.verify")}
         </Button>
-        <Button variant="outline" size="sm" onClick={onRename}>
-          <Pencil className="mr-1.5 h-3 w-3" />
-          {t("cloud.accounts.rename")}
-        </Button>
-        <Button variant="outline" size="sm" onClick={onReplace}>
-          {t("cloud.accounts.replaceCredential")}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onRemove}>
-          <Trash2 className="mr-1.5 h-3 w-3" />
-          {t("cloud.accounts.remove")}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={t("settingsPages.integrations.moreActions")}
+              title={t("settingsPages.integrations.moreActions")}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onRename} className="gap-2">
+              <Pencil className="h-3.5 w-3.5" />
+              {t("cloud.accounts.rename")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onReplace} className="gap-2">
+              <KeyRound className="h-3.5 w-3.5" />
+              {t("cloud.accounts.replaceCredential")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onRemove} className="gap-2 text-destructive focus:text-destructive">
+              <Trash2 className="h-3.5 w-3.5" />
+              {t("cloud.accounts.remove")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
+}
+
+function providerStatus(
+  accounts: CloudAccount[],
+  t: (key: string, params?: Record<string, string | number>) => string,
+): { tone: IntegrationStatusTone; label: string } {
+  if (accounts.length === 0) return { tone: "idle", label: t("settingsPages.integrations.status.notConnected") };
+  if (accounts.some((a) => a.status === "error")) {
+    return { tone: "attention", label: t("settingsPages.integrations.status.attention") };
+  }
+  return {
+    tone: "connected",
+    label:
+      accounts.length > 1
+        ? t("settingsPages.integrations.status.accounts", { count: accounts.length })
+        : t("settingsPages.integrations.status.connected"),
+  };
 }
 
 interface CloudAccountsCardProps {
@@ -221,51 +253,42 @@ export function CloudAccountsCard({ className }: CloudAccountsCardProps) {
   };
 
   return (
-    <Card className={cn("mt-4 w-full space-y-3 p-6", className)}>
-      <div className="flex items-center justify-between gap-2">
-        <Label className="flex items-center gap-2">
-          <Cloud className="h-4 w-4" />
-          {t("cloud.accounts.title")}
-        </Label>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Plug className="mr-1.5 h-3.5 w-3.5" />
-              {t("cloud.accounts.connect")}
-              <ChevronDown className="ml-1.5 h-3 w-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            {CLOUD_PROVIDERS.map((provider) => (
-              <DropdownMenuItem key={provider} onSelect={() => setConnectProvider(provider)} className="gap-2">
-                <ProviderIcon provider={provider} />
-                {t("cloud.accounts.connectProvider", { provider: t(`cloud.providers.${provider}`) })}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      <p className="text-sm text-muted-foreground">{t("cloud.accounts.description")}</p>
-
-      {loading ? (
-        <Skeleton className="h-16 w-full" />
-      ) : (accounts?.length ?? 0) === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("cloud.accounts.empty")}</p>
-      ) : (
-        <div className="divide-y divide-border rounded-md border border-border/60">
-          {(accounts ?? []).map((account) => (
-            <AccountRow
-              key={account.id}
-              account={account}
-              verifying={verifyingId === account.id}
-              onVerify={() => void verify(account)}
-              onRename={() => setRenameTarget(account)}
-              onReplace={() => setReplaceTarget(account)}
-              onRemove={() => setRemoveTarget(account)}
-            />
-          ))}
-        </div>
-      )}
+    <div className={cn("space-y-4", className)}>
+      {CLOUD_PROVIDERS.map((provider) => {
+        const own = (accounts ?? []).filter((a) => a.provider === provider);
+        return (
+          <IntegrationCard
+            key={provider}
+            icon={<ProviderIcon provider={provider} className="h-5 w-5" />}
+            name={t(`cloud.providers.${provider}`)}
+            status={loading ? undefined : providerStatus(own, t)}
+            actions={
+              <Button variant="outline" size="sm" onClick={() => setConnectProvider(provider)}>
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {own.length > 0 ? t("settingsPages.integrations.addAccount") : t("settingsPages.integrations.connect")}
+              </Button>
+            }
+          >
+            {loading ? (
+              <Skeleton className="h-10 w-full" />
+            ) : own.length > 0 ? (
+              <div className="divide-y divide-border">
+                {own.map((account) => (
+                  <AccountRow
+                    key={account.id}
+                    account={account}
+                    verifying={verifyingId === account.id}
+                    onVerify={() => void verify(account)}
+                    onRename={() => setRenameTarget(account)}
+                    onReplace={() => setReplaceTarget(account)}
+                    onRemove={() => setRemoveTarget(account)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </IntegrationCard>
+        );
+      })}
 
       {connectProvider && (
         <CloudAccountDialog
@@ -307,6 +330,6 @@ export function CloudAccountsCard({ className }: CloudAccountsCardProps) {
         loading={removing}
         onConfirm={remove}
       />
-    </Card>
+    </div>
   );
 }

@@ -87,7 +87,8 @@ func (s *TechnicalTaskTypeSuite) TestPermissiveInstallGainsNoTransitionRows() {
 	s.Require().NoError(pool.QueryRow(s.ctx, `SELECT COUNT(*) FROM board_column_transitions`).Scan(&before))
 	s.Zero(before, "a fresh install has no restricted transition graph")
 
-	s.Require().NoError(database.RunMigrations(s.ctx, pool))
+	// Up to 140 only: 172 seeds the default graph on an install with no rules.
+	s.Require().NoError(database.RunMigrationsUpTo(s.ctx, pool, "140_technical_task_type"))
 
 	var after int
 	s.Require().NoError(pool.QueryRow(s.ctx, `SELECT COUNT(*) FROM board_column_transitions`).Scan(&after))

@@ -124,6 +124,7 @@ func (s *Service) wakeDeployDependentsOfTasks(ctx context.Context, taskIDs []uui
 		if len(s.pendingDeployDependencies(ctx, []uuid.UUID{task.ID})) > 0 {
 			continue
 		}
+		s.releaseMergeHold(ctx, task, domain.ResourceDeployOrder)
 		if err := s.WakeTask(ctx, task.RepositoryID, task); err != nil {
 			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("release: waking a deploy dependent failed")
 		}

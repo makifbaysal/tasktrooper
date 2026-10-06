@@ -27,6 +27,12 @@ interface EnvironmentPreflightProps {
    * probe that could not run, which is never the same as "not ready".
    */
   onReport?: (result: { report: DesktopPreflightReport | null; error: string }) => void;
+  /**
+   * Draw only the required items that fail — nothing while everything holds.
+   * Settings → LLM uses it: the full checklist (Chrome, Appium, the Android
+   * SDK…) is setup's business, and only a blocker matters next to Connect.
+   */
+  blockersOnly?: boolean;
 }
 
 function StatusIcon({ item }: { item: DesktopPreflightItem }) {
@@ -63,7 +69,7 @@ function StatusIcon({ item }: { item: DesktopPreflightItem }) {
  * Absent (not disabled) outside the desktop shell and on a shell old enough
  * to predate this call.
  */
-export function EnvironmentPreflight({ host, onBlockingChange, onReport }: EnvironmentPreflightProps) {
+export function EnvironmentPreflight({ host, onBlockingChange, onReport, blockersOnly = false }: EnvironmentPreflightProps) {
   const { t } = useI18n();
   const [report, setReport] = useState<DesktopPreflightReport | null>(null);
   const [error, setError] = useState("");
@@ -119,6 +125,39 @@ export function EnvironmentPreflight({ host, onBlockingChange, onReport }: Envir
   }, [report]);
 
   if (!hasPreflight) return null;
+
+  if (blockersOnly) {
+    const blockers = report?.items.filter((i) => i.required && i.status !== "ok") ?? [];
+    if (blockers.length === 0 && !error) return null;
+    return (
+      <Notice
+        variant={error ? "error" : "warning"}
+        title={error ? t("settingsPages.llm.claudeCode.preflight.loadFailed") : t("settingsPages.llm.claudeCode.preflight.blockersTitle")}
+      >
+        {error ? (
+          <p>{error}</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {blockers.map((item) => (
+              <li key={item.id}>
+                <span className="font-medium">{item.label}</span>
+                {item.remediation && <span> — {item.remediation}</span>}
+                {item.command && (
+                  <code className="mt-1 block break-all rounded bg-muted/60 px-1.5 py-1 font-mono text-micro">
+                    {item.command}
+                  </code>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <Button variant="outline" size="sm" className="mt-2" onClick={() => void load(true)} disabled={loading}>
+          <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} />
+          {t("settingsPages.llm.claudeCode.preflight.refresh")}
+        </Button>
+      </Notice>
+    );
+  }
 
   return (
     <div className="mb-3 space-y-2">

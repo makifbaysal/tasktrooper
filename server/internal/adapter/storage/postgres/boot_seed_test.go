@@ -12,6 +12,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/storage/postgres"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/bootseed"
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/database"
 )
 
@@ -82,6 +83,7 @@ func (s *BootSeedSuite) TestBoardIsSeededOnce() {
 		"ready_for_qa", "in_qa", "need_revision", "pm_uat", "human_uat",
 		"blocked", "done", "released",
 	}, s.slugs())
+	s.Equal(s.defaultTransitions(), s.transitions(), "the recommended transition rules")
 
 	// A restarted process has an empty cache, so only install_state stops it.
 	s.Require().NoError(bootseed.NewService(seeds).Ensure(s.ctx))
@@ -142,5 +144,28 @@ func (s *BootSeedSuite) slugs() []string {
 		out = append(out, v)
 	}
 	s.Require().NoError(rows.Err())
+	return out
+}
+
+func (s *BootSeedSuite) transitions() map[domain.BoardTransition]bool {
+	s.T().Helper()
+	rows, err := s.db.Query(s.ctx, `SELECT from_slug, to_slug FROM board_column_transitions`)
+	s.Require().NoError(err)
+	defer rows.Close()
+	out := map[domain.BoardTransition]bool{}
+	for rows.Next() {
+		var t domain.BoardTransition
+		s.Require().NoError(rows.Scan(&t.From, &t.To))
+		out[t] = true
+	}
+	s.Require().NoError(rows.Err())
+	return out
+}
+
+func (s *BootSeedSuite) defaultTransitions() map[domain.BoardTransition]bool {
+	out := map[domain.BoardTransition]bool{}
+	for _, t := range domain.DefaultBoardTransitions() {
+		out[t] = true
+	}
 	return out
 }

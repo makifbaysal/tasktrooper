@@ -748,9 +748,20 @@ func (c *Client) CommitAndPush(ctx context.Context, workspacePath, message strin
 		pushArgs = append(authFlags(tok), pushArgs...)
 	}
 	if out, err := c.run(ctx, workspacePath, "git", pushArgs...); err != nil {
-		return fmt.Errorf("git push: %w (%s)", err, strings.TrimSpace(out))
+		return pushError(err, out)
 	}
 	return nil
+}
+
+// pushError keeps GitHub's workflow-scope refusal recognisable: the caller
+// must stop and ask a human for a better token rather than retry or drop the
+// workflow file.
+func pushError(err error, out string) error {
+	out = strings.TrimSpace(out)
+	if domain.GitHubWorkflowScopeRefusal(out) {
+		return fmt.Errorf("git push: %w (%s)", domain.ErrGitHubWorkflowScope, out)
+	}
+	return fmt.Errorf("git push: %w (%s)", err, out)
 }
 
 func (c *Client) PushBranch(ctx context.Context, workspacePath string) error {
@@ -759,7 +770,7 @@ func (c *Client) PushBranch(ctx context.Context, workspacePath string) error {
 		pushArgs = append(authFlags(tok), pushArgs...)
 	}
 	if out, err := c.run(ctx, workspacePath, "git", pushArgs...); err != nil {
-		return fmt.Errorf("git push: %w (%s)", err, strings.TrimSpace(out))
+		return pushError(err, out)
 	}
 	return nil
 }

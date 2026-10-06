@@ -27,10 +27,12 @@ import (
 type Provider struct {
 	newClient func(serviceAccountJSON string) (*Client, error)
 
-	runBaseURL            string
-	loggingBaseURL        string
-	errorReportingBaseURL string
-	tokenURL              string
+	runBaseURL             string
+	loggingBaseURL         string
+	errorReportingBaseURL  string
+	secretManagerBaseURL   string
+	resourceManagerBaseURL string
+	tokenURL               string
 
 	mu      sync.Mutex
 	clients map[string]*Client
@@ -40,11 +42,13 @@ var _ port.CloudProvider = (*Provider)(nil)
 
 func NewProvider() *Provider {
 	return &Provider{
-		newClient:             newServiceAccountClient,
-		runBaseURL:            defaultRunBaseURL,
-		loggingBaseURL:        defaultLoggingBaseURL,
-		errorReportingBaseURL: defaultErrorReportingBaseURL,
-		clients:               make(map[string]*Client),
+		newClient:              newServiceAccountClient,
+		runBaseURL:             defaultRunBaseURL,
+		loggingBaseURL:         defaultLoggingBaseURL,
+		errorReportingBaseURL:  defaultErrorReportingBaseURL,
+		secretManagerBaseURL:   defaultSecretManagerBaseURL,
+		resourceManagerBaseURL: defaultResourceManagerBaseURL,
+		clients:                make(map[string]*Client),
 	}
 }
 
@@ -52,10 +56,12 @@ func newServiceAccountClient(serviceAccountJSON string) (*Client, error) {
 	return New(domain.GCloudCredential{Data: map[string]string{"service_account_json": serviceAccountJSON}})
 }
 
-func (p *Provider) SetRunBaseURL(u string)            { p.runBaseURL = u }
-func (p *Provider) SetLoggingBaseURL(u string)        { p.loggingBaseURL = u }
-func (p *Provider) SetErrorReportingBaseURL(u string) { p.errorReportingBaseURL = u }
-func (p *Provider) SetTokenURL(u string)              { p.tokenURL = u }
+func (p *Provider) SetRunBaseURL(u string)             { p.runBaseURL = u }
+func (p *Provider) SetLoggingBaseURL(u string)         { p.loggingBaseURL = u }
+func (p *Provider) SetErrorReportingBaseURL(u string)  { p.errorReportingBaseURL = u }
+func (p *Provider) SetSecretManagerBaseURL(u string)   { p.secretManagerBaseURL = u }
+func (p *Provider) SetResourceManagerBaseURL(u string) { p.resourceManagerBaseURL = u }
+func (p *Provider) SetTokenURL(u string)               { p.tokenURL = u }
 
 func (p *Provider) Kind() domain.CloudProviderKind { return domain.CloudGCP }
 
@@ -82,6 +88,8 @@ func (p *Provider) clientFor(cred domain.CloudCredential) (*Client, error) {
 		return nil, fmt.Errorf("gcloud: %w: %w", err, port.ErrCloudAuth)
 	}
 	c.SetRunBaseURL(p.runBaseURL)
+	c.SetSecretManagerBaseURL(p.secretManagerBaseURL)
+	c.SetResourceManagerBaseURL(p.resourceManagerBaseURL)
 	if p.tokenURL != "" {
 		c.SetTokenURL(p.tokenURL)
 	}

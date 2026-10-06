@@ -1,11 +1,17 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { getStoredLocale, setStoredLocale } from "@/api";
-import { en } from "@/locales/en";
+import { htmlLang, normalizeLang, type Lang } from "@/lib/languages";
+import { de } from "@/locales/de";
+import { en, type Dict } from "@/locales/en";
+import { es } from "@/locales/es";
+import { fr } from "@/locales/fr";
+import { pt } from "@/locales/pt";
 import { tr } from "@/locales/tr";
+import { zh } from "@/locales/zh";
 
-export type Lang = "en" | "tr";
+export type { Lang } from "@/lib/languages";
 
-const DICTS = { en, tr } as const;
+export const DICTS: Record<Lang, Dict> = { en, tr, es, de, fr, pt, zh };
 
 interface I18nContextValue {
   lang: Lang;
@@ -14,10 +20,6 @@ interface I18nContextValue {
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
-
-function normalizeLang(value: string): Lang {
-  return value === "tr" ? "tr" : "en";
-}
 
 function lookup(dict: unknown, key: string): string | undefined {
   const parts = key.split(".");
@@ -60,14 +62,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
     const initial = normalizeLang(getStoredLocale());
     activeLang = initial;
-    document.documentElement.setAttribute("lang", initial);
+    document.documentElement.setAttribute("lang", htmlLang(initial));
     return initial;
   });
 
   const setLang = useCallback((next: Lang) => {
     setStoredLocale(next);
     activeLang = next;
-    document.documentElement.setAttribute("lang", next);
+    document.documentElement.setAttribute("lang", htmlLang(next));
     setLangState(next);
   }, []);
 

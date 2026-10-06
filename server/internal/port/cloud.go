@@ -77,6 +77,25 @@ type CloudPreviewer interface {
 	PreviewAccess(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.PreviewAccess, error)
 }
 
+// CloudEnvManager is the optional capability of a provider whose resource
+// keeps its own environment variables (a Vercel project). Values only go in:
+// ListEnvVars answers names and targets, never a value.
+type CloudEnvManager interface {
+	// EnvCapabilities answers ErrUnsupported for a resource kind whose
+	// variables this provider cannot manage.
+	EnvCapabilities(ref domain.CloudResourceRef) (domain.EnvCapabilities, error)
+	ListEnvVars(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) ([]domain.CloudEnvVar, error)
+	// UpsertEnvVars creates each variable or overwrites its value for the
+	// given targets. A credential that may read but not write answers
+	// ErrCloudWriteDenied.
+	UpsertEnvVars(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef, vars []domain.CloudEnvWrite) error
+	// Redeploy rebuilds production from the latest commit, so variables
+	// written since reach the running site — a variable is read at build and
+	// deploy time, never by a deployment that already exists. A resource
+	// whose writes roll out by themselves answers ErrUnsupported.
+	Redeploy(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.CloudDeployment, error)
+}
+
 // CloudErrorSurface is implemented by a provider that can say without a call
 // that it has nothing to read errors from for env; a provider without it is
 // assumed to have one.

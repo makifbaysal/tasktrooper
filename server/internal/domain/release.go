@@ -2,7 +2,6 @@ package domain
 
 import (
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,9 +96,10 @@ type ReleaseTaskRef struct {
 }
 
 // BeforeDeployPending reports a task whose before-deploy steps a human has not
-// confirmed yet.
+// confirmed yet; see BoardTask.BeforeDeployPending for why the order note is
+// left out.
 func (t ReleaseTaskRef) BeforeDeployPending() bool {
-	return strings.TrimSpace(t.BeforeDeploy) != "" && !t.BeforeDeployConfirmed
+	return StripOrderNote(t.BeforeDeploy) != "" && !t.BeforeDeployConfirmed
 }
 
 type HealthSample struct {

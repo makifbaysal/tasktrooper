@@ -1,0 +1,138 @@
+import type { Dict } from "@/locales/en";
+import { activityArea } from "@/locales/zh/activityArea";
+import { addRepository } from "@/locales/zh/addRepository";
+import { agentArea } from "@/locales/zh/agentArea";
+import { analysisReview } from "@/locales/zh/analysisReview";
+import { boardArea } from "@/locales/zh/boardArea";
+import { chatArea } from "@/locales/zh/chatArea";
+import { cloud } from "@/locales/zh/cloud";
+import { content } from "@/locales/zh/content";
+import { frame } from "@/locales/zh/frame";
+import { lib } from "@/locales/zh/lib";
+import { operations } from "@/locales/zh/operations";
+import { projectAdmin } from "@/locales/zh/projectAdmin";
+import { projectModel } from "@/locales/zh/projectModel";
+import { projectsHub } from "@/locales/zh/projectsHub";
+import { release } from "@/locales/zh/release";
+import { repositoryPage } from "@/locales/zh/repositoryPage";
+import { settingsPages } from "@/locales/zh/settingsPages";
+import { setup } from "@/locales/zh/setup";
+
+// Simplified Chinese dictionary. Typed as Dict — must mirror en.ts keys exactly.
+export const zh: Dict = {
+  common: {
+    save: "保存",
+    saving: "保存中...",
+    cancel: "取消",
+    refresh: "刷新",
+    resetDefault: "恢复默认",
+    actionFailed: "操作失败",
+    saved: "已保存",
+    saveFailed: "保存失败",
+    comingSoon: "即将推出",
+    errorBoundary: {
+      title: "出错了",
+      body: "发生意外错误，界面无法渲染。请尝试重新加载页面。",
+      retry: "重试",
+      reload: "重新加载页面",
+    },
+    configError: {
+      title: "配置错误",
+      body: "此构建没有本地服务器的 API 密钥，所有请求都会被拒绝。请设置 VITE_API_KEY（必须与服务器的 SERVER_API_KEY 一致）后重新构建。",
+      missing: "缺少：",
+    },
+  },
+  settings: {
+    language: {
+      label: "语言",
+      help: "用于助手回复和系统指令。",
+    },
+    loadFailed: "加载设置失败",
+    savedToast: "设置已保存",
+    github: {
+      statusUnavailable: "状态不可用。",
+      connected: "✓ 已连接：{login} — 智能体可以创建私有仓库、推送并创建草稿 PR。",
+      disconnect: "断开连接",
+      connect: "保存令牌",
+      tokenPlaceholder: "ghp_… 或 github_pat_…",
+      tokenHelp: "在 GitHub → Settings → Developer settings 中创建的个人访问令牌。经典令牌需要 repo、workflow、admin:repo_hook 和 read:org；细粒度令牌需要 Contents、Pull requests、Workflows（read and write）和 Webhooks。缺少 workflow，任何智能体都无法添加或修改 CI 文件。令牌会先经 GitHub 验证，再加密存储在本机。",
+      connectedToast: "GitHub 已连接",
+      connectFailedToast: "GitHub 连接失败",
+      disconnectedToast: "GitHub 连接已移除",
+      missingScopesTitle: "此令牌缺少：{scopes}",
+      missingWorkflowScope: "没有 workflow 权限范围，GitHub 会拒绝所有添加或修改 .github/workflows 下文件的推送，智能体因此无法配置或修复 CI。请创建包含该权限范围的令牌，断开连接后保存新令牌。",
+      fineGrainedHint: "细粒度令牌：请确保它具有 Workflows: Read and write 权限，否则 GitHub 会拒绝涉及 CI 文件的推送。",
+      connectWithGitHub: "通过 GitHub 连接",
+      connectWithGitHubHint: "使用一次性验证码在 github.com 上登录。TaskTrooper 会自动续期连接，无需创建或粘贴令牌。",
+      deviceCodeTitle: "在 GitHub 上输入此验证码",
+      deviceCodeHint: "打开 {url}，登录后输入验证码并授权 TaskTrooper。此窗口会自动继续。",
+      copyCode: "复制验证码",
+      codeCopied: "验证码已复制",
+      openGitHub: "打开 GitHub",
+      waitingForApproval: "等待你的授权…",
+      flowExpired: "验证码在授权前已过期。",
+      flowDenied: "登录请求已在 GitHub 上被拒绝。",
+      tryAgain: "重试",
+      cancel: "取消",
+      useTokenInstead: "改用个人访问令牌",
+      useAppInstead: "改为通过 GitHub 连接",
+      modeApp: "通过 GitHub 登录",
+      modeToken: "通过访问令牌",
+      needsInstallTitle: "在你的仓库上安装应用",
+      needsInstallBody: "连接正常，但 TaskTrooper 应用尚未安装到任何账号，因此无法访问任何仓库。请将其安装到你的账号或组织，并选择 All repositories，这样 TaskTrooper 之后创建的仓库也会包含在内。",
+      installApp: "在 GitHub 上安装",
+      expiredTitle: "GitHub 连接已过期",
+      expiredBody: "该连接已六个月未使用，或已在 GitHub 上被撤销。请重新连接。",
+    },
+    boilerplate: {
+      title: "样板项目目录",
+      descPrefix: "智能体从头编写代码前，会先查找此仓库中的",
+      descMid: "；如果有匹配的样板项目，就从复制它开始。",
+      descSuffix: "或完整 URL 均可。",
+      loadFailed: "加载设置失败",
+    },
+    notifications: {
+      title: "桌面通知",
+      help: "看板上需要你关注的事件会以系统原生通知提醒。关闭窗口后仍会继续推送。",
+      unavailable: "桌面通知仅在 TaskTrooper 应用中可用，浏览器中不可用。",
+      enabled: "已启用",
+      analizReview: "分析已就绪，等待你审查",
+      humanUat: "等待你进行 UAT",
+      humanNeeded: "智能体需要人工决策",
+      agentComments: "新的智能体评论",
+      agentChatReplies: "智能体对话回复",
+      loadFailed: "加载设置失败",
+      saveFailed: "保存失败",
+    },
+    concurrency: {
+      title: "并发限制",
+      agentsLabel: "最大并发智能体数",
+      tasksLabel: "最大并发任务数",
+      agentsHelp: "看板上可同时执行的智能体运行数量。",
+      tasksHelp: "可同时拥有运行中智能体的不同任务数量。",
+      zeroHint: "0 表示不限制",
+      reset: "不限制",
+      resetting: "重置中…",
+      loadFailed: "加载设置失败",
+      saveFailed: "保存失败",
+    },
+  },
+  addRepository,
+  agentArea,
+  analysisReview,
+  boardArea,
+  activityArea,
+  chatArea,
+  cloud,
+  content,
+  frame,
+  lib,
+  operations,
+  projectAdmin,
+  projectModel,
+  projectsHub,
+  release,
+  repositoryPage,
+  settingsPages,
+  setup,
+};

@@ -139,7 +139,7 @@ func applyDefaults(cfg *domain.Config) {
 		cfg.Evolution.MaxRuleChanges = 3
 	}
 	if cfg.Evolution.MaxSkillsPerAgent <= 0 {
-		cfg.Evolution.MaxSkillsPerAgent = 25
+		cfg.Evolution.MaxSkillsPerAgent = 100
 	}
 	if cfg.Evolution.MaxRulesPerAgent <= 0 {
 		cfg.Evolution.MaxRulesPerAgent = 15

@@ -255,6 +255,8 @@ type fakeTasks struct {
 	comments []domain.CreateTaskCommentRequest
 	updates  []domain.UpdateBoardTaskRequest
 	getErr   error
+	// holdWrites counts HoldMerge calls (merge_hold_test.go).
+	holdWrites int
 }
 
 func newFakeTasks(tasks ...domain.BoardTask) *fakeTasks {

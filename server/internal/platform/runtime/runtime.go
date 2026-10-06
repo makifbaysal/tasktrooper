@@ -76,7 +76,9 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploywatch"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/embedmap"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/envreq"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/evolution"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/githubauth"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/indexer"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/initiative"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/job"
@@ -281,6 +283,7 @@ type engine struct {
 	deployOpsSvc    *deployops.Service
 	deployWatchSvc  *deploywatch.Service
 	releaseSvc      *releaseapp.Service
+	envReqSvc       *envreq.Service
 	smokeGenSvc     *smokegen.Service
 	deployMonitor   *deployops.Monitor
 	evolutionSvc    *evolution.Service
@@ -853,6 +856,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var mcpStore port.MCPStore
 	var settingsStore port.SettingsStore
 	var githubTokens port.GitHubTokenStore
+	var githubAuth *githubauth.Service
 	var llmProviderStore port.LLMProviderStore
 	var llmEndpointStore port.LLMEndpointStore
 
@@ -925,7 +929,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// no longer carries MCP_SECRETS_KEY.
 			pgSettings.SetCipher(e.secretsCipher, e.secretsCipherErr)
 			settingsStore = pgSettings
-			githubTokens = pgSettings
+			// Every GitHub caller reads its token through this, so a GitHub
+			// App connection renews itself without any of them knowing.
+			githubAuth = githubauth.New(pgSettings, pgSettings, githubapi.DeviceClient{}, githubauth.App)
+			githubTokens = githubAuth
 			llmProviderStore = pgstore.NewLLMProviderStore(pgDB)
 			llmEndpointStore = pgstore.NewLLMEndpointStore(pgDB)
 			agentCLIStore = pgstore.NewAgentCLIStore(pgDB)
@@ -1093,7 +1100,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var orchSvc *orchestrator.Service
 	if catalogStore != nil {
 		catalogSvc = catalog.NewService(catalogStore, llmClient, embeddingModel)
-		catalogSvc.SetSkillBudget(cfg.Evolution.MaxSkillsPerAgent)
 		if llmProviderStore != nil {
 			catalogSvc.SetLLMProviders(llmProviderStore)
 		}
@@ -2355,6 +2361,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				if relations, ok := relationStore.(*pgstore.TaskRelationStore); ok {
 					releaseDeps.DeployOrder = relations
 				}
+				if holds, ok := boardTaskStore.(*pgstore.BoardTaskStore); ok {
+					releaseDeps.MergeHolds = holds
+				}
 				releaseDeps.Git = gitClient
 				e.localRunner = localexec.NewRunner()
 				releaseDeps.LocalRunner = e.localRunner
@@ -2374,8 +2383,22 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				if boardDispatcher != nil {
 					releaseDeps.Waker = boardapp.NewReleaseWaker(boardDispatcher)
 				}
+				if e.cloudSvc != nil && modelSvc != nil {
+					e.envReqSvc = envreq.New(envreq.Deps{
+						Store:        pgstore.NewEnvRequirementStore(e.pgDB),
+						Environments: e.cloudSvc,
+						Cloud:        e.cloudSvc,
+						Components:   modelSvc,
+						Examples:     repositorySvc,
+					})
+					releaseDeps.Envs = e.envReqSvc
+					boardKit.EnvRequirements = e.envReqSvc
+				}
 				releaseSvc := releaseapp.New(releaseDeps)
 				e.releaseSvc = releaseSvc
+				if e.envReqSvc != nil {
+					e.envReqSvc.SetResumer(releaseSvc.ResumeEnvHolds)
+				}
 				// Drafting smoke checks is an agent run over the repository's own
 				// checkout, test-run through the release service's own probe.
 				if modelSvc != nil && catalogStore != nil && e.agentRouter != nil && repositoryStore != nil {
@@ -2719,6 +2742,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		SessionSvc:        sessionSvc,
 		SettingsSvc:       settingsSvc,
 		GitHubTokens:      githubTokens,
+		GitHubApp:         githubAppOrNil(githubAuth),
 		LLMProviderSvc:    llmProviderSvc,
 		AgentCLISvc:       agentCLISvc,
 		JobSvc:            e.jobSvc,
@@ -2744,6 +2768,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,
 		CloudSvc:          e.cloudSvc,
+		EnvRequirements:   envRequirementsOrNil(e.envReqSvc),
 		ReleaseSvc:        releaseHTTP,
 		SmokeGenSvc:       smokeGenHTTP,
 		ReleaseWaker:      releaseWaker,
@@ -2929,4 +2954,22 @@ func (m *muxExecutor) ExecuteChat(ctx context.Context, req domain.ChatExecution,
 		return domain.ChatResult{}, domain.ErrHostExecutedProvider(req.Provider)
 	}
 	return chatEx.ExecuteChat(ctx, req, out)
+}
+
+// envRequirementsOrNil keeps a nil *envreq.Service from becoming a non-nil
+// interface, which would register routes that dereference it.
+func envRequirementsOrNil(s *envreq.Service) httpadapter.EnvRequirementService {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+// githubAppOrNil keeps a nil *githubauth.Service from becoming a non-nil
+// interface the handler would call into.
+func githubAppOrNil(s *githubauth.Service) httpadapter.GitHubAppService {
+	if s == nil {
+		return nil
+	}
+	return s
 }

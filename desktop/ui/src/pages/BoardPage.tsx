@@ -3,6 +3,7 @@ import {
   Bot,
   Clock,
   FolderKanban,
+  GitMerge,
   GripVertical,
   HelpCircle,
   Inbox,
@@ -55,9 +56,11 @@ import {
   PROJECT_SCOPE_NONE,
   blockedResourceLabel,
   boardColumnsSplit,
+  deployOrderBlockerLabel,
   boardLanes,
   filterTasksByScope,
   formatResumeIn,
+  isMergeHold,
   isProjectScope,
   mergeTaskList,
   pipelineGateReasonLabel,
@@ -561,6 +564,19 @@ export function BoardPage() {
                     {t("boardArea.board.answerQuestions")}
                   </Badge>
                 </Link>
+              ) : isMergeHold(task.blocked_resource) ? (
+                <Badge
+                  variant="outline"
+                  className="max-w-[12rem] gap-1 truncate border-amber-500/40 bg-amber-500/10 text-micro text-amber-600 dark:text-amber-400"
+                  title={t(`boardArea.board.mergeHoldTitle.${task.blocked_resource}`, {
+                    detail: task.blocked_question ?? "",
+                  })}
+                >
+                  <GitMerge className="h-3 w-3 shrink-0" />
+                  {task.blocked_resource === "deploy_order"
+                    ? deployOrderBlockerLabel(task.blocked_question ?? "")
+                    : blockedResourceLabel(task.blocked_resource)}
+                </Badge>
               ) : (
                 task.blocked_resource && (
                   <Badge

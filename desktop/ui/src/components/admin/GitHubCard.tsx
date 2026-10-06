@@ -1,11 +1,13 @@
-import { GitBranch, RefreshCw, Unlink } from "lucide-react";
+import { RefreshCw, Unlink } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, type GitHubConnectionStatus } from "@/api";
+import { BrandIcon } from "@/components/ui/brand-icon";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Notice } from "@/components/ui/notice";
+import { GitHubDeviceConnect } from "@/components/admin/GitHubDeviceConnect";
+import { IntegrationCard, type IntegrationStatusTone } from "@/components/admin/IntegrationCard";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +40,7 @@ export function GitHubCard({ onStatusChange, className }: GitHubCardProps) {
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [token, setToken] = useState("");
+  const [useToken, setUseToken] = useState(false);
 
   // Held in a ref, not a dependency: callers pass an inline arrow, and making
   // `check` depend on it would restart the mount effect on every render of
@@ -96,45 +99,128 @@ export function GitHubCard({ onStatusChange, className }: GitHubCardProps) {
     }
   };
 
+  const status_ = statusBadge(status, t);
+
   return (
-    <Card className={cn("mt-4 w-full space-y-3 p-6", className)}>
-      <div className="flex items-center justify-between">
-        <Label className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4" />
-          GitHub
-        </Label>
-        <Button variant="outline" size="sm" onClick={() => void check()} disabled={checking}>
-          <RefreshCw className={`mr-2 h-3 w-3 ${checking ? "animate-spin" : ""}`} />
-          {t("common.refresh")}
-        </Button>
-      </div>
+    <IntegrationCard
+      className={className}
+      icon={<BrandIcon brand="github" className="h-5 w-5" />}
+      name="GitHub"
+      status={status_}
+      actions={
+        <>
+          {status?.connected && (
+            <Button variant="outline" size="sm" onClick={() => void handleDisconnect()} disabled={saving}>
+              <Unlink className="mr-1.5 h-3.5 w-3.5" />
+              {t("settings.github.disconnect")}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => void check()}
+            disabled={checking}
+            title={t("settingsPages.integrations.refresh")}
+            aria-label={t("settingsPages.integrations.refresh")}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", checking && "animate-spin")} />
+          </Button>
+        </>
+      }
+    >
       {status === null ? (
         <p className="text-sm text-muted-foreground">{t("settings.github.statusUnavailable")}</p>
       ) : status.connected ? (
-        <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2.5">
-          <p className="text-sm">{t("settings.github.connected", { login: status.login ?? "" })}</p>
-          <Button variant="outline" size="sm" onClick={() => void handleDisconnect()} disabled={saving}>
-            <Unlink className="mr-2 h-3 w-3" />
-            {t("settings.github.disconnect")}
-          </Button>
-        </div>
+        <>
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold uppercase text-primary">
+              {(status.login ?? "?").slice(0, 1)}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{status.login}</p>
+              {status.mode && (
+                <p className="text-xs text-muted-foreground">
+                  {status.mode === "app" ? t("settings.github.modeApp") : t("settings.github.modeToken")}
+                </p>
+              )}
+            </div>
+          </div>
+          {status.needs_install && (
+            <Notice variant="warning" title={t("settings.github.needsInstallTitle")}>
+              <p>{t("settings.github.needsInstallBody")}</p>
+              {status.install_url && (
+                <Button size="sm" className="mt-2" asChild>
+                  <a href={status.install_url} target="_blank" rel="noreferrer">
+                    {t("settings.github.installApp")}
+                  </a>
+                </Button>
+              )}
+            </Notice>
+          )}
+          {status.missing_scopes && status.missing_scopes.length > 0 && (
+            <Notice
+              variant="warning"
+              title={t("settings.github.missingScopesTitle", { scopes: status.missing_scopes.join(", ") })}
+            >
+              {status.missing_scopes.includes("workflow") ? t("settings.github.missingWorkflowScope") : null}
+            </Notice>
+          )}
+          {status.fine_grained && <Notice variant="info" title={t("settings.github.fineGrainedHint")} />}
+        </>
       ) : (
-        <div className="space-y-2">
-          {status.detail && <p className="text-sm text-destructive">{status.detail}</p>}
-          <Input
-            type="password"
-            autoComplete="off"
-            placeholder={t("settings.github.tokenPlaceholder")}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-          />
-          <Button onClick={() => void handleConnect()} disabled={saving || !token.trim()}>
-            <GitBranch className="mr-2 h-3.5 w-3.5" />
-            {t("settings.github.connect")}
-          </Button>
-          <p className="text-xs text-muted-foreground">{t("settings.github.tokenHelp")}</p>
-        </div>
+        <>
+          {status.expired && (
+            <Notice variant="warning" title={t("settings.github.expiredTitle")}>
+              {t("settings.github.expiredBody")}
+            </Notice>
+          )}
+          {status.detail && !status.expired && <p className="text-sm text-destructive">{status.detail}</p>}
+          {status.app_available && !useToken ? (
+            <>
+              <GitHubDeviceConnect onConnected={() => void check()} />
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setUseToken(true)}>
+                {t("settings.github.useTokenInstead")}
+              </Button>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  className="min-w-[16rem] flex-1"
+                  placeholder={t("settings.github.tokenPlaceholder")}
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+                <Button onClick={() => void handleConnect()} disabled={saving || !token.trim()}>
+                  {t("settings.github.connect")}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("settings.github.tokenHelp")}</p>
+              {status.app_available && (
+                <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setUseToken(false)}>
+                  {t("settings.github.useAppInstead")}
+                </Button>
+              )}
+            </div>
+          )}
+        </>
       )}
-    </Card>
+    </IntegrationCard>
   );
+}
+
+function statusBadge(
+  status: GitHubConnectionStatus | null,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): { tone: IntegrationStatusTone; label: string } | undefined {
+  if (status === null) return undefined;
+  if (status.connected && (status.needs_install || (status.missing_scopes?.length ?? 0) > 0)) {
+    return { tone: "attention", label: t("settingsPages.integrations.status.attention") };
+  }
+  if (status.connected) return { tone: "connected", label: t("settingsPages.integrations.status.connected") };
+  if (status.expired) return { tone: "attention", label: t("settingsPages.integrations.status.expired") };
+  return { tone: "idle", label: t("settingsPages.integrations.status.notConnected") };
 }

@@ -258,6 +258,10 @@ func TestDiffNeedsUIEvidence(t *testing.T) {
 		{"a path merely containing api is not an api dir", []string{"src/components/apiary/Card.tsx"}, true},
 		{"mixed api and component diff", []string{"api/login.ts", "src/components/Login.tsx"}, true},
 		{"serverless-only foundation diff", []string{"api/login.ts", "api/_lib/session.ts", "package.json", "vercel.json"}, false},
+		{"a tsconfig variant only steers the type checker", []string{"tsconfig.api.json", "tsconfig.node.json"}, false},
+		{"upload ignore files", []string{".vercelignore", ".dockerignore", ".gcloudignore"}, false},
+		{"the T-100 api foundation without its vite plugin", []string{".vercelignore", "api/admin/login.ts", "scripts/local-admin-api-plugin.ts", "tsconfig.api.json", "tsconfig.json"}, false},
+		{"bundler config still changes what renders", []string{"vite.config.ts"}, true},
 	}
 
 	for _, tc := range cases {

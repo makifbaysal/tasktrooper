@@ -17,9 +17,9 @@ func TestParseSessionExportSumsAssistantMessages(t *testing.T) {
 	u, err := parseSessionExport(raw)
 	require.NoError(t, err)
 	assert.Equal(t, domain.Usage{
-		PromptTokens: 22720, CompletionTokens: 5085, TotalTokens: 27805,
+		PromptTokens: 141093, CompletionTokens: 6667, TotalTokens: 147760,
 		CacheReadTokens: 118373,
-	}, u)
+	}, u, "TotalTokens is the sum of the export's own tokens.total, which already counts cache and reasoning")
 }
 
 func TestParseSessionExportRejectsGarbage(t *testing.T) {

@@ -990,6 +990,10 @@ func scanBoardTasks(rows pgx.Rows) ([]domain.BoardTask, error) {
 // cancellation block has no session and no answer to wait for — a human moving
 // the task back to a column IS the release, and without clearing the stamp here
 // the board would keep showing a blocked badge on a task that is running again.
+//
+// A merge hold (domain.MergeHoldResources) is cleared only by a move: editing a
+// done task's description or regenerating its order note does not resolve what
+// its merge waits for.
 func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (domain.BoardTask, error) {
 	row := s.pool.QueryRow(ctx, `
 		UPDATE board_tasks SET
@@ -1003,10 +1007,13 @@ func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (dom
 			priority = $10,
 			assignee_agent_id = $11,
 			blocked_question = CASE WHEN blocked_session_id IS NULL AND $8 <> $12::text
+				AND NOT (board_column = $8 AND COALESCE(blocked_resource = ANY($19::text[]), false))
 				THEN NULL ELSE blocked_question END,
 			blocked_at = CASE WHEN blocked_session_id IS NULL AND $8 <> $12::text
+				AND NOT (board_column = $8 AND COALESCE(blocked_resource = ANY($19::text[]), false))
 				THEN NULL ELSE blocked_at END,
 			blocked_origin_column = CASE WHEN blocked_session_id IS NULL AND $8 <> $12::text
+				AND NOT (board_column = $8 AND COALESCE(blocked_resource = ANY($19::text[]), false))
 				THEN NULL ELSE blocked_origin_column END,
 			-- A resource block has no session either, so it releases the same
 			-- way a cancellation does: a human dragging the card out of blocked
@@ -1014,6 +1021,7 @@ func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (dom
 			-- set, the card would keep claiming to be queued for hardware while
 			-- an agent works on it.
 			blocked_resource = CASE WHEN blocked_session_id IS NULL AND $8 <> $12::text
+				AND NOT (board_column = $8 AND COALESCE(blocked_resource = ANY($19::text[]), false))
 				THEN NULL ELSE blocked_resource END,
 			-- The release gate's stamp travels with the move that earns (or
 			-- withdraws) it, so a task can never be left in done carrying the
@@ -1041,7 +1049,7 @@ func (s *BoardTaskStore) Update(ctx context.Context, task domain.BoardTask) (dom
 		task.Position, string(task.Priority), task.AssigneeAgentID,
 		string(domain.TaskColumnBlocked), task.VerifiedSHA,
 		task.BeforeDeploy, task.AfterDeploy, task.RollbackPlan, task.ComponentID,
-		task.BeforeDeployConfirmedAt)
+		task.BeforeDeployConfirmedAt, domain.MergeHoldResources)
 	updated, err := scanBoardTask(row)
 	if err != nil {
 		return domain.BoardTask{}, fmt.Errorf("update board task: %w", err)
@@ -1160,6 +1168,45 @@ func (s *BoardTaskStore) MarkWorkOrderWaiting(ctx context.Context, repositoryID,
 	`, taskID, repositoryID, detail, domain.ResourceWorkOrder)
 	if err != nil {
 		return fmt.Errorf("mark board task waiting on work order: %w", err)
+	}
+	return nil
+}
+
+// HoldMerge records why a done task's merge waits, WITHOUT moving
+// board_column, the same way MarkWorkOrderWaiting does. It never overwrites a
+// park that is not itself a merge hold, nor a pending question. blocked_at is
+// kept while the reason stays the same, so the card's wait does not restart on
+// every refused retry.
+func (s *BoardTaskStore) HoldMerge(ctx context.Context, repositoryID, taskID uuid.UUID, resource, detail string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE board_tasks
+		SET blocked_question = NULLIF($3, ''),
+		    blocked_resource = $4,
+		    blocked_at       = CASE WHEN blocked_resource = $4 THEN COALESCE(blocked_at, now()) ELSE now() END,
+		    updated_at       = now()
+		WHERE id = $1 AND repository_id = $2
+		  AND blocked_session_id IS NULL
+		  AND (blocked_resource IS NULL OR blocked_resource = ANY($5::text[]))
+	`, taskID, repositoryID, detail, resource, domain.MergeHoldResources)
+	if err != nil {
+		return fmt.Errorf("hold board task merge: %w", err)
+	}
+	return nil
+}
+
+// ReleaseMergeHold clears a hold set by HoldMerge when it is one of resources;
+// anything else the task is parked on is left alone.
+func (s *BoardTaskStore) ReleaseMergeHold(ctx context.Context, taskID uuid.UUID, resources ...string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE board_tasks
+		SET blocked_question = NULL,
+		    blocked_resource = NULL,
+		    blocked_at       = NULL,
+		    updated_at       = now()
+		WHERE id = $1 AND blocked_resource = ANY($2::text[]) AND blocked_resource = ANY($3::text[])
+	`, taskID, resources, domain.MergeHoldResources)
+	if err != nil {
+		return fmt.Errorf("release board task merge hold: %w", err)
 	}
 	return nil
 }
@@ -1478,15 +1525,19 @@ func (s *BoardTaskStore) ResetMergeState(ctx context.Context, taskID uuid.UUID) 
 // ConfirmBeforeDeploy stamps a human's confirmation that BeforeDeploy's steps
 // were performed. COALESCE keeps the first confirmation's time on a repeated
 // call, so pressing the button twice cannot restart the "confirmed <time>"
-// clock the UI shows.
+// clock the UI shows. The before_deploy merge hold is what this confirmation
+// answers, so it clears with it.
 func (s *BoardTaskStore) ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error) {
 	row := s.pool.QueryRow(ctx, `
 		UPDATE board_tasks
 		SET before_deploy_confirmed_at = COALESCE(before_deploy_confirmed_at, now()),
+			blocked_question = CASE WHEN blocked_resource = $3 THEN NULL ELSE blocked_question END,
+			blocked_at = CASE WHEN blocked_resource = $3 THEN NULL ELSE blocked_at END,
+			blocked_resource = CASE WHEN blocked_resource = $3 THEN NULL ELSE blocked_resource END,
 			updated_at = now()
 		WHERE id = $1 AND repository_id = $2
 		RETURNING `+boardTaskColumns+`
-	`, taskID, repositoryID)
+	`, taskID, repositoryID, domain.ResourceBeforeDeploy)
 	task, err := scanBoardTask(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.BoardTask{}, fmt.Errorf("%w: %s", domain.ErrBoardTaskNotFound, taskID)

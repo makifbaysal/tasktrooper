@@ -53,6 +53,8 @@ export interface WorkspaceConfig {
   members: BoardMember[];
   subscriptions: BoardSubscription[];
   transitions: BoardTransition[];
+  /** The recommended rules for the stock columns; "Reset to defaults" applies them. */
+  default_transitions?: BoardTransition[];
 }
 
 /** A column subscription may also filter which task types wake the agent; null = every type. */
@@ -1034,6 +1036,10 @@ export interface BoardTask {
    * instead of blocked_session_id: nobody answers a resource block, a sweeper
    * releases it — except "human_decision", which only a human clears.
    * blocked_question then carries the resource's detail line, not a question.
+   *
+   * A done task can also carry a merge hold ("deploy_order", "before_deploy",
+   * "delivery_profile", see lib/project-board MERGE_HOLD_RESOURCES): why the
+   * merge gate refused its merge. Like "work_order" it never moves the column.
    */
   blocked_resource?: string;
   /** When the resource is expected to free up. Only timed parks have one. */
@@ -1058,8 +1064,9 @@ export interface BoardTask {
   /**
    * When a human confirmed before_deploy's steps were performed. Absent/null
    * while before_deploy is set and unconfirmed — nothing ships the task until
-   * then (domain.BoardTask.BeforeDeployPending). Editing before_deploy clears
-   * it.
+   * then (domain.BoardTask.BeforeDeployPending), unless before_deploy holds
+   * only the generated order note (lib/project-board isBeforeDeployPending).
+   * Editing before_deploy clears it.
    */
   before_deploy_confirmed_at?: string | null;
   /** Post-deploy steps; posted automatically when the production deploy succeeds. */
@@ -1302,7 +1309,33 @@ export interface GitHubConnectionStatus {
   connected: boolean;
   login?: string;
   detail?: string;
+  /** Scopes a classic token lacks among the needed ones — "workflow" blocks every CI file push. */
+  missing_scopes?: string[];
+  /** A fine-grained token: its permissions cannot be read back, only reminded. */
+  fine_grained?: boolean;
+  /** "app" for a GitHub App connection made with a device code, "token" for a pasted one. */
+  mode?: "app" | "token";
+  /** A GitHub App is configured, so "Connect with GitHub" can start. */
+  app_available?: boolean;
+  /** The app is authorized but installed on no account, so it reaches no repository yet. */
+  needs_install?: boolean;
+  install_url?: string;
+  /** The app connection lapsed (unused for six months, or revoked); connect again. */
+  expired?: boolean;
 }
+
+/** The device-flow sign-in in progress: the code to type and where. */
+export interface GitHubDeviceFlow {
+  id: string;
+  user_code: string;
+  verification_uri: string;
+  expires_at: string;
+  interval_seconds: number;
+  state: "pending" | "authorized" | "expired" | "denied";
+  login?: string;
+  error?: string;
+}
+
 
 export interface GitHubOwner {
   login: string;
@@ -2957,6 +2990,59 @@ export interface CloudResourceDetail extends CloudResource {
 
 export type CloudDeploymentStatus = "ready" | "building" | "error" | "canceled" | "unknown";
 
+/** How a deploy target's environment variable gets its value (server domain.EnvVarKind). */
+export type EnvVarKind = "value" | "generated" | "human_secret" | "human_bcrypt" | "optional";
+
+/** What a variable still needs: nothing, TaskTrooper itself, a human's value, or a human's classification. */
+export type EnvVarAction = "none" | "auto" | "human" | "classify";
+
+/**
+ * One variable of a component's production target. Never carries a secret:
+ * value is set only for the value kind, which is not one by definition.
+ */
+export interface EnvVarView {
+  name: string;
+  /** Absent for a variable only an env example file names — a human classifies it. */
+  kind?: EnvVarKind;
+  value?: string;
+  description?: string;
+  source?: "agent" | "human";
+  example_value?: string;
+  example_path?: string;
+  production: boolean;
+  preview: boolean;
+  action: EnvVarAction;
+}
+
+export interface EnvCapabilities {
+  targets: DeployEnvironment[];
+  /** A write starts a deployment by itself; there is nothing to redeploy. */
+  writes_roll_out: boolean;
+  /** The provider config is re-rendered from a repository file on every deploy (ECS task definition). */
+  overwritten_on_deploy: boolean;
+}
+
+export interface ComponentEnvStatus {
+  component_id: string;
+  component_name: string;
+  environment_id: string;
+  provider: CloudProviderKind;
+  resource_name?: string;
+  capabilities: EnvCapabilities;
+  vars: EnvVarView[];
+  /** The provider could not be read; vars still lists the requirements. */
+  error?: string;
+}
+
+/** One variable a human sets: kind classifies it; value is the literal, the secret, or the password to hash. */
+export interface EnvInput {
+  name: string;
+  kind?: EnvVarKind;
+  value?: string;
+  /** Replace a generated secret with a new random one. */
+  regenerate?: boolean;
+}
+
 export interface CloudDeployment {
   id: string;
   status: CloudDeploymentStatus;
@@ -3567,6 +3653,12 @@ export const api = {
   disconnectGitHub: () =>
     request<GitHubConnectionStatus>("/v1/settings/github", { method: "DELETE" }),
 
+  startGitHubDeviceFlow: () =>
+    request<GitHubDeviceFlow>("/v1/settings/github/device", { method: "POST" }),
+
+  /** Safe to call often: the server asks GitHub no faster than GitHub allows. */
+  pollGitHubDeviceFlow: (id: string) => request<GitHubDeviceFlow>(`/v1/settings/github/device/${id}`),
+
   githubOwners: () => request<{ owners: GitHubOwner[] }>("/v1/settings/github/owners"),
 
   githubOwnerRepos: (owner: string) =>
@@ -3950,6 +4042,9 @@ export const api = {
 
   dismissCatalogPending: (id: string) =>
     request<void>(`/v1/catalog/pending/${id}`, { method: "DELETE" }),
+
+  applyCatalogPending: (id: string) =>
+    request<void>(`/v1/catalog/pending/${id}/apply`, { method: "POST" }),
 
   listAgentTemplates: () => request<{ templates: AgentTemplate[] }>("/admin/agent-templates"),
 
@@ -4409,6 +4504,22 @@ export const api = {
 
   // No body: the confirmation IS the human clicking the button after the
   // dialog asked "did you do these steps?".
+  listEnvRequirements: (repositoryId: string) =>
+    request<{ targets: ComponentEnvStatus[] }>(`/v1/repositories/${repositoryId}/env-requirements`),
+
+  /** Secrets go straight to the provider; the response never echoes them. An empty vars list re-checks. */
+  applyEnvRequirements: (repositoryId: string, componentId: string, vars: EnvInput[]) =>
+    request<ComponentEnvStatus>(`/v1/repositories/${repositoryId}/env-requirements/apply`, {
+      method: "POST",
+      body: JSON.stringify({ component_id: componentId, vars }),
+    }),
+
+  redeployForEnvRequirements: (repositoryId: string, componentId: string) =>
+    request<CloudDeployment>(`/v1/repositories/${repositoryId}/env-requirements/redeploy`, {
+      method: "POST",
+      body: JSON.stringify({ component_id: componentId }),
+    }),
+
   confirmBeforeDeploy: (repositoryId: string, taskId: string) =>
     request<BoardTask>(`/v1/repositories/${repositoryId}/tasks/${taskId}/before-deploy/confirm`, {
       method: "POST",

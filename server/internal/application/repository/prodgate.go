@@ -243,47 +243,18 @@ func (s *Service) EnvInventory(ctx context.Context, repositoryID uuid.UUID) (Env
 	}
 	inv := EnvInventory{}
 	seen := map[string]bool{}
-
-	scan := func(path, rel string) {
-		keys, err := readEnvKeys(path)
-		if err != nil || len(keys) == 0 {
-			return
+	byFile := map[string]int{}
+	for _, ex := range scanEnvExamples(root) {
+		i, ok := byFile[ex.Path]
+		if !ok {
+			i = len(inv.Files)
+			byFile[ex.Path] = i
+			inv.Files = append(inv.Files, EnvFile{Path: ex.Path})
 		}
-		inv.Files = append(inv.Files, EnvFile{Path: rel, Keys: keys})
-		for _, k := range keys {
-			if !seen[k] {
-				seen[k] = true
-				inv.Keys = append(inv.Keys, k)
-			}
-		}
-	}
-
-	for _, name := range envFileNames {
-		scan(filepath.Join(root, name), name)
-	}
-
-	entries, err := os.ReadDir(root)
-	if err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
-				continue
-			}
-			for _, name := range envFileNames {
-				scan(filepath.Join(root, entry.Name(), name), filepath.Join(entry.Name(), name))
-			}
-			sub, subErr := os.ReadDir(filepath.Join(root, entry.Name()))
-			if subErr != nil {
-				continue
-			}
-			for _, child := range sub {
-				if !child.IsDir() || strings.HasPrefix(child.Name(), ".") {
-					continue
-				}
-				for _, name := range envFileNames {
-					rel := filepath.Join(entry.Name(), child.Name(), name)
-					scan(filepath.Join(root, rel), rel)
-				}
-			}
+		inv.Files[i].Keys = append(inv.Files[i].Keys, ex.Name)
+		if !seen[ex.Name] {
+			seen[ex.Name] = true
+			inv.Keys = append(inv.Keys, ex.Name)
 		}
 	}
 	sort.Strings(inv.Keys)
@@ -296,7 +267,84 @@ func (s *Service) EnvInventory(ctx context.Context, repositoryID uuid.UUID) (Env
 	return inv, nil
 }
 
-func readEnvKeys(path string) ([]string, error) {
+// EnvExamples is every variable the repository's env example files declare —
+// on the default branch's checkout and, when taskID is given, on that task's
+// own checkout, whose copy wins: it is the code about to ship.
+func (s *Service) EnvExamples(ctx context.Context, repositoryID uuid.UUID, taskID *uuid.UUID) ([]domain.EnvExample, error) {
+	root, err := s.ResolveRootPath(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	byName := map[string]domain.EnvExample{}
+	var order []string
+	add := func(examples []domain.EnvExample) {
+		for _, ex := range examples {
+			if _, ok := byName[ex.Name]; !ok {
+				order = append(order, ex.Name)
+			}
+			byName[ex.Name] = ex
+		}
+	}
+	add(scanEnvExamples(root))
+	if taskID != nil && s.workspaceRoot != "" {
+		if dir := s.taskWorkspacePath(*taskID); dir != "" {
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				add(scanEnvExamples(dir))
+			}
+		}
+	}
+	out := make([]domain.EnvExample, 0, len(order))
+	for _, name := range order {
+		out = append(out, byName[name])
+	}
+	return out, nil
+}
+
+// scanEnvExamples reads the env example files at root, in each top-level
+// directory and one level below that — where a monorepo keeps its apps.
+func scanEnvExamples(root string) []domain.EnvExample {
+	var out []domain.EnvExample
+	scan := func(rel string) {
+		examples, err := readEnvExamples(filepath.Join(root, rel))
+		if err != nil {
+			return
+		}
+		for i := range examples {
+			examples[i].Path = rel
+		}
+		out = append(out, examples...)
+	}
+	for _, name := range envFileNames {
+		scan(name)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return out
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" {
+			continue
+		}
+		for _, name := range envFileNames {
+			scan(filepath.Join(entry.Name(), name))
+		}
+		sub, subErr := os.ReadDir(filepath.Join(root, entry.Name()))
+		if subErr != nil {
+			continue
+		}
+		for _, child := range sub {
+			if !child.IsDir() || strings.HasPrefix(child.Name(), ".") || child.Name() == "node_modules" {
+				continue
+			}
+			for _, name := range envFileNames {
+				scan(filepath.Join(entry.Name(), child.Name(), name))
+			}
+		}
+	}
+	return out
+}
+
+func readEnvExamples(path string) ([]domain.EnvExample, error) {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() || info.Size() > envScanMaxBytes {
 		return nil, err
@@ -307,7 +355,7 @@ func readEnvKeys(path string) ([]string, error) {
 	}
 	defer file.Close()
 
-	var keys []string
+	var out []domain.EnvExample
 	seen := map[string]bool{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -316,7 +364,7 @@ func readEnvKeys(path string) ([]string, error) {
 			continue
 		}
 		line = strings.TrimPrefix(line, "export ")
-		key, _, found := strings.Cut(line, "=")
+		key, value, found := strings.Cut(line, "=")
 		if !found {
 			continue
 		}
@@ -325,7 +373,15 @@ func readEnvKeys(path string) ([]string, error) {
 			continue
 		}
 		seen[key] = true
-		keys = append(keys, key)
+		out = append(out, domain.EnvExample{Name: key, Value: unquoteEnvValue(value)})
 	}
-	return keys, scanner.Err()
+	return out, scanner.Err()
+}
+
+func unquoteEnvValue(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		return v[1 : len(v)-1]
+	}
+	return v
 }

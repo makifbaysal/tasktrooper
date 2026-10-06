@@ -61,7 +61,8 @@ describe("CloudAccountsCard", () => {
     renderCard();
 
     await screen.findByText("Production Vercel");
-    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions" }), { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /remove/i }));
 
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));

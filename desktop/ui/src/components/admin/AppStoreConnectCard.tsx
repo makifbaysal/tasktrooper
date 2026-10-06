@@ -1,9 +1,8 @@
-import { Apple } from "lucide-react";
 import { type StoreCredentialView } from "@/api";
+import { IntegrationCard } from "@/components/admin/IntegrationCard";
 import { StoreAppsBrowser } from "@/components/admin/StoreAppPickerDialog";
 import { StoreCredentialForm } from "@/components/admin/StoreCredentialsSection";
-import { Card } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+import { BrandIcon } from "@/components/ui/brand-icon";
 import { useI18n } from "@/hooks/useI18n";
 
 interface AppStoreConnectCardProps {
@@ -14,15 +13,19 @@ interface AppStoreConnectCardProps {
 
 export function AppStoreConnectCard({ credential, onChanged }: AppStoreConnectCardProps) {
   const { t } = useI18n();
+  const configured = credential?.configured ?? false;
   return (
-    <Card className="mt-4 w-full space-y-3 p-6">
-      <Label className="flex items-center gap-2">
-        <Apple className="h-4 w-4" />
-        {t("settingsPages.integrations.asc.title")}
-      </Label>
-      <p className="text-sm text-muted-foreground">{t("settingsPages.integrations.asc.description")}</p>
-      <StoreCredentialForm provider="asc" credential={credential} onChanged={onChanged} />
-      <StoreAppsBrowser provider="asc" configured={credential?.configured ?? false} />
-    </Card>
+    <IntegrationCard
+      icon={<BrandIcon brand="apple" className="h-5 w-5" />}
+      name={t("settingsPages.integrations.asc.title")}
+      status={
+        configured
+          ? { tone: "connected", label: t("settingsPages.integrations.status.connected") }
+          : { tone: "idle", label: t("settingsPages.integrations.status.notConnected") }
+      }
+    >
+      <StoreCredentialForm provider="asc" credential={credential} onChanged={onChanged} collapseWhenSaved hideStatus />
+      {configured && <StoreAppsBrowser provider="asc" configured />}
+    </IntegrationCard>
   );
 }

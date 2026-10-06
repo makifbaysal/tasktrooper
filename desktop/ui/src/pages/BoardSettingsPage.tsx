@@ -1,7 +1,8 @@
-import { ArrowRight, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { Loader2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api, type BoardColumn, type BoardTransition } from "@/api";
+import { TransitionGraph, type TransitionMap } from "@/components/admin/workflow/TransitionGraph";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -15,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
-import { cn } from "@/lib/utils";
 
 function slugify(name: string): string {
   const map: Record<string, string> = {
@@ -37,7 +37,8 @@ export function BoardSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   // from-slug -> Set of allowed to-slugs
-  const [transitions, setTransitions] = useState<Record<string, Set<string>>>({});
+  const [transitions, setTransitions] = useState<TransitionMap>({});
+  const [defaults, setDefaults] = useState<BoardTransition[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -52,6 +53,7 @@ export function BoardSettingsPage() {
         t[tr.from].add(tr.to);
       }
       setTransitions(t);
+      setDefaults(cfg.default_transitions ?? []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("settingsPages.board.loadFailed"));
     } finally {
@@ -64,7 +66,6 @@ export function BoardSettingsPage() {
   }, [load]);
 
   const workflowCols = useMemo(() => columns.filter((c) => !c.is_backlog), [columns]);
-  const sorted = useMemo(() => [...columns].sort((a, b) => a.position - b.position), [columns]);
 
   const addColumn = () => {
     const name = newName.trim();
@@ -99,15 +100,16 @@ export function BoardSettingsPage() {
     });
   };
 
-  const toggleTransition = (from: string, to: string) => {
-    setTransitions((prev) => {
-      const next = { ...prev };
-      const s = new Set(next[from] ?? []);
-      if (s.has(to)) s.delete(to);
-      else s.add(to);
-      next[from] = s;
-      return next;
-    });
+  // Recommended rules for the columns this board has; a column the defaults
+  // don't know stays free, as it would with no rules at all. Saved only on Save.
+  const resetToDefaults = () => {
+    const present = new Set(columns.map((c) => c.slug));
+    const next: TransitionMap = {};
+    for (const { from, to } of defaults) {
+      if (!present.has(from) || !present.has(to)) continue;
+      (next[from] ??= new Set()).add(to);
+    }
+    setTransitions(next);
   };
 
   const save = async () => {
@@ -204,51 +206,20 @@ export function BoardSettingsPage() {
       </Card>
 
       <Card className="p-6">
-        <h3 className="text-sm font-semibold">{t("settingsPages.board.transitionsTitle")}</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("settingsPages.board.transitionsSubtitle")}
-        </p>
-        <div className="mt-4 space-y-2">
-          {sorted.map((from) => {
-            const targets = sorted.filter((c) => c.slug !== from.slug);
-            const active = transitions[from.slug] ?? new Set<string>();
-            return (
-              <div
-                key={from.slug}
-                className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center"
-              >
-                <div className="flex min-w-[9rem] shrink-0 items-center gap-1.5 text-sm font-medium">
-                  {from.label}
-                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {active.size === 0 && (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-                      {t("settingsPages.board.freeToAnywhere")}
-                    </span>
-                  )}
-                  {targets.map((to) => {
-                    const on = active.has(to.slug);
-                    return (
-                      <button
-                        key={to.slug}
-                        type="button"
-                        onClick={() => toggleTransition(from.slug, to.slug)}
-                        className={cn(
-                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                          on
-                            ? "border-primary bg-primary/10 font-medium text-primary"
-                            : "border-border text-muted-foreground hover:bg-muted",
-                        )}
-                      >
-                        {to.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold">{t("settingsPages.board.transitionsTitle")}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t("settingsPages.board.transitionsSubtitle")}</p>
+          </div>
+          {defaults.length > 0 && (
+            <Button variant="outline" size="sm" onClick={resetToDefaults} className="gap-1.5">
+              <RotateCcw className="h-3.5 w-3.5" />
+              {t("settingsPages.board.resetDefaults")}
+            </Button>
+          )}
+        </div>
+        <div className="mt-4">
+          <TransitionGraph columns={columns} transitions={transitions} onChange={setTransitions} />
         </div>
       </Card>
 

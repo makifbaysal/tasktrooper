@@ -1,4 +1,5 @@
 import type { UsageByDay, UsageByModel, UsageKind, UsageTotals } from "@/api";
+import { intlLocale } from "@/lib/languages";
 
 export const EMPTY_TOTALS: UsageTotals = {
   calls: 0,
@@ -79,17 +80,13 @@ export function formatCompact(n: number): string {
   return compactFormat.format(n);
 }
 
-function localeOf(lang: string): string {
-  return lang === "tr" ? "tr-TR" : "en-US";
-}
-
 export function formatInteger(n: number, lang: string): string {
-  return new Intl.NumberFormat(localeOf(lang)).format(n);
+  return new Intl.NumberFormat(intlLocale(lang)).format(n);
 }
 
 export function formatPercent(ratio: number, lang: string): string {
   const format = (r: number, digits: number) =>
-    new Intl.NumberFormat(localeOf(lang), {
+    new Intl.NumberFormat(intlLocale(lang), {
       style: "percent",
       maximumFractionDigits: digits,
       minimumFractionDigits: 0,
@@ -101,7 +98,7 @@ export function formatPercent(ratio: number, lang: string): string {
 // Days are calendar dates in the server's bucketing timezone, so they are
 // formatted as UTC dates — the viewer's own offset must not shift them.
 export function formatDay(day: string, lang: string, opts: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat(localeOf(lang), { ...opts, timeZone: "UTC" }).format(parseDay(day));
+  return new Intl.DateTimeFormat(intlLocale(lang), { ...opts, timeZone: "UTC" }).format(parseDay(day));
 }
 
 // Every step halves to a clean number too, since the axis labels max/2.

@@ -156,6 +156,13 @@ func isUIRelevantPath(p string) bool {
 			return false
 		}
 	}
+	// tsconfig.api.json and friends only steer the type checker, and a
+	// .vercelignore/.dockerignore only decides what is uploaded — neither
+	// renders a pixel.
+	if (strings.HasPrefix(base, "tsconfig") && strings.HasSuffix(base, ".json")) ||
+		(strings.HasPrefix(base, ".") && strings.HasSuffix(base, "ignore")) {
+		return false
+	}
 	if testFileName.MatchString(base) || strings.HasSuffix(base, "_test.go") {
 		return false
 	}

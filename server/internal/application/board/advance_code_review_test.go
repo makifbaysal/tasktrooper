@@ -80,6 +80,71 @@ func TestAdvanceToCodeReviewHoldsAnUnverifiedRun(t *testing.T) {
 	requireSentBack(t, updater, domain.MoveReasonHandoffUnverified)
 }
 
+func TestAdvanceToCodeReviewSaysTheCommandsFailedRatherThanThatNoneRan(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	r := handoffRunner(updater, &handoffGit{diff: "diff --git a/app.tsx b/app.tsx"})
+
+	usage := registry.NewToolUsage()
+	usage.Record("edit_file")
+	usage.RecordError("run_terminal")
+	usage.RecordError("run_terminal")
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", usage)
+
+	require.Len(t, updater.comments, 1)
+	assert.Contains(t, updater.comments[0].Content, "hiçbiri başarıyla bitmedi")
+	assert.Contains(t, updater.comments[0].Content, "2 run_terminal")
+	assert.NotContains(t, updater.comments[0].Content, "hiçbir komut çalıştırmadı")
+	requireSentBack(t, updater, domain.MoveReasonHandoffUnverified)
+}
+
+func TestAdvanceToCodeReviewPassesOnceOneCommandSucceeded(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	r := handoffRunner(updater, &handoffGit{diff: "diff --git a/main.go b/main.go"})
+
+	usage := registry.NewToolUsage()
+	usage.RecordError("run_terminal")
+	usage.Record("run_terminal")
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", usage)
+
+	assert.Empty(t, updater.comments, "a red run followed by a green one is verified")
+}
+
+func TestAdvanceToCodeReviewLetsACIOnlyDiffThroughWithoutALocalCommand(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	r := handoffRunner(updater, &handoffGit{diff: "diff --git a/.github/workflows/ci.yml", files: []string{".github/workflows/ci.yml"}})
+
+	usage := registry.NewToolUsage()
+	usage.Record("write_file")
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", usage)
+
+	assert.Empty(t, updater.comments, "the pull request's own pipeline is what checks a workflow change")
+	require.Len(t, updater.calls, 1)
+	assert.Equal(t, domain.TaskColumnCodeReview, *updater.calls[0].Column)
+}
+
+func TestAdvanceToCodeReviewStillWantsACommandWhenCodeChangesBesideTheWorkflow(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	r := handoffRunner(updater, &handoffGit{diff: "diff", files: []string{".github/workflows/ci.yml", "package.json"}})
+
+	usage := registry.NewToolUsage()
+	usage.Record("write_file")
+
+	r.advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", usage)
+
+	requireSentBack(t, updater, domain.MoveReasonHandoffUnverified)
+}
+
 func requireSentBack(t *testing.T, updater *fakeTaskUpdater, reason string) {
 	t.Helper()
 	require.Len(t, updater.calls, 1, "a refused hand-off must send the task back, not leave it stalled")
@@ -334,4 +399,20 @@ func TestAdvanceToCodeReviewIsNilSafe(t *testing.T) {
 	assert.NotPanics(t, func() {
 		(&Runner{}).advanceToCodeReview(context.Background(), runJobFor(task, agentID), taskWF, "/w/task-1", verifiedUsage())
 	})
+}
+
+func TestAWorkflowScopeRefusalParksTheTaskForAHuman(t *testing.T) {
+	agentID := uuid.New()
+	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnInProgress, AssigneeAgentID: &agentID}
+	updater := &fakeTaskUpdater{task: task}
+	blocker := &blockRecorder{previous: domain.TaskColumnInProgress}
+	r := &Runner{taskUpdater: updater, blocker: blocker, parks: NewParkJournal(nil, nil)}
+
+	r.parkOnWorkflowScope(context.Background(), runJobFor(task, agentID))
+
+	resource, detail := blocker.parked()
+	assert.Equal(t, domain.ResourceHumanDecision, resource)
+	assert.Contains(t, detail, "workflow")
+	require.Len(t, updater.comments, 1)
+	assert.Contains(t, updater.comments[0].Content, "Workflows: Read and write")
 }

@@ -38,6 +38,7 @@ import { TaskAssigneeFields } from "@/components/board/TaskAssigneeFields";
 import { TaskDocumentList } from "@/components/board/TaskDocumentList";
 import { TaskHistory } from "@/components/board/TaskHistory";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
+import { EnvVarsCard } from "@/components/projects/repository/deploy/EnvVarsCard";
 import { MarkdownField } from "@/components/markdown/MarkdownField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,9 +67,12 @@ import { usePolling } from "@/hooks/usePolling";
 import { useTaskTypes } from "@/hooks/useTaskTypes";
 import { desktopRunner } from "@/lib/desktop-bridge";
 import {
+  beforeDeploySteps,
   blockedResourceLabel,
   columnLabel,
   formatResumeIn,
+  isBeforeDeployPending,
+  isMergeHold,
   TASK_PRIORITY_OPTIONS,
   taskPriorityLabel,
   taskTypeLabel,
@@ -561,12 +565,51 @@ export function TaskDetailDrawer({
                         pending questions instead — the human answers in the
                         report, not here, so the generic detail line would be
                         redundant with the structured list below it. */}
-                    {task.blocked_question && task.blocked_resource !== "analysis_questions" && (
-                      <p className="whitespace-pre-line text-sm text-foreground">
-                        {task.blocked_question}
-                      </p>
-                    )}
-                    {task.blocked_resource === "analysis_questions" ? (
+                    {task.blocked_question &&
+                      task.blocked_resource !== "analysis_questions" &&
+                      !isMergeHold(task.blocked_resource) && (
+                        <p className="whitespace-pre-line text-sm text-foreground">
+                          {task.blocked_question}
+                        </p>
+                      )}
+                    {/* A merge hold says what the merge waits for and, when
+                        that is the reader, offers the one action that
+                        resolves it right here — the before-deploy section
+                        further down is easy to miss on a long card. */}
+                    {isMergeHold(task.blocked_resource) ? (
+                      <>
+                        {task.blocked_resource === "deploy_order" && task.blocked_question && (
+                          <p className="whitespace-pre-line text-sm text-foreground">
+                            {task.blocked_question}
+                          </p>
+                        )}
+                        {task.blocked_resource === "before_deploy" && (
+                          <MarkdownContent
+                            content={beforeDeploySteps(task.before_deploy) || task.blocked_question || ""}
+                          />
+                        )}
+                        <p className="text-xs text-amber-700 dark:text-amber-400">
+                          {t(`boardArea.components.taskDetail.mergeHold.${task.blocked_resource}`, {
+                            detail: task.blocked_question ?? "",
+                          })}
+                        </p>
+                        {task.blocked_resource === "before_deploy" && (
+                          <Button size="sm" variant="outline" onClick={() => setBeforeDeployConfirmOpen(true)}>
+                            {t("boardArea.components.taskDetail.beforeDeployConfirmButton")}
+                          </Button>
+                        )}
+                        {task.blocked_resource === "delivery_profile" && (
+                          <Button asChild size="sm" variant="outline">
+                            <Link to={`/repositories/${repositoryId}?tab=deploy`}>
+                              {t("boardArea.components.taskDetail.mergeHoldOpenDeploy")}
+                            </Link>
+                          </Button>
+                        )}
+                        {task.blocked_resource === "deploy_env" && (
+                          <EnvVarsCard repositoryId={repositoryId} pendingOnly onSettled={onUpdated} />
+                        )}
+                      </>
+                    ) : task.blocked_resource === "analysis_questions" ? (
                       <BlockedQuestionsBanner task={task} repositoryId={repositoryId} />
                     ) : (
                       <>
@@ -817,7 +860,7 @@ export function TaskDetailDrawer({
                               relative: formatRelativeDate(task.before_deploy_confirmed_at),
                             })}
                           </p>
-                        ) : (
+                        ) : isBeforeDeployPending(task) ? (
                           <Notice variant="warning" title={t("boardArea.components.taskDetail.beforeDeployPending")}>
                             <Button
                               size="sm"
@@ -828,7 +871,7 @@ export function TaskDetailDrawer({
                               {t("boardArea.components.taskDetail.beforeDeployConfirmButton")}
                             </Button>
                           </Notice>
-                        )}
+                        ) : null}
                       </>
                     ) : (
                       <p className="text-xs text-muted-foreground">

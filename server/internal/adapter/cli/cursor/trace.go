@@ -8,6 +8,13 @@ import "strings"
 var nativeToolNames = map[string]string{
 	"read":  "read_file",
 	"write": "write_file",
+	"edit":  "edit_file",
+	// cursor-agent reports its terminal as shellToolCall; unmapped, every
+	// command it ran was invisible to the hand-off's "ran a command" check.
+	"shell": "run_terminal",
+	"grep":  "grep_code",
+	"ls":    "get_repo_tree",
+	"glob":  "get_repo_tree",
 	"task":  "subagent",
 }
 

@@ -293,7 +293,7 @@ Periodic reflections, KPI evaluation, impact tracking.
 | `impact_window` | `168h` | Observation window before/after a change |
 | `min_events_for_impact` | `3` | Fewer after-events → `insufficient_data` |
 | `max_skill_changes` / `max_rule_changes` | `3` | Per-reflection change caps |
-| `max_skills_per_agent` | `25` | Standing skill budget; at budget a `create` is rejected (merge/update/delete first). Also caps the agent's own `create_skill` |
+| `max_skills_per_agent` | `100` | Standing skill budget; at budget a `create` is rejected (merge/update/delete first). Also caps the agent's own `create_skill` |
 | `max_rules_per_agent` | `15` | Standing rule budget; same behaviour |
 | `golden_gate` | `false` (config.yml ships `true`) | Golden suite before AND after applied changes; an independent judge keeps or rolls back the whole set |
 | `max_memory_changes` | `5` | Per-reflection memory change cap |

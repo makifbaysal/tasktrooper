@@ -1,0 +1,138 @@
+import type { Dict } from "@/locales/en";
+import { activityArea } from "@/locales/es/activityArea";
+import { addRepository } from "@/locales/es/addRepository";
+import { agentArea } from "@/locales/es/agentArea";
+import { analysisReview } from "@/locales/es/analysisReview";
+import { boardArea } from "@/locales/es/boardArea";
+import { chatArea } from "@/locales/es/chatArea";
+import { cloud } from "@/locales/es/cloud";
+import { content } from "@/locales/es/content";
+import { frame } from "@/locales/es/frame";
+import { lib } from "@/locales/es/lib";
+import { operations } from "@/locales/es/operations";
+import { projectAdmin } from "@/locales/es/projectAdmin";
+import { projectModel } from "@/locales/es/projectModel";
+import { projectsHub } from "@/locales/es/projectsHub";
+import { release } from "@/locales/es/release";
+import { repositoryPage } from "@/locales/es/repositoryPage";
+import { settingsPages } from "@/locales/es/settingsPages";
+import { setup } from "@/locales/es/setup";
+
+// Spanish dictionary. Typed as Dict — must mirror en.ts keys exactly.
+export const es: Dict = {
+  common: {
+    save: "Guardar",
+    saving: "Guardando...",
+    cancel: "Cancelar",
+    refresh: "Actualizar",
+    resetDefault: "Restablecer valores predeterminados",
+    actionFailed: "La acción falló",
+    saved: "Guardado",
+    saveFailed: "No se pudo guardar",
+    comingSoon: "Próximamente",
+    errorBoundary: {
+      title: "Algo salió mal",
+      body: "Se produjo un error inesperado y la pantalla no se pudo mostrar. Intenta recargar la página.",
+      retry: "Reintentar",
+      reload: "Recargar página",
+    },
+    configError: {
+      title: "Error de configuración",
+      body: "Esta compilación no tiene clave de API para el servidor local, así que todas las solicitudes serían rechazadas. Define VITE_API_KEY (debe coincidir con SERVER_API_KEY del servidor) y vuelve a compilar.",
+      missing: "Falta:",
+    },
+  },
+  settings: {
+    language: {
+      label: "Idioma",
+      help: "Se usa para las respuestas del asistente y las instrucciones del sistema.",
+    },
+    loadFailed: "No se pudo cargar la configuración",
+    savedToast: "Configuración guardada",
+    github: {
+      statusUnavailable: "Estado no disponible.",
+      connected: "✓ Conectado: {login} — los agentes pueden crear repositorios privados, hacer push y abrir PR en borrador.",
+      disconnect: "Desconectar",
+      connect: "Guardar token",
+      tokenPlaceholder: "ghp_… o github_pat_…",
+      tokenHelp: "Un token de acceso personal de GitHub → Settings → Developer settings. Un token clásico necesita repo, workflow, admin:repo_hook y read:org; uno específico (fine-grained) necesita Contents, Pull requests, Workflows (read and write) y Webhooks. Sin workflow, ningún agente puede añadir ni cambiar un archivo de CI. Se verifica con GitHub antes de guardarse, cifrado, en este equipo.",
+      connectedToast: "GitHub conectado",
+      connectFailedToast: "No se pudo conectar GitHub",
+      disconnectedToast: "Conexión con GitHub eliminada",
+      missingScopesTitle: "A este token le falta: {scopes}",
+      missingWorkflowScope: "Sin el permiso workflow, GitHub rechaza cualquier push que añada o cambie un archivo en .github/workflows, así que ningún agente puede configurar ni arreglar la CI. Crea un token con ese permiso, desconecta y guarda el nuevo.",
+      fineGrainedHint: "Token específico (fine-grained): asegúrate de que tenga Workflows: Read and write, o GitHub rechazará los push que toquen archivos de CI.",
+      connectWithGitHub: "Conectar con GitHub",
+      connectWithGitHubHint: "Inicia sesión en github.com con un código de un solo uso. TaskTrooper renueva la conexión por sí solo: no hay que crear ni pegar ningún token.",
+      deviceCodeTitle: "Escribe este código en GitHub",
+      deviceCodeHint: "Abre {url}, inicia sesión, escribe el código y aprueba TaskTrooper. Esta ventana continuará sola.",
+      copyCode: "Copiar código",
+      codeCopied: "Código copiado",
+      openGitHub: "Abrir GitHub",
+      waitingForApproval: "Esperando tu aprobación…",
+      flowExpired: "El código caducó antes de ser aprobado.",
+      flowDenied: "El inicio de sesión se rechazó en GitHub.",
+      tryAgain: "Reintentar",
+      cancel: "Cancelar",
+      useTokenInstead: "Usar un token de acceso personal",
+      useAppInstead: "Conectar con GitHub",
+      modeApp: "mediante inicio de sesión en GitHub",
+      modeToken: "mediante token de acceso",
+      needsInstallTitle: "Instala la app en tus repositorios",
+      needsInstallBody: "La conexión funciona, pero la app de TaskTrooper aún no está instalada en ninguna cuenta, así que no llega a ningún repositorio. Instálala en tu cuenta u organización y elige All repositories para que también queden cubiertos los repositorios que TaskTrooper cree más adelante.",
+      installApp: "Instalar en GitHub",
+      expiredTitle: "La conexión con GitHub caducó",
+      expiredBody: "No se usó durante seis meses o se revocó en GitHub. Vuelve a conectarla.",
+    },
+    boilerplate: {
+      title: "Catálogo de boilerplates",
+      descPrefix: "Antes de escribir código desde cero, los agentes consultan",
+      descMid: "en este repositorio; si existe un boilerplate adecuado, empiezan copiándolo.",
+      descSuffix: "o una URL completa son formatos válidos.",
+      loadFailed: "No se pudo cargar la configuración",
+    },
+    notifications: {
+      title: "Notificaciones de escritorio",
+      help: "Notificaciones nativas para los eventos del tablero que requieren tu atención. Siguen funcionando después de cerrar la ventana.",
+      unavailable: "Las notificaciones de escritorio solo están disponibles en la app de TaskTrooper, no en un navegador.",
+      enabled: "Activadas",
+      analizReview: "Análisis listo para tu revisión",
+      humanUat: "Esperando tu UAT",
+      humanNeeded: "Un agente necesita una decisión humana",
+      agentComments: "Nuevos comentarios de agentes",
+      agentChatReplies: "Respuestas de agentes en el chat",
+      loadFailed: "No se pudo cargar la configuración",
+      saveFailed: "No se pudo guardar",
+    },
+    concurrency: {
+      title: "Límites de concurrencia",
+      agentsLabel: "Máx. de agentes simultáneos",
+      tasksLabel: "Máx. de tareas simultáneas",
+      agentsHelp: "Cuántas ejecuciones de agentes pueden correr a la vez desde el tablero.",
+      tasksHelp: "Cuántas tareas distintas pueden tener un agente en ejecución a la vez.",
+      zeroHint: "0 significa sin límite",
+      reset: "Sin límite",
+      resetting: "Restableciendo…",
+      loadFailed: "No se pudo cargar la configuración",
+      saveFailed: "No se pudo guardar",
+    },
+  },
+  addRepository,
+  agentArea,
+  analysisReview,
+  boardArea,
+  activityArea,
+  chatArea,
+  cloud,
+  content,
+  frame,
+  lib,
+  operations,
+  projectAdmin,
+  projectModel,
+  projectsHub,
+  release,
+  repositoryPage,
+  settingsPages,
+  setup,
+};

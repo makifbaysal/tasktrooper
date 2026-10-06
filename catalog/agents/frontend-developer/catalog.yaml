@@ -69,6 +69,7 @@ tool_policy:
         - load_deploy_template
         - search_boilerplate_catalog
         - get_pipeline_status
+        - declare_env_vars
     allow_mcp_servers: []
 roles:
     - key: developer

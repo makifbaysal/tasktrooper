@@ -38,6 +38,7 @@ func init() {
 		getPipelineStatusToolName,
 		getTaskPreviewToolName,
 		startTaskPreviewToolName,
+		declareEnvVarsToolName,
 		listProjectsToolName,
 		listRepositoriesToolName,
 		createProjectToolName,

@@ -26,8 +26,13 @@ export const lib = {
       work_order: "Waiting for blocking tasks",
       human_decision: "Needs a human decision",
       analysis_questions: "Open questions need your answer",
+      deploy_order: "Merge waits for the deploy order",
+      before_deploy: "Merge waits for before-deploy steps",
+      delivery_profile: "Merge waits for the delivery profile",
+      deploy_env: "Merge waits for env vars",
     },
     blockedResourceFallback: "Waiting for a shared resource",
+    deployOrderBlocker: "Merge waits for {keys}",
   },
   plan: {
     step: {

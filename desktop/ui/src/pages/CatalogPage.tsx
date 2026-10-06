@@ -18,6 +18,7 @@ export function CatalogPage() {
   const [pending, setPending] = useState<CatalogPending[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,6 +65,20 @@ export function CatalogPage() {
       setPending((cur) => cur.filter((item) => item.id !== id));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.saveFailed"));
+    }
+  };
+
+  const applyUpstream = async (id: string) => {
+    setApplyingId(id);
+    try {
+      await api.applyCatalogPending(id);
+      toast.success(t("settingsPages.catalog.applyToast"));
+      const list = await api.listCatalogPending();
+      setPending(list.items ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("settingsPages.catalog.applyFailed"));
+    } finally {
+      setApplyingId(null);
     }
   };
 
@@ -122,8 +137,8 @@ export function CatalogPage() {
             <div className="mt-1 text-2xl font-semibold">{summary?.skipped ?? 0}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">{t("settingsPages.catalog.pendingCount", { count: state?.pending_count ?? 0 })}</div>
-            <div className="mt-1 text-2xl font-semibold">{state?.pending_count ?? 0}</div>
+            <div className="text-muted-foreground">{t("settingsPages.catalog.pendingCount", { count: pending.length })}</div>
+            <div className="mt-1 text-2xl font-semibold">{pending.length}</div>
           </div>
         </div>
         <div className="mt-4 border-t border-border pt-3 text-sm">
@@ -142,6 +157,9 @@ export function CatalogPage() {
           <h3 className="text-base font-semibold">{t("settingsPages.catalog.pendingTitle")}</h3>
           <span className="text-sm text-muted-foreground">{pending.length}</span>
         </div>
+        {pending.length > 0 && (
+          <p className="text-sm text-muted-foreground">{t("settingsPages.catalog.pendingHelp")}</p>
+        )}
         {pending.length === 0 ? (
           <Card className="p-6 text-sm text-muted-foreground">{t("settingsPages.catalog.pendingEmpty")}</Card>
         ) : (
@@ -158,9 +176,14 @@ export function CatalogPage() {
                   · {item.reason}
                 </div>
               </div>
-              <Button size="sm" variant="outline" onClick={() => void dismiss(item.id)}>
-                {t("settingsPages.catalog.dismiss")}
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => void applyUpstream(item.id)} disabled={applyingId !== null}>
+                  {applyingId === item.id ? t("settingsPages.catalog.applying") : t("settingsPages.catalog.applyUpstream")}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => void dismiss(item.id)} disabled={applyingId !== null}>
+                  {t("settingsPages.catalog.dismiss")}
+                </Button>
+              </div>
             </Card>
           ))
         )}

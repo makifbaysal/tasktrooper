@@ -3,6 +3,7 @@ import { Notice } from "@/components/ui/notice";
 import { StatTile } from "@/components/ui/stat-tile";
 import { useI18n } from "@/hooks/useI18n";
 import { CHUNK_KINDS, type ChunkKind, type KindShare } from "@/lib/embeddingMapTopics";
+import { intlLocale } from "@/lib/languages";
 import { formatCompact } from "@/lib/usage";
 import { formatRelativeTime } from "@/lib/utils";
 
@@ -50,7 +51,7 @@ export function EmbeddingMapSummary({
   const s = (key: string, params?: Record<string, string | number>) =>
     t(`content.embeddingMap.summary.${key}`, params);
   const code = source === "code";
-  const locale = lang === "tr" ? "tr-TR" : "en-US";
+  const locale = intlLocale(lang);
 
   const visibleKinds = composition ? composition.filter((entry) => entry.count > 0) : [];
   const compositionTotal = visibleKinds.reduce((sum, entry) => sum + entry.count, 0);

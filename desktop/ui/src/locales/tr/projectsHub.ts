@@ -47,6 +47,12 @@ export const projectsHub: ProjectsHubDict = {
     title: "Projesiz repolar",
     description: "Henüz bir projeye bağlı değil.",
     addToProject: "Projeye ekle",
+    remove: "Repoyu kaldır",
+    removeTitle: "{name} kaldırılsın mı?",
+    removeDescription:
+      "Görevleri, taramaları ve geçmişi TaskTrooper'dan kalıcı olarak silinir. Yerel klasör ve GitHub reposu olduğu gibi kalır.",
+    removed: "Repo kaldırıldı",
+    removeFailed: "Repo kaldırılamadı",
   },
   empty: {
     title: "İlk projeni oluştur",

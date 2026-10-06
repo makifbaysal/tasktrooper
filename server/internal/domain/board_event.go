@@ -118,6 +118,9 @@ const (
 	// The run changed the UI but never looked at the screen; same bounce as
 	// handoff_unverified, for the visual evidence guard.
 	MoveReasonHandoffUnseenUI = "handoff_unseen_ui"
+	// GitHub refused the branch push because it changes a workflow file and
+	// the token lacks the workflow scope; a human has to save a better token.
+	MoveReasonPushWorkflowScope = "push_workflow_scope"
 )
 
 type BoardEvent struct {

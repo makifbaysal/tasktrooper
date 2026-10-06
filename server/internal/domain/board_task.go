@@ -419,7 +419,18 @@ const (
 )
 
 // BeforeDeployPending reports steps a human still has to perform before this
-// task may ship.
+// task may ship. The generated order note is not such a step: the deploy order
+// it describes is enforced by the release gate on its own, so a field holding
+// nothing else must not wait for a human.
 func (t BoardTask) BeforeDeployPending() bool {
-	return t.BeforeDeploy != nil && strings.TrimSpace(*t.BeforeDeploy) != "" && t.BeforeDeployConfirmedAt == nil
+	return t.BeforeDeploySteps() != "" && t.BeforeDeployConfirmedAt == nil
+}
+
+// BeforeDeploySteps is the human-written part of BeforeDeploy, without the
+// generated order note.
+func (t BoardTask) BeforeDeploySteps() string {
+	if t.BeforeDeploy == nil {
+		return ""
+	}
+	return StripOrderNote(*t.BeforeDeploy)
 }

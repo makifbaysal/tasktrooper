@@ -12,6 +12,7 @@ package board
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -164,6 +165,9 @@ func (t *commitTaskChangesTool) Execute(ctx context.Context, arguments string) d
 	}
 	result, err := t.kit.PullRequests.CommitTaskChanges(ctx, repositoryID, taskID, args.Message)
 	if err != nil {
+		if errors.Is(err, domain.ErrGitHubWorkflowScope) {
+			return toolError(commitTaskChangesToolName, err.Error()+pushWorkflowScopeToolKey.Render(struct{}{}))
+		}
 		return toolError(commitTaskChangesToolName, err.Error())
 	}
 	// Nothing to commit is reported as a normal result, not an error: an error

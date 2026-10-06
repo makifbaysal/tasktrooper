@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { TaskTypeDef } from "@/api";
 import {
+  beforeDeploySteps,
+  deployOrderBlockerLabel,
   filterTasksByScope,
+  isBeforeDeployPending,
+  isMergeHold,
   pipelineStatusVariant,
   projectScopeCounts,
   runStatusVariant,
@@ -13,6 +17,66 @@ import {
   taskTypeOptions,
   workOrderBlockerLabel,
 } from "@/lib/project-board";
+
+const ORDER_NOTE =
+  "<!-- tt:order -->\n**Release order (generated from this task's relations — do not edit by hand):**\n" +
+  "- Ships after: T-100 (CMS API/auth foundation (serverless, GitHub Contents API)).\n<!-- /tt:order -->";
+
+describe("beforeDeploySteps", () => {
+  it("drops the generated order note", () => {
+    expect(beforeDeploySteps(ORDER_NOTE)).toBe("");
+  });
+
+  it("keeps what a human wrote around the order note", () => {
+    expect(beforeDeploySteps(`${ORDER_NOTE}\n\nRun the backfill`)).toBe("Run the backfill");
+  });
+
+  it("treats an unterminated note as running to the end, like the server", () => {
+    expect(beforeDeploySteps("Rotate the key\n<!-- tt:order -->\n- Ships after: T-1")).toBe("Rotate the key");
+  });
+
+  it("reads a missing field as no steps", () => {
+    expect(beforeDeploySteps(undefined)).toBe("");
+  });
+});
+
+describe("isBeforeDeployPending", () => {
+  it("never asks to confirm an order note alone", () => {
+    expect(isBeforeDeployPending({ before_deploy: ORDER_NOTE, before_deploy_confirmed_at: null })).toBe(false);
+  });
+
+  it("asks to confirm human steps until they are confirmed", () => {
+    const before_deploy = `${ORDER_NOTE}\n\nRun the backfill`;
+    expect(isBeforeDeployPending({ before_deploy, before_deploy_confirmed_at: null })).toBe(true);
+    expect(isBeforeDeployPending({ before_deploy, before_deploy_confirmed_at: "2026-10-05T15:40:00Z" })).toBe(false);
+  });
+});
+
+describe("isMergeHold", () => {
+  it("knows the three merge holds and nothing else", () => {
+    expect(isMergeHold("deploy_order")).toBe(true);
+    expect(isMergeHold("before_deploy")).toBe(true);
+    expect(isMergeHold("delivery_profile")).toBe(true);
+    expect(isMergeHold("work_order")).toBe(false);
+    expect(isMergeHold(undefined)).toBe(false);
+  });
+});
+
+describe("deployOrderBlockerLabel", () => {
+  it("names the task the merge waits for, even with parentheses in its title", () => {
+    expect(
+      deployOrderBlockerLabel("T-100 (CMS API/auth foundation (serverless, GitHub Contents API)) [done]"),
+    ).toBe("Merge waits for T-100");
+  });
+
+  it("counts the rest", () => {
+    expect(deployOrderBlockerLabel("T-100 (CMS) [done], T-99 (Auth) [in_qa]")).toBe("Merge waits for T-100 +1");
+  });
+
+  it("falls back to the resource label when the detail is empty", () => {
+    expect(deployOrderBlockerLabel("")).toBe("Merge waits for the deploy order");
+  });
+});
 
 describe("workOrderBlockerLabel", () => {
   it("shows the single blocker's task key", () => {

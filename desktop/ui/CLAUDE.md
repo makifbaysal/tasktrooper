@@ -67,9 +67,12 @@ stop the **backend**, not a tunnel.
 
 ## Locales
 
-`src/locales/en.ts` is the source of truth and defines `Dict`; `tr.ts` is typed
-as `Dict`, so a missing or extra key fails `tsc`. Keys built at runtime escape
-that check — `npm run check:locales` compares the two flattened key sets.
+`src/locales/en.ts` is the source of truth and defines `Dict`; every other
+language (`tr`, `es`, `de`, `fr`, `pt`, `zh` — registered in
+`src/lib/languages.ts`) is typed as `Dict`, so a missing or extra key fails
+`tsc`. Keys built at runtime escape that check — `npm run check:locales`
+compares every language's flattened key set and `{placeholder}` names with
+`en`. A new English key needs a translation in every language.
 
 ## Verify before committing
 

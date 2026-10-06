@@ -26,8 +26,13 @@ export const lib: LibDict = {
       work_order: "Bloke eden görevler bekleniyor",
       human_decision: "İnsan kararı gerekiyor",
       analysis_questions: "Açık sorular cevabını bekliyor",
+      deploy_order: "Merge yayın sırasını bekliyor",
+      before_deploy: "Merge deploy öncesi adımları bekliyor",
+      delivery_profile: "Merge deploy profilini bekliyor",
+      deploy_env: "Merge env değişkenlerini bekliyor",
     },
     blockedResourceFallback: "Paylaşılan kaynak bekleniyor",
+    deployOrderBlocker: "Merge {keys} bekliyor",
   },
   plan: {
     step: {

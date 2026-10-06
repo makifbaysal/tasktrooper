@@ -53,7 +53,8 @@ func TestParseStreamReadsAFinishedSession(t *testing.T) {
 	assert.Equal(t, "Hello", out.Text)
 	assert.Equal(t, "stop", out.Status)
 	assert.Equal(t, 0.02, out.CostUSD)
-	assert.Equal(t, domain.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120, CacheReadTokens: 10, CacheWriteTokens: 1}, out.Usage)
+	assert.Equal(t, domain.Usage{PromptTokens: 111, CompletionTokens: 25, TotalTokens: 136, CacheReadTokens: 10, CacheWriteTokens: 1}, out.Usage,
+		"opencode's input excludes both cache buckets and its output excludes reasoning; the domain counts them inside")
 
 	assert.Equal(t, []string{"ses_1"}, sink.sessions)
 	assert.Equal(t, 1, sink.turns)
@@ -177,9 +178,11 @@ func TestParseStreamSumsStepsAndCapturesSubagentSessions(t *testing.T) {
 	assert.Equal(t, "stop", out.Status)
 	assert.InDelta(t, 0.06, out.CostUSD, 1e-9)
 	assert.Equal(t, domain.Usage{
-		PromptTokens: 6000, CompletionTokens: 600, TotalTokens: 6600,
+		PromptTokens: 24350, CompletionTokens: 600, TotalTokens: 24950,
 		CacheReadTokens: 18000, CacheWriteTokens: 350,
 	}, out.Usage)
+	assert.LessOrEqual(t, out.Usage.CacheReadTokens+out.Usage.CacheWriteTokens, out.Usage.PromptTokens,
+		"cache buckets are a subset of the prompt, so a cache hit rate can never pass 100%")
 	assert.Equal(t, []string{"ses_child1"}, out.ChildSessions)
 	assert.Equal(t, "subagent", ledgerToolName("task"))
 	assert.Equal(t, []string{"task"}, sink.toolDone)

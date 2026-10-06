@@ -89,6 +89,8 @@ func (s *Service) GetConfig(ctx context.Context) (domain.WorkspaceConfig, error)
 		Members:       members,
 		Subscriptions: subs,
 		Transitions:   transitions,
+
+		DefaultTransitions: domain.DefaultBoardTransitions(),
 	}, nil
 }
 

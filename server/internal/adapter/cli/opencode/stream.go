@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
 const maxStreamLine = 8 << 20
@@ -68,17 +69,45 @@ func childSessionID(p toolPart) string {
 // finishPart is one step's spend: opencode emits a step_finish per model
 // step, so the run's total is their sum.
 type finishPart struct {
-	Reason string  `json:"reason"`
-	Cost   float64 `json:"cost"`
-	Tokens struct {
-		Input     int `json:"input"`
-		Output    int `json:"output"`
-		Reasoning int `json:"reasoning"`
-		Cache     struct {
-			Read  int `json:"read"`
-			Write int `json:"write"`
-		} `json:"cache"`
-	} `json:"tokens"`
+	Reason string      `json:"reason"`
+	Cost   float64     `json:"cost"`
+	Tokens tokenCounts `json:"tokens"`
+}
+
+// tokenCounts is opencode's own split, which is disjoint: input excludes both
+// cache buckets and output excludes reasoning, so its tokens.total is the sum
+// of all five. domain.Usage counts the cache buckets inside the prompt and
+// reasoning inside the completion.
+type tokenCounts struct {
+	Input     int `json:"input"`
+	Output    int `json:"output"`
+	Reasoning int `json:"reasoning"`
+	Cache     struct {
+		Read  int `json:"read"`
+		Write int `json:"write"`
+	} `json:"cache"`
+}
+
+func (t tokenCounts) toDomain() domain.Usage {
+	prompt := t.Input + t.Cache.Read + t.Cache.Write
+	completion := t.Output + t.Reasoning
+	return domain.Usage{
+		PromptTokens:     prompt,
+		CompletionTokens: completion,
+		TotalTokens:      prompt + completion,
+		CacheReadTokens:  t.Cache.Read,
+		CacheWriteTokens: t.Cache.Write,
+	}
+}
+
+func addUsage(a, b domain.Usage) domain.Usage {
+	return domain.Usage{
+		PromptTokens:     a.PromptTokens + b.PromptTokens,
+		CompletionTokens: a.CompletionTokens + b.CompletionTokens,
+		TotalTokens:      a.TotalTokens + b.TotalTokens,
+		CacheReadTokens:  a.CacheReadTokens + b.CacheReadTokens,
+		CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens,
+	}
 }
 
 type sink = core.Sink
@@ -153,11 +182,7 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 				out.SawResult = true
 				out.Status = p.Reason
 				out.CostUSD += p.Cost
-				out.Usage.PromptTokens += p.Tokens.Input
-				out.Usage.CompletionTokens += p.Tokens.Output
-				out.Usage.TotalTokens = out.Usage.PromptTokens + out.Usage.CompletionTokens
-				out.Usage.CacheReadTokens += p.Tokens.Cache.Read
-				out.Usage.CacheWriteTokens += p.Tokens.Cache.Write
+				out.Usage = addUsage(out.Usage, p.Tokens.toDomain())
 			}
 		case "error":
 			out.SawResult = true

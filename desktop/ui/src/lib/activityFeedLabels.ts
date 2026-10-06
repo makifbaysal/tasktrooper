@@ -1,5 +1,6 @@
 import { stepLabel } from "@/lib/planUtils";
 import { stripMcpPrefix, type FeedCurrent, type FeedItem, type FeedLane, type FeedTool, type ToolKind } from "@/lib/activityFeed";
+import { intlLocale } from "@/lib/languages";
 
 export type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -102,7 +103,7 @@ export function durationBetween(startedAt: string | undefined, endedAt: string |
 export function formatClock(iso: string, lang: string, withSeconds = false): string {
   const time = Date.parse(iso);
   if (!Number.isFinite(time)) return "";
-  return new Date(time).toLocaleTimeString(lang === "tr" ? "tr-TR" : "en-US", {
+  return new Date(time).toLocaleTimeString(intlLocale(lang), {
     hour: "2-digit",
     minute: "2-digit",
     ...(withSeconds ? { second: "2-digit" } : {}),

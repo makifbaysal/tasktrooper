@@ -22,15 +22,8 @@ const (
 type sessionExport struct {
 	Messages []struct {
 		Info struct {
-			Role   string `json:"role"`
-			Tokens struct {
-				Input  int `json:"input"`
-				Output int `json:"output"`
-				Cache  struct {
-					Read  int `json:"read"`
-					Write int `json:"write"`
-				} `json:"cache"`
-			} `json:"tokens"`
+			Role   string      `json:"role"`
+			Tokens tokenCounts `json:"tokens"`
 		} `json:"info"`
 	} `json:"messages"`
 }
@@ -47,12 +40,8 @@ func parseSessionExport(raw []byte) (domain.Usage, error) {
 		if m.Info.Role != "assistant" {
 			continue
 		}
-		u.PromptTokens += m.Info.Tokens.Input
-		u.CompletionTokens += m.Info.Tokens.Output
-		u.CacheReadTokens += m.Info.Tokens.Cache.Read
-		u.CacheWriteTokens += m.Info.Tokens.Cache.Write
+		u = addUsage(u, m.Info.Tokens.toDomain())
 	}
-	u.TotalTokens = u.PromptTokens + u.CompletionTokens
 	return u, nil
 }
 

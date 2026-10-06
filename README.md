@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="A card dragged from Todo to In Progress; the backend-developer agent starts a headless agent CLI session, reads the repo, writes the rate limiter and runs the tests." width="100%">
+  <img src="docs/assets/demo.gif" alt="A rate-limiting card dragged from Todo to In Progress, where the backend-developer agent picks it up; the task opens with its description, acceptance criteria and the product manager's and architect's comments; then Settings, Board shows the transition rules graph and the moves allowed out of In Progress." width="100%">
 </p>
 # TaskTrooper
 

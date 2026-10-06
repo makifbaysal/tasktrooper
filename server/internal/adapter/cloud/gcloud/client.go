@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	defaultRunBaseURL       = "https://run.googleapis.com"
-	defaultContainerBaseURL = "https://container.googleapis.com"
+	defaultRunBaseURL             = "https://run.googleapis.com"
+	defaultContainerBaseURL       = "https://container.googleapis.com"
+	defaultSecretManagerBaseURL   = "https://secretmanager.googleapis.com"
+	defaultResourceManagerBaseURL = "https://cloudresourcemanager.googleapis.com"
 )
 
 const tokenRefreshMargin = 30 * time.Second
@@ -38,10 +40,12 @@ type Client struct {
 	sa        parsedServiceAccount
 	projectID string
 
-	runBaseURL       string
-	containerBaseURL string
-	tokenURL         string
-	httpClient       *http.Client
+	runBaseURL             string
+	containerBaseURL       string
+	secretManagerBaseURL   string
+	resourceManagerBaseURL string
+	tokenURL               string
+	httpClient             *http.Client
 
 	mu     sync.Mutex
 	tokens map[string]cachedToken
@@ -64,13 +68,15 @@ func New(cred domain.GCloudCredential) (*Client, error) {
 		return nil, errors.New("gcloud: no project id — the key file names none and none was supplied")
 	}
 	return &Client{
-		sa:               sa,
-		projectID:        projectID,
-		runBaseURL:       defaultRunBaseURL,
-		containerBaseURL: defaultContainerBaseURL,
-		tokenURL:         sa.TokenURL,
-		httpClient:       &http.Client{Timeout: 30 * time.Second},
-		tokens:           make(map[string]cachedToken, 1),
+		sa:                     sa,
+		projectID:              projectID,
+		runBaseURL:             defaultRunBaseURL,
+		containerBaseURL:       defaultContainerBaseURL,
+		secretManagerBaseURL:   defaultSecretManagerBaseURL,
+		resourceManagerBaseURL: defaultResourceManagerBaseURL,
+		tokenURL:               sa.TokenURL,
+		httpClient:             &http.Client{Timeout: 30 * time.Second},
+		tokens:                 make(map[string]cachedToken, 1),
 	}, nil
 }
 
@@ -78,9 +84,11 @@ func (c *Client) Identity() domain.GCloudIdentity {
 	return domain.GCloudIdentity{ProjectID: c.projectID, ClientEmail: c.sa.ClientEmail}
 }
 
-func (c *Client) SetRunBaseURL(u string)       { c.runBaseURL = u }
-func (c *Client) SetContainerBaseURL(u string) { c.containerBaseURL = u }
-func (c *Client) SetTokenURL(u string)         { c.tokenURL = u }
+func (c *Client) SetRunBaseURL(u string)             { c.runBaseURL = u }
+func (c *Client) SetContainerBaseURL(u string)       { c.containerBaseURL = u }
+func (c *Client) SetSecretManagerBaseURL(u string)   { c.secretManagerBaseURL = u }
+func (c *Client) SetResourceManagerBaseURL(u string) { c.resourceManagerBaseURL = u }
+func (c *Client) SetTokenURL(u string)               { c.tokenURL = u }
 
 func (c *Client) bearerToken(ctx context.Context, scope string) (string, error) {
 	c.mu.Lock()
@@ -162,6 +170,45 @@ func (c *Client) patch(ctx context.Context, baseURL, path string, body any, out 
 	}
 	defer resp.Body.Close()
 
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &apiError{Status: resp.StatusCode, Body: domain.TruncateHead(string(data), 500)}
+	}
+	if out != nil && len(data) > 0 {
+		return json.Unmarshal(data, out)
+	}
+	return nil
+}
+
+// send is patch for any method with a JSON body. The body may carry a secret
+// payload, so an error echoes the response, never the request.
+func (c *Client) send(ctx context.Context, method, baseURL, path string, body any, out any) error {
+	tok, err := c.bearerToken(ctx, cloudPlatformScope)
+	if err != nil {
+		return err
+	}
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &apiError{Status: resp.StatusCode, Body: domain.TruncateHead(string(data), 500)}

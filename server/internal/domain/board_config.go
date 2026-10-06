@@ -100,6 +100,66 @@ type WorkspaceConfig struct {
 	Members       []BoardMember       `json:"members"`
 	Subscriptions []BoardSubscription `json:"subscriptions"`
 	Transitions   []BoardTransition   `json:"transitions"`
+	// DefaultTransitions is what "Reset to defaults" applies.
+	DefaultTransitions []BoardTransition `json:"default_transitions"`
+}
+
+// requiredTransitions are the moves the product itself makes or tells an agent
+// to make (runner auto-enter and hand-offs, the review verdict sweep, the
+// unchanged-diff skip, release finish/rollback, human review decisions). A
+// restricted graph missing one of them stalls the pipeline in that column,
+// since ValidateTransition checks system and agent moves too. Parks into and
+// out of blocked bypass the check, so blocked needs none.
+var requiredTransitions = []BoardTransition{
+	{From: "backlog", To: "todo"},
+	{From: "todo", To: "in_progress"},
+	{From: "in_progress", To: "code_review"},
+	{From: "in_progress", To: "analiz_review"},
+	{From: "in_progress", To: "need_revision"},
+	{From: "in_progress", To: "human_uat"},
+	{From: "analiz_review", To: "done"},
+	{From: "analiz_review", To: "need_revision"},
+	{From: "code_review", To: "ready_for_qa"},
+	{From: "code_review", To: "need_revision"},
+	{From: "ready_for_qa", To: "in_qa"},
+	{From: "ready_for_qa", To: "need_revision"},
+	{From: "in_qa", To: "pm_uat"},
+	{From: "in_qa", To: "human_uat"},
+	{From: "in_qa", To: "need_revision"},
+	{From: "need_revision", To: "in_progress"},
+	{From: "need_revision", To: "code_review"},
+	{From: "need_revision", To: "analiz_review"},
+	{From: "pm_uat", To: "human_uat"},
+	{From: "pm_uat", To: "need_revision"},
+	{From: "human_uat", To: "done"},
+	{From: "human_uat", To: "need_revision"},
+	{From: "done", To: "released"},
+	{From: "done", To: "need_revision"},
+	{From: "released", To: "need_revision"},
+}
+
+// DefaultBoardTransitions is the recommended graph for the stock columns: the
+// required moves, plus parking by hand from any active column, the diff-skip
+// fallback past in_qa, a rare todo bounce and un-starting a task. blocked has
+// no rows on purpose — a park returns to whatever column it came from.
+func DefaultBoardTransitions() []BoardTransition {
+	out := append([]BoardTransition{}, requiredTransitions...)
+	out = append(out,
+		BoardTransition{From: "todo", To: "need_revision"},
+		BoardTransition{From: "in_progress", To: "todo"},
+		BoardTransition{From: "ready_for_qa", To: "pm_uat"},
+		BoardTransition{From: "ready_for_qa", To: "human_uat"},
+	)
+	for _, from := range []string{"todo", "in_progress", "analiz_review", "code_review", "ready_for_qa", "in_qa", "need_revision", "pm_uat", "human_uat", "done"} {
+		out = append(out, BoardTransition{From: from, To: "blocked"})
+	}
+	return out
+}
+
+// RequiredBoardTransitions is the subset DefaultBoardTransitions cannot drop
+// without stalling the automation.
+func RequiredBoardTransitions() []BoardTransition {
+	return append([]BoardTransition{}, requiredTransitions...)
 }
 
 func DefaultBoardColumnTemplate() []BoardColumnInput {

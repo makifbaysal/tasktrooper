@@ -257,7 +257,7 @@ export function ProjectsPage() {
                 <UnassignedRepositoriesCard
                   repositories={filteredUnassigned}
                   projects={overview?.projects ?? []}
-                  onAssigned={() => void reload()}
+                  onChanged={() => void reload()}
                 />
               )}
             </>

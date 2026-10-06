@@ -5,17 +5,10 @@ import { AppStoreConnectCard } from "@/components/admin/AppStoreConnectCard";
 import { CloudAccountsCard } from "@/components/admin/CloudAccountsCard";
 import { GitHubCard } from "@/components/admin/GitHubCard";
 import { GooglePlayCard } from "@/components/admin/GooglePlayCard";
-import { PageHeader } from "@/components/admin/PageHeader";
+import { IntegrationSection } from "@/components/admin/IntegrationCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { tStatic, useI18n } from "@/hooks/useI18n";
 
-/**
- * Settings → Integrations: every outside account TaskTrooper signs in to.
- *
- * GitHub's OAuth callback is a fixed redirect to /settings, which this page is
- * not — so its card is told to park this path, and SettingsPage forwards the
- * answer here.
- */
 export function IntegrationsSettingsPage() {
   const { t } = useI18n();
   const [credentials, setCredentials] = useState<StoreCredentialView[]>([]);
@@ -41,26 +34,30 @@ export function IntegrationsSettingsPage() {
     credentials.find((c) => c.provider === provider);
 
   return (
-    <>
-      <PageHeader
-        title={t("settingsPages.integrations.title")}
-        description={t("settingsPages.integrations.description")}
-      />
-      <div className="grid gap-x-4 lg:grid-cols-2">
-        <GitHubCard />
-        <CloudAccountsCard />
-        {loading ? (
-          <>
-            <Skeleton className="mt-4 h-72 w-full" />
-            <Skeleton className="mt-4 h-72 w-full" />
-          </>
-        ) : (
-          <>
-            <AppStoreConnectCard credential={credentialFor("asc")} onChanged={() => void load()} />
-            <GooglePlayCard credential={credentialFor("google_play")} onChanged={() => void load()} />
-          </>
-        )}
+    <div className="grid items-start gap-x-6 gap-y-8 lg:grid-cols-2">
+      <div className="min-w-0 space-y-8">
+        <IntegrationSection title={t("settingsPages.integrations.sections.code")}>
+          <GitHubCard />
+        </IntegrationSection>
+        <IntegrationSection title={t("settingsPages.integrations.sections.stores")}>
+          {loading ? (
+            <>
+              <Skeleton className="h-20 w-full rounded-xl" />
+              <Skeleton className="h-20 w-full rounded-xl" />
+            </>
+          ) : (
+            <>
+              <AppStoreConnectCard credential={credentialFor("asc")} onChanged={() => void load()} />
+              <GooglePlayCard credential={credentialFor("google_play")} onChanged={() => void load()} />
+            </>
+          )}
+        </IntegrationSection>
       </div>
-    </>
+      <div className="min-w-0">
+        <IntegrationSection title={t("settingsPages.integrations.sections.cloud")}>
+          <CloudAccountsCard />
+        </IntegrationSection>
+      </div>
+    </div>
   );
 }

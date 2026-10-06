@@ -1,3 +1,0 @@
-- [ ] solid ve design patternleri kodda kulllansin
-- [ ] html rapor uzerinden acik sorular kismi koyup ordan cevaplari yazabilmek
-- [ ] acik soru varsa da blocked a cekmek lazim

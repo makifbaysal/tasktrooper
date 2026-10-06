@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -250,4 +251,32 @@ func (s *SettingsStore) SetGitHubToken(ctx context.Context, token string) error 
 // DeleteGitHubToken, kayıtlı token'ı siler.
 func (s *SettingsStore) DeleteGitHubToken(ctx context.Context) error {
 	return s.forgetKeys(ctx, githubTokenKey)
+}
+
+const githubAppAuthKey = "github_app_auth"
+
+// GitHubAppAuth is the GitHub App connection, encrypted like the token: it
+// holds a refresh token that keeps the connection alive for months.
+func (s *SettingsStore) GitHubAppAuth(ctx context.Context) (domain.GitHubAppAuth, bool, error) {
+	raw, err := s.secret(ctx, githubAppAuthKey)
+	if err != nil || raw == "" {
+		return domain.GitHubAppAuth{}, false, err
+	}
+	var auth domain.GitHubAppAuth
+	if err := json.Unmarshal([]byte(raw), &auth); err != nil {
+		return domain.GitHubAppAuth{}, false, fmt.Errorf("decode %s: %w", githubAppAuthKey, err)
+	}
+	return auth, auth.Token.AccessToken != "", nil
+}
+
+func (s *SettingsStore) SetGitHubAppAuth(ctx context.Context, auth domain.GitHubAppAuth) error {
+	raw, err := json.Marshal(auth)
+	if err != nil {
+		return err
+	}
+	return s.setSecret(ctx, githubAppAuthKey, string(raw))
+}
+
+func (s *SettingsStore) DeleteGitHubAppAuth(ctx context.Context) error {
+	return s.forgetKeys(ctx, githubAppAuthKey)
 }

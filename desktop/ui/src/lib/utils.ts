@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
+import { intlLocale, normalizeLang, type Lang } from "@/lib/languages";
 
 // tailwind-merge only knows Tailwind's default text-size scale (xs/sm/base/…).
 // Our own scale (globals.css `--text-*`) doesn't match any of those names, so
@@ -22,8 +23,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDate(iso: string): string {
-  const locale = localStorage.getItem("bridge_locale") === "en" ? "en-US" : "tr-TR";
-  return new Date(iso).toLocaleString(locale, {
+  return new Date(iso).toLocaleString(intlLocale(localStorage.getItem("bridge_locale")), {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -64,16 +64,26 @@ const RELATIVE_STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
 // formatRelativeDate's words are English only; this one speaks the UI language.
 export function formatRelativeTime(iso: string, lang: string, now: number = Date.now()): string {
   let value = (Date.parse(iso) - now) / 1000;
-  const rtf = new Intl.RelativeTimeFormat(lang === "tr" ? "tr-TR" : "en-US", { numeric: "auto" });
+  const rtf = new Intl.RelativeTimeFormat(intlLocale(lang), { numeric: "auto" });
   for (const [unit, size] of RELATIVE_STEPS) {
     if (Math.abs(value) < size) return rtf.format(Math.round(value), unit);
     value /= size;
   }
-  return new Date(iso).toLocaleDateString(lang === "tr" ? "tr-TR" : "en-US", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString(intlLocale(lang), { day: "numeric", month: "short", year: "numeric" });
 }
 
+const DURATION_UNITS: Record<Lang, readonly [second: string, minute: string, hour: string]> = {
+  en: ["s", "m", "h"],
+  tr: ["sn", "dk", "sa"],
+  es: ["s", "min", "h"],
+  de: ["s", "min", "h"],
+  fr: ["s", "min", "h"],
+  pt: ["s", "min", "h"],
+  zh: ["秒", "分", "小时"],
+};
+
 export function formatDuration(ms: number, lang: string): string {
-  const [s, m, h] = lang === "tr" ? ["sn", "dk", "sa"] : ["s", "m", "h"];
+  const [s, m, h] = DURATION_UNITS[normalizeLang(lang)];
   const total = Math.round(ms / 1000);
   if (total < 60) return `${total}${s}`;
   const minutes = Math.floor(total / 60);

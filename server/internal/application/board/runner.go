@@ -1174,6 +1174,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	}
 	run.Summary = truncateHead(run.Summary, 500)
 	if taskWorkspace != "" && resp.Clarification == nil && resp.ResourceBlock == nil && wf.Has(job.Task.Column, domain.BehaviourCommitOnFinish) {
+		pushRefused := false
 		if job.Task.TaskType.PublishesBranch() {
 			commitMsg := r.writeCommitMessage(ctx, commitDetails{
 				TaskKey:   job.Task.Key,
@@ -1184,11 +1185,19 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			})
 			if pushErr := r.git.CommitAndPush(ctx, taskWorkspace, commitMsg); pushErr != nil {
 				log.Warn().Err(pushErr).Str("task_id", job.Task.ID.String()).Msg("task workspace commit/push failed")
+				// The pull request does not carry this change, so handing it to
+				// review would approve something other than what was written.
+				if errors.Is(pushErr, domain.ErrGitHubWorkflowScope) {
+					pushRefused = true
+					r.parkOnWorkflowScope(ctx, job)
+				}
 			} else if r.branchIndexer != nil && taskBranch != "" {
 				r.branchIndexer.StartIndexBranch(ctx, job.RepositoryID, taskBranch, taskWorkspace)
 			}
 		}
-		if buildVerified {
+		if pushRefused {
+			log.Info().Str("task_id", job.Task.ID.String()).Msg("hand-off: push refused for a workflow file, task parked for a token")
+		} else if buildVerified {
 			r.advanceToCodeReview(ctx, job, wf, taskWorkspace, toolUsage)
 			if !r.blockOnPendingQuestions(ctx, job) {
 				r.advanceToAnalizReview(ctx, job, wf, toolUsage)
@@ -1205,6 +1214,22 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	defer cancelPersist()
 	_, err = r.runs.Update(pctx, run)
 	return err
+}
+
+// parkOnWorkflowScope parks a task whose push GitHub refused for want of the
+// workflow scope: no agent run can fix a token, so it waits on a human.
+func (r *Runner) parkOnWorkflowScope(ctx context.Context, job RunJob) {
+	r.commentSystem(ctx, job, prompt.Text(pushWorkflowScopeCommentKey))
+	if r.blocker == nil {
+		return
+	}
+	previous, err := r.blocker.BlockOnResource(ctx, job.RepositoryID, job.Task.ID,
+		domain.ResourceHumanDecision, prompt.Text(pushWorkflowScopeDetailKey))
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("parking a task whose push lacked the workflow scope failed")
+		return
+	}
+	r.parks.Record(ctx, job.RepositoryID, job.Task, previous, domain.ResourceHumanDecision, domain.MoveReasonPushWorkflowScope)
 }
 
 func (r *Runner) parkOnResource(ctx context.Context, job RunJob, agentRec domain.Agent, resp domain.AgentResponse) {
@@ -1516,7 +1541,17 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 		}
 	}
 
-	if usage != nil && !usage.UsedAny(domain.ImplementationVerificationTools...) {
+	if usage != nil && !usage.UsedAny(domain.ImplementationVerificationTools...) && !r.ciConfigOnlyDiff(ctx, taskWorkspace) {
+		// A run whose every command failed (a red test, a blocked pkill) did
+		// execute something; telling it "you ran nothing" sends the next run
+		// after the wrong problem.
+		if failed := failedVerificationCalls(usage); failed > 0 {
+			log.Warn().Str("task_id", job.Task.ID.String()).Int("failed", failed).
+				Msg("hand-off: run wrote a diff but none of its commands succeeded, sending the task back for revision")
+			r.sendBackForRevision(ctx, job, wf,
+				handoffFailedCommandsKey.Render(handoffFailedCommandsInput{Failed: failed}), domain.MoveReasonHandoffUnverified)
+			return
+		}
 		log.Warn().Str("task_id", job.Task.ID.String()).
 			Msg("hand-off: run wrote a diff but never executed a command, sending the task back for revision")
 		r.refuseHandoff(ctx, job, wf, handoffUnverifiedRunKey, domain.MoveReasonHandoffUnverified)
@@ -1549,6 +1584,23 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 	}
 	log.Info().Str("task_id", job.Task.ID.String()).Str("agent_id", agentID.String()).
 		Msg("hand-off: implementation run finished with a diff, task moved to code_review")
+}
+
+// ciConfigOnlyDiff reports a diff that only touches CI configuration: there
+// is nothing to build locally, and the pipeline its pull request triggers is
+// the check that counts — the code_review stage waits for it.
+func (r *Runner) ciConfigOnlyDiff(ctx context.Context, taskWorkspace string) bool {
+	files, err := r.git.TaskChangedFiles(ctx, taskWorkspace)
+	return err == nil && domain.CIConfigOnly(files)
+}
+
+func failedVerificationCalls(usage *registry.ToolUsage) int {
+	failures := usage.Failures()
+	n := 0
+	for _, name := range domain.ImplementationVerificationTools {
+		n += failures[name]
+	}
+	return n
 }
 
 func (r *Runner) refuseHandoff(ctx context.Context, job RunJob, wf domain.Workflow, key prompt.Key[struct{}], reason string) {

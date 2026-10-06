@@ -67,6 +67,12 @@ export const boardArea: BoardAreaDict = {
     blockedHumanDecisionReason:
       "aynı commit için CI kırmızı kaldı ya da review döngüsü insan müdahalesi olmadan tekrarladı",
     blockedHumanDecisionTitle: "{reason}. Karar verince kartı Blocked'tan kendin taşı.",
+    mergeHoldTitle: {
+      deploy_order: "Bunlar yayına çıkınca kendiliğinden merge edilir: {detail}",
+      before_deploy: "Deploy öncesi adımları uygula ve görev üzerinden onayla; hemen ardından merge edilir.",
+      delivery_profile: "{detail} için deploy profilini reponun Deploy sekmesinden onayla; hemen ardından merge edilir.",
+      deploy_env: "Production'ın yalnızca senin girebileceğin env değişkenlerine ihtiyacı var: {detail}. Görev üzerinden gir; hemen ardından yayına çıkar.",
+    },
     loadFailed: "Görevler yüklenemedi",
     moveFailed: "Görev taşınamadı",
     taskDeleted: "Görev silindi",
@@ -192,6 +198,7 @@ export const boardArea: BoardAreaDict = {
         device_free: "Paylaşılan kaynak boşaldı. Görev devam ediyor.",
         pipeline_loop_parked: "Park edildi: aynı commit için CI kırmızı kaldı, yeni commit gelmedi",
         review_loop_parked: "Park edildi: insan müdahalesi olmadan tekrar tekrar revizyona gönderildi",
+        push_workflow_scope: "Park edildi: GitHub push'u reddetti — token'da workflow yetkisi yok",
       },
     },
     taskRunSteps: {
@@ -214,6 +221,13 @@ export const boardArea: BoardAreaDict = {
       blockedResumeAt: "~{relative} içinde devam edecek, {absolute} civarı",
       blockedNoResume: "Kaynak boşalır boşalmaz devam edecek.",
       blockedHumanDecision: "Seni bekliyor: karar ver, sonra kartı Blocked'tan kendin taşı.",
+      mergeHold: {
+        deploy_order: "Bu görev yukarıdaki görevlerden sonra yayına çıkmalı. Onlar yayına çıkınca merge kendiliğinden devam eder.",
+        before_deploy: "Seni bekliyor: bu adımları uygula, sonra onayla. Merge hemen ardından devam eder.",
+        delivery_profile: "Seni bekliyor: {detail} için deploy profilini Deploy sekmesinden onayla. Merge hemen ardından devam eder.",
+        deploy_env: "Seni bekliyor: production'ın bu env değişkenlerine ihtiyacı var. Değerler doğrudan sağlayıcıya gider; hepsi girilince merge devam eder.",
+      },
+      mergeHoldOpenDeploy: "Deploy sekmesini aç",
       humanUatHeading: "Kararınız bekleniyor",
       humanUatApprove: "Onayla",
       humanUatDecline: "Reddet",

@@ -179,3 +179,12 @@ func TestParseStreamKeepsTheMessageErrorShapeForOtherTools(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"exit status 2"}, sink.contents)
 }
+
+func TestCursorToolsLandOnTheLedgerNamesTheGatesRead(t *testing.T) {
+	assert.Equal(t, "run_terminal", ledgerToolName("shell"), "the hand-off's ran-a-command check reads run_terminal")
+	assert.Equal(t, "edit_file", ledgerToolName("edit"))
+	assert.Equal(t, "grep_code", ledgerToolName("grep"))
+	assert.Equal(t, "get_repo_tree", ledgerToolName("ls"))
+	assert.Equal(t, "get_repo_tree", ledgerToolName("glob"))
+	assert.Equal(t, "something_new", ledgerToolName("something_new"))
+}

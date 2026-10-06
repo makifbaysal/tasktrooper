@@ -283,8 +283,28 @@ export function workOrderBlockerLabel(blockedQuestion: string): string {
   const suffix = " to finish";
   const start = trimmed.startsWith(prefix) ? prefix.length : 0;
   const end = trimmed.endsWith(suffix) ? trimmed.length - suffix.length : trimmed.length;
-  const body = trimmed.slice(start, end);
+  const keys = blockerKeys(trimmed.slice(start, end));
+  return keys.length > 0 ? blockerKeysLabel(keys) : blockedResourceLabel("work_order");
+}
 
+/**
+ * Visible label for a deploy_order merge hold. Its detail is the same
+ * "KEY (TITLE) [COLUMN]" list a work_order park carries, without the sentence
+ * around it (release.Service.mergeGate, server deploy_order.go).
+ */
+export function deployOrderBlockerLabel(detail: string): string {
+  const keys = blockerKeys(detail.trim());
+  return keys.length > 0
+    ? tStatic("lib.projectBoard.deployOrderBlocker", { keys: blockerKeysLabel(keys) })
+    : blockedResourceLabel("deploy_order");
+}
+
+function blockerKeysLabel(keys: string[]): string {
+  const [first, ...rest] = keys;
+  return rest.length > 0 ? `${first} +${rest.length}` : first;
+}
+
+function blockerKeys(body: string): string[] {
   const segmentEnd = /\[[a-z0-9_]+\]/gi;
   const keys: string[] = [];
   let cursor = 0;
@@ -295,12 +315,46 @@ export function workOrderBlockerLabel(blockedQuestion: string): string {
     if (keyMatch) keys.push(keyMatch[1]);
     cursor = match.index + match[0].length;
   }
+  return keys;
+}
 
-  if (keys.length === 0) {
-    return blockedResourceLabel("work_order");
+/**
+ * The merge holds (server domain.MergeHoldResources): why release's merge gate
+ * is refusing a done task's merge. Unlike every other park, two of them wait on
+ * the human reading the card, not on a sweeper.
+ */
+export const MERGE_HOLD_RESOURCES = ["deploy_order", "before_deploy", "delivery_profile", "deploy_env"] as const;
+
+export type MergeHoldResource = (typeof MERGE_HOLD_RESOURCES)[number];
+
+export function isMergeHold(resource: string | null | undefined): resource is MergeHoldResource {
+  return (MERGE_HOLD_RESOURCES as readonly string[]).includes(resource ?? "");
+}
+
+const ORDER_NOTE_OPEN = "<!-- tt:order -->";
+const ORDER_NOTE_CLOSE = "<!-- /tt:order -->";
+
+/**
+ * before_deploy without the generated order note — server
+ * domain.StripOrderNote, literally the same markers and the same reading of an
+ * unterminated block. The order note is not a step a human performs (the
+ * release gate enforces that order itself), so it never asks for a
+ * confirmation.
+ */
+export function beforeDeploySteps(text: string | null | undefined): string {
+  let rest = text ?? "";
+  for (;;) {
+    const start = rest.indexOf(ORDER_NOTE_OPEN);
+    if (start < 0) return rest.trim();
+    const after = rest.slice(start + ORDER_NOTE_OPEN.length);
+    const end = after.indexOf(ORDER_NOTE_CLOSE);
+    rest = end < 0 ? rest.slice(0, start) : rest.slice(0, start) + after.slice(end + ORDER_NOTE_CLOSE.length);
   }
-  const [first, ...rest] = keys;
-  return rest.length > 0 ? `${first} +${rest.length}` : first;
+}
+
+/** Server domain.BoardTask.BeforeDeployPending. */
+export function isBeforeDeployPending(task: Pick<BoardTask, "before_deploy" | "before_deploy_confirmed_at">): boolean {
+  return beforeDeploySteps(task.before_deploy) !== "" && !task.before_deploy_confirmed_at;
 }
 
 /**

@@ -46,6 +46,12 @@ export const projectsHub = {
     title: "Repositories without a project",
     description: "Not linked to any project yet.",
     addToProject: "Add to project",
+    remove: "Remove repository",
+    removeTitle: "Remove {name}?",
+    removeDescription:
+      "Its tasks, scans and history are removed from TaskTrooper for good. The local folder and the GitHub repository are left untouched.",
+    removed: "Repository removed",
+    removeFailed: "Failed to remove the repository",
   },
   empty: {
     title: "Create your first project",

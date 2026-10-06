@@ -1,9 +1,11 @@
-// Key-for-key parity between en and tr.
+// Key-for-key parity between en and every other UI language.
 //
-// TypeScript already refuses a tr.ts whose SHAPE differs from en's (`Dict`),
-// so this is the check that shape cannot make: a key present in both but left
-// as the English string in tr, and — for the dynamically built keys the
-// compiler never sees — that both dictionaries still agree after a prune.
+// TypeScript already refuses a dictionary whose SHAPE differs from en's
+// (`Dict`), so this is the check that shape cannot make: for the dynamically
+// built keys the compiler never sees, that every dictionary still agrees with
+// en after a prune, and that each translation interpolates exactly the
+// `{placeholder}` names its English string does (t() leaves an unknown one
+// as literal text and silently drops a missing one).
 import { createJiti } from "jiti";
 import path from "node:path";
 import process from "node:process";
@@ -23,20 +25,48 @@ function flatten(value, prefix, out) {
   return out;
 }
 
+function placeholders(text) {
+  return [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort().join(", ");
+}
+
+const { LANGS } = await jiti.import(path.join(root, "src/lib/languages.ts"));
 const { en } = await jiti.import(path.join(root, "src/locales/en.ts"));
-const { tr } = await jiti.import(path.join(root, "src/locales/tr.ts"));
-
 const enKeys = flatten(en, "", new Map());
-const trKeys = flatten(tr, "", new Map());
 
-const missing = [...enKeys.keys()].filter((k) => !trKeys.has(k));
-const extra = [...trKeys.keys()].filter((k) => !enKeys.has(k));
+let problems = 0;
+for (const lang of LANGS) {
+  if (lang === "en") continue;
+  const mod = await jiti.import(path.join(root, `src/locales/${lang}.ts`));
+  const dict = mod[lang];
+  if (!dict) {
+    console.error(`src/locales/${lang}.ts does not export \`${lang}\``);
+    problems++;
+    continue;
+  }
+  const keys = flatten(dict, "", new Map());
+  for (const k of enKeys.keys()) {
+    if (!keys.has(k)) {
+      console.error(`missing in ${lang}: ${k}`);
+      problems++;
+    }
+  }
+  for (const k of keys.keys()) {
+    if (!enKeys.has(k)) {
+      console.error(`not in en (${lang}): ${k}`);
+      problems++;
+    }
+  }
+  for (const [k, text] of keys) {
+    const want = enKeys.has(k) ? placeholders(enKeys.get(k)) : undefined;
+    if (want !== undefined && placeholders(text) !== want) {
+      console.error(`placeholders differ in ${lang}: ${k} — en {${want}}, ${lang} {${placeholders(text)}}`);
+      problems++;
+    }
+  }
+}
 
-for (const k of missing) console.error(`missing in tr: ${k}`);
-for (const k of extra) console.error(`not in en:     ${k}`);
-
-if (missing.length || extra.length) {
-  console.error(`\n${missing.length + extra.length} key(s) out of parity.`);
+if (problems) {
+  console.error(`\n${problems} locale problem(s).`);
   process.exit(1);
 }
-console.log(`locales in parity: ${enKeys.size} keys`);
+console.log(`locales in parity: ${enKeys.size} keys × ${LANGS.length} languages (${LANGS.join(", ")})`);

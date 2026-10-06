@@ -3,20 +3,35 @@
 // Interpolation uses {name} placeholders.
 export const settingsPages = {
   integrations: {
-    title: "Integrations",
-    description: "The outside accounts TaskTrooper signs in to on your behalf. Saved once, used by every project.",
     loadFailed: "Could not read the store credentials",
+    sections: {
+      code: "Code hosting",
+      cloud: "Cloud & deploy",
+      stores: "App stores",
+    },
+    status: {
+      connected: "Connected",
+      notConnected: "Not connected",
+      attention: "Needs attention",
+      expired: "Expired",
+      accounts: "{count} accounts",
+    },
+    refresh: "Refresh",
+    connect: "Connect",
+    addAccount: "Add account",
+    moreActions: "More actions",
+    keySaved: "Key saved {date}",
+    replaceKey: "Replace key",
+    cancel: "Cancel",
 
     // Rendered on a repository's deploy page, where the credential vault used
     // to live, so the #store-credentials link into it still lands somewhere real.
 
     asc: {
       title: "App Store Connect",
-      description: "An API key from App Store Connect → Users and Access → Integrations. It signs and uploads every iOS release.",
     },
     play: {
       title: "Google Play Console",
-      description: "A service account key from the Google Cloud project linked to your Play Console. It uploads and promotes every Android release.",
     },
 
     stores: {
@@ -56,49 +71,29 @@ export const settingsPages = {
     updateFailed: "Update failed",
 
     // OpenAI-compatible endpoints section
-    endpointsTitle: "OpenAI-compatible Endpoints",
-    endpointsDesc:
-      "Your own IP, Ollama, LM Studio, vLLM, OpenRouter, Groq… Add as many named endpoints as you like.",
+    apiTitle: "API connections",
     addEndpoint: "Add endpoint",
-    endpointsEmpty: "No endpoints yet. Start with “Add endpoint”.",
 
     // Card badges & field labels (shared by endpoint and native cards)
     badgeDefault: "Default",
     badgeConnected: "Connected",
     badgeNotConnected: "Not connected",
-    urlLabel: "URL:",
-    modelLabel: "Model:",
-    apiKeyLabel: "API key:",
-    apiKeyStored: "stored",
-    timeoutLabel: "Timeout:",
-    secondsValue: "{seconds} s",
     edit: "Edit",
     makeDefault: "Make default",
     delete: "Delete",
 
     // Native providers section
-    nativeTitle: "Native Providers (Gemini · Anthropic)",
-    reconnect: "Reconnect",
     connect: "Connect",
+    disconnect: "Disconnect",
+    moreActions: "More actions",
     disconnectShort: "Disconnect",
 
     // Local agent CLI section (host-executed providers)
-    cliTitle: "Local Agent CLIs",
-    cliDesc:
-      "These providers hand the task to a CLI session on your runner machine instead of to a server. They ask for no API key and no address. “Connect” verifies the binary is installed and signed in, then writes every enabled agent's role, rules and skills to disk in the layout that CLI reads.",
+    cliTitle: "Agent CLIs",
     badgeComingSoon: "Coming soon",
-    cliComingSoonHint:
-      "The executor that would run this CLI has not been built yet, so it cannot be selected on an agent.",
     cliConnecting: "Installing…",
     cliConnectedToast: "CLI connected and the agent catalog installed",
     cliDisconnectedToast: "CLI disconnected",
-    cliBinaryLabel: "Binary:",
-    cliInstalledLabel: "Installed:",
-    cliInstalledValue: "{agents} agents · {skills} skills",
-    cliCatalogLabel: "Catalog:",
-    cliCatalogHint:
-      "A snapshot for you to inspect. Each run writes its own agent's rules and skills into its task workspace from the database, so nothing here goes stale on a board run.",
-    cliSwapHint: "Only one local CLI can be connected at a time. Connecting this one disconnects the other.",
 
     // The Claude Code card absorbed the old Settings → Local Runner page.
     // Everything here is about the machine behind the CLI: which one is
@@ -111,6 +106,7 @@ export const settingsPages = {
       // over IPC by the desktop shell: the bundled server, Postgres, git, the
       // Claude binary and its account.
       preflight: {
+        blockersTitle: "Fix these before connecting a CLI",
         title: "Environment",
         refresh: "Refresh",
         loadFailed: "Could not load the environment checklist",
@@ -149,8 +145,6 @@ export const settingsPages = {
     apiKeyChangePlaceholder: "Enter a new key to change it",
     apiKeyBlankHint: "If left blank, the stored key is used.",
     timeoutFieldLabel: "Request timeout (seconds)",
-    timeoutHint:
-      "300–600 s is recommended for local models. Large requests like planner and intake can take longer.",
     test: "Test",
 
     // Endpoint add/edit dialog
@@ -250,8 +244,21 @@ export const settingsPages = {
 
     transitionsTitle: "Transition rules",
     transitionsSubtitle:
-      "For each column, choose the target columns it can move to. If none are selected, that column can move anywhere.",
+      "Drag from a status onto another to allow that move; select an arrow to remove it. A status with no arrows out can move anywhere. Agents and automations follow the same rules.",
     freeToAnywhere: "anywhere allowed",
+    resetDefaults: "Reset to defaults",
+    graph: {
+      free: "free",
+      dragToConnect: "Drag onto another status to allow the move",
+      removeTransition: "Remove transition",
+      autoLayout: "Auto layout",
+      targetsOf: "From {column}, a task may move to:",
+      makeFree: "Allow any move",
+      hint: "Select a status to edit its moves as a list.",
+      fromStatuses: "from {count} statuses",
+      hubHint:
+        "Arrows into {columns} are hidden to keep the graph readable; select a status to show them.",
+    },
 
     newColumnTitle: "New Column",
     columnNameLabel: "Column name",
@@ -461,9 +468,16 @@ kind: {
     skipped: "Skipped",
     pendingCount: "Waiting",
     pendingTitle: "Changes waiting for you",
-    pendingEmpty: "Nothing pending — every catalog change was applied.",
+    pendingHelp:
+      "“Use catalog version” replaces this machine's copy with the catalog's. “Dismiss” removes the item from this list without applying it.",
+    pendingEmpty:
+      "Nothing waiting for you. A catalog change the sync can't apply on its own — a skill edited on this machine, an agent with automatic updates off — shows up here.",
     error: "Last error",
     dismiss: "Dismiss",
+    applyUpstream: "Use catalog version",
+    applying: "Applying…",
+    applyToast: "Catalog version applied",
+    applyFailed: "Could not apply the catalog version",
   },
 
 };

@@ -20,7 +20,7 @@ func AuthorizeURL(clientID, redirectURI, state string) string {
 	q := url.Values{}
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", redirectURI)
-	q.Set("scope", "repo admin:repo_hook read:org")
+	q.Set("scope", "repo workflow admin:repo_hook read:org")
 	q.Set("state", state)
 	q.Set("prompt", "consent")
 	return authorizeURL + "?" + q.Encode()

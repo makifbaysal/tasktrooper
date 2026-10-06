@@ -45,6 +45,14 @@ type ParkedTasks interface {
 	ListBlockedByResource(ctx context.Context, resource string, limit int) ([]domain.BoardTask, error)
 }
 
+// MergeHolds records on the task why MergeGate is refusing its merge (one of
+// domain.MergeHoldResources), so the board shows it. Satisfied directly by the
+// raw postgres board-task store; nil leaves the reason in the gate's comment.
+type MergeHolds interface {
+	HoldMerge(ctx context.Context, repositoryID, taskID uuid.UUID, resource, detail string) error
+	ReleaseMergeHold(ctx context.Context, taskID uuid.UUID, resources ...string) error
+}
+
 // MergeStateResetter clears a task's merge bookkeeping so a rolled-back task
 // can go through review again and get a fresh PR.
 type MergeStateResetter interface {
@@ -171,8 +179,12 @@ type Store interface {
 type Deps struct {
 	Store port.ReleaseStore
 
-	Tasks        Tasks
-	ParkedTasks  ParkedTasks
+	Tasks       Tasks
+	ParkedTasks ParkedTasks
+	MergeHolds  MergeHolds
+	// Envs checks a component's production environment variables before its
+	// code ships; nil skips the check.
+	Envs         EnvGate
 	MergeState   MergeStateResetter
 	Waker        Waker
 	Components   Components
@@ -237,6 +249,8 @@ type Service struct {
 
 	tasks        Tasks
 	parked       ParkedTasks
+	holds        MergeHolds
+	envs         EnvGate
 	mergeState   MergeStateResetter
 	waker        Waker
 	components   Components
@@ -276,6 +290,8 @@ func New(d Deps) *Service {
 		store:            d.Store,
 		tasks:            d.Tasks,
 		parked:           d.ParkedTasks,
+		holds:            d.MergeHolds,
+		envs:             d.Envs,
 		mergeState:       d.MergeState,
 		waker:            d.Waker,
 		components:       d.Components,

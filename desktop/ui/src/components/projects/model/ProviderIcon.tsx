@@ -1,11 +1,10 @@
-import { Cloud, Server, Triangle, type LucideIcon } from "lucide-react";
 import type { CloudProviderKind } from "@/api";
-import { cn } from "@/lib/utils";
+import { BrandIcon, type Brand } from "@/components/ui/brand-icon";
 
-const PROVIDER_ICONS: Record<CloudProviderKind, LucideIcon> = {
-  vercel: Triangle,
-  gcp: Cloud,
-  aws: Server,
+const PROVIDER_BRANDS: Record<CloudProviderKind, Brand> = {
+  vercel: "vercel",
+  gcp: "googleCloud",
+  aws: "aws",
 };
 
 interface ProviderIconProps {
@@ -13,9 +12,6 @@ interface ProviderIconProps {
   className?: string;
 }
 
-/** A cloud provider's mark: a plain lucide glyph on theme tokens, never a
- * brand logo image. */
 export function ProviderIcon({ provider, className }: ProviderIconProps) {
-  const Icon = PROVIDER_ICONS[provider] ?? Cloud;
-  return <Icon className={cn("h-4 w-4", className)} aria-hidden />;
+  return <BrandIcon brand={PROVIDER_BRANDS[provider] ?? "vercel"} className={className} />;
 }

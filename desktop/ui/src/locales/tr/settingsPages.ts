@@ -5,20 +5,35 @@ import type { SettingsPagesDict } from "@/locales/en/settingsPages";
 // original page sources.
 export const settingsPages: SettingsPagesDict = {
   integrations: {
-    title: "Entegrasyonlar",
-    description: "TaskTrooper'ın senin adına giriş yaptığı dış hesaplar. Bir kez kaydedilir, tüm projeler kullanır.",
     loadFailed: "Mağaza kimlik bilgileri okunamadı",
+    sections: {
+      code: "Kod barındırma",
+      cloud: "Bulut ve deploy",
+      stores: "Uygulama mağazaları",
+    },
+    status: {
+      connected: "Bağlı",
+      notConnected: "Bağlı değil",
+      attention: "İlgi gerekiyor",
+      expired: "Süresi doldu",
+      accounts: "{count} hesap",
+    },
+    refresh: "Yenile",
+    connect: "Bağlan",
+    addAccount: "Hesap ekle",
+    moreActions: "Diğer işlemler",
+    keySaved: "Anahtar kaydedildi: {date}",
+    replaceKey: "Anahtarı değiştir",
+    cancel: "Vazgeç",
 
     // Kimlik bilgisi kasasının eskiden durduğu repo deploy sayfasında görünür;
     // oraya giden #store-credentials bağlantısı hâlâ gerçek bir yere düşsün diye.
 
     asc: {
       title: "App Store Connect",
-      description: "App Store Connect → Users and Access → Integrations altından alınan API anahtarı. Her iOS sürümünü imzalar ve yükler.",
     },
     play: {
       title: "Google Play Console",
-      description: "Play Console'a bağlı Google Cloud projesinden alınan servis hesabı anahtarı. Her Android sürümünü yükler ve terfi ettirir.",
     },
 
     stores: {
@@ -57,51 +72,32 @@ export const settingsPages: SettingsPagesDict = {
     loadFailed: "LLM sağlayıcıları yüklenemedi",
     updateFailed: "Güncellenemedi",
 
-    endpointsTitle: "OpenAI-uyumlu Endpoint'ler",
-    endpointsDesc:
-      "Kendi IP'niz, Ollama, LM Studio, vLLM, OpenRouter, Groq… İstediğiniz kadar isimli endpoint ekleyin.",
+    apiTitle: "API bağlantıları",
     addEndpoint: "Endpoint ekle",
-    endpointsEmpty: "Henüz endpoint yok. “Endpoint ekle” ile başlayın.",
 
     badgeDefault: "Varsayılan",
     badgeConnected: "Bağlı",
     badgeNotConnected: "Bağlı değil",
-    urlLabel: "URL:",
-    modelLabel: "Model:",
-    apiKeyLabel: "API anahtarı:",
-    apiKeyStored: "kayıtlı",
-    timeoutLabel: "Zaman aşımı:",
-    secondsValue: "{seconds} sn",
     edit: "Düzenle",
     makeDefault: "Varsayılan yap",
     delete: "Sil",
 
-    nativeTitle: "Yerel Sağlayıcılar (Gemini · Anthropic)",
-    reconnect: "Yeniden bağlan",
     connect: "Bağlan",
+    disconnect: "Bağlantıyı kes",
+    moreActions: "Diğer işlemler",
     disconnectShort: "Kes",
 
-    cliTitle: "Yerel Ajan CLI'ları",
-    cliDesc:
-      "Bu sağlayıcılar görevi bir sunucuya değil, runner makinenizde açılan bir CLI oturumuna verir. API anahtarı ya da adres istemezler. “Bağla” dediğinizde komutun kurulu ve oturumunun açık olduğu doğrulanır, sonra açık olan bütün ajanların rolü, kuralları ve skill'leri o CLI'nin okuduğu düzende diske yazılır.",
+    cliTitle: "Ajan CLI'ları",
     badgeComingSoon: "Yakında",
-    cliComingSoonHint:
-      "Bu CLI'yi çalıştıracak executor henüz yazılmadı; bu yüzden bir ajana atanamıyor.",
     cliConnecting: "Kuruluyor…",
     cliConnectedToast: "CLI bağlandı, ajan kataloğu kuruldu",
     cliDisconnectedToast: "CLI bağlantısı kaldırıldı",
-    cliBinaryLabel: "Komut:",
-    cliInstalledLabel: "Kurulan:",
-    cliInstalledValue: "{agents} ajan · {skills} skill",
-    cliCatalogLabel: "Katalog:",
-    cliCatalogHint:
-      "Bu klasör incelemeniz için tutulan bir kopyadır. Her görev, kendi ajanının kurallarını ve skill'lerini veritabanından kendi çalışma klasörüne yazar; bu yüzden buradaki kopya eskise bile koşuları etkilemez.",
-    cliSwapHint: "Aynı anda yalnızca bir yerel CLI bağlı olabilir; bunu bağlarsanız diğerinin bağlantısı kalkar.",
 
     claudeCode: {
       stepInstalling: "claude doğrulanıyor ve ajan kataloğu kuruluyor…",
       stepDisconnectingCli: "CLI bağlantısı kaldırılıyor…",
       preflight: {
+        blockersTitle: "CLI bağlamadan önce bunları düzelt",
         title: "Ortam",
         refresh: "Yenile",
         loadFailed: "Ortam kontrol listesi yüklenemedi",
@@ -137,8 +133,6 @@ export const settingsPages: SettingsPagesDict = {
     apiKeyChangePlaceholder: "Değiştirmek için yeni anahtar girin",
     apiKeyBlankHint: "Boş bırakırsanız kayıtlı anahtar kullanılır.",
     timeoutFieldLabel: "İstek zaman aşımı (saniye)",
-    timeoutHint:
-      "Yerel modeller için 300–600 sn önerilir. Planner ve intake gibi büyük istekler daha uzun sürebilir.",
     test: "Test et",
 
     endpointDialogEditTitle: "Endpoint düzenle",
@@ -236,8 +230,21 @@ export const settingsPages: SettingsPagesDict = {
 
     transitionsTitle: "Geçiş kuralları",
     transitionsSubtitle:
-      "Her kolon için, oradan taşınabilecek hedef kolonları seçin. Hiç seçim yoksa o kolondan her yere geçilebilir.",
+      "Bir durumdan diğerine sürükleyerek o geçişe izin ver; kaldırmak için oku seç. Çıkan oku olmayan durumdan her yere geçilebilir. Ajanlar ve otomasyonlar da aynı kurallara uyar.",
     freeToAnywhere: "her yere serbest",
+    resetDefaults: "Varsayılanlara dön",
+    graph: {
+      free: "serbest",
+      dragToConnect: "Geçişe izin vermek için başka bir duruma sürükle",
+      removeTransition: "Geçişi kaldır",
+      autoLayout: "Otomatik yerleştir",
+      targetsOf: "{column} kolonundan şuralara taşınabilir:",
+      makeFree: "Her yere serbest bırak",
+      hint: "Geçişlerini liste olarak düzenlemek için bir durum seç.",
+      fromStatuses: "{count} durumdan",
+      hubHint:
+        "Grafik okunaklı kalsın diye {columns} durumlarına giden oklar gizli; görmek için bir duruma tıkla.",
+    },
 
     newColumnTitle: "Yeni Kolon",
     columnNameLabel: "Kolon adı",
@@ -447,9 +454,16 @@ export const settingsPages: SettingsPagesDict = {
     skipped: "Atlanan",
     pendingCount: "Bekleyen",
     pendingTitle: "Seni bekleyen değişiklikler",
-    pendingEmpty: "Bekleyen yok — katalogdaki her değişiklik uygulandı.",
+    pendingHelp:
+      "“Katalog sürümünü kullan” bu makinedeki kopyanın yerine katalogdakini koyar. “Kapat” öğeyi uygulamadan bu listeden kaldırır.",
+    pendingEmpty:
+      "Seni bekleyen bir şey yok. Senkronizasyonun kendi başına uygulayamadığı bir katalog değişikliği — bu makinede düzenlenmiş bir skill, otomatik güncellemesi kapalı bir ajan — burada görünür.",
     error: "Son hata",
     dismiss: "Kapat",
+    applyUpstream: "Katalog sürümünü kullan",
+    applying: "Uygulanıyor…",
+    applyToast: "Katalog sürümü uygulandı",
+    applyFailed: "Katalog sürümü uygulanamadı",
   },
 
 };

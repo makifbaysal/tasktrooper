@@ -130,7 +130,6 @@ func syncFixture(t *testing.T) (*memCatalogStore, *memSyncStore, *Service, strin
 		},
 	)
 	svc := NewService(store, fixingLLMClient{}, "")
-	svc.SetSkillBudget(25)
 	return store, syncStore, svc, dir
 }
 

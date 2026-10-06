@@ -35,6 +35,10 @@ interface StoreCredentialFormProps {
   /** Undefined until the vault has been read — the row is rendered as "not configured". */
   credential?: StoreCredentialView;
   onChanged: () => void;
+  /** A saved key folds to a one-line summary until "Replace key" — the Integrations page. */
+  collapseWhenSaved?: boolean;
+  /** The caller shows the connection state itself. */
+  hideStatus?: boolean;
 }
 
 /**
@@ -48,12 +52,20 @@ interface StoreCredentialFormProps {
  * what is stored, nothing round-trips, and the server keeps a save only after
  * the store console has verified it.
  */
-export function StoreCredentialForm({ provider, credential, onChanged }: StoreCredentialFormProps) {
+export function StoreCredentialForm({
+  provider,
+  credential,
+  onChanged,
+  collapseWhenSaved = false,
+  hideStatus = false,
+}: StoreCredentialFormProps) {
   const { t } = useI18n();
   const [ascForm, setAscForm] = useState<AscForm>(EMPTY_ASC);
   const [playForm, setPlayForm] = useState<PlayForm>(EMPTY_PLAY);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const saved = credential?.configured ?? false;
 
   const providerLabel =
     provider === "asc"
@@ -78,6 +90,7 @@ export function StoreCredentialForm({ provider, credential, onChanged }: StoreCr
       await api.saveStoreCredential(provider, data);
       if (provider === "asc") setAscForm(EMPTY_ASC);
       else setPlayForm(EMPTY_PLAY);
+      setEditing(false);
       toast.success(t("projectAdmin.prodOps.storeCredentialSaved"));
       onChanged();
     } catch (err) {
@@ -101,9 +114,40 @@ export function StoreCredentialForm({ provider, credential, onChanged }: StoreCr
     }
   }, [provider, onChanged, t]);
 
+  const confirm = (
+    <ConfirmDialog
+      open={confirmDelete}
+      onOpenChange={(open) => !open && setConfirmDelete(false)}
+      title={t("projectAdmin.prodOps.storeCredentialDeleteTitle")}
+      description={t("projectAdmin.prodOps.storeCredentialDeleteDescription", { provider: providerLabel })}
+      confirmLabel={t("projectAdmin.prodOps.storeCredentialDelete")}
+      loading={busy}
+      onConfirm={remove}
+    />
+  );
+
+  if (collapseWhenSaved && saved && !editing && credential) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          {t("settingsPages.integrations.keySaved", { date: formatDate(credential.updated_at) })}
+        </span>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            {t("settingsPages.integrations.replaceKey")}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
+            {t("projectAdmin.prodOps.storeCredentialDelete")}
+          </Button>
+        </div>
+        {confirm}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={hideStatus ? "hidden" : "flex flex-wrap items-center gap-2"}>
         {credential?.configured ? (
           <Badge variant="success">{t("projectAdmin.prodOps.storeCredentialConfigured")}</Badge>
         ) : (
@@ -164,22 +208,20 @@ export function StoreCredentialForm({ provider, credential, onChanged }: StoreCr
         <Button size="sm" disabled={busy || !canSave(provider, ascForm, playForm)} onClick={() => void save()}>
           {t("projectAdmin.prodOps.storeCredentialSave")}
         </Button>
-        {credential?.configured && (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
-            {t("projectAdmin.prodOps.storeCredentialDelete")}
+        {collapseWhenSaved && editing ? (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>
+            {t("settingsPages.integrations.cancel")}
           </Button>
+        ) : (
+          credential?.configured && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
+              {t("projectAdmin.prodOps.storeCredentialDelete")}
+            </Button>
+          )
         )}
       </div>
 
-      <ConfirmDialog
-        open={confirmDelete}
-        onOpenChange={(open) => !open && setConfirmDelete(false)}
-        title={t("projectAdmin.prodOps.storeCredentialDeleteTitle")}
-        description={t("projectAdmin.prodOps.storeCredentialDeleteDescription", { provider: providerLabel })}
-        confirmLabel={t("projectAdmin.prodOps.storeCredentialDelete")}
-        loading={busy}
-        onConfirm={remove}
-      />
+      {confirm}
     </div>
   );
 }
