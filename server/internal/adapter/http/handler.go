@@ -52,6 +52,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/settings"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/simrun"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workflow"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
@@ -146,6 +147,7 @@ type Handler struct {
 	cloudSvc        *cloud.Service
 	envRequirements EnvRequirementService
 	localPreviewSvc *localpreview.Service
+	simRunSvc       *simrun.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
 	mcpToolServer *mcpserver.Server
@@ -211,6 +213,7 @@ type Config struct {
 	CloudSvc          *cloud.Service
 	EnvRequirements   EnvRequirementService
 	LocalPreviewSvc   *localpreview.Service
+	SimRunSvc         *simrun.Service
 	MCPToolServer     *mcpserver.Server
 	BootSeed          BootSeed
 }
@@ -275,6 +278,7 @@ func NewHandler(cfg Config) *Handler {
 		cloudSvc:          cfg.CloudSvc,
 		envRequirements:   cfg.EnvRequirements,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
+		simRunSvc:         cfg.SimRunSvc,
 		mcpToolServer:     cfg.MCPToolServer,
 		bootSeed:          cfg.BootSeed,
 	}
@@ -326,6 +330,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerProdOpsRoutes(app)
 	h.registerRepositoryOpsRoutes(app)
 	h.registerStoreOpsRoutes(app)
+	h.registerSimulatorRunRoutes(app)
 	h.registerWorkspaceRoutes(app)
 	h.registerWorkflowRoutes(app)
 	h.registerEvolutionRoutes(app)

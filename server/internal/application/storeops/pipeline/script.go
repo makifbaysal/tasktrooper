@@ -73,9 +73,26 @@ esac
 # forgotten line away from a world-readable .p8.
 umask 077
 
+die() { echo "error: $*" >&2; exit 1; }
+step() { printf '\n==> %s\n' "$*"; }
+note() { printf '    %s\n' "$*"; }
+
 # The APP project root, not the repository root: this script sits in
 # <project>/scripts, and xcodebuild and gradlew both resolve from <project>.
-cd "$(dirname "$0")/.."
+#
+# TT_PROJECT_ROOT exists because TaskTrooper's local engine does NOT run this
+# file from the checkout. It sources the procedure it generated from a private
+# 0700 run directory — the checkout is a task branch that may predate this
+# file or have been edited since — so there $0 is a path in that directory and
+# dirname "$0"/.. is not the project at all. Set and not a directory is refused
+# rather than fallen back from: the fallback would build whatever happens to
+# sit above the run directory.
+if [ -n "${TT_PROJECT_ROOT:-}" ]; then
+  [ -d "$TT_PROJECT_ROOT" ] || die "TT_PROJECT_ROOT is $TT_PROJECT_ROOT, which is not a directory"
+  cd "$TT_PROJECT_ROOT"
+else
+  cd "$(dirname "$0")/.."
+fi
 ROOT="$PWD"
 
 # Where both engines look afterwards. The workflow uploads this directory as
@@ -83,19 +100,16 @@ ROOT="$PWD"
 ARTIFACTS="$ROOT/build/mobile-release"
 mkdir -p "$ARTIFACTS"
 
-die() { echo "error: $*" >&2; exit 1; }
-step() { printf '\n==> %s\n' "$*"; }
-note() { printf '    %s\n' "$*"; }
-
 # WORKDIR holds every DECODED secret this run produces — the distribution
 # private key, the upload keystore, the Play service account, the temporary
 # keychain — so its LIFETIME is the whole question, and the EXIT trap below is
 # not an answer on its own: an EXIT trap does not run for SIGKILL, a panic, or
 # a Mac losing power.
 #
-# TT_RELEASE_WORKDIR is how the desktop runner hands over a directory it
-# already owns: 0700, named tasktrooper-release-<hex>, removed when the call
-# ends AND swept at the runner's next start (web/desktop/runner/mobile_release.go,
+# TT_RELEASE_WORKDIR is how a local engine hands over a directory it already
+# owns: 0700, inside a run directory named tasktrooper-release-<hex>, removed
+# when the call ends AND swept at the engine's next start (this repository's
+# adapter/local/mobilebuild, and the desktop runner's mobile_release.go,
 # releaseDirPrefix). That sweep matches on the prefix, so a mktemp -d name —
 # tmp.XXXXXX — is invisible to it, and a killed run used to leave a decoded
 # distribution key in the user's temp directory until macOS got round to it,
@@ -186,12 +200,14 @@ mask_lines() {
 # is not strictly higher. Actions supplies a monotonic run number, and that is
 # the ONE series both engines share — which is why a local run has to be told
 # where it is in that series instead of inventing a timestamp, because a
-# timestamp blocks every CI run after it.
+# timestamp blocks every CI run after it. A TaskTrooper test build is told the
+# same way on either engine: the number it chose arrives as BUILD_NUMBER, from
+# the workflow's build_number input or the local engine's environment.
 # NOT ` + "`BUILD_NUMBER=\"\"`" + `. That DISCARDED the value the operator exported, so
 # the local path failed with the very instruction it prints below — and it made
-# the workflow's own BUILD_NUMBER: ${{ github.run_number }} dead, because only
-# the GITHUB_RUN_NUMBER fallback was ever reached. This line exists solely to
-# give set -u something to read.
+# the workflow's own BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
+# dead, because only the GITHUB_RUN_NUMBER fallback was ever reached. This line
+# exists solely to give set -u something to read.
 BUILD_NUMBER="${BUILD_NUMBER:-}"
 resolve_build_number() {
   BUILD_NUMBER="${BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-}}"
@@ -200,9 +216,9 @@ resolve_build_number() {
 Pass the next free number in the SAME series CI uses:
   BUILD_NUMBER=<n> bash @SCRIPTPATH@ $CHANNEL"
   fi
-  case "$BUILD_NUMBER" in
-    ''|*[!0-9]*) die "BUILD_NUMBER must be a positive integer: $BUILD_NUMBER" ;;
-  esac
+  # Defined by each platform below: the two stores do not agree on what a
+  # build number IS, so one grammar here would refuse a valid one of either.
+  check_build_number "$BUILD_NUMBER"
 }
 `
 
@@ -212,12 +228,23 @@ IDENTIFIER=@IDENTIFIERQ@
 SCHEME=@SCHEMEQ@
 STORE_APP_ID=@STOREAPPIDQ@
 
+# check_build_number is CFBundleVersion's own grammar: one to three
+# period-separated non-negative integers. A TaskTrooper test build is
+# <sequence>.<task>.<attempt>, dotted on purpose, so the single-integer check
+# this replaced refused every one of them. The regex sits in a variable because
+# bash 3.2 — /bin/bash on every Mac — and bash 4+ disagree about a quoted one.
+check_build_number() {
+  local grammar='^[0-9]+(\.[0-9]+){0,2}$'
+  [[ "$1" =~ $grammar ]] || die "BUILD_NUMBER must be one to three dot-separated non-negative integers (CFBundleVersion, e.g. 412 or 412.54.2): $1"
+}
+
 # tt-release.keychain-db is a COORDINATED CROSS-REPO NAME, like the
-# internalauth wire contract: the desktop runner's startup sweeper matches on
-# this exact string to clear keychains left behind when a run is SIGKILLed
-# before the trap below can fire (web/desktop/runner/mobile_release.go,
-# releaseKeychainName). Renaming it here without renaming it there stops that
-# sweep silently, leaving a signing identity in the operator's search list.
+# internalauth wire contract: the local engines' startup sweepers match on this
+# exact string to clear keychains left behind when a run is SIGKILLed before
+# the trap below can fire (this repository's adapter/local/mobilebuild, and the
+# desktop runner's mobile_release.go, releaseKeychainName). Renaming it here
+# without renaming it there stops that sweep silently, leaving a signing
+# identity in the operator's search list.
 KEYCHAIN="$WORKDIR/tt-release.keychain-db"
 
 # The .p8 goes under $WORKDIR, NOT under $HOME. altool searches five places for
@@ -455,6 +482,20 @@ UPLOAD="${MOBILE_RELEASE_UPLOAD:-true}"
 PLAY_KEY_PATH=""
 AAB=""
 
+# check_build_number is versionCode's grammar: ONE positive integer — Play has
+# no dotted form — and no larger than 2100000000, Play's ceiling, which it
+# enforces at upload, after the whole build. The length test comes first
+# because ` + "`[ -gt ]`" + ` on a number past 64 bits is an error, and an error in an if
+# condition is just false: the bound would wave it through.
+check_build_number() {
+  case "$1" in
+    ''|0*|*[!0-9]*) die "BUILD_NUMBER must be a positive integer (versionCode) with no leading zero: $1" ;;
+  esac
+  if [ "${#1}" -gt 10 ] || [ "$1" -gt 2100000000 ]; then
+    die "BUILD_NUMBER must be no larger than 2100000000, Play's versionCode ceiling: $1"
+  fi
+}
+
 # A Gradle home this RUN owns, so gradle.properties below is a file only this
 # run can see and cleanup takes with it.
 GRADLE_RUN_HOME="$WORKDIR/gradle-home"
@@ -560,9 +601,17 @@ release_stage() {
   # versionCode stays on the command line: it is a build number, not a secret,
   # and keeping it here is what makes the argv readable when a build is being
   # diagnosed. Every signing value went into gradle.properties above.
+  #
+  # Twice, because -PversionCode only reaches a build.gradle that READS that
+  # property, and most hardcode versionCode instead — so the bundle would carry
+  # the project's own number, one Play already holds and refuses.
+  # android.injected.version.code is the Android Gradle plugin's own override
+  # (what Android Studio uses), applied to the merged manifest whatever the
+  # build script says.
   "$ROOT/gradlew" ":$MODULE:bundleRelease" \
     -g "$GRADLE_RUN_HOME" \
-    -PversionCode="$BUILD_NUMBER"
+    -PversionCode="$BUILD_NUMBER" \
+    -Pandroid.injected.version.code="$BUILD_NUMBER"
 
   local built
   # -print -quit rather than a pipe into head: under ` + "`set -o pipefail`" + ` head

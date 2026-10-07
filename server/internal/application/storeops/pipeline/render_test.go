@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
@@ -83,6 +84,8 @@ func TestRenderScopesASubProject(t *testing.T) {
 	assert.Equal(t, ".github/workflows/mobile-release-apps-mobile.yml", workflow.Path)
 	assert.Contains(t, workflow.Body, "bash apps/mobile/scripts/mobile-release.sh")
 	assert.Contains(t, workflow.Body, "path: apps/mobile/build/mobile-release/**")
+	assert.Contains(t, workflow.Body, `git checkout "$GITHUB_SHA" -- apps/mobile/scripts/mobile-release.sh`,
+		"the restored procedure is the sub-project's own script")
 }
 
 func TestGeneratedScriptParses(t *testing.T) {
@@ -220,6 +223,7 @@ func TestScriptCarriesTheWholeProcedure(t *testing.T) {
 			`signing_properties "$keystore"`,
 			`-g "$GRADLE_RUN_HOME"`,
 			`-PversionCode="$BUILD_NUMBER"`,
+			`-Pandroid.injected.version.code="$BUILD_NUMBER"`,
 			"track:internal",
 		} {
 			assert.Contains(t, stage, want)
@@ -360,4 +364,219 @@ func TestDisplayNameIsQuotedRatherThanRefused(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(script.Body), 0o755))
 	out, err := exec.Command(bash, "-n", path).CombinedOutput()
 	require.NoError(t, err, "bash -n: %s", out)
+}
+
+func bashOrSkip(t *testing.T) string {
+	t.Helper()
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("no bash on this machine")
+	}
+	return bash
+}
+
+// buildNumberHarness runs the generated resolve_build_number — and the
+// platform's check_build_number it delegates to — on its own, so the grammar
+// is asserted by bash itself rather than by reading the pattern.
+func buildNumberHarness(t *testing.T, script string) string {
+	t.Helper()
+	return strings.Join([]string{
+		"set -euo pipefail",
+		`die() { echo "error: $*" >&2; exit 1; }`,
+		"CHANNEL=stage",
+		`BUILD_NUMBER="${BUILD_NUMBER:-}"`,
+		funcBody(t, script, "check_build_number") + "\n}",
+		funcBody(t, script, "resolve_build_number") + "\n}",
+		"resolve_build_number",
+		`printf '%s' "$BUILD_NUMBER"`,
+		"",
+	}, "\n")
+}
+
+func TestBuildNumberGrammarIsPerPlatform(t *testing.T) {
+	bash := bashOrSkip(t)
+	cases := map[string]struct {
+		spec     Spec
+		accepted []string
+		refused  []string
+	}{
+		"ios": {
+			spec:     iosSpec(),
+			accepted: []string{"1", "0", "412", "412.54", "412.54.2", "2100000001"},
+			refused:  []string{"1.2.3.4", "1..2", ".1", "1.", "abc", "-1", "1 2", "1.a"},
+		},
+		"android": {
+			spec:     androidSpec(),
+			accepted: []string{"1", "42", "2100000000"},
+			refused: []string{
+				"0", "01", "412.54", "412.54.2", "2100000001",
+				"99999999999999999999999999", "abc", "-1", "1 2",
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			script, _ := render(t, tc.spec)
+			harness := filepath.Join(t.TempDir(), "harness.sh")
+			require.NoError(t, os.WriteFile(harness, []byte(buildNumberHarness(t, script.Body)), 0o700))
+
+			run := func(value string) (string, error) {
+				cmd := exec.Command(bash, harness)
+				cmd.Env = []string{"PATH=/usr/bin:/bin", "BUILD_NUMBER=" + value}
+				out, err := cmd.CombinedOutput()
+				return string(out), err
+			}
+			for _, value := range tc.accepted {
+				out, err := run(value)
+				assert.NoError(t, err, "%q must be accepted: %s", value, out)
+				assert.Equal(t, value, out)
+			}
+			for _, value := range tc.refused {
+				out, err := run(value)
+				assert.Error(t, err, "%q must be refused", value)
+				assert.Contains(t, out, "error: BUILD_NUMBER must be")
+			}
+		})
+	}
+
+	ios, _ := render(t, iosSpec())
+	assert.Contains(t, funcBody(t, ios.Body, "check_build_number"), `'^[0-9]+(\.[0-9]+){0,2}$'`)
+	android, _ := render(t, androidSpec())
+	assert.Contains(t, funcBody(t, android.Body, "check_build_number"), `[ "$1" -gt 2100000000 ]`)
+}
+
+// TestScriptHonoursTTProjectRoot runs the generated preamble up to the line
+// that fixes ROOT, from a checkout layout and from outside one.
+func TestScriptHonoursTTProjectRoot(t *testing.T) {
+	bash := bashOrSkip(t)
+	for name, spec := range map[string]Spec{"ios": iosSpec(), "android": androidSpec()} {
+		t.Run(name, func(t *testing.T) {
+			script, _ := render(t, spec)
+			const rootLine = "ROOT=\"$PWD\"\n"
+			cut := strings.Index(script.Body, rootLine)
+			require.GreaterOrEqual(t, cut, 0)
+			prefix := script.Body[:cut+len(rootLine)] + `printf '%s' "$ROOT"` + "\n"
+			assert.Contains(t, prefix, `if [ -n "${TT_PROJECT_ROOT:-}" ]; then`)
+
+			base := t.TempDir()
+			project := filepath.Join(base, "project")
+			elsewhere := filepath.Join(base, "elsewhere")
+			require.NoError(t, os.MkdirAll(filepath.Join(project, "scripts"), 0o755))
+			require.NoError(t, os.MkdirAll(elsewhere, 0o755))
+			path := filepath.Join(project, "scripts", "mobile-release.sh")
+			require.NoError(t, os.WriteFile(path, []byte(prefix), 0o755))
+
+			run := func(env ...string) (string, error) {
+				cmd := exec.Command(bash, path, "stage")
+				cmd.Dir = base
+				cmd.Env = append([]string{"PATH=/usr/bin:/bin"}, env...)
+				out, err := cmd.CombinedOutput()
+				return string(out), err
+			}
+			resolved := func(p string) string {
+				real, err := filepath.EvalSymlinks(p)
+				require.NoError(t, err)
+				return real
+			}
+
+			out, err := run()
+			require.NoError(t, err, out)
+			assert.Equal(t, resolved(project), resolved(out), "without it the project is the script's parent's parent")
+
+			out, err = run("TT_PROJECT_ROOT=" + elsewhere)
+			require.NoError(t, err, out)
+			assert.Equal(t, resolved(elsewhere), resolved(out), "the local engine runs the script from outside the project")
+
+			out, err = run("TT_PROJECT_ROOT=" + filepath.Join(base, "missing"))
+			assert.Error(t, err, "set and not a directory is refused, not fallen back from")
+			assert.Contains(t, out, "TT_PROJECT_ROOT")
+			assert.Contains(t, out, "not a directory")
+		})
+	}
+}
+
+func workflowDoc(t *testing.T, body string) map[string]any {
+	t.Helper()
+	var doc map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(body), &doc))
+	return doc
+}
+
+func mapAt(t *testing.T, m map[string]any, keys ...string) map[string]any {
+	t.Helper()
+	for _, key := range keys {
+		next, ok := m[key].(map[string]any)
+		require.True(t, ok, "%s is not a mapping", key)
+		m = next
+	}
+	return m
+}
+
+func workflowSteps(t *testing.T, doc map[string]any) []map[string]any {
+	t.Helper()
+	raw, ok := mapAt(t, doc, "jobs", "release")["steps"].([]any)
+	require.True(t, ok)
+	steps := make([]map[string]any, 0, len(raw))
+	for _, s := range raw {
+		step, ok := s.(map[string]any)
+		require.True(t, ok)
+		steps = append(steps, step)
+	}
+	return steps
+}
+
+func TestWorkflowTakesATestBuild(t *testing.T) {
+	for name, spec := range map[string]Spec{"ios": iosSpec(), "android": androidSpec()} {
+		t.Run(name, func(t *testing.T) {
+			_, workflow := render(t, spec)
+			doc := workflowDoc(t, workflow.Body)
+
+			assert.Equal(t,
+				"${{ inputs.build_id != '' && format('tt-test-build {0}', inputs.build_id) || 'mobile-release' }}",
+				doc["run-name"], "TaskTrooper finds the run it dispatched by this title")
+
+			inputs := mapAt(t, doc, "on", "workflow_dispatch", "inputs")
+			for _, input := range []string{"build_number", "ref", "build_id"} {
+				in := mapAt(t, inputs, input)
+				assert.Equal(t, "string", in["type"], input)
+				assert.Equal(t, "", in["default"], "%s empty means a person's run behaves as before", input)
+			}
+			if spec.Platform == domain.MobileStorePlatformAndroid {
+				assert.Equal(t, "boolean", mapAt(t, inputs, "upload")["type"], "the first-publish opt-out stays")
+			}
+
+			assert.Contains(t, mapAt(t, doc, "concurrency")["group"],
+				"${{ inputs.build_id != '' && format('-{0}', inputs.build_id) || '' }}",
+				"a queued test build would otherwise cancel the one pending before it")
+
+			steps := workflowSteps(t, doc)
+			checkout, restore, release, upload := -1, -1, -1, -1
+			for i, step := range steps {
+				switch {
+				case step["uses"] == "actions/checkout@v4":
+					checkout = i
+					assert.Equal(t, "${{ inputs.ref || github.ref }}", mapAt(t, step, "with")["ref"])
+				case step["if"] == "inputs.ref != ''":
+					restore = i
+				case step["name"] == "Release":
+					release = i
+					assert.Equal(t, "${{ inputs.build_number || github.run_number }}", mapAt(t, step, "env")["BUILD_NUMBER"])
+				case step["uses"] == "actions/upload-artifact@v4":
+					upload = i
+					assert.Equal(t,
+						"mobile-release-com.example.myapp${{ inputs.build_id != '' && format('-{0}', inputs.build_id) || '' }}",
+						mapAt(t, step, "with")["name"])
+				}
+				if run, ok := step["run"].(string); ok {
+					assert.NotContains(t, run, "${{", "values reach a run: line through the environment")
+				}
+			}
+			require.True(t, checkout >= 0 && restore >= 0 && release >= 0 && upload >= 0, "steps: %v", steps)
+			assert.Less(t, checkout, restore)
+			assert.Less(t, restore, release, "the procedure is restored before it runs")
+			assert.Equal(t,
+				`git fetch --no-tags --depth=1 origin "$GITHUB_SHA" && git checkout "$GITHUB_SHA" -- scripts/mobile-release.sh`,
+				steps[restore]["run"])
+		})
+	}
 }

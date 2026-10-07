@@ -103,7 +103,7 @@ func newEngineTestService(t *testing.T) (*storeops.Service, *engineFixture) {
 			return f.localHost, f.localErr
 		},
 	)
-	svc.SetReleaseStarter(func(_ context.Context, _ domain.Repository, _ domain.MobileStoreApp, engine string, artifacts []pipeline.Artifact) error {
+	svc.SetReleaseStarter(func(_ context.Context, _ domain.Repository, _ domain.MobileStoreApp, engine string, artifacts []pipeline.Artifact, _ string) error {
 		f.started = append(f.started, startedRelease{Engine: engine, Artifacts: artifacts})
 		return f.startErr
 	})

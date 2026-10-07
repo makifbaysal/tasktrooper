@@ -40,6 +40,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/appiumhub"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localdevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localtoolchain"
+	simrunhost "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/simrun"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/localexec"
 	mcpadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/mcp"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpserver"
@@ -101,6 +102,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/settings"
+	simrunapp "github.com/makifbaysal/tasktrooper/server/internal/application/simrun"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/smokegen"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops/pipeline"
@@ -286,6 +288,7 @@ type engine struct {
 	healthMonitor   *prodops.Monitor
 	storeOpsSvc     *storeops.Service
 	storeMonitor    *storeops.Monitor
+	simRunSvc       *simrunapp.Service
 	deployOpsSvc    *deployops.Service
 	deployWatchSvc  *deploywatch.Service
 	releaseSvc      *releaseapp.Service
@@ -2268,7 +2271,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			if boardTaskStore != nil {
 				storeOpsSvc.SetReleaseParker(boardTaskStore)
 			}
-			storeOpsSvc.SetReleaseStarter(func(ctx context.Context, repo domain.Repository, app domain.MobileStoreApp, engine string, artifacts []pipeline.Artifact) error {
+			storeOpsSvc.SetReleaseStarter(func(ctx context.Context, repo domain.Repository, app domain.MobileStoreApp, engine string, artifacts []pipeline.Artifact, buildNumber string) error {
 				if gitClient == nil || githubTokens == nil {
 					return fmt.Errorf("storeops: github client or token not configured")
 				}
@@ -2314,7 +2317,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				if workflow == "" {
 					return fmt.Errorf("storeops: the generated release pipeline for %s carries no workflow", app.Identifier)
 				}
-				return githubapi.DispatchWorkflow(ctx, token, info.Owner, info.Repo, workflow, info.Branch)
+				if buildNumber == "" {
+					return githubapi.DispatchWorkflow(ctx, token, info.Owner, info.Repo, workflow, info.Branch)
+				}
+				return githubapi.DispatchWorkflowInputs(ctx, token, info.Owner, info.Repo, workflow, info.Branch,
+					map[string]string{"channel": "stage", "build_number": buildNumber})
 			})
 			// Onboard returns the (possibly test_ready) app row; the hook only needs
 			// to know whether onboarding succeeded, so the row is dropped here.
@@ -2330,6 +2337,54 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// A successful store prod deploy IS the submit for review — hand it
 			// to storeops so the monitor polls the verdict.
 			pipelineRunner.SetStoreSubmitter(storeOpsSvc)
+
+			// Per-task test builds (TestFlight, Play internal app sharing) and
+			// "run it on my simulator". Both build from a detached worktree of
+			// the task's checkout, never from the checkout an agent works in.
+			storeDataDir := opts.DataDir
+			if storeDataDir == "" {
+				storeDataDir = filepath.Dir(cfg.AgentCatalog.CacheDir)
+			}
+			testSource := &storeTestSource{git: gitClient, workspaceRoot: cfg.Storage.Sessions.WorkspaceRoot}
+			testBuildDeps := storeops.TestBuildDeps{
+				Builds: pgstore.NewStoreTestBuildStore(e.pgDB),
+				NewTestFlight: func(cred domain.StoreCredential) (port.TestFlightClient, error) {
+					return appstore.New(cred)
+				},
+				NewPlayTesting: func(cred domain.StoreCredential) (port.PlayTestingClient, error) {
+					return googleplay.New(cred)
+				},
+				Local:       newLocalMobileBuilder(storeDataDir),
+				Source:      testSource,
+				Tasks:       repositorySvc,
+				ArtifactDir: filepath.Join(storeDataDir, "store-builds"),
+			}
+			if githubTokens != nil {
+				testBuildDeps.Actions = githubapi.NewMobileTestBuilder(func(ctx context.Context, repo domain.Repository) (string, string, string, string, error) {
+					token, err := githubTokens.GitHubToken(ctx)
+					if err != nil {
+						return "", "", "", "", fmt.Errorf("resolving github token: %w", err)
+					}
+					info, err := gitClient.TaskGitInfo(ctx, repo.RootPath)
+					if err != nil {
+						return "", "", "", "", fmt.Errorf("resolving repository git info: %w", err)
+					}
+					// "" makes the builder ask GitHub: the root checkout's current
+					// branch is not necessarily the default one.
+					return token, info.Owner, info.Repo, "", nil
+				})
+			}
+			storeOpsSvc.SetTestBuilds(testBuildDeps)
+			repositorySvc.SetStoreTestBuilder(storeOpsSvc)
+			storeOpsSvc.ResumeTestBuilds(ctx)
+
+			e.simRunSvc = simrunapp.New(simrunapp.Deps{
+				Repos:    repositoryStore,
+				Tasks:    repositorySvc,
+				Source:   simRunCheckout{testSource},
+				Host:     simrunhost.New(localdevice.New(localdevice.Config{})),
+				CacheDir: filepath.Join(storeDataDir, "simulator-builds"),
+			})
 
 			// Gated like the prodops monitor: without a cipher the vault cannot
 			// build an ASC/Play client, so the sweep would only log warnings.
@@ -2843,6 +2898,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		SmokeGenSvc:       smokeGenHTTP,
 		ReleaseWaker:      releaseWaker,
 		LocalPreviewSvc:   localPreviewSvc,
+		SimRunSvc:         e.simRunSvc,
 		InitiativeSvc:     initiativeSvc,
 		WorkspaceSvc:      workspaceSvc,
 		WorkflowSvc:       workflowSvc,

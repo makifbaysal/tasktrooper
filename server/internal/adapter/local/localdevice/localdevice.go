@@ -460,6 +460,13 @@ func (h *Host) emulatorAVDName(ctx context.Context, serial string) (string, erro
 }
 
 func (h *Host) StartEmulator(ctx context.Context, avd string) (string, error) {
+	return h.LaunchEmulator(ctx, avd, false)
+}
+
+// LaunchEmulator is StartEmulator with a choice of window: Appium drives a
+// headless one, a person trying a build needs to see it. An AVD that is already
+// running is used as it is.
+func (h *Host) LaunchEmulator(ctx context.Context, avd string, windowed bool) (string, error) {
 	if h == nil || h.adb == "" {
 		return "", fmt.Errorf("this host has no Android SDK platform-tools (adb)")
 	}
@@ -474,7 +481,7 @@ func (h *Host) StartEmulator(ctx context.Context, avd string) (string, error) {
 		if h.emulator == "" {
 			return "", fmt.Errorf("%q is not running and this host has no emulator binary to start it with", avd)
 		}
-		if err := h.spawnEmulator(avd); err != nil {
+		if err := h.spawnEmulator(avd, windowed); err != nil {
 			return "", err
 		}
 		if serial, err = h.waitForSerial(ctx, avd); err != nil {
@@ -487,8 +494,12 @@ func (h *Host) StartEmulator(ctx context.Context, avd string) (string, error) {
 	return serial, nil
 }
 
-func (h *Host) spawnEmulator(avd string) error {
-	cmd := exec.Command(h.emulator, "-avd", avd, "-no-window", "-no-audio")
+func (h *Host) spawnEmulator(avd string, windowed bool) error {
+	args := []string{"-avd", avd, "-no-window", "-no-audio"}
+	if windowed {
+		args = []string{"-avd", avd, "-no-audio"}
+	}
+	cmd := exec.Command(h.emulator, args...)
 	cmd.Env = childenv.For(os.Environ(), nil)
 	cmd.Stdout, cmd.Stderr = nil, nil
 	if err := cmd.Start(); err != nil {
@@ -587,3 +598,9 @@ func truncate(s string, max int) string {
 	}
 	return s[:max] + "…"
 }
+
+// XcrunPath, ADBPath and EmulatorPath are the resolved toolchain binaries, ""
+// when this host has none.
+func (h *Host) XcrunPath() string    { return h.xcrun }
+func (h *Host) ADBPath() string      { return h.adb }
+func (h *Host) EmulatorPath() string { return h.emulator }

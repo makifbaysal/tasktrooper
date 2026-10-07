@@ -37,7 +37,9 @@ type LocalRunnerHost struct {
 
 type LocalRunnerProbe func(ctx context.Context) (LocalRunnerHost, error)
 
-type ReleaseStarter func(ctx context.Context, repo domain.Repository, app domain.MobileStoreApp, engine string, artifacts []pipeline.Artifact) error
+// ReleaseStarter starts a release build. buildNumber is the number the build
+// must carry; "" leaves it to the engine (the workflow's own run number).
+type ReleaseStarter func(ctx context.Context, repo domain.Repository, app domain.MobileStoreApp, engine string, artifacts []pipeline.Artifact, buildNumber string) error
 
 type ReleaseParker interface {
 	BlockOnResource(ctx context.Context, repositoryID, taskID uuid.UUID, resource, detail string) (domain.TaskColumn, error)
@@ -241,7 +243,15 @@ func (s *Service) StartBuild(ctx context.Context, repositoryID uuid.UUID, platfo
 		s.recordAudit(ctx, repositoryID, auditActionStoreBuild, platform, actor, map[string]string{"engine": resolved}, wrapped)
 		return BuildStart{}, wrapped
 	}
-	if err := s.startRelease(ctx, repo, app, resolved, artifacts); err != nil {
+	buildNumber := ""
+	if resolved == domain.ReleaseEngineActions {
+		buildNumber, err = s.reserveReleaseBuild(ctx, repo, app, resolved, actor)
+		if err != nil {
+			s.recordAudit(ctx, repositoryID, auditActionStoreBuild, platform, actor, map[string]string{"engine": resolved}, err)
+			return BuildStart{}, err
+		}
+	}
+	if err := s.startRelease(ctx, repo, app, resolved, artifacts, buildNumber); err != nil {
 		wrapped := fmt.Errorf("storeops: starting the %s release of %s: %w", resolved, app.Identifier, err)
 		if errors.Is(err, domain.ErrNoReleaseEngine) {
 

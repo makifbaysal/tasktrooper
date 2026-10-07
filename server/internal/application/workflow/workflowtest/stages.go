@@ -116,7 +116,7 @@ var codingExtra = map[domain.TaskColumn][]domain.BehaviourRef{
 		ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"),
 		ref(domain.BehaviourReviewChainStage, "label", "UAT", "remedy", "move it to pm_uat so every acceptance criterion is verified against QA's evidence"),
 	},
-	domain.TaskColumnHumanUAT: {ref(domain.BehaviourBuildVerify)},
+	domain.TaskColumnHumanUAT: {ref(domain.BehaviourBuildVerify), ref(domain.BehaviourStoreTestBuildOnEnter)},
 	domain.TaskColumnDone: {
 		ref(domain.BehaviourDispatchSuspended), ref(domain.BehaviourMergePROnEnter), ref(domain.BehaviourWatchDeployOnResume),
 	},

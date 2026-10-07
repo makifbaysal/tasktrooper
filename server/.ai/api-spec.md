@@ -639,6 +639,48 @@ carries the same text with the markers stripped.
 | `POST /v1/repositories/{id}/store/apps/{platform}/promote` | Body `{from, to, confirm}` — one channel forward at a time (`domain.NextChannel`: internal→external→production); `to=production` requires `confirm`; 409 `ErrAppNotReady` |
 | `POST /v1/repositories/{id}/store/apps/{platform}/build` | Body `{engine?}` (`auto`\|`github_actions`\|`local`, default the repo's `release_engine`); 409 `domain.ErrNoReleaseEngine` when neither engine can run — the card is parked on `human_decision`, not retried; 409 `storeops.ErrBuildTargetUnknown` when the working copy named no Xcode scheme / Gradle module (migration 127) |
 
+Linking (`.../link`) reads the console back: an unregistered row takes the
+observed state (`live` when a version is on sale / production has a published
+release, else `test_ready`, or `onboarding` for a Play app with no first upload),
+and the monitor does the same for linked rows it finds unregistered. Go-live is
+"a version is on sale", never "the newest version is" — a newer draft does not
+hide the live one. `tracks.production` shows the version customers have and
+queues a newer drafted/in-review/approved one in `pending_version` /
+`pending_status`.
+
+### Store test builds
+
+A task entering a stage that carries `store_test_build_on_enter` (Human UAT on
+`task`/`bug`/`technical`, migration 177) is built for every linked app that is
+`test_ready`/`live`, uploaded to TestFlight (iOS) or Play internal app sharing
+(Android), and opened to the repository's automatic groups. Build numbers come
+from one counter per app — the higher of this table's and the store's — iOS
+`<sequence>.<taskNo>.<attempt>` (CFBundleVersion), Android `versionCode =
+<sequence>`. The engine is this machine when it can build the platform, else
+GitHub Actions (a pinned `release_engine` is honoured). A task coming back to
+UAT with no new commit is not rebuilt.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/repositories/{id}/store/test-builds?platform=&task_id=&limit=` | `[]domain.StoreTestBuild`, newest first |
+| `POST /v1/repositories/{id}/store/test-builds` | Body `{task_id?, platforms?}` — no `task_id` builds the default branch, no `platforms` every linked app. 202 `{builds, error?}` (partial success keeps the started ones); 409 when an app cannot take builds (`ErrTestBuildNoStoreApp`, `ErrTestBuildAppNotTestable`) or no engine can run |
+| `GET /v1/repositories/{id}/store/test-builds/{buildId}` | One build (status `queued`→`building`→`processing` (iOS)→`ready`, or `failed`, or `action_required` with `failure: "export_compliance"`) |
+| `POST .../test-builds/{buildId}/open` | Body `{groups}` — TestFlight group ids (an external group also submits the build to Beta App Review) or Play track names (`production` refused); Android re-uploads the kept AAB when Play does not hold the versionCode yet |
+| `POST .../test-builds/{buildId}/close` | Body `{groups}` — iOS only (Play tracks are replaced, not emptied) |
+| `POST .../test-builds/{buildId}/export-compliance` | Body `{uses_non_exempt_encryption}` — required, no default: it is the developer's legal answer; the build then opens to its automatic groups |
+| `GET /v1/repositories/{id}/store/apps/{platform}/test-groups` | `[]domain.StoreTestGroup`: TestFlight groups or Play testing tracks (no production), with `auto_distribute` |
+| `POST /v1/repositories/{id}/store/apps/{platform}/test-groups` | Body `{name, internal}` — iOS only |
+| `PUT /v1/repositories/{id}/store/apps/{platform}/test-groups/auto` | Body `{groups}` — which groups a ready build opens to. Unset: every TestFlight internal group; no Play track (the internal app sharing link only) |
+| `GET/POST /v1/repositories/{id}/store/test-groups/{groupId}/testers`, `DELETE .../testers/{testerId}` | TestFlight testers of a group; POST `{email, first_name, last_name}` invites |
+
+### Simulator runs
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/simulator/devices` | `[]domain.SimulatorDevice` of this machine: iOS simulators (UDID), Android AVDs (`avd:<name>`) and USB devices (`adb:<serial>`); 409 when there are none |
+| `POST /v1/repositories/{id}/tasks/{taskId}/simulator-run` | Body `{platform, device_id}` — debug-builds a detached worktree of the task's checkout, installs and launches it; 202 `domain.SimulatorRun`; 409 when a run is already going on this machine |
+| `GET /v1/repositories/{id}/tasks/{taskId}/simulator-run` | The task's latest run (in memory only); 404 when none |
+
 Mobile release now runs through `application/storeops/pipeline`-generated
 `scripts/mobile-release.sh` (one script, called by a thin workflow wrapper) —
 the four platform deploy templates (`ios-app-store`, `android-google-play`,

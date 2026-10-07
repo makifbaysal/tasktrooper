@@ -36,8 +36,12 @@ If the repo has no `fastlane/` yet, create it directly: `Fastfile` lanes `beta` 
 
 ## Build numbers
 
-- iOS: `increment_build_number(build_number: latest_testflight_build_number + 1)` — never reuse a build number, the store rejects the upload.
-- Android: `versionCode` from `github.run_number`, or `google_play_track_version_codes` + 1 if the repo already reads the current track's version codes — either way it must be monotonically increasing.
+TaskTrooper chooses the build number; the generated `scripts/mobile-release.sh` reads it from `BUILD_NUMBER` and passes it to `xcodebuild` (`CURRENT_PROJECT_VERSION`) and Gradle (`-PversionCode`, `-Pandroid.injected.version.code`). Do not add `increment_build_number`, a `latest_testflight_build_number + 1` lane or a `github.run_number` versionCode — two counters fight, and the store rejects the lower one.
+- One counter per app, the higher of TaskTrooper's own record and the store's current highest build.
+- iOS: `<sequence>.<task number>.<attempt>` (e.g. `412.54.2`) — CFBundleVersion takes up to three integers and TestFlight compares the first one first, so every upload is higher than the last whatever task it belongs to. The project's Info.plist must take `CFBundleVersion` from `$(CURRENT_PROJECT_VERSION)`.
+- Android: `versionCode = <sequence>`. A project that hardcodes `versionCode` still gets the number through AGP's injected override.
+
+Per-task test builds: a task entering Human UAT is built from its checkout and uploaded to TestFlight (opened to the internal groups) and to Play internal app sharing (a per-build link, no versionCode ordering). A rejected task that comes back to UAT gets the next attempt number. The "What to Test" note carries the task key, attempt and commit.
 
 ## Secrets (these ARE real secrets)
 

@@ -68,6 +68,8 @@ type Service struct {
 	mu sync.Mutex
 
 	pendingPush map[renewTarget]bool
+
+	tb *testBuilds
 }
 
 func NewService(d Deps) *Service {

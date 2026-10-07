@@ -44,6 +44,7 @@ func (h *Handler) registerStoreOpsRoutes(app fiber.Router) {
 	// listing is an account-level question: which apps can this credential
 	// see, before any repository has been bound to one of them.
 	app.Get("/v1/store/credentials/:provider/apps", h.ListStoreCredentialApps)
+	h.registerStoreTestBuildRoutes(app)
 }
 
 // SaveStoreCredential — PUT /v1/store/credentials/:provider

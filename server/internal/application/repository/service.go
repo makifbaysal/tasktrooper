@@ -83,6 +83,7 @@ type Service struct {
 	git              port.GitClient
 	deployTargets    port.DeployTargetStore
 	mobileStoreApps  port.MobileStoreAppStore
+	storeTestBuilds  StoreTestBuilder
 	workspaceRoot    string
 	gitWarnMu        sync.Mutex
 	gitWarnings      map[uuid.UUID]string
@@ -469,6 +470,16 @@ func (s *Service) SetDeployTargets(store port.DeployTargetStore) {
 
 func (s *Service) SetMobileStoreApps(store port.MobileStoreAppStore) {
 	s.mobileStoreApps = store
+}
+
+// StoreTestBuilder builds a task for its repository's store apps when the task
+// enters a stage carrying store_test_build_on_enter.
+type StoreTestBuilder interface {
+	OnTaskEnteredTestStage(ctx context.Context, repositoryID, taskID uuid.UUID)
+}
+
+func (s *Service) SetStoreTestBuilder(b StoreTestBuilder) {
+	s.storeTestBuilds = b
 }
 
 func (s *Service) SetGit(git port.GitClient, workspaceRoot string) {
@@ -1850,6 +1861,11 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 
 		if wfErr == nil && wf.Has(*req.Column, domain.BehaviourDetectMigrationOnEnter) {
 			s.DetectTaskMigration(ctx, updated)
+		}
+
+		// Off the request path: allocating a build number reads the store.
+		if s.storeTestBuilds != nil && wfErr == nil && wf.Has(*req.Column, domain.BehaviourStoreTestBuildOnEnter) {
+			go s.storeTestBuilds.OnTaskEnteredTestStage(context.WithoutCancel(ctx), repositoryID, updated.ID)
 		}
 
 		if s.pipelines != nil {
