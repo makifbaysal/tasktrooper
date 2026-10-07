@@ -131,7 +131,8 @@ func (s *MonitorSuite) TestSweepOnboardingVerifiesAndAdvancesToTestReady() {
 
 func (s *MonitorSuite) TestSweepTestReadyIOSGoesLiveAndComments() {
 	s.storeASCCredential()
-	s.asc.LatestVersionResult = port.AppStoreVersionInfo{Version: "1.0.0", State: "READY_FOR_SALE"}
+	s.asc.LiveVersionResult = port.AppStoreVersionInfo{Version: "1.0.0", State: "READY_FOR_SALE"}
+	s.asc.LiveVersionFound = true
 	repoID := uuid.New()
 	taskID := uuid.New()
 	ctx := context.Background()
@@ -159,7 +160,8 @@ func (s *MonitorSuite) TestSweepTestReadyIOSGoesLiveAndComments() {
 
 func (s *MonitorSuite) TestSweepTestReadyAndroidGoesLiveWithoutTaskDoesNotPanic() {
 	s.storePlayCredential()
-	s.play.TrackInfoResult = port.PlayTrackInfo{HasRelease: true, VersionName: "2.0.0", Status: "completed"}
+	s.play.LiveVersionResult = "2.0.0"
+	s.play.LiveVersionFound = true
 	repoID := uuid.New()
 	ctx := context.Background()
 
@@ -343,7 +345,8 @@ func (s *MonitorSuite) TestSweepLiveAndroidHaltedRolloutRetriesAfterFailedIngest
 
 func (s *MonitorSuite) TestSweepOneRowsErrorDoesNotAbortTheRest() {
 	s.storePlayCredential()
-	s.play.TrackInfoResult = port.PlayTrackInfo{HasRelease: true, VersionName: "1.0.0", Status: "completed"}
+	s.play.LiveVersionResult = "1.0.0"
+	s.play.LiveVersionFound = true
 	ctx := context.Background()
 
 	repoIOS := uuid.New()

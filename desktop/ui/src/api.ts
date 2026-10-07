@@ -614,6 +614,10 @@ export interface TrackRelease {
   user_fraction?: number;
   audience?: string;
   updated_at?: string;
+  // A newer version queued behind this one (drafted, in review, approved but
+  // not released); absent when nothing is queued.
+  pending_version?: string;
+  pending_status?: TrackStatus;
 }
 
 export interface StoreTracks {

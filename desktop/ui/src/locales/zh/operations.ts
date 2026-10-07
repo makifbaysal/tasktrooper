@@ -155,6 +155,7 @@ export const operations = {
     channelsFailed: "加载渠道失败",
     channelEmpty: "此渠道暂无发布",
     channelAudience: "受众",
+    pendingVersion: "下一个：{version} · {status}",
   },
   errors: {
     noWorkflowMapping: "此环境未映射部署工作流。",

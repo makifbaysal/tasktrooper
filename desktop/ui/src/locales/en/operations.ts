@@ -166,6 +166,7 @@ export const operations = {
     channelsFailed: "Failed to load channels",
     channelEmpty: "No release on this channel",
     channelAudience: "Audience",
+    pendingVersion: "Next: {version} · {status}",
   },
   errors: {
     noWorkflowMapping: "No deploy workflow is mapped for this environment.",

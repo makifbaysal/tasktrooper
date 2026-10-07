@@ -105,6 +105,13 @@ func (m *Monitor) Sweep(ctx context.Context) {
 
 func (m *Monitor) sweepApp(ctx context.Context, app domain.MobileStoreApp) {
 	switch app.State {
+	case domain.MobileStoreStateUnregistered:
+		// A row linked from the console but never read back (a link made
+		// before links read the console, or one whose read failed) is
+		// otherwise stuck unregistered forever, with every store action shut.
+		if app.Identifier != "" && (app.Platform != domain.MobileStorePlatformIOS || app.StoreAppID != "") {
+			m.reconcile(ctx, app)
+		}
 	case domain.MobileStoreStateOnboarding:
 		m.sweepOnboarding(ctx, app)
 	case domain.MobileStoreStateTestReady:
@@ -131,61 +138,44 @@ func (m *Monitor) syncTracks(ctx context.Context, app domain.MobileStoreApp) dom
 }
 
 func (m *Monitor) sweepOnboarding(ctx context.Context, app domain.MobileStoreApp) {
-	if _, err := m.svc.VerifyOnboarding(ctx, app.RepositoryID, app.Platform); err != nil {
+	verified, err := m.svc.VerifyOnboarding(ctx, app.RepositoryID, app.Platform)
+	if err != nil {
 		log.Warn().Err(err).Str("repository_id", app.RepositoryID.String()).Str("platform", app.Platform).
 			Msg("store monitor: verify onboarding failed")
+		if verified.RepositoryID == uuid.Nil {
+			return
+		}
+	}
+	// onboarding -> live is not a lifecycle step, so an app that went live by
+	// hand while a checklist item stayed open would otherwise wait forever.
+	if verified.State == domain.MobileStoreStateOnboarding {
+		m.reconcile(ctx, verified)
 	}
 }
 
 func (m *Monitor) sweepTestReady(ctx context.Context, app domain.MobileStoreApp) {
-	live, err := m.isLiveInStore(ctx, app)
-	if err != nil {
-		log.Warn().Err(err).Str("repository_id", app.RepositoryID.String()).
-			Msg("store monitor: check store go-live failed")
-		return
-	}
-	if !live || !app.CanTransition(domain.MobileStoreStateLive) {
-		return
-	}
-
-	now := time.Now()
-	app.State = domain.MobileStoreStateLive
-	app.FirstPublishedAt = &now
-	app.ReviewState = ""
-
-	stored, err := m.apps.Upsert(ctx, app)
-	if err != nil {
-		log.Warn().Err(err).Str("repository_id", app.RepositoryID.String()).
-			Msg("store monitor: persisting go-live failed")
-		return
-	}
-	m.commentOnboarding(ctx, stored, fmt.Sprintf("%s is now live in the %s store.", stored.Identifier, stored.Platform))
+	m.reconcile(ctx, app)
 }
 
-func (m *Monitor) isLiveInStore(ctx context.Context, app domain.MobileStoreApp) (bool, error) {
-	switch app.Platform {
-	case domain.MobileStorePlatformIOS:
-		client, err := m.svc.asc(ctx)
-		if err != nil {
-			return false, err
-		}
-		info, err := client.LatestVersion(ctx, app.StoreAppID)
-		if err != nil {
-			return false, err
-		}
-		return info.State == "READY_FOR_SALE", nil
-	case domain.MobileStorePlatformAndroid:
-		client, err := m.svc.play(ctx)
-		if err != nil {
-			return false, err
-		}
-		track, err := client.TrackInfo(ctx, app.Identifier, "production")
-		if err != nil {
-			return false, err
-		}
-		return track.HasRelease, nil
-	default:
-		return false, nil
+func (m *Monitor) reconcile(ctx context.Context, app domain.MobileStoreApp) {
+	presence, err := m.svc.storePresence(ctx, app)
+	if err != nil {
+		log.Warn().Err(err).Str("repository_id", app.RepositoryID.String()).Str("platform", app.Platform).
+			Msg("store monitor: reading the store console failed")
+		return
+	}
+	next, changed := adoptStorePresence(app, presence, time.Now())
+	if !changed {
+		return
+	}
+	stored, err := m.apps.Upsert(ctx, next)
+	if err != nil {
+		log.Warn().Err(err).Str("repository_id", app.RepositoryID.String()).
+			Msg("store monitor: persisting the observed store state failed")
+		return
+	}
+	if stored.State == domain.MobileStoreStateLive {
+		m.commentOnboarding(ctx, stored, fmt.Sprintf("%s is now live in the %s store.", stored.Identifier, stored.Platform))
 	}
 }
 

@@ -155,6 +155,7 @@ export const operations = {
     channelsFailed: "Kanäle konnten nicht geladen werden",
     channelEmpty: "Kein Release in diesem Kanal",
     channelAudience: "Zielgruppe",
+    pendingVersion: "Als Nächstes: {version} · {status}",
   },
   errors: {
     noWorkflowMapping: "Für diese Umgebung ist kein Deployment-Workflow zugeordnet.",

@@ -536,3 +536,17 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
     </div>
   );
 }
+
+/** The version queued behind what a channel holds, e.g. "Next: 1.5.0 · In review". */
+export function PendingVersionLine({ release }: { release: TrackRelease }) {
+  const { t } = useI18n();
+  if (!release.pending_version) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      {t("operations.apps.pendingVersion", {
+        version: release.pending_version,
+        status: t(trackStatusLabelKey(release.pending_status)),
+      })}
+    </p>
+  );
+}

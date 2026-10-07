@@ -693,6 +693,9 @@ func (s *stubPlayClient) AppExists(context.Context, string) (bool, error) { retu
 func (s *stubPlayClient) TrackInfo(context.Context, string, string) (port.PlayTrackInfo, error) {
 	return port.PlayTrackInfo{}, nil
 }
+func (s *stubPlayClient) LiveVersion(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
 func (s *stubPlayClient) PromoteTrack(context.Context, string, string, string, float64) error {
 	return nil
 }

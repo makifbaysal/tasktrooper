@@ -345,8 +345,33 @@ func (c *Client) LatestVersion(ctx context.Context, appID string) (port.AppStore
 	}
 	return port.AppStoreVersionInfo{
 		Version: newest.Attributes.VersionString,
-		State:   newest.Attributes.AppStoreState,
+		State:   newest.state(),
 	}, nil
+}
+
+// LiveVersion is the version customers can download right now, not the newest
+// one: a live app with a newer draft or a version in review has that as its
+// newest row, and reading it would report the app as unpublished.
+func (c *Client) LiveVersion(ctx context.Context, appID string) (port.AppStoreVersionInfo, bool, error) {
+	versions, err := c.listAppStoreVersions(ctx, appID)
+	if err != nil {
+		return port.AppStoreVersionInfo{}, false, err
+	}
+	live, found := liveVersion(versions)
+	if !found {
+		return port.AppStoreVersionInfo{}, false, nil
+	}
+	return port.AppStoreVersionInfo{Version: live.Attributes.VersionString, State: live.state()}, true, nil
+}
+
+func liveVersion(versions []appStoreVersion) (appStoreVersion, bool) {
+	onSale := make([]appStoreVersion, 0, len(versions))
+	for _, v := range versions {
+		if v.state() == stateReadyForSale {
+			onSale = append(onSale, v)
+		}
+	}
+	return newestVersion(onSale)
 }
 
 func newestVersion(versions []appStoreVersion) (appStoreVersion, bool) {
@@ -365,14 +390,47 @@ func newestVersion(versions []appStoreVersion) (appStoreVersion, bool) {
 type appStoreVersion struct {
 	ID         string `json:"id"`
 	Attributes struct {
-		VersionString string `json:"versionString"`
-		AppStoreState string `json:"appStoreState"`
-		CreatedDate   string `json:"createdDate"`
+		VersionString   string `json:"versionString"`
+		AppStoreState   string `json:"appStoreState"`
+		AppVersionState string `json:"appVersionState"`
+		Platform        string `json:"platform"`
+		CreatedDate     string `json:"createdDate"`
 	} `json:"attributes"`
 }
 
+const stateReadyForSale = "READY_FOR_SALE"
+
+// state speaks the appStoreState vocabulary. Apple deprecated appStoreState for
+// appVersionState, which says READY_FOR_DISTRIBUTION where the old field said
+// READY_FOR_SALE; a version carrying only the new field must still read as live.
+func (v appStoreVersion) state() string {
+	if s := v.Attributes.AppStoreState; s != "" {
+		return s
+	}
+	if v.Attributes.AppVersionState == "READY_FOR_DISTRIBUTION" {
+		return stateReadyForSale
+	}
+	return v.Attributes.AppVersionState
+}
+
+// iOSOnly drops the macOS, tvOS and visionOS versions a universal app record
+// carries next to its iOS ones; their states say nothing about the iOS app.
+func iOSOnly(versions []appStoreVersion) []appStoreVersion {
+	kept := make([]appStoreVersion, 0, len(versions))
+	for _, v := range versions {
+		if v.Attributes.Platform == "" || v.Attributes.Platform == "IOS" {
+			kept = append(kept, v)
+		}
+	}
+	return kept
+}
+
 func (c *Client) listAppStoreVersions(ctx context.Context, appID string) ([]appStoreVersion, error) {
-	return listAll[appStoreVersion](ctx, c, "/v1/apps/"+url.PathEscape(appID)+"/appStoreVersions")
+	versions, err := listAll[appStoreVersion](ctx, c, "/v1/apps/"+url.PathEscape(appID)+"/appStoreVersions?filter[platform]=IOS")
+	if err != nil {
+		return nil, err
+	}
+	return iOSOnly(versions), nil
 }
 
 var editableAppStoreStates = map[string]bool{
@@ -394,7 +452,7 @@ func (c *Client) submitVersionForReview(ctx context.Context, appID, version, bui
 
 	versionID := ""
 	for _, v := range versions {
-		if v.Attributes.VersionString == version && editableAppStoreStates[v.Attributes.AppStoreState] {
+		if v.Attributes.VersionString == version && editableAppStoreStates[v.state()] {
 			versionID = v.ID
 			break
 		}
@@ -464,7 +522,7 @@ func (c *Client) ReleaseVersion(ctx context.Context, appID string) error {
 
 	versionID := ""
 	for _, v := range versions {
-		if v.Attributes.AppStoreState == "PENDING_DEVELOPER_RELEASE" {
+		if v.state() == "PENDING_DEVELOPER_RELEASE" {
 			versionID = v.ID
 			break
 		}

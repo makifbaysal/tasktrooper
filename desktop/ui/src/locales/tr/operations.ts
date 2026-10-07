@@ -159,6 +159,7 @@ export const operations: OperationsDict = {
     channelsFailed: "Kanallar yüklenemedi",
     channelEmpty: "Bu kanalda sürüm yok",
     channelAudience: "Kitle",
+    pendingVersion: "Sırada: {version} · {status}",
   },
   errors: {
     noWorkflowMapping: "Bu ortam için eşlenmiş bir deploy iş akışı yok.",

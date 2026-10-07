@@ -37,8 +37,10 @@ type appListingPage struct {
 		Type       string `json:"type"`
 		ID         string `json:"id"`
 		Attributes struct {
-			VersionString string `json:"versionString"`
-			AppStoreState string `json:"appStoreState"`
+			VersionString   string `json:"versionString"`
+			AppStoreState   string `json:"appStoreState"`
+			AppVersionState string `json:"appVersionState"`
+			Platform        string `json:"platform"`
 		} `json:"attributes"`
 	} `json:"included"`
 	Links struct {
@@ -50,7 +52,7 @@ const ascIncludedVersionsLimit = 50
 
 func (c *Client) ListApps(ctx context.Context) ([]port.StoreAppRef, error) {
 	var refs []port.StoreAppRef
-	path := "/v1/apps?include=appStoreVersions&fields[appStoreVersions]=versionString,appStoreState" +
+	path := "/v1/apps?include=appStoreVersions&fields[appStoreVersions]=versionString,appStoreState,appVersionState,platform" +
 		"&limit[appStoreVersions]=" + strconv.Itoa(ascIncludedVersionsLimit)
 	for page := 0; path != ""; page++ {
 		if page >= ascMaxCollectionPages {
@@ -70,6 +72,8 @@ func (c *Client) ListApps(ctx context.Context) ([]port.StoreAppRef, error) {
 			v.ID = inc.ID
 			v.Attributes.VersionString = inc.Attributes.VersionString
 			v.Attributes.AppStoreState = inc.Attributes.AppStoreState
+			v.Attributes.AppVersionState = inc.Attributes.AppVersionState
+			v.Attributes.Platform = inc.Attributes.Platform
 			included[inc.ID] = v
 		}
 
@@ -81,10 +85,13 @@ func (c *Client) ListApps(ctx context.Context) ([]port.StoreAppRef, error) {
 					related = append(related, v)
 				}
 			}
+			related = iOSOnly(related)
 			state := ""
 			truncated := rel.Meta.Paging.Total != nil && *rel.Meta.Paging.Total > len(rel.Data)
-			if newest, found := newestVersion(related); found && !truncated {
-				state = newest.Attributes.AppStoreState
+			if live, found := liveVersion(related); found {
+				state = live.state()
+			} else if newest, found := newestVersion(related); found && !truncated {
+				state = newest.state()
 			}
 			refs = append(refs, port.StoreAppRef{
 				StoreAppID: row.ID,
@@ -298,8 +305,7 @@ func pluralize(n int, noun string) string {
 	return strconv.Itoa(n) + " " + noun + "s"
 }
 
-var liveAppStoreStates = map[string]bool{
-	"READY_FOR_SALE":            true,
+var approvedAppStoreStates = map[string]bool{
 	"PENDING_APPLE_RELEASE":     true,
 	"PENDING_DEVELOPER_RELEASE": true,
 }
@@ -309,11 +315,27 @@ var inReviewAppStoreStates = map[string]bool{
 	"WAITING_FOR_REVIEW": true,
 }
 
+// retiredAppStoreStates never describe what the channel holds next: a replaced
+// version is history, and a removed one is not coming back on its own.
+var retiredAppStoreStates = map[string]bool{
+	stateReadyForSale:             true,
+	"REPLACED_WITH_NEW_VERSION":   true,
+	"REMOVED_FROM_SALE":           true,
+	"DEVELOPER_REMOVED_FROM_SALE": true,
+}
+
+// productionVersion prefers what customers have over what is coming: the
+// version on sale, then an approved one, then one in review, then the newest.
+// Ranking "approved" with "on sale" made a live app's channel read as draft
+// the moment its next version cleared review.
 func productionVersion(versions []appStoreVersion) (appStoreVersion, bool) {
-	for _, tier := range []map[string]bool{liveAppStoreStates, inReviewAppStoreStates} {
+	if v, found := liveVersion(versions); found {
+		return v, true
+	}
+	for _, tier := range []map[string]bool{approvedAppStoreStates, inReviewAppStoreStates} {
 		matching := make([]appStoreVersion, 0, len(versions))
 		for _, v := range versions {
-			if tier[v.Attributes.AppStoreState] {
+			if tier[v.state()] {
 				matching = append(matching, v)
 			}
 		}
@@ -322,6 +344,19 @@ func productionVersion(versions []appStoreVersion) (appStoreVersion, bool) {
 		}
 	}
 	return newestVersion(versions)
+}
+
+// pendingVersion is the newest version above the shown one that is still on
+// its way to customers.
+func pendingVersion(versions []appStoreVersion, shown appStoreVersion) (appStoreVersion, bool) {
+	ahead := make([]appStoreVersion, 0, len(versions))
+	for _, v := range versions {
+		if v.ID != shown.ID && !retiredAppStoreStates[v.state()] &&
+			versionLess(shown.Attributes.VersionString, v.Attributes.VersionString) {
+			ahead = append(ahead, v)
+		}
+	}
+	return newestVersion(ahead)
 }
 
 func (c *Client) productionTrack(ctx context.Context, appID string) (domain.TrackRelease, error) {
@@ -338,7 +373,11 @@ func (c *Client) productionTrack(ctx context.Context, appID string) (domain.Trac
 		HasRelease: true,
 		Version:    version.Attributes.VersionString,
 		Build:      c.versionBuildNumber(ctx, version.ID),
-		Status:     normalizeAppStoreState(version.Attributes.AppStoreState),
+		Status:     normalizeAppStoreState(version.state()),
+	}
+	if pending, found := pendingVersion(versions, version); found {
+		rel.PendingVersion = pending.Attributes.VersionString
+		rel.PendingStatus = normalizeAppStoreState(pending.state())
 	}
 	if version.Attributes.CreatedDate != "" {
 		created, err := parseASCTime(version.Attributes.CreatedDate)

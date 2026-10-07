@@ -155,6 +155,7 @@ export const operations = {
     channelsFailed: "No se pudieron cargar los canales",
     channelEmpty: "No hay ningún release en este canal",
     channelAudience: "Audiencia",
+    pendingVersion: "Siguiente: {version} · {status}",
   },
   errors: {
     noWorkflowMapping: "No hay ningún workflow de despliegue asignado a este entorno.",

@@ -233,6 +233,10 @@ type fakeASC struct {
 	LatestVersionResult port.AppStoreVersionInfo
 	LatestVersionErr    error
 
+	LiveVersionResult port.AppStoreVersionInfo
+	LiveVersionFound  bool
+	LiveVersionErr    error
+
 	SubmitForReviewErr error
 	ReleaseVersionErr  error
 
@@ -250,6 +254,7 @@ type fakeASC struct {
 	CreateCertificateCalls [][]byte
 	CreateProfileCalls     [][3]string
 	LatestVersionCalls     []string
+	LiveVersionCalls       []string
 	SubmitForReviewCalls   [][2]string
 	ReleaseVersionCalls    []string
 	ListAppsCalls          int
@@ -302,6 +307,13 @@ func (f *fakeASC) LatestVersion(_ context.Context, appID string) (port.AppStoreV
 	defer f.mu.Unlock()
 	f.LatestVersionCalls = append(f.LatestVersionCalls, appID)
 	return f.LatestVersionResult, f.LatestVersionErr
+}
+
+func (f *fakeASC) LiveVersion(_ context.Context, appID string) (port.AppStoreVersionInfo, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.LiveVersionCalls = append(f.LiveVersionCalls, appID)
+	return f.LiveVersionResult, f.LiveVersionFound, f.LiveVersionErr
 }
 
 func (f *fakeASC) SubmitForReview(_ context.Context, appID, version string) error {
@@ -361,6 +373,10 @@ type fakePlay struct {
 	TrackInfoResult port.PlayTrackInfo
 	TrackInfoErr    error
 
+	LiveVersionResult string
+	LiveVersionFound  bool
+	LiveVersionErr    error
+
 	ListAppsResult []port.StoreAppRef
 	ListAppsErr    error
 
@@ -377,6 +393,7 @@ type fakePlay struct {
 	ValidateAuthCalls int
 	AppExistsCalls    []string
 	TrackInfoCalls    [][2]string
+	LiveVersionCalls  []string
 	ListAppsCalls     int
 	TracksCalls       []string
 
@@ -420,6 +437,13 @@ func (f *fakePlay) TrackInfo(_ context.Context, packageName, track string) (port
 	defer f.mu.Unlock()
 	f.TrackInfoCalls = append(f.TrackInfoCalls, [2]string{packageName, track})
 	return f.TrackInfoResult, f.TrackInfoErr
+}
+
+func (f *fakePlay) LiveVersion(_ context.Context, packageName string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.LiveVersionCalls = append(f.LiveVersionCalls, packageName)
+	return f.LiveVersionResult, f.LiveVersionFound, f.LiveVersionErr
 }
 
 func (f *fakePlay) PromoteTrack(_ context.Context, packageName, fromTrack, toTrack string, userFraction float64) error {

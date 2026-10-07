@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain/secrets"
@@ -327,6 +328,15 @@ func (s *Service) LinkStoreApp(ctx context.Context, repositoryID uuid.UUID, plat
 	if name := strings.TrimSpace(ref.Name); name != "" {
 
 		app.AppName = name
+	}
+
+	// A failed read leaves the row where it was; the monitor reads the console
+	// again on its next sweep, so the link itself is not refused over it.
+	if presence, err := s.storePresence(ctx, app); err != nil {
+		log.Warn().Err(err).Str("repository_id", repositoryID.String()).Str("platform", platform).
+			Msg("storeops: reading the linked app's store state failed")
+	} else {
+		app, _ = adoptStorePresence(app, presence, time.Now())
 	}
 
 	stored, err := s.apps.Upsert(ctx, app)

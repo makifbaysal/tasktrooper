@@ -13,6 +13,7 @@ import {
   storeChannelLabelKey,
   trackStatusBadgeVariant,
   trackStatusLabelKey,
+  PendingVersionLine,
 } from "@/components/operations/StoreReleaseControls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -226,6 +227,7 @@ export function MobileAppDetailDrawer({ app, onOpenChange, onActed }: MobileAppD
                                     {t("operations.apps.channelAudience")}: {release.audience}
                                   </p>
                                 )}
+                                <PendingVersionLine release={release} />
                                 {showRollout && (
                                   <div className="space-y-1">
                                     <div className="flex items-center justify-between text-xs text-muted-foreground">

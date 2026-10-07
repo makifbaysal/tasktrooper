@@ -212,6 +212,11 @@ type TrackRelease struct {
 	// because the two stores count different things.
 	Audience  string     `json:"audience,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	// PendingVersion is a newer version queued behind this one — drafted, in
+	// review or approved but not released — so a live channel can say both what
+	// customers have and what is coming. "" = nothing queued.
+	PendingVersion string `json:"pending_version,omitempty"`
+	PendingStatus  string `json:"pending_status,omitempty"`
 }
 
 // StoreTracks is one app's three channels, read from the store console and

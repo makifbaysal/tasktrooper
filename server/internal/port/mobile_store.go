@@ -69,6 +69,8 @@ type AppStoreClient interface {
 	CreateCertificate(ctx context.Context, csrPEM []byte) (StoreCert, error)
 	CreateProfile(ctx context.Context, bundleID, certID, name string) (StoreProfile, error)
 	LatestVersion(ctx context.Context, appID string) (AppStoreVersionInfo, error)
+	// LiveVersion is the version on sale; found is false when nothing is.
+	LiveVersion(ctx context.Context, appID string) (info AppStoreVersionInfo, found bool, err error)
 	SubmitForReview(ctx context.Context, appID, version string) error
 	ReleaseVersion(ctx context.Context, appID string) error
 	ListApps(ctx context.Context) ([]StoreAppRef, error)
@@ -87,6 +89,9 @@ type GooglePlayClient interface {
 	ValidateAuth(ctx context.Context) error // token exchange only
 	AppExists(ctx context.Context, packageName string) (bool, error)
 	TrackInfo(ctx context.Context, packageName, track string) (PlayTrackInfo, error)
+	// LiveVersion is the newest production release users can install; found is
+	// false when production is empty or holds only a draft.
+	LiveVersion(ctx context.Context, packageName string) (versionName string, found bool, err error)
 	PromoteTrack(ctx context.Context, packageName, fromTrack, toTrack string, userFraction float64) error
 	SetRolloutFraction(ctx context.Context, packageName, track string, userFraction float64) error
 	HaltRollout(ctx context.Context, packageName, track string) error

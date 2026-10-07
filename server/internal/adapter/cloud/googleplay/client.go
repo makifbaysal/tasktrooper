@@ -207,27 +207,61 @@ func (c *Client) TrackInfo(ctx context.Context, packageName, track string) (port
 	}
 	defer c.deleteEdit(ctx, packageName, editID)
 
-	var resp struct {
-		Releases []struct {
-			Name         string  `json:"name"`
-			Status       string  `json:"status"`
-			UserFraction float64 `json:"userFraction"`
-		} `json:"releases"`
-	}
-	path := "/androidpublisher/v3/applications/" + url.PathEscape(packageName) + "/edits/" + url.PathEscape(editID) + "/tracks/" + url.PathEscape(track)
-	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+	releases, err := c.trackReleases(ctx, packageName, editID, track)
+	if err != nil {
 		return port.PlayTrackInfo{}, err
 	}
-	if len(resp.Releases) == 0 {
+	// A staged rollout leaves the previous completed release on the track next
+	// to the new one, in no promised order; the newest versionCode is the one
+	// the track is about.
+	r, ok := newestRelease(releases)
+	if !ok {
 		return port.PlayTrackInfo{}, nil
 	}
-	r := resp.Releases[0]
 	return port.PlayTrackInfo{
 		HasRelease:   true,
 		VersionName:  r.Name,
 		Status:       r.Status,
 		UserFraction: r.UserFraction,
 	}, nil
+}
+
+func (c *Client) trackReleases(ctx context.Context, packageName, editID, track string) ([]playRelease, error) {
+	var resp struct {
+		Releases []playRelease `json:"releases"`
+	}
+	path := "/androidpublisher/v3/applications/" + url.PathEscape(packageName) + "/edits/" + url.PathEscape(editID) + "/tracks/" + url.PathEscape(track)
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Releases, nil
+}
+
+// LiveVersion is the production release users can install. A production track
+// holding only a draft has never reached anyone, so it is not live.
+func (c *Client) LiveVersion(ctx context.Context, packageName string) (string, bool, error) {
+	editID, err := c.insertEdit(ctx, packageName)
+	if err != nil {
+		return "", false, err
+	}
+	defer c.deleteEdit(ctx, packageName, editID)
+
+	releases, err := c.trackReleases(ctx, packageName, editID, trackProduction)
+	if err != nil {
+		return "", false, err
+	}
+	published := make([]playRelease, 0, len(releases))
+	for _, r := range releases {
+		switch r.Status {
+		case "completed", "inProgress", "halted":
+			published = append(published, r)
+		}
+	}
+	r, ok := newestRelease(published)
+	if !ok {
+		return "", false, nil
+	}
+	return r.Name, true, nil
 }
 
 func (c *Client) withEdit(ctx context.Context, packageName string, fn func(editID string) error) error {
