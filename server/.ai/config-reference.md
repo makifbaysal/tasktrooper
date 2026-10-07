@@ -133,6 +133,7 @@ Connects a real device to the `mobile_*` tool set through Appium (`mobile_launch
 | Key | Env | Description |
 |---|---|---|
 | `hub_url` | `MOBILE_APPIUM_HUB_URL` | Appium server (service address in a cluster, `http://127.0.0.1:4723` locally) |
+| `appium_bin` | `APPIUM_BIN` | The `appium` executable. Set (the desktop does when Appium is installed), a loopback `http` hub is started on demand by the first mobile tool call and stopped after 10 idle minutes (`adapter/local/appiumhub`); a hub already answering is adopted and never stopped. Unset, the hub is the user's to run |
 | `device_udid` | `MOBILE_DEVICE_UDID` | Which device; `100.x.y.z:5555` for wireless adb |
 | `platform_version` | `MOBILE_PLATFORM_VERSION` | Optional capability. Not used for simulators — the version is derived from the simctl runtime (`iOS 17.4` → `17.4`) |
 | `device_pin` | `MOBILE_DEVICE_PIN` | Screen-lock PIN; Android only |

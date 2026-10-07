@@ -71,7 +71,7 @@ export const MIN_CLAUDE_VERSION = "2.0.0";
  * A constant, not an allocated port and not a setting — the embedder's and the
  * backend's own loopback ports are the exceptions, because both are
  * OS-assigned rather than fixed. 4723 is Appium's own default,
- * which means a hub the user started by hand is on it, a hub this app starts
+ * which means a hub the user started by hand is on it, a hub the backend starts
  * is on it, and neither has to be told about the other. Allocating one
  * instead would make this app's hub invisible to every Appium client on the
  * machine.
@@ -1081,8 +1081,9 @@ function xcodeItem(found: Located | null, answer?: VersionAnswer): PreflightItem
  * have been said before anybody pressed Connect.
  *
  * There is no toggle and no URL to type. Appium is enabled by being installed:
- * the supervisor starts a hub on `APPIUM_BASE_URL` when the binary is here, and
- * adopts one that is already answering there. The old flow made the user
+ * the backend is handed the binary (`APPIUM_BIN`) and starts a hub on
+ * `APPIUM_BASE_URL` when a mobile task needs one, stops it once idle, and uses
+ * one that is already answering there instead of starting its own. The old flow made the user
  * uncomment `MOBILE_APPIUM_HUB_URL` and choose a port, which is two decisions to
  * express one fact.
  *
@@ -1135,10 +1136,10 @@ function appiumItems(found: Located | null, ios: boolean, answers: AppiumAnswers
       // Which hub this Mac will use, said before it matters. "TaskTrooper
       // starts one" and "one is already running" are the same outcome for a
       // task and a different one for whoever is wondering why their own hub's
-      // logs are filling up.
+      // logs are filling up — or why no Appium process is running right now.
       detail: hubUp
         ? `An Appium server is already answering on ${APPIUM_BASE_URL}; TaskTrooper will use it rather than starting a second one.`
-        : `TaskTrooper starts a hub on ${APPIUM_BASE_URL} while it is connected and a repository or device uses mobile automation.`,
+        : `Started on demand by the server: a hub on ${APPIUM_BASE_URL} comes up when a mobile task needs one and stops after 10 idle minutes.`,
     },
     ...(installed === undefined
       ? []
@@ -1169,10 +1170,9 @@ function appiumDriver(id: PreflightId, label: string, listed: string, name: stri
 /**
  * Is something already serving Appium on the shared port?
  *
- * Asked for two reasons at once, which is why it is one function. The preflight
- * reports it, and the supervisor uses it to decide whether to start a hub at
- * all: a user who runs their own Appium — with their own drivers and plugins —
- * should not have this app fight them for 4723 and lose in a restart loop.
+ * Only reported: the backend asks the same question itself before it starts a
+ * hub, so a user who runs their own Appium — with their own drivers and
+ * plugins — never has it fight them for 4723.
  */
 export async function appiumHubIsAnswering(): Promise<boolean> {
   const controller = new AbortController();

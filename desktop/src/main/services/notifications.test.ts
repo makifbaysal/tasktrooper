@@ -686,7 +686,7 @@ describe("NotificationWatcher — reading the board while the page is on screen"
     vi.useRealTimers();
   });
 
-  function watcher(onRunStarted: () => void = () => {}): NotificationWatcher {
+  function watcher(): NotificationWatcher {
     return new NotificationWatcher({
       apiBase: () => "http://127.0.0.1:1",
       apiToken: () => "t",
@@ -694,7 +694,6 @@ describe("NotificationWatcher — reading the board while the page is on screen"
       onNotificationClick: () => {},
       isWindowFocused: () => false,
       isPageOnScreen: () => onScreen,
-      onRunStarted,
     });
   }
 
@@ -774,27 +773,6 @@ describe("NotificationWatcher — reading the board while the page is on screen"
     );
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
     expect(shown.titles).toEqual(["Chat"]);
-    w.stop();
-  });
-
-  it("says a run started once per run it has not seen", async () => {
-    const started = vi.fn();
-    runs = [fresh("r1")];
-    const w = watcher(started);
-    w.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(started).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-    expect(started).toHaveBeenCalledTimes(1);
-
-    runs = [fresh("r1"), fresh("r2")];
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-    expect(started).toHaveBeenCalledTimes(2);
-
-    runs = [fresh("r2")];
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-    expect(started).toHaveBeenCalledTimes(2);
     w.stop();
   });
 });

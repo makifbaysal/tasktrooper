@@ -103,22 +103,25 @@ at any time from **Projects** once setup is done.
 
 ## What the app starts underneath
 
-Opening TaskTrooper starts up to three local processes, in this order:
+Opening TaskTrooper starts two local processes, in this order:
 
 | # | Process | Started by | Gates the window? |
 |---|---|---|---|
 | 1 | Embedder | App init, always | No |
 | 2 | Backend (`agent-server`, from `server/`) | The supervisor | **Yes** — the window appears only once `/health` answers 200 |
-| 3 | Appium | Beside the backend, if installed and nothing is already listening on port 4723 | No |
 
 The backend brings up its own embedded Postgres (downloading the binaries on
 the very first start, as noted above). The window itself doesn't appear until
 the backend is answering, because the page reads its API address from the
 same process that started it — there's nothing useful to show before then.
 
-Stopping the app stops the backend first (it may still hold agent sessions
-that are calling out to Appium), then Appium; the embedder is left running so
-a quick restart doesn't have to reload the embedding model.
+If Appium is installed, the backend starts an Appium hub on port 4723 itself,
+but only when a mobile task needs one, and stops it again after 10 idle
+minutes; a hub already listening there is used instead.
+
+Stopping the app stops the backend (which stops its Postgres and any Appium
+hub it started); the embedder is left running so a quick restart doesn't have
+to reload the embedding model.
 
 ### The tray and the offline screen
 

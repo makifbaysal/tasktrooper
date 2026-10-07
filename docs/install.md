@@ -93,10 +93,10 @@ directly.
 
 ## What first launch downloads
 
-TaskTrooper's desktop shell starts three local processes on launch: an
-embedding server, the Go backend, and (if installed) Appium. Two things are
-pulled down the first time, into the app's own data directory rather than
-bundled into the installer:
+TaskTrooper's desktop shell starts two local processes on launch: an
+embedding server and the Go backend (which starts an Appium hub only when a
+mobile task needs one). Two things are pulled down the first time, into the
+app's own data directory rather than bundled into the installer:
 
 | Download | Size | Why it's not bundled |
 |---|---|---|

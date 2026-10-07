@@ -314,6 +314,9 @@ type BrowserConfig struct {
 type MobileConfig struct {
 	// HubURL is the Appium server base.
 	HubURL string `koanf:"hub_url"`
+	// AppiumBin, set, makes the hub at HubURL this process's to start when a
+	// mobile tool needs it and to stop when idle. Unset, whoever runs it does.
+	AppiumBin string `koanf:"appium_bin"`
 	// DeviceUDID pins which phone; Appium would otherwise take whatever adb
 	// lists first.
 	DeviceUDID string `koanf:"device_udid"`

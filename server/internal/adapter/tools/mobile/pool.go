@@ -43,9 +43,40 @@ type Pool struct {
 	// bound is run → phone for the length of a run. Keyed by the agent session
 	// id, which is what identifies "one run" everywhere else in this process.
 	bound map[uuid.UUID]*Session
+	hub   Hub
 }
 
 func NewPool() *Pool { return &Pool{bound: map[uuid.UUID]*Session{}} }
+
+// UseHub hands every phone, present and later registered, the keeper of an
+// on-demand hub.
+func (p *Pool) UseHub(h Hub) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.hub = h
+	sessions := append([]*Session(nil), p.sessions...)
+	p.mu.Unlock()
+	for _, s := range sessions {
+		s.setHub(h)
+	}
+}
+
+// InUse reports whether any phone is leased or mid-command: what keeps an
+// on-demand hub running past its idle time. Never blocks on a session busy on
+// the network — that one is in use by definition.
+func (p *Pool) InUse() bool {
+	if p == nil {
+		return false
+	}
+	for _, s := range p.snapshot() {
+		if !s.idleAndFree() {
+			return true
+		}
+	}
+	return false
+}
 
 // Reconfigure points the pool at the currently registered devices.
 //
@@ -68,6 +99,7 @@ func (p *Pool) Reconfigure(cfgs []Config) {
 		s, ok := existing[cfg.DeviceUDID]
 		if !ok {
 			s = NewSession(cfg)
+			s.hub = p.hub
 		} else {
 			s.Reconfigure(cfg)
 		}

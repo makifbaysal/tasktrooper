@@ -150,9 +150,9 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
       let proc: ChildProcess;
       let launch: Launch;
       try {
-        // A Windows .cmd shim (an npm-installed appium) is turned into the node
-        // invocation it would have made; see winshim.ts for why `shell: true`
-        // is not the answer to Node's EINVAL on a batch file.
+        // A Windows .cmd shim is turned into the node invocation it would have
+        // made; see winshim.ts for why `shell: true` is not the answer to Node's
+        // EINVAL on a batch file.
         launch = launchFor(this.#spec.command, this.#spec.args, this.#spec.env);
         proc = spawn(launch.command, launch.args, {
           env: launch.env,

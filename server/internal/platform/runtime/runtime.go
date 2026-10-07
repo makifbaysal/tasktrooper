@@ -37,6 +37,7 @@ import (
 	httpadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/http"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/llm"
 	desktopadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/desktop"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/appiumhub"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localdevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localtoolchain"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/localexec"
@@ -261,6 +262,7 @@ type engine struct {
 	mcpManager      *mcpadapter.Manager
 	browserSession  *browsertools.Session
 	mobilePool      *mobiletools.Pool
+	appiumHub       *appiumhub.Manager
 	mobileDeviceSvc *mobiledevice.Service
 	llmClient       port.LLMClient
 	multiLLM        *llm.MultiProviderClient
@@ -644,6 +646,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// Appium's own newCommandTimeout.
 	if s.engine.mobilePool != nil {
 		s.engine.mobilePool.Close()
+	}
+	// After the leases: releasing one is a DELETE to this hub.
+	if s.engine.appiumHub != nil {
+		s.engine.appiumHub.Close()
 	}
 	return err
 }
@@ -2043,6 +2049,24 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// would spend a turn on saying.
 			if e.mobilePool == nil {
 				e.mobilePool = mobiletools.NewPool()
+			}
+			// The desktop sets APPIUM_BIN when Appium is installed and no longer
+			// runs a hub itself: one is started by the first mobile tool call that
+			// needs it and stopped once idle. Unset (make dev), the hub at
+			// MOBILE_APPIUM_HUB_URL is the user's to run.
+			if e.appiumHub == nil {
+				hubDir := ""
+				if opts.DataDir != "" {
+					hubDir = filepath.Join(opts.DataDir, "appium-hub")
+				}
+				e.appiumHub = appiumhub.New(appiumhub.Config{
+					Bin:     cfg.Tools.Mobile.AppiumBin,
+					HubURL:  cfg.Tools.Mobile.HubURL,
+					WorkDir: hubDir,
+				})
+				e.appiumHub.SetInUse(e.mobilePool.InUse)
+				e.mobilePool.UseHub(e.appiumHub)
+				e.appiumHub.Start()
 			}
 			mobileDeviceSvc.SetProbe(e.mobilePool)
 			mobileTools := mobiletools.NewExecutorsFor(e.mobilePool, deployAppResolver{targets: deployTargetStore})

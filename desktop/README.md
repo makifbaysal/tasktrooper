@@ -10,11 +10,13 @@ this machine, serves the web UI from inside the bundle, and runs the agent CLI s
 |---|---|---|---|
 | 1 | `embedder` | app init, always | no |
 | 2 | `agent-server` (from `../server`) | the supervisor | **yes** — the UI appears when `/health` answers 200 |
-| 3 | `appium` | beside the backend, if installed and nothing is on `127.0.0.1:4723` | no |
 
-The backend brings up its own Postgres. The first launch downloads ~30 MB of
-Postgres binaries into `~/Library/Application Support/TaskTrooper/postgres-bin`;
-the window narrates that rather than spinning silently.
+The backend brings up its own Postgres, and — when Appium is installed — its own
+Appium hub on `127.0.0.1:4723`, only when a mobile task needs one; it stops the
+hub after 10 idle minutes. A hub already running there is used as it is. The
+first launch downloads ~30 MB of Postgres binaries into
+`~/Library/Application Support/TaskTrooper/postgres-bin`; the window narrates
+that rather than spinning silently.
 
 The window itself is a title bar plus a `WebContentsView` that loads
 `app://tasktrooper` — the SPA in `ui/`, served out of the bundle by
@@ -86,7 +88,8 @@ API base.
 | `MCP_SECRETS_KEY` | `mcp_secrets_key` |
 | `CLAUDE_CODE_BIN` | the `claude` detection found |
 | `EMBEDDINGS_BASE_URL` | the embedder's loopback URL, when it bound one |
-| `CHROME_BIN`, `MOBILE_APPIUM_HUB_URL` | only when found |
+| `CHROME_BIN` | only when found |
+| `MOBILE_APPIUM_HUB_URL`, `APPIUM_BIN` | `http://127.0.0.1:4723` and the `appium` detection found, only when found |
 
 `DATABASE_URL` is deliberately never set: an empty DSN is what selects the
 embedded Postgres.

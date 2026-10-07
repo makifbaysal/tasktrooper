@@ -18,8 +18,6 @@ const h = vi.hoisted(() => ({
   gating: null as PreflightReport | null,
   reap: null as Promise<void> | null,
   reaps: 0,
-  hubUp: false,
-  mobile: async (): Promise<boolean> => false,
   onStart: (_child: unknown): void => undefined,
 }));
 
@@ -78,7 +76,6 @@ vi.mock("./child.js", async () => {
 
 vi.mock("../services/detect.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../services/detect.js")>()),
-  appiumHubIsAnswering: async () => h.hubUp,
   startPreflight: ({ force }: { force: boolean }) => {
     let finish!: (r: PreflightReport) => void;
     const complete = new Promise<PreflightReport>((resolve) => {
@@ -90,7 +87,6 @@ vi.mock("../services/detect.js", async (importOriginal) => ({
 }));
 
 vi.mock("../services/health.js", () => ({ waitForHealth: async () => ({ ok: true }) }));
-vi.mock("../services/mobile-demand.js", () => ({ mobileAutomationInUse: () => h.mobile() }));
 vi.mock("../config/workspace.js", () => ({ ensureWorkspace: () => undefined }));
 vi.mock("./reaper.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./reaper.js")>()),
@@ -147,8 +143,6 @@ beforeEach(() => {
   h.gating = withClaude();
   h.reap = null;
   h.reaps = 0;
-  h.hubUp = false;
-  h.mobile = async () => false;
   children().length = 0;
   h.onStart = (c) => {
     const fake = c as Fake;
@@ -354,111 +348,43 @@ describe("Supervisor reaping", () => {
   });
 });
 
+
 /**
- * The hub is a ~100 MB Node process that most installs with Appium never
- * use. It starts after the backend, and only once the backend says a
- * repository or a registered device uses mobile automation.
+ * The hub is the backend's now: it starts one the first time a mobile tool
+ * needs it and stops it once idle. All this app does is say where appium is.
  */
-describe("Supervisor Appium hub, started on demand", () => {
-  const withAppium = (): PreflightReport => report([...withClaude().items, ok("appium", "/opt/homebrew/bin/appium")]);
-  const appium = (): Fake & { enabled: boolean } => child("appium") as Fake & { enabled: boolean };
-
+describe("Supervisor and Appium", () => {
   beforeEach(() => {
-    h.gating = withAppium();
+    h.gating = report([...withClaude().items, ok("appium", "/opt/homebrew/bin/appium")]);
   });
 
-  it("leaves the hub off while nothing uses mobile automation, and still tells the backend where it would be", async () => {
-    const s = configured();
-    await s.startEmbedder();
-    const snapshot = await s.connect();
-    await tick(20);
-    expect(snapshot.state).toBe("running");
-    expect(appium().starts).toBe(0);
-    expect(appium().enabled).toBe(false);
-    expect(child("agent-server").spec.env.MOBILE_APPIUM_HUB_URL).toBe("http://127.0.0.1:4723");
-  });
-
-  it("starts the hub after the backend is ready once something uses mobile automation", async () => {
+  it("runs no hub of its own and hands the backend the appium that does", async () => {
     const order: string[] = [];
     const defaults = h.onStart;
     h.onStart = (c) => {
       order.push((c as Fake).spec.id);
       defaults(c);
     };
-    h.mobile = async () => true;
     const s = configured();
     await s.startEmbedder();
-    await s.connect();
-    await vi.waitFor(() => expect(appium().starts).toBe(1));
-    expect(order).toEqual(["embedder", "agent-server", "appium"]);
+    const snapshot = await s.connect();
+    await tick(20);
+
+    expect(snapshot.state).toBe("running");
+    expect(order).toEqual(["embedder", "agent-server"]);
+    expect(snapshot.children.map((c) => c.id)).toEqual(["embedder", "agent-server"]);
+    expect(children().some((c) => c.spec.id === "appium")).toBe(false);
+    expect(child("agent-server").spec.env.APPIUM_BIN).toBe("/opt/homebrew/bin/appium");
+    expect(child("agent-server").spec.env.MOBILE_APPIUM_HUB_URL).toBe("http://127.0.0.1:4723");
   });
 
-  it("starts it when asked again after a run starts and the answer changed", async () => {
+  it("stops the backend, which stops its hub, and leaves the embedder running", async () => {
     const s = configured();
     await s.startEmbedder();
     await s.connect();
-    await tick(20);
-    expect(appium().starts).toBe(0);
-
-    h.mobile = async () => true;
-    s.recheckAppium();
-    await vi.waitFor(() => expect(appium().starts).toBe(1));
-
-    s.recheckAppium();
-    await tick(20);
-    expect(appium().starts).toBe(1);
-  });
-
-  it("starts it when somebody restarts it by name", async () => {
-    const s = configured();
-    await s.startEmbedder();
-    await s.connect();
-    await tick(20);
-    await s.restartChild("appium");
-    expect(appium().starts).toBe(1);
-  });
-
-  it("adopts a hub somebody started on the port in the meantime instead of starting a second", async () => {
-    const s = configured();
-    await s.startEmbedder();
-    await s.connect();
-    await tick(20);
-
-    h.hubUp = true;
-    h.mobile = async () => true;
-    s.recheckAppium();
-    await tick(20);
-    expect(appium().starts).toBe(0);
-  });
-
-  it("asks nothing and starts nothing once disconnected", async () => {
-    const s = configured();
-    await s.startEmbedder();
-    await s.connect();
-    await tick(20);
     await s.disconnect();
 
-    let asked = 0;
-    h.mobile = async () => {
-      asked += 1;
-      return true;
-    };
-    s.recheckAppium();
-    await tick(20);
-    expect(asked).toBe(0);
-    expect(appium().starts).toBe(0);
-  });
-
-  it("starts the hub when it cannot tell, which is what every install did before", async () => {
-    const { mobileAutomationInUse } = await vi.importActual<typeof import("../services/mobile-demand.js")>(
-      "../services/mobile-demand.js",
-    );
-    h.mobile = () => mobileAutomationInUse("http://127.0.0.1:1", "t", (async () => {
-      throw new Error("connection refused");
-    }) as unknown as typeof fetch);
-    const s = configured();
-    await s.startEmbedder();
-    await s.connect();
-    await vi.waitFor(() => expect(appium().starts).toBe(1));
+    expect(child("agent-server").running).toBe(false);
+    expect(child("embedder").running).toBe(true);
   });
 });

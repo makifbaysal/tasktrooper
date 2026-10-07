@@ -61,3 +61,15 @@ func MobileScreenshotTooLargeText(bytes int) string {
 // MobileLaunchHoldDeviceNote is appended to a successful mobile_launch_app
 // result, reminding the agent it now holds an exclusive lease on the device.
 func MobileLaunchHoldDeviceNote() string { return Text(mobileLaunchHoldDeviceKey) }
+
+type mobileHubUnavailableInput struct{ Detail string }
+
+var mobileHubUnavailableKey = Define("guard.mobile_hub_unavailable", mobileHubUnavailableInput{
+	Detail: "appium exited before it answered on http://127.0.0.1:4723 (exit status 1)",
+})
+
+// MobileHubUnavailableText is what every mobile_* tool says when the Appium
+// hub this server starts on demand would not start; detail is why.
+func MobileHubUnavailableText(detail string) string {
+	return mobileHubUnavailableKey.Render(mobileHubUnavailableInput{Detail: detail})
+}

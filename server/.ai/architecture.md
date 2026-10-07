@@ -1436,7 +1436,9 @@ Mobile device access (`mobile.*`) runs entirely through `adapter/localdevice` on
 machine — see "Local simulators and emulators" above for the full `remote_adb` /
 `ios_simulator` / `android_emulator` breakdown. There is no second, remote path: `mobile.Pool`
 talks to one Appium hub on this host, and a park (`ResourceBlock{mobile_device}`) is released
-by `DeviceSweeper` probing that same hub.
+by `DeviceSweeper` probing that same hub. With `APPIUM_BIN` set that hub is this process's
+child, run by `adapter/local/appiumhub` only while mobile tools use it (see
+`tool-reference.md`); a probe never starts it and reads it stopped as a free device.
 
 ## Single install, no isolation (migration 133)
 

@@ -90,7 +90,6 @@ const notifications = new NotificationWatcher({
   isWindowFocused: () => shellWindow.window?.isFocused() ?? false,
   onBattery: () => powerMonitor.isOnBatteryPower(),
   isPageOnScreen: () => shellWindow.pageOnScreen,
-  onRunStarted: () => supervisor.recheckAppium(),
 });
 
 /**

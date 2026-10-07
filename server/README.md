@@ -69,6 +69,8 @@ Optional:
 | `PUBLIC_BASE_URL` | `http://127.0.0.1:<port>` | The origin a Claude Code session calls TaskTrooper's tools back on |
 | `CLAUDE_CODE_BIN` | `claude` | The Claude Code CLI |
 | `CHROME_BIN` | — | Chromium for the `browser_*` tools |
+| `MOBILE_APPIUM_HUB_URL` | — | The Appium hub the `mobile_*` tools drive. The desktop sets `http://127.0.0.1:4723` whenever Appium is installed. |
+| `APPIUM_BIN` | — | The `appium` executable (on Windows its npm `.cmd` shim, run without `cmd.exe`). Set, and with `MOBILE_APPIUM_HUB_URL` plain `http` on loopback, the hub is this server's to run: the first mobile tool call that needs it starts `appium --address <host> --port <port> [--base-path <path>] --log-no-colors` in `$DATA_DIR/appium-hub` and waits up to 45 s for `GET /status`; it is stopped after 10 minutes with no tool call and no device lease open, and on shutdown. A hub already answering on the address is used as it is and never stopped. Unset (`make dev`), the hub is whoever's runs it. |
 | `AGENT_CATALOG_REPO` | — | Where the six role agents sync from, at boot and on the `agent_catalog.interval`. A local directory is read in place; a git URL is fetched into `agent_catalog.cache_dir`. Set, catalogsync creates/merges the role agents by name; unset, no role agents are created. Dev defaults to `<repo>/catalog`; the desktop ships its own copy. See "Role agent catalog". |
 | `CONFIG_PATH` | `resources/config.yml` | Config file; falls back to the copy compiled into the binary when the file is absent |
 | `SHUTDOWN_GRACE` | `9m` | How long to keep working after SIGTERM before in-flight runs are cancelled |

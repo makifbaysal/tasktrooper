@@ -16,10 +16,15 @@ sign-in.
   `LISTENING http://127.0.0.1:<port>`; a restart binds a different port. The
   `server` event carries the new one and `index.ts` reloads the view. Do not
   cache a base anywhere else.
-- **Stop order is agent-server, then appium. The embedder only on quit.** The
-  backend holds the Claude Code sessions that may still be calling the hub, and
-  the embedder survives a Disconnect so a restart does not pay for a model
-  reload. `drain()` is the only thing that stops it.
+- **A Disconnect stops the backend only; the embedder only on quit.** The
+  embedder survives a Disconnect so a restart does not pay for a model reload.
+  `drain()` is the only thing that stops it.
+- **This app runs no Appium hub.** When Appium is installed the backend gets
+  `APPIUM_BIN` + `MOBILE_APPIUM_HUB_URL` and starts the hub itself when a
+  mobile tool needs it, stops it after 10 idle minutes and on its own shutdown
+  (`server/internal/adapter/local/appiumhub`). The preflight still detects
+  Appium and its drivers; do not bring back an appium child or a "does anything
+  use mobile" poll — only the backend sees the calls that need the hub.
 - **`mcp_secrets_key` must never be regenerated** on an install that has stored
   provider credentials — they are encrypted with it.
 - **`src/shared/` may not import Electron or Node.** Enforced by eslint.
@@ -54,7 +59,7 @@ window.__tasktrooperDesktop = {
 }
 ```
 
-`ChildId` is `"embedder" | "agent-server" | "appium"`. `HostRunnerSnapshot` has
+`ChildId` is `"embedder" | "agent-server"`. `HostRunnerSnapshot` has
 no tunnel field. `PreflightId` is the fourteen ids in `src/ipc/types.ts`; the
 SPA's own union must match exactly.
 

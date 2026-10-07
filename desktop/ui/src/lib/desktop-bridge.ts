@@ -25,9 +25,10 @@
 /**
  * The processes the shell supervises. `agent-server` is the Go backend this
  * app talks to, so `connect()`/`disconnect()` on the host below start and stop
- * the backend itself.
+ * the backend itself. The Appium hub is not one of them: the backend starts it
+ * when a mobile tool needs it.
  */
-export type DesktopChildId = "embedder" | "agent-server" | "appium";
+export type DesktopChildId = "embedder" | "agent-server";
 
 export type DesktopChildState =
   | "idle"

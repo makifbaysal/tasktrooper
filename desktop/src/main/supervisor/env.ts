@@ -27,11 +27,11 @@ const CLI_IDS: PreflightId[] = ["claude", "opencode", "cursor-agent", "agy", "ap
  * Electron's own state into it, plus the PATH prefixes a GUI-launched .app does
  * not inherit, plus the Android SDK root the tools that were FOUND belong to.
  *
- * The backend SPAWNS `claude`, `git` and, for a mobile task, `adb` and
- * `emulator`. `claude` is a Node program whose shebang is `#!/usr/bin/env node`
- * and launchd's PATH has no node in it; `emulator` finds its system images
- * through `ANDROID_HOME`, and an emulator started without one comes up and
- * cannot find an image to boot. So the login shell's PATH is appended, and so
+ * The backend SPAWNS `claude`, `git` and, for a mobile task, `adb`, `emulator`
+ * and the Appium hub. `claude` and `appium` are Node programs whose shebang is
+ * `#!/usr/bin/env node` and launchd's PATH has no node in it; `emulator` finds
+ * its system images through `ANDROID_HOME`, and an emulator started without one
+ * comes up and cannot find an image to boot. So the login shell's PATH is appended, and so
  * is the directory of every CLI detection found — the node an npm-installed CLI
  * was installed with lives beside it. Appended, not prepended: every agent
  * command and verify stage inherits this PATH, and putting a CLI's directory
@@ -95,10 +95,11 @@ export const SERVER_CONTRACT_KEYS = [
   "EMBEDDINGS_BASE_URL",
   "EMBEDDED_POSTGRES_CACHE_DIR",
   "CHROME_BIN",
-"MOBILE_APPIUM_HUB_URL",
-   "ALLOWED_ROOTS",
-   "AGENT_CATALOG_REPO",
- ] as const;
+  "MOBILE_APPIUM_HUB_URL",
+  "APPIUM_BIN",
+  "ALLOWED_ROOTS",
+  "AGENT_CATALOG_REPO",
+] as const;
 
 export interface AgentServerEnvInputs {
   preflight: PreflightReport;
@@ -165,9 +166,12 @@ export function agentServerEnv(inputs: AgentServerEnvInputs): NodeJS.ProcessEnv 
     // boot. Omitted when a checkout has no catalog yet — same "optional path
     // omitted, never empty" convention as the rest of this map.
     ...(existsSync(catalogRoot()) ? { AGENT_CATALOG_REPO: catalogRoot() } : {}),
-    // Sent whenever Appium is INSTALLED, whether this app started the hub or
-    // adopted one already on the port — it is the same hub either way.
-    ...(appium?.status === "ok" ? { MOBILE_APPIUM_HUB_URL: APPIUM_BASE_URL } : {}),
+    // Sent whenever Appium is INSTALLED. The backend starts the hub on that
+    // address the first time a mobile tool needs it and stops it when idle, or
+    // uses one somebody already runs there — the same hub either way.
+    ...(appium?.status === "ok" && appium.path
+      ? { MOBILE_APPIUM_HUB_URL: APPIUM_BASE_URL, APPIUM_BIN: toEnvPath(appium.path) }
+      : {}),
   };
 }
 
@@ -206,17 +210,4 @@ export function spawnFingerprint(preflight: PreflightReport): string {
     ...[...CLI_IDS, "chrome" as const].map(usable),
     androidPath ? androidRootFrom(canonical(androidPath)) || androidRootFrom(androidPath) : null,
   ]);
-}
-
-/**
- * Appium's argv. Two flags, both fixed.
- *
- * `--address 127.0.0.1` is not a default worth relying on: Appium binds every
- * interface unless told otherwise, and a hub on 0.0.0.0 is a remote-control
- * interface for every device attached to somebody's laptop, reachable from the
- * coffee shop's network.
- */
-export function appiumArgs(): string[] {
-  const url = new URL(APPIUM_BASE_URL);
-  return ["--address", url.hostname, "--port", url.port];
 }

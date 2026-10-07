@@ -1,3 +1,4 @@
+| the on-demand hub would not start | `APPIUM_BIN` set, and `appium` exited or never answered `/status` within 45 s | a tool error in `guard.mobile_hub_unavailable`'s words, with the reason — no park |
 # Tool Reference
 
 ## Built-in Tools
@@ -649,6 +650,12 @@ when every registered device is taken does a call report busy.
 |---|---|---|
 | the device is busy | Appium's own 4xx on a second session | `ResourceBlock{mobile_device}`, released by `board.DeviceSweeper` |
 | no Appium / no Android SDK | the catalog's `capabilities.*.detail` | a tool error carrying that sentence — no park; nothing frees itself |
+| the on-demand hub would not start | `APPIUM_BIN` set, and `appium` exited or never answered `/status` within 45 s | a tool error in `guard.mobile_hub_unavailable`'s words, carrying the reason — no park |
+
+With `APPIUM_BIN` set the hub itself is `adapter/local/appiumhub`'s: every `mobile_*` call goes
+through `Session.ensureLocked`, which starts it (or adopts one already answering) and counts as use;
+it is stopped after 10 minutes with no call and no lease open. A probe (`DeviceSweeper`, the settings
+page) never starts it, and reads a stopped on-demand hub as a free device.
 
 `mobile_release_device` deletes the Appium session and deliberately LEAVES the simulator running —
 the next task wants the device this one warmed.

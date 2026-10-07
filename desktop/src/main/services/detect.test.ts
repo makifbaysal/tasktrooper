@@ -503,6 +503,9 @@ describe("preflight: the mobile toolchain", () => {
     // The hub's address is stated before it matters, so nobody has to find out
     // which port this app uses by reading a failure.
     expect(appium.detail).toContain("127.0.0.1:4723");
+    // And who runs it: nothing is running until a mobile task asks, which
+    // reads as broken to anybody looking for an appium process otherwise.
+    expect(appium.detail).toMatch(/^Started on demand by the server|already answering/);
 
     expect(item(report, "appium-uiautomator2").status).toBe("ok");
 

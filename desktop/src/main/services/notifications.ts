@@ -306,8 +306,6 @@ export interface NotificationWatcherOptions {
    * tick.
    */
   isPageOnScreen?: () => boolean;
-  /** A run id appeared that the previous tick did not have. */
-  onRunStarted?: () => void;
 }
 
 /**
@@ -447,7 +445,6 @@ export class NotificationWatcher {
     // moves its card, and the read on the very tick it left would miss that.
     if (started || runIds.size !== this.#runIds.size) this.#boardReadsDue = 2;
     this.#runIds = runIds;
-    if (started) this.options.onRunStarted?.();
 
     let board: { tasks: RemoteTask[]; items: RemoteActivityItem[] } | null = null;
     if (this.#boardReadsDue > 0 || !(this.options.isPageOnScreen?.() ?? false)) {

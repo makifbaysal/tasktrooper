@@ -1,11 +1,11 @@
 ---
 title: Architecture
-description: One machine, three processes, one window. How the desktop app, the Go backend, embedded Postgres and the agent sessions fit together.
+description: One machine, two processes, one window. How the desktop app, the Go backend, embedded Postgres and the agent sessions fit together.
 ---
 
 # Architecture
 
-One machine, three processes, one window.
+One machine, two processes, one window.
 
 ```
 TaskTrooper.app (Electron main)
@@ -13,7 +13,7 @@ TaskTrooper.app (Electron main)
  ├─ agent-server  Go child   · HTTP API + board + agent loop · 127.0.0.1:<p2>
  │    └─ postgres  started by agent-server from the zonky binaries · 127.0.0.1:<p3>
  │    └─ claude    one headless `claude -p` per running task, MCP back to <p2>/mcp
- └─ appium        optional, only when installed · 127.0.0.1:4723
+ │    └─ appium    only when installed AND a mobile task needs it; stopped after 10 idle min · 127.0.0.1:4723
  window ── app://tasktrooper (ui/dist) ── fetch → http://127.0.0.1:<p2>
 ```
 
@@ -29,7 +29,8 @@ TaskTrooper.app (Electron main)
 | attach the web view, hand the page `apiBase` + `apiToken` | shell | `window.__tasktrooperDesktop` |
 
 Stop order is the reverse of start: agent-server drains its Claude sessions on
-SIGTERM (30 s budget), then Postgres, then appium; the embedder lives until quit.
+SIGTERM (30 s budget), then stops the Appium hub it started and Postgres; the
+embedder lives until quit.
 
 ## Identity
 

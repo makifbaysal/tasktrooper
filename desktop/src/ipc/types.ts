@@ -15,25 +15,23 @@
  * The embedder goes first because the backend is handed its resolved loopback
  * URL as `EMBEDDINGS_BASE_URL`, and that value has to exist before the backend
  * is spawned. The backend is the product: no window is shown until it answers
- * `/health`. Appium is a capability — started beside the backend, waited for by
- * nothing.
+ * `/health`.
  *
- * This is not the stop order. `Supervisor#stop()` takes the backend down FIRST,
- * because it is the process holding the Claude Code sessions that may still be
- * calling Appium.
+ * There is no Appium child. The backend starts its own hub when a mobile tool
+ * needs one and stops it when idle (`APPIUM_BIN`); a hub this app ran beside
+ * it was a ~100 MB process on every machine that merely had Appium installed.
  */
-export const CHILD_IDS = ["embedder", "agent-server", "appium"] as const;
+export const CHILD_IDS = ["embedder", "agent-server"] as const;
 export type ChildId = (typeof CHILD_IDS)[number];
 
 /**
  * The children whose health IS this app's health.
  *
- * One, and that is the point of the list existing: Appium and the embedder are
- * capabilities, not dependencies. A Mac with no Appium runs every task that
- * does not touch a device, and a Mac whose embedder is still downloading its
+ * One, and that is the point of the list existing: the embedder is a
+ * capability, not a dependency. A Mac whose embedder is still downloading its
  * model runs every task that does not need embeddings yet; reporting the whole
- * supervisor as `degraded` for either would put a warning in front of somebody
- * it does not apply to.
+ * supervisor as `degraded` for it would put a warning in front of somebody it
+ * does not apply to.
  */
 export const GATING_CHILD_IDS: readonly ChildId[] = ["agent-server"];
 
@@ -77,11 +75,9 @@ export interface ChildStatus {
   /** Epoch ms the next restart attempt is scheduled for, while `restarting`. */
   nextRestartAt?: number;
   /**
-   * False for a child this machine cannot run, or does not need to.
-   *
-   * Appium is the one that sets it: absent from this Mac, or already running
-   * because the user started their own. Either way it is stated on Status
-   * rather than treated as a failure — `detail` carries the sentence.
+   * False for a child this machine cannot run, or does not need to; stated on
+   * Status rather than treated as a failure, with `detail` saying why. Nothing
+   * sets it false since Appium stopped being a child of this app.
    */
   enabled: boolean;
 }

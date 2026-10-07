@@ -171,6 +171,7 @@ tools:
 
   mobile:
     hub_url: "${MOBILE_APPIUM_HUB_URL}"
+    appium_bin: "${APPIUM_BIN}"
     device_udid: "${MOBILE_DEVICE_UDID}"
     platform_version: "${MOBILE_PLATFORM_VERSION}"
     device_pin: "${MOBILE_DEVICE_PIN}"

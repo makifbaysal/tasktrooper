@@ -41,7 +41,7 @@ import type { ChooseDirectoryRequest } from "./channels.js";
 export interface HostChild {
   id: ChildId;
   state: ChildState;
-  /** False for a child this Mac cannot run — Appium, absent or already running. */
+  /** False for a child this Mac cannot run. Nothing sets it today. */
   enabled: boolean;
   restarts: number;
   detail?: string;

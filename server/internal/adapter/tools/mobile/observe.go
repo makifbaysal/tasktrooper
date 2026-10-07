@@ -3,6 +3,7 @@ package mobile
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -264,7 +265,8 @@ func fatalWaitResult(name string, err error) *domain.ToolResult {
 	if res.ResourceBlock != nil {
 		return &res
 	}
-	if strings.Contains(err.Error(), "appium unreachable") || isStaleSession(err) {
+	var hubDown *hubUnavailableError
+	if errors.Is(err, errHubUnreachable) || errors.As(err, &hubDown) || isStaleSession(err) {
 		return &res
 	}
 	return nil

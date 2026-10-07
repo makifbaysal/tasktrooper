@@ -101,8 +101,10 @@ What has to be installed depends on what you want to drive:
 
 Appium is enabled simply by being installed — there is no toggle and no URL
 to configure. If nothing is already answering on `127.0.0.1:4723`,
-TaskTrooper starts an Appium hub there itself while it is running; if
-something already is, it uses that one instead of fighting over the port.
+TaskTrooper's backend starts an Appium hub there itself the first time a
+mobile task needs one, and stops it after 10 minutes with no mobile tool call
+and no device held; if something already is answering, it uses that one
+instead of fighting over the port, and never stops it.
 Missing pieces are reported rather than silently skipped, so a QA task
 failing for lack of a driver says so instead of failing several minutes into
 a run with a raw connection error.

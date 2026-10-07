@@ -169,10 +169,9 @@ it.
 The tray menu has **Start the local server** and **Stop the local server** —
 whichever applies to the current state is enabled, the other greyed out.
 There's no separate "restart": stop it, then start it again. Quitting the
-app the normal way also stops the backend first (it may still be holding
-Claude Code sessions calling out to Appium), then Appium, and leaves the
-embedder running so a quick relaunch doesn't pay to reload the embedding
-model again.
+app the normal way also stops the backend (and with it any Appium hub it
+started for a mobile task), and leaves the embedder running so a quick
+relaunch doesn't pay to reload the embedding model again.
 
 ## Agents still "seeding" at boot
 

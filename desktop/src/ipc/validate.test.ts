@@ -28,7 +28,7 @@ const NOTIFICATIONS = {
  */
 describe("validateRestartChild", () => {
   it("accepts the children this supervisor actually runs", () => {
-    for (const child of ["embedder", "agent-server", "appium"]) {
+    for (const child of ["embedder", "agent-server"]) {
       expect(validateRestartChild({ child }).child).toBe(child);
     }
   });
@@ -43,6 +43,8 @@ describe("validateRestartChild", () => {
       { child: "" },
       // Gone with the tunnel; a payload naming it must not resolve to a child.
       { child: "runner" },
+      // The backend runs the hub now; there is no process here to restart.
+      { child: "appium" },
       { child: "database" },
       { child: 3 },
     ];

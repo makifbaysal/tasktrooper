@@ -14,7 +14,7 @@ vi.mock("node:fs", () => ({
   realpathSync: (p: string) => p.replace(/^\/multishell\/\d+\//, "/fnm/default/"),
 }));
 
-const { agentServerEnv, appiumArgs, childEnv, spawnFingerprint } = await import("./env.js");
+const { agentServerEnv, childEnv, spawnFingerprint } = await import("./env.js");
 const { APPIUM_BASE_URL } = await import("../services/detect.js");
 
 const report = (extra: PreflightReport["items"] = []): PreflightReport => ({
@@ -111,11 +111,13 @@ describe("agentServerEnv", () => {
   it("says nothing about a capability this Mac does not have", () => {
     vi.stubEnv("CHROME_BIN", "/usr/bin/google-chrome");
     vi.stubEnv("MOBILE_APPIUM_HUB_URL", "http://10.0.0.9:4723");
+    vi.stubEnv("APPIUM_BIN", "/somewhere/else/appium");
     vi.stubEnv("EMBEDDINGS_BASE_URL", "http://10.0.0.9:1234");
     try {
       const e = env();
       expect(e.CHROME_BIN).toBeUndefined();
       expect(e.MOBILE_APPIUM_HUB_URL).toBeUndefined();
+      expect(e.APPIUM_BIN).toBeUndefined();
       expect(e.EMBEDDINGS_BASE_URL).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
@@ -157,13 +159,27 @@ describe("agentServerEnv", () => {
     }
   });
 
-  it("names the hub and the browser when they were found", () => {
+  /**
+   * The backend starts the hub itself, on demand, so it needs the binary as
+   * well as the address — and the address stays Appium's own loopback default,
+   * because a hub on 0.0.0.0 is a remote-control interface for every device
+   * attached to somebody's laptop.
+   */
+  it("names the hub, the appium that serves it, and the browser when they were found", () => {
     const e = env([
       { id: "appium", label: "Appium", required: false, status: "ok", path: "/opt/homebrew/bin/appium" },
       { id: "chrome", label: "Chrome / Chromium", required: false, status: "ok", path: "/Applications/C.app/x" },
     ]);
     expect(e.MOBILE_APPIUM_HUB_URL).toBe(APPIUM_BASE_URL);
+    expect(APPIUM_BASE_URL).toBe("http://127.0.0.1:4723");
+    expect(e.APPIUM_BIN).toBe("/opt/homebrew/bin/appium");
     expect(e.CHROME_BIN).toBe("/Applications/C.app/x");
+  });
+
+  it("hands the backend no hub at all when Appium is not installed", () => {
+    const e = env([{ id: "appium", label: "Appium", required: false, status: "missing" }]);
+    expect(e.MOBILE_APPIUM_HUB_URL).toBeUndefined();
+    expect(e.APPIUM_BIN).toBeUndefined();
   });
 
   it("passes the embedder's resolved address through as the OpenAI-compatible host", () => {
@@ -243,17 +259,6 @@ describe("childEnv", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-  });
-});
-
-describe("appiumArgs", () => {
-  /**
-   * A hub on 0.0.0.0 is a remote-control interface for every device attached to
-   * somebody's laptop.
-   */
-  it("binds the hub to loopback and to Appium's own port", () => {
-    expect(appiumArgs()).toEqual(["--address", "127.0.0.1", "--port", "4723"]);
-    expect(APPIUM_BASE_URL).toBe("http://127.0.0.1:4723");
   });
 });
 

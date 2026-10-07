@@ -62,11 +62,14 @@ func toolOK(name, message string) domain.ToolResult {
 // selector or the app crashed; only the conditions the agent can do nothing
 // about are rewritten.
 func runError(name, op string, err error) domain.ToolResult {
+	var hubDown *hubUnavailableError
 	switch {
 	case errors.Is(err, errDeviceBusy):
 		return deviceBlock(name)
 	case errors.Is(err, errNotConfigured):
 		return toolError(name, notConfiguredMsg)
+	case errors.As(err, &hubDown):
+		return toolError(name, prompt.MobileHubUnavailableText(hubDown.err.Error()))
 	}
 	return toolError(name, fmt.Sprintf("%s: %v", op, err))
 }

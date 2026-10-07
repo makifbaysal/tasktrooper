@@ -38,6 +38,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -60,6 +61,27 @@ var errNotConfigured = errors.New(notConfiguredMsg)
 // from every other failure: it is the one condition that must not surface as a
 // tool error, because the correct response is to wait, not to retry or give up.
 var errDeviceBusy = errors.New("mobile device is in use by another run")
+
+var errHubUnreachable = errors.New("appium unreachable")
+
+// hubUnavailableError is a hub this process starts on demand that would not
+// start. Its own type because the tools word it from the catalog, with the
+// reason as data.
+type hubUnavailableError struct{ err error }
+
+func (e *hubUnavailableError) Error() string { return "appium hub unavailable: " + e.err.Error() }
+func (e *hubUnavailableError) Unwrap() error { return e.err }
+
+// Hub keeps the Appium server running when this process starts it on demand
+// (adapter/local/appiumhub). Without one, the hub is whoever's runs it and the
+// calls go straight to the address.
+type Hub interface {
+	// Ensure returns once the hub at hubURL answers. Every call counts as use.
+	Ensure(ctx context.Context, hubURL string) error
+	// Manages reports whether the hub at hubURL is started on demand, so that
+	// nothing answering there means nothing is leased on it.
+	Manages(hubURL string) bool
+}
 
 const (
 	// executeTimeout bounds one Appium command. Device commands are slower than
@@ -127,6 +149,7 @@ type Session struct {
 	client *http.Client
 
 	mu        sync.Mutex
+	hub       Hub
 	sessionID string
 	// owner is the run holding this phone, uuid.Nil when it is free. A field
 	// here rather than relying on Appium's own refusal, because that refusal is
@@ -153,6 +176,12 @@ func NewSession(cfg Config) *Session {
 		client: &http.Client{Timeout: createTimeout + 30*time.Second},
 		now:    time.Now,
 	}
+}
+
+func (s *Session) setHub(h Hub) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hub = h
 }
 
 // Configured mirrors Config.Configured so callers holding only the session can
@@ -245,7 +274,7 @@ func (s *Session) Probe(ctx context.Context) bool {
 		return false
 	}
 	s.mu.Lock()
-	held, cfg := s.sessionID != "", s.cfg
+	held, cfg, hub := s.sessionID != "", s.cfg, s.hub
 	s.mu.Unlock()
 	if held {
 		// This pod holds it. Nothing to resume onto.
@@ -260,6 +289,14 @@ func (s *Session) Probe(ctx context.Context) bool {
 		} `json:"value"`
 	}
 	if err := s.do(ctx, cfg, http.MethodGet, "/sessions", nil, &out); err != nil {
+		// A probe never starts the hub — it runs every sweep and every time the
+		// settings page asks. A hub that starts on demand and is not running
+		// holds no session, and the resumed run's first call starts it; read as
+		// busy, the task it would resume stays parked until a hub nobody is
+		// going to start comes back.
+		if hub != nil && hub.Manages(cfg.HubURL) && notListening(err) {
+			return true
+		}
 		log.Debug().Err(err).Msg("mobile: device probe failed, treating as busy")
 		return false
 	}
@@ -344,10 +381,20 @@ func (s *Session) launch(ctx context.Context, appID, appURL string) error {
 		map[string]interface{}{"appId": appID}, nil)
 }
 
-// ensureLocked takes the lease if this pod does not already hold it.
+// ensureLocked takes the lease if this pod does not already hold it. Every
+// tool path that talks to the hub comes through here, so it is also where an
+// on-demand hub is started and told it is in use.
 func (s *Session) ensureLocked(ctx context.Context, appID string) error {
 	if !s.cfg.Configured() {
 		return errNotConfigured
+	}
+	if s.hub != nil {
+		if err := s.hub.Ensure(ctx, s.cfg.HubURL); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return &hubUnavailableError{err: err}
+		}
 	}
 	if s.sessionID != "" {
 		s.lastUsed = s.now()
@@ -551,7 +598,7 @@ func (s *Session) do(ctx context.Context, cfg Config, method, path string, body,
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("appium unreachable: %w", err)
+		return fmt.Errorf("%w: %w", errHubUnreachable, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 24<<20))
@@ -606,6 +653,16 @@ func classifyError(status int, raw []byte) error {
 var errStaleSession = errors.New("appium session is gone")
 
 func isStaleSession(err error) bool { return errors.Is(err, errStaleSession) }
+
+// notListening is a hub nothing answers at, as opposed to one that is there and
+// slow: a timeout may be a hung hub still holding a session.
+func notListening(err error) bool {
+	if !errors.Is(err, errHubUnreachable) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var netErr net.Error
+	return !errors.As(err, &netErr) || !netErr.Timeout()
+}
 
 // deviceBlock is the parked-task signal the tools hand back instead of an
 // error when the phone is taken. Kept here so every tool words it identically —
