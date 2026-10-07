@@ -580,3 +580,21 @@ func TestWorkflowTakesATestBuild(t *testing.T) {
 		})
 	}
 }
+
+// Test builds share the release's marketing version, so iOS prod submits a
+// named build or nothing — never "the newest upload".
+func TestIOSProdSubmitsOnlyANamedBuild(t *testing.T) {
+	artifacts, err := Render(iosSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, workflow := artifacts[0].Body, artifacts[1].Body
+	for _, want := range []string{`--build_number "$RELEASE_BUILD_NUMBER"`, `if [ -z "${RELEASE_BUILD_NUMBER:-}" ]; then`, `derived=(-derivedDataPath "$WORKDIR/DerivedData")`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script lacks %q", want)
+		}
+	}
+	if !strings.Contains(workflow, "RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}") {
+		t.Error("workflow does not hand prod the build_number input on its own")
+	}
+}

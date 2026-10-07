@@ -373,6 +373,7 @@ func (s *Service) storeTracks(ctx context.Context, app domain.MobileStoreApp) (d
 		if err != nil {
 			return domain.StoreTracks{}, err
 		}
+		s.skipTestBuilds(ctx, client, app)
 		tracks, err := client.Tracks(ctx, app.StoreAppID)
 		if err != nil {
 			return domain.StoreTracks{}, fmt.Errorf("storeops: reading TestFlight and App Store channels for %s: %w", app.Identifier, err)

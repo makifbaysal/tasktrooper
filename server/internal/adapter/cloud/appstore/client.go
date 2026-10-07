@@ -34,7 +34,14 @@ type Client struct {
 	mu       sync.Mutex
 	token    string
 	tokenExp time.Time
+
+	skipBuild func(buildNumber string) bool
 }
+
+// SkipBuilds makes the release channels (Tracks, PromoteChannel) look past
+// the builds skip reports: per-task test builds sit in the same TestFlight
+// groups as release builds, and the newest upload is not the one to promote.
+func (c *Client) SkipBuilds(skip func(buildNumber string) bool) { c.skipBuild = skip }
 
 var _ port.AppStoreClient = (*Client)(nil)
 

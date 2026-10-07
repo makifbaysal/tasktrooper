@@ -47,6 +47,9 @@ jobs:
         env:
           CHANNEL: ${{ inputs.channel }}
           BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
+          # prod names the build to submit; never the run number, which is not
+          # a build that exists.
+          RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}
           IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
           IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
           IOS_PROFILE_B64: ${{ secrets.IOS_PROFILE_B64 }}

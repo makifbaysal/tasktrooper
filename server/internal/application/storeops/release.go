@@ -360,6 +360,7 @@ func (s *Service) PromoteChannel(ctx context.Context, repositoryID uuid.UUID, pl
 			s.recordAudit(ctx, repositoryID, domain.OpsActionStorePromote, platform, actor, detail, err)
 			return err
 		}
+		s.skipTestBuilds(ctx, client, app)
 		if err := client.PromoteChannel(ctx, app.StoreAppID, from, to); err != nil {
 			wrapped := fmt.Errorf("storeops: promoting %s from %s to %s: %w", app.Identifier, from, to, err)
 			s.recordAudit(ctx, repositoryID, domain.OpsActionStorePromote, platform, actor, detail, wrapped)

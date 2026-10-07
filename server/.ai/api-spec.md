@@ -658,17 +658,21 @@ from one counter per app — the higher of this table's and the store's — iOS
 `<sequence>.<taskNo>.<attempt>` (CFBundleVersion), Android `versionCode =
 <sequence>`. The engine is this machine when it can build the platform, else
 GitHub Actions (a pinned `release_engine` is honoured). A task coming back to
-UAT with no new commit is not rebuilt.
+UAT with no new commit is not rebuilt. The release channels never pick a test
+build: the iOS internal/external channel and its promote skip every build
+number this server uploaded for testing, Play test builds cannot go to the
+internal track, and the iOS `prod` script channel submits only the build named
+by its `build_number` input.
 
 | Endpoint | Notes |
 |---|---|
 | `GET /v1/repositories/{id}/store/test-builds?platform=&task_id=&limit=` | `[]domain.StoreTestBuild`, newest first |
 | `POST /v1/repositories/{id}/store/test-builds` | Body `{task_id?, platforms?}` — no `task_id` builds the default branch, no `platforms` every linked app. 202 `{builds, error?}` (partial success keeps the started ones); 409 when an app cannot take builds (`ErrTestBuildNoStoreApp`, `ErrTestBuildAppNotTestable`) or no engine can run |
 | `GET /v1/repositories/{id}/store/test-builds/{buildId}` | One build (status `queued`→`building`→`processing` (iOS)→`ready`, or `failed`, or `action_required` with `failure: "export_compliance"`) |
-| `POST .../test-builds/{buildId}/open` | Body `{groups}` — TestFlight group ids (an external group also submits the build to Beta App Review) or Play track names (`production` refused); Android re-uploads the kept AAB when Play does not hold the versionCode yet |
+| `POST .../test-builds/{buildId}/open` | Body `{groups}` — TestFlight group ids (an external group also submits the build to Beta App Review) or Play track names (`internal` and `production` refused: the release flow promotes what they hold); Android re-uploads the kept AAB when Play does not hold the versionCode yet |
 | `POST .../test-builds/{buildId}/close` | Body `{groups}` — iOS only (Play tracks are replaced, not emptied) |
 | `POST .../test-builds/{buildId}/export-compliance` | Body `{uses_non_exempt_encryption}` — required, no default: it is the developer's legal answer; the build then opens to its automatic groups |
-| `GET /v1/repositories/{id}/store/apps/{platform}/test-groups` | `[]domain.StoreTestGroup`: TestFlight groups or Play testing tracks (no production), with `auto_distribute` |
+| `GET /v1/repositories/{id}/store/apps/{platform}/test-groups` | `[]domain.StoreTestGroup`: TestFlight groups or Play closed/open testing tracks (never internal or production), with `auto_distribute` |
 | `POST /v1/repositories/{id}/store/apps/{platform}/test-groups` | Body `{name, internal}` — iOS only |
 | `PUT /v1/repositories/{id}/store/apps/{platform}/test-groups/auto` | Body `{groups}` — which groups a ready build opens to. Unset: every TestFlight internal group; no Play track (the internal app sharing link only) |
 | `GET/POST /v1/repositories/{id}/store/test-groups/{groupId}/testers`, `DELETE .../testers/{testerId}` | TestFlight testers of a group; POST `{email, first_name, last_name}` invites |

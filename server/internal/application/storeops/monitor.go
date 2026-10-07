@@ -98,6 +98,8 @@ func (m *Monitor) Sweep(ctx context.Context) {
 		}
 	}
 
+	m.svc.SweepTestBuilds(ctx)
+
 	if err := m.svc.RenewExpiringSigning(ctx, time.Now().Add(signingRenewalWindow)); err != nil {
 		log.Warn().Err(err).Msg("store monitor: renew expiring signing assets failed")
 	}

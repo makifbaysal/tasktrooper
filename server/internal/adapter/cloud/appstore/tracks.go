@@ -210,18 +210,29 @@ func (c *Client) newestGroupBuild(ctx context.Context, appID string, groups []be
 	if len(groups) == 0 {
 		return buildRow{}, false, nil
 	}
+	limit := "1"
+	if c.skipBuild != nil {
+		limit = strconv.Itoa(skippedBuildsWindow)
+	}
 	path := "/v1/builds?filter[app]=" + url.QueryEscape(appID) +
 		"&filter[betaGroups]=" + url.QueryEscape(groupIDs(groups)) +
-		"&sort=-uploadedDate&limit=1"
+		"&sort=-uploadedDate&limit=" + limit
 	var page jsonAPIPage[buildRow]
 	if err := c.do(ctx, http.MethodGet, path, nil, &page); err != nil {
 		return buildRow{}, false, err
 	}
-	if len(page.Data) == 0 {
-		return buildRow{}, false, nil
+	for _, b := range page.Data {
+		if c.skipBuild != nil && c.skipBuild(b.Attributes.Version) {
+			continue
+		}
+		return b, true, nil
 	}
-	return page.Data[0], true, nil
+	return buildRow{}, false, nil
 }
+
+// skippedBuildsWindow bounds how far past the newest uploads the release
+// channel looks for one that is not a test build.
+const skippedBuildsWindow = 50
 
 func groupIDs(groups []betaGroup) string {
 	ids := make([]string, 0, len(groups))

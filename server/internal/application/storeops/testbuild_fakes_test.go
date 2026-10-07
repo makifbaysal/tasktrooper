@@ -302,11 +302,18 @@ type fakeMobileBuilder struct {
 	Requests  []port.MobileBuildRequest
 	writeAAB  bool
 	outputDir string
+	gate      chan struct{}
 }
 
 func (f *fakeMobileBuilder) Available(context.Context, string) (bool, string) { return f.OK, f.Reason }
 
 func (f *fakeMobileBuilder) Run(_ context.Context, req port.MobileBuildRequest) (port.MobileBuildResult, error) {
+	f.mu.Lock()
+	gate := f.gate
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Requests = append(f.Requests, req)

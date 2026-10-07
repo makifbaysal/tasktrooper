@@ -97,23 +97,27 @@ func (h *Handler) StartStoreTestBuilds(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(resp)
 }
 
-func (h *Handler) testBuildParams(c *fiber.Ctx) (uuid.UUID, uuid.UUID, error) {
+// testBuildParams parses both path ids. ok is false once the 400 has been
+// written; badRequest itself returns nil, so its result cannot carry that.
+func (h *Handler) testBuildParams(c *fiber.Ctx) (id, buildID uuid.UUID, ok bool) {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return uuid.Nil, uuid.Nil, badRequest(c, "invalid repository id")
+		_ = badRequest(c, "invalid repository id")
+		return uuid.Nil, uuid.Nil, false
 	}
-	buildID, err := uuid.Parse(c.Params("buildId"))
+	buildID, err = uuid.Parse(c.Params("buildId"))
 	if err != nil {
-		return uuid.Nil, uuid.Nil, badRequest(c, "invalid build id")
+		_ = badRequest(c, "invalid build id")
+		return uuid.Nil, uuid.Nil, false
 	}
-	return id, buildID, nil
+	return id, buildID, true
 }
 
 // GetStoreTestBuild — GET /v1/repositories/:id/store/test-builds/:buildId
 func (h *Handler) GetStoreTestBuild(c *fiber.Ctx) error {
-	id, buildID, perr := h.testBuildParams(c)
-	if perr != nil || id == uuid.Nil {
-		return perr
+	id, buildID, ok := h.testBuildParams(c)
+	if !ok {
+		return nil
 	}
 	build, err := h.storeOpsSvc.TestBuild(h.enrichContext(c), id, buildID)
 	if err != nil {
@@ -130,9 +134,9 @@ type storeTestGroupsRequest struct {
 // Groups are TestFlight group ids or Play track names. An external TestFlight
 // group submits the build to Beta App Review.
 func (h *Handler) OpenStoreTestBuild(c *fiber.Ctx) error {
-	id, buildID, perr := h.testBuildParams(c)
-	if perr != nil || id == uuid.Nil {
-		return perr
+	id, buildID, ok := h.testBuildParams(c)
+	if !ok {
+		return nil
 	}
 	var req storeTestGroupsRequest
 	if err := c.BodyParser(&req); err != nil || len(req.Groups) == 0 {
@@ -147,9 +151,9 @@ func (h *Handler) OpenStoreTestBuild(c *fiber.Ctx) error {
 
 // CloseStoreTestBuild — POST .../test-builds/:buildId/close, Body: {"groups": [...]} (iOS only)
 func (h *Handler) CloseStoreTestBuild(c *fiber.Ctx) error {
-	id, buildID, perr := h.testBuildParams(c)
-	if perr != nil || id == uuid.Nil {
-		return perr
+	id, buildID, ok := h.testBuildParams(c)
+	if !ok {
+		return nil
 	}
 	var req storeTestGroupsRequest
 	if err := c.BodyParser(&req); err != nil || len(req.Groups) == 0 {
@@ -166,9 +170,9 @@ func (h *Handler) CloseStoreTestBuild(c *fiber.Ctx) error {
 // Body: {"uses_non_exempt_encryption": false}. The answer is the developer's
 // legal statement, so the body must state it; there is no default.
 func (h *Handler) AnswerStoreTestBuildCompliance(c *fiber.Ctx) error {
-	id, buildID, perr := h.testBuildParams(c)
-	if perr != nil || id == uuid.Nil {
-		return perr
+	id, buildID, ok := h.testBuildParams(c)
+	if !ok {
+		return nil
 	}
 	var req struct {
 		UsesNonExemptEncryption *bool `json:"uses_non_exempt_encryption"`

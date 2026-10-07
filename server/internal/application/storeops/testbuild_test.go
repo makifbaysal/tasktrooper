@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops/pipeline"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain/secrets"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -41,6 +43,8 @@ type TestBuildSuite struct {
 	source   *fakeTestBuildSource
 
 	svc    *storeops.Service
+	creds  *fakeCredentialStore
+	cipher *secrets.Cipher
 	repoID uuid.UUID
 	task   domain.BoardTask
 }
@@ -54,6 +58,8 @@ func (s *TestBuildSuite) SetupTest() {
 	s.Require().NoError(os.Setenv("MCP_SECRETS_KEY", "test-storeops-testbuild-key"))
 	cipher, err := secrets.NewCipherFromEnv()
 	s.Require().NoError(err)
+	s.cipher = cipher
+	s.creds = newFakeCredentialStore()
 
 	s.apps = newFakeMobileStoreAppStore()
 	s.asc = &fakeASC{}
@@ -77,7 +83,7 @@ func (s *TestBuildSuite) SetupTest() {
 	s.task = domain.BoardTask{ID: uuid.New(), RepositoryID: s.repoID, Key: "T-54", TaskNumber: 54, Title: "Checkout shows the coupon"}
 
 	s.svc = storeops.NewService(storeops.Deps{
-		Credentials: newFakeCredentialStore(),
+		Credentials: s.creds,
 		Apps:        s.apps,
 		Signing:     newFakeSigningAssetStore(),
 		Cipher:      cipher,
@@ -338,9 +344,153 @@ func (s *TestBuildSuite) TestTestGroupsListTracksWithoutProduction() {
 	}
 	groups, err := s.svc.TestGroups(context.Background(), s.repoID, domain.MobileStorePlatformAndroid)
 	s.Require().NoError(err)
-	s.Require().Len(groups, 3)
-	s.Equal("internal", groups[0].Kind)
-	s.Equal("41", groups[0].CurrentBuild)
-	s.Equal("closed", groups[1].Kind)
-	s.Equal("open", groups[2].Kind)
+	s.Require().Len(groups, 2, "internal and production feed the release flow")
+	s.Equal("closed", groups[0].Kind)
+	s.Equal("open", groups[1].Kind)
+}
+
+// A Play release promotes whatever the internal track holds; a task build
+// there would be one promote away from production.
+func (s *TestBuildSuite) TestAndroidTestBuildsStayOffTheReleaseTracks() {
+	s.linkApp(domain.MobileStorePlatformAndroid, domain.MobileStoreStateLive)
+	started := s.start(domain.MobileStorePlatformAndroid)
+
+	_, err := s.svc.OpenTestBuild(context.Background(), s.repoID, started[0].ID, []string{"internal"}, "console")
+	s.ErrorIs(err, domain.ErrTestBuildUnsupported)
+	s.Empty(s.pt.Releases)
+	s.ErrorIs(s.svc.SetTestAutoGroups(context.Background(), s.repoID, domain.MobileStorePlatformAndroid, []string{"internal"}), domain.ErrTestBuildUnsupported)
+}
+
+func (s *TestBuildSuite) TestADeletedAutoGroupDoesNotStopTheOthers() {
+	s.linkApp(domain.MobileStorePlatformIOS, domain.MobileStoreStateLive)
+	s.tf.BuildFound = true
+	s.tf.Build = port.TestFlightBuild{ProcessingState: "VALID", UsesNonExemptEncryption: declared(false)}
+	s.tf.Groups = []port.BetaGroup{{ID: "devs", Internal: true}}
+	s.Require().NoError(s.svc.SetTestAutoGroups(context.Background(), s.repoID, domain.MobileStorePlatformIOS, []string{"gone", "devs"}))
+
+	started := s.start(domain.MobileStorePlatformIOS)
+	got := s.reload(started[0].ID)
+	s.Equal(domain.TestBuildReady, got.Status)
+	s.Equal([]string{"devs"}, got.Groups)
+	s.Contains(got.Failure, "gone")
+}
+
+func (s *TestBuildSuite) TestComplianceAnsweredInAppStoreConnectIsPickedUp() {
+	s.linkApp(domain.MobileStorePlatformIOS, domain.MobileStoreStateLive)
+	s.tf.BuildFound = true
+	s.tf.Build = port.TestFlightBuild{ProcessingState: "VALID"}
+	s.tf.Groups = []port.BetaGroup{{ID: "devs", Internal: true}}
+	started := s.start(domain.MobileStorePlatformIOS)
+	s.Equal(domain.TestBuildActionRequired, s.reload(started[0].ID).Status)
+
+	s.tf.mu.Lock()
+	s.tf.Build.UsesNonExemptEncryption = declared(false)
+	s.tf.mu.Unlock()
+	s.svc.SweepTestBuilds(context.Background())
+
+	got := s.reload(started[0].ID)
+	s.Equal(domain.TestBuildReady, got.Status)
+	s.Equal([]string{"devs"}, got.Groups)
+}
+
+func (s *TestBuildSuite) TestTheBoardHookAndAClickTogetherMakeOneBuild() {
+	s.linkApp(domain.MobileStorePlatformAndroid, domain.MobileStoreStateLive)
+	release := make(chan struct{})
+	s.local.mu.Lock()
+	s.local.gate = release
+	s.local.mu.Unlock()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = s.svc.StartTestBuilds(context.Background(), s.repoID, &s.task.ID, nil, domain.TestBuildTriggerManual, "console")
+		}()
+	}
+	wg.Wait()
+	close(release)
+	s.svc.WaitTestBuilds()
+
+	all, err := s.builds.List(context.Background(), s.repoID, "", nil, 0)
+	s.Require().NoError(err)
+	s.Len(all, 1)
+}
+
+func (s *TestBuildSuite) TestTestersOfAnotherAppsGroupAreRefused() {
+	s.linkApp(domain.MobileStorePlatformIOS, domain.MobileStoreStateLive)
+	s.tf.Groups = []port.BetaGroup{{ID: "devs", Internal: true}}
+
+	_, err := s.svc.TestGroupTesters(context.Background(), s.repoID, "someone-elses")
+	s.ErrorIs(err, port.ErrNotFound)
+	testers, err := s.svc.TestGroupTesters(context.Background(), s.repoID, "devs")
+	s.Require().NoError(err)
+	s.NotEmpty(testers)
+}
+
+func (s *TestBuildSuite) startRelease(platform string) (string, error) {
+	var number string
+	s.svc.SetEngineProbes(
+		func(context.Context, domain.Repository, string, string) error { return nil },
+		func(context.Context) (storeops.LocalRunnerHost, error) { return storeops.LocalRunnerHost{}, nil },
+	)
+	s.svc.SetReleaseStarter(func(_ context.Context, _ domain.Repository, _ domain.MobileStoreApp, _ string, _ []pipeline.Artifact, buildNumber string) error {
+		number = buildNumber
+		return nil
+	})
+	_, err := s.svc.StartBuild(context.Background(), s.repoID, platform, "", "console")
+	return number, err
+}
+
+func (s *TestBuildSuite) TestReleaseBuildsTakeTheSharedCounter() {
+	s.linkApp(domain.MobileStorePlatformIOS, domain.MobileStoreStateLive)
+	s.tf.Sequence = 411
+	s.tf.BuildFound = true
+	s.tf.Build = port.TestFlightBuild{ProcessingState: "VALID", UsesNonExemptEncryption: declared(false)}
+
+	number, err := s.startRelease(domain.MobileStorePlatformIOS)
+	s.Require().NoError(err)
+	s.Equal("412", number)
+
+	next := s.start(domain.MobileStorePlatformIOS)
+	s.Equal("413.54.1", next[0].BuildNumber, "a test build after a release goes above it")
+}
+
+func (s *TestBuildSuite) TestAFirstPublishReleaseKeepsTheWorkflowsOwnNumber() {
+	s.linkApp(domain.MobileStorePlatformIOS, domain.MobileStoreStateOnboarding)
+	number, err := s.startRelease(domain.MobileStorePlatformIOS)
+	s.Require().NoError(err)
+	s.Empty(number, "an app the store cannot read yet has no builds to be above")
+}
+
+type skippingASC struct {
+	*fakeASC
+	skip func(string) bool
+}
+
+func (f *skippingASC) SkipBuilds(fn func(string) bool) { f.skip = fn }
+
+func (s *TestBuildSuite) TestReleaseChannelsAreToldWhichBuildsAreTestBuilds() {
+	s.linkApp(domain.MobileStorePlatformIOS, domain.MobileStoreStateLive)
+	s.tf.Sequence = 411
+	s.tf.BuildFound = true
+	s.tf.Build = port.TestFlightBuild{ProcessingState: "VALID", UsesNonExemptEncryption: declared(false)}
+	s.start(domain.MobileStorePlatformIOS)
+	_, err := s.startRelease(domain.MobileStorePlatformIOS)
+	s.Require().NoError(err)
+
+	sk := &skippingASC{fakeASC: s.asc}
+	svc := storeops.NewService(storeops.Deps{
+		Credentials: s.creds,
+		Apps:        s.apps,
+		Cipher:      s.cipher,
+		NewASC:      func(domain.StoreCredential) (port.AppStoreClient, error) { return sk, nil },
+	})
+	svc.SetTestBuilds(storeops.TestBuildDeps{Builds: s.builds})
+	_, err = svc.Tracks(context.Background(), s.repoID, domain.MobileStorePlatformIOS)
+	s.Require().NoError(err)
+	s.Require().NotNil(sk.skip)
+	s.True(sk.skip("412.54.1"), "the task build is skipped")
+	s.False(sk.skip("413"), "the release build is not")
+	s.False(sk.skip("57"), "a build this server never made is not")
 }

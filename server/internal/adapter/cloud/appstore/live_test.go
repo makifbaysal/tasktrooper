@@ -118,3 +118,26 @@ func TestListAppsReportsLiveEvenWhenIncludedVersionsAreTruncated(t *testing.T) {
 		t.Fatalf("apps = %+v, want the app reported on sale", apps)
 	}
 }
+
+func TestReleaseChannelsLookPastSkippedTestBuilds(t *testing.T) {
+	f := &tracksFixture{
+		betaGroups:        `{"data":[{"id":"G1","attributes":{"isInternalGroup":true}}]}`,
+		builds:            `{"data":[{"id":"B2","attributes":{"version":"412.54.2"}},{"id":"B1","attributes":{"version":"411"}}]}`,
+		preReleaseVersion: `{"data":{"attributes":{"version":"1.4.0"}}}`,
+		betaTesters:       `{"meta":{"paging":{"total":3}}}`,
+		appStoreVersions:  `{"data":[]}`,
+	}
+	c, _ := newTestClient(t, f.handler(t))
+	c.SkipBuilds(func(n string) bool { return n == "412.54.2" })
+
+	tracks, err := c.Tracks(context.Background(), "APP1")
+	if err != nil {
+		t.Fatalf("Tracks: %v", err)
+	}
+	if tracks.Internal.Build != "411" {
+		t.Fatalf("internal build = %q, want 411 — the task build is not the release channel's", tracks.Internal.Build)
+	}
+	if f.buildsQuery["limit"] != "50" {
+		t.Fatalf("limit = %q, want a window to look past test builds", f.buildsQuery["limit"])
+	}
+}

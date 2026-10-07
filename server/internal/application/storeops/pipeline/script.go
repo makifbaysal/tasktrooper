@@ -384,9 +384,19 @@ release_stage() {
   decode_secret IOS_PROFILE_B64 "$PROFILE_PATH"
 
   step "archive"
+  # On this machine every build is a fresh checkout at a new path, and Xcode
+  # keys DerivedData on the path: without its own directory each build would
+  # leave gigabytes in ~/Library/Developer/Xcode/DerivedData that nothing
+  # removes. Inside WORKDIR it goes with the run. Actions machines are thrown
+  # away, so the default is left alone there.
+  local derived=()
+  if [ -n "${TT_RELEASE_WORKDIR:-}" ]; then
+    derived=(-derivedDataPath "$WORKDIR/DerivedData")
+  fi
   xcodebuild -scheme "$SCHEME" -configuration Release \
     -archivePath "$ARTIFACTS/app.xcarchive" \
     -destination 'generic/platform=iOS' \
+    ${derived[@]+"${derived[@]}"} \
     archive \
     CODE_SIGN_STYLE=Manual \
     PRODUCT_BUNDLE_IDENTIFIER="$IDENTIFIER" \
@@ -446,6 +456,14 @@ release_prod() {
   fi
   note "marketing version: $version"
 
+  # Per-task test builds are uploaded to the same marketing version, so "the
+  # newest upload" — what deliver submits when told nothing — can be a build
+  # nobody approved for release. The build is named or nothing is submitted.
+  if [ -z "${RELEASE_BUILD_NUMBER:-}" ]; then
+    die "prod needs the build number of the tested release build: dispatch with build_number=<n> (the TestFlight build to submit)"
+  fi
+  note "build        : $RELEASE_BUILD_NUMBER"
+
   cat > "$WORKDIR/api_key.json" <<JSON
 {"key_id": "$ASC_KEY_ID", "issuer_id": "$ASC_ISSUER_ID", "key_filepath": "$ASC_KEY_PATH"}
 JSON
@@ -458,6 +476,7 @@ JSON
     --api_key_path "$WORKDIR/api_key.json" \
     --app_identifier "$IDENTIFIER" \
     --app_version "$version" \
+    --build_number "$RELEASE_BUILD_NUMBER" \
     --skip_binary_upload true --skip_screenshots --skip_metadata --force \
     --submit_for_review --automatic_release false --phased_release
 }

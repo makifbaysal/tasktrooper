@@ -41,7 +41,7 @@ TaskTrooper chooses the build number; the generated `scripts/mobile-release.sh` 
 - iOS: `<sequence>.<task number>.<attempt>` (e.g. `412.54.2`) — CFBundleVersion takes up to three integers and TestFlight compares the first one first, so every upload is higher than the last whatever task it belongs to. The project's Info.plist must take `CFBundleVersion` from `$(CURRENT_PROJECT_VERSION)`.
 - Android: `versionCode = <sequence>`. A project that hardcodes `versionCode` still gets the number through AGP's injected override.
 
-Per-task test builds: a task entering Human UAT is built from its checkout and uploaded to TestFlight (opened to the internal groups) and to Play internal app sharing (a per-build link, no versionCode ordering). A rejected task that comes back to UAT gets the next attempt number. The "What to Test" note carries the task key, attempt and commit.
+Per-task test builds: a task entering Human UAT is built from its checkout and uploaded to TestFlight (opened to the internal groups) and to Play internal app sharing (a per-build link, no versionCode ordering). A rejected task that comes back to UAT gets the next attempt number. The "What to Test" note carries the task key, attempt and commit. Test builds share the release's marketing version, so the iOS `prod` channel submits only the build named by the workflow's `build_number` input, and Android test builds never go to the internal track the release promotes from.
 
 ## Secrets (these ARE real secrets)
 

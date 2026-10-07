@@ -26,7 +26,7 @@ const (
 	auditActionTestBuild     = "store_test_build"
 	auditActionTestBuildOpen = "store_test_build_open"
 
-	testBuildRunTimeout       = 3 * time.Hour
+	testBuildBuildTimeout     = 2 * time.Hour
 	testFlightProcessingLimit = 90 * time.Minute
 	defaultTestBuildPoll      = 30 * time.Second
 	testBuildLogTailLines     = 120
@@ -198,55 +198,58 @@ func (s *Service) StartTestBuilds(ctx context.Context, repositoryID uuid.UUID, t
 }
 
 func (s *Service) queueTestBuild(ctx context.Context, tb *testBuilds, repo domain.Repository, app domain.MobileStoreApp, task *domain.BoardTask, trigger, actor string) (domain.StoreTestBuild, bool, error) {
-	var taskID *uuid.UUID
-	if task != nil {
-		taskID = &task.ID
-	}
-	if taskID != nil {
-		prior, err := tb.Builds.List(ctx, repo.ID, app.Platform, taskID, 1)
-		if err != nil {
-			return domain.StoreTestBuild{}, false, fmt.Errorf("storeops: reading earlier builds: %w", err)
-		}
-		if len(prior) > 0 && !domain.TestBuildTerminal(prior[0].Status) && prior[0].Status != domain.TestBuildActionRequired {
-			return prior[0], true, nil
-		}
-		// A task that comes back to UAT without a new commit already has its
-		// build; only a person asking for one gets another.
-		if len(prior) > 0 && trigger == domain.TestBuildTriggerHumanUAT && prior[0].Status == domain.TestBuildReady && tb.Source != nil {
-			if sha, _, err := tb.Source.Head(ctx, repo, task); err == nil && sha != "" && sha == prior[0].CommitSHA {
-				return prior[0], true, nil
-			}
+	head := ""
+	if task != nil && trigger == domain.TestBuildTriggerHumanUAT && tb.Source != nil {
+		if sha, _, err := tb.Source.Head(ctx, repo, task); err == nil {
+			head = sha
 		}
 	}
 
-	build, err := s.allocateTestBuild(ctx, tb, repo, app, task, trigger, actor)
-	if err != nil {
-		return domain.StoreTestBuild{}, false, err
+	// The check and the insert share allocMu: the board hook and a person's
+	// click can arrive together, and two builds of one commit would burn two
+	// attempts and two store uploads.
+	build, skip, err := func() (domain.StoreTestBuild, bool, error) {
+		tb.allocMu.Lock()
+		defer tb.allocMu.Unlock()
+		if task != nil {
+			prior, err := tb.Builds.List(ctx, repo.ID, app.Platform, &task.ID, 1)
+			if err != nil {
+				return domain.StoreTestBuild{}, false, fmt.Errorf("storeops: reading earlier builds: %w", err)
+			}
+			if len(prior) > 0 && !domain.TestBuildTerminal(prior[0].Status) && prior[0].Status != domain.TestBuildActionRequired {
+				return prior[0], true, nil
+			}
+			// A task that comes back to UAT without a new commit already has
+			// its build; only a person asking for one gets another.
+			if len(prior) > 0 && head != "" && prior[0].Status == domain.TestBuildReady && head == prior[0].CommitSHA {
+				return prior[0], true, nil
+			}
+		}
+		storeMax, err := s.storeBuildSequence(ctx, tb, app)
+		if err != nil {
+			return domain.StoreTestBuild{}, false, err
+		}
+		build, err := s.createTestBuildLocked(ctx, tb, repo, app, task, trigger, actor, storeMax)
+		return build, false, err
+	}()
+	if err != nil || skip {
+		return build, skip, err
 	}
 	s.recordAudit(ctx, repo.ID, auditActionTestBuild, app.Platform, actor, map[string]string{"build_number": build.BuildNumber}, nil)
 
 	tb.wg.Add(1)
 	go func() {
 		defer tb.wg.Done()
-		runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), testBuildRunTimeout)
-		defer cancel()
-		s.runTestBuild(runCtx, tb, repo, app, task, build)
+		s.runTestBuild(context.WithoutCancel(ctx), tb, repo, app, task, build)
 	}()
 	return build, false, nil
 }
 
-// allocateTestBuild takes the next build number. The counter is read from the
-// store as well as from this table: builds uploaded by anything else (a CI run,
-// Xcode's own Organizer) move the store's high-water mark, and the store
-// refuses anything at or below it.
-func (s *Service) allocateTestBuild(ctx context.Context, tb *testBuilds, repo domain.Repository, app domain.MobileStoreApp, task *domain.BoardTask, trigger, actor string) (domain.StoreTestBuild, error) {
-	tb.allocMu.Lock()
-	defer tb.allocMu.Unlock()
-
-	storeMax, err := s.storeBuildSequence(ctx, tb, app)
-	if err != nil {
-		return domain.StoreTestBuild{}, err
-	}
+// createTestBuildLocked takes the next build number; the caller holds
+// allocMu. The counter is read from the store as well as from this table:
+// builds uploaded by anything else (a CI run, Xcode's own Organizer) move the
+// store's high-water mark, and the store refuses anything at or below it.
+func (s *Service) createTestBuildLocked(ctx context.Context, tb *testBuilds, repo domain.Repository, app domain.MobileStoreApp, task *domain.BoardTask, trigger, actor string, storeMax int64) (domain.StoreTestBuild, error) {
 	localMax, err := tb.Builds.MaxSequence(ctx, repo.ID, app.Platform)
 	if err != nil {
 		return domain.StoreTestBuild{}, fmt.Errorf("storeops: reading the build counter: %w", err)
@@ -287,13 +290,25 @@ func (s *Service) allocateTestBuild(ctx context.Context, tb *testBuilds, repo do
 // reserveReleaseBuild takes the next number for a release build, so release
 // and test builds share one counter: a release numbered by the workflow's run
 // count would sit below every test build TestFlight already holds, and be
-// refused. "" when test builds are not configured on this server.
+// refused. "" — the workflow's own run number — when this server has no test
+// builds, and for an app the store cannot read yet: its first publish, which
+// has no builds to be above.
 func (s *Service) reserveReleaseBuild(ctx context.Context, repo domain.Repository, app domain.MobileStoreApp, engine, actor string) (string, error) {
 	tb, err := s.testBuildsReady()
-	if err != nil {
+	if err != nil || testableApp(app) != nil {
 		return "", nil
 	}
-	build, err := s.allocateTestBuild(ctx, tb, repo, app, nil, domain.TestBuildTriggerRelease, actor)
+	tb.allocMu.Lock()
+	defer tb.allocMu.Unlock()
+	storeMax, err := s.storeBuildSequence(ctx, tb, app)
+	if err != nil {
+		// A release must not wait on a store read the build itself does not
+		// need; this server's own record is the floor it can still promise.
+		log.Warn().Err(err).Str("repository_id", repo.ID.String()).Str("platform", app.Platform).
+			Msg("storeops: the store's highest build could not be read; numbering the release from this server's record")
+		storeMax = 0
+	}
+	build, err := s.createTestBuildLocked(ctx, tb, repo, app, nil, domain.TestBuildTriggerRelease, actor, storeMax)
 	if err != nil {
 		return "", err
 	}
@@ -305,6 +320,36 @@ func (s *Service) reserveReleaseBuild(ctx context.Context, repo domain.Repositor
 		return "", fmt.Errorf("storeops: recording the release build number: %w", err)
 	}
 	return build.BuildNumber, nil
+}
+
+// buildSkipper is how an App Store Connect client is told which builds are
+// test builds, so the release channels never pick one.
+type buildSkipper interface {
+	SkipBuilds(func(buildNumber string) bool)
+}
+
+// skipTestBuilds keeps every build this server uploaded for testing out of
+// client's release channels. Anything it did not record — a CI upload, a
+// release build — stays visible.
+func (s *Service) skipTestBuilds(ctx context.Context, client any, app domain.MobileStoreApp) {
+	sk, ok := client.(buildSkipper)
+	if !ok || s.tb == nil || s.tb.Builds == nil {
+		return
+	}
+	builds, err := s.tb.Builds.List(ctx, app.RepositoryID, app.Platform, nil, 500)
+	if err != nil {
+		log.Warn().Err(err).Str("repository_id", app.RepositoryID.String()).Msg("storeops: listing test builds to skip failed")
+		return
+	}
+	skip := map[string]bool{}
+	for _, b := range builds {
+		if b.Trigger != domain.TestBuildTriggerRelease {
+			skip[b.BuildNumber] = true
+		}
+	}
+	if len(skip) > 0 {
+		sk.SkipBuilds(func(n string) bool { return skip[n] })
+	}
 }
 
 func (s *Service) storeBuildSequence(ctx context.Context, tb *testBuilds, app domain.MobileStoreApp) (int64, error) {
@@ -456,14 +501,22 @@ func (s *Service) runTestBuild(ctx context.Context, tb *testBuilds, repo domain.
 		r.fail(ctx, err)
 		return
 	}
-	release := tb.acquireLane(engine + "/" + app.Platform)
-	defer release()
-
+	// The lane is held for the build alone: waiting for App Store Connect to
+	// process an upload must not keep the next task's build queued, and the
+	// build's deadline starts when it starts, not while it waits its turn.
+	release, err := tb.acquireLane(ctx, engine+"/"+app.Platform)
+	if err != nil {
+		r.fail(ctx, err)
+		return
+	}
 	r.build.Engine = engine
 	r.build.Status = domain.TestBuildBuilding
 	r.save(ctx)
 
-	artifact, err := r.build_(ctx, engine)
+	buildCtx, cancel := context.WithTimeout(ctx, testBuildBuildTimeout)
+	artifact, err := r.build_(buildCtx, engine)
+	cancel()
+	release()
 	if err != nil {
 		r.fail(ctx, err)
 		return
@@ -479,7 +532,7 @@ func (s *Service) runTestBuild(ctx context.Context, tb *testBuilds, repo domain.
 	}
 }
 
-func (tb *testBuilds) acquireLane(key string) func() {
+func (tb *testBuilds) acquireLane(ctx context.Context, key string) (func(), error) {
 	tb.lanesMu.Lock()
 	lane, ok := tb.lanes[key]
 	if !ok {
@@ -487,8 +540,12 @@ func (tb *testBuilds) acquireLane(key string) func() {
 		tb.lanes[key] = lane
 	}
 	tb.lanesMu.Unlock()
-	lane <- struct{}{}
-	return func() { <-lane }
+	select {
+	case lane <- struct{}{}:
+		return func() { <-lane }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("storeops: stopped waiting for a free build slot: %w", ctx.Err())
+	}
 }
 
 // testBuildEngine prefers this machine: it costs nothing and needs no pushed
@@ -584,7 +641,7 @@ func (r *testBuildRun) build_(ctx context.Context, engine string) (string, error
 		}
 		// The checkout goes when this function returns; the bundle a person
 		// will try is what a later track release must ship, so it is kept.
-		return r.keepArtifact(result.Artifact)
+		return r.keepArtifact(ctx, result.Artifact)
 
 	case domain.ReleaseEngineActions:
 		if r.tb.Source == nil {
@@ -621,7 +678,7 @@ func (r *testBuildRun) build_(ctx context.Context, engine string) (string, error
 		if err != nil {
 			return "", err
 		}
-		return r.keepArtifact(result.Artifact)
+		return r.keepArtifact(ctx, result.Artifact)
 	}
 	return "", fmt.Errorf("storeops: %q: %w", engine, ErrInvalidEngine)
 }
@@ -635,7 +692,7 @@ func scriptBody(artifacts []pipeline.Artifact) string {
 	return ""
 }
 
-func (r *testBuildRun) keepArtifact(produced string) (string, error) {
+func (r *testBuildRun) keepArtifact(ctx context.Context, produced string) (string, error) {
 	if r.app.Platform != domain.MobileStorePlatformAndroid {
 		return "", nil
 	}
@@ -653,7 +710,37 @@ func (r *testBuildRun) keepArtifact(produced string) (string, error) {
 		return "", fmt.Errorf("storeops: keeping the signed bundle: %w", err)
 	}
 	r.build.ArtifactPath = dest
+	r.pruneArtifacts(context.WithoutCancel(ctx))
 	return dest, nil
+}
+
+// keptArtifacts is how many earlier signed bundles stay on disk per app for a
+// later track release; older builds can still be rebuilt.
+const keptArtifacts = 10
+
+func (r *testBuildRun) pruneArtifacts(ctx context.Context) {
+	builds, err := r.tb.Builds.List(ctx, r.repo.ID, r.app.Platform, nil, 500)
+	if err != nil {
+		return
+	}
+	kept := 0
+	for _, b := range builds {
+		if b.ID == r.build.ID || b.ArtifactPath == "" {
+			continue
+		}
+		kept++
+		if kept <= keptArtifacts {
+			continue
+		}
+		if err := os.Remove(b.ArtifactPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Warn().Err(err).Str("path", b.ArtifactPath).Msg("storeops: removing an old test bundle failed")
+			continue
+		}
+		b.ArtifactPath = ""
+		if _, err := r.tb.Builds.Update(ctx, b); err != nil {
+			log.Warn().Err(err).Str("build_id", b.ID.String()).Msg("storeops: recording a pruned test bundle failed")
+		}
+	}
 }
 
 func copyFile(src, dst string) error {
@@ -857,12 +944,15 @@ func (s *Service) openBuild(ctx context.Context, tb *testBuilds, app domain.Mobi
 		if err != nil {
 			return fmt.Errorf("storeops: listing TestFlight groups: %w", err)
 		}
-		var add []string
+		var add, missing []string
 		external := false
 		for _, id := range groups {
 			idx := slices.IndexFunc(all, func(g port.BetaGroup) bool { return g.ID == id })
 			if idx < 0 {
-				return fmt.Errorf("storeops: TestFlight has no group %s for this app", id)
+				// A group deleted in App Store Connect must not stop the build
+				// reaching the groups that still exist.
+				missing = append(missing, id)
+				continue
 			}
 			if all[idx].AllBuilds {
 				continue
@@ -880,7 +970,10 @@ func (s *Service) openBuild(ctx context.Context, tb *testBuilds, app domain.Mobi
 				return fmt.Errorf("storeops: submitting build %s to Beta App Review: %w", build.BuildNumber, err)
 			}
 		}
-		build.Groups = mergeGroups(build.Groups, groups)
+		build.Groups = mergeGroups(build.Groups, add)
+		if len(missing) > 0 {
+			return fmt.Errorf("storeops: TestFlight has no group %s for this app any more", strings.Join(missing, ", "))
+		}
 		return nil
 
 	case domain.MobileStorePlatformAndroid:
@@ -903,8 +996,8 @@ func (s *Service) openBuild(ctx context.Context, tb *testBuilds, app domain.Mobi
 			name += " (" + label + ")"
 		}
 		for _, track := range groups {
-			if track == androidTrackProduction {
-				return fmt.Errorf("storeops: production is not a test track; promote through the release flow")
+			if err := testTrackAllowed(track); err != nil {
+				return err
 			}
 			if err := client.ReleaseToTrack(ctx, app.Identifier, track, artifact, versionCode, name, build.Notes); err != nil {
 				if artifact == "" {
@@ -917,6 +1010,19 @@ func (s *Service) openBuild(ctx context.Context, tb *testBuilds, app domain.Mobi
 		return nil
 	}
 	return ErrInvalidPlatform
+}
+
+// testTrackAllowed keeps test builds off the tracks the release flow reads:
+// Play's release promotes whatever internal holds, so a task build there is
+// one promote away from production.
+func testTrackAllowed(track string) error {
+	switch track {
+	case androidTrackProduction:
+		return fmt.Errorf("storeops: production is not a test track; promote through the release flow: %w", domain.ErrTestBuildUnsupported)
+	case androidTrackInternal:
+		return fmt.Errorf("storeops: the internal track feeds the release flow; open test builds to a closed or open testing track, or share the internal app sharing link: %w", domain.ErrTestBuildUnsupported)
+	}
+	return nil
 }
 
 func (s *Service) loadTestBuild(ctx context.Context, tb *testBuilds, repositoryID, buildID uuid.UUID) (domain.StoreTestBuild, domain.MobileStoreApp, error) {
@@ -968,13 +1074,17 @@ func (s *Service) OpenTestBuild(ctx context.Context, repositoryID, buildID uuid.
 	if build.Status != domain.TestBuildReady {
 		return domain.StoreTestBuild{}, domain.ErrTestBuildNotReady
 	}
-	err = s.openBuild(ctx, tb, app, &build, groups)
+	openErr := s.openBuild(ctx, tb, app, &build, groups)
 	s.recordAudit(ctx, repositoryID, auditActionTestBuildOpen, build.Platform, actor,
-		map[string]string{"build_number": build.BuildNumber, "groups": strings.Join(groups, ",")}, err)
+		map[string]string{"build_number": build.BuildNumber, "groups": strings.Join(groups, ",")}, openErr)
+	stored, err := tb.Builds.Update(ctx, build)
 	if err != nil {
 		return domain.StoreTestBuild{}, err
 	}
-	return tb.Builds.Update(ctx, build)
+	if openErr != nil {
+		return domain.StoreTestBuild{}, openErr
+	}
+	return stored, nil
 }
 
 // CloseTestBuild takes a build out of TestFlight groups. Play has no such
@@ -1102,7 +1212,7 @@ func (s *Service) TestGroups(ctx context.Context, repositoryID uuid.UUID, platfo
 		}
 		out := make([]domain.StoreTestGroup, 0, len(tracks))
 		for _, t := range tracks {
-			if t.Name == androidTrackProduction {
+			if testTrackAllowed(t.Name) != nil {
 				continue
 			}
 			out = append(out, domain.StoreTestGroup{
@@ -1146,8 +1256,12 @@ func (s *Service) SetTestAutoGroups(ctx context.Context, repositoryID uuid.UUID,
 	if !validPlatform(platform) {
 		return ErrInvalidPlatform
 	}
-	if slices.Contains(groups, androidTrackProduction) {
-		return fmt.Errorf("storeops: production is not a test track: %w", ErrInvalidPlatform)
+	if platform == domain.MobileStorePlatformAndroid {
+		for _, g := range groups {
+			if err := testTrackAllowed(g); err != nil {
+				return err
+			}
+		}
 	}
 	return tb.Builds.SetAutoGroups(ctx, repositoryID, platform, groups)
 }
@@ -1188,7 +1302,7 @@ func (s *Service) TestGroupTesters(ctx context.Context, repositoryID uuid.UUID, 
 	if err != nil {
 		return nil, err
 	}
-	client, err := s.testFlightForRepo(ctx, tb, repositoryID)
+	client, err := s.testFlightForGroup(ctx, tb, repositoryID, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -1212,7 +1326,7 @@ func (s *Service) AddTestGroupTester(ctx context.Context, repositoryID uuid.UUID
 	if !strings.Contains(email, "@") {
 		return domain.StoreTester{}, errors.New("storeops: a tester needs an email address")
 	}
-	client, err := s.testFlightForRepo(ctx, tb, repositoryID)
+	client, err := s.testFlightForGroup(ctx, tb, repositoryID, groupID)
 	if err != nil {
 		return domain.StoreTester{}, err
 	}
@@ -1228,7 +1342,7 @@ func (s *Service) RemoveTestGroupTester(ctx context.Context, repositoryID uuid.U
 	if err != nil {
 		return err
 	}
-	client, err := s.testFlightForRepo(ctx, tb, repositoryID)
+	client, err := s.testFlightForGroup(ctx, tb, repositoryID, groupID)
 	if err != nil {
 		return err
 	}
@@ -1238,7 +1352,11 @@ func (s *Service) RemoveTestGroupTester(ctx context.Context, repositoryID uuid.U
 	return nil
 }
 
-func (s *Service) testFlightForRepo(ctx context.Context, tb *testBuilds, repositoryID uuid.UUID) (port.TestFlightClient, error) {
+// testFlightForGroup is the client for a group of this repository's app. One
+// App Store Connect key reaches every app of the team, so a group id from the
+// request is checked against the app's own groups before its testers are read
+// or changed.
+func (s *Service) testFlightForGroup(ctx context.Context, tb *testBuilds, repositoryID uuid.UUID, groupID string) (port.TestFlightClient, error) {
 	app, err := s.apps.Get(ctx, repositoryID, domain.MobileStorePlatformIOS)
 	if err != nil {
 		return nil, fmt.Errorf("storeops: loading store app: %w", err)
@@ -1246,7 +1364,56 @@ func (s *Service) testFlightForRepo(ctx context.Context, tb *testBuilds, reposit
 	if err := testableApp(app); err != nil {
 		return nil, err
 	}
-	return s.testFlight(ctx, tb)
+	client, err := s.testFlight(ctx, tb)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := client.BetaGroups(ctx, app.StoreAppID)
+	if err != nil {
+		return nil, fmt.Errorf("storeops: listing TestFlight groups: %w", err)
+	}
+	if !slices.ContainsFunc(groups, func(g port.BetaGroup) bool { return g.ID == groupID }) {
+		return nil, fmt.Errorf("storeops: group %s is not one of this app's TestFlight groups: %w", groupID, port.ErrNotFound)
+	}
+	return client, nil
+}
+
+// SweepTestBuilds moves on a build parked on export compliance once someone
+// has answered the question in App Store Connect instead of here. The store
+// monitor runs it every sweep.
+func (s *Service) SweepTestBuilds(ctx context.Context) {
+	tb, err := s.testBuildsReady()
+	if err != nil {
+		return
+	}
+	builds, err := tb.Builds.ListUnfinished(ctx)
+	if err != nil {
+		return
+	}
+	for _, build := range builds {
+		if build.Status != domain.TestBuildActionRequired || build.Platform != domain.MobileStorePlatformIOS {
+			continue
+		}
+		app, err := s.apps.Get(ctx, build.RepositoryID, build.Platform)
+		if err != nil {
+			continue
+		}
+		client, err := s.testFlight(ctx, tb)
+		if err != nil {
+			return
+		}
+		found, ok, err := client.FindBuild(ctx, app.StoreAppID, build.BuildNumber)
+		if err != nil || !ok || found.UsesNonExemptEncryption == nil {
+			continue
+		}
+		r := &testBuildRun{s: s, tb: tb, repo: domain.Repository{ID: build.RepositoryID}, app: app, build: build}
+		if build.TaskID != nil && tb.Tasks != nil {
+			if task, err := tb.Tasks.GetTask(ctx, build.RepositoryID, *build.TaskID); err == nil {
+				r.task = &task
+			}
+		}
+		r.distribute(ctx)
+	}
 }
 
 // ResumeTestBuilds picks up what a previous process left. A build still being
