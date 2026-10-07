@@ -289,3 +289,35 @@ func TestWorkOrderSweepResumeSurvivesACommentFailure(t *testing.T) {
 
 	require.Len(t, store.takenIDs, 1, "the resume itself must still happen")
 }
+
+func TestWorkOrderParkAsksTheSweeperToLookOnceTheParkIsWritten(t *testing.T) {
+	cases := []struct {
+		name      string
+		parked    bool
+		parkErr   error
+		wantHooks int
+	}{
+		{"park written", false, nil, 1},
+		{"already parked", true, nil, 0},
+		{"park write failed", false, errors.New("db down"), 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			task := workOrderTask(domain.TaskColumnTodo)
+			if tc.parked {
+				task.BlockedResource = domain.ResourceWorkOrder
+			}
+			parker := &stubResourceParker{err: tc.parkErr}
+			w := NewWorkOrder(&stubBlockerReader{}, parker)
+			hooks := 0
+			w.SetParkedHook(func() {
+				hooks++
+				assert.Len(t, parker.parks, 1, "the hook runs after the park exists")
+			})
+
+			_ = w.Park(context.Background(), task.RepositoryID, task, []domain.BoardTask{openBlocker()})
+
+			assert.Equal(t, tc.wantHooks, hooks)
+		})
+	}
+}

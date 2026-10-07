@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -128,6 +128,37 @@ describe("isOurEmbedder", () => {
     expect(isOurEmbedder(EMBEDDER, USER_DATA)).toBe(true);
     expect(isOurEmbedder(`${EMBEDDER}2`, USER_DATA)).toBe(false);
     expect(isOurEmbedder(EMBEDDER, "/Users/me/Library/Application Support/Other")).toBe(false);
+  });
+});
+
+describe("leftover temp files", () => {
+  /** A run that died between its write and its rename leaves one of these, and nothing else ever deletes it. */
+  it("are deleted, except this run's own and anything that only looks similar", async () => {
+    const names = [
+      "children.json.123.tmp",
+      "children.json.9999999.tmp",
+      `children.json.${process.pid}.tmp`,
+      "children.json.abc.tmp",
+      "other.json.123.tmp",
+      "children.json",
+    ];
+    for (const name of names) await writeFile(join(dir, name), "[]");
+    await registry.removeStaleTemps();
+    expect((await readdir(dir)).sort()).toEqual(
+      [`children.json.${process.pid}.tmp`, "children.json.abc.tmp", "other.json.123.tmp", "children.json"].sort(),
+    );
+  });
+
+  it("are swept with the stale children", async () => {
+    await writeFile(join(dir, "children.json.123.tmp"), "[]");
+    const { d } = deps({});
+    await reapStaleChildren({ registry, userData: USER_DATA, deps: d });
+    expect(await readdir(dir)).toEqual(["children.json"]);
+  });
+
+  it("are no reason to fail when the folder does not exist yet", async () => {
+    const missing = new ChildRegistry(join(dir, "nope", "children.json"));
+    await expect(missing.removeStaleTemps()).resolves.toBeUndefined();
   });
 });
 

@@ -102,3 +102,26 @@ describe("primary accent token", () => {
     expect(readOklch(dark, "--warning")).toEqual({ l: 0.78, c: 0.14, h: 85 });
   });
 });
+
+describe("infinite animations", () => {
+  const pausedSelectors = (block: string) =>
+    block
+      .slice(0, block.indexOf("{"))
+      .split(",")
+      .map((selector) => selector.trim());
+
+  it.each([".animate-spin", ".animate-pulse", ".animate-bounce", ".animate-ping"])(
+    "pauses %s while the app is idle and under reduced motion",
+    (utility) => {
+      const idleStart = css.indexOf("html[data-idle]");
+      const idleBlock = css.slice(idleStart, css.indexOf("}", idleStart) + 1);
+      expect(pausedSelectors(idleBlock)).toContain(`html[data-idle] ${utility}`);
+      expect(idleBlock).toContain("animation-play-state: paused !important");
+
+      const motionStart = css.indexOf("@media (prefers-reduced-motion: reduce)");
+      const motionBlock = css.slice(css.indexOf("{", motionStart) + 1, css.indexOf("}", motionStart) + 1);
+      expect(pausedSelectors(motionBlock)).toContain(utility);
+      expect(motionBlock).toContain("animation-play-state: paused !important");
+    },
+  );
+});

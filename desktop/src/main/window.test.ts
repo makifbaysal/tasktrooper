@@ -94,6 +94,7 @@ class FakeWebContents extends EventEmitter {
 class FakeView {
   webContents = new FakeWebContents();
   visible = true;
+  constructor(public options: unknown = {}) {}
   bounds: unknown = null;
   background = "";
   setVisible(visible: boolean): void {
@@ -131,11 +132,15 @@ class FakeBrowserWindow extends EventEmitter {
     return Promise.resolve();
   }
   shown = false;
+  // Electron raises both events from the calls themselves, and the
+  // visibility tests below lean on that.
   show(): void {
     this.shown = true;
+    this.emit("show");
   }
   hide(): void {
     this.hidden = true;
+    this.emit("hide");
   }
   hidden = false;
   focus(): void {}
@@ -161,8 +166,8 @@ vi.mock("electron", () => ({
   },
   BrowserWindow: class extends FakeBrowserWindow {},
   WebContentsView: class {
-    constructor() {
-      const view = new FakeView();
+    constructor(options: unknown) {
+      const view = new FakeView(options);
       views.push(view);
       return view as unknown as this;
     }
@@ -466,6 +471,87 @@ describe("closing the window", () => {
     window.emit("close", { preventDefault: () => (prevented = true) });
     expect(prevented).toBe(false);
     expect(window.hidden).toBe(false);
+  });
+});
+
+/**
+ * Closing hides the window rather than destroying it, so the page behind it
+ * keeps running. It must at least see `visibilityState` "hidden", which is
+ * what pauses its polls and animations.
+ */
+describe("a window nobody can see lets the page sleep", () => {
+  it("hides the view when the red button hides the window, and shows it again with the window", () => {
+    const { shell, window, view, contents } = start();
+    contents.emitDocumentLoad(`${ORIGIN}/board`);
+    expect(view.visible).toBe(true);
+    expect(shell.pageOnScreen).toBe(true);
+
+    window.emit("close", { preventDefault: () => {} });
+    expect(view.visible).toBe(false);
+    expect(shell.pageOnScreen).toBe(false);
+
+    shell.show();
+    expect(view.visible).toBe(true);
+    expect(shell.pageOnScreen).toBe(true);
+  });
+
+  it("follows minimize and restore", () => {
+    const { window, view, contents } = start();
+    contents.emitDocumentLoad(`${ORIGIN}/board`);
+
+    window.emit("minimize");
+    expect(view.visible).toBe(false);
+    window.emit("restore");
+    expect(view.visible).toBe(true);
+  });
+
+  /** macOS's minimize animation, as Electron 41 reported it. */
+  it("ends hidden after macOS's minimize sequence, which flaps through show", () => {
+    const { window, view, contents } = start();
+    contents.emitDocumentLoad(`${ORIGIN}/board`);
+    for (const event of ["minimize", "hide", "show", "hide"]) window.emit(event);
+    expect(view.visible).toBe(false);
+  });
+
+  it("does not show a view the window hid when its page finishes loading", () => {
+    const { window, view, contents } = start();
+    window.hide();
+    contents.emitDocumentLoad(`${ORIGIN}/board`);
+    expect(view.visible).toBe(false);
+
+    window.show();
+    expect(view.visible).toBe(true);
+  });
+
+  it("keeps a failed page's view hidden when the window comes back", () => {
+    const { window, view, contents } = start();
+    contents.emitDocumentLoad(`${ORIGIN}/board`, 502);
+    window.hide();
+    window.show();
+    expect(view.visible).toBe(false);
+  });
+
+  it("counts focus as on screen, whatever event was missed", () => {
+    const { window, view, contents } = start();
+    contents.emitDocumentLoad(`${ORIGIN}/board`);
+    window.emit("hide");
+    window.emit("focus");
+    expect(view.visible).toBe(true);
+  });
+
+  it("starts off screen when the login item launched it hidden", () => {
+    const { shell, view, contents } = start(ORIGIN, () => false, { hidden: true });
+    contents.emitDocumentLoad(`${ORIGIN}/board`);
+    expect(view.visible).toBe(false);
+
+    shell.show();
+    expect(view.visible).toBe(true);
+  });
+
+  it("pins background throttling on for both renderers", () => {
+    const { window, view } = start();
+    expect(window.options).toMatchObject({ webPreferences: { backgroundThrottling: true } });
+    expect(view.options).toMatchObject({ webPreferences: { backgroundThrottling: true } });
   });
 });
 

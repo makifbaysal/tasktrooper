@@ -1,4 +1,4 @@
-import { Bot, Clock, GitMerge, GripVertical, HelpCircle, Loader2, PackageCheck, Trash2 } from "lucide-react";
+import { Bot, Clock, GitMerge, GripVertical, HelpCircle, PackageCheck, Trash2 } from "lucide-react";
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import type { BoardTask, Release } from "@/api";
@@ -19,17 +19,7 @@ import {
   taskTypeLabel,
   workOrderBlockerLabel,
 } from "@/lib/project-board";
-import { verifyMinutesLeft } from "@/lib/release-board";
 import { cn, formatDate } from "@/lib/utils";
-
-// Coarse on purpose: the badge answers "is this stuck?", and a minute-accurate
-// figure only adds noise. `now` comes from the board's minute clock.
-const formatColumnAge = (iso: string, now: number): string => {
-  const minutes = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours}h` : `${Math.round(hours / 24)}d`;
-};
 
 // The clarification chat lives under the agent that asked, so both ids are
 // needed to link to it; an older blocked task may predate either.
@@ -49,8 +39,13 @@ interface BoardTaskCardProps {
   /** The open release carrying this task, shown on a done card. */
   release?: Release;
   dragging: boolean;
-  /** The board's minute clock, for the column-age and verify-window badges. */
-  now: number;
+  /**
+   * The column-age badge's text (lib/project-board formatColumnAge) and the
+   * verify window's minutes left, computed by the board from its minute clock:
+   * passing the clock itself re-rendered every memoized card once a minute.
+   */
+  columnAge?: string;
+  releaseVerifyMinutes?: number;
   onDragStart: (taskId: string) => void;
   onDragEnd: () => void;
   onOpen: (task: BoardTask) => void;
@@ -67,7 +62,8 @@ export const BoardTaskCard = memo(function BoardTaskCard({
   agentRunning,
   release,
   dragging,
-  now,
+  columnAge,
+  releaseVerifyMinutes,
   onDragStart,
   onDragEnd,
   onOpen,
@@ -77,7 +73,6 @@ export const BoardTaskCard = memo(function BoardTaskCard({
   const pipelineIcon = taskPipelineCardIcon(task.latest_pipeline_status, task.latest_pipeline_gate_reason);
   // A skipped gate explains itself; an ordinary pipeline just names its status.
   const pipelineGateNote = pipelineGateReasonLabel(task.latest_pipeline_gate_reason);
-  const releaseMinutes = release ? verifyMinutesLeft(release, now) : undefined;
   return (
     <Card
       draggable
@@ -99,7 +94,7 @@ export const BoardTaskCard = memo(function BoardTaskCard({
             </Badge>
             {agentRunning && (
               <Badge variant="info" className="gap-1 text-micro">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
                 {t("boardArea.board.agentRunning")}
               </Badge>
             )}
@@ -242,23 +237,21 @@ export const BoardTaskCard = memo(function BoardTaskCard({
                 }
               >
                 <PackageCheck className="h-3 w-3" />
-                {releaseMinutes !== undefined
+                {releaseVerifyMinutes !== undefined
                   ? t("boardArea.board.releaseBadgeVerifying", {
                       status: t(`release.statuses.${release.status}`),
-                      minutes: releaseMinutes,
+                      minutes: releaseVerifyMinutes,
                     })
                   : t(`release.statuses.${release.status}`)}
               </Badge>
             )}
-            {task.column_entered_at && (
+            {columnAge && (
               <Badge
                 variant="outline"
                 className="text-micro"
-                title={t("boardArea.board.columnAge", {
-                  value: formatColumnAge(task.column_entered_at, now),
-                })}
+                title={t("boardArea.board.columnAge", { value: columnAge })}
               >
-                {formatColumnAge(task.column_entered_at, now)}
+                {columnAge}
               </Badge>
             )}
           </div>

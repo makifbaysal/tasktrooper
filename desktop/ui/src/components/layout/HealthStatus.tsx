@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, type HealthResponse, type LLMProviderHealthItem } from "@/api";
+import { useState } from "react";
+import type { LLMProviderHealthItem } from "@/api";
 import { Badge } from "@/components/ui/badge";
+import { useHealth } from "@/hooks/useHealth";
 import { useI18n } from "@/hooks/useI18n";
-import { usePolling } from "@/hooks/usePolling";
 import { useSetup } from "@/hooks/useSetup";
 import { cn } from "@/lib/utils";
 
@@ -35,35 +35,9 @@ export function HealthStatus() {
   // does the work, so it outranks the chat-LLM badge when present.
   const connectedCliFlavors = (cliState?.flavors ?? []).filter((f) => f.connected);
 
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  const { health, loading, error } = useHealth();
+  const ready = !loading;
   const [open, setOpen] = useState(false);
-
-  const poll = useCallback(async () => {
-    try {
-      const data = await api.health();
-      setHealth(data);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("frame.layout.health.checkFailed"));
-      setHealth(null);
-    } finally {
-      setReady(true);
-    }
-  }, [t]);
-
-  // Visibility-gated by usePolling: a hidden tab stops polling /health
-  // altogether and refreshes once on return. This effect used to only ever
-  // poll *more* on visibilitychange, so a forgotten background tab produced a
-  // request every 10s forever.
-  usePolling(poll, 10000, true);
-
-  useEffect(() => {
-    const onFocus = () => void poll();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [poll]);
 
   const bridgeReachable = !error && health !== null;
   const configuredProviders = (health?.providers ?? []).filter((p) => p.configured);

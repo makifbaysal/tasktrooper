@@ -25,6 +25,13 @@ type ActivityStore interface {
 	ListActiveRuns(ctx context.Context) ([]domain.SessionRun, error)
 }
 
+// InterruptedRunFailer settles, as failed, every session run still marked
+// running. A run has no heartbeat, so only a process that knows no other one
+// runs turns against this database may call it, and only before it starts any.
+type InterruptedRunFailer interface {
+	FailInterruptedRuns(ctx context.Context) (int, error)
+}
+
 type APIKeyStore interface {
 	Create(ctx context.Context, name, keyHash, keyPrefix string, policy domain.ToolPolicy) (domain.APIKeyRecord, error)
 	List(ctx context.Context) ([]domain.APIKeyRecord, error)

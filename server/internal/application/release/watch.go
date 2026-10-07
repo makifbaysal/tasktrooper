@@ -30,6 +30,7 @@ func (s *Service) Watch(ctx context.Context, releaseID uuid.UUID) (domain.Releas
 	if !fresh.Status.Watched() {
 		return fresh, nil, nil
 	}
+	s.noteWatching()
 	return fresh, &domain.ResourceBlock{
 		Resource: domain.ResourceReleaseWatch,
 		Detail:   fmt.Sprintf("release %s is %s — the sweeper is watching it and will wake this task when it needs a verdict or has failed", fresh.Version, fresh.Status),

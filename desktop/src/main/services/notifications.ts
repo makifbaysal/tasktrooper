@@ -1,10 +1,10 @@
 /**
  * Desktop notifications for a board that needs the stakeholder's attention.
  *
- * This lives in the main process, not the renderer: the window is destroyed
- * (not hidden) on close (`main/window.ts`), so anything watching from the SPA
- * stops running exactly when a notification is most needed. `Notification`
- * here is Electron's, from the main process, which survives a closed window.
+ * This lives in the main process, not the renderer: a closed window is hidden
+ * and its page throttled (`main/window.ts`), so anything watching from the SPA
+ * slows to a crawl exactly when a notification is most needed. `Notification`
+ * here is Electron's, from the main process, which a hidden page cannot stall.
  *
  * `diffForNotifications` is pure — no fetch, no Electron — mirroring the
  * `probeHealth`/`waitForHealth` split in `health.ts`. `NotificationWatcher`
@@ -15,24 +15,32 @@ import { Notification, powerSaveBlocker } from "electron";
 import type { NotificationPreferences } from "../../ipc/types.js";
 
 /**
- * How often the backend is asked, which is three requests each time — the
- * whole task list among them.
+ * How often the backend is asked. Every tick reads the active runs; the whole
+ * task list and the activity feed are read too only when they can say
+ * something new (`#tick`).
  *
- * Every 15 s only while something is happening: a run in flight or a task in
- * progress, which is when a column change, a comment or a finished chat turn —
- * everything this watcher notifies about — can arrive. Idle, a minute: nothing
- * on an idle board moves unless the person moves it, and they are looking at it
- * when they do. Both double on battery. `nudge()` is the way back to the fast
- * interval sooner than that: the window losing focus, which is the moment
- * somebody who just started a run walks away from it.
+ * Every 15 s only while a run is in flight, which is when a column change, a
+ * comment or a finished chat turn — everything this watcher notifies about —
+ * can arrive. A card sitting in "in progress" does not count: it can sit there
+ * for days with nothing running. Idle, a minute: nothing on an idle board moves
+ * unless the person moves it, and they are looking at it when they do. Both
+ * double on battery. `nudge()` is the way back to the fast interval sooner than
+ * that: the window losing focus, which is the moment somebody who just started
+ * a run walks away from it.
  */
 export const POLL_INTERVAL_MS = 15_000;
 export const IDLE_POLL_INTERVAL_MS = 60_000;
 const BATTERY_FACTOR = 2;
-/** A nudge within this long of the last poll is not worth another three requests. */
+/** A nudge within this long of the last poll is not worth another round of requests. */
 const NUDGE_MIN_GAP_MS = 2_000;
 /** Consecutive ticks without an `/v1/activity/active` answer before a held suspension blocker is let go. */
 export const BLIND_TICKS_BEFORE_RELEASE = 3;
+/**
+ * A run reported as running for longer than this is taken for one a crashed
+ * backend never closed. It no longer holds the suspension blocker or the fast
+ * poll: one such row would otherwise hold both for as long as it stays there.
+ */
+export const STALE_RUN_MS = 6 * 60 * 60_000;
 
 export function pollIntervalMs(state: { busy: boolean; onBattery: boolean }): number {
   const base = state.busy ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS;
@@ -86,16 +94,6 @@ export interface DiffResult {
   nextCursor: ActivityCursor | null;
 }
 
-/**
- * Whether any task is actively being worked: the run itself happens
- * server-side (`board/runner.go`), and the task list this watcher already
- * polls is the cheapest signal of it reaching the Electron main process. It
- * sets how often the watcher polls — never whether the screen stays on.
- */
-export function hasRunningTask(tasks: RemoteTask[]): boolean {
-  return tasks.some((task) => task.column === "in_progress");
-}
-
 export interface RemoteActiveRun {
   id: string;
   // Both present only for an agent-chat run — a board-task run's session has
@@ -103,16 +101,25 @@ export interface RemoteActiveRun {
   session_id?: string | null;
   agent_id?: string | null;
   title?: string;
+  started_at?: string;
 }
 
 /**
  * Whether `GET /v1/activity/active` reports any run in flight — board task or
- * agent-chat turn alike. Unlike `hasRunningTask`, this also covers a chat
- * session that has no board task attached, which is exactly the case that
- * used to let macOS App Nap suspend the process mid-turn.
+ * agent-chat turn alike, including a chat session that has no board task
+ * attached, which is exactly the case that used to let macOS App Nap suspend
+ * the process mid-turn. Pass it `liveRuns`, not the raw list.
  */
 export function hasActiveRun(runs: RemoteActiveRun[]): boolean {
   return runs.length > 0;
+}
+
+/** `runs` without the ones started more than `STALE_RUN_MS` ago. A run with no readable start is kept. */
+export function liveRuns(runs: RemoteActiveRun[], now: number): RemoteActiveRun[] {
+  return runs.filter((run) => {
+    const started = typeof run.started_at === "string" ? Date.parse(run.started_at) : Number.NaN;
+    return Number.isNaN(started) || now - started <= STALE_RUN_MS;
+  });
 }
 
 export interface ActiveChatSession {
@@ -292,11 +299,20 @@ export interface NotificationWatcherOptions {
   isWindowFocused: () => boolean;
   /** Whether this machine is on battery; the poll slows down when it is. */
   onBattery?: () => boolean;
+  /**
+   * Whether the web app is loaded and on screen, polling the board for
+   * itself. While it is, the task list and activity feed are read only when
+   * the set of active runs changed. Absent means never, which reads them every
+   * tick.
+   */
+  isPageOnScreen?: () => boolean;
+  /** A run id appeared that the previous tick did not have. */
+  onRunStarted?: () => void;
 }
 
 /**
- * Owns the poll timer, the three `fetch` calls, and turning a candidate into a
- * real `Notification`. Everything decidable without I/O lives in
+ * Owns the poll timer, the `fetch` calls, and turning a candidate into a real
+ * `Notification`. Everything decidable without I/O lives in
  * `diffForNotifications` above.
  */
 export class NotificationWatcher {
@@ -308,6 +324,12 @@ export class NotificationWatcher {
   #busy = false;
   #lastTickAt = 0;
   #blindTicks = 0;
+  // Every run id the last answer listed, stale ones included: a change in it
+  // is what makes the board worth reading while the page is on screen.
+  #runIds: ReadonlySet<string> = new Set();
+  // Successful board reads still owed whatever the page is doing: the seed,
+  // and the reads after a change in the run set.
+  #boardReadsDue = 1;
   // `prevent-app-suspension` keeps this process's JS running — and so the
   // backend's children supervised — while a run is in flight, which a
   // minimized window would otherwise let macOS App-Nap away. There is
@@ -336,6 +358,8 @@ export class NotificationWatcher {
     if (this.#polling) return;
     this.#polling = true;
     this.#blindTicks = 0;
+    // Whatever moved while there was no backend to ask.
+    this.#boardReadsDue = Math.max(this.#boardReadsDue, 1);
     void this.#poll();
   }
 
@@ -399,14 +423,8 @@ export class NotificationWatcher {
     const base = this.options.apiBase();
     if (!base) return;
 
-    // A failed read (a network blip, a backend mid-restart) is "try again next
-    // tick", not a reason to treat the next real poll as a seed.
     const headers = { Authorization: `Bearer ${this.options.apiToken() ?? ""}` };
-    const [tasksBody, activityBody, activeRunsBody] = await Promise.all([
-      readJson<{ tasks?: RemoteTask[] | null }>(`${base}/v1/tasks`, headers),
-      readJson<{ items?: RemoteActivityItem[] | null }>(`${base}/v1/activity?limit=50`, headers),
-      readJson<{ runs?: RemoteActiveRun[] | null }>(`${base}/v1/activity/active`, headers),
-    ]);
+    const activeRunsBody = await readJson<{ runs?: RemoteActiveRun[] | null }>(`${base}/v1/activity/active`, headers);
 
     if (!activeRunsBody) {
       this.#blindTicks++;
@@ -419,23 +437,38 @@ export class NotificationWatcher {
     this.#blindTicks = 0;
     // The endpoints serialize an empty Go slice as `null`, not `[]`.
     const activeRuns = activeRunsBody.runs ?? [];
-    this.#syncSuspensionGuard(activeRuns);
+    const live = liveRuns(activeRuns, Date.now());
+    this.#syncSuspensionGuard(live);
+    this.#busy = hasActiveRun(live);
 
-    if (!tasksBody || !activityBody) return;
-    const tasks = tasksBody.tasks ?? [];
-    const activityItems = activityBody.items ?? [];
-    this.#busy = hasActiveRun(activeRuns) || hasRunningTask(tasks);
+    const runIds = new Set(activeRuns.map((run) => run.id));
+    const started = activeRuns.some((run) => !this.#runIds.has(run.id));
+    // Twice: a run can leave the active list a moment before the runner
+    // moves its card, and the read on the very tick it left would miss that.
+    if (started || runIds.size !== this.#runIds.size) this.#boardReadsDue = 2;
+    this.#runIds = runIds;
+    if (started) this.options.onRunStarted?.();
+
+    let board: { tasks: RemoteTask[]; items: RemoteActivityItem[] } | null = null;
+    if (this.#boardReadsDue > 0 || !(this.options.isPageOnScreen?.() ?? false)) {
+      const [tasksBody, activityBody] = await Promise.all([
+        readJson<{ tasks?: RemoteTask[] | null }>(`${base}/v1/tasks`, headers),
+        readJson<{ items?: RemoteActivityItem[] | null }>(`${base}/v1/activity?limit=50`, headers),
+      ]);
+      // A failed read (a network blip, a backend mid-restart) is "try again next
+      // tick", not a reason to treat the next real poll as a seed.
+      if (tasksBody && activityBody) board = { tasks: tasksBody.tasks ?? [], items: activityBody.items ?? [] };
+    }
 
     const prefs = this.options.getPreferences();
-    const { toNotify, nextSnapshot, nextCursor } = diffForNotifications(
-      this.#snapshot,
-      tasks,
-      activityItems,
-      this.#cursor,
-      prefs,
-    );
-    this.#snapshot = nextSnapshot;
-    this.#cursor = nextCursor;
+    const toNotify: NotificationCandidate[] = [];
+    if (board) {
+      const diff = diffForNotifications(this.#snapshot, board.tasks, board.items, this.#cursor, prefs);
+      this.#snapshot = diff.nextSnapshot;
+      this.#cursor = diff.nextCursor;
+      this.#boardReadsDue = Math.max(0, this.#boardReadsDue - 1);
+      toNotify.push(...diff.toNotify);
+    }
 
     const chatDiff = diffChatCompletions(
       this.#chatSnapshot,
@@ -445,9 +478,10 @@ export class NotificationWatcher {
       prefs,
     );
     this.#chatSnapshot = chatDiff.nextSnapshot;
+    toNotify.push(...chatDiff.toNotify);
 
     if (!prefs.enabled || !Notification.isSupported()) return;
-    for (const candidate of [...toNotify, ...chatDiff.toNotify]) {
+    for (const candidate of toNotify) {
       const notification = new Notification({ title: candidate.title, body: candidate.body });
       notification.on("click", () => this.options.onNotificationClick(candidate.route));
       notification.show();

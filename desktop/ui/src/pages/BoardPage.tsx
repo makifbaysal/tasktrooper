@@ -44,14 +44,16 @@ import {
   PROJECT_SCOPE_NONE,
   boardColumnsSplit,
   boardLanes,
+  boardPollIntervals,
   filterTasksByScope,
+  formatColumnAge,
   isProjectScope,
   mergeTaskList,
   projectScopeCounts,
   scopeShowingTask,
   taskCreateDefaults,
 } from "@/lib/project-board";
-import { BOARD_RELEASE_STATUSES, openReleaseByTask } from "@/lib/release-board";
+import { BOARD_RELEASE_STATUSES, openReleaseByTask, verifyMinutesLeft } from "@/lib/release-board";
 import { keepMap } from "@/lib/stableState";
 
 // The board's own view of a card carries two fields the single-task endpoints
@@ -66,21 +68,19 @@ function withPipelineFrom(previous: BoardTask, updated: BoardTask): BoardTask {
   };
 }
 
-// The board is a shared surface: agents move cards on their own, and until this
-// poll existed the only way to see that was to reload the page.
-const TASK_POLL_MS = 5000;
 // A release moves on the sweeper's 30s tick, so polling it as often as the
 // cards would only repeat the same answer.
 const RELEASE_POLL_MS = 15000;
-const AGENT_ACTIVITY_POLL_MS = 2000;
-// Cards are memoized, so nothing else would ever re-render a column-age badge.
+// Cards are memoized and get the badge text, not this clock, so a tick
+// re-renders only the cards whose column age or verify countdown now reads
+// differently.
 const CLOCK_TICK_MS = 60000;
 
 const releaseBadgeKey = (release: Release) => `${release.id}:${release.status}:${release.verify_until ?? ""}`;
 
-// The agent-activity poll runs every 2s; handing React a fresh Set each time
-// re-rendered the whole board — and an open task drawer with it — on every
-// tick, even when nothing had changed.
+// The agent-activity poll runs every 2s during a run; handing React a fresh Set
+// each time re-rendered the whole board — and an open task drawer with it — on
+// every tick, even when nothing had changed.
 function sameIds(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
   for (const id of a) if (!b.has(id)) return false;
@@ -261,12 +261,17 @@ export function BoardPage() {
     load();
   }, [load]);
 
-  // The cheap half of load(): just the cards. Runs on a timer so a move an
-  // agent (or another browser) made shows up without a reload. Shared with the
-  // header's notifications, so the two never fetch the list twice. A blip
-  // keeps the last good board; the next tick (or any user action) surfaces a
-  // real failure.
-  useSharedPoll(ALL_TASKS_POLL, TASK_POLL_MS, !loading, {
+  const pollIntervals = useMemo(
+    () => boardPollIntervals(tasks, activeAgentTaskIds),
+    [tasks, activeAgentTaskIds],
+  );
+
+  // The cheap half of load(): just the cards. The board is a shared surface:
+  // agents move cards on their own, and this poll is how such a move shows up
+  // without a reload. Shared with the header's notifications, so the two never
+  // fetch the list twice. A blip keeps the last good board; the next tick (or
+  // any user action) surfaces a real failure.
+  useSharedPoll(ALL_TASKS_POLL, pollIntervals.tasksMs, !loading, {
     begin: () => boardVersion.current,
     onValue: (data, seen) => {
       if (boardVersion.current !== seen) return;
@@ -274,7 +279,7 @@ export function BoardPage() {
     },
   });
 
-  useSharedPoll(ACTIVITY_POLL, AGENT_ACTIVITY_POLL_MS, !loading, {
+  useSharedPoll(ACTIVITY_POLL, pollIntervals.activityMs, !loading, {
     onValue: (data) => {
       const ids = new Set<string>();
       for (const item of data.items ?? []) {
@@ -545,23 +550,27 @@ export function BoardPage() {
                         {t("boardArea.board.emptyColumn")}
                       </p>
                     ) : (
-                      stageTasks.map((task) => (
-                        <BoardTaskCard
-                          key={task.id}
-                          task={task}
-                          repositoryName={repositoryName(task.repository_id)}
-                          assignee={agentName(task.assignee_agent_id)}
-                          initiative={projectScoped ? undefined : initiativeName(task.initiative_project_id)}
-                          agentRunning={activeAgentTaskIds.has(task.id)}
-                          release={task.column === "done" ? releasesByTask.get(task.id) : undefined}
-                          dragging={dragTaskId === task.id}
-                          now={now}
-                          onDragStart={setDragTaskId}
-                          onDragEnd={endDrag}
-                          onOpen={openTask}
-                          onDelete={deleteCard}
-                        />
-                      ))
+                      stageTasks.map((task) => {
+                        const release = task.column === "done" ? releasesByTask.get(task.id) : undefined;
+                        return (
+                          <BoardTaskCard
+                            key={task.id}
+                            task={task}
+                            repositoryName={repositoryName(task.repository_id)}
+                            assignee={agentName(task.assignee_agent_id)}
+                            initiative={projectScoped ? undefined : initiativeName(task.initiative_project_id)}
+                            agentRunning={task.agent_running === true || activeAgentTaskIds.has(task.id)}
+                            release={release}
+                            dragging={dragTaskId === task.id}
+                            columnAge={task.column_entered_at ? formatColumnAge(task.column_entered_at, now) : undefined}
+                            releaseVerifyMinutes={release ? verifyMinutesLeft(release, now) : undefined}
+                            onDragStart={setDragTaskId}
+                            onDragEnd={endDrag}
+                            onOpen={openTask}
+                            onDelete={deleteCard}
+                          />
+                        );
+                      })
                     );
                   }}
                 />
@@ -593,6 +602,7 @@ export function BoardPage() {
           </DialogHeader>
           <ActivityFeed
             className="min-h-0 flex-1 rounded-none border-0"
+            pollMs={pollIntervals.activityMs}
             agents={agents}
             tasks={tasks}
             columns={allColumns}

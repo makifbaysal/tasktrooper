@@ -539,7 +539,8 @@ deploying again; nothing needs rolling back unless a broken build went out".
 
 ### The sweeper
 
-`SweepOnce` (default 30s, `Start`) lists every release in a `Watched()` status and advances
+`SweepOnce` (`Start`: every 30s while a release is watched, every 5 min otherwise; a write
+that leaves a release `Watched()`, or `Watch`, wakes an idle sweeper) lists every release in a `Watched()` status and advances
 each with an optimistic `store.Update(r, expect=oldStatus)` — `ErrReleaseWrongStatus` means
 someone else (another tick, an agent's `Finish`/`Rollback`) already moved it, and the release
 is skipped rather than fought over.
@@ -905,8 +906,9 @@ for — the other three are facts about the world outside the board. Everything 
 identical: `blocked_resource`, the `blocked` column with the reason, a comment naming every
 blocker, and a sweeper.
 
-`board.WorkOrderSweeper` (1 minute — the shortest of the four: one indexed query against the
-same database) is shaped like `DeploySweeper`, since the park is per-TASK: list without
+`board.WorkOrderSweeper` (every 5 minutes, only a backstop: a blocker reaching done/released
+wakes its dependants itself through `WakeDependentsOf`, and `SweepSoon` runs a pass right
+after a park is written or a task is deleted) is shaped like `DeploySweeper`, since the park is per-TASK: list without
 claiming, ask, take only the free ones. It asks the relation graph itself —
 `ListBlockingSources` returns the UNFINISHED sources of a task's `blocks` rows, so an empty
 answer *is* "everything it waited for is done". That one query also covers both ways a

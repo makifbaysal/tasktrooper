@@ -25,6 +25,7 @@ import {
   startPreflight,
 } from "../services/detect.js";
 import { waitForHealth } from "../services/health.js";
+import { mobileAutomationInUse } from "../services/mobile-demand.js";
 import { loginShellPathKnown } from "../services/login-env.js";
 import { PreflightCache } from "../services/preflight-cache.js";
 import { PREFLIGHT_REUSE_MS, PreflightSweeps, primeLoginShellPath, type Sweep } from "../services/preflight-sweep.js";
@@ -48,16 +49,19 @@ import { parseServerListening, renderServerLine, serverLineLevel } from "./serve
  *                backend whose environment it turns out to change is
  *                restarted once with the full answers.
  *   start      → the embedder (already running since app init), then the
- *                backend, and, when this Mac has Appium, a hub beside it.
+ *                backend, and, when this Mac has Appium and the backend says
+ *                something uses mobile automation, a hub after it.
  *   ready      → the backend prints `LISTENING http://127.0.0.1:<port>` and
  *                then answers `GET /health` with a 200. Only at that point does
  *                this app have an API base to hand the window.
  *
- * **Appium is a child and deliberately not a gate.** It starts beside the
+ * **Appium is a child and deliberately not a gate.** It starts after the
  * backend rather than before it, nothing waits for it, and its absence or its
  * crash never becomes the supervisor's state — `GATING_CHILD_IDS` is what says
  * so. A start that failed because an optional capability was slow is the shape
- * this app exists to avoid.
+ * this app exists to avoid. And it starts only once something uses it (see
+ * `#startAppiumIfUsed`): a hub is a ~100 MB Node process, and most installs
+ * that have Appium never register a device.
  *
  * Everything a start script asked a human for, this decides: the binary paths
  * (detected), the port (the backend picks it), the database (embedded), the
@@ -108,6 +112,16 @@ const LOG_FLUSH_MS = 120;
 const EMBEDDER_URL_WAIT_MS = 8_000;
 
 const REAP_CAP_MS = 5_000;
+
+/**
+ * How often a backend whose install does not use mobile automation is asked
+ * again. Backed by a re-check on every run the notification watcher sees
+ * start (`recheckAppium`), which is when a first device actually gets dialled.
+ */
+const APPIUM_DEMAND_RECHECK_MS = 5 * 60_000;
+
+const APPIUM_DEFERRED_DETAIL =
+  "Appium is installed. TaskTrooper starts its hub once a repository or a registered device uses mobile automation.";
 
 /**
  * Between the backend's exit and the message that quotes its last line. The
@@ -181,6 +195,12 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     this.#note(line),
   );
   #reaped: Promise<void> = Promise.resolve();
+  /** The sweep in flight, which a second caller joins rather than racing. */
+  #reaping: Promise<void> | null = null;
+
+  /** `#configureAppium` decided this app runs the hub, and nothing has used mobile automation yet. */
+  #appiumDeferred = false;
+  #appiumRecheck: NodeJS.Timeout | null = null;
 
   constructor() {
     super();
@@ -321,7 +341,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
    * backend, only a reason embeddings stay unavailable until it can.
    */
   async startEmbedder(): Promise<void> {
-    await this.#reaped;
+    await this.reapStale();
     const child = this.#child("embedder");
     child.update(this.#embedderSpec());
     try {
@@ -338,17 +358,24 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   }
 
   /**
-   * Kill children an earlier run of this app left running. Call once at boot,
-   * before `startEmbedder()` and `connect()`, both of which wait for it. Bounded
-   * and never rejects.
+   * Kill children an earlier run of this app left running. Called at boot,
+   * before every embedder spawn, and on wake from sleep — an orphan the boot's
+   * bounded sweep gave up on would otherwise run until the next launch.
+   * `connect()` waits for the latest one. Joins a sweep already in flight;
+   * bounded, never rejects, and never touches a child this run started.
    */
   reapStale(): Promise<void> {
-    this.#reaped = reapWithin(REAP_CAP_MS, {
-      registry: this.#registry,
-      userData: app.getPath("userData"),
-      log: (line) => this.#note(line),
-    });
-    return this.#reaped;
+    if (!this.#reaping) {
+      this.#reaping = reapWithin(REAP_CAP_MS, {
+        registry: this.#registry,
+        userData: app.getPath("userData"),
+        log: (line) => this.#note(line),
+      }).finally(() => {
+        this.#reaping = null;
+      });
+      this.#reaped = this.#reaping;
+    }
+    return this.#reaping;
   }
 
   connect(): Promise<SupervisorSnapshot> {
@@ -387,9 +414,21 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       // and Appium it is not scoped to a start session, so a manual restart
       // from Diagnostics must work whether or not the backend is up.
       if (id !== "embedder" && !this.running) return this.snapshot();
+      // Somebody asked for the hub by name; that is demand enough.
+      if (id === "appium" && this.#appiumDeferred) this.#undeferAppium();
       await this.#startChild(id);
       return this.snapshot();
     });
+  }
+
+  /**
+   * Ask again whether anything uses mobile automation, and start the hub if
+   * so. `main/index.ts` calls it when a run starts, which is when a first
+   * device would actually be dialled. Cheap and idempotent: a no-op unless the
+   * hub is waiting on demand.
+   */
+  recheckAppium(): void {
+    void this.#startAppiumIfUsed();
   }
 
   #serialise<T>(fn: () => Promise<T>): Promise<T> {
@@ -480,12 +519,6 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       return this.#fail(`The local server failed to start: ${describe(err)}`);
     }
 
-    // Beside the backend and not before it. Nothing below waits for the hub: a
-    // mobile task that arrives in the two seconds Appium takes to bind sees a
-    // 502 naming the address, which is a better answer than a start that took
-    // two seconds longer for everyone who never touches a device.
-    await this.#startAppium();
-
     const ready = await this.#waitForServer(abort.signal, child);
     if (!ready.ok) {
       if (abort.signal.aborted) {
@@ -503,12 +536,17 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     this.#setState("running");
     this.#note("The local server is ready.");
     this.emit("server", this.#serverUrl);
+    // Not awaited, and it cannot be: it asks the backend a question and then
+    // takes this same transition chain, which this start is still holding.
+    void this.#startAppiumIfUsed();
     return this.snapshot();
   }
 
   async #stop(final: SupervisorState): Promise<SupervisorSnapshot> {
     this.#startAbort?.abort();
     this.#startAbort = null;
+    this.#appiumDeferred = false;
+    this.#cancelAppiumRecheck();
 
     if (this.#state !== "idle" && this.#state !== "stopped") {
       this.#setState("stopping");
@@ -596,7 +634,9 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
    *                            Starting a second one would lose the port, crash,
    *                            and restart-loop against a working server.
    *   installed and nothing
-   *   on the port            → this app runs it.
+   *   on the port            → this app runs it, once something uses it
+   *                            (`#startAppiumIfUsed`). Until then it is
+   *                            disabled with the sentence that says so.
    *
    * In all three the backend is told the same address, because it is the same
    * hub as far as the proxy is concerned.
@@ -604,6 +644,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   async #configureAppium(report: PreflightReport): Promise<void> {
     const child = this.#child("appium");
     child.resetCounters();
+    this.#appiumDeferred = false;
 
     const appium = itemById(report, "appium");
     if (appium?.status !== "ok" || !appium.path) {
@@ -611,13 +652,11 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       return;
     }
     if (await appiumHubIsAnswering()) {
-      child.setEnabled(
-        false,
-        `An Appium server is already running on ${APPIUM_BASE_URL}; TaskTrooper is using it rather than starting a second one.`,
-      );
+      this.#adoptAppium();
       return;
     }
-    child.setEnabled(true);
+    this.#appiumDeferred = true;
+    child.setEnabled(false, APPIUM_DEFERRED_DETAIL);
     child.update({
       id: "appium",
       command: appium.path,
@@ -626,6 +665,67 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       // SDK root, which is everything its drivers look for.
       env: childEnv(report),
       restart: true,
+    });
+  }
+
+  #adoptAppium(): void {
+    this.#child("appium").setEnabled(
+      false,
+      `An Appium server is already running on ${APPIUM_BASE_URL}; TaskTrooper is using it rather than starting a second one.`,
+    );
+  }
+
+  #undeferAppium(): void {
+    this.#appiumDeferred = false;
+    this.#cancelAppiumRecheck();
+    this.#child("appium").setEnabled(true);
+  }
+
+  #cancelAppiumRecheck(): void {
+    if (this.#appiumRecheck) clearTimeout(this.#appiumRecheck);
+    this.#appiumRecheck = null;
+  }
+
+  /**
+   * The hub's lazy start. Asks the running backend whether a repository or a
+   * registered device uses mobile automation (`mobileAutomationInUse`, which
+   * answers yes when it cannot tell), and starts the hub the first time it
+   * does. Otherwise asks again later, and whenever `recheckAppium()` says a
+   * run started.
+   *
+   * There is no request to wait for instead: the backend dials the hub
+   * directly. The port is checked again at the start, because somebody may
+   * have started their own hub on it since `#configureAppium` looked.
+   */
+  async #startAppiumIfUsed(): Promise<void> {
+    if (!this.#appiumDeferred) return;
+    this.#cancelAppiumRecheck();
+    const base = this.apiBase;
+    const token = this.#secrets?.api_token;
+    // No base is a backend mid-restart: not an answer, so ask again later.
+    const used = base && token ? await mobileAutomationInUse(base, token) : false;
+
+    if (!used) {
+      if (this.#appiumDeferred && !this.#appiumRecheck) {
+        this.#appiumRecheck = setTimeout(() => {
+          this.#appiumRecheck = null;
+          void this.#startAppiumIfUsed();
+        }, APPIUM_DEMAND_RECHECK_MS);
+        this.#appiumRecheck.unref?.();
+      }
+      return;
+    }
+
+    await this.#serialise(async () => {
+      if (!this.#appiumDeferred || !this.running) return;
+      if (await appiumHubIsAnswering()) {
+        this.#appiumDeferred = false;
+        this.#adoptAppium();
+        return;
+      }
+      this.#undeferAppium();
+      this.#note("Something here uses mobile automation; starting the Appium hub.");
+      await this.#startAppium();
     });
   }
 
@@ -867,6 +967,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     const child = this.#child(id);
     if (!child.status().enabled) return;
 
+    if (id === "embedder") await this.reapStale();
     this.#note(`Restarting ${id}…`);
     try {
       await child.start();

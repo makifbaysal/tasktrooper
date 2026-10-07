@@ -78,6 +78,13 @@ export class Shell {
    * view attached early would be a page permanently pointed at nothing.
    */
   #ready = false;
+  /**
+   * Whether the window is where somebody can see it. The SPA's polls and
+   * animations pause only on `visibilityState` "hidden". Electron 41 on macOS
+   * already derives that from a hidden or minimized window; hiding the view as
+   * well stops it depending on every platform reporting the window's state.
+   */
+  #onScreen = true;
   readonly #deps: WindowDeps;
 
   constructor(deps: WindowDeps) {
@@ -101,6 +108,11 @@ export class Shell {
 
   get status(): CloudStatus {
     return this.#status;
+  }
+
+  /** Whether the web app is loaded and in a window somebody can see — when it is, the page polls for itself. */
+  get pageOnScreen(): boolean {
+    return this.#cloud !== null && this.#status.state === "ready" && this.#onScreen;
   }
 
   /** The web app's webContents, for the main process to message it. */
@@ -144,9 +156,13 @@ export class Shell {
         webSecurity: true,
         // Our own UI has no reason to open a second renderer.
         webviewTag: false,
+        // Electron's default, pinned: one webContents with it off keeps the
+        // whole window drawing while hidden, the web app's view included.
+        backgroundThrottling: true,
       },
     });
 
+    this.#onScreen = !opts.hidden;
     if (!opts.hidden) window.once("ready-to-show", () => window.show());
     // The default close action destroys the window (and the WebContentsView
     // riding on it — the React tree, the open SSE reader, every in-flight
@@ -166,6 +182,14 @@ export class Shell {
       const onSessionEnd = this.#deps.onSessionEnd;
       window.on("session-end", () => onSessionEnd());
     }
+    // macOS also raises hide/show for full occlusion and around the minimize
+    // animation; each is handled as it lands, so the last one wins. `focus` is
+    // the backstop: a window that has it is on screen, whatever was missed.
+    window.on("hide", () => this.#setOnScreen(false));
+    window.on("minimize", () => this.#setOnScreen(false));
+    window.on("show", () => this.#setOnScreen(true));
+    window.on("restore", () => this.#setOnScreen(true));
+    window.on("focus", () => this.#setOnScreen(true));
     window.on("resize", () => this.#layout());
     // Full screen hides the traffic lights, so the strip kept for them would be
     // dead space above the header; both transitions re-place the view.
@@ -210,6 +234,7 @@ export class Shell {
     if (window.isMinimized()) window.restore();
     window.show();
     window.focus();
+    this.#setOnScreen(true);
   }
 
   /** Retry after a failed load, or refresh on demand. */
@@ -246,6 +271,7 @@ export class Shell {
         sandbox: true,
         webSecurity: true,
         webviewTag: false,
+        backgroundThrottling: true,
       },
     });
     view.setBackgroundColor("#0b0d13");
@@ -352,10 +378,22 @@ export class Shell {
 
   #setStatus(status: CloudStatus): void {
     this.#status = status;
-    // The view is hidden while it is not showing a working page, so the
-    // shell's own screen is visible rather than a white rectangle behind it.
-    this.#cloud?.setVisible(status.state === "ready");
+    this.#syncCloudVisibility();
     this.#deps.onCloudStatus(status);
+  }
+
+  #setOnScreen(onScreen: boolean): void {
+    this.#onScreen = onScreen;
+    this.#syncCloudVisibility();
+  }
+
+  /**
+   * The view is hidden while it is not showing a working page, so the shell's
+   * own screen is visible rather than a white rectangle behind it — and while
+   * the window is off screen, so the page sees `visibilityState` "hidden".
+   */
+  #syncCloudVisibility(): void {
+    this.#cloud?.setVisible(this.#status.state === "ready" && this.#onScreen);
   }
 
   /** Position the web app under the title bar — or flush to the top in full screen, where there is none. */

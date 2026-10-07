@@ -1046,6 +1046,8 @@ export interface BoardTask {
   blocked_resume_at?: string | null;
   /** When the task entered the column it is in now. Absent for tasks that predate the span ledger. */
   column_entered_at?: string;
+  /** Any of the task's agent runs is in status running. Absent from servers that predate it. */
+  agent_running?: boolean;
   /** Detected from the branch diff: the task changes the database schema. */
   has_migration?: boolean;
   /** The pull request opened for this task; absent until the branch is pushed. */

@@ -23,7 +23,7 @@ const (
 
 	// Only a backstop: Create wakes a worker itself. The poll catches jobs a
 	// failed claim left queued and any row inserted without going through Create.
-	defaultFallbackPoll = 30 * time.Second
+	defaultFallbackPoll = 5 * time.Minute
 )
 
 type Service struct {
@@ -66,6 +66,25 @@ func (s *Service) Start(ctx context.Context) {
 	for i := 0; i < s.maxWorkers; i++ {
 		s.wg.Add(1)
 		go s.worker(ctx)
+	}
+	s.wg.Add(1)
+	go s.fallback(ctx)
+}
+
+// fallback is one timer for the whole pool rather than one per worker: it only
+// has to get SOME idle worker to look, and a timer per worker woke an idle
+// process once per worker per period.
+func (s *Service) fallback(ctx context.Context) {
+	defer s.wg.Done()
+	ticker := time.NewTicker(s.fallbackPoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.signalWorkers()
+		}
 	}
 }
 
@@ -138,17 +157,12 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (s *Service) worker(ctx context.Context) {
 	defer s.wg.Done()
-	ticker := time.NewTicker(s.fallbackPoll)
-	defer ticker.Stop()
-
 	s.drain(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-s.wake:
-			s.drain(ctx)
-		case <-ticker.C:
 			s.drain(ctx)
 		}
 	}

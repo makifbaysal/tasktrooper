@@ -5,12 +5,14 @@ import { api, MAX_SMOKE_CHECKS, MAX_SMOKE_LATENCY_MS, type SmokeCheck, type Smok
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Elapsed } from "@/components/ui/elapsed";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/hooks/useI18n";
-import { cn, formatDurationMs } from "@/lib/utils";
+import { formatLiveElapsed } from "@/lib/elapsed";
+import { cn } from "@/lib/utils";
 
 const GENERATION_POLL_MS = 2000;
 
@@ -96,7 +98,6 @@ export function SmokeChecksEditor({ checks, onChange, componentId, baseUrl }: Sm
   const [job, setJob] = useState<SmokeGenerationJob | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
 
   // The poll interval and the unmount cleanup close over these once; refs
   // keep them reading the latest props/state instead of what existed when
@@ -203,12 +204,6 @@ export function SmokeChecksEditor({ checks, onChange, componentId, baseUrl }: Sm
   }, [job?.job_id, job?.status]);
 
   useEffect(() => {
-    if (job?.status !== "running") return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [job?.status]);
-
-  useEffect(() => {
     return () => {
       if (jobRef.current?.status === "running") {
         void api.cancelSmokeGeneration(jobRef.current.job_id).catch(() => undefined);
@@ -285,10 +280,15 @@ export function SmokeChecksEditor({ checks, onChange, componentId, baseUrl }: Sm
       {job?.status === "running" && (
         <Notice variant="info" title={t("release.deliveryEdit.smoke.ai.runningTitle")}>
           <p>
-            {t("release.deliveryEdit.smoke.ai.runningDetail", {
-              agent: job.agent_name,
-              elapsed: formatDurationMs(now - new Date(job.started_at).getTime()),
-            })}
+            <Elapsed
+              since={Date.parse(job.started_at)}
+              format={(ms) =>
+                t("release.deliveryEdit.smoke.ai.runningDetail", {
+                  agent: job.agent_name,
+                  elapsed: formatLiveElapsed(ms),
+                })
+              }
+            />
           </p>
           <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => void stopGeneration()}>
             {t("release.deliveryEdit.smoke.ai.stop")}

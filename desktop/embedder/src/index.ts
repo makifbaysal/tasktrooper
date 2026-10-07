@@ -81,6 +81,7 @@ function main(): void {
   armParentWatchdog({
     env: process.env,
     stdin: process.stdin,
+    ppid: () => process.ppid,
     kill: (pid, signal) => process.kill(pid, signal),
     setInterval,
     shutdown,

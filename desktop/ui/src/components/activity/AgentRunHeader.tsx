@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Elapsed } from "@/components/ui/elapsed";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
 import type { ActivityFeed, FeedCurrent } from "@/lib/activityFeed";
@@ -22,19 +23,14 @@ interface AgentRunHeaderProps {
   actions?: ReactNode;
 }
 
-function useElapsed(live: boolean, startedAt?: string, endedAt?: string): string | null {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!live) return;
-    setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [live]);
+const ELAPSED_CLASS = "shrink-0 text-caption tabular-nums text-muted-foreground";
+
+function RunElapsed({ live, startedAt, endedAt }: { live: boolean; startedAt?: string; endedAt?: string }) {
   const start = startedAt ? Date.parse(startedAt) : NaN;
   if (!Number.isFinite(start)) return null;
-  if (live) return formatElapsed(now - start);
+  if (live) return <Elapsed since={start} className={ELAPSED_CLASS} />;
   const end = endedAt ? Date.parse(endedAt) : NaN;
-  return Number.isFinite(end) ? formatElapsed(end - start) : null;
+  return Number.isFinite(end) ? <span className={ELAPSED_CLASS}>{formatElapsed(end - start)}</span> : null;
 }
 
 export function AgentRunHeader({
@@ -50,7 +46,6 @@ export function AgentRunHeader({
   actions,
 }: AgentRunHeaderProps) {
   const { t } = useI18n();
-  const elapsed = useElapsed(live, startedAt, endedAt);
 
   const laneChip =
     current && current.laneTitle !== undefined
@@ -81,7 +76,7 @@ export function AgentRunHeader({
               {live && <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />}
               {statusLabel(t, runStatus)}
             </Badge>
-            {elapsed && <span className="shrink-0 text-caption tabular-nums text-muted-foreground">{elapsed}</span>}
+            <RunElapsed live={live} startedAt={startedAt} endedAt={endedAt} />
           </div>
         </div>
         {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}

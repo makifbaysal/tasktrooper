@@ -16,7 +16,10 @@ type WorkOrderResourceLister interface {
 	ClearWorkOrderWaiting(ctx context.Context, taskID uuid.UUID) (domain.BoardTask, bool, error)
 }
 
-const WorkOrderSweeperInterval = time.Minute
+// WorkOrderSweeperInterval is only the backstop: a blocker finishing wakes its
+// dependents itself (WakeDependentsOf), and SweepSoon covers a blocker deleted
+// and a park that raced its blocker finishing.
+const WorkOrderSweeperInterval = 5 * time.Minute
 
 const workOrderSweepBatch = 100
 
@@ -27,10 +30,11 @@ type WorkOrderSweeper struct {
 	dispatcher *Dispatcher
 	dependents DependentsReader
 	comments   TaskCommenter
+	soon       chan struct{}
 }
 
 func NewWorkOrderSweeper(tasks WorkOrderResourceLister, relations BlockerReader, dispatcher *Dispatcher) *WorkOrderSweeper {
-	return &WorkOrderSweeper{tasks: tasks, relations: relations, dispatcher: dispatcher}
+	return &WorkOrderSweeper{tasks: tasks, relations: relations, dispatcher: dispatcher, soon: make(chan struct{}, 1)}
 }
 
 type DependentsReader interface {
@@ -67,6 +71,18 @@ func (s *WorkOrderSweeper) WakeDependentsOf(ctx context.Context, blockerTaskID u
 	}
 }
 
+// SweepSoon asks for a pass now instead of at the next interval. It never
+// blocks; requests made while one is pending collapse into it.
+func (s *WorkOrderSweeper) SweepSoon() {
+	if s == nil {
+		return
+	}
+	select {
+	case s.soon <- struct{}{}:
+	default:
+	}
+}
+
 func (s *WorkOrderSweeper) Start(ctx context.Context, interval time.Duration) {
 	if s == nil || s.tasks == nil || s.relations == nil || s.dispatcher == nil {
 		return
@@ -83,6 +99,8 @@ func (s *WorkOrderSweeper) Start(ctx context.Context, interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				s.sweep(ctx)
+			case <-s.soon:
 				s.sweep(ctx)
 			}
 		}

@@ -100,7 +100,24 @@ describe("AgentRunHeader", () => {
     expect(screen.getByText("Explore ›")).toBeInTheDocument();
     expect(screen.getByText("+2 parallel")).toBeInTheDocument();
     expect(screen.getByText("23 tools · 1 failed · 2 sub-agents · 45K tokens · $0.12 · opus")).toBeInTheDocument();
-    expect(screen.getByText(/^2:1\d$/)).toBeInTheDocument();
+    expect(screen.getByText("2m")).toBeInTheDocument();
+  });
+
+  it("shows a finished run's exact duration", () => {
+    render(
+      <I18nProvider>
+        <AgentRunHeader
+          agentName="system-architect"
+          runStatus="completed"
+          live={false}
+          startedAt="2026-01-01T10:00:00Z"
+          endedAt="2026-01-01T10:02:14Z"
+          current={null}
+          stats={{ toolCalls: 0, failures: 0, subagents: 0 }}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getByText("2:14")).toBeInTheDocument();
   });
 });
 

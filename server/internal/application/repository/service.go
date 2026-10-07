@@ -97,6 +97,7 @@ type Service struct {
 	syncMu        sync.Mutex
 	syncWarnings  map[uuid.UUID]string
 	syncCheckedAt map[uuid.UUID]time.Time
+	syncFailures  map[uuid.UUID]int
 
 	pipelineJobs   port.RepositoryPipelineJobStore
 	githubToken    func(ctx context.Context) (string, error)
@@ -147,6 +148,7 @@ func NewService(
 
 		syncWarnings:  make(map[uuid.UUID]string),
 		syncCheckedAt: make(map[uuid.UUID]time.Time),
+		syncFailures:  make(map[uuid.UUID]int),
 	}
 }
 
@@ -948,7 +950,24 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.repos.Delete(ctx, id)
 }
 
-const freshnessCheckInterval = 10 * time.Minute
+const (
+	freshnessCheckInterval = 10 * time.Minute
+	// freshnessMaxBackoff caps how far failed pulls push a repository's next
+	// check out. A pull that fails is most often a machine with no network, and
+	// retrying it every interval only wakes git and the network for nothing.
+	freshnessMaxBackoff = time.Hour
+)
+
+func freshnessWait(failures int) time.Duration {
+	wait := freshnessCheckInterval
+	for range failures {
+		if wait >= freshnessMaxBackoff {
+			break
+		}
+		wait *= 2
+	}
+	return min(wait, freshnessMaxBackoff)
+}
 
 func (s *Service) IndexStatus(ctx context.Context, repositoryID uuid.UUID) (domain.WorkspaceIndex, error) {
 	if s.indexer == nil {
@@ -1065,11 +1084,16 @@ func (s *Service) recordSyncResult(repositoryID uuid.UUID, err error) {
 	if s.syncWarnings == nil {
 		s.syncWarnings = make(map[uuid.UUID]string)
 	}
+	if s.syncFailures == nil {
+		s.syncFailures = make(map[uuid.UUID]int)
+	}
 	if err == nil {
 		delete(s.syncWarnings, repositoryID)
+		delete(s.syncFailures, repositoryID)
 		return
 	}
 	s.syncWarnings[repositoryID] = err.Error()
+	s.syncFailures[repositoryID]++
 }
 
 func (s *Service) syncWarning(repositoryID uuid.UUID) string {
@@ -1081,14 +1105,25 @@ func (s *Service) syncWarning(repositoryID uuid.UUID) string {
 func (s *Service) claimFreshnessCheck(repositoryID uuid.UUID) bool {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
+	if !s.freshnessDueLocked(repositoryID) {
+		return false
+	}
 	if s.syncCheckedAt == nil {
 		s.syncCheckedAt = make(map[uuid.UUID]time.Time)
 	}
-	if last, ok := s.syncCheckedAt[repositoryID]; ok && time.Since(last) < freshnessCheckInterval {
-		return false
-	}
 	s.syncCheckedAt[repositoryID] = time.Now()
 	return true
+}
+
+func (s *Service) freshnessCheckDue(repositoryID uuid.UUID) bool {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+	return s.freshnessDueLocked(repositoryID)
+}
+
+func (s *Service) freshnessDueLocked(repositoryID uuid.UUID) bool {
+	last, ok := s.syncCheckedAt[repositoryID]
+	return !ok || time.Since(last) >= freshnessWait(s.syncFailures[repositoryID])
 }
 
 func (s *Service) ensureIndexFresh(ctx context.Context, repo domain.Repository, idx domain.WorkspaceIndex) {
@@ -1141,6 +1176,9 @@ func (s *Service) SweepIndexFreshness(ctx context.Context) {
 			return
 		}
 		for _, repo := range repos {
+			if !s.freshnessCheckDue(repo.ID) {
+				continue
+			}
 			idx, err := s.indexer.GetProjectStatus(ctx, repo.ID)
 			if err != nil {
 				continue
@@ -1998,6 +2036,9 @@ func (s *Service) DeleteTask(ctx context.Context, repositoryID, taskID uuid.UUID
 	if err := s.tasks.Delete(ctx, repositoryID, taskID); err != nil {
 		return err
 	}
+	// A deleted blocker takes its blocks relations with it, which frees its
+	// dependents without the done/released move WakeDependentsOf listens for.
+	s.workOrderSweeper.SweepSoon()
 
 	if s.workspaceRoot != "" {
 		if err := workspace.RemoveDirWithin(s.workspaceRoot, s.taskWorkspacePath(taskID)); err != nil {

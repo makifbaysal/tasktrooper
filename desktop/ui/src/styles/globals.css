@@ -218,6 +218,32 @@
   }
 }
 
+/* An infinite animation keeps Chromium compositing a frame on every vsync
+   (120 Hz on ProMotion) for as long as it is on screen. Nobody is watching it
+   while the window is in the background or the user has stepped away
+   (lib/idle.ts sets data-idle), so it holds still until they are back. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin,
+  .animate-pulse,
+  .animate-bounce,
+  .animate-ping,
+  .react-flow__edge.animated path,
+  .react-flow__connection .animated,
+  .sonner-loading-bar {
+    animation-play-state: paused !important;
+  }
+}
+
+html[data-idle] .animate-spin,
+html[data-idle] .animate-pulse,
+html[data-idle] .animate-bounce,
+html[data-idle] .animate-ping,
+html[data-idle] .react-flow__edge.animated path,
+html[data-idle] .react-flow__connection .animated,
+html[data-idle] .sonner-loading-bar {
+  animation-play-state: paused !important;
+}
+
 .prose-chat {
   @apply text-sm leading-relaxed;
   /* Agent/user markdown routinely carries long unbroken tokens (URLs,

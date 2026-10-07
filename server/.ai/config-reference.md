@@ -356,7 +356,7 @@ Periodic reflections, KPI evaluation, impact tracking.
 | Key | Default | Description |
 |---|---|---|
 | `monitor_enabled` | `true` | Probes deploy targets' `health_url` |
-| `probe_interval` | `1m` | Two consecutive failed probes open an incident; the first successful probe closes it |
+| `probe_interval` | `3m` | Two consecutive failed probes open an incident; the first successful probe closes it |
 
 ## Deploy ops (`deploy_ops`)
 

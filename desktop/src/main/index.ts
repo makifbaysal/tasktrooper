@@ -89,6 +89,8 @@ const notifications = new NotificationWatcher({
   onNotificationClick: (route) => showWindow(route ?? "/board"),
   isWindowFocused: () => shellWindow.window?.isFocused() ?? false,
   onBattery: () => powerMonitor.isOnBatteryPower(),
+  isPageOnScreen: () => shellWindow.pageOnScreen,
+  onRunStarted: () => supervisor.recheckAppium(),
 });
 
 /**
@@ -667,6 +669,11 @@ app.whenReady().then(
         void quit.run();
       });
     }
+
+    // An earlier run's orphan that the boot's bounded sweep gave up on (a slow
+    // `ps` or PowerShell listing) would otherwise live until the next launch,
+    // which on a laptop that only ever sleeps can be weeks away.
+    powerMonitor.on("resume", () => void supervisor.reapStale());
 
     supervisor.on("state", (snapshot: SupervisorSnapshot) => {
       tray?.update(snapshot);

@@ -818,6 +818,29 @@ func branchIndexPruning(indexes port.IndexStore, opts Options) boardapp.BranchIn
 	return pruner
 }
 
+// interruptedRunFailing is what settles the session runs a server that died
+// mid-turn left 'running', or nil. It runs before anything can start a run,
+// and only on a database this process started: on one another host also
+// serves, that host's live turns would read as interrupted.
+func interruptedRunFailing(store port.ActivityStore, opts Options) port.InterruptedRunFailer {
+	if !opts.EmbeddedPostgres {
+		return nil
+	}
+	failer, _ := store.(port.InterruptedRunFailer)
+	return failer
+}
+
+func failInterruptedRuns(ctx context.Context, failer port.InterruptedRunFailer) {
+	n, err := failer.FailInterruptedRuns(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("could not settle session runs a previous server left running")
+		return
+	}
+	if n > 0 {
+		log.Info().Int("count", n).Msg("marked session runs a previous server left running as failed")
+	}
+}
+
 func wireRepositoryStore(pgDB *pgstore.DB, cfg *domain.Config, cipher *secrets.Cipher, cipherErr error) *pgstore.RepositoryStore {
 	store := pgstore.NewRepositoryStore(pgDB).
 		SetHostRoots(cfg.Storage.Sessions.WorkspaceRoot, cfg.Indexer.AllowedRoots)
@@ -954,6 +977,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			llmEndpointStore = pgstore.NewLLMEndpointStore(pgDB)
 			agentCLIStore = pgstore.NewAgentCLIStore(pgDB)
 			log.Info().Msg("postgres connected")
+			if failer := interruptedRunFailing(activityStore, opts); failer != nil {
+				failInterruptedRuns(ctx, failer)
+			}
 		}
 	} else {
 		log.Warn().Msg("storage.postgres.dsn empty, sessions/jobs/audit/rag disabled")
@@ -1629,6 +1655,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			workOrderSweeper := boardapp.NewWorkOrderSweeper(boardTaskStore, relationStore, boardDispatcher)
 			workOrderSweeper.SetDependents(relationStore)
 			workOrderSweeper.SetCommenter(repositorySvc)
+			workOrder.SetParkedHook(workOrderSweeper.SweepSoon)
 			repositorySvc.SetWorkOrderSweeper(workOrderSweeper)
 			activateBoard = append(activateBoard, func() {
 				workOrderSweeper.Start(ctx, boardapp.WorkOrderSweeperInterval)

@@ -99,6 +99,37 @@ func (s *HealthCacheSuite) TestFailureIsRetriedSoonerThanSuccess() {
 	s.Equal("ok", s.check().Status)
 }
 
+func (s *HealthCacheSuite) TestProbeResultIsReusedForMinutes() {
+	at := s.clock.read()
+	tests := []struct {
+		name   string
+		status string
+		age    time.Duration
+		fresh  bool
+	}{
+		{"healthy, just under ten minutes", "ok", 10*time.Minute - time.Second, true},
+		{"healthy, ten minutes", "ok", 10 * time.Minute, false},
+		{"failing, just under two minutes", "error", 2*time.Minute - time.Second, true},
+		{"failing, two minutes", "error", 2 * time.Minute, false},
+		{"failing, re-probed long before a healthy one would be", "error", 5 * time.Minute, false},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			probe := healthProbe{status: tt.status, at: at}
+			s.Equal(tt.fresh, probe.fresh(at.Add(tt.age)))
+		})
+	}
+}
+
+func (s *HealthCacheSuite) TestUnreachableProviderIsNotReprobedOnEveryPoll() {
+	s.provider.On("Models", mock.Anything).Return([]string(nil), errors.New("connection refused")).Once()
+
+	for range 8 {
+		s.Equal("error", s.check().Status)
+		s.clock.advance(10 * time.Second)
+	}
+}
+
 func (s *HealthCacheSuite) TestInvalidateForcesAFreshProbe() {
 	s.provider.On("Models", mock.Anything).Return([]string{"gpt"}, nil).Twice()
 

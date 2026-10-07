@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SmokeCheck, SmokeGenerationJob, SmokeTestResponse } from "@/api";
@@ -260,10 +260,10 @@ describe("SmokeChecksEditor", () => {
       render(<Wrapper initial={[{ method: "GET", path: "/health" }]} />);
 
       fireEvent.click(screen.getByRole("button", { name: "Generate with AI" }));
-      await vi.advanceTimersByTimeAsync(0);
+      await act(() => vi.advanceTimersByTimeAsync(0));
       expect(screen.getByText(/reading the code/)).toBeInTheDocument();
 
-      await vi.advanceTimersByTimeAsync(2000);
+      await act(() => vi.advanceTimersByTimeAsync(2000));
       expect(screen.queryByText(/reading the code/)).not.toBeInTheDocument();
       expect(screen.queryByText("Generation failed")).not.toBeInTheDocument();
       expect(screen.queryByText("The AI found no checks to suggest")).not.toBeInTheDocument();

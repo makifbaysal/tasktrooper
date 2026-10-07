@@ -55,12 +55,14 @@ type MultiProviderClient struct {
 }
 
 // Health is polled every few seconds by the desktop shell and the UI, and each
-// probe is a live GET /models against a remote provider, so a probe result is
-// reused for a while. An unreachable provider is re-probed sooner than a
-// healthy one so a provider that comes back shows up quickly.
+// probe is a live GET /models, so a result is reused for minutes: a local
+// endpoint that is switched off (LM Studio, Ollama) would otherwise cost a
+// network call per poll on an idle machine. A failure is re-probed sooner so a
+// provider that comes back shows up; a change to a provider or endpoint drops
+// the cache (InvalidateHealth) and /health?fresh=1 probes now.
 const (
-	healthProbeTTL      = 60 * time.Second
-	healthProbeErrorTTL = 15 * time.Second
+	healthProbeTTL      = 10 * time.Minute
+	healthProbeErrorTTL = 2 * time.Minute
 	healthProbeTimeout  = 8 * time.Second
 )
 

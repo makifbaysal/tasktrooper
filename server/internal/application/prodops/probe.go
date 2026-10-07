@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	defaultProbeInterval = time.Minute
+	defaultProbeInterval = 3 * time.Minute
 
 	probeFailureThreshold = 2
 	probeTimeout          = 10 * time.Second

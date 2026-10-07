@@ -152,6 +152,25 @@ func (s *WorkerWakeSuite) TestJobsCreatedBackToBackAreAllDrained() {
 	s.Zero(s.store.pendingCount())
 }
 
+func (s *WorkerWakeSuite) TestFallbackPollDefaultsToFiveMinutes() {
+	s.Equal(5*time.Minute, NewService(s.store, nil, nil, testWorkers, time.Minute, domain.ToolPolicy{}).fallbackPoll)
+}
+
+func (s *WorkerWakeSuite) TestIdlePoolLooksOncePerFallbackTickNotOncePerWorker() {
+	const tick = 40 * time.Millisecond
+	s.svc.fallbackPoll = tick
+	s.startIdle()
+	before := s.store.claimCount()
+	started := time.Now()
+
+	s.Require().Eventually(func() bool { return s.store.claimCount() > before }, time.Second, 5*time.Millisecond)
+	time.Sleep(10 * tick)
+
+	ticks := int(time.Since(started)/tick) + 2
+	s.LessOrEqual(s.store.claimCount()-before, ticks,
+		"one claim per tick at most; a timer per worker would claim about %d times", testWorkers*ticks)
+}
+
 func (s *WorkerWakeSuite) TestFallbackPollPicksUpAJobNobodySignalled() {
 	s.svc.fallbackPoll = 20 * time.Millisecond
 	s.startIdle()

@@ -43,6 +43,17 @@ describe("RunHistoryList status colors", () => {
     expect(icon?.getAttribute("class")).not.toContain("text-warning");
   });
 
+  it("spins only while the run is in progress, not while it is queued", () => {
+    const running = renderList({ status: "in_progress", conclusion: "" });
+    expect(running.container.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+    running.unmount();
+
+    const { container } = renderList({ status: "queued", conclusion: "" });
+    const icon = container.querySelector("svg");
+    expect(icon?.getAttribute("class")).not.toContain("animate-spin");
+    expect(icon?.getAttribute("class")).toContain("text-info");
+  });
+
   it("uses the warning token for a completed-but-cancelled run, consistent with the matrix cell", () => {
     const { container } = renderList({ status: "completed", conclusion: "cancelled" });
     const icon = container.querySelector("svg");

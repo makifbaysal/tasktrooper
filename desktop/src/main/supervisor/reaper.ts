@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 export interface RecordedChild {
   id: string;
@@ -87,12 +87,43 @@ export class ChildRegistry {
     }
   }
 
+  /**
+   * Deletes the temp files of writes a run did not live to rename. Each run
+   * writes under its own pid, so nothing ever overwrites one; this run's own
+   * is left to its pending rename.
+   */
+  async removeStaleTemps(): Promise<void> {
+    const dir = dirname(this.path);
+    const prefix = `${basename(this.path)}.`;
+    const ours = this.#tmpPath();
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (!name.startsWith(prefix) || !/^\d+\.tmp$/.test(name.slice(prefix.length))) continue;
+      const file = join(dir, name);
+      if (file === ours) continue;
+      try {
+        await unlink(file);
+      } catch (err) {
+        this.log(`could not remove ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  #tmpPath(): string {
+    return `${this.path}.${process.pid}.tmp`;
+  }
+
   #persist(): Promise<void> {
     const snapshot = JSON.stringify([...this.#entries.values()]);
     this.#chain = this.#chain.then(async () => {
       try {
         await mkdir(dirname(this.path), { recursive: true });
-        const tmp = `${this.path}.${process.pid}.tmp`;
+        const tmp = this.#tmpPath();
         await writeFile(tmp, snapshot, "utf8");
         await rename(tmp, this.path);
       } catch (err) {
@@ -248,6 +279,8 @@ export async function reapStaleChildren(opts: {
       log(`could not reap pid ${pid}: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
+
+  await opts.registry.removeStaleTemps();
 
   try {
     const recorded = await opts.registry.load();

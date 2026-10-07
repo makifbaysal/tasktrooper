@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Loader2, MinusCircle, XCircle, type LucideIcon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Clock, MinusCircle, XCircle, type LucideIcon } from "lucide-react";
 import type {
   BoardTask,
   PipelineGateReason,
@@ -358,7 +358,42 @@ export function isBeforeDeployPending(task: Pick<BoardTask, "before_deploy" | "b
 }
 
 /**
- * Coarse countdown to blocked_resume_at, the mirror image of BoardPage's
+ * Coarse on purpose: the badge answers "is this stuck?", and a minute-accurate
+ * figure only adds noise. The board hands a card this text rather than its
+ * clock, so a memoized card re-renders only when what it shows changes.
+ */
+export function formatColumnAge(iso: string, now: number): string {
+  const minutes = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours}h` : `${Math.round(hours / 24)}d`;
+}
+
+export const BOARD_TASK_POLL_ACTIVE_MS = 5000;
+export const BOARD_TASK_POLL_IDLE_MS = 15000;
+export const BOARD_ACTIVITY_POLL_ACTIVE_MS = 2000;
+export const BOARD_ACTIVITY_POLL_IDLE_MS = 15000;
+
+/**
+ * Fast only while something on the board is moving. A quiet board used to read
+ * /v1/activity every 2s for as long as it was open, and since a shared poll
+ * runs at its shortest subscriber's interval, it dragged the header's
+ * notifications to the same pace.
+ */
+export function boardPollIntervals(
+  tasks: readonly Pick<BoardTask, "column" | "agent_running">[],
+  activeAgentTaskIds: ReadonlySet<string>,
+): { tasksMs: number; activityMs: number } {
+  const agentRunning = activeAgentTaskIds.size > 0 || tasks.some((task) => task.agent_running);
+  const moving = agentRunning || tasks.some((task) => task.column === "in_progress");
+  return {
+    tasksMs: moving ? BOARD_TASK_POLL_ACTIVE_MS : BOARD_TASK_POLL_IDLE_MS,
+    activityMs: agentRunning ? BOARD_ACTIVITY_POLL_ACTIVE_MS : BOARD_ACTIVITY_POLL_IDLE_MS,
+  };
+}
+
+/**
+ * Coarse countdown to blocked_resume_at, the mirror image of
  * formatColumnAge and deliberately as coarse: the badge answers "roughly when
  * does this move again?", and a card that re-renders on every poll must not
  * tick seconds down. Already-due parks read "0m" — the sweeper runs on its own
@@ -541,9 +576,12 @@ export function taskPipelineCardIcon(
       return { Icon: CheckCircle2, className: "text-success" };
     case "failed":
       return { Icon: XCircle, className: "text-destructive" };
+    // Static on purpose: a card sits on the board for as long as CI runs, and a
+    // spinner on it kept the compositor drawing a frame on every vsync.
     case "pending":
+      return { Icon: Clock, className: "text-info" };
     case "running":
-      return { Icon: Loader2, className: "text-info animate-spin" };
+      return { Icon: CircleDashed, className: "text-info" };
     // Nothing ran — a muted dash, never the green check the card used to show.
     case "skipped":
       return { Icon: MinusCircle, className: "text-muted-foreground" };

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -148,4 +149,37 @@ func TestUpdateTaskDoesNotWakeDependentsOnANonTerminalMove(t *testing.T) {
 	require.NoError(t, err)
 	_, stillWaiting := f.tasks.blockedResource[dependent.ID]
 	assert.True(t, stillWaiting, "the blocker has not reached done or released yet")
+}
+
+type sweepSignalTaskStore struct {
+	*wakeTaskStore
+	listed chan struct{}
+}
+
+func (s *sweepSignalTaskStore) ListBlockedByResource(context.Context, string, int) ([]domain.BoardTask, error) {
+	s.listed <- struct{}{}
+	return nil, nil
+}
+
+func TestDeleteTaskAsksTheWorkOrderSweeperForAPass(t *testing.T) {
+	tasks := &sweepSignalTaskStore{wakeTaskStore: newWakeTaskStore(), listed: make(chan struct{}, 4)}
+	sweeper := board.NewWorkOrderSweeper(tasks, &wakeRelationStore{graphRelationStore: newGraphRelations(), tasks: tasks.tasks}, &board.Dispatcher{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sweeper.Start(ctx, time.Hour)
+	select {
+	case <-tasks.listed:
+	case <-time.After(time.Second):
+		t.Fatal("the sweeper did not run its first pass")
+	}
+	svc := &Service{tasks: tasks}
+	svc.SetWorkOrderSweeper(sweeper)
+
+	require.NoError(t, svc.DeleteTask(ctx, uuid.New(), uuid.New()))
+
+	select {
+	case <-tasks.listed:
+	case <-time.After(time.Second):
+		t.Fatal("deleting a task, which may free its dependents, did not ask for a work-order pass")
+	}
 }

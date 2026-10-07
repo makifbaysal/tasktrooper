@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Activity } from "lucide-react";
 import { useActivity } from "@/hooks/useActivity";
 import { useI18n } from "@/hooks/useI18n";
+import { BOARD_ACTIVITY_POLL_ACTIVE_MS } from "@/lib/project-board";
 import { cn } from "@/lib/utils";
 
 interface ActivityFeedProps {
@@ -15,11 +16,19 @@ interface ActivityFeedProps {
   agents?: Agent[];
   tasks?: BoardTask[];
   columns?: BoardColumn[];
+  /** The board slows this down while no agent is running (lib/project-board boardPollIntervals). */
+  pollMs?: number;
 }
 
-export function ActivityFeed({ className, agents = [], tasks = [], columns = [] }: ActivityFeedProps) {
+export function ActivityFeed({
+  className,
+  agents = [],
+  tasks = [],
+  columns = [],
+  pollMs = BOARD_ACTIVITY_POLL_ACTIVE_MS,
+}: ActivityFeedProps) {
   const { t } = useI18n();
-  const { items, loading } = useActivity(40, 2000);
+  const { items, loading } = useActivity(40, pollMs);
 
   const agentNameById = useMemo(() => {
     const map = new Map<string, string>();

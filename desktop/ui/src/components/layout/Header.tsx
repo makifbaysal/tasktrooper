@@ -29,7 +29,7 @@ export function Header({ title, onMenuClick, sidebarCollapsed = false, onAgentSe
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border bg-surface-raised/90 px-4 shadow-[var(--shadow-raised)] backdrop-blur-sm">
+    <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border bg-surface-raised/90 px-4 shadow-[var(--shadow-raised)]">
       <div className="flex min-w-0 items-center gap-3">
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={onMenuClick}>
           <Menu className="h-5 w-5" />

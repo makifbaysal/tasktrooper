@@ -87,23 +87,7 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 		log.Warn().Err(err).Str("cache_dir", cacheDir).Msg("could not mark the postgres binaries as extracted; they will be extracted again")
 	}
 
-	pg := embedded.NewDatabase(embedded.DefaultConfig().
-		Version(version).
-		Username(user).
-		Password(password).
-		Database(dbName).
-		Port(port).
-		DataPath(pgData).
-		// Separate from RuntimePath, which Start() wipes on every boot: the
-		// extracted binaries belong beside the archive so a second start skips
-		// both the download and the extraction.
-		BinariesPath(cacheDir).
-		CachePath(cacheDir).
-		RuntimePath(filepath.Join(cacheDir, "runtime")).
-		StartTimeout(90 * time.Second).
-		Logger(logWriter{}).
-		Locale("C").
-		Encoding("UTF8"))
+	pg := embedded.NewDatabase(clusterConfig(port, pgData, cacheDir))
 
 	if err := pg.Start(); err != nil {
 		return "", nil, wrapStartError(err)
@@ -123,6 +107,46 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 			log.Error().Err(err).Msg("embedded postgres stop failed")
 		}
 	}, nil
+}
+
+func clusterConfig(port uint32, pgData, cacheDir string) embedded.Config {
+	return embedded.DefaultConfig().
+		Version(version).
+		Username(user).
+		Password(password).
+		Database(dbName).
+		Port(port).
+		DataPath(pgData).
+		// Separate from RuntimePath, which Start() wipes on every boot: the
+		// extracted binaries belong beside the archive so a second start skips
+		// both the download and the extraction.
+		BinariesPath(cacheDir).
+		CachePath(cacheDir).
+		RuntimePath(filepath.Join(cacheDir, "runtime")).
+		StartTimeout(90 * time.Second).
+		Logger(logWriter{}).
+		Locale("C").
+		Encoding("UTF8").
+		StartParameters(startParameters())
+}
+
+// startParameters tune a cluster that sits idle on a laptop most of the day:
+// its background workers (autovacuum launcher, checkpointer, WAL writer,
+// background writer) otherwise wake every 200ms to every few minutes with
+// nothing to do. They are server start options, so a cluster initialised
+// on stock settings picks them up on its next start. Durability is untouched:
+// fsync and synchronous_commit keep their defaults, and max_connections stays
+// at the stock 100, well above the server's pool.
+func startParameters() map[string]string {
+	return map[string]string{
+		"autovacuum_naptime":    "10min",
+		"checkpoint_timeout":    "30min",
+		"wal_writer_delay":      "1s",
+		"bgwriter_delay":        "10s",
+		"bgwriter_lru_maxpages": "0",
+		"log_checkpoints":       "off",
+		"jit":                   "off",
+	}
 }
 
 // wrapStartError surfaces exe/initdb failures the OS itself caused (unsigned

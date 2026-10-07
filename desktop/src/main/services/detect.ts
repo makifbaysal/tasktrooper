@@ -1138,7 +1138,7 @@ function appiumItems(found: Located | null, ios: boolean, answers: AppiumAnswers
       // logs are filling up.
       detail: hubUp
         ? `An Appium server is already answering on ${APPIUM_BASE_URL}; TaskTrooper will use it rather than starting a second one.`
-        : `TaskTrooper starts a hub on ${APPIUM_BASE_URL} while it is connected.`,
+        : `TaskTrooper starts a hub on ${APPIUM_BASE_URL} while it is connected and a repository or device uses mobile automation.`,
     },
     ...(installed === undefined
       ? []

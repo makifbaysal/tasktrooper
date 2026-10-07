@@ -15,6 +15,12 @@ import (
 
 const DefaultSweepInterval = 30 * time.Second
 
+// IdleSweepInterval is the cadence while no release is being watched. Only the
+// hand-back watchdog has work then, and its own re-wake waits ten minutes; a
+// watch starting (see watchNotingStore, Watch) brings the sweeper straight
+// back to the active interval.
+const IdleSweepInterval = 5 * time.Minute
+
 // sweepBatch is also the store's raised internal cap: a request this
 // large used to come back silently truncated to the store's old 100-row
 // limit, stranding any watched release past the first 100.
@@ -36,7 +42,8 @@ const (
 	handBackMaxReWakes     = 6
 )
 
-// Start runs SweepOnce on interval (default 30s) until ctx is cancelled.
+// Start runs SweepOnce every interval (default 30s) while a release is
+// watched and every IdleSweepInterval otherwise, until ctx is cancelled.
 func (s *Service) Start(ctx context.Context, interval time.Duration) {
 	if s == nil || s.store == nil {
 		return
@@ -46,18 +53,28 @@ func (s *Service) Start(ctx context.Context, interval time.Duration) {
 	}
 	go func() {
 		s.SweepOnce(ctx)
-		t := time.NewTicker(interval)
-		defer t.Stop()
+		wait := s.nextSweepIn(interval)
+		due := time.Now().Add(wait)
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
+			case <-s.watchKick:
+				if time.Until(due) > interval {
+					due = time.Now().Add(interval)
+					timer.Reset(interval)
+				}
+			case <-timer.C:
 				s.SweepOnce(ctx)
+				wait = s.nextSweepIn(interval)
+				due = time.Now().Add(wait)
+				timer.Reset(wait)
 			}
 		}
 	}()
-	log.Info().Dur("interval", interval).Msg("release sweeper started")
+	log.Info().Dur("interval", interval).Dur("idle_interval", IdleSweepInterval).Msg("release sweeper started")
 }
 
 // SweepOnce advances every release the sweeper owns (Status.Watched()) by
@@ -69,23 +86,27 @@ func (s *Service) SweepOnce(ctx context.Context) {
 	if s.store == nil {
 		return
 	}
-	s.sweepWatchedReleases(ctx)
+	notes := s.watchNoteCount()
+	watched, listed := s.sweepWatchedReleases(ctx)
 	s.sweepReleaseWatchdog(ctx)
+	if listed {
+		s.settleCadence(notes, watched)
+	}
 }
 
-func (s *Service) sweepWatchedReleases(ctx context.Context) {
+func (s *Service) sweepWatchedReleases(ctx context.Context) (watched, listed bool) {
 	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
 		Statuses: []domain.ReleaseStatus{domain.ReleaseDeploying, domain.ReleaseVerifying, domain.ReleaseRollingBack},
 		Limit:    sweepBatch,
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("release sweeper: listing watched releases failed")
-		return
+		return false, false
 	}
 	for _, r := range releases {
 		select {
 		case <-ctx.Done():
-			return
+			return len(releases) > 0, true
 		default:
 		}
 		switch r.Status {
@@ -97,6 +118,7 @@ func (s *Service) sweepWatchedReleases(ctx context.Context) {
 			s.sweepRollingBack(ctx, r)
 		}
 	}
+	return len(releases) > 0, true
 }
 
 // sweepReleaseWatchdog is the safety net around hand-back itself. A card

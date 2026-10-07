@@ -7,21 +7,30 @@ import {
   diffForNotifications,
   hasActiveRun,
   IDLE_POLL_INTERVAL_MS,
+  liveRuns,
   NotificationWatcher,
   POLL_INTERVAL_MS,
   pollIntervalMs,
   type RemoteActiveRun,
   type RemoteActivityItem,
   type RemoteTask,
+  STALE_RUN_MS,
 } from "./notifications.js";
 
 const powerSaveBlockerStart = vi.fn<(type: string) => number>();
 const powerSaveBlockerStop = vi.fn<(id: number) => void>();
 
+const shown = vi.hoisted(() => ({ supported: false, titles: [] as string[] }));
+
 vi.mock("electron", () => ({
   Notification: class {
     static isSupported(): boolean {
-      return false;
+      return shown.supported;
+    }
+    constructor(readonly opts: { title: string }) {}
+    on(): void {}
+    show(): void {
+      shown.titles.push(this.opts.title);
     }
   },
   powerSaveBlocker: {
@@ -157,6 +166,28 @@ describe("hasActiveRun", () => {
   });
 });
 
+describe("liveRuns", () => {
+  const now = Date.parse("2026-10-07T18:00:00Z");
+  const startedAgo = (ms: number): RemoteActiveRun => ({ id: `r${ms}`, started_at: new Date(now - ms).toISOString() });
+
+  it("drops a run started more than six hours ago and keeps one inside the cutoff", () => {
+    const fresh = startedAgo(5 * 60 * 60_000);
+    const edge = startedAgo(STALE_RUN_MS);
+    const stale = startedAgo(STALE_RUN_MS + 1);
+    expect(liveRuns([fresh, edge, stale], now)).toEqual([fresh, edge]);
+  });
+
+  it("keeps a run whose start it cannot read", () => {
+    const runs: RemoteActiveRun[] = [{ id: "a" }, { id: "b", started_at: "not a date" }];
+    expect(liveRuns(runs, now)).toEqual(runs);
+  });
+
+  it("reads the backend's nanosecond timestamps", () => {
+    const run: RemoteActiveRun = { id: "r", started_at: "2026-10-07T11:59:59.123456789Z" };
+    expect(liveRuns([run], now)).toEqual([]);
+  });
+});
+
 describe("diffChatCompletions", () => {
   const chatRun = (overrides: Partial<RemoteActiveRun> = {}): RemoteActiveRun => ({
     id: "r1",
@@ -237,7 +268,7 @@ describe("diffChatCompletions", () => {
  * boolean in a vacuum.
  */
 describe("NotificationWatcher — prevent-app-suspension", () => {
-  let activeRuns: Array<{ id: string }> = [];
+  let activeRuns: RemoteActiveRun[] = [];
   const prefs = (): NotificationPreferences => allOn();
 
   function fetchMock(url: string): Promise<{ ok: boolean; json: () => Promise<unknown> }> {
@@ -403,6 +434,35 @@ describe("NotificationWatcher — prevent-app-suspension", () => {
     warn.mockRestore();
   });
 
+  /**
+   * A crashed backend can leave a chat run marked running for good. The
+   * blocker must not be held for it for as long as that row exists.
+   */
+  it("never takes the blocker for a run older than six hours, and lets go of a held run that crosses the cutoff", async () => {
+    activeRuns = [{ id: "old", started_at: new Date(Date.now() - STALE_RUN_MS - 1_000).toISOString() }];
+    const watcher = new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1234",
+      apiToken: () => "token",
+      getPreferences: prefs,
+      onNotificationClick: () => {},
+      isWindowFocused: () => false,
+    });
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(powerSaveBlockerStart).not.toHaveBeenCalled();
+    watcher.stop();
+
+    activeRuns = [{ id: "long", started_at: new Date(Date.now() - STALE_RUN_MS + 20_000).toISOString() }];
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(powerSaveBlockerStart).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(powerSaveBlockerStop).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(powerSaveBlockerStop).toHaveBeenCalledWith(7);
+    watcher.stop();
+  });
+
   it("lets go of the blocker when the active-run list cannot be read for several ticks", async () => {
     activeRuns = [{ id: "r1" }];
     let activeDown = false;
@@ -503,14 +563,38 @@ describe("NotificationWatcher — how often it asks", () => {
     w.stop();
   });
 
-  it("asks every 15 s while a task is in progress, and never holds the display awake for it", async () => {
-    tasks = [task({ id: "t1", key: "T-1", column: "in_progress" })];
+  it("asks every 15 s while a run is in flight, and never holds the display awake for it", async () => {
+    runs = [{ id: "r1", started_at: new Date().toISOString() }];
     const w = watcher();
     w.start();
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
     expect(polls).toBe(2);
     expect(powerSaveBlockerStart).not.toHaveBeenCalledWith("prevent-display-sleep");
+    w.stop();
+  });
+
+  /** A card can sit in "in progress" for days with nothing running behind it. */
+  it("asks once a minute while a card sits in progress with no run behind it", async () => {
+    tasks = [task({ id: "t1", key: "T-1", column: "in_progress" })];
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS - POLL_INTERVAL_MS);
+    expect(polls).toBe(2);
+    expect(powerSaveBlockerStart).not.toHaveBeenCalled();
+    w.stop();
+  });
+
+  it("asks once a minute when the only run is one a crashed backend left running", async () => {
+    runs = [{ id: "r1", started_at: new Date(Date.now() - STALE_RUN_MS - 60_000).toISOString() }];
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(polls).toBe(1);
     w.stop();
   });
 
@@ -554,5 +638,163 @@ describe("NotificationWatcher — how often it asks", () => {
     w.nudge();
     await vi.advanceTimersByTimeAsync(10 * IDLE_POLL_INTERVAL_MS);
     expect(polls).toBe(1);
+  });
+});
+
+/**
+ * While the web app is on screen it polls the board itself, so the watcher
+ * reads only the active runs — and the board when that list changed, which is
+ * when a card can have moved under a run.
+ */
+describe("NotificationWatcher — reading the board while the page is on screen", () => {
+  let tasks: RemoteTask[] = [];
+  let runs: RemoteActiveRun[] = [];
+  let onScreen = true;
+  const reads = { tasks: 0, activity: 0, active: 0 };
+
+  beforeEach(() => {
+    tasks = [task({ id: "t1", key: "T-1", column: "todo" })];
+    runs = [];
+    onScreen = true;
+    reads.tasks = reads.activity = reads.active = 0;
+    shown.supported = true;
+    shown.titles.length = 0;
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/v1/tasks")) {
+          reads.tasks += 1;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ tasks }) });
+        }
+        if (url.endsWith("/v1/activity?limit=50")) {
+          reads.activity += 1;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
+        }
+        reads.active += 1;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ runs: runs.length > 0 ? runs : null }) });
+      }),
+    );
+    powerSaveBlockerStart.mockReset();
+    powerSaveBlockerStart.mockReturnValue(5);
+    powerSaveBlockerStop.mockReset();
+  });
+
+  afterEach(() => {
+    shown.supported = false;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function watcher(onRunStarted: () => void = () => {}): NotificationWatcher {
+    return new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1",
+      apiToken: () => "t",
+      getPreferences: () => allOn(),
+      onNotificationClick: () => {},
+      isWindowFocused: () => false,
+      isPageOnScreen: () => onScreen,
+      onRunStarted,
+    });
+  }
+
+  const fresh = (id: string): RemoteActiveRun => ({ id, started_at: new Date().toISOString() });
+
+  it("seeds once, then asks only for the active runs while nothing changes", async () => {
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reads).toEqual({ tasks: 1, activity: 1, active: 1 });
+
+    await vi.advanceTimersByTimeAsync(3 * IDLE_POLL_INTERVAL_MS);
+    expect(reads).toEqual({ tasks: 1, activity: 1, active: 4 });
+    w.stop();
+  });
+
+  it("reads the board on the two ticks after a run starts, and again after it ends", async () => {
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    runs = [fresh("r1")];
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(reads.tasks).toBe(2);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(reads.tasks).toBe(3);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(reads.tasks).toBe(3);
+
+    runs = [];
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(reads.tasks).toBe(4);
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(reads.tasks).toBe(5);
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(reads.tasks).toBe(5);
+    w.stop();
+  });
+
+  it("reads the board on every tick once nobody can see the page", async () => {
+    onScreen = false;
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2 * IDLE_POLL_INTERVAL_MS);
+    expect(reads.tasks).toBe(3);
+    w.stop();
+  });
+
+  it("still notifies a card that moved while the page was on screen, once the window is hidden", async () => {
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    tasks = [task({ id: "t1", key: "T-1", column: "human_uat" })];
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(shown.titles).toEqual([]);
+
+    onScreen = false;
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(shown.titles).toEqual(["T-1 — Awaiting your UAT"]);
+    w.stop();
+  });
+
+  it("notifies a finished chat turn from the active runs alone, even when the board cannot be read", async () => {
+    runs = [{ ...fresh("r1"), session_id: "s1", agent_id: "a1", title: "Chat" }];
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    runs = [];
+    const answer = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((url) =>
+      String(url).endsWith("/v1/tasks")
+        ? Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as unknown as Response)
+        : answer(url),
+    );
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(shown.titles).toEqual(["Chat"]);
+    w.stop();
+  });
+
+  it("says a run started once per run it has not seen", async () => {
+    const started = vi.fn();
+    runs = [fresh("r1")];
+    const w = watcher(started);
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(started).toHaveBeenCalledTimes(1);
+
+    runs = [fresh("r1"), fresh("r2")];
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(started).toHaveBeenCalledTimes(2);
+
+    runs = [fresh("r2")];
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(started).toHaveBeenCalledTimes(2);
+    w.stop();
   });
 });

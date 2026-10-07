@@ -59,9 +59,9 @@ const DialogOverlay = forwardRef<
   ElementRef<typeof DialogPrimitive.Overlay>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
-  // No backdrop-blur: the board behind a task drawer keeps animating (spinning
-  // "agent running" badges, 2s polls), and a full-viewport blur is recomputed
-  // for every frame of that — on a machine without a strong GPU it froze the app.
+  // No backdrop-blur: the board behind a task drawer keeps changing (2s polls
+  // while an agent runs), and a full-viewport blur is recomputed for every
+  // frame of that — on a machine without a strong GPU it froze the app.
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(

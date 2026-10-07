@@ -283,6 +283,11 @@ type Service struct {
 
 	mu             sync.Mutex
 	lastErrorCheck map[uuid.UUID]time.Time
+
+	cadenceMu  sync.Mutex
+	watching   bool
+	watchNotes uint64
+	watchKick  chan struct{}
 }
 
 func New(d Deps) *Service {
@@ -315,6 +320,10 @@ func New(d Deps) *Service {
 		ciUnavailable:    d.IsCIUnavailableText,
 		now:              d.Clock,
 		lastErrorCheck:   map[uuid.UUID]time.Time{},
+		watchKick:        make(chan struct{}, 1),
+	}
+	if d.Store != nil {
+		s.store = watchNotingStore{ReleaseStore: d.Store, note: s.noteWatching}
 	}
 	if s.refAlreadyExists == nil {
 		s.refAlreadyExists = func(error) bool { return false }

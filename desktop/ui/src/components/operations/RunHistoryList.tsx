@@ -1,4 +1,4 @@
-import { CheckCircle2, History, Loader2, MinusCircle, XCircle, type LucideIcon } from "lucide-react";
+import { CheckCircle2, Clock, History, Loader2, MinusCircle, XCircle, type LucideIcon } from "lucide-react";
 import { type DeploymentRun } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -15,7 +15,10 @@ interface RunHistoryListProps {
 function conclusionIcon(run: DeploymentRun): { Icon: LucideIcon; className: string } {
   if (run.conclusion === "success") return { Icon: CheckCircle2, className: "text-success" };
   if (run.conclusion === "failure") return { Icon: XCircle, className: "text-destructive" };
-  if (run.status !== "completed") return { Icon: Loader2, className: "text-info animate-spin" };
+  if (run.status === "in_progress") return { Icon: Loader2, className: "text-info animate-spin" };
+  // A queued run can wait on a runner for a long time; spinning it the whole
+  // while claimed work that had not started.
+  if (run.status !== "completed") return { Icon: Clock, className: "text-info" };
   return { Icon: MinusCircle, className: "text-warning" };
 }
 

@@ -29,6 +29,7 @@ type WorkOrder struct {
 	relations BlockerReader
 	tasks     WorkOrderParker
 	comments  TaskCommenter
+	parked    func()
 }
 
 func NewWorkOrder(relations BlockerReader, tasks WorkOrderParker) *WorkOrder {
@@ -38,6 +39,15 @@ func NewWorkOrder(relations BlockerReader, tasks WorkOrderParker) *WorkOrder {
 func (w *WorkOrder) SetCommenter(c TaskCommenter) {
 	if w != nil {
 		w.comments = c
+	}
+}
+
+// SetParkedHook runs after every park is written. A blocker that finished
+// between the dispatcher's check and the park woke no one (the dependent was
+// not parked yet), so the sweeper is asked to look once the park exists.
+func (w *WorkOrder) SetParkedHook(fn func()) {
+	if w != nil {
+		w.parked = fn
 	}
 }
 
@@ -70,6 +80,9 @@ func (w *WorkOrder) Park(ctx context.Context, repositoryID uuid.UUID, task domai
 	}
 	log.Info().Str("task_id", task.ID.String()).Str("resource", domain.ResourceWorkOrder).
 		Str("detail", detail).Msg("task parked: its work order is not satisfied yet")
+	if w.parked != nil {
+		w.parked()
+	}
 	return nil
 }
 

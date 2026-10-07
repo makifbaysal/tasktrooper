@@ -46,7 +46,10 @@ orchestration:
 
 prod_ops:
   monitor_enabled: true
-  probe_interval: "1m"
+  # Two failed probes in a row open an incident, so an outage is caught within
+  # two intervals (six minutes), inside deploy_ops.health_window. Shorter costs
+  # an HTTP probe per target, and a query, on an otherwise idle machine.
+  probe_interval: "3m"
 
 # The deploy monitor mirrors GitHub Actions deploy runs into deployment_runs,
 # attributes console-triggered dispatches, and opens an incident for a failed

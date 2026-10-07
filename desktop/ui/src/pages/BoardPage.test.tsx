@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardColumn, BoardTask, InitiativeProject, Release, Repository, WorkspaceConfig } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { PROJECT_SCOPE_STORAGE_KEY } from "@/hooks/useProjectScope";
+import { ACTIVITY_POLL, ALL_TASKS_POLL } from "@/hooks/useSharedPoll";
 import {
   CACHE_AGENTS,
   CACHE_CONFIG,
@@ -321,5 +322,59 @@ describe("BoardPage release badge", () => {
     expect(api.listAllReleases).toHaveBeenCalledWith(
       expect.objectContaining({ statuses: expect.arrayContaining(["deploying", "verifying", "awaiting_verdict"]) }),
     );
+  });
+});
+
+describe("BoardPage polling", () => {
+  const quiet = [task("t-1", "SHOP-1", "Checkout button", "repo-shop"), task("t-4", "SCR-1", "Loose end", "repo-loose")];
+  const lastInterval = (spy: { mock: { calls: [{ intervalMs: number }][] } }) =>
+    spy.mock.calls[spy.mock.calls.length - 1]?.[0].intervalMs;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    seedCache(quiet);
+    api.listAllTasks.mockReset().mockResolvedValue({ tasks: quiet });
+    api.getWorkspaceConfig.mockReset().mockResolvedValue(config);
+    api.listRepositories.mockReset().mockResolvedValue({ repositories });
+    api.listInitiativeProjects.mockReset().mockResolvedValue({ projects });
+    api.listAgents.mockReset().mockResolvedValue({ agents: [] });
+    api.listWorkflows.mockReset().mockResolvedValue({ workflows: [] });
+    api.listActivity.mockReset().mockResolvedValue({ items: [] });
+    api.listAllReleases.mockReset().mockResolvedValue({ releases: [] });
+  });
+
+  it("polls a quiet board every 15s, cards and activity alike", async () => {
+    const tasksPoll = vi.spyOn(ALL_TASKS_POLL, "subscribe");
+    const activityPoll = vi.spyOn(ACTIVITY_POLL, "subscribe");
+    renderBoard("/board");
+    await screen.findByText("Checkout button");
+
+    await waitFor(() => expect(lastInterval(activityPoll)).toBe(15000));
+    expect(lastInterval(tasksPoll)).toBe(15000);
+  });
+
+  it("speeds both up while the task list says an agent is running, with a static badge on the card", async () => {
+    const running = [{ ...quiet[0], agent_running: true }, quiet[1]];
+    seedCache(running);
+    api.listAllTasks.mockResolvedValue({ tasks: running });
+    const tasksPoll = vi.spyOn(ALL_TASKS_POLL, "subscribe");
+    const activityPoll = vi.spyOn(ACTIVITY_POLL, "subscribe");
+    renderBoard("/board");
+
+    await within(cardOf("Checkout button")).findByText("Agent running");
+    expect(cardOf("Checkout button").querySelector("[class*='animate-']")).toBeNull();
+    await waitFor(() => expect(lastInterval(activityPoll)).toBe(2000));
+    expect(lastInterval(tasksPoll)).toBe(5000);
+  });
+
+  it("speeds up once the activity feed reports a running agent", async () => {
+    api.listActivity.mockResolvedValue({
+      items: [{ id: "run-1", kind: "agent_run", task_id: "t-1", status: "running", created_at: stamp }],
+    });
+    const activityPoll = vi.spyOn(ACTIVITY_POLL, "subscribe");
+    renderBoard("/board");
+
+    await within(cardOf("Checkout button")).findByText("Agent running");
+    await waitFor(() => expect(lastInterval(activityPoll)).toBe(2000));
   });
 });

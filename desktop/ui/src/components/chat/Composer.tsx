@@ -85,7 +85,7 @@ export function Composer({
   };
 
   return (
-    <div className="border-t border-border bg-card/50 p-4 backdrop-blur-sm" onPaste={(e) => void handlePasteFiles(e)}>
+    <div className="border-t border-border bg-card/50 p-4" onPaste={(e) => void handlePasteFiles(e)}>
       {(pendingAttachments.length > 0 || pastingAttachment) && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <AttachmentList
