@@ -160,13 +160,16 @@ func TestRepeatCallGuidance(t *testing.T) {
 	assert.Contains(t, g, "never quote")
 }
 
-func TestBuildSystemPromptFor_CLIRunGetsNoAskUserProtocol(t *testing.T) {
+func TestBuildSystemPromptFor_CLIRunGetsTheCLIClarificationProtocol(t *testing.T) {
 	agent := domain.Agent{SystemPrompt: "You are a backend engineer."}
 
 	cli := prompt.BuildSystemPromptFor(agent, nil, nil, nil, "", prompt.SkillsOnDisk)
-	assert.NotContains(t, cli, "ask_user")
 	assert.NotContains(t, cli, "Do not write clarification questions in your message body")
-	assert.Contains(t, cli, "closing message")
+	assert.NotContains(t, cli, "Only continue after the user submits clarification answers",
+		"a CLI session cannot wait inside the call; it is told to end its turn instead")
+	assert.Contains(t, cli, "your TaskTrooper tools include ask_user", "ask_user is offered only where it is served")
+	assert.Contains(t, cli, "end your turn at once")
+	assert.Contains(t, cli, "closing message", "a session without ask_user still has the closing-message fallback")
 	assert.Contains(t, cli, "Never assume missing requirements")
 
 	loop := prompt.BuildSystemPromptFor(agent, nil, nil, nil, "", prompt.SkillsInPrompt)

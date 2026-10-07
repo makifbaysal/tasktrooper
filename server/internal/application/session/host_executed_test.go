@@ -24,15 +24,20 @@ type fakeChatExecutor struct {
 	err      error
 
 	stream func(port.ChatStream)
+	// asks is what the CLI's ask_user call, served over MCP, hands back.
+	asks *domain.ClarificationRequest
 }
 
 func (f *fakeChatExecutor) Supports(p domain.LLMProviderType) bool {
 	return f.supports && p == domain.LLMProviderClaudeCode
 }
 
-func (f *fakeChatExecutor) ExecuteChat(_ context.Context, req domain.ChatExecution, out port.ChatStream) (domain.ChatResult, error) {
+func (f *fakeChatExecutor) ExecuteChat(ctx context.Context, req domain.ChatExecution, out port.ChatStream) (domain.ChatResult, error) {
 	f.calls++
 	f.got = req
+	if f.asks != nil {
+		domain.ClarificationSinkFrom(ctx).Record(*f.asks)
+	}
 	if f.stream != nil {
 		f.stream(out)
 	}
@@ -248,4 +253,26 @@ type capturingStore struct {
 func (s *capturingStore) AppendMessage(_ context.Context, _ uuid.UUID, _ domain.Role, content string, _, _ []byte) (domain.SessionMessage, error) {
 	s.appended = append(s.appended, content)
 	return domain.SessionMessage{}, nil
+}
+
+func TestHostExecutedTurnCarriesTheCLIsQuestionBack(t *testing.T) {
+	question := &domain.ClarificationRequest{
+		Context: "Routing",
+		Questions: []domain.ClarificationQuestion{{
+			ID: "router", Prompt: "Which router should the new page use?",
+			Options: []domain.ClarificationOption{{ID: "free_text", Label: "Type"}, {ID: "skip", Label: "Skip"}},
+		}},
+	}
+	exec := &fakeChatExecutor{
+		supports: true,
+		asks:     question,
+		result:   domain.ChatResult{Response: domain.AgentResponse{Message: domain.Message{Role: domain.RoleAssistant, Content: "Waiting on the router choice."}}},
+	}
+	svc := session.NewHostExecutedServiceForTest(&recordingSessionStore{}, exec)
+
+	resp, err := runTurn(t, svc, chatSession(), port.ChatStream{})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Clarification, "the question asked over MCP becomes the turn's clarification card")
+	assert.Equal(t, question.Questions[0].Prompt, resp.Clarification.Questions[0].Prompt)
 }

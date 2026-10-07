@@ -216,14 +216,28 @@ func (s *Service) SubmitQuestions(ctx context.Context, repositoryID, taskID uuid
 }
 
 // markQuestionsSubmitted is the done-approval half: answered-but-unsubmitted
-// questions are told to the agent the same as a submit, but with no extra
-// comment — the approval comment already says the review passed.
-func (s *Service) markQuestionsSubmitted(ctx context.Context, taskID uuid.UUID) {
+// questions are told to the agent the same as a submit, and their summary is
+// left on the task — an approval posts no comment of its own, so without it
+// the answers lived only in the question records. Informational: the move to
+// done already dispatches whoever acts on the approval.
+func (s *Service) markQuestionsSubmitted(ctx context.Context, repositoryID, taskID uuid.UUID) {
 	if s.questions == nil {
 		return
 	}
-	if _, err := s.questions.MarkSubmitted(ctx, taskID, time.Now().UTC()); err != nil {
+	submitted, err := s.questions.MarkSubmitted(ctx, taskID, time.Now().UTC())
+	if err != nil {
 		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("mark questions submitted on analiz approval failed")
+		return
+	}
+	if len(submitted) == 0 || s.comments == nil {
+		return
+	}
+	if _, err := s.AddComment(ctx, repositoryID, taskID, domain.CreateTaskCommentRequest{
+		AuthorType:    "system",
+		Content:       questionsSubmitSummaryComment(submitted),
+		Informational: true,
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("analiz approval: posting the answers summary comment failed")
 	}
 }
 

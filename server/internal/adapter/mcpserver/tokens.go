@@ -20,6 +20,13 @@ type Run struct {
 	ExpiresAt time.Time
 }
 
+// canAsk is whether ask_user has somewhere to go: only a run that put a
+// clarification sink on its context reads the question back once the CLI
+// exits. Every other session is refused it, as before.
+func (r Run) canAsk() bool {
+	return domain.ClarificationSinkFrom(r.Ctx) != nil
+}
+
 func (r Run) live(now time.Time) bool {
 	if r.Ctx == nil {
 		return false

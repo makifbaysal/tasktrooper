@@ -1827,10 +1827,9 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		}
 		// Approval: analiz_review -> done. The human's answers to any
 		// non-blocking question that rode along into analiz_review are told
-		// to the agent now, same as a submit, but with no extra comment —
-		// the approval comment already says the review passed.
+		// to the agent now and left on the task, same as a submit.
 		if prevColumn == domain.TaskColumnAnalizReview && *req.Column == domain.TaskColumnDone {
-			s.markQuestionsSubmitted(ctx, updated.ID)
+			s.markQuestionsSubmitted(ctx, updated.RepositoryID, updated.ID)
 		}
 
 		wf, wfErr := s.workflow(ctx, updated.TaskType)

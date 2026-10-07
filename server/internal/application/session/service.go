@@ -88,6 +88,9 @@ func (s *Service) SetChatExecutor(e port.ChatExecutor) {
 
 type AnswerResumer interface {
 	ResumeOnAnswer(ctx context.Context, sessionID uuid.UUID, answer string) bool
+	// RecordTaskAnswer leaves a task-bound chat's answered question on the task,
+	// where the board's next run on it reads what was settled.
+	RecordTaskAnswer(ctx context.Context, repositoryID, taskID uuid.UUID, question, answer string)
 }
 
 func (s *Service) SetAnswerResumer(r AnswerResumer) {
@@ -322,6 +325,7 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 	if s.resumeBlockedTask(ctx, sessionID, req) {
 		return s.ackResumedAnswer(ctx, sessionID), nil
 	}
+	s.recordTaskChatAnswer(ctx, sess, req)
 
 	history, err := s.buildMessageHistory(ctx, sessionID)
 	if err != nil {
@@ -450,6 +454,42 @@ func (s *Service) resumeBlockedTask(ctx context.Context, sessionID uuid.UUID, re
 	return s.answerResumer.ResumeOnAnswer(context.WithoutCancel(ctx), sessionID, answer)
 }
 
+// A task-bound chat's question parks nothing, so resumeBlockedTask never sees
+// its answer; without this the answer lived only in the chat transcript.
+func (s *Service) recordTaskChatAnswer(ctx context.Context, sess domain.Session, req domain.SessionMessageRequest) {
+	if s.answerResumer == nil || req.Role != domain.RoleUser || sess.TaskID == nil || sess.ProjectID == nil {
+		return
+	}
+	answer := strings.TrimSpace(req.Content)
+	if answer == "" {
+		return
+	}
+	msgs, err := s.store.ListMessages(ctx, sess.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sess.ID.String()).Msg("task chat: reading the question an answer replies to failed")
+		return
+	}
+	asked := answeredClarification(msgs)
+	if asked == nil {
+		return
+	}
+	s.answerResumer.RecordTaskAnswer(context.WithoutCancel(ctx), *sess.ProjectID, *sess.TaskID,
+		prompt.FormatClarificationQuestions(*asked), answer)
+}
+
+// Only the first reply after the question answers it; anything later is the
+// conversation moving on.
+func answeredClarification(msgs []domain.SessionMessage) *domain.ClarificationRequest {
+	if len(msgs) < 2 || msgs[len(msgs)-1].Role != domain.RoleUser {
+		return nil
+	}
+	prev := msgs[len(msgs)-2]
+	if prev.Role != domain.RoleAssistant {
+		return nil
+	}
+	return prev.Clarification
+}
+
 func (s *Service) ackResumedAnswer(ctx context.Context, sessionID uuid.UUID) domain.AgentResponse {
 	lang := ""
 	if settings, err := s.loadSettings(ctx); err == nil {
@@ -529,6 +569,7 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 		}
 		return resp, nil
 	}
+	s.recordTaskChatAnswer(ctx, sess, req)
 
 	history, err := s.buildMessageHistory(ctx, sessionID)
 	if err != nil {

@@ -23,7 +23,7 @@ func servedTools(registry port.ToolRegistry, run Run) []toolInfo {
 	if registry == nil {
 		return nil
 	}
-	return toolsFrom(registry.DefinitionsForPolicy(run.Policy), run.SkillsOnDisk)
+	return toolsFrom(registry.DefinitionsForPolicy(run.Policy), run)
 }
 
 var nativelyCovered = map[string]struct{}{
@@ -40,11 +40,11 @@ var nativelyCovered = map[string]struct{}{
 
 const skillLoadTool = "load_skill"
 
-func exposed(name string, skillsOnDisk bool) bool {
+func exposed(name string, run Run) bool {
 	if name == domain.AskUserToolName {
-		return false
+		return run.canAsk()
 	}
-	if skillsOnDisk && name == skillLoadTool {
+	if run.SkillsOnDisk && name == skillLoadTool {
 		return false
 	}
 	_, native := nativelyCovered[name]
@@ -61,11 +61,11 @@ func emptyObjectSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{}}
 }
 
-func toolsFrom(defs []domain.ToolDefinition, skillsOnDisk bool) []toolInfo {
+func toolsFrom(defs []domain.ToolDefinition, run Run) []toolInfo {
 	tools := make([]toolInfo, 0, len(defs))
 	for _, def := range defs {
 		name := def.Function.Name
-		if name == "" || !exposed(name, skillsOnDisk) {
+		if name == "" || !exposed(name, run) {
 			continue
 		}
 		schema := def.Function.Parameters

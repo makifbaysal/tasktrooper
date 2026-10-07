@@ -371,7 +371,7 @@ func BuildSystemPromptFor(agent domain.Agent, skills []domain.Skill, stacks []do
 	parts = append(parts, HostEnvironmentNote(hostshell.Current(), delivery != SkillsOnDisk))
 	parts = append(parts, ToolSelectionGuidance())
 	parts = append(parts, RepeatCallGuidance())
-	// Same split as the skill index: a CLI run reaches TaskTrooper's tools over MCP, where ask_user is refused before any policy filtering, so naming it would point at a tool it does not hold.
+	// Same split as the skill index: a CLI run reaches TaskTrooper's tools over MCP, where ask_user is served only to a run that can wait for the answer and the CLI must end its own turn after asking.
 	if delivery == SkillsOnDisk {
 		parts = append(parts, CLIClarificationGuidance())
 		// Only the agent CLIs carry a subagent tool; an HTTP run is split by the orchestrator instead.

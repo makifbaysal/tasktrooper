@@ -113,3 +113,8 @@ func BuildMessageHistoryForTest(
 	svc := &Service{store: store, actions: actions}
 	return svc.buildMessageHistory(ctx, sessionID)
 }
+
+func RecordTaskChatAnswerForTest(ctx context.Context, store port.SessionStore, resumer AnswerResumer, sess domain.Session, req domain.SessionMessageRequest) {
+	svc := &Service{store: store, answerResumer: resumer}
+	svc.recordTaskChatAnswer(ctx, sess, req)
+}

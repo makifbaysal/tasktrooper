@@ -17,6 +17,8 @@ var (
 
 var clarificationWaitKey = prompt.Define("mcp.clarification_wait", toolNameInput{Name: "ask_user"})
 
+var clarificationRecordedKey = prompt.Define("mcp.clarification_recorded", toolNameInput{Name: "ask_user"})
+
 type resourceBlockInput struct{ Name, Resource, Detail string }
 
 var resourceBlockKey = prompt.Define("mcp.resource_block", resourceBlockInput{

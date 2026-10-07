@@ -1022,13 +1022,14 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		if err := r.requireConnectedCLI(ctx, agentRec); err != nil {
 			return fail(err)
 		}
-		resp, err = r.executor.Execute(runCtx, domain.TaskExecution{
+		questions := &domain.ClarificationSink{}
+		resp, err = r.executor.Execute(domain.WithClarificationSink(runCtx, questions), domain.TaskExecution{
 			History:         history,
 			Model:           model,
 			Provider:        agentRec.ProviderType,
 			MaxTurns:        agentRec.MaxTurns,
 			Effort:          agentRec.Effort,
-			Policy:          upliftedPolicy,
+			Policy:          cliAskPolicy(upliftedPolicy, job.Task.TaskType),
 			WorkDir:         workDir,
 			Env:             sessionEnv,
 			ResumeSessionID: resumeCLISession,
@@ -1037,6 +1038,9 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			TaskTitle:       job.Task.Title,
 			SkillsOnDisk:    skillDelivery == prompt.SkillsOnDisk,
 		})
+		if resp.Clarification == nil {
+			resp.Clarification = questions.Request()
+		}
 		cliSession.Set(resp.CLISessionID)
 		stampCLISession(&run, cliSession.ID(), agentRec.ProviderType)
 	default:
@@ -1360,6 +1364,16 @@ func stampCLISession(run *domain.TaskAgentRun, sessionID string, provider domain
 	}
 	run.CLISessionID = sessionID
 	run.CLIProvider = provider
+}
+
+// cliAskPolicy grants an agent CLI's board run ask_user the way the
+// orchestrator grants an API run's subtasks: everywhere but analiz, which asks
+// through record_open_questions. An empty allow list already allows it.
+func cliAskPolicy(p domain.ToolPolicy, taskType domain.TaskType) domain.ToolPolicy {
+	if taskType == domain.TaskTypeAnaliz || len(p.AllowTools) == 0 {
+		return p
+	}
+	return domain.EnsureAskUserTool(p)
 }
 
 func (r *Runner) openClarificationChat(ctx context.Context, job RunJob, agentRec domain.Agent, resp domain.AgentResponse, rootPath string) {

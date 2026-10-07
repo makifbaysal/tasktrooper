@@ -13,7 +13,7 @@ func ClarificationGuidance() string {
 	return Text(clarificationGuidanceKey)
 }
 
-// ask_user is refused over MCP before any policy filtering (it parks a task in a way a live CLI session cannot offer), so this says the opposite of clarificationGuidance: no ask_user, and the questions live in the closing message the runner already surfaces on the card.
+// Over MCP ask_user is served only to a run that waits for the answer (a board run or a chat turn, see domain.ClarificationSink), and even then the CLI has to end its own turn; so this names ask_user conditionally and keeps the closing-message fallback for every session without it.
 var cliClarificationGuidanceKey = Define[struct{}]("clarification.cli_guidance", struct{}{})
 
 func CLIClarificationGuidance() string {

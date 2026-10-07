@@ -1314,12 +1314,23 @@ loop run's downstream: audit rows, the session action ledger, the tool-usage cou
 grounding gates read and the activity recorder all take attribution from it, and it carries
 the run's cancellation, so a stopped run's in-flight tool call dies with it.
 
-**What is served.** `DefinitionsForPolicy(run policy)` minus two groups:
+**What is served.** `DefinitionsForPolicy(run policy)` minus two groups (`ask_user` only
+sometimes — see below):
 
 | Dropped | Why |
 |---|---|
 | `run_terminal`, `read_file`, `write_file`, `edit_file`, `edit_lines`, `delete_file`, `move_file`, `grep_code`, `get_repo_tree` | The CLI's Bash/Read/Write/Edit/Grep/Glob are better at exactly these and are what the model was trained against. Two tools for one job is the classic way to make a model pick the worse one |
-| `ask_user` | It does not return a result — it parks the run on a human answer, and a live session would sit on an open call while the run around it was parked. Clarification for `claude_code` runs needs a suspendable session first |
+| `ask_user`, unless `Run.Ctx` carries a `domain.ClarificationSink` | It does not return a result — it parks the run on a human answer, and a live session cannot sit on an open call while the run around it is parked |
+
+**`ask_user` for a run that waits.** The board runner's agent-CLI branch and the chat's
+`runHostExecutedTurn` put a `domain.ClarificationSink` on the context they hand the
+executor, and the runner grants `ask_user` outside analiz (`cliAskPolicy`). For those runs
+the call is served: the endpoint records the question in the sink and answers
+`mcp.clarification_recorded` (end your turn now) instead of parking anything. Once the CLI
+exits, the caller reads the sink into `AgentResponse.Clarification` and takes the same path an
+API run's question takes — the board parks the task on the clarification chat, a chat turn
+persists the question card. The answer becomes a `[clarification]` task comment either way
+(`AnswerResumer.ResumeOnAnswer` for a parked task, `RecordTaskAnswer` for a task-bound chat).
 
 `codebase_search`, `get_symbol_skeleton` and `expand_symbol_context` deliberately **stay**:
 they are backed by the semantic index and the CLI has no equivalent. Every board and domain

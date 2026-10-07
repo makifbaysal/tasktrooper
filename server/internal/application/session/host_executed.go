@@ -41,7 +41,8 @@ func (s *Service) runHostExecutedTurn(
 		return domain.AgentResponse{}, errNoChatWorkspace(turn.lang, turn.provider)
 	}
 
-	result, err := s.chatExecutor.ExecuteChat(ctx, domain.ChatExecution{
+	questions := &domain.ClarificationSink{}
+	result, err := s.chatExecutor.ExecuteChat(domain.WithClarificationSink(ctx, questions), domain.ChatExecution{
 		History:         turn.history,
 		Prompt:          turn.prompt,
 		Model:           turn.model,
@@ -64,6 +65,9 @@ func (s *Service) runHostExecutedTurn(
 			return domain.AgentResponse{}, domain.NewQuotaNotice(block, turn.lang)
 		}
 		return domain.AgentResponse{}, err
+	}
+	if result.Response.Clarification == nil {
+		result.Response.Clarification = questions.Request()
 	}
 	return result.Response, nil
 }

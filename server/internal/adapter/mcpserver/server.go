@@ -296,6 +296,10 @@ func (s *Server) callTool(run Run, params json.RawMessage) (any, *rpcError) {
 		Bool("is_error", result.IsError).
 		Msg("mcp: agent cli session called a tasktrooper tool")
 
+	if result.Clarification != nil && run.canAsk() {
+		domain.ClarificationSinkFrom(ctx).Record(*result.Clarification)
+		return textResult(clarificationRecordedKey.Render(toolNameInput{Name: name}), false), nil
+	}
 	return resultToMCP(name, result), nil
 }
 
@@ -310,11 +314,11 @@ func (s *Server) available(name string, run Run) bool {
 
 func (s *Server) unavailable(name string, run Run) callToolResult {
 	switch {
-	case name == domain.AskUserToolName:
+	case name == domain.AskUserToolName && !run.canAsk():
 		return textResult(askUserUnavailableKey.Render(toolNameInput{Name: name}), true)
 	case run.SkillsOnDisk && name == skillLoadTool:
 		return textResult(skillLoadUnavailableKey.Render(toolNameInput{Name: name}), true)
-	case !exposed(name, run.SkillsOnDisk):
+	case !exposed(name, run):
 		return textResult(toolNotExposedKey.Render(toolNameInput{Name: name}), true)
 	case !s.registered(name):
 		return textResult(toolNotRegisteredKey.Render(toolNameInput{Name: name}), true)

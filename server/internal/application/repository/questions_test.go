@@ -287,3 +287,36 @@ func TestRecordQuestionsAddUpdateWithdrawRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestAnalizApprovalLeavesTheAnswersOnTheTask(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	task := domain.BoardTask{ID: taskID, RepositoryID: repoID, Column: domain.TaskColumnDone, TaskType: domain.TaskTypeAnaliz}
+	svc, _, questions, comments := newQuestionsService(task)
+	q, err := questions.Create(context.Background(), domain.TaskQuestion{TaskID: taskID, Prompt: "Keep the old export format?", Kind: domain.QuestionKindProduct, RecommendedAnswer: "keep it"})
+	require.NoError(t, err)
+	q, err = domain.ApplyQuestionAnswer(q, "Drop it, nobody uses it.", time.Now().UTC())
+	require.NoError(t, err)
+	_, err = questions.Update(context.Background(), q)
+	require.NoError(t, err)
+
+	svc.markQuestionsSubmitted(context.Background(), repoID, taskID)
+
+	require.Len(t, comments.comments, 1)
+	assert.Equal(t, "system", comments.comments[0].AuthorType)
+	assert.Contains(t, comments.comments[0].Content, "Keep the old export format?")
+	assert.Contains(t, comments.comments[0].Content, "Drop it, nobody uses it.")
+
+	svc.markQuestionsSubmitted(context.Background(), repoID, taskID)
+	assert.Len(t, comments.comments, 1, "answers already on the task are not posted twice")
+}
+
+func TestAnalizApprovalWithNoAnswersPostsNothing(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	svc, _, questions, comments := newQuestionsService(domain.BoardTask{ID: taskID, RepositoryID: repoID, Column: domain.TaskColumnDone})
+	_, err := questions.Create(context.Background(), domain.TaskQuestion{TaskID: taskID, Prompt: "Keep it?", Kind: domain.QuestionKindProduct, RecommendedAnswer: "yes"})
+	require.NoError(t, err)
+
+	svc.markQuestionsSubmitted(context.Background(), repoID, taskID)
+
+	assert.Empty(t, comments.comments)
+}

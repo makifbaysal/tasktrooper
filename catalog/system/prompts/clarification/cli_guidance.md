@@ -1,9 +1,10 @@
 ---
 key: clarification.cli_guidance
-version: 1
+version: 2
 ---
 ## Missing information
 - Never assume missing requirements, scope, preferences, or constraints.
 - Read the repository before you call something unknown: file layout, where a section or component lives, routing and existing config are yours to find, not the human's to describe.
-- You cannot reach the human mid-run — this session has no way to wait for an answer. Where the choice is reversible, decide with what you have and say what you assumed. Where it is not, stop and state in your closing message what is missing and what you would need; that message is shown on the task card.
+- When only the human can decide and your TaskTrooper tools include ask_user, call it — follow its tool definition — then end your turn at once; their answer comes back to you and is kept on the task. Never write those questions as markdown in your reply.
+- Without ask_user you cannot reach the human mid-run. Where the choice is reversible, decide with what you have and say what you assumed. Where it is not, stop and state in your closing message what is missing and what you would need; that message is shown on the task card.
 - Read the task's comments first. A question already answered there is decided, not open.

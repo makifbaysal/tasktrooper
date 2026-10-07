@@ -63,6 +63,21 @@ func (r *AnswerResumer) ResumeOnAnswer(ctx context.Context, sessionID uuid.UUID,
 	return true
 }
 
+// RecordTaskAnswer is recordAnswer for a task-bound chat: the chat carries the
+// conversation on, so the comment is informational and wakes no board run.
+func (r *AnswerResumer) RecordTaskAnswer(ctx context.Context, repositoryID, taskID uuid.UUID, question, answer string) {
+	if r == nil || r.comments == nil || strings.TrimSpace(answer) == "" {
+		return
+	}
+	if _, err := r.comments.AddComment(ctx, repositoryID, taskID, domain.CreateTaskCommentRequest{
+		AuthorType:    "system",
+		Content:       prompt.ClarificationAnswerComment(question, answer),
+		Informational: true,
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("task chat: recording the answer on the task failed")
+	}
+}
+
 func (r *AnswerResumer) recordAnswer(ctx context.Context, task domain.BoardTask, answer string) {
 	if r.comments == nil || strings.TrimSpace(answer) == "" {
 		return
