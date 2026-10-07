@@ -87,3 +87,21 @@ function renderFields(message: string, record: Record<string, unknown>): string 
   }
   return extras.length > 0 ? `${message} ${extras.join(" ")}` : message;
 }
+
+const LEVEL_FIELD = /"level"\s*:\s*"([A-Za-z]+)"/;
+
+/**
+ * The level of a zerolog line, without parsing it. This is what runs on every
+ * line as it arrives; the full parse and render (`renderServerLine`) runs only
+ * when somebody reads the line.
+ */
+export function serverLineLevel(raw: string): string | undefined {
+  const start = raw.trimStart();
+  if (!start.startsWith("{")) return undefined;
+  return LEVEL_FIELD.exec(start)?.[1];
+}
+
+/** A stored backend line as the log view shows it. */
+export function renderServerLine(raw: string): string {
+  return parseServerLine(raw).text;
+}

@@ -67,6 +67,28 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   };
 }
 
+/**
+ * `subscribeLogs`, plus telling the main process when anybody is listening:
+ * it pushes log batches only then (see `CLOUD_CHANNELS.runnerLogsStream`).
+ * The page's side of the bridge is unchanged — it subscribes and unsubscribes
+ * exactly as before.
+ */
+let logSubscribers = 0;
+
+function subscribeLogs(cb: (lines: LogLine[]) => void): () => void {
+  const off = subscribe<LogLine[]>(CLOUD_EVENTS.runnerLogs, cb);
+  logSubscribers += 1;
+  if (logSubscribers === 1) void call<void>(CLOUD_CHANNELS.runnerLogsStream, { on: true }).catch(() => undefined);
+  let subscribed = true;
+  return () => {
+    if (!subscribed) return;
+    subscribed = false;
+    off();
+    logSubscribers -= 1;
+    if (logSubscribers === 0) void call<void>(CLOUD_CHANNELS.runnerLogsStream, { on: false }).catch(() => undefined);
+  };
+}
+
 const runner: DesktopRunnerHost = {
   snapshot: () => call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerSnapshot),
   subscribe: (cb) => subscribe<HostRunnerSnapshot>(CLOUD_EVENTS.runnerState, cb),
@@ -77,7 +99,7 @@ const runner: DesktopRunnerHost = {
     call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerRestartChild, { child }),
 
   logs: (req?: HostLogsRequest) => call<LogLine[]>(CLOUD_CHANNELS.runnerLogs, req ?? {}),
-  subscribeLogs: (cb) => subscribe<LogLine[]>(CLOUD_EVENTS.runnerLogs, cb),
+  subscribeLogs,
   clearLogs: () => call<void>(CLOUD_CHANNELS.runnerClearLogs),
 
   settings: () => call<HostSettings>(CLOUD_CHANNELS.settingsGet),

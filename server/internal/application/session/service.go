@@ -717,17 +717,18 @@ func (s *Service) applyContextPipeline(ctx context.Context, sessionID uuid.UUID,
 			history = injected
 		}
 	}
-	if s.summarizer != nil && s.contextCfg.SummarizeThreshold > 0 {
+	// The configured budget is all zeros by default — each model's own limits
+	// fill it — so a chat is summarised and trimmed against its model's window
+	// instead of never.
+	budget := appcontext.ResolveBudget(s.budget, appcontext.LimitsFor(provider, model))
+	if s.summarizer != nil {
 		var err error
-		history, err = appcontext.SummarizeRollingFor(ctx, s.budget, s.summarizer, history, model, provider)
+		history, err = appcontext.SummarizeRollingFor(ctx, budget, s.summarizer, history, model, provider)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if s.budget.MaxTokens > 0 {
-		history = s.budget.Apply(history)
-	}
-	return history, nil
+	return budget.Apply(history), nil
 }
 
 func (s *Service) buildMessageHistory(ctx context.Context, sessionID uuid.UUID) ([]domain.Message, error) {

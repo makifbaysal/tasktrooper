@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { loginPathEntries, loginShellArgs, parseLoginEnv } from "./login-env.js";
 
 const BEGIN = "__TASKTROOPER_ENV_BEGIN__";
@@ -61,5 +61,29 @@ describe("loginPathEntries", () => {
     expect(loginPathEntries({ PATH: "/a::.:bin:/b/c" })).toEqual(["/a", "/b/c"]);
     expect(loginPathEntries(null)).toEqual([]);
     expect(loginPathEntries({ HOME: "/h" })).toEqual([]);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("loginShellPath", () => {
+  const shell = process.env.SHELL;
+  afterEach(() => {
+    process.env.SHELL = shell;
+    vi.resetModules();
+  });
+
+  it("keeps a seeded PATH when the login shell fails", async () => {
+    vi.resetModules();
+    process.env.SHELL = "/nonexistent/zsh";
+    const env = await import("./login-env.js");
+    env.seedLoginShellPath(["/seeded/bin"]);
+    expect(await env.loginShellPath()).toEqual(["/seeded/bin"]);
+    expect(env.knownLoginShellPath()).toEqual(["/seeded/bin"]);
+  });
+
+  it("answers empty when the login shell fails and nothing was seeded", async () => {
+    vi.resetModules();
+    process.env.SHELL = "/nonexistent/zsh";
+    const env = await import("./login-env.js");
+    expect(await env.loginShellPath()).toEqual([]);
   });
 });

@@ -1,11 +1,13 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Agent, type WorkspaceConfig } from "@/api";
+import { PageSuspense } from "@/components/layout/PageSuspense";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import type { WorkspaceOutletContext } from "@/hooks/useWorkspaceOutlet";
 import { resolveLeadAgent } from "@/lib/leadAgent";
 import { CACHE_CONFIG } from "@/lib/project-board";
+import { keepEqual } from "@/lib/stableState";
 import { cn } from "@/lib/utils";
 
 // Boot syncs the role catalog in the background (no embedding calls, and
@@ -64,7 +66,7 @@ export function WorkspaceLayout() {
         api.listRoles().catch(() => null),
         api.getCatalogStatus().catch(() => null),
       ]);
-      setConfig(cfg);
+      setConfig((prev) => keepEqual(prev, cfg));
       if (catalog.seeding && tries < SEED_POLL_MAX_ATTEMPTS) {
         // The retry is fire-and-forget, so it must handle its own rejection —
         // the try/catch below only covers attempt(0). A blip on any later poll
@@ -76,7 +78,7 @@ export function WorkspaceLayout() {
       }
       const enabledAgents = (catalog.agents ?? []).filter((a) => a.enabled);
       const lead = resolveLeadAgent(enabledAgents, rolesResult?.roles ?? null);
-      setAgents(enabledAgents);
+      setAgents((prev) => keepEqual(prev, enabledAgents));
       setLeadAgentId(lead?.id ?? null);
       setLoading(false);
       // A fresh install's first catalog sync creates the agents one at a time,
@@ -105,15 +107,18 @@ export function WorkspaceLayout() {
     return () => clearTimeout(pollTimer.current);
   }, [load]);
 
-  const leadAgent = agents.find((a) => a.id === leadAgentId) ?? null;
-  const outletContext: WorkspaceOutletContext = {
-    config,
-    agents,
-    refreshWorkspace: load,
-    leadAgent,
-    workspaceLoading: loading,
-    teamPreparing,
-  };
+  const leadAgent = useMemo(() => agents.find((a) => a.id === leadAgentId) ?? null, [agents, leadAgentId]);
+  const outletContext = useMemo<WorkspaceOutletContext>(
+    () => ({
+      config,
+      agents,
+      refreshWorkspace: load,
+      leadAgent,
+      workspaceLoading: loading,
+      teamPreparing,
+    }),
+    [config, agents, load, leadAgent, loading, teamPreparing],
+  );
 
   return (
     <WorkspaceShell
@@ -125,7 +130,9 @@ export function WorkspaceLayout() {
       onRefresh={load}
     >
       <div className={cn("flex min-h-0 flex-1 flex-col", fullBleed ? "h-full overflow-hidden" : "")}>
-        <Outlet context={outletContext} />
+        <PageSuspense>
+          <Outlet context={outletContext} />
+        </PageSuspense>
       </div>
     </WorkspaceShell>
   );

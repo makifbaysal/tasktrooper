@@ -100,7 +100,6 @@ type Service struct {
 
 	pipelineJobs   port.RepositoryPipelineJobStore
 	githubToken    func(ctx context.Context) (string, error)
-	agentLister    func(ctx context.Context) ([]domain.Agent, error)
 	modelRefresher ModelRefresher
 	components     ComponentResolver
 
@@ -481,10 +480,6 @@ func (s *Service) SetPipelineJobStore(store port.RepositoryPipelineJobStore) {
 
 func (s *Service) SetGitHubTokenSource(src func(ctx context.Context) (string, error)) {
 	s.githubToken = src
-}
-
-func (s *Service) SetAgentLister(fn func(ctx context.Context) ([]domain.Agent, error)) {
-	s.agentLister = fn
 }
 
 func (s *Service) SetWorkflows(w port.WorkflowReader)  { s.workflows = w }
@@ -966,7 +961,7 @@ func (s *Service) IndexStatus(ctx context.Context, repositoryID uuid.UUID) (doma
 	repo, getErr := s.repos.Get(ctx, repositoryID)
 	if idx.Status == domain.IndexStatusRunning && !s.indexer.IsProjectIndexActive(repositoryID) {
 		if getErr == nil {
-			s.restartIndex(ctx, repo.ID, repo.RootPath)
+			s.refreshIndex(ctx, repo.ID, repo.RootPath)
 		}
 	}
 	if getErr == nil {
@@ -993,7 +988,7 @@ func (s *Service) Reindex(ctx context.Context, repositoryID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	s.pullAndRestartIndex(ctx, repo.ID, repo.RootPath)
+	s.pullAndReindex(ctx, repo.ID, repo.RootPath, nil, true)
 	return nil
 }
 
@@ -1013,11 +1008,10 @@ func (s *Service) StopIndex(ctx context.Context, repositoryID uuid.UUID) (bool, 
 	return stopped, nil
 }
 
-func (s *Service) pullAndRestartIndex(ctx context.Context, repositoryID uuid.UUID, rootPath string) {
-	s.pullAndRestartIndexNotify(ctx, repositoryID, rootPath, nil)
-}
-
-func (s *Service) pullAndRestartIndexNotify(ctx context.Context, repositoryID uuid.UUID, rootPath string, onDone func()) {
+// pullAndReindex pulls the project root and replaces any running pass. Only
+// an explicit user Reindex forces every file to be re-embedded; a push or a
+// poll runs the incremental pass.
+func (s *Service) pullAndReindex(ctx context.Context, repositoryID uuid.UUID, rootPath string, onDone func(), force bool) {
 	if s.indexer == nil {
 		if onDone != nil {
 			onDone()
@@ -1040,7 +1034,11 @@ func (s *Service) pullAndRestartIndexNotify(ctx context.Context, repositoryID uu
 	passCtx := context.WithoutCancel(ctx)
 	go func() {
 		s.pullProjectRoot(passCtx, repositoryID, rootPath)
-		s.indexer.RestartIndexProject(passCtx, repositoryID, rootPath, finish)
+		if force {
+			s.indexer.RestartIndexProject(passCtx, repositoryID, rootPath, finish)
+			return
+		}
+		s.indexer.RefreshIndexProject(passCtx, repositoryID, rootPath, finish)
 	}()
 }
 
@@ -1124,7 +1122,7 @@ func (s *Service) ensureIndexFresh(ctx context.Context, repo domain.Repository, 
 			Str("head", head).
 			Msg("index is behind origin; rebuilding")
 
-		s.restartIndex(freshCtx, repo.ID, repo.RootPath)
+		s.refreshIndex(freshCtx, repo.ID, repo.RootPath)
 
 		if s.modelRefresher != nil {
 			s.modelRefresher.RefreshAfterPush(freshCtx, repo.ID, "poll")
@@ -1156,20 +1154,20 @@ func (s *Service) startIndex(ctx context.Context, repositoryID uuid.UUID, rootPa
 	s.startIndexWith(ctx, repositoryID, rootPath, false)
 }
 
-func (s *Service) restartIndex(ctx context.Context, repositoryID uuid.UUID, rootPath string) {
+func (s *Service) refreshIndex(ctx context.Context, repositoryID uuid.UUID, rootPath string) {
 	s.startIndexWith(ctx, repositoryID, rootPath, true)
 }
 
-func (s *Service) startIndexWith(ctx context.Context, repositoryID uuid.UUID, rootPath string, force bool) {
+func (s *Service) startIndexWith(ctx context.Context, repositoryID uuid.UUID, rootPath string, replace bool) {
 	if s.indexer == nil {
 		return
 	}
-	if force {
+	if replace {
 		s.indexMu.Lock()
 		delete(s.indexing, repositoryID)
 		s.indexing[repositoryID] = struct{}{}
 		s.indexMu.Unlock()
-		s.indexer.RestartIndexProject(ctx, repositoryID, rootPath, s.indexDone(repositoryID))
+		s.indexer.RefreshIndexProject(ctx, repositoryID, rootPath, s.indexDone(repositoryID))
 		return
 	}
 	s.indexMu.Lock()
@@ -1221,6 +1219,39 @@ func (s *Service) ListBoardTasks(ctx context.Context) ([]domain.BoardTask, error
 		tasks = []domain.BoardTask{}
 	}
 	return s.withLatestPipelineStatus(ctx, tasks)
+}
+
+// BoardVersion is the task store's change counter (port.BoardVersioner);
+// false when the store keeps none. Read it before ListBoardTasks, never after,
+// so a list is only ever tagged with a version at least as old as its rows.
+func (s *Service) BoardVersion() (uint64, bool) {
+	v, ok := s.tasks.(port.BoardVersioner)
+	if !ok {
+		return 0, false
+	}
+	return v.BoardVersion(), true
+}
+
+// BoardListExpiry is when a ListBoardTasks answer goes stale with no write at
+// all: the first released task on it ages out of domain.ReleasedBoardWindow.
+// It mirrors the store's COALESCE(entered_at, updated_at). ok is false when
+// nothing on the list is time-limited.
+func BoardListExpiry(tasks []domain.BoardTask) (time.Time, bool) {
+	var earliest time.Time
+	found := false
+	for _, t := range tasks {
+		if t.Column != domain.TaskColumnReleased {
+			continue
+		}
+		since := t.UpdatedAt
+		if t.ColumnEnteredAt != nil {
+			since = *t.ColumnEnteredAt
+		}
+		if until := since.Add(domain.ReleasedBoardWindow); !found || until.Before(earliest) {
+			earliest, found = until, true
+		}
+	}
+	return earliest, found
 }
 
 func (s *Service) ListReleasedArchive(ctx context.Context, query string, limit int) ([]domain.BoardTask, error) {
@@ -1277,16 +1308,14 @@ func parseTaskKey(key string) (string, int, error) {
 }
 
 func (s *Service) FindTaskRepositoryID(ctx context.Context, taskID uuid.UUID) (uuid.UUID, error) {
-	tasks, err := s.ListAllTasks(ctx)
+	task, err := s.tasks.GetByID(ctx, taskID)
+	if errors.Is(err, domain.ErrBoardTaskNotFound) {
+		return uuid.Nil, fmt.Errorf("task not found")
+	}
 	if err != nil {
 		return uuid.Nil, err
 	}
-	for _, task := range tasks {
-		if task.ID == taskID {
-			return task.RepositoryID, nil
-		}
-	}
-	return uuid.Nil, fmt.Errorf("task not found")
+	return task.RepositoryID, nil
 }
 
 func (s *Service) DefaultRepositoryID(ctx context.Context) (uuid.UUID, error) {
@@ -2009,40 +2038,7 @@ func (s *Service) ListComments(ctx context.Context, repositoryID, taskID uuid.UU
 	if err != nil {
 		return nil, err
 	}
-	return s.nameCommentAuthors(ctx, comments), nil
-}
-
-func (s *Service) nameCommentAuthors(ctx context.Context, comments []domain.TaskComment) []domain.TaskComment {
-	if s.agentLister == nil {
-		return comments
-	}
-	needed := false
-	for i := range comments {
-		if comments[i].AuthorType == "agent" && comments[i].AuthorID != "" {
-			needed = true
-			break
-		}
-	}
-	if !needed {
-		return comments
-	}
-	agents, err := s.agentLister(ctx)
-	if err != nil {
-		return comments
-	}
-	names := make(map[string]string, len(agents))
-	for i := range agents {
-		names[agents[i].ID.String()] = agents[i].Name
-	}
-	for i := range comments {
-		if comments[i].AuthorType != "agent" {
-			continue
-		}
-		if name := names[comments[i].AuthorID]; name != "" {
-			comments[i].AuthorName = name
-		}
-	}
-	return comments
+	return comments, nil
 }
 
 func (s *Service) AddComment(ctx context.Context, repositoryID, taskID uuid.UUID, req domain.CreateTaskCommentRequest) (domain.TaskComment, error) {
@@ -2075,14 +2071,17 @@ func (s *Service) AddComment(ctx context.Context, repositoryID, taskID uuid.UUID
 	if err != nil {
 		return domain.TaskComment{}, err
 	}
-	comment = s.nameCommentAuthors(ctx, []domain.TaskComment{comment})[0]
-	_ = s.emit(ctx, repo, task, domain.BoardEventTaskCommented, map[string]interface{}{
+	payload := map[string]interface{}{
 		"comment_id":  comment.ID.String(),
 		"content":     comment.Content,
 		"author_type": comment.AuthorType,
 		"author_id":   comment.AuthorID,
 		"author_name": comment.AuthorName,
-	})
+	}
+	if req.Informational {
+		payload[domain.EventPayloadInformational] = true
+	}
+	_ = s.emit(ctx, repo, task, domain.BoardEventTaskCommented, payload)
 	return comment, nil
 }
 

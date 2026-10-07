@@ -19,6 +19,8 @@ type ComponentStore interface {
 
 type CheckStore interface {
 	ListChecks(ctx context.Context, repositoryID uuid.UUID) ([]domain.ComponentCheck, error)
+	// Within each repository, checks come in the order ListChecks returns them.
+	ListChecksForRepositories(ctx context.Context, repositoryIDs []uuid.UUID) ([]domain.ComponentCheck, error)
 	GetCheck(ctx context.Context, id uuid.UUID) (domain.ComponentCheck, error)
 	SaveCheck(ctx context.Context, c domain.ComponentCheck) (domain.ComponentCheck, error)
 }
@@ -59,6 +61,9 @@ type ScanStore interface {
 	GetScan(ctx context.Context, id uuid.UUID) (domain.ProjectScan, error)
 	// The newest scan of the repository, without its Result.
 	LatestScan(ctx context.Context, repositoryID uuid.UUID) (domain.ProjectScan, error)
+	// LatestScan for many repositories in one read, keyed by repository; a
+	// repository with no scan is absent, not an error.
+	LatestScans(ctx context.Context, repositoryIDs []uuid.UUID) (map[uuid.UUID]domain.ProjectScan, error)
 	// Marks scans left queued/running by a previous process as failed.
 	FailInterruptedScans(ctx context.Context) (int, error)
 }

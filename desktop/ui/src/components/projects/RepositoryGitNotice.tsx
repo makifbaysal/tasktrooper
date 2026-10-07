@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
+import { usePolling } from "@/hooks/usePolling";
+import { keepEqual } from "@/lib/stableState";
 
 const POLL_MS = 3000;
 
@@ -48,7 +50,7 @@ export function RepositoryGitNotice({ repository, onRestored, className }: Repos
 
   const settle = useCallback(
     (next: RepositoryRestore | undefined) => {
-      setRestore(next);
+      setRestore((prev) => keepEqual(prev, next));
       if (next?.status === "completed") {
         toast.success(t("boardArea.repos.restoreDone", { name: repository.name }));
         onRestored();
@@ -59,18 +61,17 @@ export function RepositoryGitNotice({ repository, onRestored, className }: Repos
     [onRestored, repository.name, t],
   );
 
-  useEffect(() => {
-    if (restore?.status !== "running") return;
-    const timer = window.setInterval(() => {
+  const pollRestore = useCallback(
+    () =>
       api
         .getRepository(repository.id)
         // A failed poll is not a failed clone — the clone is on the server, so
         // keep watching rather than reporting something that did not happen.
         .then((fresh) => settle(fresh.git_restore))
-        .catch(() => undefined);
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [restore?.status, repository.id, settle]);
+        .catch(() => undefined),
+    [repository.id, settle],
+  );
+  usePolling(pollRestore, POLL_MS, restore?.status === "running", { leading: false });
 
   const handleRestore = async () => {
     setStarting(true);

@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
 const NEAR_BOTTOM_PX = 48;
 
 // Follows new content only while the reader is already at the bottom; scrolling
-// up to read earlier steps must not be undone by the next poll.
-export function useStickToBottom(ref: RefObject<HTMLElement | null>, deps: readonly unknown[]) {
+// up to read earlier steps must not be undone by the next poll. The returned
+// `pin` re-sticks on purpose, e.g. when the reader sends something themselves.
+export function useStickToBottom(ref: RefObject<HTMLElement | null>, deps: readonly unknown[]): () => void {
   const stuck = useRef(true);
   const attached = useRef<HTMLElement | null>(null);
 
@@ -33,4 +34,10 @@ export function useStickToBottom(ref: RefObject<HTMLElement | null>, deps: reado
     },
     [],
   );
+
+  return useCallback(() => {
+    stuck.current = true;
+    const el = attached.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
 }

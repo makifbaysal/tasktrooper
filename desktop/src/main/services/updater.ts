@@ -235,6 +235,22 @@ export interface UpdaterBackend {
   quitAndInstall(): void;
 }
 
+/**
+ * The backend for a build with no feed. `UpdateService` never calls it — with
+ * `kind: "none"` it wires nothing and checks nothing — and it exists so such a
+ * build need not load electron-updater at all: that library is most of the
+ * main bundle's code, and all of it is for the one case where a feed exists.
+ */
+export const INERT_UPDATER_BACKEND: UpdaterBackend = {
+  autoDownload: false,
+  autoInstallOnAppQuit: false,
+  allowDowngrade: false,
+  logger: null,
+  on: () => undefined,
+  checkForUpdates: () => Promise.resolve(undefined),
+  quitAndInstall: () => undefined,
+};
+
 // --- the service ------------------------------------------------------------
 
 /**
@@ -394,7 +410,11 @@ export class UpdateService {
       // Ignored once staged: a late progress line must not un-ready a button
       // the user is about to press.
       if (this.#status.phase !== "available") return;
-      this.#set({ percent: Math.max(0, Math.min(100, Math.round(progress.percent ?? 0))) });
+      // electron-updater reports progress many times a second; the title bar
+      // and the tray only draw whole percents, so only a new one is news.
+      const percent = Math.max(0, Math.min(100, Math.round(progress.percent ?? 0)));
+      if (percent === this.#status.percent) return;
+      this.#set({ percent });
     });
     backend.on("update-downloaded", (info) => {
       this.#set({

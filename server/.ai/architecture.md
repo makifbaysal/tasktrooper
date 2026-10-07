@@ -959,9 +959,13 @@ executor":
 
 ```
 domain.RequiresHostExecutor(agent.ProviderType)  →  executor (or a clear failure)
-r.orchSvc != nil                                 →  RunSolo        (unchanged)
-default                                          →  agentLoop.RunTask (unchanged)
+default                                          →  agentLoop.RunTask
 ```
+
+A board run never goes through the orchestrator (intake, planner, verifier):
+the task, its criteria and the stage instructions already are the plan, so an
+API-provider agent runs the loop directly. The orchestrator is chat-only and is
+not built at all when `orchestration.enabled` is false.
 
 Keying on the provider is what makes a host with no CLI say *"claude code binary not
 available on this host…"* instead of falling through to a loop that would open an HTTP
@@ -1181,7 +1185,12 @@ executor runs `claude -p --resume <id> <short continue prompt>` in the same work
 persona, no project context, no re-stated task, all of which the session holds and would read
 as a competing instruction. The id is only handed to the SAME agent whose park recorded it
 (`latestCLISession`), or a column dispatching to several agents would start two
-`claude --resume <same id>` processes in one workspace.
+`claude --resume <same id>` processes in one workspace, and only to the CLI that issued it:
+migration 175's `cli_provider` records which one did (an agent can change provider while
+parked; a park written before that column existed is still trusted). A resumed *revision* run is
+handed the review feedback as its prompt instead of the short continue prompt, because the
+park can land before the CLI ever started, leaving the parked session the one from before the
+task was sent back.
 
 Two brakes, because a park costs the task nothing and a *repeating* park is therefore
 invisible:

@@ -649,6 +649,68 @@ paths:
         '204':
           description: Saved
 
+  /health:
+    get:
+      summary: Server and LLM provider health
+      description: >-
+        Provider reachability is probed with a live model listing and the
+        result is reused for up to 60s (15s after a failure); connecting,
+        disconnecting or editing a provider or endpoint drops it.
+      parameters:
+        - name: fresh
+          in: query
+          required: false
+          description: '"1" probes every provider now instead of reusing a recent result.'
+          schema:
+            type: string
+            enum: ['1']
+      responses:
+        '200':
+          description: Health report
+
+  /v1/tasks:
+    get:
+      summary: Board tasks (released tasks older than the board window are left out)
+      description: >-
+        Every response carries a strong ETag (a hash of the body) and
+        Cache-Control no-cache. A request whose If-None-Match matches the
+        current body gets 304 with no body; the server answers that without
+        reading the board while this process has written nothing the list shows,
+        for at most 10 seconds, so a write by another host on the same database
+        shows within that.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The board
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BoardTask'
+                  count:
+                    type: integer
+        '304':
+          description: The board is unchanged since the ETag in If-None-Match
+          headers:
+            ETag:
+              schema:
+                type: string
+
   /metrics:
     get:
       summary: Prometheus metrics
@@ -676,3 +738,32 @@ components:
           type: array
           items:
             type: string
+    BoardTask:
+      type: object
+      description: >-
+        A board task. Only the fields most clients key on are listed; the
+        payload carries more and clients must ignore fields they do not know.
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        title:
+          type: string
+        column:
+          type: string
+        column_entered_at:
+          type: string
+          format: date-time
+        latest_pipeline_status:
+          type: string
+        agent_running:
+          type: boolean
+          description: >-
+            True while one of the task's agent runs is in status running, so a
+            board can poll a task's activity only while it is moving.

@@ -379,6 +379,30 @@ func (s *ProjectModelStore) ListChecks(ctx context.Context, repositoryID uuid.UU
 	return out, rows.Err()
 }
 
+func (s *ProjectModelStore) ListChecksForRepositories(ctx context.Context, repositoryIDs []uuid.UUID) ([]domain.ComponentCheck, error) {
+	if len(repositoryIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+checkColsPrefixed+`
+		FROM component_checks cc
+		JOIN project_components pc ON pc.id = cc.component_id
+		WHERE cc.repository_id = ANY($1)
+		ORDER BY cc.repository_id, pc.path, cc.workflow, cc.job_key`, repositoryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list checks for repositories: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.ComponentCheck
+	for rows.Next() {
+		c, err := scanCheck(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan check: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 func (s *ProjectModelStore) GetCheck(ctx context.Context, id uuid.UUID) (domain.ComponentCheck, error) {
 	c, err := scanCheck(s.pool.QueryRow(ctx, `SELECT `+checkCols+`
 		FROM component_checks WHERE id = $1`, id))
@@ -853,6 +877,31 @@ func (s *ProjectModelStore) LatestScan(ctx context.Context, repositoryID uuid.UU
 		return domain.ProjectScan{}, fmt.Errorf("latest scan: %w", err)
 	}
 	return sc, nil
+}
+
+func (s *ProjectModelStore) LatestScans(ctx context.Context, repositoryIDs []uuid.UUID) (map[uuid.UUID]domain.ProjectScan, error) {
+	out := make(map[uuid.UUID]domain.ProjectScan, len(repositoryIDs))
+	if len(repositoryIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT ON (repository_id) `+scanColsNoResult+`
+		FROM project_scans WHERE repository_id = ANY($1)
+		ORDER BY repository_id, started_at DESC`, repositoryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("latest scans: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		sc, err := scanProjectScan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan latest scan: %w", err)
+		}
+		out[sc.RepositoryID] = sc
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("latest scans: %w", err)
+	}
+	return out, nil
 }
 
 func (s *ProjectModelStore) FailInterruptedScans(ctx context.Context) (int, error) {

@@ -43,6 +43,8 @@ func hasNPMScript(dir, script string) bool {
 }
 
 // The second return is the last round's verdict and the hand-off depends on it.
+// The fourth is the advisory quality checks this repository does not enforce:
+// the caller runs them after the hand-off instead of holding it on them.
 func (r *Runner) verifyAndFix(
 	ctx context.Context,
 	job RunJob,
@@ -52,13 +54,13 @@ func (r *Runner) verifyAndFix(
 	model string,
 	policy domain.ToolPolicy,
 	workspace string,
-) (domain.AgentResponse, bool, *domain.QuotaBlock) {
+) (domain.AgentResponse, bool, *domain.QuotaBlock, advisoryChecks) {
 	attempts := r.verifyFixAttempts
 	if attempts <= 0 {
 		attempts = 2
 	}
-	var repo domain.Repository
-	if r.projects != nil {
+	repo, cached := runRepositoryFrom(ctx)
+	if !cached && r.projects != nil {
 		fetched, err := r.projects.ResolveRepository(ctx, job.RepositoryID)
 		if err != nil {
 			log.Warn().Err(err).Str("repository_id", job.RepositoryID.String()).Msg("resolve repository for verification failed; using defaults")
@@ -68,14 +70,18 @@ func (r *Runner) verifyAndFix(
 	}
 	required := r.requiredVerifyCommands(ctx, job, agentRec, workspace)
 	rec := activity.FromContext(ctx)
+	headLen := len(history)
 	for attempt := 0; ; attempt++ {
 		if rec != nil {
 			rec.Step("build_verification_start", map[string]any{"attempt": attempt + 1})
 		}
 		ok, failReport := runVerification(ctx, workspace, repo, required)
 		// Coverage is measured only once the code compiles, and it reports instead of gating.
+		var deferred advisoryChecks
 		if ok {
-			for _, note := range []string{coverageReport(ctx, workspace, repo, ""), runMutation(ctx, workspace, repo, "")} {
+			var notes []string
+			notes, deferred = enforcedQualityChecks(ctx, workspace, repo)
+			for _, note := range notes {
 				if note != "" {
 					failReport = strings.TrimSpace(failReport + "\n" + note)
 				}
@@ -100,7 +106,7 @@ func (r *Runner) verifyAndFix(
 				}
 				resp.Message.Content = strings.TrimSpace(resp.Message.Content + note)
 			}
-			return resp, true, nil
+			return resp, true, nil, deferred
 		}
 		if rec != nil {
 			rec.Step("build_verification_failed", map[string]any{
@@ -111,22 +117,32 @@ func (r *Runner) verifyAndFix(
 			r.reportVerificationFailure(ctx, job, failReport)
 			resp.Message.Content = strings.TrimSpace(resp.Message.Content +
 				"\n\n" + verificationExhaustedNoteKey.Render(verificationExhaustedNoteInput{Attempts: attempts}))
-			return resp, false, nil
+			return resp, false, nil, advisoryChecks{}
 		}
-		history = append(history, domain.Message{Role: domain.RoleAssistant, Content: resp.Message.Content})
-		history = withFindingsDigest(history, agent.DigestFromSteps(rec.Steps(ctx), "", 0))
-		history = append(history,
-			domain.Message{Role: domain.RoleUser, Content: verifyFixPrompt(failReport)},
-		)
+		// The in-process loop hands back its whole transcript, so the fix round
+		// continues the run that wrote the code instead of re-reading it all;
+		// a host-executed session resumes its own transcript and gets the
+		// digest in its place.
+		if len(resp.Transcript) > 0 {
+			history = append(append([]domain.Message(nil), resp.Transcript...),
+				domain.Message{Role: domain.RoleUser, Content: verifyFixPrompt(failReport)})
+		} else {
+			history = append(history, domain.Message{Role: domain.RoleAssistant, Content: resp.Message.Content})
+			history = withFindingsDigest(history, agent.DigestFromSteps(rec.Steps(ctx), "", 0))
+			history = append(history,
+				domain.Message{Role: domain.RoleUser, Content: verifyFixPrompt(failReport)},
+			)
+		}
 		fixed, err := r.agentLoop.RunTask(ctx, history, model, agentRec.ProviderType, policy,
 			agent.WithLightModel(agentRec.Model),
+			agent.WithStableHead(headLen),
 			agent.WithCLILabel(job.Task.Key+" verify-fix", job.Task.Title))
 		if err != nil {
 			if quotaErr, ok := domain.QuotaBlockOf(err); ok {
-				return resp, false, quotaErr
+				return resp, false, quotaErr, advisoryChecks{}
 			}
 			r.reportVerificationFailure(ctx, job, failReport)
-			return resp, false, nil
+			return resp, false, nil, advisoryChecks{}
 		}
 		resp = fixed
 	}

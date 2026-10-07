@@ -1,11 +1,16 @@
 package postgres
 
 import (
+	"container/list"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +18,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 )
 
 type IndexStore struct {
@@ -31,6 +37,14 @@ type IndexStore struct {
 	// unanswerable, and the dimension half (which needs no configuration at
 	// all) still runs. See assertEmbeddingComparable.
 	embeddings port.EmbeddingProvenanceResolver
+
+	// vectors is coherent with this process's own writes: every method here
+	// that writes workspace_chunks or deletes workspace_indexes rows
+	// invalidates it. Deletes that cascade from elsewhere (a repository or
+	// session removed) are caught on read; see searchChunksInMemory. Writes by
+	// another host on the same database are not seen until an entry expires
+	// (chunkVectorMaxAge).
+	vectors chunkVectorCache
 }
 
 func NewIndexStore(pool *DB) *IndexStore {
@@ -120,8 +134,35 @@ func (s *IndexStore) SetEmbeddingResolver(r port.EmbeddingProvenanceResolver) {
 	s.embeddings = r
 }
 
+// clearIndexes runs a DELETE on workspace_indexes and drops the cached
+// vectors of every row it removed (their chunks go by cascade).
+func (s *IndexStore) clearIndexes(ctx context.Context, deleteReturningID string, args ...any) (err error) {
+	var cleared []uuid.UUID
+	defer func() {
+		// On an error we cannot tell which rows the statement removed.
+		if err != nil {
+			s.vectors.invalidateAll()
+			return
+		}
+		s.vectors.invalidate(cleared...)
+	}()
+	rows, err := s.pool.Query(ctx, deleteReturningID, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			return scanErr
+		}
+		cleared = append(cleared, id)
+	}
+	return rows.Err()
+}
+
 func (s *IndexStore) CreateIndex(ctx context.Context, sessionID uuid.UUID, rootPath, treeText string) (domain.WorkspaceIndex, error) {
-	_, err := s.pool.Exec(ctx, `DELETE FROM workspace_indexes WHERE session_id = $1`, sessionID)
+	err := s.clearIndexes(ctx, `DELETE FROM workspace_indexes WHERE session_id = $1 RETURNING id`, sessionID)
 	if err != nil {
 		return domain.WorkspaceIndex{}, fmt.Errorf("clear index: %w", err)
 	}
@@ -149,7 +190,7 @@ func (s *IndexStore) CreateIndex(ctx context.Context, sessionID uuid.UUID, rootP
 }
 
 func (s *IndexStore) CreateProjectIndex(ctx context.Context, projectID uuid.UUID, rootPath, treeText string) (domain.WorkspaceIndex, error) {
-	_, err := s.pool.Exec(ctx, `DELETE FROM workspace_indexes WHERE repository_id = $1`, projectID)
+	err := s.clearIndexes(ctx, `DELETE FROM workspace_indexes WHERE repository_id = $1 RETURNING id`, projectID)
 	if err != nil {
 		return domain.WorkspaceIndex{}, fmt.Errorf("clear project index: %w", err)
 	}
@@ -180,7 +221,7 @@ func (s *IndexStore) CreateProjectIndex(ctx context.Context, projectID uuid.UUID
 // Unlike CreateProjectIndex it clears only that branch's previous row — other
 // branches and the default-branch index survive.
 func (s *IndexStore) CreateProjectBranchIndex(ctx context.Context, projectID uuid.UUID, branch, rootPath, treeText string) (domain.WorkspaceIndex, error) {
-	_, err := s.pool.Exec(ctx, `DELETE FROM workspace_indexes WHERE repository_id = $1 AND branch = $2`, projectID, branch)
+	err := s.clearIndexes(ctx, `DELETE FROM workspace_indexes WHERE repository_id = $1 AND branch = $2 RETURNING id`, projectID, branch)
 	if err != nil {
 		return domain.WorkspaceIndex{}, fmt.Errorf("clear branch index: %w", err)
 	}
@@ -247,20 +288,66 @@ func (s *IndexStore) GetIndexByProjectBranch(ctx context.Context, projectID uuid
 }
 
 func (s *IndexStore) scanIndex(ctx context.Context, query string, arg any) (domain.WorkspaceIndex, error) {
+	idx, err := s.scanIndexRow(s.pool.QueryRow(ctx, query, arg))
+	if err != nil {
+		return domain.WorkspaceIndex{}, fmt.Errorf("get index: %w", err)
+	}
+	return idx, nil
+}
+
+// scanIndexRow expects the column order of indexColumns.
+func (s *IndexStore) scanIndexRow(row interface{ Scan(dest ...any) error }) (domain.WorkspaceIndex, error) {
 	var idx domain.WorkspaceIndex
 	var status string
-	err := s.pool.QueryRow(ctx, query, arg).Scan(
+	err := row.Scan(
 		&idx.ID, &idx.SessionID, &idx.ProjectID, &idx.Branch, &idx.CommitSHA, &idx.RootPath, &status,
 		&idx.FileCount, &idx.ChunkCount, &idx.SymbolCount,
 		&idx.FilesTotal, &idx.FilesProcessed, &idx.TreeText, &idx.IndexedAt, &idx.Error,
 		&idx.EmbeddingModel, &idx.EmbeddingDims,
 	)
 	if err != nil {
-		return domain.WorkspaceIndex{}, fmt.Errorf("get index: %w", err)
+		return domain.WorkspaceIndex{}, err
 	}
 	idx.Status = domain.IndexStatus(status)
 	s.localizeIndexRootPath(&idx)
 	return idx, nil
+}
+
+// branchIndexColumns is indexColumns with tree_text blanked: a listing of every
+// branch index has no use for the one column that holds a whole file tree.
+const branchIndexColumns = `id, session_id, repository_id, branch, commit_sha, root_path, status, file_count, chunk_count, symbol_count,
+	       files_total, files_processed, '' AS tree_text, indexed_at, error, embedding_model, embedding_dims`
+
+// ListBranchIndexes returns every non-default-branch index row, oldest first,
+// with TreeText left empty.
+func (s *IndexStore) ListBranchIndexes(ctx context.Context) ([]domain.WorkspaceIndex, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+branchIndexColumns+`
+		FROM workspace_indexes WHERE branch <> '' ORDER BY created_at, id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list branch indexes: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.WorkspaceIndex
+	for rows.Next() {
+		idx, err := s.scanIndexRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan branch index: %w", err)
+		}
+		out = append(out, idx)
+	}
+	return out, rows.Err()
+}
+
+// DeleteIndex removes one index row; its symbols, chunks, edges and file
+// hashes go with it by cascade. A row that is already gone is not an error.
+func (s *IndexStore) DeleteIndex(ctx context.Context, indexID uuid.UUID) error {
+	defer s.vectors.invalidate(indexID)
+	if _, err := s.pool.Exec(ctx, `DELETE FROM workspace_indexes WHERE id = $1`, indexID); err != nil {
+		return fmt.Errorf("delete index: %w", err)
+	}
+	return nil
 }
 
 func (s *IndexStore) UpdateIndexStatus(ctx context.Context, indexID uuid.UUID, status domain.IndexStatus, fileCount, chunkCount, symbolCount int, errMsg string) error {
@@ -332,6 +419,7 @@ func (s *IndexStore) SaveSymbols(ctx context.Context, indexID uuid.UUID, symbols
 }
 
 func (s *IndexStore) SaveChunks(ctx context.Context, indexID uuid.UUID, chunks []domain.WorkspaceChunk) error {
+	defer s.vectors.invalidate(indexID)
 	// Built once and re-sent by execWithVectorHeal: a pgx.Batch is read-only
 	// once queued, so replaying it after the column is relaxed is safe.
 	build := func() (*pgx.Batch, int, error) {
@@ -426,11 +514,6 @@ func (s *IndexStore) GetFileHashes(ctx context.Context, indexID uuid.UUID) (map[
 		result[path] = hash
 	}
 	return result, rows.Err()
-}
-
-type scoredWorkspaceChunk struct {
-	chunk domain.WorkspaceChunk
-	score float64
 }
 
 // staleEmbeddingRefusal is the entire staleness decision, as a pure function of
@@ -608,46 +691,339 @@ func (s *IndexStore) searchChunksTrigram(ctx context.Context, indexID uuid.UUID,
 	return result, rows.Err()
 }
 
+// searchChunksInMemory is the path every code search takes without pgvector,
+// which includes the embedded database. It ranks against cached vectors and
+// reads row bodies only for the winners.
+//
+// The ranking is the one the original single-SELECT loop produced, ties
+// included, and has to stay that way: candidates keep the SELECT's row order,
+// rows whose embedding does not decode are left out, and a slice of the same
+// length is sorted by sort.Slice with the same comparator. pdqsort's
+// permutation depends only on the length and the comparator's answers, so
+// equal scores come out in the same order they always did.
 func (s *IndexStore) searchChunksInMemory(ctx context.Context, indexID uuid.UUID, queryEmbedding []float32, topK int) ([]domain.WorkspaceChunk, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, index_id, file_path, symbol_name, kind, start_line, end_line, language, signature, content, embedding
-		FROM workspace_chunks WHERE index_id = $1
-	`, indexID)
+	if topK <= 0 {
+		return []domain.WorkspaceChunk{}, nil
+	}
+	for attempt := 0; ; attempt++ {
+		vecs, err := s.vectors.get(ctx, indexID, s.loadIndexVectors)
+		if err != nil {
+			return nil, err
+		}
+		chunks, complete, err := s.readRankedChunks(ctx, indexID, vecs, vecs.rank(queryEmbedding, topK))
+		if err != nil || complete || attempt > 0 {
+			return chunks, err
+		}
+		// A winner's row is gone, so these vectors predate a delete this store
+		// did not make (a repository or session cascade): rank once more
+		// against what is there now.
+		s.vectors.invalidate(indexID)
+	}
+}
+
+// loadIndexVectors decodes an index's embeddings exactly as the original
+// search did, in the SELECT's row order (which is what fixes tie order), and
+// packs them into one exactly-sized arena.
+func (s *IndexStore) loadIndexVectors(ctx context.Context, indexID uuid.UUID) (*indexVectors, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, embedding FROM workspace_chunks WHERE index_id = $1`, indexID)
 	if err != nil {
 		return nil, fmt.Errorf("search chunks: %w", err)
 	}
 	defer rows.Close()
 
-	var scored []scoredWorkspaceChunk
+	type span struct {
+		start, end int
+		null       bool
+	}
+	var (
+		ids     []uuid.UUID
+		spans   []span
+		flat    []float32
+		scratch []float32
+	)
 	for rows.Next() {
-		var ch domain.WorkspaceChunk
+		var id uuid.UUID
 		var embJSON []byte
-		if err := rows.Scan(
-			&ch.ID, &ch.IndexID, &ch.FilePath, &ch.SymbolName, &ch.Kind,
-			&ch.StartLine, &ch.EndLine, &ch.Language, &ch.Signature, &ch.Content, &embJSON,
-		); err != nil {
+		if err := rows.Scan(&id, &embJSON); err != nil {
 			return nil, fmt.Errorf("scan chunk: %w", err)
 		}
-		if err := json.Unmarshal(embJSON, &ch.Embedding); err != nil {
+		if err := json.Unmarshal(embJSON, &scratch); err != nil {
 			continue
 		}
-		score := cosineSimilarity(queryEmbedding, ch.Embedding)
-		ch.Score = score
-		scored = append(scored, scoredWorkspaceChunk{chunk: ch, score: score})
+		ids = append(ids, id)
+		spans = append(spans, span{start: len(flat), end: len(flat) + len(scratch), null: scratch == nil})
+		flat = append(flat, scratch...)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
+	arena := make([]float32, len(flat))
+	copy(arena, flat)
+	vecs := make([][]float32, len(spans))
+	for i, sp := range spans {
+		// A stored JSON null decoded to a nil Embedding and [] to an empty
+		// one; callers have always been handed that difference.
+		if !sp.null {
+			vecs[i] = arena[sp.start:sp.end:sp.end]
+		}
+	}
+	return &indexVectors{
+		ids:  ids,
+		vecs: vecs,
+		cost: len(arena) + len(ids)*chunkVectorRowOverhead,
+	}, nil
+}
+
+// readRankedChunks fetches the bodies of the ranked rows and returns them in
+// rank order, each with its own copy of the embedding because callers mutate
+// what they get. complete is false when a ranked row no longer exists.
+func (s *IndexStore) readRankedChunks(ctx context.Context, indexID uuid.UUID, vecs *indexVectors, ranked []rankedVector) ([]domain.WorkspaceChunk, bool, error) {
+	result := make([]domain.WorkspaceChunk, 0, len(ranked))
+	if len(ranked) == 0 {
+		return result, true, nil
+	}
+	ids := make([]uuid.UUID, len(ranked))
+	for i, r := range ranked {
+		ids[i] = vecs.ids[r.row]
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, index_id, file_path, symbol_name, kind, start_line, end_line, language, signature, content
+		FROM workspace_chunks WHERE index_id = $1 AND id = ANY($2)
+	`, indexID, ids)
+	if err != nil {
+		return nil, false, fmt.Errorf("search chunks: %w", err)
+	}
+	defer rows.Close()
+	byID := make(map[uuid.UUID]domain.WorkspaceChunk, len(ids))
+	for rows.Next() {
+		var ch domain.WorkspaceChunk
+		if err := rows.Scan(
+			&ch.ID, &ch.IndexID, &ch.FilePath, &ch.SymbolName, &ch.Kind,
+			&ch.StartLine, &ch.EndLine, &ch.Language, &ch.Signature, &ch.Content,
+		); err != nil {
+			return nil, false, fmt.Errorf("scan chunk: %w", err)
+		}
+		byID[ch.ID] = ch
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	for _, r := range ranked {
+		ch, ok := byID[vecs.ids[r.row]]
+		if !ok {
+			continue
+		}
+		ch.Embedding = slices.Clone(vecs.vecs[r.row])
+		ch.Score = r.score
+		result = append(result, ch)
+	}
+	return result, len(result) == len(ranked), nil
+}
+
+// chunkVectorCacheBudget bounds the cached vectors of all indexes together, in
+// float32s (32M ≈ 128 MB). An index that alone exceeds it is searched without
+// being cached.
+const chunkVectorCacheBudget = 32 << 20
+
+// chunkVectorRowOverhead charges each cached row for its id and slice header
+// (16 + 24 bytes) in float32 units, so an index of many short or empty vectors
+// is not counted as free.
+const chunkVectorRowOverhead = 10
+
+// chunkVectorMarkLimit caps how many per-index invalidation marks are kept
+// before they are folded into the shared floor.
+const chunkVectorMarkLimit = 1024
+
+// indexVectors is one index's decodable embeddings, in the row order the
+// search SELECT returned them. It is shared between searches and never
+// written after it is built.
+type indexVectors struct {
+	ids  []uuid.UUID
+	vecs [][]float32
+	cost int
+}
+
+type rankedVector struct {
+	row   int
+	score float64
+}
+
+func (v *indexVectors) rank(query []float32, topK int) []rankedVector {
+	scored := make([]rankedVector, len(v.vecs))
+	for i, vec := range v.vecs {
+		scored[i] = rankedVector{row: i, score: cosineSimilarity(query, vec)}
+	}
 	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
-	if topK > len(scored) {
-		topK = len(scored)
+	return scored[:min(topK, len(scored))]
+}
+
+// chunkVectorMaxAge is how long a cached index is trusted without a write of
+// this process's invalidating it: long enough for the searches of one run to
+// share a load, short enough that another host's re-index shows.
+const chunkVectorMaxAge = time.Minute
+
+type chunkVectorCacheEntry struct {
+	indexID  uuid.UUID
+	vectors  *indexVectors
+	loadedAt time.Time
+}
+
+// chunkVectorCache is an LRU of indexVectors bounded by total cost and by
+// chunkVectorMaxAge. The zero value is ready to use.
+//
+// Versions keep a load that raced a write from reinstating what the write
+// replaced. An index's version is the later of its own last invalidation
+// (marks) and the last cache-wide one (floor), both drawn from seq; a load
+// installs only if the version it read before its SELECT is still current.
+// The version is also part of the singleflight key, so a search that starts
+// after an invalidation never joins a load that started before it.
+type chunkVectorCache struct {
+	mu      sync.Mutex
+	budget  int
+	used    int
+	lru     list.List
+	entries map[uuid.UUID]*list.Element
+	seq     uint64
+	floor   uint64
+	marks   map[uuid.UUID]uint64
+	flights singleflight.Group
+	loads   atomic.Int64
+	now     func() time.Time
+}
+
+func (c *chunkVectorCache) clockLocked() time.Time {
+	if c.now != nil {
+		return c.now()
 	}
-	result := make([]domain.WorkspaceChunk, 0, topK)
-	for i := 0; i < topK; i++ {
-		result = append(result, scored[i].chunk)
+	return time.Now()
+}
+
+func (c *chunkVectorCache) limitLocked() int {
+	if c.budget > 0 {
+		return c.budget
 	}
-	return result, nil
+	return chunkVectorCacheBudget
+}
+
+func (c *chunkVectorCache) versionLocked(id uuid.UUID) uint64 {
+	return max(c.marks[id], c.floor)
+}
+
+func (c *chunkVectorCache) lookup(id uuid.UUID) (*indexVectors, uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.entries[id]; ok {
+		entry := el.Value.(*chunkVectorCacheEntry)
+		if c.clockLocked().Sub(entry.loadedAt) < chunkVectorMaxAge {
+			c.lru.MoveToFront(el)
+			return entry.vectors, c.versionLocked(id)
+		}
+		c.removeLocked(id)
+	}
+	return nil, c.versionLocked(id)
+}
+
+func (c *chunkVectorCache) get(ctx context.Context, id uuid.UUID, load func(context.Context, uuid.UUID) (*indexVectors, error)) (*indexVectors, error) {
+	vecs, version := c.lookup(id)
+	if vecs != nil {
+		return vecs, nil
+	}
+	// Detached from ctx: the load is shared, and one caller giving up must not
+	// fail the others waiting on it.
+	loadCtx := context.WithoutCancel(ctx)
+	flight := c.flights.DoChan(id.String()+"@"+strconv.FormatUint(version, 10), func() (any, error) {
+		cached, loadVersion := c.lookup(id)
+		if cached != nil {
+			return cached, nil
+		}
+		c.loads.Add(1)
+		loaded, err := load(loadCtx, id)
+		if err != nil {
+			return nil, err
+		}
+		c.install(id, loadVersion, loaded)
+		return loaded, nil
+	})
+	select {
+	case res := <-flight:
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return res.Val.(*indexVectors), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// install caches vecs for id unless id was invalidated since version was read
+// or vecs alone exceeds the budget, evicting least recently used indexes to
+// make room. It reports whether vecs was cached.
+func (c *chunkVectorCache) install(id uuid.UUID, version uint64, vecs *indexVectors) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	limit := c.limitLocked()
+	if c.versionLocked(id) != version || vecs.cost > limit {
+		return false
+	}
+	c.removeLocked(id)
+	for c.used+vecs.cost > limit {
+		oldest := c.lru.Back()
+		if oldest == nil {
+			break
+		}
+		c.removeLocked(oldest.Value.(*chunkVectorCacheEntry).indexID)
+	}
+	if c.entries == nil {
+		c.entries = make(map[uuid.UUID]*list.Element)
+	}
+	c.entries[id] = c.lru.PushFront(&chunkVectorCacheEntry{indexID: id, vectors: vecs, loadedAt: c.clockLocked()})
+	c.used += vecs.cost
+	return true
+}
+
+func (c *chunkVectorCache) removeLocked(id uuid.UUID) {
+	el, ok := c.entries[id]
+	if !ok {
+		return
+	}
+	c.used -= el.Value.(*chunkVectorCacheEntry).vectors.cost
+	c.lru.Remove(el)
+	delete(c.entries, id)
+}
+
+// invalidate must run after the write it covers has committed: a load that
+// reads before the commit then fails its install, and one that reads after it
+// sees the write.
+func (c *chunkVectorCache) invalidate(ids ...uuid.UUID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, id := range ids {
+		c.seq++
+		if c.marks == nil {
+			c.marks = make(map[uuid.UUID]uint64)
+		}
+		c.marks[id] = c.seq
+		c.removeLocked(id)
+	}
+	if len(c.marks) > chunkVectorMarkLimit {
+		// Raising the floor past every mark keeps each version moving forward,
+		// so the marks can go; cached entries stay, since they are current.
+		c.seq++
+		c.floor = c.seq
+		c.marks = nil
+	}
+}
+
+func (c *chunkVectorCache) invalidateAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.seq++
+	c.floor = c.seq
+	c.marks = nil
+	c.entries = nil
+	c.lru.Init()
+	c.used = 0
 }
 
 func capChunks(chunks []domain.WorkspaceChunk, topK int) []domain.WorkspaceChunk {
@@ -756,6 +1132,7 @@ func (s *IndexStore) ListEdges(ctx context.Context, indexID uuid.UUID) ([]domain
 }
 
 func (s *IndexStore) DeleteIndexData(ctx context.Context, indexID uuid.UUID) error {
+	defer s.vectors.invalidate(indexID)
 	tables := []string{
 		"workspace_file_hashes",
 		"workspace_edges",
@@ -774,6 +1151,7 @@ func (s *IndexStore) DeleteIndexData(ctx context.Context, indexID uuid.UUID) err
 // branch index starts from the default branch's embeddings instead of
 // re-embedding the whole repository.
 func (s *IndexStore) CopyIndexData(ctx context.Context, fromIndexID, toIndexID uuid.UUID) error {
+	defer s.vectors.invalidate(toIndexID)
 	stmts := []string{
 		`INSERT INTO workspace_symbols (index_id, file_path, kind, name, signature, doc, start_line, end_line)
 		 SELECT $2, file_path, kind, name, signature, doc, start_line, end_line FROM workspace_symbols WHERE index_id = $1`,
@@ -805,6 +1183,7 @@ func (s *IndexStore) DeleteFileData(ctx context.Context, indexID uuid.UUID, file
 	if len(filePaths) == 0 {
 		return nil
 	}
+	defer s.vectors.invalidate(indexID)
 	stmts := []string{
 		`DELETE FROM workspace_file_hashes WHERE index_id = $1 AND file_path = ANY($2)`,
 		`DELETE FROM workspace_chunks WHERE index_id = $1 AND file_path = ANY($2)`,
@@ -827,6 +1206,7 @@ func (s *IndexStore) DeleteFilesNotIn(ctx context.Context, indexID uuid.UUID, ke
 	if len(keepPaths) == 0 {
 		return nil
 	}
+	defer s.vectors.invalidate(indexID)
 	stmts := []string{
 		`DELETE FROM workspace_file_hashes WHERE index_id = $1 AND NOT (file_path = ANY($2))`,
 		`DELETE FROM workspace_chunks WHERE index_id = $1 AND NOT (file_path = ANY($2))`,

@@ -1,14 +1,21 @@
+import os from "node:os";
 import path from "node:path";
-import { downloadAllWithRetry, MAX_BACKOFF_MS, MIN_BACKOFF_MS } from "./download.js";
-import { loadEngine } from "./engine.js";
+import { downloadAllWithRetry } from "./download.js";
 import { createEmbeddingsServer, DEFAULT_IDLE_UNLOAD_MS } from "./server.js";
 import { armParentWatchdog } from "./watchdog.js";
+import { defaultWasmThreads, startWorkerEngine } from "./worker-engine.js";
 
 /**
  * Entrypoint: parse `--cache-dir`, bind a loopback port the OS assigns, print
- * it, and only then start downloading and loading the model — in that order,
- * because the Electron supervisor that spawned this process is waiting on
- * the printed port, not on the model.
+ * it, and only then start downloading the model — in that order, because the
+ * Electron supervisor that spawned this process is waiting on the printed
+ * port, not on the model.
+ *
+ * The download is eager, so the first request never waits on the network; the
+ * LOAD is lazy, and happens in a worker thread (`worker-engine.ts`) the first
+ * time a request needs it. A machine that never indexes anything never pays
+ * the ~650 MB a loaded model costs, and an idle unload terminates that worker,
+ * which is the only thing that gives wasm memory back.
  *
  * Spawned as `process.execPath <this file> --cache-dir <userData>` with
  * `ELECTRON_RUN_AS_NODE=1` (see `main/supervisor/supervisor.ts`), which is
@@ -36,36 +43,16 @@ const log = {
   },
 };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Download and load the model, retrying the whole sequence forever on
- * failure. `downloadAllWithRetry` already retries its own network failures
- * internally and only ever returns on success, so the backoff here exists
- * for the one failure it cannot retry past on its own: the ONNX session
- * failing to construct from files that hashed correctly.
- */
-async function loadModelForever(cacheDir: string, wasmDir: string) {
-  let backoff = MIN_BACKOFF_MS;
-  for (;;) {
-    try {
-      const files = await downloadAllWithRetry(path.join(cacheDir, "embedding-model"), log);
-      return await loadEngine(files, wasmDir);
-    } catch (err) {
-      const delay = backoff;
-      backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
-      log.warn(`model load failed: ${err instanceof Error ? err.message : String(err)}; retrying in ${Math.round(delay / 1000)}s`);
-      await sleep(delay);
-    }
-  }
-}
-
 function idleUnloadMs(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === "") return DEFAULT_IDLE_UNLOAD_MS;
   const value = Number(raw);
   return Number.isInteger(value) && value >= 0 ? value : DEFAULT_IDLE_UNLOAD_MS;
+}
+
+function wasmThreads(raw: string | undefined): number {
+  const value = Number(raw);
+  if (raw !== undefined && raw.trim() !== "" && Number.isInteger(value) && value >= 1 && value <= 16) return value;
+  return defaultWasmThreads(os.availableParallelism());
 }
 
 function main(): void {
@@ -73,12 +60,14 @@ function main(): void {
 
   // Staged alongside this bundled file by scripts/build-embedder.mjs — see
   // engine.ts's loadEngine() for why this is pointed at explicitly rather
-  // than left to onnxruntime-web's relative auto-resolution.
+  // than left to onnxruntime-web's relative auto-resolution. The worker's own
+  // bundle is staged in the same directory.
   const wasmDir = __dirname;
+  const workerScript = path.join(__dirname, "worker.cjs");
+  const numThreads = wasmThreads(process.env.EMBEDDER_THREADS);
 
-  const { server, setEngine } = createEmbeddingsServer({
+  const { server, enableLoading } = createEmbeddingsServer({
     idleUnloadMs: idleUnloadMs(process.env.EMBEDDER_IDLE_UNLOAD_MS),
-    load: () => loadModelForever(cacheDir, wasmDir),
   });
 
   let shuttingDown = false;
@@ -115,15 +104,15 @@ function main(): void {
     // offline download never delays the port this process exists to hand
     // back. Retries indefinitely in the background; the server keeps
     // answering 503 the whole time.
-    loadModelForever(cacheDir, wasmDir)
-      .then((engine) => {
-        setEngine(engine);
-        log.info("model loaded; serving real embeddings.");
+    downloadAllWithRetry(path.join(cacheDir, "embedding-model"), log)
+      .then((files) => {
+        enableLoading(() => startWorkerEngine(workerScript, { files, wasmDir, numThreads }));
+        log.info(`model is on disk; it loads on the first request (${numThreads} wasm threads).`);
       })
       .catch((err) => {
-        // loadModelForever never rejects — this is unreachable in practice,
-        // and logged rather than silently swallowed if that ever changes.
-        log.warn(`unexpected: model loading stopped retrying: ${err instanceof Error ? err.message : String(err)}`);
+        // downloadAllWithRetry never rejects — this is unreachable in
+        // practice, and logged rather than silently swallowed if that changes.
+        log.warn(`unexpected: model download stopped retrying: ${err instanceof Error ? err.message : String(err)}`);
       });
   });
 }

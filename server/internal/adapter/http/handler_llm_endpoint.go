@@ -31,6 +31,7 @@ func (h *Handler) CreateLLMEndpoint(c *fiber.Ctx) error {
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
+	h.invalidateProviderHealth()
 	return c.JSON(out)
 }
 
@@ -47,6 +48,7 @@ func (h *Handler) UpdateLLMEndpoint(c *fiber.Ctx) error {
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
+	h.invalidateProviderHealth()
 	return c.JSON(out)
 }
 
@@ -58,6 +60,7 @@ func (h *Handler) DeleteLLMEndpoint(c *fiber.Ctx) error {
 	if err != nil {
 		return internalError(c, err)
 	}
+	h.invalidateProviderHealth()
 	return c.JSON(out)
 }
 

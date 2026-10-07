@@ -283,18 +283,32 @@ func (s *Service) loadOverviewData(ctx context.Context) (overviewData, error) {
 		data.resourcesByID[r.ID] = r
 	}
 
+	allChecks, err := s.store.ListChecksForRepositories(ctx, repoIDs)
+	if err != nil {
+		return overviewData{}, err
+	}
+	for _, c := range allChecks {
+		data.checksByRepo[c.RepositoryID] = append(data.checksByRepo[c.RepositoryID], c)
+	}
+
+	// A failed scan lookup only costs the cards their "last scan" line; the
+	// overview is polled while a scan runs and must keep rendering.
+	latestScans, err := s.store.LatestScans(ctx, repoIDs)
+	if err != nil && !errors.Is(err, port.ErrNotFound) {
+		log.Warn().Err(err).Int("repositories", len(repoIDs)).Msg("overview: latest scan lookup failed")
+	}
+
 	for _, r := range repos {
-		checks, err := s.store.ListChecks(ctx, r.ID)
-		if err != nil {
-			return overviewData{}, err
+		var latest *domain.ProjectScan
+		if scan, ok := latestScans[r.ID]; ok {
+			latest = &scan
 		}
-		data.checksByRepo[r.ID] = checks
-		data.summaries[r.ID] = s.repositorySummary(ctx, r, data.componentsByRepo[r.ID], checks, data.linksByRepo[r.ID], data.environmentsByRepo[r.ID])
+		data.summaries[r.ID] = repositorySummary(r, data.componentsByRepo[r.ID], data.checksByRepo[r.ID], data.linksByRepo[r.ID], data.environmentsByRepo[r.ID], latest)
 	}
 	return data, nil
 }
 
-func (s *Service) repositorySummary(ctx context.Context, r domain.Repository, components []domain.Component, checks []domain.ComponentCheck, links []domain.ComponentLink, environments []domain.ComponentEnvironment) domain.RepositorySummary {
+func repositorySummary(r domain.Repository, components []domain.Component, checks []domain.ComponentCheck, links []domain.ComponentLink, environments []domain.ComponentEnvironment, latestScan *domain.ProjectScan) domain.RepositorySummary {
 	checksByComponent := map[uuid.UUID][]domain.ComponentCheck{}
 	for _, ch := range checks {
 		if ch.Status != domain.ModelStatusActive || ch.Missing {
@@ -329,10 +343,8 @@ func (s *Service) repositorySummary(ctx context.Context, r domain.Repository, co
 	sort.Slice(compSummaries, func(i, j int) bool { return compSummaries[i].Path < compSummaries[j].Path })
 
 	var lastScan *domain.ScanSummary
-	if scan, err := s.store.LatestScan(ctx, r.ID); err == nil {
-		lastScan = &domain.ScanSummary{ID: scan.ID, Status: scan.Status, Trigger: scan.Trigger, StartedAt: scan.StartedAt, FinishedAt: scan.FinishedAt}
-	} else if !errors.Is(err, port.ErrNotFound) {
-		log.Warn().Err(err).Str("repository_id", r.ID.String()).Msg("overview: latest scan lookup failed")
+	if latestScan != nil {
+		lastScan = &domain.ScanSummary{ID: latestScan.ID, Status: latestScan.Status, Trigger: latestScan.Trigger, StartedAt: latestScan.StartedAt, FinishedAt: latestScan.FinishedAt}
 	}
 
 	return domain.RepositorySummary{

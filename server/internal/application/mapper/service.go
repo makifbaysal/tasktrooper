@@ -25,7 +25,7 @@ func (s *Service) ExpandTree(root, prefix string, maxDepth int) (string, error) 
 	if !s.cfg.Enabled {
 		return "", nil
 	}
-	paths, err := Walk(root, WalkOptions{UseGitignore: true})
+	paths, err := Walk(root, WalkOptions{UseGitignore: true, Subdir: treePrefix(prefix)})
 	if err != nil {
 		return "", err
 	}

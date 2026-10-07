@@ -22,6 +22,13 @@ func (d *documentTaskManager) ListTasks(ctx context.Context, repositoryID uuid.U
 	return []domain.BoardTask{d.task}, nil
 }
 
+func (d *documentTaskManager) GetTask(_ context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error) {
+	if repositoryID != d.task.RepositoryID || taskID != d.task.ID {
+		return domain.BoardTask{}, domain.ErrBoardTaskNotFound
+	}
+	return d.task, nil
+}
+
 func (d *documentTaskManager) AddDocument(ctx context.Context, repositoryID, taskID uuid.UUID, req domain.CreateTaskDocumentRequest) (domain.TaskDocument, error) {
 	d.added = append(d.added, req)
 	return domain.TaskDocument{ID: uuid.New(), TaskID: taskID, Title: req.Title}, nil

@@ -8,6 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -159,15 +160,43 @@ func (h *Handler) SetAgentColumnInstructions(c *fiber.Ctx) error {
 // ListAllBoardTasks serves the board. Released tasks older than
 // domain.ReleasedBoardWindow are left out — they are in the released archive
 // below, which is where the board links to for anything older.
+//
+// The board is polled several times a second across open views, so it answers
+// If-None-Match. The ETag is a hash of the body; a 304 is served without reading
+// the board only while the store's board version (read before the list was
+// built) and the list's released-window expiry both say the last body is still
+// the current one, and for at most boardListMaxAge.
 func (h *Handler) ListAllBoardTasks(c *fiber.Ctx) error {
 	if h.repositorySvc == nil {
 		return internalError(c, fmt.Errorf("repositories unavailable"))
+	}
+	ifNoneMatch := c.Get(fiber.HeaderIfNoneMatch)
+	version, versioned := h.repositorySvc.BoardVersion()
+	c.Set(fiber.HeaderCacheControl, "no-cache")
+	if versioned {
+		if etag, ok := h.boardList.current(version); ok && etagMatches(ifNoneMatch, etag) {
+			return notModified(c, etag)
+		}
 	}
 	tasks, err := h.repositorySvc.ListBoardTasks(h.enrichContext(c))
 	if err != nil {
 		return internalError(c, err)
 	}
-	return c.JSON(fiber.Map{"tasks": tasks, "count": len(tasks)})
+	body, err := c.App().Config().JSONEncoder(fiber.Map{"tasks": tasks, "count": len(tasks)})
+	if err != nil {
+		return internalError(c, err)
+	}
+	etag := bodyETag(body)
+	if versioned {
+		expires, _ := repository.BoardListExpiry(tasks)
+		h.boardList.remember(version, etag, expires)
+	}
+	if etagMatches(ifNoneMatch, etag) {
+		return notModified(c, etag)
+	}
+	c.Set(fiber.HeaderETag, etag)
+	c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
+	return c.Send(body)
 }
 
 // ListReleasedArchive is every released task, newest first, with an optional

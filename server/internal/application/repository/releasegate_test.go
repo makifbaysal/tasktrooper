@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 type fakeReleaseGit struct {
@@ -202,6 +203,15 @@ type fakeReleaseTaskStore struct {
 
 func (f *fakeReleaseTaskStore) Get(context.Context, uuid.UUID, uuid.UUID) (domain.BoardTask, error) {
 	return f.task, nil
+}
+func (f *fakeReleaseTaskStore) GetByID(_ context.Context, taskID uuid.UUID) (domain.BoardTask, error) {
+	if f.task.ID != taskID {
+		return domain.BoardTask{}, domain.ErrBoardTaskNotFound
+	}
+	return f.task, nil
+}
+func (f *fakeReleaseTaskStore) ListDispatchCandidates(context.Context, int) ([]port.TaskRecentRuns, error) {
+	return nil, nil
 }
 func (f *fakeReleaseTaskStore) Update(_ context.Context, task domain.BoardTask) (domain.BoardTask, error) {
 	f.updated = task

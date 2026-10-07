@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -24,10 +26,10 @@ type ProviderHealth struct {
 }
 
 type ProviderSet struct {
-	Clients map[domain.LLMProviderType]port.LLMClient
-	Default domain.LLMProviderType
+	Clients           map[domain.LLMProviderType]port.LLMClient
+	Default           domain.LLMProviderType
 	EmbeddingProvider domain.LLMProviderType
-	EmbeddingModel string
+	EmbeddingModel    string
 }
 
 type ProviderResolver interface {
@@ -43,11 +45,52 @@ func StaticResolver(set ProviderSet) ProviderResolver {
 }
 
 type MultiProviderClient struct {
-	mu sync.RWMutex
+	mu       sync.RWMutex
 	resolver ProviderResolver
 	fallback port.LLMClient
 	limits   map[domain.LLMProviderType]*accountLimiter
 	embedCfg domain.EmbeddingConfig
+
+	health healthProbes
+}
+
+// Health is polled every few seconds by the desktop shell and the UI, and each
+// probe is a live GET /models against a remote provider, so a probe result is
+// reused for a while. An unreachable provider is re-probed sooner than a
+// healthy one so a provider that comes back shows up quickly.
+const (
+	healthProbeTTL      = 60 * time.Second
+	healthProbeErrorTTL = 15 * time.Second
+	healthProbeTimeout  = 8 * time.Second
+)
+
+type healthProbe struct {
+	status  string
+	message string
+	at      time.Time
+}
+
+func (p healthProbe) fresh(now time.Time) bool {
+	ttl := healthProbeTTL
+	if p.status != "ok" {
+		ttl = healthProbeErrorTTL
+	}
+	return now.Sub(p.at) < ttl
+}
+
+type healthProbes struct {
+	mu    sync.Mutex
+	gen   uint64
+	cache map[string]healthProbe
+	group singleflight.Group
+	now   func() time.Time
+}
+
+func (h *healthProbes) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
 }
 
 func embeddingCapable(pt domain.LLMProviderType) bool {
@@ -361,26 +404,88 @@ func (m *MultiProviderClient) embedOnce(ctx context.Context, set ProviderSet, in
 	return nil, fmt.Errorf("no embedding-capable llm provider configured (host-executed agent CLIs cannot embed)")
 }
 
-func (m *MultiProviderClient) ping(ctx context.Context, entry ProviderHealth, key domain.LLMProviderType) ProviderHealth {
+// InvalidateHealth drops every cached probe, so the next HealthCheck asks the
+// providers again; called after a provider or endpoint changes and for an
+// explicit fresh read.
+func (m *MultiProviderClient) InvalidateHealth() {
+	m.health.mu.Lock()
+	m.health.gen++
+	m.health.cache = nil
+	m.health.mu.Unlock()
+}
+
+func (m *MultiProviderClient) ping(ctx context.Context, entry ProviderHealth, key domain.LLMProviderType, fingerprint string) ProviderHealth {
 	if !entry.Configured {
 		entry.Status = "disconnected"
 		return entry
 	}
+	probe := m.cachedProbe(ctx, key, fingerprint)
+	entry.Status = probe.status
+	entry.Message = probe.message
+	return entry
+}
+
+// cachedProbe keys a result on the provider's stored configuration as well as
+// its type, so an edit that reached the database without InvalidateHealth
+// still misses the cache. Concurrent callers share one in-flight probe, which
+// runs detached from any single caller's context so one caller giving up does
+// not fail the others; a caller still stops waiting when its own context ends.
+func (m *MultiProviderClient) cachedProbe(ctx context.Context, key domain.LLMProviderType, fingerprint string) healthProbe {
+	cacheKey := string(key) + "\x00" + fingerprint
+	h := &m.health
+	h.mu.Lock()
+	if p, ok := h.cache[cacheKey]; ok && p.fresh(h.clock()) {
+		h.mu.Unlock()
+		return p
+	}
+	gen := h.gen
+	h.mu.Unlock()
+
+	ch := h.group.DoChan(cacheKey+"\x00"+strconv.FormatUint(gen, 10), func() (any, error) {
+		p := m.probe(context.WithoutCancel(ctx), key)
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.gen == gen {
+			if h.cache == nil {
+				h.cache = make(map[string]healthProbe)
+			}
+			now := h.clock()
+			for k, old := range h.cache {
+				if !old.fresh(now) {
+					delete(h.cache, k)
+				}
+			}
+			h.cache[cacheKey] = p
+		}
+		return p, nil
+	})
+	select {
+	case res := <-ch:
+		return res.Val.(healthProbe)
+	case <-ctx.Done():
+		return healthProbe{status: "error", message: ctx.Err().Error()}
+	}
+}
+
+func (m *MultiProviderClient) probe(ctx context.Context, key domain.LLMProviderType) healthProbe {
 	client, ok := m.ClientFor(ctx, key)
 	if !ok {
-		entry.Status = "error"
-		entry.Message = "client not loaded"
-		return entry
+		return healthProbe{status: "error", message: "client not loaded", at: m.health.clock()}
 	}
-	pCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	pCtx, cancel := context.WithTimeout(ctx, healthProbeTimeout)
 	defer cancel()
 	if _, err := client.Models(pCtx); err != nil {
-		entry.Status = "error"
-		entry.Message = err.Error()
-	} else {
-		entry.Status = "ok"
+		return healthProbe{status: "error", message: err.Error(), at: m.health.clock()}
 	}
-	return entry
+	return healthProbe{status: "ok", at: m.health.clock()}
+}
+
+func providerHealthFingerprint(c domain.LLMProviderConfig) string {
+	return fmt.Sprintf("%s|%s|%d|%t|%t|%d", c.BaseURL, c.DefaultModel, c.TimeoutSeconds, c.Configured, c.HasAPIKey, c.UpdatedAt.UnixNano())
+}
+
+func endpointHealthFingerprint(ep domain.LLMEndpoint) string {
+	return fmt.Sprintf("%s|%s|%d|%t|%t|%d", ep.BaseURL, ep.DefaultModel, ep.TimeoutSeconds, ep.Configured, ep.HasAPIKey, ep.UpdatedAt.UnixNano())
 }
 
 func (m *MultiProviderClient) HealthCheck(ctx context.Context, views []domain.LLMProviderView) []ProviderHealth {
@@ -394,10 +499,10 @@ func (m *MultiProviderClient) HealthCheck(ctx context.Context, views []domain.LL
 			Active:       view.Active,
 		}
 		wg.Add(1)
-		go func(idx int, e ProviderHealth, key domain.LLMProviderType) {
+		go func(idx int, e ProviderHealth, key domain.LLMProviderType, fingerprint string) {
 			defer wg.Done()
-			out[idx] = m.ping(ctx, e, key)
-		}(i, entry, view.Definition.Type)
+			out[idx] = m.ping(ctx, e, key, fingerprint)
+		}(i, entry, view.Definition.Type, providerHealthFingerprint(view.Config))
 	}
 	wg.Wait()
 	return out
@@ -413,10 +518,10 @@ func (m *MultiProviderClient) HealthCheckEndpoints(ctx context.Context, eps []do
 			Configured:   ep.Configured,
 		}
 		wg.Add(1)
-		go func(idx int, e ProviderHealth, key domain.LLMProviderType) {
+		go func(idx int, e ProviderHealth, key domain.LLMProviderType, fingerprint string) {
 			defer wg.Done()
-			out[idx] = m.ping(ctx, e, key)
-		}(i, entry, domain.LLMProviderType(ep.ID))
+			out[idx] = m.ping(ctx, e, key, fingerprint)
+		}(i, entry, domain.LLMProviderType(ep.ID), endpointHealthFingerprint(ep))
 	}
 	wg.Wait()
 	return out

@@ -1,7 +1,7 @@
 import { AlertTriangle, Bell, CheckCircle2, HelpCircle, MessageSquare } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type BoardTask } from "@/api";
+import type { ActivityItem, BoardTask } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,9 +13,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useActivity } from "@/hooks/useActivity";
 import { useI18n } from "@/hooks/useI18n";
-import { usePolling } from "@/hooks/usePolling";
+import { ACTIVITY_POLL, ALL_TASKS_POLL, useSharedPoll } from "@/hooks/useSharedPoll";
 import {
   laterCursor,
   partitionByCursor,
@@ -23,9 +22,15 @@ import {
   type NotificationItem,
   type ReadCursor,
 } from "@/lib/notifications";
+import { mergeTaskList } from "@/lib/project-board";
+import { keepEqual } from "@/lib/stableState";
 import { cn, formatRelativeDate } from "@/lib/utils";
 
 const READ_CURSOR_KEY = "tt.notificationCenter.readCursor";
+// The header is on every page. On the board and the backlog the same shared
+// polls already run faster and this rides along; elsewhere a badge a few
+// seconds late costs nothing.
+const NOTIFICATION_POLL_MS = 15000;
 
 function readCursor(): ReadCursor | null {
   try {
@@ -59,20 +64,18 @@ interface NotificationCenterProps {
 export function NotificationCenter({ onAgentSeen }: NotificationCenterProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { items: activity } = useActivity(100, 5000);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [cursor, setCursor] = useState<ReadCursor | null>(() => readCursor());
 
-  usePolling(
-    async () => {
-      const { tasks: fetched } = await api.listAllTasks();
-      setTasks(fetched ?? []);
-    },
-    5000,
-    true,
-  );
+  useSharedPoll(ACTIVITY_POLL, NOTIFICATION_POLL_MS, true, {
+    onValue: (data) => setActivity((prev) => keepEqual(prev, data.items ?? [])),
+  });
+  useSharedPoll(ALL_TASKS_POLL, NOTIFICATION_POLL_MS, true, {
+    onValue: (data) => setTasks((prev) => mergeTaskList(prev, data.tasks ?? [])),
+  });
 
-  const items = toNotificationItems(activity, tasks);
+  const items = useMemo(() => toNotificationItems(activity, tasks), [activity, tasks]);
 
   // First install (or first run after this shipped): nothing in the existing
   // history is "unread" — only what arrives after this seed is.

@@ -5,6 +5,7 @@ import path from "node:path";
 import { app } from "electron";
 import { taskkillTree } from "../supervisor/reaper.js";
 import { knownLoginShellPath, loginShellPath } from "./login-env.js";
+import type { PreflightCache } from "./preflight-cache.js";
 import { binaryDirs, mergePath, pathKeyOf, prependDirs, splitPath, withoutAppImage } from "./process-env.js";
 import { launchFor } from "./winshim.js";
 import type {
@@ -224,14 +225,25 @@ export function fallbackDirs(home: string = os.homedir()): { dir: string; source
   return out;
 }
 
-export function which(name: string): { path: string; source: PreflightSource } | null {
+/** A binary detection found, and how. */
+export interface Located {
+  path: string;
+  source: PreflightSource;
+}
+
+/**
+ * `dirs` is `searchDirs()` unless the caller already has it: a sweep computes
+ * it once — it lists the nvm versions directory and reads the login PATH — and
+ * hands it to every lookup rather than rebuilding it per binary.
+ */
+export function which(name: string, dirs: { dir: string; source: PreflightSource }[] = searchDirs()): Located | null {
   if (name.includes("/") || name.includes("\\")) return isExecutable(name) ? { path: name, source: "override" } : null;
   // On Windows a command is found by its extension: PATHEXT, .exe before .cmd.
   const names =
     process.platform === "win32"
       ? [...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").filter(Boolean).map((ext) => name + ext.toLowerCase()), name]
       : [name];
-  for (const { dir, source } of searchDirs()) {
+  for (const { dir, source } of dirs) {
     for (const candidateName of names) {
       const candidate = path.join(dir, candidateName);
       if (isExecutable(candidate)) return { path: candidate, source };
@@ -529,8 +541,17 @@ export function gitRemediation(): { remediation: string; command?: string } {
   }
 }
 
-async function probeGit(override?: string): Promise<PreflightItem> {
-  const found = override && override !== "" ? which(override) : which("git");
+/**
+ * What `--version` said, when it was asked. Absent means "not asked yet",
+ * which the gating half of a sweep says about every binary whose answer is not
+ * cached; the complete half always asks.
+ */
+interface VersionAnswer {
+  code: number;
+  out: string;
+}
+
+function gitItem(found: Located | null, answer?: VersionAnswer): PreflightItem {
   if (!found) {
     return {
       id: "git",
@@ -541,7 +562,6 @@ async function probeGit(override?: string): Promise<PreflightItem> {
       ...gitRemediation(),
     };
   }
-  const { code, out } = await run(found.path, ["--version"]);
   return {
     id: "git",
     label: "git",
@@ -549,7 +569,7 @@ async function probeGit(override?: string): Promise<PreflightItem> {
     status: "ok",
     path: found.path,
     source: found.source,
-    ...(code === 0 ? { version: parseVersion(out) ?? firstLine(out) } : {}),
+    ...(answer?.code === 0 ? { version: parseVersion(answer.out) ?? firstLine(answer.out) } : {}),
   };
 }
 
@@ -565,8 +585,7 @@ async function probeGit(override?: string): Promise<PreflightItem> {
  * `~/.local/bin` — and a user who installed it in a login shell will not have
  * that prefix on a GUI app's PATH.
  */
-async function probeClaude(override?: string): Promise<PreflightItem> {
-  const found = override && override !== "" ? which(override) : which("claude");
+function claudeItem(found: Located | null, answer?: VersionAnswer): PreflightItem {
   if (!found) {
     return {
       id: "claude",
@@ -579,7 +598,15 @@ async function probeClaude(override?: string): Promise<PreflightItem> {
     };
   }
 
-  const { code, out } = await run(found.path, ["--version"]);
+  // Not asked yet: found, and provisionally usable. Spawning the backend does
+  // not wait for a Node CLI to boot just to print its version; the complete
+  // half of the sweep asks, and the supervisor restarts the backend in the
+  // rare case the answer changes what it was started with.
+  if (!answer) {
+    return { id: "claude", label: "Claude Code CLI", required: false, status: "ok", path: found.path, source: found.source };
+  }
+
+  const { code, out } = answer;
   const version = code === 0 ? parseVersion(out) : null;
 
   // A binary that will not answer `--version` is present and unusable, and the
@@ -903,13 +930,14 @@ async function probeClaudeAccountByRunning(claudeBin: string): Promise<Partial<P
  * it; this check only prevents the earlier, more confusing failure of a
  * provider choice that could never have worked on this Mac at all.
  */
-async function probeSimpleCLI(
-  id: "agy" | "cursor-agent" | "opencode",
-  label: string,
-  binaryName: string,
-  installHint: string,
-): Promise<PreflightItem> {
-  const found = which(binaryName);
+interface SimpleCli {
+  id: "agy" | "cursor-agent" | "opencode";
+  label: string;
+  binaryName: string;
+  installHint: string;
+}
+
+function simpleCliItem({ id, label, installHint }: SimpleCli, found: Located | null, answer?: VersionAnswer): PreflightItem {
   if (!found) {
     return {
       id,
@@ -921,7 +949,6 @@ async function probeSimpleCLI(
       command: installHint,
     };
   }
-  const { code, out } = await run(found.path, ["--version"]);
   return {
     id,
     label,
@@ -929,28 +956,29 @@ async function probeSimpleCLI(
     status: "ok",
     path: found.path,
     source: found.source,
-    ...(code === 0 ? { version: parseVersion(out) ?? firstLine(out) } : {}),
+    ...(answer?.code === 0 ? { version: parseVersion(answer.out) ?? firstLine(answer.out) } : {}),
   };
 }
 
-const probeAntigravity = (): Promise<PreflightItem> =>
-  probeSimpleCLI("agy", "Antigravity CLI", "agy", "See antigravity.google/docs/cli for the install.");
-
-const probeCursorAgent = (): Promise<PreflightItem> =>
-  probeSimpleCLI(
-    "cursor-agent",
-    "Cursor CLI",
-    "cursor-agent",
-    process.platform === "win32" ? "See cursor.com/cli for the install." : "curl https://cursor.com/install -fsS | bash",
-  );
-
-const probeOpencode = (): Promise<PreflightItem> =>
-  probeSimpleCLI(
-    "opencode",
-    "OpenCode CLI",
-    "opencode",
-    process.platform === "win32" ? "npm install -g opencode-ai" : "curl -fsSL https://opencode.ai/install | bash",
-  );
+/** In report order. A function, because the install hints read the platform. */
+function simpleClis(): [SimpleCli, SimpleCli, SimpleCli] {
+  return [
+    { id: "agy", label: "Antigravity CLI", binaryName: "agy", installHint: "See antigravity.google/docs/cli for the install." },
+    {
+      id: "cursor-agent",
+      label: "Cursor CLI",
+      binaryName: "cursor-agent",
+      installHint:
+        process.platform === "win32" ? "See cursor.com/cli for the install." : "curl https://cursor.com/install -fsS | bash",
+    },
+    {
+      id: "opencode",
+      label: "OpenCode CLI",
+      binaryName: "opencode",
+      installHint: process.platform === "win32" ? "npm install -g opencode-ai" : "curl -fsSL https://opencode.ai/install | bash",
+    },
+  ];
+}
 
 // --- optional: chrome and the Xcode command line tools ----------------------
 
@@ -1016,8 +1044,7 @@ function probeChrome(override?: string): PreflightItem {
   };
 }
 
-async function probeXcodeCLT(): Promise<PreflightItem> {
-  const found = which("xcodebuild") ?? which("xcrun");
+function xcodeItem(found: Located | null, answer?: VersionAnswer): PreflightItem {
   if (!found) {
     return {
       id: "xcode-clt",
@@ -1029,7 +1056,6 @@ async function probeXcodeCLT(): Promise<PreflightItem> {
       command: "xcode-select --install",
     };
   }
-  const { code } = await run(found.path, ["--version"]);
   return {
     id: "xcode-clt",
     label: "Xcode command line tools",
@@ -1037,7 +1063,7 @@ async function probeXcodeCLT(): Promise<PreflightItem> {
     status: "ok",
     path: found.path,
     source: found.source,
-    ...(code === 0
+    ...(answer === undefined || answer.code === 0
       ? {}
       : { detail: "They are present but did not answer; the install may be incomplete." }),
   };
@@ -1070,11 +1096,16 @@ async function probeXcodeCLT(): Promise<PreflightItem> {
  * why `out` is read rather than `stdout` — reading the wrong stream reported
  * both drivers missing on a machine that had just loaded them by name.
  */
-async function probeAppium(override?: string): Promise<PreflightItem[]> {
-  // Read before the first await: iOS simulators exist only on macOS, and
-  // xcuitest is a missing row anywhere else that no install can fix.
-  const ios = process.platform === "darwin";
-  const found = override && override !== "" ? which(override) : which("appium");
+interface AppiumAnswers {
+  version?: VersionAnswer;
+  /** `appium driver list --installed`. Absent: not asked yet, so no driver rows. */
+  installed?: VersionAnswer;
+  /** Whether a hub already answers on the shared port. Absent: not asked yet. */
+  hubUp?: boolean;
+}
+
+/** `ios` is read by the caller before its first await: iOS simulators exist only on macOS. */
+function appiumItems(found: Located | null, ios: boolean, answers: AppiumAnswers = {}): PreflightItem[] {
   if (!found) {
     return [
       {
@@ -1091,10 +1122,7 @@ async function probeAppium(override?: string): Promise<PreflightItem[]> {
     ];
   }
 
-  const version = await run(found.path, ["--version"]);
-  const installed = await run(found.path, ["driver", "list", "--installed"]);
-  const hubUp = await appiumHubIsAnswering();
-
+  const { version, installed, hubUp } = answers;
   return [
     {
       id: "appium",
@@ -1103,7 +1131,7 @@ async function probeAppium(override?: string): Promise<PreflightItem[]> {
       status: "ok",
       path: found.path,
       source: found.source,
-      ...(version.code === 0 ? { version: parseVersion(version.out) ?? firstLine(version.out) } : {}),
+      ...(version?.code === 0 ? { version: parseVersion(version.out) ?? firstLine(version.out) } : {}),
       // Which hub this Mac will use, said before it matters. "TaskTrooper
       // starts one" and "one is already running" are the same outcome for a
       // task and a different one for whoever is wondering why their own hub's
@@ -1112,8 +1140,12 @@ async function probeAppium(override?: string): Promise<PreflightItem[]> {
         ? `An Appium server is already answering on ${APPIUM_BASE_URL}; TaskTrooper will use it rather than starting a second one.`
         : `TaskTrooper starts a hub on ${APPIUM_BASE_URL} while it is connected.`,
     },
-    ...(ios ? [appiumDriver("appium-xcuitest", "Appium driver: xcuitest (iOS)", installed.out, "xcuitest")] : []),
-    appiumDriver("appium-uiautomator2", "Appium driver: uiautomator2 (Android)", installed.out, "uiautomator2"),
+    ...(installed === undefined
+      ? []
+      : [
+          ...(ios ? [appiumDriver("appium-xcuitest", "Appium driver: xcuitest (iOS)", installed.out, "xcuitest")] : []),
+          appiumDriver("appium-uiautomator2", "Appium driver: uiautomator2 (Android)", installed.out, "uiautomator2"),
+        ]),
   ];
 }
 
@@ -1168,9 +1200,9 @@ export async function appiumHubIsAnswering(): Promise<boolean> {
  * `git`: a second search on the Go side with slightly different rules is how a
  * Mac drives one adb and reports another.
  */
-function probeAndroidSdk(): PreflightItem {
-  const adb = which("adb") ?? androidSdkTool("platform-tools", "adb");
-  const emulator = which("emulator") ?? androidSdkTool("emulator", "emulator");
+function probeAndroidSdk(dirs: { dir: string; source: PreflightSource }[]): PreflightItem {
+  const adb = which("adb", dirs) ?? androidSdkTool("platform-tools", "adb");
+  const emulator = which("emulator", dirs) ?? androidSdkTool("emulator", "emulator");
 
   if (!adb) {
     return {
@@ -1268,16 +1300,194 @@ export function emulatorPathFor(report: PreflightReport): string {
 
 export interface PreflightOptions {
   overrides?: Overrides;
+  /**
+   * `--version` answers remembered between launches. Absent: every binary is
+   * asked, every time — which is what the tests want.
+   */
+  cache?: PreflightCache;
+  /** Ask every binary again, cached or not: "Check again" after an install must see the install. */
+  force?: boolean;
+  /**
+   * A login-shell PATH is already in hand — one an earlier launch recorded —
+   * so the gating half need not wait for this launch's own login shell. The
+   * complete half always waits for it, and locates everything again if it
+   * turned out different.
+   */
+  loginPathKnown?: boolean;
+}
+
+/** One sweep, in its two halves. */
+export interface PreflightRun {
+  /**
+   * What spawning the backend depends on, and nothing slower: where every
+   * binary is (lookups, no processes), the two required items, and whatever
+   * versions the cache already knows. No `claude-account` row and no Appium
+   * driver rows — those are answers only a process can give.
+   */
+  gating: Promise<PreflightReport>;
+  /** Every check, including the ones that run a process. What the setup screen shows. */
+  complete: Promise<PreflightReport>;
+}
+
+/** Where everything is, as one sweep's lookups found it. */
+interface Discovery {
+  /** The login PATH the lookups were made with, so the complete half can tell if it moved. */
+  loginPath: string;
+  agentServer: PreflightItem;
+  postgres: PreflightItem;
+  chrome: PreflightItem;
+  androidSdk: PreflightItem;
+  git: Located | null;
+  claude: Located | null;
+  /** Undefined off macOS, where there is no such item at all. */
+  xcode: Located | null | undefined;
+  appium: Located | null;
+  ios: boolean;
+  clis: [SimpleCli, Located | null][];
+}
+
+const loginPathKey = (): string => knownLoginShellPath().join("\0");
+
+function discover(overrides: Overrides): Discovery {
+  const dirs = searchDirs();
+  const find = (override: string | undefined, name: string): Located | null =>
+    which(override && override !== "" ? override : name, dirs);
+  return {
+    loginPath: loginPathKey(),
+    agentServer: probeAgentServer(),
+    postgres: probePostgres(),
+    chrome: probeChrome(overrides.chromeBin),
+    androidSdk: probeAndroidSdk(dirs),
+    git: find(overrides.gitBin, "git"),
+    claude: find(overrides.claudeBin, "claude"),
+    xcode: process.platform === "darwin" ? (which("xcodebuild", dirs) ?? which("xcrun", dirs)) : undefined,
+    appium: find(overrides.appiumBin, "appium"),
+    ios: process.platform === "darwin",
+    clis: simpleClis().map((cli): [SimpleCli, Located | null] => [cli, which(cli.binaryName, dirs)]),
+  };
+}
+
+/** The list in its fixed order: the order a person should fix things in. */
+function assemble(
+  d: Discovery,
+  parts: {
+    git: PreflightItem;
+    claude: PreflightItem;
+    account?: PreflightItem;
+    xcode?: PreflightItem;
+    appium: PreflightItem[];
+    clis: PreflightItem[];
+  },
+): PreflightReport {
+  const items: PreflightItem[] = [
+    d.agentServer,
+    d.postgres,
+    parts.git,
+    parts.claude,
+    ...(parts.account ? [parts.account] : []),
+    d.chrome,
+    ...(parts.xcode ? [parts.xcode] : []),
+    ...parts.appium,
+    d.androidSdk,
+    ...parts.clis,
+  ];
+  return { generatedAt: Date.now(), items, ready: itemsAreReady(items) };
+}
+
+function gatingReport(d: Discovery, cache: PreflightCache | undefined): PreflightReport {
+  const cached = (found: Located | null): VersionAnswer | undefined => {
+    const hit = found ? cache?.version(found.path) : undefined;
+    return hit ? { code: hit.code, out: hit.out } : undefined;
+  };
+  return assemble(d, {
+    git: gitItem(d.git, cached(d.git)),
+    claude: claudeItem(d.claude, cached(d.claude)),
+    ...(d.xcode !== undefined ? { xcode: xcodeItem(d.xcode, cached(d.xcode)) } : {}),
+    appium: appiumItems(d.appium, d.ios, { version: cached(d.appium) }),
+    clis: d.clis.map(([cli, found]) => simpleCliItem(cli, found, cached(found))),
+  });
+}
+
+/** How an answer is remembered: kept for a day, kept but asked again every sweep, or not at all. */
+type Remember = "keep" | "recheck" | "skip";
+
+const answered = (answer: RunResult): Remember => (answer.code === 0 ? "keep" : "skip");
+
+/**
+ * A `claude` this app can drive is remembered; one it cannot is remembered
+ * too, but asked again every sweep. Remembered, so the next launch's gating
+ * half starts the backend on the same answer this one ended on rather than on
+ * a provisional "ok" it would have to restart over. Asked again, so updating
+ * the CLI — or fixing the node its shebang needs, which does not touch the
+ * binary — is seen in the very next sweep.
+ */
+const claudeAnswered = (answer: RunResult): Remember => {
+  const version = answer.code === 0 ? parseVersion(answer.out) : null;
+  return version !== null && compareVersions(version, MIN_CLAUDE_VERSION) >= 0 ? "keep" : "recheck";
+};
+
+async function versionOf(
+  found: Located | null,
+  opts: PreflightOptions,
+  remember: (answer: RunResult) => Remember = answered,
+): Promise<VersionAnswer | undefined> {
+  if (!found) return undefined;
+  const hit = opts.force ? undefined : opts.cache?.version(found.path);
+  if (hit?.fresh) return { code: hit.code, out: hit.out };
+  const answer = await run(found.path, ["--version"]);
+  const how = remember(answer);
+  // A failure is not remembered, and neither is the success it contradicts:
+  // a later unforced sweep would show that one as if nothing had changed.
+  if (how === "skip") opts.cache?.forgetVersion(found.path);
+  else opts.cache?.setVersion(found.path, answer, { recheck: how === "recheck" });
+  return { code: answer.code, out: answer.out };
+}
+
+async function completeReport(d: Discovery, opts: PreflightOptions): Promise<PreflightReport> {
+  // The account probe starts the moment the CLI's own answer is in — at once
+  // when that answer is cached — rather than after the slowest probe of all.
+  const claude = versionOf(d.claude, opts, claudeAnswered).then((answer) => claudeItem(d.claude, answer));
+  const account = claude.then(probeClaudeAccount);
+  const appium = d.appium
+    ? Promise.all([
+        versionOf(d.appium, opts),
+        run(d.appium.path, ["driver", "list", "--installed"]),
+        appiumHubIsAnswering(),
+      ]).then(([version, installed, hubUp]) => appiumItems(d.appium, d.ios, { version, installed, hubUp }))
+    : Promise.resolve(appiumItems(null, d.ios));
+
+  const [git, claudeDone, accountDone, xcode, appiumDone, clis] = await Promise.all([
+    versionOf(d.git, opts).then((answer) => gitItem(d.git, answer)),
+    claude,
+    account,
+    d.xcode === undefined ? Promise.resolve(undefined) : versionOf(d.xcode, opts).then((answer) => xcodeItem(d.xcode ?? null, answer)),
+    appium,
+    Promise.all(d.clis.map(([cli, found]) => versionOf(found, opts).then((answer) => simpleCliItem(cli, found, answer)))),
+  ]);
+
+  return assemble(d, {
+    git,
+    claude: claudeDone,
+    account: accountDone,
+    ...(xcode ? { xcode } : {}),
+    appium: appiumDone,
+    clis,
+  });
 }
 
 /**
- * Run every check and assemble the report.
+ * Start a sweep, in two halves.
  *
- * In parallel, because they are independent and the slowest of them (the
- * account probe, which may refresh a token over the network) would otherwise
- * set the floor for all of them. The ORDER of the returned list is fixed and
- * meaningful: it is the order a person should fix things in, so a UI that
- * renders it top to bottom needs no sort of its own.
+ * The gating half is lookups and nothing else, so the backend's start waits
+ * for a few milliseconds of `stat` calls rather than for a login shell, a
+ * `--version` per CLI, `appium driver list` and `claude auth status` (each a
+ * Node process, several hundred milliseconds apiece, and the last one network
+ * bound). Everything the backend's environment is built from is decided there:
+ * `agentServerEnv` reads where the CLIs are, never the account — see
+ * supervisor/env.ts.
+ *
+ * The complete half runs every probe, in parallel, because they are
+ * independent and the slowest would otherwise set the floor for all of them.
  *
  * The embedding engine is not a check here. It is the bundled `embedder` child
  * (`main/supervisor/supervisor.ts`), started unconditionally at app init rather
@@ -1286,40 +1496,32 @@ export interface PreflightOptions {
  * surfaces as that child's own status on Diagnostics, the same non-blocking
  * mechanism Appium's crash or absence already uses.
  */
-export async function preflight(opts: PreflightOptions): Promise<PreflightReport> {
+export function startPreflight(opts: PreflightOptions = {}): PreflightRun {
   const overrides = opts.overrides ?? {};
   // Once per process, bounded, and empty on any failure; `which()` and the
   // probe environment read what it found.
-  await loginShellPath();
+  const loginPath = loginShellPath();
+  const located = (async () => {
+    if (!opts.loginPathKnown) await loginPath;
+    return discover(overrides);
+  })();
+  const gating = located.then((d) => gatingReport(d, opts.cache));
+  const complete = located.then(async (d) => {
+    await loginPath;
+    // A PATH that moved since the lookups (a seeded one that went stale) means
+    // the lookups are looked up again; the probes then run against this
+    // launch's own PATH either way.
+    return completeReport(d.loginPath === loginPathKey() ? d : discover(overrides), opts);
+  });
+  // Callers that only want the complete half must not see an unhandled
+  // rejection from the other one.
+  gating.catch(() => undefined);
+  return { gating, complete };
+}
 
-  const claudePromise = probeClaude(overrides.claudeBin);
-  const [git, claude, xcode, appium, agy, cursorAgent, opencode] = await Promise.all([
-    probeGit(overrides.gitBin),
-    claudePromise,
-    process.platform === "darwin" ? probeXcodeCLT() : Promise.resolve(null),
-    probeAppium(overrides.appiumBin),
-    probeAntigravity(),
-    probeCursorAgent(),
-    probeOpencode(),
-  ]);
-  const account = await probeClaudeAccount(claude);
-
-  const items: PreflightItem[] = [
-    probeAgentServer(),
-    probePostgres(),
-    git,
-    claude,
-    account,
-    probeChrome(overrides.chromeBin),
-    ...(xcode ? [xcode] : []),
-    ...appium,
-    probeAndroidSdk(),
-    agy,
-    cursorAgent,
-    opencode,
-  ];
-
-  return { generatedAt: Date.now(), items, ready: itemsAreReady(items) };
+/** Run every check and assemble the whole report: `startPreflight`'s complete half. */
+export function preflight(opts: PreflightOptions = {}): Promise<PreflightReport> {
+  return startPreflight(opts).complete;
 }
 
 /**

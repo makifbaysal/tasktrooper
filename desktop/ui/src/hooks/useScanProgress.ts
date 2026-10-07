@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type ProjectScan } from "@/api";
+import { usePolling } from "@/hooks/usePolling";
 import { isScanFinished } from "@/lib/project-model";
+import { keepEqual } from "@/lib/stableState";
 
 interface UseScanProgressOptions {
   /** Whether to poll at all — off while the caller has no reason to watch a scan yet. */
@@ -25,7 +27,7 @@ export function useScanProgress(repositoryId: string | undefined, options: UseSc
     try {
       const res = await api.getLatestRepositoryScan(repositoryId);
       if (versionRef.current !== version) return;
-      setScan(res.scan);
+      setScan((prev) => keepEqual(prev, res.scan));
       setError(null);
     } catch (e) {
       if (versionRef.current !== version) return;
@@ -41,14 +43,7 @@ export function useScanProgress(repositoryId: string | undefined, options: UseSc
 
   const finished = isScanFinished(scan);
 
-  useEffect(() => {
-    if (!repositoryId || !enabled || finished) return;
-    void refresh();
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, pollMs);
-    return () => window.clearInterval(timer);
-  }, [repositoryId, enabled, finished, pollMs, refresh]);
+  usePolling(refresh, pollMs, !!repositoryId && enabled && !finished);
 
   return { scan, finished, error, refresh };
 }

@@ -19,19 +19,19 @@ export function findOpenClarification(messages: SessionMessage[]): Clarification
 }
 
 /**
- * Finds the reply that answered a clarification: the first user message after
- * it. Returns null while the question is still open.
+ * The reply that answered each clarification — the first user message after
+ * it — keyed by the asking message's id, in one pass. A clarification with no
+ * entry is still open.
  */
-export function findClarificationAnswer(
-  messages: SessionMessage[],
-  messageId: string,
-): string | null {
-  const index = messages.findIndex((m) => m.id === messageId);
-  if (index < 0) return null;
-  for (let i = index + 1; i < messages.length; i++) {
-    if (messages[i].role === "user") return messages[i].content;
+export function clarificationAnswers(messages: SessionMessage[]): Map<string, string> {
+  const answers = new Map<string, string>();
+  let nextUserReply: string | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.clarification && nextUserReply !== null) answers.set(message.id, nextUserReply);
+    if (message.role === "user") nextUserReply = message.content;
   }
-  return null;
+  return answers;
 }
 
 /**

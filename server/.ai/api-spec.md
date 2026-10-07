@@ -136,10 +136,11 @@ alongside `documents`.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /metrics` | `bridge_requests_total`, `bridge_tool_calls_total`, `bridge_agent_iterations`, `bridge_llm_latency_seconds`, `bridge_mcp_errors_total` |
+| `GET /metrics` | `bridge_requests_total`, `bridge_tool_calls_total`, `bridge_agent_iterations`, `bridge_llm_latency_seconds`, `bridge_mcp_errors_total`; request series are labelled by route pattern (`/v1/tasks/:id`), not the raw path |
 | `GET /docs` | OpenAPI 3.0 YAML |
 | `POST /admin/reload` | Reloads config, reconnects MCP servers; no HTTP restart |
-| `GET /health` | No auth; bridge + LM Studio status |
+| `GET /health` | No auth; bridge + provider status. Provider probes are reused for 60s (15s after a failure) and dropped when a provider or endpoint changes; `?fresh=1` probes now |
+| `GET /v1/tasks` | The board. Strong `ETag` + `Cache-Control: no-cache`; a matching `If-None-Match` gets `304`, answered without reading the board while this process has written nothing it shows, for at most 10 s (another host on the same database is seen within that). Each task carries `agent_running` |
 | `GET /v1/releases` | Every repository's releases newest first (Operations → Deployments). Filters `repository_id`, `component_id`, `status` (comma list), `before` (RFC3339 `created_at` cursor), `limit` ≤ 100 |
 | `GET /v1/usage?days=30&tz=Europe/Istanbul` | Token usage aggregates from `llm_usage`, split into `generation` (kind api+cli) and `embedding` totals, plus `by_model` (grouped by kind/provider/model) and `daily` (generation only, bucketed by local day in `tz`). `days` 1-365, `tz` an IANA name (empty/invalid → UTC) |
 

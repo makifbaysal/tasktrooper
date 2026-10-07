@@ -17,8 +17,6 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agentfs"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/htmldoc"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/memory"
-	"github.com/makifbaysal/tasktrooper/server/internal/application/orchestrator"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
@@ -156,7 +154,6 @@ func (r *Runner) workflowFor(ctx context.Context, taskType domain.TaskType) doma
 type Runner struct {
 	agentLoop         agent.Runner
 	executor          port.TaskExecutor
-	orchSvc           *orchestrator.Service
 	catalog           port.CatalogStore
 	activityStore     port.ActivityStore
 	runs              port.TaskAgentRunStore
@@ -207,6 +204,11 @@ type Runner struct {
 	taskSlots         *slotGate
 	taskSlotHeld      map[uuid.UUID]bool
 	cancels           map[uuid.UUID]context.CancelFunc
+	bgMu              sync.Mutex
+	bgCtx             context.Context
+	bgCancel          context.CancelFunc
+	bgStopped         bool
+	bgWG              sync.WaitGroup
 }
 
 const runHeartbeat = 10 * time.Second
@@ -221,7 +223,6 @@ func persistCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 
 type RunnerDeps struct {
 	AgentLoop           agent.Runner
-	OrchSvc             *orchestrator.Service
 	Catalog             port.CatalogStore
 	ActivityStore       port.ActivityStore
 	Runs                port.TaskAgentRunStore
@@ -255,7 +256,6 @@ func NewRunner(deps RunnerDeps) *Runner {
 	}
 	return &Runner{
 		agentLoop:         deps.AgentLoop,
-		orchSvc:           deps.OrchSvc,
 		catalog:           deps.Catalog,
 		activityStore:     deps.ActivityStore,
 		runs:              deps.Runs,
@@ -377,12 +377,14 @@ func (r *Runner) SetParkJournal(j *ParkJournal) {
 
 func (r *Runner) Start(ctx context.Context) {
 	ctx, r.cancel = context.WithCancel(ctx)
+	r.startBackground(ctx)
 	r.wg.Add(1)
 	go r.dispatch(ctx)
 }
 
 func (r *Runner) Stop() {
 	r.closeDrain()
+	r.stopBackground()
 	if r.cancel != nil {
 		r.cancel()
 	}
@@ -391,6 +393,7 @@ func (r *Runner) Stop() {
 
 func (r *Runner) Drain(ctx context.Context) {
 	r.closeDrain()
+	r.stopBackground()
 	done := make(chan struct{})
 	go func() {
 		r.wg.Wait()
@@ -886,36 +889,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	changedSinceVerdict := r.changedSinceByVerifiedSHA(runCtx, workDir, criteriaItems)
 	triggerMsg := buildTriggerMessage(job, wf, criteriaItems, changedSinceVerdict)
 
-	var scoreMsg, kpiMsg, memMsg, diffMsg, prMsg, pipelineMsg, revisionMsg, reviewMsg, clarificationsMsg, prevFailuresMsg, analysisMsg, questionsMsg string
-
-	if r.perfStore != nil {
-		if perfScore, perfErr := r.perfStore.GetScore(runCtx, agentRec.ID); perfErr == nil {
-			recent, _ := r.perfStore.RecentEvents(runCtx, agentRec.ID, 5)
-			scoreMsg = prompt.ScoreContextMessage(perfScore, recent)
-		}
-	}
-	if r.kpis != nil {
-		kpiDefs, kpiErr := r.kpis.ListByAgent(runCtx, agentRec.ID)
-		if kpiErr == nil && len(kpiDefs) > 0 {
-			latest, _ := r.kpis.LatestResults(runCtx, agentRec.ID)
-			kpiMsg = prompt.KPIContextMessage(kpiDefs, latest)
-		}
-	}
-	if r.memories != nil {
-		repositoryID := job.RepositoryID
-		repoName := ""
-		if repo, repoErr := r.projects.ResolveRepository(runCtx, repositoryID); repoErr == nil {
-			repoName = repo.Name
-		}
-		if mems := memory.Recall(runCtx, r.memories, agentRec.ID, &repositoryID, 8); len(mems) > 0 {
-			memMsg = prompt.MemoryContextMessage(mems, repoName)
-		}
-	}
-	if taskWorkspace != "" && r.git != nil {
-		if diff, diffErr := r.git.TaskDiff(ctx, taskWorkspace); diffErr == nil && diff != "" {
-			diffMsg = reviewDiffMessage(wf, job.Task.Column, diff)
-		}
-	}
+	var prMsg string
 	if wf.Has(job.Task.Column, domain.BehaviourRequirePRForReview) && taskWorkspace != "" && r.git != nil {
 		var prErr error
 		prMsg, prErr = r.reviewPRContext(ctx, taskWorkspace, job.Task.ID)
@@ -929,41 +903,39 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			return err
 		}
 	}
+	blocks := r.gatherRunContext(ctx, runCtx, job, wf, agentRec.ID, repoRec.Name, taskWorkspace)
+	scoreMsg, kpiMsg, memMsg, diffMsg := blocks.score, blocks.kpi, blocks.memory, blocks.diff
+	pipelineMsg, analysisMsg, questionsMsg := blocks.pipeline, blocks.analysis, blocks.questions
+	var revisionMsg, reviewMsg, prevFailuresMsg string
 	if job.isRevision() {
-		prMsg = r.revisionPRComments(ctx, job)
+		prMsg = blocks.revisionPR
+		revisionMsg = revisionCommentsMessage(blocks.comments)
+		reviewMsg = blocks.review
 	}
-	if job.isRevision() && r.pipelines != nil {
-		if pl, plErr := r.pipelines.LatestByTask(ctx, job.Task.ID); plErr != nil {
-			if !errors.Is(plErr, domain.ErrPipelineNotFound) {
-				log.Warn().Err(plErr).Str("task_id", job.Task.ID.String()).Msg("fetch latest pipeline for revision context failed")
-			}
-		} else if pl.Status == domain.PipelineStatusFailed {
-			report := pipelineFailureReport(pl)
-			pipelineMsg = "## Pipeline failure (fix these before moving back to ready_for_qa)\n" + report
+	humanMsg := humanRequirementsMessage(blocks.comments)
+	clarificationsMsg := prompt.AnsweredClarificationsMessage(blocks.comments)
+	resumeCLISession, resumePrompt := "", ""
+	var prevRuns []domain.TaskAgentRun
+	if blocks.prevRunsErr != nil {
+		log.Warn().Err(blocks.prevRunsErr).Str("task_id", job.Task.ID.String()).Msg("previous run lookup for failure context failed")
+	} else {
+		prevRuns = blocks.prevRuns[:min(len(blocks.prevRuns), quotaParkHistoryDepth)]
+		prevFailuresMsg = previousRunFailuresMessage(prevRuns, run.ID)
+		resumeCLISession = latestCLISession(prevRuns, run.ID, job.Run.AgentID, agentRec.ProviderType)
+		if resumeCLISession == "" && job.isRevision() && agentRec.ProviderType == domain.LLMProviderClaudeCode {
+			resumeCLISession = revisionCLISession(blocks.prevRuns, run.ID, job.Run.AgentID, workDir)
+		}
+		// Every resumed revision is handed the feedback, a quota-park resume
+		// included: the park can land before the CLI ever started, leaving the
+		// parked session the one from before the task was sent back.
+		if resumeCLISession != "" && job.isRevision() {
+			resumePrompt = revisionResumePrompt(job.Task, triggerMsg,
+				humanMsg, prMsg, pipelineMsg, revisionMsg, reviewMsg, clarificationsMsg, prevFailuresMsg)
+			log.Info().Str("task_id", job.Task.ID.String()).Str("cli_session_id", resumeCLISession).
+				Msg("revision run resumes the agent's previous cli session with the review feedback")
 		}
 	}
-	analysisMsg = r.analysisContext(ctx, job)
-	questionsMsg = r.openQuestionsContext(ctx, job)
-	comments := r.taskComments(ctx, job)
-	humanMsg := humanRequirementsMessage(comments)
-	if job.isRevision() {
-		revisionMsg = revisionCommentsMessage(comments)
-		reviewMsg = r.reviewAnnotationsMessage(ctx, job)
-	}
-	clarificationsMsg = prompt.AnsweredClarificationsMessage(comments)
-	resumeCLISession := ""
-	var prevRuns []domain.TaskAgentRun
-	if rows, prevErr := r.runs.ListByTask(runCtx, job.Task.ID, quotaParkHistoryDepth); prevErr != nil {
-		log.Warn().Err(prevErr).Str("task_id", job.Task.ID.String()).Msg("previous run lookup for failure context failed")
-	} else {
-		prevRuns = rows
-		prevFailuresMsg = previousRunFailuresMessage(prevRuns, run.ID)
-		resumeCLISession = latestCLISession(prevRuns, run.ID, job.Run.AgentID)
-	}
-	var projectDesc string
-	if repoCtx, repoCtxErr := r.projects.ResolveRepository(ctx, job.RepositoryID); repoCtxErr == nil {
-		projectDesc = repoCtx.Description
-	}
+	projectDesc := repoRec.Description
 
 	policy := domain.MergeToolPolicy(r.defaultPolicy, agentRec.ToolPolicy)
 	stage, _ := wf.Stage(job.Task.Column)
@@ -1038,6 +1010,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	var resp domain.AgentResponse
 	cliSession := &agent.CLISession{}
 	runCtx = agent.ContextWithCLISession(runCtx, cliSession)
+	runCtx = withRunRepository(runCtx, repoRec)
 	switch {
 	case domain.RequiresHostExecutor(agentRec.ProviderType):
 		if r.executor == nil || !r.executor.Supports(agentRec.ProviderType) {
@@ -1059,13 +1032,13 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			WorkDir:         workDir,
 			Env:             sessionEnv,
 			ResumeSessionID: resumeCLISession,
+			Prompt:          resumePrompt,
 			TaskKey:         job.Task.Key,
 			TaskTitle:       job.Task.Title,
 			SkillsOnDisk:    skillDelivery == prompt.SkillsOnDisk,
 		})
 		cliSession.Set(resp.CLISessionID)
-	case r.orchSvc != nil:
-		resp, err = r.orchSvc.RunSolo(runCtx, triggerMsg, history, model, upliftedPolicy, r.language(runCtx), job.Run.AgentID)
+		stampCLISession(&run, cliSession.ID(), agentRec.ProviderType)
 	default:
 		resp, err = r.agentLoop.RunTask(runCtx, history, model, agentRec.ProviderType, upliftedPolicy,
 			agent.WithLightModel(agentRec.Model), agent.WithSessionLimits(agentRec.MaxTurns, agentRec.Effort))
@@ -1099,10 +1072,11 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 
 	buildVerified := true
 	sendBackReason := ""
+	var advisory advisoryChecks
 	if r.verifyEnabled && taskWorkspace != "" && resp.Clarification == nil && resp.ResourceBlock == nil &&
 		wf.Has(job.Task.Column, domain.BehaviourBuildVerify) {
 		var quotaBlock *domain.QuotaBlock
-		resp, buildVerified, quotaBlock = r.verifyAndFix(runCtx, job, agentRec, history, resp, model, upliftedPolicy, taskWorkspace)
+		resp, buildVerified, quotaBlock, advisory = r.verifyAndFix(runCtx, job, agentRec, history, resp, model, upliftedPolicy, taskWorkspace)
 		if quotaBlock != nil {
 			stampToolStats(&run, toolUsage)
 			stampTokenUsage(&run, tokenUsage)
@@ -1191,14 +1165,19 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 					pushRefused = true
 					r.parkOnWorkflowScope(ctx, job)
 				}
-			} else if r.branchIndexer != nil && taskBranch != "" {
-				r.branchIndexer.StartIndexBranch(ctx, job.RepositoryID, taskBranch, taskWorkspace)
+			} else {
+				advisory.commit = r.handoffCommit(ctx, advisory)
+				if r.branchIndexer != nil && taskBranch != "" {
+					r.branchIndexer.StartIndexBranch(ctx, job.RepositoryID, taskBranch, taskWorkspace)
+				}
 			}
 		}
 		if pushRefused {
 			log.Info().Str("task_id", job.Task.ID.String()).Msg("hand-off: push refused for a workflow file, task parked for a token")
 		} else if buildVerified {
-			r.advanceToCodeReview(ctx, job, wf, taskWorkspace, toolUsage)
+			if r.advanceToCodeReview(ctx, job, wf, taskWorkspace, toolUsage) {
+				r.startAdvisoryChecks(job, advisory)
+			}
 			if !r.blockOnPendingQuestions(ctx, job) {
 				r.advanceToAnalizReview(ctx, job, wf, toolUsage)
 			}
@@ -1210,6 +1189,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 				Msg("hand-off: verification failed, task stays in the working column")
 		}
 	}
+	stampCLISession(&run, cliSession.ID(), agentRec.ProviderType)
 	pctx, cancelPersist := persistCtx(ctx)
 	defer cancelPersist()
 	_, err = r.runs.Update(pctx, run)
@@ -1264,7 +1244,12 @@ func (r *Runner) parkOnQuota(ctx context.Context, job RunJob, run domain.TaskAge
 		resumeAt = time.Now().Add(domain.QuotaParkWindow(streak))
 	}
 	run.Status = domain.TaskAgentRunStatusCompleted
-	run.CLISessionID = block.CLISessionID
+	run.CLISessionID, run.CLIProvider = "", ""
+	provider := block.Provider
+	if provider == "" {
+		provider = agentRec.ProviderType
+	}
+	stampCLISession(&run, block.CLISessionID, provider)
 	run.QuotaResumeAt = &resumeAt
 	head := "usage limit reached"
 	if label := block.ProviderLabel(); label != "" {
@@ -1347,7 +1332,10 @@ func quotaParkStreak(prevRuns []domain.TaskAgentRun, currentRunID uuid.UUID) int
 	return streak
 }
 
-func latestCLISession(prevRuns []domain.TaskAgentRun, currentRunID, agentID uuid.UUID) string {
+// latestCLISession is the session a quota-parked run left to resume. A park
+// recorded before cli_provider existed carries no provider and is trusted, as
+// it always was; one recorded under another provider is not this CLI's.
+func latestCLISession(prevRuns []domain.TaskAgentRun, currentRunID, agentID uuid.UUID, provider domain.LLMProviderType) string {
 	for _, prev := range prevRuns {
 		if prev.ID == currentRunID {
 			continue
@@ -1358,9 +1346,20 @@ func latestCLISession(prevRuns []domain.TaskAgentRun, currentRunID, agentID uuid
 		if prev.QuotaResumeAt == nil {
 			return ""
 		}
+		if prev.CLIProvider != "" && prev.CLIProvider != provider {
+			return ""
+		}
 		return prev.CLISessionID
 	}
 	return ""
+}
+
+func stampCLISession(run *domain.TaskAgentRun, sessionID string, provider domain.LLMProviderType) {
+	if sessionID == "" {
+		return
+	}
+	run.CLISessionID = sessionID
+	run.CLIProvider = provider
 }
 
 func (r *Runner) openClarificationChat(ctx context.Context, job RunJob, agentRec domain.Agent, resp domain.AgentResponse, rootPath string) {
@@ -1512,23 +1511,23 @@ type taskColumnReader interface {
 	GetTask(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error)
 }
 
-func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.Workflow, taskWorkspace string, usage *registry.ToolUsage) {
+func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.Workflow, taskWorkspace string, usage *registry.ToolUsage) bool {
 	if r.taskUpdater == nil || r.git == nil || taskWorkspace == "" {
-		return
+		return false
 	}
 	target, ok := wf.Param(job.Task.Column, domain.BehaviourAdvanceOnDiff, "to")
 	if !ok || target == "" {
-		return
+		return false
 	}
 
 	diff, diffErr := r.git.TaskDiff(ctx, taskWorkspace)
 	if diffErr != nil {
 		log.Warn().Err(diffErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: task diff unreadable, leaving the column to the agent")
-		return
+		return false
 	}
 	if strings.TrimSpace(diff) == "" {
 		log.Info().Str("task_id", job.Task.ID.String()).Msg("hand-off: run produced no diff, task stays where it is")
-		return
+		return false
 	}
 
 	if reader, ok := r.taskUpdater.(taskColumnReader); ok {
@@ -1537,7 +1536,7 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 		} else if fresh.Column != job.Task.Column {
 			log.Info().Str("task_id", job.Task.ID.String()).Str("column", string(fresh.Column)).
 				Msg("hand-off: task already left the column during the run")
-			return
+			return false
 		}
 	}
 
@@ -1550,12 +1549,12 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 				Msg("hand-off: run wrote a diff but none of its commands succeeded, sending the task back for revision")
 			r.sendBackForRevision(ctx, job, wf,
 				handoffFailedCommandsKey.Render(handoffFailedCommandsInput{Failed: failed}), domain.MoveReasonHandoffUnverified)
-			return
+			return false
 		}
 		log.Warn().Str("task_id", job.Task.ID.String()).
 			Msg("hand-off: run wrote a diff but never executed a command, sending the task back for revision")
 		r.refuseHandoff(ctx, job, wf, handoffUnverifiedRunKey, domain.MoveReasonHandoffUnverified)
-		return
+		return false
 	}
 
 	if usage != nil && r.uiRepo(ctx, job.RepositoryID) && !usage.UsedAny(domain.UIObservationTools...) {
@@ -1567,7 +1566,7 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 			log.Warn().Str("task_id", job.Task.ID.String()).
 				Msg("hand-off: UI change never observed, sending the task back for revision")
 			r.refuseHandoff(ctx, job, wf, handoffUnseenUIKey, domain.MoveReasonHandoffUnseenUI)
-			return
+			return false
 		}
 	}
 
@@ -1580,10 +1579,11 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 	}); err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("hand-off: automatic move to code_review failed")
 		r.handleRefusedAdvance(ctx, job, wf, err, handoffCodeReviewRefusedKey, handoffCodeReviewRefusedRevisionKey)
-		return
+		return false
 	}
 	log.Info().Str("task_id", job.Task.ID.String()).Str("agent_id", agentID.String()).
 		Msg("hand-off: implementation run finished with a diff, task moved to code_review")
+	return true
 }
 
 // ciConfigOnlyDiff reports a diff that only touches CI configuration: there
@@ -2093,8 +2093,9 @@ func (r *Runner) taskComments(ctx context.Context, job RunJob) []domain.TaskComm
 func revisionCommentsMessage(comments []domain.TaskComment) string {
 	feedback := make([]domain.TaskComment, 0, len(comments))
 	for _, c := range comments {
-		// The human's own comments ride in humanRequirementsMessage, on every run.
-		if c.AuthorType != "user" && !prompt.IsClarificationComment(c.Content) {
+		// The human's own comments ride in humanRequirementsMessage, on every
+		// run; an advisory-checks note describes the change but did not send it back.
+		if c.AuthorType != "user" && !prompt.IsClarificationComment(c.Content) && !isAdvisoryChecksComment(c.Content) {
 			feedback = append(feedback, c)
 		}
 	}

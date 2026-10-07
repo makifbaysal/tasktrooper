@@ -422,20 +422,37 @@ func TestLatestCLISessionOnlyContinuesAParkedRun(t *testing.T) {
 	agent := uuid.New()
 	parked := time.Now().Add(-time.Hour)
 
-	assert.Equal(t, "", latestCLISession(nil, current, agent), "a task with no history starts fresh")
+	assert.Equal(t, "", latestCLISession(nil, current, agent, domain.LLMProviderClaudeCode), "a task with no history starts fresh")
 	assert.Equal(t, "", latestCLISession([]domain.TaskAgentRun{
 		{ID: current, AgentID: agent, CLISessionID: "own", QuotaResumeAt: &parked},
-	}, current, agent), "resuming the session inside the run that owns it is nonsense")
+	}, current, agent, domain.LLMProviderClaudeCode), "resuming the session inside the run that owns it is nonsense")
 	assert.Equal(t, "sess-parked", latestCLISession([]domain.TaskAgentRun{
 		{ID: current, AgentID: agent},
 		{ID: uuid.New(), AgentID: agent, CLISessionID: "sess-parked", QuotaResumeAt: &parked},
-	}, current, agent))
+	}, current, agent, domain.LLMProviderClaudeCode))
 
 	assert.Equal(t, "", latestCLISession([]domain.TaskAgentRun{
 		{ID: current, AgentID: agent},
 		{ID: uuid.New(), AgentID: agent, Status: domain.TaskAgentRunStatusCompleted},
 		{ID: uuid.New(), AgentID: agent, CLISessionID: "sess-older-park", QuotaResumeAt: &parked},
-	}, current, agent), "only the run immediately before this one may be continued")
+	}, current, agent, domain.LLMProviderClaudeCode), "only the run immediately before this one may be continued")
+}
+
+func TestLatestCLISessionBelongsToTheCLIThatParkedIt(t *testing.T) {
+	current, agent := uuid.New(), uuid.New()
+	parked := time.Now().Add(-time.Hour)
+	history := func(provider domain.LLMProviderType) []domain.TaskAgentRun {
+		return []domain.TaskAgentRun{
+			{ID: current, AgentID: agent},
+			{ID: uuid.New(), AgentID: agent, CLISessionID: "sess-parked", CLIProvider: provider, QuotaResumeAt: &parked},
+		}
+	}
+
+	assert.Equal(t, "sess-parked", latestCLISession(history(domain.LLMProviderClaudeCode), current, agent, domain.LLMProviderClaudeCode))
+	assert.Equal(t, "", latestCLISession(history(domain.LLMProviderCursorAgent), current, agent, domain.LLMProviderClaudeCode),
+		"the agent moved to another CLI while parked")
+	assert.Equal(t, "sess-parked", latestCLISession(history(""), current, agent, domain.LLMProviderClaudeCode),
+		"a park recorded before the provider was stored still resumes")
 }
 
 func TestLatestCLISessionIsNotSharedBetweenAgents(t *testing.T) {
@@ -449,9 +466,9 @@ func TestLatestCLISessionIsNotSharedBetweenAgents(t *testing.T) {
 		{ID: uuid.New(), AgentID: mine, CLISessionID: "sess-mine", QuotaResumeAt: &parked},
 	}
 
-	assert.Equal(t, "sess-theirs", latestCLISession(history, current, theirs),
+	assert.Equal(t, "sess-theirs", latestCLISession(history, current, theirs, domain.LLMProviderClaudeCode),
 		"the agent that parked continues its own session")
-	assert.Equal(t, "", latestCLISession(history, current, mine),
+	assert.Equal(t, "", latestCLISession(history, current, mine, domain.LLMProviderClaudeCode),
 		"another agent's park is not this agent's session to resume, even when an older one of its own exists")
 }
 

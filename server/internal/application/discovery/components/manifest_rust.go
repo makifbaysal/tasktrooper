@@ -18,6 +18,7 @@ func (rustEcosystem) Roots(tree *inventory.Tree) []string {
 var (
 	cargoNameRe    = regexp.MustCompile(`(?m)^name\s*=\s*"([^"]+)"`)
 	cargoDepLineRe = regexp.MustCompile(`(?m)^([A-Za-z0-9_-]+)\s*=`)
+	toolchainRe    = regexp.MustCompile(`channel\s*=\s*"([^"]+)"`)
 )
 
 func (rustEcosystem) Read(tree *inventory.Tree, dir string) *ManifestInfo {
@@ -46,7 +47,7 @@ func (rustEcosystem) Read(tree *inventory.Tree, dir string) *ManifestInfo {
 		}
 	}
 	if rt := strings.TrimSpace(tree.ReadString(inventory.Join(dir, "rust-toolchain.toml"))); rt != "" {
-		if m := regexp.MustCompile(`channel\s*=\s*"([^"]+)"`).FindStringSubmatch(rt); m != nil {
+		if m := toolchainRe.FindStringSubmatch(rt); m != nil {
 			info.LanguageVersion = m[1]
 		}
 	} else if rt := strings.TrimSpace(tree.ReadString(inventory.Join(dir, "rust-toolchain"))); rt != "" {

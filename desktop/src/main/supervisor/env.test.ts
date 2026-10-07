@@ -10,9 +10,11 @@ vi.mock("electron", () => ({
 // backend is always handed the bundled catalog path.
 vi.mock("node:fs", () => ({
   existsSync: (p: string) => p === "/catalog",
+  // fnm's per-shell directory: a different name for the same binary each launch.
+  realpathSync: (p: string) => p.replace(/^\/multishell\/\d+\//, "/fnm/default/"),
 }));
 
-const { agentServerEnv, appiumArgs, childEnv } = await import("./env.js");
+const { agentServerEnv, appiumArgs, childEnv, spawnFingerprint } = await import("./env.js");
 const { APPIUM_BASE_URL } = await import("../services/detect.js");
 
 const report = (extra: PreflightReport["items"] = []): PreflightReport => ({
@@ -252,5 +254,45 @@ describe("appiumArgs", () => {
   it("binds the hub to loopback and to Appium's own port", () => {
     expect(appiumArgs()).toEqual(["--address", "127.0.0.1", "--port", "4723"]);
     expect(APPIUM_BASE_URL).toBe("http://127.0.0.1:4723");
+  });
+});
+
+/**
+ * The backend starts on the gating half of a sweep and the supervisor restarts
+ * it only when the complete half changes what its environment is built from.
+ * Both directions matter: a missed difference is a backend with the wrong
+ * CLAUDE_CODE_BIN, and a false one is a restart on every launch.
+ */
+describe("spawnFingerprint", () => {
+  const claude = (patch: Partial<PreflightReport["items"][number]>): PreflightReport["items"][number] => ({
+    id: "claude",
+    label: "Claude Code CLI",
+    required: false,
+    status: "ok",
+    path: "/opt/homebrew/bin/claude",
+    ...patch,
+  });
+  const with_ = (items: PreflightReport["items"]): PreflightReport => ({ generatedAt: 1, ready: true, items });
+
+  it("changes when a provisionally usable claude turns out unusable", () => {
+    expect(spawnFingerprint(with_([claude({})]))).not.toBe(spawnFingerprint(with_([claude({ status: "unusable" })])));
+  });
+
+  it("changes when a CLI appears that the backend was not told about", () => {
+    const opencode = { id: "opencode" as const, label: "OpenCode", required: false, status: "ok" as const, path: "/o/opencode" };
+    expect(spawnFingerprint(with_([claude({})]))).not.toBe(spawnFingerprint(with_([claude({}), opencode])));
+  });
+
+  it("does not change for what the backend never reads: versions, details, the account", () => {
+    const account = { id: "claude-account" as const, label: "Claude account", required: false, status: "missing" as const };
+    expect(spawnFingerprint(with_([claude({})]))).toBe(
+      spawnFingerprint(with_([claude({ version: "2.1.0", detail: "x" }), account])),
+    );
+  });
+
+  it("does not change when the same binary is reached through a different symlink", () => {
+    expect(spawnFingerprint(with_([claude({ path: "/multishell/111/bin/claude" })]))).toBe(
+      spawnFingerprint(with_([claude({ path: "/multishell/222/bin/claude" })])),
+    );
   });
 });

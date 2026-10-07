@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Agent } from "@/api";
@@ -248,6 +248,24 @@ describe("AgentChatPage server-driven typing indicator and focus refresh", () =>
 
     await waitFor(() => expect(sessionActivity).toHaveBeenCalled());
     expect(screen.queryByLabelText("Assistant is typing")).not.toBeInTheDocument();
+  });
+
+  it("re-reads an idle session's activity every 10s, not every 2s", async () => {
+    sessionActivity.mockReset().mockResolvedValue({ runs: [{ ...runningRun, status: "completed" }] });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      renderChatPage("/agents/agent-1/chat/session-1");
+      await waitFor(() => expect(sessionActivity).toHaveBeenCalled());
+      await act(async () => {});
+      const settled = sessionActivity.mock.calls.length;
+
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(sessionActivity.mock.calls.length).toBe(settled);
+      await act(() => vi.advanceTimersByTimeAsync(8000));
+      expect(sessionActivity.mock.calls.length).toBe(settled + 1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refreshes the message list and session activity when the window regains focus", async () => {

@@ -379,14 +379,22 @@ func NewTaskCommentStore(pool *DB) *TaskCommentStore {
 	return &TaskCommentStore{pool: pool}
 }
 
+// The author name is joined in rather than resolved by the caller: the comments
+// endpoint is polled, and naming agents there used to list every agent per poll.
+const taskCommentAuthorJoin = `LEFT JOIN agents ag ON c.author_type = 'agent' AND ag.id::text = c.author_id`
+
 func (s *TaskCommentStore) Create(ctx context.Context, comment domain.TaskComment) (domain.TaskComment, error) {
 	var created domain.TaskComment
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO task_comments (task_id, author_type, author_id, content, actor_user_id)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, task_id, author_type, author_id, content, created_at, actor_user_id
+		WITH c AS (
+			INSERT INTO task_comments (task_id, author_type, author_id, content, actor_user_id)
+			VALUES ($1, $2, $3, $4, $5)
+			RETURNING id, task_id, author_type, author_id, content, created_at, actor_user_id
+		)
+		SELECT c.id, c.task_id, c.author_type, c.author_id, c.content, c.created_at, c.actor_user_id, COALESCE(ag.name, '')
+		FROM c `+taskCommentAuthorJoin+`
 	`, comment.TaskID, comment.AuthorType, comment.AuthorID, comment.Content, comment.ActorUserID).Scan(
-		&created.ID, &created.TaskID, &created.AuthorType, &created.AuthorID, &created.Content, &created.CreatedAt, &created.ActorUserID,
+		&created.ID, &created.TaskID, &created.AuthorType, &created.AuthorID, &created.Content, &created.CreatedAt, &created.ActorUserID, &created.AuthorName,
 	)
 	if err != nil {
 		return domain.TaskComment{}, fmt.Errorf("create comment: %w", err)
@@ -396,8 +404,9 @@ func (s *TaskCommentStore) Create(ctx context.Context, comment domain.TaskCommen
 
 func (s *TaskCommentStore) ListByTask(ctx context.Context, taskID uuid.UUID) ([]domain.TaskComment, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, task_id, author_type, author_id, content, created_at, actor_user_id
-		FROM task_comments WHERE task_id = $1 ORDER BY created_at ASC
+		SELECT c.id, c.task_id, c.author_type, c.author_id, c.content, c.created_at, c.actor_user_id, COALESCE(ag.name, '')
+		FROM task_comments c `+taskCommentAuthorJoin+`
+		WHERE c.task_id = $1 ORDER BY c.created_at ASC
 	`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list comments: %w", err)
@@ -406,7 +415,7 @@ func (s *TaskCommentStore) ListByTask(ctx context.Context, taskID uuid.UUID) ([]
 	var comments []domain.TaskComment
 	for rows.Next() {
 		var c domain.TaskComment
-		if err := rows.Scan(&c.ID, &c.TaskID, &c.AuthorType, &c.AuthorID, &c.Content, &c.CreatedAt, &c.ActorUserID); err != nil {
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.AuthorType, &c.AuthorID, &c.Content, &c.CreatedAt, &c.ActorUserID, &c.AuthorName); err != nil {
 			return nil, err
 		}
 		comments = append(comments, c)
@@ -495,7 +504,7 @@ func (s *BoardEventStore) ListByTask(ctx context.Context, taskID uuid.UUID, limi
 // than the query it came from.
 const taskAgentRunColumns = `id, task_id, agent_id, board_event_id, session_run_id, status, summary, workspace_path, ` +
 	`tool_calls, tool_errors, error_pattern, llm_calls, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, ` +
-	`cli_session_id, quota_resume_at, created_at, updated_at`
+	`cli_session_id, quota_resume_at, cli_provider, created_at, updated_at`
 
 type TaskAgentRunStore struct {
 	pool *DB
@@ -535,7 +544,7 @@ func (s *TaskAgentRunStore) Create(ctx context.Context, run domain.TaskAgentRun)
 		&created.Status, &created.Summary, &created.WorkspacePath,
 		&created.ToolCalls, &created.ToolErrors, &created.ErrorPattern,
 		&created.LLMCalls, &created.PromptTokens, &created.CompletionTokens, &created.CacheReadTokens, &created.CacheWriteTokens,
-		&created.CLISessionID, &created.QuotaResumeAt,
+		&created.CLISessionID, &created.QuotaResumeAt, &created.CLIProvider,
 		&created.CreatedAt, &created.UpdatedAt,
 	)
 	if err != nil {
@@ -567,17 +576,18 @@ func (s *TaskAgentRunStore) Update(ctx context.Context, run domain.TaskAgentRun)
 			cache_write_tokens = $13,
 			cli_session_id = $14,
 			quota_resume_at = $15,
+			cli_provider = $16,
 			updated_at = now()
 		WHERE id = $1
 		RETURNING `+taskAgentRunColumns+`
 	`, run.ID, run.SessionRunID, run.Status, run.Summary, run.WorkspacePath, run.ToolCalls, run.ToolErrors, run.ErrorPattern,
 		run.LLMCalls, run.PromptTokens, run.CompletionTokens, run.CacheReadTokens, run.CacheWriteTokens,
-		run.CLISessionID, run.QuotaResumeAt).Scan(
+		run.CLISessionID, run.QuotaResumeAt, run.CLIProvider).Scan(
 		&updated.ID, &updated.TaskID, &updated.AgentID, &updated.BoardEventID, &updated.SessionRunID,
 		&updated.Status, &updated.Summary, &updated.WorkspacePath,
 		&updated.ToolCalls, &updated.ToolErrors, &updated.ErrorPattern,
 		&updated.LLMCalls, &updated.PromptTokens, &updated.CompletionTokens, &updated.CacheReadTokens, &updated.CacheWriteTokens,
-		&updated.CLISessionID, &updated.QuotaResumeAt,
+		&updated.CLISessionID, &updated.QuotaResumeAt, &updated.CLIProvider,
 		&updated.CreatedAt, &updated.UpdatedAt,
 	)
 	if err != nil {
@@ -676,7 +686,7 @@ func (s *TaskAgentRunStore) GetByID(ctx context.Context, id uuid.UUID) (domain.T
 		&run.Status, &run.Summary, &run.WorkspacePath,
 		&run.ToolCalls, &run.ToolErrors, &run.ErrorPattern,
 		&run.LLMCalls, &run.PromptTokens, &run.CompletionTokens, &run.CacheReadTokens, &run.CacheWriteTokens,
-		&run.CLISessionID, &run.QuotaResumeAt,
+		&run.CLISessionID, &run.QuotaResumeAt, &run.CLIProvider,
 		&run.CreatedAt, &run.UpdatedAt,
 	)
 	if err != nil {
@@ -706,7 +716,7 @@ func (s *TaskAgentRunStore) CancelIfLive(ctx context.Context, id uuid.UUID, reas
 		&cancelled.Status, &cancelled.Summary, &cancelled.WorkspacePath,
 		&cancelled.ToolCalls, &cancelled.ToolErrors, &cancelled.ErrorPattern,
 		&cancelled.LLMCalls, &cancelled.PromptTokens, &cancelled.CompletionTokens, &cancelled.CacheReadTokens, &cancelled.CacheWriteTokens,
-		&cancelled.CLISessionID, &cancelled.QuotaResumeAt,
+		&cancelled.CLISessionID, &cancelled.QuotaResumeAt, &cancelled.CLIProvider,
 		&cancelled.CreatedAt, &cancelled.UpdatedAt,
 	)
 	if err != nil {
@@ -894,7 +904,7 @@ func scanTaskAgentRuns(rows pgx.Rows) ([]domain.TaskAgentRun, error) {
 			&r.Status, &r.Summary, &r.WorkspacePath,
 			&r.ToolCalls, &r.ToolErrors, &r.ErrorPattern,
 			&r.LLMCalls, &r.PromptTokens, &r.CompletionTokens, &r.CacheReadTokens, &r.CacheWriteTokens,
-			&r.CLISessionID, &r.QuotaResumeAt,
+			&r.CLISessionID, &r.QuotaResumeAt, &r.CLIProvider,
 			&r.CreatedAt, &r.UpdatedAt,
 		); err != nil {
 			return nil, err

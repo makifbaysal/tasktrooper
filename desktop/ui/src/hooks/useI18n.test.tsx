@@ -1,8 +1,16 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { DICTS, I18nProvider, useI18n } from "@/hooks/useI18n";
+import { I18nProvider, loadLocale, tStatic, useI18n } from "@/hooks/useI18n";
 import { LANGS, type Lang } from "@/lib/languages";
-import { en } from "@/locales/en";
+import { de } from "@/locales/de";
+import { en, type Dict } from "@/locales/en";
+import { es } from "@/locales/es";
+import { fr } from "@/locales/fr";
+import { pt } from "@/locales/pt";
+import { tr } from "@/locales/tr";
+import { zh } from "@/locales/zh";
+
+const DICTS: Record<Lang, Dict> = { en, tr, es, de, fr, pt, zh };
 
 function flatten(value: unknown, prefix = "", out = new Map<string, string>()): Map<string, string> {
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
@@ -66,26 +74,44 @@ describe("I18nProvider", () => {
     document.documentElement.removeAttribute("lang");
   });
 
-  it("starts in the stored language and tags <html> with its region", () => {
+  it("loads every registered language on demand", async () => {
+    for (const lang of LANGS) {
+      await expect(loadLocale(lang)).resolves.toBe(DICTS[lang]);
+    }
+  });
+
+  it("starts in the stored language and tags <html> with its region", async () => {
     localStorage.setItem("bridge_locale", "pt");
     render(
       <I18nProvider>
         <Probe />
       </I18nProvider>,
     );
-    expect(screen.getByTestId("lang")).toHaveTextContent("pt");
+    await waitFor(() => expect(screen.getByTestId("lang")).toHaveTextContent("pt"));
     expect(screen.getByTestId("text")).toHaveTextContent(DICTS.pt.common.save);
     expect(document.documentElement.getAttribute("lang")).toBe("pt-BR");
   });
 
-  it("reads a stored region tag and falls back to English for an unknown code", () => {
+  it("renders the stored language from the first frame once its dictionary is loaded, as main.tsx does", async () => {
+    localStorage.setItem("bridge_locale", "de");
+    await loadLocale("de");
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>,
+    );
+    expect(screen.getByTestId("lang")).toHaveTextContent("de");
+    expect(screen.getByTestId("text")).toHaveTextContent(DICTS.de.common.save);
+  });
+
+  it("reads a stored region tag and falls back to English for an unknown code", async () => {
     localStorage.setItem("bridge_locale", "zh-CN");
     const { unmount } = render(
       <I18nProvider>
         <Probe />
       </I18nProvider>,
     );
-    expect(screen.getByTestId("lang")).toHaveTextContent("zh");
+    await waitFor(() => expect(screen.getByTestId("lang")).toHaveTextContent("zh"));
     unmount();
 
     localStorage.setItem("bridge_locale", "xx");
@@ -98,18 +124,35 @@ describe("I18nProvider", () => {
     expect(screen.getByTestId("text")).toHaveTextContent(en.common.save);
   });
 
-  it.each(translated)("switches to %s, persists it and interpolates its strings", (lang) => {
+  it.each(translated)("switches to %s, persists it and interpolates its strings", async (lang) => {
     render(
       <I18nProvider>
         <Probe />
       </I18nProvider>,
     );
     act(() => screen.getByRole("button", { name: `to-${lang}` }).click());
-    expect(screen.getByTestId("text")).toHaveTextContent(DICTS[lang].common.save);
+    await waitFor(() => expect(screen.getByTestId("text")).toHaveTextContent(DICTS[lang].common.save));
+    expect(tStatic("common.save")).toBe(DICTS[lang].common.save);
     const interpolated = screen.getByTestId("interpolated").textContent ?? "";
     expect(interpolated).toContain("2");
     expect(interpolated).toContain("4");
     expect(interpolated).not.toMatch(/\{\w+\}/);
     expect(localStorage.getItem("bridge_locale")).toBe(lang);
+  });
+
+  it("keeps the last pick when an earlier one finishes loading after it", async () => {
+    render(
+      <I18nProvider>
+        <Probe />
+      </I18nProvider>,
+    );
+    act(() => {
+      screen.getByRole("button", { name: "to-fr" }).click();
+      screen.getByRole("button", { name: "to-es" }).click();
+    });
+    await waitFor(() => expect(screen.getByTestId("lang")).toHaveTextContent("es"));
+    await act(() => loadLocale("fr").then(() => undefined));
+    expect(screen.getByTestId("lang")).toHaveTextContent("es");
+    expect(localStorage.getItem("bridge_locale")).toBe("es");
   });
 });

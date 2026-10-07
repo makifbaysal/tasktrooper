@@ -145,6 +145,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, input DispatchInput) error {
 	if err != nil {
 		return err
 	}
+	if input.EventType == domain.BoardEventTaskCommented && informationalComment(payload) {
+		return nil
+	}
 	if d.spans != nil &&
 		(input.EventType == domain.BoardEventTaskMoved || input.EventType == domain.BoardEventTaskCreated) {
 		if err := d.spans.RecordMove(ctx, input.RepositoryID, input.Task.ID, string(input.Task.Column), event.CreatedAt); err != nil {
@@ -334,6 +337,11 @@ func parkResume(payload map[string]interface{}) (string, bool) {
 		return "", false
 	}
 	return resource, true
+}
+
+func informationalComment(payload map[string]interface{}) bool {
+	informational, _ := payload[domain.EventPayloadInformational].(bool)
+	return informational
 }
 
 func actorAgentIDFromPayload(payload map[string]interface{}) uuid.UUID {

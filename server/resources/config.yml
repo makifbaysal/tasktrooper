@@ -4,7 +4,9 @@ llm:
   api_key: ""
   max_iterations: 30
   task_max_iterations: 80
-  timeout: "300s"
+  # Covers one whole non-streamed response: a turn that hit its output cap is
+  # retried with up to twice the cap (32K tokens), which outruns 300s.
+  timeout: "600s"
 
 server:
   port: 8085
@@ -87,10 +89,15 @@ board:
   pipeline_gate_timeout: "45m"
   pipeline_gate_interval: "2m"
 
+# Each run's context window, output cap and summarize threshold come from the
+# model it runs on (application/context/limits.go): e.g. 1M window / 16K turn
+# cap for current Claude Opus/Sonnet, 128K / 16K for gpt-4o, 32K / 4K for a
+# local endpoint or an unrecognised model. A threshold left at 0 is 45% of the
+# window. Set any of the three to a positive number to override every model.
 context:
-  max_tokens: 32000
-  reserve_output: 4096
-  summarize_threshold: 16000
+  max_tokens: 0
+  reserve_output: 0
+  summarize_threshold: 0
   keep_recent_messages: 10
 
 mapping:

@@ -2,14 +2,15 @@ package llm
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
 // anthropicSystemText reads the system prompt out of whichever wire shape the
-// builder chose — a plain string when nothing caches it, a one-element block
-// array when a breakpoint lands on it.
+// builder chose — a plain string when nothing caches it, the blocks
+// concatenated when a breakpoint lands on the first one.
 func anthropicSystemText(t *testing.T, req anthropicRequest) string {
 	t.Helper()
 	switch v := req.System.(type) {
@@ -18,10 +19,11 @@ func anthropicSystemText(t *testing.T, req anthropicRequest) string {
 	case string:
 		return v
 	case []anthropicSystemBlock:
-		if len(v) != 1 {
-			t.Fatalf("system blocks = %d, want exactly 1", len(v))
+		var text strings.Builder
+		for _, b := range v {
+			text.WriteString(b.Text)
 		}
-		return v[0].Text
+		return text.String()
 	default:
 		t.Fatalf("system is %T, want string or []anthropicSystemBlock", req.System)
 		return ""
@@ -306,5 +308,67 @@ func TestAnthropicUsageWithoutCacheIsUnchanged(t *testing.T) {
 	want := domain.Usage{PromptTokens: 300, CompletionTokens: 40, TotalTokens: 340}
 	if got != want {
 		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+}
+
+// The persona is the same bytes for every task the agent runs; the notes after
+// it (workspace path, score, memories) are not. Only the persona carries the
+// system breakpoint, so a new task still reads it from the cache.
+func TestAnthropicRequestCachesThePersonaApartFromThePerTaskNotes(t *testing.T) {
+	build := func(workspace string) anthropicRequest {
+		return buildAnthropicRequest("claude-sonnet-4", []domain.Message{
+			{Role: domain.RoleSystem, Content: "You are backend-developer."},
+			{Role: domain.RoleSystem, Content: "Workspace: " + workspace},
+			{Role: domain.RoleSystem, Content: "Score: 91"},
+			{Role: domain.RoleUser, Content: "Fix the build."},
+			{Role: domain.RoleAssistant, Content: "Looking."},
+			{Role: domain.RoleUser, Content: "Any luck?"},
+		}, twoTools(), false, nil, 5)
+	}
+	first, second := build("/ws/task-1"), build("/ws/task-2")
+
+	blocks, ok := first.System.([]anthropicSystemBlock)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("system = %#v, want two blocks", first.System)
+	}
+	if blocks[0].Text != "You are backend-developer." || blocks[0].CacheControl == nil {
+		t.Errorf("first block = %+v, want the persona with the breakpoint", blocks[0])
+	}
+	if blocks[1].CacheControl != nil {
+		t.Error("the per-task notes must not carry a breakpoint")
+	}
+	if got := anthropicSystemText(t, first); got != "You are backend-developer.\n\nWorkspace: /ws/task-1\n\nScore: 91" {
+		t.Errorf("concatenated system = %q, want the old joined text", got)
+	}
+	if got := countBreakpoints(t, first); got != 4 {
+		t.Errorf("breakpoints = %d, want 4 (tools, persona, anchor, rolling)", got)
+	}
+
+	persona := func(req anthropicRequest) string {
+		raw, err := json.Marshal(req.System.([]anthropicSystemBlock)[0])
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		return string(raw)
+	}
+	if persona(first) != persona(second) {
+		t.Error("the cached persona block changed with the task")
+	}
+}
+
+func TestProviderStopReasonsAreNormalized(t *testing.T) {
+	for raw, want := range map[string]string{
+		"max_tokens": domain.StopReasonMaxTokens,
+		"length":     domain.StopReasonMaxTokens,
+		"MAX_TOKENS": domain.StopReasonMaxTokens,
+		"tool_use":   domain.StopReasonToolUse,
+		"tool_calls": domain.StopReasonToolUse,
+		"end_turn":   domain.StopReasonEnd,
+		"STOP":       domain.StopReasonEnd,
+		"":           "",
+	} {
+		if got := domain.NormalizeStopReason(raw); got != want {
+			t.Errorf("%q → %q, want %q", raw, got, want)
+		}
 	}
 }

@@ -24,18 +24,35 @@ func HashFile(root, relPath string) (string, error) {
 }
 
 func DetectChangedFiles(root string, currentPaths []string, storedHashes map[string]string) FileChangeSet {
+	return detectChangedFiles(root, currentPaths, storedHashes, nil)
+}
+
+// detectChangedFiles with a non-nil vouched reads no file it can classify
+// without: one with no stored hash is Added, and one vouched for (its stored
+// hash still describes its bytes) is Unchanged.
+func detectChangedFiles(root string, currentPaths []string, storedHashes map[string]string, vouched func(rel string) bool) FileChangeSet {
 	currentSet := make(map[string]struct{}, len(currentPaths))
 	var result FileChangeSet
 
 	for _, rel := range currentPaths {
 		currentSet[rel] = struct{}{}
+		stored, known := storedHashes[rel]
+		if vouched != nil {
+			if !known {
+				result.Added = append(result.Added, rel)
+				continue
+			}
+			if vouched(rel) {
+				result.Unchanged = append(result.Unchanged, rel)
+				continue
+			}
+		}
 		hash, err := HashFile(root, rel)
 		if err != nil {
 			result.Changed = append(result.Changed, rel)
 			continue
 		}
-		stored, ok := storedHashes[rel]
-		if !ok {
+		if !known {
 			result.Added = append(result.Added, rel)
 			continue
 		}

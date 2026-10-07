@@ -60,3 +60,56 @@ describe("MessageList queued messages", () => {
     expect(onRemoveQueued).toHaveBeenCalledWith("q2");
   });
 });
+
+describe("MessageList on a long session", () => {
+  it("renders only the newest messages until earlier ones are asked for", () => {
+    const long: SessionMessage[] = Array.from({ length: 130 }, (_, i) => ({
+      id: `m${i}`,
+      role: "user",
+      content: `message ${i}`,
+      created_at: "2026-09-17T10:00:00Z",
+    }));
+    render(
+      <I18nProvider>
+        <MessageList messages={long} />
+      </I18nProvider>,
+    );
+    expect(screen.queryByText("message 0")).toBeNull();
+    expect(screen.getByText("message 129")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 10 earlier" }));
+    expect(screen.getByText("message 0")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Show \d+ earlier$/ })).toBeNull();
+  });
+});
+
+describe("MessageList streaming reply", () => {
+  it("shows every chunk as it arrives and nothing of it once the reply has landed", () => {
+    const { rerender } = render(
+      <I18nProvider>
+        <MessageList messages={messages} isAwaitingResponse streamingContent="Partial answ" />
+      </I18nProvider>,
+    );
+    expect(screen.getByText("Partial answ")).toBeInTheDocument();
+
+    rerender(
+      <I18nProvider>
+        <MessageList messages={messages} isAwaitingResponse streamingContent="Partial answer, longer" />
+      </I18nProvider>,
+    );
+    expect(screen.getByText("Partial answer, longer")).toBeInTheDocument();
+    expect(screen.queryByText("Partial answ")).toBeNull();
+
+    const landed: SessionMessage[] = [
+      ...messages,
+      { id: "m3", role: "assistant", content: "Final answer", created_at: "2026-09-17T10:02:00Z" },
+    ];
+    rerender(
+      <I18nProvider>
+        <MessageList messages={landed} streamingContent={null} />
+      </I18nProvider>,
+    );
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+    expect(screen.queryByText("Partial answer, longer")).toBeNull();
+  });
+});

@@ -10,11 +10,40 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/board"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workflow/workflowtest"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/stretchr/testify/suite"
 )
 
 type fakeBoardTaskStore struct {
 	tasks []domain.BoardTask
+	runs  *fakeRunStore
+	// getByID counts point reads, so a test can tell a stale-run recovery read
+	// one task instead of the board.
+	getByID int
+}
+
+func (f *fakeBoardTaskStore) GetByID(_ context.Context, taskID uuid.UUID) (domain.BoardTask, error) {
+	f.getByID++
+	for _, t := range f.tasks {
+		if t.ID == taskID {
+			return t, nil
+		}
+	}
+	return domain.BoardTask{}, domain.ErrBoardTaskNotFound
+}
+
+// ListDispatchCandidates deliberately returns every task, unfiltered: the
+// reconciler re-checks the predicate, and these tests pin that check.
+func (f *fakeBoardTaskStore) ListDispatchCandidates(ctx context.Context, runsPerTask int) ([]port.TaskRecentRuns, error) {
+	out := make([]port.TaskRecentRuns, 0, len(f.tasks))
+	for _, t := range f.tasks {
+		var runs []domain.TaskAgentRun
+		if f.runs != nil {
+			runs, _ = f.runs.ListByTask(ctx, t.ID, runsPerTask)
+		}
+		out = append(out, port.TaskRecentRuns{Task: t, Runs: runs})
+	}
+	return out, nil
 }
 
 func (f *fakeBoardTaskStore) Create(context.Context, domain.BoardTask) (domain.BoardTask, error) {
@@ -121,7 +150,7 @@ func (s *ReconcilerSuite) SetupTest() {
 	s.events = &fakeEventStore{}
 	s.runs = &fakeRunStore{}
 	s.runner = &fakeRunner{}
-	s.tasks = &fakeBoardTaskStore{}
+	s.tasks = &fakeBoardTaskStore{runs: s.runs}
 	s.disp = board.NewDispatcher(s.board, s.events, s.runs, s.runner, true)
 	s.disp.SetWorkflows(workflowtest.Default().Reader())
 	s.rec = board.NewReconciler(s.runs, s.tasks, s.disp, 0)
@@ -638,4 +667,25 @@ func (s *ReconcilerSuite) TestLongQueuedPendingRunIsRecovered() {
 
 	s.Len(s.runs.updated, 1, "a pending row nobody has claimed in 45 minutes is orphaned")
 	s.Len(s.runner.jobs, 1, "and its task is dispatched again")
+}
+
+func (s *ReconcilerSuite) TestStaleRunReadsOnlyItsOwnTask() {
+	assignee := uuid.New()
+	other := uuid.New()
+	s.tasks.tasks = []domain.BoardTask{
+		{ID: uuid.New(), RepositoryID: uuid.New(), Column: domain.TaskColumnDone, AssigneeAgentID: &other},
+		{ID: uuid.New(), RepositoryID: uuid.New(), Column: domain.TaskColumnDone, AssigneeAgentID: &other},
+	}
+	s.runs.stale = []domain.TaskAgentRun{{
+		ID:      uuid.New(),
+		TaskID:  uuid.New(),
+		AgentID: assignee,
+		Status:  domain.TaskAgentRunStatusRunning,
+	}}
+
+	s.rec.Run(context.Background())
+
+	s.Equal(1, s.tasks.getByID, "one point read for the one stale run")
+	s.Require().Len(s.runs.updated, 1, "a run whose task is gone is still failed")
+	s.Empty(s.runner.jobs, "and there is no task to dispatch it to")
 }

@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 export interface EmbeddingEngine {
-  embed(text: string): Promise<Float64Array>;
-  tokenCount(text: string): number;
+  /** Every input in one call, so the engine can batch them; `promptTokens` comes from the same tokenization. */
+  embed(texts: string[]): Promise<{ vectors: Float64Array[]; promptTokens: number }>;
   release(): Promise<void>;
+  /** False once the engine can no longer answer (its worker died), so the next request loads a new one. */
+  readonly alive?: boolean;
 }
 
 /**
@@ -23,10 +25,12 @@ export interface EmbeddingEngine {
  *                        several OpenAI-compatible clients do at setup — finds
  *                        the model this server actually serves.
  *
- * Answers `503` with a small JSON error body until the model is downloaded and
- * the ONNX session is loaded — never hangs, never crashes the request, because
- * a caller mid-index must see a clean "not ready yet" rather than a timeout
- * indistinguishable from a hang.
+ * Answers `503` with a small JSON error body until the model is downloaded —
+ * never hangs, never crashes the request, because a caller mid-index must see
+ * a clean "not ready yet" rather than a timeout indistinguishable from a hang.
+ * Once it is on disk the model is loaded by the first request that needs it
+ * (that request waits for the load), and unloaded again after
+ * `idleUnloadMs` without one.
  */
 
 // The model this engine is: one set of weights, downloaded by download.ts.
@@ -57,18 +61,37 @@ interface EmbeddingsRequestBody {
 /** Release the model after this long without an embedding request. */
 export const DEFAULT_IDLE_UNLOAD_MS = 10 * 60_000;
 
+/**
+ * After a failed load, requests are refused for this long (doubling per
+ * consecutive failure, up to the cap) instead of each paying for another load
+ * of a model that just failed to load.
+ */
+export const LOAD_RETRY_BASE_MS = 5_000;
+export const LOAD_RETRY_MAX_MS = 5 * 60_000;
+
+type Acquired = { engine: EmbeddingEngine } | { engine: null; retryAfterMs?: number };
+
 export interface EmbeddingsServerOptions {
   /** 0 disables unloading. */
   idleUnloadMs?: number;
-  /** Brings the model back after an idle unload; never called before the first `setEngine`. */
+  /**
+   * Brings the model back after an idle unload. Never called before the first
+   * `setEngine`; `enableLoading` is the lazy alternative that needs no first
+   * engine at all.
+   */
   load?: () => Promise<EmbeddingEngine>;
   log?: (message: string) => void;
 }
 
 export interface EmbedderServer {
   server: Server;
-  /** Flip from "not ready" to "ready" once the model has loaded. */
+  /** Flip from "not ready" to "ready" with an engine that is already loaded. */
   setEngine(engine: EmbeddingEngine): void;
+  /**
+   * Flip from "not ready" to "loadable": the model is on disk, and the first
+   * request that needs it calls `load` (or the `load` option) and waits for it.
+   */
+  enableLoading(load?: () => Promise<EmbeddingEngine>): void;
 }
 
 export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): EmbedderServer {
@@ -76,8 +99,11 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
   const log = options.log ?? ((message: string) => process.stderr.write(`[embedder] ${message}\n`));
 
   let engine: EmbeddingEngine | null = null;
+  let loader: (() => Promise<EmbeddingEngine>) | null = null;
   let everLoaded = false;
-  let reloading: Promise<EmbeddingEngine> | null = null;
+  let loading: Promise<EmbeddingEngine> | null = null;
+  let loadFailures = 0;
+  let retryAt = 0;
   let inFlight = 0;
   let idleTimer: NodeJS.Timeout | null = null;
 
@@ -106,29 +132,45 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
   const install = (next: EmbeddingEngine): void => {
     engine = next;
     everLoaded = true;
+    loadFailures = 0;
+    retryAt = 0;
     arm();
   };
 
-  const acquire = async (): Promise<EmbeddingEngine | null> => {
-    if (engine) return engine;
-    if (!everLoaded || !options.load) return null;
-    if (!reloading) {
-      log("reloading the embedding model for a new request.");
-      reloading = options
-        .load()
-        .then((loaded) => {
-          install(loaded);
-          return loaded;
-        })
+  const acquire = async (): Promise<Acquired> => {
+    if (engine && engine.alive !== false) return { engine };
+    if (engine) {
+      log("the embedding model stopped answering; loading it again.");
+      engine = null;
+      disarm();
+    }
+    if (!loader) return { engine: null };
+    if (!loading) {
+      const wait = retryAt - Date.now();
+      if (wait > 0) return { engine: null, retryAfterMs: wait };
+      log(everLoaded ? "reloading the embedding model for a new request." : "loading the embedding model for its first request.");
+      loading = loader()
+        .then(
+          (loaded) => {
+            install(loaded);
+            return loaded;
+          },
+          (err: unknown) => {
+            loadFailures++;
+            const backoff = Math.min(LOAD_RETRY_BASE_MS * 2 ** (loadFailures - 1), LOAD_RETRY_MAX_MS);
+            retryAt = Date.now() + backoff;
+            log(`loading the embedding model failed: ${describe(err)}; not trying again for ${Math.round(backoff / 1000)}s.`);
+            throw err;
+          },
+        )
         .finally(() => {
-          reloading = null;
+          loading = null;
         });
     }
     try {
-      return await reloading;
-    } catch (err) {
-      log(`reloading the embedding model failed: ${describe(err)}`);
-      return null;
+      return { engine: await loading };
+    } catch {
+      return { engine: null, retryAfterMs: Math.max(0, retryAt - Date.now()) };
     }
   };
 
@@ -144,12 +186,21 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
 
   server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
   server.headersTimeout = HEADERS_TIMEOUT_MS;
-  return { server, setEngine: install };
+  return {
+    server,
+    setEngine: (next) => {
+      loader ??= options.load ?? null;
+      install(next);
+    },
+    enableLoading: (load) => {
+      loader = load ?? options.load ?? null;
+    },
+  };
 }
 
 interface Lifecycle {
   log: (message: string) => void;
-  acquire(): Promise<EmbeddingEngine | null>;
+  acquire(): Promise<Acquired>;
   begin(): void;
   end(): void;
 }
@@ -189,12 +240,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, life: Lifecycle
 }
 
 async function embeddings(req: IncomingMessage, res: ServerResponse, life: Lifecycle): Promise<void> {
-  const engine = await life.acquire();
-  if (!engine) {
-    sendJson(res, 503, errorBody("not_ready", "The embedding model is still downloading or loading on this machine."));
-    return;
-  }
-
+  // The body is checked before acquire(): a malformed request must not cost a
+  // model load.
   let body: EmbeddingsRequestBody;
   try {
     body = await readJsonBody(req);
@@ -212,15 +259,17 @@ async function embeddings(req: IncomingMessage, res: ServerResponse, life: Lifec
 
   const model = typeof body.model === "string" && body.model !== "" ? body.model : DEFAULT_MODEL;
 
+  const acquired = await life.acquire();
+  if (!acquired.engine) {
+    const headers: Record<string, string> =
+      acquired.retryAfterMs === undefined ? {} : { "retry-after": String(Math.max(1, Math.ceil(acquired.retryAfterMs / 1000))) };
+    sendJson(res, 503, errorBody("not_ready", "The embedding model is still downloading or loading on this machine."), headers);
+    return;
+  }
+
   try {
-    const data: { object: "embedding"; embedding: number[]; index: number }[] = [];
-    let promptTokens = 0;
-    for (let i = 0; i < inputs.length; i++) {
-      const text = inputs[i];
-      const vector = await engine.embed(text);
-      promptTokens += engine.tokenCount(text);
-      data.push({ object: "embedding", embedding: Array.from(vector), index: i });
-    }
+    const { vectors, promptTokens } = await acquired.engine.embed(inputs);
+    const data = vectors.map((vector, index) => ({ object: "embedding" as const, embedding: Array.from(vector), index }));
     sendJson(res, 200, {
       object: "list",
       data,
@@ -282,9 +331,9 @@ function errorBody(code: string, message: string): { error: { code: string; mess
   return { error: { code, message } };
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const payload = Buffer.from(JSON.stringify(body), "utf8");
-  res.writeHead(status, { "content-type": "application/json", "content-length": String(payload.length) });
+  res.writeHead(status, { ...headers, "content-type": "application/json", "content-length": String(payload.length) });
   res.end(payload);
 }
 

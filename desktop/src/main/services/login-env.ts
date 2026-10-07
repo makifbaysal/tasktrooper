@@ -76,6 +76,8 @@ export function loginPathEntries(env: Record<string, string> | null): string[] {
 
 let pending: Promise<string[]> | null = null;
 let known: string[] = [];
+let settled = false;
+let seeded = false;
 
 /**
  * The login shell's PATH entries, asked for once per process. Resolves to an
@@ -85,15 +87,45 @@ let known: string[] = [];
 export function loginShellPath(): Promise<string[]> {
   if (process.platform === "win32") return Promise.resolve([]);
   pending ??= readLoginShellPath().then(
-    (entries) => (known = entries),
-    () => (known = []),
+    (entries) => {
+      settled = true;
+      // Empty is a shell that failed or timed out: a seeded PATH from an
+      // earlier launch is the better answer for this one too.
+      if (entries.length > 0 || !seeded) known = entries;
+      return known;
+    },
+    () => {
+      settled = true;
+      if (!seeded) known = [];
+      return known;
+    },
   );
   return pending;
 }
 
-/** What `loginShellPath()` has resolved to so far; empty until it has. */
+/**
+ * What `loginShellPath()` has resolved to so far — or, until it has, the
+ * PATH `seedLoginShellPath()` was given. Empty when there is neither.
+ */
 export function knownLoginShellPath(): string[] {
   return known;
+}
+
+/**
+ * Use a PATH an earlier launch recorded until this launch's own login shell
+ * answers, which then replaces it. A login shell costs a few hundred
+ * milliseconds on every launch and its answer almost never changes between
+ * two of them, so the backend's start should not wait to find that out.
+ */
+export function seedLoginShellPath(entries: string[]): void {
+  if (settled) return;
+  known = entries;
+  seeded = true;
+}
+
+/** True once there is a PATH to use: this launch's own answer, or a seeded one. */
+export function loginShellPathKnown(): boolean {
+  return settled || seeded || process.platform === "win32";
 }
 
 function userShell(): string {

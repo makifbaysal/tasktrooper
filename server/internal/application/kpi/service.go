@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,10 +19,20 @@ type Service struct {
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
+
+	evalMu      sync.Mutex
+	evaluations map[uuid.UUID]evaluation
+}
+
+// evaluation is when RefreshAgent last evaluated an agent. gen counts KPI
+// edits, so an evaluation that raced an edit is not recorded as fresh.
+type evaluation struct {
+	at  time.Time
+	gen uint64
 }
 
 func NewService(store port.AgentKPIStore, deps MetricDeps) *Service {
-	return &Service{store: store, deps: deps}
+	return &Service{store: store, deps: deps, evaluations: map[uuid.UUID]evaluation{}}
 }
 
 func (s *Service) SetWorkflows(w port.WorkflowReader)  { s.workflows = w }
@@ -61,11 +72,16 @@ func (s *Service) CreateKPI(ctx context.Context, agentID uuid.UUID, req domain.C
 	if err := s.validate(req.MetricKey, req.Period, req.TargetFull, req.TargetHalf, req.Weight); err != nil {
 		return domain.AgentKPI{}, err
 	}
-	return s.store.CreateKPI(ctx, domain.AgentKPI{
+	created, err := s.store.CreateKPI(ctx, domain.AgentKPI{
 		AgentID: agentID, MetricKey: req.MetricKey, Name: req.Name, Description: req.Description,
 		Period: req.Period, TargetFull: req.TargetFull, TargetHalf: req.TargetHalf,
 		Weight: req.Weight, Enabled: req.Enabled,
 	})
+	if err != nil {
+		return domain.AgentKPI{}, err
+	}
+	s.forgetEvaluation(agentID)
+	return created, nil
 }
 
 func (s *Service) UpdateKPI(ctx context.Context, agentID, kpiID uuid.UUID, req domain.UpdateKPIRequest) (domain.AgentKPI, error) {
@@ -96,7 +112,12 @@ func (s *Service) UpdateKPI(ctx context.Context, agentID, kpiID uuid.UUID, req d
 	existing.TargetHalf = req.TargetHalf
 	existing.Weight = req.Weight
 	existing.Enabled = req.Enabled
-	return s.store.UpdateKPI(ctx, existing)
+	updated, err := s.store.UpdateKPI(ctx, existing)
+	if err != nil {
+		return domain.AgentKPI{}, err
+	}
+	s.forgetEvaluation(agentID)
+	return updated, nil
 }
 
 func (s *Service) DeleteKPI(ctx context.Context, agentID, kpiID uuid.UUID) error {
@@ -107,7 +128,11 @@ func (s *Service) DeleteKPI(ctx context.Context, agentID, kpiID uuid.UUID) error
 	if existing.AgentID != agentID {
 		return fmt.Errorf("kpi does not belong to this agent")
 	}
-	return s.store.DeleteKPI(ctx, kpiID)
+	if err := s.store.DeleteKPI(ctx, kpiID); err != nil {
+		return err
+	}
+	s.forgetEvaluation(agentID)
+	return nil
 }
 
 func (s *Service) ListKPIs(ctx context.Context, agentID uuid.UUID) ([]domain.AgentKPI, error) {
@@ -182,6 +207,33 @@ func (s *Service) EvaluateAgent(ctx context.Context, agentID uuid.UUID, now time
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+// RefreshAgent runs EvaluateAgent unless this service already evaluated the
+// agent within maxAge of now. A KPI created, updated or deleted through this
+// service makes the next call evaluate regardless of age.
+func (s *Service) RefreshAgent(ctx context.Context, agentID uuid.UUID, now time.Time, maxAge time.Duration) error {
+	s.evalMu.Lock()
+	last := s.evaluations[agentID]
+	s.evalMu.Unlock()
+	if !last.at.IsZero() && now.Sub(last.at) <= maxAge {
+		return nil
+	}
+	if _, err := s.EvaluateAgent(ctx, agentID, now); err != nil {
+		return err
+	}
+	s.evalMu.Lock()
+	defer s.evalMu.Unlock()
+	if s.evaluations[agentID].gen == last.gen {
+		s.evaluations[agentID] = evaluation{at: now, gen: last.gen}
+	}
+	return nil
+}
+
+func (s *Service) forgetEvaluation(agentID uuid.UUID) {
+	s.evalMu.Lock()
+	defer s.evalMu.Unlock()
+	s.evaluations[agentID] = evaluation{gen: s.evaluations[agentID].gen + 1}
 }
 
 func CompositeScore(kpis []domain.AgentKPI, results []domain.AgentKPIResult) float64 {

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { hasCache, readCache, writeCache } from "@/lib/uiCache";
 
 /**
@@ -13,16 +13,18 @@ export function useCachedState<T>(key: string, fallback: T): [T, Dispatch<SetSta
   const [value, setValue] = useState<T>(() => readCache<T>(key) ?? fallback);
   const keyRef = useRef(key);
   keyRef.current = key;
+  // Written after commit, not inside the updater (React may run an updater
+  // twice), and only when the value actually changed: a poll whose updater
+  // hands back `prev` must not serialize the whole payload again.
+  const written = useRef(value);
 
-  const set = useCallback<Dispatch<SetStateAction<T>>>((next) => {
-    setValue((prev) => {
-      const resolved = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
-      writeCache(keyRef.current, resolved);
-      return resolved;
-    });
-  }, []);
+  useEffect(() => {
+    if (Object.is(written.current, value)) return;
+    written.current = value;
+    writeCache(keyRef.current, value);
+  }, [value]);
 
-  return [value, set];
+  return [value, setValue];
 }
 
 /**

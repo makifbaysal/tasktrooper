@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PreflightId, PreflightItem, PreflightReport } from "../../ipc/types.js";
@@ -705,5 +705,182 @@ describe("the two items the user cannot install", () => {
     expect(pg.required).toBe(false);
     expect(pg.status).toBe("ok");
     expect(pg.remediation).toBeUndefined();
+  });
+});
+
+// --- the two halves, and what is remembered between launches ---------------
+
+const { startPreflight } = await import("./detect.js");
+const { PreflightCache } = await import("./preflight-cache.js");
+
+/**
+ * A fake `claude` that also records every time it is asked anything, so a
+ * test can say not just what the report contains but how many processes it
+ * took to get there.
+ */
+function countingClaude(version = "2.1.220"): { bin: string; calls: () => string[] } {
+  scripts += 1;
+  const dir = path.join(paths.appPath, "fakes", `counting-${scripts}`);
+  mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, "claude");
+  const log = path.join(dir, "calls.log");
+  writeFileSync(log, "");
+  writeFileSync(
+    bin,
+    [
+      "#!/bin/sh",
+      `echo "$1" >> '${log}'`,
+      'case "$1" in',
+      `  --version) echo '${version} (Claude Code)'; exit 0;;`,
+      `  auth) printf '%s' '${signedIn.stdout}'; exit 0;;`,
+      "esac",
+      "exit 1",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(bin, 0o755);
+  return { bin, calls: () => readFileSync(log, "utf8").split("\n").filter(Boolean) };
+}
+
+function cacheFile(): string {
+  scripts += 1;
+  return path.join(paths.appPath, `preflight-cache-${scripts}.json`);
+}
+
+describe("preflight: the gating half", { timeout: 30_000 }, () => {
+  it("decides what the backend needs without running a single probe", async () => {
+    const claude = countingClaude();
+    const run = startPreflight({ overrides: { claudeBin: claude.bin, appiumBin: fakeAppium(["uiautomator2"]) } });
+    const gating = await run.gating;
+
+    // The two required items, fully answered.
+    expect(item(gating, "agent-server").status).toBe("ok");
+    expect(item(gating, "git").required).toBe(true);
+    expect(gating.ready).toBe(true);
+    expect(firstBlocker(gating)).toBeUndefined();
+
+    // Found, provisionally usable, and not yet asked anything.
+    expect(item(gating, "claude").status).toBe("ok");
+    expect(item(gating, "claude").path).toBe(claude.bin);
+    expect(item(gating, "claude").version).toBeUndefined();
+    expect(claude.calls()).toEqual([]);
+
+    // Only a process can answer these, so the gating half leaves them out
+    // rather than guessing.
+    const ids = gating.items.map((i) => i.id);
+    expect(ids).not.toContain("claude-account");
+    expect(ids).not.toContain("appium-uiautomator2");
+    expect(item(gating, "appium").status).toBe("ok");
+
+    const complete = await run.complete;
+    expect(item(complete, "claude").version).toBe("2.1.220");
+    expect(item(complete, "claude-account").status).toBe("ok");
+    expect(item(complete, "appium-uiautomator2").status).toBe("ok");
+    expect(complete.items.map((i) => i.id)).toEqual(
+      expect.arrayContaining(["agent-server", "postgres", "git", "claude", "claude-account", "chrome", "appium", "android-sdk"]),
+    );
+  });
+
+  it("keeps the same order in both halves", async () => {
+    const run = startPreflight({ overrides: { claudeBin: countingClaude().bin } });
+    const [gating, complete] = await Promise.all([run.gating, run.complete]);
+    const order = complete.items.map((i) => i.id);
+    expect(gating.items.map((i) => i.id)).toEqual(order.filter((id) => gating.items.some((i) => i.id === id)));
+  });
+
+  it("reports a missing required item in the gating half, so the start is refused without waiting", async () => {
+    const gating = await startPreflight({ overrides: { claudeBin: countingClaude().bin, gitBin: "/nowhere/git" } }).gating;
+    expect(item(gating, "git").status).toBe("missing");
+    expect(firstBlocker(gating)?.id).toBe("git");
+  });
+});
+
+describe("preflight: the version cache", { timeout: 30_000 }, () => {
+  it("answers versions from the cache, in both halves, without asking the binary again", async () => {
+    const claude = countingClaude();
+    const file = cacheFile();
+    const cache = new PreflightCache(file);
+
+    await startPreflight({ overrides: { claudeBin: claude.bin }, cache }).complete;
+    expect(claude.calls().filter((c) => c === "--version")).toHaveLength(1);
+    await cache.flush();
+
+    // A later launch: a new cache object over the same file.
+    const later = new PreflightCache(file);
+    const run = startPreflight({ overrides: { claudeBin: claude.bin }, cache: later });
+    expect(item(await run.gating, "claude").version).toBe("2.1.220");
+    expect(item(await run.complete, "claude").version).toBe("2.1.220");
+    expect(claude.calls().filter((c) => c === "--version")).toHaveLength(1);
+    // The account is never cached: it is the answer most likely to change.
+    expect(claude.calls().filter((c) => c === "auth")).toHaveLength(2);
+  });
+
+  it("asks again when forced, and when the binary changed", async () => {
+    const claude = countingClaude();
+    const cache = new PreflightCache(cacheFile());
+    await startPreflight({ overrides: { claudeBin: claude.bin }, cache }).complete;
+
+    await startPreflight({ overrides: { claudeBin: claude.bin }, cache, force: true }).complete;
+    expect(claude.calls().filter((c) => c === "--version")).toHaveLength(2);
+
+    // An upgrade writes a different file.
+    writeFileSync(claude.bin, readFileSync(claude.bin, "utf8").replace("2.1.220", "2.2.0") + "\n");
+    const report = await startPreflight({ overrides: { claudeBin: claude.bin }, cache }).complete;
+    expect(item(report, "claude").version).toBe("2.2.0");
+    expect(claude.calls().filter((c) => c === "--version")).toHaveLength(3);
+  });
+
+  /**
+   * A forced sweep asks every binary again; when the answer is now a failure,
+   * the success remembered before it must not be what the next, unforced
+   * sweep shows.
+   */
+  it("forgets a remembered version once a forced sweep finds the binary failing", async () => {
+    scripts += 1;
+    const dir = path.join(paths.appPath, "fakes", `git-${scripts}`);
+    mkdirSync(dir, { recursive: true });
+    const git = path.join(dir, "git");
+    const broken = path.join(dir, "broken");
+    const log = path.join(dir, "calls.log");
+    writeFileSync(log, "");
+    writeFileSync(
+      git,
+      ["#!/bin/sh", `echo "$1" >> '${log}'`, `[ -f '${broken}' ] && exit 1`, "echo 'git version 2.40.0'", ""].join("\n"),
+    );
+    chmodSync(git, 0o755);
+    const versions = () => readFileSync(log, "utf8").split("\n").filter((c) => c === "--version").length;
+    const overrides = { claudeBin: countingClaude().bin, gitBin: git };
+    const cache = new PreflightCache(cacheFile());
+
+    expect(item(await startPreflight({ overrides, cache }).complete, "git").version).toBe("2.40.0");
+    expect(versions()).toBe(1);
+
+    writeFileSync(broken, "");
+    const forced = startPreflight({ overrides, cache, force: true });
+    expect(item(await forced.gating, "git").version).toBe("2.40.0");
+    expect(item(await forced.complete, "git").version).toBeUndefined();
+    expect(versions()).toBe(2);
+
+    const next = await startPreflight({ overrides, cache }).complete;
+    expect(item(next, "git").version).toBeUndefined();
+    expect(versions()).toBe(3);
+  });
+
+  /**
+   * Remembered, so the next launch starts the backend on the same answer
+   * (without CLAUDE_CODE_BIN) instead of a provisional "ok" it would then have
+   * to restart over; asked again every sweep, so a fix is seen at once.
+   */
+  it("starts from a claude it cannot drive but asks it again every time", async () => {
+    const claude = countingClaude("1.4.0");
+    const cache = new PreflightCache(cacheFile());
+    const first = await startPreflight({ overrides: { claudeBin: claude.bin }, cache }).complete;
+    expect(item(first, "claude").status).toBe("unusable");
+    expect(cache.version(claude.bin)?.fresh).toBe(false);
+
+    const run = startPreflight({ overrides: { claudeBin: claude.bin }, cache });
+    expect(item(await run.gating, "claude").status).toBe("unusable");
+    expect(item(await run.complete, "claude").status).toBe("unusable");
+    expect(claude.calls().filter((c) => c === "--version")).toHaveLength(2);
   });
 });

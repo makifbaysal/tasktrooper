@@ -8,4 +8,4 @@ params:
     path: 'Relative path within the workspace to search (default: workspace root)'
     pattern: Regular expression pattern to search for
 ---
-Search workspace files with a regex pattern (ripgrep syntax; look-around and backreferences are not supported). Case-insensitive by default. Respects .gitignore via exclusion globs.
+Search workspace files with a regex pattern (ripgrep syntax; look-around and backreferences are not supported). Case-insensitive by default. Respects .gitignore. A line longer than 300 characters comes back cut short, ending in "[... omitted end of long line]" — read_file the line for the rest.

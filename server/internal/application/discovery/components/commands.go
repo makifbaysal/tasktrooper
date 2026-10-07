@@ -110,13 +110,23 @@ func renderScript(manager, name string) string {
 	}
 }
 
+// RE2's \s, kept byte-for-byte: unicode.IsSpace would also accept \v and U+0085.
+const jsonKeySpace = " \t\n\f\r"
+
 func scriptLine(packageJSON, name string) int {
-	re := regexp.MustCompile(`"` + regexp.QuoteMeta(name) + `"\s*:`)
-	loc := re.FindStringIndex(packageJSON)
-	if loc == nil {
-		return 0
+	key := `"` + name + `"`
+	for from := 0; from < len(packageJSON); {
+		i := strings.Index(packageJSON[from:], key)
+		if i < 0 {
+			return 0
+		}
+		start := from + i
+		if strings.HasPrefix(strings.TrimLeft(packageJSON[start+len(key):], jsonKeySpace), ":") {
+			return lineOf(packageJSON, start)
+		}
+		from = start + 1
 	}
-	return lineOf(packageJSON, loc[0])
+	return 0
 }
 
 var lockfileForManager = map[string]string{"pnpm": "pnpm-lock.yaml", "yarn": "yarn.lock", "npm": "package-lock.json", "bun": "bun.lock"}

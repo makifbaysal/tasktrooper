@@ -64,7 +64,7 @@ type chatRequest struct {
 	Stream         bool                `json:"stream"`
 	StreamOptions  *chatStreamOptions  `json:"stream_options,omitempty"`
 	ResponseFormat *chatResponseFormat `json:"response_format,omitempty"`
-	MaxTokens int `json:"max_tokens,omitempty"`
+	MaxTokens      int                 `json:"max_tokens,omitempty"`
 }
 
 type chatStreamOptions struct {
@@ -100,8 +100,8 @@ func buildResponseFormat(rf *domain.ResponseFormat) *chatResponseFormat {
 }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role         string            `json:"role"`
+	Content      string            `json:"content"`
 	ContentParts []chatContentPart `json:"-"`
 	ToolCalls    []toolCall        `json:"tool_calls,omitempty"`
 	ToolCallID   string            `json:"tool_call_id,omitempty"`
@@ -280,8 +280,9 @@ func (c *openAICompatClient) Chat(ctx context.Context, req domain.AgentRequest) 
 	msg.ToolCalls = parseToolCalls(cm.ToolCalls)
 
 	return domain.AgentResponse{
-		Message: msg,
-		Usage:   chatResp.Usage.toDomain(),
+		Message:    msg,
+		Usage:      chatResp.Usage.toDomain(),
+		StopReason: domain.NormalizeStopReason(chatResp.Choices[0].FinishReason),
 	}, nil
 }
 
@@ -401,9 +402,9 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req domain.AgentReq
 	tools := buildToolDefs(req.Tools)
 
 	payload := chatRequest{
-		Model:    model,
-		Messages: msgs,
-		Stream:   true,
+		Model:          model,
+		Messages:       msgs,
+		Stream:         true,
 		StreamOptions:  &chatStreamOptions{IncludeUsage: true},
 		ResponseFormat: buildResponseFormat(req.ResponseFormat),
 		MaxTokens:      req.MaxTokens,
@@ -437,6 +438,7 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req domain.AgentReq
 	var fullContent strings.Builder
 	toolCalls := newToolCallStream()
 	var streamUsage usage
+	var finishReason string
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineBytes)
@@ -464,6 +466,9 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req domain.AgentReq
 			continue
 		}
 
+		if fr := chunk.Choices[0].FinishReason; fr != "" {
+			finishReason = fr
+		}
 		delta := chunk.Choices[0].Delta
 
 		if delta.Content != "" {
@@ -485,7 +490,8 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req domain.AgentReq
 			Content:   fullContent.String(),
 			ToolCalls: parseToolCalls(toolCalls.calls()),
 		},
-		Usage: streamUsage.toDomain(),
+		Usage:      streamUsage.toDomain(),
+		StopReason: domain.NormalizeStopReason(finishReason),
 	}, nil
 }
 

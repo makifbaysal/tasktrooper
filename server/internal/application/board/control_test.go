@@ -107,6 +107,14 @@ func (f *controlTaskStore) Get(context.Context, uuid.UUID, uuid.UUID) (domain.Bo
 	return f.task, nil
 }
 
+func (f *controlTaskStore) GetByID(context.Context, uuid.UUID) (domain.BoardTask, error) {
+	return f.task, nil
+}
+
+func (f *controlTaskStore) ListDispatchCandidates(context.Context, int) ([]port.TaskRecentRuns, error) {
+	return nil, nil
+}
+
 func (f *controlTaskStore) BlockOnCancel(_ context.Context, _, taskID uuid.UUID, reason string) error {
 	f.blocked = append(f.blocked, controlBlockCall{taskID: taskID, reason: reason})
 	return nil

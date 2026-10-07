@@ -19,6 +19,7 @@ import type {
   ChatFocusRequest,
   ChooseDirectoryRequest,
   DiagnosticsRequest,
+  LogsStreamRequest,
   OpenExternalRequest,
   PreflightRequest,
   RestartChildRequest,
@@ -152,6 +153,11 @@ export function validatePreflightRequest(raw: unknown): PreflightRequest {
   if (raw === undefined || raw === null) return {};
   const o = asRecord(raw, "preflight");
   return o.force === undefined ? {} : { force: asBoolean(o.force, "preflight.force") };
+}
+
+export function validateLogsStream(raw: unknown): LogsStreamRequest {
+  const o = asRecord(raw, "logsStream");
+  return { on: asBoolean(o.on, "logsStream.on") };
 }
 
 export function validateRestartChild(raw: unknown): RestartChildRequest {

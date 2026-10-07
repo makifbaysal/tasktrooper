@@ -30,9 +30,10 @@ const outdir = path.join(root, "dist", "embedder");
 
 rmSync(outdir, { recursive: true, force: true });
 
-await build({
-  entryPoints: [path.join(root, "embedder/src/index.ts")],
-  outfile: path.join(outdir, "index.cjs"),
+// Two bundles: `index.cjs` is the process (HTTP server, download), and
+// `worker.cjs` is the worker thread that holds the model, started from it by
+// path. Only the worker pulls in onnxruntime-web; see worker-engine.ts.
+const common = {
   bundle: true,
   platform: "node",
   format: "cjs",
@@ -44,7 +45,10 @@ await build({
   // could carry a literal into a file someone can open.
   sourcemap: false,
   minify: false,
-});
+};
+
+await build({ ...common, entryPoints: [path.join(root, "embedder/src/index.ts")], outfile: path.join(outdir, "index.cjs") });
+await build({ ...common, entryPoints: [path.join(root, "embedder/src/worker.ts")], outfile: path.join(outdir, "worker.cjs") });
 
 const wasmSrcDir = path.join(root, "node_modules", "onnxruntime-web", "dist");
 const WASM_RUNTIME_FILES = ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"];

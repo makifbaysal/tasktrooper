@@ -1,21 +1,47 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getStoredLocale, setStoredLocale } from "@/api";
 import { htmlLang, normalizeLang, type Lang } from "@/lib/languages";
-import { de } from "@/locales/de";
 import { en, type Dict } from "@/locales/en";
-import { es } from "@/locales/es";
-import { fr } from "@/locales/fr";
-import { pt } from "@/locales/pt";
-import { tr } from "@/locales/tr";
-import { zh } from "@/locales/zh";
 
 export type { Lang } from "@/lib/languages";
 
-export const DICTS: Record<Lang, Dict> = { en, tr, es, de, fr, pt, zh };
+// English is bundled because it is every lookup's fallback; the other
+// dictionaries are their own chunks (each is as large as the rest of the app's
+// startup code) and only the one in use is ever fetched.
+const LOADERS: Record<Exclude<Lang, "en">, () => Promise<Dict>> = {
+  tr: () => import("@/locales/tr").then((m) => m.tr),
+  es: () => import("@/locales/es").then((m) => m.es),
+  de: () => import("@/locales/de").then((m) => m.de),
+  fr: () => import("@/locales/fr").then((m) => m.fr),
+  pt: () => import("@/locales/pt").then((m) => m.pt),
+  zh: () => import("@/locales/zh").then((m) => m.zh),
+};
+
+const loaded: Partial<Record<Lang, Dict>> = { en };
+const pending: Partial<Record<Lang, Promise<Dict>>> = {};
+
+/** Resolves once `lang`'s dictionary is in memory; main.tsx awaits the stored one before the first render. */
+export function loadLocale(lang: Lang): Promise<Dict> {
+  const have = loaded[lang];
+  if (have) return Promise.resolve(have);
+  const inFlight = pending[lang];
+  if (inFlight) return inFlight;
+  const load = LOADERS[lang as Exclude<Lang, "en">]()
+    .then((dict) => {
+      loaded[lang] = dict;
+      return dict;
+    })
+    .finally(() => {
+      delete pending[lang];
+    });
+  pending[lang] = load;
+  return load;
+}
 
 interface I18nContextValue {
   lang: Lang;
-  setLang: (lang: Lang) => void;
+  /** Switches once the language's dictionary has loaded; until then the current one stays. */
+  setLang: (lang: Lang) => Promise<void>;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
@@ -41,6 +67,12 @@ function interpolate(template: string, params?: Record<string, string | number>)
   );
 }
 
+function translate(lang: Lang, key: string, params?: Record<string, string | number>): string {
+  const active = lookup(loaded[lang] ?? en, key) ?? lookup(en, key);
+  if (active === undefined) return key;
+  return interpolate(active, params);
+}
+
 // Module-level mirror of the active language, kept in sync by the provider.
 // Lets non-component modules (lib/* label maps) translate via tStatic() without
 // a hook. Components that render those labels re-render on switch (they consume
@@ -53,32 +85,45 @@ let activeLang: Lang = normalizeLang(getStoredLocale());
  * relies on the rendering component consuming the i18n context.
  */
 export function tStatic(key: string, params?: Record<string, string | number>): string {
-  const active = lookup(DICTS[activeLang], key) ?? lookup(DICTS.en, key);
-  if (active === undefined) return key;
-  return interpolate(active, params);
+  return translate(activeLang, key, params);
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
-    const initial = normalizeLang(getStoredLocale());
+    const stored = normalizeLang(getStoredLocale());
+    // Only a dictionary already in memory is shown; otherwise English renders
+    // until the effect below has loaded the stored one.
+    const initial = loaded[stored] ? stored : "en";
     activeLang = initial;
     document.documentElement.setAttribute("lang", htmlLang(initial));
     return initial;
   });
+  const latestRequest = useRef(0);
 
-  const setLang = useCallback((next: Lang) => {
-    setStoredLocale(next);
+  const apply = useCallback(async (next: Lang, persist: boolean) => {
+    const request = ++latestRequest.current;
+    try {
+      await loadLocale(next);
+    } catch {
+      return;
+    }
+    // A slower load must not undo a later pick.
+    if (request !== latestRequest.current) return;
+    if (persist) setStoredLocale(next);
     activeLang = next;
     document.documentElement.setAttribute("lang", htmlLang(next));
     setLangState(next);
   }, []);
 
+  useEffect(() => {
+    const stored = normalizeLang(getStoredLocale());
+    if (stored !== activeLang) void apply(stored, false);
+  }, [apply]);
+
+  const setLang = useCallback((next: Lang) => apply(next, true), [apply]);
+
   const t = useCallback(
-    (key: string, params?: Record<string, string | number>): string => {
-      const active = lookup(DICTS[lang], key) ?? lookup(DICTS.en, key);
-      if (active === undefined) return key;
-      return interpolate(active, params);
-    },
+    (key: string, params?: Record<string, string | number>): string => translate(lang, key, params),
     [lang],
   );
 

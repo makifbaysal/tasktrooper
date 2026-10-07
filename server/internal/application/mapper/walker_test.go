@@ -55,3 +55,79 @@ func (s *WalkerSuite) TestWalkExtraIgnoreFiles() {
 	s.Contains(paths, "keep.go")
 	s.NotContains(paths, "skip/a.go")
 }
+
+func (s *WalkerSuite) TestWalkSubdirMatchesTheFullWalkFilteredToIt() {
+	full, err := Walk(s.fixtureRoot, WalkOptions{UseGitignore: true})
+	s.Require().NoError(err)
+	var want []string
+	for _, p := range full {
+		if filepath.Dir(filepath.FromSlash(p)) == "pkg" {
+			want = append(want, p)
+		}
+	}
+
+	for _, sub := range []string{"pkg", "pkg/", "./pkg", "web/../pkg"} {
+		got, err := Walk(s.fixtureRoot, WalkOptions{UseGitignore: true, Subdir: sub})
+		s.Require().NoError(err, sub)
+		s.Equal(want, got, sub)
+	}
+}
+
+func (s *WalkerSuite) TestWalkSubdirNeverListsWhatTheFullWalkSkips() {
+	tests := []struct {
+		name string
+		sub  string
+	}{
+		{"gitignored directory", "ignored"},
+		{"default-ignored directory", "node_modules/pkg"},
+		{"outside the root", "../mapper"},
+		{"missing directory", "nope"},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			got, err := Walk(s.fixtureRoot, WalkOptions{UseGitignore: true, Subdir: tt.sub})
+			s.Require().NoError(err)
+			s.Empty(got)
+		})
+	}
+}
+
+func (s *WalkerSuite) TestWalkSubdirNamingAFileReturnsJustThatFile() {
+	got, err := Walk(s.fixtureRoot, WalkOptions{UseGitignore: true, Subdir: "pkg/main.go"})
+	s.Require().NoError(err)
+	s.Equal([]string{"pkg/main.go"}, got)
+}
+
+func (s *WalkerSuite) TestWalkSubdirNeverFollowsASymlink() {
+	outside := s.T().TempDir()
+	s.Require().NoError(os.MkdirAll(filepath.Join(outside, "secret"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(outside, "secret", "id_rsa"), []byte("x"), 0o600))
+	root := s.T().TempDir()
+	s.Require().NoError(os.MkdirAll(filepath.Join(root, "pkg", "inner"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(root, "pkg", "inner", "a.go"), []byte("package inner"), 0o644))
+	if err := os.Symlink(outside, filepath.Join(root, "out")); err != nil {
+		s.T().Skipf("symlinks unavailable: %v", err)
+	}
+	s.Require().NoError(os.Symlink(filepath.Join(root, "pkg"), filepath.Join(root, "alias")))
+	full, err := Walk(root, WalkOptions{UseGitignore: true})
+	s.Require().NoError(err)
+	s.ElementsMatch([]string{"pkg/inner/a.go", "out", "alias"}, full)
+
+	tests := []struct {
+		sub  string
+		want []string
+	}{
+		{"out/secret", nil},
+		{"out/secret/id_rsa", nil},
+		{"alias/inner", nil},
+		{"out", []string{"out"}},
+		{"pkg/inner", []string{"pkg/inner/a.go"}},
+	}
+	for _, tt := range tests {
+		s.Run(tt.sub, func() {
+			got, err := Walk(root, WalkOptions{UseGitignore: true, Subdir: tt.sub})
+			s.Require().NoError(err)
+			s.Equal(tt.want, got)
+		})
+	}
+}

@@ -41,6 +41,23 @@ func (s *RegistrySuite) TestRegisterAndDefinitions() {
 	s.Len(defs, 2)
 }
 
+func (s *RegistrySuite) TestDefinitionsAndNamesComeBackSortedByName() {
+	reg := registry.New()
+	for _, name := range []string{"write_file", "grep_code", "read_file", "codebase_search", "run_terminal", "edit_lines"} {
+		reg.Register(&stubTool{name: name})
+	}
+	want := []string{"codebase_search", "edit_lines", "grep_code", "read_file", "run_terminal", "write_file"}
+
+	for range 20 {
+		names := make([]string, 0, len(want))
+		for _, d := range reg.DefinitionsForPolicy(domain.ToolPolicy{}) {
+			names = append(names, d.Function.Name)
+		}
+		s.Equal(want, names)
+		s.Equal(want, reg.AllToolNames())
+	}
+}
+
 func (s *RegistrySuite) TestExecuteKnownTool() {
 	reg := registry.New()
 	reg.Register(&stubTool{name: "echo"})

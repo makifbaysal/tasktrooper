@@ -57,6 +57,8 @@ type Service struct {
 	mirrors MirrorRestorer
 
 	embeddings port.EmbeddingProvenanceResolver
+
+	cleanPasses cleanPassLedger
 }
 
 type MirrorRestorer interface {
@@ -221,6 +223,18 @@ func (s *Service) RestartIndexProject(ctx context.Context, projectID uuid.UUID, 
 	delete(s.projectRunning, projectID)
 	s.projectMu.Unlock()
 	s.startIndexProject(ctx, projectID, rootPath, onDone, true)
+}
+
+// RefreshIndexProject replaces a running pass the way RestartIndexProject does
+// but stays incremental: only files whose content changed are re-embedded. A
+// push or a poll that saw HEAD move has no reason to re-embed the whole tree,
+// and an embedding-model change still forces a full pass through
+// passProvenance.staleAgainst.
+func (s *Service) RefreshIndexProject(ctx context.Context, projectID uuid.UUID, rootPath string, onDone func()) {
+	s.projectMu.Lock()
+	delete(s.projectRunning, projectID)
+	s.projectMu.Unlock()
+	s.startIndexProject(ctx, projectID, rootPath, onDone, false)
 }
 
 func (s *Service) StartIndexProject(ctx context.Context, projectID uuid.UUID, rootPath string, onDone func()) {
@@ -454,6 +468,9 @@ func (s *Service) StartIndexBranch(ctx context.Context, projectID uuid.UUID, bra
 }
 
 func (s *Service) runIndexPass(ctx context.Context, index domain.WorkspaceIndex, absRoot string, paths []string, treeText string, isNew, force bool) (domain.WorkspaceIndex, error) {
+	pass := s.beginGitPass(ctx, index.ID, absRoot)
+	defer s.endGitPass(pass)
+
 	if err := s.store.UpdateIndexStatus(ctx, index.ID, domain.IndexStatusRunning, 0, 0, 0, ""); err != nil {
 		return domain.WorkspaceIndex{}, err
 	}
@@ -472,7 +489,7 @@ func (s *Service) runIndexPass(ctx context.Context, index domain.WorkspaceIndex,
 	}
 
 	if len(paths) == 0 {
-		return s.finalizeIndex(ctx, index, absRoot, paths, treeText, prov)
+		return s.finalizeIndex(ctx, index, absRoot, paths, treeText, prov, pass)
 	}
 
 	workList := paths
@@ -480,7 +497,7 @@ func (s *Service) runIndexPass(ctx context.Context, index domain.WorkspaceIndex,
 	if s.cfg.ReindexOnChange && !isNew {
 		storedHashes, err := s.store.GetFileHashes(ctx, index.ID)
 		if err == nil && len(storedHashes) > 0 {
-			changes := DetectChangedFiles(absRoot, paths, storedHashes)
+			changes := pass.changedFiles(ctx, index.CommitSHA, absRoot, paths, storedHashes, force)
 			if force {
 
 				changes.Changed = append(changes.Changed, changes.Unchanged...)
@@ -497,6 +514,11 @@ func (s *Service) runIndexPass(ctx context.Context, index domain.WorkspaceIndex,
 				index.FileCount = len(paths)
 				index.FilesProcessed = len(paths)
 				index.FilesTotal = len(paths)
+				// Without the stamp, a push that touched no indexable file
+				// leaves HEAD ahead of CommitSHA and the freshness poll reruns
+				// this pass forever.
+				s.stampIndexCommit(ctx, &index, absRoot)
+				pass.settle(ctx, paths)
 				return index, nil
 			}
 
@@ -528,7 +550,7 @@ func (s *Service) runIndexPass(ctx context.Context, index domain.WorkspaceIndex,
 	}
 
 	if workers := s.indexConcurrency(); workers > 1 && len(workList) > 1 {
-		return s.runWorkList(ctx, index, absRoot, paths, treeText, workList, workers, prov)
+		return s.runWorkList(ctx, index, absRoot, paths, treeText, workList, workers, prov, pass)
 	}
 
 	for i, rel := range workList {
@@ -555,7 +577,7 @@ func (s *Service) runIndexPass(ctx context.Context, index domain.WorkspaceIndex,
 		progress(i+1, len(workList))
 	}
 
-	return s.finalizeIndex(ctx, index, absRoot, paths, treeText, prov)
+	return s.finalizeIndex(ctx, index, absRoot, paths, treeText, prov, pass)
 }
 
 const defaultIndexConcurrency = 4
@@ -582,6 +604,7 @@ func (s *Service) runWorkList(
 	workList []string,
 	workers int,
 	prov *passProvenance,
+	pass *indexPassGit,
 ) (domain.WorkspaceIndex, error) {
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(workers)
@@ -618,7 +641,7 @@ func (s *Service) runWorkList(
 		_ = s.store.UpdateIndexStatus(stopCtx, index.ID, domain.IndexStatusFailed, 0, 0, 0, msg)
 		return domain.WorkspaceIndex{}, fmt.Errorf("%s", msg)
 	}
-	return s.finalizeIndex(ctx, index, absRoot, paths, treeText, prov)
+	return s.finalizeIndex(ctx, index, absRoot, paths, treeText, prov, pass)
 }
 
 const (
@@ -789,6 +812,7 @@ func (s *Service) finalizeIndex(
 	paths []string,
 	treeText string,
 	prov *passProvenance,
+	pass *indexPassGit,
 ) (domain.WorkspaceIndex, error) {
 
 	if err := s.store.UpdateIndexTree(ctx, index.ID, absRoot, treeText); err != nil {
@@ -813,13 +837,8 @@ func (s *Service) finalizeIndex(
 	}
 	_ = s.store.UpdateIndexProgress(ctx, index.ID, index.FileCount, index.FileCount)
 
-	if sha := GitHeadSHA(absRoot); sha != "" {
-		if err := s.store.UpdateIndexCommit(ctx, index.ID, sha); err != nil {
-			log.Warn().Err(err).Str("index_id", index.ID.String()).Msg("stamp index commit failed")
-		} else {
-			index.CommitSHA = sha
-		}
-	}
+	s.stampIndexCommit(ctx, &index, absRoot)
+	pass.settle(ctx, paths)
 
 	index.EmbeddingModel = prov.modelName()
 	index.EmbeddingDims = prov.dimensions()
@@ -828,6 +847,18 @@ func (s *Service) finalizeIndex(
 	}
 
 	return index, nil
+}
+
+func (s *Service) stampIndexCommit(ctx context.Context, index *domain.WorkspaceIndex, absRoot string) {
+	sha := GitHeadSHA(absRoot)
+	if sha == "" {
+		return
+	}
+	if err := s.store.UpdateIndexCommit(ctx, index.ID, sha); err != nil {
+		log.Warn().Err(err).Str("index_id", index.ID.String()).Msg("stamp index commit failed")
+		return
+	}
+	index.CommitSHA = sha
 }
 
 func GitHeadSHA(root string) string {

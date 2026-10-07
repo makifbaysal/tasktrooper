@@ -236,6 +236,10 @@ type Options struct {
 	// AllowedRoots are extra roots a repository or session may be pointed at.
 	// Desktop/local defaults to "*" so any local directory can be opened.
 	AllowedRoots []string
+	// EmbeddedPostgres is set when this process started the database itself
+	// (DATABASE_URL empty), so no other host can be serving it: the only mode
+	// in which what is on this host's disk can decide what to delete there.
+	EmbeddedPostgres bool
 }
 
 type Server struct {
@@ -801,6 +805,19 @@ func (e *engine) bootstrapLLMFromYAML(baseURL, model, apiKey string, timeout tim
 // wireRepositoryStore builds the repository store with the boot-time cipher,
 // not a lazy one: its encrypted columns' first real use is always a later HTTP
 // request, after scrubProcessSecrets wiped MCP_SECRETS_KEY from the env.
+// branchIndexPruning is what the workspace reaper may prune branch indexes
+// through, or nil. Pruning decides by this host's disk that an index is
+// orphaned, so it runs only on a database this process started: on one
+// another host also serves, that host's workspaces are not on this disk and
+// their indexes would be deleted under it.
+func branchIndexPruning(indexes port.IndexStore, opts Options) boardapp.BranchIndexStore {
+	if !opts.EmbeddedPostgres {
+		return nil
+	}
+	pruner, _ := indexes.(boardapp.BranchIndexStore)
+	return pruner
+}
+
 func wireRepositoryStore(pgDB *pgstore.DB, cfg *domain.Config, cipher *secrets.Cipher, cipherErr error) *pgstore.RepositoryStore {
 	store := pgstore.NewRepositoryStore(pgDB).
 		SetHostRoots(cfg.Storage.Sessions.WorkspaceRoot, cfg.Indexer.AllowedRoots)
@@ -1039,17 +1056,14 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		}
 	}
 
+	// Zero window/reserve/threshold fields are left zero on purpose: the loop
+	// fills each from the model a run is on (appcontext.LimitsFor), and a value
+	// set in context.* overrides that model default for every model.
 	budget := appcontext.Budget{
 		MaxTokens:          cfg.Context.MaxTokens,
 		ReserveOutput:      cfg.Context.ReserveOutput,
 		SummarizeThreshold: cfg.Context.SummarizeThreshold,
 		KeepRecentMessages: cfg.Context.KeepRecentMessages,
-	}
-	if budget.MaxTokens <= 0 {
-		budget.MaxTokens = 32000
-	}
-	if budget.ReserveOutput <= 0 {
-		budget.ReserveOutput = 4096
 	}
 	// Defaulted before the loop gets the budget: it is a value, so a later fill
 	// never reaches the loop's copy, and its trim reads KeepRecentMessages
@@ -1062,6 +1076,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	// The loop trims with the same budget its callers do, or tool results grow
 	// the request back past it many times over.
 	e.agentLoop.SetHistoryBudget(budget)
+	e.agentLoop.SetModelLimits(appcontext.LimitsFor)
 	// Condenses dropped history into one fixed-position block so the request
 	// prefix stays byte-identical between trims (provider cache survives).
 	e.agentLoop.SetSummarizer(summarizer)
@@ -1156,16 +1171,21 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			}()
 			return nil
 		})
-		orchSvc = orchestrator.NewService(llmClient, catalogStore, nil, e.agentRouter, cfg.Orchestration, contextBuilder)
-		// Intake and the planner run without tools; the workspace is what keeps
-		// them from asking the stakeholder about repositories the system knows.
-		if initiativeStore != nil && repositoryStore != nil {
-			orchSvc.SetWorkspace(workspaceLister{projects: initiativeStore, repos: repositoryStore})
-		}
-		// A dependent subtask must read the ledger fresh to see what its
-		// dependency just put on the board.
-		if sessionActionStore != nil {
-			orchSvc.SetSessionActions(sessionActionStore)
+		// Chat is the only caller left (board runs go straight to the agent
+		// loop), and a disabled orchestration means no service at all rather
+		// than one every caller has to remember to ask first.
+		if cfg.Orchestration.Enabled {
+			orchSvc = orchestrator.NewService(llmClient, catalogStore, nil, e.agentRouter, cfg.Orchestration, contextBuilder)
+			// Intake and the planner run without tools; the workspace is what keeps
+			// them from asking the stakeholder about repositories the system knows.
+			if initiativeStore != nil && repositoryStore != nil {
+				orchSvc.SetWorkspace(workspaceLister{projects: initiativeStore, repos: repositoryStore})
+			}
+			// A dependent subtask must read the ledger fresh to see what its
+			// dependency just put on the board.
+			if sessionActionStore != nil {
+				orchSvc.SetSessionActions(sessionActionStore)
+			}
 		}
 	}
 
@@ -1272,7 +1292,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		}
 		boardRunner = boardapp.NewRunner(boardapp.RunnerDeps{
 			AgentLoop:     e.agentRouter,
-			OrchSvc:       orchSvc,
 			Catalog:       catalogStore,
 			ActivityStore: activityStore,
 			Runs:          taskAgentRunStore,
@@ -1865,9 +1884,6 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					}
 				}()
 			}
-			if catalogStore != nil {
-				repositorySvc.SetAgentLister(catalogStore.ListAgents)
-			}
 			pipelineRunner.Start(ctx)
 			e.pipelineRunner = pipelineRunner
 
@@ -2066,6 +2082,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					cfg.Storage.Sessions.WorkspaceRoot,
 					boardapp.WorkspaceReapGrace,
 				)
+				if branchIndexes := branchIndexPruning(indexStore, opts); branchIndexes != nil {
+					reaper.SetBranchIndexes(branchIndexes)
+				}
 				activateBoard = append(activateBoard, func() {
 					reaper.Start(ctx, boardapp.WorkspaceReaperInterval)
 				})

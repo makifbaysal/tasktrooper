@@ -26,6 +26,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import { useI18n } from "@/hooks/useI18n";
+import { usePolling } from "@/hooks/usePolling";
+import { keepEqual } from "@/lib/stableState";
 import {
   ALL,
   DEFAULT_FILTER,
@@ -86,13 +88,13 @@ export function DeploymentsPage() {
       api.listAllReleases({ limit: RELEASE_PAGE }),
       api.getDeployMatrix(),
     ]);
-    if (ov.status === "fulfilled") setOverview(ov.value);
+    if (ov.status === "fulfilled") setOverview((prev) => keepEqual(prev, ov.value));
     if (rel.status === "fulfilled") {
       const fresh = rel.value.releases ?? [];
-      setReleases((prev) => mergeReleasePages(fresh, prev));
+      setReleases((prev) => keepEqual(prev, mergeReleasePages(fresh, prev)));
       setHasOlder((more) => more || fresh.length === RELEASE_PAGE);
     }
-    if (mx.status === "fulfilled") setMatrix(mx.value);
+    if (mx.status === "fulfilled") setMatrix((prev) => keepEqual(prev, mx.value));
     const failure = [ov, rel].find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
     if (failure && !failedOnce.current) {
       failedOnce.current = true;
@@ -101,33 +103,38 @@ export function DeploymentsPage() {
     setLoading(false);
   }, [t, setOverview, setReleases, setMatrix, setLoading]);
 
-  useEffect(() => {
-    void loadBase();
-    const id = setInterval(() => void loadBase(), RELEASE_REFRESH_MS);
-    return () => clearInterval(id);
-  }, [loadBase]);
+  usePolling(loadBase, RELEASE_REFRESH_MS, true);
 
   const catalog = useMemo(() => (overview ? buildCatalog(overview) : null), [overview]);
   const envsInView = useMemo(() => catalog?.envs.filter((e) => envMatches(e, filter)) ?? [], [catalog, filter]);
   const envKey = envsInView.map((e) => e.env.id).join(",");
 
-  useEffect(() => {
+  const loadProvider = useCallback(async () => {
     if (!envKey) return;
-    const ids = envKey.split(",");
-    const loadProvider = () =>
-      ids.forEach((id) => {
+    await Promise.allSettled(
+      envKey.split(",").map((id) =>
         api
           .getEnvironmentDeployments(id, { limit: PROVIDER_LIMIT })
           .then((res) => {
-            setProvider((prev) => ({ ...prev, [id]: res.deployments ?? [] }));
-            setUnavailable((prev) => ({ ...prev, [id]: false }));
+            const list = res.deployments ?? [];
+            setProvider((prev) => (keepEqual(prev[id], list) === prev[id] ? prev : { ...prev, [id]: list }));
+            setUnavailable((prev) => (prev[id] === false ? prev : { ...prev, [id]: false }));
           })
-          .catch(() => setUnavailable((prev) => ({ ...prev, [id]: true })));
-      });
-    loadProvider();
-    const timer = setInterval(loadProvider, PROVIDER_REFRESH_MS);
-    return () => clearInterval(timer);
+          .catch(() => setUnavailable((prev) => (prev[id] === true ? prev : { ...prev, [id]: true }))),
+      ),
+    );
   }, [envKey, setProvider]);
+
+  usePolling(loadProvider, PROVIDER_REFRESH_MS, !!envKey);
+
+  // The poll's own first tick covers the first set of environments; a filter
+  // change that swaps the set is read at once rather than a minute later.
+  const polledEnvKey = useRef(envKey);
+  useEffect(() => {
+    const previous = polledEnvKey.current;
+    polledEnvKey.current = envKey;
+    if (previous && envKey && previous !== envKey) void loadProvider();
+  }, [envKey, loadProvider]);
 
   const feed = useMemo(() => (catalog ? buildFeed(catalog, releases, provider) : []), [catalog, releases, provider]);
   const scoped = useMemo(() => feed.filter((i) => itemMatches(i, { ...filter, state: ALL })), [feed, filter]);

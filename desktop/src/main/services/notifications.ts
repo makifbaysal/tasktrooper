@@ -14,7 +14,30 @@
 import { Notification, powerSaveBlocker } from "electron";
 import type { NotificationPreferences } from "../../ipc/types.js";
 
+/**
+ * How often the backend is asked, which is three requests each time — the
+ * whole task list among them.
+ *
+ * Every 15 s only while something is happening: a run in flight or a task in
+ * progress, which is when a column change, a comment or a finished chat turn —
+ * everything this watcher notifies about — can arrive. Idle, a minute: nothing
+ * on an idle board moves unless the person moves it, and they are looking at it
+ * when they do. Both double on battery. `nudge()` is the way back to the fast
+ * interval sooner than that: the window losing focus, which is the moment
+ * somebody who just started a run walks away from it.
+ */
 export const POLL_INTERVAL_MS = 15_000;
+export const IDLE_POLL_INTERVAL_MS = 60_000;
+const BATTERY_FACTOR = 2;
+/** A nudge within this long of the last poll is not worth another three requests. */
+const NUDGE_MIN_GAP_MS = 2_000;
+/** Consecutive ticks without an `/v1/activity/active` answer before a held suspension blocker is let go. */
+export const BLIND_TICKS_BEFORE_RELEASE = 3;
+
+export function pollIntervalMs(state: { busy: boolean; onBattery: boolean }): number {
+  const base = state.busy ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS;
+  return state.onBattery ? base * BATTERY_FACTOR : base;
+}
 
 const BODY_MAX = 120;
 
@@ -64,10 +87,10 @@ export interface DiffResult {
 }
 
 /**
- * Whether any task is actively being worked, the proxy this app has for "a
- * background agent run is in flight": the run itself happens server-side
- * (`board/runner.go`), and the task list this watcher already polls is the
- * cheapest signal of it reaching the Electron main process.
+ * Whether any task is actively being worked: the run itself happens
+ * server-side (`board/runner.go`), and the task list this watcher already
+ * polls is the cheapest signal of it reaching the Electron main process. It
+ * sets how often the watcher polls — never whether the screen stays on.
  */
 export function hasRunningTask(tasks: RemoteTask[]): boolean {
   return tasks.some((task) => task.column === "in_progress");
@@ -249,6 +272,17 @@ export function diffForNotifications(
   return { toNotify, nextSnapshot, nextCursor };
 }
 
+async function readJson<T extends object>(url: string, headers: Record<string, string>): Promise<T | null> {
+  try {
+    const res = await fetch(url, { headers });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return typeof body === "object" && body !== null ? (body as T) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface NotificationWatcherOptions {
   apiBase: () => string | null;
   apiToken: () => string | null;
@@ -256,33 +290,33 @@ export interface NotificationWatcherOptions {
   onNotificationClick: (route?: string) => void;
   /** Whether the shell's own window currently has OS focus. */
   isWindowFocused: () => boolean;
+  /** Whether this machine is on battery; the poll slows down when it is. */
+  onBattery?: () => boolean;
 }
 
 /**
- * Owns the poll timer, the two `fetch` calls, and turning a candidate into a
+ * Owns the poll timer, the three `fetch` calls, and turning a candidate into a
  * real `Notification`. Everything decidable without I/O lives in
- * `diffForNotifications` above, which is why this class has no test of its
- * own beyond typechecking — there is nothing left here to assert against
- * without mocking Electron and the network both.
+ * `diffForNotifications` above.
  */
 export class NotificationWatcher {
   #snapshot: TaskSnapshot | null = null;
   #cursor: ActivityCursor | null = null;
-  #timer: ReturnType<typeof setInterval> | null = null;
-  // The id powerSaveBlocker.start() returned, or null when nothing is held.
-  // Lives here, not a sibling service, because this watcher is already the
-  // one thing polling `/v1/tasks` every tick — a second poller would just be
-  // this one's data fetched twice.
-  #wakeBlockerId: number | null = null;
-  // A second, separate blocker: `prevent-display-sleep` (above) only keeps the
-  // screen on, which does nothing for a minimized/backgrounded window macOS
-  // can still App-Nap into suspension. `prevent-app-suspension` is what
-  // actually keeps this process's JS running while any run — board task or
-  // agent chat — is in flight.
+  #timer: ReturnType<typeof setTimeout> | null = null;
+  #polling = false;
+  #ticking = false;
+  #busy = false;
+  #lastTickAt = 0;
+  #blindTicks = 0;
+  // `prevent-app-suspension` keeps this process's JS running — and so the
+  // backend's children supervised — while a run is in flight, which a
+  // minimized window would otherwise let macOS App-Nap away. There is
+  // deliberately no `prevent-display-sleep`: holding the screen on for as
+  // long as any task is in progress kept laptops awake for hours, and nothing
+  // a run does needs the display.
   #suspensionBlockerId: number | null = null;
   // Which agent-chat session the page reports as on screen, if any. A
-  // chat-turn notification checks it before firing, the same way
-  // `hasRunningTask` already gates the wake blocker above.
+  // chat-turn notification checks it before firing.
   #focusedChat: { agentId: string; sessionId: string } | null = null;
   // The running chat sessions as of the last tick, so the next one can tell
   // which ones dropped out (finished) since then.
@@ -299,34 +333,47 @@ export class NotificationWatcher {
   }
 
   start(): void {
-    if (this.#timer) return;
-    this.#timer = setInterval(() => void this.#tick(), POLL_INTERVAL_MS);
-    void this.#tick();
+    if (this.#polling) return;
+    this.#polling = true;
+    this.#blindTicks = 0;
+    void this.#poll();
   }
 
   stop(): void {
-    if (this.#timer) clearInterval(this.#timer);
+    this.#polling = false;
+    if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
-    // The backend that would tell us a task finished just went away (stopped
+    // The backend that would tell us a run finished just went away (stopped
     // polling, app quitting) — holding the blocker past that point has no
     // signal left that could ever release it.
-    this.#releaseWakeBlocker();
     this.#releaseSuspensionBlocker();
   }
 
-  #syncWakeGuard(tasks: RemoteTask[]): void {
-    const shouldBlock = hasRunningTask(tasks);
-    if (shouldBlock && this.#wakeBlockerId === null) {
-      this.#wakeBlockerId = powerSaveBlocker.start("prevent-display-sleep");
-    } else if (!shouldBlock) {
-      this.#releaseWakeBlocker();
-    }
+  /** Poll now rather than at the next interval, unless one just ran or is running. */
+  nudge(): void {
+    if (!this.#polling || this.#ticking) return;
+    if (Date.now() - this.#lastTickAt < NUDGE_MIN_GAP_MS) return;
+    if (this.#timer) clearTimeout(this.#timer);
+    this.#timer = null;
+    void this.#poll();
   }
 
-  #releaseWakeBlocker(): void {
-    if (this.#wakeBlockerId === null) return;
-    powerSaveBlocker.stop(this.#wakeBlockerId);
-    this.#wakeBlockerId = null;
+  async #poll(): Promise<void> {
+    this.#timer = null;
+    this.#ticking = true;
+    try {
+      await this.#tick();
+    } catch (err) {
+      // One bad tick must not end the polling: the next one is the only thing
+      // that can ever release the suspension blocker.
+      console.warn(`[notifications] poll failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.#ticking = false;
+      this.#lastTickAt = Date.now();
+    }
+    if (!this.#polling || this.#timer) return;
+    const delay = pollIntervalMs({ busy: this.#busy, onBattery: this.options.onBattery?.() ?? false });
+    this.#timer = setTimeout(() => void this.#poll(), delay);
   }
 
   #syncSuspensionGuard(runs: RemoteActiveRun[]): void {
@@ -352,32 +399,32 @@ export class NotificationWatcher {
     const base = this.options.apiBase();
     if (!base) return;
 
-    let tasks: RemoteTask[];
-    let activityItems: RemoteActivityItem[];
-    let activeRuns: RemoteActiveRun[];
-    try {
-      const headers = { Authorization: `Bearer ${this.options.apiToken() ?? ""}` };
-      const [tasksRes, activityRes, activeRunsRes] = await Promise.all([
-        fetch(`${base}/v1/tasks`, { headers }),
-        fetch(`${base}/v1/activity?limit=50`, { headers }),
-        fetch(`${base}/v1/activity/active`, { headers }),
-      ]);
-      if (!tasksRes.ok || !activityRes.ok || !activeRunsRes.ok) return;
-      const tasksBody = (await tasksRes.json()) as { tasks: RemoteTask[] };
-      const activityBody = (await activityRes.json()) as { items: RemoteActivityItem[] };
-      const activeRunsBody = (await activeRunsRes.json()) as { runs: RemoteActiveRun[] };
-      tasks = tasksBody.tasks;
-      activityItems = activityBody.items;
-      // The endpoint serializes an empty Go slice as `null`, not `[]`.
-      activeRuns = activeRunsBody.runs ?? [];
-    } catch {
-      // A network blip or a backend mid-restart is "try again next tick", not
-      // a reason to treat the next real poll as a seed.
+    // A failed read (a network blip, a backend mid-restart) is "try again next
+    // tick", not a reason to treat the next real poll as a seed.
+    const headers = { Authorization: `Bearer ${this.options.apiToken() ?? ""}` };
+    const [tasksBody, activityBody, activeRunsBody] = await Promise.all([
+      readJson<{ tasks?: RemoteTask[] | null }>(`${base}/v1/tasks`, headers),
+      readJson<{ items?: RemoteActivityItem[] | null }>(`${base}/v1/activity?limit=50`, headers),
+      readJson<{ runs?: RemoteActiveRun[] | null }>(`${base}/v1/activity/active`, headers),
+    ]);
+
+    if (!activeRunsBody) {
+      this.#blindTicks++;
+      // A held blocker is only ever released by a tick that saw no run; with
+      // no answer for this long it is released anyway, and the next answer
+      // that shows a run takes it again.
+      if (this.#blindTicks >= BLIND_TICKS_BEFORE_RELEASE) this.#releaseSuspensionBlocker();
       return;
     }
-
-    this.#syncWakeGuard(tasks);
+    this.#blindTicks = 0;
+    // The endpoints serialize an empty Go slice as `null`, not `[]`.
+    const activeRuns = activeRunsBody.runs ?? [];
     this.#syncSuspensionGuard(activeRuns);
+
+    if (!tasksBody || !activityBody) return;
+    const tasks = tasksBody.tasks ?? [];
+    const activityItems = activityBody.items ?? [];
+    this.#busy = hasActiveRun(activeRuns) || hasRunningTask(tasks);
 
     const prefs = this.options.getPreferences();
     const { toNotify, nextSnapshot, nextCursor } = diffForNotifications(

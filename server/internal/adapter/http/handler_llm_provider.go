@@ -55,6 +55,7 @@ func (h *Handler) ConnectLLMProvider(c *fiber.Ctx) error {
 	if err != nil {
 		return internalError(c, err)
 	}
+	h.invalidateProviderHealth()
 	return c.JSON(out)
 }
 
@@ -216,5 +217,6 @@ func (h *Handler) DisconnectLLMProvider(c *fiber.Ctx) error {
 	if err != nil {
 		return internalError(c, err)
 	}
+	h.invalidateProviderHealth()
 	return c.JSON(out)
 }

@@ -74,6 +74,11 @@ language (`tr`, `es`, `de`, `fr`, `pt`, `zh` — registered in
 compares every language's flattened key set and `{placeholder}` names with
 `en`. A new English key needs a translation in every language.
 
+Only `en` is bundled with the app's entry (it is every lookup's fallback); the
+others are lazy chunks loaded by `loadLocale` in `hooks/useI18n` — `main.tsx`
+awaits the stored language before the first render and `setLang` switches only
+once its dictionary has loaded. Import a dictionary statically only in tests.
+
 ## Verify before committing
 
 ```bash

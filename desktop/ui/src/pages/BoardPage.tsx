@@ -1,17 +1,4 @@
-import {
-  Activity,
-  Bot,
-  Clock,
-  FolderKanban,
-  GitMerge,
-  GripVertical,
-  HelpCircle,
-  Inbox,
-  Loader2,
-  PackageCheck,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { Activity, FolderKanban, Inbox, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -28,6 +15,7 @@ import {
   type WorkspaceConfig,
 } from "@/api";
 import { BoardLane } from "@/components/board/BoardLane";
+import { BoardTaskCard } from "@/components/board/BoardTaskCard";
 import { CreateTaskDialog } from "@/components/board/CreateTaskDialog";
 import { ProjectScopeSelect } from "@/components/board/ProjectScopeSelect";
 import { TaskDetailDrawer } from "@/components/board/TaskDetailDrawer";
@@ -44,7 +32,7 @@ import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import { tStatic, useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
 import { useProjectScope } from "@/hooks/useProjectScope";
-import { analysisReviewPath } from "@/lib/analysis-review";
+import { ACTIVITY_POLL, ALL_TASKS_POLL, useSharedPoll } from "@/hooks/useSharedPoll";
 import {
   CACHE_AGENTS,
   CACHE_CONFIG,
@@ -54,36 +42,17 @@ import {
   CACHE_WORKFLOWS,
   PROJECT_SCOPE_ALL,
   PROJECT_SCOPE_NONE,
-  blockedResourceLabel,
   boardColumnsSplit,
-  deployOrderBlockerLabel,
   boardLanes,
   filterTasksByScope,
-  formatResumeIn,
-  isMergeHold,
   isProjectScope,
   mergeTaskList,
-  pipelineGateReasonLabel,
   projectScopeCounts,
   scopeShowingTask,
   taskCreateDefaults,
-  taskPipelineCardIcon,
-  taskPriorityLabel,
-  taskTypeLabel,
-  workOrderBlockerLabel,
 } from "@/lib/project-board";
-import { BOARD_RELEASE_STATUSES, openReleaseByTask, verifyMinutesLeft } from "@/lib/release-board";
-import { cn, formatDate } from "@/lib/utils";
-import { RELEASE_STATUS_VARIANT } from "@/components/projects/repository/deploy/ReleaseDrawer";
-
-// Coarse on purpose: the badge answers "is this stuck?", and a minute-accurate
-// figure on a card that re-renders on every poll only adds noise.
-const formatColumnAge = (iso: string): string => {
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours}h` : `${Math.round(hours / 24)}d`;
-};
+import { BOARD_RELEASE_STATUSES, openReleaseByTask } from "@/lib/release-board";
+import { keepMap } from "@/lib/stableState";
 
 // The board's own view of a card carries two fields the single-task endpoints
 // never return (they are filled in by the list query). Keep them when a
@@ -103,6 +72,11 @@ const TASK_POLL_MS = 5000;
 // A release moves on the sweeper's 30s tick, so polling it as often as the
 // cards would only repeat the same answer.
 const RELEASE_POLL_MS = 15000;
+const AGENT_ACTIVITY_POLL_MS = 2000;
+// Cards are memoized, so nothing else would ever re-render a column-age badge.
+const CLOCK_TICK_MS = 60000;
+
+const releaseBadgeKey = (release: Release) => `${release.id}:${release.status}:${release.verify_until ?? ""}`;
 
 // The agent-activity poll runs every 2s; handing React a fresh Set each time
 // re-rendered the whole board — and an open task drawer with it — on every
@@ -229,7 +203,12 @@ export function BoardPage() {
   // Every local change to a card bumps this. A refresh that was already in
   // flight when it happened is discarded rather than applied, so a poll (or the
   // full reload behind a move) cannot put a card back where it was dragged from.
+  // The shared poll forgets its cached list too, or a remount would be handed it.
   const boardVersion = useRef(0);
+  const localChange = () => {
+    boardVersion.current += 1;
+    ALL_TASKS_POLL.invalidate();
+  };
 
   const load = useCallback(async () => {
     const seen = boardVersion.current;
@@ -283,24 +262,20 @@ export function BoardPage() {
   }, [load]);
 
   // The cheap half of load(): just the cards. Runs on a timer so a move an
-  // agent (or another browser) made shows up without a reload.
-  const refreshTasks = useCallback(async () => {
-    const seen = boardVersion.current;
-    try {
-      const data = await api.listAllTasks();
+  // agent (or another browser) made shows up without a reload. Shared with the
+  // header's notifications, so the two never fetch the list twice. A blip
+  // keeps the last good board; the next tick (or any user action) surfaces a
+  // real failure.
+  useSharedPoll(ALL_TASKS_POLL, TASK_POLL_MS, !loading, {
+    begin: () => boardVersion.current,
+    onValue: (data, seen) => {
       if (boardVersion.current !== seen) return;
       setTasks((prev) => mergeTaskList(prev, data.tasks ?? []));
-    } catch {
-      // A blip on a background poll keeps the last good board; the next tick
-      // (or any user action) surfaces a real failure.
-    }
-  }, [setTasks]);
+    },
+  });
 
-  usePolling(refreshTasks, TASK_POLL_MS, !loading);
-
-  const pollAgentActivity = useCallback(async () => {
-    try {
-      const data = await api.listActivity(100);
+  useSharedPoll(ACTIVITY_POLL, AGENT_ACTIVITY_POLL_MS, !loading, {
+    onValue: (data) => {
       const ids = new Set<string>();
       for (const item of data.items ?? []) {
         // Only a run that has actually started. A pending run is still waiting
@@ -312,17 +287,15 @@ export function BoardPage() {
         }
       }
       setActiveAgentTaskIds((prev) => (sameIds(prev, ids) ? prev : ids));
-    } catch {
-      setActiveAgentTaskIds((prev) => (prev.size === 0 ? prev : new Set()));
-    }
-  }, []);
-
-  usePolling(pollAgentActivity, 2000, !loading);
+    },
+    onError: () => setActiveAgentTaskIds((prev) => (prev.size === 0 ? prev : new Set())),
+  });
 
   const pollReleases = useCallback(async () => {
     try {
       const data = await api.listAllReleases({ statuses: BOARD_RELEASE_STATUSES, limit: 200 });
-      setReleasesByTask(openReleaseByTask(data.releases ?? []));
+      const next = openReleaseByTask(data.releases ?? []);
+      setReleasesByTask((prev) => keepMap(prev, next, releaseBadgeKey));
     } catch {
       // The badge is a hint; a failed poll keeps the last one.
     }
@@ -396,7 +369,7 @@ export function BoardPage() {
   // and that answer replaces the optimistic one. A failure puts the card back.
   const moveTask = async (task: BoardTask, column: TaskColumn) => {
     if (task.column === column) return;
-    boardVersion.current += 1;
+    localChange();
     const previousColumn = task.column;
     const previousEnteredAt = task.column_entered_at;
     setTasks((list) =>
@@ -408,7 +381,7 @@ export function BoardPage() {
     );
     try {
       const updated = await api.updateRepositoryTask(task.repository_id, task.id, { column });
-      boardVersion.current += 1;
+      localChange();
       // The PATCH answers with the task itself; the pipeline digest is added by
       // the list endpoint only, so carry the card's own over rather than
       // blanking its build icon until the next poll.
@@ -418,7 +391,7 @@ export function BoardPage() {
       // showing the result.
       void load();
     } catch (e) {
-      boardVersion.current += 1;
+      localChange();
       setTasks((list) =>
         list.map((item) =>
           item.id === task.id
@@ -431,25 +404,38 @@ export function BoardPage() {
   };
 
   const deleteTask = async (task: BoardTask) => {
-    boardVersion.current += 1;
+    localChange();
     const previous = tasks;
     setTasks((list) => list.filter((item) => item.id !== task.id));
     try {
       await api.deleteRepositoryTask(task.repository_id, task.id);
-      boardVersion.current += 1;
+      localChange();
       void load();
       toast.success(t("boardArea.board.taskDeleted"));
     } catch (e) {
-      boardVersion.current += 1;
+      localChange();
       setTasks(previous);
       toast.error(e instanceof Error ? e.message : t("boardArea.board.deleteFailed"));
     }
   };
 
-  const openTask = (task: BoardTask) => {
+  const openTask = useCallback((task: BoardTask) => {
     setSelectedTask(task);
     setDrawerOpen(true);
-  };
+  }, []);
+  const endDrag = useCallback(() => {
+    setDragTaskId(null);
+    setDropColumn(null);
+  }, []);
+  const deleteTaskRef = useRef(deleteTask);
+  deleteTaskRef.current = deleteTask;
+  const deleteCard = useCallback((task: BoardTask) => void deleteTaskRef.current(task), []);
+
+  const [now, setNow] = useState(() => Date.now());
+  usePolling(() => setNow(Date.now()), CLOCK_TICK_MS, true);
+
+  const memberIds = useMemo(() => agents.filter((a) => a.enabled).map((a) => a.id), [agents]);
+  const memberList = useMemo(() => memberIds.map((id) => ({ agent_id: id })), [memberIds]);
 
   const onDrop = (column: TaskColumn) => {
     if (!dragTaskId) return;
@@ -465,252 +451,6 @@ export function BoardPage() {
     setDropColumn(null);
   };
 
-  // The clarification chat lives under the agent that asked, so both ids are
-  // needed to link to it; an older blocked task may predate either.
-  const blockedChatPath = (task: BoardTask): string | null =>
-    task.blocked_session_id && task.assignee_agent_id
-      ? `/agents/${task.assignee_agent_id}/chat/${task.blocked_session_id}`
-      : null;
-
-  const TaskCard = ({ task }: { task: BoardTask }) => {
-    const assignee = agentName(task.assignee_agent_id);
-    const initiative = projectScoped ? undefined : initiativeName(task.initiative_project_id);
-    const agentRunning = activeAgentTaskIds.has(task.id);
-    const pipelineIcon = taskPipelineCardIcon(task.latest_pipeline_status, task.latest_pipeline_gate_reason);
-    // A skipped gate explains itself; an ordinary pipeline just names its status.
-    const pipelineGateNote = pipelineGateReasonLabel(task.latest_pipeline_gate_reason);
-    const release = task.column === "done" ? releasesByTask.get(task.id) : undefined;
-    const releaseMinutes = release ? verifyMinutesLeft(release) : undefined;
-    return (
-      <Card
-        key={task.id}
-        draggable
-        onDragStart={() => setDragTaskId(task.id)}
-        onDragEnd={() => {
-          setDragTaskId(null);
-          setDropColumn(null);
-        }}
-        onClick={() => openTask(task)}
-        className={cn(
-          "mb-2 cursor-grab overflow-hidden border-border/80 p-3 transition-shadow active:cursor-grabbing",
-          dragTaskId === task.id && "opacity-50 ring-2 ring-primary/30",
-          "hover:shadow-[var(--shadow-overlay)]",
-        )}
-      >
-        <div className="flex items-start gap-2">
-          <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
-          <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-wrap items-center gap-1">
-              <Badge variant="outline" className="font-mono text-micro">
-                {task.key}
-              </Badge>
-              {agentRunning && (
-                <Badge variant="info" className="gap-1 text-micro">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {t("boardArea.board.agentRunning")}
-                </Badge>
-              )}
-              <Badge variant="secondary" className="text-micro">
-                {taskTypeLabel(task.task_type)}
-              </Badge>
-              <Badge variant="outline" className="text-micro">
-                {taskPriorityLabel(task.priority)}
-              </Badge>
-            </div>
-            <p className="break-words text-sm font-medium leading-snug">{task.title}</p>
-            {task.description && (
-              <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{task.description}</p>
-            )}
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className="max-w-[9rem] truncate text-micro">
-                {repositoryName(task.repository_id)}
-              </Badge>
-              {initiative && (
-                <Badge variant="outline" className="max-w-[9rem] truncate text-micro">
-                  {initiative}
-                </Badge>
-              )}
-              {/* A resource park is not a question: nobody answers it, a
-                  sweeper releases it, and blocked_question carries the
-                  resource's detail line rather than something to reply to. So
-                  it gets its own clock badge and takes the question badge's
-                  place — showing "Awaiting answer" on a task waiting out the
-                  Claude usage limit sent people hunting for a chat that does
-                  not exist. */}
-              {task.blocked_resource === "work_order" ? (
-                <Badge
-                  variant="outline"
-                  className="max-w-[9rem] truncate border-amber-500/40 bg-amber-500/10 text-micro text-amber-600 dark:text-amber-400"
-                  title={t("boardArea.board.blockedResourceTitle", {
-                    reason: task.blocked_question || blockedResourceLabel(task.blocked_resource),
-                  })}
-                >
-                  {workOrderBlockerLabel(task.blocked_question || "")}
-                </Badge>
-              ) : task.blocked_resource === "analysis_questions" ? (
-                // Unlike every other resource park, this one is answerable —
-                // same clickable treatment as the plain clarification badge
-                // below, just pointed at the analysis report instead of chat.
-                <Link
-                  to={analysisReviewPath(task.repository_id, task.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  title={task.blocked_question || blockedResourceLabel(task.blocked_resource)}
-                >
-                  <Badge
-                    variant="outline"
-                    className="gap-1 border-amber-500/40 bg-amber-500/10 text-micro text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-                  >
-                    <HelpCircle className="h-3 w-3" />
-                    {t("boardArea.board.answerQuestions")}
-                  </Badge>
-                </Link>
-              ) : isMergeHold(task.blocked_resource) ? (
-                <Badge
-                  variant="outline"
-                  className="max-w-[12rem] gap-1 truncate border-amber-500/40 bg-amber-500/10 text-micro text-amber-600 dark:text-amber-400"
-                  title={t(`boardArea.board.mergeHoldTitle.${task.blocked_resource}`, {
-                    detail: task.blocked_question ?? "",
-                  })}
-                >
-                  <GitMerge className="h-3 w-3 shrink-0" />
-                  {task.blocked_resource === "deploy_order"
-                    ? deployOrderBlockerLabel(task.blocked_question ?? "")
-                    : blockedResourceLabel(task.blocked_resource)}
-                </Badge>
-              ) : (
-                task.blocked_resource && (
-                  <Badge
-                    variant="outline"
-                    className="gap-1 border-amber-500/40 bg-amber-500/10 text-micro text-amber-600 dark:text-amber-400"
-                    title={
-                      // Unlike every other resource, no sweeper ever releases a
-                      // human_decision park — say so instead of promising a
-                      // pickup that will never come.
-                      task.blocked_resource === "human_decision"
-                        ? t("boardArea.board.blockedHumanDecisionTitle", {
-                            reason: task.blocked_question || t("boardArea.board.blockedHumanDecisionReason"),
-                          })
-                        : task.blocked_resume_at
-                        ? t("boardArea.board.blockedResumeTitle", {
-                            reason: task.blocked_question || blockedResourceLabel(task.blocked_resource),
-                            value: formatDate(task.blocked_resume_at),
-                          })
-                        : t("boardArea.board.blockedResourceTitle", {
-                            reason: task.blocked_question || blockedResourceLabel(task.blocked_resource),
-                          })
-                    }
-                  >
-                    <Clock className="h-3 w-3" />
-                    {blockedResourceLabel(task.blocked_resource)}
-                    {task.blocked_resume_at ? ` · ~${formatResumeIn(task.blocked_resume_at)}` : ""}
-                  </Badge>
-                )
-              )}
-              {task.blocked_at &&
-                !task.blocked_resource &&
-                (blockedChatPath(task) ? (
-                  // The badge is the only route to the question: without it the
-                  // user has to hunt for the clarification chat among sessions.
-                  <Link
-                    to={blockedChatPath(task)!}
-                    onClick={(e) => e.stopPropagation()}
-                    title={task.blocked_question || undefined}
-                  >
-                    <Badge
-                      variant="outline"
-                      className="gap-1 border-amber-500/40 bg-amber-500/10 text-micro text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-                    >
-                      <HelpCircle className="h-3 w-3" />
-                      {t("boardArea.board.answerQuestion")}
-                    </Badge>
-                  </Link>
-                ) : (
-                  <Badge
-                    variant="outline"
-                    className="gap-1 border-amber-500/40 bg-amber-500/10 text-micro text-amber-600 dark:text-amber-400"
-                    title={task.blocked_question || undefined}
-                  >
-                    <HelpCircle className="h-3 w-3" />
-                    {t("boardArea.board.awaitingAnswer")}
-                  </Badge>
-                ))}
-              {release && (
-                <Badge
-                  variant={RELEASE_STATUS_VARIANT[release.status]}
-                  className="gap-1 text-micro"
-                  title={
-                    release.status === "verifying"
-                      ? t("boardArea.board.releaseTitle.verifying", {
-                          time: release.verify_until ? formatDate(release.verify_until) : "",
-                        })
-                      : release.status === "failed"
-                      ? t("boardArea.board.releaseTitle.failed", { reason: release.failure_reason ?? "" })
-                      : t(`boardArea.board.releaseTitle.${release.status}`)
-                  }
-                >
-                  <PackageCheck className="h-3 w-3" />
-                  {releaseMinutes !== undefined
-                    ? t("boardArea.board.releaseBadgeVerifying", {
-                        status: t(`release.statuses.${release.status}`),
-                        minutes: releaseMinutes,
-                      })
-                    : t(`release.statuses.${release.status}`)}
-                </Badge>
-              )}
-              {task.column_entered_at && (
-                <Badge
-                  variant="outline"
-                  className="text-micro"
-                  title={t("boardArea.board.columnAge", {
-                    value: formatColumnAge(task.column_entered_at),
-                  })}
-                >
-                  {formatColumnAge(task.column_entered_at)}
-                </Badge>
-              )}
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                {assignee && (
-                  <Badge variant="outline" className="gap-1 text-micro">
-                    <Bot className="h-3 w-3" />
-                    <span className="max-w-[6rem] truncate">{assignee}</span>
-                  </Badge>
-                )}
-                {!assignee && (
-                  <span className="text-micro text-muted-foreground">{task.created_by}</span>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {pipelineIcon && (
-                  <span
-                    title={
-                      pipelineGateNote ||
-                      t("boardArea.board.pipelineTitle", { status: task.latest_pipeline_status ?? "" })
-                    }
-                  >
-                    <pipelineIcon.Icon className={cn("h-3.5 w-3.5", pipelineIcon.className)} />
-                  </span>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteTask(task);
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-    );
-  };
-
   if (loading) {
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col p-4">
@@ -721,8 +461,6 @@ export function BoardPage() {
   }
 
   const allColumns: BoardColumn[] = columns.length ? columns : [];
-  const memberIds = agents.filter((a) => a.enabled).map((a) => a.id);
-  const memberList = memberIds.map((id) => ({ agent_id: id }));
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -807,7 +545,23 @@ export function BoardPage() {
                         {t("boardArea.board.emptyColumn")}
                       </p>
                     ) : (
-                      stageTasks.map((task) => TaskCard({ task }))
+                      stageTasks.map((task) => (
+                        <BoardTaskCard
+                          key={task.id}
+                          task={task}
+                          repositoryName={repositoryName(task.repository_id)}
+                          assignee={agentName(task.assignee_agent_id)}
+                          initiative={projectScoped ? undefined : initiativeName(task.initiative_project_id)}
+                          agentRunning={activeAgentTaskIds.has(task.id)}
+                          release={task.column === "done" ? releasesByTask.get(task.id) : undefined}
+                          dragging={dragTaskId === task.id}
+                          now={now}
+                          onDragStart={setDragTaskId}
+                          onDragEnd={endDrag}
+                          onOpen={openTask}
+                          onDelete={deleteCard}
+                        />
+                      ))
                     );
                   }}
                 />

@@ -166,3 +166,17 @@ var handoffCodeReviewRefusedKey = prompt.Define("guard.handoff_code_review_refus
 var handoffAnalizReviewRefusedKey = prompt.Define("guard.handoff_analiz_review_refused", handoffReasonInput{Reason: "x"})
 var handoffCodeReviewRefusedRevisionKey = prompt.Define("guard.handoff_code_review_refused_revision", handoffReasonInput{Reason: "x"})
 var handoffAnalizReviewRefusedRevisionKey = prompt.Define("guard.handoff_analiz_review_refused_revision", handoffReasonInput{Reason: "x"})
+
+type revisionResumeInput struct {
+	Task     string
+	Trigger  string
+	Feedback []string
+}
+
+var revisionResumeKey = prompt.Define("board.revision_resume", revisionResumeInput{
+	Task: "tt-12 Add a link", Trigger: "Fix the review comments.", Feedback: []string{"- [reviewer] rename it"},
+})
+
+type revisionPipelineFailureInput struct{ Report string }
+
+var revisionPipelineFailureKey = prompt.Define("board.revision_pipeline_failure", revisionPipelineFailureInput{Report: "job test failed"})

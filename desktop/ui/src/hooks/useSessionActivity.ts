@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type OrchestrationPlan, type SessionRun, type SessionStep } from "@/api";
 import { isRunLive, mergeSteps, type FeedRunInput } from "@/lib/activityFeed";
+import { sessionRunKey } from "@/lib/chat";
+import { keepEqual } from "@/lib/stableState";
 import { usePolling } from "@/hooks/usePolling";
 
 const MAX_IN_FLIGHT = 6;
@@ -33,18 +35,25 @@ export function useSessionActivity(runs: SessionRun[], enabled: boolean) {
     try {
       const res = await api.runSteps(run.id, entry.fetched ? last?.created_at : undefined);
       const merged = mergeSteps(entry.steps, res.steps ?? []);
-      if (merged !== entry.steps) {
+      const stepsChanged = merged !== entry.steps;
+      if (stepsChanged) {
         entry.steps = merged;
         changed = true;
       }
       entry.fetched = true;
+      // A plan only moves when a step lands, so a quiet live tick does not
+      // refetch it. A read that finds the run over is its last (it settles and
+      // is never polled again), so it re-reads the plan's final statuses too.
       if (entry.steps.some((s) => s.step_type === PLAN_STEP)) {
         const live = isRunLive(run.status, entry.steps, entry.plan);
-        if (entry.plan === null || live) {
+        if (entry.plan === null || stepsChanged || !live) {
           const plan = await api.getRunPlan(run.id).catch(() => null);
           if (plan) {
-            entry.plan = plan;
-            changed = true;
+            const kept = entry.plan === null ? plan : keepEqual(entry.plan, plan);
+            if (kept !== entry.plan) {
+              entry.plan = kept;
+              changed = true;
+            }
           }
         }
       }
@@ -74,14 +83,17 @@ export function useSessionActivity(runs: SessionRun[], enabled: boolean) {
 
   usePolling(tick, 2000, enabled);
 
-  const runKey = runs.map((r) => `${r.id}:${r.status}`).join("|");
+  // Keyed on content, not on the array: the caller's poll may hand over an
+  // equal list with a new identity, and rebuilding the feed for it is wasted.
+  const runKey = runs.map(sessionRunKey).join("|");
   useEffect(() => {
     if (enabled) void tick();
   }, [enabled, runKey, tick]);
 
   const inputs = useMemo<FeedRunInput[]>(() => {
     void version;
-    return runs
+    void runKey;
+    return runsRef.current
       .map((run, index) => ({ run, index }))
       .sort((a, b) => startOf(a.run) - startOf(b.run) || b.index - a.index)
       .map(({ run }) => {
@@ -96,7 +108,7 @@ export function useSessionActivity(runs: SessionRun[], enabled: boolean) {
           plan,
         };
       });
-  }, [runs, version]);
+  }, [runKey, version]);
 
   return {
     inputs,

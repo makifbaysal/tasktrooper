@@ -24,7 +24,7 @@ vi.mock("electron", () => ({
   protocol: { registerSchemesAsPrivileged: () => {}, handle: () => {} },
 }));
 
-const { APP_ORIGIN, catalogRoot, originOf } = await import("./app-scheme.js");
+const { APP_ORIGIN, WebRootFiles, catalogRoot, originOf } = await import("./app-scheme.js");
 
 describe("originOf", () => {
   it("gives the app scheme a comparable origin, which URL.origin does not", () => {
@@ -57,5 +57,27 @@ describe("originOf", () => {
 describe("catalogRoot", () => {
   it("resolves to the monorepo catalog next to the app in dev", () => {
     expect(catalogRoot()).toBe("/catalog");
+  });
+});
+
+describe("WebRootFiles", () => {
+  it("knows the built files, sees one added later, and never calls a directory a file", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const root = mkdtempSync(path.join(os.tmpdir(), "tt-webroot-"));
+    mkdirSync(path.join(root, "assets"));
+    writeFileSync(path.join(root, "index.html"), "<html>");
+    writeFileSync(path.join(root, "assets", "app-abc123.js"), "x");
+
+    const files = new WebRootFiles(root);
+    expect(await files.has(path.join(root, "index.html"))).toBe(true);
+    expect(await files.has(path.join(root, "assets", "app-abc123.js"))).toBe(true);
+    expect(await files.has(path.join(root, "settings", "llm"))).toBe(false);
+    expect(await files.has(path.join(root, "assets"))).toBe(false);
+
+    // A dev rebuild while the app runs.
+    writeFileSync(path.join(root, "assets", "app-def456.js"), "y");
+    expect(await files.has(path.join(root, "assets", "app-def456.js"))).toBe(true);
   });
 });

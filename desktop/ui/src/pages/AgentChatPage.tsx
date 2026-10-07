@@ -28,8 +28,31 @@ import { useAgentSessions } from "@/hooks/useAgentSessions";
 import { usePolling } from "@/hooks/usePolling";
 import { isAbortError } from "@/lib/errors";
 import { loadQueue, mergeQueued, saveQueue, type QueuedMessage } from "@/lib/chatQueue";
-import { QUOTA_QUEUED_ERROR_TYPE, RATE_LIMIT_ERROR_TYPE } from "@/lib/chat";
-import { AgentStreamError, countAssistantMessages, sendSessionMessageWithRecovery } from "@/lib/sessionSend";
+import {
+  keepMessages,
+  mergeServerMessages,
+  QUOTA_QUEUED_ERROR_TYPE,
+  RATE_LIMIT_ERROR_TYPE,
+  sessionRunKey,
+} from "@/lib/chat";
+import {
+  AgentStreamError,
+  countAssistantMessages,
+  sendSessionMessageWithRecovery,
+  type StreamProgress,
+} from "@/lib/sessionSend";
+import { keepEqual, keepRows } from "@/lib/stableState";
+
+// Idle, a run can only start from elsewhere (a board task); the focus and
+// visibility refresh below already covers coming back to the window.
+const ACTIVE_POLL_MS = 2000;
+const IDLE_POLL_MS = 10000;
+const NO_QUEUE: QueuedMessage[] = [];
+
+function cancelFrame(frame: { current: number | null }) {
+  if (frame.current !== null) cancelAnimationFrame(frame.current);
+  frame.current = null;
+}
 
 function isActiveRunStatus(status: string): boolean {
   const normalized = status.toLowerCase();
@@ -42,22 +65,6 @@ interface SendOptions {
   attachments?: AttachmentMeta[];
   fileIds?: string[];
   fromQueue?: boolean;
-}
-
-function mergeServerMessages(
-  serverMessages: SessionMessage[],
-  currentMessages: SessionMessage[],
-): SessionMessage[] {
-  const pendingOptimistic = currentMessages.filter(
-    (message) =>
-      message.id.startsWith("temp-") &&
-      !serverMessages.some(
-        (serverMessage) =>
-          serverMessage.role === message.role && serverMessage.content === message.content,
-      ),
-  );
-  if (pendingOptimistic.length === 0) return serverMessages;
-  return [...serverMessages, ...pendingOptimistic];
 }
 
 export function AgentChatPage() {
@@ -77,7 +84,6 @@ export function AgentChatPage() {
     () => (workspace?.agents ?? []).filter((a) => a.id !== workspace?.leadAgent?.id),
     [workspace?.agents, workspace?.leadAgent?.id],
   );
-  const endRef = useRef<HTMLDivElement>(null);
   const {
     sessions,
     loading: sessionsLoading,
@@ -116,6 +122,9 @@ export function AgentChatPage() {
   // leaves the partial answer on screen for handleStop to replace with the
   // persisted copy instead of blanking it the moment the request is aborted.
   const stopRequestedRef = useRef(false);
+  // Chunks arrive far faster than frames; one state update per frame is all
+  // the screen can show anyway.
+  const progressFrameRef = useRef<number | null>(null);
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   // Binary attachments queued in the composer for the next message.
@@ -161,6 +170,7 @@ export function AgentChatPage() {
     setSending(false);
     setStopping(false);
     stopRequestedRef.current = false;
+    cancelFrame(progressFrameRef);
     // The tokens of the session we just left have nowhere to go, and the
     // backend reads the closed stream as "nobody is listening" and cancels the
     // agent loop instead of billing the rest of the turn.
@@ -176,13 +186,19 @@ export function AgentChatPage() {
     if (queueState.sessionId) saveQueue(queueState.sessionId, queueState.items);
   }, [queueState]);
 
-  const queue = queueState.sessionId === activeSessionId ? queueState.items : [];
+  const queue = queueState.sessionId === activeSessionId ? queueState.items : NO_QUEUE;
   const updateQueue = (fn: (items: QueuedMessage[]) => QueuedMessage[]) =>
     setQueueState((s) => ({ ...s, items: fn(s.items) }));
 
   // Same reasoning for leaving the chat entirely — including a full page
   // navigation, where nothing else would ever close the request.
-  useEffect(() => () => streamAbortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      streamAbortRef.current?.abort();
+      cancelFrame(progressFrameRef);
+    },
+    [],
+  );
 
   // Navigating away is only correct when the session really is gone. A failed
   // list load must not be read as "deleted" — that used to eject the user from
@@ -212,8 +228,8 @@ export function AgentChatPage() {
           navigate(`/agents/${agentId}/chat`, { replace: true });
           return;
         }
-        setMessages(data.messages ?? []);
-        setActions(data.actions ?? []);
+        setMessages((prev) => keepMessages(prev, data.messages ?? []));
+        setActions((prev) => keepEqual(prev, data.actions ?? []));
         setLoadedSessionId(id);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : t("agentArea.chat.toast.loadFailed"));
@@ -230,7 +246,7 @@ export function AgentChatPage() {
     if (!activeSessionId) return;
     try {
       const activity = await api.sessionActivity(activeSessionId);
-      setSessionRuns(activity.runs ?? []);
+      setSessionRuns((prev) => keepRows(prev, activity.runs ?? [], sessionRunKey));
       setRunsLoadedFor(activeSessionId);
     } catch {
       // Keep the last known runs: blanking them on a blip would read as "no run
@@ -292,20 +308,16 @@ export function AgentChatPage() {
         api.sessionActivity(activeSessionId),
       ]);
       setMessages((current) => mergeServerMessages(sessionData.messages ?? [], current));
-      setActions(sessionData.actions ?? []);
-      setSessionRuns(activity.runs ?? []);
+      setActions((prev) => keepEqual(prev, sessionData.actions ?? []));
+      setSessionRuns((prev) => keepRows(prev, activity.runs ?? [], sessionRunKey));
       setRunsLoadedFor(activeSessionId);
     } catch {
       /* retry on next tick */
     }
   }, [activeSessionId]);
 
-  usePolling(pollSession, 2000, shouldPollSession);
-  usePolling(loadSessionActivity, 2000, !!activeSessionId && !shouldPollSession);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent, queue]);
+  usePolling(pollSession, ACTIVE_POLL_MS, shouldPollSession);
+  usePolling(loadSessionActivity, IDLE_POLL_MS, !!activeSessionId && !shouldPollSession);
 
   const selectSession = (id: string) => {
     setActiveSessionId(id);
@@ -382,6 +394,14 @@ export function AgentChatPage() {
     const abort = new AbortController();
     streamAbortRef.current = abort;
     let reasoningSoFar: string[] = [];
+    let latestProgress: StreamProgress | null = null;
+    const applyProgress = () => {
+      progressFrameRef.current = null;
+      if (!latestProgress || !stillHere()) return;
+      setStreamingContent(latestProgress.answer);
+      setStreamingReasoning(latestProgress.reasoning);
+      latestProgress = null;
+    };
     try {
       const result = await sendSessionMessageWithRecovery(sessionAtSend, content, {
         fileIds: fromQueue ? (options.fileIds ?? []) : selectedFileIds,
@@ -396,14 +416,14 @@ export function AgentChatPage() {
         baselineAssistantCount,
         mentions,
         signal: abort.signal,
-        onProgress: ({ answer, reasoning }) => {
+        onProgress: (progress) => {
           if (!stillHere()) return;
           // Mirrored into a plain local as well: the commit below runs in this
           // same closure and needs the final list, which the state variable
           // captured at render time cannot give it.
-          reasoningSoFar = reasoning;
-          setStreamingContent(answer);
-          setStreamingReasoning(reasoning);
+          reasoningSoFar = progress.reasoning;
+          latestProgress = progress;
+          if (progressFrameRef.current === null) progressFrameRef.current = requestAnimationFrame(applyProgress);
         },
       });
       if (!stillHere()) return;
@@ -421,7 +441,9 @@ export function AgentChatPage() {
       }
       // Cleared in the same batch that commits the reply: leaving it for the
       // finally below would show the streaming bubble and the finished message
-      // side by side across the await that follows.
+      // side by side across the await that follows. A frame still pending
+      // would paint the partial answer back over it.
+      cancelFrame(progressFrameRef);
       setStreamingContent(null);
       if (result.status === "recovered") {
         toast.info(t("agentArea.chat.toast.recovered"));
@@ -481,11 +503,13 @@ export function AgentChatPage() {
       await loadMessages(sessionAtSend);
     } finally {
       if (streamAbortRef.current === abort) streamAbortRef.current = null;
+      cancelFrame(progressFrameRef);
       if (stillHere()) {
         // A user-requested stop owns this cleanup: it keeps the half-written
         // answer visible until the reload has the server's persisted copy of it,
         // so the text does not blink out and back in.
-        if (!stopRequestedRef.current) setStreamingContent(null);
+        if (stopRequestedRef.current) applyProgress();
+        else setStreamingContent(null);
         setSending(false);
       }
     }
@@ -582,6 +606,22 @@ export function AgentChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; flushingRef guards re-entry
   }, [busy, stopping, queue, activeSessionId, loadedSessionId, runsLoadedFor]);
 
+  // The message list and activity panel are memoized; handing them callbacks
+  // that change identity on every keystroke would defeat that.
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+  const handleStopRef = useRef(handleStop);
+  handleStopRef.current = handleStop;
+  const submitClarification = useCallback((answer: string) => void handleSendRef.current({ content: answer }), []);
+  const stopTurn = useCallback(() => void handleStopRef.current(), []);
+  const openActionTask = useCallback((action: SessionAction) => setOpenTaskId(action.entity_id ?? null), []);
+  // ChatTaskDrawer reloads its task whenever this changes identity.
+  const closeTaskDrawer = useCallback(() => setOpenTaskId(null), []);
+  const removeQueued = useCallback(
+    (id: string) => setQueueState((s) => ({ ...s, items: s.items.filter((i) => i.id !== id) })),
+    [],
+  );
+
   if (!agentId) return null;
 
   const leadAgent = agent ?? workspace?.leadAgent ?? null;
@@ -629,18 +669,18 @@ export function AgentChatPage() {
           {activeSessionId ? (
             <>
               <MessageList
+                key={activeSessionId}
                 messages={messages}
-                endRef={endRef}
                 isAwaitingResponse={sending || hasActiveRun}
                 streamingContent={streamingContent}
                 streamingReasoning={streamingReasoning}
                 reasoningByMessageId={reasoningByMessageId}
                 actions={actions}
-                onOpenTask={(action) => setOpenTaskId(action.entity_id ?? null)}
-                onSubmitClarification={(answer) => handleSend({ content: answer })}
+                onOpenTask={openActionTask}
+                onSubmitClarification={submitClarification}
                 clarificationDisabled={sending}
                 queued={queue}
-                onRemoveQueued={(id) => updateQueue((items) => items.filter((i) => i.id !== id))}
+                onRemoveQueued={removeQueued}
               />
               <Composer
                 value={input}
@@ -648,7 +688,7 @@ export function AgentChatPage() {
                 onSend={() => handleSend()}
                 sending={busy}
                 queueing
-                onStop={() => void handleStop()}
+                onStop={stopTurn}
                 stopping={stopping}
                 files={files}
                 selectedFileIds={selectedFileIds}
@@ -683,13 +723,13 @@ export function AgentChatPage() {
             lead={isLead}
             runs={sessionRuns}
             sending={sending}
-            onStop={() => void handleStop()}
+            onStop={stopTurn}
             stopping={stopping}
           />
         )}
       </div>
 
-      <ChatTaskDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
+      <ChatTaskDrawer taskId={openTaskId} onClose={closeTaskDrawer} />
     </div>
   );
 }

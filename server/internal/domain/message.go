@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 type Role string
 
 const (
@@ -134,6 +136,40 @@ type AgentResponse struct {
 	// verdict used to reach nothing outside the plan row, which let a card
 	// whose own verification panel read FAILED sit in review.
 	Verification *VerificationResult `json:"verification,omitempty"`
+	// StopReason is why the provider stopped generating, normalized to the
+	// StopReason* constants; empty when the adapter could not tell. Only
+	// StopReasonMaxTokens changes what a caller does: the turn was cut off,
+	// so any tool call in it may carry truncated arguments.
+	StopReason string `json:"stop_reason,omitempty"`
+	// Transcript is the whole working history an in-process run ended on —
+	// opening context, every tool exchange, the final answer last — so a
+	// follow-up continues the run instead of restarting it from the opening
+	// context. Nil for host-executed runs, whose transcript lives in the CLI
+	// session. Never serialized: it is the size of the run.
+	Transcript []Message `json:"-"`
+}
+
+const (
+	StopReasonEnd       = "end"
+	StopReasonToolUse   = "tool_use"
+	StopReasonMaxTokens = "max_tokens"
+)
+
+// NormalizeStopReason maps every provider's spelling onto the StopReason*
+// constants; an unrecognised reason passes through lower-cased.
+func NormalizeStopReason(raw string) string {
+	switch r := strings.ToLower(strings.TrimSpace(raw)); r {
+	case "":
+		return ""
+	case "end_turn", "stop", "stop_sequence":
+		return StopReasonEnd
+	case "tool_use", "tool_calls", "function_call":
+		return StopReasonToolUse
+	case "max_tokens", "length", "max_output_tokens":
+		return StopReasonMaxTokens
+	default:
+		return r
+	}
 }
 
 // Usage is one call's token accounting, normalized across providers:

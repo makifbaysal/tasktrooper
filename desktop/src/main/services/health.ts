@@ -11,8 +11,22 @@
 /** One probe's budget. A loopback server answers in milliseconds or it is busy. */
 const PROBE_TIMEOUT_MS = 3_000;
 
-/** How long between attempts. Short: startup is the one time this is watched. */
-const POLL_INTERVAL_MS = 400;
+/**
+ * How long between attempts. Very short at first: the backend prints
+ * LISTENING once it has bound, so /health usually answers within a few
+ * milliseconds of the wait starting, and a 400 ms sleep was most of the gap
+ * between "bound" and "window on screen". Past the fast window it backs off,
+ * so a backend that is slow to become healthy is not asked twenty times a
+ * second for two minutes.
+ */
+export const FAST_POLL_MS = 50;
+export const FAST_WINDOW_MS = 3_000;
+export const SLOW_POLL_MS = 400;
+
+/** The pause before the next attempt, `elapsedMs` into the wait. */
+export function healthPollDelay(elapsedMs: number): number {
+  return elapsedMs < FAST_WINDOW_MS ? FAST_POLL_MS : SLOW_POLL_MS;
+}
 
 export type HealthWaitResult =
   | { ok: true }
@@ -42,12 +56,13 @@ export async function probeHealth(url: string): Promise<boolean> {
 }
 
 export async function waitForHealth(url: string, opts: HealthWaitOptions): Promise<HealthWaitResult> {
-  const deadline = Date.now() + opts.timeoutMs;
+  const started = Date.now();
+  const deadline = started + opts.timeoutMs;
   for (;;) {
     if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
     if (!opts.alive()) return { ok: false, reason: "exited" };
     if (await probeHealth(url)) return { ok: true };
     if (Date.now() >= deadline) return { ok: false, reason: "timeout" };
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, healthPollDelay(Date.now() - started)));
   }
 }

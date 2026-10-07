@@ -25,6 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/hooks/useI18n";
 import { useProjectsOverview } from "@/hooks/useProjectsOverview";
+import { usePolling } from "@/hooks/usePolling";
 import { useWorkspaceMap } from "@/hooks/useWorkspaceMap";
 
 type ProjectsView = "cards" | "map";
@@ -107,15 +108,11 @@ export function ProjectsPage() {
 
   // The scan pipeline runs in seconds, so a light poll is enough to catch it
   // finishing without a websocket — stops the moment nothing is running.
-  useEffect(() => {
-    if (!overview) return;
-    const anyRunning =
-      overview.projects.some((p) => p.repositories.some((r) => r.last_scan?.status === "running")) ||
-      overview.unassigned.some((r) => r.last_scan?.status === "running");
-    if (!anyRunning) return;
-    const id = window.setInterval(() => void reload(), RUNNING_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [overview, reload]);
+  const anyScanRunning =
+    !!overview &&
+    (overview.projects.some((p) => p.repositories.some((r) => r.last_scan?.status === "running")) ||
+      overview.unassigned.some((r) => r.last_scan?.status === "running"));
+  usePolling(reload, RUNNING_POLL_MS, anyScanRunning, { leading: false });
 
   const totals = useMemo(() => {
     if (!overview) return { projects: 0, repositories: 0, components: 0 };

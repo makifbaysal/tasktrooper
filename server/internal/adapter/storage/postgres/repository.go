@@ -711,7 +711,8 @@ const boardTaskColumns = `id, repository_id, task_number, title, task_type,
 		before_deploy, after_deploy, rollback_plan, before_deploy_confirmed_at,
 		pr_url, pr_number, merge_commit_sha, component_id,
 		NULL::timestamptz, NULL::timestamptz,
-		(SELECT key_prefix FROM task_types WHERE key = task_type)`
+		(SELECT key_prefix FROM task_types WHERE key = task_type),
+		EXISTS (SELECT 1 FROM task_agent_runs ar WHERE ar.task_id = board_tasks.id AND ar.status = 'running')`
 
 // The quota lateral is what puts "resumes at 14:30" on a parked card: the reset
 // time lives on the RUN (task_agent_runs.quota_resume_at, migration 101), which
@@ -733,7 +734,8 @@ const boardTaskSelect = `
 		bt.before_deploy, bt.after_deploy, bt.rollback_plan, bt.before_deploy_confirmed_at,
 		bt.pr_url, bt.pr_number, bt.merge_commit_sha, bt.component_id,
 		sp.entered_at, qr.quota_resume_at,
-		tt.key_prefix
+		tt.key_prefix,
+		EXISTS (SELECT 1 FROM task_agent_runs ar WHERE ar.task_id = bt.id AND ar.status = 'running')
 	FROM board_tasks bt
 	LEFT JOIN LATERAL (
 		SELECT entered_at FROM task_column_spans
@@ -773,6 +775,7 @@ func scanBoardTask(scanner interface {
 		&prURL, &prNumber, &mergeCommitSHA, &task.ComponentID,
 		&task.ColumnEnteredAt, &task.BlockedResumeAt,
 		&keyPrefix,
+		&task.AgentRunning,
 	)
 	if err != nil {
 		return domain.BoardTask{}, err
@@ -853,6 +856,73 @@ func (s *BoardTaskStore) Get(ctx context.Context, repositoryID, taskID uuid.UUID
 		return domain.BoardTask{}, fmt.Errorf("get board task: %w", err)
 	}
 	return task, nil
+}
+
+func (s *BoardTaskStore) GetByID(ctx context.Context, taskID uuid.UUID) (domain.BoardTask, error) {
+	task, err := scanBoardTask(s.pool.QueryRow(ctx, boardTaskSelect+` WHERE bt.id = $1`, taskID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.BoardTask{}, fmt.Errorf("%w: %s", domain.ErrBoardTaskNotFound, taskID)
+	}
+	if err != nil {
+		return domain.BoardTask{}, fmt.Errorf("get board task by id: %w", err)
+	}
+	return task, nil
+}
+
+// ListDispatchCandidates is two reads however large the board: the filter runs
+// in SQL rather than over every task, and the run histories come back in one
+// LATERAL query instead of one query per task.
+func (s *BoardTaskStore) ListDispatchCandidates(ctx context.Context, runsPerTask int) ([]port.TaskRecentRuns, error) {
+	if runsPerTask <= 0 {
+		runsPerTask = 1
+	}
+	rows, err := s.pool.Query(ctx, boardTaskSelect+`
+		WHERE bt.assignee_agent_id IS NOT NULL
+		  AND bt.board_column NOT IN ($1, $2, $3, $4)
+		  AND COALESCE(bt.blocked_resource, '') <> $5
+		ORDER BY bt.board_column, bt.position ASC, bt.created_at ASC
+	`, string(domain.TaskColumnDone), string(domain.TaskColumnReleased), string(domain.TaskColumnBlocked),
+		string(domain.TaskColumnBacklog), domain.ResourceWorkOrder)
+	if err != nil {
+		return nil, fmt.Errorf("list dispatch candidates: %w", err)
+	}
+	tasks, err := scanBoardTasks(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+	ids := make([]uuid.UUID, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	runRows, err := s.pool.Query(ctx, `
+		SELECT r.* FROM unnest($1::uuid[]) AS t(id)
+		CROSS JOIN LATERAL (
+			SELECT `+taskAgentRunColumns+` FROM task_agent_runs
+			WHERE task_id = t.id ORDER BY created_at DESC LIMIT $2
+		) r
+		ORDER BY r.task_id, r.created_at DESC
+	`, ids, runsPerTask)
+	if err != nil {
+		return nil, fmt.Errorf("list dispatch candidate runs: %w", err)
+	}
+	defer runRows.Close()
+	runs, err := scanTaskAgentRuns(runRows)
+	if err != nil {
+		return nil, err
+	}
+	byTask := make(map[uuid.UUID][]domain.TaskAgentRun, len(tasks))
+	for _, r := range runs {
+		byTask[r.TaskID] = append(byTask[r.TaskID], r)
+	}
+	out := make([]port.TaskRecentRuns, len(tasks))
+	for i, t := range tasks {
+		out[i] = port.TaskRecentRuns{Task: t, Runs: byTask[t.ID]}
+	}
+	return out, nil
 }
 
 func (s *BoardTaskStore) GetByNumber(ctx context.Context, number int) (domain.BoardTask, error) {

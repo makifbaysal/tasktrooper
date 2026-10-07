@@ -38,12 +38,13 @@ func gitRun(ctx context.Context, args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+var credentialURLRe = regexp.MustCompile(`//([^/:@]+):([^@]+)@`)
+
 // redactURLs hides the password part of a credential-bearing clone URL before
 // it reaches a log line. AGENT_CATALOG_REPO may embed a token for a private
 // repo; that token never belongs on stderr.
 func redactURLs(s string) string {
-	re := regexp.MustCompile(`//([^/:@]+):([^@]+)@`)
-	return re.ReplaceAllString(s, "//${1}:***@")
+	return credentialURLRe.ReplaceAllString(s, "//${1}:***@")
 }
 
 func gitClone(ctx context.Context, url, dest string) error {

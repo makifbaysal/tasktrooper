@@ -24,7 +24,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import { useI18n } from "@/hooks/useI18n";
-import { usePolling } from "@/hooks/usePolling";
+import { ALL_TASKS_POLL, useSharedPoll } from "@/hooks/useSharedPoll";
 import { useProjectScope } from "@/hooks/useProjectScope";
 import {
   CACHE_AGENTS,
@@ -100,7 +100,12 @@ export function BacklogPage() {
 
   // Bumped by every local change, so a refresh already in flight when a task
   // was moved out of the backlog is discarded instead of putting it back.
+  // The shared poll forgets its cached list too, or a remount would be handed it.
   const backlogVersion = useRef(0);
+  const localChange = () => {
+    backlogVersion.current += 1;
+    ALL_TASKS_POLL.invalidate();
+  };
 
   // No setLoading(true) here: a refresh after a move (or on a poll tick) must
   // not tear the page down to a skeleton — the list is already on screen and
@@ -138,18 +143,15 @@ export function BacklogPage() {
     load();
   }, [load]);
 
-  const refreshTasks = useCallback(async () => {
-    const seen = backlogVersion.current;
-    try {
-      const data = await api.listAllTasks();
+  // Shared with the header's notifications; a poll blip keeps the last good
+  // list and is not worth a toast.
+  useSharedPoll(ALL_TASKS_POLL, TASK_POLL_MS, !loading, {
+    begin: () => backlogVersion.current,
+    onValue: (data, seen) => {
       if (backlogVersion.current !== seen) return;
       setTasks((prev) => mergeTaskList(prev, data.tasks ?? []));
-    } catch {
-      /* keep the last good list; a poll blip is not worth a toast */
-    }
-  }, [setTasks]);
-
-  usePolling(refreshTasks, TASK_POLL_MS, !loading);
+    },
+  });
 
   const backlogColumnTasks = useMemo(
     () => tasks.filter((task) => task.column === backlogSlug),
@@ -192,7 +194,7 @@ export function BacklogPage() {
   // make "move to board" feel like it had hung.
   const moveToBoard = async (task: BoardTask, column: TaskColumn) => {
     setMoving(true);
-    backlogVersion.current += 1;
+    localChange();
     const previousColumn = task.column;
     setTasks((list) =>
       list.map((item) => (item.id === task.id ? { ...item, column } : item)),
@@ -200,7 +202,7 @@ export function BacklogPage() {
     setSelectedId(null);
     try {
       const updated = await api.updateRepositoryTask(task.repository_id, task.id, { column });
-      backlogVersion.current += 1;
+      localChange();
       setTasks((list) =>
         list.map((item) =>
           item.id === updated.id
@@ -217,7 +219,7 @@ export function BacklogPage() {
       toast.success(t("boardArea.backlog.movedToBoard", { key: task.key }));
       void load();
     } catch (e) {
-      backlogVersion.current += 1;
+      localChange();
       setTasks((list) =>
         list.map((item) => (item.id === task.id ? { ...item, column: previousColumn } : item)),
       );
@@ -236,7 +238,7 @@ export function BacklogPage() {
   };
 
   const deleteTask = async (task: BoardTask) => {
-    backlogVersion.current += 1;
+    localChange();
     const previous = tasks;
     setTasks((list) => list.filter((item) => item.id !== task.id));
     if (selectedId === task.id) {
@@ -245,11 +247,11 @@ export function BacklogPage() {
     }
     try {
       await api.deleteRepositoryTask(task.repository_id, task.id);
-      backlogVersion.current += 1;
+      localChange();
       void load();
       toast.success(t("boardArea.backlog.taskDeleted"));
     } catch (e) {
-      backlogVersion.current += 1;
+      localChange();
       setTasks(previous);
       toast.error(e instanceof Error ? e.message : t("boardArea.backlog.deleteFailed"));
     }

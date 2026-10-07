@@ -361,6 +361,21 @@ func (f *fakeScans) LatestScan(ctx context.Context, repositoryID uuid.UUID) (dom
 	return latest, nil
 }
 
+func (f *fakeScans) LatestScans(ctx context.Context, repositoryIDs []uuid.UUID) (map[uuid.UUID]domain.ProjectScan, error) {
+	out := make(map[uuid.UUID]domain.ProjectScan, len(repositoryIDs))
+	for _, id := range repositoryIDs {
+		sc, err := f.LatestScan(ctx, id)
+		if errors.Is(err, port.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[id] = sc
+	}
+	return out, nil
+}
+
 func (f *fakeScans) FailInterruptedScans(ctx context.Context) (int, error) { return 0, nil }
 
 func (f *fakeScans) seed(sc domain.ProjectScan) domain.ProjectScan {

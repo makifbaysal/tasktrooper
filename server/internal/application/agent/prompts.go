@@ -61,3 +61,7 @@ var emptyTurnFallbackKey = prompt.Define("agent_loop.empty_turn_fallback", struc
 var clarificationRefusalKey = prompt.Define("agent_loop.clarification_refusal", struct{}{})
 
 var digestHeaderKey = prompt.Define("agent_loop.digest_header", struct{}{})
+
+type outputTruncatedInput struct{ Limit int }
+
+var outputTruncatedKey = prompt.Define("agent_loop.output_truncated", outputTruncatedInput{Limit: 16384})

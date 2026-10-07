@@ -306,6 +306,15 @@ describe("UpdateService", () => {
     expect(backend.checks).toBe(0);
   });
 
+  it("only reports progress when the whole percent it shows has moved", () => {
+    const { backend, svc, seen } = service();
+    svc.start();
+    backend.emit("update-available", { version: "0.2.0" });
+    const before = seen.length;
+    for (const percent of [10.1, 10.2, 10.4, 10.6, 10.9, 11.2]) backend.emit("download-progress", { percent });
+    expect(seen.slice(before).map((s) => s.percent)).toEqual([10, 11]);
+  });
+
   it("reports being up to date without holding on to a stale version", () => {
     const { backend, svc } = service();
     svc.start();

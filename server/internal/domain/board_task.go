@@ -326,6 +326,9 @@ type BoardTask struct {
 	// ColumnEnteredAt is when the task entered its current column; nil for
 	// tasks that predate the span ledger.
 	ColumnEnteredAt *time.Time `json:"column_entered_at,omitempty"`
+	// AgentRunning is true while any of the task's agent runs is in status
+	// running, so a board view can poll a task's activity only while it moves.
+	AgentRunning bool `json:"agent_running"`
 	// BeforeDeploy / AfterDeploy / RollbackPlan are the release runbook, each
 	// surfaced at the moment it applies. Pointers: nil means "not written".
 	BeforeDeploy *string `json:"before_deploy,omitempty"`

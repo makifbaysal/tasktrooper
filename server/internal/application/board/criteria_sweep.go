@@ -60,13 +60,23 @@ func (r *Runner) sweepOpenCriteria(
 		rec.Step("criteria_sweep_start", map[string]any{"open": len(open)})
 	}
 
-	history = append(history, domain.Message{Role: domain.RoleAssistant, Content: resp.Message.Content})
-
+	// A host-executed session keeps its own transcript, so its follow-ups stack
+	// the prompts on the opening context as before; the in-process loop hands
+	// back its transcript and each round continues the previous one.
+	stacked := followUpHistory(history, domain.AgentResponse{Message: resp.Message})
+	current := resp
 	for round := 1; round <= criteriaSweepRounds; round++ {
-		history = append(history, domain.Message{Role: domain.RoleUser, Content: criteriaSweepPrompt(open, round)})
-		if _, err := r.agentLoop.RunTask(ctx, history, model, agentRec.ProviderType, policy,
+		ask := domain.Message{Role: domain.RoleUser, Content: criteriaSweepPrompt(open, round)}
+		stacked = append(stacked, ask)
+		turn := stacked
+		if len(current.Transcript) > 0 {
+			turn = append(followUpHistory(history, current), ask)
+		}
+		swept, err := r.agentLoop.RunTask(ctx, turn, model, agentRec.ProviderType, policy,
 			agent.WithLightModel(agentRec.Model),
-			agent.WithCLILabel(fmt.Sprintf("%s criteria-sweep %d", job.Task.Key, round), job.Task.Title)); err != nil {
+			agent.WithStableHead(len(history)),
+			agent.WithCLILabel(fmt.Sprintf("%s criteria-sweep %d", job.Task.Key, round), job.Task.Title))
+		if err != nil {
 			if quotaErr, ok := domain.QuotaBlockOf(err); ok {
 				return resp, true, quotaErr
 			}
@@ -74,7 +84,9 @@ func (r *Runner) sweepOpenCriteria(
 				Msg("acceptance criteria sweep failed; leaving the criteria as they stand")
 			return resp, true, nil
 		}
-
+		if len(swept.Transcript) > 0 {
+			current = swept
+		}
 		still := r.openCriteria(ctx, job)
 		if len(still) == 0 {
 			if rec != nil {

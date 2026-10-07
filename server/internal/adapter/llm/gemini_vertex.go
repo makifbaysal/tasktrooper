@@ -238,6 +238,13 @@ func geminiUsage(m *genai.GenerateContentResponseUsageMetadata) domain.Usage {
 	}
 }
 
+func geminiStopReason(resp *genai.GenerateContentResponse) string {
+	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0] == nil {
+		return ""
+	}
+	return domain.NormalizeStopReason(string(resp.Candidates[0].FinishReason))
+}
+
 func parseGeminiResponse(resp *genai.GenerateContentResponse) domain.AgentResponse {
 	toolCalls := geminiToolCalls(resp.FunctionCalls())
 
@@ -252,7 +259,8 @@ func parseGeminiResponse(resp *genai.GenerateContentResponse) domain.AgentRespon
 			Content:   resp.Text(),
 			ToolCalls: toolCalls,
 		},
-		Usage: usage,
+		Usage:      usage,
+		StopReason: geminiStopReason(resp),
 	}
 }
 
@@ -275,6 +283,7 @@ func (c *geminiVertexClient) ChatStream(ctx context.Context, req domain.AgentReq
 	var fullText strings.Builder
 	var toolCalls []domain.ToolCall
 	var finalUsage domain.Usage
+	var stopReason string
 
 	for resp, err := range c.client.Models.GenerateContentStream(ctx, c.modelID(req), contents, config) {
 		if err != nil {
@@ -290,6 +299,9 @@ func (c *geminiVertexClient) ChatStream(ctx context.Context, req domain.AgentReq
 		if m := resp.UsageMetadata; m != nil && m.TotalTokenCount > 0 {
 			finalUsage = geminiUsage(m)
 		}
+		if sr := geminiStopReason(resp); sr != "" {
+			stopReason = sr
+		}
 	}
 
 	return domain.AgentResponse{
@@ -298,7 +310,8 @@ func (c *geminiVertexClient) ChatStream(ctx context.Context, req domain.AgentReq
 			Content:   fullText.String(),
 			ToolCalls: toolCalls,
 		},
-		Usage: finalUsage,
+		Usage:      finalUsage,
+		StopReason: stopReason,
 	}, nil
 }
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
+import { usePolling } from "@/hooks/usePolling";
 import type { DesktopPreflightItem, DesktopPreflightReport, DesktopRunnerHost } from "@/lib/desktop-bridge";
 import { cn } from "@/lib/utils";
 
@@ -83,12 +84,18 @@ export function EnvironmentPreflight({ host, onBlockingChange, onReport, blocker
   const onReportRef = useRef(onReport);
   onReportRef.current = onReport;
 
+  // An unforced preflight() answers from the shell's last sweep, as a new
+  // object each time; the same generatedAt means nothing was re-probed.
+  const shownReport = useRef<DesktopPreflightReport | null>(null);
+
   const load = useCallback(
     async (force = false) => {
       if (!hasPreflight || !host) return;
       setLoading(true);
       try {
-        const next = await host.preflight(force);
+        const fetched = await host.preflight(force);
+        const next = shownReport.current?.generatedAt === fetched.generatedAt ? shownReport.current : fetched;
+        shownReport.current = next;
         setReport(next);
         setError("");
         onReportRef.current?.({ report: next, error: "" });
@@ -106,17 +113,10 @@ export function EnvironmentPreflight({ host, onBlockingChange, onReport, blocker
   );
 
   useEffect(() => {
-    if (!hasPreflight) {
-      onBlockingChangeRef.current?.(null);
-      return;
-    }
-    void load();
-    const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
-    // `load` excluded on purpose: it is stable per (hasPreflight, host), and
-    // including it would restart the poll on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasPreflight, host]);
+    if (!hasPreflight) onBlockingChangeRef.current?.(null);
+  }, [hasPreflight]);
+
+  usePolling(() => load(), POLL_MS, hasPreflight);
 
   useEffect(() => {
     if (!report) return;

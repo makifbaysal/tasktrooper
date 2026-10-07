@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -31,6 +32,10 @@ type WalkOptions struct {
 	// ExtraIgnoreFiles are root-relative files in .gitignore syntax whose
 	// patterns apply on top of .gitignore (or alone when UseGitignore is off).
 	ExtraIgnoreFiles []string
+	// Subdir, root-relative, limits the walk to that directory; returned paths
+	// stay root-relative and the root's ignore rules still apply, so the
+	// result is the full walk filtered to the prefix without reading the rest.
+	Subdir string
 }
 
 func Walk(root string, opts WalkOptions) ([]string, error) {
@@ -62,12 +67,39 @@ func Walk(root string, opts WalkOptions) ([]string, error) {
 		gitignore = append(gitignore, extra...)
 	}
 
+	start := absRoot
+	if sub := walkSubdir(opts.Subdir); sub != "" {
+		if sub == ".." || strings.HasPrefix(sub, "../") || subdirIgnored(sub, gitignore) {
+			return nil, nil
+		}
+		start = filepath.Join(absRoot, filepath.FromSlash(sub))
+		info, statErr := os.Lstat(start)
+		if os.IsNotExist(statErr) {
+			return nil, nil
+		}
+		if statErr != nil {
+			return nil, fmt.Errorf("stat walk subdir: %w", statErr)
+		}
+		direct, linkErr := reachedWithoutSymlink(absRoot, filepath.Dir(start), path.Dir(sub))
+		if linkErr != nil {
+			return nil, fmt.Errorf("resolve walk subdir: %w", linkErr)
+		}
+		if !direct {
+			return nil, nil
+		}
+		// A symlink at the prefix itself is listed, as the full walk lists it,
+		// and never followed.
+		if !info.IsDir() {
+			return []string{sub}, nil
+		}
+	}
+
 	var paths []string
-	err = filepath.WalkDir(absRoot, func(fullPath string, entry os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(start, func(fullPath string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if fullPath == absRoot {
+		if fullPath == absRoot || fullPath == start {
 			return nil
 		}
 
@@ -172,6 +204,51 @@ func matchGitignorePattern(relPath, pattern string) bool {
 	parts := strings.Split(relPath, "/")
 	for _, part := range parts {
 		if part == pattern {
+			return true
+		}
+	}
+	return false
+}
+
+func walkSubdir(sub string) string {
+	cleaned := path.Clean(filepath.ToSlash(strings.TrimSpace(sub)))
+	if cleaned == "." {
+		return ""
+	}
+	return strings.Trim(cleaned, "/")
+}
+
+// reachedWithoutSymlink reports whether dir, which is relDir under absRoot,
+// resolves to that same place under the resolved root. A full walk never
+// follows a symlink, so a prefix through one lists nothing — and one that
+// points out of the repository must never list what is behind it.
+func reachedWithoutSymlink(absRoot, dir, relDir string) (bool, error) {
+	if relDir == "." {
+		return true, nil
+	}
+	realRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return false, err
+	}
+	realDir, err := filepath.EvalSymlinks(dir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return realDir == filepath.Join(realRoot, filepath.FromSlash(relDir)), nil
+}
+
+// subdirIgnored: a full walk never enters an ignored directory, so a prefix
+// inside one lists nothing rather than whatever it happens to contain.
+func subdirIgnored(sub string, gitignore []string) bool {
+	parts := strings.Split(sub, "/")
+	for i, part := range parts {
+		if _, ok := defaultIgnoreDirs[part]; ok {
+			return true
+		}
+		if shouldIgnore(strings.Join(parts[:i+1], "/"), gitignore) {
 			return true
 		}
 	}

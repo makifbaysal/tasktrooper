@@ -1045,6 +1045,43 @@ func (c *Client) ensurePullRequestAPI(ctx context.Context, workspacePath, token 
 	return url, nil
 }
 
+func (c *Client) HeadSHA(ctx context.Context, workspacePath string) (string, error) {
+	out, err := c.run(ctx, workspacePath, "git", "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse HEAD: %w (%s)", err, strings.TrimSpace(out))
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// AddDetachedWorktree checks rev out, detached, into a new temporary
+// directory sharing repoPath's objects. remove deletes the checkout and its
+// bookkeeping in repoPath; it outlives ctx and only logs what it cannot undo.
+func (c *Client) AddDetachedWorktree(ctx context.Context, repoPath, rev string) (string, func(), error) {
+	parent, err := os.MkdirTemp("", "tasktrooper-worktree-")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating the worktree directory: %w", err)
+	}
+	dir := filepath.Join(parent, "wt")
+	if out, err := c.run(ctx, repoPath, "git", "worktree", "add", "--detach", dir, rev); err != nil {
+		_ = os.RemoveAll(parent)
+		return "", nil, fmt.Errorf("git worktree add: %w (%s)", err, strings.TrimSpace(out))
+	}
+	remove := func() {
+		rmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if out, err := c.run(rmCtx, repoPath, "git", "worktree", "remove", "--force", dir); err != nil {
+			log.Warn().Err(err).Str("output", strings.TrimSpace(out)).Str("worktree", dir).Msg("removing a detached worktree failed")
+		}
+		if out, err := c.run(rmCtx, repoPath, "git", "worktree", "prune"); err != nil {
+			log.Warn().Err(err).Str("output", strings.TrimSpace(out)).Msg("pruning worktrees failed")
+		}
+		if err := os.RemoveAll(parent); err != nil {
+			log.Warn().Err(err).Str("dir", parent).Msg("removing a detached worktree's directory failed")
+		}
+	}
+	return dir, remove, nil
+}
+
 func (c *Client) TaskGitInfo(ctx context.Context, workspacePath string) (domain.TaskGitInfo, error) {
 	var info domain.TaskGitInfo
 	origin, err := c.run(ctx, workspacePath, "git", "remote", "get-url", "origin")

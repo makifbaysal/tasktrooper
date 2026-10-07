@@ -2,6 +2,8 @@ package indexer_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -98,6 +100,27 @@ func (s *InjectSuite) TestInjectContextPrependsSystemMessage() {
 	s.Contains(out[0].Content, "### internal/auth/encrypt.go:Encrypt (lines 42-78)")
 	s.Contains(out[0].Content, "```go")
 	s.Equal(domain.RoleUser, out[1].Role)
+}
+
+func (s *InjectSuite) TestTheSkeletonShowsTheWorkspaceAsItIsNow() {
+	root := s.T().TempDir()
+	source := filepath.Join(root, "svc.go")
+	s.Require().NoError(os.WriteFile(source, []byte("package svc\n\nfunc FirstName() {}\n"), 0o644))
+	idx := s.store.indexes[s.indexID]
+	idx.RootPath = root
+	idx.CommitSHA = "c1"
+	s.store.indexes[s.indexID] = idx
+	inject := func() string {
+		out, err := s.injector.InjectContext(context.Background(), s.sessionID,
+			[]domain.Message{{Role: domain.RoleUser, Content: "where is the service?"}},
+			domain.InjectOptions{TopK: 1, IncludeSkeleton: true})
+		s.Require().NoError(err)
+		return out[0].Content
+	}
+
+	s.Contains(inject(), "FirstName")
+	s.Require().NoError(os.WriteFile(source, []byte("package svc\n\nfunc SecondName() {}\n"), 0o644))
+	s.Contains(inject(), "SecondName", "an edit made after the index commit is what the next run reads")
 }
 
 func (s *InjectSuite) TestInjectContextSkipsWhenIndexNotCompleted() {

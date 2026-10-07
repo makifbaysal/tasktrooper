@@ -11,9 +11,11 @@ type Budget struct {
 	KeepRecentMessages int
 }
 
+// Apply trims messages to the budget. A budget with no MaxTokens is no budget
+// (context.max_tokens left to the model default), not a one-token window.
 func (b Budget) Apply(messages []domain.Message) []domain.Message {
 	limit := b.TokenLimit()
-	if CountTokens(messages) <= limit {
+	if b.MaxTokens <= 0 || CountTokens(messages) <= limit {
 		out := make([]domain.Message, len(messages))
 		copy(out, messages)
 		return out

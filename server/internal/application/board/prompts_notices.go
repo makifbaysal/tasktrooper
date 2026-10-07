@@ -105,3 +105,7 @@ type pipelineBounceCommentInput struct{ SHA string }
 var pipelineBounceCommentKey = prompt.Define("notices.pipeline_bounce_comment", pipelineBounceCommentInput{SHA: "abc1234"})
 
 var pipelineBounceNoteLabelKey = prompt.Define("notices.pipeline_bounce_note_label", struct{}{})
+
+type advisoryChecksCommentInput struct{ Marker, Report string }
+
+var advisoryChecksCommentKey = prompt.Define("notices.advisory_checks_comment", advisoryChecksCommentInput{Marker: "[advisory checks]", Report: "[coverage] overall 81.0%"})

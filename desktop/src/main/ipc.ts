@@ -22,6 +22,7 @@ import {
   validateChooseDirectory,
   validateDiagnosticsRequest,
   validateLogsRequest,
+  validateLogsStream,
   validateOpenExternal,
   validateOverrides,
   validatePreferences,
@@ -82,6 +83,8 @@ export interface IpcServices {
   disconnect(): Promise<HostRunnerSnapshot>;
   restartChild(child: string): Promise<HostRunnerSnapshot>;
   logs(req: { child?: string; afterSeq?: number; limit?: number }): LogLine[];
+  /** Push log batches to the page (true) or stop (false). */
+  streamLogs(on: boolean): void;
   clearLogs(): void;
 
   getSettings(): HostSettings;
@@ -210,6 +213,9 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.runnerDisconnect, () => services.disconnect());
   cloud(CLOUD_CHANNELS.runnerRestartChild, (payload) => services.restartChild(validateRestartChild(payload).child));
   cloud(CLOUD_CHANNELS.runnerLogs, (payload) => services.logs(validateLogsRequest(payload)));
+  cloud(CLOUD_CHANNELS.runnerLogsStream, (payload) => {
+    services.streamLogs(validateLogsStream(payload).on);
+  });
   cloud(CLOUD_CHANNELS.runnerClearLogs, () => {
     services.clearLogs();
   });

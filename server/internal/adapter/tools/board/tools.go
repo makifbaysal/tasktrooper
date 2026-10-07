@@ -332,16 +332,11 @@ func (kit *ToolKit) findTask(ctx context.Context, taskID uuid.UUID) (domain.Boar
 	if err != nil {
 		return domain.BoardTask{}, false
 	}
-	tasks, err := kit.Tasks.ListTasks(ctx, repositoryID)
+	task, err := kit.Tasks.GetTask(ctx, repositoryID, taskID)
 	if err != nil {
 		return domain.BoardTask{}, false
 	}
-	for _, t := range tasks {
-		if t.ID == taskID {
-			return t, true
-		}
-	}
-	return domain.BoardTask{}, false
+	return task, true
 }
 
 func (kit *ToolKit) listBoardTasks(ctx context.Context) ([]domain.BoardTask, error) {

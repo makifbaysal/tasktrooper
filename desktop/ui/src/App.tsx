@@ -1,3 +1,4 @@
+import { lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { Toaster } from "sonner";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
@@ -6,39 +7,42 @@ import { ThemeProvider } from "@/hooks/useTheme";
 import { I18nProvider } from "@/hooks/useI18n";
 import { SetupPage } from "@/pages/SetupPage";
 import { WorkspaceAgentLayout } from "@/components/layout/WorkspaceAgentLayout";
-import { AgentSettingsPage } from "@/pages/AgentSettingsPage";
-import { AgentColumnsPage } from "@/pages/AgentColumnsPage";
-import { AddRepositoryPage } from "@/pages/AddRepositoryPage";
-import { ProjectPage } from "@/pages/ProjectPage";
-import { RepositoryPage } from "@/pages/RepositoryPage";
-import { IncidentsPage } from "@/pages/IncidentsPage";
-import { DeploymentsPage } from "@/pages/DeploymentsPage";
-import { MobileAppsPage } from "@/pages/MobileAppsPage";
 import { OperationsLayout } from "@/components/layout/OperationsLayout";
-import { FilesPage } from "@/pages/FilesPage";
-import { RulesPage } from "@/pages/RulesPage";
-import { IntegrationsSettingsPage } from "@/pages/IntegrationsSettingsPage";
-import { MCPServersPage } from "@/pages/MCPServersPage";
 import { SettingsLayout } from "@/components/layout/SettingsLayout";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { BoardSettingsPage } from "@/pages/BoardSettingsPage";
-import { RolesSettingsPage } from "@/pages/RolesSettingsPage";
-import { WorkflowSettingsPage } from "@/pages/WorkflowSettingsPage";
-import { LLMSettingsPage } from "@/pages/LLMSettingsPage";
-import { UsageSettingsPage } from "@/pages/UsageSettingsPage";
-import { CatalogPage } from "@/pages/CatalogPage";
-import { SkillsPage } from "@/pages/SkillsPage";
-import { ProjectsPage } from "@/pages/ProjectsPage";
 import { WorkspaceLayout } from "@/components/layout/WorkspaceLayout";
-import { BacklogPage } from "@/pages/BacklogPage";
-import { ReleasedPage } from "@/pages/ReleasedPage";
 import { HomePage } from "@/pages/HomePage";
-import { BoardPage } from "@/pages/BoardPage";
-import { AgentChatPage } from "@/pages/AgentChatPage";
-import { AnalysisReviewPage } from "@/pages/AnalysisReviewPage";
-import { AgentPerformancePage } from "@/pages/AgentPerformancePage";
-import { AgentMemoryPage } from "@/pages/AgentMemoryPage";
-import { SharedMemoryPage } from "@/pages/SharedMemoryPage";
+
+// Every page but the first screens is its own chunk: the shell and /home paint
+// without parsing the code of thirty pages nobody has opened yet.
+const AgentSettingsPage = lazy(() => import("@/pages/AgentSettingsPage").then((m) => ({ default: m.AgentSettingsPage })));
+const AgentColumnsPage = lazy(() => import("@/pages/AgentColumnsPage").then((m) => ({ default: m.AgentColumnsPage })));
+const AddRepositoryPage = lazy(() => import("@/pages/AddRepositoryPage").then((m) => ({ default: m.AddRepositoryPage })));
+const ProjectPage = lazy(() => import("@/pages/ProjectPage").then((m) => ({ default: m.ProjectPage })));
+const RepositoryPage = lazy(() => import("@/pages/RepositoryPage").then((m) => ({ default: m.RepositoryPage })));
+const IncidentsPage = lazy(() => import("@/pages/IncidentsPage").then((m) => ({ default: m.IncidentsPage })));
+const DeploymentsPage = lazy(() => import("@/pages/DeploymentsPage").then((m) => ({ default: m.DeploymentsPage })));
+const MobileAppsPage = lazy(() => import("@/pages/MobileAppsPage").then((m) => ({ default: m.MobileAppsPage })));
+const FilesPage = lazy(() => import("@/pages/FilesPage").then((m) => ({ default: m.FilesPage })));
+const RulesPage = lazy(() => import("@/pages/RulesPage").then((m) => ({ default: m.RulesPage })));
+const IntegrationsSettingsPage = lazy(() => import("@/pages/IntegrationsSettingsPage").then((m) => ({ default: m.IntegrationsSettingsPage })));
+const MCPServersPage = lazy(() => import("@/pages/MCPServersPage").then((m) => ({ default: m.MCPServersPage })));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const BoardSettingsPage = lazy(() => import("@/pages/BoardSettingsPage").then((m) => ({ default: m.BoardSettingsPage })));
+const RolesSettingsPage = lazy(() => import("@/pages/RolesSettingsPage").then((m) => ({ default: m.RolesSettingsPage })));
+const WorkflowSettingsPage = lazy(() => import("@/pages/WorkflowSettingsPage").then((m) => ({ default: m.WorkflowSettingsPage })));
+const LLMSettingsPage = lazy(() => import("@/pages/LLMSettingsPage").then((m) => ({ default: m.LLMSettingsPage })));
+const UsageSettingsPage = lazy(() => import("@/pages/UsageSettingsPage").then((m) => ({ default: m.UsageSettingsPage })));
+const CatalogPage = lazy(() => import("@/pages/CatalogPage").then((m) => ({ default: m.CatalogPage })));
+const SkillsPage = lazy(() => import("@/pages/SkillsPage").then((m) => ({ default: m.SkillsPage })));
+const ProjectsPage = lazy(() => import("@/pages/ProjectsPage").then((m) => ({ default: m.ProjectsPage })));
+const BacklogPage = lazy(() => import("@/pages/BacklogPage").then((m) => ({ default: m.BacklogPage })));
+const ReleasedPage = lazy(() => import("@/pages/ReleasedPage").then((m) => ({ default: m.ReleasedPage })));
+const BoardPage = lazy(() => import("@/pages/BoardPage").then((m) => ({ default: m.BoardPage })));
+const AgentChatPage = lazy(() => import("@/pages/AgentChatPage").then((m) => ({ default: m.AgentChatPage })));
+const AnalysisReviewPage = lazy(() => import("@/pages/AnalysisReviewPage").then((m) => ({ default: m.AnalysisReviewPage })));
+const AgentPerformancePage = lazy(() => import("@/pages/AgentPerformancePage").then((m) => ({ default: m.AgentPerformancePage })));
+const AgentMemoryPage = lazy(() => import("@/pages/AgentMemoryPage").then((m) => ({ default: m.AgentMemoryPage })));
+const SharedMemoryPage = lazy(() => import("@/pages/SharedMemoryPage").then((m) => ({ default: m.SharedMemoryPage })));
 
 export default function App() {
   return (

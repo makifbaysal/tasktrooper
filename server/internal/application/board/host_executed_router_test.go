@@ -123,7 +123,7 @@ func TestReviewVerdictFinalizeRunsOnTheHostExecutor(t *testing.T) {
 
 	moved, _ := r.finalizeReviewVerdict(ctx, job, claudeCodeAgent(),
 		[]domain.Message{{Role: domain.RoleUser, Content: "review the diff"}},
-		"opus", domain.ToolPolicy{}, domain.TaskColumnReadyForQA)
+		1, "opus", domain.ToolPolicy{}, domain.TaskColumnReadyForQA)
 
 	require.True(t, moved, "the verdict the reviewer stated must become the move it never made")
 	require.Equal(t, 1, ex.callCount())

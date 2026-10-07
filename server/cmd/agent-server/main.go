@@ -45,6 +45,7 @@ func main() {
 		}
 		stopPostgres = stop
 		cfg.Options.PostgresDSN = dsn
+		cfg.Options.EmbeddedPostgres = true
 	} else {
 		log.Info().Msg("DATABASE_URL is set: no copy of the database is taken before migrations; backing it up is the operator's job")
 	}

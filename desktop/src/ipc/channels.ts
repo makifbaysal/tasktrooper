@@ -100,6 +100,13 @@ export const CLOUD_CHANNELS = {
   runnerDisconnect: "cloud:runner:disconnect",
   runnerRestartChild: "cloud:runner:restart-child",
   runnerLogs: "cloud:runner:logs",
+  /**
+   * Whether the page wants `CLOUD_EVENTS.runnerLogs` pushed. Sent by the
+   * preload's `subscribeLogs` on the first subscriber and when the last one
+   * leaves, so lines cross IPC only while a log view is open; the page catches
+   * up on what it missed with `runnerLogs` and `afterSeq`.
+   */
+  runnerLogsStream: "cloud:runner:logs-stream",
   runnerClearLogs: "cloud:runner:clear-logs",
 
   settingsGet: "cloud:settings:get",
@@ -164,6 +171,10 @@ export interface RevealRequest {
 
 export interface OpenExternalRequest {
   url: string;
+}
+
+export interface LogsStreamRequest {
+  on: boolean;
 }
 
 /** `null`/`null` means no chat screen is open. */

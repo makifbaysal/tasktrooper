@@ -284,15 +284,20 @@ func (s *CatalogStore) CreateAgent(ctx context.Context, agent domain.Agent) (dom
 }
 
 func (s *CatalogStore) listAgentSkillIDs(ctx context.Context, agentID uuid.UUID) ([]uuid.UUID, error) {
-	skills, err := s.ListSkillsByAgent(ctx, agentID)
+	rows, err := s.pool.Query(ctx, `SELECT id FROM skills WHERE agent_id = $1 ORDER BY name ASC`, agentID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list agent skill ids: %w", err)
 	}
-	ids := make([]uuid.UUID, len(skills))
-	for i, sk := range skills {
-		ids[i] = sk.ID
+	defer rows.Close()
+	ids := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
 	}
-	return ids, nil
+	return ids, rows.Err()
 }
 
 func (s *CatalogStore) GetAgent(ctx context.Context, id uuid.UUID) (domain.Agent, error) {
@@ -316,8 +321,12 @@ func (s *CatalogStore) GetAgent(ctx context.Context, id uuid.UUID) (domain.Agent
 
 func (s *CatalogStore) ListAgents(ctx context.Context) ([]domain.Agent, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, catalog_etag, auto_pull_agent_updates, keep_skills_updated, created_at
-		FROM agents ORDER BY name ASC
+		SELECT a.id, a.name, a.description, a.subagent_type, a.system_prompt, a.provider_type, a.model, a.model_heavy, a.max_turns, a.effort, a.tool_policy, a.enabled, a.self_evolution_enabled, a.catalog_slug, a.catalog_etag, a.auto_pull_agent_updates, a.keep_skills_updated, a.created_at,
+		       COALESCE(array_agg(sk.id ORDER BY sk.name) FILTER (WHERE sk.id IS NOT NULL), '{}')
+		FROM agents a
+		LEFT JOIN skills sk ON sk.agent_id = a.id
+		GROUP BY a.id
+		ORDER BY a.name ASC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -327,15 +336,13 @@ func (s *CatalogStore) ListAgents(ctx context.Context) ([]domain.Agent, error) {
 	for rows.Next() {
 		var a domain.Agent
 		var policyJSON []byte
-		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.SubagentType, &a.SystemPrompt, &a.ProviderType, &a.Model, &a.ModelHeavy, &a.MaxTurns, &a.Effort, &policyJSON, &a.Enabled, &a.SelfEvolutionEnabled, &a.CatalogSlug, &a.CatalogEtag, &a.AutoPullAgentUpdates, &a.KeepSkillsUpdated, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.SubagentType, &a.SystemPrompt, &a.ProviderType, &a.Model, &a.ModelHeavy, &a.MaxTurns, &a.Effort, &policyJSON, &a.Enabled, &a.SelfEvolutionEnabled, &a.CatalogSlug, &a.CatalogEtag, &a.AutoPullAgentUpdates, &a.KeepSkillsUpdated, &a.CreatedAt, &a.SkillIDs); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(policyJSON, &a.ToolPolicy)
-		skillIDs, err := s.listAgentSkillIDs(ctx, a.ID)
-		if err != nil {
-			return nil, err
+		if a.SkillIDs == nil {
+			a.SkillIDs = []uuid.UUID{}
 		}
-		a.SkillIDs = skillIDs
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()

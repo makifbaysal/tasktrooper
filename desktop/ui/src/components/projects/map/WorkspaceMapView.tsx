@@ -1,4 +1,5 @@
 import { Background, Controls, MiniMap, ReactFlow, type Edge as FlowEdge, type Node as FlowNode } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import { Network } from "lucide-react";
 import { useCallback, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate } from "react-router-dom";

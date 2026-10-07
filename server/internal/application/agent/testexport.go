@@ -25,8 +25,10 @@ func ToolErrorNoteThresholdForTest() int  { return toolErrorNoteThreshold }
 func ToolErrorMessageForTest(name string, count int) string { return toolErrorMessage(name, count) }
 
 func BuildLLMRequestPayloadForTest(model string, history []domain.Message, toolCount int) map[string]any {
-	return buildLLMRequestPayload(model, history, toolCount)
+	return buildLLMRequestPayload(model, len(history), history, toolCount)
 }
+
+func OutputTruncatedMessageForTest(limit int) string { return outputTruncatedMessage(limit) }
 
 type TokenCalibrationForTest struct {
 	c *tokenCalibration

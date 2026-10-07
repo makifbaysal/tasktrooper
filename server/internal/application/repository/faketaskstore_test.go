@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 // fakePackageTaskStore is a minimal in-memory BoardTaskStore shared by several
@@ -25,6 +26,16 @@ func (f *fakePackageTaskStore) Get(_ context.Context, _ uuid.UUID, taskID uuid.U
 		return domain.BoardTask{}, fmt.Errorf("task %s not found", taskID)
 	}
 	return task, nil
+}
+func (f *fakePackageTaskStore) GetByID(_ context.Context, taskID uuid.UUID) (domain.BoardTask, error) {
+	task, ok := f.tasks[taskID]
+	if !ok {
+		return domain.BoardTask{}, fmt.Errorf("%w: %s", domain.ErrBoardTaskNotFound, taskID)
+	}
+	return task, nil
+}
+func (f *fakePackageTaskStore) ListDispatchCandidates(context.Context, int) ([]port.TaskRecentRuns, error) {
+	return nil, nil
 }
 func (f *fakePackageTaskStore) Update(_ context.Context, task domain.BoardTask) (domain.BoardTask, error) {
 	f.tasks[task.ID] = task

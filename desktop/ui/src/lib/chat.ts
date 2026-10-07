@@ -1,4 +1,5 @@
-import type { SessionMessage } from "@/api";
+import type { SessionMessage, SessionRun } from "@/api";
+import { keepRows } from "@/lib/stableState";
 
 // The backend writes failed agent runs into the transcript with this prefix, and
 // the chat bubble styles itself off it. "**Hata:**" is the pre-English-UI marker
@@ -54,4 +55,33 @@ export function assistantErrorMessage(text: string): SessionMessage {
     content: `${ERROR_PREFIX} ${text}`,
     created_at: new Date().toISOString(),
   };
+}
+
+const messageKey = (message: SessionMessage) =>
+  `${message.id}\u0000${message.content}\u0000${(message.attachments ?? []).map((a) => a.id).join(",")}`;
+
+export function keepMessages(prev: SessionMessage[], next: SessionMessage[]): SessionMessage[] {
+  return keepRows(prev, next, messageKey);
+}
+
+// Optimistic "temp-" bubbles stay until the server's transcript carries the
+// same message. Returns `currentMessages` itself when nothing changed, so a 2s
+// poll of an unchanged transcript re-renders nothing.
+export function mergeServerMessages(
+  serverMessages: SessionMessage[],
+  currentMessages: SessionMessage[],
+): SessionMessage[] {
+  const pendingOptimistic = currentMessages.filter(
+    (message) =>
+      message.id.startsWith("temp-") &&
+      !serverMessages.some(
+        (serverMessage) => serverMessage.role === message.role && serverMessage.content === message.content,
+      ),
+  );
+  const next = pendingOptimistic.length === 0 ? serverMessages : [...serverMessages, ...pendingOptimistic];
+  return keepMessages(currentMessages, next);
+}
+
+export function sessionRunKey(run: SessionRun): string {
+  return `${run.id}:${run.status}:${run.started_at}:${run.completed_at ?? ""}`;
 }

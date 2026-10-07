@@ -161,3 +161,39 @@ func (s *GrepCodeCaseSuite) TestCaseSensitiveOptIn() {
 	s.False(wrongCase.IsError, wrongCase.Content)
 	s.NotContains(wrongCase.Content, "banner.tsx")
 }
+
+func (s *GrepCodeCaseSuite) TestMaxResultsCapsTheTotalAcrossFiles() {
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		s.Require().NoError(os.WriteFile(filepath.Join(s.root, name), []byte("hit\nhit\n"), 0o644))
+	}
+
+	result := s.tool.Execute(s.ctx, `{"pattern":"^hit$","max_results":3}`)
+
+	s.False(result.IsError, result.Content)
+	s.Equal(3, strings.Count(result.Content, `"file_path"`))
+}
+
+func (s *GrepCodeCaseSuite) TestLongLinesComeBackAsAPreview() {
+	long := "needle " + strings.Repeat("x", 5000)
+	s.Require().NoError(os.WriteFile(filepath.Join(s.root, "bundle.min.js"), []byte(long+"\n"), 0o644))
+
+	result := s.tool.Execute(s.ctx, `{"pattern":"needle"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Contains(result.Content, "needle xxx")
+	s.Contains(result.Content, "[... omitted end of long line]")
+	s.Less(len(result.Content), 600, "the 5000-byte line must not come back whole")
+}
+
+func (s *GrepCodeCaseSuite) TestGitignoreExclusionsHoldInsideAGitRepository() {
+	if _, err := exec.LookPath("git"); err != nil {
+		s.T().Skip("git not installed")
+	}
+	s.Require().NoError(exec.Command("git", "-C", s.root, "init", "-q").Run())
+
+	result := s.tool.Execute(s.ctx, `{"pattern":"Coming Soon"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Contains(result.Content, "banner.tsx")
+	s.NotContains(result.Content, "vendor")
+}

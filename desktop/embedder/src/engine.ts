@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { Tokenizer } from "@huggingface/tokenizers";
-import { SerialQueue, truncateEncoding } from "./limits.js";
+import { SerialQueue, truncateEncoding, type Encoding } from "./limits.js";
 import type * as OrtModule from "onnxruntime-web";
 
 /**
@@ -32,6 +32,10 @@ const { env, InferenceSession, Tensor } = ort;
  * `search_query:`/`search_document:` task prefix is added here: prefixing,
  * if any, is a decision made upstream of this repository, the same contract
  * the LM Studio proxy this replaces always had.
+ *
+ * This module only ever runs inside the worker (`worker.ts`): the wasm heap
+ * it grows never shrinks, and terminating that worker is the only way to give
+ * the memory back.
  */
 
 export const EMBEDDING_DIM = 768;
@@ -40,6 +44,18 @@ export interface CachedModelFiles {
   modelPath: string;
   tokenizerJsonPath: string;
   tokenizerConfigPath: string;
+}
+
+export interface EmbedResult {
+  /** One 768-dim unit vector per input, in input order. */
+  vectors: Float64Array[];
+  /** The tokenizer's count over every input, before truncation — the response's `usage`. */
+  promptTokens: number;
+}
+
+export interface EngineOptions {
+  /** Threads for the wasm backend's intra-op pool. */
+  numThreads: number;
 }
 
 export class Engine {
@@ -57,23 +73,29 @@ export class Engine {
     this.#tokenizer = tokenizer;
   }
 
-  /** Full pipeline: text -> tokenize -> run -> mean-pool -> L2-normalize -> a 768-dim unit vector. */
-  async embed(text: string): Promise<Float64Array> {
-    return this.#queue.run(async () => {
-      const { lastHiddenState, attentionMask, seqLen, hidden } = await this.#run(text);
-      const pooled = meanPool(lastHiddenState, attentionMask, seqLen, hidden);
-      return l2Normalize(pooled);
-    });
-  }
-
   /**
-   * The tokenizer's own count for `text`, for the response's `usage` field.
-   * Separate from `embed()` — which must keep exactly the signature the
-   * server expects — so a caller that only wants a token count is not made
-   * to pay for a forward pass through the model to get one.
+   * Tokenize each input once — for both the run and the count — and run them
+   * one at a time.
+   *
+   * Never batched into one `session.run`, and that is measured rather than
+   * assumed: this quantized export does not isolate padded positions (twenty
+   * pad tokens moved a real token's output to cosine 0.954), most likely
+   * because its dynamic activation quantization takes its range over the whole
+   * tensor. A vector that depends on what it was batched with would make the
+   * same chunk embed differently from one index run to the next.
    */
-  tokenCount(text: string): number {
-    return this.#tokenizer.encode(text, { return_token_type_ids: true }).ids.length;
+  async embed(texts: readonly string[]): Promise<EmbedResult> {
+    let promptTokens = 0;
+    const vectors: Float64Array[] = [];
+    for (const text of texts) {
+      const full = this.#tokenizer.encode(text, { return_token_type_ids: true });
+      promptTokens += full.ids.length;
+      // Capped before inference: see MAX_SEQUENCE_TOKENS. Each input takes
+      // its own turn, so a large request does not hold a small concurrent one
+      // behind all of its inputs.
+      vectors.push(await this.#queue.run(() => this.#run(truncateEncoding(full))));
+    }
+    return { vectors, promptTokens };
   }
 
   /** Frees the ONNX session's native memory. The engine must not be used afterwards. */
@@ -81,35 +103,19 @@ export class Engine {
     return this.#session.release();
   }
 
-  async #run(
-    text: string,
-  ): Promise<{ lastHiddenState: Float32Array; attentionMask: number[]; seqLen: number; hidden: number }> {
-    // Capped before inference: see MAX_SEQUENCE_TOKENS.
-    const encoded = truncateEncoding(this.#tokenizer.encode(text, { return_token_type_ids: true }));
+  async #run(encoded: Encoding): Promise<Float64Array> {
     const seqLen = encoded.ids.length;
-
-    const inputIds = BigInt64Array.from(encoded.ids.map((id) => BigInt(id)));
-    const attentionMask = BigInt64Array.from(encoded.attention_mask.map((v) => BigInt(v)));
-    const tokenTypeIds = BigInt64Array.from(encoded.token_type_ids.map((v) => BigInt(v)));
-
-    const feeds = {
-      input_ids: new Tensor("int64", inputIds, [1, seqLen]),
-      attention_mask: new Tensor("int64", attentionMask, [1, seqLen]),
-      token_type_ids: new Tensor("int64", tokenTypeIds, [1, seqLen]),
-    };
-
-    const results = await this.#session.run(feeds);
+    const shape = [1, seqLen];
+    const results = await this.#session.run({
+      input_ids: new Tensor("int64", BigInt64Array.from(encoded.ids.map((id) => BigInt(id))), shape),
+      attention_mask: new Tensor("int64", BigInt64Array.from(encoded.attention_mask.map((v) => BigInt(v))), shape),
+      token_type_ids: new Tensor("int64", BigInt64Array.from(encoded.token_type_ids.map((v) => BigInt(v))), shape),
+    });
     const lastHiddenState = results.last_hidden_state;
     if (!lastHiddenState) throw new Error("the model did not return last_hidden_state");
     const hidden = lastHiddenState.dims[lastHiddenState.dims.length - 1];
     if (typeof hidden !== "number") throw new Error("last_hidden_state has no hidden dimension");
-
-    return {
-      lastHiddenState: lastHiddenState.data as Float32Array,
-      attentionMask: encoded.attention_mask,
-      seqLen,
-      hidden,
-    };
+    return l2Normalize(meanPool(lastHiddenState.data as Float32Array, encoded.attention_mask, seqLen, hidden));
   }
 }
 
@@ -122,16 +128,23 @@ export class Engine {
  * `dist/embedder` as a flat directory that does not mirror `node_modules`,
  * and the prototype's packaged-layout simulation proved auto-resolution
  * fails there.
+ *
+ * Spinning is off: an idle intra-op pool otherwise busy-waits between runs,
+ * which is CPU taken from the user's own work for nothing.
  */
-export async function loadEngine(files: CachedModelFiles, wasmDir: string): Promise<Engine> {
+export async function loadEngine(files: CachedModelFiles, wasmDir: string, options: EngineOptions): Promise<Engine> {
   const wasmUrl = pathToFileURL(wasmDir).href;
   env.wasm.wasmPaths = wasmUrl.endsWith("/") ? wasmUrl : `${wasmUrl}/`;
+  env.wasm.numThreads = options.numThreads;
 
   const tokenizerJson = JSON.parse(readFileSync(files.tokenizerJsonPath, "utf8")) as object;
   const tokenizerConfig = JSON.parse(readFileSync(files.tokenizerConfigPath, "utf8")) as object;
   const tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
 
-  const session = await InferenceSession.create(files.modelPath, { executionProviders: ["wasm"] });
+  const session = await InferenceSession.create(files.modelPath, {
+    executionProviders: ["wasm"],
+    extra: { session: { intra_op: { allow_spinning: "0" }, inter_op: { allow_spinning: "0" } } },
+  });
   return new Engine(session, tokenizer);
 }
 

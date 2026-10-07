@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type ProjectsOverview } from "@/api";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
+import { keepEqual } from "@/lib/stableState";
 
 export const CACHE_PROJECTS_OVERVIEW = "projectModel.projectsOverview";
 
@@ -20,7 +21,7 @@ export function useProjectsOverview() {
     try {
       const next = await api.getProjectsOverview();
       if (versionRef.current !== version) return;
-      setOverview(next);
+      setOverview((prev) => keepEqual(prev, next));
       setError(null);
     } catch (e) {
       if (versionRef.current !== version) return;

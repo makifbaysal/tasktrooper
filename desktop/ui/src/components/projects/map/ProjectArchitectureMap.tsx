@@ -1,4 +1,5 @@
 import { Background, Controls, MiniMap, ReactFlow, type Edge as FlowEdge, type Node as FlowNode } from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import { Boxes } from "lucide-react";
 import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { ProjectMap, ProjectRef } from "@/api";

@@ -1,5 +1,5 @@
 import { Activity, CircleStop, Loader2, PanelRightClose } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import type { SessionRun } from "@/api";
 import { ActivityFeed } from "@/components/activity/ActivityFeed";
 import { AgentRunHeader } from "@/components/activity/AgentRunHeader";
@@ -47,7 +47,8 @@ interface SessionActivityPanelProps {
 // The parent must be `relative` and a flex row: below xl the open panel overlays
 // the chat from the right edge, because beside the app sidebar and the session
 // list a fixed-width column left the conversation itself ~100px wide.
-export function SessionActivityPanel({
+// Memoized: the chat page re-renders on every keystroke and streamed chunk.
+export const SessionActivityPanel = memo(function SessionActivityPanel({
   sessionId,
   agentName,
   lead = false,
@@ -168,4 +169,4 @@ export function SessionActivityPanel({
       </div>
     </>
   );
-}
+});

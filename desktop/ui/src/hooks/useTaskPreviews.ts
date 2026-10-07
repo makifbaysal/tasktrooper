@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type TaskPreview, type TaskPreviewStatus } from "@/api";
+import { usePolling } from "@/hooks/usePolling";
+import { keepEqual } from "@/lib/stableState";
 
 const POLL_MS = 15_000;
 
@@ -16,7 +18,8 @@ export function useTaskPreviews(repositoryId: string, taskId: string, enabled = 
 
   const load = useCallback(async () => {
     const res = await api.getTaskPreviews(repositoryId, taskId);
-    setPreviews(res.previews ?? []);
+    const next = res.previews ?? [];
+    setPreviews((prev) => keepEqual(prev, next));
   }, [repositoryId, taskId]);
 
   useEffect(() => {
@@ -25,11 +28,9 @@ export function useTaskPreviews(repositoryId: string, taskId: string, enabled = 
     load().catch(() => setPreviews([]));
   }, [load, enabled]);
 
-  useEffect(() => {
-    if (!enabled || !previews?.some((p) => ACTIVE_PREVIEW_STATUSES.includes(p.status))) return;
-    const id = setInterval(() => void load().catch(() => {}), POLL_MS);
-    return () => clearInterval(id);
-  }, [previews, load, enabled]);
+  const building = enabled && !!previews?.some((p) => ACTIVE_PREVIEW_STATUSES.includes(p.status));
+  const poll = useCallback(() => load().catch(() => undefined), [load]);
+  usePolling(poll, POLL_MS, building, { leading: false });
 
   return { previews, reload: load };
 }

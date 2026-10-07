@@ -32,6 +32,13 @@ export class AppTray {
   readonly #deps: TrayDeps;
   #snapshot: SupervisorSnapshot | null = null;
   #update: UpdateStatus = { phase: "unsupported" };
+  /**
+   * What the tray last showed, as a key. The supervisor emits a state per
+   * narration line and per child transition, and most of them change nothing
+   * the tray draws; rebuilding the menu and the image for those is native
+   * work done for nothing.
+   */
+  #shown = "";
 
   constructor(deps: TrayDeps) {
     this.#deps = deps;
@@ -73,6 +80,7 @@ export class AppTray {
     nativeTheme.off("updated", this.#onThemeUpdated);
     this.#tray?.destroy();
     this.#tray = null;
+    this.#shown = "";
   }
 
   readonly #onThemeUpdated = (): void => this.#render();
@@ -90,15 +98,21 @@ export class AppTray {
 
     const snapshot = this.#snapshot;
     const glyph = glyphFor(snapshot);
-    tray.setImage(trayIcon(glyph, this.#tone()));
-    tray.setToolTip(`TaskTrooper — ${describe(snapshot)}`);
-
+    const tone = this.#tone();
+    const line = describe(snapshot);
     const busy = snapshot?.state === "starting" || snapshot?.state === "stopping" || snapshot?.state === "preflight";
     const up = snapshot?.state === "running" || snapshot?.state === "degraded";
+    const update = this.#update;
+    const shown = JSON.stringify([glyph, tone, line, busy, up, update.phase, update.version, update.percent, update.detail]);
+    if (shown === this.#shown) return;
+    this.#shown = shown;
+
+    tray.setImage(trayIcon(glyph, tone));
+    tray.setToolTip(`TaskTrooper — ${line}`);
 
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: describe(snapshot), enabled: false },
+        { label: line, enabled: false },
         { type: "separator" },
         { label: "Start the local server", enabled: !busy && !up, click: () => this.#deps.start() },
         { label: "Stop the local server", enabled: !busy && up, click: () => this.#deps.stop() },

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	goccyjson "github.com/goccy/go-json"
@@ -148,6 +149,8 @@ type Handler struct {
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
 	mcpToolServer *mcpserver.Server
+
+	boardList boardListCache
 }
 
 type Config struct {
@@ -428,12 +431,27 @@ func unauthorized(c *fiber.Ctx) error {
 	})
 }
 
+// metricsMiddleware labels by the matched route pattern, read after c.Next()
+// once routing is done: the raw path would mint a series per id. Labels are
+// cloned because fiber hands out strings that alias fasthttp's reused request
+// buffers, and Prometheus keeps label values for the life of the series. A
+// returned error has not been written yet (the app's error handler runs after
+// this returns), so its status comes from the error.
 func (h *Handler) metricsMiddleware(c *fiber.Ctx) error {
 	start := time.Now()
 	err := c.Next()
-	status := strconv.Itoa(c.Response().StatusCode())
-	h.metrics.RequestsTotal.WithLabelValues(c.Method(), c.Path(), status).Inc()
-	h.metrics.RequestDuration.WithLabelValues(c.Method(), c.Path()).Observe(time.Since(start).Seconds())
+	code := c.Response().StatusCode()
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
+		code = fe.Code
+	} else if err != nil {
+		code = fiber.StatusInternalServerError
+	}
+	status := strconv.Itoa(code)
+	method := strings.Clone(c.Method())
+	path := strings.Clone(c.Route().Path)
+	h.metrics.RequestsTotal.WithLabelValues(method, path, status).Inc()
+	h.metrics.RequestDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 	return err
 }
 
@@ -642,6 +660,12 @@ func (h *Handler) chatCompletionsStream(c *fiber.Ctx, messages []domain.Message,
 // which exposes per-provider model listing and health checks the port.LLMClient
 // interface does not. Without this, those capabilities are invisible whenever
 // the client is wrapped (always in cloud mode, where usage recording is on).
+func (h *Handler) invalidateProviderHealth() {
+	if multi, ok := resolveMultiClient(h.llmClient); ok {
+		multi.InvalidateHealth()
+	}
+}
+
 func resolveMultiClient(c port.LLMClient) (*llmadapter.MultiProviderClient, bool) {
 	for i := 0; i < 8 && c != nil; i++ {
 		if m, ok := c.(*llmadapter.MultiProviderClient); ok {
@@ -753,6 +777,9 @@ func (h *Handler) Health(c *fiber.Ctx) error {
 		list, err := h.llmProviderSvc.List(ctx)
 		if err == nil {
 			if multi, ok := resolveMultiClient(h.llmClient); ok {
+				if c.Query("fresh") == "1" {
+					multi.InvalidateHealth()
+				}
 				checks := append(multi.HealthCheck(ctx, list.Providers),
 					multi.HealthCheckEndpoints(ctx, list.Endpoints)...)
 				providers = make([]llmProviderHealthItem, 0, len(checks))

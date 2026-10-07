@@ -3,6 +3,7 @@ import {
   ValidationError,
   validateChatFocus,
   validateChooseDirectory,
+  validateLogsStream,
   validateOpenExternal,
   validateOverrides,
   validatePreferences,
@@ -189,5 +190,15 @@ describe("validateChooseDirectory", () => {
     expect(() => validateChooseDirectory({ title: "Bad\ntitle" })).toThrow(ValidationError);
     expect(() => validateChooseDirectory({ defaultPath: "Bad\0path" })).toThrow(ValidationError);
     expect(() => validateChooseDirectory({ buttonLabel: "Bad\rlabel" })).toThrow(ValidationError);
+  });
+});
+
+describe("validateLogsStream", () => {
+  it("takes a boolean and nothing else", () => {
+    expect(validateLogsStream({ on: true })).toEqual({ on: true });
+    expect(validateLogsStream({ on: false })).toEqual({ on: false });
+    for (const bad of [undefined, null, {}, { on: "yes" }, { on: 1 }, []]) {
+      expect(() => validateLogsStream(bad)).toThrow(ValidationError);
+    }
   });
 });

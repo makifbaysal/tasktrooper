@@ -40,6 +40,9 @@ const (
 	// on the ordinary path. Goes on the event rather than only on the pipeline
 	// row because the gate can be skipped with no pipeline row at all.
 	EventPayloadPipelineGate = "pipeline_gate"
+	// Marks a task_commented event whose comment dispatches nobody
+	// (CreateTaskCommentRequest.Informational).
+	EventPayloadInformational = "informational"
 
 	EventActorAgent  = "agent"
 	EventActorHuman  = "human"
@@ -152,6 +155,10 @@ type CreateTaskCommentRequest struct {
 	Content    string `json:"content"`
 	AuthorType string `json:"author_type,omitempty"`
 	AuthorID   string `json:"author_id,omitempty"`
+	// Informational comments are recorded and shown but wake no agent: a note
+	// that lands after the run it describes would otherwise start another
+	// one. Never read from a request body.
+	Informational bool `json:"-"`
 }
 
 type TaskAgentRun struct {
@@ -180,8 +187,12 @@ type TaskAgentRun struct {
 	// `--resume`; QuotaResumeAt is NULL on every run never parked.
 	CLISessionID  string     `json:"cli_session_id,omitempty"`
 	QuotaResumeAt *time.Time `json:"quota_resume_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	// CLIProvider is the agent CLI that owns CLISessionID: a session id means
+	// nothing to another CLI, and an agent can change provider between runs.
+	// Empty on rows written before it was recorded.
+	CLIProvider LLMProviderType `json:"cli_provider,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type ActivityItem struct {

@@ -10,7 +10,17 @@ import (
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mapper"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
+
+// grepMaxColumns is the longest line grep_code returns whole; a minified bundle or
+// a lockfile line can be megabytes, and every byte of it lands in the context.
+const grepMaxColumns = 300
+
+// grepLongLineKey is the marker rg --max-columns-preview appends, reproduced
+// so a search reads the same with or without rg on the machine.
+var grepLongLineKey = prompt.Define[struct{}]("tool_results.code_grep_long_line", struct{}{})
 
 // binarySniffLen matches ripgrep's heuristic: a NUL in the first block means binary.
 const binarySniffLen = 8 << 10
@@ -83,7 +93,7 @@ func grepFile(fullPath, rel string, re *regexp.Regexp, limit int) []grepMatch {
 		if !re.MatchString(line) {
 			continue
 		}
-		out = append(out, grepMatch{FilePath: rel, Line: i + 1, Content: line})
+		out = append(out, grepMatch{FilePath: rel, Line: i + 1, Content: previewLongLine(line)})
 		if len(out) >= limit {
 			break
 		}
@@ -147,4 +157,11 @@ func globRegexp(glob string, ignoreCase bool) (*regexp.Regexp, error) {
 	}
 	b.WriteString("$")
 	return regexp.Compile(b.String())
+}
+
+func previewLongLine(line string) string {
+	if len(line) <= grepMaxColumns {
+		return line
+	}
+	return domain.TruncateHead(line, grepMaxColumns) + prompt.Text(grepLongLineKey)
 }

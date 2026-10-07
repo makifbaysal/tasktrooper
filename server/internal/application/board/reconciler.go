@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,15 +87,6 @@ func (r *Reconciler) run(ctx context.Context, cutoff time.Time) {
 	if r == nil || r.runs == nil || r.tasks == nil || r.dispatcher == nil {
 		return
 	}
-	tasks, err := r.tasks.ListAll(ctx)
-	if err != nil {
-		log.Warn().Err(err).Msg("reconciler: list tasks failed")
-		return
-	}
-	byID := make(map[uuid.UUID]domain.BoardTask, len(tasks))
-	for _, t := range tasks {
-		byID[t.ID] = t
-	}
 
 	pendingCutoff := time.Now().Add(-pendingStaleAfter)
 	if cutoff.After(pendingCutoff) {
@@ -112,20 +104,34 @@ func (r *Reconciler) run(ctx context.Context, cutoff time.Time) {
 			if !run.UpdatedAt.Before(limit) {
 				continue
 			}
-			task, ok := byID[run.TaskID]
-			r.recoverStale(ctx, run, task, ok, limit)
+			task, err := r.tasks.GetByID(ctx, run.TaskID)
+			found := err == nil
+			if err != nil && !errors.Is(err, domain.ErrBoardTaskNotFound) {
+				log.Warn().Err(err).Str("run_id", run.ID.String()).Msg("reconciler: reading a stale run's task failed")
+				continue
+			}
+			r.recoverStale(ctx, run, task, found, limit)
 		}
 	}
 
-	r.dispatchNeverStarted(ctx, tasks)
+	candidates, err := r.tasks.ListDispatchCandidates(ctx, maxConsecutiveFailedRuns)
+	if err != nil {
+		log.Warn().Err(err).Msg("reconciler: list dispatch candidates failed")
+		return
+	}
+	r.dispatchNeverStarted(ctx, candidates)
 }
 
 const pendingStaleAfter = 2 * time.Minute
 
 const maxConsecutiveFailedRuns = 3
 
-func (r *Reconciler) dispatchNeverStarted(ctx context.Context, tasks []domain.BoardTask) {
-	for _, task := range tasks {
+// dispatchNeverStarted re-checks the candidate filter the store already applied
+// in SQL, so a store that returns more than the predicate selects cannot make
+// the reconciler dispatch a parked or finished task.
+func (r *Reconciler) dispatchNeverStarted(ctx context.Context, candidates []port.TaskRecentRuns) {
+	for _, candidate := range candidates {
+		task, runs := candidate.Task, candidate.Runs
 		if task.AssigneeAgentID == nil {
 			continue
 		}
@@ -135,11 +141,6 @@ func (r *Reconciler) dispatchNeverStarted(ctx context.Context, tasks []domain.Bo
 			continue
 		}
 		if task.BlockedResource == domain.ResourceWorkOrder {
-			continue
-		}
-		runs, err := r.runs.ListByTask(ctx, task.ID, maxConsecutiveFailedRuns)
-		if err != nil {
-			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("reconciler: list runs for task failed")
 			continue
 		}
 		reason := ""

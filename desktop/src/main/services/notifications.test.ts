@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationPreferences } from "../../ipc/types.js";
 import {
   type ActiveChatSnapshot,
+  BLIND_TICKS_BEFORE_RELEASE,
   diffChatCompletions,
   diffForNotifications,
   hasActiveRun,
+  IDLE_POLL_INTERVAL_MS,
   NotificationWatcher,
   POLL_INTERVAL_MS,
+  pollIntervalMs,
   type RemoteActiveRun,
   type RemoteActivityItem,
   type RemoteTask,
@@ -331,11 +334,225 @@ describe("NotificationWatcher — prevent-app-suspension", () => {
 
     watcher.start();
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
 
     expect(tasksPolled).toBeGreaterThanOrEqual(3);
     expect(powerSaveBlockerStart).not.toHaveBeenCalledWith("prevent-app-suspension");
     watcher.stop();
+  });
+
+  it("keeps polling after a tick throws, and still releases the blocker once the run ends", async () => {
+    activeRuns = [{ id: "r1" }];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let broken = true;
+    const watcher = new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1234",
+      apiToken: () => "token",
+      getPreferences: () => {
+        if (broken) throw new Error("settings unreadable");
+        return allOn();
+      },
+      onNotificationClick: () => {},
+      isWindowFocused: () => false,
+    });
+
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(powerSaveBlockerStart).toHaveBeenCalledWith("prevent-app-suspension");
+    expect(warn).toHaveBeenCalled();
+
+    activeRuns = [];
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(powerSaveBlockerStop).toHaveBeenCalledWith(7);
+
+    broken = false;
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/v1/tasks"))).toHaveLength(3);
+    watcher.stop();
+    warn.mockRestore();
+  });
+
+  it("tolerates tasks:null and items:null while a run holds the blocker", async () => {
+    activeRuns = [{ id: "r1" }];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/v1/tasks")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ tasks: null }) });
+        if (url.endsWith("/v1/activity?limit=50")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: null }) });
+        return fetchMock(url);
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const watcher = new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1234",
+      apiToken: () => "token",
+      getPreferences: prefs,
+      onNotificationClick: () => {},
+      isWindowFocused: () => false,
+    });
+
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    activeRuns = [];
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+
+    expect(powerSaveBlockerStop).toHaveBeenCalledWith(7);
+    expect(warn).not.toHaveBeenCalled();
+    watcher.stop();
+    warn.mockRestore();
+  });
+
+  it("lets go of the blocker when the active-run list cannot be read for several ticks", async () => {
+    activeRuns = [{ id: "r1" }];
+    let activeDown = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (activeDown && url.endsWith("/v1/activity/active")) return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+        return fetchMock(url);
+      }),
+    );
+    const watcher = new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1234",
+      apiToken: () => "token",
+      getPreferences: prefs,
+      onNotificationClick: () => {},
+      isWindowFocused: () => false,
+    });
+
+    watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(powerSaveBlockerStart).toHaveBeenCalledTimes(1);
+
+    activeDown = true;
+    for (let i = 1; i < BLIND_TICKS_BEFORE_RELEASE; i++) {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      expect(powerSaveBlockerStop).not.toHaveBeenCalled();
+    }
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(powerSaveBlockerStop).toHaveBeenCalledWith(7);
+
+    activeDown = false;
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS);
+    expect(powerSaveBlockerStart).toHaveBeenCalledTimes(2);
+    watcher.stop();
+  });
+});
+
+describe("pollIntervalMs", () => {
+  it("polls fast only while something is running, and slower on battery", () => {
+    expect(pollIntervalMs({ busy: true, onBattery: false })).toBe(15_000);
+    expect(pollIntervalMs({ busy: false, onBattery: false })).toBe(60_000);
+    expect(pollIntervalMs({ busy: true, onBattery: true })).toBe(30_000);
+    expect(pollIntervalMs({ busy: false, onBattery: true })).toBe(120_000);
+  });
+});
+
+describe("NotificationWatcher — how often it asks", () => {
+  let tasks: RemoteTask[] = [];
+  let runs: RemoteActiveRun[] = [];
+  let polls = 0;
+
+  beforeEach(() => {
+    tasks = [];
+    runs = [];
+    polls = 0;
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/v1/tasks")) {
+          polls += 1;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ tasks }) });
+        }
+        if (url.endsWith("/v1/activity?limit=50")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ runs: runs.length > 0 ? runs : null }) });
+      }),
+    );
+    powerSaveBlockerStart.mockReset();
+    powerSaveBlockerStart.mockReturnValue(3);
+    powerSaveBlockerStop.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function watcher(onBattery = false): NotificationWatcher {
+    return new NotificationWatcher({
+      apiBase: () => "http://127.0.0.1:1",
+      apiToken: () => "t",
+      getPreferences: () => allOn(),
+      onNotificationClick: () => {},
+      isWindowFocused: () => true,
+      onBattery: () => onBattery,
+    });
+  }
+
+  it("asks once a minute on an idle board", async () => {
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS - POLL_INTERVAL_MS);
+    expect(polls).toBe(2);
+    w.stop();
+  });
+
+  it("asks every 15 s while a task is in progress, and never holds the display awake for it", async () => {
+    tasks = [task({ id: "t1", key: "T-1", column: "in_progress" })];
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(polls).toBe(2);
+    expect(powerSaveBlockerStart).not.toHaveBeenCalledWith("prevent-display-sleep");
+    w.stop();
+  });
+
+  it("slows down on battery", async () => {
+    runs = [{ id: "r1" }];
+    const w = watcher(true);
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(polls).toBe(1);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(polls).toBe(2);
+    w.stop();
+  });
+
+  it("polls at once when nudged, but not twice in a row", async () => {
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    w.nudge();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(polls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    w.nudge();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(polls).toBe(2);
+    // The nudge restarted the interval rather than adding a second timer.
+    await vi.advanceTimersByTimeAsync(IDLE_POLL_INTERVAL_MS - 1);
+    expect(polls).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(polls).toBe(3);
+    w.stop();
+  });
+
+  it("stops asking once stopped, including a poll already scheduled", async () => {
+    const w = watcher();
+    w.start();
+    await vi.advanceTimersByTimeAsync(0);
+    w.stop();
+    w.nudge();
+    await vi.advanceTimersByTimeAsync(10 * IDLE_POLL_INTERVAL_MS);
+    expect(polls).toBe(1);
   });
 });

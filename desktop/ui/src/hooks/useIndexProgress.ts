@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type WorkspaceIndex } from "@/api";
+import { usePolling } from "@/hooks/usePolling";
+import { keepEqual } from "@/lib/stableState";
 
 function progressPercent(index: WorkspaceIndex | null): number {
   if (!index) return 0;
@@ -32,7 +34,7 @@ export function useIndexProgress(repositoryId: string | undefined, options: UseI
   const refresh = useCallback(async () => {
     if (!repositoryId) return null;
     const data = await api.getRepositoryIndexStatus(repositoryId);
-    setIndex(data);
+    setIndex((prev) => keepEqual(prev, data));
     return data;
   }, [repositoryId]);
 
@@ -68,13 +70,8 @@ export function useIndexProgress(repositoryId: string | undefined, options: UseI
     !!repositoryId &&
     (forcePoll || isActiveIndexStatus(index?.status));
 
-  useEffect(() => {
-    if (!shouldPoll) return;
-    const timer = window.setInterval(() => {
-      refresh().catch(() => undefined);
-    }, pollMs);
-    return () => window.clearInterval(timer);
-  }, [shouldPoll, pollMs, refresh]);
+  const poll = useCallback(() => refresh().then(() => undefined, () => undefined), [refresh]);
+  usePolling(poll, pollMs, shouldPoll, { leading: false });
 
   return {
     index,

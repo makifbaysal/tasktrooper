@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
+import { usePolling } from "@/hooks/usePolling";
+import { keepEqual } from "@/lib/stableState";
 import { formatRelativeDate } from "@/lib/utils";
 
 const POLL_MS = 15_000;
@@ -47,7 +49,7 @@ export function ReleasesCard({ repositoryId, repositoryName, component, classNam
   const load = useCallback(async () => {
     try {
       const res = await api.listReleases(repositoryId, { componentId: component.id, limit: 20 });
-      setReleases(res.releases);
+      setReleases((prev) => keepEqual(prev, res.releases));
     } catch (e) {
       setReleases([]);
       toast.error(e instanceof Error ? e.message : t("release.releases.loadFailed"));
@@ -59,11 +61,8 @@ export function ReleasesCard({ repositoryId, repositoryName, component, classNam
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!releases?.some((r) => RELEASE_ACTIVE_STATUSES.includes(r.status))) return;
-    const id = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(id);
-  }, [releases, load]);
+  const moving = !!releases?.some((r) => RELEASE_ACTIVE_STATUSES.includes(r.status));
+  usePolling(load, POLL_MS, moving, { leading: false });
 
   const draft = isBatch ? releases?.find((r) => r.status === "draft") ?? null : null;
   const recut = isBatch ? releases?.find((r) => r.mode === "batch" && recuttable(r)) ?? null : null;

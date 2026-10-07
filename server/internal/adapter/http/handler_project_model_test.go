@@ -71,6 +71,9 @@ func (f *fakePMStore) SaveComponent(_ context.Context, c domain.Component) (doma
 func (f *fakePMStore) ListChecks(context.Context, uuid.UUID) ([]domain.ComponentCheck, error) {
 	return nil, nil
 }
+func (f *fakePMStore) ListChecksForRepositories(context.Context, []uuid.UUID) ([]domain.ComponentCheck, error) {
+	return nil, nil
+}
 func (f *fakePMStore) GetCheck(context.Context, uuid.UUID) (domain.ComponentCheck, error) {
 	return domain.ComponentCheck{}, port.ErrNotFound
 }
@@ -118,6 +121,9 @@ func (f *fakePMStore) GetScan(context.Context, uuid.UUID) (domain.ProjectScan, e
 }
 func (f *fakePMStore) LatestScan(context.Context, uuid.UUID) (domain.ProjectScan, error) {
 	return domain.ProjectScan{}, port.ErrNotFound
+}
+func (f *fakePMStore) LatestScans(context.Context, []uuid.UUID) (map[uuid.UUID]domain.ProjectScan, error) {
+	return map[uuid.UUID]domain.ProjectScan{}, nil
 }
 func (f *fakePMStore) FailInterruptedScans(context.Context) (int, error) { return 0, nil }
 

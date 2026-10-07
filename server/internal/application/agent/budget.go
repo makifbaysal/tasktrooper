@@ -362,3 +362,7 @@ var wrapUpPrompt = prompt.Text(wrapUpKey)
 var emptyTurnPrompt = prompt.Text(emptyTurnPromptKey)
 
 var emptyTurnFallback = prompt.Text(emptyTurnFallbackKey)
+
+func outputTruncatedMessage(limit int) string {
+	return outputTruncatedKey.Render(outputTruncatedInput{Limit: limit})
+}

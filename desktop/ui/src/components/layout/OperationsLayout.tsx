@@ -1,6 +1,7 @@
 import { AlertTriangle, Rocket, Smartphone } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { PageContent } from "@/components/layout/PageContent";
+import { PageSuspense } from "@/components/layout/PageSuspense";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
@@ -36,7 +37,9 @@ export function OperationsLayout() {
           </NavLink>
         ))}
       </nav>
-      <Outlet />
+      <PageSuspense>
+        <Outlet />
+      </PageSuspense>
     </PageContent>
   );
 }

@@ -1278,3 +1278,36 @@ func (s *DispatcherSuite) TestDispatchQACarriesTheGateReasonWhenTheGateWasForced
 	s.Equal("gate_opened", payload["pipeline"], "a forced-open gate must not report itself as a success")
 	s.Equal(domain.MoveReasonPipelineGateOpened, payload[domain.EventPayloadReason])
 }
+
+func (s *DispatcherSuite) advisoryNoteOnReviewedTask(informational bool) {
+	reviewer := uuid.New()
+	s.board.agentsByColumn[string(domain.TaskColumnCodeReview)] = []uuid.UUID{reviewer}
+	taskID, repoID := uuid.New(), uuid.New()
+	s.runs.runs = []domain.TaskAgentRun{{ID: uuid.New(), TaskID: taskID, AgentID: reviewer, Status: domain.TaskAgentRunStatusCompleted}}
+	payload := map[string]interface{}{"content": "[advisory checks] coverage 50%", "author_type": "system"}
+	if informational {
+		payload[domain.EventPayloadInformational] = true
+	}
+
+	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+		RepositoryID: repoID,
+		Task:         domain.BoardTask{ID: taskID, RepositoryID: repoID, Column: domain.TaskColumnCodeReview},
+		EventType:    domain.BoardEventTaskCommented,
+		Payload:      payload,
+	})
+	s.Require().NoError(err)
+}
+
+func (s *DispatcherSuite) TestAnInformationalCommentIsRecordedButWakesNoAgent() {
+	s.advisoryNoteOnReviewedTask(true)
+
+	s.Len(s.events.events, 1, "the comment still shows in the task's history")
+	s.Empty(s.runner.jobs, "a note posted after the reviewer finished must not start another review")
+	s.Len(s.runs.runs, 1)
+}
+
+func (s *DispatcherSuite) TestAnOrdinarySystemCommentStillWakesTheColumnAgent() {
+	s.advisoryNoteOnReviewedTask(false)
+
+	s.Len(s.runner.jobs, 1)
+}

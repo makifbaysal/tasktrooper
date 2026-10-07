@@ -13,15 +13,24 @@ import type { ChildId, LogLine } from "../../ipc/types.js";
  * that has to rotate, prune and secure them, and the lines worth keeping past
  * a restart are already in the children's own logging.
  */
+/** The longest line a ring stores; anything longer is cut, with a note saying so. */
+export const MAX_LINE_LENGTH = 4000;
+
 export class LogRing {
   readonly #capacity: number;
   readonly #maxLineLength: number;
-  #lines: LogLine[] = [];
+  // A fixed array used circularly: `#start` is the oldest line. Dropping the
+  // oldest line once full is an index bump, where an array shift would copy
+  // the whole buffer on every push.
+  #slots: (LogLine | undefined)[];
+  #start = 0;
+  #size = 0;
   #dropped = 0;
 
-  constructor(capacity: number, maxLineLength = 4000) {
-    this.#capacity = capacity;
+  constructor(capacity: number, maxLineLength = MAX_LINE_LENGTH) {
+    this.#capacity = Math.max(1, capacity);
     this.#maxLineLength = maxLineLength;
+    this.#slots = new Array<LogLine | undefined>(this.#capacity);
   }
 
   push(line: LogLine): LogLine {
@@ -32,27 +41,52 @@ export class LogRing {
       line.text.length > this.#maxLineLength
         ? { ...line, text: `${line.text.slice(0, this.#maxLineLength)}… [${line.text.length} chars, truncated]` }
         : line;
-    this.#lines.push(stored);
-    if (this.#lines.length > this.#capacity) {
-      this.#lines.splice(0, this.#lines.length - this.#capacity);
+    if (this.#size < this.#capacity) {
+      this.#slots[(this.#start + this.#size) % this.#capacity] = stored;
+      this.#size += 1;
+    } else {
+      this.#slots[this.#start] = stored;
+      this.#start = (this.#start + 1) % this.#capacity;
       this.#dropped += 1;
     }
     return stored;
   }
 
+  #at(index: number): LogLine {
+    return this.#slots[(this.#start + index) % this.#capacity] as LogLine;
+  }
+
   /** Lines newer than `afterSeq`, oldest first, at most `limit` of them. */
   read(afterSeq = 0, limit = Number.MAX_SAFE_INTEGER): LogLine[] {
-    const slice = afterSeq > 0 ? this.#lines.filter((l) => l.seq > afterSeq) : this.#lines;
-    return slice.length > limit ? slice.slice(slice.length - limit) : [...slice];
+    // Sequence numbers only grow, so the first line past `afterSeq` is found
+    // by bisection rather than by scanning every line.
+    let lo = 0;
+    let hi = this.#size;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (this.#at(mid).seq > afterSeq) hi = mid;
+      else lo = mid + 1;
+    }
+    const from = Math.max(lo, this.#size - limit);
+    const out: LogLine[] = [];
+    for (let i = from; i < this.#size; i++) out.push(this.#at(i));
+    return out;
+  }
+
+  /** The newest line, if there is one. */
+  last(): LogLine | undefined {
+    return this.#size > 0 ? this.#at(this.#size - 1) : undefined;
   }
 
   clear(): void {
-    this.#lines = [];
+    this.#slots = new Array<LogLine | undefined>(this.#capacity);
+    this.#start = 0;
+    this.#size = 0;
     this.#dropped = 0;
   }
 
   get size(): number {
-    return this.#lines.length;
+    return this.#size;
   }
 
   get dropped(): number {
@@ -60,14 +94,26 @@ export class LogRing {
   }
 }
 
+/**
+ * Turns a stored line into the text a person reads. Applied when a line is
+ * READ, not when it arrives: the backend writes far more lines than anyone
+ * looks at, and parsing each one on the main thread as it arrives is work
+ * done for nobody.
+ */
+export type LogRenderer = (text: string) => string;
+
 /** All the rings, plus the sequence numbers that order lines across them. */
 export class LogStore {
   readonly #rings = new Map<ChildId | "supervisor", LogRing>();
   readonly #capacity: number;
+  readonly #renderers: Partial<Record<ChildId | "supervisor", LogRenderer>>;
+  // Lines whose text is already the rendered one (see `append`).
+  readonly #rendered = new WeakSet<LogLine>();
   #seq = 0;
 
-  constructor(capacity = 2000) {
+  constructor(capacity = 2000, renderers: Partial<Record<ChildId | "supervisor", LogRenderer>> = {}) {
     this.#capacity = capacity;
+    this.#renderers = renderers;
   }
 
   #ring(child: ChildId | "supervisor"): LogRing {
@@ -81,8 +127,29 @@ export class LogStore {
 
   append(child: ChildId | "supervisor", stream: "stdout" | "stderr", text: string, level?: string): LogLine {
     this.#seq += 1;
-    const line: LogLine = { seq: this.#seq, child, at: Date.now(), stream, text, ...(level ? { level } : {}) };
-    return this.#ring(child).push(line);
+    // A line the ring would cut is rendered now and cut after: cut first, a
+    // JSON line is no longer JSON and could only ever be shown raw.
+    const renderer = this.#renderers[child];
+    const early = renderer !== undefined && text.length > MAX_LINE_LENGTH;
+    const line: LogLine = {
+      seq: this.#seq,
+      child,
+      at: Date.now(),
+      stream,
+      text: early ? renderer(text) : text,
+      ...(level ? { level } : {}),
+    };
+    const stored = this.#ring(child).push(line);
+    if (early) this.#rendered.add(stored);
+    return stored;
+  }
+
+  /** A stored line as it is shown: rendered by its child's renderer, when it has one. */
+  render(line: LogLine): LogLine {
+    const renderer = this.#renderers[line.child];
+    if (!renderer || this.#rendered.has(line)) return line;
+    const text = renderer(line.text);
+    return text === line.text ? line : { ...line, text };
   }
 
   /**
@@ -91,10 +158,17 @@ export class LogStore {
    * interleaved stream.
    */
   read(child?: ChildId | "supervisor", afterSeq = 0, limit?: number): LogLine[] {
-    if (child) return this.#ring(child).read(afterSeq, limit ?? Number.MAX_SAFE_INTEGER);
-    const merged = [...this.#rings.values()].flatMap((ring) => ring.read(afterSeq));
+    if (child) return this.#ring(child).read(afterSeq, limit ?? Number.MAX_SAFE_INTEGER).map((l) => this.render(l));
+    const merged = [...this.#rings.values()].flatMap((ring) => ring.read(afterSeq, limit ?? Number.MAX_SAFE_INTEGER));
     merged.sort((a, b) => a.seq - b.seq);
-    return limit !== undefined && merged.length > limit ? merged.slice(merged.length - limit) : merged;
+    const window = limit !== undefined && merged.length > limit ? merged.slice(merged.length - limit) : merged;
+    return window.map((l) => this.render(l));
+  }
+
+  /** One child's newest line, rendered. */
+  last(child: ChildId | "supervisor"): LogLine | undefined {
+    const line = this.#rings.get(child)?.last();
+    return line ? this.render(line) : undefined;
   }
 
   clear(): void {

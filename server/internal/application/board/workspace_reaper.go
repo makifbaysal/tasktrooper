@@ -28,12 +28,30 @@ type ActiveTaskProbe interface {
 	HasLiveRunForTask(ctx context.Context, taskID uuid.UUID, liveWithin time.Duration) (bool, error)
 }
 
+// BranchIndexStore is what the reaper prunes besides directories: a task's
+// branch index starts as a full copy of the repository's chunks and embeddings,
+// and nothing else ever deletes one.
+type BranchIndexStore interface {
+	ListBranchIndexes(ctx context.Context) ([]domain.WorkspaceIndex, error)
+	DeleteIndex(ctx context.Context, indexID uuid.UUID) error
+}
+
 // Driven by the directory listing: the dirs that matter most have no task left; an unreadable task list reaps nothing.
 type WorkspaceReaper struct {
-	tasks  TaskLister
-	active ActiveTaskProbe
-	root   string
-	grace  time.Duration
+	tasks   TaskLister
+	active  ActiveTaskProbe
+	root    string
+	grace   time.Duration
+	indexes BranchIndexStore
+}
+
+// SetBranchIndexes turns pruning on. Only for a database no other host
+// serves: pruning takes a workspace missing from this host's disk to mean its
+// index is orphaned.
+func (r *WorkspaceReaper) SetBranchIndexes(s BranchIndexStore) {
+	if r != nil {
+		r.indexes = s
+	}
 }
 
 func NewWorkspaceReaper(tasks TaskLister, active ActiveTaskProbe, root string, grace time.Duration) *WorkspaceReaper {
@@ -114,6 +132,42 @@ func (r *WorkspaceReaper) Sweep(ctx context.Context) {
 	}
 	if reaped > 0 {
 		log.Info().Int("count", reaped).Msg("workspace reaper: pass complete")
+	}
+	r.pruneBranchIndexes(ctx, root)
+}
+
+// pruneBranchIndexes drops the branch index of every task workspace that is no
+// longer on disk — reaped above, deleted with its task, or reaped by a build
+// that predates this pruning. Keyed on the workspace directory rather than on
+// the task row, so an index whose task is gone is collected too. A run that
+// needs the workspace again re-clones it and builds a fresh branch index from
+// the repository's.
+func (r *WorkspaceReaper) pruneBranchIndexes(ctx context.Context, root string) {
+	if r.indexes == nil {
+		return
+	}
+	indexes, err := r.indexes.ListBranchIndexes(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("workspace reaper: listing branch indexes failed")
+		return
+	}
+	var pruned int
+	for _, idx := range indexes {
+		dir := filepath.Base(filepath.Clean(idx.RootPath))
+		if _, ok := parseTaskDirName(dir); !ok {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, dir)); !os.IsNotExist(err) {
+			continue
+		}
+		if err := r.indexes.DeleteIndex(ctx, idx.ID); err != nil {
+			log.Warn().Err(err).Str("index_id", idx.ID.String()).Msg("workspace reaper: deleting a reaped workspace's branch index failed")
+			continue
+		}
+		pruned++
+	}
+	if pruned > 0 {
+		log.Info().Int("count", pruned).Msg("workspace reaper: dropped branch indexes of reaped workspaces")
 	}
 }
 

@@ -2,6 +2,7 @@ package projectmodel
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"sync"
 
@@ -159,6 +160,18 @@ func (f *fakeStore) ListChecks(ctx context.Context, repositoryID uuid.UUID) ([]d
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID.String() < out[j].ID.String() })
+	return out, nil
+}
+
+func (f *fakeStore) ListChecksForRepositories(ctx context.Context, repositoryIDs []uuid.UUID) ([]domain.ComponentCheck, error) {
+	var out []domain.ComponentCheck
+	for _, id := range repositoryIDs {
+		checks, err := f.ListChecks(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, checks...)
+	}
 	return out, nil
 }
 
@@ -390,6 +403,21 @@ func (f *fakeStore) LatestScan(ctx context.Context, repositoryID uuid.UUID) (dom
 	}
 	latest.Result = nil
 	return latest, nil
+}
+
+func (f *fakeStore) LatestScans(ctx context.Context, repositoryIDs []uuid.UUID) (map[uuid.UUID]domain.ProjectScan, error) {
+	out := make(map[uuid.UUID]domain.ProjectScan, len(repositoryIDs))
+	for _, id := range repositoryIDs {
+		sc, err := f.LatestScan(ctx, id)
+		if errors.Is(err, port.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[id] = sc
+	}
+	return out, nil
 }
 
 func (f *fakeStore) FailInterruptedScans(ctx context.Context) (int, error) {

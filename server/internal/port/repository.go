@@ -70,6 +70,10 @@ type RepositoryPipelineJobStore interface {
 type BoardTaskStore interface {
 	Create(ctx context.Context, task domain.BoardTask) (domain.BoardTask, error)
 	Get(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error)
+	// GetByID is Get without the repository scope, for callers that hold only
+	// a task id (a criterion, a deploy order, a work order) and are asking which
+	// repository it belongs to. Not a substitute for Get's ownership check.
+	GetByID(ctx context.Context, taskID uuid.UUID) (domain.BoardTask, error)
 	GetByNumber(ctx context.Context, number int) (domain.BoardTask, error)
 	LookupByKey(ctx context.Context, keyPrefix string, number int) (domain.BoardTask, error)
 	ListByRepository(ctx context.Context, repositoryID uuid.UUID) ([]domain.BoardTask, error)
@@ -135,6 +139,24 @@ type BoardTaskStore interface {
 	// confirm endpoint need not read the task first to know whether it already
 	// happened.
 	ConfirmBeforeDeploy(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error)
+	// ListDispatchCandidates is the reconciler's idle-task scan: assigned tasks
+	// outside backlog/blocked/done/released that are not parked on a work
+	// order, each with its newest runs (newest first, at most runsPerTask).
+	ListDispatchCandidates(ctx context.Context, runsPerTask int) ([]TaskRecentRuns, error)
+}
+
+type TaskRecentRuns struct {
+	Task domain.BoardTask
+	Runs []domain.TaskAgentRun
+}
+
+// BoardVersioner is implemented by a BoardTaskStore that can tell, without
+// reading the board, that this process has not changed the board list: the
+// value only moves after a committed write of its own that could change it.
+// Writes by another host on the same database do not move it, so a caller
+// bounds how long it trusts an unchanged version.
+type BoardVersioner interface {
+	BoardVersion() uint64
 }
 
 type AcceptanceCriterionStore interface {

@@ -23,6 +23,7 @@ type Injector struct {
 	embeddingModel string
 	graphCfg       domain.GraphConfig
 	rewriteEnabled bool
+	skeletons      *skeletonCache
 }
 
 func (i *Injector) SetQueryRewrite(enabled bool) {
@@ -42,6 +43,7 @@ func NewInjector(
 		mapper:         mapperSvc,
 		embeddingModel: embeddingModel,
 		graphCfg:       graphCfg,
+		skeletons:      newSkeletonCache(skeletonCacheEntries),
 	}
 }
 
@@ -187,23 +189,15 @@ func (i *Injector) InjectContext(ctx context.Context, sessionID uuid.UUID, messa
 		chunks = trimChunksByTokenBudget(chunks, opts.MaxChunkTokens)
 	}
 
-	var fanIn map[string]int
-	if opts.IncludeSkeleton {
-		if edges, edgeErr := i.store.ListEdges(ctx, idx.ID); edgeErr == nil && len(edges) > 0 {
-			fanIn = make(map[string]int, len(edges))
-			for _, e := range edges {
-				if e.ToFile != "" && e.ToFile != e.FromFile {
-					fanIn[e.ToFile]++
-				}
-			}
-		}
-	}
-
 	rootPath := idx.RootPath
 	if ws := registry.EffectiveWorkspaceDir(ctx); ws != "" {
 		rootPath = ws
 	}
-	content := formatInjectMessage(idx, chunks, opts, i.mapper, rootPath, fanIn)
+	skeleton := ""
+	if opts.IncludeSkeleton && i.mapper != nil && rootPath != "" {
+		skeleton = i.skeleton(ctx, idx, rootPath)
+	}
+	content := renderInjectMessage(idx, chunks, opts, skeleton)
 	if content == "" {
 		return messages, nil
 	}
@@ -335,6 +329,55 @@ func ensureTrailingNewline(s string) string {
 }
 
 func formatInjectMessage(idx domain.WorkspaceIndex, chunks []domain.WorkspaceChunk, opts domain.InjectOptions, mapperSvc *mapper.Service, rootPath string, fanIn map[string]int) string {
+	skeleton := ""
+	if opts.IncludeSkeleton && mapperSvc != nil && rootPath != "" {
+		if built, err := mapperSvc.BuildSkeletonRanked(rootPath, fanIn); err == nil {
+			skeleton = built
+		}
+	}
+	return renderInjectMessage(idx, chunks, opts, skeleton)
+}
+
+// skeleton is the ranked code skeleton for rootPath, cached per index commit
+// (the fan-in ranking) and per state of the tree it was parsed from: parsing
+// it is the slow part of an injection. An index with no recorded commit, or a
+// root whose state git cannot vouch for, is never cached, since nothing would
+// tell a stale entry apart.
+func (i *Injector) skeleton(ctx context.Context, idx domain.WorkspaceIndex, rootPath string) string {
+	key := ""
+	if idx.CommitSHA != "" && i.skeletons != nil {
+		if tree, ok := worktreeFingerprint(ctx, rootPath); ok {
+			key = idx.ID.String() + "@" + idx.CommitSHA + "|" + rootPath + "@" + tree
+			if cached, ok := i.skeletons.get(key); ok {
+				return cached
+			}
+		}
+	}
+	built, err := i.mapper.BuildSkeletonRanked(rootPath, i.fanIn(ctx, idx))
+	if err != nil {
+		return ""
+	}
+	if key != "" {
+		i.skeletons.put(key, built)
+	}
+	return built
+}
+
+func (i *Injector) fanIn(ctx context.Context, idx domain.WorkspaceIndex) map[string]int {
+	edges, err := i.store.ListEdges(ctx, idx.ID)
+	if err != nil || len(edges) == 0 {
+		return nil
+	}
+	fanIn := make(map[string]int, len(edges))
+	for _, e := range edges {
+		if e.ToFile != "" && e.ToFile != e.FromFile {
+			fanIn[e.ToFile]++
+		}
+	}
+	return fanIn
+}
+
+func renderInjectMessage(idx domain.WorkspaceIndex, chunks []domain.WorkspaceChunk, opts domain.InjectOptions, skeleton string) string {
 	in := injectMessageInput{}
 
 	if opts.IncludeTree && idx.TreeText != "" {
@@ -342,12 +385,9 @@ func formatInjectMessage(idx domain.WorkspaceIndex, chunks []domain.WorkspaceChu
 		in.Tree = ensureTrailingNewline(idx.TreeText)
 	}
 
-	if opts.IncludeSkeleton && mapperSvc != nil && rootPath != "" {
-		skeleton, err := mapperSvc.BuildSkeletonRanked(rootPath, fanIn)
-		if err == nil && skeleton != "" {
-			in.ShowSkeleton = true
-			in.Skeleton = ensureTrailingNewline(skeleton)
-		}
+	if opts.IncludeSkeleton && skeleton != "" {
+		in.ShowSkeleton = true
+		in.Skeleton = ensureTrailingNewline(skeleton)
 	}
 
 	for _, ch := range chunks {

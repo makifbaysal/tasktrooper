@@ -24,6 +24,13 @@ func (d *deletingTaskManager) ListTasks(ctx context.Context, repositoryID uuid.U
 	return []domain.BoardTask{d.task}, nil
 }
 
+func (d *deletingTaskManager) GetTask(_ context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error) {
+	if repositoryID != d.task.RepositoryID || taskID != d.task.ID {
+		return domain.BoardTask{}, domain.ErrBoardTaskNotFound
+	}
+	return d.task, nil
+}
+
 func (d *deletingTaskManager) ListAllTasks(ctx context.Context) ([]domain.BoardTask, error) {
 	return []domain.BoardTask{d.task}, nil
 }

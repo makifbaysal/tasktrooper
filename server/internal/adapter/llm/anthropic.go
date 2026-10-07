@@ -70,16 +70,15 @@ func (c *anthropicClient) setHeaders(req *http.Request) {
 	req.Header.Set("anthropic-version", anthropicVersion)
 }
 
-
 type anthropicRequest struct {
 	Model     string `json:"model"`
 	MaxTokens int    `json:"max_tokens"`
 
-	System       interface{}            `json:"system,omitempty"`
-	Messages     []anthropicMessage     `json:"messages"`
-	Tools        []anthropicTool        `json:"tools,omitempty"`
-	Stream       bool                   `json:"stream,omitempty"`
-	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
+	System            interface{}                 `json:"system,omitempty"`
+	Messages          []anthropicMessage          `json:"messages"`
+	Tools             []anthropicTool             `json:"tools,omitempty"`
+	Stream            bool                        `json:"stream,omitempty"`
+	OutputConfig      *anthropicOutputConfig      `json:"output_config,omitempty"`
 	ContextManagement *anthropicContextManagement `json:"context_management,omitempty"`
 }
 
@@ -92,7 +91,7 @@ type anthropicContextEdit struct {
 }
 
 const (
-	clearToolUsesEdit = "clear_tool_uses_20250919"
+	clearToolUsesEdit     = "clear_tool_uses_20250919"
 	contextManagementBeta = "context-management-2025-06-27"
 )
 
@@ -112,7 +111,7 @@ type anthropicSystemBlock struct {
 
 type anthropicOutputConfig struct {
 	Format *anthropicOutputFormat `json:"format,omitempty"`
-	Effort string `json:"effort,omitempty"`
+	Effort string                 `json:"effort,omitempty"`
 }
 
 type anthropicOutputFormat struct {
@@ -340,20 +339,15 @@ func buildAnthropicRequest(model string, msgs []domain.Message, tools []domain.T
 		budget--
 	}
 
-	system := strings.Join(systemParts, "\n\n")
 	var systemField interface{}
 	switch {
-	case system == "":
+	case len(systemParts) == 0:
 		// Leave it nil so `omitempty` drops the field, as before.
 	case budget > 0:
-		systemField = []anthropicSystemBlock{{
-			Type:         "text",
-			Text:         system,
-			CacheControl: ephemeralCache(),
-		}}
+		systemField = anthropicSystemBlocks(systemParts)
 		budget--
 	default:
-		systemField = system
+		systemField = strings.Join(systemParts, "\n\n")
 	}
 
 	rolling := len(anthMsgs) - 1
@@ -376,6 +370,21 @@ func buildAnthropicRequest(model string, msgs []domain.Message, tools []domain.T
 		Stream:       stream,
 		OutputConfig: outputConfig,
 	}
+}
+
+// anthropicSystemBlocks caches only the first leading system message — the
+// agent's persona, skills and rules, identical across every task that agent
+// runs. The rest (workspace path, score, KPIs, memories) changes per task; in
+// the same block it made the whole persona a cache miss on every new task.
+// The anchor and rolling breakpoints still cover those notes within a run.
+// The leading "\n\n" keeps the concatenated text identical to the old single
+// joined block.
+func anthropicSystemBlocks(parts []string) []anthropicSystemBlock {
+	blocks := []anthropicSystemBlock{{Type: "text", Text: parts[0], CacheControl: ephemeralCache()}}
+	if len(parts) > 1 {
+		blocks = append(blocks, anthropicSystemBlock{Type: "text", Text: "\n\n" + strings.Join(parts[1:], "\n\n")})
+	}
+	return blocks
 }
 
 func applyRequestTuning(payload *anthropicRequest, req domain.AgentRequest) (needsContextManagementBeta bool) {
@@ -467,7 +476,8 @@ func (c *anthropicClient) Chat(ctx context.Context, req domain.AgentRequest) (do
 			Content:   text,
 			ToolCalls: toolCalls,
 		},
-		Usage: anthResp.Usage.toDomain(),
+		Usage:      anthResp.Usage.toDomain(),
+		StopReason: domain.NormalizeStopReason(anthResp.StopReason),
 	}, nil
 }
 
@@ -478,6 +488,7 @@ type anthropicSSEEvent struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
 		PartialJSON string `json:"partial_json"`
+		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	ContentBlock struct {
 		Type string `json:"type"`
@@ -534,6 +545,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req domain.AgentReques
 	var fullText strings.Builder
 	toolBlocks := make(map[int]*streamToolBlock)
 	var streamUsage anthropicUsage
+	var stopReason string
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineBytes)
@@ -570,6 +582,9 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req domain.AgentReques
 				}
 			}
 		case "message_delta":
+			if evt.Delta.StopReason != "" {
+				stopReason = evt.Delta.StopReason
+			}
 			streamUsage.OutputTokens = evt.Usage.OutputTokens
 			if evt.Usage.InputTokens > 0 {
 				streamUsage.InputTokens = evt.Usage.InputTokens
@@ -612,7 +627,8 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req domain.AgentReques
 			Content:   fullText.String(),
 			ToolCalls: toolCalls,
 		},
-		Usage: streamUsage.toDomain(),
+		Usage:      streamUsage.toDomain(),
+		StopReason: domain.NormalizeStopReason(stopReason),
 	}, nil
 }
 

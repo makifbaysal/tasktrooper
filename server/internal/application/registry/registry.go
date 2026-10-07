@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -35,6 +36,7 @@ func (r *toolRegistry) AllToolNames() []string {
 	for name := range r.tools {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -57,11 +59,18 @@ func (r *toolRegistry) DefinitionsForPolicy(policy domain.ToolPolicy) []domain.T
 		allowedSet[n] = true
 	}
 
-	defs := make([]domain.ToolDefinition, 0, len(allowed))
-	for name, t := range r.tools {
-		if allowedSet[name] {
-			defs = append(defs, t.Definition())
+	names := make([]string, 0, len(allowedSet))
+	for name := range allowedSet {
+		if _, ok := r.tools[name]; ok {
+			names = append(names, name)
 		}
+	}
+	// Map order is random per call; the tool list is the first thing in every
+	// request, so an unsorted one rewrites the prompt-cache prefix every run.
+	sort.Strings(names)
+	defs := make([]domain.ToolDefinition, 0, len(names))
+	for _, name := range names {
+		defs = append(defs, r.tools[name].Definition())
 	}
 	return defs
 }

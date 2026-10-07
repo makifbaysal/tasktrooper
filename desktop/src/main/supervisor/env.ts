@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { PreflightId, PreflightReport } from "../../ipc/types.js";
 import { catalogRoot } from "../services/app-scheme.js";
@@ -169,6 +169,43 @@ export function agentServerEnv(inputs: AgentServerEnvInputs): NodeJS.ProcessEnv 
     // adopted one already on the port — it is the same hub either way.
     ...(appium?.status === "ok" ? { MOBILE_APPIUM_HUB_URL: APPIUM_BASE_URL } : {}),
   };
+}
+
+/**
+ * The facts `agentServerEnv` and `childEnv` take from a preflight report,
+ * reduced to a string two reports can be compared by.
+ *
+ * The backend is spawned on the GATING half of a sweep — lookups and cached
+ * versions — and that half can be wrong in two ways the complete half then
+ * corrects: a `claude` whose version had not been asked yet (and turns out
+ * too old), and a remembered login PATH that has since moved. When the two
+ * halves disagree on THIS, the environment the backend was given is wrong and
+ * the supervisor restarts it; when they agree, nothing it reads changed.
+ *
+ * Paths are compared after resolving symlinks, because a version manager that
+ * puts a per-shell directory on PATH (fnm does) names the same binary
+ * differently on every launch. The login PATH itself is left out for the same
+ * reason: it is not the same string twice for those users, and a backend
+ * restart on every launch is a far worse price than a PATH one launch stale.
+ * The account is left out because nothing here reads it.
+ */
+export function spawnFingerprint(preflight: PreflightReport): string {
+  const canonical = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const usable = (id: PreflightId): string | null => {
+    const item = itemById(preflight, id);
+    return item?.status === "ok" && item.path ? canonical(item.path) : null;
+  };
+  const androidPath = itemById(preflight, "android-sdk")?.path;
+  return JSON.stringify([
+    ...[...CLI_IDS, "chrome" as const].map(usable),
+    androidPath ? androidRootFrom(canonical(androidPath)) || androidRootFrom(androidPath) : null,
+  ]);
 }
 
 /**

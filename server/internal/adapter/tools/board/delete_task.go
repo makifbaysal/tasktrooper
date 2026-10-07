@@ -88,10 +88,16 @@ func (t *deleteTaskTool) Execute(ctx context.Context, arguments string) domain.T
 		return toolError(deleteBoardTaskToolName, fmt.Sprintf("task %s not found on the board", args.TaskID))
 	}
 	if !deletableColumns[task.Column] && !args.Force {
+		// The board-list shape the refusal always carried: the single-task
+		// read also loads documents in full, criteria and test rounds, which
+		// would only inflate the tool result.
+		listed := task
+		listed.AcceptanceCriteria, listed.TestCases, listed.Relations = nil, nil, nil
+		listed.BlockedBy, listed.Documents, listed.Attachments = nil, nil, nil
 		return toolJSON(deleteBoardTaskToolName, map[string]any{
 			"deleted": false,
 			"reason":  fmt.Sprintf("task is in %s, not a planning column", task.Column),
-			"task":    task,
+			"task":    listed,
 			"hint":    deleteTaskBlockedHintKey.Render(struct{}{}),
 		})
 	}

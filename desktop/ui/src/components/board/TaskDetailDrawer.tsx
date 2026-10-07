@@ -1,5 +1,5 @@
 import { Bot, Check, Clock, Cog, ExternalLink, FileText, FlaskConical, GitBranch, GitPullRequest, HelpCircle, History, Loader2, MessageSquare, MessagesSquare, Minus, PackageCheck, Paperclip, Plus, Rocket, User, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -79,8 +79,16 @@ import {
   taskTypeOptions,
 } from "@/lib/project-board";
 import { analysisReviewPath } from "@/lib/analysis-review";
+import { keepEqual } from "@/lib/stableState";
 import { formatDate, formatRelativeDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+
+// While an agent works on the task it writes comments, documents and criteria,
+// so the drawer follows closely; otherwise it only has to notice someone
+// else's edit, and seven requests every 2s would be pure load.
+const LIVE_DETAILS_POLL_MS = 2000;
+const IDLE_DETAILS_POLL_MS = 10000;
+const ACTIVE_RUN_STATUSES = new Set(["pending", "running"]);
 
 interface TaskDetailDrawerProps {
   open: boolean;
@@ -181,31 +189,36 @@ export function TaskDetailDrawer({
   // listAllTasks, which does not populate acceptance_criteria, so the drawer
   // used to show "0" for every task and the 2s poll reverted each tick.
   // Settled per call so one failing section doesn't blank the others.
-  const loadDetails = useCallback(async () => {
-    if (!task || !repositoryId) return;
-    const [c, r, d, cr, at, tc, rel] = await Promise.allSettled([
-      api.listTaskComments(repositoryId, task.id),
-      api.listTaskAgentRuns(repositoryId, task.id),
-      api.listTaskDocuments(repositoryId, task.id),
-      api.listAcceptanceCriteria(repositoryId, task.id),
-      api.listTaskAttachments(repositoryId, task.id),
-      api.listTestCases(repositoryId, task.id),
-      api.listReleases(repositoryId, { taskId: task.id, limit: 1 }),
-    ]);
-    if (c.status === "fulfilled") setComments(c.value.comments ?? []);
-    if (r.status === "fulfilled") setRuns(r.value.runs ?? []);
-    if (d.status === "fulfilled") setDocuments(d.value.documents ?? []);
-    if (cr.status === "fulfilled") setCriteria(cr.value.items ?? []);
-    if (at.status === "fulfilled") setAttachments(at.value.attachments ?? []);
-    if (tc.status === "fulfilled") setTestCases(tc.value.items ?? []);
-    if (rel.status === "fulfilled") setRelease(rel.value.releases[0] ?? null);
-  }, [repositoryId, task]);
-
   // Reset the editing state only when a different task is shown. The board polls
   // and re-derives `task` from the fresh list, so a `task`-identity dependency
   // fired every two seconds — closing the open editor, discarding whatever the
   // user had typed.
   const taskID = task?.id ?? null;
+  const taskIDRef = useRef(taskID);
+  taskIDRef.current = taskID;
+
+  // Each slice keeps its previous value when the answer did not change, so an
+  // idle tick re-renders nothing.
+  const loadDetails = useCallback(async () => {
+    if (!taskID || !repositoryId) return;
+    const [c, r, d, cr, at, tc, rel] = await Promise.allSettled([
+      api.listTaskComments(repositoryId, taskID),
+      api.listTaskAgentRuns(repositoryId, taskID),
+      api.listTaskDocuments(repositoryId, taskID),
+      api.listAcceptanceCriteria(repositoryId, taskID),
+      api.listTaskAttachments(repositoryId, taskID),
+      api.listTestCases(repositoryId, taskID),
+      api.listReleases(repositoryId, { taskId: taskID, limit: 1 }),
+    ]);
+    if (taskIDRef.current !== taskID) return;
+    if (c.status === "fulfilled") setComments((prev) => keepEqual(prev, c.value.comments ?? []));
+    if (r.status === "fulfilled") setRuns((prev) => keepEqual(prev, r.value.runs ?? []));
+    if (d.status === "fulfilled") setDocuments((prev) => keepEqual(prev, d.value.documents ?? []));
+    if (cr.status === "fulfilled") setCriteria((prev) => keepEqual(prev, cr.value.items ?? []));
+    if (at.status === "fulfilled") setAttachments((prev) => keepEqual(prev, at.value.attachments ?? []));
+    if (tc.status === "fulfilled") setTestCases((prev) => keepEqual(prev, tc.value.items ?? []));
+    if (rel.status === "fulfilled") setRelease((prev) => keepEqual(prev, rel.value.releases[0] ?? null));
+  }, [repositoryId, taskID]);
   useEffect(() => {
     if (!open || !task) return;
     setEditingDescription(false);
@@ -241,11 +254,23 @@ export function TaskDetailDrawer({
     };
   }, [open, repositoryId, taskID]);
 
-  useEffect(() => {
-    if (open && task) loadDetails();
-  }, [open, task, loadDetails]);
+  const runActive = runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status));
+  usePolling(loadDetails, runActive ? LIVE_DETAILS_POLL_MS : IDLE_DETAILS_POLL_MS, open && !!taskID);
 
-  usePolling(loadDetails, 2000, open && !!task);
+  // Opening is covered by the poll's own first tick. After that, a changed
+  // task (the board keeps an unchanged card's identity) means something moved
+  // it — an agent picking it up, a column change — and is worth a read now
+  // rather than at the next idle tick.
+  const seenTask = useRef<BoardTask | null>(null);
+  useEffect(() => {
+    if (!open || !task) {
+      seenTask.current = null;
+      return;
+    }
+    const opening = seenTask.current === null;
+    seenTask.current = task;
+    if (!opening) void loadDetails();
+  }, [open, task, loadDetails]);
 
   const patchTask = async (data: Parameters<typeof api.updateRepositoryTask>[2]) => {
     if (!task) return;

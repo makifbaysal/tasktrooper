@@ -18,7 +18,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const callbackTimeout = 30 * time.Second
+const (
+	callbackTimeout = 30 * time.Second
+
+	// Only a backstop: Create wakes a worker itself. The poll catches jobs a
+	// failed claim left queued and any row inserted without going through Create.
+	defaultFallbackPoll = 30 * time.Second
+)
 
 type Service struct {
 	store         port.JobStore
@@ -28,9 +34,11 @@ type Service struct {
 	timeout       time.Duration
 	defaultPolicy domain.ToolPolicy
 
-	urlPolicy urlguard.Policy
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	urlPolicy    urlguard.Policy
+	wake         chan struct{}
+	fallbackPoll time.Duration
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 }
 
 type RAGInjector interface {
@@ -46,6 +54,8 @@ func NewService(store port.JobStore, agentLoop *agent.Loop, rag RAGInjector, max
 		timeout:       timeout,
 		defaultPolicy: defaultPolicy,
 		urlPolicy:     urlguard.Default(),
+		wake:          make(chan struct{}, max(maxWorkers, 1)),
+		fallbackPoll:  defaultFallbackPoll,
 	}
 }
 
@@ -90,7 +100,21 @@ func (s *Service) Create(ctx context.Context, req domain.JobRequest, policy doma
 	if err != nil {
 		return domain.Job{}, fmt.Errorf("marshal job request: %w", err)
 	}
-	return s.store.Create(ctx, raw, req.CallbackURL)
+	job, err := s.store.Create(ctx, raw, req.CallbackURL)
+	if err != nil {
+		return domain.Job{}, err
+	}
+	s.signalWorkers()
+	return job, nil
+}
+
+// signalWorkers never blocks: a full wake buffer already guarantees a worker
+// will drain after this point, and a drain runs until the queue is empty.
+func (s *Service) signalWorkers() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (domain.Job, error) {
@@ -114,29 +138,44 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (s *Service) worker(ctx context.Context) {
 	defer s.wg.Done()
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(s.fallbackPoll)
 	defer ticker.Stop()
 
+	s.drain(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.wake:
+			s.drain(ctx)
 		case <-ticker.C:
-			s.processOne(ctx)
+			s.drain(ctx)
 		}
 	}
 }
 
-func (s *Service) processOne(ctx context.Context) {
+func (s *Service) drain(ctx context.Context) {
+	for ctx.Err() == nil && s.processOne(ctx) {
+	}
+}
+
+func (s *Service) processOne(ctx context.Context) (claimed bool) {
 	job, err := s.store.ClaimPending(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("claim job failed")
-		return
+		return false
 	}
 	if job == nil {
-		return
+		return false
 	}
+	// This worker is busy until the job ends; hand any remaining queue to an
+	// idle one instead of leaving it for the fallback poll.
+	s.signalWorkers()
+	s.run(ctx, job)
+	return true
+}
 
+func (s *Service) run(ctx context.Context, job *domain.Job) {
 	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
@@ -151,6 +190,7 @@ func (s *Service) processOne(ctx context.Context) {
 
 	messages := payload.Messages
 	if s.rag != nil && len(payload.FileIDs) > 0 {
+		var err error
 		messages, err = s.rag.InjectContext(runCtx, messages, payload.FileIDs)
 		if err != nil {
 			_ = s.store.UpdateStatus(ctx, job.ID, domain.JobStatusFailed, nil, err.Error())

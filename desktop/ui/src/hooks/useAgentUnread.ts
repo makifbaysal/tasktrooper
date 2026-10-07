@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Agent } from "@/api";
 import { usePolling } from "@/hooks/usePolling";
+import { keepEqual } from "@/lib/stableState";
 
 const POLL_INTERVAL_MS = 20_000;
 const LAST_VIEWED_KEY = "tt.agentChat.lastViewedAt";
@@ -68,7 +69,8 @@ export function useAgentUnread(agents: Agent[], activeAgentId: string | null): A
         const prev = latest[sess.agent_id];
         if (!prev || sess.updated_at > prev) latest[sess.agent_id] = sess.updated_at;
       }
-      setLatestByAgent(latest);
+      // The whole shell (header, sidebar) reads this; an unchanged answer must not re-render it.
+      setLatestByAgent((prev) => keepEqual(prev, latest));
     },
     POLL_INTERVAL_MS,
     hasAgents,

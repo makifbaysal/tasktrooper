@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseServerLine, parseServerListening } from "./server-log.js";
+import { parseServerLine, parseServerListening, renderServerLine, serverLineLevel } from "./server-log.js";
 
 /**
  * The one line the whole boot sequence hangs on. The backend binds an
@@ -57,5 +57,26 @@ describe("parseServerLine", () => {
 
   it("carries the bound address on the one line that has one", () => {
     expect(parseServerLine("LISTENING http://127.0.0.1:52341").listening).toBe("http://127.0.0.1:52341");
+  });
+});
+
+describe("serverLineLevel and renderServerLine", () => {
+  it("lifts the level without a parse, and renders only when asked", () => {
+    const raw = '{"level":"warn","time":"t","message":"migrating","step":4}';
+    expect(serverLineLevel(raw)).toBe("warn");
+    expect(renderServerLine(raw)).toBe("migrating step=4");
+  });
+
+  it("finds no level on a line that is not zerolog, and leaves its text alone", () => {
+    expect(serverLineLevel("panic: runtime error")).toBeUndefined();
+    expect(renderServerLine("panic: runtime error")).toBe("panic: runtime error");
+    expect(serverLineLevel("LISTENING http://127.0.0.1:1")).toBeUndefined();
+  });
+
+  it("agrees with the full parse on every zerolog level", () => {
+    for (const level of ["trace", "debug", "info", "warn", "error", "fatal", "panic"]) {
+      const raw = `{"level":"${level}","message":"m"}`;
+      expect(serverLineLevel(raw)).toBe(parseServerLine(raw).level);
+    }
   });
 });

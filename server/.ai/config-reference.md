@@ -12,8 +12,8 @@ see `.env.local.example`.
 | `model` | string | `""` | Bootstrap-only model; normally empty — each agent carries its own |
 | `api_key` | string | `""` | Bootstrap-only key for the fallback endpoint |
 | `max_iterations` | int | `10` | Max agent loop iterations |
-| `run_max_total_tokens` | int | `0` | Mid-run circuit breaker over `PromptTokens+CompletionTokens` of one run; ends it at the next iteration boundary through the exhausted-budget path. `0` disables |
-| `timeout` | duration | `120s` | LLM HTTP timeout |
+| `run_max_total_tokens` | int | `0` | Mid-run circuit breaker over the tokens of one run — prompt tokens processed in full, cache reads at a tenth (their billed weight), plus completion tokens; ends it at the next iteration boundary through the exhausted-budget path. `0` disables |
+| `timeout` | duration | `600s` | LLM HTTP timeout for one whole response (an output-cap retry asks for up to 32K tokens) |
 
 **Provider catalog** (`domain.AllLLMProviderDefinitions`, not YAML-configured): every declared
 provider is `Available:true` today, including the four host-executed CLIs (`claude_code`,
@@ -194,7 +194,7 @@ every call — no restart needed.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | bool | `true` | Enable multi-agent orchestration |
+| `enabled` | bool | `true` | Enable multi-agent orchestration (intake, planner, verifier) for chat. `false` builds no orchestrator at all. Board runs never go through it: they run the agent loop directly |
 | `fast_path` | bool | `true` | Skip orchestration unless `orchestrate: true` |
 | `max_parallel_tasks` | int | `3` | Parallel subtask limit |
 | `max_plan_tasks` | int | `10` | Max tasks per plan |
@@ -207,10 +207,39 @@ every call — no restart needed.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `max_tokens` | int | `32000` | Context budget |
-| `reserve_output` | int | `4096` | Reserved for completion |
-| `summarize_threshold` | int | `24000` | Rolling summary threshold |
+| `max_tokens` | int | `0` | History budget override. `0` = the model's own window, capped at 200,000 tokens (every turn resends the whole history; raise it here to use more of a 1M window) |
+| `reserve_output` | int | `0` | Output cap each turn asks for, also reserved out of the window. `0` = the model's default cap; never raised past the model's maximum |
+| `summarize_threshold` | int | `0` | Where a trimmed history lands. `0` = 45% of the window |
 | `keep_recent_messages` | int | `10` | Messages kept during trim |
+
+Limits are resolved per run from the model id (`application/context/limits.go`,
+`appcontext.LimitsFor`); providers do not report them on the endpoints in use.
+A history is trimmed (summarised, then oldest-first) once it exceeds
+window − output cap − tool schemas, and lands at the summarize threshold.
+
+| Model family | Window | Default turn cap | Max output |
+|---|---|---|---|
+| Claude Fable/Mythos 5.x, Opus/Sonnet 5.x, Opus 4.6–4.8, Sonnet 4.6 | 1,000,000 | 16,384 | 128,000 |
+| Claude Opus 4.5, Sonnet 4.5, Haiku 4.5, Sonnet 4, Sonnet 3.7 | 200,000 | 16,384 | 64,000 |
+| Claude Opus 4 / 4.1 | 200,000 | 16,384 | 32,000 |
+| Claude 3.5 Sonnet/Haiku | 200,000 | 8,192 | 8,192 |
+| Claude 3 Opus/Sonnet/Haiku | 200,000 | 4,096 | 4,096 |
+| Other `claude-*` | 200,000 | 16,384 | 32,000 |
+| `gpt-5*` | 400,000 | 16,384 | 128,000 |
+| `gpt-4.1*` | 1,047,576 | 16,384 | 32,768 |
+| `gpt-4o*` | 128,000 | 16,384 | 16,384 |
+| `o1*` / `o3*` / `o4*` | 200,000 | 16,384 | 100,000 |
+| `gemini-2.5*` / `gemini-3*` | 1,048,576 | 16,384 | 65,536 |
+| `gemini-1.5-pro` | 2,097,152 | 8,192 | 8,192 |
+| other `gemini*` | 1,048,576 | 8,192 | 8,192 |
+| Llama 3.x, Qwen 2.5/3, `gpt-oss` | 131,072 | 16,384 | 32,768 |
+| Llama 4 | 131,072 | 8,192 | 8,192 |
+| Devstral / Mistral / Magistral | 128,000 | 16,384 | 32,768 |
+| Any model on the `local` provider, or unrecognised | 32,000 | 4,096 | 8,192 |
+
+A turn that hits the cap while writing a tool call is not executed: the loop
+asks again once with the cap doubled (within the max and the window), and past
+that tells the model to write in smaller parts.
 
 ## `mapping` / `indexer` / `graph`
 

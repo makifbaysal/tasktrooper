@@ -79,11 +79,20 @@ func (s *PipelineStore) Get(ctx context.Context, id uuid.UUID) (domain.TaskPipel
 	return out, nil
 }
 
+// taskPipelineHistoryLimit bounds ListByTask: both readers (the task's
+// pipeline panel and the bounce guard's same-commit streak) only care about
+// recent history, and a task that cycled through QA for weeks must not turn
+// every read into a scan of all of it.
+const taskPipelineHistoryLimit = 100
+
+// ListByTask returns the task's newest taskPipelineHistoryLimit pipelines,
+// newest first, each with its jobs in position order.
 func (s *PipelineStore) ListByTask(ctx context.Context, taskID uuid.UUID) ([]domain.TaskPipeline, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+pipelineCols+` FROM task_pipelines
 		WHERE task_id = $1 ORDER BY created_at DESC
-	`, taskID)
+		LIMIT $2
+	`, taskID, taskPipelineHistoryLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list task pipelines: %w", err)
 	}
@@ -99,14 +108,43 @@ func (s *PipelineStore) ListByTask(ctx context.Context, taskID uuid.UUID) ([]dom
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]uuid.UUID, len(out))
 	for i := range out {
-		jobs, err := s.ListJobs(ctx, out[i].ID)
+		ids[i] = out[i].ID
+	}
+	jobsByPipeline, err := s.listJobsForPipelines(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Jobs = jobsByPipeline[out[i].ID]
+	}
+	return out, nil
+}
+
+// listJobsForPipelines leaves a pipeline with no jobs out of the map, so the
+// caller assigns it a nil slice — the same value ListJobs returns for none.
+func (s *PipelineStore) listJobsForPipelines(ctx context.Context, pipelineIDs []uuid.UUID) (map[uuid.UUID][]domain.TaskPipelineJob, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+jobCols+` FROM task_pipeline_jobs
+		WHERE pipeline_id = ANY($1) ORDER BY pipeline_id, position ASC
+	`, pipelineIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list pipeline jobs for pipelines: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[uuid.UUID][]domain.TaskPipelineJob, len(pipelineIDs))
+	for rows.Next() {
+		j, err := scanJob(rows)
 		if err != nil {
 			return nil, err
 		}
-		out[i].Jobs = jobs
+		out[j.PipelineID] = append(out[j.PipelineID], j)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func (s *PipelineStore) LatestByTask(ctx context.Context, taskID uuid.UUID) (domain.TaskPipeline, error) {

@@ -1,5 +1,5 @@
 import { Terminal } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, type LogSeverity, type RuntimeLogEntry } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,40 @@ function formatLogTime(iso: string): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
+const logKey = (entry: RuntimeLogEntry) => `${entry.timestamp}\u0000${entry.severity}\u0000${entry.message}`;
+
+const PAGE_SIZE = 200;
+
+// Every provider answers newest-first, so a live tick only has lines to add at
+// the top. Prepending them — instead of replacing the list with the first page —
+// keeps any older pages already loaded, the scroll position and the wrapped rows.
+// `null` when the head is a full page sharing no line with what is shown: more
+// arrived since the last tick than one page holds, and prepending it would
+// leave a silent hole below it, so the caller reloads the first page instead.
+export function mergeLiveTail(
+  prev: RuntimeLogEntry[] | null,
+  head: RuntimeLogEntry[],
+  headIsFullPage = false,
+): RuntimeLogEntry[] | null {
+  const known = new Set((prev ?? []).map(logKey));
+  const fresh = head.filter((entry) => !known.has(logKey(entry)));
+  if (headIsFullPage && fresh.length === head.length) return null;
+  if (!prev) return head;
+  return fresh.length === 0 ? prev : [...fresh, ...prev];
+}
+
+// Content-based, so a prepended line does not shift every row's key (and with
+// it which rows are wrapped); repeats of an identical line get a counter.
+function rowKeys(entries: RuntimeLogEntry[]): string[] {
+  const seen = new Map<string, number>();
+  return entries.map((entry) => {
+    const base = logKey(entry);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n === 0 ? base : `${base}#${n}`;
+  });
+}
+
 function requestLine(entry: RuntimeLogEntry): string | undefined {
   if (!entry.method && !entry.path) return undefined;
   return [entry.method, entry.path, entry.status_code].filter(Boolean).join(" ");
@@ -64,6 +98,14 @@ export function LogsPanel({ envId, className }: LogsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [wrapped, setWrapped] = useState<Set<string>>(new Set());
+  // Bumped by every read the user asked for and by a live tick that replaced
+  // the list; a live tick or a "load more" that started under the previous
+  // list must not add its lines to the new one.
+  const listVersion = useRef(0);
+  const shown = useRef<RuntimeLogEntry[] | null>(null);
+  useEffect(() => {
+    shown.current = entries;
+  }, [entries]);
 
   useEffect(() => {
     const id = setTimeout(() => setQuery(queryInput), 400);
@@ -71,27 +113,40 @@ export function LogsPanel({ envId, className }: LogsPanelProps) {
   }, [queryInput]);
 
   const fetchLogs = useCallback(
-    async (opts: { append?: boolean; cursor?: string } = {}) => {
+    async (opts: { append?: boolean; cursor?: string; live?: boolean } = {}) => {
       if (range === "custom" && (!customFrom || !customTo)) return;
       const since = range === "custom" ? new Date(customFrom).toISOString() : new Date(Date.now() - RANGE_MS[range]!).toISOString();
       const until = range === "custom" ? new Date(customTo).toISOString() : undefined;
       if (opts.append) setLoadingMore(true);
-      else setLoading(true);
+      else if (!opts.live) setLoading(true);
+      if (!opts.live) listVersion.current += 1;
+      const version = listVersion.current;
       try {
         const page = await api.getEnvironmentLogs(envId, {
           since,
           until,
           min_severity: severity || undefined,
           text: query || undefined,
-          limit: 200,
+          limit: PAGE_SIZE,
           cursor: opts.cursor,
         });
+        if ((opts.live || opts.append) && version !== listVersion.current) return;
+        if (opts.live) {
+          const full = page.entries.length >= PAGE_SIZE;
+          if (mergeLiveTail(shown.current, page.entries, full) !== null) {
+            setEntries((prev) => mergeLiveTail(prev, page.entries) ?? page.entries);
+            return;
+          }
+          listVersion.current += 1;
+        }
         setEntries((prev) => (opts.append ? [...(prev ?? []), ...page.entries] : page.entries));
         if (!opts.append) setWrapped(new Set());
         setNextCursor(page.next_cursor);
         setTruncated(Boolean(page.truncated));
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : t("repositoryPage.deploy.runtime.logs.loadFailed"));
+        // A background tick keeps the lines already shown; only a read the
+        // user asked for is worth a toast.
+        if (!opts.live) toast.error(e instanceof Error ? e.message : t("repositoryPage.deploy.runtime.logs.loadFailed"));
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -105,7 +160,8 @@ export function LogsPanel({ envId, className }: LogsPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchLogs]);
 
-  usePolling(() => fetchLogs(), 5000, live);
+  usePolling(() => fetchLogs({ live: true }), 5000, live);
+  const keys = useMemo(() => (entries ? rowKeys(entries) : []), [entries]);
 
   const toggleWrap = (key: string) =>
     setWrapped((prev) => {
@@ -208,7 +264,7 @@ export function LogsPanel({ envId, className }: LogsPanelProps) {
         <ScrollArea className="h-80 rounded-lg border border-border">
           <div className="divide-y divide-border font-mono text-micro">
             {entries.map((entry, i) => {
-              const key = `${entry.timestamp}-${i}`;
+              const key = keys[i];
               const isWrapped = wrapped.has(key);
               const request = requestLine(entry);
               return (

@@ -1,7 +1,6 @@
 import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { BrowserWindow, Menu, app, powerMonitor, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
-import { autoUpdater } from "electron-updater";
 import { CLOUD_EVENTS, SHELL_EVENTS } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -14,6 +13,7 @@ import type {
   AppInfo,
   CloudStatus,
   Diagnostics,
+  LogLine,
   PreflightReport,
   SupervisorSnapshot,
   UpdateStatus,
@@ -27,9 +27,15 @@ import { launchedHidden, setLaunchAtLogin } from "./login-item.js";
 import { quitSequence } from "./quit.js";
 import { APP_ORIGIN, originOf, registerAppSchemePrivileges, serveAppScheme } from "./services/app-scheme.js";
 import { binDir, dataDir } from "./services/detect.js";
-import { loginShellPath } from "./services/login-env.js";
 import { NotificationWatcher } from "./services/notifications.js";
-import { FEED_DEBUG_ENV, UpdateService, installsOnQuit, resolveFeed, type UpdaterBackend } from "./services/updater.js";
+import {
+  FEED_DEBUG_ENV,
+  INERT_UPDATER_BACKEND,
+  UpdateService,
+  installsOnQuit,
+  resolveFeed,
+  type UpdaterBackend,
+} from "./services/updater.js";
 import { Supervisor } from "./supervisor/supervisor.js";
 import { AppTray } from "./tray.js";
 import { openExternally, Shell } from "./window.js";
@@ -82,11 +88,13 @@ const notifications = new NotificationWatcher({
   getPreferences: () => settingsStore.get().notifications,
   onNotificationClick: (route) => showWindow(route ?? "/board"),
   isWindowFocused: () => shellWindow.window?.isFocused() ?? false,
+  onBattery: () => powerMonitor.isOnBatteryPower(),
 });
 
 /**
  * Auto-update, built at `whenReady` because resolving the feed reads
- * `app.isPackaged` and `app.getPath`.
+ * `app.isPackaged` and `app.getPath` — and, when there is a feed, only once
+ * electron-updater has loaded (see `startUpdates`).
  *
  * `null` until then, and it stays usable when the feed is absent — a
  * development run and a `npm run package` build both report `unsupported` and
@@ -114,6 +122,71 @@ function logUpdaterLine(line: string): void {
 
 /** The base the window was last told about, so a new port can be noticed. */
 let servedBase: string | null = null;
+
+/** Undoes the current log stream to the page, or null when none is open. */
+let stopLogStream: (() => void) | null = null;
+
+/**
+ * Push the supervisor's log batches to the web app while it has asked for
+ * them, and not otherwise. Every line used to cross IPC whether or not a log
+ * view was open, which was nearly always "not". A page that navigates or
+ * reloads has asked for nothing yet, so either ends the stream.
+ */
+function streamLogs(on: boolean): void {
+  if (!on) {
+    stopLogStream?.();
+    return;
+  }
+  const contents = shellWindow.cloudContents;
+  if (stopLogStream || !contents || contents.isDestroyed()) return;
+  const forward = (lines: LogLine[]): void => toCloud(CLOUD_EVENTS.runnerLogs, lines);
+  const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
+    if (details.isMainFrame && !details.isSameDocument) stop();
+  };
+  const stop = (): void => {
+    supervisor.off("logs", forward);
+    contents.off("did-start-navigation", onNavigation);
+    contents.off("destroyed", stop);
+    stopLogStream = null;
+  };
+  supervisor.on("logs", forward);
+  contents.on("did-start-navigation", onNavigation);
+  contents.once("destroyed", stop);
+  stopLogStream = stop;
+}
+
+/**
+ * Build the updater. A build without a feed gets one that does nothing and
+ * never loads electron-updater; one with a feed loads it first, off the launch
+ * path — its first check is twenty seconds away regardless.
+ */
+function startUpdates(): void {
+  const feed = resolveFeed({ packaged: app.isPackaged, resourcesPath: process.resourcesPath });
+  const begin = (backend: UpdaterBackend): void => {
+    updates = new UpdateService({
+      backend,
+      feed,
+      installOnQuit: installsOnQuit(process.platform, process.env),
+      onStatus: (status) => {
+        tray?.updateStatus(status);
+        broadcast(SHELL_EVENTS.updateStatus, status);
+      },
+      debug: !!process.env[FEED_DEBUG_ENV],
+      logLine: logUpdaterLine,
+    });
+    tray?.updateStatus(updates.status);
+    broadcast(SHELL_EVENTS.updateStatus, updates.status);
+    updates.start();
+  };
+  if (feed.kind === "none") {
+    begin(INERT_UPDATER_BACKEND);
+    return;
+  }
+  void import("electron-updater").then(
+    ({ autoUpdater }) => begin(autoUpdater as unknown as UpdaterBackend),
+    (err: unknown) => logUpdaterLine(`could not load the updater: ${err instanceof Error ? err.message : String(err)}`),
+  );
+}
 
 // Before whenReady, and it has to be: the privilege table is read once while
 // the network service starts. See services/app-scheme.ts.
@@ -349,6 +422,7 @@ const services: IpcServices = {
   disconnect: async () => hostSnapshot(await supervisor.disconnect()),
   restartChild: async (child) => hostSnapshot(await supervisor.restartChild(child as never)),
   logs: (req) => supervisor.logs(req.child as never, req.afterSeq ?? 0, req.limit),
+  streamLogs,
   clearLogs: () => supervisor.clearLogs(),
 
   getSettings: (): HostSettings => settingsStore.get(),
@@ -469,7 +543,9 @@ function isShellSender(event: IpcMainInvokeEvent): boolean {
 }
 
 /**
- * The preflight, run again or answered from the last sweep.
+ * The preflight, run again or answered from the last sweep — always the
+ * COMPLETE report, waiting for one in flight rather than handing the setup
+ * screen the half a start was allowed to go ahead on.
  *
  * "The last sweep" is never nothing: detection runs at launch, so the setup
  * screen has answers the moment it opens. `force` is what the "Check again"
@@ -477,9 +553,7 @@ function isShellSender(event: IpcMainInvokeEvent): boolean {
  * tells the user their fix did not work.
  */
 function runPreflight(force: boolean): Promise<PreflightReport> {
-  const current = supervisor.preflight;
-  if (!force && current.items.length > 0) return Promise.resolve(current);
-  return supervisor.detect();
+  return supervisor.detect(force ? { force: true } : { maxAgeMs: Number.POSITIVE_INFINITY });
 }
 
 async function buildDiagnostics(force: boolean): Promise<Diagnostics> {
@@ -529,10 +603,21 @@ app.whenReady().then(
     // this scheme, and a handler registered after that is a blank frame.
     serveAppScheme();
 
-    // As early as possible, because the first preflight waits for it: a login
-    // shell can take a second to read its profile, and that second runs beside
-    // the reaper and the embedder instead of after them.
-    void loginShellPath();
+    // The chrome next, before anything that can be slow — the keychain read in
+    // loadSecrets(), spawning children: it owns the "starting…" screen, which
+    // is what the user looks at while the backend comes up, and its renderer
+    // loads in parallel with everything below. Its IPC handlers are registered
+    // first because its renderer starts asking as soon as it exists. The web
+    // app's own view is attached by the `server` handler below, once /health
+    // has answered.
+    registerIpc(services, { isTrustedCloudSender, isCloudWebContents, isShellSender });
+    shellWindow.create({ hidden: launchedHidden() });
+
+    // As early as possible: the PATH the last launch's login shell reported is
+    // put to use at once, and this launch's own login shell (a second or so
+    // reading a profile) runs beside everything below instead of in front of
+    // the first preflight.
+    supervisor.warmUp();
 
     if (process.platform !== "darwin") {
       Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(process.platform, !app.isPackaged)));
@@ -547,22 +632,6 @@ app.whenReady().then(
     void supervisor.reapStale();
     void supervisor.startEmbedder();
 
-    // Built before the tray, because the tray renders the update state.
-    updates = new UpdateService({
-      backend: autoUpdater as unknown as UpdaterBackend,
-      feed: resolveFeed({
-        packaged: app.isPackaged,
-        resourcesPath: process.resourcesPath,
-      }),
-      installOnQuit: installsOnQuit(process.platform, process.env),
-      onStatus: (status) => {
-        tray?.updateStatus(status);
-        broadcast(SHELL_EVENTS.updateStatus, status);
-      },
-      debug: !!process.env[FEED_DEBUG_ENV],
-      logLine: logUpdaterLine,
-    });
-
     // The tray outlives the window, which is the point: closing the window must
     // not stop the backend, and without a tray there would then be no way back
     // to it.
@@ -576,7 +645,10 @@ app.whenReady().then(
     });
     tray.create();
     tray.update(supervisor.snapshot());
-    tray.updateStatus(updates.status);
+
+    // After the tray, which renders the update state; `startUpdates` hands it
+    // the real one as soon as there is one.
+    startUpdates();
 
     // The login item's own record of where the app lives goes stale on Linux
     // when an AppImage is replaced by a newer file, and predates the --hidden
@@ -605,7 +677,10 @@ app.whenReady().then(
       if (supervisor.apiBase) notifications.start();
       else notifications.stop();
     });
-    supervisor.on("logs", (lines) => toCloud(CLOUD_EVENTS.runnerLogs, lines));
+
+    // The moment somebody who just started a run walks away from it is when
+    // the watcher should notice the run, not up to an idle interval later.
+    app.on("browser-window-blur", () => notifications.nudge());
 
     /**
      * The backend's address, which is the one thing the window cannot be
@@ -624,19 +699,14 @@ app.whenReady().then(
       if (moved) shellWindow.reloadCloud();
     });
 
-    registerIpc(services, { isTrustedCloudSender, isCloudWebContents, isShellSender });
-
-    // The chrome, immediately: it owns the "starting…" screen, which is what
-    // the user looks at while the backend comes up. The web app's own view is
-    // attached by the `server` handler above, once /health has answered.
-    shellWindow.create({ hidden: launchedHidden() });
-    updates.start();
-
     // The preflight runs at launch rather than at the first start, so the setup
-    // screen has answers the moment someone opens it.
-    void supervisor.detect().then(() => {
-      tray?.update(supervisor.snapshot());
-    });
+    // screen has answers the moment someone opens it. The start below joins
+    // this same sweep rather than running its own.
+    // A failure is narrated by the supervisor itself.
+    void supervisor.detect().then(
+      () => tray?.update(supervisor.snapshot()),
+      () => undefined,
+    );
 
     if (settingsStore.get().autoConnect) {
       void startBackend();

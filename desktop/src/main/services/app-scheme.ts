@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, net, protocol } from "electron";
@@ -44,6 +44,10 @@ export function registerAppSchemePrivileges(): void {
         // bug here reach any host.
         corsEnabled: true,
         stream: true,
+        // V8 caches the compiled bundle between launches, as it does for an
+        // http(s) page. Without it every launch parses and compiles the whole
+        // SPA from source again before the first screen can render.
+        codeCache: true,
       },
     },
   ]);
@@ -116,6 +120,7 @@ export function catalogRoot(): string {
  */
 export function serveAppScheme(): void {
   const root = webRoot();
+  const files = new WebRootFiles(root);
 
   protocol.handle(APP_SCHEME, async (request) => {
     const url = new URL(request.url);
@@ -125,7 +130,8 @@ export function serveAppScheme(): void {
     const candidate = path.resolve(root, relative);
     const inside = candidate === root || candidate.startsWith(root + path.sep);
 
-    const file = inside && relative !== "" && existsSync(candidate) ? candidate : path.join(root, "index.html");
+    const index = path.join(root, "index.html");
+    const file = inside && relative !== "" && (await files.has(candidate)) ? candidate : index;
 
     // The single most confusing failure this handler can produce, so it says so
     // rather than answering quietly. An API call arriving here means the page
@@ -138,7 +144,7 @@ export function serveAppScheme(): void {
           `The page has no API base, so it is calling itself. See CLOUD_CHANNELS.apiBase.`,
       );
     }
-    if (!existsSync(file)) {
+    if (file === index && !(await files.has(index))) {
       // A build that shipped no assets is a window with nothing in it, and the
       // reason is worth saying once rather than leaving a blank frame.
       return new Response(`No web assets at ${root}. Run \`npm run build:ui\` first.`, {
@@ -151,4 +157,40 @@ export function serveAppScheme(): void {
     // be parsed as part of the URL rather than the file name.
     return net.fetch(pathToFileURL(file).toString());
   });
+}
+
+/**
+ * Which files the web root holds, answered without blocking the main process.
+ *
+ * The root is listed once, asynchronously, the first time it is asked about;
+ * a hashed asset is then a Set lookup. A name the listing does not have — a
+ * client-side route, or a file a dev rebuild added since — gets one async
+ * `stat`, so a rebuilt `ui/dist` is still served correctly without a restart.
+ */
+export class WebRootFiles {
+  readonly #root: string;
+  #listing: Promise<Set<string>> | null = null;
+
+  constructor(root: string) {
+    this.#root = root;
+  }
+
+  async has(file: string): Promise<boolean> {
+    this.#listing ??= listFiles(this.#root);
+    if ((await this.#listing).has(file)) return true;
+    try {
+      return (await stat(file)).isFile();
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function listFiles(root: string): Promise<Set<string>> {
+  try {
+    const entries = await readdir(root, { recursive: true, withFileTypes: true });
+    return new Set(entries.filter((e) => e.isFile()).map((e) => path.join(e.parentPath, e.name)));
+  } catch {
+    return new Set();
+  }
 }

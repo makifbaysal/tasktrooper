@@ -149,11 +149,16 @@ export function SetupProvider({ children }: { children: ReactNode }) {
     ? snapshot !== null && snapshot.phase !== "connecting" && snapshot.phase !== "stopping"
     : true;
 
+  // An unforced preflight() answers from the shell's last sweep: every poll
+  // hands back the same report as a new object, and storing it would re-derive
+  // every step and re-render everything under this provider. The sweep's
+  // generatedAt says whether anything was actually re-probed.
   const loadPreflight = useCallback(
     async (force = false) => {
       if (!host || typeof host.preflight !== "function") return;
       try {
-        setPreflight({ value: await host.preflight(force), error: "" });
+        const value = await host.preflight(force);
+        setPreflight((prev) => (prev?.value?.generatedAt === value.generatedAt ? prev : { value, error: "" }));
       } catch (e) {
         setPreflight({ value: null, error: e instanceof Error ? e.message : String(e) });
       }
@@ -218,7 +223,14 @@ export function SetupProvider({ children }: { children: ReactNode }) {
   }, [loadPreflight, loadServer]);
 
   const reportEnvironment = useCallback((result: { report: DesktopPreflightReport | null; error: string }) => {
-    setPreflight(result.report ? { value: result.report, error: "" } : { value: null, error: result.error });
+    const { report } = result;
+    setPreflight((prev) =>
+      report
+        ? prev?.value?.generatedAt === report.generatedAt
+          ? prev
+          : { value: report, error: "" }
+        : { value: null, error: result.error },
+    );
   }, []);
 
   const reportGitHub = useCallback((result: { status: GitHubConnectionStatus | null; error: string }) => {

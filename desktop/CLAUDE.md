@@ -37,6 +37,7 @@ sign-in.
 | `LISTENING` + zerolog parsing | `src/main/supervisor/server-log.ts` |
 | `/health` polling | `src/main/services/health.ts` |
 | Machine probing, `binDir()`, `dataDir()`, `postgresCacheDir()` | `src/main/services/detect.ts` |
+| One shared sweep at a time; login PATH + `--version` cache in `preflight-cache.json` | `src/main/services/preflight-sweep.ts`, `preflight-cache.ts` |
 | `app://tasktrooper`, `webRoot()` | `src/main/services/app-scheme.ts` |
 | Generated secrets in `local.bin` | `src/main/config/secrets.ts` |
 | Channels, host contract, validators | `src/ipc/` |
@@ -60,13 +61,19 @@ SPA's own union must match exactly.
 ## Boot order (`whenReady`)
 
 1. `serveAppScheme()` — before any window, or the first load is a blank frame.
-2. `secretStore.ensure()` — generates `local.bin` on first run.
-3. `supervisor.startEmbedder()` — not awaited.
-4. updater, tray, supervisor event wiring, `registerIpc`.
-5. `shellWindow.create()` — the chrome and its starting screen.
-6. `supervisor.detect()` — so the setup screen has answers.
-7. `startBackend()` when `autoConnect` (default true); otherwise the chrome
-   shows its offline screen with the reason.
+2. `registerIpc`, then `shellWindow.create()` — the chrome and its starting
+   screen, before anything slow (the keychain, child processes).
+3. `supervisor.warmUp()` — the last launch's login PATH is used at once; this
+   launch's login shell runs in the background.
+4. `secretStore.ensure()` (via `loadSecrets()`) — generates `local.bin` on
+   first run.
+5. `supervisor.reapStale()` and `supervisor.startEmbedder()` — not awaited.
+6. tray, updater (electron-updater is loaded only when the build has a feed),
+   supervisor event wiring.
+7. `supervisor.detect()` — so the setup screen has answers.
+8. `startBackend()` when `autoConnect` (default true) — it joins the sweep
+   step 7 started and spawns once that sweep's gating half and the reaper are
+   both done; otherwise the chrome shows its offline screen with the reason.
 
 ## Gotchas
 
