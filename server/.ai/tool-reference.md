@@ -1,4 +1,3 @@
-| the on-demand hub would not start | `APPIUM_BIN` set, and `appium` exited or never answered `/status` within 45 s | a tool error in `guard.mobile_hub_unavailable`'s words, with the reason — no park |
 # Tool Reference
 
 ## Built-in Tools
