@@ -45,6 +45,13 @@ const (
 	// cannot answer them in this long is a browser that gets torn down.
 	guardTimeout = 5 * time.Second
 	scrubTimeout = 5 * time.Second
+
+	// browserStartTimeout bounds chromium printing its DevTools address.
+	// chromedp's default is 20s, which a cold first launch — a fresh CI
+	// runner, a first Chrome start on Windows with Defender scanning it —
+	// overruns, and every browser_* call then fails as "could not open that
+	// URL" though nothing is wrong with the page.
+	browserStartTimeout = 60 * time.Second
 )
 
 // Session is the single shared browser behind all browser_* tools. One tab is
@@ -354,6 +361,7 @@ func (s *Session) ensureLocked() error {
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.DisableGPU,
 		chromedp.WindowSize(defaultViewportWidth, defaultViewportHeight),
+		chromedp.WSURLReadTimeout(browserStartTimeout),
 	)
 	opts = append(opts, s.extraFlags...)
 	// Background, not the request context: the browser must outlive the call
