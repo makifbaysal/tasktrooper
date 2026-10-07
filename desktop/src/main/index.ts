@@ -226,7 +226,7 @@ function checkedOverrides(patch: HostOverrides): HostOverrides {
     } catch {
       usable = false;
     }
-    if (!usable) throw new Error(`${value} is not a file this Mac can run.`);
+    if (!usable) throw new Error(`${value} is not a file this machine can run.`);
     out[key] = value;
   }
   return out;

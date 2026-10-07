@@ -7,7 +7,7 @@ export const frame = {
       leadAsk: {
         label: "Escribir a {name}",
         placeholder: "Pregunta al PM…",
-        shortcut: "⌘K",
+        shortcut: "{mod}K",
         failed: "No se pudo iniciar la conversación",
       },
       notificationCenter: {

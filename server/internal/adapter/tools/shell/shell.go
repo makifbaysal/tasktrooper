@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -19,6 +18,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/rs/zerolog/log"
@@ -166,7 +166,7 @@ func (s *shellTool) Execute(ctx context.Context, arguments string) domain.ToolRe
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, "sh", "-c", a.Command)
+	cmd := hostshell.Default().Command(execCtx, a.Command)
 	cmd.Dir = workDir
 
 	// Per-task toolchain: a board run resolves the overlay once and passes it

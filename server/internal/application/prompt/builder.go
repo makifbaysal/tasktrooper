@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 )
 
 type scoreContextInput struct {
@@ -257,7 +258,30 @@ var (
 	subtaskWorkspaceNoteKey   = Define("agent.subtask_workspace_note", struct{ Dir string }{Dir: "/tmp/subtask"})
 	skillsOnDiskKey           = Define("agent.skills_on_disk", struct{ CanCreate bool }{CanCreate: true})
 	subagentDelegationKey     = Define[struct{}]("agent.subagent_delegation", struct{}{})
+	hostEnvironmentKey        = Define("agent.host_environment", hostEnvironmentInput{OS: "Windows", Arch: "amd64", ShellName: "Git Bash", ShellKind: "posix", HasShell: true})
 )
+
+type hostEnvironmentInput struct {
+	OS        string
+	Arch      string
+	ShellName string
+	ShellKind string
+	HasShell  bool
+}
+
+// HostEnvironmentNote names the OS and the shell run_terminal hands commands
+// to. Without it a model on Windows writes macOS/Linux command lines, each one
+// fails, and the run spins until the loop guard stops it. withShell is false
+// for an agent CLI run, which executes commands through its own shell tool.
+func HostEnvironmentNote(host hostshell.Host, withShell bool) string {
+	return strings.TrimRight(hostEnvironmentKey.Render(hostEnvironmentInput{
+		OS:        host.OS,
+		Arch:      host.Arch,
+		ShellName: host.Shell.Name,
+		ShellKind: string(host.Shell.Kind),
+		HasShell:  withShell,
+	}), "\n")
+}
 
 func CommitLanguageGuidance() string {
 	return Text(commitLanguageGuidanceKey)
@@ -328,6 +352,7 @@ func BuildSystemPromptFor(agent domain.Agent, skills []domain.Skill, stacks []do
 			parts = append(parts, rule)
 		}
 	}
+	parts = append(parts, HostEnvironmentNote(hostshell.Current(), delivery != SkillsOnDisk))
 	parts = append(parts, ToolSelectionGuidance())
 	parts = append(parts, RepeatCallGuidance())
 	// Same split as the skill index: a CLI run reaches TaskTrooper's tools over MCP, where ask_user is refused before any policy filtering, so naming it would point at a tool it does not hold.

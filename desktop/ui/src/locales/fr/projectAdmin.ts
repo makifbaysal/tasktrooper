@@ -104,12 +104,12 @@ export const projectAdmin = {
     engines: {
       auto: "Automatique",
       github_actions: "GitHub Actions",
-      local: "Mac appairé",
+      local: "Machine appairée",
     },
     engineHints: {
-      auto: "GitHub Actions d'abord ; s'il ne peut pas s'exécuter, le Mac appairé. Si aucun des deux ne le peut, la release est bloquée. Aucun autre repli n'est utilisé en silence.",
-      github_actions: "GitHub Actions uniquement. S'il ne peut pas s'exécuter, la release est bloquée ; le Mac appairé n'est pas utilisé comme solution de repli.",
-      local: "Le Mac appairé uniquement. Si aucun Mac n'est connecté, la release est bloquée ; GitHub Actions n'est pas utilisé comme solution de repli.",
+      auto: "GitHub Actions d'abord ; s'il ne peut pas s'exécuter, la machine appairée. Si aucun des deux ne le peut, la release est bloquée. Aucun autre repli n'est utilisé en silence.",
+      github_actions: "GitHub Actions uniquement. S'il ne peut pas s'exécuter, la release est bloquée ; la machine appairée n'est pas utilisée comme solution de repli.",
+      local: "La machine appairée uniquement (les builds iOS exigent un Mac). Si aucune machine n'est connectée, la release est bloquée ; GitHub Actions n'est pas utilisé comme solution de repli.",
     },
     engineSaved: "Moteur de release enregistré",
     lastRunEngine: "Le dernier build s'est exécuté sur {engine} ({store}).",

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,21 +24,30 @@ import (
 // ignores case unless the caller explicitly asks for exact matching.
 type GrepCodeCaseSuite struct {
 	suite.Suite
-	ctx  context.Context
-	kit  *code.ToolKit
-	tool port.ToolExecutor
+	withoutRipgrep bool
+	root           string
+	ctx            context.Context
+	kit            *code.ToolKit
+	tool           port.ToolExecutor
 }
 
 func TestGrepCodeCaseSuite(t *testing.T) {
 	suite.Run(t, new(GrepCodeCaseSuite))
 }
 
+// The same behaviour has to hold on a machine with no rg — a stock Windows
+// install — where grep_code searches in-process instead.
+func TestGrepCodeCaseSuiteWithoutRipgrep(t *testing.T) {
+	suite.Run(t, &GrepCodeCaseSuite{withoutRipgrep: true})
+}
+
 func (s *GrepCodeCaseSuite) SetupTest() {
-	if _, err := exec.LookPath("rg"); err != nil {
+	if _, err := exec.LookPath("rg"); err != nil && !s.withoutRipgrep {
 		s.T().Skip("ripgrep not installed")
 	}
 
 	root := s.T().TempDir()
+	s.root = root
 	s.Require().NoError(os.WriteFile(
 		filepath.Join(root, "banner.tsx"),
 		[]byte("export const Banner = () => <div>Coming Soon</div>\n"), 0o644))
@@ -55,12 +65,63 @@ func (s *GrepCodeCaseSuite) SetupTest() {
 	mapperSvc := mapper.NewService(domain.MappingConfig{Enabled: true, TreeMaxDepth: 4, MaxFiles: 50})
 	s.kit = code.NewToolKit(nil, nil, mapperSvc, domain.IndexerConfig{TopK: 3}, domain.GraphConfig{}, "embed-model")
 
+	if s.withoutRipgrep {
+		s.tool = code.NewGrepCodeToolWithoutRipgrep(s.kit)
+		return
+	}
 	for _, executor := range code.NewExecutors(s.kit) {
 		if executor.Name() == "grep_code" {
 			s.tool = executor
 		}
 	}
 	s.Require().NotNil(s.tool, "grep_code not registered")
+}
+
+func (s *GrepCodeCaseSuite) TestReportsLineNumberAndRelativePath() {
+	s.Require().NoError(os.MkdirAll(filepath.Join(s.root, "src", "deep"), 0o755))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, "src", "deep", "copy.ts"),
+		[]byte("first\nconst label = \"Coming Soon: v2\"\r\nlast\n"), 0o644))
+
+	result := s.tool.Execute(s.ctx, `{"pattern":"coming soon:","path":"src"}`)
+
+	s.False(result.IsError, result.Content)
+	s.JSONEq(`{"matches":[{"file_path":"src/deep/copy.ts","line":2,"content":"const label = \"Coming Soon: v2\""}]}`, result.Content)
+}
+
+func (s *GrepCodeCaseSuite) TestPathCanNameASingleFile() {
+	result := s.tool.Execute(s.ctx, `{"pattern":"coming soon","path":"banner.tsx"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Contains(result.Content, `"file_path":"banner.tsx"`)
+	s.Contains(result.Content, `"line":1`)
+}
+
+func (s *GrepCodeCaseSuite) TestPathScopesTheSearch() {
+	s.Require().NoError(os.MkdirAll(filepath.Join(s.root, "other"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(s.root, "other", "x.tsx"), []byte("Coming Soon\n"), 0o644))
+
+	result := s.tool.Execute(s.ctx, `{"pattern":"Coming Soon","path":"other"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Contains(result.Content, "other/x.tsx")
+	s.NotContains(result.Content, "banner.tsx")
+}
+
+func (s *GrepCodeCaseSuite) TestMaxResultsCapsTheMatches() {
+	s.Require().NoError(os.WriteFile(filepath.Join(s.root, "many.txt"), []byte("hit\nhit\nhit\nhit\n"), 0o644))
+
+	result := s.tool.Execute(s.ctx, `{"pattern":"^hit$","max_results":2}`)
+
+	s.False(result.IsError, result.Content)
+	s.Equal(2, strings.Count(result.Content, `"many.txt"`))
+}
+
+func (s *GrepCodeCaseSuite) TestNoMatchIsAnEmptyListNotAnError() {
+	result := s.tool.Execute(s.ctx, `{"pattern":"definitely-not-in-the-repo"}`)
+
+	s.False(result.IsError, result.Content)
+	s.JSONEq(`{"matches":[]}`, result.Content)
 }
 
 func (s *GrepCodeCaseSuite) TestIgnoresCaseByDefault() {

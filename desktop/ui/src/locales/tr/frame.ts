@@ -10,7 +10,7 @@ export const frame: FrameDict = {
       leadAsk: {
         label: "{name} için mesaj",
         placeholder: "PM'den iste…",
-        shortcut: "⌘K",
+        shortcut: "{mod}K",
         failed: "Sohbet başlatılamadı",
       },
       notificationCenter: {

@@ -7,7 +7,7 @@ export const frame = {
       leadAsk: {
         label: "Nachricht an {name}",
         placeholder: "PM fragen…",
-        shortcut: "⌘K",
+        shortcut: "{mod}K",
         failed: "Unterhaltung konnte nicht gestartet werden",
       },
       notificationCenter: {

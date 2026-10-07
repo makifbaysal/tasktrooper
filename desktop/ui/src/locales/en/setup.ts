@@ -10,15 +10,15 @@ export const setup = {
     todo: "To do",
     unknown: "Couldn't check",
     locked: "Locked",
-    desktopOnly: "Needs the Mac app",
+    desktopOnly: "Needs the desktop app",
   },
   unknownHint: "This couldn't be checked just now, so nothing here is claiming it isn't done.",
   desktopOnly: {
-    title: "This step happens in the TaskTrooper Mac app",
-    body: "It acts on your own Mac, checking what's installed and starting a headless Claude Code session there, and a browser tab can't reach any of that. Download the app, sign in with this same account, and this sequence carries on there.",
+    title: "This step happens in the TaskTrooper desktop app",
+    body: "It acts on your own computer, checking what's installed and starting a headless Claude Code session there, and a browser tab can't reach any of that. Download the app, sign in with this same account, and this sequence carries on there.",
   },
   environment: {
-    title: "Check this Mac",
+    title: "Check this machine",
     description:
       "What TaskTrooper needs on this machine: git, plus whichever agent CLIs you use. Anything red below says what's wrong and what to run.",
     readyTitle: "Everything required is in place",
@@ -30,7 +30,7 @@ export const setup = {
   agent: {
     title: "Connect an agent runtime",
     description:
-      "Agents do their work through a coding CLI on this Mac. Connect any of the ones you use: one is enough, and you can add more later.",
+      "Agents do their work through a coding CLI on this machine. Connect any of the ones you use: one is enough, and you can add more later.",
     connect: "Connect",
     connecting: "Connecting…",
     disconnect: "Disconnect",
@@ -38,7 +38,7 @@ export const setup = {
     connectedBody: "{binary}{version}: {agents} agents and {skills} skills installed.",
     notInstalled: "Not installed",
     installWith: "Install it with: {command}",
-    notInstalledBody: "Not found on this Mac.",
+    notInstalledBody: "Not found on this machine.",
     noneTitle: "Nothing connected yet",
     noneBody: "Connect at least one CLI, or add an API provider below, before agents can run.",
     apiKeyTitle: "Prefer an API key?",

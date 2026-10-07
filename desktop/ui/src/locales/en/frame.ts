@@ -9,7 +9,7 @@ export const frame = {
       leadAsk: {
         label: "Message {name}",
         placeholder: "Ask the PM…",
-        shortcut: "⌘K",
+        shortcut: "{mod}K",
         failed: "Couldn't start a conversation",
       },
       notificationCenter: {

@@ -311,7 +311,7 @@ paths:
       summary: Start a mobile store release build
       description: >-
         engine defaults to the repository's release_engine ("auto" = GitHub
-        Actions, falling back to the paired Mac). 409 when no engine can run
+        Actions, falling back to the paired machine). 409 when no engine can run
         it (domain.ErrNoReleaseEngine) — the task card is parked on
         human_decision rather than retried.
       security:

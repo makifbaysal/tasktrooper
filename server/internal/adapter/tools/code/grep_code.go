@@ -37,11 +37,12 @@ type grepCodeResponse struct {
 }
 
 type grepCodeTool struct {
-	kit *ToolKit
+	kit      *ToolKit
+	lookPath func(string) (string, error)
 }
 
 func newGrepCodeTool(kit *ToolKit) port.ToolExecutor {
-	return &grepCodeTool{kit: kit}
+	return &grepCodeTool{kit: kit, lookPath: exec.LookPath}
 }
 
 func (t *grepCodeTool) Name() string {
@@ -113,9 +114,24 @@ func (t *grepCodeTool) Execute(ctx context.Context, arguments string) domain.Too
 		maxResults = 100
 	}
 
+	rg, err := t.lookPath("rg")
+	if err != nil {
+		matches, err := searchWithoutRipgrep(ctx, root, searchPath, args, maxResults)
+		if err != nil {
+			return toolError(grepCodeToolName, err.Error())
+		}
+		return toolJSON(grepCodeToolName, grepCodeResponse{Matches: matches})
+	}
+
+	// --null ends the path with NUL instead of ':' — a Windows path's drive
+	// colon otherwise split every line in the wrong place and every match was
+	// dropped. --with-filename because rg omits the path when `path` names a
+	// single file, and a line without one cannot be parsed.
 	rgArgs := []string{
 		"--line-number",
 		"--no-heading",
+		"--null",
+		"--with-filename",
 		"--color=never",
 		"--max-count", strconv.Itoa(maxResults),
 	}
@@ -146,7 +162,7 @@ func (t *grepCodeTool) Execute(ctx context.Context, arguments string) domain.Too
 
 	rgArgs = append(rgArgs, args.Pattern, searchPath)
 
-	cmd := exec.CommandContext(ctx, "rg", rgArgs...)
+	cmd := exec.CommandContext(ctx, rg, rgArgs...)
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
@@ -155,9 +171,6 @@ func (t *grepCodeTool) Execute(ctx context.Context, arguments string) domain.Too
 	if err := cmd.Run(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return toolJSON(grepCodeToolName, grepCodeResponse{Matches: []grepMatch{}})
-		}
-		if _, lookErr := exec.LookPath("rg"); lookErr != nil {
-			return toolError(grepCodeToolName, "ripgrep (rg) not found in PATH")
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
@@ -181,15 +194,18 @@ func parseRipgrepOutput(output, root string) []grepMatch {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) < 3 {
+		filePath, rest, ok := strings.Cut(line, "\x00")
+		if !ok {
 			continue
 		}
-		lineNum, err := strconv.Atoi(parts[1])
+		num, content, ok := strings.Cut(rest, ":")
+		if !ok {
+			continue
+		}
+		lineNum, err := strconv.Atoi(num)
 		if err != nil {
 			continue
 		}
-		filePath := parts[0]
 		if rel, err := filepath.Rel(root, filePath); err == nil {
 			filePath = filepath.ToSlash(rel)
 		} else {
@@ -198,7 +214,7 @@ func parseRipgrepOutput(output, root string) []grepMatch {
 		matches = append(matches, grepMatch{
 			FilePath: filePath,
 			Line:     lineNum,
-			Content:  parts[2],
+			Content:  strings.TrimSuffix(content, "\r"),
 		})
 	}
 	return matches

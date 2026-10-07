@@ -3,15 +3,23 @@
 package localpreview
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 )
 
+// The detected run commands (`./gradlew bootRun`, `./mvnw`, repo scripts) are
+// POSIX, so they go through the same shell run_terminal uses rather than cmd.
 func shellCommand(command string) *exec.Cmd {
-	cmd := exec.Command("cmd", "/C", command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+	cmd := hostshell.Default().Command(context.Background(), command)
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP
 	return cmd
 }
 

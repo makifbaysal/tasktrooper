@@ -150,7 +150,7 @@ func (s *Service) List(ctx context.Context) (domain.LLMProvidersResponse, error)
 
 func errHostExecuted(providerType domain.LLMProviderType) error {
 	return fmt.Errorf("%s runs as a process on a machine rather than as an endpoint on the network — in cloud the assigned "+
-		"member's own Mac, on a self-hosted install the host this server runs on — so there is nothing to connect, test or "+
+		"member's own machine, on a self-hosted install the host this server runs on — so there is nothing to connect, test or "+
 		"activate. Select it as an agent's provider instead: %w", providerType, domain.ErrHostExecutedUnservable)
 }
 

@@ -1,0 +1,3 @@
+## Host machine
+This run executes on Windows (amd64). Write every command, path and script invocation for this OS and for the shell run_terminal uses: cmd.exe. Never assume macOS or Linux tools on a machine that is not one.
+- run_terminal runs cmd.exe: chain commands with `&&`, read environment variables as `%NAME%`, use `dir`, `type`, `findstr`, `rmdir /s /q`, `mkdir`. POSIX tools and syntax do not exist.

@@ -7,7 +7,7 @@ export const frame = {
       leadAsk: {
         label: "给 {name} 发消息",
         placeholder: "向 PM 提问…",
-        shortcut: "⌘K",
+        shortcut: "{mod}K",
         failed: "无法开始对话",
       },
       notificationCenter: {

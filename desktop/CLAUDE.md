@@ -1,6 +1,6 @@
 # desktop/ — working notes
 
-The macOS Electron app. It runs the whole product on this machine: the Go
+The Electron desktop app (macOS, Windows, Linux). It runs the whole product on this machine: the Go
 backend from `../server`, an embedded Postgres the backend starts, the bundled
 embedding engine, and Claude Code. Single user, single machine, no cloud, no
 sign-in.

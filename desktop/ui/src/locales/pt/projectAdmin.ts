@@ -104,12 +104,12 @@ export const projectAdmin = {
     engines: {
       auto: "Automático",
       github_actions: "GitHub Actions",
-      local: "Mac pareado",
+      local: "Máquina pareada",
     },
     engineHints: {
-      auto: "Primeiro o GitHub Actions; se ele não puder rodar, o Mac pareado. Se nenhum dos dois puder, a release é bloqueada. Nunca recorre silenciosamente a outra opção.",
-      github_actions: "Somente GitHub Actions. Se ele não puder rodar, a release é bloqueada; o Mac pareado não é usado como alternativa.",
-      local: "Somente o Mac pareado. Se nenhum Mac estiver conectado, a release é bloqueada; o GitHub Actions não é usado como alternativa.",
+      auto: "Primeiro o GitHub Actions; se ele não puder rodar, a máquina pareada. Se nenhum dos dois puder, a release é bloqueada. Nunca recorre silenciosamente a outra opção.",
+      github_actions: "Somente GitHub Actions. Se ele não puder rodar, a release é bloqueada; a máquina pareada não é usada como alternativa.",
+      local: "Somente a máquina pareada (builds de iOS exigem um Mac). Se nenhuma máquina estiver conectada, a release é bloqueada; o GitHub Actions não é usado como alternativa.",
     },
     engineSaved: "Motor de release salvo",
     lastRunEngine: "O último build rodou em {engine} ({store}).",

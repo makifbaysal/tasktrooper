@@ -489,10 +489,12 @@ describe("preflight: the mobile toolchain", () => {
 
     expect(item(report, "appium-uiautomator2").status).toBe("ok");
 
-    const missing = item(report, "appium-xcuitest");
-    expect(missing.status).toBe("missing");
-    expect(missing.required).toBe(false);
-    expect(missing.command).toBe("appium driver install xcuitest");
+    if (process.platform === "darwin") {
+      const missing = item(report, "appium-xcuitest");
+      expect(missing.status).toBe("missing");
+      expect(missing.required).toBe(false);
+      expect(missing.command).toBe("appium driver install xcuitest");
+    }
 
     // Still optional, still not a blocker.
     expect(report.ready).toBe(true);
@@ -547,6 +549,22 @@ describe("preflight: xcode-clt is macOS-only", () => {
     for (const platform of ["win32", "linux"] as const) {
       const report = await withPlatform(platform, () => run(fakeClaude({ auth: signedIn })));
       expect(report.items.map((i) => i.id)).not.toContain("xcode-clt");
+    }
+  });
+});
+
+describe("preflight: iOS tooling is macOS-only", () => {
+  it("has no xcuitest row and promises no iOS simulator on Windows or Linux", async () => {
+    for (const platform of ["win32", "linux"] as const) {
+      const withAppium = await withPlatform(platform, () =>
+        preflight({ overrides: { claudeBin: fakeClaude({ auth: signedIn }), appiumBin: fakeAppium(["uiautomator2"]) } }),
+      );
+      expect(withAppium.items.map((i) => i.id)).not.toContain("appium-xcuitest");
+
+      const noAppium = await withPlatform(platform, () =>
+        preflight({ overrides: { claudeBin: fakeClaude({ auth: signedIn }), appiumBin: "/nonexistent/appium" } }),
+      );
+      expect(item(noAppium, "appium").detail).not.toMatch(/iOS|Mac/);
     }
   });
 });

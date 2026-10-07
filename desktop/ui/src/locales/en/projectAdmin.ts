@@ -109,12 +109,12 @@ export const projectAdmin = {
     engines: {
       auto: "Automatic",
       github_actions: "GitHub Actions",
-      local: "Paired Mac",
+      local: "Paired machine",
     },
     engineHints: {
-      auto: "GitHub Actions first; if it cannot run, the paired Mac. If neither can, the release is blocked. It never quietly falls back to anything else.",
-      github_actions: "GitHub Actions only. If it cannot run, the release is blocked; the paired Mac is not used as a fallback.",
-      local: "The paired Mac only. If no Mac is attached, the release is blocked; GitHub Actions is not used as a fallback.",
+      auto: "GitHub Actions first; if it cannot run, the paired machine. If neither can, the release is blocked. It never quietly falls back to anything else.",
+      github_actions: "GitHub Actions only. If it cannot run, the release is blocked; the paired machine is not used as a fallback.",
+      local: "The paired machine only (iOS builds need a Mac). If no machine is attached, the release is blocked; GitHub Actions is not used as a fallback.",
     },
     engineSaved: "Release engine saved",
     lastRunEngine: "Last build ran on {engine} ({store}).",

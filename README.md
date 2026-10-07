@@ -25,7 +25,7 @@ runtime that hands each task to an agent CLI on your own machine — Claude Code
 Cursor, Antigravity or OpenCode — or to a model API you bring a key for: clone,
 plan, implement, test, open the PR, while you watch the run.
 
-Everything runs on your Mac: the desktop app starts an embedded Postgres and the
+Everything runs on your machine: the desktop app starts an embedded Postgres and the
 Go backend, serves the UI, and runs the agent sessions locally. No account, no
 cloud, no login.
 
@@ -159,12 +159,12 @@ Agents rewrite their own playbooks from how their work actually went.
   is only recorded, becomes a diagnosis task, or is fixed through the board.
 - **Mobile releases:** connect App Store Connect and Google Play and promote
   builds through internal, external and production channels. QA can drive iOS
-  simulators and Android emulators on this Mac through Appium.
+  simulators (macOS only) and Android emulators on this machine through Appium.
 - **Usage:** token usage per model and per day.
 
 ### First run
 
-A guided setup checks this Mac (git, the agent CLIs you have, and optionally
+A guided setup checks this machine (git, the agent CLIs you have, and optionally
 Chrome, Xcode, Appium and the Android SDK), lets you connect any agent CLI you
 have (Claude Code, Cursor, Antigravity, OpenCode) or an API provider with your
 own key, then connects GitHub and imports your first project.

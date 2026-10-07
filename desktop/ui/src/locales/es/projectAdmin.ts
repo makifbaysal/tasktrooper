@@ -104,12 +104,12 @@ export const projectAdmin = {
     engines: {
       auto: "Automático",
       github_actions: "GitHub Actions",
-      local: "Mac emparejado",
+      local: "Equipo emparejado",
     },
     engineHints: {
-      auto: "Primero GitHub Actions; si no puede ejecutarse, el Mac emparejado. Si ninguno puede, el release se bloquea. Nunca recurre en silencio a otra opción.",
-      github_actions: "Solo GitHub Actions. Si no puede ejecutarse, el release se bloquea; el Mac emparejado no se usa como alternativa.",
-      local: "Solo el Mac emparejado. Si no hay ningún Mac conectado, el release se bloquea; GitHub Actions no se usa como alternativa.",
+      auto: "Primero GitHub Actions; si no puede ejecutarse, el equipo emparejado. Si ninguno puede, el release se bloquea. Nunca recurre en silencio a otra opción.",
+      github_actions: "Solo GitHub Actions. Si no puede ejecutarse, el release se bloquea; el equipo emparejado no se usa como alternativa.",
+      local: "Solo el equipo emparejado (las compilaciones de iOS requieren un Mac). Si no hay ningún equipo conectado, el release se bloquea; GitHub Actions no se usa como alternativa.",
     },
     engineSaved: "Motor de release guardado",
     lastRunEngine: "La última compilación se ejecutó en {engine} ({store}).",

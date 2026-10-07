@@ -11,6 +11,7 @@ import type {
   UserSettings,
 } from "../../ipc/types.js";
 import { CHILD_IDS, GATING_CHILD_IDS } from "../../ipc/types.js";
+import { keyStoreHelp } from "../config/keystore.js";
 import type { LocalSecrets } from "../config/secrets.js";
 import {
   APPIUM_BASE_URL,
@@ -306,16 +307,14 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     const secrets = this.#secrets;
     if (!settings) return this.#fail("no settings loaded");
     if (!secrets) {
-      return this.#fail(
-        "This Mac has no local credentials yet, and macOS would not provide an encryption key to make them. " +
-          "Unlock the login keychain and try again.",
-      );
+      const { failure, remedy } = keyStoreHelp();
+      return this.#fail(`This machine has no local credentials yet: ${failure}. ${remedy}.`);
     }
 
     this.#blocker = undefined;
     this.#setState("preflight");
 
-    this.#note("Checking what this Mac can do…");
+    this.#note("Checking what this machine can do…");
     this.#preflight = await preflight({ overrides: this.#overrides });
 
     // REFUSED, not attempted, while a required check fails, and the refusal

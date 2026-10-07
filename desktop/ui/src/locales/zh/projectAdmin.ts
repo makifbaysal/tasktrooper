@@ -104,12 +104,12 @@ export const projectAdmin = {
     engines: {
       auto: "自动",
       github_actions: "GitHub Actions",
-      local: "已配对的 Mac",
+      local: "已配对的设备",
     },
     engineHints: {
-      auto: "优先使用 GitHub Actions；无法运行时使用已配对的 Mac。两者都不可用时，发布会被阻止，绝不会悄悄回退到其他方式。",
-      github_actions: "仅使用 GitHub Actions。无法运行时发布会被阻止，不会回退到已配对的 Mac。",
-      local: "仅使用已配对的 Mac。未连接 Mac 时发布会被阻止，不会回退到 GitHub Actions。",
+      auto: "优先使用 GitHub Actions；无法运行时使用已配对的设备。两者都不可用时，发布会被阻止，绝不会悄悄回退到其他方式。",
+      github_actions: "仅使用 GitHub Actions。无法运行时发布会被阻止，不会回退到已配对的设备。",
+      local: "仅使用已配对的设备（iOS 构建需要 Mac）。未连接设备时发布会被阻止，不会回退到 GitHub Actions。",
     },
     engineSaved: "发布引擎已保存",
     lastRunEngine: "上次构建在 {engine} 上运行（{store}）。",

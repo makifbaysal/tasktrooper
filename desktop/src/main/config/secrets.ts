@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { app, safeStorage } from "electron";
+import { keyStoreHelp } from "./keystore.js";
 
 /**
  * The two secrets this machine holds, and where they live.
@@ -38,10 +39,10 @@ export interface LocalSecrets {
 
 export class SecretStoreUnavailableError extends Error {
   constructor() {
+    const { failure, remedy } = keyStoreHelp();
     super(
-      "macOS could not provide an encryption key from the login keychain, so this app will not store " +
-        "the credentials its local server needs. Unlock the login keychain and try again — writing them " +
-        "unencrypted is not offered.",
+      `${failure}, so this app will not store the credentials its local server needs. ${remedy} — ` +
+        "writing them unencrypted is not offered.",
     );
     this.name = "SecretStoreUnavailableError";
   }

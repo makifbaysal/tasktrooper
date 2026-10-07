@@ -104,12 +104,12 @@ export const projectAdmin = {
     engines: {
       auto: "Automatisch",
       github_actions: "GitHub Actions",
-      local: "Gekoppelter Mac",
+      local: "Gekoppelter Rechner",
     },
     engineHints: {
-      auto: "Zuerst GitHub Actions; falls das nicht möglich ist, der gekoppelte Mac. Geht beides nicht, wird das Release blockiert. Es wird nie stillschweigend auf etwas anderes ausgewichen.",
-      github_actions: "Nur GitHub Actions. Ist das nicht möglich, wird das Release blockiert; der gekoppelte Mac dient nicht als Ausweichlösung.",
-      local: "Nur der gekoppelte Mac. Ist kein Mac verbunden, wird das Release blockiert; GitHub Actions dient nicht als Ausweichlösung.",
+      auto: "Zuerst GitHub Actions; falls das nicht möglich ist, der gekoppelte Rechner. Geht beides nicht, wird das Release blockiert. Es wird nie stillschweigend auf etwas anderes ausgewichen.",
+      github_actions: "Nur GitHub Actions. Ist das nicht möglich, wird das Release blockiert; der gekoppelte Rechner dient nicht als Ausweichlösung.",
+      local: "Nur der gekoppelte Rechner (iOS-Builds erfordern einen Mac). Ist kein Rechner verbunden, wird das Release blockiert; GitHub Actions dient nicht als Ausweichlösung.",
     },
     engineSaved: "Release-Engine gespeichert",
     lastRunEngine: "Der letzte Build lief auf {engine} ({store}).",

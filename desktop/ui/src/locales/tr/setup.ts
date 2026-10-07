@@ -10,15 +10,15 @@ export const setup = {
     todo: "Yapılacak",
     unknown: "Kontrol edilemedi",
     locked: "Kilitli",
-    desktopOnly: "Mac uygulaması gerekir",
+    desktopOnly: "Masaüstü uygulaması gerekir",
   },
   unknownHint: "Bu az önce kontrol edilemedi; yani burada hiçbir şey 'yapılmadı' demiyor.",
   desktopOnly: {
-    title: "Bu adım TaskTrooper Mac uygulamasında yapılır",
-    body: "Bu adım doğrudan kendi Mac'inizde çalışır, neyin kurulu olduğunu kontrol eder ve orada başsız bir Claude Code oturumu başlatır; bir tarayıcı sekmesi bunların hiçbirine erişemez. Uygulamayı indirin, aynı hesapla giriş yapın; bu akış orada devam eder.",
+    title: "Bu adım TaskTrooper masaüstü uygulamasında yapılır",
+    body: "Bu adım doğrudan kendi bilgisayarınızda çalışır, neyin kurulu olduğunu kontrol eder ve orada başsız bir Claude Code oturumu başlatır; bir tarayıcı sekmesi bunların hiçbirine erişemez. Uygulamayı indirin, aynı hesapla giriş yapın; bu akış orada devam eder.",
   },
   environment: {
-    title: "Bu Mac'i kontrol et",
+    title: "Bu bilgisayarı kontrol et",
     description:
       "TaskTrooper'ın bu makinede ihtiyaç duydukları: git, Claude Code CLI ve içinde giriş yapılmış bir hesap. Aşağıda kırmızı olan her satır neyin eksik olduğunu ve ne çalıştırmanız gerektiğini söyler.",
     readyTitle: "Gerekli her şey yerinde",
@@ -31,7 +31,7 @@ export const setup = {
   agent: {
     title: "Bir ajan çalışma ortamı bağlayın",
     description:
-      "Ajanlar işlerini bu Mac'teki bir kodlama CLI'ı üzerinden yapar. Kullandıklarınızdan istediğinizi bağlayın, biri yeterli; sonradan başkalarını da ekleyebilirsiniz.",
+      "Ajanlar işlerini bu bilgisayardaki bir kodlama CLI'ı üzerinden yapar. Kullandıklarınızdan istediğinizi bağlayın, biri yeterli; sonradan başkalarını da ekleyebilirsiniz.",
     connect: "Bağla",
     connecting: "Bağlanıyor…",
     disconnect: "Bağlantıyı kes",
@@ -39,7 +39,7 @@ export const setup = {
     connectedBody: "{binary}{version}: {agents} ajan ve {skills} beceri kuruldu.",
     notInstalled: "Kurulu değil",
     installWith: "Kurmak için: {command}",
-    notInstalledBody: "Bu Mac'te bulunamadı.",
+    notInstalledBody: "Bu bilgisayarda bulunamadı.",
     noneTitle: "Henüz bir şey bağlı değil",
     noneBody: "Ajanların çalışabilmesi için en az bir CLI bağlayın ya da aşağıdan bir API sağlayıcısı ekleyin.",
     apiKeyTitle: "API anahtarı mı kullanmak istiyorsunuz?",

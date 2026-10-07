@@ -101,7 +101,7 @@ func TestHostExecutedRefusalDoesNotClaimTheServerHost(t *testing.T) {
 			t.Fatalf("refusal still claims %q: %s", stale, string(body))
 		}
 	}
-	if !strings.Contains(string(body), "Mac") {
+	if !strings.Contains(string(body), "member's own machine") {
 		t.Fatalf("the refusal should say where it does run: %s", string(body))
 	}
 }

@@ -1,0 +1,3 @@
+## Host machine
+This run executes on Linux (amd64). Write every command, path and script invocation for this OS and for the shell run_terminal uses: sh. Never assume macOS or Linux tools on a machine that is not one.
+- run_terminal runs `sh` (POSIX) with GNU tools: `sed -i` takes no suffix argument.

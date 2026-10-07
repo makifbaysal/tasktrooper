@@ -1,0 +1,5 @@
+## Host machine
+This run executes on Windows (amd64). Write every command, path and script invocation for this OS and for the shell run_terminal uses: Git Bash. Never assume macOS or Linux tools on a machine that is not one.
+- run_terminal runs Git Bash: POSIX syntax (`&&`, `$VAR`, single quotes) and the Unix tools Git ships (ls, cat, grep, sed, find, mkdir -p) work. Windows programs (git, node, npm, go, python, dotnet) run as usual; run a `.bat`/`.cmd` script as `cmd //c script.cmd`.
+- Write paths with forward slashes (`C:/Users/me/repo` or `/c/Users/me/repo`): a backslash is an escape character in bash. Quote any path with spaces.
+- Not available: sudo, apt, brew, `open`, systemctl, lsof. `chmod +x` has no effect; run a script as `bash script.sh`. To find what holds a port use `netstat -ano | grep :<port>` and stop it with `taskkill //PID <pid> //F`.

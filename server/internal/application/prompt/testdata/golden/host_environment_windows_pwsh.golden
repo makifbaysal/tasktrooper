@@ -1,0 +1,4 @@
+## Host machine
+This run executes on Windows (amd64). Write every command, path and script invocation for this OS and for the shell run_terminal uses: PowerShell. Never assume macOS or Linux tools on a machine that is not one.
+- run_terminal runs PowerShell, not bash: chain commands with `;` or `&&`, read environment variables as `$env:NAME`, list with `Get-ChildItem`, search with `Select-String`, delete with `Remove-Item -Recurse -Force`, create a directory with `New-Item -ItemType Directory -Force`. POSIX tools and syntax (sed, grep, chmod, `export X=1`, `2>&1 &`) do not exist.
+- Quote any path with spaces. To find what holds a port use `Get-NetTCPConnection -LocalPort <port>` and stop it with `Stop-Process -Id <pid> -Force`.

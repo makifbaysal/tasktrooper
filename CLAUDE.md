@@ -1,6 +1,6 @@
 # TaskTrooper — monorepo
 
-Three parts, one product: the macOS desktop app. Read the directory's own
+Three parts, one product: the desktop app (macOS, Windows, Linux). Read the directory's own
 `CLAUDE.md` before working in it.
 
 | dir | what | verify |

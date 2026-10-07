@@ -554,8 +554,8 @@ const FREE_TIERS = new Set(["free", "none"]);
 
 const NOT_SIGNED_IN: Pick<PreflightItem, "status" | "detail" | "remediation" | "command"> = {
   status: "missing",
-  detail: "This Mac has the Claude Code CLI but no Claude account signed into it.",
-  remediation: "Sign in to your Claude account in Terminal, then press Connect again.",
+  detail: "This machine has the Claude Code CLI but no Claude account signed into it.",
+  remediation: "Sign in to your Claude account in a terminal, then press Connect again.",
   command: "claude auth login",
 };
 
@@ -621,7 +621,7 @@ async function probeClaudeAccount(claude: PreflightItem): Promise<PreflightItem>
       ...base,
       status: "unusable",
       detail: `\`claude auth status\` did not answer within ${AUTH_PROBE_TIMEOUT_MS / 1000}s.`,
-      remediation: "Check this Mac's network, then check again. Signing in refreshes a token over the network.",
+      remediation: "Check this machine's network, then check again. Signing in refreshes a token over the network.",
     };
   }
 
@@ -807,7 +807,7 @@ async function probeSimpleCLI(
       label,
       required: false,
       status: "missing",
-      detail: `The ${label} binary is not on this Mac's PATH.`,
+      detail: `The ${label} binary is not on this machine's PATH.`,
       remediation: `Install ${label}, then check again — or use a different provider on your agents.`,
       command: installHint,
     };
@@ -828,10 +828,20 @@ const probeAntigravity = (): Promise<PreflightItem> =>
   probeSimpleCLI("agy", "Antigravity CLI", "agy", "See antigravity.google/docs/cli for the install.");
 
 const probeCursorAgent = (): Promise<PreflightItem> =>
-  probeSimpleCLI("cursor-agent", "Cursor CLI", "cursor-agent", "curl https://cursor.com/install -fsS | bash");
+  probeSimpleCLI(
+    "cursor-agent",
+    "Cursor CLI",
+    "cursor-agent",
+    process.platform === "win32" ? "See cursor.com/cli for the install." : "curl https://cursor.com/install -fsS | bash",
+  );
 
 const probeOpencode = (): Promise<PreflightItem> =>
-  probeSimpleCLI("opencode", "OpenCode CLI", "opencode", "curl -fsSL https://opencode.ai/install | bash");
+  probeSimpleCLI(
+    "opencode",
+    "OpenCode CLI",
+    "opencode",
+    process.platform === "win32" ? "npm install -g opencode-ai" : "curl -fsSL https://opencode.ai/install | bash",
+  );
 
 // --- optional: chrome and the Xcode command line tools ----------------------
 
@@ -952,6 +962,9 @@ async function probeXcodeCLT(): Promise<PreflightItem> {
  * both drivers missing on a machine that had just loaded them by name.
  */
 async function probeAppium(override?: string): Promise<PreflightItem[]> {
+  // Read before the first await: iOS simulators exist only on macOS, and
+  // xcuitest is a missing row anywhere else that no install can fix.
+  const ios = process.platform === "darwin";
   const found = override && override !== "" ? which(override) : which("appium");
   if (!found) {
     return [
@@ -961,7 +974,7 @@ async function probeAppium(override?: string): Promise<PreflightItem[]> {
         required: false,
         status: "missing",
         detail:
-          "Without it this Mac cannot drive an iOS simulator or an Android emulator for a QA task. " +
+          `Without it this machine cannot drive ${ios ? "an iOS simulator or an Android emulator" : "an Android emulator"} for a QA task. ` +
           "Everything that is not mobile automation works.",
         remediation: "Install Appium if a task will drive a simulator or an emulator.",
         command: "npm install -g appium",
@@ -990,7 +1003,7 @@ async function probeAppium(override?: string): Promise<PreflightItem[]> {
         ? `An Appium server is already answering on ${APPIUM_BASE_URL}; TaskTrooper will use it rather than starting a second one.`
         : `TaskTrooper starts a hub on ${APPIUM_BASE_URL} while it is connected.`,
     },
-    appiumDriver("appium-xcuitest", "Appium driver: xcuitest (iOS)", installed.out, "xcuitest"),
+    ...(ios ? [appiumDriver("appium-xcuitest", "Appium driver: xcuitest (iOS)", installed.out, "xcuitest")] : []),
     appiumDriver("appium-uiautomator2", "Appium driver: uiautomator2 (Android)", installed.out, "uiautomator2"),
   ];
 }
@@ -1056,7 +1069,7 @@ function probeAndroidSdk(): PreflightItem {
       label: "Android SDK",
       required: false,
       status: "missing",
-      detail: "Without adb this Mac cannot reach an Android emulator. iOS simulators are unaffected.",
+      detail: `Without adb this machine cannot reach an Android emulator.${process.platform === "darwin" ? " iOS simulators are unaffected." : ""}`,
       remediation:
         "Install the Android SDK if a task will drive an Android emulator — it needs both platform-tools (adb) and emulator.",
     };
@@ -1070,7 +1083,7 @@ function probeAndroidSdk(): PreflightItem {
       path: adb.path,
       source: adb.source,
       detail:
-        "adb is here and the `emulator` binary is not, so this Mac can drive an AVD that is already running and " +
+        "adb is here and the `emulator` binary is not, so this machine can drive an AVD that is already running and " +
         "cannot start one itself.",
       remediation: "Install the emulator package from Android Studio's SDK Manager to start AVDs from a task.",
     };
@@ -1234,7 +1247,7 @@ export function firstBlocker(report: PreflightReport): Blocker | undefined {
   return {
     id: failed.id,
     title: failed.status === "missing" ? `${failed.label} is missing` : `${failed.label} cannot be used`,
-    because: failed.detail ?? `${failed.label} is required to run tasks on this Mac.`,
+    because: failed.detail ?? `${failed.label} is required to run tasks on this machine.`,
     remediation: failed.remediation ?? `Fix ${failed.label} and try again.`,
     command,
     // Only a command this app could run unattended and the user can read first.

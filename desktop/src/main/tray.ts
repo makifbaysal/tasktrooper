@@ -89,7 +89,7 @@ export class AppTray {
           // The label says what it does, because "Quit" next to a running
           // backend is a promise about how it ends.
           label: up ? "Quit (stops the local server)" : "Quit",
-          accelerator: "Command+Q",
+          accelerator: "CmdOrCtrl+Q",
           click: () => this.#deps.quit(),
         },
       ]),

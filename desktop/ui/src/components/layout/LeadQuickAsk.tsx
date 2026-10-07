@@ -6,6 +6,7 @@ import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/hooks/useI18n";
 import { startLeadConversation } from "@/lib/leadAgent";
+import { shortcutModifier } from "@/lib/platform";
 
 interface LeadQuickAskProps {
   agent: Agent;
@@ -75,7 +76,7 @@ export function LeadQuickAsk({ agent }: LeadQuickAskProps) {
       />
       {!text && (
         <kbd className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 rounded border border-border px-1.5 font-mono text-micro text-muted-foreground">
-          {t("frame.layout.header.leadAsk.shortcut")}
+          {t("frame.layout.header.leadAsk.shortcut", { mod: shortcutModifier() })}
         </kbd>
       )}
     </form>

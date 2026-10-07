@@ -107,12 +107,12 @@ export const projectAdmin: ProjectAdminDict = {
     engines: {
       auto: "Otomatik",
       github_actions: "GitHub Actions",
-      local: "Eşleşmiş Mac",
+      local: "Eşleşmiş makine",
     },
     engineHints: {
-      auto: "Önce GitHub Actions; koşamıyorsa eşleşmiş Mac. İkisi de koşamıyorsa yayın bloke olur; sessizce başka bir yola düşmez.",
-      github_actions: "Yalnız GitHub Actions. Koşamıyorsa yayın bloke olur; eşleşmiş Mac yedek olarak kullanılmaz.",
-      local: "Yalnız eşleşmiş Mac. Bağlı Mac yoksa yayın bloke olur; GitHub Actions yedek olarak kullanılmaz.",
+      auto: "Önce GitHub Actions; koşamıyorsa eşleşmiş makine. İkisi de koşamıyorsa yayın bloke olur; sessizce başka bir yola düşmez.",
+      github_actions: "Yalnız GitHub Actions. Koşamıyorsa yayın bloke olur; eşleşmiş makine yedek olarak kullanılmaz.",
+      local: "Yalnız eşleşmiş makine (iOS derlemeleri Mac gerektirir). Bağlı makine yoksa yayın bloke olur; GitHub Actions yedek olarak kullanılmaz.",
     },
     engineSaved: "Yayın motoru kaydedildi",
     lastRunEngine: "Son derleme {engine} üzerinde koştu ({store}).",
