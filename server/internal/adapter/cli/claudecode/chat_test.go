@@ -253,3 +253,17 @@ func TestExecuteChatMintsAndRevokesItsOwnMCPToken(t *testing.T) {
 	// CLI copied it while it was still running, which is the only way to see it.
 	assert.Contains(t, readFile(t, filepath.Join(workDir, "mcp-config.json")), "chat-token")
 }
+
+// A chat passes no --tools, so every built-in is on; the CLI's own question
+// card has to be withheld explicitly or a chat question asked through it is lost.
+func TestExecuteChatWithholdsTheCLIsOwnQuestionCard(t *testing.T) {
+	ex, workDir := newTestExecutor(t, Config{}, "chat_reply.jsonl")
+
+	var rec recorder
+	_, err := ex.ExecuteChat(context.Background(), chatExecution(workDir), rec.stream())
+	require.NoError(t, err)
+
+	argv := readArgv(t, workDir)
+	assert.NotContains(t, argv, "--tools")
+	assert.Contains(t, strings.Split(argv[indexOf(t, argv, "--disallowedTools")+1], ","), "AskUserQuestion")
+}

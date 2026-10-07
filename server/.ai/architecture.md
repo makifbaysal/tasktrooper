@@ -1331,6 +1331,9 @@ exits, the caller reads the sink into `AgentResponse.Clarification` and takes th
 API run's question takes — the board parks the task on the clarification chat, a chat turn
 persists the question card. The answer becomes a `[clarification]` task comment either way
 (`AnswerResumer.ResumeOnAnswer` for a parked task, `RecordTaskAnswer` for a task-bound chat).
+Claude Code's own `AskUserQuestion` card is in `--disallowedTools` on every session, board run
+and chat alike: in `-p` mode nobody answers it and nothing here translates it, so the MCP
+`ask_user` stays the one way a session asks.
 
 `codebase_search`, `get_symbol_skeleton` and `expand_symbol_context` deliberately **stay**:
 they are backed by the semantic index and the CLI has no equivalent. Every board and domain

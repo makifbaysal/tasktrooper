@@ -623,7 +623,7 @@ func (e *Executor) buildArgs(inv invocation, systemPromptPath string) []string {
 		"--verbose",
 		"--dangerously-skip-permissions",
 		"--max-turns", strconv.Itoa(maxTurns),
-		"--disallowedTools", disallowedBashCommands,
+		"--disallowedTools", disallowedBashCommands+","+nativeQuestionTool,
 		"--setting-sources", e.settingSources,
 	)
 	if systemPromptPath != "" {
@@ -651,6 +651,13 @@ func (e *Executor) buildArgs(inv invocation, systemPromptPath string) []string {
 // other tasks' servers and the user's own included. Git Bash spells the
 // switches //IM and //F.
 const disallowedBashCommands = "Bash(pkill:*),Bash(killall:*),Bash(taskkill /IM:*),Bash(taskkill //IM:*),Bash(taskkill /F /IM:*),Bash(taskkill //F //IM:*),Bash(gh pr merge:*)"
+
+// The CLI's own question card has nobody to answer it in -p mode, and nothing
+// here turns its call into a TaskTrooper question, so a session that reached
+// for it lost the question. Withheld everywhere (a chat passes no --tools, so
+// the built-in set alone does not keep it out), it leaves the MCP ask_user as
+// the one way to ask — the one the board and the chat carry back to the human.
+const nativeQuestionTool = "AskUserQuestion"
 
 func continuePrompt(req domain.TaskExecution) string {
 	task := strings.TrimSpace(req.TaskKey + " " + req.TaskTitle)
