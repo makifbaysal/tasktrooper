@@ -191,7 +191,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, life: Lifecycle
 async function embeddings(req: IncomingMessage, res: ServerResponse, life: Lifecycle): Promise<void> {
   const engine = await life.acquire();
   if (!engine) {
-    sendJson(res, 503, errorBody("not_ready", "The embedding model is still downloading or loading on this Mac."));
+    sendJson(res, 503, errorBody("not_ready", "The embedding model is still downloading or loading on this machine."));
     return;
   }
 

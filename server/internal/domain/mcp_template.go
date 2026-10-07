@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"os"
 	"strconv"
 	"strings"
 )
@@ -33,7 +34,9 @@ func MCPTemplates() []MCPTemplate {
 		{
 			ID: "filesystem", Label: "Filesystem", Description: "Filesystem access",
 			Enabled: false, Transport: "stdio", Command: "npx",
-			Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp"},
+			// The OS temp dir rather than a literal /tmp, which on Windows
+			// resolves to C:\tmp and does not exist.
+			Args: []string{"-y", "@modelcontextprotocol/server-filesystem", os.TempDir()},
 			ConfigFields: []MCPConfigField{
 				{Key: "2", Location: "args", Required: true, Description: "Root directory path"},
 			},

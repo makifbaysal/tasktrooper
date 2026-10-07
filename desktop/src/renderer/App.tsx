@@ -5,7 +5,9 @@ import { Button } from "@shared/ui/button.js";
 import { api } from "./bridge";
 import { startFailureCopy, unreachableCopy } from "./copy";
 
-// Only macOS draws traffic lights inside the window, over the title bar.
+// Only macOS draws traffic lights inside the window, over the title bar. The
+// strip below exists for them alone, so it is drawn on the same condition as
+// `chromeHeight()` in main/window.ts insets the web app's view.
 const IS_MAC = navigator.userAgent.includes("Macintosh");
 
 /**
@@ -17,9 +19,8 @@ const IS_MAC = navigator.userAgent.includes("Macintosh");
  * of this window's contents by the main process. So the React tree here draws
  * exactly three things:
  *
- *  - the title bar, which exists because macOS's traffic lights need somewhere
- *    to sit and because the local server's state should be glanceable from any
- *    screen without going and looking for it;
+ *  - on macOS, the title bar strip, which exists because the traffic lights
+ *    need somewhere to sit (Windows and Linux draw a native title bar instead);
  *  - the starting screen, which is what is on screen while the backend comes
  *    up. A first launch downloads a database, so it narrates instead of
  *    spinning silently;
@@ -52,7 +53,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
-      <nav className={`drag-region flex h-11 shrink-0 items-center gap-2 border-b border-border pr-3 ${IS_MAC ? "pl-20" : "pl-3"}`} />
+      {IS_MAC ? <nav className="drag-region flex h-11 shrink-0 items-center gap-2 border-b border-border pl-20 pr-3" /> : null}
 
       <div className="min-h-0 flex-1">
         {cloud?.state === "failed" ? <Unreachable status={cloud} info={info} onRetry={reload} /> : null}

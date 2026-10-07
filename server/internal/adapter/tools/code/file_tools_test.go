@@ -2,8 +2,10 @@ package code_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -311,5 +313,156 @@ func (s *FileToolsSuite) TestEveryWriteToolRefusesAMissingPath() {
 		result := tool.Execute(s.ctx, `{}`)
 		s.True(result.IsError, name)
 		s.True(strings.Contains(result.Content, "required"), "%s: %s", name, result.Content)
+	}
+}
+
+// --- cross-OS: guards ---
+
+// Every writer goes through one guard, and the guard compares by identity as
+// well as by name: a link into .git is .git.
+func (s *FileToolsSuite) TestEveryWriteToolRefusesALinkIntoGit() {
+	s.seed(".git/config", "[core]\n")
+	s.seed("a.ts", "x\n")
+	s.Require().NoError(os.Symlink(filepath.Join(s.root, ".git"), filepath.Join(s.root, "gitlink")))
+
+	for name, call := range map[string]func() string{
+		"write_file": func() string {
+			return s.write.Execute(s.ctx, `{"path":"gitlink/hooks/pre-commit","content":"x"}`).Content
+		},
+		"edit_file": func() string {
+			return s.edit.Execute(s.ctx, `{"path":"gitlink/config","old_string":"core","new_string":"x"}`).Content
+		},
+		"edit_lines": func() string {
+			return s.lines.Execute(s.ctx, `{"path":"gitlink/config","mode":"delete","start_line":1}`).Content
+		},
+		"delete_file": func() string { return s.del.Execute(s.ctx, `{"path":"gitlink","recursive":true}`).Content },
+		"move_file to": func() string {
+			return s.move.Execute(s.ctx, `{"from":"a.ts","to":"gitlink/hooks/pre-commit"}`).Content
+		},
+		"move_file from": func() string { return s.move.Execute(s.ctx, `{"from":"gitlink/config","to":"b.ts"}`).Content },
+	} {
+		s.Contains(call(), "protected", name)
+	}
+	s.Equal("[core]\n", s.read(".git/config"))
+	s.NoFileExists(filepath.Join(s.root, ".git", "hooks", "pre-commit"))
+	s.FileExists(filepath.Join(s.root, "a.ts"))
+}
+
+// On a case-insensitive filesystem .GIT/hooks/pre-commit IS
+// .git/hooks/pre-commit, and the server runs that hook on its next commit.
+func (s *FileToolsSuite) TestWriteRefusesACaseVariantOfGitWhereTheFilesystemFoldsCase() {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		s.T().Skip(".GIT is a different directory on " + runtime.GOOS)
+	}
+	s.seed(".git/config", "[core]\n")
+
+	for _, path := range []string{".GIT/hooks/pre-commit", ".Git/hooks/pre-commit"} {
+		result := s.write.Execute(s.ctx, `{"path":"`+path+`","content":"#!/bin/sh\nrm -rf /\n"}`)
+		s.True(result.IsError, path)
+		s.Contains(result.Content, "protected")
+	}
+	s.NoFileExists(filepath.Join(s.root, ".git", "hooks", "pre-commit"))
+}
+
+func (s *FileToolsSuite) TestDeleteRefusesTheRootUnderAnotherSpelling() {
+	s.seed(".git/config", "[core]\n")
+	s.Require().NoError(os.Symlink(s.root, filepath.Join(s.root, "self")))
+	upper := "../" + strings.ToUpper(filepath.Base(s.root))
+
+	for _, path := range []string{"src/..", "self", upper, "../" + filepath.Base(s.root)} {
+		result := s.del.Execute(s.ctx, `{"path":"`+path+`","recursive":true}`)
+		s.True(result.IsError, "%s: %s", path, result.Content)
+	}
+	s.FileExists(filepath.Join(s.root, ".git", "config"))
+}
+
+// --- cross-OS: line endings ---
+
+// read_file shows CRLF lines without their \r, so what the model copies back
+// is LF. On a core.autocrlf checkout that never matched.
+func (s *FileToolsSuite) TestEditMatchesAMultiLineOldStringInACRLFFile() {
+	s.seed("a.ts", "one\r\ntwo\r\nthree\r\n")
+
+	result := s.edit.Execute(s.ctx, `{"path":"a.ts","old_string":"one\ntwo","new_string":"uno\ndos\ntres"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Contains(result.Content, "1 occurrence replaced at line 1.")
+	s.Equal("uno\r\ndos\r\ntres\r\nthree\r\n", s.read("a.ts"))
+}
+
+func (s *FileToolsSuite) TestEditReplaceAllInACRLFFileReportsTheLinesItChanged() {
+	s.seed("a.ts", "x\r\nfoo\r\nbar\r\nfoo\r\nbar\r\n")
+
+	result := s.edit.Execute(s.ctx, `{"path":"a.ts","old_string":"foo\nbar\n","new_string":"baz\n","replace_all":true}`)
+
+	s.False(result.IsError, result.Content)
+	s.Contains(result.Content, "2 occurrences replaced at line 2, 4.")
+	s.Equal("x\r\nbaz\r\nbaz\r\n", s.read("a.ts"))
+}
+
+func (s *FileToolsSuite) TestEditKeepsCRLFWhenASingleLineBecomesSeveral() {
+	s.seed("a.ts", "a\r\nb\r\n")
+
+	result := s.edit.Execute(s.ctx, `{"path":"a.ts","old_string":"b","new_string":"b1\nb2"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Equal("a\r\nb1\r\nb2\r\n", s.read("a.ts"))
+}
+
+func (s *FileToolsSuite) TestEditStillMatchesAnLFRegionOfAMixedFile() {
+	s.seed("a.ts", "a\r\nb\r\nc\r\nx\ny\n")
+
+	result := s.edit.Execute(s.ctx, `{"path":"a.ts","old_string":"x\ny","new_string":"z"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Equal("a\r\nb\r\nc\r\nz\n", s.read("a.ts"))
+}
+
+func (s *FileToolsSuite) TestEditLinesKeepsTheFilesCRLF() {
+	s.seed("a.ts", "one\r\ntwo\r\nthree\r\n")
+
+	result := s.lines.Execute(s.ctx, `{"path":"a.ts","mode":"replace","start_line":2,"text":"a\nb"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Equal("one\r\na\r\nb\r\nthree\r\n", s.read("a.ts"))
+	s.Contains(result.Content, "     2→a\n     3→b\n")
+}
+
+func (s *FileToolsSuite) TestWriteOverAnExistingCRLFFileKeepsCRLF() {
+	s.seed("a.ts", "old\r\nfile\r\n")
+
+	result := s.write.Execute(s.ctx, `{"path":"a.ts","content":"new\ncontent"}`)
+
+	s.False(result.IsError, result.Content)
+	s.Equal("new\r\ncontent\r\n", s.read("a.ts"))
+	s.Contains(result.Content, "2 lines, 14 bytes")
+}
+
+func (s *FileToolsSuite) TestWriteANewFileKeepsTheLineEndingsItWasGiven() {
+	s.Require().False(s.write.Execute(s.ctx, `{"path":"crlf.bat","content":"@echo off\r\necho hi"}`).IsError)
+	s.Equal("@echo off\r\necho hi\r\n", s.read("crlf.bat"))
+
+	s.Require().False(s.write.Execute(s.ctx, `{"path":"lf.sh","content":"echo hi"}`).IsError)
+	s.Equal("echo hi\n", s.read("lf.sh"))
+}
+
+// --- cross-OS: case-only rename ---
+
+// On a case-insensitive filesystem button.tsx "exists" because it is
+// Button.tsx; overwrite used to RemoveAll it — the source — and then fail.
+func (s *FileToolsSuite) TestMoveRenamesByCaseOnlyWithoutLosingTheFile() {
+	for _, overwrite := range []bool{false, true} {
+		dir := fmt.Sprintf("case-%v", overwrite)
+		s.seed(dir+"/Button.tsx", "export {}\n")
+
+		result := s.move.Execute(s.ctx, fmt.Sprintf(
+			`{"from":"%s/Button.tsx","to":"%s/button.tsx","overwrite":%v}`, dir, dir, overwrite))
+
+		s.False(result.IsError, result.Content)
+		entries, err := os.ReadDir(filepath.Join(s.root, dir))
+		s.Require().NoError(err)
+		s.Require().Len(entries, 1)
+		s.Equal("button.tsx", entries[0].Name())
+		s.Equal("export {}\n", s.read(dir+"/button.tsx"))
 	}
 }

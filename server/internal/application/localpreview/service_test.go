@@ -2,11 +2,8 @@ package localpreview
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 
@@ -14,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -122,86 +118,47 @@ func TestAFailedPreviewStaysVisibleUntilCleared(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestStartStopsAStaleNextDevServerHoldingTheCheckout(t *testing.T) {
-	svc := newTestService(t, t.TempDir())
-	taskID := uuid.New()
-	workspacePath, err := workspace.TaskDir(svc.workspaceRoot, taskID)
-	require.NoError(t, err)
-
-	script := filepath.Join(t.TempDir(), "next-dev.sh")
-	require.NoError(t, os.WriteFile(script, []byte("sleep 30\n"), 0o755))
-	stale := exec.Command("sh", script)
-	stale.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	require.NoError(t, stale.Start())
-	exited := make(chan struct{})
-	go func() { _ = stale.Wait(); close(exited) }()
-	t.Cleanup(func() { _ = syscall.Kill(-stale.Process.Pid, syscall.SIGKILL) })
-
-	require.NoError(t, os.MkdirAll(filepath.Join(workspacePath, ".next", "dev"), 0o755))
-	lock := fmt.Sprintf(`{"pid":%d,"port":3000,"appUrl":"http://localhost:3000"}`, stale.Process.Pid)
-	require.NoError(t, os.WriteFile(filepath.Join(workspacePath, ".next", "dev", "lock"), []byte(lock), 0o644))
-
-	repositoryID := uuid.New()
-	_, err = svc.Start(context.Background(), repositoryID, taskID, "sleep 30")
-	require.NoError(t, err)
-	t.Cleanup(func() { svc.Stop(repositoryID) })
-
-	select {
-	case <-exited:
-	case <-time.After(3 * time.Second):
-		t.Fatal("the next dev server named by the checkout's lock must be stopped before the preview starts")
+func TestCommandMatchesOnlyTheCommandThatWasStarted(t *testing.T) {
+	cases := []struct {
+		name    string
+		live    string
+		started string
+		want    bool
+	}{
+		{"still the shell running it", "sh -c npm run dev", "npm run dev", true},
+		{"the shell exec'd it", "sleep 30", "sleep 30", true},
+		{"npm through its node shebang", "node /usr/local/bin/npm run dev", "npm run dev", true},
+		{"the pid now runs something else", "/usr/bin/vim notes.txt", "npm run dev", false},
+		{"the pid is gone or unreadable", "", "npm run dev", false},
+		{"nothing was recorded", "sh -c npm run dev", "", false},
+		{"only whitespace was recorded", "sh -c npm run dev", "   ", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, commandMatches(tc.live, tc.started))
+		})
 	}
 }
 
-func TestStartLeavesALockWhosePidIsNotNextAlone(t *testing.T) {
-	svc := newTestService(t, t.TempDir())
-	taskID := uuid.New()
-	workspacePath, err := workspace.TaskDir(svc.workspaceRoot, taskID)
-	require.NoError(t, err)
-
-	other := exec.Command("sleep", "30")
-	other.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	require.NoError(t, other.Start())
-	t.Cleanup(func() { _ = syscall.Kill(-other.Process.Pid, syscall.SIGKILL); _ = other.Wait() })
-
-	require.NoError(t, os.MkdirAll(filepath.Join(workspacePath, ".next", "dev"), 0o755))
-	lock := fmt.Sprintf(`{"pid":%d}`, other.Process.Pid)
-	require.NoError(t, os.WriteFile(filepath.Join(workspacePath, ".next", "dev", "lock"), []byte(lock), 0o644))
-
-	repositoryID := uuid.New()
-	_, err = svc.Start(context.Background(), repositoryID, taskID, "sleep 30")
-	require.NoError(t, err)
-	t.Cleanup(func() { svc.Stop(repositoryID) })
-
-	assert.NoError(t, syscall.Kill(other.Process.Pid, 0), "a reused pid that is not a Next server must not be touched")
-}
-
-func TestNewServiceReapsAPreviousProcessesOrphan(t *testing.T) {
-	workspaceRoot := t.TempDir()
-	deps := func() Deps {
-		return Deps{
-			Tasks:         stubTasks{task: domain.BoardTask{ID: uuid.New(), Key: "T-9", TaskNumber: 9}},
-			Repositories:  stubRepos{root: t.TempDir()},
-			Git:           stubGit{has: true},
-			WorkspaceRoot: workspaceRoot,
-		}
+// A Maven/Gradle wrapper execs java, so the pid's command line no longer
+// contains the command that started it.
+func TestJVMWrapperPreviewIsRecognisedByShape(t *testing.T) {
+	cases := []struct {
+		started string
+		live    string
+		want    bool
+	}{
+		{"./mvnw spring-boot:run", "/usr/lib/jvm/bin/java -classpath /x org.codehaus.plexus.classworlds.launcher.Launcher spring-boot:run", true},
+		{"./gradlew bootRun", "java -Xmx64m -cp gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain bootRun", true},
+		{"mvn quarkus:dev", "/opt/homebrew/opt/openjdk/bin/java -jar x.jar", true},
+		{"npm run dev", "java -jar x.jar", false},
+		{"./mvnw spring-boot:run", "/usr/bin/vim pom.xml", false},
+		{"./mvnw-helper.sh", "java -jar x.jar", false},
 	}
-
-	first := NewService(deps())
-	repositoryID := uuid.New()
-	_, err := first.Start(context.Background(), repositoryID, uuid.New(), "sleep 30")
-	require.NoError(t, err)
-
-	first.mu.Lock()
-	pid := first.active[repositoryID].cmd.Process.Pid
-	first.mu.Unlock()
-	require.NoError(t, syscall.Kill(pid, 0), "the preview's process must actually be running before this test means anything")
-
-	NewService(deps())
-
-	require.Eventually(t, func() bool {
-		return syscall.Kill(pid, 0) != nil
-	}, 2*time.Second, 20*time.Millisecond, "the orphaned process from the old Service must be reaped by the new one")
+	for _, tc := range cases {
+		got := jvmWrapper.MatchString(tc.started) && javaCommand.MatchString(tc.live)
+		assert.Equal(t, tc.want, got, "%q / %q", tc.started, tc.live)
+	}
 }
 
 func TestStartRefusesAnEmptyCommand(t *testing.T) {

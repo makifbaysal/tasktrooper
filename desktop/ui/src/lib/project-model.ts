@@ -308,7 +308,7 @@ export function isScanFinished(scan: Pick<ProjectScan, "status"> | null | undefi
 
 /** Mirrors the server's LocalCommand.Display(): "cd <dir> && <argv…>", or
  * just the argv when dir is empty/the component root. */
-/** Commands sharing a directory run under one `cd`; groups are separated by "; " since every dir is repo-relative. */
+/** Mirrors the server's JoinLocalCommands: commands sharing a directory run under one `cd`; with more than one group each `cd` runs in a subshell, since every dir is repo-relative. */
 export function localCommandsDisplay(commands: LocalCommand[]): string {
   const groups: { dir: string; cmds: string[] }[] = [];
   for (const c of commands) {
@@ -318,7 +318,11 @@ export function localCommandsDisplay(commands: LocalCommand[]): string {
     else groups.push({ dir, cmds: [c.argv.join(" ")] });
   }
   return groups
-    .map((g) => (g.dir === "." ? g.cmds.join(" && ") : `cd ${g.dir} && ${g.cmds.join(" && ")}`))
+    .map((g) => {
+      const cmds = g.cmds.join(" && ");
+      if (g.dir === ".") return cmds;
+      return groups.length === 1 ? `cd ${g.dir} && ${cmds}` : `(cd ${g.dir} && ${cmds})`;
+    })
     .join("; ");
 }
 

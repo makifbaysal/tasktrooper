@@ -378,20 +378,20 @@ func (l LocalCommand) Display() string {
 
 // JoinLocalCommands renders a command sequence the way a person would type
 // it: commands sharing a directory run under one `cd`, groups separated by
-// "; " because every Dir is relative to the repository root.
+// "; ". Every Dir is relative to the repository root, so with more than one
+// group each `cd` runs in a subshell — typed as one line, a bare second
+// `cd b` would be relative to the first and fail.
 func JoinLocalCommands(cmds []LocalCommand) string {
 	var groups []string
 	var current []string
 	currentDir := ""
+	var dirs []string
 	flush := func() {
 		if len(current) == 0 {
 			return
 		}
-		g := strings.Join(current, " && ")
-		if currentDir != "." {
-			g = "cd " + currentDir + " && " + g
-		}
-		groups = append(groups, g)
+		groups = append(groups, strings.Join(current, " && "))
+		dirs = append(dirs, currentDir)
 		current = nil
 	}
 	for i, c := range cmds {
@@ -406,6 +406,15 @@ func JoinLocalCommands(cmds []LocalCommand) string {
 		current = append(current, strings.Join(c.Argv, " "))
 	}
 	flush()
+	for i, g := range groups {
+		switch {
+		case dirs[i] == ".":
+		case len(groups) == 1:
+			groups[i] = "cd " + dirs[i] + " && " + g
+		default:
+			groups[i] = "(cd " + dirs[i] + " && " + g + ")"
+		}
+	}
 	return strings.Join(groups, "; ")
 }
 

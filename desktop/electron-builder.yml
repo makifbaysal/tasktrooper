@@ -168,5 +168,16 @@ linux:
 appImage:
   artifactName: ${productName}-${version}-${arch}.${ext}
 
+# The AppImage runtime. The default ("0.0.0") is the legacy FUSE 2 runtime,
+# which needs libfuse.so.2 — not installed on a stock Ubuntu 22.04 or 24.04, so
+# the AppImage would not start there at all. 1.0.3 is the static runtime, which
+# carries its own FUSE 3 support, and whose AppRun adds --no-sandbox itself
+# only when unprivileged user namespaces are unavailable (Ubuntu 24.04's
+# AppArmor default) instead of on every launch. electron-builder 26 (the
+# version in package-lock) validates this key; a value it does not list fails
+# the build at config load.
+toolsets:
+  appimage: "1.0.3"
+
 deb:
   artifactName: ${productName}-${version}-${arch}.${ext}

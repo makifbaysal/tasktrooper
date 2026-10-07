@@ -34,5 +34,5 @@ func TestScanEnvExamplesReadsNamesValuesAndWhereTheyLive(t *testing.T) {
 		"GITHUB_BRANCH":       "master",
 		"API_URL":             "https://api.example.com",
 	}, byName)
-	assert.Equal(t, filepath.Join("apps", "web", ".env.sample"), paths["API_URL"])
+	assert.Equal(t, "apps/web/.env.sample", paths["API_URL"], "the API path is slash-separated on every OS")
 }

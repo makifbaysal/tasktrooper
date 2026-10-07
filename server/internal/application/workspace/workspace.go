@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/google/uuid"
@@ -46,12 +47,25 @@ func AgentDir(root string, agentID uuid.UUID) (string, error) {
 // separator, or any form of "..", is rejected rather than sanitised: the value
 // is joined onto a workspace root, and a name that can climb out of it is a bug
 // wherever it came from.
+//
+// A backslash is a separator for this purpose on every OS: names reach here
+// from paths another host wrote, and on Unix `C:\Users\me\acme` is otherwise
+// one perfectly valid name.
 func CleanDirName(name string) string {
+	return cleanDirNameFor(name, runtime.GOOS)
+}
+
+func cleanDirNameFor(name, goos string) string {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" || trimmed == "." || trimmed == ".." {
 		return ""
 	}
-	if strings.ContainsRune(trimmed, os.PathSeparator) || strings.ContainsRune(trimmed, '/') {
+	if strings.ContainsAny(trimmed, `/\`) {
+		return ""
+	}
+	// On Windows "a:b" names a stream of a, and a name of only dots and
+	// spaces normalises to the directory it is joined onto.
+	if goos == "windows" && (strings.ContainsRune(trimmed, ':') || strings.TrimRight(trimmed, ". ") == "") {
 		return ""
 	}
 	return trimmed
@@ -122,7 +136,7 @@ func RemoveDirWithin(root, path string) error {
 	if err != nil {
 		return fmt.Errorf("resolve path: %w", err)
 	}
-	if abs == absRoot {
+	if isRootItself(absRoot, abs) {
 		return fmt.Errorf("refusing to remove the workspace root %q", absRoot)
 	}
 	ok, err := IsWithinRoot(abs, absRoot)

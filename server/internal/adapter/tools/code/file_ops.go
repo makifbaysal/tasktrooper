@@ -3,6 +3,7 @@ package code
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,15 +19,6 @@ const (
 	deleteFileToolName = "delete_file"
 	moveFileToolName   = "move_file"
 )
-
-// protectedNames are paths no agent edit may remove or move, whatever it was
-// asked to clean up. .git IS the task workspace: deleting it destroys the
-// branch, the history and the run's only way to hand work back, and it is the
-// kind of thing a "remove the old build artifacts" instruction can reach by
-// accident.
-var protectedNames = map[string]bool{
-	".git": true,
-}
 
 type deleteFileArgs struct {
 	Path      string `json:"path"`
@@ -188,12 +180,21 @@ func (t *moveFileTool) Execute(ctx context.Context, arguments string) domain.Too
 		return toolError(moveFileToolName, fmt.Sprintf("stat %s: %v", args.From, err))
 	}
 
-	if _, err := os.Stat(dst); err == nil {
-		if !args.Overwrite {
-			return toolError(moveFileToolName, prompt.CodeMoveDestExistsText(args.To))
-		}
-		if err := os.RemoveAll(dst); err != nil {
-			return toolError(moveFileToolName, fmt.Sprintf("replace %s: %v", args.To, err))
+	switch caseOnly, sameEntry := sameDirectoryEntry(src, dst); {
+	case caseOnly:
+		// Button.tsx → button.tsx on a case-insensitive filesystem: dst "exists"
+		// because it IS src, and removing it to make room deletes the file being
+		// moved. Rename alone changes the case.
+	case sameEntry:
+		return toolError(moveFileToolName, "from and to are the same path")
+	default:
+		if _, err := os.Stat(dst); err == nil {
+			if !args.Overwrite {
+				return toolError(moveFileToolName, prompt.CodeMoveDestExistsText(args.To))
+			}
+			if err := os.RemoveAll(dst); err != nil {
+				return toolError(moveFileToolName, fmt.Sprintf("replace %s: %v", args.To, err))
+			}
 		}
 	}
 
@@ -210,29 +211,34 @@ func (t *moveFileTool) Execute(ctx context.Context, arguments string) domain.Too
 	}
 }
 
+// sameDirectoryEntry reports whether src and dst already name one entry, and
+// whether they differ only in case — the one shape of that a rename resolves.
+// Lstat, so a symlink at dst is its own entry and not the file it points at.
+func sameDirectoryEntry(src, dst string) (caseOnly, same bool) {
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return false, false
+	}
+	dstInfo, err := os.Lstat(dst)
+	if err != nil || !os.SameFile(srcInfo, dstInfo) {
+		return false, false
+	}
+	return strings.EqualFold(src, dst), true
+}
+
 // resolveEditablePath confines a path to the workspace and refuses the ones no
-// edit may touch. Containment is the same rule the read tools apply — `path` is
-// model output, and filepath.Join cleans rather than confines.
+// edit may touch: the root itself and anything that reaches .git, under every
+// spelling the host filesystem accepts (see workspace.ResolveEditableWithinRoot).
 func resolveEditablePath(root, rel, tool string) (string, error) {
-	abs, err := workspace.ResolveWithinRoot(root, rel)
-	if err != nil {
-		return "", err
-	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("resolve workspace root: %w", err)
-	}
-	if abs == absRoot {
+	abs, err := workspace.ResolveEditableWithinRoot(root, rel)
+	var protected *workspace.ProtectedPathError
+	switch {
+	case err == nil:
+		return abs, nil
+	case errors.Is(err, workspace.ErrWorkspaceRoot):
 		return "", fmt.Errorf("%s cannot operate on the workspace root itself", tool)
+	case errors.As(err, &protected):
+		return "", fmt.Errorf("%q is protected: %s may not touch it", protected.Segment, tool)
 	}
-	relToRoot, err := filepath.Rel(absRoot, abs)
-	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", rel, err)
-	}
-	for _, segment := range strings.Split(filepath.ToSlash(relToRoot), "/") {
-		if protectedNames[segment] {
-			return "", fmt.Errorf("%q is protected: %s may not touch it", segment, tool)
-		}
-	}
-	return abs, nil
+	return "", err
 }

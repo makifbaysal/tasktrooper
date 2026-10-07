@@ -87,9 +87,9 @@ Pick the first path that applies:
 
 **(b) Remote/shared phone with no local install path.** It shows the stage build only — use (c) or (d) to see your own change; say so in the closing message.
 
-**(c) Flutter widget previewer (no device needed, verified).** Add `@Preview(name: 'phone dark 2x', size: Size(360, 640), brightness: Brightness.dark, textScaleFactor: 2.0)` beside the widget (`import 'package:flutter/widget_previews.dart'`). Run `flutter widget-preview start --web-server > /tmp/tt-<task key>/preview.log 2>&1 &`. The log prints `lib/main.dart is being served at http://localhost:<port>`; then `browser_navigate` → `browser_screenshot`. The previewer runs on the web: a widget touching `dart:io` or a plugin needs a fake in the preview.
+**(c) Flutter widget previewer (no device needed, verified).** Add `@Preview(name: 'phone dark 2x', size: Size(360, 640), brightness: Brightness.dark, textScaleFactor: 2.0)` beside the widget (`import 'package:flutter/widget_previews.dart'`). Run `mkdir -p /tmp/tt-<task key> && flutter widget-preview start --web-server > /tmp/tt-<task key>/preview.log 2>&1 &`. The log prints `lib/main.dart is being served at http://localhost:<port>`; then `browser_navigate` → `browser_screenshot`. The previewer runs on the web: a widget touching `dart:io` or a plugin needs a fake in the preview.
 
-**(d) Native screenshots over loopback.** Start a loopback server over the screenshot directory, e.g. `python3 -m http.server 8799 --bind 127.0.0.1 -d <dir> > /tmp/tt-<task key>/shots.log 2>&1 &`. Then `browser_navigate http://127.0.0.1:8799/<file>.png` → `browser_screenshot`. `file://` is refused by the browser guard; loopback http is allowed by default.
+**(d) Native screenshots over loopback.** Start a loopback server over the screenshot directory, e.g. `mkdir -p /tmp/tt-<task key> && python3 -m http.server 8799 --bind 127.0.0.1 -d <dir> > /tmp/tt-<task key>/shots.log 2>&1 &` (`py -3` instead of `python3` on Windows). Then `browser_navigate http://127.0.0.1:8799/<file>.png` → `browser_screenshot`. `file://` is refused by the browser guard; loopback http is allowed by default.
 
 If a device call reports the device busy, stop: the task is parked and resumes by itself — do not retry in a loop.
 

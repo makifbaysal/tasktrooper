@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { ChildId, ChildState, ChildStatus } from "../../ipc/types.js";
+import { launchFor, type Launch } from "../services/winshim.js";
 import { LineSplitter } from "./log-buffer.js";
 import { killTree, signalTree, type RecordedChild } from "./reaper.js";
 
@@ -147,14 +148,18 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let proc: ChildProcess;
+      let launch: Launch;
       try {
-        proc = spawn(this.#spec.command, this.#spec.args, {
-          env: this.#spec.env,
+        // A Windows .cmd shim (an npm-installed appium) is turned into the node
+        // invocation it would have made; see winshim.ts for why `shell: true`
+        // is not the answer to Node's EINVAL on a batch file.
+        launch = launchFor(this.#spec.command, this.#spec.args, this.#spec.env);
+        proc = spawn(launch.command, launch.args, {
+          env: launch.env,
           ...(this.#spec.cwd !== undefined ? { cwd: this.#spec.cwd } : {}),
           stdio: [this.#spec.stdinPipe ? "pipe" : "ignore", "pipe", "pipe"],
-          // No shell by default to protect arguments and secrets. On Windows,
-          // batch scripts (.cmd, .bat) require shell: true or spawn throws EINVAL.
-          shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(this.#spec.command),
+          shell: false,
+          ...(launch.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
           // Its own process group, so a stray SIGINT reaching this app does
           // not race the ordered teardown by killing the children first.
           detached: process.platform !== "win32",
@@ -174,7 +179,9 @@ export class SupervisedChild extends EventEmitter<ChildEvents> {
           this.#hooks.onSpawn?.({
             id: this.id,
             pid: spawnedPid,
-            command: [this.#spec.command, ...this.#spec.args].join(" "),
+            // What actually runs, so the next boot's reaper compares like with
+            // like: a resolved shim's live command line is node's, not the .cmd's.
+            command: [launch.command, ...launch.args].join(" "),
             startedAt: Date.now(),
           });
         } catch {

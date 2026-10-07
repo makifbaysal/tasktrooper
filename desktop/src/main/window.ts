@@ -22,8 +22,15 @@ import { originOf } from "./services/app-scheme.js";
  *    attached to one origin.
  */
 
-/** Height of the shell's title bar, in CSS pixels. The view is inset below it. */
-export const CHROME_HEIGHT = 44;
+/**
+ * Height of the shell's title bar, in CSS pixels; the view is inset below it.
+ * Only macOS has one: it is the strip the traffic lights sit in, and Windows
+ * and Linux draw a native title bar of their own above the content instead.
+ * `src/renderer/App.tsx` draws the strip on the same condition.
+ */
+export function chromeHeight(platform: NodeJS.Platform = process.platform): number {
+  return platform === "darwin" ? 44 : 0;
+}
 
 /**
  * The route the window opens on.
@@ -53,6 +60,12 @@ export interface WindowDeps {
    * the tray's Quit still end the app.
    */
   quitStarted: () => boolean;
+  /**
+   * Windows is logging off or shutting down. It arrives on a window, not on
+   * `app`, and the session ends a few seconds later whatever this does — so it
+   * is the cue to start the drain, not something to wait for.
+   */
+  onSessionEnd?: () => void;
 }
 
 export class Shell {
@@ -95,7 +108,11 @@ export class Shell {
     return this.#cloud?.webContents ?? null;
   }
 
-  create(): BrowserWindow {
+  /**
+   * `hidden` is for a start by the login item on Windows and Linux: the window
+   * exists, so the tray and a relaunch can show it, and nothing pops up at login.
+   */
+  create(opts: { hidden?: boolean } = {}): BrowserWindow {
     if (this.#window && !this.#window.isDestroyed()) return this.#window;
 
     const window = new BrowserWindow({
@@ -112,7 +129,9 @@ export class Shell {
       // center and reads as misaligned against the logo next to it.
       ...(process.platform === "darwin"
         ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 20, y: 22 } }
-        : {}),
+        : // The application menu (app-menu.ts) stays bound for its shortcuts;
+          // the bar itself only appears on Alt.
+          { autoHideMenuBar: true }),
       backgroundColor: "#0b0d13",
       webPreferences: {
         preload: path.join(app.getAppPath(), "dist", "preload", "index.cjs"),
@@ -128,7 +147,7 @@ export class Shell {
       },
     });
 
-    window.once("ready-to-show", () => window.show());
+    if (!opts.hidden) window.once("ready-to-show", () => window.show());
     // The default close action destroys the window (and the WebContentsView
     // riding on it — the React tree, the open SSE reader, every in-flight
     // chat's state) even though the product is a menu-bar app whose backend
@@ -143,6 +162,10 @@ export class Shell {
       this.#window = null;
       this.#cloud = null;
     });
+    if (process.platform === "win32" && this.#deps.onSessionEnd) {
+      const onSessionEnd = this.#deps.onSessionEnd;
+      window.on("session-end", () => onSessionEnd());
+    }
     window.on("resize", () => this.#layout());
     // Full screen hides the traffic lights, so the strip kept for them would be
     // dead space above the header; both transitions re-place the view.
@@ -340,7 +363,7 @@ export class Shell {
     const window = this.#window;
     if (!window || window.isDestroyed() || !this.#cloud) return;
     const [width, height] = window.getContentSize();
-    const top = window.isFullScreen() ? 0 : CHROME_HEIGHT;
+    const top = window.isFullScreen() ? 0 : chromeHeight();
     this.#cloud.setBounds({
       x: 0,
       y: top,

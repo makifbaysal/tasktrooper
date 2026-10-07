@@ -8,6 +8,7 @@ import {
   FIRST_CHECK_DELAY_MS,
   UpdateService,
   feedNotFound,
+  installsOnQuit,
   feedUrlIsUsable,
   resolveFeed,
   signatureUnsupported,
@@ -210,6 +211,15 @@ describe("signatureUnsupported", () => {
   });
 });
 
+describe("installsOnQuit", () => {
+  it("is off only for a Linux package install, which is not an AppImage", () => {
+    expect(installsOnQuit("linux", {})).toBe(false);
+    expect(installsOnQuit("linux", { APPIMAGE: "/home/me/TaskTrooper.AppImage" })).toBe(true);
+    expect(installsOnQuit("darwin", {})).toBe(true);
+    expect(installsOnQuit("win32", {})).toBe(true);
+  });
+});
+
 describe("UpdateService", () => {
   function service(feedKind: "ok" | "github" | "none" = "ok") {
     const backend = new FakeBackend();
@@ -254,6 +264,18 @@ describe("UpdateService", () => {
     // MacUpdater has none. See services/updater.ts.
     expect(backend.autoInstallOnAppQuit).toBe(true);
     expect(backend.allowDowngrade).toBe(false);
+  });
+
+  it("never installs on quit when told not to — a deb, whose installer is a root prompt", () => {
+    const backend = new FakeBackend();
+    new UpdateService({
+      backend,
+      feed: { kind: "bundled", provider: "generic", url: "https://example.com/linux/" },
+      onStatus: () => undefined,
+      installOnQuit: false,
+    }).start();
+    expect(backend.autoInstallOnAppQuit).toBe(false);
+    expect(backend.autoDownload).toBe(true);
   });
 
   it("walks idle → checking → available → ready as the download progresses", async () => {

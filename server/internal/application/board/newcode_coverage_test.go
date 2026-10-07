@@ -127,6 +127,15 @@ func TestNewCodeCoverageReportStatesTheFigureWithoutGating(t *testing.T) {
 	})
 }
 
+func TestChangedLinesNameNonASCIIPathsUnquoted(t *testing.T) {
+	dir := initGitRepoWithChange(t, map[string]int{"ödeme/sepet.go": 2})
+
+	changed, err := changedLines(context.Background(), dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]map[int]bool{"ödeme/sepet.go": {1: true, 2: true}}, changed)
+}
+
 func initGitRepoWithChange(t *testing.T, files map[string]int) string {
 	t.Helper()
 	dir := t.TempDir()

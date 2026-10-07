@@ -89,3 +89,10 @@ func (s *HostEnvironmentSuite) TestSystemPromptCarriesTheHost() {
 	onDisk := prompt.BuildSystemPromptFor(domain.Agent{}, nil, nil, nil, "", prompt.SkillsOnDisk)
 	s.Contains(onDisk, prompt.HostEnvironmentNote(current, false))
 }
+
+func (s *HostEnvironmentSuite) TestShellPathUsesForwardSlashesOnlyForGitBashOnWindows() {
+	win := `C:\Users\me\AppData\Roaming\TaskTrooper\workspaces\task-1`
+	s.Equal("C:/Users/me/AppData/Roaming/TaskTrooper/workspaces/task-1", prompt.ShellPathFor("windows", hostshell.POSIX, win))
+	s.Equal(win, prompt.ShellPathFor("windows", hostshell.PowerShell, win))
+	s.Equal("/home/me/ws", prompt.ShellPathFor("linux", hostshell.POSIX, "/home/me/ws"))
+}

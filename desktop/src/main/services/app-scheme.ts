@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { app, net, protocol } from "electron";
 
 /**
@@ -145,6 +146,9 @@ export function serveAppScheme(): void {
         headers: { "content-type": "text/plain; charset=utf-8" },
       });
     }
-    return net.fetch(`file://${file}`);
+    // Not `file://${file}`: on Windows that is `file://C:\...`, which reads
+    // C: as a host, and anywhere a `#`, `?` or `%` in the install path would
+    // be parsed as part of the URL rather than the file name.
+    return net.fetch(pathToFileURL(file).toString());
   });
 }

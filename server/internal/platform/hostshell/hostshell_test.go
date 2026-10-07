@@ -127,3 +127,17 @@ func (s *HostShellSuite) TestDefaultRunsAScript() {
 	s.Require().NoError(err)
 	s.Equal("3", strings.TrimSpace(string(out)))
 }
+
+func (s *HostShellSuite) TestResolveArgvRunsScriptsThroughGitBash() {
+	bash := Shell{Path: `C:\Program Files\Git\bin\bash.exe`, Name: "Git Bash", Kind: POSIX}
+
+	s.Equal([]string{bash.Path, "./scripts/ci.sh", "--fast"}, resolveArgv(bash, []string{"./scripts/ci.sh", "--fast"}))
+	s.Equal([]string{bash.Path, "scripts/release-local.sh", "web"}, resolveArgv(bash, []string{"bash", "scripts/release-local.sh", "web"}))
+	s.Equal([]string{bash.Path, "x.sh"}, resolveArgv(bash, []string{`C:\Windows\System32\bash.exe`, "x.sh"}))
+	s.Equal([]string{"npm", "test"}, resolveArgv(bash, []string{"npm", "test"}))
+}
+
+func (s *HostShellSuite) TestResolveArgvLeavesArgvAloneWithoutAPOSIXShell() {
+	ps := Shell{Path: "powershell.exe", Kind: PowerShell}
+	s.Equal([]string{"./ci.sh"}, resolveArgv(ps, []string{"./ci.sh"}))
+}

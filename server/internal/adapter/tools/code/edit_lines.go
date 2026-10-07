@@ -141,9 +141,10 @@ func (t *editLinesTool) Execute(ctx context.Context, arguments string) domain.To
 		return toolError(editLinesToolName, fmt.Sprintf("%s: %v", args.Path, err))
 	}
 
-	out := strings.Join(updated, "\n")
+	eol := dominantEOL(string(raw))
+	out := strings.Join(updated, eol)
 	if len(updated) > 0 {
-		out += "\n"
+		out += eol
 	}
 	if err := os.WriteFile(abs, []byte(out), info.Mode().Perm()); err != nil {
 		return toolError(editLinesToolName, fmt.Sprintf("write %s: %v", args.Path, err))

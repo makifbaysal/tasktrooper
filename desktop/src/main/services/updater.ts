@@ -237,9 +237,25 @@ export interface UpdaterBackend {
 
 // --- the service ------------------------------------------------------------
 
+/**
+ * Whether a staged update may install itself when the app quits.
+ *
+ * Everywhere but a Linux package install. There electron-updater's DebUpdater
+ * installs with `pkexec dpkg -i`, so "on quit" means a root password prompt
+ * appearing as the user closes the app — at logout, unattended, or after they
+ * have walked away. A deb is updated by the explicit "Restart to update", where
+ * the prompt is the expected next step, or by the package manager. The
+ * AppImage replaces its own file and needs nothing, so it keeps the default.
+ */
+export function installsOnQuit(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): boolean {
+  return platform !== "linux" || !!env.APPIMAGE;
+}
+
 export interface UpdateServiceDeps {
   backend: UpdaterBackend;
   feed: Feed;
+  /** `installsOnQuit()` for this launch; defaults to true. */
+  installOnQuit?: boolean;
   /** Called on every status change, so the title bar and the tray both follow. */
   onStatus: (status: UpdateStatus) => void;
   /** Injected so a test does not depend on the wall clock. */
@@ -305,6 +321,7 @@ export class UpdateService {
   readonly #now: () => number;
   readonly #debug: boolean;
   readonly #logLine: (line: string) => void;
+  readonly #installOnQuit: boolean;
 
   #status: UpdateStatus;
   #started = false;
@@ -318,6 +335,7 @@ export class UpdateService {
     this.#now = deps.now ?? (() => Date.now());
     this.#debug = deps.debug ?? false;
     this.#logLine = deps.logLine ?? (() => {});
+    this.#installOnQuit = deps.installOnQuit ?? true;
     this.#status =
       this.#feed.kind === "none"
         ? { phase: "unsupported", detail: this.#feed.reason }
@@ -349,8 +367,9 @@ export class UpdateService {
     // On macOS: hand the download to Squirrel as soon as it lands, so the
     // signature check happens while the user is still working, and leave ShipIt
     // waiting to swap the bundle when this process exits — without relaunching.
-    // That is what makes "applies on quit" true here. See the header.
-    backend.autoInstallOnAppQuit = true;
+    // That is what makes "applies on quit" true here. See the header. Off for
+    // a deb, whose installer is a root prompt: see `installsOnQuit`.
+    backend.autoInstallOnAppQuit = this.#installOnQuit;
     // A feed that has gone backwards is a mistake at the publishing end, and
     // silently installing an older build over a newer one is the worst
     // available response to it.

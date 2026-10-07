@@ -22,13 +22,14 @@ func Exclude(root string) error {
 		return errors.New("agentfs: root is empty")
 	}
 
-	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
+	commonDir, err := gitCommonDir(root)
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("agentfs: stat .git in %s: %w", root, err)
+		return err
 	}
 
-	infoDir := filepath.Join(root, ".git", "info")
+	infoDir := filepath.Join(commonDir, "info")
 	path := filepath.Join(infoDir, "exclude")
 	existing, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -73,4 +74,52 @@ func Exclude(root string) error {
 		return err
 	}
 	return nil
+}
+
+// gitCommonDir is the directory git reads info/exclude from, the same one
+// `git rev-parse --git-path info/exclude` resolves. In a linked worktree or a
+// submodule .git is a file ("gitdir: <path>"), not a directory: the gitdir it
+// names belongs to that one worktree, and a worktree's gitdir records the
+// shared repository in its commondir file — which is where info/ lives.
+func gitCommonDir(root string) (string, error) {
+	dotGit := filepath.Join(root, ".git")
+	info, err := os.Stat(dotGit)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		return "", fmt.Errorf("agentfs: stat .git in %s: %w", root, err)
+	}
+	if info.IsDir() {
+		return dotGit, nil
+	}
+
+	raw, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", fmt.Errorf("agentfs: read %s: %w", dotGit, err)
+	}
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir:")
+	if !ok {
+		return "", fmt.Errorf("agentfs: %s is a file without a gitdir: line", dotGit)
+	}
+	gitDir = resolveFrom(root, strings.TrimSpace(gitDir))
+	if _, err := os.Stat(gitDir); err != nil {
+		return "", fmt.Errorf("agentfs: gitdir of %s: %w", root, err)
+	}
+
+	common, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if errors.Is(err, os.ErrNotExist) {
+		return gitDir, nil
+	} else if err != nil {
+		return "", fmt.Errorf("agentfs: read %s: %w", filepath.Join(gitDir, "commondir"), err)
+	}
+	return resolveFrom(gitDir, strings.TrimSpace(string(common))), nil
+}
+
+func resolveFrom(base, path string) string {
+	path = filepath.FromSlash(path)
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(base, path)
 }

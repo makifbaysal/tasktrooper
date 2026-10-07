@@ -38,8 +38,25 @@ vi.mock("electron", () => ({
   app: { getAppPath: () => paths.appPath, getPath: () => paths.userData, isPackaged: false },
 }));
 
-const { androidSdkDefaultRoot, classifyAuthStatus, firstBlocker, gitRemediation, preflight, preflightReady, probePostgres } =
-  await import("./detect.js");
+// The developer's own shell profile is not part of what this suite tests: a
+// login PATH that happens to hold an `appium` or a `claude` would change the
+// reports below from one machine to the next.
+vi.mock("./login-env.js", () => ({
+  loginShellPath: () => Promise.resolve([]),
+  knownLoginShellPath: () => [],
+}));
+
+const {
+  androidSdkDefaultRoot,
+  androidToolPath,
+  classifyAuthStatus,
+  fallbackDirs,
+  firstBlocker,
+  gitRemediation,
+  preflight,
+  preflightReady,
+  probePostgres,
+} = await import("./detect.js");
 
 // --- the fake CLI ----------------------------------------------------------
 
@@ -513,14 +530,28 @@ describe("preflight: the mobile toolchain", () => {
 
 // --- Windows and Linux: right place, right remediation ----------------------
 
+/**
+ * Runs `fn` as if on `platform`, until it has finished — including, for an
+ * async `fn`, everything after its first await. `preflight()` awaits the login
+ * shell before it probes, so restoring the platform when the promise is merely
+ * returned would run every probe on the real one.
+ */
 function withPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
   const original = Object.getOwnPropertyDescriptor(process, "platform");
-  Object.defineProperty(process, "platform", { value: platform, configurable: true });
-  try {
-    return fn();
-  } finally {
+  const restore = (): void => {
     if (original) Object.defineProperty(process, "platform", original);
+  };
+  Object.defineProperty(process, "platform", { value: platform, configurable: true });
+  let result: T;
+  try {
+    result = fn();
+  } catch (err) {
+    restore();
+    throw err;
   }
+  if (result instanceof Promise) return result.finally(restore) as T;
+  restore();
+  return result;
 }
 
 describe("git remediation, by platform", () => {
@@ -585,6 +616,65 @@ describe("Android SDK default install root, by platform", () => {
   it("uses ~/Library/Android/sdk on macOS", () => {
     const root = withPlatform("darwin", androidSdkDefaultRoot);
     expect(root.endsWith(path.join("Library", "Android", "sdk"))).toBe(true);
+  });
+});
+
+describe("Android SDK tool paths, by platform", () => {
+  /**
+   * The SDK's binaries are `adb.exe` and `emulator.exe` on Windows. Looking for
+   * the bare name there found neither, on every Windows machine.
+   */
+  it("carries .exe on Windows and nothing elsewhere", () => {
+    expect(withPlatform("win32", () => androidToolPath("SDK", "platform-tools", "adb"))).toBe(
+      path.join("SDK", "platform-tools", "adb.exe"),
+    );
+    expect(withPlatform("win32", () => androidToolPath("SDK", "emulator", "emulator"))).toBe(
+      path.join("SDK", "emulator", "emulator.exe"),
+    );
+    for (const platform of ["darwin", "linux"] as const) {
+      expect(withPlatform(platform, () => androidToolPath("SDK", "platform-tools", "adb"))).toBe(
+        path.join("SDK", "platform-tools", "adb"),
+      );
+    }
+  });
+});
+
+describe("fallback search directories, by platform", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("looks where Git for Windows and per-user installers put things, under %APPDATA%-style roots", () => {
+    vi.stubEnv("ProgramFiles", "PF");
+    vi.stubEnv("ProgramFiles(x86)", "PF86");
+    vi.stubEnv("LOCALAPPDATA", "LAD");
+    const dirs = withPlatform("win32", () => fallbackDirs("HOME")).map((d) => d.dir);
+    expect(dirs).toEqual(
+      expect.arrayContaining([
+        path.join("PF", "Git", "cmd"),
+        path.join("PF86", "Git", "cmd"),
+        path.join("LAD", "Programs", "Git", "cmd"),
+        path.join("PF", "nodejs"),
+        path.join("LAD", "pnpm"),
+      ]),
+    );
+  });
+
+  it("covers the version managers and Linuxbrew a GUI session on Linux knows nothing about", () => {
+    vi.stubEnv("PNPM_HOME", "/home/me/pnpm-home");
+    vi.stubEnv("XDG_DATA_HOME", "");
+    const dirs = withPlatform("linux", () => fallbackDirs("/home/me")).map((d) => d.dir);
+    expect(dirs).toEqual(
+      expect.arrayContaining([
+        "/home/me/.volta/bin",
+        "/home/me/pnpm-home",
+        "/home/me/.fnm",
+        "/home/linuxbrew/.linuxbrew/bin",
+        "/usr/local/bin",
+      ]),
+    );
+    expect(dirs.some((d) => d.includes("Program Files"))).toBe(false);
+    // XDG_DATA_HOME="" means the default, not a directory relative to the cwd.
+    expect(dirs).toContain("/home/me/.local/share/fnm/aliases/default/bin");
+    expect(dirs.every((d) => d.startsWith("/"))).toBe(true);
   });
 });
 

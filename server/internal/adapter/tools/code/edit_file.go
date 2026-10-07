@@ -125,7 +125,15 @@ func (t *editFileTool) Execute(ctx context.Context, arguments string) domain.Too
 	}
 
 	content := string(raw)
-	count := strings.Count(content, args.OldString)
+	eol := dominantEOL(content)
+	oldString, newString := withEOL(args.OldString, eol), withEOL(args.NewString, eol)
+	count := strings.Count(content, oldString)
+	if count == 0 && oldString != args.OldString {
+		// A file with mixed endings can hold this region in the minority one.
+		if verbatim := strings.Count(content, args.OldString); verbatim > 0 {
+			oldString, newString, count = args.OldString, args.NewString, verbatim
+		}
+	}
 	switch {
 	case count == 0:
 		// The single most common failure: the model reconstructs the text from
@@ -140,8 +148,8 @@ func (t *editFileTool) Execute(ctx context.Context, arguments string) domain.Too
 	if args.ReplaceAll {
 		replacements = count
 	}
-	lines := changedLineNumbers(content, args.OldString, args.ReplaceAll)
-	updated := strings.Replace(content, args.OldString, args.NewString, replacements)
+	lines := changedLineNumbers(content, oldString, args.ReplaceAll)
+	updated := strings.Replace(content, oldString, newString, replacements)
 
 	// Preserve the file's mode: a build script or a hook that loses its
 	// executable bit fails later, somewhere that never mentions this edit.

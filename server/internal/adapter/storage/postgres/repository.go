@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain/secrets"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -270,8 +271,15 @@ func (s *RepositoryStore) Get(ctx context.Context, id uuid.UUID) (domain.Reposit
 // conflating those would be worse than the duplicate. Name collision across
 // hosts is the accepted residue — two hosts serving one database are expected
 // to hold the same repositories.
+//
+// On Windows the exact match also accepts a case variant: NTFS opens c:\Repo
+// and C:\repo as one directory, and an exact-only lookup registered it twice.
 func (s *RepositoryStore) GetByRootPath(ctx context.Context, rootPath string) (domain.Repository, error) {
-	r, err := s.scanRepository(s.pool.QueryRow(ctx, `SELECT `+repositoryCols+` FROM repositories WHERE root_path = $1`, rootPath))
+	rootPath = workspace.CanonicalPath(rootPath)
+	r, err := s.scanRepository(s.pool.QueryRow(ctx, `SELECT `+repositoryCols+` FROM repositories
+		WHERE root_path = $1 OR ($2::boolean AND lower(root_path) = lower($1))
+		ORDER BY root_path = $1 DESC, updated_at DESC
+		LIMIT 1`, rootPath, runtime.GOOS == "windows"))
 	if err == nil {
 		return r, nil
 	}
@@ -284,9 +292,10 @@ func (s *RepositoryStore) GetByRootPath(ctx context.Context, rootPath string) (d
 	}
 	// regexp_replace drops everything through the last separator, so this is an
 	// equality test on the directory name — a bound parameter, no LIKE, and no
-	// pattern metacharacters reachable from a caller-supplied path.
+	// pattern metacharacters reachable from a caller-supplied path. Both
+	// separators count: a Windows host stores C:\...\acme-web.
 	rows, queryErr := s.pool.Query(ctx, `SELECT `+repositoryCols+` FROM repositories
-		WHERE regexp_replace(root_path, '^.*/', '') = $1 AND root_path <> $2
+		WHERE regexp_replace(root_path, '^.*[/\\]', '') = $1 AND root_path <> $2
 		ORDER BY updated_at DESC`, name, rootPath)
 	if queryErr != nil {
 		return domain.Repository{}, fmt.Errorf("get repository by root: %w", queryErr)
@@ -321,15 +330,7 @@ func (s *RepositoryStore) GetByRootPath(ctx context.Context, rootPath string) (d
 // repoDirName is the final segment of a root path — the repository's directory
 // name, the only part of a foreign path that means anything on another host.
 func repoDirName(rootPath string) string {
-	trimmed := strings.TrimSpace(rootPath)
-	if trimmed == "" {
-		return ""
-	}
-	name := filepath.Base(filepath.Clean(trimmed))
-	if name == "." || name == ".." || name == string(filepath.Separator) {
-		return ""
-	}
-	return name
+	return workspace.BaseName(rootPath)
 }
 
 func (s *RepositoryStore) List(ctx context.Context) ([]domain.Repository, error) {

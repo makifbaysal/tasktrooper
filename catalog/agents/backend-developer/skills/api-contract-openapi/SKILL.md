@@ -44,8 +44,8 @@ Keep the document's existing OpenAPI version (3.0/3.1/3.2 all current); upgradin
 Diff the spec against the merge base before you finish:
 
 ```
-git show "$(git merge-base HEAD origin/HEAD)":api/openapi.yaml > /tmp/base.yaml
-go run github.com/oasdiff/oasdiff@latest breaking /tmp/base.yaml api/openapi.yaml
+mkdir -p /tmp/tt-<task key> && git show "$(git merge-base HEAD origin/HEAD)":api/openapi.yaml > /tmp/tt-<task key>/base.yaml
+go run github.com/oasdiff/oasdiff@latest breaking /tmp/tt-<task key>/base.yaml api/openapi.yaml
 ```
 
 It must print nothing unless the task is the planned break. Lint with `npx --yes @redocly/cli lint api/openapi.yaml` when the repo has no linter already wired in.

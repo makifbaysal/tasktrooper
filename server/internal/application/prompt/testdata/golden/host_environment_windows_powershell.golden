@@ -1,4 +1,6 @@
 ## Host machine
 This run executes on Windows (amd64). Write every command, path and script invocation for this OS and for the shell run_terminal uses: Windows PowerShell. Never assume macOS or Linux tools on a machine that is not one.
 - run_terminal runs Windows PowerShell, not bash: chain commands with `;`, read environment variables as `$env:NAME`, list with `Get-ChildItem`, search with `Select-String`, delete with `Remove-Item -Recurse -Force`, create a directory with `New-Item -ItemType Directory -Force`. POSIX tools and syntax (sed, grep, chmod, `export X=1`, `2>&1 &`) do not exist.
+- `VAR=x cmd` does not exist: set it first with `$env:VAR='x'; cmd`. Call `curl.exe`, not `curl` (an alias for Invoke-WebRequest in Windows PowerShell). To keep a server running after the call returns, start it with `Start-Process -NoNewWindow -FilePath <program> -ArgumentList <args> -RedirectStandardOutput <log>`.
 - Quote any path with spaces. To find what holds a port use `Get-NetTCPConnection -LocalPort <port>` and stop it with `Stop-Process -Id <pid> -Force`.
+- Never stop processes by name (pkill, killall, `taskkill /IM`): that kills every task's servers and the user's own. Stop what you started by its port or its PID.

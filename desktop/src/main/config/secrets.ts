@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { app, safeStorage } from "electron";
-import { keyStoreHelp } from "./keystore.js";
+import { keyStoreHelp, undecryptableHelp } from "./keystore.js";
 
 /**
  * The two secrets this machine holds, and where they live.
@@ -29,6 +29,15 @@ const FILE = "local.bin";
 /** 32 bytes each. Long enough that guessing is not a threat model. */
 const TOKEN_BYTES = 32;
 
+type StoredSecrets =
+  | { kind: "ok"; secrets: LocalSecrets }
+  | { kind: "missing" }
+  | { kind: "unavailable" }
+  /** The file is there and the key this session has does not open it. */
+  | { kind: "undecryptable" }
+  /** It opened, and what is inside is not a usable pair. */
+  | { kind: "corrupt" };
+
 export interface LocalSecrets {
   /** Bearer for the local backend: its `SERVER_API_KEY`, and the UI's token. */
   api_token: string;
@@ -39,19 +48,25 @@ export interface LocalSecrets {
 
 export class SecretStoreUnavailableError extends Error {
   constructor() {
-    const { failure, remedy } = keyStoreHelp();
-    super(
-      `${failure}, so this app will not store the credentials its local server needs. ${remedy} — ` +
-        "writing them unencrypted is not offered.",
-    );
+    const { failure, remedy, fallback } = keyStoreHelp();
+    super(`${failure}, so this app will not store the credentials its local server needs. ${remedy}. ${fallback}`);
     this.name = "SecretStoreUnavailableError";
+  }
+}
+
+/** A `local.bin` that exists and will not decrypt in this Linux session. See `undecryptableHelp`. */
+export class SecretStoreLockedError extends Error {
+  constructor(file: string) {
+    super(undecryptableHelp(file));
+    this.name = "SecretStoreLockedError";
   }
 }
 
 /**
  * A Linux session with no keyring (a bare window manager, a container) has no OS
- * secret store. Electron can still encrypt there with its fallback key, which is
- * weaker than a keyring and better than refusing to start. No-op elsewhere.
+ * secret store. Electron can still "encrypt" there with a key built into
+ * Electron itself — obscuring, not protecting — which is weaker than a keyring
+ * and better than refusing to start. No-op elsewhere.
  */
 function allowLinuxFallback(): void {
   if (process.platform !== "linux" || typeof safeStorage.getSelectedStorageBackend !== "function") return;
@@ -77,15 +92,26 @@ export class SecretStore {
   /**
    * The secrets, generating them on the first call.
    *
-   * A file that exists but does not decrypt is regenerated rather than treated
-   * as an error: it means the keychain entry was removed or the app was
-   * restored onto a different machine. That costs the provider credentials
-   * stored under the old key, which is unavoidable — they cannot be decrypted
-   * either — and it is better than an app that will not start.
+   * On macOS and Windows a file that exists but does not decrypt is
+   * regenerated rather than treated as an error: the key lives in the login
+   * keychain or behind DPAPI for this user, so a failure means the keychain
+   * entry was removed or the profile was restored onto a different machine —
+   * permanent either way. That costs the provider credentials stored under the
+   * old key, which is unavoidable — they cannot be decrypted either — and it is
+   * better than an app that will not start.
+   *
+   * Linux is the exception, because there the failure is usually NOT
+   * permanent: the backend is picked per session, and a keyring that is locked
+   * or not running today is there again tomorrow. Regenerating would make a
+   * transient failure permanent, so it refuses instead (`SecretStoreLockedError`).
+   *
+   * A file that decrypts and is not a usable pair is corrupt on every platform,
+   * and is replaced.
    */
   ensure(): LocalSecrets {
-    const existing = this.read();
-    if (existing) return existing;
+    const stored = this.#load();
+    if (stored.kind === "ok") return stored.secrets;
+    if (stored.kind === "undecryptable" && process.platform === "linux") throw new SecretStoreLockedError(this.#path());
     allowLinuxFallback();
     if (!safeStorage.isEncryptionAvailable()) throw new SecretStoreUnavailableError();
 
@@ -101,18 +127,30 @@ export class SecretStore {
   }
 
   read(): LocalSecrets | null {
+    const stored = this.#load();
+    return stored.kind === "ok" ? stored.secrets : null;
+  }
+
+  #load(): StoredSecrets {
     let ciphertext: Buffer;
     try {
       ciphertext = readFileSync(this.#path());
     } catch {
-      return null;
+      return { kind: "missing" };
     }
     allowLinuxFallback();
-    if (!safeStorage.isEncryptionAvailable()) return null;
+    if (!safeStorage.isEncryptionAvailable()) return { kind: "unavailable" };
+    let plaintext: string;
     try {
-      return asSecrets(JSON.parse(safeStorage.decryptString(ciphertext)));
+      plaintext = safeStorage.decryptString(ciphertext);
     } catch {
-      return null;
+      return { kind: "undecryptable" };
+    }
+    try {
+      const secrets = asSecrets(JSON.parse(plaintext));
+      return secrets ? { kind: "ok", secrets } : { kind: "corrupt" };
+    } catch {
+      return { kind: "corrupt" };
     }
   }
 

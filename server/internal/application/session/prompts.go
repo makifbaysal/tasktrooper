@@ -50,7 +50,7 @@ func userFacingSystemMessage() domain.Message {
 var workspaceNoteKey = prompt.Define("session.workspace_note", struct{ Dir string }{Dir: "/tmp/ws"})
 
 func workspaceSystemMessage(workspaceDir string) domain.Message {
-	content := workspaceNoteKey.Render(struct{ Dir string }{Dir: workspaceDir})
+	content := workspaceNoteKey.Render(struct{ Dir string }{Dir: prompt.ShellPath(workspaceDir)})
 	return domain.Message{Role: domain.RoleSystem, Content: content}
 }
 

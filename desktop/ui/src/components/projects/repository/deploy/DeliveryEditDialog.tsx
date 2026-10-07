@@ -95,7 +95,7 @@ export function DeliveryEditDialog({ open, onOpenChange, componentId, current, h
     if (d.mode === "dispatch" && !(d.workflow ?? "").trim()) {
       out.push(t("release.deliveryEdit.errors.workflowRequired"));
     }
-    if ((d.workflow ?? "").includes("/")) {
+    if (/[\\/]/.test(d.workflow ?? "")) {
       out.push(t("release.deliveryEdit.errors.workflowNoSlash"));
     }
     if (d.mode === "batch" && d.executor === "local" && !(d.local_command ?? "").trim()) {

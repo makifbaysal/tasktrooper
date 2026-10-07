@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -462,5 +465,84 @@ func TestTruncate(t *testing.T) {
 	}
 	if !strings.Contains(got, "[truncated at 100 bytes]") {
 		t.Fatalf("truncate note missing: %q", got)
+	}
+}
+
+func TestChromeBinWinsOverEveryInstalledBrowser(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "my-chromium")
+	if err := os.WriteFile(bin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CHROME_BIN", bin)
+	got, err := resolveExecPath()
+	if err != nil || got != bin {
+		t.Fatalf("resolveExecPath() = %q, %v; want %q", got, err, bin)
+	}
+}
+
+func TestChromeCandidatesCoverEachOSStockInstall(t *testing.T) {
+	unixNames := []string{"chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "microsoft-edge", "microsoft-edge-stable"}
+	cases := []struct {
+		name      string
+		goos      string
+		env       map[string]string
+		wantPaths []string
+		wantNames []string
+	}{
+		{
+			name: "macOS app bundles",
+			goos: "darwin",
+			wantPaths: []string{
+				"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+				"/Applications/Chromium.app/Contents/MacOS/Chromium",
+				"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+			},
+			wantNames: unixNames,
+		},
+		{
+			name:      "Linux distro chromium, then PATH",
+			goos:      "linux",
+			wantPaths: []string{"/usr/bin/chromium"},
+			wantNames: unixNames,
+		},
+		{
+			name: "Windows machine-wide, per-user, then Edge",
+			goos: "windows",
+			env: map[string]string{
+				"ProgramFiles":      `C:\Program Files`,
+				"ProgramFiles(x86)": `C:\Program Files (x86)\`,
+				"LOCALAPPDATA":      `C:\Users\dev\AppData\Local`,
+			},
+			wantPaths: []string{
+				`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+				`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+				`C:\Users\dev\AppData\Local\Google\Chrome\Application\chrome.exe`,
+				`C:\Users\dev\AppData\Local\Chromium\Application\chrome.exe`,
+				`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+				`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+			},
+			wantNames: []string{"chrome", "msedge"},
+		},
+		{
+			name: "Windows skips locations whose variable is unset",
+			goos: "windows",
+			env:  map[string]string{"ProgramFiles": `C:\Program Files`},
+			wantPaths: []string{
+				`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+				`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+			},
+			wantNames: []string{"chrome", "msedge"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			paths, names := chromeCandidates(tc.goos, func(key string) string { return tc.env[key] })
+			if !reflect.DeepEqual(paths, tc.wantPaths) {
+				t.Fatalf("paths = %q, want %q", paths, tc.wantPaths)
+			}
+			if !reflect.DeepEqual(names, tc.wantNames) {
+				t.Fatalf("names = %q, want %q", names, tc.wantNames)
+			}
+		})
 	}
 }

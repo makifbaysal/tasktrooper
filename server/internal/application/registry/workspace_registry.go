@@ -66,7 +66,10 @@ func (w *WorkspaceRegistry) injectWorkingDir(ctx context.Context, call domain.To
 	requested, _ := args["working_dir"].(string)
 	resolved, err := workspace.ResolveScopedWorkDir(requested, scoped)
 	if err != nil {
-		resolved = scoped
+		// Left as asked, so run_terminal refuses it by name. Swapping in the
+		// scope root would run a command meant for another directory — an
+		// `rm -rf *`, say — in the repository root instead.
+		return call
 	}
 	args["working_dir"] = resolved
 	patched, err := json.Marshal(args)

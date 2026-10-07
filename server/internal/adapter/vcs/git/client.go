@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -153,7 +154,7 @@ func (c *Client) CloneRepo(ctx context.Context, cloneURL, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("clone parent: %w", err)
 	}
-	args := []string{"clone", cloneURL, dest}
+	args := cloneArgs(runtime.GOOS, cloneURL, dest)
 	if tok := c.token(ctx); tok != "" {
 		args = append(authFlags(tok), args...)
 	}
@@ -348,7 +349,7 @@ func (c *Client) EnsureTaskWorkspace(ctx context.Context, projectRoot, workspace
 		baseIsFresh = false
 		log.Warn().Err(err).Str("root", projectRoot).Msg("task workspace: could not refresh project root, branching from local state")
 	}
-	if out, err := c.run(ctx, filepath.Dir(workspacePath), "git", "clone", projectRoot, workspacePath); err != nil {
+	if out, err := c.run(ctx, filepath.Dir(workspacePath), "git", cloneArgs(runtime.GOOS, projectRoot, workspacePath)...); err != nil {
 		return fmt.Errorf("git clone: %w (%s)", err, strings.TrimSpace(out))
 	}
 	origin := c.OriginURL(ctx, projectRoot)
@@ -634,11 +635,11 @@ func (c *Client) TaskDiff(ctx context.Context, workspacePath string) (string, er
 	if base == "" {
 		return "", nil
 	}
-	stat, err := c.run(ctx, workspacePath, "git", "diff", "--stat", base)
+	stat, err := c.run(ctx, workspacePath, "git", "-c", "core.quotepath=off", "diff", "--stat", base)
 	if err != nil {
 		return "", fmt.Errorf("git diff --stat: %w", err)
 	}
-	patch, err := c.run(ctx, workspacePath, "git", "diff", base)
+	patch, err := c.run(ctx, workspacePath, "git", "-c", "core.quotepath=off", "diff", base)
 	if err != nil {
 		return "", fmt.Errorf("git diff: %w", err)
 	}
@@ -703,34 +704,35 @@ func (c *Client) TaskChangedFiles(ctx context.Context, workspacePath string) ([]
 	if base == "" {
 		return nil, nil
 	}
-	out, err := c.run(ctx, workspacePath, "git", "diff", "--name-only", base)
+	out, err := c.run(ctx, workspacePath, "git", "diff", "--name-only", "-z", base)
 	if err != nil {
 		return nil, fmt.Errorf("git diff --name-only: %w", err)
 	}
-	var files []string
-	for _, line := range strings.Split(out, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			files = append(files, line)
-		}
-	}
-	return files, nil
+	return nulSeparated(out), nil
 }
 
 func (c *Client) ChangedFilesSince(ctx context.Context, workspacePath, sha string) ([]string, error) {
 	if sha == "" || !c.HasGit(workspacePath) {
 		return nil, nil
 	}
-	out, err := c.run(ctx, workspacePath, "git", "diff", "--name-only", sha)
+	out, err := c.run(ctx, workspacePath, "git", "diff", "--name-only", "-z", sha)
 	if err != nil {
 		return nil, fmt.Errorf("git diff --name-only: %w", err)
 	}
-	var files []string
-	for _, line := range strings.Split(out, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			files = append(files, line)
+	return nulSeparated(out), nil
+}
+
+// nulSeparated reads a -z listing. Without -z, git quotes a path holding a
+// non-ASCII byte ("\303\244.go") under the default core.quotepath, and the
+// quoted form names no file on disk.
+func nulSeparated(out string) []string {
+	var paths []string
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			paths = append(paths, p)
 		}
 	}
-	return files, nil
+	return paths
 }
 
 func (c *Client) CommitAndPush(ctx context.Context, workspacePath, message string) error {
@@ -930,17 +932,11 @@ func (c *Client) isAncestor(ctx context.Context, rootPath, ancestor, descendant 
 // conflictingPaths reads the paths a failed `git revert` left unmerged, so
 // the caller's error can name them instead of dumping raw git output.
 func (c *Client) conflictingPaths(ctx context.Context, dir string) []string {
-	out, err := c.run(ctx, dir, "git", "diff", "--name-only", "--diff-filter=U")
+	out, err := c.run(ctx, dir, "git", "diff", "--name-only", "-z", "--diff-filter=U")
 	if err != nil {
 		return nil
 	}
-	var paths []string
-	for _, line := range strings.Split(out, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			paths = append(paths, line)
-		}
-	}
-	return paths
+	return nulSeparated(out)
 }
 
 func shasLabel(shas []string) []string {
@@ -1078,21 +1074,129 @@ func (c *Client) run(ctx context.Context, dir, name string, args ...string) (str
 	return c.runEnv(ctx, dir, nil, name, args...)
 }
 
+// runEnv returns stdout alone when the command succeeds: git writes warnings
+// to stderr even then (core.autocrlf's "LF will be replaced by CRLF" on
+// Windows), and callers parse the result as paths, refs and SHAs. A failure
+// returns both streams, because stderr is where git says why.
 func (c *Client) runEnv(ctx context.Context, dir string, extra []string, name string, args ...string) (string, error) {
+	if name == "git" {
+		args = HostArgs(args)
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PATH="+os.Getenv("PATH")+":/opt/homebrew/bin:/usr/local/bin")
+	cmd.Env = toolPathEnv(runtime.GOOS, os.Environ())
 	cmd.Env = append(cmd.Env, commitIdentityEnv()...)
 	cmd.Env = append(cmd.Env, extra...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	tree, err := proctree.Start(cmd)
 	if err == nil {
 		err = cmd.Wait()
 		tree.Close()
 	}
-	return out.String(), err
+	if err == nil {
+		return stdout.String(), nil
+	}
+	return joinOutput(stdout.String(), stderr.String()), err
+}
+
+func joinOutput(stdout, stderr string) string {
+	switch {
+	case strings.TrimSpace(stdout) == "":
+		return stderr
+	case strings.TrimSpace(stderr) == "":
+		return stdout
+	}
+	return strings.TrimRight(stdout, "\n") + "\n" + stderr
+}
+
+// HostArgs prefixes a git argv with the per-invocation config this host
+// needs. Git for Windows refuses paths past MAX_PATH unless core.longpaths is
+// on, and a workspace under %APPDATA% holding a deep node_modules crosses it
+// at clone, checkout and worktree add — and again at reset, rebase, stash pop
+// and worktree remove, which is why every invocation gets it.
+func HostArgs(args []string) []string {
+	return hostArgs(runtime.GOOS, args)
+}
+
+// cloneArgs writes core.longpaths into the new clone's own config on Windows,
+// so the git commands an agent runs in that workspace get it too; hostArgs
+// only covers the calls this client makes itself.
+func cloneArgs(goos string, rest ...string) []string {
+	args := []string{"clone"}
+	if goos == "windows" {
+		args = append(args, "--config", "core.longpaths=true")
+	}
+	return append(args, rest...)
+}
+
+func hostArgs(goos string, args []string) []string {
+	if goos != "windows" {
+		return args
+	}
+	return append([]string{"-c", "core.longpaths=true"}, args...)
+}
+
+// toolDirs are where Homebrew and hand installs put git and gh: an app
+// launched from Finder inherits launchd's PATH, which has neither.
+func toolDirs(goos string) []string {
+	switch goos {
+	case "darwin":
+		return []string{"/opt/homebrew/bin", "/usr/local/bin"}
+	case "linux":
+		return []string{"/usr/local/bin"}
+	}
+	return nil
+}
+
+// toolPathEnv extends the existing PATH entry in place. Windows spells the
+// key "Path"; appending a second, upper-case PATH would leave the child with
+// whichever of the two exec happens to keep.
+func toolPathEnv(goos string, environ []string) []string {
+	dirs := toolDirs(goos)
+	if len(dirs) == 0 {
+		return environ
+	}
+	sep := ":"
+	if goos == "windows" {
+		sep = ";"
+	}
+	out := append([]string(nil), environ...)
+	for i, kv := range out {
+		key, value, ok := strings.Cut(kv, "=")
+		if !ok || !isPathKey(goos, key) {
+			continue
+		}
+		out[i] = key + "=" + appendPathList(value, dirs, sep)
+		return out
+	}
+	return append(out, "PATH="+strings.Join(dirs, sep))
+}
+
+func isPathKey(goos, key string) bool {
+	if goos == "windows" {
+		return strings.EqualFold(key, "PATH")
+	}
+	return key == "PATH"
+}
+
+func appendPathList(list string, dirs []string, sep string) string {
+	have := make(map[string]bool)
+	for _, p := range strings.Split(list, sep) {
+		have[p] = true
+	}
+	for _, d := range dirs {
+		if have[d] {
+			continue
+		}
+		if list != "" {
+			list += sep
+		}
+		list += d
+		have[d] = true
+	}
+	return list
 }
 
 func (c *Client) commitAuthorEnv(ctx context.Context) []string {

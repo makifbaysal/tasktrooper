@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -54,6 +55,7 @@ func TestMissingConfigFields_ArgsIndexPointsAtTheEditableValue(t *testing.T) {
 
 	filled := domain.MissingConfigFields(domain.MCPServer{ID: "filesystem", Args: template.Args}, nil)
 	assert.Empty(t, filled)
+	assert.Equal(t, os.TempDir(), template.Args[2], "a root that exists on every OS, not a literal /tmp")
 
 	truncated := domain.MissingConfigFields(domain.MCPServer{ID: "filesystem", Args: template.Args[:2]}, nil)
 	assert.Equal(t, []string{"2"}, fieldKeys(truncated))

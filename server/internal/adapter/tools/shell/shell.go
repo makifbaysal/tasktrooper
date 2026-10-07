@@ -191,7 +191,7 @@ func (s *shellTool) Execute(ctx context.Context, arguments string) domain.ToolRe
 	tree, err := proctree.Start(cmd)
 	if err == nil {
 		err = cmd.Wait()
-		if execCtx.Err() == nil && backgrounded.MatchString(strings.TrimSpace(a.Command)) {
+		if execCtx.Err() == nil && backgroundsAProcess(strings.TrimSpace(a.Command), hostshell.Default().Kind) {
 			proctree.Default.Track(proctree.ScopeFrom(ctx), tree)
 		} else {
 			tree.Close()
@@ -372,7 +372,13 @@ func (s *shellTool) validateSandbox(ctx context.Context, command, workDir string
 		if err != nil {
 			return fmt.Errorf("invalid configured working directory")
 		}
-		if !strings.HasPrefix(absWork, absBase) {
+		// A bare prefix test let /data/ws-evil pass for /data/ws, and refused
+		// c:\data for C:\data on Windows.
+		ok, err := workspace.IsWithinRoot(absWork, absBase)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			return fmt.Errorf("working directory %q outside allowed path %q", workDir, s.workingDir)
 		}
 	}

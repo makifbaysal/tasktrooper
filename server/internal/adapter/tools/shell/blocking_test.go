@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 )
 
 func TestBlockingCommandReasonRefusesServers(t *testing.T) {
@@ -117,5 +119,63 @@ func TestNewNeverLetsTheCeilingUndercutTheDefault(t *testing.T) {
 
 	if got := s.resolveTimeout(0); got != 5*time.Minute {
 		t.Fatalf("default budget = %s, want 5m; a low ceiling must not shorten it", got)
+	}
+}
+
+// A server started with its PID recorded used to be killed with the call's
+// process tree: only a trailing `&` counted as backgrounding.
+func TestBackgroundsAProcessPOSIX(t *testing.T) {
+	cases := map[string]bool{
+		"npm run dev > /tmp/dev.log 2>&1 &":                      true,
+		"(npm run dev > log 2>&1 & echo $! > /tmp/tt-x/dev.pid)": true,
+		"PORT=1 ./svc > log 2>&1 & echo $! > pid":                true,
+		"nohup npx vite preview > log 2>&1 &":                    true,
+		"go build ./... && go test ./...":                        false,
+		"npm test 2>&1 | tail -20":                               false,
+		"make build &> build.log":                                false,
+		"echo err >&2":                                           false,
+		"curl 'http://localhost:3000/api?a=1&b=2'":               false,
+		`curl "http://localhost:3000/api?a=1&b=2" -o out.json`:   false,
+		"cmd |& tee out.log":                                     false,
+	}
+	for command, want := range cases {
+		if got := backgroundsAProcess(command, hostshell.POSIX); got != want {
+			t.Errorf("backgroundsAProcess(%q) = %v, want %v", command, got, want)
+		}
+	}
+}
+
+func TestBackgroundsAProcessWindowsShells(t *testing.T) {
+	ps := map[string]bool{
+		"Start-Process -NoNewWindow -FilePath npm -ArgumentList 'run','dev'": true,
+		"$j = Start-Job { npm run dev }":                                     true,
+		"npm run dev &":                                                      true,
+		"npm test; Get-Content log":                                          false,
+	}
+	for command, want := range ps {
+		if got := backgroundsAProcess(command, hostshell.PowerShell); got != want {
+			t.Errorf("PowerShell %q = %v, want %v", command, got, want)
+		}
+	}
+	cmd := map[string]bool{
+		`start "" /b npm run dev > log 2>&1`: true,
+		`mkdir x & start /b node server.js`:  true,
+		`npm test && type log`:               false,
+	}
+	for command, want := range cmd {
+		if got := backgroundsAProcess(command, hostshell.Cmd); got != want {
+			t.Errorf("cmd %q = %v, want %v", command, got, want)
+		}
+	}
+}
+
+func TestBlockingRefusalDetachesInTheHostShell(t *testing.T) {
+	ps := prompt.ShellBlockingCommandText("npm run dev", "a dev server", string(hostshell.PowerShell))
+	if !strings.Contains(ps, "Start-Process") || strings.Contains(ps, "mkdir -p") {
+		t.Errorf("PowerShell refusal should detach with Start-Process: %q", ps)
+	}
+	cmd := prompt.ShellBlockingCommandText("npm run dev", "a dev server", string(hostshell.Cmd))
+	if !strings.Contains(cmd, `start "" /b npm run dev`) {
+		t.Errorf("cmd.exe refusal should detach with start /b: %q", cmd)
 	}
 }

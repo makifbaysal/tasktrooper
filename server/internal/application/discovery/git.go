@@ -48,9 +48,12 @@ func gitFacts(ctx context.Context, root string) (domain.ScanGit, []string) {
 	return g, nil
 }
 
+// runGit turns core.quotepath off because hotspots reads `log --name-only`,
+// where git would otherwise print a non-ASCII path as "\303\244.go".
 func runGit(ctx context.Context, root string, args ...string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, gitCmdTimeout)
 	defer cancel()
+	args = append([]string{"-c", "core.quotepath=off"}, args...)
 	cmd := exec.CommandContext(cctx, "git", args...) //nolint:gosec // fixed binary, args are literals
 	cmd.Dir = root
 	out, err := cmd.Output()

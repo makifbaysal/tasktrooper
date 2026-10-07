@@ -165,7 +165,8 @@ func TestQueryRuntimeLogsRejectsAnInvalidSince(t *testing.T) {
 func TestQueryRuntimeLogsAcceptsAnRFC3339Since(t *testing.T) {
 	fx := newTestKit(t)
 	repoID, _, _ := fx.boundEnvironment(domain.EnvironmentProduction, ".")
-	deployedAt := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
+	// Relative to now: a fixed date ages past the lookback cap and gets clamped.
+	deployedAt := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
 
 	tool := &queryRuntimeLogsTool{kit: fx.kit}
 	res := tool.Execute(repoCtx(repoID), `{"since":"`+deployedAt.Format(time.RFC3339)+`"}`)

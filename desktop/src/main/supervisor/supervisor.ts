@@ -129,6 +129,8 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
 
   #settings: UserSettings | null = null;
   #secrets: LocalSecrets | null = null;
+  /** Why `#secrets` is null, when the store said — a locked Linux keyring reads differently from a first run. */
+  #secretsError: string | undefined;
   #overrides: Overrides = {};
   #preflight: PreflightReport = emptyReport();
 
@@ -197,8 +199,14 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
 
   // --- configuration -------------------------------------------------------
 
-  configure(opts: { secrets: LocalSecrets | null; settings: UserSettings; overrides: Overrides }): void {
+  configure(opts: {
+    secrets: LocalSecrets | null;
+    secretsError?: string;
+    settings: UserSettings;
+    overrides: Overrides;
+  }): void {
     this.#secrets = opts.secrets;
+    this.#secretsError = opts.secretsError;
     this.#settings = opts.settings;
     this.#overrides = opts.overrides;
   }
@@ -307,6 +315,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     const secrets = this.#secrets;
     if (!settings) return this.#fail("no settings loaded");
     if (!secrets) {
+      if (this.#secretsError) return this.#fail(this.#secretsError);
       const { failure, remedy } = keyStoreHelp();
       return this.#fail(`This machine has no local credentials yet: ${failure}. ${remedy}.`);
     }
@@ -544,7 +553,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       // it notices this process died without closing anything.
       stdinPipe: true,
       env: {
-        ...childEnv(this.#preflight),
+        ...childEnv(this.#preflight, { ownBinary: true }),
         ELECTRON_RUN_AS_NODE: "1",
         TASKTROOPER_EXIT_ON_STDIN_CLOSE: "1",
         TASKTROOPER_PARENT_PID: String(process.pid),

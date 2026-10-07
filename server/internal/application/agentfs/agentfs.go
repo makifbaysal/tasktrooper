@@ -169,7 +169,7 @@ func writeIfChanged(abs, body string) (bool, error) {
 	if err := os.Chmod(tmpName, 0o644); err != nil {
 		return cleanup(fmt.Errorf("agentfs: chmod %s: %w", tmpName, err))
 	}
-	if err := os.Rename(tmpName, abs); err != nil {
+	if err := rename(tmpName, abs); err != nil {
 		return cleanup(fmt.Errorf("agentfs: rename onto %s: %w", abs, err))
 	}
 	return true, nil
@@ -181,7 +181,7 @@ func removeOwned(root, rel string) error {
 	if filepath.Base(abs) == claudeSkillFile {
 		target = filepath.Dir(abs)
 	}
-	if err := os.RemoveAll(target); err != nil {
+	if err := RemoveAll(target); err != nil {
 		return fmt.Errorf("agentfs: remove %s: %w", target, err)
 	}
 	return nil

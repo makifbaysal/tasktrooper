@@ -235,6 +235,8 @@ func (s *CodeToolsSuite) SetupSuite() {
 				StartLine: 20,
 				EndLine:   22,
 			},
+			{FilePath: "pkg/a.go", Kind: "func", Name: "helper", Signature: "func helper()"},
+			{FilePath: "pkg/b.go", Kind: "func", Name: "helper", Signature: "func helper()"},
 		},
 		edges: []domain.WorkspaceEdge{
 			{
@@ -308,4 +310,52 @@ func (s *CodeToolsSuite) TestInvalidArguments() {
 	tool := code.NewExecutors(s.kit)[0]
 	result := tool.Execute(s.ctx, `not-json`)
 	s.True(result.IsError)
+}
+
+// Index rows are root-relative and slash-separated; a model on Windows sends
+// `pkg\b.go` or the absolute `C:\ws\pkg\b.go`. The absolute form is the one
+// every OS can exercise.
+func (s *CodeToolsSuite) TestExpandSymbolContextAcceptsAnAbsoluteFilePath() {
+	tool := code.NewExecutors(s.kit)[4]
+	payload, err := json.Marshal(map[string]string{
+		"symbol_name": "helper",
+		"file_path":   filepath.Join(s.fixtureRoot, "pkg", "b.go"),
+	})
+	s.Require().NoError(err)
+
+	result := tool.Execute(s.ctx, string(payload))
+
+	s.False(result.IsError, result.Content)
+	s.Contains(result.Content, "pkg/b.go:helper")
+	s.NotContains(result.Content, "pkg/a.go:helper")
+}
+
+func (s *CodeToolsSuite) TestGetSymbolSkeletonAcceptsAnAbsoluteFilePath() {
+	tool := code.NewExecutors(s.kit)[3]
+	for _, args := range []map[string]string{
+		{"symbol_name": "Greet", "file_path": filepath.Join(s.fixtureRoot, "pkg", "main.go")},
+		{"file_path": filepath.Join(s.fixtureRoot, "pkg", "main.go")},
+	} {
+		payload, err := json.Marshal(args)
+		s.Require().NoError(err)
+
+		result := tool.Execute(s.ctx, string(payload))
+
+		s.False(result.IsError, result.Content)
+		s.Contains(result.Content, `"file_path":"pkg/main.go"`)
+	}
+}
+
+func (s *CodeToolsSuite) TestGetRepoTreeAcceptsAnyPrefixSpelling() {
+	tool := code.NewExecutors(s.kit)[2]
+	sep := string(filepath.Separator)
+	for _, prefix := range []string{"." + sep + "pkg" + sep, filepath.Join(s.fixtureRoot, "pkg")} {
+		payload, err := json.Marshal(map[string]string{"prefix": prefix})
+		s.Require().NoError(err)
+
+		result := tool.Execute(s.ctx, string(payload))
+
+		s.False(result.IsError, result.Content)
+		s.Contains(result.Content, "main.go", prefix)
+	}
 }

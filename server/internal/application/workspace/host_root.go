@@ -56,7 +56,7 @@ func HostRootPath(stored, workspaceRoot string, allowedRoots []string) (string, 
 	if err != nil {
 		return stored, false
 	}
-	name := CleanDirName(filepath.Base(filepath.Clean(trimmed)))
+	name := CleanDirName(BaseName(trimmed))
 	if name == "" {
 		return stored, false
 	}
@@ -99,6 +99,14 @@ func reanchorRel(name string) string {
 func UsableHostPath(path, workspaceRoot string, allowedRoots []string) bool {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
+		return false
+	}
+	// A path that is not absolute here was written by a host of another OS: a
+	// POSIX path on Windows, a drive-letter path on Unix. filepath.Abs would
+	// graft it onto this process's working directory or drive, where an allowed
+	// root of "*" accepts anything, and /data/workspaces/x would silently
+	// become C:\data\workspaces\x instead of being re-anchored.
+	if !filepath.IsAbs(trimmed) {
 		return false
 	}
 	abs, err := filepath.Abs(trimmed)

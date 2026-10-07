@@ -81,18 +81,44 @@ func (s *Service) reapStale() {
 		return
 	}
 	for _, e := range loadState(s.workspaceRoot) {
-		if e.PID <= 0 {
+		if e.PID <= 0 || !isStalePreview(e.PID, processCommand(e.PID), e.Command) {
 			continue
 		}
-		terminateProcessGroup(e.PID)
-		go func(pid int) {
-			time.Sleep(stopGrace)
-			killProcessGroup(pid)
-		}(e.PID)
+		log.Info().Int("pid", e.PID).Str("command", e.Command).
+			Msg("local preview: stopping a preview a previous server left running")
+		go stopStale(e.PID, stopGrace)
 	}
 
 	saveState(s.workspaceRoot, nil)
 }
+
+// commandMatches decides whether a persisted pid is still the preview that was
+// started under it. The OS hands a pid out again once its process is gone —
+// on Windows within seconds — so a pid alone could name anything the user
+// runs. The live command line is `sh -c <command>`, or the command itself once
+// the shell exec'd it, so containing it is the test. Where the command line
+// cannot be read (Windows) nothing matches; the job object the preview ran in
+// already ended it with the server that started it.
+func commandMatches(live, started string) bool {
+	live, started = strings.TrimSpace(live), strings.TrimSpace(started)
+	return live != "" && started != "" && strings.Contains(live, started)
+}
+
+// isStalePreview is commandMatches plus the one shape it cannot see: the
+// Maven and Gradle wrappers end in `exec java …`, so a `./mvnw spring-boot:run`
+// preview's pid shows a java command line. That pid still leads the process
+// group the preview was started in, which a recycled pid almost never does.
+func isStalePreview(pid int, live, started string) bool {
+	if commandMatches(live, started) {
+		return true
+	}
+	return jvmWrapper.MatchString(started) && javaCommand.MatchString(live) && leadsOwnGroup(pid)
+}
+
+var (
+	jvmWrapper  = regexp.MustCompile(`(^|[\s/])(mvnw|gradlew|mvn|gradle)(\.bat|\.cmd)?(\s|$)`)
+	javaCommand = regexp.MustCompile(`(^|/)java(\.exe)?(\s|$)`)
+)
 
 type process struct {
 	preview domain.LocalPreview
@@ -313,7 +339,7 @@ func (s *Service) persistLocked() {
 		if p.cmd.Process == nil || p.exited() {
 			continue
 		}
-		entries = append(entries, persistedEntry{RepositoryID: repositoryID, PID: p.cmd.Process.Pid})
+		entries = append(entries, persistedEntry{RepositoryID: repositoryID, PID: p.cmd.Process.Pid, Command: p.preview.Command})
 	}
 	saveState(s.workspaceRoot, entries)
 }

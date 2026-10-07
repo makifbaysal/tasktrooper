@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 )
 
 // A dev server never returns. Run in the foreground it can only ever end one
@@ -40,10 +41,70 @@ var blockingCommands = []struct {
 	{regexp.MustCompile(`^journalctl\s+(-\S*f|--follow)`), "a follow-the-log stream"},
 }
 
-// backgrounded matches a command the caller already detached, which is the
-// supported way to run a server: `npm run dev > /tmp/dev.log 2>&1 &`. Trailing
-// `&` only — `&&` is a sequence operator, not a background operator.
-var backgrounded = regexp.MustCompile(`&\s*$`)
+// backgroundsAProcess reports whether command leaves a process running after
+// the shell returns, which is the supported way to run a server. Only a
+// trailing `&` used to count, so `(npm run dev > log 2>&1 & echo $! > pid)` —
+// the shape the skills teach for keeping a PID — had its server killed with
+// the call's process tree the moment the subshell exited. PowerShell and
+// cmd.exe detach with Start-Process/Start-Job and `start`.
+func backgroundsAProcess(command string, kind hostshell.Kind) bool {
+	switch kind {
+	case hostshell.PowerShell:
+		return powershellDetach.MatchString(command)
+	case hostshell.Cmd:
+		return cmdDetach.MatchString(command)
+	}
+	return posixBackgrounds(command)
+}
+
+var (
+	powershellDetach = regexp.MustCompile(`(?i)(^|[\s;(|&{])(start-process|saps|start-job|start-threadjob)\b|&\s*$`)
+	cmdDetach        = regexp.MustCompile(`(?i)(^|[&|(])\s*start\s`)
+)
+
+// posixBackgrounds reports a background `&` (not `&&`, `|&`, a redirection
+// like `2>&1`/`&>`/`>&2`, or quoted) that detaches on purpose: one that ends
+// the line, possibly inside a subshell (`(… &)`), or one followed by
+// `echo $!` to record the PID. A mid-line `&` that the same line then waits
+// on is part of a foreground command, and its child dies with it.
+func posixBackgrounds(command string) bool {
+	var quote byte
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else if c == '\\' && quote == '"' {
+				i++
+			}
+		case c == '\\':
+			i++
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '&':
+			var prev, next byte
+			if i > 0 {
+				prev = command[i-1]
+			}
+			if i+1 < len(command) {
+				next = command[i+1]
+			}
+			if next == '&' {
+				i++
+				continue
+			}
+			if prev == '>' || prev == '<' || prev == '|' || next == '>' {
+				continue
+			}
+			rest := command[i+1:]
+			if strings.TrimRight(rest, " \t)") == "" || strings.HasPrefix(strings.TrimSpace(rest), "echo $!") {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // blockingCommandReason returns why the command cannot be run in the foreground,
 // or "" when it is fine to execute. Every segment of a compound command is
@@ -51,13 +112,14 @@ var backgrounded = regexp.MustCompile(`&\s*$`)
 // timeout.
 func blockingCommandReason(command string) string {
 	trimmed := strings.TrimSpace(command)
-	if trimmed == "" || backgrounded.MatchString(trimmed) {
+	kind := hostshell.Default().Kind
+	if trimmed == "" || backgroundsAProcess(trimmed, kind) {
 		return ""
 	}
 	for _, segment := range splitSegments(trimmed) {
 		for _, b := range blockingCommands {
 			if b.pattern.MatchString(segment) {
-				return prompt.ShellBlockingCommandText(segment, b.what)
+				return prompt.ShellBlockingCommandText(segment, b.what, string(kind))
 			}
 		}
 	}

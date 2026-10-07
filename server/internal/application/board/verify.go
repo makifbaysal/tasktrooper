@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/toolchain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 	"github.com/rs/zerolog/log"
 )
 
@@ -281,7 +283,8 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 			timeout = defaultStageTimeout
 		}
 		cmdCtx, cancel := context.WithTimeout(ctx, timeout)
-		cmd := exec.CommandContext(cmdCtx, args[0], args[1:]...)
+		argv := hostshell.ResolveArgv(args)
+		cmd := exec.CommandContext(cmdCtx, argv[0], argv[1:]...)
 		cmd.Dir = workDir
 		// The overlay is set unconditionally: empty used to leave cmd.Env nil, and exec reads nil as "inherit the parent".
 		cmd.Env = verifyEnv(os.Environ(), overlay.Env)
@@ -293,7 +296,7 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 		if err == nil {
 			continue
 		}
-		if errors.Is(err, exec.ErrNotFound) {
+		if errors.Is(err, exec.ErrNotFound) || missingToolExit(runtime.GOOS, err) {
 			unverified = append(unverified, fmt.Sprintf("%s (%s is not installed in this environment)",
 				stage.Name, args[0]))
 			log.Warn().Str("stage", stage.Name).Str("tool", args[0]).

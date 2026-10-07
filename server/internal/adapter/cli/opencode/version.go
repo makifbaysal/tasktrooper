@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 )
 
 const versionTimeout = 15 * time.Second
@@ -78,7 +78,7 @@ func fileKey(bin string) string {
 func readMajor(ctx context.Context, bin string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, versionTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "--version")
+	cmd := winshim.Command(ctx, bin, "--version")
 	cmd.Env = core.ProbeEnv()
 	cmd.Dir = os.TempDir()
 	var buf bytes.Buffer

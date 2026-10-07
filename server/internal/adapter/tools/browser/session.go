@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -108,15 +109,51 @@ func resolveExecPath() (string, error) {
 		}
 		return "", errChromeNotFound
 	}
-	if _, err := os.Stat("/usr/bin/chromium"); err == nil {
-		return "/usr/bin/chromium", nil
+	paths, names := chromeCandidates(runtime.GOOS, os.Getenv)
+	for _, p := range paths {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p, nil
+		}
 	}
-	for _, name := range []string{"chromium", "chromium-browser", "google-chrome", "Chromium"} {
+	for _, name := range names {
 		if p, err := exec.LookPath(name); err == nil {
 			return p, nil
 		}
 	}
 	return "", errChromeNotFound
+}
+
+// chromeCandidates lists where each OS's Chrome, Chromium and Edge installers
+// put the browser, then the names to look up on PATH. The macOS and Windows
+// installers never touch PATH, so without the fixed locations a stock install
+// is invisible. Edge is last: it is Chromium underneath and ships with every
+// Windows, so it is what a Windows host without Chrome still has.
+func chromeCandidates(goos string, getenv func(string) string) (paths, names []string) {
+	switch goos {
+	case "darwin":
+		paths = []string{
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+		}
+	case "windows":
+		for _, c := range []struct{ env, rel string }{
+			{"ProgramFiles", `Google\Chrome\Application\chrome.exe`},
+			{"ProgramFiles(x86)", `Google\Chrome\Application\chrome.exe`},
+			{"LOCALAPPDATA", `Google\Chrome\Application\chrome.exe`},
+			{"LOCALAPPDATA", `Chromium\Application\chrome.exe`},
+			{"ProgramFiles(x86)", `Microsoft\Edge\Application\msedge.exe`},
+			{"ProgramFiles", `Microsoft\Edge\Application\msedge.exe`},
+		} {
+			if root := strings.TrimRight(strings.TrimSpace(getenv(c.env)), `\`); root != "" {
+				paths = append(paths, root+`\`+c.rel)
+			}
+		}
+		return paths, []string{"chrome", "msedge"}
+	default:
+		paths = []string{"/usr/bin/chromium"}
+	}
+	return paths, []string{"chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "microsoft-edge", "microsoft-edge-stable"}
 }
 
 // run executes actions on the shared tab with a per-call timeout, with the

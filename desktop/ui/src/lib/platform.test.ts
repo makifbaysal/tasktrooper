@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isMacPlatform, shortcutModifier } from "@/lib/platform";
+import { exampleFolderPath, isMacPlatform, isWindowsPlatform, shortcutModifier } from "@/lib/platform";
 
 const userAgents = {
   mac: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) TaskTrooper/0.2.16 Electron/38.0.0",
@@ -20,5 +20,15 @@ describe("platform", () => {
     vi.stubGlobal("navigator", { userAgent: userAgents[os] });
     expect(isMacPlatform()).toBe(false);
     expect(shortcutModifier()).toBe("Ctrl+");
+  });
+
+  it("gives a folder path example in each OS's own shape", () => {
+    vi.stubGlobal("navigator", { userAgent: userAgents.windows });
+    expect(isWindowsPlatform()).toBe(true);
+    expect(exampleFolderPath()).toMatch(/^C:\\/);
+    vi.stubGlobal("navigator", { userAgent: userAgents.linux });
+    expect(exampleFolderPath()).toMatch(/^\/home\//);
+    vi.stubGlobal("navigator", { userAgent: userAgents.mac });
+    expect(exampleFolderPath()).toMatch(/^\/Users\//);
   });
 });

@@ -20,20 +20,23 @@ func terminateProcessGroup(pid int) {
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
 }
 
-func killProcessGroup(pid int) {
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
-}
-
 // processCommand is a live process's command line, "" when there is none.
+// -ww: a command line cut at the terminal width can no longer contain the
+// command it is compared against.
 func processCommand(pid int) string {
 	if syscall.Kill(pid, 0) != nil {
 		return ""
 	}
-	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	out, err := exec.Command("ps", "-ww", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func leadsOwnGroup(pid int) bool {
+	pgid, err := syscall.Getpgid(pid)
+	return err == nil && pgid == pid
 }
 
 // stopStale stops a process this Service did not start, with the group it

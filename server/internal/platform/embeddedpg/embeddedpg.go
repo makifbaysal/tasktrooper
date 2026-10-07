@@ -15,7 +15,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	embedded "github.com/fergusstrange/embedded-postgres"
@@ -84,6 +83,8 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 	if !downloaded {
 		log.Info().Str("cache_dir", cacheDir).Str("version", string(version)).
 			Msg("downloading the postgres binaries (~30 MB, first start only)")
+	} else if err := markExtracted(cacheDir); err != nil {
+		log.Warn().Err(err).Str("cache_dir", cacheDir).Msg("could not mark the postgres binaries as extracted; they will be extracted again")
 	}
 
 	pg := embedded.NewDatabase(embedded.DefaultConfig().
@@ -186,6 +187,20 @@ func binariesReady(cacheDir string) bool {
 	return err == nil
 }
 
+// markExtracted gives Windows the bin/pg_ctl the library stats to decide
+// whether BinariesPath still needs extracting. Only unix has a file by that
+// name, so on Windows it extracts again on every start, and replacing the
+// .exe files fails while any postgres.exe from this directory still runs. The
+// empty stand-in is never what runs: exec resolves the extension-less path
+// through PATHEXT to pg_ctl.exe.
+func markExtracted(cacheDir string) error {
+	marker := filepath.Join(cacheDir, "bin", "pg_ctl")
+	if fileExists(marker) || !fileExists(marker+".exe") {
+		return nil
+	}
+	return os.WriteFile(marker, nil, 0o644)
+}
+
 // liveCluster reports the port of a postmaster still serving this data
 // directory, which is what a restart after a hard kill of the parent finds.
 func liveCluster(ctx context.Context, pgData string) (uint32, bool) {
@@ -235,14 +250,6 @@ func readPostmasterPID(pgData string) (pid int, port uint32, ok bool) {
 		return 0, 0, false
 	}
 	return pid, uint32(p), true
-}
-
-func processAlive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // logWriter routes the cluster's own output into the process log instead of

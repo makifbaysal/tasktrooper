@@ -19,6 +19,7 @@ import {
   CUSTOM_TEMPLATE_ID,
 } from "@/lib/mcpForm";
 import type { MCPTemplate } from "@/lib/mcpTemplates";
+import { exampleFolderPath } from "@/lib/platform";
 
 interface MCPServerFormProps {
   form: MCPServerFormState;
@@ -162,7 +163,7 @@ export function MCPServerForm({
               id="mcp-args"
               value={form.argsText}
               onChange={(e) => update({ argsText: e.target.value })}
-              placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/tmp"
+              placeholder={`-y\n@modelcontextprotocol/server-filesystem\n${exampleFolderPath()}`}
               className="min-h-[100px] font-mono text-xs"
             />
           </div>

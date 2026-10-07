@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 )
 
 const (
@@ -72,7 +72,7 @@ func childUsage(ctx context.Context, bin string, sessionIDs []string) domain.Usa
 func exportUsage(ctx context.Context, bin, sessionID string) (domain.Usage, error) {
 	ctx, cancel := context.WithTimeout(ctx, childExportTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "export", sessionID)
+	cmd := winshim.Command(ctx, bin, "export", sessionID)
 	cmd.Env = core.ChildEnv(ctx, false, nil)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout

@@ -310,7 +310,7 @@ func scanEnvExamples(root string) []domain.EnvExample {
 			return
 		}
 		for i := range examples {
-			examples[i].Path = rel
+			examples[i].Path = filepath.ToSlash(rel)
 		}
 		out = append(out, examples...)
 	}

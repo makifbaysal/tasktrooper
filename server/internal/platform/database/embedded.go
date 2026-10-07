@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 
 	embedded "github.com/fergusstrange/embedded-postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -215,14 +214,6 @@ func parsePostmasterPID(content string) (pid int, port uint32, ok bool) {
 		return 0, 0, false
 	}
 	return pid, uint32(portNum), true
-}
-
-func processAlive(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 func portReachable(port uint32) bool {

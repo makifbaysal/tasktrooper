@@ -509,6 +509,9 @@ const maxRepoNameLen = 100
 
 // SanitizeRepoName is the name a new repository gets both on GitHub and as its
 // local folder, so the two never drift apart. "" means nothing usable was left.
+// The trim already rules out the trailing dot or space Windows cannot create;
+// a Windows device name is renamed on every OS, because a repository cloned
+// on macOS still has to check out on a Windows machine later.
 func SanitizeRepoName(name string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
@@ -519,7 +522,33 @@ func SanitizeRepoName(name string) string {
 			b.WriteRune('-')
 		}
 	}
-	return strings.Trim(b.String(), "-._")
+	return avoidWindowsDeviceName(strings.Trim(b.String(), "-._"))
+}
+
+// reservedDeviceSuffix is appended to the part before the first dot, since
+// Windows reserves "nul.tar.gz" exactly as it reserves "nul".
+const reservedDeviceSuffix = "-repo"
+
+func avoidWindowsDeviceName(name string) string {
+	stem, ext, _ := strings.Cut(name, ".")
+	if !isWindowsDeviceName(stem) {
+		return name
+	}
+	if ext == "" {
+		return stem + reservedDeviceSuffix
+	}
+	return stem + reservedDeviceSuffix + "." + ext
+}
+
+func isWindowsDeviceName(stem string) bool {
+	switch stem {
+	case "con", "prn", "aux", "nul":
+		return true
+	}
+	if len(stem) == 4 && (strings.HasPrefix(stem, "com") || strings.HasPrefix(stem, "lpt")) {
+		return stem[3] >= '0' && stem[3] <= '9'
+	}
+	return false
 }
 
 // NewRepoDirName validates a requested repository name and returns the single

@@ -77,6 +77,7 @@ func newTestResolver(home string) *Resolver {
 	r.Environ = func() []string { return []string{"PATH=/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin"} }
 	r.LookPath = func(string) (string, error) { return "/usr/bin/fake", nil }
 	r.Version = func(string, ...string) string { return "" }
+	r.GOOS = "darwin"
 	return r
 }
 
@@ -163,5 +164,77 @@ func TestOverlayEmptyForUndeclaredRepo(t *testing.T) {
 	ov := newTestResolver(t.TempDir()).Overlay(t.TempDir())
 	if len(ov.Env) != 0 || len(ov.Warnings) != 0 {
 		t.Fatalf("expected empty overlay, got %+v", ov)
+	}
+}
+
+// Windows spells the variable "Path". Reading it case-sensitively saw no PATH
+// at all, so the overlay replaced every child's PATH with Homebrew directories.
+func TestOverlayKeepsWindowsPathSpelling(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module x\n\ngo 1.22\n")
+
+	r := newTestResolver(t.TempDir())
+	r.GOOS = "windows"
+	r.Environ = func() []string { return []string{`Path=C:\Windows\System32`} }
+	ov := r.Overlay(dir)
+
+	if got := lookupEnv(ov.Env, "PATH", true); got != "" {
+		t.Fatalf("overlay rewrote PATH to %q; nothing needed adding on Windows", got)
+	}
+}
+
+func TestOverlayAddsNoHomebrewDirsOffMacOS(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module x\n\ngo 1.22\n")
+
+	r := newTestResolver(t.TempDir())
+	r.GOOS = "linux"
+	r.Environ = func() []string { return []string{"PATH=/usr/bin:/bin"} }
+	path := envValue(r.Overlay(dir).Env, "PATH")
+	if strings.Contains(path, "homebrew") || !strings.Contains(path, "/usr/local/bin") {
+		t.Fatalf("PATH %q: want /usr/local/bin and no Homebrew dir on Linux", path)
+	}
+}
+
+func TestOverlayPicksNvmWindowsInstall(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".nvmrc", "20\n")
+
+	appData := t.TempDir()
+	for _, v := range []string{"v20.11.1", "v22.1.0"} {
+		root := filepath.Join(appData, "nvm", v)
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, root, "node.exe", "")
+	}
+
+	r := newTestResolver(t.TempDir())
+	r.GOOS = "windows"
+	r.Environ = func() []string { return []string{`Path=C:\Windows`, "APPDATA=" + appData} }
+	ov := r.Overlay(dir)
+
+	want := filepath.Join(appData, "nvm", "v20.11.1")
+	if path := lookupEnv(ov.Env, "PATH", true); !strings.HasPrefix(path, want+string(os.PathListSeparator)) {
+		t.Fatalf("PATH %q does not start with %q", path, want)
+	}
+}
+
+func TestOverlayHonoursMiseDataDir(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".nvmrc", "18\n")
+
+	mise := t.TempDir()
+	bin := filepath.Join(mise, "installs", "node", "18.20.1", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, bin, "node", "#!/bin/sh\n")
+
+	r := newTestResolver(t.TempDir())
+	r.GOOS = "linux"
+	r.Environ = func() []string { return []string{"PATH=/usr/bin", "MISE_DATA_DIR=" + mise} }
+	if path := envValue(r.Overlay(dir).Env, "PATH"); !strings.HasPrefix(path, bin+string(os.PathListSeparator)) {
+		t.Fatalf("PATH %q does not start with %q", path, bin)
 	}
 }

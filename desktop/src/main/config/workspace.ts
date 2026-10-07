@@ -56,6 +56,20 @@ export function checkWorkspace(candidate: string): WorkspaceCheck {
     };
   }
 
+  // The same rule for the Windows and Linux install folder, which an update or
+  // an uninstall replaces just as wholesale — and which, unlike a signed .app,
+  // a per-user Windows install leaves writable, so nothing else would stop it.
+  const installDir = installDirOf();
+  if (installDir && isInside(target, installDir)) {
+    return {
+      path: target,
+      ok: false,
+      error: "This is inside TaskTrooper's install folder. An update or an uninstall replaces that folder and would delete it.",
+      warnings,
+      exists: existsSync(target),
+    };
+  }
+
   const exists = existsSync(target);
   if (exists) {
     try {
@@ -81,29 +95,17 @@ export function checkWorkspace(candidate: string): WorkspaceCheck {
   // Cloud-synced folders. A sync client rewriting files under a running `git`
   // produces corruption that looks like a git bug and takes hours to trace
   // back to the folder choice — so it is worth naming, by name.
-  const cloudMarkers: [RegExp, string][] = [
-    [/\/Library\/Mobile Documents\//, "iCloud Drive"],
-    [/\/Dropbox(\/|$)/, "Dropbox"],
-    [/\/Google Drive(\/|$)/i, "Google Drive"],
-    [/\/OneDrive(\/|$)/i, "OneDrive"],
-    [/\/Sync(thing)?(\/|$)/i, "a sync folder"],
-  ];
-  for (const [pattern, name] of cloudMarkers) {
-    if (pattern.test(target)) {
-      warnings.push(
-        `This is in ${name}. Agents create git checkouts here, and a sync client rewriting files underneath one corrupts it in ways that are very hard to debug.`,
-      );
-      break;
-    }
-  }
-
-  // Network and removable volumes: /Volumes is where both mount, and an agent
-  // run that loses its workspace mid-clone fails in a way nobody will guess at.
-  if (target.startsWith("/Volumes/")) {
+  const cloud = cloudFolderName(target);
+  if (cloud) {
     warnings.push(
-      "This is on a mounted volume. If it is a network share or a removable disk, agent runs will fail when it goes away.",
+      `This is in ${cloud}. Agents create git checkouts here, and a sync client rewriting files underneath one corrupts it in ways that are very hard to debug.`,
     );
   }
+
+  // Network and removable volumes: an agent run that loses its workspace
+  // mid-clone fails in a way nobody will guess at.
+  const mount = mountWarning(target);
+  if (mount) warnings.push(mount);
 
   let freeBytes: number | undefined;
   try {
@@ -119,6 +121,62 @@ export function checkWorkspace(candidate: string): WorkspaceCheck {
   }
 
   return { path: target, ok: true, warnings, exists, ...(freeBytes !== undefined ? { freeBytes } : {}) };
+}
+
+/**
+ * The sync client a path belongs to, or null.
+ *
+ * Matched on forward slashes whatever the platform, so one table covers
+ * `C:\Users\me\OneDrive - Contoso\x`, `G:\My Drive\x` and
+ * `~/Library/CloudStorage/OneDrive-Personal/x` alike.
+ */
+const CLOUD_MARKERS: [RegExp, string][] = [
+  [/\/Library\/Mobile Documents\//, "iCloud Drive"],
+  [/\/iCloud ?Drive(\/|$)/i, "iCloud Drive"],
+  [/\/Dropbox(?: \([^/]*\))?(\/|$)/i, "Dropbox"],
+  [/\/(?:Google Drive|GoogleDrive-[^/]*|My Drive)(\/|$)/i, "Google Drive"],
+  [/\/OneDrive(\/|$)/i, "OneDrive"],
+  // "OneDrive - Contoso" (a work account on Windows), "OneDrive-Personal"
+  // (macOS File Provider). Case-sensitive, so a repo named onedrive-sdk is not one.
+  [/\/OneDrive(?: - [^/]+|-[^/]+)(\/|$)/, "OneDrive"],
+  [/\/Library\/CloudStorage\//, "a cloud storage folder"],
+  [/\/Sync(thing)?(\/|$)/i, "a sync folder"],
+];
+
+export function cloudFolderName(target: string): string | null {
+  const probe = target.replace(/\\/g, "/");
+  for (const [pattern, name] of CLOUD_MARKERS) if (pattern.test(probe)) return name;
+  return null;
+}
+
+/**
+ * Network shares and removable disks, by where each OS mounts them: a UNC path
+ * (`\\server\share`) on Windows, `/Volumes` on macOS, `/media`, `/run/media`
+ * and `/mnt` on Linux.
+ */
+export function mountWarning(target: string): string | null {
+  if (/^(\\\\|\/\/)[^\\/]+[\\/][^\\/]+/.test(target)) {
+    return "This is on a network share. Agent runs will fail when the share is unreachable, and git on a network share is slow and can lose its locks.";
+  }
+  const probe = target.replace(/\\/g, "/");
+  if (/^\/(Volumes|media|mnt|run\/media)\//.test(probe)) {
+    return "This is on a mounted volume. If it is a network share or a removable disk, agent runs will fail when it goes away.";
+  }
+  return null;
+}
+
+/** Whether `target` is `dir` or somewhere under it, ignoring case on Windows. */
+export function isInside(target: string, dir: string, platform: NodeJS.Platform = process.platform): boolean {
+  const p = platform === "win32" ? path.win32 : path.posix;
+  const fold = (s: string): string => (platform === "win32" ? s.toLowerCase() : s);
+  const rel = p.relative(fold(dir), fold(target));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${p.sep}`) && !p.isAbsolute(rel));
+}
+
+/** The folder a packaged Windows or Linux install runs from; macOS is covered by the .app check. */
+function installDirOf(): string | null {
+  if (!app.isPackaged || process.platform === "darwin") return null;
+  return path.dirname(process.execPath);
 }
 
 /** Create it, along with the three subdirectories a session expects to find. */

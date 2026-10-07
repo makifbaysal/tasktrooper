@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 )
 
@@ -23,16 +25,31 @@ func shellCommand(command string) *exec.Cmd {
 	return cmd
 }
 
+// taskkill without /F only posts WM_CLOSE, which console processes never
+// receive, so the polite stop has to be a console event. CTRL_BREAK is the one
+// a CREATE_NEW_PROCESS_GROUP group still receives (CTRL_C is disabled for it),
+// and the root's pid is that group's id. Node, Go and Python exit on it; a JVM
+// prints a thread dump instead and waits out the grace. Without a console
+// shared with the preview the event cannot be sent, and the tree is killed at
+// once rather than after a grace that would change nothing.
 func terminateProcessGroup(pid int) {
-	_ = exec.Command("taskkill", "/T", "/PID", strconv.Itoa(pid)).Run()
+	// Group 0 would be every process on this console, this server included.
+	if pid <= 0 {
+		return
+	}
+	if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(pid)); err != nil {
+		killProcessGroup(pid)
+	}
 }
 
 func killProcessGroup(pid int) {
 	_ = exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid)).Run()
 }
 
-// processCommand is not read on Windows, so no stale server is ever stopped
-// there.
+// processCommand is not read on Windows, so neither a stale next dev nor a
+// pid persisted by an earlier server is ever signalled there.
 func processCommand(int) string { return "" }
 
 func stopStale(int, time.Duration) {}
+
+func leadsOwnGroup(int) bool { return false }

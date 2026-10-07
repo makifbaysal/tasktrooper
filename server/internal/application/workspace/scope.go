@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -21,15 +20,15 @@ func IsWithinRoot(path, root string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("resolve root: %w", err)
 	}
-	if runtime.GOOS == "windows" {
-		absPath = strings.ToLower(absPath)
-		absRoot = strings.ToLower(absRoot)
-	}
-	if absPath == absRoot {
-		return true, nil
-	}
-	sep := string(os.PathSeparator)
-	return strings.HasPrefix(absPath, absRoot+sep), nil
+	return isWithin(absPath, absRoot, runtime.GOOS), nil
+}
+
+// isWithin compares segment by segment rather than by string prefix: a prefix
+// test against root+separator turns a filesystem root (`D:\`, `/`) into
+// `D:\\` or `//`, which no path starts with.
+func isWithin(absPath, absRoot, goos string) bool {
+	_, ok := residualUnder(absRoot, absPath, goos, matchExact)
+	return ok
 }
 
 // ResolveWithinRoot turns a caller-supplied relative path into an absolute one
@@ -52,10 +51,7 @@ func ResolveWithinRoot(root, rel string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve root: %w", err)
 	}
-	// Join treats an absolute rel as relative to root ("/etc/passwd" becomes
-	// root/etc/passwd), which is the behaviour we want: the caller never gets
-	// to name a path outside the workspace, only one inside it.
-	joined := filepath.Join(absRoot, filepath.FromSlash(strings.TrimSpace(rel)))
+	joined := filepath.Join(absRoot, relativeToRoot(absRoot, rel))
 
 	ok, err := IsWithinRoot(joined, absRoot)
 	if err != nil {
@@ -76,14 +72,30 @@ func ResolveWithinRoot(root, rel string) (string, error) {
 	return joined, nil
 }
 
-// resolveSymlinks resolves every symlink in the parts of path that exist,
-// keeping the not-yet-existing tail as written. EvalSymlinks fails outright on
+// relativeToRoot makes rel safe to join onto absRoot. An absolute rel that
+// already names a place under the root is taken relative to it — a model on
+// Windows sends `C:\ws\src\a.ts`, and joining that onto C:\ws gives
+// `C:\ws\C:\ws\src\a.ts`. Any other absolute rel is re-rooted: the caller
+// never gets to name a path outside the workspace, only one inside it, so
+// "/etc/passwd" becomes root/etc/passwd and a foreign drive letter is dropped.
+func relativeToRoot(absRoot, rel string) string {
+	native := filepath.FromSlash(strings.TrimSpace(rel))
+	if filepath.IsAbs(native) {
+		if segs, ok := relUnderRoot(absRoot, filepath.Clean(native), matchFold); ok {
+			return filepath.Join(segs...)
+		}
+	}
+	return native[len(filepath.VolumeName(native)):]
+}
+
+// resolveSymlinks resolves every link in the parts of path that exist,
+// keeping the not-yet-existing tail as written. Resolution fails outright on
 // a missing path, but a path that does not exist yet still has to be judged:
 // what matters is whether an existing component redirects out of the root.
 func resolveSymlinks(path string) string {
 	remainder := ""
 	for cur := path; ; {
-		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+		if resolved, err := evalExisting(cur); err == nil {
 			return filepath.Join(resolved, remainder)
 		}
 		parent := filepath.Dir(cur)
@@ -95,13 +107,21 @@ func resolveSymlinks(path string) string {
 	}
 }
 
+// ResolveScopedWorkDir confines a requested working directory to scopeRoot.
+// A relative request is taken relative to the scope — the model is told it is
+// working in the repository, not in the server's own working directory — and
+// the comparison runs on symlink-resolved forms, folded for case where the
+// filesystem is, so /var vs /private/var on macOS and a %TEMP% 8.3 name on
+// Windows do not turn a path inside the scope into a refusal. The result is
+// always spelled under scopeRoot, so a later textual check agrees with it.
 func ResolveScopedWorkDir(requested, scopeRoot string) (string, error) {
 	scope := strings.TrimSpace(scopeRoot)
+	req := strings.TrimSpace(requested)
 	if scope == "" {
-		if strings.TrimSpace(requested) == "" {
+		if req == "" {
 			return "", fmt.Errorf("workspace scope is empty")
 		}
-		abs, err := filepath.Abs(requested)
+		abs, err := filepath.Abs(req)
 		if err != nil {
 			return "", fmt.Errorf("resolve working directory: %w", err)
 		}
@@ -111,19 +131,17 @@ func ResolveScopedWorkDir(requested, scopeRoot string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace scope: %w", err)
 	}
-	if strings.TrimSpace(requested) == "" {
+	if req == "" {
 		return scopeAbs, nil
 	}
-	reqAbs, err := filepath.Abs(requested)
-	if err != nil {
-		return "", fmt.Errorf("resolve working directory: %w", err)
+	candidate := filepath.FromSlash(req)
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(scopeAbs, candidate)
 	}
-	ok, err := IsWithinRoot(reqAbs, scopeAbs)
-	if err != nil {
-		return "", err
-	}
+	candidate = filepath.Clean(candidate)
+	segs, ok := residualUnder(resolveSymlinks(scopeAbs), resolveSymlinks(candidate), runtime.GOOS, matchFold)
 	if !ok {
-		return "", fmt.Errorf("working directory %q is outside repository scope %q", reqAbs, scopeAbs)
+		return "", fmt.Errorf("working directory %q is outside repository scope %q", candidate, scopeAbs)
 	}
-	return reqAbs, nil
+	return filepath.Join(append([]string{scopeAbs}, segs...)...), nil
 }

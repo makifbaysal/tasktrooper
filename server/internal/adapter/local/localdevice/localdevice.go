@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,11 +21,12 @@ import (
 )
 
 const (
-	listTimeout = 30 * time.Second
-	actionTimeout = 90 * time.Second
-	defaultBootTimeout = 4 * time.Minute
+	listTimeout         = 30 * time.Second
+	actionTimeout       = 90 * time.Second
+	defaultBootTimeout  = 4 * time.Minute
 	defaultPollInterval = 2 * time.Second
 )
+
 var simulatorUDIDPattern = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
 
 var avdNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$`)
@@ -53,10 +55,10 @@ func ValidateEmulatorSerial(serial string) error {
 }
 
 type Config struct {
-	GOOS string
-	Xcrun    string
-	ADB      string
-	Emulator string
+	GOOS         string
+	Xcrun        string
+	ADB          string
+	Emulator     string
 	BootTimeout  time.Duration
 	PollInterval time.Duration
 }
@@ -87,8 +89,9 @@ func New(cfg Config) *Host {
 	if goos == "darwin" {
 		h.xcrun = resolve(cfg.Xcrun, "xcrun")
 	}
-	h.adb = resolve(cfg.ADB, "adb", androidSDKPaths(goos, "platform-tools", "adb")...)
-	h.emulator = resolve(cfg.Emulator, "emulator", androidSDKPaths(goos, "emulator", "emulator")...)
+	home, _ := os.UserHomeDir()
+	h.adb = resolve(cfg.ADB, "adb", androidSDKPaths(goos, os.Getenv, home, "platform-tools", "adb")...)
+	h.emulator = resolve(cfg.Emulator, "emulator", androidSDKPaths(goos, os.Getenv, home, "emulator", "emulator")...)
 
 	log.Debug().
 		Str("goos", goos).
@@ -111,25 +114,52 @@ func resolve(explicit, name string, fallbacks ...string) string {
 		return p
 	}
 	for _, candidate := range fallbacks {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		if info, err := os.Stat(candidate); err == nil && isExecutable(runtime.GOOS, candidate, info.Mode()) {
 			return candidate
 		}
 	}
 	return ""
 }
 
-func androidSDKPaths(goos, dir, name string) []string {
+// isExecutable takes the OS whose filesystem the file is on: Windows has no
+// execute bit, so there the extension is what makes a file runnable.
+func isExecutable(goos, path string, mode fs.FileMode) bool {
+	if !mode.IsRegular() {
+		return false
+	}
+	if goos == "windows" {
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".exe", ".bat", ".cmd":
+			return true
+		}
+		return false
+	}
+	return mode&0o111 != 0
+}
+
+// androidSDKPaths lists where a tool sits in the SDKs this host may have: the
+// roots the environment names, then the one Android Studio installs to.
+func androidSDKPaths(goos string, getenv func(string) string, home, dir, name string) []string {
 	var roots []string
 	for _, env := range []string{"ANDROID_HOME", "ANDROID_SDK_ROOT"} {
-		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+		if v := strings.TrimSpace(getenv(env)); v != "" {
 			roots = append(roots, v)
 		}
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		switch goos {
-		case "darwin":
+	switch goos {
+	case "darwin":
+		if home != "" {
 			roots = append(roots, filepath.Join(home, "Library", "Android", "sdk"))
-		default:
+		}
+	case "windows":
+		name += ".exe"
+		if local := strings.TrimSpace(getenv("LOCALAPPDATA")); local != "" {
+			roots = append(roots, filepath.Join(local, "Android", "Sdk"))
+		} else if home != "" {
+			roots = append(roots, filepath.Join(home, "AppData", "Local", "Android", "Sdk"))
+		}
+	default:
+		if home != "" {
 			roots = append(roots, filepath.Join(home, "Android", "Sdk"))
 		}
 	}

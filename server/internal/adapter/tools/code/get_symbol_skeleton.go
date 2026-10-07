@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mapper"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -75,6 +76,7 @@ func (t *getSymbolSkeletonTool) Execute(ctx context.Context, arguments string) d
 	if args.FilePath == "" && args.SymbolName == "" {
 		return toolError(getSymbolSkeletonToolName, "file_path or symbol_name is required")
 	}
+	args.FilePath = workspace.IndexPath(registry.EffectiveWorkspaceDir(ctx), args.FilePath)
 
 	if args.SymbolName != "" && t.kit.IndexStore != nil {
 		resp, err := t.skeletonFromIndex(ctx, args)

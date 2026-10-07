@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 )
 
 // ModelsTimeout is the budget for a `models` listing; 30 seconds is plenty
@@ -22,8 +23,8 @@ func RunModels(ctx context.Context, bin string) (out, errOut string, err error) 
 	ctx, cancel := context.WithTimeout(ctx, ModelsTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin, "models")
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+	cmd := winshim.Command(ctx, bin, "models")
+	cmd.Env = MinimalEnv()
 	cmd.Dir = os.TempDir()
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf

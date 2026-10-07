@@ -1,6 +1,8 @@
 package board
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,6 +85,43 @@ func TestParseLcovCoverageCountsExecutedLines(t *testing.T) {
 	pct, ok := parseLcovCoverage(dir, "")
 	require.True(t, ok)
 	assert.InDelta(t, 66.7, pct, 0.1)
+}
+
+func TestParseLcovCoverageReadsACRLFReport(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "coverage"), 0o755))
+	lcov := "SF:lib/a.dart\r\nDA:1,1\r\nDA:2,0\r\nDA:3,4\r\nend_of_record\r\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "coverage", "lcov.info"), []byte(lcov), 0o644))
+
+	pct, ok := parseLcovCoverage(dir, "")
+	require.True(t, ok)
+	assert.InDelta(t, 66.7, pct, 0.1)
+}
+
+type exitCodeError int
+
+func (e exitCodeError) Error() string { return "exit status" }
+func (e exitCodeError) ExitCode() int { return int(e) }
+
+func TestMissingToolExitIsTheWindowsCommandNotFoundCode(t *testing.T) {
+	tests := []struct {
+		name string
+		goos string
+		err  error
+		want bool
+	}{
+		{name: "store alias stub on windows", goos: "windows", err: exitCodeError(9009), want: true},
+		{name: "wrapped store alias stub on windows", goos: "windows", err: fmt.Errorf("stage: %w", exitCodeError(9009)), want: true},
+		{name: "ordinary failure on windows", goos: "windows", err: exitCodeError(1), want: false},
+		{name: "same code elsewhere is a real exit", goos: "linux", err: exitCodeError(9009), want: false},
+		{name: "not an exit", goos: "windows", err: errors.New("boom"), want: false},
+		{name: "no error", goos: "windows", err: nil, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, missingToolExit(tt.goos, tt.err))
+		})
+	}
 }
 
 func TestParseLcovCoverageReportsUnmeasuredWithoutAReport(t *testing.T) {

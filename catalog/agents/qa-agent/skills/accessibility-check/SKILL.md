@@ -27,7 +27,7 @@ CHROME_PATH="$CHROME_BIN" npx -y lighthouse@13 "http://localhost:5173/settings" 
   --only-categories=accessibility,best-practices --form-factor=mobile \
   --screenEmulation.mobile --screenEmulation.width=360 --screenEmulation.height=800 --screenEmulation.deviceScaleFactor=2 \
   --chrome-flags="--headless=new" --output=json --output-path="$QA/lh-settings-360.json" --quiet
-jq -r '.audits|to_entries[]|select(.value.score==0)|"\(.key)\t\(.value.title)"' "$QA/lh-settings-360.json"
+jq -r '.audits|to_entries[]|select(.value.score==0)|"\(.key)\t\(.value.title)"' "$QA/lh-settings-360.json"  # no jq: node -e 'for (const [k,v] of Object.entries(require(process.argv[1]).audits)) if (v.score===0) console.log(k+"\t"+v.title)' "$QA/lh-settings-360.json"
 ```
 
 Run with `run_terminal` `timeout_seconds: 300`. `errors-in-console` in the output doubles as the console check for page load.

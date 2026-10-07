@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"unicode/utf16"
 )
@@ -26,6 +27,9 @@ const (
 	PowerShell Kind = "powershell"
 	Cmd        Kind = "cmd"
 )
+
+// GitBashName is Shell.Name for Git for Windows' bash.
+const GitBashName = "Git Bash"
 
 type Shell struct {
 	Path string
@@ -135,7 +139,7 @@ func detect(goos string, p probe) Shell {
 func detectWindows(p probe) Shell {
 	for _, candidate := range gitBashCandidates(p) {
 		if p.isFile(candidate) {
-			return Shell{Path: candidate, Name: "Git Bash", Kind: POSIX}
+			return Shell{Path: candidate, Name: GitBashName, Kind: POSIX}
 		}
 	}
 	if path, err := p.lookPath("sh"); err == nil {
@@ -183,4 +187,31 @@ func gitBashCandidates(p probe) []string {
 		}
 	}
 	return out
+}
+
+// ResolveArgv points an argv that names a POSIX script or shell at the shell
+// this host actually has. On Windows `./scripts/ci.sh` is not a Win32 program
+// ("%1 is not a valid Win32 application"), and a bare `bash` resolves to
+// System32\bash.exe, the WSL launcher, which runs the script in a Linux VM
+// that cannot see the checkout the way the caller means it. Elsewhere argv
+// is returned unchanged.
+func ResolveArgv(argv []string) []string {
+	if runtime.GOOS != "windows" {
+		return argv
+	}
+	return resolveArgv(Default(), argv)
+}
+
+func resolveArgv(s Shell, argv []string) []string {
+	if len(argv) == 0 || s.Kind != POSIX {
+		return argv
+	}
+	name := strings.ToLower(filepath.Base(strings.ReplaceAll(argv[0], `\`, "/")))
+	switch {
+	case name == "bash" || name == "bash.exe" || name == "sh" || name == "sh.exe":
+		return append([]string{s.Path}, argv[1:]...)
+	case strings.HasSuffix(name, ".sh"):
+		return append([]string{s.Path}, argv...)
+	}
+	return argv
 }

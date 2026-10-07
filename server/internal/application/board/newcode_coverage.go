@@ -61,10 +61,13 @@ func mergeBase(ctx context.Context, dir string) string {
 	return ""
 }
 
+// runGit turns core.quotepath off because parseDiffLines matches `+++ b/<path>`
+// against the coverage profile, and git would otherwise print a non-ASCII
+// path as "b/\303\244.go".
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "git", args...)
+	cmd := exec.CommandContext(cmdCtx, "git", append([]string{"-c", "core.quotepath=off"}, args...)...)
 	cmd.Dir = dir
 	var out bytes.Buffer
 	cmd.Stdout = &out

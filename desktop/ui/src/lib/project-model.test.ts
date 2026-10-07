@@ -491,6 +491,16 @@ describe("localCommandsDisplay", () => {
         { dir: "desktop", argv: ["npm", "test"] },
         { dir: ".", argv: ["make", "check"] },
       ]),
-    ).toBe("cd desktop && npm run lint && npm test; make check");
+    ).toBe("(cd desktop && npm run lint && npm test); make check");
+  });
+
+  it("keeps one group bare and every later group relative to the root", () => {
+    expect(localCommandsDisplay([{ dir: "web", argv: ["npm", "test"] }])).toBe("cd web && npm test");
+    expect(
+      localCommandsDisplay([
+        { dir: "api", argv: ["go", "test", "./..."] },
+        { dir: "web", argv: ["npm", "test"] },
+      ]),
+    ).toBe("(cd api && go test ./...); (cd web && npm test)");
   });
 });

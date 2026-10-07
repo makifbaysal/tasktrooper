@@ -19,6 +19,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -98,7 +99,7 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 		if cfg.Command == "" {
 			return nil, nil, fmt.Errorf("stdio transport requires command")
 		}
-		cmd := exec.Command(cfg.Command, cfg.Args...)
+		cmd := winshim.Cmd(cfg.Command, cfg.Args...)
 		cmd.Env = stdioServerEnv(cfg.Env)
 		isolateStdio(cmd)
 		stdioCmd = cmd

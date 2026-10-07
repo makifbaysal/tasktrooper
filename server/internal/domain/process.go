@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"os/exec"
+	"runtime"
 	"syscall"
 )
 
@@ -23,12 +24,20 @@ func ExitSignal(err error) (syscall.Signal, bool) {
 	if status.Signaled() {
 		return status.Signal(), true
 	}
-	// A child that traps the signal to shut down cleanly exits on its own with
-	// the shell convention 128+n. The upper bound is the standard signal range
-	// (1-31), not syscall.SIGUSR2: that constant is platform-dependent (12 on
-	// Linux, 31 on Darwin), so using it excluded 128+15=143 (SIGTERM) on Linux
-	// while passing on macOS.
-	if code := status.ExitStatus(); code > 128 && code <= 128+31 {
+	return signalFromExitCode(runtime.GOOS, status.ExitStatus())
+}
+
+// signalFromExitCode reads the shell convention 128+n that a child trapping a
+// signal to shut down cleanly exits with. The upper bound is the standard
+// signal range (1-31), not syscall.SIGUSR2: that constant is platform-dependent
+// (12 on Linux, 31 on Darwin), so using it excluded 128+15=143 (SIGTERM) on
+// Linux while passing on macOS. Windows has no signals and no such
+// convention; an exit code there is only ever an exit code.
+func signalFromExitCode(goos string, code int) (syscall.Signal, bool) {
+	if goos == "windows" {
+		return 0, false
+	}
+	if code > 128 && code <= 128+31 {
 		return syscall.Signal(code - 128), true
 	}
 	return 0, false

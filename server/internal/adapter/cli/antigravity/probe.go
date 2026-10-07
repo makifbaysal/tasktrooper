@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 )
 
 type ProbeResult = core.ProbeResult
@@ -41,7 +41,7 @@ var probeDialog = core.ProbeDialog{
 	Markers:       authFailureMarkers,
 	Timeout:       DefaultProbeTimeout,
 	Run: func(ctx context.Context, bin, dir, _ string) (string, error) {
-		cmd := exec.CommandContext(ctx, bin, "-p", probePrompt, "--output-format", "json", "--dangerously-skip-permissions")
+		cmd := winshim.Command(ctx, bin, "-p", probePrompt, "--output-format", "json", "--dangerously-skip-permissions")
 		cmd.Env = core.ProbeEnv()
 		cmd.Dir = dir
 		var buf bytes.Buffer

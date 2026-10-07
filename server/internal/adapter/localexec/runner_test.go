@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -355,4 +356,54 @@ func countWorktrees(t *testing.T, root string) int {
 		}
 	}
 	return n
+}
+
+// A release command is written the way a CI job writes it — a repo-relative
+// POSIX script — and must run from the worktree on every host, Windows
+// included, where a .sh is not a program until it is handed to Git Bash.
+func TestRunnerRunsARepoRelativeScriptCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+	}{
+		{name: "script invoked directly", argv: []string{"./scripts/publish.sh", "1.2.3"}},
+		{name: "script handed to sh", argv: []string{"sh", "scripts/publish.sh", "1.2.3"}},
+		{name: "script handed to bash", argv: []string{"bash", "scripts/publish.sh", "1.2.3"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := exec.LookPath("bash"); tt.argv[0] == "bash" && runtime.GOOS != "windows" && err != nil {
+				t.Skip("bash is not installed")
+			}
+			root, _ := newRepoFixture(t)
+			if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "scripts", "publish.sh"), []byte("#!/bin/sh\necho \"published $1 from $(cat app.txt)\"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			gitRun(t, root, "add", ".")
+			gitRun(t, root, "commit", "-m", "publish script")
+			headSHA := gitRun(t, root, "rev-parse", "HEAD")
+
+			ch, done := waitForRun(t)
+			if err := NewRunner().Start(context.Background(), release.LocalRunSpec{
+				RootPath: root, CommitSHA: headSHA, Argv: tt.argv, Env: os.Environ(),
+				LogPath: filepath.Join(t.TempDir(), "release.log"), Timeout: 30 * time.Second,
+			}, done); err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			select {
+			case res := <-ch:
+				if res.err != nil || res.exitCode != 0 {
+					t.Fatalf("exit code = %d, err = %v, tail = %q", res.exitCode, res.err, res.tail)
+				}
+				if !strings.Contains(res.tail, "published 1.2.3 from v1") {
+					t.Fatalf("tail = %q, want the script's output with its argument", res.tail)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("done was never called")
+			}
+		})
+	}
 }

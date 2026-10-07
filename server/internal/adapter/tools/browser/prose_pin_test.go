@@ -21,7 +21,7 @@ func TestGuardProseUnchanged(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"chrome_not_found", chromeNotFoundMsg, "chromium not found — this tool requires the tools image (TENANT_IMAGE)"},
+		{"chrome_not_found", chromeNotFoundMsg, "Chrome not found — install Google Chrome, Chromium or Microsoft Edge on this machine, or set CHROME_BIN to its executable, then retry."},
 		{"nav_failed", navFailedMsg, "could not open that URL"},
 		{"page_unavailable", pageUnavailableMsg, "could not use the current page"},
 	}

@@ -13,6 +13,9 @@ const stateFileName = "localpreview-state.json"
 type persistedEntry struct {
 	RepositoryID uuid.UUID `json:"repository_id"`
 	PID          int       `json:"pid"`
+	// Command is what the next boot checks the pid still runs before
+	// signalling it; an entry without one is never signalled.
+	Command string `json:"command,omitempty"`
 }
 
 func stateFilePath(workspaceRoot string) string {

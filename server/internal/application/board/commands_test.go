@@ -2,7 +2,11 @@ package board
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,8 +51,40 @@ func TestResolveVerifyStages_Python(t *testing.T) {
 	dir := t.TempDir()
 	touch(t, dir, "pyproject.toml")
 	stages := ResolveVerifyStages(dir, domain.Repository{}, nil)
-	if len(stages) != 1 || stages[0].Command[0] != "python" {
-		t.Fatalf("unexpected stages: %+v", stages)
+	want := []string{pythonCommand(runtime.GOOS, exec.LookPath), "-m", "compileall", "."}
+	if len(stages) != 1 || !reflect.DeepEqual(stages[0].Command, want) {
+		t.Fatalf("unexpected stages: %+v, want %v", stages, want)
+	}
+}
+
+func TestPythonCommandPicksTheInterpreterThatExists(t *testing.T) {
+	tests := []struct {
+		name      string
+		goos      string
+		installed []string
+		want      string
+	}{
+		{name: "macOS ships only python3", goos: "darwin", installed: []string{"python3"}, want: "python3"},
+		{name: "python3 wins over python", goos: "linux", installed: []string{"python", "python3"}, want: "python3"},
+		{name: "a python-only host still verifies", goos: "linux", installed: []string{"python"}, want: "python"},
+		{name: "nothing installed names python3", goos: "linux", want: "python3"},
+		{name: "windows prefers the py launcher", goos: "windows", installed: []string{"py", "python", "python3"}, want: "py"},
+		{name: "windows without the launcher uses python", goos: "windows", installed: []string{"python", "python3"}, want: "python"},
+		{name: "windows python3 is the last resort", goos: "windows", installed: []string{"python3"}, want: "python3"},
+		{name: "nothing installed on windows names python", goos: "windows", want: "python"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lookPath := func(name string) (string, error) {
+				if slices.Contains(tt.installed, name) {
+					return "/bin/" + name, nil
+				}
+				return "", exec.ErrNotFound
+			}
+			if got := pythonCommand(tt.goos, lookPath); got != tt.want {
+				t.Fatalf("pythonCommand = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

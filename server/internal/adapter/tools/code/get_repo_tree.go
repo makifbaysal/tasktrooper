@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -67,7 +68,7 @@ func (t *getRepoTreeTool) Execute(ctx context.Context, arguments string) domain.
 		return toolError(getRepoTreeToolName, err.Error())
 	}
 
-	tree, err := t.kit.Mapper.ExpandTree(root, args.Prefix, args.MaxDepth)
+	tree, err := t.kit.Mapper.ExpandTree(root, workspace.IndexPath(root, args.Prefix), args.MaxDepth)
 	if err != nil {
 		return toolError(getRepoTreeToolName, fmt.Sprintf("expand tree: %v", err))
 	}

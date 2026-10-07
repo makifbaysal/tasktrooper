@@ -54,14 +54,11 @@ func Tail(out string) string {
 // ChildEnv builds the environment a CLI child is spawned with. useFullEnv
 // starts from the server's environment and layers the session overlay plus the
 // flavor's allowlisted passthrough (Claude Code's config/auth vars); otherwise
-// the child gets only a toolchain (PATH+HOME) and nothing else. The caller
+// the child gets only a toolchain (MinimalEnv) and nothing else. The caller
 // appends the run's own allowlisted session env separately.
 func ChildEnv(ctx context.Context, useFullEnv bool, passthrough []string) []string {
 	if !useFullEnv {
-		return []string{
-			"PATH=" + os.Getenv("PATH"),
-			"HOME=" + os.Getenv("HOME"),
-		}
+		return MinimalEnv()
 	}
 	parent := os.Environ()
 	overlay := append([]string{}, registry.TaskEnvFromContext(ctx)...)

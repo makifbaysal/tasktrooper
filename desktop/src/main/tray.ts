@@ -1,6 +1,6 @@
-import { Menu, Tray, app } from "electron";
+import { Menu, Tray, nativeTheme } from "electron";
 import type { SupervisorSnapshot, UpdateStatus } from "../ipc/types.js";
-import { trayIcon, type TrayGlyph } from "./tray-icons.js";
+import { trayIcon, trayTone, type TrayGlyph, type TrayTone } from "./tray-icons.js";
 
 /**
  * The menu bar item (C8).
@@ -37,12 +37,26 @@ export class AppTray {
     this.#deps = deps;
   }
 
-  create(): void {
-    if (this.#tray) return;
-    this.#tray = new Tray(trayIcon("stopped"));
+  /**
+   * False when this session has no tray to put an icon in. The app keeps
+   * running either way; relaunching it is then the way back to the window
+   * (`second-instance` in index.ts).
+   */
+  create(): boolean {
+    if (this.#tray) return true;
+    try {
+      this.#tray = new Tray(trayIcon("stopped", this.#tone()));
+    } catch (err) {
+      console.warn(`[tray] no tray icon: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
     this.#tray.setToolTip("TaskTrooper — not running");
     this.#tray.on("click", () => this.#deps.showWindow());
+    // Off macOS the glyph's colour is chosen for the panel, and the panel can
+    // switch between light and dark while the app runs.
+    if (process.platform !== "darwin") nativeTheme.on("updated", this.#onThemeUpdated);
     this.#render();
+    return true;
   }
 
   update(snapshot: SupervisorSnapshot): void {
@@ -56,8 +70,18 @@ export class AppTray {
   }
 
   destroy(): void {
+    nativeTheme.off("updated", this.#onThemeUpdated);
     this.#tray?.destroy();
     this.#tray = null;
+  }
+
+  readonly #onThemeUpdated = (): void => this.#render();
+
+  #tone(): TrayTone {
+    return trayTone(process.platform, {
+      systemDark: nativeTheme.shouldUseDarkColorsForSystemIntegratedUI,
+      appDark: nativeTheme.shouldUseDarkColors,
+    });
   }
 
   #render(): void {
@@ -66,7 +90,7 @@ export class AppTray {
 
     const snapshot = this.#snapshot;
     const glyph = glyphFor(snapshot);
-    tray.setImage(trayIcon(glyph));
+    tray.setImage(trayIcon(glyph, this.#tone()));
     tray.setToolTip(`TaskTrooper — ${describe(snapshot)}`);
 
     const busy = snapshot?.state === "starting" || snapshot?.state === "stopping" || snapshot?.state === "preflight";
@@ -87,7 +111,9 @@ export class AppTray {
         { type: "separator" },
         {
           // The label says what it does, because "Quit" next to a running
-          // backend is a promise about how it ends.
+          // backend is a promise about how it ends. The accelerator is only a
+          // label in a tray menu; the application menu (app-menu.ts) is what
+          // binds it, on every platform.
           label: up ? "Quit (stops the local server)" : "Quit",
           accelerator: "CmdOrCtrl+Q",
           click: () => this.#deps.quit(),
@@ -180,19 +206,4 @@ function describe(snapshot: SupervisorSnapshot | null): string {
     default:
       return "unknown";
   }
-}
-
-/** Launch-at-login, as macOS's own login-items API sees it. */
-export function getLaunchAtLogin(): boolean {
-  return app.getLoginItemSettings().openAtLogin;
-}
-
-export function setLaunchAtLogin(enabled: boolean): boolean {
-  app.setLoginItemSettings({
-    openAtLogin: enabled,
-    // Opened hidden: a machine that reboots overnight should come back with the
-    // backend running and no window in the user's face at 9am.
-    openAsHidden: true,
-  });
-  return getLaunchAtLogin();
 }

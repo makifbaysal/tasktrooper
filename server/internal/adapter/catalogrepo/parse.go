@@ -1,6 +1,7 @@
 package catalogrepo
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -292,7 +293,7 @@ func collectFiles(dir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		files = append(files, rel)
+		files = append(files, filepath.ToSlash(rel))
 		return nil
 	})
 	sort.Strings(files)
@@ -306,17 +307,20 @@ func hashContent(content string) string {
 
 // hashFiles hashes every file under dir, path-qualified so moving content
 // between files still changes the Etag. Sorted order is guaranteed by
-// collectFiles.
+// collectFiles. Paths are slash-separated (and sorted that way) and content
+// is hashed with LF line endings, so a Windows checkout — backslashes,
+// core.autocrlf — yields the same Etag as macOS and Linux instead of reading
+// as an upstream change.
 func hashFiles(dir string, files []string) (string, error) {
 	h := sha256.New()
 	for _, rel := range files {
-		raw, err := os.ReadFile(filepath.Join(dir, rel))
+		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
 		if err != nil {
 			return "", err
 		}
 		h.Write([]byte(rel))
 		h.Write([]byte{0})
-		h.Write(raw)
+		h.Write(bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n")))
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

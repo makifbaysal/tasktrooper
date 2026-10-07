@@ -68,7 +68,12 @@ export function sanitizeRepoName(name: string): string {
     if (/[a-z0-9._-]/.test(ch)) out += ch;
     else if (ch === " ") out += "-";
   }
-  return out.replace(/^[-._]+|[-._]+$/g, "");
+  const clean = out.replace(/^[-._]+|[-._]+$/g, "");
+  // Windows refuses a folder named after a device (con, nul, com1…), with or
+  // without an extension; repositories move between machines, so no OS gets one.
+  const dot = clean.indexOf(".");
+  const stem = dot < 0 ? clean : clean.slice(0, dot);
+  return /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/.test(stem) ? stem + "-repo" + (dot < 0 ? "" : clean.slice(dot)) : clean;
 }
 
 export type RepoNameError = "required" | "no_letters" | "too_long";

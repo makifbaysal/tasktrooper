@@ -79,23 +79,28 @@ func (t *writeFileTool) Execute(ctx context.Context, arguments string) domain.To
 
 	existed := false
 	mode := os.FileMode(0o644)
+	content := args.Content
+	eol := dominantEOL(content)
 	if info, statErr := os.Stat(abs); statErr == nil {
 		if info.IsDir() {
 			return toolError(writeFileToolName, fmt.Sprintf("%s is a directory, not a file.", args.Path))
 		}
 		existed = true
 		mode = info.Mode().Perm()
+		if existing := fileEOL(abs); existing != "" {
+			eol = existing
+			content = withEOL(content, eol)
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return toolError(writeFileToolName, fmt.Sprintf("create parent directory for %s: %v", args.Path, err))
 	}
 
-	content := args.Content
 	// A source file without a trailing newline trips linters, diff tools and
 	// "\ No newline at end of file" noise in every later review.
 	if content != "" && !strings.HasSuffix(content, "\n") {
-		content += "\n"
+		content += eol
 	}
 	if err := os.WriteFile(abs, []byte(content), mode); err != nil {
 		return toolError(writeFileToolName, fmt.Sprintf("write %s: %v", args.Path, err))

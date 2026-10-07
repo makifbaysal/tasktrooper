@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 )
 
 type ProbeResult struct {
@@ -78,7 +79,7 @@ func probeVersion(ctx context.Context, bin string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeVersionTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin, "--version")
+	cmd := winshim.Command(ctx, bin, "--version")
 	cmd.Env = ProbeEnv()
 	cmd.Dir = os.TempDir()
 	var buf bytes.Buffer
@@ -130,12 +131,9 @@ func LooksUnauthenticated(out string, markers []string) bool {
 	return false
 }
 
-// ProbeEnv is the minimal child environment for the CLI probes: PATH
-// and HOME, so an installed binary can find its helpers without inheriting
-// anything that could leak into whatever it launches.
+// ProbeEnv is the minimal child environment for the CLI probes (MinimalEnv),
+// so an installed binary can find its helpers without inheriting anything
+// that could leak into whatever it launches.
 func ProbeEnv() []string {
-	return []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + os.Getenv("HOME"),
-	}
+	return MinimalEnv()
 }

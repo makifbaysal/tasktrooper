@@ -40,7 +40,7 @@ Fallback — only for what the browser tools cannot do (console, network, keyboa
 
 ```bash
 QA=${TMPDIR:-/tmp}/tt-<task-key>/qa; mkdir -p "$QA"
-chromium --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+"$CHROME_BIN" --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
   --window-size=360,800 --screenshot="$QA/01-board-phone.png" http://localhost:5173/board
 ```
 

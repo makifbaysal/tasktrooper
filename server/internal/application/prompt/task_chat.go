@@ -101,7 +101,7 @@ func TaskChatContextMessage(task domain.BoardTask, criteria []domain.AcceptanceC
 		TaskType:     string(task.TaskType),
 		Priority:     string(task.Priority),
 		Branch:       branch,
-		WorkspaceDir: workspaceDir,
+		WorkspaceDir: ShellPath(workspaceDir),
 		Criteria:     taskChatCriterionLines(criteria),
 	}
 	if url := strings.TrimSpace(task.PRURL); url != "" {

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +76,9 @@ type Resolver struct {
 
 	Version func(bin string, args ...string) string
 
+	// GOOS is runtime.GOOS unless a test sets it.
+	GOOS string
+
 	mu    sync.Mutex
 	cache map[string]cachedOverlay
 }
@@ -126,8 +130,14 @@ func (r *Resolver) resolve(dir string) Overlay {
 	var ov Overlay
 	req := Detect(dir)
 
-	basePath := envValue(r.Environ(), "PATH")
-	newPath := ensurePathDirs(basePath, "/opt/homebrew/bin", "/usr/local/bin")
+	env := r.Environ()
+	goos := r.goos()
+	// Windows spells it "Path", and a case-sensitive lookup read that as no
+	// PATH at all — so the overlay replaced the child's whole PATH with the
+	// Homebrew directories and nothing (node, git, npm) could be found.
+	basePath := lookupEnv(env, "PATH", goos == "windows")
+	newPath := ensurePathDirs(basePath, hostBinDirs(goos)...)
+	roots := r.installRoots(env, goos)
 
 	if req.Go != "" {
 		if req.GoExact {
@@ -140,7 +150,7 @@ func (r *Resolver) resolve(dir string) Overlay {
 	}
 
 	if req.Node != "" {
-		if binDir := r.findInstall(nodeInstallRoots(r.Home), req.Node, "node"); binDir != "" {
+		if binDir := r.findInstall(roots.node, req.Node, goos, "node"); binDir != "" {
 			newPath = binDir + string(os.PathListSeparator) + newPath
 		} else if w := r.hostMismatch("node", []string{"--version"}, req.Node, req.NodeSource, 1); w != "" {
 			ov.Warnings = append(ov.Warnings, w)
@@ -148,7 +158,7 @@ func (r *Resolver) resolve(dir string) Overlay {
 	}
 
 	if req.Python != "" {
-		if binDir := r.findInstall(pythonInstallRoots(r.Home), req.Python, "python3", "python"); binDir != "" {
+		if binDir := r.findInstall(roots.python, req.Python, goos, "python3", "python"); binDir != "" {
 			newPath = binDir + string(os.PathListSeparator) + newPath
 		} else if w := r.hostMismatch("python3", []string{"--version"}, req.Python, req.PythonSource, 2); w != "" {
 			ov.Warnings = append(ov.Warnings, w)
@@ -156,7 +166,7 @@ func (r *Resolver) resolve(dir string) Overlay {
 	}
 
 	if req.Flutter != "" {
-		if binDir := r.findInstall(flutterInstallRoots(r.Home), req.Flutter, "flutter"); binDir != "" {
+		if binDir := r.findInstall(roots.flutter, req.Flutter, goos, "flutter"); binDir != "" {
 			newPath = binDir + string(os.PathListSeparator) + newPath
 		} else if w := r.hostMismatch("flutter", []string{"--version"}, req.Flutter, req.FlutterSource, 2); w != "" {
 			ov.Warnings = append(ov.Warnings, w)
@@ -185,30 +195,67 @@ func (r *Resolver) hostMismatch(bin string, args []string, want, source string, 
 	return ""
 }
 
-func flutterInstallRoots(home string) []installRoot {
-	return []installRoot{
-		{dir: filepath.Join(home, ".local/share/mise/installs/flutter"), binSubdir: "bin"},
-		{dir: filepath.Join(home, ".asdf/installs/flutter"), binSubdir: "bin"},
+// hostBinDirs are added to a GUI-launched process's PATH, which on macOS
+// misses Homebrew. Windows has no such fixed locations.
+func hostBinDirs(goos string) []string {
+	switch goos {
+	case "darwin":
+		return []string{"/opt/homebrew/bin", "/usr/local/bin"}
+	case "windows":
+		return nil
+	default:
+		return []string{"/usr/local/bin"}
 	}
 }
 
-func nodeInstallRoots(home string) []installRoot {
-	return []installRoot{
-		{dir: filepath.Join(home, ".local/share/mise/installs/node"), binSubdir: "bin"},
-		{dir: filepath.Join(home, ".local/share/mise/installs/nodejs"), binSubdir: "bin"},
-		{dir: filepath.Join(home, ".asdf/installs/nodejs"), binSubdir: "bin"},
-		{dir: filepath.Join(home, ".nvm/versions/node"), binSubdir: "bin"},
-		{dir: "/opt/homebrew/opt", namePrefix: "node@", binSubdir: "bin"},
-		{dir: "/usr/local/opt", namePrefix: "node@", binSubdir: "bin"},
-	}
+type languageRoots struct {
+	node, python, flutter []installRoot
 }
 
-func pythonInstallRoots(home string) []installRoot {
-	return []installRoot{
-		{dir: filepath.Join(home, ".pyenv/versions"), binSubdir: "bin"},
-		{dir: filepath.Join(home, ".local/share/mise/installs/python"), binSubdir: "bin"},
-		{dir: filepath.Join(home, ".asdf/installs/python"), binSubdir: "bin"},
+func (r *Resolver) installRoots(env []string, goos string) languageRoots {
+	fold := goos == "windows"
+	home := r.Home
+	mise := lookupEnv(env, "MISE_DATA_DIR", fold)
+	if mise == "" {
+		switch {
+		case goos == "windows" && lookupEnv(env, "LOCALAPPDATA", fold) != "":
+			mise = filepath.Join(lookupEnv(env, "LOCALAPPDATA", fold), "mise")
+		case lookupEnv(env, "XDG_DATA_HOME", fold) != "":
+			mise = filepath.Join(lookupEnv(env, "XDG_DATA_HOME", fold), "mise")
+		default:
+			mise = filepath.Join(home, ".local", "share", "mise")
+		}
 	}
+	asdf := firstNonEmpty(lookupEnv(env, "ASDF_DATA_DIR", fold), filepath.Join(home, ".asdf"))
+
+	roots := languageRoots{
+		node: []installRoot{
+			{dir: filepath.Join(mise, "installs", "node"), binSubdir: "bin"},
+			{dir: filepath.Join(mise, "installs", "nodejs"), binSubdir: "bin"},
+			{dir: filepath.Join(asdf, "installs", "nodejs"), binSubdir: "bin"},
+			{dir: filepath.Join(home, ".nvm", "versions", "node"), binSubdir: "bin"},
+		},
+		python: []installRoot{
+			{dir: filepath.Join(home, ".pyenv", "versions"), binSubdir: "bin"},
+			{dir: filepath.Join(mise, "installs", "python"), binSubdir: "bin"},
+			{dir: filepath.Join(asdf, "installs", "python"), binSubdir: "bin"},
+		},
+		flutter: []installRoot{
+			{dir: filepath.Join(mise, "installs", "flutter"), binSubdir: "bin"},
+			{dir: filepath.Join(asdf, "installs", "flutter"), binSubdir: "bin"},
+		},
+	}
+	switch goos {
+	case "darwin":
+		roots.node = append(roots.node,
+			installRoot{dir: "/opt/homebrew/opt", namePrefix: "node@", binSubdir: "bin"},
+			installRoot{dir: "/usr/local/opt", namePrefix: "node@", binSubdir: "bin"})
+	case "windows":
+		nvm := firstNonEmpty(lookupEnv(env, "NVM_HOME", fold), filepath.Join(lookupEnv(env, "APPDATA", fold), "nvm"))
+		roots.node = append(roots.node, installRoot{dir: nvm})
+		roots.python = append(roots.python, installRoot{dir: filepath.Join(home, ".pyenv", "pyenv-win", "versions")})
+	}
+	return roots
 }
 
 type installRoot struct {
@@ -217,7 +264,21 @@ type installRoot struct {
 	binSubdir  string
 }
 
-func (r *Resolver) findInstall(roots []installRoot, want string, bins ...string) string {
+// binNames is what a binary is called on goos: Windows installs put node.exe,
+// python.exe or flutter.bat where a Unix install puts node.
+func binNames(goos string, bins []string) []string {
+	if goos != "windows" {
+		return bins
+	}
+	out := make([]string, 0, len(bins)*3)
+	for _, b := range bins {
+		out = append(out, b+".exe", b+".cmd", b+".bat")
+	}
+	return out
+}
+
+func (r *Resolver) findInstall(roots []installRoot, want, goos string, bins ...string) string {
+	bins = binNames(goos, bins)
 	for _, root := range roots {
 		entries, err := os.ReadDir(root.dir)
 		if err != nil {
@@ -242,10 +303,18 @@ func (r *Resolver) findInstall(roots []installRoot, want string, bins ...string)
 		if best == "" {
 			continue
 		}
-		binDir := filepath.Join(root.dir, best, root.binSubdir)
-		for _, b := range bins {
-			if _, err := os.Stat(filepath.Join(binDir, b)); err == nil {
-				return binDir
+		subdirs := []string{root.binSubdir}
+		if goos == "windows" && root.binSubdir != "" {
+			// Windows builds of node and python put the executable at the
+			// version root, not under bin/.
+			subdirs = append(subdirs, "")
+		}
+		for _, sub := range subdirs {
+			binDir := filepath.Join(root.dir, best, sub)
+			for _, b := range bins {
+				if _, err := os.Stat(filepath.Join(binDir, b)); err == nil {
+					return binDir
+				}
 			}
 		}
 	}
@@ -307,24 +376,41 @@ func compareVersions(a, b string) int {
 	return len(bs) - len(as)
 }
 
+func (r *Resolver) goos() string {
+	if r.GOOS != "" {
+		return r.GOOS
+	}
+	return runtime.GOOS
+}
+
 func envValue(env []string, key string) string {
-	prefix := key + "="
+	return lookupEnv(env, key, runtime.GOOS == "windows")
+}
+
+// lookupEnv returns the last value of key; foldCase matches Windows, where
+// variable names are case-insensitive.
+func lookupEnv(env []string, key string, foldCase bool) string {
 	for i := len(env) - 1; i >= 0; i-- {
-		if strings.HasPrefix(env[i], prefix) {
-			return env[i][len(prefix):]
+		name, val, ok := strings.Cut(env[i], "=")
+		if ok && (name == key || foldCase && strings.EqualFold(name, key)) {
+			return val
 		}
 	}
 	return ""
 }
 
 func ensurePathDirs(path string, dirs ...string) string {
-	existing := strings.Split(path, string(os.PathListSeparator))
 	present := map[string]bool{}
-	for _, e := range existing {
+	for _, e := range strings.Split(path, string(os.PathListSeparator)) {
 		present[e] = true
 	}
 	for _, d := range dirs {
-		if !present[d] {
+		if present[d] {
+			continue
+		}
+		if path == "" {
+			path = d
+		} else {
 			path += string(os.PathListSeparator) + d
 		}
 	}

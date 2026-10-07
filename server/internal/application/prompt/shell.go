@@ -3,16 +3,18 @@ package prompt
 import "time"
 
 type shellBlockingCommandInput struct {
-	Segment string
-	What    string
+	Segment   string
+	What      string
+	ShellKind string
 }
 
-var shellBlockingCommandKey = Define("guard.shell_blocking_command", shellBlockingCommandInput{Segment: "npm run dev", What: "a dev server"})
+var shellBlockingCommandKey = Define("guard.shell_blocking_command", shellBlockingCommandInput{Segment: "npm run dev", What: "a dev server", ShellKind: "posix"})
 
 // ShellBlockingCommandText is run_terminal's refusal for a command whose only
 // purpose is to run until interrupted — see adapter/tools/shell/blocking.go.
-func ShellBlockingCommandText(segment, what string) string {
-	return shellBlockingCommandKey.Render(shellBlockingCommandInput{Segment: segment, What: what})
+// shellKind picks how the refusal says to detach it (see platform/hostshell).
+func ShellBlockingCommandText(segment, what, shellKind string) string {
+	return shellBlockingCommandKey.Render(shellBlockingCommandInput{Segment: segment, What: what, ShellKind: shellKind})
 }
 
 type shellTimeoutRetryBelowInput struct {

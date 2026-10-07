@@ -1,0 +1,37 @@
+# LF in the repository and in every checkout, whatever core.autocrlf says:
+# embedded prompts, deploy templates and golden files are read byte for byte,
+# and a CRLF checkout on a Windows machine or runner breaks them.
+* text=auto eol=lf
+
+# Windows-only scripts.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.png binary
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.wasm binary
+*.onnx binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.xz binary
+*.txz binary
+*.dylib binary
+*.so binary
+*.dll binary
+*.exe binary
+
+# A captured web page: the parser tests read it exactly as it was served,
+# mixed line endings included.
+server/internal/adapter/tools/search/testdata/*.html -text

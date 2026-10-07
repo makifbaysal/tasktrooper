@@ -19,15 +19,15 @@ Unit tests run against mocks. They prove your logic, not that the route is wired
 2. **Bring up dependencies.** `docker compose up -d db` if the repo has one, or `docker run -d --rm --name tt-pg -e POSTGRES_PASSWORD=pg -p 55432:5432 postgres:18`; then run the repo's migrate command.
 3. **Build a binary, don't `go run`.** `run_terminal` can send SIGTERM at a timeout, and that can orphan a child process started by `go run`. Build first:
    ```
-   go build -o /tmp/svc ./cmd/<api>
-   (PORT=18080 /tmp/svc > /tmp/tt-<task key>/dev.log 2>&1 & echo $! > /tmp/tt-<task key>/svc.pid)
+   mkdir -p /tmp/tt-<task key> && go build -o /tmp/tt-<task key>/svc$(go env GOEXE) ./cmd/<api>
+   (PORT=18080 /tmp/tt-<task key>/svc$(go env GOEXE) > /tmp/tt-<task key>/dev.log 2>&1 & echo $! > /tmp/tt-<task key>/svc.pid)
    sleep 3; tail -n 30 /tmp/tt-<task key>/dev.log
    ```
    Java: `./mvnw -q -DskipTests package && (java -jar target/quarkus-app/quarkus-run.jar > /tmp/tt-<task key>/dev.log 2>&1 & echo $! > /tmp/tt-<task key>/svc.pid)`, or the Spring Boot fat jar equivalent.
 4. **Send requests.** `curl -sS -i -X POST localhost:18080/... -H 'content-type: application/json' -d '...'` — see the request matrix below for which ones.
 5. **Scan the log.** `grep -nE 'ERROR|panic|Exception|level":"error' /tmp/tt-<task key>/dev.log` — a 200 with a stack trace behind it is a finding, not a pass.
 6. **Check the side effect.** `psql "$DATABASE_URL" -c 'select ...'` — confirm the row actually landed the way the response claimed.
-7. **Stop the process.** `kill $(cat /tmp/tt-<task key>/svc.pid)` — never leave it running at the end of the run.
+7. **Stop the process.** `kill $(cat /tmp/tt-<task key>/svc.pid)` on macOS/Linux; on Windows stop it by its port (see Host machine) — never leave it running at the end of the run.
 
 ## Request matrix
 

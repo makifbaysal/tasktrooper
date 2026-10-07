@@ -3,6 +3,10 @@ import { statSync, accessSync, constants, existsSync, readdirSync } from "node:f
 import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
+import { taskkillTree } from "../supervisor/reaper.js";
+import { knownLoginShellPath, loginShellPath } from "./login-env.js";
+import { binaryDirs, mergePath, pathKeyOf, prependDirs, splitPath, withoutAppImage } from "./process-env.js";
+import { launchFor } from "./winshim.js";
 import type {
   Blocker,
   Overrides,
@@ -105,27 +109,33 @@ function isExecutable(candidate: string): boolean {
  * makes a double-clicked app behave like the terminal the user tested in.
  * Both Homebrew prefixes are listed because Apple Silicon and Intel Macs
  * disagree, and a user who migrated between them can have either.
+ *
+ * Everything added after the original list is appended, never interleaved:
+ * the login shell's own PATH first (it knows what the user's profile does),
+ * then the version managers' and package managers' default directories as a
+ * last guess. A binary found before is still the one found.
  */
 function searchDirs(): { dir: string; source: PreflightSource }[] {
   const home = os.homedir();
   const out: { dir: string; source: PreflightSource }[] = [];
-  for (const dir of pathValue().split(path.delimiter)) {
-    if (dir !== "") out.push({ dir, source: "path" });
-  }
+  const add = (dir: string, source: PreflightSource): void => {
+    if (dir !== "" && !out.some((e) => e.dir === dir)) out.push({ dir, source });
+  };
+  for (const dir of pathValue().split(path.delimiter)) add(dir, "path");
   if (process.platform === "darwin") {
-    out.push({ dir: "/opt/homebrew/bin", source: "homebrew" });
-    out.push({ dir: "/usr/local/bin", source: "homebrew" });
+    add("/opt/homebrew/bin", "homebrew");
+    add("/usr/local/bin", "homebrew");
   }
-  if (process.platform === "linux") out.push({ dir: "/snap/bin", source: "path" });
-  if (process.platform === "win32") out.push({ dir: path.join(home, "AppData", "Roaming", "npm"), source: "npm-prefix" });
-  out.push({ dir: path.join(home, ".local", "bin"), source: "home" });
-  out.push({ dir: path.join(home, ".claude", "local"), source: "home" });
-  out.push({ dir: path.join(home, ".bun", "bin"), source: "home" });
-  out.push({ dir: path.join(home, ".opencode", "bin"), source: "home" });
+  if (process.platform === "linux") add("/snap/bin", "path");
+  if (process.platform === "win32") add(path.join(appDataDir(), "npm"), "npm-prefix");
+  add(path.join(home, ".local", "bin"), "home");
+  add(path.join(home, ".claude", "local"), "home");
+  add(path.join(home, ".bun", "bin"), "home");
+  add(path.join(home, ".opencode", "bin"), "home");
   // npm's global prefix. `npm prefix -g` would be authoritative but costs a
   // node startup per call; these are the three locations it actually uses.
-  if (process.platform === "darwin") out.push({ dir: "/opt/homebrew/lib/node_modules/.bin", source: "npm-prefix" });
-  out.push({ dir: path.join(home, ".npm-global", "bin"), source: "npm-prefix" });
+  if (process.platform === "darwin") add("/opt/homebrew/lib/node_modules/.bin", "npm-prefix");
+  add(path.join(home, ".npm-global", "bin"), "npm-prefix");
   // nvm installs node under ~/.nvm/versions/node/<version>/bin. The static
   // path ~/.nvm/versions does not contain binaries, so `which()` would never
   // find them there. Use NVM_BIN if set (the active version), and also glob
@@ -133,20 +143,83 @@ function searchDirs(): { dir: string; source: PreflightSource }[] {
   // node is still found.
   if (process.platform !== "win32") {
     const nvmBin = process.env.NVM_BIN;
-    if (nvmBin && !out.some((e) => e.dir === nvmBin)) {
-      out.push({ dir: nvmBin, source: "npm-prefix" });
-    }
+    if (nvmBin) add(nvmBin, "npm-prefix");
     const nvmVersionsDir = path.join(home, ".nvm", "versions", "node");
-    if (existsSync(nvmVersionsDir)) {
-      try {
-        for (const entry of readdirSync(nvmVersionsDir)) {
-          const binDir = path.join(nvmVersionsDir, entry, "bin");
-          if (existsSync(binDir) && !out.some((e) => e.dir === binDir)) {
-            out.push({ dir: binDir, source: "npm-prefix" });
-          }
-        }
-      } catch { /* ignore unreadable dirs */ }
+    for (const entry of listDir(nvmVersionsDir)) {
+      const binDir = path.join(nvmVersionsDir, entry, "bin");
+      if (existsSync(binDir)) add(binDir, "npm-prefix");
     }
+  }
+  for (const dir of knownLoginShellPath()) add(dir, "path");
+  for (const { dir, source } of fallbackDirs(home)) add(dir, source);
+  return out;
+}
+
+/** `%APPDATA%`, where npm's global prefix is on Windows — not necessarily under the profile directory. */
+function appDataDir(): string {
+  return process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
+}
+
+function localAppDataDir(): string {
+  return process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local");
+}
+
+function listDir(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Where version managers and installers put binaries when nothing told the
+ * GUI session about them. Searched last, after PATH and the login shell's PATH.
+ */
+export function fallbackDirs(home: string = os.homedir()): { dir: string; source: PreflightSource }[] {
+  const out: { dir: string; source: PreflightSource }[] = [];
+  if (process.platform === "win32") {
+    const programFiles = process.env.ProgramFiles ?? "C:\\Program Files";
+    const programFilesX86 = process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
+    const local = localAppDataDir();
+    out.push({ dir: path.join(local, "pnpm"), source: "npm-prefix" });
+    out.push({ dir: path.join(programFiles, "nodejs"), source: "path" });
+    // Git for Windows' own `cmd` directory: machine-wide, 32-bit, and the
+    // per-user install its installer offers when it cannot elevate.
+    out.push({ dir: path.join(programFiles, "Git", "cmd"), source: "path" });
+    out.push({ dir: path.join(programFilesX86, "Git", "cmd"), source: "path" });
+    out.push({ dir: path.join(local, "Programs", "Git", "cmd"), source: "home" });
+    // Per-user installers — the default for anything that cannot ask for
+    // admin — land in %LOCALAPPDATA%\Programs\<app>, with their CLI in bin\.
+    const programs = path.join(local, "Programs");
+    for (const entry of listDir(programs)) out.push({ dir: path.join(programs, entry, "bin"), source: "home" });
+    return out;
+  }
+  // An unset, empty or relative variable means the tool's default; a relative
+  // one taken at face value would make the cwd a search directory.
+  const envDir = (name: string): string | undefined => {
+    const value = process.env[name];
+    return value && path.isAbsolute(value) ? value : undefined;
+  };
+  const dataHome = envDir("XDG_DATA_HOME") ?? path.join(home, ".local", "share");
+  out.push({ dir: path.join(home, ".volta", "bin"), source: "home" });
+  const pnpmHome = envDir("PNPM_HOME");
+  if (pnpmHome) out.push({ dir: pnpmHome, source: "npm-prefix" });
+  out.push({
+    dir: process.platform === "darwin" ? path.join(home, "Library", "pnpm") : path.join(dataHome, "pnpm"),
+    source: "npm-prefix",
+  });
+  const fnmDir = envDir("FNM_DIR");
+  if (fnmDir) out.push({ dir: path.join(fnmDir, "aliases", "default", "bin"), source: "home" });
+  out.push({ dir: path.join(dataHome, "fnm", "aliases", "default", "bin"), source: "home" });
+  out.push({ dir: path.join(home, ".fnm", "aliases", "default", "bin"), source: "home" });
+  out.push({ dir: path.join(home, ".fnm"), source: "home" });
+  out.push({ dir: path.join(envDir("ASDF_DATA_DIR") ?? path.join(home, ".asdf"), "shims"), source: "home" });
+  out.push({ dir: path.join(dataHome, "mise", "shims"), source: "home" });
+  if (process.platform === "linux") {
+    out.push({ dir: "/usr/local/bin", source: "path" });
+    out.push({ dir: "/home/linuxbrew/.linuxbrew/bin", source: "homebrew" });
+    out.push({ dir: path.join(home, ".linuxbrew", "bin"), source: "homebrew" });
   }
   return out;
 }
@@ -167,10 +240,10 @@ export function which(name: string): { path: string; source: PreflightSource } |
   return null;
 }
 
-/** PATH under whatever spelling this platform's environment uses. */
+/** PATH under whatever spelling this platform's environment uses, without an AppImage's own entries. */
 function pathValue(): string {
-  const key = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH");
-  return (key ? process.env[key] : undefined) ?? "";
+  const env = withoutAppImage(process.env);
+  return env[pathKeyOf(env)] ?? "";
 }
 
 /**
@@ -185,15 +258,23 @@ function pathValue(): string {
  *   env: node: No such file or directory
  *
  * So every probe that asked a tool about itself came back empty, and empty was
- * read as absent.
+ * read as absent. The login shell's PATH is appended for the same reason, and
+ * `run()` puts the probed binary's own directory first.
  */
 export function probeEnv(): NodeJS.ProcessEnv {
-  const parts = pathValue().split(path.delimiter).filter((p) => p !== "");
-  for (const extra of process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : []) {
-    if (!parts.includes(extra)) parts.push(extra);
-  }
-  const key = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
-  return { ...process.env, [key]: parts.join(path.delimiter) };
+  const env = withoutAppImage({ ...process.env });
+  const key = pathKeyOf(env);
+  const extras = process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : [];
+  env[key] = mergePath([splitPath(env[key]), extras, knownLoginShellPath()]).join(path.delimiter);
+  return env;
+}
+
+/** `probeEnv()` with the probed binary's directory first, so `env node` finds the node it was installed beside. */
+function probeEnvFor(command: string): NodeJS.ProcessEnv {
+  const env = probeEnv();
+  const key = pathKeyOf(env);
+  env[key] = prependDirs(splitPath(env[key]), binaryDirs([command])).join(path.delimiter);
+  return env;
 }
 
 interface RunResult {
@@ -206,16 +287,36 @@ interface RunResult {
   timedOut: boolean;
 }
 
+/**
+ * Run a probe, with no shell on any platform: a Windows `.cmd` shim becomes the
+ * node invocation it would have made (`winshim.ts`), so a path with a space in
+ * it and an argument with one both survive.
+ *
+ * On Windows the bound is enforced with `taskkill /T` rather than execFile's
+ * own timeout, which kills only the direct child and leaves whatever it
+ * started running.
+ */
 function run(command: string, args: string[], timeoutMs = PROBE_TIMEOUT_MS): Promise<RunResult> {
   return new Promise((resolve) => {
-    const isCmdOrBat = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
+    const win = process.platform === "win32";
+    let timedOut = false;
+    let timer: NodeJS.Timeout | undefined;
     try {
-      execFile(
-        command,
-        args,
-        { timeout: timeoutMs, env: probeEnv(), maxBuffer: 1024 * 1024, shell: isCmdOrBat },
+      const launch = launchFor(command, args, probeEnvFor(command));
+      const child = execFile(
+        launch.command,
+        launch.args,
+        {
+          env: launch.env,
+          maxBuffer: 1024 * 1024,
+          shell: false,
+          windowsHide: true,
+          ...(launch.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+          ...(win ? {} : { timeout: timeoutMs }),
+        },
         (err, stdout, stderr) => {
-          const timedOut = !!err && (err as { killed?: boolean }).killed === true;
+          clearTimeout(timer);
+          timedOut = timedOut || (!!err && (err as { killed?: boolean }).killed === true);
           const code =
             err && typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
           resolve({
@@ -227,7 +328,15 @@ function run(command: string, args: string[], timeoutMs = PROBE_TIMEOUT_MS): Pro
           });
         },
       );
+      if (win) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          if (child.pid !== undefined) void taskkillTree(child.pid);
+          else child.kill();
+        }, timeoutMs);
+      }
     } catch (err) {
+      clearTimeout(timer);
       const msg = err instanceof Error ? err.message : String(err);
       resolve({
         code: 1,
@@ -916,7 +1025,7 @@ async function probeXcodeCLT(): Promise<PreflightItem> {
       required: false,
       status: "missing",
       detail: "Needed only for tasks that build Apple platform targets.",
-      remediation: "Install them if a repository on this Mac builds for Apple platforms.",
+      remediation: "Install them if a repository on this machine builds for Apple platforms.",
       command: "xcode-select --install",
     };
   }
@@ -1111,6 +1220,11 @@ export function androidSdkDefaultRoot(): string {
   }
 }
 
+/** `<root>/platform-tools/adb` — `adb.exe` on Windows, where the SDK's binaries carry the extension. */
+export function androidToolPath(root: string, dir: string, name: string): string {
+  return path.join(root, dir, process.platform === "win32" ? `${name}.exe` : name);
+}
+
 function androidSdkTool(dir: string, name: string): { path: string; source: PreflightSource } | null {
   const roots: string[] = [];
   for (const key of ["ANDROID_HOME", "ANDROID_SDK_ROOT"]) {
@@ -1119,7 +1233,7 @@ function androidSdkTool(dir: string, name: string): { path: string; source: Pref
   }
   roots.push(androidSdkDefaultRoot());
   for (const root of roots) {
-    const candidate = path.join(root, dir, name);
+    const candidate = androidToolPath(root, dir, name);
     if (isExecutable(candidate)) return { path: candidate, source: "home" };
   }
   return null;
@@ -1145,7 +1259,7 @@ export function emulatorPathFor(report: PreflightReport): string {
   const sdk = itemById(report, "android-sdk");
   if (!sdk || sdk.status !== "ok") return "";
   const root = androidRootFrom(sdk.path);
-  const candidate = root === "" ? "" : path.join(root, "emulator", "emulator");
+  const candidate = root === "" ? "" : androidToolPath(root, "emulator", "emulator");
   if (candidate !== "" && isExecutable(candidate)) return candidate;
   return which("emulator")?.path ?? "";
 }
@@ -1174,6 +1288,9 @@ export interface PreflightOptions {
  */
 export async function preflight(opts: PreflightOptions): Promise<PreflightReport> {
   const overrides = opts.overrides ?? {};
+  // Once per process, bounded, and empty on any failure; `which()` and the
+  // probe environment read what it found.
+  await loginShellPath();
 
   const claudePromise = probeClaude(overrides.claudeBin);
   const [git, claude, xcode, appium, agy, cursorAgent, opencode] = await Promise.all([

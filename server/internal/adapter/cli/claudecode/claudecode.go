@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,7 +21,9 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -355,9 +359,9 @@ func (e *Executor) spawn(ctx context.Context, inv invocation) (session, error) {
 	defer cleanupSystemPrompt()
 
 	args := e.buildArgs(inv, systemPromptPath)
-	cmd := exec.CommandContext(runCtx, e.bin, args...)
+	cmd := winshim.Command(runCtx, e.bin, args...)
 	cmd.Dir = inv.workDir
-	cmd.Env = append(core.ChildEnv(ctx, true, claudeEnvPassthrough), inv.env...)
+	cmd.Env = append(claudeChildEnv(ctx), inv.env...)
 	cmd.Stdin = strings.NewReader(inv.prompt)
 
 	stdout, err := cmd.StdoutPipe()
@@ -643,7 +647,10 @@ func (e *Executor) buildArgs(inv invocation, systemPromptPath string) []string {
 	return args
 }
 
-const disallowedBashCommands = "Bash(pkill:*),Bash(killall:*),Bash(gh pr merge:*)"
+// taskkill /IM is Windows' pkill: it stops every process with that image name,
+// other tasks' servers and the user's own included. Git Bash spells the
+// switches //IM and //F.
+const disallowedBashCommands = "Bash(pkill:*),Bash(killall:*),Bash(taskkill /IM:*),Bash(taskkill //IM:*),Bash(taskkill /F /IM:*),Bash(taskkill //F //IM:*),Bash(gh pr merge:*)"
 
 func continuePrompt(req domain.TaskExecution) string {
 	task := strings.TrimSpace(req.TaskKey + " " + req.TaskTitle)
@@ -673,8 +680,23 @@ func flattenHistory(history []domain.Message) (systemPrompt, promptText string) 
 	return strings.Join(system, "\n\n"), strings.Join(user, "\n\n")
 }
 
+// claudeChildEnv is the environment Claude Code runs with. On Windows it
+// refuses to start without Git Bash and finds one only in the default install
+// locations unless CLAUDE_CODE_GIT_BASH_PATH names it, so when the user has
+// not set that, the Git Bash run_terminal found on this host is named for it.
+func claudeChildEnv(ctx context.Context) []string {
+	env := core.ChildEnv(ctx, true, claudeEnvPassthrough)
+	if runtime.GOOS == "windows" && os.Getenv("CLAUDE_CODE_GIT_BASH_PATH") == "" {
+		if sh := hostshell.Default(); sh.Name == hostshell.GitBashName {
+			env = append(env, "CLAUDE_CODE_GIT_BASH_PATH="+sh.Path)
+		}
+	}
+	return env
+}
+
 var claudeEnvPassthrough = []string{
 	"CLAUDE_CONFIG_DIR",
+	"CLAUDE_CODE_GIT_BASH_PATH",
 	"CLAUDE_CODE_OAUTH_TOKEN",
 	"CLAUDE_CODE_USE_BEDROCK",
 	"CLAUDE_CODE_USE_VERTEX",

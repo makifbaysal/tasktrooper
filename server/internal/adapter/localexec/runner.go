@@ -19,7 +19,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/git"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/release"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 )
 
 const defaultTimeout = 60 * time.Minute
@@ -143,7 +145,8 @@ func (r *Runner) Start(ctx context.Context, spec release.LocalRunSpec, done func
 		return fmt.Errorf("localexec: creating the log file: %w", err)
 	}
 
-	cmd := exec.CommandContext(runCtx, spec.Argv[0], spec.Argv[1:]...)
+	argv := hostshell.ResolveArgv(spec.Argv)
+	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	cmd.Dir = worktree
 	cmd.Env = spec.Env
 	setProcessGroup(cmd)
@@ -216,7 +219,7 @@ var addDetachedWorktree = func(ctx context.Context, rootPath, sha string) (workt
 	}
 	worktree = filepath.Join(parent, "wt")
 
-	cmd := exec.CommandContext(ctx, "git", "worktree", "add", "--detach", worktree, sha)
+	cmd := exec.CommandContext(ctx, "git", git.HostArgs([]string{"worktree", "add", "--detach", worktree, sha})...)
 	cmd.Dir = rootPath
 	if out, err := cmd.CombinedOutput(); err != nil {
 		_ = os.RemoveAll(parent)
@@ -226,12 +229,12 @@ var addDetachedWorktree = func(ctx context.Context, rootPath, sha string) (workt
 	cleanup = func() {
 		rmCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		rmCmd := exec.CommandContext(rmCtx, "git", "worktree", "remove", "--force", worktree)
+		rmCmd := exec.CommandContext(rmCtx, "git", git.HostArgs([]string{"worktree", "remove", "--force", worktree})...)
 		rmCmd.Dir = rootPath
 		if out, err := rmCmd.CombinedOutput(); err != nil {
 			log.Warn().Err(err).Str("output", strings.TrimSpace(string(out))).Msg("localexec: removing the detached worktree failed")
 		}
-		pruneCmd := exec.CommandContext(rmCtx, "git", "worktree", "prune")
+		pruneCmd := exec.CommandContext(rmCtx, "git", git.HostArgs([]string{"worktree", "prune"})...)
 		pruneCmd.Dir = rootPath
 		if out, err := pruneCmd.CombinedOutput(); err != nil {
 			log.Warn().Err(err).Str("output", strings.TrimSpace(string(out))).Msg("localexec: pruning worktrees failed")

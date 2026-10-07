@@ -20,6 +20,37 @@ import { nativeImage, type NativeImage } from "electron";
 
 export type TrayGlyph = "running" | "degraded" | "stopped";
 
+/**
+ * How the glyph is coloured. Only macOS recolours a template image for the bar
+ * it sits on; everywhere else the pixels are drawn as they are, and a black
+ * glyph on Windows' dark taskbar or GNOME's top bar is invisible.
+ *
+ *   template  black + alpha, recoloured by macOS
+ *   light     white, for a dark panel
+ *   dark      black, for a light panel
+ */
+export type TrayTone = "template" | "light" | "dark";
+
+/**
+ * The tone for this platform's panel.
+ *
+ * Windows reports the taskbar's own theme separately from the apps' (the
+ * default on Windows 10 is a dark taskbar with light apps), so that is the one
+ * read. On Linux the panel's colour is the desktop's decision rather than the
+ * GTK theme's: GNOME's top bar is dark in light mode too, as are most others,
+ * so only KDE — whose panel follows the colour scheme — gets the theme's answer.
+ */
+export function trayTone(
+  platform: NodeJS.Platform,
+  theme: { systemDark: boolean; appDark: boolean },
+  desktop: string = process.env.XDG_CURRENT_DESKTOP ?? "",
+): TrayTone {
+  if (platform === "darwin") return "template";
+  if (platform === "win32") return theme.systemDark ? "light" : "dark";
+  if (/kde/i.test(desktop)) return theme.appDark ? "light" : "dark";
+  return "light";
+}
+
 /** Points, not pixels; the @2x buffer is generated at twice this. */
 const SIZE = 18;
 
@@ -28,7 +59,7 @@ const SIZE = 18;
  * Supersampled 4× and averaged, which is the whole antialiasing strategy — at
  * 18pt a hard-edged circle reads as a lump.
  */
-function drawGlyph(glyph: TrayGlyph, size: number): Buffer {
+function drawGlyph(glyph: TrayGlyph, size: number, tone: TrayTone): Buffer {
   const buffer = Buffer.alloc(size * size * 4);
   const center = (size - 1) / 2;
   const outer = size * 0.40;
@@ -54,33 +85,35 @@ function drawGlyph(glyph: TrayGlyph, size: number): Buffer {
       }
       const alpha = Math.round((hits / (samples * samples)) * 255);
       const offset = (y * size + x) * 4;
-      // BGRA, premultiplied: black at the computed coverage.
-      buffer[offset] = 0;
-      buffer[offset + 1] = 0;
-      buffer[offset + 2] = 0;
+      // BGRA, premultiplied: black, or white, at the computed coverage.
+      const channel = tone === "light" ? alpha : 0;
+      buffer[offset] = channel;
+      buffer[offset + 1] = channel;
+      buffer[offset + 2] = channel;
       buffer[offset + 3] = alpha;
     }
   }
   return buffer;
 }
 
-const cache = new Map<TrayGlyph, NativeImage>();
+const cache = new Map<string, NativeImage>();
 
-export function trayIcon(glyph: TrayGlyph): NativeImage {
-  const cached = cache.get(glyph);
+export function trayIcon(glyph: TrayGlyph, tone: TrayTone = "template"): NativeImage {
+  const key = `${glyph}:${tone}`;
+  const cached = cache.get(key);
   if (cached) return cached;
 
-  const image = nativeImage.createFromBitmap(drawGlyph(glyph, SIZE), { width: SIZE, height: SIZE, scaleFactor: 1 });
+  const image = nativeImage.createFromBitmap(drawGlyph(glyph, SIZE, tone), { width: SIZE, height: SIZE, scaleFactor: 1 });
   image.addRepresentation({
     width: SIZE * 2,
     height: SIZE * 2,
     scaleFactor: 2,
-    buffer: drawGlyph(glyph, SIZE * 2),
+    buffer: drawGlyph(glyph, SIZE * 2, tone),
   });
   // Without this the menu bar shows a black blob that stays black when the
   // bar inverts. It is what makes the icon behave like every other one there.
-  image.setTemplateImage(true);
+  if (tone === "template") image.setTemplateImage(true);
 
-  cache.set(glyph, image);
+  cache.set(key, image);
   return image;
 }

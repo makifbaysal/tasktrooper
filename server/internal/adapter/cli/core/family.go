@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -172,8 +172,15 @@ func (f *Family) spawn(ctx context.Context, inv Invocation, launch Launch) (Sess
 	runCtx, cancel := context.WithTimeout(ctx, f.runTimeout)
 	defer cancel()
 
+	argPrompt, cleanupPrompt, err := ArgvSafePrompt(inv.Prompt)
+	if err != nil {
+		return Session{}, err
+	}
+	defer cleanupPrompt()
+	inv.Prompt = argPrompt
+
 	args := append(f.spec.BuildArgs(inv), launch.Args...)
-	cmd := exec.CommandContext(runCtx, f.bin, args...)
+	cmd := winshim.Command(runCtx, f.bin, args...)
 	cmd.Dir = inv.WorkDir
 	cmd.Env = append(ChildEnv(ctx, false, nil), launch.Env...)
 

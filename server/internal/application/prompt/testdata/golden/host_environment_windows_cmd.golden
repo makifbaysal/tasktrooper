@@ -1,3 +1,5 @@
 ## Host machine
 This run executes on Windows (amd64). Write every command, path and script invocation for this OS and for the shell run_terminal uses: cmd.exe. Never assume macOS or Linux tools on a machine that is not one.
-- run_terminal runs cmd.exe: chain commands with `&&`, read environment variables as `%NAME%`, use `dir`, `type`, `findstr`, `rmdir /s /q`, `mkdir`. POSIX tools and syntax do not exist.
+- run_terminal runs cmd.exe: chain commands with `&&`, read environment variables as `%NAME%`, set one with `set "VAR=x" && cmd`, use `dir`, `type`, `findstr`, `rmdir /s /q`, `mkdir`. POSIX tools and syntax do not exist.
+- To keep a server running after the call returns, start it with `start "" /b <command> > <log> 2>&1`. To find what holds a port use `netstat -ano | findstr :<port>` and stop it with `taskkill /PID <pid> /F`.
+- Never stop processes by name (pkill, killall, `taskkill /IM`): that kills every task's servers and the user's own. Stop what you started by its port or its PID.

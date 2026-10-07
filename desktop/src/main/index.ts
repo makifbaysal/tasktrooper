@@ -1,6 +1,6 @@
 import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { BrowserWindow, app, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, Menu, app, powerMonitor, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { autoUpdater } from "electron-updater";
 import { CLOUD_EVENTS, SHELL_EVENTS } from "../ipc/channels.js";
 import type {
@@ -21,14 +21,17 @@ import type {
 import { SecretStore, type LocalSecrets } from "./config/secrets.js";
 import { SettingsStore } from "./config/settings.js";
 import { checkWorkspace, pickDirectory, pickWorkspace, reveal } from "./config/workspace.js";
+import { applicationMenuTemplate } from "./app-menu.js";
 import { registerIpc, type IpcServices } from "./ipc.js";
+import { launchedHidden, setLaunchAtLogin } from "./login-item.js";
 import { quitSequence } from "./quit.js";
 import { APP_ORIGIN, originOf, registerAppSchemePrivileges, serveAppScheme } from "./services/app-scheme.js";
 import { binDir, dataDir } from "./services/detect.js";
+import { loginShellPath } from "./services/login-env.js";
 import { NotificationWatcher } from "./services/notifications.js";
-import { FEED_DEBUG_ENV, UpdateService, resolveFeed, type UpdaterBackend } from "./services/updater.js";
+import { FEED_DEBUG_ENV, UpdateService, installsOnQuit, resolveFeed, type UpdaterBackend } from "./services/updater.js";
 import { Supervisor } from "./supervisor/supervisor.js";
-import { AppTray, setLaunchAtLogin } from "./tray.js";
+import { AppTray } from "./tray.js";
 import { openExternally, Shell } from "./window.js";
 
 /**
@@ -46,6 +49,12 @@ import { openExternally, Shell } from "./window.js";
 const gotInstanceLock = app.requestSingleInstanceLock();
 if (!gotInstanceLock) app.quit();
 
+// Windows attributes a toast to the AppUserModelID of the process that raised
+// it, and shows nothing for one that matches no Start-menu shortcut. The NSIS
+// installer stamps its shortcut with electron-builder's `appId`, so this must
+// be that string exactly, and set before the first notification.
+if (process.platform === "win32") app.setAppUserModelId("ai.tasktrooper.desktop");
+
 const settingsStore = new SettingsStore();
 const secretStore = new SecretStore();
 const supervisor = new Supervisor();
@@ -57,6 +66,8 @@ const supervisor = new Supervisor();
  * than one this file can fix.
  */
 let secrets: LocalSecrets | null = null;
+/** Why `secrets` is null, in the store's own words. */
+let secretsError: string | undefined;
 let tray: AppTray | null = null;
 
 /**
@@ -114,6 +125,7 @@ const shellWindow = new Shell({
   // `quit` is assigned further down, but this closure is not called until the
   // window's close event actually fires — well after that assignment runs.
   quitStarted: () => quit.started,
+  onSessionEnd: () => void quit.run(),
 });
 
 // --- helpers ----------------------------------------------------------------
@@ -153,9 +165,32 @@ function toCloud(channel: string, payload: unknown): void {
 function reconfigure(): void {
   supervisor.configure({
     secrets,
+    ...(secretsError !== undefined ? { secretsError } : {}),
     settings: settingsStore.get(),
     overrides: settingsStore.overrides(),
   });
+}
+
+/**
+ * Read (or on a first run, create) the local secrets, and try again on every
+ * start while they are missing: a Linux keyring that was locked at launch can
+ * be unlocked before the user presses Connect, and the refusal tells them to.
+ *
+ * A failure leaves `secrets` null on purpose. `supervisor.connect()` refuses
+ * with the sentence that explains it, which is where the user is looking —
+ * throwing here would be an app that exits at launch with a dialog nobody can
+ * act on.
+ */
+function loadSecrets(): void {
+  if (secrets) return;
+  try {
+    secrets = secretStore.ensure();
+    secretsError = undefined;
+  } catch (err) {
+    secrets = null;
+    secretsError = err instanceof Error ? err.message : String(err);
+  }
+  reconfigure();
 }
 
 /**
@@ -307,7 +342,10 @@ const services: IpcServices = {
   apiToken: () => secrets?.api_token ?? "",
 
   runnerSnapshot: () => hostSnapshot(),
-  connect: async () => hostSnapshot(await supervisor.connect()),
+  connect: async () => {
+    loadSecrets();
+    return hostSnapshot(await supervisor.connect());
+  },
   disconnect: async () => hostSnapshot(await supervisor.disconnect()),
   restartChild: async (child) => hostSnapshot(await supervisor.restartChild(child as never)),
   logs: (req) => supervisor.logs(req.child as never, req.afterSeq ?? 0, req.limit),
@@ -474,6 +512,7 @@ app.on("second-instance", () => showWindow());
  * own offline screen is where a user is looking.
  */
 async function startBackend(): Promise<void> {
+  loadSecrets();
   const snapshot = await supervisor.connect();
   if (snapshot.state === "failed") {
     shellWindow.markUnavailable(snapshot.detail ?? "The local server did not start.");
@@ -490,15 +529,16 @@ app.whenReady().then(
     // this scheme, and a handler registered after that is a blank frame.
     serveAppScheme();
 
-    try {
-      secrets = secretStore.ensure();
-    } catch {
-      // Left null on purpose. `supervisor.connect()` refuses with the sentence
-      // that explains it, which is where the user is looking — throwing here
-      // would be an app that exits at launch with a dialog nobody can act on.
-      secrets = null;
+    // As early as possible, because the first preflight waits for it: a login
+    // shell can take a second to read its profile, and that second runs beside
+    // the reaper and the embedder instead of after them.
+    void loginShellPath();
+
+    if (process.platform !== "darwin") {
+      Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(process.platform, !app.isPackaged)));
     }
-    reconfigure();
+
+    loadSecrets();
 
     // Unconditionally, and first among the children: the backend is handed this
     // child's resolved loopback URL, and a cold model download benefits from
@@ -514,6 +554,7 @@ app.whenReady().then(
         packaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
       }),
+      installOnQuit: installsOnQuit(process.platform, process.env),
       onStatus: (status) => {
         tray?.updateStatus(status);
         broadcast(SHELL_EVENTS.updateStatus, status);
@@ -536,6 +577,24 @@ app.whenReady().then(
     tray.create();
     tray.update(supervisor.snapshot());
     tray.updateStatus(updates.status);
+
+    // The login item's own record of where the app lives goes stale on Linux
+    // when an AppImage is replaced by a newer file, and predates the --hidden
+    // argument on Windows; rewriting it at launch keeps it pointing here. A
+    // dev run shares the installed app's settings and must not repoint the
+    // login item at node_modules' Electron.
+    if (app.isPackaged && process.platform !== "darwin" && settingsStore.get().launchAtLogin) setLaunchAtLogin(true);
+
+    // A Linux shutdown or logout reaches this process as logind's
+    // PrepareForShutdown; preventDefault takes the delay lock that gives the
+    // drain its few seconds. macOS already routes shutdown through before-quit,
+    // and Windows through the window's session-end (see window.ts).
+    if (process.platform === "linux") {
+      powerMonitor.on("shutdown", (event?: Electron.Event) => {
+        event?.preventDefault();
+        void quit.run();
+      });
+    }
 
     supervisor.on("state", (snapshot: SupervisorSnapshot) => {
       tray?.update(snapshot);
@@ -570,7 +629,7 @@ app.whenReady().then(
     // The chrome, immediately: it owns the "starting…" screen, which is what
     // the user looks at while the backend comes up. The web app's own view is
     // attached by the `server` handler above, once /health has answered.
-    shellWindow.create();
+    shellWindow.create({ hidden: launchedHidden() });
     updates.start();
 
     // The preflight runs at launch rather than at the first start, so the setup
@@ -583,7 +642,9 @@ app.whenReady().then(
       void startBackend();
     } else {
       shellWindow.markUnavailable(
-        "The local server is not set to start automatically. Start it from the TaskTrooper menu-bar icon.",
+        `The local server is not set to start automatically. Start it from the TaskTrooper ${
+          process.platform === "darwin" ? "menu-bar" : "tray"
+        } icon.`,
       );
     }
   },
@@ -593,10 +654,12 @@ app.whenReady().then(
   },
 );
 
-// A menu-bar app: closing the window hides the UI, it does not stop the
-// backend. Quit is an explicit choice, from the tray or Cmd-Q, and it drains.
+// A menu-bar (or tray) app: closing the window hides the UI, it does not stop
+// the backend. Quit is an explicit choice, from the tray or Cmd/Ctrl-Q, and it
+// drains. On a Linux session with no tray to show the icon in, launching the
+// app again is the way back: `second-instance` shows the window.
 app.on("window-all-closed", () => {
-  // Deliberately empty on macOS.
+  // Deliberately empty on every platform.
 });
 
 app.on("activate", () => {

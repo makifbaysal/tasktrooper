@@ -196,6 +196,52 @@ describe("childEnv", () => {
       delete process.env.ELECTRON_RUN_AS_NODE;
     }
   });
+
+  /**
+   * A CLI installed under nvm needs the node beside it reachable, but the
+   * user's own PATH order must win: every agent command inherits this PATH.
+   */
+  it("appends each found CLI's directory after the user's own PATH", () => {
+    vi.stubEnv("PATH", "/usr/local/bin:/usr/bin:/bin");
+    try {
+      const e = childEnv(
+        report([
+          { id: "opencode", label: "OpenCode CLI", required: false, status: "ok", path: "/home/me/.nvm/versions/node/v22/bin/opencode" },
+          { id: "agy", label: "Antigravity CLI", required: false, status: "missing", path: "/nope/agy" },
+        ]),
+      );
+      const parts = (e.PATH ?? "").split(":");
+      expect(parts.slice(0, 3)).toEqual(["/usr/local/bin", "/usr/bin", "/bin"]);
+      expect(parts).toContain("/home/me/.nvm/versions/node/v22/bin");
+      expect(parts.indexOf("/home/me/.nvm/versions/node/v22/bin")).toBeGreaterThan(parts.indexOf("/bin"));
+      expect(parts).not.toContain("/nope");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  /**
+   * AppRun's LD_LIBRARY_PATH and PATH point at the AppImage's own libraries;
+   * git, claude and Postgres must not load them. The embedder is this app's own
+   * binary and needs them.
+   */
+  it("strips an AppImage's environment from every child but this app's own binary", () => {
+    vi.stubEnv("APPIMAGE", "/home/me/TaskTrooper.AppImage");
+    vi.stubEnv("APPDIR", "/tmp/.mount_TT");
+    vi.stubEnv("PATH", "/tmp/.mount_TT:/tmp/.mount_TT/usr/sbin:/usr/bin");
+    vi.stubEnv("LD_LIBRARY_PATH", "/tmp/.mount_TT/usr/lib");
+    try {
+      const external = childEnv(report());
+      expect(external.PATH).not.toContain("/tmp/.mount_TT");
+      expect(external.LD_LIBRARY_PATH).toBeUndefined();
+      expect(external.APPIMAGE).toBeUndefined();
+
+      const own = childEnv(report(), { ownBinary: true });
+      expect(own.LD_LIBRARY_PATH).toBe("/tmp/.mount_TT/usr/lib");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe("appiumArgs", () => {

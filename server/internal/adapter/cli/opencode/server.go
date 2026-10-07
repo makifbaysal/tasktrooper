@@ -17,6 +17,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 )
 
 const (
@@ -49,7 +50,7 @@ func startPrivateServer(ctx context.Context, bin, workDir string, env []string) 
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, bin, "serve", "--stdio", "--port", "0", "--hostname", "127.0.0.1")
+	cmd := winshim.Command(ctx, bin, "serve", "--stdio", "--port", "0", "--hostname", "127.0.0.1")
 	cmd.Dir = workDir
 	cmd.Env = append(append([]string{}, env...), "OPENCODE_PASSWORD="+password)
 	stdin, err := cmd.StdinPipe()

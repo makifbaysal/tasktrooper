@@ -3,7 +3,9 @@ package board
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -41,7 +43,7 @@ func detectBuild(dir string) []Stage {
 	case markerExists(dir, "Cargo.toml"):
 		out = append(out, Stage{Name: "build", Command: []string{"cargo", "check"}})
 	case markerExists(dir, "pyproject.toml", "requirements.txt"):
-		out = append(out, Stage{Name: "build", Command: []string{"python", "-m", "compileall", "."}})
+		out = append(out, Stage{Name: "build", Command: []string{pythonCommand(runtime.GOOS, exec.LookPath), "-m", "compileall", "."}})
 	case markerExists(dir, "pom.xml"):
 		out = append(out, Stage{Name: "build", Command: []string{"mvn", "-q", "compile"}})
 	case markerExists(dir, "build.gradle", "build.gradle.kts"):
@@ -59,6 +61,24 @@ func detectBuild(dir string) []Stage {
 		out = append(out, Stage{Name: "build-web", Command: []string{"npm", "run", "build", "--prefix", webDir}})
 	}
 	return out
+}
+
+// pythonCommand names the interpreter a Python build stage runs. macOS 12.3+
+// and Debian/Ubuntu ship python3 with no python, so python3 comes first.
+// Windows is the other way round: python.org installs python.exe and the py
+// launcher but no python3.exe, and a bare python3 lookup there lands on the
+// Microsoft Store alias stub, which exits 9009 instead of running anything.
+func pythonCommand(goos string, lookPath func(string) (string, error)) string {
+	candidates, fallback := []string{"python3", "python"}, "python3"
+	if goos == "windows" {
+		candidates, fallback = []string{"py", "python", "python3"}, "python"
+	}
+	for _, name := range candidates {
+		if _, err := lookPath(name); err == nil {
+			return name
+		}
+	}
+	return fallback
 }
 
 const npmInstallDefaultTimeout = 15 * time.Minute

@@ -12,7 +12,7 @@ The task, its acceptance criteria and the spec document first; then the repo's O
 ## Request template
 
 ```bash
-curl -sS -D "$QA/h.txt" -o "$QA/b.json" -w '%{http_code} %{time_total}s\n' -X POST "$BASE/api/tasks" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"title":"qa-T-12 a"}'; jq . "$QA/b.json"
+curl -sS -D "$QA/h.txt" -o "$QA/b.json" -w '%{http_code} %{time_total}s\n' -X POST "$BASE/api/tasks" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"title":"qa-T-12 a"}'; jq . "$QA/b.json"  # no jq (stock Windows, some Linux): read_file the body instead
 ```
 
 ## Per changed endpoint, the matrix

@@ -1,6 +1,8 @@
 package mapper
 
 import (
+	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +23,7 @@ func BuildTree(paths []string, maxDepth, maxFiles int) string {
 }
 
 func ExpandTree(prefix string, paths []string, maxDepth int) string {
-	prefix = strings.Trim(prefix, "/")
+	prefix = treePrefix(prefix)
 	filtered := make([]string, 0, len(paths))
 	for _, p := range paths {
 		p = strings.Trim(p, "/")
@@ -38,6 +40,17 @@ func ExpandTree(prefix string, paths []string, maxDepth int) string {
 		label = "."
 	}
 	return renderTree(root, maxDepth, 0, label)
+}
+
+// treePrefix puts a model-supplied prefix in the form Walk's paths use —
+// slash-separated, no "./", no trailing separator — so `src\app` on Windows
+// and "./src/" anywhere still select src/app.
+func treePrefix(prefix string) string {
+	cleaned := path.Clean(filepath.ToSlash(strings.TrimSpace(prefix)))
+	if cleaned == "." {
+		return ""
+	}
+	return strings.Trim(cleaned, "/")
 }
 
 func buildTreeStructure(paths []string) *treeNode {

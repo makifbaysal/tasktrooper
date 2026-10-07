@@ -58,6 +58,12 @@ export class ChildRegistry {
     this.#persist();
   }
 
+  /** Whether this run spawned `pid` — a child of this process, never a stale one. */
+  owns(pid: number): boolean {
+    for (const entry of this.#entries.values()) if (entry.pid === pid) return true;
+    return false;
+  }
+
   /** Rewrite the file from live state, dropping every entry a previous run left. */
   persist(): Promise<void> {
     return this.#persist();
@@ -209,12 +215,18 @@ export interface ReapResult {
  * Kills children a previous run of this app left behind. A pid is only
  * touched when its live command line still matches what was recorded or the
  * embedder shape for this userData, because pids are reused. Never throws.
+ *
+ * Once `signal` aborts, nothing more is killed: the boot has stopped waiting
+ * and started its own children, and a sweep still running — a slow PowerShell
+ * listing — would otherwise find this run's fresh embedder matching the same
+ * pattern and kill it.
  */
 export async function reapStaleChildren(opts: {
   registry: ChildRegistry;
   userData: string;
   deps?: ReaperDeps;
   log?: (line: string) => void;
+  signal?: AbortSignal;
 }): Promise<ReapResult> {
   const deps = opts.deps ?? defaultReaperDeps();
   const log = opts.log ?? (() => undefined);
@@ -223,6 +235,11 @@ export async function reapStaleChildren(opts: {
 
   const kill = async (pid: number, why: string): Promise<void> => {
     handled.add(pid);
+    if (opts.registry.owns(pid)) return;
+    if (opts.signal?.aborted) {
+      log(`left pid ${pid} (${why}) alone: the boot stopped waiting for this sweep`);
+      return;
+    }
     try {
       await deps.terminate(pid);
       killed.push(pid);
@@ -265,17 +282,23 @@ export async function reapStaleChildren(opts: {
   return { killed };
 }
 
-/** `reapStaleChildren` bounded so a slow `ps` or PowerShell never holds the boot. */
-export async function reapWithin(ms: number, ...args: Parameters<typeof reapStaleChildren>): Promise<void> {
+/**
+ * `reapStaleChildren` bounded so a slow `ps` or PowerShell never holds the
+ * boot. Past the bound the sweep is told to stop killing, because the boot is
+ * about to start children of its own that look exactly like stale ones.
+ */
+export async function reapWithin(ms: number, opts: Parameters<typeof reapStaleChildren>[0]): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
+  const abandon = new AbortController();
   const cap = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
-      args[0].log?.(`reaping stale children exceeded ${ms}ms; continuing`);
+      abandon.abort();
+      opts.log?.(`reaping stale children exceeded ${ms}ms; continuing without it`);
       resolve();
     }, ms);
   });
   try {
-    await Promise.race([reapStaleChildren(...args).then(() => undefined), cap]);
+    await Promise.race([reapStaleChildren({ ...opts, signal: abandon.signal }).then(() => undefined), cap]);
   } catch {
     // reapStaleChildren does not throw; this is the boot's last line of defence.
   } finally {

@@ -206,6 +206,19 @@ func TestHotspotsRanksByChurnAndExcludesGithubDir(t *testing.T) {
 	require.Equal(t, domain.GitHotspot{Path: "server/hot.go", Commits: 3}, hot[0])
 }
 
+func TestHotspotsNameNonASCIIPathsUnquoted(t *testing.T) {
+	root, seed := newGitFixture(t)
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		writeCommit(t, seed, "ödeme/sepet.go", fmt.Sprintf("v%d", i), fmt.Sprintf("chore: touch %d", i))
+	}
+	gitRun(t, seed, "push", "origin", "main")
+	gitRun(t, root, "pull", "origin", "main")
+
+	require.Equal(t, []domain.GitHotspot{{Path: "ödeme/sepet.go", Commits: 3}}, hotspots(ctx, root))
+}
+
 func TestGitFactsPopulatesConventions(t *testing.T) {
 	root, seed := newGitFixture(t)
 	ctx := context.Background()

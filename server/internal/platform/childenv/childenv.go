@@ -166,5 +166,8 @@ func For(parent, overlay []string) []string {
 	// Without this, git prompts on the terminal and the command hangs until
 	// timeout, reading as a flaky failure instead of a missing credential.
 	env = append(env, "GIT_TERMINAL_PROMPT=0")
+	// Git Credential Manager on Windows ignores GIT_TERMINAL_PROMPT and opens
+	// a GUI sign-in instead, which no one is there to answer.
+	env = append(env, "GCM_INTERACTIVE=never")
 	return append(env, overlay...)
 }

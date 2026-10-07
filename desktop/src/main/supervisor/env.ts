@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { PreflightReport } from "../../ipc/types.js";
+import type { PreflightId, PreflightReport } from "../../ipc/types.js";
 import { catalogRoot } from "../services/app-scheme.js";
 import { androidRootFrom, APPIUM_BASE_URL, itemById } from "../services/detect.js";
+import { knownLoginShellPath } from "../services/login-env.js";
+import { binaryDirs, mergePath, pathKeyOf, splitPath, withoutAppImage } from "../services/process-env.js";
 
 /**
  * What the children are started with.
@@ -17,6 +19,9 @@ import { androidRootFrom, APPIUM_BASE_URL, itemById } from "../services/detect.j
  * env as bytes, so a `$` or a backtick in any of them is a `$` or a backtick.
  */
 
+/** The CLIs a child may exec by path, whose directories its PATH must reach. */
+const CLI_IDS: PreflightId[] = ["claude", "opencode", "cursor-agent", "agy", "appium", "git"];
+
 /**
  * The environment every child inherits: this process's, minus what would leak
  * Electron's own state into it, plus the PATH prefixes a GUI-launched .app does
@@ -26,15 +31,25 @@ import { androidRootFrom, APPIUM_BASE_URL, itemById } from "../services/detect.j
  * `emulator`. `claude` is a Node program whose shebang is `#!/usr/bin/env node`
  * and launchd's PATH has no node in it; `emulator` finds its system images
  * through `ANDROID_HOME`, and an emulator started without one comes up and
- * cannot find an image to boot.
+ * cannot find an image to boot. So the login shell's PATH is appended, and so
+ * is the directory of every CLI detection found — the node an npm-installed CLI
+ * was installed with lives beside it. Appended, not prepended: every agent
+ * command and verify stage inherits this PATH, and putting a CLI's directory
+ * first would silently swap the user's node, python or ruby for whatever
+ * shares that directory (a Homebrew git pulling /opt/homebrew/bin ahead of
+ * pyenv, an old nvm node ahead of the current one).
  *
  * The root is DERIVED from the adb that detection actually found, never asked
  * for. A root that disagrees with the adb being run is worse than no root at
  * all: the emulator would load one SDK's images and adb would talk to
  * another's server.
+ *
+ * `ownBinary` is for a child that is this app's own executable (the embedder):
+ * inside an AppImage it needs the bundled libraries AppRun pointed it at, which
+ * every other program must not see.
  */
-export function childEnv(preflight: PreflightReport): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+export function childEnv(preflight: PreflightReport, opts: { ownBinary?: boolean } = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = opts.ownBinary ? { ...process.env } : withoutAppImage({ ...process.env });
 
   // Electron sets these for its own child processes. ELECTRON_RUN_AS_NODE in
   // particular makes any Node-based CLI a child launches behave as if it were
@@ -44,13 +59,10 @@ export function childEnv(preflight: PreflightReport): NodeJS.ProcessEnv {
   delete env.ELECTRON_IS_DEV;
   delete env.NODE_OPTIONS;
 
-  // Windows spells it Path, and a spread of process.env loses the
-  // case-insensitive lookup that made the spelling not matter.
-  const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
-  const parts = (env[pathKey] ?? "").split(path.delimiter).filter((p) => p !== "");
-  for (const extra of process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : []) {
-    if (!parts.includes(extra)) parts.push(extra);
-  }
+  const pathKey = pathKeyOf(env);
+  const extras = process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : [];
+  const found = CLI_IDS.map((id) => itemById(preflight, id)).map((item) => (item?.status === "ok" ? item.path : undefined));
+  const parts = mergePath([splitPath(env[pathKey]), extras, knownLoginShellPath(), binaryDirs(found)]);
 
   const root = androidRootFrom(itemById(preflight, "android-sdk")?.path);
   if (root !== "") {

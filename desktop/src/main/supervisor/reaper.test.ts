@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ChildRegistry, isOurEmbedder, reapStaleChildren, type ReaperDeps } from "./reaper.js";
+import { ChildRegistry, isOurEmbedder, reapStaleChildren, reapWithin, type ReaperDeps } from "./reaper.js";
 
 const USER_DATA = "/Users/me/Library/Application Support/TaskTrooper";
 const EMBEDDER = `/Apps/TaskTrooper.app/Contents/MacOS/TaskTrooper /Apps/TaskTrooper.app/Contents/Resources/embedder/index.cjs --cache-dir ${USER_DATA}`;
@@ -92,6 +92,34 @@ describe("reapStaleChildren", () => {
     });
     await expect(reapStaleChildren({ registry, userData: USER_DATA, deps: d, log })).resolves.toEqual({ killed: [] });
     expect(log).toHaveBeenCalled();
+  });
+});
+
+describe("reapWithin", () => {
+  /**
+   * The boot stops waiting at the cap and starts a fresh embedder, whose
+   * command line is exactly the shape the sweep looks for. A listing that
+   * arrives after that must not kill it.
+   */
+  it("kills nothing once the cap has passed, however late the listing arrives", async () => {
+    const log = vi.fn();
+    let release: (out: string) => void = () => undefined;
+    const { d, terminated } = deps({
+      run: (file) =>
+        file === "ps" ? new Promise<string>((resolve) => (release = resolve)) : Promise.reject(new Error(file)),
+    });
+    await reapWithin(10, { registry, userData: USER_DATA, deps: d, log });
+    release(`  10 ${EMBEDDER}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(terminated).toEqual([]);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("left pid 10"));
+  });
+
+  it("never kills a child this run started, even inside the bound", async () => {
+    registry.record({ id: "embedder", pid: 10, command: EMBEDDER, startedAt: Date.now() });
+    const { d, terminated } = deps({ list: `  10 ${EMBEDDER}` });
+    await reapWithin(1_000, { registry, userData: USER_DATA, deps: d });
+    expect(terminated).toEqual([]);
   });
 });
 

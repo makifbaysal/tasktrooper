@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/graph"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -81,6 +83,7 @@ func (t *expandSymbolContextTool) Execute(ctx context.Context, arguments string)
 	if args.SymbolName == "" {
 		return toolError(expandSymbolContextToolName, "symbol_name is required")
 	}
+	args.FilePath = workspace.IndexPath(registry.EffectiveWorkspaceDir(ctx), args.FilePath)
 	if t.kit.IndexStore == nil {
 		return toolError(expandSymbolContextToolName, "index store not configured")
 	}

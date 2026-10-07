@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/google/uuid"
@@ -307,8 +308,23 @@ func LanguageInstruction(lang string) string {
 	return languageInstructionKey.Render(struct{ Locale string }{Locale: LocaleDisplayName(lang)})
 }
 
+// ShellPath is p as the model should write it in a command. In Git Bash a
+// Windows path's backslashes are escape characters — `cd C:\Users\me\ws`
+// lands in `C:Usersmews` — so on a POSIX shell the prompt carries forward
+// slashes, which bash and every Windows program both accept.
+func ShellPath(p string) string {
+	return shellPath(runtime.GOOS, hostshell.Default().Kind, p)
+}
+
+func shellPath(goos string, kind hostshell.Kind, p string) string {
+	if goos == "windows" && kind == hostshell.POSIX {
+		return strings.ReplaceAll(p, "\\", "/")
+	}
+	return p
+}
+
 func SubtaskWorkspaceNote(dir string) string {
-	return subtaskWorkspaceNoteKey.Render(struct{ Dir string }{Dir: dir})
+	return subtaskWorkspaceNoteKey.Render(struct{ Dir string }{Dir: ShellPath(dir)})
 }
 
 // For a CLI run only the invitation matters: listing the skills would rebuild the index this delivery mode exists to remove, the CLI already shows them.

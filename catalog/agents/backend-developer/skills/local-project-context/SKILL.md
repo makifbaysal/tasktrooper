@@ -59,7 +59,7 @@ The build gate that runs after your run executes exactly the component's require
 | Web | `npm run build` in the package that holds `package.json` | `npx vitest run` or `CI=1 npm test` — never watch mode |
 | Flutter | `flutter analyze` | `flutter test` (a build needs a target: `flutter build apk --debug`, `flutter build web`) |
 
-Full builds and suites outlast `run_terminal`'s 60s default: pass `timeout_seconds` (up to 900). Redirect long output to a file and read its tail (`… > /tmp/test.log 2>&1; tail -80 /tmp/test.log`).
+Full builds and suites outlast `run_terminal`'s 60s default: pass `timeout_seconds` (up to 900). Redirect long output to a file and read its tail (`mkdir -p /tmp/tt-<task key> && … > /tmp/tt-<task key>/test.log 2>&1; tail -80 /tmp/tt-<task key>/test.log` — never a shared fixed path).
 
 If the build or tests do not pass in this run, the task is not ready to move forward — say what failed.
 

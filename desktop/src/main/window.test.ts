@@ -130,7 +130,10 @@ class FakeBrowserWindow extends EventEmitter {
   async loadURL(): Promise<void> {
     return Promise.resolve();
   }
-  show(): void {}
+  shown = false;
+  show(): void {
+    this.shown = true;
+  }
   hide(): void {
     this.hidden = true;
   }
@@ -177,10 +180,19 @@ interface Harness {
   last: () => CloudStatus;
 }
 
-function start(origin = ORIGIN, quitStarted: () => boolean = () => false): Harness {
+function start(
+  origin = ORIGIN,
+  quitStarted: () => boolean = () => false,
+  extra: { hidden?: boolean; onSessionEnd?: () => void } = {},
+): Harness {
   const statuses: CloudStatus[] = [];
-  const shell = new Shell({ origin: () => origin, onCloudStatus: (s) => statuses.push(s), quitStarted });
-  shell.create();
+  const shell = new Shell({
+    origin: () => origin,
+    onCloudStatus: (s) => statuses.push(s),
+    quitStarted,
+    ...(extra.onSessionEnd ? { onSessionEnd: extra.onSessionEnd } : {}),
+  });
+  shell.create({ hidden: extra.hidden ?? false });
   // The web app's view is attached only once the backend answers, which is what
   // the main process signals with serve(). Every case below is about a window
   // that has one.
@@ -205,8 +217,19 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const realPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+function onPlatform(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", { value: platform, configurable: true });
+}
+function restorePlatform(): void {
+  if (realPlatform) Object.defineProperty(process, "platform", realPlatform);
+}
+
 describe("where the web app sits in the window", () => {
-  it("sits under the title bar, and flush to the top in full screen where the traffic lights are hidden", () => {
+  afterEach(restorePlatform);
+
+  it("sits under the title bar on macOS, and flush to the top in full screen where the traffic lights are hidden", () => {
+    onPlatform("darwin");
     const { window, view } = start();
     expect(view.bounds).toEqual({ x: 0, y: 44, width: 1180, height: 756 });
 
@@ -217,6 +240,41 @@ describe("where the web app sits in the window", () => {
     window.fullScreen = false;
     window.emit("leave-full-screen");
     expect(view.bounds).toEqual({ x: 0, y: 44, width: 1180, height: 756 });
+  });
+
+  /**
+   * Windows and Linux draw a native title bar above the content; the 44px
+   * strip kept for macOS's traffic lights would be an empty band under it.
+   */
+  it("fills the whole content area on Windows and Linux, which have no traffic lights to make room for", () => {
+    for (const platform of ["win32", "linux"] as const) {
+      onPlatform(platform);
+      const { window, view } = start();
+      expect(view.bounds).toEqual({ x: 0, y: 0, width: 1180, height: 800 });
+      expect(window.options).toMatchObject({ autoHideMenuBar: true });
+    }
+  });
+});
+
+describe("how the window is shown", () => {
+  afterEach(restorePlatform);
+
+  it("shows itself once ready, unless the login item started the app hidden", () => {
+    const visible = start();
+    visible.window.emit("ready-to-show");
+    expect(visible.window.shown).toBe(true);
+
+    const hidden = start(ORIGIN, () => false, { hidden: true });
+    hidden.window.emit("ready-to-show");
+    expect(hidden.window.shown).toBe(false);
+  });
+
+  it("starts the drain when Windows ends the session", () => {
+    onPlatform("win32");
+    const onSessionEnd = vi.fn();
+    const { window } = start(ORIGIN, () => false, { onSessionEnd });
+    window.emit("session-end", { reasons: ["shutdown"] });
+    expect(onSessionEnd).toHaveBeenCalledTimes(1);
   });
 });
 

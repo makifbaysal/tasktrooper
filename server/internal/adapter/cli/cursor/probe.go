@@ -5,11 +5,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/core"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/winshim"
 )
 
 type ProbeResult = core.ProbeResult
@@ -39,7 +39,7 @@ var probeDialog = core.ProbeDialog{
 	Markers:       authFailureMarkers,
 	Timeout:       DefaultProbeTimeout,
 	Run: func(ctx context.Context, bin, dir, _ string) (string, error) {
-		cmd := exec.CommandContext(ctx, bin, "status")
+		cmd := winshim.Command(ctx, bin, "status")
 		cmd.Env = core.ProbeEnv()
 		cmd.Dir = os.TempDir()
 		var buf bytes.Buffer

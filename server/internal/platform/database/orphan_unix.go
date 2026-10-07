@@ -23,3 +23,14 @@ pid=$(head -n 1 "$2/postmaster.pid" 2>/dev/null) && kill -INT "$pid" 2>/dev/null
 	}
 	_ = cmd.Process.Release()
 }
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}

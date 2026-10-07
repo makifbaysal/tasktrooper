@@ -240,6 +240,11 @@ describe("repository name rule (mirrors domain.NewRepoDirName)", () => {
     expect(sanitizeRepoName("  api_v2.service  ")).toBe("api_v2.service");
     expect(sanitizeRepoName("../../etc/passwd")).toBe("etcpasswd");
     expect(sanitizeRepoName("-.leading and trailing._-")).toBe("leading-and-trailing");
+    expect(sanitizeRepoName("CON")).toBe("con-repo");
+    expect(sanitizeRepoName("Aux.txt")).toBe("aux-repo.txt");
+    expect(sanitizeRepoName("prn.tar.gz")).toBe("prn-repo.tar.gz");
+    expect(sanitizeRepoName("console")).toBe("console");
+    expect(sanitizeRepoName("com10")).toBe("com10");
   });
 
   it("refuses what the server refuses", () => {

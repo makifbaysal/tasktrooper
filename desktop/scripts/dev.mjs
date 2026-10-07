@@ -1,6 +1,8 @@
 /* global process */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 import { createServer } from "vite";
 
@@ -22,6 +24,24 @@ import { createServer } from "vite";
  * on it.
  */
 const root = path.resolve(import.meta.dirname, "..");
+
+// The `electron` package's main export is the path to its binary, which is
+// what node_modules/.bin/electron is a POSIX shell wrapper around — and on
+// Windows that wrapper is a .cmd, which spawn() will not run without a shell.
+const electronBinary = createRequire(import.meta.url)("electron");
+
+/**
+ * npm, as the npm running this script: `npm_execpath` is its JS entry, run with
+ * this same node, so no `npm.cmd` (and no shell) is involved on Windows. Run
+ * outside npm, it falls back to the platform's own launcher.
+ */
+function npm(args) {
+  const cli = process.env.npm_execpath;
+  if (cli && /\.(c|m)?js$/.test(cli)) return run(process.execPath, [cli, ...args]);
+  return process.platform === "win32"
+    ? run("npm.cmd", args, { shell: true })
+    : run("npm", args);
+}
 
 function run(command, args, options = {}) {
   const child = spawn(command, args, { stdio: "inherit", cwd: root, ...options });
@@ -48,7 +68,7 @@ await run(process.execPath, [path.join(root, "scripts/build-embedder.mjs")]);
 // The SPA, only when there is nothing to serve: it is slow, and most sessions
 // are not changing it.
 if (!existsSync(path.join(root, "ui", "dist", "index.html"))) {
-  await run("npm", ["--prefix", "ui", "run", "build"]);
+  await npm(["--prefix", "ui", "run", "build"]);
 }
 
 await run(process.execPath, [path.join(root, "scripts/build-main.mjs")]);
@@ -57,11 +77,15 @@ await run(process.execPath, [path.join(root, "scripts/build-main.mjs")]);
 // the same "TaskTrooper" as the packaged app's — so on a machine that already
 // has TaskTrooper.app running (the common case: it's this project's own daily
 // driver), a plain dev launch just focuses that window and exits immediately.
-// `npm run dev:isolated` sets this so the two never collide.
-const userDataDir = process.env.TASKTROOPER_DEV_USER_DATA_DIR;
+// `npm run dev:isolated` (`--isolated`) gives it a profile of its own; an
+// explicit TASKTROOPER_DEV_USER_DATA_DIR still wins. /tmp on macOS and Linux,
+// where earlier isolated runs left their profile, and the temp dir on Windows.
+const isolatedDefault = path.join(process.platform === "win32" ? os.tmpdir() : "/tmp", "tasktrooper-dev-profile");
+const userDataDir =
+  process.env.TASKTROOPER_DEV_USER_DATA_DIR || (process.argv.includes("--isolated") ? isolatedDefault : undefined);
 const electronArgs = userDataDir ? [".", `--user-data-dir=${userDataDir}`] : ["."];
 
-const electron = spawn(path.join(root, "node_modules/.bin/electron"), electronArgs, {
+const electron = spawn(electronBinary, electronArgs, {
   cwd: root,
   stdio: "inherit",
   env: { ...process.env, VITE_DEV_SERVER_URL: url },

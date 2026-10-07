@@ -1,4 +1,5 @@
 import type { MCPEnvSchemaField, MCPServerCreateInput } from "@/api";
+import { exampleFolderPath } from "@/lib/platform";
 
 export interface MCPTemplate extends MCPServerCreateInput {
   label: string;
@@ -15,8 +16,8 @@ export const MCP_TEMPLATES: MCPTemplate[] = [
     enabled: false,
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-    env_schema: [{ key: "path", label: "Accessible directory", placeholder: "/tmp" }],
+    args: ["-y", "@modelcontextprotocol/server-filesystem", ""],
+    env_schema: [{ key: "path", label: "Accessible directory", placeholder: exampleFolderPath() }],
   },
   {
     // Upstream never shipped this one to npm; it is a Python package and uvx is

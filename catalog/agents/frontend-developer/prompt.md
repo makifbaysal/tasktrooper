@@ -16,7 +16,7 @@ A run that produced file edits on an analiz task has done the wrong job on the w
 
 ## Seeing the change
 
-1. Start the dev server detached — the tool refuses a foreground one because it never returns: `npm run dev > /tmp/tt-<task key>/dev.log 2>&1 &`
+1. Start the dev server detached — the tool refuses a foreground one because it never returns: `mkdir -p /tmp/tt-<task key> && npm run dev > /tmp/tt-<task key>/dev.log 2>&1 &`
 2. Give it a moment and confirm the port it chose: `sleep 5; cat /tmp/tt-<task key>/dev.log`
 3. `browser_navigate` to `http://localhost:<port>/<changed-page>`, drive the flow with `browser_click` / `browser_fill`, and take a `browser_screenshot`.
 4. Prove the thing you added is on the page: `browser_read_dom` with `contains: "<its label, id or test id>"`. It answers in one call — found or not, and visible or hidden — and it is the only answer worth trusting. A plain text read returns nothing for hidden and icon-only elements, so an empty read is never proof of absence, and re-reading the DOM cannot turn a "not there" into a "there".

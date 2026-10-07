@@ -31,7 +31,7 @@ On stage: prefix everything you create with `qa-<task-key>-…`, clean it up whe
 docker run -d --rm -p 8089:8080 wiremock/wiremock:3.13.2
 curl -X POST localhost:8089/__admin/mappings -d '{"request":{"method":"POST","url":"/charge"},"response":{"status":402,"jsonBody":{"error":"declined"}}}'
 # point the app's dependency URL env var at http://localhost:8089, drive the scenario, then:
-curl -s localhost:8089/__admin/requests | jq '.requests[].request.url'
+curl -s localhost:8089/__admin/requests | jq '.requests[].request.url'  # no jq: node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>JSON.parse(d).requests.forEach(r=>console.log(r.request.url)))'
 ```
 
 Or use the repo's own mock server if it already has one — prefer that over standing up a second one.

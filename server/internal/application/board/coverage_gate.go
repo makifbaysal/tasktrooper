@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/toolchain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/hostshell"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 )
 
@@ -113,7 +116,8 @@ func runCoverage(ctx context.Context, dir string, stage *coverageStage, timeout 
 	overlay := toolchain.Default.Overlay(dir)
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, stage.command[0], stage.command[1:]...)
+	argv := hostshell.ResolveArgv(stage.command)
+	cmd := exec.CommandContext(cmdCtx, argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = childenv.For(os.Environ(), overlay.Env)
 	var buf bytes.Buffer
@@ -154,7 +158,19 @@ func runCoverage(ctx context.Context, dir string, stage *coverageStage, timeout 
 
 func isToolMissing(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "executable file not found") ||
-		strings.Contains(err.Error(), "no such file or directory"))
+		strings.Contains(err.Error(), "no such file or directory") ||
+		missingToolExit(runtime.GOOS, err))
+}
+
+// windowsCommandNotFoundExit is what the python/python3 App Execution Alias
+// stubs exit with on a Windows machine without Python (they only point at
+// the Microsoft Store), and what cmd.exe exits with for an unknown command.
+// It says the tool is absent, not that the build failed.
+const windowsCommandNotFoundExit = 9009
+
+func missingToolExit(goos string, err error) bool {
+	var exit interface{ ExitCode() int }
+	return goos == "windows" && errors.As(err, &exit) && exit.ExitCode() == windowsCommandNotFoundExit
 }
 
 func parseGoCoverage(dir, out string) (float64, bool) {
@@ -182,7 +198,7 @@ func parseLcovCoverage(dir, _ string) (float64, bool) {
 	var total, covered int
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "DA:") {
 			continue
 		}

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -91,15 +92,15 @@ func (t *downloadTool) Execute(ctx context.Context, arguments string) domain.Too
 	if root == "" {
 		return domain.ToolResult{Name: DownloadToolName, Content: "workspace directory not set in context", IsError: true}
 	}
-	abs, err := workspace.ResolveWithinRoot(root, a.Path)
+	// Same protection the file writers apply: nothing may write into .git, by
+	// any spelling the host filesystem resolves to it.
+	abs, err := workspace.ResolveEditableWithinRoot(root, a.Path)
+	var protected *workspace.ProtectedPathError
+	if errors.As(err, &protected) {
+		return domain.ToolResult{Name: DownloadToolName, Content: prompt.WebDownloadGitProtectedText(), IsError: true}
+	}
 	if err != nil {
 		return domain.ToolResult{Name: DownloadToolName, Content: err.Error(), IsError: true}
-	}
-	// Same protection the file writers apply: nothing may write into .git.
-	for _, segment := range strings.Split(filepath.ToSlash(a.Path), "/") {
-		if segment == ".git" {
-			return domain.ToolResult{Name: DownloadToolName, Content: prompt.WebDownloadGitProtectedText(), IsError: true}
-		}
 	}
 
 	// The URL is model-chosen off open-internet text, so it gets the same guard

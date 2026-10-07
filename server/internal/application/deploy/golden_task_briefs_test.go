@@ -89,7 +89,9 @@ func TestGoldenCreateLocalSetupTaskDescription(t *testing.T) {
 				"- starts every service the project needs to actually work — the app plus its database, cache, queue or emulator — not just the app process\n" +
 				"- idempotent: a second run is safe and duplicates nothing\n" +
 				"- executable (`chmod +x`), `#!/usr/bin/env bash`, `set -euo pipefail`\n" +
-				"- a short usage header comment at the top: what it does, how to run it, and the port/URL it comes up on\n" +
+				"- runs on macOS, Linux and Windows (Git Bash): branch on `uname -s` (`Darwin`, `Linux`, `MINGW*|MSYS*`) wherever a step differs — package manager, starting a service, paths. When a toolchain is missing and the OS has no installer the script can drive (no brew, apt or winget), print the exact install command and exit non-zero instead of guessing\n" +
+				"- uses only tools every one of those shells has: probe a port with bash itself (`(: < /dev/tcp/127.0.0.1/$PORT) 2>/dev/null`) or node, never by parsing lsof, ss or netstat; no `ps -o`, `setsid` or `flock`, which Git Bash lacks\n" +
+				"- a short usage header comment at the top: what it does, how to run it (`bash scripts/dev.sh [port]`, which works on every OS — the executable bit means nothing on Windows), and the port/URL it comes up on\n" +
 				"- accepts an optional port argument (`scripts/dev.sh [port]`) overriding the default, so it can be rerun when the default port is taken\n" +
 				"- matches what the repo actually needs today (its real package manager, build tool, ports) — not a generic template\n",
 		},
@@ -103,10 +105,12 @@ func TestGoldenCreateLocalSetupTaskDescription(t *testing.T) {
 				"- starts every service the project needs to actually work — the app plus its database, cache, queue or emulator — not just the app process\n" +
 				"- idempotent: a second run is safe and duplicates nothing\n" +
 				"- executable (`chmod +x`), `#!/usr/bin/env bash`, `set -euo pipefail`\n" +
-				"- a short usage header comment at the top: what it does, how to run it, and the port/URL it comes up on\n" +
+				"- runs on macOS, Linux and Windows (Git Bash): branch on `uname -s` (`Darwin`, `Linux`, `MINGW*|MSYS*`) wherever a step differs — package manager, starting a service, paths. When a toolchain is missing and the OS has no installer the script can drive (no brew, apt or winget), print the exact install command and exit non-zero instead of guessing\n" +
+				"- uses only tools every one of those shells has: probe a port with bash itself (`(: < /dev/tcp/127.0.0.1/$PORT) 2>/dev/null`) or node, never by parsing lsof, ss or netstat; no `ps -o`, `setsid` or `flock`, which Git Bash lacks\n" +
+				"- a short usage header comment at the top: what it does, how to run it (`bash scripts/dev.sh [port]`, which works on every OS — the executable bit means nothing on Windows), and the port/URL it comes up on\n" +
 				"- accepts an optional port argument (`scripts/dev.sh [port]`) overriding the default, so it can be rerun when the default port is taken\n" +
 				"- matches what the repo actually needs today (its real package manager, build tool, ports) — not a generic template\n" +
-				"- covers both iOS (simulator) and Android (emulator) if the repo ships both platforms\n",
+				"- covers both iOS (simulator) and Android (emulator) if the repo ships both platforms; the iOS steps run only on macOS (`uname -s` is `Darwin`) — elsewhere they are skipped with a message and Android still comes up\n",
 		},
 		{
 			name: "worker adds the queue bullet",
@@ -118,7 +122,9 @@ func TestGoldenCreateLocalSetupTaskDescription(t *testing.T) {
 				"- starts every service the project needs to actually work — the app plus its database, cache, queue or emulator — not just the app process\n" +
 				"- idempotent: a second run is safe and duplicates nothing\n" +
 				"- executable (`chmod +x`), `#!/usr/bin/env bash`, `set -euo pipefail`\n" +
-				"- a short usage header comment at the top: what it does, how to run it, and the port/URL it comes up on\n" +
+				"- runs on macOS, Linux and Windows (Git Bash): branch on `uname -s` (`Darwin`, `Linux`, `MINGW*|MSYS*`) wherever a step differs — package manager, starting a service, paths. When a toolchain is missing and the OS has no installer the script can drive (no brew, apt or winget), print the exact install command and exit non-zero instead of guessing\n" +
+				"- uses only tools every one of those shells has: probe a port with bash itself (`(: < /dev/tcp/127.0.0.1/$PORT) 2>/dev/null`) or node, never by parsing lsof, ss or netstat; no `ps -o`, `setsid` or `flock`, which Git Bash lacks\n" +
+				"- a short usage header comment at the top: what it does, how to run it (`bash scripts/dev.sh [port]`, which works on every OS — the executable bit means nothing on Windows), and the port/URL it comes up on\n" +
 				"- accepts an optional port argument (`scripts/dev.sh [port]`) overriding the default, so it can be rerun when the default port is taken\n" +
 				"- matches what the repo actually needs today (its real package manager, build tool, ports) — not a generic template\n" +
 				"- starts any queue/broker the worker needs locally (or configures a fake/in-memory mode when there is none to start)\n",

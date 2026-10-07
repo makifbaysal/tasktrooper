@@ -2,6 +2,7 @@ package localdevice
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -349,4 +350,87 @@ func readFixture(t *testing.T, dir, name string) string {
 	body, err := os.ReadFile(filepath.Join(dir, name))
 	require.NoError(t, err)
 	return string(body)
+}
+
+func TestAndroidSDKPathsFollowEachOSInstallLocation(t *testing.T) {
+	home := filepath.Join("home", "dev")
+	cases := []struct {
+		name string
+		goos string
+		env  map[string]string
+		want []string
+	}{
+		{
+			name: "macOS uses Android Studio's Library path",
+			goos: "darwin",
+			want: []string{filepath.Join(home, "Library", "Android", "sdk", "platform-tools", "adb")},
+		},
+		{
+			name: "Linux uses ~/Android/Sdk",
+			goos: "linux",
+			want: []string{filepath.Join(home, "Android", "Sdk", "platform-tools", "adb")},
+		},
+		{
+			name: "Windows uses LOCALAPPDATA and the .exe name",
+			goos: "windows",
+			env:  map[string]string{"LOCALAPPDATA": filepath.Join("C:", "Users", "dev", "AppData", "Local")},
+			want: []string{filepath.Join("C:", "Users", "dev", "AppData", "Local", "Android", "Sdk", "platform-tools", "adb.exe")},
+		},
+		{
+			name: "Windows without LOCALAPPDATA falls back to the profile",
+			goos: "windows",
+			want: []string{filepath.Join(home, "AppData", "Local", "Android", "Sdk", "platform-tools", "adb.exe")},
+		},
+		{
+			name: "SDK roots from the environment come first",
+			goos: "linux",
+			env:  map[string]string{"ANDROID_HOME": "/opt/sdk-a", "ANDROID_SDK_ROOT": "/opt/sdk-b"},
+			want: []string{
+				filepath.Join("/opt/sdk-a", "platform-tools", "adb"),
+				filepath.Join("/opt/sdk-b", "platform-tools", "adb"),
+				filepath.Join(home, "Android", "Sdk", "platform-tools", "adb"),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			getenv := func(key string) string { return tc.env[key] }
+			assert.Equal(t, tc.want, androidSDKPaths(tc.goos, getenv, home, "platform-tools", "adb"))
+		})
+	}
+}
+
+func TestAndroidSDKPathsWithoutAHomeOnlyUseTheEnvironment(t *testing.T) {
+	getenv := func(key string) string {
+		if key == "ANDROID_HOME" {
+			return "/opt/sdk"
+		}
+		return ""
+	}
+	assert.Equal(t, []string{filepath.Join("/opt/sdk", "emulator", "emulator")}, androidSDKPaths("linux", getenv, "", "emulator", "emulator"))
+}
+
+func TestIsExecutablePerOS(t *testing.T) {
+	cases := []struct {
+		name string
+		goos string
+		path string
+		mode fs.FileMode
+		want bool
+	}{
+		{"unix executable bit", "linux", "/sdk/adb", 0o755, true},
+		{"unix without the bit", "darwin", "/sdk/adb", 0o644, false},
+		{"unix directory", "linux", "/sdk/adb", fs.ModeDir | 0o755, false},
+		{"windows exe without any execute bit", "windows", `C:\sdk\adb.exe`, 0o666, true},
+		{"windows extension is case-insensitive", "windows", `C:\sdk\ADB.EXE`, 0o666, true},
+		{"windows batch file", "windows", `C:\sdk\emulator.bat`, 0o666, true},
+		{"windows cmd script", "windows", `C:\sdk\emulator.cmd`, 0o666, true},
+		{"windows extension-less file", "windows", `C:\sdk\adb`, 0o777, false},
+		{"windows directory named like an exe", "windows", `C:\sdk\adb.exe`, fs.ModeDir | 0o777, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isExecutable(tc.goos, tc.path, tc.mode))
+		})
+	}
 }

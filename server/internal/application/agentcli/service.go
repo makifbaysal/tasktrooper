@@ -360,7 +360,7 @@ func pruneAgentDirs(root string, kept map[string]struct{}) error {
 		if _, keep := kept[entry.Name()]; keep {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+		if err := agentfs.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
 			return fmt.Errorf("stale catalog %s could not be removed: %w", entry.Name(), err)
 		}
 	}

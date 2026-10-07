@@ -52,7 +52,9 @@ func TestGoldenCreateDocTaskDescription(t *testing.T) {
 				"- start every service the project needs to actually work — the app plus its database, cache, queue or emulator — not just the app process\n" +
 				"- idempotent: running it a second time must be safe and must not duplicate anything\n" +
 				"- executable (`chmod +x`), with a `#!/usr/bin/env bash` shebang and `set -euo pipefail`\n" +
-				"- a short usage header comment at the top: what it does, how to run it, and the port/URL it comes up on\n" +
+				"- runs on macOS, Linux and Windows (Git Bash): branch on `uname -s` (`Darwin`, `Linux`, `MINGW*|MSYS*`) wherever a step differs; iOS steps only on macOS; when a toolchain is missing and the OS has no installer the script can drive, print the exact install command and exit non-zero\n" +
+				"- uses only tools every one of those shells has: probe a port with bash itself (`(: < /dev/tcp/127.0.0.1/$PORT) 2>/dev/null`) or node, never lsof, ss or netstat output; no `ps -o`, `setsid` or `flock`\n" +
+				"- a short usage header comment at the top: what it does, how to run it (`bash scripts/dev.sh [port]`, which works on every OS), and the port/URL it comes up on\n" +
 				"- accepts an optional port argument (`scripts/dev.sh [port]`) overriding the default, so it can be rerun when the default port is already in use\n" +
 				"Everything in it must match what this repository actually needs today — its real package manager, build tool and ports — not a generic template. Do not write a markdown guide instead of, or alongside, the script.\n" +
 				"\nAlso make sure the agent instructions file at the repository root (CLAUDE.md, AGENTS.md or the equivalent the agents on this repo read) has a short docs index; create a minimal one if it's missing, and add (or update) a line linking to this file so agents find it.\n",
@@ -132,7 +134,9 @@ func TestGoldenNewRepoDocInstructions(t *testing.T) {
 				"- start every service the project needs to actually work — the app plus its database, cache, queue or emulator — not just the app process\n" +
 				"- idempotent: running it a second time must be safe and must not duplicate anything\n" +
 				"- executable (`chmod +x`), with a `#!/usr/bin/env bash` shebang and `set -euo pipefail`\n" +
-				"- a short usage header comment at the top: what it does, how to run it, and the port/URL it comes up on\n" +
+				"- runs on macOS, Linux and Windows (Git Bash): branch on `uname -s` (`Darwin`, `Linux`, `MINGW*|MSYS*`) wherever a step differs; iOS steps only on macOS; when a toolchain is missing and the OS has no installer the script can drive, print the exact install command and exit non-zero\n" +
+				"- uses only tools every one of those shells has: probe a port with bash itself (`(: < /dev/tcp/127.0.0.1/$PORT) 2>/dev/null`) or node, never lsof, ss or netstat output; no `ps -o`, `setsid` or `flock`\n" +
+				"- a short usage header comment at the top: what it does, how to run it (`bash scripts/dev.sh [port]`, which works on every OS), and the port/URL it comes up on\n" +
 				"- accepts an optional port argument (`scripts/dev.sh [port]`) overriding the default, so it can be rerun when the default port is already in use\n" +
 				"Everything in it must match the chosen stack and what this pull request adds — the real package manager, build tool and ports — not a generic template. Do not write a markdown guide instead of, or alongside, the script.\n",
 		},

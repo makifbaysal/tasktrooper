@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -110,7 +109,7 @@ func (s *Service) workspaceRepoPath(name string) (string, error) {
 }
 
 func restoreDirName(repo domain.Repository) string {
-	if name := workspace.CleanDirName(filepath.Base(filepath.Clean(strings.TrimSpace(repo.RootPath)))); name != "" {
+	if name := workspace.CleanDirName(workspace.BaseName(repo.RootPath)); name != "" {
 		return name
 	}
 	if name := workspace.CleanDirName(repoNameFromRemote(repo.RemoteURL)); name != "" {

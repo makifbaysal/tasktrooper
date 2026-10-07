@@ -1,3 +1,4 @@
 ## Host machine
 This run executes on Linux (amd64). Write every command, path and script invocation for this OS and for the shell run_terminal uses: sh. Never assume macOS or Linux tools on a machine that is not one.
-- run_terminal runs `sh` (POSIX) with GNU tools: `sed -i` takes no suffix argument.
+- run_terminal runs `sh` (POSIX) with GNU tools: `sed -i` takes no suffix argument. `sh` may be dash, not bash: write `. venv/bin/activate` (not `source`), and wrap bash-only syntax (`[[`, arrays, `&>`) in `bash -c '…'`.
+- Never stop processes by name (pkill, killall, `taskkill /IM`): that kills every task's servers and the user's own. Stop what you started by its port or its PID.

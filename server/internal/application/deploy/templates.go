@@ -111,8 +111,11 @@ func loadTemplates() {
 	sort.Slice(templates, func(i, j int) bool { return templates[i].Name < templates[j].Name })
 }
 
+// parseTemplate reads CRLF as LF: a checkout with core.autocrlf=true embeds
+// the recipes with CRLF, and a "---\r\n" fence failing here would panic inside
+// loadOnce and leave the deploy catalog empty for the life of the process.
 func parseTemplate(raw string) (domain.DeployTemplate, error) {
-	content := strings.TrimPrefix(raw, "\ufeff")
+	content := strings.ReplaceAll(strings.TrimPrefix(raw, "\ufeff"), "\r\n", "\n")
 	if !strings.HasPrefix(content, "---\n") {
 		return domain.DeployTemplate{}, fmt.Errorf("missing frontmatter opening ---")
 	}

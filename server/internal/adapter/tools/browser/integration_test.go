@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,21 +13,10 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// testChromePath resolves a browser for the integration test, additionally
-// accepting the stock macOS Chrome locations so the test runs on developer
-// machines; production resolution stays resolveExecPath.
 func testChromePath(t *testing.T) string {
 	t.Helper()
 	if p, err := resolveExecPath(); err == nil {
 		return p
-	}
-	for _, p := range []string{
-		"/Applications/Chromium.app/Contents/MacOS/Chromium",
-		"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-	} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
 	}
 	t.Skip("no chromium/chrome binary available; skipping browser integration test")
 	return ""
