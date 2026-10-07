@@ -27,6 +27,7 @@ function renderHome(ctx: Partial<WorkspaceOutletContext>) {
     agents: [],
     refreshWorkspace: () => {},
     leadAgent: null,
+    unassignableAgentIds: [],
     workspaceLoading: false,
     teamPreparing: false,
     ...ctx,

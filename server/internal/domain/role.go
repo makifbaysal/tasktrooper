@@ -16,6 +16,10 @@ type AgentRole struct {
 	Purposes      []RolePurposeKey
 }
 
+// RoleKeyProductManager is the lead agent's role. Its holders work the board
+// through column subscriptions (pm_uat) and chats, never as a task's assignee.
+const RoleKeyProductManager = "product_manager"
+
 // RoleAssignment binds one agent to a role, optionally narrowed to the repo
 // areas it covers; areas nil means "any area".
 type RoleAssignment struct {

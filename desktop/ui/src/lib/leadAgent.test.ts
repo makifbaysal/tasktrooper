@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Role } from "@/api";
-import { agentInitials, resolveLeadAgent } from "@/lib/leadAgent";
+import { agentInitials, productManagerIds, resolveLeadAgent } from "@/lib/leadAgent";
 
 const agent = (id: string, extra: Partial<Agent> = {}): Agent =>
   ({ id, name: id, enabled: true, catalog_slug: undefined, ...extra }) as Agent;
@@ -50,5 +50,28 @@ describe("agentInitials", () => {
 
   it("uses two letters of a single word", () => {
     expect(agentInitials("ops")).toBe("OP");
+  });
+});
+
+describe("productManagerIds", () => {
+  it("lists every holder of the product_manager role, disabled or area-scoped included", () => {
+    const agents = [agent("a", { enabled: false }), agent("b"), agent("c")];
+    const roles = [
+      pmRole([
+        { agent_id: "a", areas: ["mobile"], priority: 0 },
+        { agent_id: "b", areas: null, priority: 1 },
+        { agent_id: "b", areas: ["web"], priority: 2 },
+      ]),
+    ];
+    expect(productManagerIds(agents, roles)).toEqual(["a", "b"]);
+  });
+
+  it("is empty when the role list has no product manager", () => {
+    expect(productManagerIds([agent("pm", { catalog_slug: "product-manager" })], [])).toEqual([]);
+  });
+
+  it("falls back to the catalog product-manager when roles are unavailable", () => {
+    const agents = [agent("x"), agent("pm", { catalog_slug: "product-manager" })];
+    expect(productManagerIds(agents, null)).toEqual(["pm"]);
   });
 });

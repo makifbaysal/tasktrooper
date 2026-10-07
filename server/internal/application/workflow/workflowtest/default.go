@@ -265,6 +265,20 @@ func (r resolver) AgentForRole(_ context.Context, roleID uuid.UUID, area string)
 	return anyMatch, nil
 }
 
+func (r resolver) AgentHoldsRole(_ context.Context, agentID uuid.UUID, roleKey string) (bool, error) {
+	for _, role := range r.f.Roles {
+		if role.Key != roleKey {
+			continue
+		}
+		for _, a := range role.Assignments {
+			if a.AgentID == agentID {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (r resolver) AgentForPurpose(ctx context.Context, purpose domain.RolePurposeKey, area string) (*uuid.UUID, error) {
 	for _, p := range r.f.Purposes {
 		if p.Purpose == purpose && p.RoleID != nil {

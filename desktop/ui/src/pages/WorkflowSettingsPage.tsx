@@ -36,6 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BehaviourPicker } from "@/components/workflow/BehaviourPicker";
 import { StageEditor } from "@/components/workflow/StageEditor";
 import { useI18n } from "@/hooks/useI18n";
+import { LEAD_ROLE_KEY } from "@/lib/leadAgent";
 import { cn } from "@/lib/utils";
 
 const ASSIGNEE_MODES: AssigneeMode[] = ["none", "default", "override"];
@@ -369,11 +370,13 @@ export function WorkflowSettingsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">{t("settingsPages.roles.dutyNone")}</SelectItem>
-                        {roles.map((role) => (
-                          <SelectItem key={role.id} value={role.id}>
-                            {role.name}
-                          </SelectItem>
-                        ))}
+                        {roles
+                          .filter((role) => role.key !== LEAD_ROLE_KEY || role.id === draftType.assignee_role_id)
+                          .map((role) => (
+                            <SelectItem key={role.id} value={role.id}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>

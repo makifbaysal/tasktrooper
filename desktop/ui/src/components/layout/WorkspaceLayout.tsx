@@ -5,7 +5,7 @@ import { PageSuspense } from "@/components/layout/PageSuspense";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import type { WorkspaceOutletContext } from "@/hooks/useWorkspaceOutlet";
-import { resolveLeadAgent } from "@/lib/leadAgent";
+import { productManagerIds, resolveLeadAgent } from "@/lib/leadAgent";
 import { CACHE_CONFIG } from "@/lib/project-board";
 import { keepEqual } from "@/lib/stableState";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ const SEED_POLL_MAX_ATTEMPTS = 20;
 // its own key rather than sharing the board's full roster.
 const SIDEBAR_AGENTS_CACHE = "workspace.sidebarAgents";
 const LEAD_AGENT_CACHE = "workspace.leadAgentId";
+const UNASSIGNABLE_AGENTS_CACHE = "workspace.unassignableAgentIds";
 // The server gives the first sync 10 minutes; polling a little past that covers
 // it without spinning forever on an install whose catalog never records a run.
 const FIRST_SYNC_POLL_INTERVAL_MS = 4000;
@@ -43,6 +44,7 @@ export function WorkspaceLayout() {
   const [config, setConfig] = useCachedState<WorkspaceConfig | null>(CACHE_CONFIG, null);
   const [agents, setAgents] = useCachedState<Agent[]>(SIDEBAR_AGENTS_CACHE, []);
   const [leadAgentId, setLeadAgentId] = useCachedState<string | null>(LEAD_AGENT_CACHE, null);
+  const [unassignableAgentIds, setUnassignableAgentIds] = useCachedState<string[]>(UNASSIGNABLE_AGENTS_CACHE, []);
   // The lead's key gates loading too: /home must not read "no lead cached yet"
   // as "no lead" and send the first launch after an upgrade to the board.
   const [loading, setLoading] = useFirstLoad(CACHE_CONFIG, SIDEBAR_AGENTS_CACHE, LEAD_AGENT_CACHE);
@@ -80,6 +82,9 @@ export function WorkspaceLayout() {
       const lead = resolveLeadAgent(enabledAgents, rolesResult?.roles ?? null);
       setAgents((prev) => keepEqual(prev, enabledAgents));
       setLeadAgentId(lead?.id ?? null);
+      setUnassignableAgentIds((prev) =>
+        keepEqual(prev, productManagerIds(catalog.agents ?? [], rolesResult?.roles ?? null)),
+      );
       setLoading(false);
       // A fresh install's first catalog sync creates the agents one at a time,
       // each after its skills are embedded — minutes, long after `seeding` has
@@ -100,7 +105,7 @@ export function WorkspaceLayout() {
     } catch {
       fail();
     }
-  }, [setConfig, setAgents, setLeadAgentId, setLoading]);
+  }, [setConfig, setAgents, setLeadAgentId, setUnassignableAgentIds, setLoading]);
 
   useEffect(() => {
     load();
@@ -114,10 +119,11 @@ export function WorkspaceLayout() {
       agents,
       refreshWorkspace: load,
       leadAgent,
+      unassignableAgentIds,
       workspaceLoading: loading,
       teamPreparing,
     }),
-    [config, agents, load, leadAgent, loading, teamPreparing],
+    [config, agents, load, leadAgent, unassignableAgentIds, loading, teamPreparing],
   );
 
   return (

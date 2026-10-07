@@ -1453,6 +1453,15 @@ func (s *Service) resolveNewTaskAssignee(ctx context.Context, taskType domain.Ta
 	if err != nil {
 		return nil, fmt.Errorf("resolve assignee for new task: %w", err)
 	}
+	if resolved != nil && (requested == nil || *resolved != *requested) {
+		pm, err := s.isProductManager(ctx, *resolved)
+		if err != nil {
+			return nil, err
+		}
+		if pm {
+			return requested, nil
+		}
+	}
 	return resolved, nil
 }
 
@@ -1503,7 +1512,11 @@ func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req do
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
-	assignee, err := s.resolveNewTaskAssignee(ctx, taskType, repo, req.AssigneeAgentID)
+	requested, err := s.requestedAssignee(ctx, req)
+	if err != nil {
+		return domain.BoardTask{}, err
+	}
+	assignee, err := s.resolveNewTaskAssignee(ctx, taskType, repo, requested)
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
@@ -1739,6 +1752,11 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		task.Position = *req.Position
 	}
 	if req.AssigneeAgentID.Present {
+		if next := req.AssigneeAgentID.Value; next != nil && (prevAssignee == nil || *next != *prevAssignee) {
+			if err := s.requireAssignable(ctx, next); err != nil {
+				return domain.BoardTask{}, err
+			}
+		}
 		task.AssigneeAgentID = req.AssigneeAgentID.Value
 	}
 	if req.ComponentID.Present {
@@ -2023,6 +2041,9 @@ func (s *Service) validateMoveAllowed(ctx context.Context, taskID uuid.UUID, tas
 
 func (s *Service) ClaimTask(ctx context.Context, repositoryID, taskID, agentID uuid.UUID) (domain.BoardTask, error) {
 	if _, err := s.repos.Get(ctx, repositoryID); err != nil {
+		return domain.BoardTask{}, err
+	}
+	if err := s.requireAssignable(ctx, &agentID); err != nil {
 		return domain.BoardTask{}, err
 	}
 	task, err := s.tasks.ClaimAssignee(ctx, repositoryID, taskID, agentID)

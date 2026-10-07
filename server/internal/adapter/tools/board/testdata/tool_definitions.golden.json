@@ -284,11 +284,11 @@
             "type": "boolean"
           },
           "assignee": {
-            "description": "Who handles this task: the responsible agent's name (e.g. \"system-architect\", \"backend-developer\") or its UUID. Set this so the assignee is dispatched automatically. Use list_team to see valid names.",
+            "description": "Who handles this task: the responsible agent's name (e.g. \"system-architect\", \"backend-developer\") or its UUID. Set this so the assignee is dispatched automatically. Use list_team to see valid names. Never the product manager: it cannot hold a board task.",
             "type": "string"
           },
           "assignee_role": {
-            "description": "Assign by ROLE instead of by agent name: the role key (e.g. \"developer\", \"qa\") whose agent for this task's repository area should be assigned. Ignored when assignee is also set — assignee wins. Use list_team to see role keys and which areas they cover.",
+            "description": "Assign by ROLE instead of by agent name: the role key (e.g. \"developer\", \"qa\") whose agent for this task's repository area should be assigned. Ignored when assignee is also set — assignee wins. Use list_team to see role keys and which areas they cover. product_manager is refused.",
             "type": "string"
           },
           "before_deploy": {

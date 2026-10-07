@@ -112,6 +112,8 @@ When a task moves to `pm_uat` or `done`, `repository.Service` creates a draft PR
 
 If a board run's response contains a clarification request (`ask_user`), the runner opens a new agent chat session (agent + repository bound) with the clarification stored on the assistant message, and sends a macOS notification via `osascript`.
 
+The product manager (`product_manager` role) is never a task's assignee: it works `pm_uat` through its column subscription. `repository.Service` refuses it on create, update and claim (`domain.ErrAssigneeNotAssignable`, HTTP code `assignee_not_assignable`), and a system-opened task whose role purpose resolves to it is left unassigned.
+
 ## API
 
 | Method | Path |

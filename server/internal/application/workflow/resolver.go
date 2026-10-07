@@ -123,6 +123,27 @@ func (s *Service) AssigneeForNewTask(ctx context.Context, taskType domain.TaskTy
 	}
 }
 
+// AgentHoldsRole reports whether agentID has any assignment, in any area, on
+// the role keyed roleKey. Read from the snapshot, so the board can ask it on
+// every assignee write without a query.
+func (s *Service) AgentHoldsRole(ctx context.Context, agentID uuid.UUID, roleKey string) (bool, error) {
+	snap, err := s.getSnapshot()
+	if err != nil {
+		return false, err
+	}
+	for _, r := range snap.roles {
+		if r.Key != roleKey {
+			continue
+		}
+		for _, a := range r.Assignments {
+			if a.AgentID == agentID {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // RoleByKey resolves a role from its key against the snapshot — the extra
 // surface the create_board_task tool's optional assignee_role argument needs
 // beyond port.RoleResolver's id-keyed methods, so a task-creation call never

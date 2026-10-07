@@ -19,6 +19,11 @@ var ErrTaskAlreadyClaimed = errors.New("task is already assigned to another agen
 // run talked into naming a planted task must not act on its repository.
 var ErrTaskOutsideRepository = errors.New("board task belongs to a different repository than this run")
 
+// ErrAssigneeNotAssignable refuses an assignee that holds a role the board
+// never hands work to (RoleKeyProductManager): the PM reaches its tasks through
+// column subscriptions, so a task assigned to it waits for nobody.
+var ErrAssigneeNotAssignable = errors.New("the product manager cannot be assigned a board task")
+
 type TaskType string
 
 const (

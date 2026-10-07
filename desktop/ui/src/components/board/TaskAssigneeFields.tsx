@@ -8,6 +8,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useI18n } from "@/hooks/useI18n";
+import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 
 // Radix will not take "" as an item value, so "nobody" needs a sentinel — the
 // same one the rest of the board already uses for an empty select.
@@ -42,9 +43,11 @@ export function TaskAssigneeFields({
   disabled,
 }: TaskAssigneeFieldsProps) {
   const { t } = useI18n();
-  if (agents.length === 0) return null;
+  const unassignable = useWorkspaceOutlet()?.unassignableAgentIds;
+  const options = unassignable?.length ? agents.filter((a) => !unassignable.includes(a.id)) : agents;
+  if (options.length === 0) return null;
 
-  const agentMissing = Boolean(agentValue) && !agents.some((a) => a.id === agentValue);
+  const agentMissing = Boolean(agentValue) && !options.some((a) => a.id === agentValue);
 
   return (
     <div className="space-y-1.5">
@@ -67,7 +70,7 @@ export function TaskAssigneeFields({
               {agentFallbackName || t("boardArea.components.memberAssignee.unknown")}
             </SelectItem>
           )}
-          {agents.map((agent) => (
+          {options.map((agent) => (
             <SelectItem key={agent.id} value={agent.id}>
               {agent.name}
             </SelectItem>

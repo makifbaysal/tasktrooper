@@ -93,6 +93,8 @@ func claimRefusal(ref string, err error) string {
 		return claimAlreadyAssignedKey.Render(refInput{Ref: ref})
 	case errors.Is(err, domain.ErrBoardTaskNotFound):
 		return claimTaskNotFoundKey.Render(refInput{Ref: ref})
+	case errors.Is(err, domain.ErrAssigneeNotAssignable):
+		return assigneeNotAssignableKey.Render(struct{}{})
 	default:
 		return err.Error()
 	}

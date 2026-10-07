@@ -277,6 +277,9 @@ func (s *Service) CreateTaskType(ctx context.Context, def domain.TaskTypeDef, cl
 	if !domain.ValidAssigneeMode(def.AssigneeMode) {
 		def.AssigneeMode = domain.AssigneeModeNone
 	}
+	if err := s.refuseUnassignableRole(def.AssigneeRoleID); err != nil {
+		return domain.TaskTypeDef{}, err
+	}
 	cols, err := s.columnSet(ctx)
 	if err != nil {
 		return domain.TaskTypeDef{}, err
@@ -295,6 +298,9 @@ func (s *Service) CreateTaskType(ctx context.Context, def domain.TaskTypeDef, cl
 func (s *Service) UpdateTaskType(ctx context.Context, def domain.TaskTypeDef) (domain.TaskTypeDef, error) {
 	if !domain.ValidAssigneeMode(def.AssigneeMode) {
 		def.AssigneeMode = domain.AssigneeModeNone
+	}
+	if err := s.refuseUnassignableRole(def.AssigneeRoleID); err != nil {
+		return domain.TaskTypeDef{}, err
 	}
 	cols, err := s.columnSet(ctx)
 	if err != nil {
@@ -316,6 +322,20 @@ func (s *Service) UpdateTaskType(ctx context.Context, def domain.TaskTypeDef) (d
 	}
 	_ = s.Reload(ctx)
 	return updated, nil
+}
+
+func (s *Service) refuseUnassignableRole(roleID *uuid.UUID) error {
+	if roleID == nil {
+		return nil
+	}
+	snap, err := s.getSnapshot()
+	if err != nil {
+		return err
+	}
+	if role, ok := snap.roles[*roleID]; ok && role.Key == domain.RoleKeyProductManager {
+		return domain.ErrAssigneeNotAssignable
+	}
+	return nil
 }
 
 func (s *Service) DeleteTaskType(ctx context.Context, key domain.TaskType) error {

@@ -8,6 +8,8 @@ export interface WorkspaceOutletContext {
   refreshWorkspace: () => void;
   /** The agent the stakeholder talks to (see lib/leadAgent); null when nobody can lead. */
   leadAgent: Agent | null;
+  /** Agents no board card may be assigned to (see lib/leadAgent's productManagerIds). */
+  unassignableAgentIds: string[];
   /** True until the first roster load settles — "no lead yet" is not "no lead". */
   workspaceLoading: boolean;
   /** The catalog's first sync is still creating agents and the lead is not among them yet. */

@@ -27,6 +27,18 @@ export function resolveLeadAgent(agents: Agent[], roles: Role[] | null): Agent |
   return enabled.find((a) => a.catalog_slug === LEAD_CATALOG_SLUG) ?? null;
 }
 
+/**
+ * Every agent holding the lead's role. The lead works its own column (pm_uat)
+ * and the stakeholder's chats, never a board card as its assignee — the server
+ * refuses that, so the pickers leave these agents out.
+ */
+export function productManagerIds(agents: Agent[], roles: Role[] | null): string[] {
+  const role = roles?.find((r) => r.key === LEAD_ROLE_KEY);
+  if (role) return [...new Set(role.assignments.map((a) => a.agent_id))];
+  if (roles) return [];
+  return agents.filter((a) => a.catalog_slug === LEAD_CATALOG_SLUG).map((a) => a.id);
+}
+
 export function agentInitials(name: string): string {
   const parts = name
     .trim()

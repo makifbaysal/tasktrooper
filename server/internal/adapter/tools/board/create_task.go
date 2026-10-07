@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -313,6 +314,9 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 		req.BlockedBy = blockers
 	}
 	task, err := t.kit.Tasks.CreateTask(ctx, repositoryID, req)
+	if errors.Is(err, domain.ErrAssigneeNotAssignable) {
+		return toolError(createBoardTaskToolName, assigneeNotAssignableKey.Render(struct{}{}))
+	}
 	if err != nil {
 		return toolError(createBoardTaskToolName, err.Error())
 	}
