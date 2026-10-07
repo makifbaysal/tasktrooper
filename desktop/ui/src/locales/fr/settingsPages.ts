@@ -365,6 +365,10 @@ export const settingsPages = {
         label: "Déployer en staging à l'entrée",
         description: "L'entrée à cette étape déclenche un déploiement en staging, selon la stratégie de test du dépôt.",
       },
+      store_test_build_on_enter: {
+        label: "Build de test store à l'entrée",
+        description: "L'entrée à cette étape compile la tâche pour chaque app store liée et l'envoie sur TestFlight / Play internal app sharing.",
+      },
       auto_enter: {
         label: "Entrée automatique",
         description: "Le répartiteur place directement la tâche dans la colonne indiquée lors de l'affectation ou du réveil.",

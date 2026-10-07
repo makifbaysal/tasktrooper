@@ -637,6 +637,108 @@ export interface BuildStart {
   artifacts: string[];
 }
 
+// Per-task test builds: TestFlight on iOS, Play internal app sharing on
+// Android. queued → building → (iOS: processing) → ready; action_required
+// parks a build on a decision only a person may make. dispatched is terminal:
+// a release build handed to GitHub Actions, whose run is the rest of its story.
+export type StoreTestBuildStatus =
+  | "queued"
+  | "building"
+  | "processing"
+  | "action_required"
+  | "ready"
+  | "failed"
+  | "dispatched";
+
+export interface StoreTestBuild {
+  id: string;
+  repository_id: string;
+  platform: MobileStorePlatform;
+  task_id?: string;
+  task_key?: string;
+  task_number?: number;
+  attempt: number;
+  sequence: number;
+  /** iOS `<sequence>.<taskNo>.<attempt>`, Android the bare versionCode. */
+  build_number: string;
+  version_name?: string;
+  commit_sha?: string;
+  branch?: string;
+  engine?: "local" | "github_actions";
+  status: StoreTestBuildStatus;
+  /** "export_compliance" while status is action_required. */
+  failure?: string;
+  store_build_id?: string;
+  /** Android internal app sharing link; TestFlight has no per-build link. */
+  install_url?: string;
+  /** False once the signed bundle is gone from this machine: it can no longer go to a Play track. */
+  has_artifact: boolean;
+  /** TestFlight group ids or Play track names. A Go nil slice arrives as null. */
+  groups: string[] | null;
+  notes?: string;
+  run_url?: string;
+  log_tail?: string;
+  trigger: "human_uat" | "manual" | "release";
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string;
+}
+
+export interface StoreTestBuildStart {
+  builds: StoreTestBuild[] | null;
+  /** Set when some platforms started and others did not. */
+  error?: string;
+}
+
+export type StoreTestGroupKind = "internal" | "external" | "closed" | "open";
+
+export interface StoreTestGroup {
+  id: string;
+  name: string;
+  platform: MobileStorePlatform;
+  kind: StoreTestGroupKind;
+  /** A TestFlight internal group that receives every build on its own. */
+  all_builds?: boolean;
+  public_link?: string;
+  /** -1 when the store does not say. */
+  tester_count: number;
+  auto_distribute: boolean;
+  current_build?: string;
+}
+
+export interface StoreTester {
+  id: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  state?: string;
+}
+
+export interface SimulatorDevice {
+  id: string;
+  name: string;
+  platform: MobileStorePlatform;
+  runtime?: string;
+  state: string;
+}
+
+export type SimulatorRunStatus = "preparing" | "building" | "installing" | "launching" | "running" | "failed";
+
+export interface SimulatorRun {
+  id: string;
+  repository_id: string;
+  task_id: string;
+  platform: MobileStorePlatform;
+  device_id: string;
+  device_name?: string;
+  status: SimulatorRunStatus;
+  failure?: string;
+  log_tail?: string;
+  started_at: string;
+  finished_at?: string;
+}
+
 export type IncidentPolicy = "off" | "suggest" | "auto_fix";
 export type IncidentSeverity = "critical" | "high" | "medium" | "low";
 export type IncidentStatus = "open" | "triaging" | "proposed" | "fixing" | "resolved" | "ignored";
@@ -4337,6 +4439,105 @@ export const api = {
     request<MobileStoreApp>(`/v1/repositories/${id}/store/apps/${platform}/verify`, {
       method: "POST",
     }),
+
+  // Newest first. The server answers a bare array, null when there is none.
+  listStoreTestBuilds: async (
+    id: string,
+    opts: { platform?: MobileStorePlatform; taskId?: string; limit?: number } = {},
+  ): Promise<StoreTestBuild[]> => {
+    const qs = new URLSearchParams();
+    if (opts.platform) qs.set("platform", opts.platform);
+    if (opts.taskId) qs.set("task_id", opts.taskId);
+    if (opts.limit) qs.set("limit", String(opts.limit));
+    const suffix = qs.toString();
+    const builds = await request<StoreTestBuild[] | null>(
+      `/v1/repositories/${id}/store/test-builds${suffix ? `?${suffix}` : ""}`,
+    );
+    return builds ?? [];
+  },
+
+  /** No task_id builds the default branch; no platforms builds every linked app. */
+  startStoreTestBuilds: (id: string, body: { task_id?: string; platforms?: MobileStorePlatform[] }) =>
+    request<StoreTestBuildStart>(`/v1/repositories/${id}/store/test-builds`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getStoreTestBuild: (id: string, buildId: string) =>
+    request<StoreTestBuild>(`/v1/repositories/${id}/store/test-builds/${buildId}`),
+
+  /** iOS: an external group also submits the build to Beta App Review. Android: track names. */
+  openStoreTestBuild: (id: string, buildId: string, groups: string[]) =>
+    request<StoreTestBuild>(`/v1/repositories/${id}/store/test-builds/${buildId}/open`, {
+      method: "POST",
+      body: JSON.stringify({ groups }),
+    }),
+
+  closeStoreTestBuild: (id: string, buildId: string, groups: string[]) =>
+    request<StoreTestBuild>(`/v1/repositories/${id}/store/test-builds/${buildId}/close`, {
+      method: "POST",
+      body: JSON.stringify({ groups }),
+    }),
+
+  answerStoreTestBuildCompliance: (id: string, buildId: string, usesNonExemptEncryption: boolean) =>
+    request<StoreTestBuild>(`/v1/repositories/${id}/store/test-builds/${buildId}/export-compliance`, {
+      method: "POST",
+      body: JSON.stringify({ uses_non_exempt_encryption: usesNonExemptEncryption }),
+    }),
+
+  listStoreTestGroups: async (id: string, platform: MobileStorePlatform): Promise<StoreTestGroup[]> =>
+    (await request<StoreTestGroup[] | null>(`/v1/repositories/${id}/store/apps/${platform}/test-groups`)) ?? [],
+
+  createStoreTestGroup: (id: string, platform: MobileStorePlatform, body: { name: string; internal: boolean }) =>
+    request<StoreTestGroup>(`/v1/repositories/${id}/store/apps/${platform}/test-groups`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** The full set a new task build opens to once ready; [] opens it to none. */
+  setStoreTestAutoGroups: (id: string, platform: MobileStorePlatform, groups: string[]) =>
+    request<void>(`/v1/repositories/${id}/store/apps/${platform}/test-groups/auto`, {
+      method: "PUT",
+      body: JSON.stringify({ groups }),
+    }),
+
+  listStoreTestGroupTesters: async (id: string, groupId: string): Promise<StoreTester[]> =>
+    (await request<StoreTester[] | null>(`/v1/repositories/${id}/store/test-groups/${groupId}/testers`)) ?? [],
+
+  addStoreTestGroupTester: (
+    id: string,
+    groupId: string,
+    body: { email: string; first_name: string; last_name: string },
+  ) =>
+    request<StoreTester>(`/v1/repositories/${id}/store/test-groups/${groupId}/testers`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  removeStoreTestGroupTester: (id: string, groupId: string, testerId: string) =>
+    request<void>(`/v1/repositories/${id}/store/test-groups/${groupId}/testers/${testerId}`, {
+      method: "DELETE",
+    }),
+
+  /** This machine's simulators and emulators; 409 when it has none. */
+  listSimulatorDevices: async (): Promise<SimulatorDevice[]> =>
+    (await request<SimulatorDevice[] | null>("/v1/simulator/devices")) ?? [],
+
+  startSimulatorRun: (id: string, taskId: string, body: { platform: MobileStorePlatform; device_id: string }) =>
+    request<SimulatorRun>(`/v1/repositories/${id}/tasks/${taskId}/simulator-run`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** null when the task has not been run on a simulator (the server's 404). */
+  getSimulatorRun: async (id: string, taskId: string): Promise<SimulatorRun | null> => {
+    try {
+      return await request<SimulatorRun>(`/v1/repositories/${id}/tasks/${taskId}/simulator-run`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
 
   // Operations console: deploy matrix, run history, dispatch/rollback, audit
   // log, and cross-repository store app actions.

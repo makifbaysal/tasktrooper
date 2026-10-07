@@ -2,6 +2,8 @@ import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, type StoreAppView, type StoreTracks } from "@/api";
+import { AppTestBuildsSection } from "@/components/operations/AppTestBuildsSection";
+import { AppTestGroupsSection } from "@/components/operations/AppTestGroupsSection";
 import {
   ChannelPromoteButton,
   hasStoreChannels,
@@ -23,6 +25,7 @@ import { Notice } from "@/components/ui/notice";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { tStatic, useI18n } from "@/hooks/useI18n";
+import { useStoreTestGroups } from "@/hooks/useStoreTestGroups";
 import { cn } from "@/lib/utils";
 
 interface MobileAppDetailDrawerProps {
@@ -41,6 +44,9 @@ interface MobileAppDetailDrawerProps {
  * state the moment the parent's refetch lands — no separate local copy to
  * keep in sync. The channels come from that same row's `tracks` cache; a live
  * store read happens only when the cache is stale, or on demand.
+ * Below the channels: the app's test builds and the TestFlight groups / Play
+ * testing tracks they open to — only for an app the server lets take test
+ * builds, which is exactly the one with channels (storeops.testableApp).
  */
 export function MobileAppDetailDrawer({ app, onOpenChange, onActed }: MobileAppDetailDrawerProps) {
   const { t } = useI18n();
@@ -58,6 +64,7 @@ export function MobileAppDetailDrawer({ app, onOpenChange, onActed }: MobileAppD
   // `tracks` object itself is re-created by every refetch of the parent list.
   const hasFreshCache = channelsReady && Boolean(app?.tracks) && isTracksCacheFresh(app?.tracks_synced_at);
   const cachedTracks = hasFreshCache ? (app?.tracks ?? null) : null;
+  const testGroups = useStoreTestGroups(repositoryId, platform, channelsReady);
 
   // Only the newest read may write. Opening app A, closing it and opening B
   // otherwise lets A's late answer render under B's heading, silently.
@@ -123,7 +130,7 @@ export function MobileAppDetailDrawer({ app, onOpenChange, onActed }: MobileAppD
 
   return (
     <Dialog open={app !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         {app && (
           <>
             <DialogHeader>
@@ -271,6 +278,13 @@ export function MobileAppDetailDrawer({ app, onOpenChange, onActed }: MobileAppD
                     production card, and those are the only way to act on it. */}
                 {!channelsReady && <StoreReleaseControls app={app} onActed={acted} />}
               </section>
+
+              {channelsReady && (
+                <>
+                  <AppTestBuildsSection app={app} groups={testGroups.groups} groupsError={testGroups.error} />
+                  <AppTestGroupsSection app={app} state={testGroups} />
+                </>
+              )}
             </div>
           </>
         )}

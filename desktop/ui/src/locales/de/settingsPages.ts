@@ -365,6 +365,10 @@ export const settingsPages = {
         label: "Stage-Deployment beim Betreten",
         description: "Das Betreten dieser Stufe löst gemäß der Teststrategie des Repositorys ein Stage-Deployment aus.",
       },
+      store_test_build_on_enter: {
+        label: "Store-Testbuild beim Betreten",
+        description: "Das Betreten dieser Stufe baut die Aufgabe für jede verknüpfte Store-App und lädt sie zu TestFlight / Play Internal App Sharing hoch.",
+      },
       auto_enter: {
         label: "Automatisch betreten",
         description: "Der Dispatcher verschiebt die Aufgabe bei Zuweisung/Wecken direkt in die angegebene Spalte.",

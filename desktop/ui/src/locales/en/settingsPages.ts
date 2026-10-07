@@ -406,6 +406,7 @@ export const settingsPages = {
       "ensure_pr_on_enter": { label: "Ensure PR on enter", description: "Entering this stage opens the task's pull request if it does not exist yet." },
       "detect_migration_on_enter": { label: "Detect migration on enter", description: "Entering this stage checks the branch diff for a schema migration." },
       "stage_deploy_on_enter": { label: "Stage deploy on enter", description: "Entering this stage triggers a stage deploy, per the repository's test strategy." },
+      "store_test_build_on_enter": { label: "Store test build on enter", description: "Entering this stage builds the task for each linked store app and uploads it to TestFlight / Play internal app sharing." },
       "auto_enter": { label: "Auto-enter", description: "The dispatcher moves the task straight into the named column on assignment/wake." },
       "advance_on_diff": { label: "Advance on diff", description: "A run that ends with a green build and a real diff is moved to the named column automatically." },
       "advance_on_document": { label: "Advance on document", description: "A run that ends with a document attached is moved to the named column automatically." },

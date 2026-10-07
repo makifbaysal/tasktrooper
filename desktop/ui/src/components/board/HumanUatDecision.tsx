@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, type BoardTask } from "@/api";
 import { LocalPreviewPanel } from "@/components/board/LocalPreviewPanel";
+import { TaskMobileTesting } from "@/components/board/TaskMobileTesting";
 import { TaskPreviewActions } from "@/components/board/TaskPreviewActions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -106,6 +107,7 @@ export function HumanUatDecision({ task, repositoryId, onUpdated }: HumanUatDeci
             repositoryId={repositoryId}
             actions={task.pr_url ? <TaskPreviewActions repositoryId={repositoryId} taskId={task.id} /> : undefined}
           />
+          <TaskMobileTesting repositoryId={repositoryId} taskId={task.id} />
         </>
       ) : (
         <div className="space-y-2">

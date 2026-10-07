@@ -280,6 +280,17 @@ label/badge helpers, `ChannelPromoteButton`) lives in
 `operations/StoreReleaseControls` and is imported by `MobileStorePanel` —
 do not redeclare that switch elsewhere.
 
+### Store test builds and simulator runs
+
+| Piece | What it is |
+|---|---|
+| `operations/storeTestBuilds.ts` | The test-build vocabulary: status → label/badge, active/actionable checks, `testBuildLabel` (same text as the server's `Label()`), group-kind labels, simulator status helpers. The only place these switches live. |
+| `operations/StoreTestBuildParts` | Molecules shared by both surfaces: platform icon, status badge, copy button, external link, collapsible log tail, group chips. |
+| `operations/OpenToGroupsDialog`, `operations/ExportComplianceDialog` | One component each with an `inline` mode: inline inside the task drawer (no modal inside the drawer's own modal), a dialog in the Ops drawer. The compliance answer has no default — nothing is sent until one is picked. |
+| `operations/AppTestBuildsSection`, `operations/AppTestGroupsSection` (+ `NewTestGroupDialog`, `StoreTestersDialog`) | Ops → Apps drawer: the app's builds with open/close/compliance, and its TestFlight groups / Play tracks with the auto-distribute switches and testers. |
+| `board/TaskMobileTesting` | Human UAT box: renders `TaskStoreBuildsPanel` (one `TaskPlatformTestBuild` per linked platform) and `SimulatorRunPanel`, or nothing for a repository with no linked app. |
+| `hooks/useStoreTestBuilds`, `hooks/useStoreTestGroups` | Loaders; builds poll every 5s only while one is queued, building or processing. |
+
 ## Cloud accounts & environments (Phase 2)
 
 Replaced the old one-account-each `admin/VercelCard` (token + per-app hosting

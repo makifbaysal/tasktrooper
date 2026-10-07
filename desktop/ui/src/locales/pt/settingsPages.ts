@@ -365,6 +365,10 @@ export const settingsPages = {
         label: "Deploy em staging ao entrar",
         description: "Entrar nesta etapa dispara um deploy em staging, conforme a estratégia de testes do repositório.",
       },
+      store_test_build_on_enter: {
+        label: "Build de teste da loja ao entrar",
+        description: "Entrar nesta etapa compila a tarefa para cada app de loja vinculado e envia para o TestFlight / Play internal app sharing.",
+      },
       auto_enter: {
         label: "Entrada automática",
         description: "O despachador move a tarefa direto para a coluna indicada ao atribuí-la ou acordá-la.",

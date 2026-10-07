@@ -1,10 +1,11 @@
-import { Apple, Bot, Smartphone } from "lucide-react";
+import { Smartphone } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, type MobileStoreState, type StoreAppView } from "@/api";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { MobileAppDetailDrawer } from "@/components/operations/MobileAppDetailDrawer";
+import { StorePlatformIcon } from "@/components/operations/StoreTestBuildParts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -82,11 +83,7 @@ export function MobileAppsPage() {
               onClick={() => setSelectedId(app.id)}
               className="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
             >
-              {app.platform === "ios" ? (
-                <Apple className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              ) : (
-                <Bot className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              )}
+              <StorePlatformIcon platform={app.platform} />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">{app.repository_name}</span>
