@@ -2346,6 +2346,19 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				storeDataDir = filepath.Dir(cfg.AgentCatalog.CacheDir)
 			}
 			testSource := &storeTestSource{git: gitClient, workspaceRoot: cfg.Storage.Sessions.WorkspaceRoot}
+			if githubTokens != nil {
+				testSource.remoteHead = func(ctx context.Context, repo domain.Repository, branch string) (string, error) {
+					token, err := githubTokens.GitHubToken(ctx)
+					if err != nil {
+						return "", err
+					}
+					info, err := gitClient.TaskGitInfo(ctx, repo.RootPath)
+					if err != nil {
+						return "", err
+					}
+					return githubapi.NewPRAPI().BranchHeadSHA(ctx, token, info.Owner, info.Repo, branch)
+				}
+			}
 			testBuildDeps := storeops.TestBuildDeps{
 				Builds: pgstore.NewStoreTestBuildStore(e.pgDB),
 				NewTestFlight: func(cred domain.StoreCredential) (port.TestFlightClient, error) {

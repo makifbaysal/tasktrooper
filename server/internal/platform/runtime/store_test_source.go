@@ -21,7 +21,13 @@ import (
 type storeTestSource struct {
 	git           *gitadapter.Client
 	workspaceRoot string
+	// remoteHead reads a pushed branch's head, for a task whose checkout is
+	// not on this machine: one run on a company member's own computer, or one
+	// whose checkout was reaped. GitHub Actions can still build that branch.
+	remoteHead func(ctx context.Context, repo domain.Repository, branch string) (string, error)
 }
+
+var errNoLocalCheckout = errors.New("no checkout of the task on this machine")
 
 var _ storeops.TestBuildSource = (*storeTestSource)(nil)
 
@@ -37,15 +43,27 @@ func (s *storeTestSource) dir(repo domain.Repository, task *domain.BoardTask) (s
 		return "", err
 	}
 	if _, err := os.Stat(dir); err != nil {
-		return "", fmt.Errorf("task %s has no checkout on this machine: %w", task.Key, err)
+		return "", fmt.Errorf("task %s: %w (%v)", task.Key, errNoLocalCheckout, err)
 	}
 	return dir, nil
+}
+
+func (s *storeTestSource) pushedHead(ctx context.Context, repo domain.Repository, task *domain.BoardTask, cause error) (string, string, error) {
+	if task == nil || s.remoteHead == nil || !errors.Is(cause, errNoLocalCheckout) {
+		return "", "", cause
+	}
+	branch := domain.TaskBranchName(*task)
+	sha, err := s.remoteHead(ctx, repo, branch)
+	if err != nil || sha == "" {
+		return "", "", fmt.Errorf("%w; its branch %s is not on GitHub either: %v", cause, branch, err)
+	}
+	return sha, branch, nil
 }
 
 func (s *storeTestSource) Head(ctx context.Context, repo domain.Repository, task *domain.BoardTask) (string, string, error) {
 	dir, err := s.dir(repo, task)
 	if err != nil {
-		return "", "", err
+		return s.pushedHead(ctx, repo, task, err)
 	}
 	info, err := s.git.TaskGitInfo(ctx, dir)
 	if err != nil {
@@ -79,7 +97,7 @@ func (s *storeTestSource) Checkout(ctx context.Context, repo domain.Repository, 
 func (s *storeTestSource) Publish(ctx context.Context, repo domain.Repository, task *domain.BoardTask) (string, string, error) {
 	dir, err := s.dir(repo, task)
 	if err != nil {
-		return "", "", err
+		return s.pushedHead(ctx, repo, task, err)
 	}
 	if task != nil {
 		if err := s.git.PushBranch(ctx, dir); err != nil {
