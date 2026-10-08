@@ -1,7 +1,7 @@
 ---
 key: briefs.newrepo.bootstrap_description
 version: 1
-inputs: [Name, Role, Description, Stack, Notes, Scaffold, HasDocs, Items, Docs]
+inputs: [Name, Role, Description, Stack, Notes, Scaffold, HasDocs, Items, Docs, Design]
 ---
 Set up the brand-new repository {{.Name}}. It was just created empty — an initial commit and nothing else — so there is no existing code to read or follow: what this task writes sets the conventions for everything after it.
 
@@ -27,7 +27,7 @@ Their answers, verbatim:
 
 Do ALL of it on a single branch, in exactly one pull request. Do not open a pull request per item and do not stop after the first one — the task is finished when every item below exists and is correct.
 
-{{range .Items}}{{.Number}}. {{if eq .Kind "skeleton"}}the initial project skeleton in the repository root{{else if eq .Kind "doc"}}`{{.Path}}` — {{.KindLabel}}{{else}}`CLAUDE.md` and `AGENTS.md` at the repository root{{end}}
+{{range .Items}}{{.Number}}. {{if eq .Kind "skeleton"}}the initial project skeleton in the repository root{{else if eq .Kind "doc"}}`{{.Path}}` — {{.KindLabel}}{{else if eq .Kind "design"}}the project's design system: `DESIGN.md`, `design/tokens.json`, `design/tokens.css` and the theme built from them{{else}}`CLAUDE.md` and `AGENTS.md` at the repository root{{end}}
 {{end}}{{if .Scaffold}}
 ---
 
@@ -41,7 +41,13 @@ Before writing it by hand, call search_boilerplate_catalog with the stack and th
 
 ## `{{.Path}}`
 
-{{.Instructions}}{{end}}
+{{.Instructions}}{{end}}{{if .Design}}
+---
+
+## The design system
+
+This repository joins the {{.Design.ProjectName}} project, whose design system v{{.Design.Version}} is approved. Call `get_design_system` with `files: true` and write every returned file at its path exactly as given. Then build the stack's theme from `design/tokens.css` / `design/tokens.json` — Tailwind `@theme` or CSS variables on the web, `Theme.swift` and the asset catalog on iOS, the Compose or Flutter theme on Android — so the skeleton uses the design system's tokens from its first commit and never a raw color, font size, spacing or radius. Link `DESIGN.md` from the docs index below.
+{{end}}
 ---
 
 ## `CLAUDE.md` and `AGENTS.md`

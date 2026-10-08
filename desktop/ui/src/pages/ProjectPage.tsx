@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type { InitiativeProject, ProjectDetail } from "@/api";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { ProjectFormDialog } from "@/components/projects/ProjectFormDialog";
+import { ProjectDesignSystemTab } from "@/components/projects/designsystem/ProjectDesignSystemTab";
 import { ProjectRepositoriesTable } from "@/components/projects/hub/ProjectRepositoriesTable";
 import { ProjectReviewTab } from "@/components/projects/hub/ProjectReviewTab";
 import { ProjectSettingsTab } from "@/components/projects/hub/ProjectSettingsTab";
@@ -19,8 +20,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { useProjectMap } from "@/hooks/useProjectMap";
 import { useProjectOverview } from "@/hooks/useProjectOverview";
 
-type ProjectTab = "architecture" | "repositories" | "review" | "settings";
-const TABS: ProjectTab[] = ["architecture", "repositories", "review", "settings"];
+type ProjectTab = "architecture" | "repositories" | "review" | "design" | "settings";
+const TABS: ProjectTab[] = ["architecture", "repositories", "review", "design", "settings"];
 
 /** Architecture is the default the moment there is something to map; a
  * project with no repositories yet has nothing to draw, so it opens on the
@@ -142,6 +143,7 @@ export function ProjectPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="design">{t("projectsHub.project.tabs.designSystem")}</TabsTrigger>
           <TabsTrigger value="settings">{t("projectsHub.project.tabs.settings")}</TabsTrigger>
         </TabsList>
 
@@ -155,6 +157,10 @@ export function ProjectPage() {
 
         <TabsContent value="review">
           <ProjectReviewTab project={project} onChanged={() => void reload()} />
+        </TabsContent>
+
+        <TabsContent value="design">
+          <ProjectDesignSystemTab projectId={project.id} />
         </TabsContent>
 
         <TabsContent value="settings">

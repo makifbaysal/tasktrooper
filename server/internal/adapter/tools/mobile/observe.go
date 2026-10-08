@@ -3,6 +3,7 @@ package mobile
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/toolattach"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -106,10 +108,28 @@ func newScreenshotTool(s device) port.ToolExecutor { return &screenshotTool{sess
 func (t *screenshotTool) Name() string { return screenshotToolName }
 
 func (t *screenshotTool) Definition() domain.ToolDefinition {
-	return def(screenshotToolName, "", map[string]interface{}{})
+	return def(screenshotToolName, "", map[string]interface{}{
+		"attach_to_task": map[string]interface{}{"type": "boolean"},
+		"title":          map[string]interface{}{"type": "string"},
+	})
 }
 
-func (t *screenshotTool) Execute(ctx context.Context, _ string) domain.ToolResult {
+// taskAttacherSource is how the screenshot tool reaches the pool's attacher
+// without widening the device interface every other tool uses.
+type taskAttacherSource interface {
+	TaskAttacher() port.TaskImageAttacher
+}
+
+func (t *screenshotTool) Execute(ctx context.Context, arguments string) domain.ToolResult {
+	var args struct {
+		AttachToTask bool   `json:"attach_to_task"`
+		Title        string `json:"title"`
+	}
+	if strings.TrimSpace(arguments) != "" {
+		if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+			return toolError(screenshotToolName, fmt.Sprintf("invalid arguments: %v", err))
+		}
+	}
 	var out struct {
 		Value string `json:"value"`
 	}
@@ -135,10 +155,19 @@ func (t *screenshotTool) Execute(ctx context.Context, _ string) domain.ToolResul
 	if w, h, err := screenSize(ctx, t.session); err == nil {
 		caption = fmt.Sprintf(", screen %dx%d", w, h)
 	}
+	image := domain.ToolResultImage{MediaType: "image/png", Data: encoded}
+	content := fmt.Sprintf("screenshot attached: image/png, %d bytes%s", len(decoded), caption)
+	if args.AttachToTask {
+		var attacher port.TaskImageAttacher
+		if src, ok := t.session.(taskAttacherSource); ok {
+			attacher = src.TaskAttacher()
+		}
+		content += toolattach.Note(ctx, attacher, screenshotToolName, args.Title, image)
+	}
 	return domain.ToolResult{
 		Name:    screenshotToolName,
-		Content: fmt.Sprintf("screenshot attached: image/png, %d bytes%s", len(decoded), caption),
-		Images:  []domain.ToolResultImage{{MediaType: "image/png", Data: encoded}},
+		Content: content,
+		Images:  []domain.ToolResultImage{image},
 	}
 }
 

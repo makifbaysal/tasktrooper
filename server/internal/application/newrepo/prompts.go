@@ -14,6 +14,11 @@ type bootstrapDoc struct {
 	Instructions string
 }
 
+type bootstrapDesign struct {
+	ProjectName string
+	Version     int
+}
+
 type bootstrapDescriptionInput struct {
 	Name        string
 	Role        string
@@ -24,6 +29,7 @@ type bootstrapDescriptionInput struct {
 	HasDocs     bool
 	Items       []bootstrapItem
 	Docs        []bootstrapDoc
+	Design      *bootstrapDesign
 }
 
 var bootstrapDescriptionKey = prompt.Define[bootstrapDescriptionInput]("briefs.newrepo.bootstrap_description", bootstrapDescriptionInput{

@@ -20,7 +20,7 @@ func TestGoldenBootstrapDescription(t *testing.T) {
 			Scaffold:    true,
 			Docs:        []string{domain.RepoDocCodingStandards, domain.RepoDocArchitecture},
 		}
-		got := bootstrapDescription("payments-api", domain.ComponentRoleBackend, req, req.Docs)
+		got := bootstrapDescription("payments-api", domain.ComponentRoleBackend, req, req.Docs, nil)
 
 		want := "Set up the brand-new repository payments-api. It was just created empty — an initial commit and nothing else — so there is no existing code to read or follow: what this task writes sets the conventions for everything after it.\n\n" +
 			"## What the person asked for\n\n" +
@@ -50,7 +50,7 @@ func TestGoldenBootstrapDescription(t *testing.T) {
 
 	t.Run("no scaffold, no docs, no stack named", func(t *testing.T) {
 		req := domain.NewRepositoryRequest{Scaffold: false}
-		got := bootstrapDescription("scratch-lib", domain.ComponentRoleLibrary, req, nil)
+		got := bootstrapDescription("scratch-lib", domain.ComponentRoleLibrary, req, nil, nil)
 
 		want := "Set up the brand-new repository scratch-lib. It was just created empty — an initial commit and nothing else — so there is no existing code to read or follow: what this task writes sets the conventions for everything after it.\n\n" +
 			"## What the person asked for\n\n" +
@@ -70,7 +70,7 @@ func TestGoldenBootstrapDescription(t *testing.T) {
 
 	t.Run("docs only, no scaffold", func(t *testing.T) {
 		req := domain.NewRepositoryRequest{Description: "A worker.", Scaffold: false, Docs: []string{domain.RepoDocTestStandards}}
-		got := bootstrapDescription("jobs-worker", domain.ComponentRoleWorker, req, req.Docs)
+		got := bootstrapDescription("jobs-worker", domain.ComponentRoleWorker, req, req.Docs, nil)
 
 		want := "Set up the brand-new repository jobs-worker. It was just created empty — an initial commit and nothing else — so there is no existing code to read or follow: what this task writes sets the conventions for everything after it.\n\n" +
 			"## What the person asked for\n\n" +

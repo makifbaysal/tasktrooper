@@ -220,6 +220,38 @@ func (s *ServiceSuite) TestListViewsMasksSecrets() {
 	s.NotEmpty(views[0].ConfigFields)
 }
 
+func (s *ServiceSuite) TestAccessMode() {
+	ctx := context.Background()
+
+	created, err := s.svc.Create(ctx, domain.CreateMCPServerRequest{ID: "figma", Transport: "http", URL: "https://mcp.figma.example/mcp"})
+	s.Require().NoError(err)
+	s.Equal(domain.MCPAccessListed, created.Access, "a new server reaches no agent until one names it")
+
+	updated, err := s.svc.Update(ctx, "figma", domain.UpdateMCPServerRequest{Transport: "http", URL: "https://mcp.figma.example/mcp", Enabled: true})
+	s.Require().NoError(err)
+	s.Equal(domain.MCPAccessListed, updated.Access, "an update that does not mention access keeps it")
+
+	updated, err = s.svc.Update(ctx, "figma", domain.UpdateMCPServerRequest{Transport: "http", URL: "https://mcp.figma.example/mcp", Access: domain.MCPAccessAll})
+	s.Require().NoError(err)
+	s.Equal(domain.MCPAccessAll, updated.Access)
+
+	_, err = s.svc.Create(ctx, domain.CreateMCPServerRequest{ID: "odd", Transport: "stdio", Command: "npx", Access: "everyone"})
+	s.ErrorIs(err, domain.ErrMCPInvalidRequest)
+
+	cfgs, err := s.svc.ResolvedConfigs(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(cfgs, 1)
+	s.Equal(domain.MCPAccessAll, cfgs[0].Access, "the runtime config carries the mode to the registry")
+}
+
+func (s *ServiceSuite) TestSeededTemplatesKeepReachingEveryAgent() {
+	s.Require().NoError(s.svc.SeedDefaultsIfEmpty(context.Background()))
+	s.Require().NotEmpty(s.store.servers)
+	for id, server := range s.store.servers {
+		s.Equal(domain.MCPAccessAll, server.Access, id)
+	}
+}
+
 func TestServiceSuite(t *testing.T) {
 	suite.Run(t, new(ServiceSuite))
 }

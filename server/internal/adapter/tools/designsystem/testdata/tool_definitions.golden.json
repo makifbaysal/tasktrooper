@@ -1,0 +1,111 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "get_design_system",
+      "description": "Read the design system a repository follows: the project base it builds on, the repository's own layer, and the merged DTCG token tree (`tokens`) — the values to build with. `base` and `layer` carry `design_md` (principles, do's and don'ts), `inventory_md` (the components) and their own tokens. Both null means the repository has no design system yet. Pass `project_id` to read a project's base and its repositories' layers instead. Each version carries `lint`: problems found in it — `unresolved_alias`, `invalid_color`, `contrast_below_aa` (a color and its `-foreground`/`on-` pair below 4.5:1, with the `ratio`), `empty_group`, `missing_section` (a DESIGN.md section the base lacks).",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "description": "true also returns `files` — DESIGN.md, design/tokens.json, design/tokens.css and design/INVENTORY.md rendered from the effective design system, each with its path and full content, to write into the repository exactly as given.",
+            "type": "boolean"
+          },
+          "project_id": {
+            "description": "Project UUID. Returns that project's approved base, its pending proposals and the layer of each of its repositories instead of one repository's view.",
+            "type": "string"
+          },
+          "repository_id": {
+            "description": "Repository UUID. Defaults to the run's own repository.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "propose_design_system",
+      "description": "Propose a new version of a project's base design system or of a repository's layer, from the design task you are working. It stays pending until the human approves the task in analiz_review, which approves every version the task proposed. Calling it again for the same target from the same task replaces that pending version rather than adding another — that is how you revise it. Read the current one with get_design_system first. The result carries `lint` — the same checks get_design_system reports; fix every `error` finding and propose again before you attach the report.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "design_md": {
+            "description": "The DESIGN.md text: Overview, Colors, Typography, Layout, Elevation \u0026 Depth, Shapes, Components, Do's and Don'ts. Required for a project base.",
+            "type": "string"
+          },
+          "inventory_md": {
+            "description": "The component inventory as markdown — each component, its variants and states, and where it lives in the code.",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "The project whose base this is. Required when scope is project.",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Why this repository differs from the project base. Required when scope is repository.",
+            "type": "string"
+          },
+          "repository_id": {
+            "description": "The repository whose layer this is. Required when scope is repository.",
+            "type": "string"
+          },
+          "scope": {
+            "description": "\"project\" for a project's base design system, \"repository\" for one repository's layer on top of it (or its whole design system when it has no project base).",
+            "enum": [
+              "project",
+              "repository"
+            ],
+            "type": "string"
+          },
+          "tokens": {
+            "description": "The design tokens as a DTCG tree — groups are objects, a token is an object with \"$value\" (and optionally \"$type\"). A repository layer only adds or overrides tokens; it never sets one to null.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "request_design_system",
+      "description": "Open the design task that derives a design system from the code that already exists — or updates it — exactly as the Design System tab's button does; the ui-designer is assigned automatically. While one is still open for the same target it is returned instead of opening another (`created: false`). Use it when work needs a design system that `get_design_system` does not return; then make the work that needs it wait with `update_board_task` `blocked_by: [\"\u003creturned key\u003e\"]`.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "description": "What the design system task should take into account, passed to the designer verbatim.",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "The project whose base design system to derive or update. Required when scope is project.",
+            "type": "string"
+          },
+          "repository_id": {
+            "description": "The repository whose layer to derive or update. Defaults to the run's own repository.",
+            "type": "string"
+          },
+          "scope": {
+            "description": "\"project\" for a project's base (and the layers its repositories need), \"repository\" for one repository's layer — or its whole design system when it has no project base.",
+            "enum": [
+              "project",
+              "repository"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "type": "object"
+      }
+    }
+  }
+]

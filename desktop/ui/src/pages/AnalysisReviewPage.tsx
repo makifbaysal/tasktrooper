@@ -1,10 +1,11 @@
-import { FileText, HelpCircle, Loader2, SearchX, Send } from "lucide-react";
+import { Columns2, FileText, HelpCircle, Loader2, SearchX, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { api, type BoardTask, type TaskAnnotation, type TaskDocument, type TaskQuestion } from "@/api";
+import { api, type BoardTask, type TaskAnnotation, type TaskComment, type TaskDocument, type TaskQuestion } from "@/api";
 import { AnalysisFrame, type AnalysisFrameHandle } from "@/components/board/analysis/AnalysisFrame";
 import { AnnotationsPanel } from "@/components/board/analysis/AnnotationsPanel";
+import { DesignVariantCompare } from "@/components/board/analysis/DesignVariantCompare";
 import { SubmitAnnotationsDialog } from "@/components/board/analysis/SubmitAnnotationsDialog";
 import type { FrameSelection } from "@/components/board/analysis/srcdoc";
 import { PageBackLink } from "@/components/layout/PageBackLink";
@@ -27,6 +28,13 @@ import {
   pickReviewDocument,
   visibleQuestions,
 } from "@/lib/analysis-review";
+import {
+  chosenVariantComment,
+  chosenVariantTitle,
+  designDocumentLabel,
+  designHtmlDocuments,
+  isDesignTask,
+} from "@/lib/design-system";
 
 const REVISION_POLL_MS = 3000;
 
@@ -55,6 +63,9 @@ export function AnalysisReviewPage() {
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
   const [approving, setApproving] = useState(false);
   const [sendingAnswers, setSendingAnswers] = useState(false);
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [compare, setCompare] = useState(false);
+  const [choosingId, setChoosingId] = useState<string | null>(null);
   const frameRef = useRef<AnalysisFrameHandle>(null);
   // Bumped by every local annotation change, so a poll that left before the
   // change cannot land after it and put the old list back.
@@ -99,6 +110,7 @@ export function AnalysisReviewPage() {
 
   const revising = isRevising(task?.column);
   const inReview = task?.column === "analiz_review";
+  const design = isDesignTask(task);
   const poll = useCallback(async () => {
     await refresh();
   }, [refresh]);
@@ -128,6 +140,26 @@ export function AnalysisReviewPage() {
     [annotations, currentDocId],
   );
   const openCount = annotationCounts(annotations).open;
+
+  const variantDocs = useMemo(() => (design ? designHtmlDocuments(documents) : []), [design, documents]);
+  const canCompare = variantDocs.length >= 2;
+  const comparing = compare && canCompare;
+
+  useEffect(() => {
+    if (!canCompare) return;
+    let cancelled = false;
+    api
+      .listTaskComments(repositoryId, taskId)
+      .then((data) => {
+        if (!cancelled) setComments(data.comments ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canCompare, repositoryId, taskId]);
+
+  const chosenTitle = useMemo(() => (canCompare ? chosenVariantTitle(comments) : null), [canCompare, comments]);
 
   const blockedOnQuestions = task?.column === "blocked" && task?.blocked_resource === "analysis_questions";
   const shownQuestions = useMemo(() => visibleQuestions(questions), [questions]);
@@ -189,6 +221,21 @@ export function AnalysisReviewPage() {
     frameRef.current?.scrollTo(id);
   };
 
+  // The comment text is an English marker the designer agent reads; only the button is translated.
+  const chooseVariant = async (doc: TaskDocument) => {
+    const content = chosenVariantComment(doc.title);
+    setChoosingId(doc.id);
+    try {
+      const comment = await api.createTaskComment(repositoryId, taskId, content);
+      setComments((prev) => [...prev, { ...comment, content, created_at: comment.created_at || new Date().toISOString() }]);
+      toast.success(t("analysisReview.design.compare.chosenToast", { title: designDocumentLabel(doc) }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("analysisReview.design.compare.chooseFailed"));
+    } finally {
+      setChoosingId(null);
+    }
+  };
+
   const approve = async () => {
     setApproving(true);
     try {
@@ -209,8 +256,8 @@ export function AnalysisReviewPage() {
       setSubmitOpen(false);
       toast.success(
         result.submitted > 0
-          ? t("analysisReview.submit.sent", { count: result.submitted })
-          : t("analysisReview.submit.answersSent", { count: answerCount }),
+          ? t(design ? "analysisReview.design.commentsSent" : "analysisReview.submit.sent", { count: result.submitted })
+          : t(design ? "analysisReview.design.answersSent" : "analysisReview.submit.answersSent", { count: answerCount }),
       );
       navigate(boardPath);
     } catch (e) {
@@ -236,7 +283,7 @@ export function AnalysisReviewPage() {
     setSendingAnswers(true);
     try {
       const result = await api.submitTaskQuestions(repositoryId, taskId);
-      toast.success(t("analysisReview.questions.sent", { count: result.submitted }));
+      toast.success(t(design ? "analysisReview.design.questionsSent" : "analysisReview.questions.sent", { count: result.submitted }));
       navigate(boardPath);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("analysisReview.questions.sendFailed"));
@@ -283,7 +330,7 @@ export function AnalysisReviewPage() {
           <p className="font-mono text-caption text-muted-foreground">{task.key}</p>
           <h1 className="truncate text-title font-semibold">{task.title}</h1>
         </div>
-        {documents.length > 1 && currentDoc && (
+        {documents.length > 1 && currentDoc && !comparing && (
           <Select value={currentDoc.id} onValueChange={selectDocument}>
             <SelectTrigger className="w-64" aria-label={t("analysisReview.page.documentLabel")}>
               <SelectValue />
@@ -291,11 +338,19 @@ export function AnalysisReviewPage() {
             <SelectContent>
               {documents.map((doc) => (
                 <SelectItem key={doc.id} value={doc.id}>
-                  {doc.title}
+                  {chosenTitle !== null && doc.title.trim() === chosenTitle
+                    ? `${doc.title} · ${t("analysisReview.design.compare.chosen")}`
+                    : doc.title}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+        )}
+        {canCompare && (
+          <Button variant="outline" aria-pressed={comparing} onClick={() => setCompare((v) => !v)}>
+            <Columns2 />
+            {comparing ? t("analysisReview.design.compare.close") : t("analysisReview.design.compare.toggle")}
+          </Button>
         )}
         {inReview && (
           <Button
@@ -326,58 +381,81 @@ export function AnalysisReviewPage() {
         <Button
           onClick={() => setSubmitOpen(true)}
           disabled={!inReview || (openCount === 0 && unsubmittedAnswers.length === 0)}
-          title={inReview ? undefined : t("analysisReview.page.submitOnlyInReview")}
+          title={
+            inReview
+              ? undefined
+              : t(design ? "analysisReview.design.submitOnlyInReview" : "analysisReview.page.submitOnlyInReview")
+          }
         >
           <Send />
           {t("analysisReview.page.submit", { count: openCount + unsubmittedAnswers.length })}
         </Button>
       </header>
       {revising && (
-        <Notice variant="info" title={t("analysisReview.page.revising")} className="mx-6 mt-3">
+        <Notice
+          variant="info"
+          title={t(design ? "analysisReview.design.revising" : "analysisReview.page.revising")}
+          className="mx-6 mt-3"
+        >
           {t("analysisReview.page.revisingBody")}
         </Notice>
       )}
-      <div className="flex min-h-0 flex-1">
-        {currentDoc ? (
-          <AnalysisFrame
-            ref={frameRef}
-            className="flex-1"
-            document={currentDoc}
-            annotations={frameAnnotations}
-            questions={frameQuestions}
-            activeId={activeId}
-            theme={theme}
-            onSelection={(selection) => {
-              if (!revising) setPending(selection);
-            }}
-            onFocusAnnotation={setActiveId}
-            onAnchored={setAnchored}
-            onAnswer={(id, text) => void answerQuestion(id, text)}
-          />
-        ) : (
-          <EmptyState
-            className="flex-1"
-            icon={FileText}
-            title={t("analysisReview.page.noDocuments")}
-            description={t("analysisReview.page.noDocumentsBody")}
-          />
-        )}
-        <AnnotationsPanel
-          className="w-[360px] shrink-0 border-l border-border"
-          repositoryId={repositoryId}
-          taskId={taskId}
-          documentId={currentDocId}
-          annotations={docAnnotations}
-          anchored={anchored}
-          activeId={activeId}
-          pending={pending}
-          canComment={!revising && currentDoc !== null}
-          onActivate={activate}
-          onCancelPending={() => setPending(null)}
-          onUpsert={upsert}
-          onRemove={remove}
+      {inReview && design && (
+        <Notice variant="info" title={t("analysisReview.page.designApproveHint")} className="mx-6 mt-3" />
+      )}
+      {comparing ? (
+        <DesignVariantCompare
+          documents={variantDocs}
+          chosenTitle={chosenTitle}
+          choosingId={choosingId}
+          onChoose={(doc) => void chooseVariant(doc)}
+          theme={theme}
         />
-      </div>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          {currentDoc ? (
+            <AnalysisFrame
+              ref={frameRef}
+              className="flex-1"
+              document={currentDoc}
+              annotations={frameAnnotations}
+              questions={frameQuestions}
+              activeId={activeId}
+              theme={theme}
+              onSelection={(selection) => {
+                if (!revising) setPending(selection);
+              }}
+              onFocusAnnotation={setActiveId}
+              onAnchored={setAnchored}
+              onAnswer={(id, text) => void answerQuestion(id, text)}
+              title={design ? t("analysisReview.design.frameTitle") : undefined}
+            />
+          ) : (
+            <EmptyState
+              className="flex-1"
+              icon={FileText}
+              title={t(design ? "analysisReview.design.noDocuments" : "analysisReview.page.noDocuments")}
+              description={t(design ? "analysisReview.design.noDocumentsBody" : "analysisReview.page.noDocumentsBody")}
+            />
+          )}
+          <AnnotationsPanel
+            className="w-[360px] shrink-0 border-l border-border"
+            repositoryId={repositoryId}
+            taskId={taskId}
+            documentId={currentDocId}
+            annotations={docAnnotations}
+            anchored={anchored}
+            activeId={activeId}
+            pending={pending}
+            canComment={!revising && currentDoc !== null}
+            onActivate={activate}
+            onCancelPending={() => setPending(null)}
+            onUpsert={upsert}
+            onRemove={remove}
+            pausedLabel={design ? t("analysisReview.design.commentingPaused") : undefined}
+          />
+        </div>
+      )}
       <SubmitAnnotationsDialog
         open={submitOpen}
         onOpenChange={setSubmitOpen}

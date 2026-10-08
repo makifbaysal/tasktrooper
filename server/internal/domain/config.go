@@ -343,6 +343,7 @@ type MCPServerConfig struct {
 	URL          string            `koanf:"url"`
 	Headers      map[string]string `koanf:"headers"`
 	AllowedTools []string          `koanf:"allowed_tools"`
+	Access       MCPAccess         `koanf:"access"`
 }
 
 type StorageConfig struct {

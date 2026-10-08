@@ -157,4 +157,17 @@ describe("AnalizReviewDecision", () => {
 
     expect(await screen.findByRole("link", { name: "Review analysis (2 open comments)" })).toBeInTheDocument();
   });
+
+  it("speaks of a design for a design task and says approving it approves the design system", async () => {
+    listTaskAnnotations.mockResolvedValue({ annotations: [{ id: "a1", status: "open" }] });
+    renderWithI18n(makeTask({ task_type: "design", key: "D-3" }), vi.fn(), [htmlDoc]);
+
+    expect(await screen.findByRole("link", { name: "Review design (1 open comments)" })).toHaveAttribute(
+      "href",
+      "/repositories/repo-1/tasks/task-1/analysis",
+    );
+    expect(
+      screen.getByText("Approving this design task approves the design system versions it proposes."),
+    ).toBeInTheDocument();
+  });
 });

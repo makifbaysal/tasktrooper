@@ -32,15 +32,18 @@ export interface AnalysisFrameHandle {
 
 interface AnalysisFrameProps {
   document: Pick<TaskDocument, "id" | "content" | "format">;
-  annotations: FrameAnnotation[];
+  /** Omit, with the handlers below, for a read-only view (no highlights, selections ignored). */
+  annotations?: FrameAnnotation[];
   /** Drawn in the Open questions section at the top of the frame body, built from this structured data, never from the document's own HTML. */
   questions?: FrameQuestion[];
-  activeId: string | null;
+  activeId?: string | null;
   theme: "light" | "dark";
-  onSelection: (selection: FrameSelection) => void;
-  onFocusAnnotation: (id: string) => void;
-  onAnchored: (found: Record<string, boolean>) => void;
+  onSelection?: (selection: FrameSelection) => void;
+  onFocusAnnotation?: (id: string) => void;
+  onAnchored?: (found: Record<string, boolean>) => void;
   onAnswer?: (id: string, text: string) => void;
+  /** The iframe's accessible title; defaults to "Analysis document". */
+  title?: string;
   className?: string;
 }
 
@@ -49,19 +52,21 @@ interface AnalysisFrameProps {
  * opaque-origin iframe (see srcdoc.ts) that talks to this component only by
  * postMessage. Nothing goes in but the document and the annotations to draw.
  */
-const NOOP_ON_ANSWER = () => {};
+const NOOP = () => {};
+const NO_ANNOTATIONS: FrameAnnotation[] = [];
 
 export const AnalysisFrame = forwardRef<AnalysisFrameHandle, AnalysisFrameProps>(function AnalysisFrame(
   {
     document: doc,
-    annotations,
+    annotations = NO_ANNOTATIONS,
     questions = [],
-    activeId,
+    activeId = null,
     theme,
-    onSelection,
-    onFocusAnnotation,
-    onAnchored,
-    onAnswer = NOOP_ON_ANSWER,
+    onSelection = NOOP,
+    onFocusAnnotation = NOOP,
+    onAnchored = NOOP,
+    onAnswer = NOOP,
+    title,
     className,
   },
   ref,
@@ -201,7 +206,7 @@ export const AnalysisFrame = forwardRef<AnalysisFrameHandle, AnalysisFrameProps>
       ) : (
         <iframe
           ref={iframeRef}
-          title={t("analysisReview.page.frameTitle")}
+          title={title ?? t("analysisReview.page.frameTitle")}
           sandbox={FRAME_SANDBOX}
           srcDoc={srcdoc}
           referrerPolicy="no-referrer"

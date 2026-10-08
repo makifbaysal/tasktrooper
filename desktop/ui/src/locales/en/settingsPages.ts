@@ -407,6 +407,7 @@ export const settingsPages = {
       "detect_migration_on_enter": { label: "Detect migration on enter", description: "Entering this stage checks the branch diff for a schema migration." },
       "stage_deploy_on_enter": { label: "Stage deploy on enter", description: "Entering this stage triggers a stage deploy, per the repository's test strategy." },
       "store_test_build_on_enter": { label: "Store test build on enter", description: "Entering this stage builds the task for each linked store app and uploads it to TestFlight / Play internal app sharing." },
+      "approve_design_system_on_enter": { label: "Approve design system on enter", description: "Entering this stage approves every design system version the task proposed and supersedes the one each replaces." },
       "auto_enter": { label: "Auto-enter", description: "The dispatcher moves the task straight into the named column on assignment/wake." },
       "advance_on_diff": { label: "Advance on diff", description: "A run that ends with a green build and a real diff is moved to the named column automatically." },
       "advance_on_document": { label: "Advance on document", description: "A run that ends with a document attached is moved to the named column automatically." },

@@ -67,7 +67,7 @@ Merged with per-request and per-API-key policies.
 
 | Key | Type | Description |
 |---|---|---|
-| `allow_mcp_servers` | []string | Whitelist MCP server IDs |
+| `allow_mcp_servers` | []string | Whitelist MCP server IDs (exact or `*` pattern). Non-empty: exactly these servers. Empty: only servers whose `access` is `all` — a `listed` server is never served to a policy that does not name it (migration 179) |
 | `allow_tools` | []string | Whitelist tool names (wildcards supported) |
 | `deny_mcp_servers` | []string | Blacklist MCP server IDs |
 | `deny_tools` | []string | Blacklist tool names (deny wins) |

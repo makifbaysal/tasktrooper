@@ -25,6 +25,8 @@ interface AnnotationsPanelProps {
   onCancelPending: () => void;
   onUpsert: (annotation: TaskAnnotation) => void;
   onRemove: (id: string) => void;
+  /** Replaces "Commenting is paused while the agent revises the analysis." */
+  pausedLabel?: string;
   className?: string;
 }
 
@@ -43,6 +45,7 @@ export function AnnotationsPanel({
   onCancelPending,
   onUpsert,
   onRemove,
+  pausedLabel,
   className,
 }: AnnotationsPanelProps) {
   const { t } = useI18n();
@@ -144,7 +147,7 @@ export function AnnotationsPanel({
           </p>
         )}
         {!canComment && (
-          <p className="text-caption text-muted-foreground">{t("analysisReview.panel.commentingPaused")}</p>
+          <p className="text-caption text-muted-foreground">{pausedLabel ?? t("analysisReview.panel.commentingPaused")}</p>
         )}
         {annotations.length === 0 && !pending ? (
           <EmptyState

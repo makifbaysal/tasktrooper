@@ -21,6 +21,7 @@ type MCPServer struct {
 	URL          string            `json:"url,omitempty"`
 	Headers      map[string]string `json:"headers,omitempty"`
 	AllowedTools []string          `json:"allowed_tools,omitempty"`
+	Access       MCPAccess         `json:"access"`
 	CreatedAt    time.Time         `json:"created_at"`
 }
 
@@ -36,11 +37,16 @@ type MCPServerView struct {
 	Tools         []string         `json:"tools,omitempty"`
 	Status        string           `json:"status"`
 	LastError     string           `json:"last_error,omitempty"`
+	Auth          MCPAuthStatus    `json:"auth"`
 }
 
 type MCPServerListResponse struct {
 	Servers []MCPServerView `json:"servers"`
 	Count   int             `json:"count"`
+	// OAuthRedirectURI is the loopback callback an authorization server
+	// sends a sign-in back to; shown so a hand-registered OAuth client can be
+	// given it. Empty when OAuth is not wired.
+	OAuthRedirectURI string `json:"oauth_redirect_uri,omitempty"`
 }
 
 type CreateMCPServerRequest struct {
@@ -53,6 +59,9 @@ type CreateMCPServerRequest struct {
 	URL          string            `json:"url"`
 	Headers      map[string]string `json:"headers"`
 	AllowedTools []string          `json:"allowed_tools"`
+	// Access is "all" or "listed"; empty means DefaultNewMCPAccess on create
+	// and "unchanged" on update.
+	Access MCPAccess `json:"access"`
 }
 
 type UpdateMCPServerRequest = CreateMCPServerRequest
@@ -73,6 +82,7 @@ func (c MCPServerConfig) ToMCPServer() MCPServer {
 		URL:          c.URL,
 		Headers:      c.Headers,
 		AllowedTools: c.AllowedTools,
+		Access:       c.Access,
 	}
 }
 
@@ -87,5 +97,6 @@ func (s MCPServer) ToConfig() MCPServerConfig {
 		URL:          s.URL,
 		Headers:      s.Headers,
 		AllowedTools: s.AllowedTools,
+		Access:       s.Access,
 	}
 }

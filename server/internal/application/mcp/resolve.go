@@ -238,6 +238,7 @@ func stripIncomingSecrets(req domain.CreateMCPServerRequest) domain.MCPServer {
 		URL:          req.URL,
 		Headers:      cloneStringMap(req.Headers),
 		AllowedTools: req.AllowedTools,
+		Access:       req.Access,
 	}
 	return stripSecretsFromStored(server, req.ID)
 }

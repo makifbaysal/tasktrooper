@@ -204,7 +204,11 @@ system prompt. It lets you add or remove individual tools and MCP servers
 from the allow-list. Two things to know before narrowing one:
 
 - **An empty list means unrestricted**, not "nothing" — to actually restrict
-  an agent you list what it may use.
+  an agent you list what it may use. MCP servers are the exception: an empty
+  **MCP servers** list gets only the servers set to *All agents*, and a server
+  set to *Only agents that list it* reaches an agent only once you pick it
+  there (see [MCP servers](mcp-servers.md#who-can-use-a-server)). Picking any
+  server makes the list exact.
 - **Tool policy is set only when an agent is created**, and never
   reconciled afterward (see [Role agents](role-agents.md#seeding-and-what-survives-an-upgrade)).
   Any change you make here on a seeded agent is permanent across restarts and

@@ -2306,11 +2306,17 @@ func (s *TaskRelationStore) AddBlockers(ctx context.Context, targetTaskID uuid.U
 	return out, nil
 }
 
+// unfinishedBlockerSQL is when a `blocks` source (bt) still holds its target
+// back. A design task holds until released, not done: its designer writes the
+// hand-off spec and opens the implementation tasks in its done run, and the
+// work it blocks must not start before that hand-off exists.
+const unfinishedBlockerSQL = `(bt.board_column NOT IN ('done', 'released') OR (bt.task_type = 'design' AND bt.board_column = 'done'))`
+
 func (s *TaskRelationStore) ListBlockingSources(ctx context.Context, targetTaskID uuid.UUID) ([]domain.BoardTask, error) {
 	rows, err := s.pool.Query(ctx, boardTaskSelect+`
 		JOIN task_relations tr ON tr.source_task_id = bt.id
 		WHERE tr.target_task_id = $1 AND tr.relation_type = 'blocks'
-		AND bt.board_column NOT IN ('done', 'released')
+		AND `+unfinishedBlockerSQL+`
 	`, targetTaskID)
 	if err != nil {
 		return nil, err
@@ -2330,7 +2336,7 @@ func (s *TaskRelationStore) ListUnfinishedBlockers(ctx context.Context) ([]domai
 			`+taskKeySQL+`, bt.title
 		FROM task_relations tr
 		JOIN board_tasks bt ON bt.id = tr.source_task_id
-		WHERE tr.relation_type = 'blocks' AND bt.board_column NOT IN ('done', 'released')
+		WHERE tr.relation_type = 'blocks' AND `+unfinishedBlockerSQL+`
 		ORDER BY tr.created_at
 	`)
 	if err != nil {

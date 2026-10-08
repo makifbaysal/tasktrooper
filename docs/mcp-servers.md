@@ -25,6 +25,7 @@ Every server needs:
 | ID | A short name with no spaces or slashes. This becomes the namespace every one of the server's tools is served under, and it cannot be changed later without recreating the server. |
 | Transport | `stdio` (a local process) or `http` (an existing MCP endpoint) |
 | Enabled | Whether the server connects at all. A disabled server is kept configured but not dialled. |
+| Available to | **Only agents that list it** (the default for a server you add) or **All agents** — see [Who can use a server](#who-can-use-a-server). |
 
 **stdio** servers need a `command` and its `args` — the same shape as a
 `.mcp.json` entry, run as a local child process (`npx -y
@@ -66,16 +67,94 @@ a template.
 
 Every tool a connected server advertises is registered as
 **`mcp_<server_id>_<tool_name>`** — the server's ID, then the tool's own
-name, exactly as the MCP server defined it. An agent whose tool policy allows
-the server (or the specific tool) sees it under that name and calls it like
-any other tool; its parameters and description come straight from the
-server's own tool definition, unchanged.
+name, exactly as the MCP server defined it. An agent the server is
+[available to](#who-can-use-a-server) sees it under that name and calls it
+like any other tool; its parameters and description come straight from the
+server's own tool definition, unchanged. Which server a tool belongs to is
+recorded when it is registered, so an ID that itself contains `_`
+(`figma_team`) is never confused with a shorter one (`figma`).
 
 This is a flat namespace on purpose: a GitHub server with ID `github` and a
 tool called `create_issue` is served as `mcp_github_create_issue`, and
 nothing about the name changes based on which agent is calling it or which
 column the run is in. [Tool policies](tool-policies.md) control access the
 same way they control every built-in tool — by name or by server ID.
+
+## Who can use a server
+
+Each server has an **Available to** setting:
+
+| Setting | Which agents get the server's tools |
+|---|---|
+| **Only agents that list it** | Agents whose tool policy names the server under **MCP servers**. This is the default for every server you add, so connecting a design tool or an issue tracker does not hand its tools to every agent at once. |
+| **All agents** | Every agent whose tool policy names no MCP servers, plus any agent that names this one. |
+
+An agent's own list is exact: an agent whose tool policy names one or more MCP
+servers gets exactly those, so a server set to *All agents* that it does not
+name is not served to it either. Give an agent a server with the **MCP
+servers** picker under **Settings → Tool policy** on the agent's page; the MCP
+Servers table shows which agents list each server.
+
+Servers that existed before this setting, and the templates the app seeds on a
+fresh install, are set to *All agents*, so an upgrade changes no agent's
+tools.
+
+The same rule applies everywhere a tool reaches an agent: the tool list the
+model sees, a call it makes to a tool it was not shown, and the `/mcp`
+endpoint a Claude Code session calls back on.
+
+## Tool results with images
+
+When a tool returns an image — a screenshot of a design frame, a rendered
+chart — the model receives it as a picture, the way it receives
+`browser_screenshot`'s, not as a block of base64 text. Text blocks stay text.
+PNG, JPEG, GIF and WebP up to 5 MB are passed through; any other image, or a
+larger one, is reduced to its type and size. A Claude Code session calling
+the tool through TaskTrooper's `/mcp` endpoint gets the same image as MCP
+image content.
+
+## Signing in with OAuth
+
+Hosted `http` servers that follow the MCP authorization spec do not take a
+pasted token: they sign you in with OAuth. TaskTrooper runs that sign-in
+itself, on this machine:
+
+1. A server that answers `401` shows **Sign-in needed** and a **Connect**
+   button.
+2. **Connect** finds the server's authorization server (from the
+   `WWW-Authenticate` challenge, or `/.well-known/oauth-protected-resource`,
+   then the authorization server's own metadata), registers TaskTrooper as a
+   client when the authorization server supports dynamic client registration,
+   and opens the sign-in page in your browser.
+3. Once you approve, the browser comes back to
+   `http://127.0.0.1:<port>/oauth/mcp/callback` — TaskTrooper itself, on the
+   loopback address — and shows **Connected — you can close this tab**. The
+   row switches to **Signed in** and the server reconnects with its token.
+
+What to know:
+
+- Every sign-in uses PKCE (S256), and the `resource` parameter names this MCP
+  server, so the token is only good there. An authorization server without
+  S256 support is refused.
+- Tokens are encrypted with the same key as the other MCP secrets and never
+  sent back to the UI. An access token is refreshed a minute before it
+  expires, and again whenever the server rejects it. When the refresh token
+  itself is refused, the row shows **Sign-in expired** and **Reconnect**.
+- A sign-in link works once and for ten minutes; starting again cancels the
+  earlier one.
+- When the authorization server cannot register clients by itself, **Connect**
+  asks for the client ID (and, if it has one, the secret) of an OAuth app you
+  register with the provider, and shows the redirect URI to register. Its port
+  changes when TaskTrooper restarts; providers that follow the loopback
+  redirect rules accept any port.
+- **Disconnect** forgets the tokens. A client ID you entered is kept for the
+  next sign-in.
+- A sign-in replaces any `Authorization` header configured on the server.
+  Changing the server's URL or transport forgets the sign-in, because the
+  token was granted for the old address.
+- Discovery, registration and token requests go through the same outbound
+  guard as the MCP connection itself, and none of the requests that carry a
+  credential follow a redirect.
 
 ## Secrets
 
@@ -101,7 +180,8 @@ Each row in the MCP Servers table shows:
 | Column | What it means |
 |---|---|
 | Transport | `stdio` or `http` |
-| Status | **Connected**, **Inactive** (disabled), **Needs setup**, or **Error** |
+| Available to | **All agents** or **Listed agents**, and the agents that list the server |
+| Status | **Connected**, **Inactive** (disabled), **Needs setup**, **Sign-in needed**, **Sign-in expired**, or **Error**; a signed-in `http` server also shows **Signed in** with **Disconnect** |
 | Tools | How many tools the server is currently serving, expandable to the list of names |
 | Enabled | The toggle that connects or disconnects the server without deleting it |
 
@@ -142,8 +222,8 @@ for the run-side detail on that endpoint.
 
 ## Where this is used
 
-A connected, enabled server's tools become available to every agent whose
-tool policy admits them — board runs and chats alike, on any provider. There
-is no per-repository or per-task MCP configuration: a server you add here is
-available everywhere its tool policy allows it, the same way a built-in tool
-is.
+A connected, enabled server's tools reach the agents it is
+[available to](#who-can-use-a-server) — board runs and chats alike, on any
+provider. There is no per-repository or per-task MCP configuration: which
+agents get a server is decided once, by its **Available to** setting and the
+agents' tool policies.

@@ -17,6 +17,9 @@ func validateCreateRequest(req domain.CreateMCPServerRequest) error {
 	if strings.ContainsAny(req.ID, " /") {
 		return fmt.Errorf("%w: id must not contain spaces or slashes", domain.ErrMCPInvalidRequest)
 	}
+	if err := validateAccess(req.Access); err != nil {
+		return err
+	}
 	return validateTransportFields(req.Transport, req.Command, req.URL)
 }
 
@@ -24,7 +27,17 @@ func validateUpdateRequest(id string, req domain.UpdateMCPServerRequest) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("%w: id is required", domain.ErrMCPInvalidRequest)
 	}
+	if err := validateAccess(req.Access); err != nil {
+		return err
+	}
 	return validateTransportFields(req.Transport, req.Command, req.URL)
+}
+
+func validateAccess(access domain.MCPAccess) error {
+	if access == "" || access.Valid() {
+		return nil
+	}
+	return fmt.Errorf("%w: access must be %q or %q", domain.ErrMCPInvalidRequest, domain.MCPAccessAll, domain.MCPAccessListed)
 }
 
 func validateTransportFields(transport, command, url string) error {

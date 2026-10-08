@@ -35,6 +35,7 @@ import { PipelineSection } from "@/components/board/PipelineSection";
 import { TaskPreviewsSection } from "@/components/board/TaskPreviewsSection";
 import { RELEASE_STATUS_VARIANT, ReleaseDrawer } from "@/components/projects/repository/deploy/ReleaseDrawer";
 import { TaskAssigneeFields } from "@/components/board/TaskAssigneeFields";
+import { TaskDesignSection } from "@/components/board/TaskDesignSection";
 import { TaskDocumentList } from "@/components/board/TaskDocumentList";
 import { TaskHistory } from "@/components/board/TaskHistory";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
@@ -717,6 +718,14 @@ export function TaskDetailDrawer({
                     <MarkdownContent content={task.technical_description} />
                   )}
                 </section>
+
+                <TaskDesignSection
+                  key={task.id}
+                  repositoryId={repositoryId}
+                  taskId={task.id}
+                  repositoryName={repositoryName}
+                  active={open}
+                />
 
                 <Separator />
 

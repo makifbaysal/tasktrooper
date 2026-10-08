@@ -200,6 +200,8 @@ func productManagerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleBoardCreateTools...)
 	tools = append(tools, roleBoardDeleteTools...)
 	tools = append(tools, roleWorkspaceManageTools...)
+	// A project with UI and no design system gets the server-briefed design task, never a hand-written one.
+	tools = append(tools, "request_design_system")
 	// pm_uat: the PM records its own verdict per criterion.
 	tools = append(tools, "review_criterion")
 	// The PM answers "what shipped?" from the PR rather than the implementer's summary.
@@ -240,6 +242,8 @@ func architectToolPolicy() domain.ToolPolicy {
 	// tail (query_runtime_logs) or the deploy history (list_deployments) —
 	// those are for the implementer and QA, not the reviewer.
 	tools = append(tools, "get_environment", "list_runtime_errors")
+	// Decomposition opens the design system UI tasks wait for through the server's brief, not a hand-written task.
+	tools = append(tools, "request_design_system")
 	return domain.ToolPolicy{AllowTools: tools}
 }
 

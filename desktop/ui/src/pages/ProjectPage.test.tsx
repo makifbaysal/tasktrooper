@@ -2,16 +2,26 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProjectDetail, ProjectMap, ProjectsOverview, RepositoryModel } from "@/api";
+import { ApiError, type BoardTask, type ProjectDesignSystemView, type ProjectDetail, type ProjectMap, type ProjectsOverview, type RepositoryModel } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { ProjectPage } from "@/pages/ProjectPage";
 
-const { getProjectOverview, getProjectsOverview, getRepositoryModel, getProjectMap, setRepositoryProjects } = vi.hoisted(() => ({
+const {
+  getProjectOverview,
+  getProjectsOverview,
+  getRepositoryModel,
+  getProjectMap,
+  setRepositoryProjects,
+  getProjectDesignSystem,
+  generateProjectDesignSystem,
+} = vi.hoisted(() => ({
   getProjectOverview: vi.fn(),
   getProjectsOverview: vi.fn(),
   getRepositoryModel: vi.fn(),
   getProjectMap: vi.fn(),
   setRepositoryProjects: vi.fn(),
+  getProjectDesignSystem: vi.fn(),
+  generateProjectDesignSystem: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -25,6 +35,8 @@ vi.mock("@/api", async () => {
       getRepositoryModel,
       getProjectMap,
       setRepositoryProjects,
+      getProjectDesignSystem,
+      generateProjectDesignSystem,
     },
   };
 });
@@ -111,6 +123,24 @@ const emptyOverview: ProjectsOverview = { projects: [], unassigned: [] };
 
 const emptyMap: ProjectMap = { project: { id: "proj-1", name: "Acme Shop" }, nodes: [], edges: [] };
 
+const emptyDesignSystem: ProjectDesignSystemView = {
+  project: { id: "proj-1", name: "Acme Shop", description: "", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
+  pending: [],
+  versions: [],
+  repositories: [
+    { id: "repo-1", name: "acme-platform", kind: "monorepo", pending_layer: false, builds_on_this_project: false, ambiguous: false },
+  ],
+};
+
+const designTask = {
+  id: "task-9",
+  repository_id: "repo-1",
+  key: "D-7",
+  title: "Design system for Acme Shop",
+  task_type: "design",
+  column: "todo",
+} as BoardTask;
+
 function renderPage() {
   return render(
     <I18nProvider>
@@ -130,6 +160,8 @@ describe("ProjectPage", () => {
     getRepositoryModel.mockReset().mockResolvedValue(repo1Model);
     getProjectMap.mockReset().mockResolvedValue(emptyMap);
     setRepositoryProjects.mockReset().mockResolvedValue({});
+    getProjectDesignSystem.mockReset().mockResolvedValue(emptyDesignSystem);
+    generateProjectDesignSystem.mockReset().mockResolvedValue({ task: designTask, created: true });
   });
 
   it("opens on the Architecture tab by default when the project has repositories", async () => {
@@ -180,5 +212,40 @@ describe("ProjectPage", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Remove from project" }));
 
     await waitFor(() => expect(setRepositoryProjects).toHaveBeenCalledWith("repo-2", ["proj-2"]));
+  });
+
+  it("offers to create the design system from the project's code and shows the design task it opened", async () => {
+    renderPage();
+    await screen.findByRole("tab", { name: "Architecture" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Design System" }));
+
+    expect(await screen.findByText("No design system yet")).toBeInTheDocument();
+    await waitFor(() => expect(getProjectDesignSystem).toHaveBeenCalledWith("proj-1"));
+    fireEvent.change(screen.getByLabelText("Notes for the designer (optional)"), {
+      target: { value: "keep the brand blue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create from the project's code" }));
+
+    await waitFor(() => expect(generateProjectDesignSystem).toHaveBeenCalledWith("proj-1", "keep the brand blue"));
+    expect(await screen.findByText("Design task created")).toBeInTheDocument();
+    expect(screen.getByText("D-7")).toBeInTheDocument();
+    expect(screen.getByText("Column: Todo")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open task" })).toHaveAttribute("href", "/board?task=task-9");
+  });
+
+  it("explains a 409 as a project with no repository yet", async () => {
+    generateProjectDesignSystem.mockRejectedValue(new ApiError("project has no repository", 409, "conflict"));
+    renderPage();
+    await screen.findByRole("tab", { name: "Architecture" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Design System" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create from the project's code" }));
+
+    const notice = (await screen.findByText("This project has no repository yet")).parentElement!;
+    expect(within(notice).getByRole("link", { name: "Add repository" })).toHaveAttribute(
+      "href",
+      "/projects/new?project=proj-1",
+    );
   });
 });

@@ -1,0 +1,101 @@
+name: ui-designer
+description: Owns the project design system and designs screens before they are built — derives and proposes the base and repository layers, draws sanitizer-safe HTML mockups with every state, writes the hand-off spec; never writes product code
+subagent_type: generalPurpose
+effort: high
+max_turns: 0
+self_evolution: false
+enabled: true
+tool_policy:
+    allow_tools:
+        - run_terminal
+        - web_search
+        - fetch_url
+        - codebase_search
+        - grep_code
+        - get_repo_tree
+        - get_symbol_skeleton
+        - expand_symbol_context
+        - read_file
+        - browser_navigate
+        - browser_screenshot
+        - browser_set_viewport
+        - browser_read_dom
+        - browser_wait_for
+        - list_board_tasks
+        - list_ready_tasks
+        - move_board_task
+        - update_board_task
+        - add_task_comment
+        - list_task_comments
+        - list_task_documents
+        - list_acceptance_criteria
+        - set_criterion_completed
+        - cancel_criterion
+        - list_projects
+        - list_repositories
+        - get_board_summary
+        - list_team
+        - create_board_task
+        - add_task_document
+        - update_task_document
+        - attach_task_file
+        - claim_board_task
+        - list_document_annotations
+        - resolve_document_annotations
+        - record_open_questions
+        - list_open_questions
+        - get_project_brief
+        - get_design_system
+        - propose_design_system
+        - request_design_system
+        - save_memory
+        - search_memory
+        - delete_memory
+        - load_skill
+    allow_mcp_servers: []
+roles:
+    - key: designer
+      areas: []
+subscriptions: []
+tech_stacks: []
+kpis:
+    - metric_key: tasks_completed
+      name: Weekly tasks completed
+      description: ""
+      period: weekly
+      target_full: 6
+      target_half: 2
+      weight: 1
+      enabled: true
+    - metric_key: revisions_received
+      name: Weekly revisions
+      description: ""
+      period: weekly
+      target_full: 1
+      target_half: 3
+      weight: 1
+      enabled: true
+    - metric_key: first_pass_rate
+      name: First-pass rate
+      description: ""
+      period: weekly
+      target_full: 80
+      target_half: 60
+      weight: 2
+      enabled: true
+    - metric_key: clean_time_in_progress
+      name: Clean design time
+      description: ""
+      period: weekly
+      target_full: 2
+      target_half: 6
+      weight: 1
+      enabled: true
+    - metric_key: tool_error_rate
+      name: Tool error rate
+      description: ""
+      period: weekly
+      target_full: 3
+      target_half: 6
+      weight: 0.5
+      enabled: true

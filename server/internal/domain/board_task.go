@@ -31,11 +31,12 @@ const (
 	TaskTypeAnaliz    TaskType = "analiz"
 	TaskTypeBug       TaskType = "bug"
 	TaskTypeTechnical TaskType = "technical"
+	TaskTypeDesign    TaskType = "design"
 )
 
 func ValidTaskType(t TaskType) bool {
 	switch t {
-	case TaskTypeTask, TaskTypeAnaliz, TaskTypeBug, TaskTypeTechnical:
+	case TaskTypeTask, TaskTypeAnaliz, TaskTypeBug, TaskTypeTechnical, TaskTypeDesign:
 		return true
 	default:
 		return false
@@ -46,7 +47,15 @@ func ValidTaskType(t TaskType) bool {
 // agents may still branch and try things in the local task workspace, but none
 // of it is pushed or opened as a pull request.
 func (t TaskType) PublishesBranch() bool {
-	return t != TaskTypeAnaliz
+	return !t.IsDocumentWork()
+}
+
+// IsDocumentWork is true for the types whose deliverable is a document the
+// human approves in analiz_review — an analysis or a design — rather than a
+// diff: they ask through record_open_questions instead of ask_user and never
+// open a pull request.
+func (t TaskType) IsDocumentWork() bool {
+	return t == TaskTypeAnaliz || t == TaskTypeDesign
 }
 
 // TaskKeyPrefix is the letter a task's key starts with: T-1 for work, B-1 for
@@ -60,6 +69,8 @@ func TaskKeyPrefix(t TaskType) string {
 		return "A"
 	case TaskTypeTechnical:
 		return "TC"
+	case TaskTypeDesign:
+		return "D"
 	default:
 		return "T"
 	}
@@ -77,6 +88,8 @@ func TaskTypeForKeyPrefix(prefix string) (TaskType, bool) {
 		return TaskTypeAnaliz, true
 	case "TC":
 		return TaskTypeTechnical, true
+	case "D":
+		return TaskTypeDesign, true
 	default:
 		return "", false
 	}

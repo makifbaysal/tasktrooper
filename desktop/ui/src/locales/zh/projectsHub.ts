@@ -71,6 +71,7 @@ export const projectsHub = {
       architecture: "架构",
       repositories: "仓库",
       review: "审查",
+      designSystem: "设计系统",
       settings: "设置",
     },
     table: {

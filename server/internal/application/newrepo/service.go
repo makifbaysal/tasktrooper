@@ -58,6 +58,7 @@ type Service struct {
 	components ComponentWriter
 	tasks      TaskCreator
 	roles      port.RoleResolver
+	designs    DesignSystemReader
 }
 
 func NewService(repos RepositoryCreator, components ComponentWriter, tasks TaskCreator) *Service {
@@ -65,6 +66,30 @@ func NewService(repos RepositoryCreator, components ComponentWriter, tasks TaskC
 }
 
 func (s *Service) SetRoleResolver(r port.RoleResolver) { s.roles = r }
+
+// DesignSystemReader is what a new repository inherits from the projects it
+// joins: a UI repository's setup writes their design system from the start.
+type DesignSystemReader interface {
+	Effective(ctx context.Context, repositoryID uuid.UUID) (domain.EffectiveDesignSystem, error)
+}
+
+func (s *Service) SetDesignSystems(d DesignSystemReader) { s.designs = d }
+
+func (s *Service) inheritedDesignSystem(ctx context.Context, repositoryID uuid.UUID, role domain.ComponentRole) *bootstrapDesign {
+	if s.designs == nil {
+		return nil
+	}
+	switch role {
+	case domain.ComponentRoleFrontend, domain.ComponentRoleMobile, domain.ComponentRoleDesktop:
+	default:
+		return nil
+	}
+	eff, err := s.designs.Effective(ctx, repositoryID)
+	if err != nil || eff.Base == nil || eff.Project == nil {
+		return nil
+	}
+	return &bootstrapDesign{ProjectName: eff.Project.Name, Version: eff.Base.Version}
+}
 
 // Create validates everything before touching disk or GitHub: a request that
 // fails validation leaves nothing behind.
@@ -124,7 +149,7 @@ func (s *Service) Create(ctx context.Context, req domain.NewRepositoryRequest) (
 	componentID := comp.ID
 	task, err := s.tasks.CreateTask(ctx, repo.ID, domain.CreateBoardTaskRequest{
 		Title:           "Set up " + repo.Name,
-		Description:     bootstrapDescription(repo.Name, role, req, docs),
+		Description:     bootstrapDescription(repo.Name, role, req, docs, s.inheritedDesignSystem(ctx, repo.ID, role)),
 		ComponentID:     &componentID,
 		Priority:        domain.TaskPriorityMedium,
 		Column:          domain.TaskColumnTodo,
@@ -166,7 +191,7 @@ func (s *Service) assignee(ctx context.Context, role domain.ComponentRole) *uuid
 	return id
 }
 
-func bootstrapDescription(name string, role domain.ComponentRole, req domain.NewRepositoryRequest, docs []string) string {
+func bootstrapDescription(name string, role domain.ComponentRole, req domain.NewRepositoryRequest, docs []string, design *bootstrapDesign) string {
 	var items []bootstrapItem
 	n := 0
 	nextItem := func(kind, path, kindLabel string) {
@@ -178,6 +203,9 @@ func bootstrapDescription(name string, role domain.ComponentRole, req domain.New
 	}
 	for _, kind := range docs {
 		nextItem("doc", domain.DefaultRepoDocPath(kind), repodocs.DocKindLabel(kind))
+	}
+	if design != nil {
+		nextItem("design", domain.DesignFileDesignMD, "")
 	}
 	nextItem("claude", "", "")
 
@@ -197,5 +225,6 @@ func bootstrapDescription(name string, role domain.ComponentRole, req domain.New
 		HasDocs:     len(docs) > 0,
 		Items:       items,
 		Docs:        bootstrapDocs,
+		Design:      design,
 	})
 }

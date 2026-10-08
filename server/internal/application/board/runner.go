@@ -152,6 +152,7 @@ func (r *Runner) workflowFor(ctx context.Context, taskType domain.TaskType) doma
 }
 
 type Runner struct {
+	designSystems     DesignSystemNotes
 	agentLoop         agent.Runner
 	executor          port.TaskExecutor
 	catalog           port.CatalogStore
@@ -944,6 +945,9 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	history := []domain.Message{{Role: domain.RoleSystem, Content: systemPrompt}}
 	history = append(history, domain.Message{Role: domain.RoleSystem, Content: prompt.SubtaskWorkspaceNote(workDir)})
 	history = append(history, prependProjectContext(nil, projectDesc, projectmodel.ToolsNote(upliftedPolicy))...)
+	if note := r.designSystemNote(runCtx, job.RepositoryID, upliftedPolicy); note != "" {
+		history = append(history, domain.Message{Role: domain.RoleSystem, Content: note})
+	}
 	if scoreMsg != "" {
 		history = append(history, domain.Message{Role: domain.RoleSystem, Content: scoreMsg})
 	}
@@ -1370,7 +1374,7 @@ func stampCLISession(run *domain.TaskAgentRun, sessionID string, provider domain
 // orchestrator grants an API run's subtasks: everywhere but analiz, which asks
 // through record_open_questions. An empty allow list already allows it.
 func cliAskPolicy(p domain.ToolPolicy, taskType domain.TaskType) domain.ToolPolicy {
-	if taskType == domain.TaskTypeAnaliz || len(p.AllowTools) == 0 {
+	if taskType.IsDocumentWork() || len(p.AllowTools) == 0 {
 		return p
 	}
 	return domain.EnsureAskUserTool(p)
@@ -2159,16 +2163,42 @@ func (r *Runner) analysisContext(ctx context.Context, job RunJob) string {
 	if len(refs) == 0 {
 		return ""
 	}
+	var analyses, designs []domain.AnalysisReference
+	for _, ref := range refs {
+		if ref.IsDesign() {
+			designs = append(designs, ref)
+		} else {
+			analyses = append(analyses, ref)
+		}
+	}
 	var sb strings.Builder
-	sb.WriteString(prompt.Text(analysisContextIntroKey))
+	if len(analyses) > 0 {
+		sb.WriteString(prompt.Text(analysisContextIntroKey))
+		writeReferenceDocs(&sb, analyses, analysisContextRefHeaderKey)
+	}
+	if len(designs) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(prompt.Text(designContextIntroKey))
+		writeReferenceDocs(&sb, designs, designContextRefHeaderKey)
+	}
+	return sb.String()
+}
+
+func writeReferenceDocs(sb *strings.Builder, refs []domain.AnalysisReference, header prompt.Key[analysisContextRefHeaderInput]) {
 	for _, ref := range refs {
 		label := domain.RelationLabel(ref.Key, ref.Title, ref.TaskID)
 		if len(ref.Documents) == 0 {
 			sb.WriteString(analysisContextNoDocsKey.Render(analysisContextNoDocsInput{Label: label}))
 			continue
 		}
-		sb.WriteString(analysisContextRefHeaderKey.Render(analysisContextRefHeaderInput{Label: label, Key: ref.Key}))
-		for _, doc := range ref.Documents {
+		sb.WriteString(header.Render(analysisContextRefHeaderInput{Label: label, Key: ref.Key}))
+		docs := ref.Documents
+		if ref.IsDesign() {
+			docs = handoffFirst(docs)
+		}
+		for _, doc := range docs {
 			content, limit := doc.Content, analysisContextLimit
 			if doc.Format == domain.DocumentFormatHTML {
 				content, limit = htmldoc.Text(doc.Content), htmlAnalysisContextLimit
@@ -2179,7 +2209,24 @@ func (r *Runner) analysisContext(ctx context.Context, job RunJob) string {
 			sb.WriteString(analysisContextDocKey.Render(analysisContextDocInput{Title: doc.Title, Content: content}))
 		}
 	}
-	return sb.String()
+}
+
+// handoffFirst puts a design's hand-off specs ahead of its mockups: the spec
+// is the implementer's contract, and the mockups' text rendition is what gets
+// truncated first.
+func handoffFirst(docs []domain.TaskDocument) []domain.TaskDocument {
+	out := make([]domain.TaskDocument, 0, len(docs))
+	for _, d := range docs {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(d.Title)), "handoff") {
+			out = append(out, d)
+		}
+	}
+	for _, d := range docs {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(d.Title)), "handoff") {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func (r *Runner) openCriteria(ctx context.Context, job RunJob) []domain.AcceptanceCriterion {
@@ -2374,7 +2421,7 @@ func closingStep(wf domain.Workflow, job RunJob) string {
 		// done/released: the release engineer's own runs (an analiz task's
 		// done/released are the architect's decompose/release step and keep
 		// the default — it has no release verdict note to point to).
-		if job.Task.TaskType != domain.TaskTypeAnaliz {
+		if !job.Task.TaskType.IsDocumentWork() {
 			return prompt.Text(closingStepReleaseKey)
 		}
 	}
@@ -2399,20 +2446,30 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 		passTo = target
 	}
 	analiz := task.TaskType == domain.TaskTypeAnaliz
+	design := task.TaskType == domain.TaskTypeDesign
 	switch task.Column {
 	case domain.TaskColumnTodo:
 		if analiz {
 			return prompt.Text(columnTodoAnalizKey)
+		}
+		if design {
+			return prompt.Text(columnTodoDesignKey)
 		}
 		return prompt.Text(columnTodoKey)
 	case domain.TaskColumnInProgress:
 		if analiz {
 			return prompt.Text(columnInProgressAnalizKey)
 		}
+		if design {
+			return prompt.Text(columnInProgressDesignKey)
+		}
 		return prompt.Text(columnInProgressKey)
 	case domain.TaskColumnNeedRevision:
 		if analiz {
 			return prompt.Text(columnNeedRevisionAnalizKey)
+		}
+		if design {
+			return prompt.Text(columnNeedRevisionDesignKey)
 		}
 		return prompt.Text(columnNeedRevisionKey)
 	case domain.TaskColumnCodeReview:
@@ -2427,6 +2484,9 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 	case domain.TaskColumnDone:
 		if analiz {
 			return prompt.Text(columnDoneAnalizKey)
+		}
+		if design {
+			return prompt.Text(columnDoneDesignKey)
 		}
 		// Reachable only through the merge wake or a release hand-back: a done card with an unmerged PR, or a
 		// release the sweeper just settled, dispatched to the release engineer and nobody else.

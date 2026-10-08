@@ -369,6 +369,10 @@ export const settingsPages = {
         label: "Build de prueba de tienda al entrar",
         description: "Al entrar en esta etapa se compila la tarea para cada app de tienda vinculada y se sube a TestFlight / Play internal app sharing.",
       },
+      approve_design_system_on_enter: {
+        label: "Aprobar el sistema de diseño al entrar",
+        description: "Al entrar en esta etapa se aprueban todas las versiones del sistema de diseño que propuso la tarea y se marca como sustituida la versión que cada una reemplaza.",
+      },
       auto_enter: {
         label: "Entrada automática",
         description: "Al asignar o activar la tarea, el despachador la mueve directamente a la columna indicada.",

@@ -101,3 +101,31 @@ func TestAnalysisContextTruncatesAnEnormousDocument(t *testing.T) {
 	assert.Contains(t, msg, "truncated")
 	assert.Contains(t, msg, "list_task_documents with task_id A-12")
 }
+
+func TestAnalysisContextHandsTheApprovedDesignToTheTaskItBlocks(t *testing.T) {
+	updater := &analysisUpdater{refs: []domain.AnalysisReference{
+		{
+			TaskID: uuid.New(), Key: "A-12", Title: "CSV export",
+			Documents: []domain.TaskDocument{{Title: "spec: export", Content: "Component: TaskExporter"}},
+		},
+		{
+			TaskID: uuid.New(), Key: "D-3", Title: "Export dialog", TaskType: domain.TaskTypeDesign, Column: domain.TaskColumnReleased,
+			Documents: []domain.TaskDocument{
+				{Title: "design: export dialog · A", Format: domain.DocumentFormatHTML, Content: "<html><body><h1>Export tasks</h1><p>Empty: No tasks to export yet.</p></body></html>"},
+				{Title: "handoff: export dialog", Content: "Primary action: Button variant=primary, copy \"Export CSV\""},
+			},
+		},
+	}}
+	r := &Runner{taskUpdater: updater}
+
+	msg := r.analysisContext(context.Background(), implementationJob())
+
+	require.Contains(t, msg, "## The analysis this task came out of")
+	require.Contains(t, msg, "## The approved design this task builds")
+	assert.Contains(t, msg, "D-3 (Export dialog) (design task")
+	assert.Less(t, strings.Index(msg, "## The analysis"), strings.Index(msg, "## The approved design"))
+	assert.Less(t, strings.Index(msg, "handoff: export dialog"), strings.Index(msg, "design: export dialog · A"),
+		"the hand-off spec leads: it is the implementer's contract")
+	assert.Contains(t, msg, "No tasks to export yet.", "an HTML mockup reaches the run as text")
+	assert.NotContains(t, msg, "<h1>")
+}

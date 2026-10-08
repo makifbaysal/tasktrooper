@@ -7,6 +7,7 @@ import { boardArea } from "@/locales/de/boardArea";
 import { chatArea } from "@/locales/de/chatArea";
 import { cloud } from "@/locales/de/cloud";
 import { content } from "@/locales/de/content";
+import { designSystem } from "@/locales/de/designSystem";
 import { frame } from "@/locales/de/frame";
 import { lib } from "@/locales/de/lib";
 import { operations } from "@/locales/de/operations";
@@ -125,6 +126,7 @@ export const de: Dict = {
   chatArea,
   cloud,
   content,
+  designSystem,
   frame,
   lib,
   operations,

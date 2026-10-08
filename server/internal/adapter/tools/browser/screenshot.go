@@ -10,6 +10,7 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/toolattach"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -25,8 +26,10 @@ const maxBase64Bytes = 1536 * 1024
 const jpegFallbackQuality = 70
 
 type screenshotArgs struct {
-	FullPage bool  `json:"full_page"`
-	Width    int64 `json:"width"`
+	FullPage     bool   `json:"full_page"`
+	Width        int64  `json:"width"`
+	AttachToTask bool   `json:"attach_to_task"`
+	Title        string `json:"title"`
 }
 
 type screenshotTool struct {
@@ -55,6 +58,12 @@ func (t *screenshotTool) Definition() domain.ToolDefinition {
 					},
 					"width": map[string]interface{}{
 						"type": "integer",
+					},
+					"attach_to_task": map[string]interface{}{
+						"type": "boolean",
+					},
+					"title": map[string]interface{}{
+						"type": "string",
 					},
 				},
 			},
@@ -162,10 +171,14 @@ func (t *screenshotTool) Execute(ctx context.Context, arguments string) domain.T
 	if shot.LoadingImages > 0 {
 		content += prompt.BrowserScreenshotLoadingImagesText(shot.LoadingImages)
 	}
+	image := domain.ToolResultImage{MediaType: mediaType, Data: encoded}
+	if a.AttachToTask {
+		content += toolattach.Note(ctx, t.session.taskAttacher(), screenshotToolName, a.Title, image)
+	}
 	return domain.ToolResult{
 		Name:    screenshotToolName,
 		Content: content,
 		IsError: false,
-		Images:  []domain.ToolResultImage{{MediaType: mediaType, Data: encoded}},
+		Images:  []domain.ToolResultImage{image},
 	}
 }

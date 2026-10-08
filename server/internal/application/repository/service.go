@@ -84,6 +84,7 @@ type Service struct {
 	deployTargets    port.DeployTargetStore
 	mobileStoreApps  port.MobileStoreAppStore
 	storeTestBuilds  StoreTestBuilder
+	designSystems    DesignSystemApprover
 	workspaceRoot    string
 	gitWarnMu        sync.Mutex
 	gitWarnings      map[uuid.UUID]string
@@ -480,6 +481,17 @@ type StoreTestBuilder interface {
 
 func (s *Service) SetStoreTestBuilder(b StoreTestBuilder) {
 	s.storeTestBuilds = b
+}
+
+// DesignSystemApprover approves the design system versions a design task
+// proposed when the task enters a stage carrying
+// approve_design_system_on_enter.
+type DesignSystemApprover interface {
+	ApproveForTask(ctx context.Context, taskID uuid.UUID) []domain.DesignSystem
+}
+
+func (s *Service) SetDesignSystemApprover(a DesignSystemApprover) {
+	s.designSystems = a
 }
 
 func (s *Service) SetGit(git port.GitClient, workspaceRoot string) {
@@ -1861,6 +1873,10 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 
 		if wfErr == nil && wf.Has(*req.Column, domain.BehaviourDetectMigrationOnEnter) {
 			s.DetectTaskMigration(ctx, updated)
+		}
+
+		if s.designSystems != nil && wfErr == nil && wf.Has(*req.Column, domain.BehaviourApproveDesignSystem) {
+			s.designSystems.ApproveForTask(context.WithoutCancel(ctx), updated.ID)
 		}
 
 		// Off the request path: allocating a build number reads the store.

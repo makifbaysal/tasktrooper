@@ -71,11 +71,35 @@ matching `Define` — partials are exempt, since they exist only to be pulled in
 
 ## MCP integration (client side)
 
-`mcp.Manager.LoadAndRegister` iterates `tools.mcp_servers`: `stdio` spawns the server via
-`mcp.CommandTransport`, `http` connects with `mcp.StreamableClientTransport`. Each
-server's tools are discovered with `session.ListTools` and registered as
-`mcp_<server_id>_<tool_name>` (no collisions with built-ins); calls dispatch back through
-`session.CallTool`.
+`mcp.Manager.LoadAndRegister` iterates the stored servers (`mcp_servers`, resolved by
+`application/mcp`): `stdio` spawns the server via `mcp.CommandTransport`, `http` connects
+with `mcp.StreamableClientTransport`. Each server's tools are discovered with
+`session.ListTools` and registered as `mcp_<server_id>_<tool_name>` (no collisions with
+built-ins); calls dispatch back through `session.CallTool`. One manager lives for the
+process (`reloadMCP` reuses it): it remembers what it registered and, through the optional
+`port.ToolUnregisterer`, drops the tools of a server that is gone after a reload.
+
+- **Access (migration 179).** Each executor implements `port.MCPServerTool`, so the
+  registry records `{server id, access}` per tool name and never re-derives the server from
+  the name (ids may contain `_`). `registry.IsToolAllowed`: an explicit
+  `allow_mcp_servers` admits exactly those servers; an empty one admits only `access =
+  'all'`. `DefinitionsForPolicy` and `ExecuteWithPolicy` apply it even to a zero policy;
+  `Definitions()` is the unfiltered admin listing.
+- **Results.** `TextContent` stays text; `ImageContent` in png/jpeg/gif/webp up to 5 MB
+  becomes `ToolResult.Images` (what `browser_screenshot` returns); other blocks keep their
+  JSON. `adapter/mcpserver` turns `Images` back into MCP image content for CLI sessions.
+- **OAuth.** `application/mcp` (`oauth.go`) runs the flow and implements
+  `port.MCPTokenSource`; `adapter/mcpoauth` is the `port.MCPOAuthProvider` (RFC 9728
+  resource metadata from the 401 challenge or well-known, RFC 8414/OIDC server metadata,
+  RFC 7591 registration, token endpoint with PKCE and the RFC 8707 `resource`), every
+  request through `urlguard`, no redirects on credential-bearing POSTs. Pending sign-ins
+  (state → server, PKCE verifier, redirect, client) live only in memory, single-use,
+  10 min. Tokens and client secrets are stored in `mcp_server_oauth`, encrypted with the
+  MCP secrets cipher. The manager's `authTransport` asks the token source per request
+  (refresh 1 min before expiry; on a 401, once, unless a newer token is stored), replays
+  the request, and records a surviving 401 as `auth_required` in health. The redirect is
+  `http://127.0.0.1:<port>` + `httpadapter.MCPOAuthCallbackPath`, a deliberate public path
+  (`isPublicPath`).
 
 ## Orchestration flow
 

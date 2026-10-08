@@ -1,8 +1,11 @@
-import type { MCPEnvSchemaField, MCPServerCreateInput, MCPServerUpdateInput, MCPServerView } from "@/api";
+import type { MCPAccess, MCPEnvSchemaField, MCPServerCreateInput, MCPServerUpdateInput, MCPServerView } from "@/api";
 import { MASKED_SECRET_VALUE } from "@/api";
 import type { MCPTemplate } from "@/lib/mcpTemplates";
 
 export const CUSTOM_TEMPLATE_ID = "__custom__";
+
+/** A server someone adds reaches no agent until an agent names it. */
+export const NEW_SERVER_ACCESS: MCPAccess = "listed";
 
 export interface MCPServerFormState {
   id: string;
@@ -14,6 +17,7 @@ export interface MCPServerFormState {
   env: Record<string, string>;
   headers: Record<string, string>;
   allowedToolsText: string;
+  access: MCPAccess;
   secretDrafts: Record<string, string>;
   storedSecrets: Set<string>;
 }
@@ -60,6 +64,7 @@ export function emptyFormState(): MCPServerFormState {
     env: {},
     headers: {},
     allowedToolsText: "",
+    access: NEW_SERVER_ACCESS,
     secretDrafts: {},
     storedSecrets: new Set(),
   };
@@ -103,6 +108,7 @@ export function formStateFromTemplate(template: MCPTemplate): MCPServerFormState
     env,
     headers,
     allowedToolsText: formatLines(template.allowed_tools ?? []),
+    access: template.access ?? NEW_SERVER_ACCESS,
     secretDrafts: {},
     storedSecrets,
   };
@@ -141,6 +147,7 @@ export function formStateFromServer(server: MCPServerView): MCPServerFormState {
     env,
     headers,
     allowedToolsText: formatLines(server.allowed_tools ?? []),
+    access: server.access ?? "all",
     secretDrafts: {},
     storedSecrets,
   };
@@ -274,6 +281,7 @@ export function buildCreatePayload(form: MCPServerFormState): MCPServerCreateInp
     args: parseLines(form.argsText),
     url: form.url.trim() || undefined,
     allowed_tools: parseLines(form.allowedToolsText),
+    access: form.access,
   };
 
   const env = buildEnvPayload(form.env, secretFields, form.secretDrafts, false);
@@ -297,6 +305,7 @@ export function buildUpdatePayload(form: MCPServerFormState, server: MCPServerVi
     args: parseLines(form.argsText),
     url: form.url.trim(),
     allowed_tools: parseLines(form.allowedToolsText),
+    access: form.access,
   };
 
   const env = buildEnvPayload(form.env, secretFields, form.secretDrafts, true);

@@ -1,10 +1,12 @@
-import { ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, KeyRound, LogOut, Pencil, Trash2 } from "lucide-react";
 import { Fragment } from "react";
 import type { MCPConfigField, MCPServerView } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/hooks/useI18n";
+import { needsOAuthSignIn } from "@/lib/mcpAccess";
 import { cn } from "@/lib/utils";
 
 function formatToolName(fullName: string, serverId: string): string {
@@ -33,6 +35,13 @@ interface MCPServerTableRowProps {
   onToggleEnabled: (enabled: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** Names of the agents whose tool policy names this server. */
+  listedBy?: string[];
+  onConnect?: () => void;
+  onDisconnect?: () => void;
+  /** Set while this server's sign-in is open in the browser; the URL is offered again in case the tab never opened. */
+  signInUrl?: string | null;
+  authBusy?: boolean;
 }
 
 export function MCPServerTableRow({
@@ -43,12 +52,19 @@ export function MCPServerTableRow({
   onToggleEnabled,
   onEdit,
   onDelete,
+  listedBy = [],
+  onConnect,
+  onDisconnect,
+  signInUrl = null,
+  authBusy = false,
 }: MCPServerTableRowProps) {
   const { t } = useI18n();
   const tools = server.tools ?? [];
   const canExpand = tools.length > 0;
+  const access = server.access ?? "all";
 
   const missing = server.missing_config ?? [];
+  const signInNeeded = server.enabled && needsOAuthSignIn(server);
 
   const statusLabel = (status: MCPServerView["status"]) => {
     if (status === "connected") return t("frame.admin.mcpRow.connected");
@@ -72,9 +88,33 @@ export function MCPServerTableRow({
           <Badge variant="outline">{server.transport}</Badge>
         </td>
         <td className="px-4 py-3">
-          <div className="flex max-w-xs flex-col gap-1">
-            <Badge variant={statusVariant(server.status)}>{statusLabel(server.status)}</Badge>
-            {server.status === "error" && (
+          <div className="flex max-w-[14rem] flex-col gap-1">
+            <Badge variant={access === "all" ? "secondary" : "info"} className="w-fit">
+              {access === "all" ? t("frame.admin.mcpRow.accessAll") : t("frame.admin.mcpRow.accessListed")}
+            </Badge>
+            {listedBy.length > 0 ? (
+              <p className="text-xs leading-snug text-muted-foreground" title={listedBy.join(", ")}>
+                {t("frame.admin.mcpRow.listedBy", { agents: listedBy.join(", ") })}
+              </p>
+            ) : (
+              access === "listed" && (
+                <p className="text-xs leading-snug text-muted-foreground">{t("frame.admin.mcpRow.listedByNone")}</p>
+              )
+            )}
+          </div>
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex max-w-xs flex-col items-start gap-1">
+            {signInNeeded ? (
+              <Badge variant="warning">
+                {server.auth === "oauth_expired"
+                  ? t("frame.admin.mcpRow.signInExpired")
+                  : t("frame.admin.mcpRow.signInNeeded")}
+              </Badge>
+            ) : (
+              <Badge variant={statusVariant(server.status)}>{statusLabel(server.status)}</Badge>
+            )}
+            {server.status === "error" && !signInNeeded && (
               <p
                 className="text-xs leading-snug text-destructive"
                 title={server.last_error || t("frame.admin.mcpRow.unknownError")}
@@ -89,6 +129,38 @@ export function MCPServerTableRow({
                 })}
               </p>
             )}
+            {signInUrl ? (
+              <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <Spinner className="h-3 w-3" />
+                  {t("frame.admin.mcpRow.waitingForSignIn")}
+                </span>
+                <a href={signInUrl} target="_blank" rel="noreferrer" className="text-info hover:underline">
+                  {t("content.mcp.openSignInPage")}
+                </a>
+              </div>
+            ) : signInNeeded && onConnect ? (
+              <Button size="sm" variant="outline" className="h-7 gap-1.5" disabled={authBusy} onClick={onConnect}>
+                <KeyRound className="h-3.5 w-3.5" />
+                {server.auth === "oauth_expired" ? t("frame.admin.mcpRow.reconnect") : t("frame.admin.mcpRow.connect")}
+              </Button>
+            ) : server.auth === "oauth_connected" ? (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{t("frame.admin.mcpRow.signedIn")}</span>
+                {onDisconnect && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 gap-1 px-1.5 text-xs"
+                    disabled={authBusy}
+                    onClick={onDisconnect}
+                  >
+                    <LogOut className="h-3 w-3" />
+                    {t("frame.admin.mcpRow.disconnect")}
+                  </Button>
+                )}
+              </div>
+            ) : null}
           </div>
         </td>
         <td className="px-4 py-3">
@@ -123,7 +195,7 @@ export function MCPServerTableRow({
       </tr>
       {expanded && (
         <tr className="border-b border-border bg-muted/10">
-          <td colSpan={6} className="px-4 py-3">
+          <td colSpan={7} className="px-4 py-3">
             <div className="text-xs font-medium text-muted-foreground">
               {t("frame.admin.mcpRow.tools", { count: tools.length })}
             </div>

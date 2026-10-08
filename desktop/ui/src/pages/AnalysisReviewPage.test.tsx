@@ -16,6 +16,8 @@ const {
   listTaskQuestions,
   answerTaskQuestion,
   submitTaskQuestions,
+  listTaskComments,
+  createTaskComment,
 } = vi.hoisted(() => ({
   listRepositoryTasks: vi.fn(),
   listTaskDocuments: vi.fn(),
@@ -25,6 +27,8 @@ const {
   listTaskQuestions: vi.fn(),
   answerTaskQuestion: vi.fn(),
   submitTaskQuestions: vi.fn(),
+  listTaskComments: vi.fn(),
+  createTaskComment: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -41,6 +45,8 @@ vi.mock("@/api", async () => {
       listTaskQuestions,
       answerTaskQuestion,
       submitTaskQuestions,
+      listTaskComments,
+      createTaskComment,
     },
   };
 });
@@ -165,6 +171,8 @@ describe("AnalysisReviewPage", () => {
     listTaskQuestions.mockReset().mockResolvedValue({ questions: [] });
     answerTaskQuestion.mockReset();
     submitTaskQuestions.mockReset();
+    listTaskComments.mockReset().mockResolvedValue({ comments: [] });
+    createTaskComment.mockReset();
   });
 
   it("opens the analiz HTML document in the sandboxed frame with its comments", async () => {
@@ -311,5 +319,89 @@ describe("AnalysisReviewPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/will be applied when this task is split/)).toBeInTheDocument();
+  });
+
+  it("uses design wording for a design task in review", async () => {
+    listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design", key: "D-3" })] });
+    renderPage();
+
+    expect(
+      await screen.findByText("Approving this design task approves the design system versions it proposes."),
+    ).toBeInTheDocument();
+    await srcdoc();
+    expect(document.querySelector("iframe")?.getAttribute("title")).toBe("Design document");
+  });
+
+  it("compares two design variants side by side and records the chosen one as a comment", async () => {
+    listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design", key: "D-12" })] });
+    listTaskDocuments.mockResolvedValue({
+      documents: [
+        makeDoc({ id: "doc-b", title: "design: export dialog · B", content: "<p>Variant B</p>" }),
+        makeDoc({ id: "doc-handoff", title: "handoff: export dialog", content: "# Hand-off", format: "markdown" }),
+        makeDoc({ id: "doc-a", title: "design: export dialog · A", content: "<p>Variant A</p>" }),
+      ],
+    });
+    listTaskAnnotations.mockResolvedValue({ annotations: [] });
+    listTaskComments.mockResolvedValue({
+      comments: [
+        {
+          id: "c1",
+          task_id: "task-1",
+          author_type: "user",
+          author_id: "me",
+          content: "Chosen variant: design: export dialog · A",
+          created_at: "2026-09-21T00:00:00Z",
+        },
+      ],
+    });
+    createTaskComment.mockImplementation(async (_repo: string, _task: string, content: string) => ({
+      id: "c2",
+      task_id: "task-1",
+      author_type: "user",
+      author_id: "me",
+      content,
+      created_at: "2026-09-22T00:00:00Z",
+    }));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Compare variants" }));
+    const left = screen.getByRole("region", { name: "Left variant" });
+    const right = screen.getByRole("region", { name: "Right variant" });
+    await waitFor(() => expect(left.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<p>Variant A</p>"));
+    expect(right.querySelector("iframe")?.getAttribute("srcdoc")).toContain("<p>Variant B</p>");
+    expect(left.querySelector("iframe")?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(listTaskComments).toHaveBeenCalledWith("repo-1", "task-1");
+
+    await waitFor(() => expect(within(left).getByText("Chosen")).toBeInTheDocument());
+    expect(within(right).queryByText("Chosen")).not.toBeInTheDocument();
+    expect(within(left).getByRole("button", { name: "Choose this variant" })).toBeDisabled();
+
+    fireEvent.click(within(right).getByRole("button", { name: "Choose this variant" }));
+    await waitFor(() =>
+      expect(createTaskComment).toHaveBeenCalledWith("repo-1", "task-1", "Chosen variant: design: export dialog · B"),
+    );
+    expect(await within(right).findByText("Chosen")).toBeInTheDocument();
+    expect(within(left).queryByText("Chosen")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to comments" }));
+    expect(screen.queryByRole("region", { name: "Left variant" })).not.toBeInTheDocument();
+    expect(screen.getByText("No comments yet")).toBeInTheDocument();
+  });
+
+  it("offers no comparison for a design task with a single HTML document", async () => {
+    listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design" })] });
+    renderPage();
+
+    await srcdoc();
+    expect(screen.queryByRole("button", { name: "Compare variants" })).not.toBeInTheDocument();
+    expect(listTaskComments).not.toHaveBeenCalled();
+  });
+
+  it("uses design wording while the agent revises a design", async () => {
+    listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design", column: "need_revision" })] });
+    renderPage();
+
+    expect(await screen.findByText("The agent is revising the design…")).toBeInTheDocument();
+    expect(screen.getByText("Commenting is paused while the agent revises the design.")).toBeInTheDocument();
   });
 });

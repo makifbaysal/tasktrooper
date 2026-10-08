@@ -2,14 +2,26 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { InitiativeProject, ProjectScan, RepositoryModel } from "@/api";
+import type { DesignSystemVersion, InitiativeProject, ProjectScan, RepositoryDesignSystemView, RepositoryModel } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { RepositoryPage } from "@/pages/RepositoryPage";
 
-const { getRepositoryModel, getInitiativeProject, getLatestRepositoryScan } = vi.hoisted(() => ({
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
+const {
+  getRepositoryModel,
+  getInitiativeProject,
+  getLatestRepositoryScan,
+  getRepositoryDesignSystem,
+  setRepositoryDesignBaseProject,
+} = vi.hoisted(() => ({
   getRepositoryModel: vi.fn(),
   getInitiativeProject: vi.fn(),
   getLatestRepositoryScan: vi.fn(),
+  getRepositoryDesignSystem: vi.fn(),
+  setRepositoryDesignBaseProject: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -21,6 +33,8 @@ vi.mock("@/api", async () => {
       getRepositoryModel,
       getInitiativeProject,
       getLatestRepositoryScan,
+      getRepositoryDesignSystem,
+      setRepositoryDesignBaseProject,
     },
   };
 });
@@ -90,6 +104,63 @@ const project: InitiativeProject = {
 
 const noScan: { scan: ProjectScan | null } = { scan: null };
 
+function designVersion(over: Partial<DesignSystemVersion>): DesignSystemVersion {
+  return {
+    id: "ds-1",
+    scope: "project",
+    version: 1,
+    status: "approved",
+    design_md: "",
+    tokens: {},
+    inventory_md: "",
+    rationale: "",
+    created_by: "designer",
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+    ...over,
+  };
+}
+
+const layer = designVersion({
+  id: "layer-2",
+  scope: "repository",
+  repository_id: "repo-1",
+  version: 2,
+  rationale: "The admin app is denser.",
+  tokens: { space: { $type: "dimension", row: { $value: "6px" } } },
+  source_task_id: "task-5",
+  source_task_key: "D-5",
+  source_task_repository_id: "repo-9",
+});
+
+const ambiguousDesign: RepositoryDesignSystemView = {
+  repository_id: "repo-1",
+  repository_name: "acme-platform",
+  repository_kind: "monorepo",
+  effective: { repository_id: "repo-1", layer, tokens: layer.tokens, ambiguous: true },
+  project_choices: [
+    { project: { id: "proj-1", name: "Acme Shop" }, base_version: 3 },
+    { project: { id: "proj-2", name: "Back Office" }, base_version: 1 },
+  ],
+  pending_layers: [],
+  layer_versions: [layer],
+  overrides: [],
+  lint: [],
+};
+
+const chosenDesign: RepositoryDesignSystemView = {
+  ...ambiguousDesign,
+  base_project_id: "proj-1",
+  effective: {
+    repository_id: "repo-1",
+    project: { id: "proj-1", name: "Acme Shop" },
+    base: designVersion({ id: "base-3", project_id: "proj-1", version: 3 }),
+    layer,
+    tokens: layer.tokens,
+  },
+  overrides: ["space.row"],
+};
+
 function renderPage(initialTab: string) {
   return render(
     <I18nProvider>
@@ -107,6 +178,8 @@ describe("RepositoryPage", () => {
     getRepositoryModel.mockReset().mockResolvedValue(model);
     getInitiativeProject.mockReset().mockResolvedValue(project);
     getLatestRepositoryScan.mockReset().mockResolvedValue(noScan);
+    getRepositoryDesignSystem.mockReset().mockResolvedValue(ambiguousDesign);
+    setRepositoryDesignBaseProject.mockReset().mockResolvedValue(chosenDesign);
   });
 
   it("renders every tab and shows the tab selected by ?tab=", async () => {
@@ -135,5 +208,34 @@ describe("RepositoryPage", () => {
 
     await waitFor(() => expect(screen.getByText("Outgoing · 0")).toBeInTheDocument());
     expect(screen.queryByText("Identity")).not.toBeInTheDocument();
+  });
+
+  it("asks for a base project while it is ambiguous and saves the choice", async () => {
+    renderPage("design");
+
+    expect(await screen.findByText("Choose a base project")).toBeInTheDocument();
+    expect(getRepositoryDesignSystem).toHaveBeenCalledWith("repo-1");
+    expect(screen.getByText("No project base. This repository's layer is its whole design system.")).toBeInTheDocument();
+    expect(screen.getByText("The admin app is denser.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Base project" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Acme Shop · base v3" }));
+
+    await waitFor(() => expect(setRepositoryDesignBaseProject).toHaveBeenCalledWith("repo-1", "proj-1"));
+    expect(await screen.findByText("Builds on Acme Shop · base v3")).toBeInTheDocument();
+    expect(screen.queryByText("Choose a base project")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open the project's design system" })).toHaveAttribute(
+      "href",
+      "/projects/proj-1?tab=design",
+    );
+    expect(screen.getByText("Overrides (1)")).toBeInTheDocument();
+  });
+
+  it("links a version's source task straight to its review page", async () => {
+    renderPage("design");
+
+    const links = await screen.findAllByRole("link", { name: "D-5" });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) expect(link).toHaveAttribute("href", "/repositories/repo-9/tasks/task-5/analysis");
   });
 });

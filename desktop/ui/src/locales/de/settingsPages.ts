@@ -369,6 +369,10 @@ export const settingsPages = {
         label: "Store-Testbuild beim Betreten",
         description: "Das Betreten dieser Stufe baut die Aufgabe für jede verknüpfte Store-App und lädt sie zu TestFlight / Play Internal App Sharing hoch.",
       },
+      approve_design_system_on_enter: {
+        label: "Designsystem beim Betreten freigeben",
+        description: "Das Betreten dieser Stufe gibt jede von der Aufgabe vorgeschlagene Designsystem-Version frei und markiert die jeweils ersetzte Version als abgelöst.",
+      },
       auto_enter: {
         label: "Automatisch betreten",
         description: "Der Dispatcher verschiebt die Aufgabe bei Zuweisung/Wecken direkt in die angegebene Spalte.",

@@ -393,6 +393,7 @@ export const settingsPages: SettingsPagesDict = {
       "detect_migration_on_enter": { label: "Girişte migration tespit et", description: "Bu kolona girildiğinde, branch'teki değişiklikler şema migration'ı içeriyor mu diye kontrol edilir." },
       "stage_deploy_on_enter": { label: "Girişte stage'e deploy et", description: "Bu kolona girildiğinde, deponun test stratejisine göre bir stage deploy'u tetiklenir." },
       "store_test_build_on_enter": { label: "Girişte mağaza test build'i", description: "Bu kolona girildiğinde görev, bağlı her mağaza uygulaması için build edilir ve TestFlight / Play internal app sharing'e yüklenir." },
+      "approve_design_system_on_enter": { label: "Girişte tasarım sistemini onayla", description: "Bu kolona girildiğinde görevin önerdiği tüm tasarım sistemi sürümleri onaylanır; her birinin yerini aldığı sürüm eskimiş sayılır." },
       "auto_enter": { label: "Otomatik giriş", description: "Atama veya uyandırma anında sistem görevi doğrudan belirtilen kolona taşır." },
       "advance_on_diff": { label: "Diff ile ilerlet", description: "Başarılı build ve gerçek bir kod değişikliğiyle biten çalışma, otomatik olarak belirtilen kolona taşınır." },
       "advance_on_document": { label: "Doküman ile ilerlet", description: "Bir doküman eklenerek biten çalışma, otomatik olarak belirtilen kolona taşınır." },

@@ -164,13 +164,14 @@ describe("runStatusVariant", () => {
 });
 
 describe("taskTypeOptions / taskTypeLabel", () => {
-  it("falls back to the four built-ins when no task_types list has loaded", () => {
-    expect(taskTypeOptions(undefined).map((o) => o.value)).toEqual(["task", "analiz", "bug", "technical"]);
-    expect(taskTypeOptions([]).map((o) => o.value)).toEqual(["task", "analiz", "bug", "technical"]);
+  it("falls back to the built-ins when no task_types list has loaded", () => {
+    expect(taskTypeOptions(undefined).map((o) => o.value)).toEqual(["task", "analiz", "bug", "technical", "design"]);
+    expect(taskTypeOptions([]).map((o) => o.value)).toEqual(["task", "analiz", "bug", "technical", "design"]);
   });
 
   it("labels a built-in type from the locale when no list is loaded", () => {
     expect(taskTypeLabel("technical")).toBe("Technical");
+    expect(taskTypeLabel("design")).toBe("Design");
   });
 
   it("orders options by the server list's position and prefers its labels", () => {

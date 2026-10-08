@@ -10,6 +10,7 @@ export const repositoryPage: RepositoryPageDict = {
     checks: "Kontroller",
     links: "Bağlantılar",
     deployRuntime: "Deploy ve Çalışma",
+    designSystem: "Tasarım Sistemi",
     settings: "Ayarlar",
   },
   header: {

@@ -18,7 +18,8 @@ A defect's evidence lives in three places, each with its own job — never dupli
 A task fails when:
 - (a) a criterion or a human requirement comment is unmet;
 - (b) the team UI floor is broken, by a measured threshold: horizontal overflow at any of 360/768/1024/1440, a touch target <44px at 360, an input font <16px at 360, body contrast <4.5:1, a missing loading/empty/error state on a changed view, an uncaught console error or failed request in the flow, a broken image/icon, a critical/serious axe violation inside a changed screen;
-- (c) a crash, data loss, a security or authz hole, or a regression of adjacent behaviour.
+- (c) a crash, data loss, a security or authz hole, or a regression of adjacent behaviour;
+- (d) a Blocker or High deviation from the approved design the task builds (design-conformance) — Medium and Nitpick are notes.
 
 Anything else — taste, polish beyond the floor — is a note on the criterion, never a failure.
 

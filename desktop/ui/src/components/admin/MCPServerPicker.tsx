@@ -26,16 +26,19 @@ export function MCPServerPicker({ label, selected, onChange }: MCPServerPickerPr
 
   const options = useMemo(
     () =>
-      servers.map((server) => ({
-        value: server.id,
-        label: server.id,
-        description:
+      servers.map((server) => {
+        const status =
           server.status === "connected"
             ? t("frame.admin.mcpPicker.connected")
             : server.enabled === false
               ? t("frame.admin.mcpPicker.disabled")
-              : server.status,
-      })),
+              : server.status;
+        const access =
+          (server.access ?? "all") === "all"
+            ? t("frame.admin.mcpPicker.accessAll")
+            : t("frame.admin.mcpPicker.accessListed");
+        return { value: server.id, label: server.id, description: `${status} · ${access}` };
+      }),
     [servers, t],
   );
 

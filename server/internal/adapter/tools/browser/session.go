@@ -23,6 +23,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 // chromeNotFoundMsg is deliberately operator-facing: this process ships
@@ -78,6 +79,21 @@ type Session struct {
 
 	// extraFlags are additional chromium command-line flags. Tests only.
 	extraFlags []chromedp.ExecAllocatorOption
+
+	attacher port.TaskImageAttacher
+}
+
+// SetTaskAttacher lets browser_screenshot save a shot on the run's task.
+func (s *Session) SetTaskAttacher(a port.TaskImageAttacher) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.attacher = a
+}
+
+func (s *Session) taskAttacher() port.TaskImageAttacher {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.attacher
 }
 
 // Option customises a Session at construction.

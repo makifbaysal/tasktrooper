@@ -5,7 +5,7 @@ params:
     cases.items.properties.actual: 'Required for failed: what actually happened.'
     cases.items.properties.category: Which dimension this case covers.
     cases.items.properties.criterion_id: 'Optional: the acceptance criterion this case exercises. Leave empty for a case no criterion states — those are the ones worth writing down.'
-    cases.items.properties.evidence: Command + output, request/response, or — for a screenshot — the url and viewport browser_screenshot reported and what it showed (it saves no file, so never a path).
+    cases.items.properties.evidence: Command + output, request/response, or — for a screenshot — the url and viewport browser_screenshot reported and what it showed, plus the file name it was saved under when you passed attach_to_task (without it no file is saved, so never a path).
     cases.items.properties.expected: The observable result the request implies.
     cases.items.properties.notes: Required for skipped (what blocked it) and invalid (why it is not a valid case).
     cases.items.properties.status: planned before you run it; then passed | failed | skipped | invalid.

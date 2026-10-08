@@ -49,7 +49,7 @@ func pendingBlockingQuestions(items []domain.TaskQuestion) []domain.TaskQuestion
 // advance means the non-blocking questions that rode along do not reach
 // analiz_review until the blocking one is answered too.
 func (r *Runner) blockOnPendingQuestions(ctx context.Context, job RunJob) bool {
-	if job.Task.TaskType != domain.TaskTypeAnaliz || r.blocker == nil {
+	if !job.Task.TaskType.IsDocumentWork() || r.blocker == nil {
 		return false
 	}
 	pending := pendingBlockingQuestions(r.questionsFor(ctx, job.Task.ID))
@@ -94,7 +94,7 @@ func (r *Runner) openQuestionsContext(ctx context.Context, job RunJob) string {
 		return ""
 	}
 	var sb strings.Builder
-	if job.Task.TaskType == domain.TaskTypeAnaliz {
+	if job.Task.TaskType.IsDocumentWork() {
 		sb.WriteString(renderQuestionsBlock(r.questionsFor(ctx, job.Task.ID), "", job.Task.Key))
 	}
 	if refReader, ok := r.taskUpdater.(analysisReader); ok {

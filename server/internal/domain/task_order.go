@@ -83,4 +83,13 @@ type AnalysisReference struct {
 	Key       string         `json:"key"`
 	Title     string         `json:"title"`
 	Documents []TaskDocument `json:"documents"`
+	// TaskType, Column and RepositoryID describe the referenced task, so a
+	// design reference can be told apart from an analysis and opened.
+	TaskType     TaskType   `json:"task_type,omitempty"`
+	Column       TaskColumn `json:"column,omitempty"`
+	RepositoryID uuid.UUID  `json:"repository_id,omitempty"`
 }
+
+// IsDesign is a reference to a design task: its documents are the approved
+// screens, the hand-off spec or the design system report.
+func (r AnalysisReference) IsDesign() bool { return r.TaskType == TaskTypeDesign }

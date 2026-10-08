@@ -7,6 +7,7 @@ export const repositoryPage = {
     checks: "检查",
     links: "关联",
     deployRuntime: "部署与运行时",
+    designSystem: "设计系统",
     settings: "设置",
   },
   header: {

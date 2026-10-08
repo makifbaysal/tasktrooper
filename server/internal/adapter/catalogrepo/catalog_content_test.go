@@ -230,7 +230,7 @@ func TestBoardRunningAgentsCarryTheBookkeepingRule(t *testing.T) {
 	agents := repoCatalogAgents(t)
 	for _, slug := range []string{
 		"backend-developer", "frontend-developer", "mobile-developer",
-		"qa-agent", "system-architect", "release-engineer",
+		"qa-agent", "system-architect", "release-engineer", "ui-designer",
 	} {
 		agent, ok := agents[slug]
 		if !ok {

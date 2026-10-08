@@ -61,6 +61,7 @@ tool_policy:
         - create_project
         - update_project
         - set_repository_projects
+        - request_design_system
         - review_criterion
         - get_task_pull_request
         - get_project_brief

@@ -369,6 +369,10 @@ export const settingsPages = {
         label: "Build de test store à l'entrée",
         description: "L'entrée à cette étape compile la tâche pour chaque app store liée et l'envoie sur TestFlight / Play internal app sharing.",
       },
+      approve_design_system_on_enter: {
+        label: "Approuver le système de design à l'entrée",
+        description: "L'entrée à cette étape approuve chaque version du système de design proposée par la tâche et marque comme remplacée celle qu'elle remplace.",
+      },
       auto_enter: {
         label: "Entrée automatique",
         description: "Le répartiteur place directement la tâche dans la colonne indiquée lors de l'affectation ou du réveil.",
