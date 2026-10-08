@@ -20,6 +20,8 @@ import { textQuoteKit, type TextQuoteKit, type TextSpan } from "@/components/boa
  */
 export function frameRuntime(kit: TextQuoteKit, win: Window): void {
   const doc = win.document;
+  // A design canvas never scrolls: canvasRuntime moves it to links and marks.
+  const canvas = doc.documentElement !== null && doc.documentElement.hasAttribute("data-tt-canvas");
   const host = win.parent;
   const MARK = "mark[data-tt-id]";
   const STATUSES = ["open", "submitted", "resolved"];
@@ -377,7 +379,7 @@ export function frameRuntime(kit: TextQuoteKit, win: Window): void {
         } catch {
           destination = null;
         }
-        if (destination && typeof destination.scrollIntoView === "function") {
+        if (!canvas && destination && typeof destination.scrollIntoView === "function") {
           destination.scrollIntoView({ block: "start" });
         }
       }
@@ -402,7 +404,7 @@ export function frameRuntime(kit: TextQuoteKit, win: Window): void {
       renderQuestions();
     } else if (data.type === "tt:scrollTo" && typeof data.id === "string") {
       const mark = findMark(data.id);
-      if (mark && typeof mark.scrollIntoView === "function") {
+      if (!canvas && mark && typeof mark.scrollIntoView === "function") {
         mark.scrollIntoView({ block: "center", behavior: "smooth" });
       }
     }

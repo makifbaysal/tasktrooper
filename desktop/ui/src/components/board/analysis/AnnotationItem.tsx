@@ -23,10 +23,12 @@ interface AnnotationItemProps {
   onEdit: (body: string) => Promise<boolean>;
   onDelete: () => void;
   onReopen: () => void;
+  /** The variant it was made on, when the panel lists more than one document. */
+  label?: string;
 }
 
 export const AnnotationItem = forwardRef<HTMLDivElement, AnnotationItemProps>(function AnnotationItem(
-  { annotation, found, active, onActivate, onEdit, onDelete, onReopen },
+  { annotation, found, active, onActivate, onEdit, onDelete, onReopen, label },
   ref,
 ) {
   const { t } = useI18n();
@@ -67,6 +69,11 @@ export const AnnotationItem = forwardRef<HTMLDivElement, AnnotationItemProps>(fu
         <Badge variant={STATUS_VARIANT[annotation.status]}>
           {t(`analysisReview.panel.status.${annotation.status}`)}
         </Badge>
+        {label && (
+          <Badge variant="outline" className="max-w-40 truncate">
+            {label}
+          </Badge>
+        )}
         <span className="text-micro text-muted-foreground">{formatRelativeDate(annotation.updated_at)}</span>
         {found === false && (
           <span className="ml-auto flex items-center gap-1 text-micro text-warning">

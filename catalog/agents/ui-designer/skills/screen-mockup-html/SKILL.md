@@ -129,6 +129,8 @@ background:var(--background);color:var(--foreground);font:16px/1.5 var(--font-sa
 
 The `:root` block styles the review page itself — neutral, not the product. The `.ds` block is the design system: every token you use, as a CSS variable, light on `.ds` and dark on `.ds.dark` — one place per document, identical in every variant's document, so a token change in review is one edit in each.
 
+Every `<h2>` is a page: the review lists them like Figma's pages, jumps to one, and lines two variants up page by page by heading. So one `<h2>` per section, and the same state carries the same heading words in every variant document (`Variant A — states` and `Variant B — states`; `Empty state`, not `B: nothing here yet`) — only the variant's own name may differ.
+
 A strip runs as wide as its frames (`width:max-content`), wider than the page — that is the point. No `overflow:auto`/`scroll` on a strip, a section or `main`, and no `overflow-x:hidden` on `body`: a scrolling strip shows one frame and a scrollbar, and a hidden one cuts the wide frames off. The canvas opens what it can, but the document should not depend on it.
 
 ## Drawing without form controls

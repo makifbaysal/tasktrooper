@@ -36,14 +36,13 @@ mark[data-tt-id][data-tt-status="resolved"]{background:rgba(34,197,94,.2)!import
 mark[data-tt-id][data-tt-active="true"]{outline:2px solid rgb(249,115,22)!important;outline-offset:1px}
 `;
 
-// Design documents only (see canvasRuntime.ts). The scrollbars go because the
-// canvas is moved by dragging and pinching; the overflow and scroll-behavior
-// overrides because a document that hides its horizontal overflow, or scrolls
-// smoothly, would otherwise fight every drag.
+// Design documents only (see canvasRuntime.ts): the frame never scrolls, the
+// body is moved by a transform from its top-left corner. The overflow and
+// scroll-behavior overrides are there because a document that clips or
+// scrolls itself would otherwise fight every drag.
 const CANVAS_CSS = `
-html[data-tt-canvas]{overflow:auto!important;scroll-behavior:auto!important;scrollbar-width:none}
-html[data-tt-canvas]::-webkit-scrollbar{display:none}
-html[data-tt-canvas]>body{overflow:visible!important}
+html[data-tt-canvas]{overflow:hidden!important;overscroll-behavior:none;scroll-behavior:auto!important}
+html[data-tt-canvas]>body{overflow:visible!important;transform-origin:0 0!important}
 html[data-tt-canvas].tt-grab,html[data-tt-canvas].tt-grab *{cursor:grab!important}
 html[data-tt-canvas].tt-panning,html[data-tt-canvas].tt-panning *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
 `;
@@ -203,11 +202,21 @@ export type FrameMessage =
   | { type: "tt:anchored"; results: { id: string; found: boolean }[] }
   | { type: "tt:focus"; id: string }
   | { type: "tt:answer"; id: string; text: string }
-  | { type: "tt:zoom"; zoom: number };
+  | { type: "tt:zoom"; zoom: number }
+  | { type: "tt:outline"; pages: CanvasPage[] }
+  | { type: "tt:page"; id: string | null; cause: "view" | "goto" };
+
+/** One page of a design canvas: a `<h2>` and what it heads (see canvasRuntime.ts). */
+export interface CanvasPage {
+  id: string;
+  title: string;
+}
 
 const QUOTE_LIMIT = 20000;
 const ZOOM_MIN = 0.05;
 const ZOOM_MAX = 10;
+const PAGES_LIMIT = 100;
+const PAGE_TITLE_LIMIT = 200;
 const ID_LIMIT = 200;
 
 function isId(value: unknown): value is string {
@@ -256,6 +265,27 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
     case "tt:zoom":
       if (typeof d.zoom !== "number" || !Number.isFinite(d.zoom) || d.zoom < ZOOM_MIN || d.zoom > ZOOM_MAX) return null;
       return { type: "tt:zoom", zoom: d.zoom };
+    case "tt:outline":
+      if (!Array.isArray(d.pages)) return null;
+      return {
+        type: "tt:outline",
+        pages: d.pages
+          .filter(
+            (p): p is CanvasPage =>
+              Boolean(p) &&
+              typeof p === "object" &&
+              isId(p.id) &&
+              typeof p.title === "string" &&
+              p.title.trim().length > 0 &&
+              p.title.length <= PAGE_TITLE_LIMIT,
+          )
+          .slice(0, PAGES_LIMIT)
+          .map((p) => ({ id: p.id, title: p.title })),
+      };
+    case "tt:page":
+      if (d.id !== null && !isId(d.id)) return null;
+      if (d.cause !== "view" && d.cause !== "goto") return null;
+      return { type: "tt:page", id: d.id, cause: d.cause };
     default:
       return null;
   }

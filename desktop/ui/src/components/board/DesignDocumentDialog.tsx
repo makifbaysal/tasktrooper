@@ -1,5 +1,8 @@
+import { useEffect, useRef, useState } from "react";
 import type { TaskDocument } from "@/api";
-import { AnalysisFrame } from "@/components/board/analysis/AnalysisFrame";
+import { AnalysisFrame, type AnalysisFrameHandle } from "@/components/board/analysis/AnalysisFrame";
+import { DesignPagesList } from "@/components/board/analysis/DesignPagesList";
+import type { CanvasPage } from "@/components/board/analysis/srcdoc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
@@ -12,9 +15,9 @@ interface DesignDocumentDialogProps {
 }
 
 /**
- * Molecule: one design document (a mockup, a design review) in a large dialog,
- * read-only. Agent-written HTML goes through the same sandboxed frame as the
- * analysis review page — never into this page's DOM.
+ * Molecule: one design document in a near-full-screen dialog, read-only, on
+ * the same canvas as the review page with its page list. Agent-written HTML
+ * goes through the same sandboxed frame — never into this page's DOM.
  */
 export function DesignDocumentDialog({ document, onOpenChange }: DesignDocumentDialogProps) {
   return (
@@ -26,22 +29,42 @@ export function DesignDocumentDialog({ document, onOpenChange }: DesignDocumentD
         <DialogHeader className="pr-8">
           <DialogTitle className="truncate">{document ? designDocumentLabel(document) : ""}</DialogTitle>
         </DialogHeader>
-        {document && <DesignDocumentFrame document={document} />}
+        {document && <DesignDocumentCanvas document={document} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function DesignDocumentFrame({ document }: { document: TaskDocument }) {
+function DesignDocumentCanvas({ document }: { document: TaskDocument }) {
   const { t } = useI18n();
   const { theme } = useTheme();
+  const frameRef = useRef<AnalysisFrameHandle>(null);
+  const [pages, setPages] = useState<CanvasPage[]>([]);
+  const [page, setPage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPages([]);
+    setPage(null);
+  }, [document.id]);
+
   return (
-    <AnalysisFrame
-      className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border"
-      document={document}
-      theme={theme}
-      title={t("designSystem.task.frameTitle", { title: designDocumentLabel(document) })}
-      canvas
-    />
+    <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
+      <DesignPagesList
+        className="hidden w-48 shrink-0 border-r border-border md:flex"
+        pages={pages}
+        activeId={page}
+        onSelect={(id) => frameRef.current?.goToPage(id)}
+      />
+      <AnalysisFrame
+        ref={frameRef}
+        className="min-h-0 min-w-0 flex-1"
+        document={document}
+        theme={theme}
+        title={t("designSystem.task.frameTitle", { title: designDocumentLabel(document) })}
+        canvas
+        onOutline={setPages}
+        onPageChange={(id) => setPage(id)}
+      />
+    </div>
   );
 }
