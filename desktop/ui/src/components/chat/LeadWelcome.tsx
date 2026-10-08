@@ -3,6 +3,7 @@ import { ArrowUp } from "lucide-react";
 import type { Agent, MessageMention } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { LeadFlowSteps } from "@/components/chat/LeadFlowSteps";
+import { LeadTeamOverview } from "@/components/chat/LeadTeamOverview";
 import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MentionTextarea } from "@/components/chat/MentionTextarea";
 import { Button } from "@/components/ui/button";
@@ -15,10 +16,12 @@ interface LeadWelcomeProps {
   onSubmit: (message: string, mentions: MessageMention[]) => void | Promise<void>;
   busy?: boolean;
   mentionOptions?: MentionOption[];
+  /** Every agent of the workspace, grouped by the stage of the flow it works. */
+  team?: Agent[];
 }
 
 
-export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = [] }: LeadWelcomeProps) {
+export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = [], team = [] }: LeadWelcomeProps) {
   const { t } = useI18n();
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -118,6 +121,7 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
         </div>
 
         <LeadFlowSteps agent={agent} />
+        <LeadTeamOverview agents={team} />
       </div>
     </div>
   );

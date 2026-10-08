@@ -311,9 +311,17 @@ export const agentArea = {
               label: "Plan OK",
               detail: "Sie geben frei",
             },
+            design: {
+              label: "Design",
+              detail: "Designer",
+            },
             build: {
               label: "Umsetzung",
               detail: "Code + PR",
+            },
+            review: {
+              label: "Review",
+              detail: "Architekt + Sicherheit",
             },
             qa: {
               label: "QA",
@@ -332,7 +340,36 @@ export const agentArea = {
               detail: "Release",
             },
           },
-          caption: "Der PM macht aus jeder Anfrage Board-Aufgaben. Ist der technische Weg unklar, eröffnet er eine Analyse und legt Ihnen den Plan zur Freigabe vor; das Team schreibt den Code, der PM prüft ihn, und die endgültige Freigabe liegt bei Ihnen.",
+          caption: "Der PM macht aus jeder Anfrage Board-Aufgaben. Ist der technische Weg unklar, eröffnet er eine Analyse und legt Ihnen den Plan zur Freigabe vor; ein neuer Bildschirm wird zuerst entworfen. Das Team setzt ihn um – Backend, Web, Mobile, Daten oder Spiel –, und jeder Pull Request braucht die Freigabe von Architekt und Sicherheits-Reviewer, bevor die QA testet. Der PM prüft das Ergebnis, und die endgültige Freigabe liegt bei Ihnen.",
+        },
+        team: {
+          title: "Ihr Team",
+          groups: {
+            plan: {
+              label: "Planung",
+              detail: "Macht aus Anfragen Aufgaben und Pläne",
+            },
+            design: {
+              label: "Design",
+              detail: "Designsystem und neue Bildschirme",
+            },
+            build: {
+              label: "Umsetzung",
+              detail: "Code, Tests und Pull Request",
+            },
+            review: {
+              label: "Review",
+              detail: "Jeder Reviewer gibt den PR frei",
+            },
+            ship: {
+              label: "Test & Release",
+              detail: "Testet, merged und deployt",
+            },
+            custom: {
+              label: "Ihre Agenten",
+              detail: "Von Ihnen hinzugefügt",
+            },
+          },
         },
       },
     },
