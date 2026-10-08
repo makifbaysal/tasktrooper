@@ -304,11 +304,41 @@ export interface DesktopRunnerHost {
   preflight(force?: boolean): Promise<DesktopPreflightReport>;
 }
 
+/** Mirrors `UpdatePhase` in `desktop/src/ipc/types.ts`. */
+export type DesktopUpdatePhase = "unsupported" | "idle" | "checking" | "current" | "available" | "ready" | "error";
+
+export interface DesktopUpdateStatus {
+  phase: DesktopUpdatePhase;
+  /** The version on the feed, once one is known. Never the running version. */
+  version?: string;
+  /** 0–100 while downloading. */
+  percent?: number;
+  /** One sentence for a person: what is happening, or what went wrong. */
+  detail?: string;
+  /** Epoch ms of the last completed check, successful or not. */
+  checkedAt?: number;
+  feed?: string;
+}
+
+/**
+ * Auto-update. The same updater the shell's popup and tray drive; the app
+ * downloads in the background and `restart()` only applies a staged update.
+ */
+export interface DesktopUpdatesHost {
+  status(): Promise<DesktopUpdateStatus>;
+  subscribe(cb: (status: DesktopUpdateStatus) => void): () => void;
+  check(): Promise<DesktopUpdateStatus>;
+  /** Stops the local processes, installs and relaunches. A no-op unless `ready`. */
+  restart(): Promise<void>;
+}
+
 /** The hook the desktop preload installs on `window`. Absent in a browser. */
 export interface TaskTrooperDesktopHost {
   info?: () => Promise<{ app: string; version: string; platform: string }>;
   /** The local half. Absent in a browser. */
   runner?: DesktopRunnerHost;
+  /** Absent in a browser, and in a shell older than the Settings update card. */
+  updates?: DesktopUpdatesHost;
   /**
    * Where this app's API calls go: "http://127.0.0.1:<port>", no path suffix.
    *
@@ -337,4 +367,8 @@ declare global {
  */
 export function desktopRunner(): DesktopRunnerHost | null {
   return window.__tasktrooperDesktop?.runner ?? null;
+}
+
+export function desktopUpdates(): DesktopUpdatesHost | null {
+  return window.__tasktrooperDesktop?.updates ?? null;
 }

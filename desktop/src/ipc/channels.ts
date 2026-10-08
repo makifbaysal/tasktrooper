@@ -48,11 +48,10 @@ export const SHELL_CHANNELS = {
   cloudStatus: "shell:cloud:status",
 
   /**
-   * Auto-update. These three are deliberately on the SHELL half: the
-   * affordance lives in the title bar and the tray, and updating replaces the
-   * whole app, which is not a capability to put on the page's bridge at any
-   * width. The last two are also the only shell channels that DO something, so
-   * both are guarded on the sender being this window — see `main/ipc.ts`.
+   * Auto-update, for the shell's own popup and the tray. The page has the same
+   * three on its bridge for Settings (see `CLOUD_CHANNELS.updateGet`). The
+   * last two are the only shell channels that DO something, so both are
+   * guarded on the sender being this window — see `main/ipc.ts`.
    */
   updateGet: "shell:update:get",
   updateCheck: "shell:update:check",
@@ -64,6 +63,13 @@ export const SHELL_EVENTS = {
   supervisorState: "shell:event:supervisor-state",
   cloudStatus: "shell:event:cloud-status",
   updateStatus: "shell:event:update-status",
+  /**
+   * The window entered or left full screen. The chrome drops its drag strip
+   * while it is: the web app's view then covers that strip, but macOS still
+   * hit-tests the drag region of the window's own contents underneath, so
+   * every click on the page's header became a window drag instead.
+   */
+  fullScreen: "shell:event:full-screen",
 } as const;
 
 /**
@@ -145,12 +151,24 @@ export const CLOUD_CHANNELS = {
 
   diagnostics: "cloud:diagnostics:get",
   overridesSet: "cloud:diagnostics:set-overrides",
+
+  /**
+   * Auto-update, for Settings → General. The page is this app's own bundle on
+   * `app://tasktrooper`, the same code the chrome is. Restart only applies an
+   * update Squirrel has already downloaded and signature-checked, and does
+   * nothing when none is staged; the page cannot name a version, a feed or a
+   * file.
+   */
+  updateGet: "cloud:update:get",
+  updateCheck: "cloud:update:check",
+  updateRestart: "cloud:update:restart",
 } as const;
 
 /** Main → the web app. Push, so the page never polls the supervisor. */
 export const CLOUD_EVENTS = {
   runnerState: "cloud:event:runner-state",
   runnerLogs: "cloud:event:runner-logs",
+  updateStatus: "cloud:event:update-status",
 } as const;
 
 export type ShellChannel = (typeof SHELL_CHANNELS)[keyof typeof SHELL_CHANNELS];
@@ -230,6 +248,7 @@ export interface ShellBridge {
   onSupervisorState(cb: (snapshot: SupervisorSnapshot) => void): () => void;
   onCloudStatus(cb: (status: CloudStatus) => void): () => void;
   onUpdateStatus(cb: (status: UpdateStatus) => void): () => void;
+  onFullScreen(cb: (fullScreen: boolean) => void): () => void;
 }
 
 /** Re-exported so the preload and the main process name one shape. */

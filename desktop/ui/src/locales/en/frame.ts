@@ -19,6 +19,27 @@ export const frame = {
         shortcut: "{mod}K",
         failed: "Couldn't start a conversation",
       },
+      feedback: {
+        button: "Send feedback",
+        title: "Send feedback",
+        description: "Opens a pre-filled issue on GitHub. You review it there and submit it with your GitHub account.",
+        kindLabel: "Type",
+        kinds: {
+          bug: "Bug report",
+          feature: "Feature request",
+        },
+        titleLabel: "Title",
+        titlePlaceholder: "A short summary",
+        descriptionLabel: "Details",
+        descriptionPlaceholder: {
+          bug: "What did you do, what did you expect, and what happened instead?",
+          feature: "What's missing or awkward today, and what would you like to happen?",
+        },
+        includeEnvironment: "Include app version and platform (TaskTrooper {version}, {platform})",
+        submit: "Continue on GitHub",
+        opened: "Opened GitHub in your browser",
+        openFailed: "Couldn't open the browser",
+      },
       notificationCenter: {
         title: "Notifications",
         empty: "No notifications yet",

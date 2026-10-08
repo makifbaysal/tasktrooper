@@ -17,6 +17,27 @@ export const frame = {
         shortcut: "{mod}K",
         failed: "Unterhaltung konnte nicht gestartet werden",
       },
+      feedback: {
+        button: "Feedback senden",
+        title: "Feedback senden",
+        description: "Öffnet ein vorausgefülltes Issue auf GitHub. Dort prüfst du es und sendest es mit deinem GitHub-Konto ab.",
+        kindLabel: "Art",
+        kinds: {
+          bug: "Fehlerbericht",
+          feature: "Funktionswunsch",
+        },
+        titleLabel: "Titel",
+        titlePlaceholder: "Eine kurze Zusammenfassung",
+        descriptionLabel: "Details",
+        descriptionPlaceholder: {
+          bug: "Was hast du getan, was hast du erwartet und was ist stattdessen passiert?",
+          feature: "Was fehlt heute oder ist umständlich, und was soll stattdessen passieren?",
+        },
+        includeEnvironment: "App-Version und Plattform anhängen (TaskTrooper {version}, {platform})",
+        submit: "Auf GitHub fortfahren",
+        opened: "GitHub wurde in deinem Browser geöffnet",
+        openFailed: "Der Browser konnte nicht geöffnet werden",
+      },
       notificationCenter: {
         title: "Benachrichtigungen",
         empty: "Noch keine Benachrichtigungen",

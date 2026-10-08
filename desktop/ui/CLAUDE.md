@@ -61,9 +61,10 @@ Nothing else in `src/` may read a credential.
 `src/lib/desktop-bridge.ts` is one half of a contract whose other half is
 `../src/ipc/host.ts`. They are separate declarations because this app
 builds with no knowledge of that package; **change both together**. The shell
-exposes `info()`, `apiBase`, `apiToken` and `runner` (process supervision,
-preflight, settings, diagnostics); `runner.connect()`/`disconnect()` start and
-stop the **backend**, not a tunnel.
+exposes `info()`, `apiBase`, `apiToken`, `runner` (process supervision,
+preflight, settings, diagnostics) and `updates` (the auto-updater, for
+Settings); `runner.connect()`/`disconnect()` start and stop the **backend**,
+not a tunnel.
 
 ## Locales
 

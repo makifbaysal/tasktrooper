@@ -17,6 +17,27 @@ export const frame = {
         shortcut: "{mod}K",
         failed: "Impossible de démarrer une conversation",
       },
+      feedback: {
+        button: "Envoyer un retour",
+        title: "Envoyer un retour",
+        description: "Ouvre une issue préremplie sur GitHub. Vous la relisez là-bas et l'envoyez avec votre compte GitHub.",
+        kindLabel: "Type",
+        kinds: {
+          bug: "Rapport de bug",
+          feature: "Demande de fonctionnalité",
+        },
+        titleLabel: "Titre",
+        titlePlaceholder: "Un court résumé",
+        descriptionLabel: "Détails",
+        descriptionPlaceholder: {
+          bug: "Qu'avez-vous fait, qu'attendiez-vous, et que s'est-il passé à la place ?",
+          feature: "Qu'est-ce qui manque ou est peu pratique aujourd'hui, et que souhaiteriez-vous ?",
+        },
+        includeEnvironment: "Inclure la version de l'app et la plateforme (TaskTrooper {version}, {platform})",
+        submit: "Continuer sur GitHub",
+        opened: "GitHub s'est ouvert dans votre navigateur",
+        openFailed: "Impossible d'ouvrir le navigateur",
+      },
       notificationCenter: {
         title: "Notifications",
         empty: "Aucune notification pour l'instant",

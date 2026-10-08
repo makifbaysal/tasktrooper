@@ -3,6 +3,7 @@ import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS, type ChooseDirectoryReq
 import type {
   DesktopHost,
   DesktopRunnerHost,
+  DesktopUpdatesHost,
   HostLogsRequest,
   HostOverrides,
   HostPreferences,
@@ -10,7 +11,7 @@ import type {
   HostSettings,
   HostWorkspaceChoice,
 } from "../ipc/host.js";
-import type { ChildId, Diagnostics, LogLine, PreflightReport } from "../ipc/types.js";
+import type { ChildId, Diagnostics, LogLine, PreflightReport, UpdateStatus } from "../ipc/types.js";
 
 /**
  * The preload for the view that renders the web app — which is the entire
@@ -122,6 +123,13 @@ const runner: DesktopRunnerHost = {
   setOverrides: (patch: HostOverrides) => call<Diagnostics>(CLOUD_CHANNELS.overridesSet, patch),
 };
 
+const updates: DesktopUpdatesHost = {
+  status: () => call<UpdateStatus>(CLOUD_CHANNELS.updateGet),
+  subscribe: (cb) => subscribe<UpdateStatus>(CLOUD_EVENTS.updateStatus, cb),
+  check: () => call<UpdateStatus>(CLOUD_CHANNELS.updateCheck),
+  restart: () => call<void>(CLOUD_CHANNELS.updateRestart),
+};
+
 /**
  * The two synchronous reads, made once while the preload runs.
  *
@@ -148,9 +156,10 @@ const host: DesktopHost = {
   ...(apiToken !== undefined ? { apiToken } : {}),
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   runner,
+  updates,
 };
 
 contextBridge.exposeInMainWorld(
   CLOUD_BRIDGE_KEY,
-  Object.freeze({ ...host, runner: Object.freeze(runner) }),
+  Object.freeze({ ...host, runner: Object.freeze(runner), updates: Object.freeze(updates) }),
 );

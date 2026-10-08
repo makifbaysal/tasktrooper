@@ -192,7 +192,7 @@ interface Harness {
 function start(
   origin = ORIGIN,
   quitStarted: () => boolean = () => false,
-  extra: { hidden?: boolean; onSessionEnd?: () => void } = {},
+  extra: { hidden?: boolean; onSessionEnd?: () => void; onFullScreen?: (fullScreen: boolean) => void } = {},
 ): Harness {
   const statuses: CloudStatus[] = [];
   const shell = new Shell({
@@ -200,6 +200,7 @@ function start(
     onCloudStatus: (s) => statuses.push(s),
     quitStarted,
     ...(extra.onSessionEnd ? { onSessionEnd: extra.onSessionEnd } : {}),
+    ...(extra.onFullScreen ? { onFullScreen: extra.onFullScreen } : {}),
   });
   shell.create({ hidden: extra.hidden ?? false });
   // The web app's view is attached only once the backend answers, which is what
@@ -249,6 +250,24 @@ describe("where the web app sits in the window", () => {
     window.fullScreen = false;
     window.emit("leave-full-screen");
     expect(view.bounds).toEqual({ x: 0, y: 44, width: 1180, height: 756 });
+  });
+
+  /**
+   * In full screen the view covers the chrome's drag strip, but macOS still
+   * hit-tests it as a drag region: every button in the page's header turned
+   * into a window drag. The chrome drops the strip when it is told.
+   */
+  it("tells the chrome when full screen starts and ends, so it can drop the drag strip under the page's header", () => {
+    onPlatform("darwin");
+    const changes: boolean[] = [];
+    const { window } = start(ORIGIN, () => false, { onFullScreen: (on) => changes.push(on) });
+
+    window.fullScreen = true;
+    window.emit("enter-full-screen");
+    window.fullScreen = false;
+    window.emit("leave-full-screen");
+
+    expect(changes).toEqual([true, false]);
   });
 
   /**

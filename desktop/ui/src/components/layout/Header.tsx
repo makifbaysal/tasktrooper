@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import type { Agent, CatalogSyncProgress } from "@/api";
 import { Button } from "@/components/ui/button";
 import { CatalogSyncIndicator } from "@/components/layout/CatalogSyncIndicator";
+import { FeedbackButton } from "@/components/layout/FeedbackButton";
 import { HealthStatus } from "@/components/layout/HealthStatus";
 import { LeadQuickAsk } from "@/components/layout/LeadQuickAsk";
 import { NotificationCenter } from "@/components/layout/NotificationCenter";
@@ -68,6 +69,7 @@ export function Header({
         <CatalogSyncIndicator progress={catalogSync} />
         {onAgentSeen && <NotificationCenter onAgentSeen={onAgentSeen} />}
         <HealthStatus />
+        <FeedbackButton />
 
         <Button
           variant="ghost"
