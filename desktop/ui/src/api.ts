@@ -77,7 +77,7 @@ export interface AgentColumnInstruction {
 export type RoleArea = string;
 
 /** Well-known repo areas offered as presets; any other string is a valid area too. */
-export const ROLE_AREAS: RoleArea[] = ["backend", "frontend", "mobile"];
+export const ROLE_AREAS: RoleArea[] = ["backend", "frontend", "mobile", "data", "game"];
 
 /** One behaviour attached to a task type or a workflow stage; params keyed by BehaviourSpec.params[].name. */
 export interface BehaviourRef {
@@ -773,8 +773,8 @@ export interface Incident {
   events?: IncidentEvent[];
 }
 
-export type RepoKind = "backend" | "frontend" | "mobile" | "worker" | "monorepo";
-export type SubRepoKind = "backend" | "frontend" | "mobile" | "worker";
+export type RepoKind = "backend" | "frontend" | "mobile" | "worker" | "data" | "game" | "monorepo";
+export type SubRepoKind = "backend" | "frontend" | "mobile" | "worker" | "data" | "game";
 export type MobilePlatform = "" | "ios" | "android" | "cross_platform";
 /** One sub-project inside a monorepo: where it lives and what it is. See
  * domain.RepoSubProject on the server — distinct from `sub_repo_kinds`
@@ -2466,6 +2466,8 @@ export type ComponentRole =
   | "library"
   | "infra"
   | "cli"
+  | "data"
+  | "game"
   | "other";
 
 export const COMPONENT_ROLES: ComponentRole[] = [
@@ -2477,6 +2479,8 @@ export const COMPONENT_ROLES: ComponentRole[] = [
   "library",
   "infra",
   "cli",
+  "data",
+  "game",
   "other",
 ];
 

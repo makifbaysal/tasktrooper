@@ -27,11 +27,20 @@ func classifyRole(tree *inventory.Tree, dir string, info *ManifestInfo) (domain.
 	if ev, ok := desktopEvidence(tree, dir, info); ok {
 		return domain.ComponentRoleDesktop, domain.ConfidenceHigh, []domain.SourceEvidence{ev}
 	}
+	if ev, ok := gameEvidence(info); ok {
+		return domain.ComponentRoleGame, domain.ConfidenceHigh, []domain.SourceEvidence{ev}
+	}
 	if role, conf, ev, ok := frontendEvidence(info); ok {
 		return role, conf, []domain.SourceEvidence{ev}
 	}
+	if ev, ok := webRendererGameEvidence(info); ok {
+		return domain.ComponentRoleGame, domain.ConfidenceMedium, []domain.SourceEvidence{ev}
+	}
 	if role, conf, ev, ok := backendEvidence(info, goSig); ok {
 		return role, conf, []domain.SourceEvidence{ev}
+	}
+	if ev, ok := dataEvidence(tree, dir, info); ok {
+		return domain.ComponentRoleData, domain.ConfidenceHigh, []domain.SourceEvidence{ev}
 	}
 	if ev, ok := workerEvidence(dir, info, goSig); ok {
 		return domain.ComponentRoleWorker, domain.ConfidenceMedium, []domain.SourceEvidence{ev}
@@ -257,6 +266,9 @@ func classifyManifestlessRole(tree *inventory.Tree, dir string) (domain.Componen
 	if iacCount > 0 && iacCount >= other {
 		return domain.ComponentRoleInfra, domain.ConfidenceLow, []domain.SourceEvidence{{Path: iacEvidence}}
 	}
+	if notebook, count := firstNotebook(files); count > 0 && count*2 >= len(files) {
+		return domain.ComponentRoleData, domain.ConfidenceLow, []domain.SourceEvidence{{Path: notebook, Note: "Jupyter notebooks"}}
+	}
 	return domain.ComponentRoleOther, domain.ConfidenceLow, nil
 }
 
@@ -335,4 +347,84 @@ func lineOf(body string, idx int) int {
 		return 0
 	}
 	return strings.Count(body[:idx], "\n") + 1
+}
+
+var engineEcosystems = map[string]string{
+	"unity":  "Unity project",
+	"godot":  "Godot project",
+	"unreal": "Unreal Engine project",
+}
+
+var nodeGameDeps = []string{"phaser", "excalibur", "kaplay", "kaboom", "melonjs", "playcanvas", "@pixi/react"}
+
+var nodeRendererGameDeps = []string{"pixi.js", "@babylonjs/core", "three"}
+
+func gameEvidence(info *ManifestInfo) (domain.SourceEvidence, bool) {
+	if note, ok := engineEcosystems[info.Ecosystem]; ok {
+		return domain.SourceEvidence{Path: info.Path, Note: note}, true
+	}
+	var deps []string
+	switch info.Ecosystem {
+	case "node":
+		deps = nodeGameDeps
+	case "rust":
+		deps = []string{"bevy", "macroquad", "ggez", "fyrox"}
+	case "python":
+		deps = []string{"pygame", "arcade"}
+	case "dotnet":
+		if mod, ok := anyDepContains(info, "MonoGame.Framework", "Stride.Engine"); ok {
+			return domain.SourceEvidence{Path: info.Path, Note: mod + " dependency"}, true
+		}
+	}
+	if name, _, ok := info.anyDep(deps...); ok {
+		return domain.SourceEvidence{Path: info.Path, Note: name + " dependency"}, true
+	}
+	return domain.SourceEvidence{}, false
+}
+
+// A bare WebGL/canvas renderer is a game only when no web framework claimed the
+// package first: three.js inside a Next app is a product viewer, not a game.
+func webRendererGameEvidence(info *ManifestInfo) (domain.SourceEvidence, bool) {
+	if info.Ecosystem != "node" {
+		return domain.SourceEvidence{}, false
+	}
+	if name, _, ok := info.anyDep(nodeRendererGameDeps...); ok {
+		return domain.SourceEvidence{Path: info.Path, Note: name + " dependency"}, true
+	}
+	return domain.SourceEvidence{}, false
+}
+
+var pyDataDeps = []string{
+	"pandas", "polars", "scikit-learn", "torch", "tensorflow", "keras", "jax",
+	"xgboost", "lightgbm", "catboost", "statsmodels", "pyspark", "mlflow",
+	"transformers", "dbt-core", "jupyter", "jupyterlab", "dagster", "prefect",
+	"apache-airflow", "great-expectations", "pandera", "duckdb",
+}
+
+func dataEvidence(tree *inventory.Tree, dir string, info *ManifestInfo) (domain.SourceEvidence, bool) {
+	switch info.Ecosystem {
+	case "dbt":
+		return domain.SourceEvidence{Path: info.Path, Note: "dbt project"}, true
+	case "python":
+		if tree.Has(inventory.Join(dir, "dbt_project.yml")) {
+			return domain.SourceEvidence{Path: inventory.Join(dir, "dbt_project.yml"), Note: "dbt project"}, true
+		}
+		if name, _, ok := info.anyDep(pyDataDeps...); ok {
+			return domain.SourceEvidence{Path: info.Path, Note: name + " dependency"}, true
+		}
+	}
+	return domain.SourceEvidence{}, false
+}
+
+func firstNotebook(files []string) (string, int) {
+	first, count := "", 0
+	for _, f := range files {
+		if strings.HasSuffix(f, ".ipynb") {
+			if first == "" {
+				first = f
+			}
+			count++
+		}
+	}
+	return first, count
 }

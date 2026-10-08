@@ -35,10 +35,11 @@ var (
 
 // pyKnownDeps is the curated set of Python frameworks/libraries discovery
 // names; anything else is noise at this altitude.
-var pyKnownDeps = []string{
+var pyKnownDeps = append([]string{
 	"fastapi", "django", "flask", "starlette", "aiohttp", "sanic",
 	"sqlalchemy", "alembic", "pytest", "ruff", "mypy", "celery",
-}
+	"pygame", "arcade",
+}, pyDataDeps...)
 
 func (pythonEcosystem) Read(tree *inventory.Tree, dir string) *ManifestInfo {
 	info := &ManifestInfo{Ecosystem: "python", Dependencies: map[string]string{}}

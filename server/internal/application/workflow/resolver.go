@@ -11,11 +11,11 @@ import (
 // ---- port.RoleResolver ----
 
 // AgentForRole resolves roleID's assignment for area: an assignment whose
-// Areas contains area wins over one with Areas == nil (any area). Within a
-// tier, the first match wins — RoleStore.List/Get order assignments by
-// priority then created_at, so "first" already encodes both tie-breaks.
-// nil, nil when the role is unknown to this snapshot or has no assignment
-// covering area.
+// Areas contains area wins over one with Areas == nil (any area), which wins
+// over one covering a domain.AreaFallbacks area. Within a tier, the first
+// match wins — RoleStore.List/Get order assignments by priority then
+// created_at, so "first" already encodes both tie-breaks. nil, nil when the
+// role is unknown to this snapshot or has no assignment covering area.
 func (s *Service) AgentForRole(ctx context.Context, roleID uuid.UUID, area string) (*uuid.UUID, error) {
 	snap, err := s.getSnapshot()
 	if err != nil {
@@ -39,7 +39,18 @@ func (s *Service) AgentForRole(ctx context.Context, roleID uuid.UUID, area strin
 			return &id, nil
 		}
 	}
-	return anyAreaMatch, nil
+	if anyAreaMatch != nil {
+		return anyAreaMatch, nil
+	}
+	for _, fallback := range domain.AreaFallbacks(area) {
+		for _, a := range role.Assignments {
+			if a.Areas != nil && containsArea(a.Areas, fallback) {
+				id := a.AgentID
+				return &id, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 func (s *Service) AgentForPurpose(ctx context.Context, purpose domain.RolePurposeKey, area string) (*uuid.UUID, error) {

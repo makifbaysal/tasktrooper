@@ -255,6 +255,8 @@ export const settingsPages = {
       backend: "后端",
       frontend: "前端",
       mobile: "移动端",
+      data: "数据",
+      game: "游戏",
     },
     areaCustomPlaceholder: "添加领域…",
     addArea: "添加",

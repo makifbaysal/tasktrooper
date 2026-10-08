@@ -255,6 +255,8 @@ export const settingsPages = {
       backend: "Backend",
       frontend: "Frontend",
       mobile: "Móvil",
+      data: "Datos",
+      game: "Juego",
     },
     areaCustomPlaceholder: "Añadir área…",
     addArea: "Añadir",

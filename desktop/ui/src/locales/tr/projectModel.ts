@@ -12,6 +12,8 @@ export const projectModel: ProjectModelDict = {
     library: "Kütüphane",
     infra: "Altyapı",
     cli: "CLI",
+    data: "Veri",
+    game: "Oyun",
     other: "Diğer",
   },
   commandPurposes: {

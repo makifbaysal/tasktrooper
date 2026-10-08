@@ -274,7 +274,7 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 			{
 				"monorepo",
 				domain.RepoKindMonorepo,
-				"Create and push GitHub Actions CI/CD workflows for this repository (kind: monorepo).\n\nRequired jobs (under .github/workflows):\n- validate: lint / static analysis / type checking\n- build: compilation (a separate build per subproject (backend/frontend/mobile/worker))\n- test: automated tests\n- stage_deploy: a workflow_dispatch-triggerable workflow that deploys to staging\n- preprod_deploy: (optional) a workflow_dispatch-triggerable workflow that deploys to a pre-production environment\n- prod_deploy: a workflow_dispatch-triggerable workflow that deploys to production\n\nOnce each workflow exists, save the job/workflow mapping under Repository Settings > Pipeline so the QA gate and release steps run through GitHub Actions.",
+				"Create and push GitHub Actions CI/CD workflows for this repository (kind: monorepo).\n\nRequired jobs (under .github/workflows):\n- validate: lint / static analysis / type checking\n- build: compilation (a separate build per subproject (backend/frontend/mobile/worker/data/game))\n- test: automated tests\n- stage_deploy: a workflow_dispatch-triggerable workflow that deploys to staging\n- preprod_deploy: (optional) a workflow_dispatch-triggerable workflow that deploys to a pre-production environment\n- prod_deploy: a workflow_dispatch-triggerable workflow that deploys to production\n\nOnce each workflow exists, save the job/workflow mapping under Repository Settings > Pipeline so the QA gate and release steps run through GitHub Actions.",
 			},
 		}
 		for _, tc := range cases {

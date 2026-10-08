@@ -3,8 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 
-// Nine roles, nine theme tokens — an arbitrary but exhaustive 1:1 assignment
-// so every role reads as a distinct color without a raw hex value.
+// One theme token per role — an arbitrary but exhaustive 1:1 assignment so
+// every role reads as a distinct color without a raw hex value.
 const ROLE_COLOR_CLASSES: Record<ComponentRole, string> = {
   frontend: "border-transparent bg-info/15 text-info",
   backend: "border-transparent bg-primary/15 text-primary",
@@ -14,6 +14,8 @@ const ROLE_COLOR_CLASSES: Record<ComponentRole, string> = {
   library: "border-transparent bg-secondary text-secondary-foreground",
   infra: "border-transparent bg-accent text-accent-foreground",
   cli: "border-transparent bg-muted text-muted-foreground",
+  data: "border-transparent bg-chart-1/15 text-chart-1",
+  game: "border-transparent bg-chart-2/15 text-chart-2",
   other: "border-transparent bg-destructive/15 text-destructive",
 };
 
