@@ -23,6 +23,7 @@ type Service struct {
 	providers LLMProviders
 	// Nil means no runner is attached — correct on every host without an agent CLI installed.
 	hostExecutor HostExecutorProbe
+	progress     syncProgress
 }
 
 type HostExecutorProbe func(domain.LLMProviderType) bool

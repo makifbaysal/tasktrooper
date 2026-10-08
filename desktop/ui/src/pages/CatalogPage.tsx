@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type CatalogPending, type CatalogSyncState } from "@/api";
+import { api, type CatalogPending, type CatalogSyncProgress, type CatalogSyncState } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useCatalogSync } from "@/hooks/useCatalogSync";
 import { useI18n } from "@/hooks/useI18n";
 
 function formatWhen(iso: string | undefined): string {
@@ -41,11 +44,18 @@ export function CatalogPage() {
     void load();
   }, [load]);
 
+  const { progress, busy, refresh: refreshProgress } = useCatalogSync(() => void load());
+
   const syncNow = async () => {
     setSyncing(true);
     try {
       const res = await api.syncCatalog();
-      setState(res.state);
+      if (res.running) {
+        toast.info(t("settingsPages.catalog.alreadyRunning"));
+        void refreshProgress();
+        return;
+      }
+      setState(res.state ?? null);
       toast.success(t("settingsPages.catalog.syncToast"));
       const list = await api.listCatalogPending();
       setPending(list.items ?? []);
@@ -113,10 +123,13 @@ export function CatalogPage() {
             {t("settingsPages.catalog.lastSync")}: {formatWhen(state?.last_sync_at)}
           </p>
         </div>
-        <Button onClick={syncNow} disabled={syncing}>
-          {syncing ? t("settingsPages.catalog.syncing") : t("settingsPages.catalog.syncNow")}
+        <Button onClick={syncNow} disabled={syncing || busy}>
+          {(syncing || busy) && <Loader2 className="animate-spin" />}
+          {syncing || busy ? t("settingsPages.catalog.syncing") : t("settingsPages.catalog.syncNow")}
         </Button>
       </div>
+
+      {busy && progress && <CatalogSyncProgressCard progress={progress} />}
 
       <Card className="p-6">
         <div className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
@@ -189,5 +202,38 @@ export function CatalogPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function CatalogSyncProgressCard({ progress }: { progress: CatalogSyncProgress }) {
+  const { t } = useI18n();
+  const base = "settingsPages.catalog.progress";
+  const agentLine = progress.agent
+    ? t(progress.new_agent ? `${base}.adding` : `${base}.updating`, { agent: progress.agent })
+    : t(`${base}.reading`);
+  const added = progress.agents_added ?? [];
+  return (
+    <Card className="space-y-3 p-6" data-testid="catalog-sync-progress">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Loader2 aria-hidden className="h-4 w-4 animate-spin text-primary" />
+        {agentLine}
+      </div>
+      {progress.skills_total > 0 && (
+        <div className="space-y-1.5">
+          <Progress value={(progress.skills_done / progress.skills_total) * 100} />
+          <p className="text-caption text-muted-foreground">
+            {t(`${base}.skills`, { done: progress.skills_done, total: progress.skills_total })}
+          </p>
+        </div>
+      )}
+      <p className="text-caption text-muted-foreground">
+        {t(`${base}.agents`, {
+          done: Math.min(progress.agents_done + 1, progress.agents_total),
+          total: progress.agents_total,
+        })}
+        {added.length > 0 && ` · ${t(`${base}.added`, { names: added.join(", ") })}`}
+      </p>
+      <p className="text-caption text-muted-foreground">{t(`${base}.note`)}</p>
+    </Card>
   );
 }

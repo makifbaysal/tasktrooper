@@ -7,6 +7,13 @@ export const frame: FrameDict = {
     header: {
       lightTheme: "Açık tema",
       darkTheme: "Koyu tema",
+      catalogSync: {
+        adding: "{agent} ekleniyor",
+        updating: "{agent} güncelleniyor",
+        syncing: "Ajan kataloğu senkronize ediliyor",
+        skills: "{done}/{total} skill",
+        detail: "Ajan kataloğu senkronu: ajan {done}/{total}. Her yeni skill arama için indeksleniyor, her biri birkaç saniye sürer.",
+      },
       leadAsk: {
         label: "{name} için mesaj",
         placeholder: "PM'den iste…",
@@ -183,6 +190,8 @@ export const frame: FrameDict = {
       remove: "Kaldır",
       imageUnavailable: "Görsel yüklenemedi",
       openFullSize: "Tam boyutta aç",
+      download: "İndir",
+      lightboxDescription: "Ekin tam boyutu.",
     },
   },
 };

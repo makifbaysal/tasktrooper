@@ -42,13 +42,18 @@ export function useAttachmentBlob(id: string | null): { url: string | null; load
 }
 
 /**
- * Opens an attachment in a new tab through an authenticated blob fetch —
- * the click handler equivalent of useAttachmentBlob. The object URL is
- * revoked shortly after the tab takes ownership of it.
+ * Saves an attachment through an authenticated blob fetch — the click handler
+ * for a file that is not an image. It downloads rather than opening a tab:
+ * the desktop shell hands every popup to the OS, which cannot open a blob: URL.
  */
-export async function openAttachmentBlob(id: string): Promise<void> {
+export async function downloadAttachmentBlob(id: string, filename: string): Promise<void> {
   const blob = await api.fetchAttachmentBlob(id);
   const objectUrl = URL.createObjectURL(blob);
-  window.open(objectUrl, "_blank", "noopener");
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }

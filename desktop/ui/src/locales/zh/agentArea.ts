@@ -340,36 +340,6 @@ export const agentArea = {
               detail: "发布",
             },
           },
-          caption: "PM 会把每个需求转化为看板任务。技术路径不明确时，它会发起分析，并把计划带给你批准；新界面会先做设计。团队负责实现——后端、Web、移动、数据或游戏——每个 pull request 在 QA 测试前都需要架构师和安全审查者批准。PM 进行检查，最终由你批准。",
-        },
-        team: {
-          title: "你的团队",
-          groups: {
-            plan: {
-              label: "规划",
-              detail: "把需求变成任务和计划",
-            },
-            design: {
-              label: "设计",
-              detail: "设计系统和新界面",
-            },
-            build: {
-              label: "开发",
-              detail: "代码、测试和 pull request",
-            },
-            review: {
-              label: "审查",
-              detail: "每位审查者都要批准 PR",
-            },
-            ship: {
-              label: "测试与发布",
-              detail: "测试、合并并部署",
-            },
-            custom: {
-              label: "你的智能体",
-              detail: "你添加的智能体",
-            },
-          },
         },
       },
     },

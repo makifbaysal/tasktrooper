@@ -81,6 +81,26 @@ type CatalogSyncResult struct {
 	Pending int `json:"pending"`
 }
 
+// CatalogSyncProgress is what a catalog sync is doing right now. Embedding a
+// new agent's skills takes seconds each, so a sync that brings new agents runs
+// for minutes; this is what tells a person it has not stalled.
+type CatalogSyncProgress struct {
+	Running   bool       `json:"running"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	// Agent is the catalog slug being reconciled; NewAgent marks one this
+	// sync is creating rather than updating.
+	Agent       string `json:"agent,omitempty"`
+	NewAgent    bool   `json:"new_agent"`
+	AgentsDone  int    `json:"agents_done"`
+	AgentsTotal int    `json:"agents_total"`
+	// SkillsDone of SkillsTotal is the current agent's new skills embedded so
+	// far — the slow part; a sync with nothing new keeps SkillsTotal at 0.
+	SkillsDone  int `json:"skills_done"`
+	SkillsTotal int `json:"skills_total"`
+	// AgentsAdded names every agent this sync has created so far.
+	AgentsAdded []string `json:"agents_added,omitempty"`
+}
+
 const (
 	CatalogPendingKindAgent    = "agent"
 	CatalogPendingKindSkill    = "skill"

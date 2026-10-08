@@ -340,36 +340,6 @@ export const agentArea = {
               detail: "Release",
             },
           },
-          caption: "Le PM transforme chaque demande en tâches sur le tableau. Quand la voie technique n'est pas claire, il ouvre une analyse et vous soumet le plan pour approbation ; un nouvel écran est d'abord conçu. L'équipe le réalise — backend, web, mobile, données ou jeu — et chaque pull request doit être approuvée par l'architecte et le relecteur sécurité avant que la QA ne la teste. Le PM vérifie le résultat, et l'approbation finale vous revient.",
-        },
-        team: {
-          title: "Votre équipe",
-          groups: {
-            plan: {
-              label: "Planification",
-              detail: "Transforme les demandes en tâches et plans",
-            },
-            design: {
-              label: "Design",
-              detail: "Design system et nouveaux écrans",
-            },
-            build: {
-              label: "Réalisation",
-              detail: "Code, tests et pull request",
-            },
-            review: {
-              label: "Revue",
-              detail: "Chaque relecteur approuve la PR",
-            },
-            ship: {
-              label: "Test et livraison",
-              detail: "Teste, fusionne et déploie",
-            },
-            custom: {
-              label: "Vos agents",
-              detail: "Agents que vous avez ajoutés",
-            },
-          },
         },
       },
     },

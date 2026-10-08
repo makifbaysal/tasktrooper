@@ -303,36 +303,6 @@ export const agentArea: AgentAreaDict = {
             approval: { label: "Son onay", detail: "Onaylarsın" },
             deploy: { label: "Deploy", detail: "Yayın" },
           },
-          caption: "PM her isteği board görevine çevirir. Teknik yol belirsizse analiz açar ve planı onayına getirir; yeni bir ekran önce tasarlanır. Kodu ekip yazar — backend, web, mobil, veri ya da oyun — ve her pull request QA'ya geçmeden önce mimarın ve güvenlik reviewer'ının onayını alır. PM kabul eder, son onay senindir.",
-        },
-        team: {
-          title: "Ekibin",
-          groups: {
-            plan: {
-              label: "Plan",
-              detail: "İstekleri görev ve plana çevirir",
-            },
-            design: {
-              label: "Tasarım",
-              detail: "Tasarım sistemi ve yeni ekranlar",
-            },
-            build: {
-              label: "Geliştirme",
-              detail: "Kod, testler ve pull request",
-            },
-            review: {
-              label: "Review",
-              detail: "Her reviewer PR'ı onaylar",
-            },
-            ship: {
-              label: "Test ve yayın",
-              detail: "Test eder, merge ve deploy eder",
-            },
-            custom: {
-              label: "Senin ajanların",
-              detail: "Senin eklediğin ajanlar",
-            },
-          },
         },
       },
     },

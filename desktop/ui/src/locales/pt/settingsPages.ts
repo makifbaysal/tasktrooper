@@ -498,5 +498,15 @@ export const settingsPages = {
     applying: "Aplicando…",
     applyToast: "Versão do catálogo aplicada",
     applyFailed: "Não foi possível aplicar a versão do catálogo",
+    alreadyRunning: "Já há uma sincronização em andamento; o progresso aparece aqui.",
+    progress: {
+      adding: "Adicionando {agent}",
+      updating: "Atualizando {agent}",
+      reading: "Lendo o catálogo…",
+      skills: "{done} de {total} skills novas indexadas",
+      agents: "Agente {done} de {total}",
+      added: "adicionados: {names}",
+      note: "Cada skill nova é indexada para busca, alguns segundos cada, então uma versão com agentes novos leva alguns minutos. Cada agente aparece na barra lateral assim que fica pronto.",
+    },
   },
 };

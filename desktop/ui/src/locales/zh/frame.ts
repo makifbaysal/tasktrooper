@@ -4,6 +4,13 @@ export const frame = {
     header: {
       lightTheme: "浅色主题",
       darkTheme: "深色主题",
+      catalogSync: {
+        adding: "正在添加 {agent}",
+        updating: "正在更新 {agent}",
+        syncing: "正在同步智能体目录",
+        skills: "{done}/{total} 个技能",
+        detail: "智能体目录同步：第 {done}/{total} 个智能体。每个新技能都会建立搜索索引，每个需要几秒。",
+      },
       leadAsk: {
         label: "给 {name} 发消息",
         placeholder: "向 PM 提问…",
@@ -178,6 +185,8 @@ export const frame = {
       remove: "移除",
       imageUnavailable: "图片不可用",
       openFullSize: "查看原图",
+      download: "下载",
+      lightboxDescription: "附件原始尺寸。",
     },
   },
 };

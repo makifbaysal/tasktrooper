@@ -303,36 +303,6 @@ export const agentArea = {
             approval: { label: "Sign-off", detail: "You approve" },
             deploy: { label: "Deploy", detail: "Release" },
           },
-          caption: "The PM turns every request into board tasks. When the technical path is unclear it opens an analysis and brings the plan to you for approval; a new screen is designed first. Developers build it — backend, web, mobile, data or game — and every pull request needs the architect's and the security reviewer's approval before QA tests it. The PM checks the result, and the final approval is yours.",
-        },
-        team: {
-          title: "Your team",
-          groups: {
-            plan: {
-              label: "Plan",
-              detail: "Turns requests into tasks and plans",
-            },
-            design: {
-              label: "Design",
-              detail: "Design system and new screens",
-            },
-            build: {
-              label: "Build",
-              detail: "Code, tests and the pull request",
-            },
-            review: {
-              label: "Review",
-              detail: "Every reviewer approves the PR",
-            },
-            ship: {
-              label: "Test & ship",
-              detail: "Tests, merges and deploys",
-            },
-            custom: {
-              label: "Your agents",
-              detail: "Agents you added",
-            },
-          },
         },
       },
     },

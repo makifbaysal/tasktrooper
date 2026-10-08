@@ -1840,6 +1840,19 @@ export interface CatalogSyncState {
   updated_at: string;
 }
 
+/** A catalog sync in flight. `skills_total` is the current agent's new skills to index — the slow part — and stays 0 on a pass with nothing new. */
+export interface CatalogSyncProgress {
+  running: boolean;
+  started_at?: string;
+  agent?: string;
+  new_agent: boolean;
+  agents_done: number;
+  agents_total: number;
+  skills_done: number;
+  skills_total: number;
+  agents_added?: string[];
+}
+
 export interface CatalogPending {
   id: string;
   agent_slug: string;
@@ -3866,6 +3879,8 @@ export interface DesignTaskRef {
   title: string;
   column: TaskColumn;
   open: boolean;
+  /** Open with nobody holding it: no agent has the designer role yet. */
+  waiting_for_designer?: boolean;
 }
 
 export interface DesignSystemRepositorySummary {
@@ -3929,6 +3944,8 @@ export interface RepositoryDesignSystemView {
 export interface DesignSystemGenerateResult {
   task: BoardTask;
   created: boolean;
+  /** No agent holds the designer role yet; the task waits unassigned and nobody else picks it up. */
+  waiting_for_designer?: boolean;
 }
 
 export const api = {
@@ -4372,10 +4389,15 @@ export const api = {
 
   deleteAgent: (id: string) => request<void>(`/admin/agents/${id}`, { method: "DELETE" }),
 
-  getCatalogStatus: () => request<{ configured: boolean; state?: CatalogSyncState }>("/v1/catalog/status"),
+  getCatalogStatus: () =>
+    request<{ configured: boolean; state?: CatalogSyncState; progress?: CatalogSyncProgress }>("/v1/catalog/status"),
 
+  // 202 with running=true when a sync is already under way: it is not queued, follow its progress instead.
   syncCatalog: () =>
-    request<{ result: CatalogSyncResult; state: CatalogSyncState }>("/v1/catalog/sync", { method: "POST" }),
+    request<{ result?: CatalogSyncResult; state?: CatalogSyncState; running?: boolean; progress?: CatalogSyncProgress }>(
+      "/v1/catalog/sync",
+      { method: "POST" },
+    ),
 
   listCatalogPending: () => request<{ items: CatalogPending[]; count: number }>("/v1/catalog/pending"),
 

@@ -134,6 +134,14 @@ type Workflow struct {
 	Stages []WorkflowStage
 }
 
+// ReservedForRole reports whether the type hands its tasks to one role's
+// agent (design to the designer, analiz to the analyst). Such a task with no
+// assignee waits for that role rather than going to whoever watches its column.
+func (w Workflow) ReservedForRole() bool {
+	return w.Type.AssigneeRoleID != nil &&
+		(w.Type.AssigneeMode == AssigneeModeOverride || w.Type.AssigneeMode == AssigneeModeDefault)
+}
+
 func (w Workflow) Stage(col TaskColumn) (WorkflowStage, bool) {
 	for _, s := range w.Stages {
 		if s.Column == col {

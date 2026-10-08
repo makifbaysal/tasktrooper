@@ -22,13 +22,37 @@ var syncMu sync.Mutex
 func (s *Service) SyncFromCatalog(ctx context.Context, reader port.CatalogRepoReader, syncStore port.CatalogSyncStore) (*domain.CatalogSyncResult, error) {
 	syncMu.Lock()
 	defer syncMu.Unlock()
+	return s.syncLocked(ctx, reader, syncStore)
+}
+
+// TrySyncFromCatalog runs a sync unless one is already running, in which case
+// it returns started=false at once: a person pressing Sync during the boot
+// sync's minutes of skill embedding should see that sync's progress, not a
+// request that hangs until it ends and then runs a second, empty pass.
+func (s *Service) TrySyncFromCatalog(ctx context.Context, reader port.CatalogRepoReader, syncStore port.CatalogSyncStore) (res *domain.CatalogSyncResult, started bool, err error) {
+	if !syncMu.TryLock() {
+		return nil, false, nil
+	}
+	defer syncMu.Unlock()
+	res, err = s.syncLocked(ctx, reader, syncStore)
+	return res, true, err
+}
+
+func (s *Service) SyncProgress() domain.CatalogSyncProgress {
+	return s.progress.snapshot()
+}
+
+func (s *Service) syncLocked(ctx context.Context, reader port.CatalogRepoReader, syncStore port.CatalogSyncStore) (*domain.CatalogSyncResult, error) {
 	ctx = WithVersionSource(ctx, VersionSource{Source: domain.CatalogVersionSourceUpstream})
+	s.progress.start(0, time.Now())
+	defer s.progress.finish()
 
 	defs, ref, err := reader.ReadCatalog(ctx)
 	if err != nil {
 		s.recordSync(ctx, syncStore, ref, nil, err.Error())
 		return nil, err
 	}
+	s.progress.start(len(defs), time.Now())
 
 	agents, err := s.store.ListAgents(ctx)
 	if err != nil {
@@ -50,20 +74,30 @@ func (s *Service) SyncFromCatalog(ctx context.Context, reader port.CatalogRepoRe
 		if !ok {
 			// Name-based adoption: same-named slug-less agents predate catalog slugs; adopt instead of duplicating.
 			if unnamed, found := byName[def.Name]; found && unnamed.CatalogSlug == "" {
+				s.progress.agent(def.Slug, false)
 				adopted, err := s.adoptByName(ctx, unnamed, def, syncStore, res)
 				if err != nil {
 					s.recordSync(ctx, syncStore, ref, res, fmt.Sprintf("agent %s: %v", def.Slug, err))
 					return nil, err
 				}
 				bySlug[def.Slug] = adopted
+				s.progress.agentDone("")
 				continue
 			}
+			s.progress.agent(def.Slug, true)
+			skippedBefore := res.Skipped
 			if err := s.ingestNewAgent(ctx, def, syncStore, res); err != nil {
 				s.recordSync(ctx, syncStore, ref, res, fmt.Sprintf("agent %s: %v", def.Slug, err))
 				return nil, err
 			}
+			added := def.Slug
+			if res.Skipped != skippedBefore {
+				added = ""
+			}
+			s.progress.agentDone(added)
 			continue
 		}
+		s.progress.agent(def.Slug, false)
 		// The etag gates the agent definition only; skills reconcile on every
 		// pass, so a skill a pass could not land is retried without waiting
 		// for the agent's folder to change.
@@ -116,6 +150,7 @@ func (s *Service) SyncFromCatalog(ctx context.Context, reader port.CatalogRepoRe
 				return nil, err
 			}
 		}
+		s.progress.agentDone("")
 	}
 
 	s.recordSync(ctx, syncStore, ref, res, "")
@@ -290,6 +325,13 @@ func (s *Service) reconcileSkills(ctx context.Context, agent domain.Agent, def d
 	for _, sk := range dbSkills {
 		byName[sk.Name] = sk
 	}
+	toAdd := 0
+	for _, usk := range def.Skills {
+		if _, ok := byName[usk.Name]; !ok {
+			toAdd++
+		}
+	}
+	s.progress.skillsToAdd(toAdd)
 
 	for _, usk := range def.Skills {
 		local, ok := byName[usk.Name]
@@ -298,6 +340,7 @@ func (s *Service) reconcileSkills(ctx context.Context, agent domain.Agent, def d
 			if err := s.ingestSkill(ctx, agent.ID, usk, &stackID); err != nil {
 				return fmt.Errorf("create skill %s: %w", usk.Name, err)
 			}
+			s.progress.skillAdded()
 			s.clearPending(ctx, syncStore, def.Slug, domain.CatalogPendingKindSkill, usk.Name)
 			res.Created++
 			log.Info().Str("agent", agent.Name).Str("skill", usk.Name).Msg("catalog: skill ingested")

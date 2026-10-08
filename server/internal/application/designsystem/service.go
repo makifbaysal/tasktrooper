@@ -33,6 +33,16 @@ type TaskCreator interface {
 	GetTask(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error)
 }
 
+// TaskAssigner is the part of the board a TaskCreator may also offer: handing
+// an open design task to the designer that was not there when it was opened.
+type TaskAssigner interface {
+	UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID, req domain.UpdateBoardTaskRequest) (domain.BoardTask, error)
+}
+
+type DesignerResolver interface {
+	AssigneeForNewTask(ctx context.Context, taskType domain.TaskType, area string, requested *uuid.UUID) (*uuid.UUID, error)
+}
+
 const (
 	maxDesignTextBytes  = 200_000
 	maxTokenBytes       = 200_000
@@ -44,13 +54,15 @@ type Service struct {
 	projects ProjectReader
 	repos    RepositoryReader
 	tasks    TaskCreator
+	roles    DesignerResolver
 }
 
 func NewService(store port.DesignSystemStore, projects ProjectReader, repos RepositoryReader) *Service {
 	return &Service{store: store, projects: projects, repos: repos}
 }
 
-func (s *Service) SetTaskCreator(t TaskCreator) { s.tasks = t }
+func (s *Service) SetTaskCreator(t TaskCreator)       { s.tasks = t }
+func (s *Service) SetRoleResolver(r DesignerResolver) { s.roles = r }
 
 // TaskRef is the design task a target's Design System tab points at.
 type TaskRef struct {
@@ -60,6 +72,8 @@ type TaskRef struct {
 	Title        string            `json:"title"`
 	Column       domain.TaskColumn `json:"column"`
 	Open         bool              `json:"open"`
+	// WaitingForDesigner: open, and no agent holds it yet.
+	WaitingForDesigner bool `json:"waiting_for_designer,omitempty"`
 }
 
 type RepositoryLayerSummary struct {
@@ -387,6 +401,8 @@ func (s *Service) taskRef(ctx context.Context, req *domain.DesignSystemRequest) 
 		Title:        task.Title,
 		Column:       task.Column,
 		Open:         taskOpen(task.Column),
+
+		WaitingForDesigner: taskOpen(task.Column) && task.AssigneeAgentID == nil,
 	}
 }
 
@@ -399,6 +415,14 @@ func taskOpen(col domain.TaskColumn) bool {
 type RequestResult struct {
 	Task    domain.BoardTask `json:"task"`
 	Created bool             `json:"created"`
+	// WaitingForDesigner is set while the task has no assignee: no agent holds
+	// the designer role yet (a catalog sync may still be adding it), and the
+	// task waits for one instead of going to whoever watches its column.
+	WaitingForDesigner bool `json:"waiting_for_designer,omitempty"`
+}
+
+func newRequestResult(task domain.BoardTask, created bool) RequestResult {
+	return RequestResult{Task: task, Created: created, WaitingForDesigner: task.AssigneeAgentID == nil}
 }
 
 // RequestForProject opens a design task that derives (or updates) the
@@ -468,7 +492,7 @@ func (s *Service) RequestForProject(ctx context.Context, projectID uuid.UUID, no
 	}); err != nil {
 		return RequestResult{}, err
 	}
-	return RequestResult{Task: task, Created: true}, nil
+	return newRequestResult(task, true), nil
 }
 
 // RequestForRepository opens a design task for one repository's layer, or for
@@ -525,7 +549,7 @@ func (s *Service) RequestForRepository(ctx context.Context, repositoryID uuid.UU
 	}); err != nil {
 		return RequestResult{}, err
 	}
-	return RequestResult{Task: task, Created: true}, nil
+	return newRequestResult(task, true), nil
 }
 
 func (s *Service) openRequest(ctx context.Context, latest func(context.Context, uuid.UUID) (*domain.DesignSystemRequest, error), id uuid.UUID) (RequestResult, bool) {
@@ -537,7 +561,28 @@ func (s *Service) openRequest(ctx context.Context, latest func(context.Context, 
 	if err != nil || !taskOpen(task.Column) {
 		return RequestResult{}, false
 	}
-	return RequestResult{Task: task, Created: false}, true
+	return newRequestResult(s.assignDesigner(ctx, req.TaskRepositoryID, task), false), true
+}
+
+// assignDesigner hands an open design task that nobody holds to the designer,
+// when one exists by now: pressing the button again is how a person asks for
+// the task they opened before the designer agent arrived.
+func (s *Service) assignDesigner(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask) domain.BoardTask {
+	assigner, ok := s.tasks.(TaskAssigner)
+	if task.AssigneeAgentID != nil || s.roles == nil || !ok {
+		return task
+	}
+	designer, err := s.roles.AssigneeForNewTask(ctx, domain.TaskTypeDesign, "", nil)
+	if err != nil || designer == nil {
+		return task
+	}
+	updated, err := assigner.UpdateTask(ctx, repositoryID, task.ID, domain.UpdateBoardTaskRequest{
+		AssigneeAgentID: domain.SetNullable(*designer),
+	})
+	if err != nil {
+		return task
+	}
+	return updated
 }
 
 // hostRepository is where a project-wide design task lives: a UI repository

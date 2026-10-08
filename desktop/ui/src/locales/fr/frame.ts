@@ -4,6 +4,13 @@ export const frame = {
     header: {
       lightTheme: "Thème clair",
       darkTheme: "Thème sombre",
+      catalogSync: {
+        adding: "Ajout de {agent}",
+        updating: "Mise à jour de {agent}",
+        syncing: "Synchronisation du catalogue d'agents",
+        skills: "{done}/{total} skills",
+        detail: "Synchronisation du catalogue : agent {done} sur {total}. Chaque nouveau skill est indexé pour la recherche, quelques secondes chacun.",
+      },
       leadAsk: {
         label: "Écrire à {name}",
         placeholder: "Demander au PM…",
@@ -178,6 +185,8 @@ export const frame = {
       remove: "Retirer",
       imageUnavailable: "Image indisponible",
       openFullSize: "Ouvrir en taille réelle",
+      download: "Télécharger",
+      lightboxDescription: "La pièce jointe en taille réelle.",
     },
   },
 };

@@ -498,5 +498,15 @@ export const settingsPages = {
     applying: "正在应用…",
     applyToast: "已应用目录版本",
     applyFailed: "无法应用目录版本",
+    alreadyRunning: "已有同步正在进行，进度显示在这里。",
+    progress: {
+      adding: "正在添加 {agent}",
+      updating: "正在更新 {agent}",
+      reading: "正在读取目录…",
+      skills: "已索引 {done}/{total} 个新技能",
+      agents: "第 {done}/{total} 个智能体",
+      added: "已添加：{names}",
+      note: "每个新技能都会建立搜索索引，每个需要几秒，因此包含新智能体的版本需要几分钟。每个智能体就绪后会立即出现在侧边栏中。",
+    },
   },
 };

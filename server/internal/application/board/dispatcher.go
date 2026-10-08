@@ -396,6 +396,9 @@ func (d *Dispatcher) resolveAgents(ctx context.Context, wf domain.Workflow, wfOK
 		if task.AssigneeAgentID != nil {
 			return []uuid.UUID{*task.AssigneeAgentID}, nil
 		}
+		if wfOK && wf.ReservedForRole() {
+			return nil, nil
+		}
 		return d.board.AgentsForColumn(ctx, string(task.Column), taskType)
 	case domain.BoardEventTaskAssigned:
 		if task.AssigneeAgentID == nil {
@@ -408,6 +411,11 @@ func (d *Dispatcher) resolveAgents(ctx context.Context, wf domain.Workflow, wfOK
 		}
 		if task.AssigneeAgentID != nil {
 			return []uuid.UUID{*task.AssigneeAgentID}, nil
+		}
+		// A design task opened before any designer existed went to the backend
+		// developer through its todo subscription; it waits for its role instead.
+		if wfOK && wf.ReservedForRole() {
+			return nil, nil
 		}
 		return d.board.AgentsForColumn(ctx, string(task.Column), taskType)
 	default:

@@ -724,8 +724,10 @@ export function TaskDetailDrawer({
                   )}
                 </section>
 
+                {/* Distinct keys: these two are siblings, and a shared key made React
+                    duplicate the design section on every poll that re-rendered them. */}
                 <TaskDesignSection
-                  key={task.id}
+                  key={`design-${task.id}`}
                   repositoryId={repositoryId}
                   taskId={task.id}
                   repositoryName={repositoryName}
@@ -1036,7 +1038,7 @@ export function TaskDetailDrawer({
                 <Separator />
 
                 <TaskAgentRunsSection
-                  key={task.id}
+                  key={`runs-${task.id}`}
                   task={task}
                   runs={runs}
                   agents={agents}

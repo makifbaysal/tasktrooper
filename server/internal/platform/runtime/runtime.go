@@ -1758,6 +1758,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		if e.pgDB != nil && initiativeStore != nil {
 			designSystemSvc := designsystemapp.NewService(pgstore.NewDesignSystemStore(e.pgDB), initiativeStore, repositorySvc)
 			designSystemSvc.SetTaskCreator(repositorySvc)
+			if workflowSvc != nil {
+				designSystemSvc.SetRoleResolver(workflowSvc)
+			}
 			repositorySvc.SetDesignSystemApprover(designSystemSvc)
 			if boardRunner != nil {
 				boardRunner.SetDesignSystems(designSystemSvc)

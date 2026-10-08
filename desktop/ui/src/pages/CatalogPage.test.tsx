@@ -5,22 +5,24 @@ import type { CatalogPending, CatalogSyncState } from "@/api";
 import { CatalogPage } from "@/pages/CatalogPage";
 import { I18nProvider } from "@/hooks/useI18n";
 
-const { getCatalogStatus, listCatalogPending, applyCatalogPending, dismissCatalogPending } = vi.hoisted(() => ({
+const { getCatalogStatus, listCatalogPending, applyCatalogPending, dismissCatalogPending, syncCatalog, toastInfo } = vi.hoisted(() => ({
   getCatalogStatus: vi.fn(),
   listCatalogPending: vi.fn(),
   applyCatalogPending: vi.fn(),
   dismissCatalogPending: vi.fn(),
+  syncCatalog: vi.fn(),
+  toastInfo: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
   return {
     ...actual,
-    api: { ...actual.api, getCatalogStatus, listCatalogPending, applyCatalogPending, dismissCatalogPending },
+    api: { ...actual.api, getCatalogStatus, listCatalogPending, applyCatalogPending, dismissCatalogPending, syncCatalog },
   };
 });
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: toastInfo } }));
 
 const state: CatalogSyncState = {
   repo_ref: "dir:/catalog",
@@ -73,5 +75,39 @@ describe("CatalogPage", () => {
 
     expect(await screen.findByText("go-testing", { exact: false })).toBeInTheDocument();
     expect(screen.queryByText("3")).not.toBeInTheDocument();
+  });
+
+  it("shows the running sync's progress and does not start a second one", async () => {
+    getCatalogStatus.mockResolvedValue({
+      configured: true,
+      state,
+      progress: {
+        running: true, agent: "security-agent", new_agent: true,
+        agents_done: 8, agents_total: 11, skills_done: 6, skills_total: 24,
+        agents_added: ["data-scientist", "game-developer"],
+      },
+    });
+    listCatalogPending.mockResolvedValue({ items: [], count: 0 });
+    renderPage();
+
+    const card = await screen.findByTestId("catalog-sync-progress");
+    expect(card).toHaveTextContent("Adding security-agent");
+    expect(card).toHaveTextContent("6 of 24 new skills indexed");
+    expect(card).toHaveTextContent("Agent 9 of 11");
+    expect(card).toHaveTextContent("added: data-scientist, game-developer");
+    expect(screen.getByRole("button", { name: /Syncing/ })).toBeDisabled();
+  });
+
+  it("answers a press during a running sync without an error", async () => {
+    listCatalogPending.mockResolvedValue({ items: [], count: 0 });
+    syncCatalog.mockResolvedValue({
+      running: true,
+      progress: { running: true, new_agent: false, agents_done: 0, agents_total: 11, skills_done: 0, skills_total: 0 },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sync now" }));
+
+    await waitFor(() => expect(toastInfo).toHaveBeenCalledWith("A sync is already running; its progress is shown here."));
   });
 });

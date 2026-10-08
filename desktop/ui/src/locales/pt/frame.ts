@@ -4,6 +4,13 @@ export const frame = {
     header: {
       lightTheme: "Tema claro",
       darkTheme: "Tema escuro",
+      catalogSync: {
+        adding: "Adicionando {agent}",
+        updating: "Atualizando {agent}",
+        syncing: "Sincronizando o catálogo de agentes",
+        skills: "{done}/{total} skills",
+        detail: "Sincronização do catálogo: agente {done} de {total}. Cada skill nova é indexada para busca, alguns segundos cada.",
+      },
       leadAsk: {
         label: "Enviar mensagem para {name}",
         placeholder: "Pergunte ao PM…",
@@ -178,6 +185,8 @@ export const frame = {
       remove: "Remover",
       imageUnavailable: "Imagem indisponível",
       openFullSize: "Abrir em tamanho original",
+      download: "Baixar",
+      lightboxDescription: "O anexo em tamanho real.",
     },
   },
 };

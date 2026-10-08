@@ -56,6 +56,48 @@ const detailByActor: Record<Actor, string> = {
   team: "text-muted-foreground",
 };
 
+// From sm up the flow snakes: six steps run left to right, a curve on the
+// right edge turns down, and the last five come back right to left. The grid
+// has 30 tracks so both rows span the full width — six steps of five tracks
+// above, five of six below — and their ends line up. Literal class names, so
+// Tailwind sees every one of them.
+const ROW_LENGTH = 6;
+const SNAKE_CELL = [
+  "sm:col-span-5 sm:col-start-1 sm:row-start-1",
+  "sm:col-span-5 sm:col-start-6 sm:row-start-1",
+  "sm:col-span-5 sm:col-start-11 sm:row-start-1",
+  "sm:col-span-5 sm:col-start-[16] sm:row-start-1",
+  "sm:col-span-5 sm:col-start-[21] sm:row-start-1",
+  "sm:col-span-5 sm:col-start-[26] sm:row-start-1",
+  "sm:col-span-6 sm:col-start-[25] sm:row-start-2",
+  "sm:col-span-6 sm:col-start-[19] sm:row-start-2",
+  "sm:col-span-6 sm:col-start-[13] sm:row-start-2",
+  "sm:col-span-6 sm:col-start-7 sm:row-start-2",
+  "sm:col-span-6 sm:col-start-1 sm:row-start-2",
+];
+
+function Connector({ index }: { index: number }) {
+  if (index === STEPS.length - 1) return null;
+  return (
+    <>
+      {/* Below sm the steps stack: a line down to the next tile. */}
+      <span aria-hidden className="absolute top-8 -bottom-3 left-4 z-0 w-px bg-border sm:hidden" />
+      {index < ROW_LENGTH - 1 && (
+        <span aria-hidden className="absolute top-4 left-1/2 z-0 hidden h-px w-full bg-border sm:block" />
+      )}
+      {index === ROW_LENGTH - 1 && (
+        <span
+          aria-hidden
+          className="absolute top-4 left-1/2 z-0 hidden h-[calc(100%+1.75rem)] w-[calc(50%+0.5rem)] rounded-r-2xl border border-l-0 border-border sm:block"
+        />
+      )}
+      {index >= ROW_LENGTH && (
+        <span aria-hidden className="absolute top-4 right-1/2 z-0 hidden h-px w-full bg-border sm:block" />
+      )}
+    </>
+  );
+}
+
 interface LeadFlowStepsProps {
   agent: Agent;
 }
@@ -65,39 +107,41 @@ export function LeadFlowSteps({ agent }: LeadFlowStepsProps) {
   const base = "agentArea.chat.lead.welcome.flow";
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
+    <Card className="flex flex-col gap-4 p-4">
       <h3 className="text-heading font-semibold">{t(`${base}.title`)}</h3>
-      {/* Vertical padding: overflow-x forces overflow-y too, which would clip the lead avatar's ring. */}
-      <div className="-mx-1 overflow-x-auto px-1 py-1.5">
-        <ol className="grid min-w-[780px] grid-cols-11">
-          {STEPS.map(({ key, actor, icon: Icon }, index) => (
-            <li key={key} className="relative flex flex-col items-center gap-2 text-center">
-              {index < STEPS.length - 1 && (
-                <span aria-hidden className="absolute top-4 left-1/2 z-0 h-px w-full bg-border" />
-              )}
-              {key === "lead" ? (
-                <AgentAvatar name={agent.name} lead size="md" className="relative z-10 ring-offset-card" />
-              ) : (
-                <span
-                  className={cn(
-                    "relative z-10 flex h-8 w-8 items-center justify-center rounded-lg border bg-card",
-                    tileByActor[actor],
-                  )}
-                >
-                  {Icon && <Icon aria-hidden className="h-4 w-4" />}
-                </span>
-              )}
-              <span className="flex flex-col whitespace-nowrap">
-                <span className={cn("text-caption font-medium", actor !== "team" && "font-semibold")}>
-                  {t(`${base}.steps.${key}.label`)}
-                </span>
-                <span className={cn("text-micro", detailByActor[actor])}>{t(`${base}.steps.${key}.detail`)}</span>
+      <ol className="flex flex-col gap-3 py-1 sm:grid sm:grid-cols-[repeat(30,minmax(0,1fr))] sm:gap-x-0 sm:gap-y-7 sm:pr-3">
+        {STEPS.map(({ key, actor, icon: Icon }, index) => (
+          <li
+            key={key}
+            data-testid={`flow-step-${key}`}
+            className={cn(
+              "relative flex items-center gap-3 sm:flex-col sm:items-center sm:gap-2 sm:px-1 sm:text-center",
+              SNAKE_CELL[index],
+            )}
+          >
+            <Connector index={index} />
+            {key === "lead" ? (
+              <AgentAvatar name={agent.name} lead size="md" className="relative z-10 shrink-0 ring-offset-card" />
+            ) : (
+              <span
+                className={cn(
+                  "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-card",
+                  tileByActor[actor],
+                )}
+              >
+                {Icon && <Icon aria-hidden className="h-4 w-4" />}
               </span>
-            </li>
-          ))}
-        </ol>
-      </div>
-      <p className="text-caption text-muted-foreground">{t(`${base}.caption`)}</p>
+            )}
+            <span className="flex min-w-0 flex-col">
+              <span className={cn("text-caption font-medium", actor !== "team" && "font-semibold")}>
+                <span className="mr-1 tabular-nums text-muted-foreground">{index + 1}.</span>
+                {t(`${base}.steps.${key}.label`)}
+              </span>
+              <span className={cn("text-micro", detailByActor[actor])}>{t(`${base}.steps.${key}.detail`)}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
     </Card>
   );
 }

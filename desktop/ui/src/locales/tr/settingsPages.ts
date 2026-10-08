@@ -468,6 +468,16 @@ export const settingsPages: SettingsPagesDict = {
     applying: "Uygulanıyor…",
     applyToast: "Katalog sürümü uygulandı",
     applyFailed: "Katalog sürümü uygulanamadı",
+    alreadyRunning: "Zaten bir senkron çalışıyor; ilerlemesi burada görünüyor.",
+    progress: {
+      adding: "{agent} ekleniyor",
+      updating: "{agent} güncelleniyor",
+      reading: "Katalog okunuyor…",
+      skills: "{total} yeni skill'in {done} tanesi indekslendi",
+      agents: "Ajan {done}/{total}",
+      added: "eklenenler: {names}",
+      note: "Her yeni skill arama için indeksleniyor (her biri birkaç saniye); yeni ajan getiren bir sürümde bu birkaç dakika sürer. Her ajan hazır olunca kenar çubuğunda görünür.",
+    },
   },
 
 };
