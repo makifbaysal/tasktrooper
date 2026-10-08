@@ -189,7 +189,15 @@ export class Shell {
     window.on("minimize", () => this.#setOnScreen(false));
     window.on("show", () => this.#setOnScreen(true));
     window.on("restore", () => this.#setOnScreen(true));
-    window.on("focus", () => this.#setOnScreen(true));
+    window.on("focus", () => {
+      this.#setOnScreen(true);
+      // The product lives in its own WebContentsView; focus coming back to the
+      // window (alt-tab, show from the tray) can otherwise land on the shell's
+      // own page and never reach the cloud view, leaving whatever field the user
+      // was typing in unreadable until they click it. Handing focus to the view
+      // re-enters the page, where useRestoreFocusOnReturn puts the caret back.
+      this.#cloud?.webContents.focus();
+    });
     window.on("resize", () => this.#layout());
     // Full screen hides the traffic lights, so the strip kept for them would be
     // dead space above the header; both transitions re-place the view.
