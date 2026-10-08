@@ -30,9 +30,13 @@ class FakeWebContents extends EventEmitter {
   reloads = 0;
   destroyed = false;
   mainFrame = { processId: 1, routingId: 1, url: "" };
+  focusCalls = 0;
 
   getURL(): string {
     return this.url;
+  }
+  focus(): void {
+    this.focusCalls += 1;
   }
   async loadURL(url: string): Promise<void> {
     this.loaded.push(url);
@@ -390,6 +394,19 @@ describe("keeping the hosted app on screen", () => {
 
     contents.emit("did-finish-load");
     expect(view.visible).toBe(true);
+  });
+
+  it("hands keyboard focus back to the web app when the window regains it", () => {
+    const { window, contents } = start();
+    contents.emitDocumentLoad(`${ORIGIN}/home`);
+    expect(contents.focusCalls).toBe(0);
+
+    // Alt-tab away and back, or show from the tray: focus can land on the
+    // shell's own page, which would leave the field the user was typing in
+    // unreadable until clicked. The shell must re-enter the product's view.
+    window.emit("focus");
+
+    expect(contents.focusCalls).toBe(1);
   });
 });
 

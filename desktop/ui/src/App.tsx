@@ -5,6 +5,7 @@ import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import { SetupProvider } from "@/hooks/useSetup";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { I18nProvider } from "@/hooks/useI18n";
+import { useRestoreFocusOnReturn } from "@/hooks/useRestoreFocusOnReturn";
 import { SetupPage } from "@/pages/SetupPage";
 import { WorkspaceAgentLayout } from "@/components/layout/WorkspaceAgentLayout";
 import { OperationsLayout } from "@/components/layout/OperationsLayout";
@@ -45,6 +46,9 @@ const AgentMemoryPage = lazy(() => import("@/pages/AgentMemoryPage").then((m) =>
 const SharedMemoryPage = lazy(() => import("@/pages/SharedMemoryPage").then((m) => ({ default: m.SharedMemoryPage })));
 
 export default function App() {
+  // Alt-tabbing out drops document focus to <body>; restore it to the field
+  // the user was in when the window comes back.
+  useRestoreFocusOnReturn();
   return (
     <ThemeProvider>
       <I18nProvider>
