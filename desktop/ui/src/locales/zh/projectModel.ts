@@ -9,6 +9,8 @@ export const projectModel = {
     library: "库",
     infra: "基础设施",
     cli: "CLI",
+    data: "数据",
+    game: "游戏",
     other: "其他",
   },
   commandPurposes: {

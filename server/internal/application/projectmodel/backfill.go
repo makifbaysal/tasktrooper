@@ -148,6 +148,8 @@ var legacyKindToRole = map[string]domain.ComponentRole{
 	domain.RepoKindFrontend: domain.ComponentRoleFrontend,
 	domain.RepoKindMobile:   domain.ComponentRoleMobile,
 	domain.RepoKindWorker:   domain.ComponentRoleWorker,
+	domain.RepoKindData:     domain.ComponentRoleData,
+	domain.RepoKindGame:     domain.ComponentRoleGame,
 }
 
 func componentAtPath(components []domain.Component, p string) (domain.Component, bool) {

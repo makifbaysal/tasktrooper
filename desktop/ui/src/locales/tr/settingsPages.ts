@@ -298,6 +298,8 @@ export const settingsPages: SettingsPagesDict = {
       backend: "Backend",
       frontend: "Frontend",
       mobile: "Mobile",
+      data: "Veri",
+      game: "Oyun",
     },
     areaCustomPlaceholder: "Alan ekle…",
     addArea: "Ekle",

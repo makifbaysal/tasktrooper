@@ -233,3 +233,12 @@ func TestSetRoleAssignments_MissingTools422(t *testing.T) {
 	require.False(t, saved)
 	require.NotNil(t, out["missing_tools"])
 }
+
+func TestListWorkflowBehavioursOffersEveryRoleArea(t *testing.T) {
+	app, _ := newWorkflowTestApp(t, newFakeRoleStoreHTTP(), newFakeWorkflowStoreHTTP())
+
+	status, out := doJSON(t, app, "GET", "/v1/workflow/behaviours", nil)
+
+	require.Equal(t, fiber.StatusOK, status, "%v", out)
+	require.Equal(t, []any{"backend", "frontend", "mobile", "data", "game"}, out["areas"])
+}

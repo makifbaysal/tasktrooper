@@ -9,6 +9,8 @@ export const projectModel = {
     library: "Bibliothek",
     infra: "Infra",
     cli: "CLI",
+    data: "Daten",
+    game: "Spiel",
     other: "Sonstiges",
   },
   commandPurposes: {

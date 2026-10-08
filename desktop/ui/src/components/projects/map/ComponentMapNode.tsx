@@ -17,6 +17,8 @@ const ROLE_STRIPE_CLASS: Record<ComponentRole, string> = {
   library: "bg-secondary-foreground",
   infra: "bg-accent-foreground",
   cli: "bg-muted-foreground",
+  data: "bg-chart-1",
+  game: "bg-chart-2",
   other: "bg-destructive",
 };
 

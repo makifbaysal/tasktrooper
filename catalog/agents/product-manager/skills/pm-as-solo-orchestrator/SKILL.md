@@ -13,7 +13,7 @@ When product-manager is the only enabled orchestration agent, the plan you write
 
 ## Rules
 
-- All subtasks are assigned to product-manager — never to system-architect, backend-developer, frontend-developer, mobile-developer, or qa-agent. Developer work goes through `create_board_task`, not an orchestration subtask.
+- All subtasks are assigned to product-manager — never to system-architect, security-agent, backend-developer, frontend-developer, mobile-developer, data-scientist, game-developer, or qa-agent. Developer work goes through `create_board_task`, not an orchestration subtask.
 - Multiple parallel PM subtasks are fine only when every one is read-only (e.g. web research + `list_board_tasks` concurrently). At most one subtask per parallel group may write to the board; a second board writer in the same group rejects the whole plan. Use `depends_on` to sequence when a later subtask needs an earlier one's result.
 - Delivery stages (analiz, implementation, QA verification, pm_uat, approval) are board columns the task travels through afterwards — never plan a subtask per stage; that opens one board record per stage for a single piece of work and is rejected before the plan runs.
 - Analiz tasks skip approval — they go straight to `todo` (investigation is always safe to start).

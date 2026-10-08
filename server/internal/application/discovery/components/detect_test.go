@@ -94,6 +94,67 @@ func TestClassifyRole(t *testing.T) {
 			role:   domain.ComponentRoleInfra, conf: domain.ConfidenceLow,
 		},
 		{
+			name: "a Unity project is a game",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "unity", Path: "ProjectSettings/ProjectVersion.txt", Dependencies: map[string]string{}},
+			role: domain.ComponentRoleGame, conf: domain.ConfidenceHigh,
+		},
+		{
+			name: "phaser beats the web-framework rule",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "node", Path: "package.json", Dependencies: map[string]string{"phaser": "^3.90.0", "react-dom": "^19.0.0", "vite": "^7.0.0"}},
+			role: domain.ComponentRoleGame, conf: domain.ConfidenceHigh,
+		},
+		{
+			name: "three.js inside a Next app stays frontend",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "node", Path: "package.json", Dependencies: map[string]string{"next": "^15.0.0", "three": "^0.180.0"}},
+			role: domain.ComponentRoleFrontend, conf: domain.ConfidenceHigh,
+		},
+		{
+			name: "three.js with only a bundler is a medium-confidence game",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "node", Path: "package.json", Dependencies: map[string]string{"three": "^0.180.0", "vite": "^7.0.0"}},
+			role: domain.ComponentRoleGame, conf: domain.ConfidenceMedium,
+		},
+		{
+			name: "bevy is a game",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "rust", Path: "Cargo.toml", HasPackageMain: true, Dependencies: map[string]string{"bevy": ""}},
+			role: domain.ComponentRoleGame, conf: domain.ConfidenceHigh,
+		},
+		{
+			name: "MonoGame is a game",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "dotnet", Path: "Game.csproj", Dependencies: map[string]string{"MonoGame.Framework.DesktopGL": ""}},
+			role: domain.ComponentRoleGame, conf: domain.ConfidenceHigh,
+		},
+		{
+			name: "pandas and scikit-learn without a web framework is data",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "python", Path: "pyproject.toml", Dependencies: map[string]string{"pandas": "", "scikit-learn": ""}},
+			role: domain.ComponentRoleData, conf: domain.ConfidenceHigh,
+		},
+		{
+			name: "fastapi serving a torch model stays backend",
+			dir:  ".",
+			info: &ManifestInfo{Ecosystem: "python", Path: "pyproject.toml", Dependencies: map[string]string{"fastapi": "", "torch": ""}},
+			role: domain.ComponentRoleBackend, conf: domain.ConfidenceHigh,
+		},
+		{
+			name: "a dbt project is data",
+			dir:  "analytics",
+			info: &ManifestInfo{Ecosystem: "dbt", Path: "analytics/dbt_project.yml", Dependencies: map[string]string{}},
+			role: domain.ComponentRoleData, conf: domain.ConfidenceHigh,
+		},
+		{
+			name:   "a notebooks-only directory is low-confidence data",
+			dir:    ".",
+			layout: fileset{"eda.ipynb": "{}", "model.ipynb": "{}", "README.md": "hi\n"},
+			info:   nil,
+			role:   domain.ComponentRoleData, conf: domain.ConfidenceLow,
+		},
+		{
 			name:   "nothing recognisable falls back to other",
 			dir:    ".",
 			layout: fileset{"README.md": "hi\n"},
@@ -194,4 +255,44 @@ func TestDetectDevPort(t *testing.T) {
 		info := &ManifestInfo{Ecosystem: "go", Path: "go.mod", Dependencies: map[string]string{}}
 		require.Equal(t, 9090, detectDevPort(tree, ".", info, nil))
 	})
+}
+
+func TestEngineEcosystemsClaimTheirRootBeforeDotnetAndNode(t *testing.T) {
+	tree := treeFrom(t, fileset{
+		"ProjectSettings/ProjectVersion.txt":    "m_EditorVersion: 6000.3.2f1\nm_EditorVersionWithRevision: 6000.3.2f1 (abc)\n",
+		"ProjectSettings/ProjectSettings.asset": "PlayerSettings:\n  productName: Space Miner\n",
+		"Packages/manifest.json":                `{"dependencies":{"com.unity.inputsystem":"1.11.0"}}`,
+		"Assembly-CSharp.csproj":                "<Project></Project>",
+		"godot/project.godot":                   "config/name=\"Rogue\"\nconfig/features=PackedStringArray(\"4.5\", \"Forward Plus\")\n",
+		"godot/Rogue.csproj":                    "<Project Sdk=\"Godot.NET.Sdk/4.5.0\"></Project>",
+		"unreal/Shooter.uproject":               `{"EngineAssociation":"5.6","Plugins":[{"Name":"GameplayAbilities","Enabled":true}]}`,
+		"warehouse/dbt_project.yml":             "name: 'warehouse'\nversion: '1.0.0'\n",
+	})
+	manifests := discoverManifests(tree)
+
+	unity := manifests["."]
+	require.NotNil(t, unity)
+	require.Equal(t, "unity", unity.Ecosystem)
+	require.Equal(t, "6000.3.2f1", unity.LanguageVersion)
+	require.Equal(t, "Space Miner", unity.Name)
+	require.Contains(t, unity.Dependencies, "com.unity.inputsystem")
+
+	godot := manifests["godot"]
+	require.NotNil(t, godot)
+	require.Equal(t, "godot", godot.Ecosystem)
+	require.Equal(t, "Rogue", godot.Name)
+	require.Equal(t, "4.5", godot.LanguageVersion)
+	require.Contains(t, godot.Dependencies, "Godot.NET.Sdk")
+
+	unreal := manifests["unreal"]
+	require.NotNil(t, unreal)
+	require.Equal(t, "unreal", unreal.Ecosystem)
+	require.Equal(t, "Shooter", unreal.Name)
+	require.Equal(t, "5.6", unreal.LanguageVersion)
+	require.Contains(t, unreal.Dependencies, "GameplayAbilities")
+
+	dbt := manifests["warehouse"]
+	require.NotNil(t, dbt)
+	require.Equal(t, "dbt", dbt.Ecosystem)
+	require.Equal(t, "warehouse", dbt.Name)
 }

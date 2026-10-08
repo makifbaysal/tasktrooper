@@ -230,6 +230,9 @@ func (r *Runner) sweepReviewVerdict(
 	if fresh.Column != job.Task.Column {
 		return nil
 	}
+	if r.reviewQuorum.HasDecided(ctx, job.Task.ID, job.Task.Column, job.Run.AgentID) {
+		return nil
+	}
 
 	var missing []domain.AcceptanceCriterion
 	var role domain.CriterionReviewRole

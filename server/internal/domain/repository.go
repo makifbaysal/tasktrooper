@@ -104,13 +104,15 @@ const (
 	RepoKindFrontend = "frontend"
 	RepoKindMobile   = "mobile"
 	RepoKindWorker   = "worker"
+	RepoKindData     = "data"
+	RepoKindGame     = "game"
 	RepoKindMonorepo = "monorepo"
 )
 
 // ValidRepoKind reports whether k is a known repo kind.
 func ValidRepoKind(k string) bool {
 	switch k {
-	case RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindWorker, RepoKindMonorepo:
+	case RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindWorker, RepoKindData, RepoKindGame, RepoKindMonorepo:
 		return true
 	}
 	return false
@@ -168,7 +170,7 @@ func ValidMobilePlatform(p string) bool {
 // (single-kind only; monorepo cannot nest).
 func ValidSubRepoKind(k string) bool {
 	switch k {
-	case RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindWorker:
+	case RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindWorker, RepoKindData, RepoKindGame:
 		return true
 	}
 	return false
@@ -177,7 +179,7 @@ func ValidSubRepoKind(k string) bool {
 // AllSubRepoKinds returns every valid monorepo sub-repo kind, for computing
 // auto-detect suggestions.
 func AllSubRepoKinds() []string {
-	return []string{RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindWorker}
+	return []string{RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindWorker, RepoKindData, RepoKindGame}
 }
 
 // RepoSubProject is one project inside a monorepo working copy, detected at

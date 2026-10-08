@@ -16,7 +16,7 @@ const (
 
 func TierForRole(r ComponentRole) MapTier {
 	switch r {
-	case ComponentRoleFrontend, ComponentRoleMobile, ComponentRoleDesktop, ComponentRoleCLI:
+	case ComponentRoleFrontend, ComponentRoleMobile, ComponentRoleDesktop, ComponentRoleCLI, ComponentRoleGame:
 		return TierClient
 	case ComponentRoleLibrary:
 		return TierLibrary

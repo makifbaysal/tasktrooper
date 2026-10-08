@@ -364,6 +364,24 @@ export const boardArea: BoardAreaDict = {
       pullRequestOpen: "Pull request'i aç",
       pullRequestMerged: "{sha} olarak merge edildi",
       pullRequestLinkFailed: "Bu link açılamadı",
+      codeReview: {
+        title: "Code review",
+        round: "{round}. tur",
+        waitingForFirst: "Reviewer'ların başlaması bekleniyor.",
+        noVerdicts: "Henüz karar veren reviewer yok.",
+        earlierRounds: "Önceki turlar ({count})",
+        outcome: {
+          open: "İncelemede",
+          approved: "Onaylandı",
+          rejected: "Değişiklik istendi",
+          closed: "Kapandı",
+        },
+        verdict: {
+          approve: "Onayladı",
+          reject: "Değişiklik istedi",
+          pending: "Bekliyor",
+        },
+      },
     },
   },
 };

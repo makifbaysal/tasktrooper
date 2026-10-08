@@ -74,7 +74,7 @@ type rejectionRule struct {
 var rejectionRules = map[domain.TaskColumn]rejectionRule{
 	domain.TaskColumnHumanUAT:   {domain.ScoreEventHumanUATFailed, domain.ScoreDeltaHumanUATFailed, "Human UAT failed"},
 	domain.TaskColumnPMUAT:      {domain.ScoreEventPMUATFailed, domain.ScoreDeltaPMUATFailed, "PM UAT failed"},
-	domain.TaskColumnCodeReview: {domain.ScoreEventRevisionRequested, domain.ScoreDeltaRevisionRequested, "Architect returned for revision"},
+	domain.TaskColumnCodeReview: {domain.ScoreEventRevisionRequested, domain.ScoreDeltaRevisionRequested, "Code review returned for revision"},
 	domain.TaskColumnReadyForQA: {domain.ScoreEventRevisionRequested, domain.ScoreDeltaRevisionRequested, "QA returned for revision"},
 	domain.TaskColumnInQA:       {domain.ScoreEventRevisionRequested, domain.ScoreDeltaRevisionRequested, "QA returned for revision"},
 }

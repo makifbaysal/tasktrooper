@@ -132,6 +132,7 @@ func primaryLanguage(info *ManifestInfo, langs []domain.StackItem) string {
 		return map[string]string{
 			"go": "Go", "python": "Python", "rust": "Rust", "dart": "Dart",
 			"swift": "Swift", "ruby": "Ruby", "php": "PHP", "dotnet": "C#",
+			"unity": "C#", "godot": "GDScript", "unreal": "C++", "dbt": "SQL",
 		}[info.Ecosystem]
 	}
 	for _, l := range langs {

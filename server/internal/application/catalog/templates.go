@@ -243,7 +243,8 @@ func (s *Service) firstRunnableCLI() domain.LLMProviderType {
 	return ""
 }
 
-// Seeds hand-off subscriptions only into a genuinely open seat: the agent has none yet, and the column has no other subscriber.
+// Seeds hand-off subscriptions only into a genuinely open seat: the agent has none yet, and the column has no other subscriber —
+// except a quorum review column, where every subscriber is one more required reviewer rather than a competitor for the card.
 func (s *Service) applySuggestedSubscriptions(ctx context.Context, agent domain.Agent, suggested []domain.TaskColumn) error {
 	if s.boardConfig == nil || len(suggested) == 0 {
 		return nil
@@ -265,7 +266,7 @@ func (s *Service) applySuggestedSubscriptions(ctx context.Context, agent domain.
 	}
 	slugs := make([]string, 0, len(suggested))
 	for _, col := range suggested {
-		if occupied[string(col)] {
+		if occupied[string(col)] && !domain.QuorumReviewColumn(col) {
 			continue
 		}
 		slugs = append(slugs, string(col))

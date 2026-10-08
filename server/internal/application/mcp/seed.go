@@ -29,8 +29,9 @@ func (s *Service) SeedDefaultsIfEmpty(ctx context.Context) error {
 			AllowedTools: append([]string(nil), template.AllowedTools...),
 			// The shipped catalog keeps reaching every agent, exactly as it
 			// does on an install upgraded past migration 179; only servers a
-			// person adds start out "listed".
-			Access: domain.MCPAccessAll,
+			// person adds, and the templates that drive an editor, a kernel or
+			// a scanner for one agent, start out "listed".
+			Access: template.Access.Effective(),
 		}
 		server = stripSecretsFromStored(server, template.ID)
 		if _, err := s.store.Create(ctx, server); err != nil {

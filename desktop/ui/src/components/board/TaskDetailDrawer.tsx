@@ -18,6 +18,7 @@ import {
   type TaskColumn,
   type TaskDocument,
   type TaskPriority,
+  type TaskReviews,
   type TaskTestCase,
   type TestCaseStatus,
   type TaskType,
@@ -30,6 +31,7 @@ import { AttachmentList } from "@/components/attachments/AttachmentList";
 import { HumanUatDecision } from "@/components/board/HumanUatDecision";
 import { TaskAgentRunsSection } from "@/components/board/TaskAgentRunsSection";
 import { AnalizReviewDecision } from "@/components/board/AnalizReviewDecision";
+import { CodeReviewApprovals } from "@/components/board/CodeReviewApprovals";
 import { BlockedQuestionsBanner } from "@/components/board/analysis/BlockedQuestionsBanner";
 import { PipelineSection } from "@/components/board/PipelineSection";
 import { TaskPreviewsSection } from "@/components/board/TaskPreviewsSection";
@@ -126,6 +128,7 @@ export function TaskDetailDrawer({
   const [criteria, setCriteria] = useState<AcceptanceCriterion[]>([]);
   const [testCases, setTestCases] = useState<TaskTestCase[]>([]);
   const [release, setRelease] = useState<Release | null>(null);
+  const [reviews, setReviews] = useState<TaskReviews | null>(null);
   const [releaseDrawerOpen, setReleaseDrawerOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -202,7 +205,7 @@ export function TaskDetailDrawer({
   // idle tick re-renders nothing.
   const loadDetails = useCallback(async () => {
     if (!taskID || !repositoryId) return;
-    const [c, r, d, cr, at, tc, rel] = await Promise.allSettled([
+    const [c, r, d, cr, at, tc, rel, rv] = await Promise.allSettled([
       api.listTaskComments(repositoryId, taskID),
       api.listTaskAgentRuns(repositoryId, taskID),
       api.listTaskDocuments(repositoryId, taskID),
@@ -210,6 +213,7 @@ export function TaskDetailDrawer({
       api.listTaskAttachments(repositoryId, taskID),
       api.listTestCases(repositoryId, taskID),
       api.listReleases(repositoryId, { taskId: taskID, limit: 1 }),
+      api.listTaskReviews(repositoryId, taskID),
     ]);
     if (taskIDRef.current !== taskID) return;
     if (c.status === "fulfilled") setComments((prev) => keepEqual(prev, c.value.comments ?? []));
@@ -219,6 +223,7 @@ export function TaskDetailDrawer({
     if (at.status === "fulfilled") setAttachments((prev) => keepEqual(prev, at.value.attachments ?? []));
     if (tc.status === "fulfilled") setTestCases((prev) => keepEqual(prev, tc.value.items ?? []));
     if (rel.status === "fulfilled") setRelease((prev) => keepEqual(prev, rel.value.releases[0] ?? null));
+    if (rv.status === "fulfilled") setReviews((prev) => keepEqual(prev, rv.value));
   }, [repositoryId, taskID]);
   useEffect(() => {
     if (!open || !task) return;
@@ -1199,6 +1204,8 @@ export function TaskDetailDrawer({
                       )}
                     </section>
                   )}
+
+                  <CodeReviewApprovals reviews={reviews} inCodeReview={task.column === "code_review"} />
 
                   {task.pr_url && <TaskPreviewsSection key={task.id} repositoryId={repositoryId} taskId={task.id} />}
 

@@ -15,7 +15,7 @@ function renderRole(role: ComponentRole) {
 describe("RoleBadge", () => {
   it("gives every role a distinct color token", () => {
     const roles: ComponentRole[] = [
-      "frontend", "backend", "mobile", "desktop", "worker", "library", "infra", "cli", "other",
+      "frontend", "backend", "mobile", "desktop", "worker", "library", "infra", "cli", "data", "game", "other",
     ];
     const seen = new Set<string>();
     for (const role of roles) {

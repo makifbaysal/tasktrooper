@@ -35,7 +35,7 @@ These read tools are **always available and never need an active repository** �
 ## Worked Example
 
 Stakeholder: "How many repos do we have?" → call `list_repositories` → "We have 3 repos: backend-api, web, and mobile."
-Stakeholder: "Who is on the team?" → call `list_team` → "There are 5 roles: system-architect, backend, frontend, mobile, and qa — each one owns its own area."
+Stakeholder: "Who is on the team?" → call `list_team` → answer from what it returns, e.g. "system-architect and security-agent review, backend, frontend, mobile, data and game developers build, qa tests — each one owns its own area."
 Stakeholder: "How are we doing?" → `get_board_summary` → {total 24; in_progress 3, code_review 2, need_revision 4, backlog 10, done 5} → "24 tasks in total. 3 are in active development, 2 are in architecture review. 4 went back for revision — that's where the biggest risk is. 10 are queued and 5 are done." Not a wall of 24 task titles.
 
 ## Common Mistakes

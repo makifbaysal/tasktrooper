@@ -187,6 +187,61 @@ func TestAgentForRole_ExactAreaBeatsAnyArea(t *testing.T) {
 	require.Nil(t, got, "an unknown role resolves nobody")
 }
 
+func TestAgentForRole_DataAndGameFallBackToBackend(t *testing.T) {
+	roles := newMemRoleStore()
+	backendAgent := uuid.New()
+	dataAgent := uuid.New()
+	roleID := uuid.New()
+	roles.roles[roleID] = domain.AgentRole{
+		ID: roleID, Key: "developer",
+		Assignments: []domain.RoleAssignment{
+			{AgentID: backendAgent, Areas: []string{"backend"}},
+			{AgentID: dataAgent, Areas: []string{"data"}},
+		},
+	}
+	wfStore := newMemWorkflowStore()
+	wfStore.types["task"] = domain.TaskTypeDef{Key: "task", IsDefault: true}
+	svc := workflow.NewService(roles, wfStore)
+	require.NoError(t, svc.Reload(context.Background()))
+
+	got, err := svc.AgentForRole(context.Background(), roleID, "data")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, dataAgent, *got, "the data area's own agent wins")
+
+	got, err = svc.AgentForRole(context.Background(), roleID, "game")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, backendAgent, *got, "a game repo with no game developer falls back to the backend developer")
+
+	got, err = svc.AgentForRole(context.Background(), roleID, "mobile")
+	require.NoError(t, err)
+	require.Nil(t, got, "only data and game have a fallback area")
+}
+
+func TestAgentForRole_AnyAreaBeatsFallbackArea(t *testing.T) {
+	roles := newMemRoleStore()
+	backendAgent := uuid.New()
+	anyAgent := uuid.New()
+	roleID := uuid.New()
+	roles.roles[roleID] = domain.AgentRole{
+		ID: roleID, Key: "developer",
+		Assignments: []domain.RoleAssignment{
+			{AgentID: backendAgent, Areas: []string{"backend"}},
+			{AgentID: anyAgent, Areas: nil},
+		},
+	}
+	wfStore := newMemWorkflowStore()
+	wfStore.types["task"] = domain.TaskTypeDef{Key: "task", IsDefault: true}
+	svc := workflow.NewService(roles, wfStore)
+	require.NoError(t, svc.Reload(context.Background()))
+
+	got, err := svc.AgentForRole(context.Background(), roleID, "game")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, anyAgent, *got)
+}
+
 func TestAssigneeForNewTask_Modes(t *testing.T) {
 	roles := newMemRoleStore()
 	roleID := uuid.New()

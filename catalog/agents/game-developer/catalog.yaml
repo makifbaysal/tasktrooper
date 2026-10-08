@@ -1,0 +1,174 @@
+name: game-developer
+description: Games in Unity, Godot, Unreal Engine, web 2D/3D and Bevy, built test-first on the engine the repository already uses
+subagent_type: game-developer
+effort: high
+max_turns: 0
+self_evolution: false
+enabled: true
+tool_policy:
+    allow_tools:
+        - run_terminal
+        - write_file
+        - edit_file
+        - edit_lines
+        - delete_file
+        - move_file
+        - download_file
+        - web_search
+        - fetch_url
+        - codebase_search
+        - grep_code
+        - get_repo_tree
+        - get_symbol_skeleton
+        - expand_symbol_context
+        - read_file
+        - browser_navigate
+        - browser_screenshot
+        - browser_click
+        - browser_fill
+        - browser_read_dom
+        - browser_wait_for
+        - browser_set_viewport
+        - list_board_tasks
+        - list_ready_tasks
+        - move_board_task
+        - update_board_task
+        - add_task_comment
+        - list_task_comments
+        - list_task_documents
+        - list_acceptance_criteria
+        - set_criterion_completed
+        - cancel_criterion
+        - list_test_cases
+        - list_projects
+        - list_repositories
+        - get_board_summary
+        - list_team
+        - claim_board_task
+        - save_memory
+        - search_memory
+        - delete_memory
+        - load_skill
+        - create_skill
+        - get_project_brief
+        - list_component_checks
+        - list_links
+        - get_environment
+        - query_runtime_logs
+        - list_runtime_errors
+        - list_deployments
+        - get_task_pull_request
+        - comment_on_pull_request
+        - commit_task_changes
+        - get_incident
+        - propose_incident_remedy
+        - resolve_incident
+        - list_incidents
+        - get_deploy_target
+        - list_deploy_templates
+        - load_deploy_template
+        - search_boilerplate_catalog
+        - get_pipeline_status
+        - declare_env_vars
+    allow_mcp_servers:
+        - unity
+        - godot
+        - unreal
+        - blender
+        - filesystem
+        - git
+        - github
+        - gitlab
+        - postgres
+        - slack
+        - huggingface
+        - browser
+roles:
+    - key: developer
+      areas:
+        - game
+subscriptions:
+    - todo
+    - need_revision
+tech_stacks:
+    - name: Unity
+      description: Unity 6 LTS in C# with components, ScriptableObjects, Input System, Addressables, Unity Test Framework and DOTS at scale
+      position: 1
+    - name: Godot
+      description: Godot 4 with statically typed GDScript (or C# where the repo uses it), scenes, signals, Resources and gdUnit4/GUT
+      position: 2
+    - name: Unreal Engine
+      description: Unreal Engine 5 in C++ and Blueprints with the gameplay framework, GAS, Enhanced Input and Automation tests
+      position: 3
+    - name: Web 2D
+      description: Phaser or PixiJS 8 in TypeScript on Vite, tested with Vitest and a seeded Playwright smoke run
+      position: 4
+    - name: Web 3D
+      description: three.js, Babylon.js or PlayCanvas in TypeScript with Rapier physics and explicit GPU resource disposal
+      position: 5
+    - name: Bevy
+      description: Bevy (Rust ECS) on the repository's pinned minor version, systems tested with App::update and cargo test
+      position: 6
+    - name: Other engines
+      description: Defold, MonoGame, pygame, Excalibur and KAPLAY, each on its own conventions and test runner
+      position: 7
+    - name: Game core
+      description: Engine-agnostic craft - loop and time, frame budgets, state machines and AI, networking, assets, saves, input and visual review
+      position: 8
+kpis:
+    - metric_key: tasks_completed
+      name: Weekly tasks completed
+      description: ""
+      period: weekly
+      target_full: 10
+      target_half: 4
+      weight: 1
+      enabled: true
+    - metric_key: revisions_received
+      name: Weekly revisions
+      description: ""
+      period: weekly
+      target_full: 1
+      target_half: 3
+      weight: 1
+      enabled: true
+    - metric_key: first_pass_rate
+      name: First-pass rate
+      description: ""
+      period: weekly
+      target_full: 90
+      target_half: 75
+      weight: 2
+      enabled: true
+    - metric_key: uat_failures
+      name: Weekly UAT rejections
+      description: ""
+      period: weekly
+      target_full: 0
+      target_half: 2
+      weight: 1.5
+      enabled: true
+    - metric_key: bugs_assigned
+      name: Weekly bugs
+      description: ""
+      period: weekly
+      target_full: 2
+      target_half: 5
+      weight: 1
+      enabled: true
+    - metric_key: clean_time_in_progress
+      name: Clean cycle time (in progress)
+      description: ""
+      period: weekly
+      target_full: 1.5
+      target_half: 4
+      weight: 1
+      enabled: true
+    - metric_key: tool_error_rate
+      name: Tool error rate
+      description: ""
+      period: weekly
+      target_full: 3
+      target_half: 6
+      weight: 0.5
+      enabled: true

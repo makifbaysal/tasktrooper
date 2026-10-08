@@ -82,9 +82,10 @@ type ecosystem interface {
 
 func ecosystems() []ecosystem {
 	return []ecosystem{
+		unityEcosystem{}, godotEcosystem{}, unrealEcosystem{},
 		nodeEcosystem{}, goEcosystem{}, pythonEcosystem{}, rustEcosystem{}, dartEcosystem{},
 		swiftEcosystem{}, gradleEcosystem{}, mavenEcosystem{}, phpEcosystem{}, rubyEcosystem{},
-		dotnetEcosystem{}, denoEcosystem{},
+		dotnetEcosystem{}, denoEcosystem{}, dbtEcosystem{},
 	}
 }
 

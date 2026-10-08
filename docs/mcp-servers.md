@@ -42,7 +42,7 @@ and security](data-and-security.md) for what that guard covers.
 
 ## Templates
 
-Eight templates ship with the app, each pre-filling the transport, command or
+Twenty templates ship with the app, each pre-filling the transport, command or
 URL and naming which fields are secrets:
 
 | Template | Transport | What it needs |
@@ -55,6 +55,26 @@ URL and naming which fields are secrets:
 | Slack | stdio | `SLACK_BOT_TOKEN`, `SLACK_TEAM_ID` |
 | Hugging Face | http | A bearer token, sent as the `Authorization` header |
 | Browser | stdio | Nothing — enabled by default |
+| Unity (MCP for Unity) | stdio | uv, the [MCP for Unity](https://github.com/CoplayDev/unity-mcp) package added to the project, and the editor open |
+| Godot (Godot AI) | stdio | uv, the [Godot AI](https://github.com/hi-godot/godot-ai) addon enabled in the project at the same version as the pinned server, and the editor open |
+| Unreal Engine (Unreal MCP) | http | Unreal Engine 5.8+ with the built-in Unreal MCP plugin enabled and its server started; it listens on `127.0.0.1:8000` without authentication |
+| Blender (MCP for Blender) | stdio | uv, Blender with the add-on installed (`uvx mcp-for-blender install-addon`) and running. Its code tool runs arbitrary Python inside Blender |
+| Jupyter | stdio | A JupyterLab on localhost started with a token (`JUPYTER_URL`, `JUPYTER_TOKEN`); the kernel runs whatever the agent sends |
+| DuckDB / MotherDuck | stdio | Nothing for in-memory SQL over local Parquet/CSV; a `.duckdb` path or `md:` plus `motherduck_token` otherwise |
+| dbt | stdio | `DBT_PROJECT_DIR` and `DBT_PATH`; `run`/`build` reach the warehouse with your `profiles.yml` credentials |
+| MLflow | stdio | `MLFLOW_TRACKING_URI` of a running tracking server |
+| Semgrep | stdio | uv; `SEMGREP_APP_TOKEN` only for platform findings and Pro rules |
+| OSV-Scanner | stdio | The `osv-scanner` binary on your PATH (brew or `go install`) |
+| GitHub security (read-only) | http | A read-only token; the server is narrowed to its security toolsets and held read-only |
+| Snyk | stdio | `SNYK_TOKEN`. Snyk Code uploads the scanned source to Snyk's cloud |
+
+The game-engine, data and security templates are disabled until you add and
+enable them, and they are **listed** servers: they reach only the agents that
+name them. The `game-developer` names the four engine servers and the
+`data-scientist` the four data servers (each also names the eight general
+templates above), and the `security-agent` names the four security servers and
+nothing else, so a reviewer never holds an editor or notebook tool. Name one on
+another agent's tool policy to share it.
 
 Picking a template fills the form with its defaults; you still choose the
 server's ID, fill in whatever it asks for (a token, a path, a connection

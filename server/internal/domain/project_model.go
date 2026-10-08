@@ -86,13 +86,16 @@ const (
 	ComponentRoleLibrary  ComponentRole = "library"
 	ComponentRoleInfra    ComponentRole = "infra"
 	ComponentRoleCLI      ComponentRole = "cli"
+	ComponentRoleData     ComponentRole = "data"
+	ComponentRoleGame     ComponentRole = "game"
 	ComponentRoleOther    ComponentRole = "other"
 )
 
 func AllComponentRoles() []ComponentRole {
 	return []ComponentRole{
 		ComponentRoleFrontend, ComponentRoleBackend, ComponentRoleMobile, ComponentRoleDesktop,
-		ComponentRoleWorker, ComponentRoleLibrary, ComponentRoleInfra, ComponentRoleCLI, ComponentRoleOther,
+		ComponentRoleWorker, ComponentRoleLibrary, ComponentRoleInfra, ComponentRoleCLI, ComponentRoleData,
+		ComponentRoleGame, ComponentRoleOther,
 	}
 }
 
@@ -115,6 +118,10 @@ func (r ComponentRole) LegacyRepoKind() string {
 		return RepoKindMobile
 	case ComponentRoleWorker:
 		return RepoKindWorker
+	case ComponentRoleData:
+		return RepoKindData
+	case ComponentRoleGame:
+		return RepoKindGame
 	default:
 		return RepoKindBackend
 	}

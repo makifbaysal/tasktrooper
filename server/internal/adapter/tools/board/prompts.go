@@ -55,6 +55,11 @@ var ungroundedAnalysisGroundingKey = prompt.Define("guard.board_ungrounded_analy
 var documentRewrittenInPlaceKey = prompt.Define("tool_results.board_document_rewritten_in_place", struct{}{})
 var duplicateTaskHintKey = prompt.Define("tool_results.board_duplicate_task_hint", struct{}{})
 
+type moveVerdictInput struct{ Column, Requested string }
+
+var moveVerdictHeldKey = prompt.Define("tool_results.board_move_verdict_held", moveVerdictInput{Column: "code_review", Requested: "ready_for_qa"})
+var moveVerdictRedirectedKey = prompt.Define("tool_results.board_move_verdict_redirected", moveVerdictInput{Column: "need_revision", Requested: "ready_for_qa"})
+
 type countInput struct{ Count int }
 
 var criteriaDroppedHintKey = prompt.Define("tool_results.board_criteria_dropped_hint", countInput{Count: 1})

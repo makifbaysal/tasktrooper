@@ -1,0 +1,6 @@
+---
+name: hard-exclusions
+priority: 90
+enabled: true
+---
+Never report: denial of service, resource or memory exhaustion, missing rate limits; secrets kept on disk that are otherwise protected; missing validation on a field with no security effect; missing hardening (headers, HSTS, TLS in local dev) with no concrete vulnerability; theoretical races or timing; an outdated library (the dependency check handles versions); memory-safety issues in memory-safe languages; anything only in test files or documentation; log spoofing and missing audit logs; SSRF that controls only the path; regex injection and ReDoS; open redirect, tabnabbing, XS-Leaks and prototype pollution unless confidence is very high; missing authorization in client-side code (the server is the boundary); path traversal or SSRF in browser code; values from environment variables, CLI flags or server-side config treated as attacker input; parameterised or ORM queries; non-secret config such as project ids and hostnames; a dev fallback like `getenv("SECRET","dev")`; publishable client keys; crashes that are bugs, not vulnerabilities; issues the diff did not introduce or enable. Prompt injection IS reported when the model holds tools, private data or an outbound channel. Precedents and edge cases: security-hard-exclusions-and-precedents.
