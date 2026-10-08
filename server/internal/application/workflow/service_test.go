@@ -219,6 +219,45 @@ func TestAgentForRole_DataAndGameFallBackToBackend(t *testing.T) {
 	require.Nil(t, got, "only data and game have a fallback area")
 }
 
+func TestAgentForRole_EmptyAreasMeanAnyArea(t *testing.T) {
+	roles := newMemRoleStore()
+	designer := uuid.New()
+	roleID := uuid.New()
+	roles.roles[roleID] = domain.AgentRole{
+		ID: roleID, Key: "designer",
+		Assignments: []domain.RoleAssignment{{AgentID: designer, Areas: []string{}}},
+	}
+	wfStore := newMemWorkflowStore()
+	wfStore.types["task"] = domain.TaskTypeDef{Key: "task", IsDefault: true}
+	svc := workflow.NewService(roles, wfStore)
+	require.NoError(t, svc.Reload(context.Background()))
+
+	for _, area := range []string{"backend", "frontend", "mobile", "data", "game", ""} {
+		got, err := svc.AgentForRole(context.Background(), roleID, area)
+		require.NoError(t, err)
+		require.NotNil(t, got, "the catalog's `areas: []` is read back as '{}', and it means any area (%q)", area)
+		require.Equal(t, designer, *got)
+	}
+	require.Empty(t, svc.AgentAreas(context.Background(), designer), "an any-area agent is tied to no area")
+}
+
+func TestAgentAreas_UnionAcrossRoles(t *testing.T) {
+	roles := newMemRoleStore()
+	agent := uuid.New()
+	dev, sec := uuid.New(), uuid.New()
+	roles.roles[dev] = domain.AgentRole{ID: dev, Key: "developer",
+		Assignments: []domain.RoleAssignment{{AgentID: agent, Areas: []string{"data", "backend"}}}}
+	roles.roles[sec] = domain.AgentRole{ID: sec, Key: "security",
+		Assignments: []domain.RoleAssignment{{AgentID: agent, Areas: []string{"backend"}}}}
+	wfStore := newMemWorkflowStore()
+	wfStore.types["task"] = domain.TaskTypeDef{Key: "task", IsDefault: true}
+	svc := workflow.NewService(roles, wfStore)
+	require.NoError(t, svc.Reload(context.Background()))
+
+	require.Equal(t, []string{"backend", "data"}, svc.AgentAreas(context.Background(), agent))
+	require.Equal(t, "", svc.AgentArea(context.Background(), agent), "two areas are not one")
+}
+
 func TestAgentForRole_AnyAreaBeatsFallbackArea(t *testing.T) {
 	roles := newMemRoleStore()
 	backendAgent := uuid.New()

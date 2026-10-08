@@ -58,13 +58,16 @@ type WorkflowReader interface {
 // RoleResolver answers "which agent holds this role/purpose for this area",
 // backed by the same in-memory snapshot WorkflowReader reads.
 type RoleResolver interface {
-	// An area-scoped assignment wins over one with Areas == nil; ties break on
+	// An area-scoped assignment wins over one with no Areas; ties break on
 	// Priority then on assignment order. nil when the role covers no area.
 	AgentForRole(ctx context.Context, roleID uuid.UUID, area string) (*uuid.UUID, error)
 	AgentForPurpose(ctx context.Context, purpose domain.RolePurposeKey, area string) (*uuid.UUID, error)
 	// The single area of the agent's own area-scoped assignment across any
 	// role; "" when the agent has none or covers more than one.
 	AgentArea(ctx context.Context, agentID uuid.UUID) string
+	// Every area the agent's area-scoped assignments name, across any role;
+	// nil when it holds none, i.e. it is not tied to one area.
+	AgentAreas(ctx context.Context, agentID uuid.UUID) []string
 	// Reads the type's assignee_mode: none returns requested unchanged;
 	// default fills only when requested is nil; override prefers the role's
 	// agent for area, falling back to requested.

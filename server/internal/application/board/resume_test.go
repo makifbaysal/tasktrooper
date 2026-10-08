@@ -86,6 +86,7 @@ func (s *ResumeSuite) SetupTest() {
 		task: domain.BoardTask{
 			ID:                  s.taskID,
 			RepositoryID:        s.repoID,
+			AssigneeAgentID:     &agentA,
 			Title:               "Add billing service",
 			Column:              domain.TaskColumnTodo,
 			BlockedOriginColumn: domain.TaskColumnTodo,

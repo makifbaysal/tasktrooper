@@ -389,14 +389,17 @@ func (d *Dispatcher) resolveAgents(ctx context.Context, wf domain.Workflow, wfOK
 	taskType := string(task.TaskType)
 
 	switch input.EventType {
-	case domain.BoardEventTaskCommented:
-		if isHandoffGateColumn(wf, wfOK, task.Column) {
+	case domain.BoardEventTaskCommented, domain.BoardEventTaskCreated, domain.BoardEventTaskMoved:
+		// An unreadable workflow reads as a gate; todo and need_revision still
+		// must not fan an unassigned card out to every developer.
+		if isHandoffGateColumn(wf, wfOK, task.Column) && !domain.AssigneeOnlyColumn(task.Column) {
 			return d.board.AgentsForColumn(ctx, string(task.Column), taskType)
 		}
 		if task.AssigneeAgentID != nil {
 			return []uuid.UUID{*task.AssigneeAgentID}, nil
 		}
-		if wfOK && wf.ReservedForRole() {
+		// A design task waits for its role in any column, not only the queues.
+		if domain.AssigneeOnlyColumn(task.Column) || (wfOK && wf.ReservedForRole()) {
 			return nil, nil
 		}
 		return d.board.AgentsForColumn(ctx, string(task.Column), taskType)
@@ -405,19 +408,6 @@ func (d *Dispatcher) resolveAgents(ctx context.Context, wf domain.Workflow, wfOK
 			return nil, nil
 		}
 		return []uuid.UUID{*task.AssigneeAgentID}, nil
-	case domain.BoardEventTaskCreated, domain.BoardEventTaskMoved:
-		if isHandoffGateColumn(wf, wfOK, task.Column) {
-			return d.board.AgentsForColumn(ctx, string(task.Column), taskType)
-		}
-		if task.AssigneeAgentID != nil {
-			return []uuid.UUID{*task.AssigneeAgentID}, nil
-		}
-		// A design task opened before any designer existed went to the backend
-		// developer through its todo subscription; it waits for its role instead.
-		if wfOK && wf.ReservedForRole() {
-			return nil, nil
-		}
-		return d.board.AgentsForColumn(ctx, string(task.Column), taskType)
 	default:
 		return nil, nil
 	}

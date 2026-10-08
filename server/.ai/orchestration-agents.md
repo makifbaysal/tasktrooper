@@ -266,6 +266,12 @@ In a column that is not a hand-off gate, `task.moved` resolves to the **assignee
 | `human_uat` | A run was opened for the developer on a task waiting for human approval | Hand-off gate with no subscriber → no run at all (same pattern as `analiz_review`) |
 | `done` / `released` | A run was opened for the finished task's assignee, and `columnInstruction`'s default told it "move to the next column" — `done` tasks slid to `released` without a deploy | `isDispatchSuspendedTask`: `released` always, `done` for every task type **except analiz**. For analiz, `done` is the human's approval; the architect opens the implementation tasks from there. The one exception is `doneMergeWake`, below |
 
+### `todo` and `need_revision` are assignee-only queues (migration 182)
+
+Every developer and the designer subscribe to both, so the Columns tab shows who works the queues. The subscription never routes a card: `domain.AssigneeOnlyColumn` makes `resolveAgents` return the assignee and nobody else, and an **unassigned card wakes no one** — not on `task.created`, `task.moved` or `task.commented` — until a `task.assigned` starts its assignee, whose run `enterWorkingColumn` moves to `in_progress`. This holds even when the workflow cannot be read (that case otherwise routes every column to its subscribers). Before, the catalog seed treated `todo` as a single seat: the first developer installed (backend) held it and took every unassigned card, whatever its area, and every later developer came up with no column at all. `applySuggestedSubscriptions` now exempts the queues from the seat check, as it does the `code_review` quorum; migration 182 backfills developers and the designer that were left with no subscription.
+
+A task chat on an unassigned queue card goes to the subscriber covering the repository's area (`subscribersForTaskArea`), not to whichever developer the store lists first.
+
 The same logic applies to comments: a `task.commented` on a task in a hand-off gate column goes to the agent **holding** the task (QA, architect, PM). It used to go to the assignee: a comment on a task in `in_qa`/`code_review` woke the developer, and the agent actually doing the work never saw it.
 
 ### `done` = the column where the PR is merged (`doneMergeWake`)
@@ -483,7 +489,7 @@ Moves carry an explicit actor (`UpdateBoardTaskRequest.Actor`, never parsed from
 
 Entering the column was left entirely to the agent's own `move_board_task` call. Until the model got to that tool the board said `todo` — and when it never got there, forever: DE-1 sat in `todo` while a `frontend-developer` run was working on it. The system moves it as the run starts, before the prompt is built.
 
-- **Only the assignee's own run.** A `todo` task fans out to every agent the column resolves to, and each is told "do not touch what is not yours"; claiming on their behalf would hand the task to whichever agent the dispatcher reached first. **An unassigned task still waits for the agent's claim.**
+- **Only the assignee's own run.** `todo` and `need_revision` are assignee-only queues (`domain.AssigneeOnlyColumn`, below), so the only run there is the assignee's. **An unassigned task is left alone** — it wakes nobody until it is assigned.
 - **The move is attributed to the agent** (`Actor=agent`, `ActorAgentID`), so the dispatcher's `actorAgentIDFromPayload` guard does not open a second run for this event — it is indistinguishable from the move the agent would have made.
 - If the board write fails the run continues; the agent's own move still corrects the column.
 - `job.Task` carries the updated state, so `columnInstruction` renders the `in_progress` branch and the planner does not spend its first step on a move that already happened.

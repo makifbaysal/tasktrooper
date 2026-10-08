@@ -48,3 +48,10 @@ func ValidTaskColumn(c TaskColumn) bool {
 		return false
 	}
 }
+
+// AssigneeOnlyColumn reports whether col's work goes to the task's assignee
+// alone. Every developer watches these queues, so an unassigned card there
+// waits for an assignee rather than waking each of them.
+func AssigneeOnlyColumn(col TaskColumn) bool {
+	return col == TaskColumnTodo || col == TaskColumnNeedRevision
+}

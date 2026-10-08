@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/workflow/workflowtest"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -186,4 +187,47 @@ func (f *taskChatTaskStore) TakeBlockedResourceTask(context.Context, string, uui
 
 func (f *taskChatTaskStore) ReleaseAnalysisQuestionsBlock(context.Context, uuid.UUID) (domain.BoardTask, bool, error) {
 	return domain.BoardTask{}, false, nil
+}
+
+func TestTaskChatOnAnUnassignedQueueCardTalksToItsAreasDeveloper(t *testing.T) {
+	repositoryID := uuid.New()
+	backend := domain.Agent{ID: uuid.New(), Name: "backend-developer", Enabled: true}
+	frontend := domain.Agent{ID: uuid.New(), Name: "frontend-developer", Enabled: true}
+	data := domain.Agent{ID: uuid.New(), Name: "data-scientist", Enabled: true}
+	designer := domain.Agent{ID: uuid.New(), Name: "ui-designer", Enabled: true}
+	agents := &taskChatAgentStore{agents: map[uuid.UUID]domain.Agent{
+		backend.ID: backend, frontend.ID: frontend, data.ID: data, designer.ID: designer,
+	}}
+	columns := &taskChatColumnStore{byColumn: map[string][]uuid.UUID{
+		string(domain.TaskColumnTodo): {backend.ID, designer.ID, data.ID, frontend.ID},
+	}}
+	roles := workflowtest.Fixture{Roles: []domain.AgentRole{
+		{ID: uuid.New(), Key: "developer", Assignments: []domain.RoleAssignment{
+			{AgentID: backend.ID, Areas: []string{"backend"}},
+			{AgentID: frontend.ID, Areas: []string{"frontend"}},
+			{AgentID: data.ID, Areas: []string{"data"}},
+		}},
+		{ID: uuid.New(), Key: "designer", Assignments: []domain.RoleAssignment{{AgentID: designer.ID, Areas: []string{}}}},
+	}}.Resolver()
+
+	card := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Key: "T-9", Title: "Login form", Column: domain.TaskColumnTodo}
+	tasks := &taskChatTaskStore{tasks: map[[2]uuid.UUID]domain.BoardTask{{repositoryID, card.ID}: card}}
+	open := func(area string) []uuid.UUID {
+		got := subscribersForTaskArea(context.Background(), roles, func(context.Context, uuid.UUID) string { return area }, card,
+			columns.byColumn[string(domain.TaskColumnTodo)])
+		return got
+	}
+
+	assert.Equal(t, []uuid.UUID{frontend.ID, designer.ID}, open("frontend"), "the area's developer first, then the area-less designer")
+	assert.Equal(t, []uuid.UUID{backend.ID, designer.ID}, open("game"), "no game developer: game falls back to backend")
+	assert.Equal(t, []uuid.UUID{backend.ID, designer.ID}, open(""), "an unreadable repository settles on backend")
+
+	opener := NewTaskChatOpener(TaskChatOpenerDeps{
+		Tasks: tasks, Sessions: newFakeSessionStore(), Agents: agents, Columns: columns,
+		Repos: taskChatRepos{root: "/repos/web"}, Roles: roles,
+		RepoArea: func(context.Context, uuid.UUID) string { return "data" },
+	})
+	_, got, err := opener.Open(context.Background(), repositoryID, card.ID)
+	require.NoError(t, err)
+	assert.Equal(t, data.ID, got, "the data card's chat goes to the data scientist, not the designer listed before it")
 }

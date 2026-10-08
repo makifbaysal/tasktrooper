@@ -56,7 +56,9 @@ tool_policy:
 roles:
     - key: designer
       areas: []
-subscriptions: []
+subscriptions:
+    - todo
+    - need_revision
 tech_stacks: []
 kpis:
     - metric_key: tasks_completed
