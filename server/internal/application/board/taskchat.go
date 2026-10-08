@@ -37,6 +37,8 @@ type TaskChatOpenerDeps struct {
 	Columns  TaskChatColumns
 	Repos    RootPathResolver
 	Criteria port.AcceptanceCriterionStore
+	Roles    port.RoleResolver
+	RepoArea RepoAreaFunc
 }
 
 // One thread per task, forever: a second chat would split a conversation both sides have already settled.
@@ -47,6 +49,8 @@ type TaskChatOpener struct {
 	columns  TaskChatColumns
 	repos    RootPathResolver
 	criteria port.AcceptanceCriterionStore
+	roles    port.RoleResolver
+	repoArea RepoAreaFunc
 }
 
 func NewTaskChatOpener(deps TaskChatOpenerDeps) *TaskChatOpener {
@@ -57,6 +61,8 @@ func NewTaskChatOpener(deps TaskChatOpenerDeps) *TaskChatOpener {
 		columns:  deps.Columns,
 		repos:    deps.Repos,
 		criteria: deps.Criteria,
+		roles:    deps.Roles,
+		repoArea: deps.RepoArea,
 	}
 }
 
@@ -130,6 +136,7 @@ func (o *TaskChatOpener) resolveAgent(ctx context.Context, task domain.BoardTask
 		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("task chat: column agent lookup failed")
 		return domain.Agent{}, false
 	}
+	ids = subscribersForTaskArea(ctx, o.roles, o.repoArea, task, ids)
 	for _, id := range ids {
 		if agentRec, err := o.agents.GetAgent(ctx, id); err == nil && agentRec.Enabled {
 			return agentRec, true

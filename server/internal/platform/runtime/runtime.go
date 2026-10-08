@@ -1829,14 +1829,22 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		// The task chat and its branch checkout; built here beside the tools the
 		// chat's agent calls.
 		if sessionStore != nil {
-			boardTaskChat = boardapp.NewTaskChatOpener(boardapp.TaskChatOpenerDeps{
+			chatDeps := boardapp.TaskChatOpenerDeps{
 				Tasks:    boardTaskStore,
 				Sessions: sessionStore,
 				Agents:   catalogStore,
 				Columns:  boardConfigStore,
 				Repos:    repositorySvc,
 				Criteria: criterionStore,
-			})
+			}
+			// Guarded: a typed-nil *workflowapp.Service would pass the opener's nil check.
+			if workflowSvc != nil {
+				chatDeps.Roles = workflowSvc
+			}
+			if repositoryStore != nil {
+				chatDeps.RepoArea = boardapp.RepoAreaFromStore(repositoryStore)
+			}
+			boardTaskChat = boardapp.NewTaskChatOpener(chatDeps)
 		}
 		taskChatWorkspaces = taskChatWorkspace{
 			tasks:         boardTaskStore,

@@ -50,6 +50,8 @@ func (f fakeIncidentRoleResolver) AgentForPurpose(_ context.Context, purpose dom
 
 func (f fakeIncidentRoleResolver) AgentArea(context.Context, uuid.UUID) string { return "" }
 
+func (f fakeIncidentRoleResolver) AgentAreas(context.Context, uuid.UUID) []string { return nil }
+
 func (f fakeIncidentRoleResolver) AssigneeForNewTask(_ context.Context, _ domain.TaskType, _ string, requested *uuid.UUID) (*uuid.UUID, error) {
 	return requested, nil
 }

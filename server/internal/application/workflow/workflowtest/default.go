@@ -9,6 +9,7 @@ package workflowtest
 
 import (
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -247,6 +248,7 @@ func (f Fixture) Resolver() interface {
 	AgentForRole(ctx context.Context, roleID uuid.UUID, area string) (*uuid.UUID, error)
 	AgentForPurpose(ctx context.Context, purpose domain.RolePurposeKey, area string) (*uuid.UUID, error)
 	AgentArea(ctx context.Context, agentID uuid.UUID) string
+	AgentAreas(ctx context.Context, agentID uuid.UUID) []string
 	AssigneeForNewTask(ctx context.Context, taskType domain.TaskType, area string, requested *uuid.UUID) (*uuid.UUID, error)
 } {
 	return resolver{f: f}
@@ -268,7 +270,7 @@ func (r resolver) AgentForRole(_ context.Context, roleID uuid.UUID, area string)
 	}
 	var anyMatch *uuid.UUID
 	for _, a := range role.Assignments {
-		if a.Areas == nil {
+		if len(a.Areas) == 0 {
 			if anyMatch == nil {
 				id := a.AgentID
 				anyMatch = &id
@@ -308,25 +310,29 @@ func (r resolver) AgentForPurpose(ctx context.Context, purpose domain.RolePurpos
 	return nil, nil
 }
 
-func (r resolver) AgentArea(_ context.Context, agentID uuid.UUID) string {
-	areas := map[string]bool{}
+func (r resolver) AgentArea(ctx context.Context, agentID uuid.UUID) string {
+	if areas := r.AgentAreas(ctx, agentID); len(areas) == 1 {
+		return areas[0]
+	}
+	return ""
+}
+
+func (r resolver) AgentAreas(_ context.Context, agentID uuid.UUID) []string {
+	var areas []string
 	for _, role := range r.f.Roles {
 		for _, a := range role.Assignments {
-			if a.AgentID != agentID || a.Areas == nil {
+			if a.AgentID != agentID {
 				continue
 			}
 			for _, ar := range a.Areas {
-				areas[ar] = true
+				if !slices.Contains(areas, ar) {
+					areas = append(areas, ar)
+				}
 			}
 		}
 	}
-	if len(areas) != 1 {
-		return ""
-	}
-	for ar := range areas {
-		return ar
-	}
-	return ""
+	slices.Sort(areas)
+	return areas
 }
 
 func (r resolver) AssigneeForNewTask(ctx context.Context, taskType domain.TaskType, area string, requested *uuid.UUID) (*uuid.UUID, error) {

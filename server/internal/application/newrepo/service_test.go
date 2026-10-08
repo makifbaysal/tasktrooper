@@ -95,6 +95,8 @@ func (f *fakeRoles) AgentForPurpose(_ context.Context, purpose domain.RolePurpos
 
 func (f *fakeRoles) AgentArea(context.Context, uuid.UUID) string { return "" }
 
+func (f *fakeRoles) AgentAreas(context.Context, uuid.UUID) []string { return nil }
+
 func (f *fakeRoles) AssigneeForNewTask(context.Context, domain.TaskType, string, *uuid.UUID) (*uuid.UUID, error) {
 	return nil, nil
 }

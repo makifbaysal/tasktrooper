@@ -93,6 +93,28 @@ func TestCreateAgentFromTemplate_SecondAgentFindsColumnsAlreadyOccupied(t *testi
 	assert.Empty(t, board.subs[second.ID], "the columns are already claimed by the first agent")
 }
 
+func TestCreateAgentFromTemplate_EveryDeveloperAndTheDesignerWatchTheQueues(t *testing.T) {
+	store := newMemCatalogStore()
+	templates := &memTemplateStore{}
+	board := &memBoardConfigStore{subs: map[uuid.UUID][]string{}}
+	svc := NewService(store, stubLLMClient{}, "")
+	svc.SetTemplateStore(templates)
+	svc.SetBoardConfigStore(board)
+	ctx := context.Background()
+
+	queues := []domain.TaskColumn{domain.TaskColumnTodo, domain.TaskColumnNeedRevision}
+	for _, name := range []string{"backend-developer", "frontend-developer", "data-scientist", "ui-designer"} {
+		tpl, err := templates.UpsertByName(ctx, domain.AgentTemplate{
+			Name: name, Description: "built-in role", BuiltIn: true, Subscriptions: queues,
+		})
+		require.NoError(t, err)
+		agent, err := svc.CreateAgentFromTemplate(ctx, tpl.ID, domain.CreateAgentRequest{})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{string(domain.TaskColumnTodo), string(domain.TaskColumnNeedRevision)}, board.subs[agent.ID],
+			"%s: a queue hands each card to its assignee only, so there is no seat to take", name)
+	}
+}
+
 func TestApplySuggestedSubscriptions_LeavesExistingSubscriptionsAlone(t *testing.T) {
 	store := newMemCatalogStore()
 	qaID := uuid.New()

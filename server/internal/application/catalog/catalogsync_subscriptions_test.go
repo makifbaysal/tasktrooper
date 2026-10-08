@@ -19,7 +19,7 @@ func subscriptionSyncFixture(t *testing.T) (*memCatalogStore, *memSyncStore, *me
 	board := &memBoardConfigStore{subs: map[uuid.UUID][]string{}}
 	dir := t.TempDir()
 	writeAgentDir(t, dir, "shippy",
-		"name: Shippy\nsubagent_type: reviewer\ndescription: ships things\neffort: medium\nsubscriptions:\n    - todo\n    - need_revision\n",
+		"name: Shippy\nsubagent_type: reviewer\ndescription: ships things\neffort: medium\nsubscriptions:\n    - todo\n    - ready_for_qa\n",
 		"you are the shipper\n",
 		nil, nil,
 	)
@@ -42,7 +42,7 @@ func TestSyncCatalog_AdoptedAgentGetsItsCatalogColumns(t *testing.T) {
 	adopted := agentByName(t, store, "Shippy")
 	require.Equal(t, existing.ID, adopted.ID, "the same-named agent must be adopted, not duplicated")
 	assert.False(t, adopted.AutoPullAgentUpdates, "a hand-edited agent still parks its prompt update")
-	assert.ElementsMatch(t, []string{"todo", "need_revision"}, board.subs[adopted.ID],
+	assert.ElementsMatch(t, []string{"todo", "ready_for_qa"}, board.subs[adopted.ID],
 		"adoption must still wire the agent to the columns it is supposed to listen on")
 }
 
@@ -59,14 +59,14 @@ func TestSyncCatalog_ParkedUpdateStillWiresColumns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Skipped, "the prompt update is parked")
 
-	assert.ElementsMatch(t, []string{"todo", "need_revision"}, board.subs[existing.ID],
+	assert.ElementsMatch(t, []string{"todo", "ready_for_qa"}, board.subs[existing.ID],
 		"auto_pull gates prompt content, not dispatch wiring")
 }
 
 func TestSyncCatalog_ColumnClaimedByAnotherAgentIsNotStolen(t *testing.T) {
 	store, syncStore, board, svc, dir := subscriptionSyncFixture(t)
 	incumbent := uuid.New()
-	board.subs[incumbent] = []string{"todo"}
+	board.subs[incumbent] = []string{"ready_for_qa"}
 	existing, err := store.CreateAgent(context.Background(), domain.Agent{
 		Name: "Shippy", SubagentType: "reviewer", Description: "ships things",
 		SystemPrompt: "hand edited prompt",
@@ -76,6 +76,6 @@ func TestSyncCatalog_ColumnClaimedByAnotherAgentIsNotStolen(t *testing.T) {
 	_, err = svc.SyncFromCatalog(context.Background(), &catalogrepo.Reader{Source: dir}, syncStore)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"need_revision"}, board.subs[existing.ID])
-	assert.Equal(t, []string{"todo"}, board.subs[incumbent])
+	assert.Equal(t, []string{"todo"}, board.subs[existing.ID], "todo is an assignee-only queue: joining it takes no one's seat")
+	assert.Equal(t, []string{"ready_for_qa"}, board.subs[incumbent])
 }

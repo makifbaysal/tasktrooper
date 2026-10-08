@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -11,11 +12,12 @@ import (
 // ---- port.RoleResolver ----
 
 // AgentForRole resolves roleID's assignment for area: an assignment whose
-// Areas contains area wins over one with Areas == nil (any area), which wins
-// over one covering a domain.AreaFallbacks area. Within a tier, the first
-// match wins — RoleStore.List/Get order assignments by priority then
-// created_at, so "first" already encodes both tie-breaks. nil, nil when the
-// role is unknown to this snapshot or has no assignment covering area.
+// Areas contains area wins over one with no Areas (any area — a catalog
+// `areas: []` is stored as '{}', not NULL), which wins over one covering a
+// domain.AreaFallbacks area. Within a tier, the first match wins —
+// RoleStore.List/Get order assignments by priority then created_at, so
+// "first" already encodes both tie-breaks. nil, nil when the role is unknown
+// to this snapshot or has no assignment covering area.
 func (s *Service) AgentForRole(ctx context.Context, roleID uuid.UUID, area string) (*uuid.UUID, error) {
 	snap, err := s.getSnapshot()
 	if err != nil {
@@ -27,7 +29,7 @@ func (s *Service) AgentForRole(ctx context.Context, roleID uuid.UUID, area strin
 	}
 	var anyAreaMatch *uuid.UUID
 	for _, a := range role.Assignments {
-		if a.Areas == nil {
+		if len(a.Areas) == 0 {
 			if anyAreaMatch == nil {
 				id := a.AgentID
 				anyAreaMatch = &id
@@ -44,7 +46,7 @@ func (s *Service) AgentForRole(ctx context.Context, roleID uuid.UUID, area strin
 	}
 	for _, fallback := range domain.AreaFallbacks(area) {
 		for _, a := range role.Assignments {
-			if a.Areas != nil && containsArea(a.Areas, fallback) {
+			if containsArea(a.Areas, fallback) {
 				id := a.AgentID
 				return &id, nil
 			}
@@ -67,34 +69,38 @@ func (s *Service) AgentForPurpose(ctx context.Context, purpose domain.RolePurpos
 
 // AgentArea is the single area of agentID's own area-scoped assignment(s),
 // across every role it holds — the union of every Areas entry from every
-// assignment that names a specific area (Areas != nil). "" when the agent
+// assignment that names a specific area. "" when the agent
 // holds no area-scoped assignment, or holds ones naming more than one
 // distinct area: profileKindForAgent used to substring-match an agent's NAME
 // for exactly one area, so an agent this cannot answer for unambiguously gets
 // the same "" a name match would have failed to produce a guess for.
 func (s *Service) AgentArea(ctx context.Context, agentID uuid.UUID) string {
+	if areas := s.AgentAreas(ctx, agentID); len(areas) == 1 {
+		return areas[0]
+	}
+	return ""
+}
+
+func (s *Service) AgentAreas(ctx context.Context, agentID uuid.UUID) []string {
 	snap, err := s.getSnapshot()
 	if err != nil {
-		return ""
+		return nil
 	}
-	areas := make(map[string]bool, 1)
+	var areas []string
 	for _, role := range snap.roles {
 		for _, a := range role.Assignments {
-			if a.AgentID != agentID || a.Areas == nil {
+			if a.AgentID != agentID {
 				continue
 			}
 			for _, ar := range a.Areas {
-				areas[ar] = true
+				if !slices.Contains(areas, ar) {
+					areas = append(areas, ar)
+				}
 			}
 		}
 	}
-	if len(areas) != 1 {
-		return ""
-	}
-	for ar := range areas {
-		return ar
-	}
-	return ""
+	slices.Sort(areas)
+	return areas
 }
 
 // AssigneeForNewTask resolves CreateTask's assignee for a new task of

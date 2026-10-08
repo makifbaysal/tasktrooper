@@ -60,6 +60,7 @@ func (s *DispatcherSuite) TestBlockedTaskIsParkedInsteadOfStarted() {
 }
 
 func (s *DispatcherSuite) TestUnblockedTaskIsDispatchedNormally() {
+	assignee := uuid.New()
 	parker := &dispatchParker{}
 	s.disp.SetWorkOrder(board.NewWorkOrder(&dispatchBlockerReader{}, parker))
 
@@ -68,7 +69,7 @@ func (s *DispatcherSuite) TestUnblockedTaskIsDispatchedNormally() {
 	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
 		RepositoryID: repositoryID,
 		Task: domain.BoardTask{
-			ID: taskID, RepositoryID: repositoryID, Column: domain.TaskColumnTodo,
+			ID: taskID, RepositoryID: repositoryID, Column: domain.TaskColumnTodo, AssigneeAgentID: &assignee,
 		},
 		EventType: domain.BoardEventTaskCreated,
 	})
@@ -149,10 +150,11 @@ func (s *DispatcherSuite) TestParkCommentReenteringDispatchDoesNotRecurse() {
 
 func (s *DispatcherSuite) TestDispatchWithoutAWorkOrderGateIsUnchanged() {
 	repositoryID := uuid.New()
+	assignee := uuid.New()
 	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
 		RepositoryID: repositoryID,
 		Task: domain.BoardTask{
-			ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnTodo,
+			ID: uuid.New(), RepositoryID: repositoryID, Column: domain.TaskColumnTodo, AssigneeAgentID: &assignee,
 		},
 		EventType: domain.BoardEventTaskCreated,
 	})

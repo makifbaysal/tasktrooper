@@ -3,6 +3,7 @@ package board_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -75,6 +76,24 @@ func (f *fakeBoardConfigStore) AgentsForColumn(_ context.Context, columnSlug str
 }
 func (f *fakeBoardConfigStore) ValidateColumnSlug(context.Context, string) (bool, error) {
 	return true, nil
+}
+
+type failingWorkflowReader struct{}
+
+func (failingWorkflowReader) Workflow(context.Context, domain.TaskType) (domain.Workflow, error) {
+	return domain.Workflow{}, errors.New("workflow cache empty")
+}
+func (failingWorkflowReader) DefaultTaskType(context.Context) (domain.TaskType, error) {
+	return "", errors.New("workflow cache empty")
+}
+func (failingWorkflowReader) DefectTaskType(context.Context) (domain.TaskType, error) {
+	return "", errors.New("workflow cache empty")
+}
+func (failingWorkflowReader) TaskTypeExists(context.Context, domain.TaskType) (bool, error) {
+	return false, errors.New("workflow cache empty")
+}
+func (failingWorkflowReader) KeyPrefix(context.Context, domain.TaskType) (string, error) {
+	return "", errors.New("workflow cache empty")
 }
 
 type fakeEventStore struct {
@@ -293,22 +312,75 @@ func (s *DispatcherSuite) SetupTest() {
 }
 
 func (s *DispatcherSuite) TestDispatchTodoColumn() {
+	assignee := uuid.New()
 	taskID := uuid.New()
 	repositoryID := uuid.New()
 	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
 		RepositoryID: repositoryID,
 		Task: domain.BoardTask{
-			ID:           taskID,
-			RepositoryID: repositoryID,
-			Title:        "t",
-			Column:       domain.TaskColumnTodo,
+			ID:              taskID,
+			RepositoryID:    repositoryID,
+			Title:           "t",
+			Column:          domain.TaskColumnTodo,
+			AssigneeAgentID: &assignee,
 		},
 		EventType: domain.BoardEventTaskCreated,
 	})
 	s.Require().NoError(err)
 	s.Len(s.events.events, 1)
-	s.Len(s.runs.runs, 1)
+	s.Require().Len(s.runs.runs, 1)
+	s.Equal(assignee, s.runs.runs[0].AgentID, "only the assignee, not every todo subscriber")
 	s.Len(s.runner.jobs, 1)
+}
+
+func (s *DispatcherSuite) TestUnassignedQueueTaskWaitsForAnAssignee() {
+	s.board.agentsByColumn = map[string][]uuid.UUID{
+		"todo":          {uuid.New(), uuid.New(), uuid.New()},
+		"need_revision": {uuid.New(), uuid.New(), uuid.New()},
+	}
+	repositoryID := uuid.New()
+	for _, column := range []domain.TaskColumn{domain.TaskColumnTodo, domain.TaskColumnNeedRevision} {
+		for _, event := range []domain.BoardEventType{domain.BoardEventTaskCreated, domain.BoardEventTaskMoved, domain.BoardEventTaskCommented, domain.BoardEventTaskAssigned} {
+			err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+				RepositoryID: repositoryID,
+				Task:         domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Title: "t", Column: column},
+				EventType:    event,
+			})
+			s.Require().NoError(err)
+		}
+	}
+	s.Empty(s.runs.runs, "no developer runs on a card nobody was assigned")
+	s.Empty(s.runner.jobs)
+}
+
+func (s *DispatcherSuite) TestUnassignedQueueTaskWaitsEvenWhenTheWorkflowIsUnreadable() {
+	s.board.agentsByColumn = map[string][]uuid.UUID{"todo": {uuid.New(), uuid.New()}}
+	s.disp.SetWorkflows(failingWorkflowReader{})
+	repositoryID := uuid.New()
+	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+		RepositoryID: repositoryID,
+		Task:         domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Title: "t", Column: domain.TaskColumnTodo},
+		EventType:    domain.BoardEventTaskCreated,
+	})
+	s.Require().NoError(err)
+	s.Empty(s.runs.runs, "a workflow read failure routes gates to subscribers, never the queues")
+}
+
+func (s *DispatcherSuite) TestAssigningAQueueTaskStartsTheAssignee() {
+	designer := uuid.New()
+	s.board.agentsByColumn = map[string][]uuid.UUID{"need_revision": {uuid.New(), designer}}
+	repositoryID := uuid.New()
+	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+		RepositoryID: repositoryID,
+		Task: domain.BoardTask{
+			ID: uuid.New(), RepositoryID: repositoryID, Title: "t",
+			Column: domain.TaskColumnNeedRevision, AssigneeAgentID: &designer,
+		},
+		EventType: domain.BoardEventTaskAssigned,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(s.runs.runs, 1)
+	s.Equal(designer, s.runs.runs[0].AgentID)
 }
 
 func (s *DispatcherSuite) TestUnassignedDesignTaskWaitsForTheDesigner() {
