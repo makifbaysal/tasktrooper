@@ -1,12 +1,23 @@
 import type { LucideIcon } from "lucide-react";
-import { CheckCheck, Code2, FileSearch, FlaskConical, Rocket, User, UserCheck } from "lucide-react";
+import { CheckCheck, Code2, FileSearch, FlaskConical, Palette, Rocket, ShieldCheck, User, UserCheck } from "lucide-react";
 import type { Agent } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 
-type StepKey = "you" | "lead" | "analysis" | "planApproval" | "build" | "qa" | "acceptance" | "approval" | "deploy";
+type StepKey =
+  | "you"
+  | "lead"
+  | "analysis"
+  | "planApproval"
+  | "design"
+  | "build"
+  | "review"
+  | "qa"
+  | "acceptance"
+  | "approval"
+  | "deploy";
 /** Who acts at a step: the human (the request and the two approval stages), the lead, or the rest of the team. */
 type Actor = "human" | "lead" | "team";
 
@@ -23,7 +34,9 @@ const STEPS: Step[] = [
   { key: "lead", actor: "lead" },
   { key: "analysis", actor: "team", icon: FileSearch },
   { key: "planApproval", actor: "human", icon: UserCheck },
+  { key: "design", actor: "team", icon: Palette },
   { key: "build", actor: "team", icon: Code2 },
+  { key: "review", actor: "team", icon: ShieldCheck },
   { key: "qa", actor: "team", icon: FlaskConical },
   { key: "acceptance", actor: "lead", icon: CheckCheck },
   { key: "approval", actor: "human", icon: UserCheck },
@@ -56,7 +69,7 @@ export function LeadFlowSteps({ agent }: LeadFlowStepsProps) {
       <h3 className="text-heading font-semibold">{t(`${base}.title`)}</h3>
       {/* Vertical padding: overflow-x forces overflow-y too, which would clip the lead avatar's ring. */}
       <div className="-mx-1 overflow-x-auto px-1 py-1.5">
-        <ol className="grid min-w-[640px] grid-cols-9">
+        <ol className="grid min-w-[780px] grid-cols-11">
           {STEPS.map(({ key, actor, icon: Icon }, index) => (
             <li key={key} className="relative flex flex-col items-center gap-2 text-center">
               {index < STEPS.length - 1 && (

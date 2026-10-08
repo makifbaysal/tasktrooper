@@ -311,9 +311,17 @@ export const agentArea = {
               label: "Plan OK",
               detail: "Tú apruebas",
             },
+            design: {
+              label: "Diseño",
+              detail: "Diseñador",
+            },
             build: {
               label: "Desarrollo",
               detail: "Código + PR",
+            },
+            review: {
+              label: "Revisión",
+              detail: "Arquitecto + seguridad",
             },
             qa: {
               label: "QA",
@@ -332,7 +340,36 @@ export const agentArea = {
               detail: "Release",
             },
           },
-          caption: "El PM convierte cada solicitud en tareas del tablero. Cuando el camino técnico no está claro, abre un análisis y te trae el plan para que lo apruebes; el equipo escribe el código, el PM lo revisa y la aprobación final es tuya.",
+          caption: "El PM convierte cada solicitud en tareas del tablero. Cuando el camino técnico no está claro, abre un análisis y te trae el plan para que lo apruebes; una pantalla nueva se diseña primero. El equipo la construye —backend, web, móvil, datos o juego— y cada pull request necesita la aprobación del arquitecto y del revisor de seguridad antes de que QA la pruebe. El PM revisa el resultado y la aprobación final es tuya.",
+        },
+        team: {
+          title: "Tu equipo",
+          groups: {
+            plan: {
+              label: "Planificación",
+              detail: "Convierte solicitudes en tareas y planes",
+            },
+            design: {
+              label: "Diseño",
+              detail: "Sistema de diseño y pantallas nuevas",
+            },
+            build: {
+              label: "Desarrollo",
+              detail: "Código, tests y pull request",
+            },
+            review: {
+              label: "Revisión",
+              detail: "Cada revisor aprueba el PR",
+            },
+            ship: {
+              label: "Pruebas y entrega",
+              detail: "Prueba, fusiona y despliega",
+            },
+            custom: {
+              label: "Tus agentes",
+              detail: "Agentes que añadiste",
+            },
+          },
         },
       },
     },

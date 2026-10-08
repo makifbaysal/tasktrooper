@@ -39,7 +39,13 @@ export function HomePage() {
     };
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
-        <LeadWelcome agent={lead} onSubmit={start} busy={starting} mentionOptions={mentionOptions} />
+        <LeadWelcome
+          agent={lead}
+          onSubmit={start}
+          busy={starting}
+          mentionOptions={mentionOptions}
+          team={ctx?.agents ?? []}
+        />
       </div>
     );
   }
