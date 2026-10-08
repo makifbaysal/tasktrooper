@@ -18,7 +18,10 @@ type MCPStore interface {
 	Create(ctx context.Context, server domain.MCPServer) (domain.MCPServer, error)
 	Update(ctx context.Context, server domain.MCPServer) (domain.MCPServer, error)
 	Delete(ctx context.Context, id string) error
-	Count(ctx context.Context) (int, error)
+	// SeededTemplateIDs lists the shipped templates this install has already
+	// been given, whether or not the server is still on file.
+	SeededTemplateIDs(ctx context.Context) ([]string, error)
+	MarkTemplatesSeeded(ctx context.Context, ids []string) error
 	ListSecrets(ctx context.Context, serverID string) ([]MCPSecretRecord, error)
 	SetSecret(ctx context.Context, serverID, location, key string, encrypted []byte) error
 	DeleteSecret(ctx context.Context, serverID, location, key string) error

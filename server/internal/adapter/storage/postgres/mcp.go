@@ -95,13 +95,31 @@ func (s *MCPStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *MCPStore) Count(ctx context.Context) (int, error) {
-	var count int
-	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM mcp_servers`).Scan(&count)
+func (s *MCPStore) SeededTemplateIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT template_id FROM mcp_template_seeds ORDER BY template_id`)
 	if err != nil {
-		return 0, fmt.Errorf("count mcp servers: %w", err)
+		return nil, fmt.Errorf("list seeded mcp templates: %w", err)
 	}
-	return count, nil
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("scan seeded mcp templates: %w", err)
+	}
+	return ids, nil
+}
+
+func (s *MCPStore) MarkTemplatesSeeded(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO mcp_template_seeds (template_id)
+		SELECT unnest($1::text[])
+		ON CONFLICT DO NOTHING
+	`, ids)
+	if err != nil {
+		return fmt.Errorf("mark mcp templates seeded: %w", err)
+	}
+	return nil
 }
 
 // storedMCPAccess keeps a caller that never set a mode on the safe side of

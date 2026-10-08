@@ -16,12 +16,14 @@ import (
 type fakeMCPStore struct {
 	servers map[string]domain.MCPServer
 	secrets map[string][]port.MCPSecretRecord
+	seeded  map[string]bool
 }
 
 func newFakeMCPStore() *fakeMCPStore {
 	return &fakeMCPStore{
 		servers: make(map[string]domain.MCPServer),
 		secrets: make(map[string][]port.MCPSecretRecord),
+		seeded:  make(map[string]bool),
 	}
 }
 
@@ -65,8 +67,19 @@ func (f *fakeMCPStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeMCPStore) Count(ctx context.Context) (int, error) {
-	return len(f.servers), nil
+func (f *fakeMCPStore) SeededTemplateIDs(ctx context.Context) ([]string, error) {
+	ids := make([]string, 0, len(f.seeded))
+	for id := range f.seeded {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (f *fakeMCPStore) MarkTemplatesSeeded(ctx context.Context, ids []string) error {
+	for _, id := range ids {
+		f.seeded[id] = true
+	}
+	return nil
 }
 
 func (f *fakeMCPStore) ListSecrets(ctx context.Context, serverID string) ([]port.MCPSecretRecord, error) {
@@ -245,7 +258,7 @@ func (s *ServiceSuite) TestAccessMode() {
 }
 
 func (s *ServiceSuite) TestSeededTemplatesKeepReachingEveryAgent() {
-	s.Require().NoError(s.svc.SeedDefaultsIfEmpty(context.Background()))
+	s.Require().NoError(s.svc.SeedNewTemplates(context.Background()))
 	s.Require().NotEmpty(s.store.servers)
 	for _, id := range []string{"filesystem", "git", "github", "gitlab", "postgres", "slack", "huggingface", "browser"} {
 		server, ok := s.store.servers[id]
@@ -255,13 +268,60 @@ func (s *ServiceSuite) TestSeededTemplatesKeepReachingEveryAgent() {
 }
 
 func (s *ServiceSuite) TestSeededSpecialistTemplatesReachOnlyTheAgentsThatNameThem() {
-	s.Require().NoError(s.svc.SeedDefaultsIfEmpty(context.Background()))
+	s.Require().NoError(s.svc.SeedNewTemplates(context.Background()))
 	for _, id := range []string{"unity", "godot", "unreal", "blender", "jupyter", "duckdb", "dbt", "mlflow", "semgrep", "osv-scanner", "github-security", "snyk"} {
 		server, ok := s.store.servers[id]
 		s.Require().True(ok, id)
 		s.Equal(domain.MCPAccessListed, server.Access, "%s drives an editor, a kernel or a scanner for one agent", id)
 		s.False(server.Enabled, id)
 	}
+}
+
+func (s *ServiceSuite) TestFirstLaunchSeedsEveryTemplateAndRecordsIt() {
+	s.Require().NoError(s.svc.SeedNewTemplates(context.Background()))
+	for _, template := range domain.MCPTemplates() {
+		s.Contains(s.store.servers, template.ID)
+		s.True(s.store.seeded[template.ID], template.ID)
+	}
+}
+
+// The bug this guards: the catalog used to be seeded only into an empty
+// table, so an install from before a release never saw that release's new
+// templates — the game developer's engine servers never reached its list.
+func (s *ServiceSuite) TestTemplatesShippedAfterTheFirstLaunchReachAnInstallThatHasServers() {
+	for _, id := range []string{"filesystem", "git", "github", "postgres", "slack", "huggingface", "browser"} {
+		s.store.servers[id] = domain.MCPServer{ID: id, Transport: "stdio", Command: "npx", Access: domain.MCPAccessAll}
+		s.store.seeded[id] = true
+	}
+
+	s.Require().NoError(s.svc.SeedNewTemplates(context.Background()))
+
+	for _, id := range []string{"gitlab", "unity", "godot", "unreal", "blender", "jupyter", "semgrep"} {
+		s.Contains(s.store.servers, id)
+		s.True(s.store.seeded[id], id)
+	}
+	s.Equal(domain.MCPAccessListed, s.store.servers["unity"].Access)
+	s.Len(s.store.servers, len(domain.MCPTemplates()))
+}
+
+func (s *ServiceSuite) TestASeededServerTheUserDeletedStaysDeleted() {
+	ctx := context.Background()
+	s.Require().NoError(s.svc.SeedNewTemplates(ctx))
+	s.Require().NoError(s.svc.Delete(ctx, "unity"))
+
+	s.Require().NoError(s.svc.SeedNewTemplates(ctx))
+
+	s.NotContains(s.store.servers, "unity")
+}
+
+func (s *ServiceSuite) TestAServerAddedByHandUnderATemplateIDIsLeftAsItWasMade() {
+	s.store.servers["godot"] = domain.MCPServer{ID: "godot", Enabled: true, Transport: "stdio", Command: "/opt/godot-mcp", Access: domain.MCPAccessAll}
+
+	s.Require().NoError(s.svc.SeedNewTemplates(context.Background()))
+
+	s.Equal("/opt/godot-mcp", s.store.servers["godot"].Command)
+	s.True(s.store.servers["godot"].Enabled)
+	s.True(s.store.seeded["godot"])
 }
 
 func TestServiceSuite(t *testing.T) {
