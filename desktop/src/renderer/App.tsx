@@ -33,6 +33,7 @@ export default function App() {
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
+  const [fullScreen, setFullScreen] = useState(false);
 
   useEffect(() => {
     void api.supervisorState().then(setSnapshot);
@@ -42,10 +43,12 @@ export default function App() {
     const offState = api.onSupervisorState(setSnapshot);
     const offCloud = api.onCloudStatus(setCloud);
     const offUpdate = api.onUpdateStatus(setUpdate);
+    const offFullScreen = api.onFullScreen(setFullScreen);
     return () => {
       offState();
       offCloud();
       offUpdate();
+      offFullScreen();
     };
   }, []);
 
@@ -53,7 +56,11 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
-      {IS_MAC ? <nav className="drag-region flex h-11 shrink-0 items-center gap-2 border-b border-border pl-20 pr-3" /> : null}
+      {/* Gone in full screen: the view sits over it there, and macOS would
+          still turn clicks on the page's header into window drags. */}
+      {IS_MAC && !fullScreen ? (
+        <nav className="drag-region flex h-11 shrink-0 items-center gap-2 border-b border-border pl-20 pr-3" />
+      ) : null}
 
       <div className="min-h-0 flex-1">
         {cloud?.state === "failed" ? <Unreachable status={cloud} info={info} onRetry={reload} /> : null}

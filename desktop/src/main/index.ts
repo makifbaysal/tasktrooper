@@ -171,12 +171,14 @@ function startUpdates(): void {
       onStatus: (status) => {
         tray?.updateStatus(status);
         broadcast(SHELL_EVENTS.updateStatus, status);
+        toCloud(CLOUD_EVENTS.updateStatus, status);
       },
       debug: !!process.env[FEED_DEBUG_ENV],
       logLine: logUpdaterLine,
     });
     tray?.updateStatus(updates.status);
     broadcast(SHELL_EVENTS.updateStatus, updates.status);
+    toCloud(CLOUD_EVENTS.updateStatus, updates.status);
     updates.start();
   };
   if (feed.kind === "none") {
@@ -196,6 +198,7 @@ registerAppSchemePrivileges();
 const shellWindow = new Shell({
   origin: () => APP_ORIGIN,
   onCloudStatus: (status) => broadcast(SHELL_EVENTS.cloudStatus, status),
+  onFullScreen: (fullScreen) => broadcast(SHELL_EVENTS.fullScreen, fullScreen),
   // `quit` is assigned further down, but this closure is not called until the
   // window's close event actually fires — well after that assignment runs.
   quitStarted: () => quit.started,
@@ -231,7 +234,7 @@ function broadcast(channel: string, payload: unknown): void {
   send(window && !window.isDestroyed() ? window.webContents : null, channel, payload);
 }
 
-/** Push to the web app. Only ever the two things it subscribes to. */
+/** Push to the web app. Only ever the `CLOUD_EVENTS` it subscribes to. */
 function toCloud(channel: string, payload: unknown): void {
   send(shellWindow.cloudContents, channel, payload);
 }

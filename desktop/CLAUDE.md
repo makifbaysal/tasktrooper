@@ -55,7 +55,8 @@ are separate declarations and must be changed together.
 
 ```ts
 window.__tasktrooperDesktop = {
-  info(), apiBase?, apiToken?, runner: { snapshot, subscribe, connect, ... }
+  info(), apiBase?, apiToken?, runner: { snapshot, subscribe, connect, ... },
+  updates: { status, subscribe, check, restart }
 }
 ```
 

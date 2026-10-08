@@ -20,6 +20,27 @@ export const frame: FrameDict = {
         shortcut: "{mod}K",
         failed: "Sohbet başlatılamadı",
       },
+      feedback: {
+        button: "Geri bildirim gönder",
+        title: "Geri bildirim gönder",
+        description: "GitHub'da önceden doldurulmuş bir issue açar. Orada gözden geçirip GitHub hesabınla gönderirsin.",
+        kindLabel: "Tür",
+        kinds: {
+          bug: "Hata bildirimi",
+          feature: "Özellik isteği",
+        },
+        titleLabel: "Başlık",
+        titlePlaceholder: "Kısa bir özet",
+        descriptionLabel: "Ayrıntılar",
+        descriptionPlaceholder: {
+          bug: "Ne yaptın, ne bekliyordun, bunun yerine ne oldu?",
+          feature: "Bugün eksik ya da zahmetli olan ne, ne olmasını isterdin?",
+        },
+        includeEnvironment: "Uygulama sürümünü ve platformu ekle (TaskTrooper {version}, {platform})",
+        submit: "GitHub'da devam et",
+        opened: "GitHub tarayıcında açıldı",
+        openFailed: "Tarayıcı açılamadı",
+      },
       notificationCenter: {
         title: "Bildirimler",
         empty: "Henüz bildirim yok",

@@ -17,6 +17,27 @@ export const frame = {
         shortcut: "{mod}K",
         failed: "无法开始对话",
       },
+      feedback: {
+        button: "发送反馈",
+        title: "发送反馈",
+        description: "在 GitHub 上打开一个预填好的 issue。你在那里检查后，用自己的 GitHub 账号提交。",
+        kindLabel: "类型",
+        kinds: {
+          bug: "问题报告",
+          feature: "功能建议",
+        },
+        titleLabel: "标题",
+        titlePlaceholder: "简短概述",
+        descriptionLabel: "详情",
+        descriptionPlaceholder: {
+          bug: "你做了什么，期望发生什么，实际发生了什么？",
+          feature: "目前缺少什么或哪里不方便，你希望怎样改进？",
+        },
+        includeEnvironment: "附上应用版本和平台（TaskTrooper {version}，{platform}）",
+        submit: "在 GitHub 上继续",
+        opened: "已在浏览器中打开 GitHub",
+        openFailed: "无法打开浏览器",
+      },
       notificationCenter: {
         title: "通知",
         empty: "暂无通知",

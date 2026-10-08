@@ -66,6 +66,8 @@ export interface WindowDeps {
    * is the cue to start the drain, not something to wait for.
    */
   onSessionEnd?: () => void;
+  /** Told on entering and leaving full screen, so the chrome can drop its drag strip. */
+  onFullScreen?: (fullScreen: boolean) => void;
 }
 
 export class Shell {
@@ -200,9 +202,18 @@ export class Shell {
     });
     window.on("resize", () => this.#layout());
     // Full screen hides the traffic lights, so the strip kept for them would be
-    // dead space above the header; both transitions re-place the view.
-    window.on("enter-full-screen", () => this.#layout());
-    window.on("leave-full-screen", () => this.#layout());
+    // dead space above the header; both transitions re-place the view. The
+    // view then covers the chrome's drag strip, and macOS still treats that
+    // strip as a drag region, so the chrome is told to drop it — otherwise
+    // every click on the page's header drags the window instead.
+    window.on("enter-full-screen", () => {
+      this.#layout();
+      this.#deps.onFullScreen?.(true);
+    });
+    window.on("leave-full-screen", () => {
+      this.#layout();
+      this.#deps.onFullScreen?.(false);
+    });
 
     hardenShellNavigation(window);
 

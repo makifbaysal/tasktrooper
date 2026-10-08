@@ -28,6 +28,7 @@ import type {
   LogLine,
   NotificationPreferences,
   PreflightReport,
+  UpdateStatus,
   WorkspaceCheck,
 } from "./types.js";
 import type { ChooseDirectoryRequest } from "./channels.js";
@@ -177,6 +178,22 @@ export interface DesktopRunnerHost {
 }
 
 /**
+ * Auto-update, for Settings. The same service the chrome's popup and the tray
+ * read; this is a second window onto it, not a second updater.
+ */
+export interface DesktopUpdatesHost {
+  status(): Promise<UpdateStatus>;
+  subscribe(cb: (status: UpdateStatus) => void): () => void;
+  /** One request to the feed. Resolves with the status, never rejects on a failed check. */
+  check(): Promise<UpdateStatus>;
+  /**
+   * Drain the local processes, install the staged update and relaunch. A
+   * no-op unless the status is `ready`.
+   */
+  restart(): Promise<void>;
+}
+
+/**
  * What the web app finds on `window.__tasktrooperDesktop`.
  *
  * The presence of this object IS the "we are running in the desktop shell"
@@ -199,6 +216,7 @@ export interface DesktopHost {
    */
   apiToken?: string;
   runner: DesktopRunnerHost;
+  updates: DesktopUpdatesHost;
 }
 
-export type { ChooseDirectoryRequest };
+export type { ChooseDirectoryRequest, UpdateStatus };

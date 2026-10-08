@@ -237,4 +237,10 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.preflight, (payload) => services.preflight(validatePreflightRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.diagnostics, (payload) => services.diagnostics(validateDiagnosticsRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.overridesSet, (payload) => services.setOverrides(validateOverrides(payload)));
+
+  cloud(CLOUD_CHANNELS.updateGet, () => services.updateStatus());
+  cloud(CLOUD_CHANNELS.updateCheck, () => services.checkForUpdate());
+  cloud(CLOUD_CHANNELS.updateRestart, () => {
+    services.restartToUpdate();
+  });
 }
