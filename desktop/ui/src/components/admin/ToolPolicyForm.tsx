@@ -81,11 +81,14 @@ export function ToolPolicyForm({ value, onChange }: ToolPolicyFormProps) {
         emptyText={t("frame.admin.toolPolicy.noBuiltinTools")}
       />
 
-      <MCPServerPicker
-        label={t("frame.admin.toolPolicy.mcpServers")}
-        selected={selectedServers}
-        onChange={(ids) => onChange(withAllowedMCPServers(value, ids))}
-      />
+      <div className="space-y-1.5">
+        <MCPServerPicker
+          label={t("frame.admin.toolPolicy.mcpServers")}
+          selected={selectedServers}
+          onChange={(ids) => onChange(withAllowedMCPServers(value, ids))}
+        />
+        <p className="text-xs text-muted-foreground">{t("frame.admin.toolPolicy.mcpServersHint")}</p>
+      </div>
     </div>
   );
 }

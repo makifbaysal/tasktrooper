@@ -859,7 +859,7 @@ export interface RepositoryDirectoryListing {
 export type Project = Repository;
 
 // Task types are data now (task_types table), not a closed enum — see
-// TaskTypeDef / api.listTaskTypes. Built-in keys (task/analiz/bug/technical)
+// TaskTypeDef / api.listTaskTypes. Built-in keys (task/analiz/bug/technical/design)
 // keep their special treatment only in lib/project-board's label mapping.
 export type TaskType = string;
 
@@ -2113,6 +2113,11 @@ export interface MCPEnvSchemaField {
   placeholder?: string;
 }
 
+/** "all": every agent whose tool policy names no MCP servers; "listed": only agents that name it. */
+export type MCPAccess = "all" | "listed";
+
+export type MCPAuthStatus = "none" | "oauth_connected" | "oauth_needed" | "oauth_expired";
+
 export interface MCPServer {
   id: string;
   enabled: boolean;
@@ -2123,6 +2128,9 @@ export interface MCPServer {
   url?: string;
   headers?: Record<string, string>;
   allowed_tools?: string[];
+  // Optional because a server older than the access mode omits it; absent
+  // reads as "all", which is what every server was before.
+  access?: MCPAccess;
   created_at: string;
 }
 
@@ -2144,6 +2152,24 @@ export interface MCPServerView extends MCPServer {
   secret_fields?: string[];
   config_fields?: MCPConfigField[];
   missing_config?: MCPConfigField[];
+  auth?: MCPAuthStatus;
+}
+
+export interface MCPServerListResponse {
+  servers: MCPServerView[];
+  count?: number;
+  /** The loopback callback a hand-registered OAuth client must allow; empty without OAuth. */
+  oauth_redirect_uri?: string;
+}
+
+export interface MCPOAuthStartInput {
+  client_id?: string;
+  client_secret?: string;
+}
+
+export interface MCPOAuthStart {
+  authorization_url: string;
+  expires_at: string;
 }
 
 export type MCPServerCreateInput = Omit<MCPServer, "created_at">;
@@ -2157,6 +2183,7 @@ export interface MCPServerUpdateInput {
   url?: string;
   headers?: Record<string, string>;
   allowed_tools?: string[];
+  access?: MCPAccess;
   secrets?: Record<string, string>;
 }
 
@@ -2282,6 +2309,11 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
  * "reconnect" rather than the generic action-failed toast. */
 export function isCloudAuthError(e: unknown): boolean {
   return e instanceof ApiError && e.status === 400 && e.type === "cloud_auth";
+}
+
+/** The MCP server's authorization server cannot register a client by itself; ask for a client id. */
+export function isOAuthClientRequiredError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 400 && e.type === "oauth_client_required";
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -3700,6 +3732,174 @@ export interface WorkspaceMap {
   shared_resources: WorkspaceSharedResource[];
 }
 
+// ---------------------------------------------------------------------------
+// Design systems: one base per project (scope "project") plus an optional
+// layer per repository (scope "repository") that adds to or overrides it.
+// Mirrors server/internal/domain/design_system.go and
+// application/designsystem's views. Versions are proposed by a `design` task
+// and approved by approving that task in analiz_review.
+// ---------------------------------------------------------------------------
+
+export type DesignSystemScope = "project" | "repository";
+
+export type DesignSystemStatus = "in_review" | "approved" | "superseded";
+
+/** A DTCG token tree: groups are objects; a token is an object with `$value` and an optional `$type`. */
+export type DesignTokenTree = Record<string, unknown>;
+
+export type DesignLintCode =
+  | "unresolved_alias"
+  | "invalid_color"
+  | "contrast_below_aa"
+  | "empty_group"
+  | "missing_section";
+
+export type DesignLintSeverity = "error" | "warning";
+
+/** One problem in a version's tokens or DESIGN.md (domain.DesignLintFinding): codes and values, never prose. */
+export interface DesignLintFinding {
+  code: DesignLintCode;
+  severity: DesignLintSeverity;
+  /** Token path, e.g. "color.accent". */
+  path?: string;
+  /** The other half of a contrast pair, e.g. "color.on-accent". */
+  related_path?: string;
+  /** The offending value; for missing_section the section's name. */
+  value?: string;
+  /** Contrast ratio, e.g. 1.82 (AA needs 4.5). */
+  ratio?: number;
+}
+
+/** One file a repository keeps its design system in, rendered from the effective version. */
+export interface DesignSystemFile {
+  path: string;
+  content: string;
+}
+
+/** An approved design task the task derives from or is blocked by, with its documents. */
+export interface TaskDesignReference {
+  task_id: string;
+  key: string;
+  title: string;
+  task_type: string;
+  column: TaskColumn;
+  repository_id: string;
+  documents: TaskDocument[];
+}
+
+export interface TaskDesignSystemSummary {
+  project_id?: string;
+  project_name?: string;
+  base_version?: number;
+  layer_version?: number;
+  ambiguous?: boolean;
+}
+
+/** GET /v1/repositories/:id/tasks/:taskId/design. */
+export interface TaskDesign {
+  references: TaskDesignReference[];
+  design_system?: TaskDesignSystemSummary;
+}
+
+export interface DesignSystemVersion {
+  id: string;
+  scope: DesignSystemScope;
+  project_id?: string;
+  repository_id?: string;
+  version: number;
+  status: DesignSystemStatus;
+  /** DESIGN.md markdown. */
+  design_md: string;
+  tokens: DesignTokenTree;
+  /** Component inventory markdown. */
+  inventory_md: string;
+  /** Why a repository layer differs from the base. */
+  rationale: string;
+  source_task_id?: string;
+  source_task_key?: string;
+  /** The source task's repository, which addresses its analysis review page. */
+  source_task_repository_id?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  approved_at?: string;
+  /** Computed on read; absent when there is nothing to report. */
+  lint?: DesignLintFinding[];
+}
+
+/** The design task a Design System tab opened (the latest one). */
+export interface DesignTaskRef {
+  id: string;
+  repository_id: string;
+  key: string;
+  title: string;
+  column: TaskColumn;
+  open: boolean;
+}
+
+export interface DesignSystemRepositorySummary {
+  id: string;
+  name: string;
+  kind: string;
+  layer?: DesignSystemVersion;
+  pending_layer: boolean;
+  builds_on_this_project: boolean;
+  ambiguous: boolean;
+}
+
+/** GET /v1/projects/:projectId/design-system. */
+export interface ProjectDesignSystemView {
+  project: InitiativeProject;
+  /** The approved base. */
+  current?: DesignSystemVersion;
+  /** in_review proposals; approving their source design task approves them. */
+  pending: DesignSystemVersion[];
+  /** Every version, newest first. */
+  versions: DesignSystemVersion[];
+  repositories: DesignSystemRepositorySummary[];
+  request?: DesignTaskRef;
+}
+
+export interface EffectiveDesignSystem {
+  repository_id: string;
+  project?: { id: string; name: string };
+  base?: DesignSystemVersion;
+  layer?: DesignSystemVersion;
+  /** The base's tokens with the layer merged on top. */
+  tokens: DesignTokenTree;
+  /** The repository belongs to several projects with a base and none was chosen. */
+  ambiguous?: boolean;
+}
+
+export interface DesignSystemProjectChoice {
+  project: { id: string; name: string };
+  base_version?: number;
+}
+
+/** GET /v1/repositories/:id/design-system. */
+export interface RepositoryDesignSystemView {
+  repository_id: string;
+  repository_name: string;
+  repository_kind: string;
+  effective: EffectiveDesignSystem;
+  /** The explicit choice; absent = automatic. */
+  base_project_id?: string;
+  project_choices: DesignSystemProjectChoice[];
+  pending_layers: DesignSystemVersion[];
+  layer_versions: DesignSystemVersion[];
+  /** Token paths the layer overrides, e.g. "color.primary". */
+  overrides: string[];
+  /** Checks of the merged tokens: a layer can break a contrast pair the base had right. */
+  lint: DesignLintFinding[];
+  request?: DesignTaskRef;
+}
+
+/** 201 `created: true` for a new design task, 200 `created: false` with the one already open. */
+export interface DesignSystemGenerateResult {
+  task: BoardTask;
+  created: boolean;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
   usageSummary: (days = 30, tz = "") =>
@@ -4265,7 +4465,7 @@ export const api = {
       ...(candidates ? { body: JSON.stringify({ candidates }) } : {}),
     }),
 
-  listMCPServers: () => request<{ servers: MCPServerView[] }>("/admin/mcp-servers"),
+  listMCPServers: () => request<MCPServerListResponse>("/admin/mcp-servers"),
 
   createMCPServer: (server: MCPServerCreateInput) =>
     request<MCPServer>("/admin/mcp-servers", { method: "POST", body: JSON.stringify(server) }),
@@ -4275,6 +4475,15 @@ export const api = {
 
   deleteMCPServer: (id: string) =>
     request<void>(`/admin/mcp-servers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  startMCPOAuth: (id: string, input: MCPOAuthStartInput = {}) =>
+    request<MCPOAuthStart>(`/v1/mcp/servers/${encodeURIComponent(id)}/oauth/start`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  disconnectMCPOAuth: (id: string) =>
+    request<void>(`/v1/mcp/servers/${encodeURIComponent(id)}/oauth/disconnect`, { method: "POST" }),
 
   listRepositories: () => request<{ repositories: Repository[] }>("/v1/repositories"),
 
@@ -5162,6 +5371,44 @@ export const api = {
   getWorkspaceMap: () => request<WorkspaceMap>("/v1/projects/map"),
 
   getProjectMap: (projectId: string) => request<ProjectMap>(`/v1/projects/${projectId}/map`),
+
+  // ---- Design systems -----------------------------------------------------
+
+  getProjectDesignSystem: (projectId: string) =>
+    request<ProjectDesignSystemView>(`/v1/projects/${projectId}/design-system`),
+
+  // 409 when the project has no repository for the design task to run in.
+  generateProjectDesignSystem: (projectId: string, notes?: string) =>
+    request<DesignSystemGenerateResult>(`/v1/projects/${projectId}/design-system/generate`, {
+      method: "POST",
+      body: JSON.stringify({ notes: notes || undefined }),
+    }),
+
+  getRepositoryDesignSystem: (repositoryId: string) =>
+    request<RepositoryDesignSystemView>(`/v1/repositories/${repositoryId}/design-system`),
+
+  generateRepositoryDesignSystem: (repositoryId: string, notes?: string) =>
+    request<DesignSystemGenerateResult>(`/v1/repositories/${repositoryId}/design-system/generate`, {
+      method: "POST",
+      body: JSON.stringify({ notes: notes || undefined }),
+    }),
+
+  // null goes back to the automatic choice.
+  setRepositoryDesignBaseProject: (repositoryId: string, projectId: string | null) =>
+    request<RepositoryDesignSystemView>(`/v1/repositories/${repositoryId}/design-system/base-project`, {
+      method: "PUT",
+      body: JSON.stringify({ project_id: projectId }),
+    }),
+
+  getDesignSystemVersion: (designSystemId: string) =>
+    request<DesignSystemVersion>(`/v1/design-systems/${designSystemId}`),
+
+  // An empty list when the repository follows no design system.
+  getRepositoryDesignSystemFiles: (repositoryId: string) =>
+    request<{ files: DesignSystemFile[] | null }>(`/v1/repositories/${repositoryId}/design-system/files`),
+
+  getTaskDesign: (repositoryId: string, taskId: string) =>
+    request<TaskDesign>(`/v1/repositories/${repositoryId}/tasks/${taskId}/design`),
 
   getRepositoryModel: (repositoryId: string) => request<RepositoryModel>(`/v1/repositories/${repositoryId}/model`),
 

@@ -27,6 +27,10 @@ func (s *Service) SeedDefaultsIfEmpty(ctx context.Context) error {
 			URL:          template.URL,
 			Headers:      cloneStringMap(template.Headers),
 			AllowedTools: append([]string(nil), template.AllowedTools...),
+			// The shipped catalog keeps reaching every agent, exactly as it
+			// does on an install upgraded past migration 179; only servers a
+			// person adds start out "listed".
+			Access: domain.MCPAccessAll,
 		}
 		server = stripSecretsFromStored(server, template.ID)
 		if _, err := s.store.Create(ctx, server); err != nil {

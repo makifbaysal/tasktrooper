@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 // device is what a mobile_* tool actually needs: issue a command, launch an
@@ -36,7 +37,8 @@ type device interface {
 // the tools turn into a domain.ResourceBlock and the board turns into a parked
 // task. With one phone registered that is exactly the old behaviour.
 type Pool struct {
-	mu sync.Mutex
+	mu       sync.Mutex
+	attacher port.TaskImageAttacher
 	// sessions is in registration order, so allocation is stable and the first
 	// phone stays the one a single-device installation always used.
 	sessions []*Session
@@ -301,4 +303,17 @@ func (p *Pool) ProbeDevice(ctx context.Context, udid string) bool {
 		}
 	}
 	return false
+}
+
+// SetTaskAttacher lets mobile_screenshot save a shot on the run's task.
+func (p *Pool) SetTaskAttacher(a port.TaskImageAttacher) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.attacher = a
+}
+
+func (p *Pool) TaskAttacher() port.TaskImageAttacher {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.attacher
 }

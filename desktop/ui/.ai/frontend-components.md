@@ -16,7 +16,7 @@ The web UI (`src`) follows **Atomic Design**. Every piece of UI is one of: **ato
 |-------|-----------|----------|----------|
 | **Atom** | Single-purpose primitive, no business logic, style-only | `components/ui/` | `button`, `card`, `badge`, `input`, `label`, `checkbox`, `switch`, `select`, `textarea`, `dialog`, `separator`, `skeleton`, `spinner`, `elapsed` (a live elapsed-time leaf: every 1s in the first minute, then every 30s), `progress`, `scroll-area`, `empty-state`, `stat-tile` (label/value/foot KPI tile, `tone="warning"`) |
 | **Molecule** | Small composition of atoms, reusable, little/no state | `components/admin/`, `components/layout/`, `components/markdown/`, `components/attachments/`, feature dirs | `PageHeader`, `FormDialog`, `KeyValueEditor`, `MultiSelectPicker`, `ToolPolicyForm`, `PageContent`, `SidebarNavLink`, `layout/PageSuspense` (the spinner `<Suspense>` every layout puts around its `<Outlet />` — pages are lazy chunks, see `App.tsx`), `layout/LeadQuickAsk` (header "Ask the PM" field), `agent/AgentAvatar` (initials avatar; `lead` variant marks the lead agent), `activity/AgentRunHeader` (agent + status + elapsed + live "now" line + stat facts), `activity/RawStepList`, `activity/FeedStatusIcon`, `activity/ToolKindIcon`, `HealthStatus`, `MarkdownContent`, `MarkdownField`, `ActivityFeedItem`, `WizardStepper`, `TypingIndicator`, `chat/MentionTextarea` (textarea with the @-mention menu; every message box that can tag agents/projects/repos uses it, roster from `useMentionOptions`), `ClarificationCard`, `ClarificationSummary`, `SessionActionCard`, `ProjectIndexStatus`, `confirm-dialog`, `AttachmentDropzone`, `AttachmentList`, `setup/SetupShell`, `setup/SetupStepList`, `setup/DesktopOnlyNotice`, `runner/BlockerNotice`, `projects/ProjectFormDialog`, `admin/StoreCredentialForm` (per-provider credential block, exported from `StoreCredentialsSection.tsx`) |
-| **Organism** | Larger, often stateful feature block; composes molecules+atoms | feature dirs (`chat/`, `board/`, `workspace/`, `agent/`, `projects/`, `admin/`, `runner/`, `setup/`) | `Composer`, `MessageList`, `SessionSidebar`, `chat/LeadChatHeader`, `chat/LeadWelcome` (the lead agent's chat header and the /home welcome), `chat/LeadFlowSteps` (the delivery-flow strip; human approval stages in the info tone), `PlanView`, `board/BoardTaskCard` (one board card, memoized with plain props — the page passes names/flags and the column-age/verify-window text, never closures over its state or its clock; nothing on it animates), `chat/SessionActivityPanel` (the chat page's persistent right panel: whole-session activity feed, collapsible to a 44px rail, state in `tt.chat.activityPanel.open`), `board/TaskAgentRunsSection` (the task drawer's agent runs: shown-run header + feed, other runs, token totals), `activity/ActivityFeed` (+ `FeedItemList`), `CreateTaskDialog`, `TaskDetailDrawer`, `TaskAssigneeFields`, `ChatTaskDrawer`, `workspace/ActivityFeed` (board activity), `NewAgentDialog`, `NoProjectsNotice`, `AgentKPISection`, `MCPServerForm`, `admin/CloudAccountsCard` (connected Vercel/GCP/AWS provider accounts — verify/rename/replace/remove, "Connect" menu), `runner/LocalCliCard`, `runner/EnvironmentPreflight` (+ the pure `runner/claudeCodeConnect.ts` connect-flow helper), `setup/EnvironmentStep`/`ClaudeCodeStep`/`GitHubStep`/`FirstProjectStep`, `admin/GitHubCard`, `admin/AppStoreConnectCard`, `admin/GooglePlayCard`, `admin/StoreAppPickerDialog` (+ `StoreAppsBrowser` and the `useStoreAppListing` hook, same file), `projects/MobileStorePanel`, `operations/StoreReleaseControls` (store channel vocabulary + `ChannelPromoteButton`), and the projects hub/repository/add organisms — see "Projects (hub, repository, add)" below |
+| **Organism** | Larger, often stateful feature block; composes molecules+atoms | feature dirs (`chat/`, `board/`, `workspace/`, `agent/`, `projects/`, `admin/`, `runner/`, `setup/`) | `Composer`, `MessageList`, `SessionSidebar`, `chat/LeadChatHeader`, `chat/LeadWelcome` (the lead agent's chat header and the /home welcome), `chat/LeadFlowSteps` (the delivery-flow strip; human approval stages in the info tone), `PlanView`, `board/BoardTaskCard` (one board card, memoized with plain props — the page passes names/flags and the column-age/verify-window text, never closures over its state or its clock; nothing on it animates), `chat/SessionActivityPanel` (the chat page's persistent right panel: whole-session activity feed, collapsible to a 44px rail, state in `tt.chat.activityPanel.open`), `board/TaskAgentRunsSection` (the task drawer's agent runs: shown-run header + feed, other runs, token totals), `activity/ActivityFeed` (+ `FeedItemList`), `CreateTaskDialog`, `TaskDetailDrawer`, `TaskAssigneeFields`, `ChatTaskDrawer`, `workspace/ActivityFeed` (board activity), `NewAgentDialog`, `NoProjectsNotice`, `AgentKPISection`, `MCPServerForm`, `admin/CloudAccountsCard` (connected Vercel/GCP/AWS provider accounts — verify/rename/replace/remove, "Connect" menu), `runner/LocalCliCard`, `runner/EnvironmentPreflight` (+ the pure `runner/claudeCodeConnect.ts` connect-flow helper), `setup/EnvironmentStep`/`ClaudeCodeStep`/`GitHubStep`/`FirstProjectStep`, `admin/GitHubCard`, `admin/AppStoreConnectCard`, `admin/GooglePlayCard`, `admin/StoreAppPickerDialog` (+ `StoreAppsBrowser` and the `useStoreAppListing` hook, same file), `projects/MobileStorePanel`, `operations/StoreReleaseControls` (store channel vocabulary + `ChannelPromoteButton`), the projects hub/repository/add organisms — see "Projects (hub, repository, add)" below — and the Design System tabs (`projects/designsystem/*`, see "Design systems" below) |
 | **Template** | Page shell / layout that arranges organisms; provides sidebar, header, routing outlet | `components/layout/` | `WorkspaceLayout`, `WorkspaceShell`, `WorkspaceSidebar`, `WorkspaceAgentLayout`, `SettingsLayout`, `Header`, `ProtectedRoute` |
 | **Page** | Route target; loads data, composes organisms in a template | `pages/` | `BoardPage`, `AgentChatPage`, `BoardSettingsPage`, `SetupPage`, `ProjectsPage` (the projects hub), `ProjectPage`, `RepositoryPage`, `AddRepositoryPage`, `AnalysisReviewPage`, `IntegrationsSettingsPage`, … |
 
@@ -107,14 +107,15 @@ pipeline-config endpoints — that model is `RepositoryModel`
 | Piece | What it is |
 |---|---|
 | `pages/ProjectsPage.tsx` | The hub: a Cards/Map segmented toggle (`?view=map`) over either every project as a `hub/ProjectCard` + an unassigned-repositories card + filters, or `map/WorkspaceMapView`; "Add repository" / "New project" either way. |
-| `pages/ProjectPage.tsx` | One project, tabbed (`?tab=`): Architecture (`map/ProjectArchitectureMap`, the default the moment the project has a repository), Repositories table, cross-project Review queue, Settings. |
-| `pages/RepositoryPage.tsx` | One repository, tabbed (`?tab=`): overview, components, checks, links, deploy, settings. |
+| `pages/ProjectPage.tsx` | One project, tabbed (`?tab=`): Architecture (`map/ProjectArchitectureMap`, the default the moment the project has a repository), Repositories table, cross-project Review queue, Design System (`?tab=design`, `designsystem/ProjectDesignSystemTab`), Settings. |
+| `pages/RepositoryPage.tsx` | One repository, tabbed (`?tab=`): overview, components, checks, links, deploy, design (`designsystem/RepositoryDesignSystemTab`), settings. |
 | `pages/AddRepositoryPage.tsx` | The `/projects/new` wizard, driven by `add/useAddRepositoryFlow`: Source → Scan → Review → Done for a folder/GitHub import, Source → Done for a new repository (nothing to scan yet; the stepper shows only those two). |
 | `hooks/useProjectsOverview.ts` | `GET /v1/projects/overview` for the hub; cached (`CACHE_PROJECTS_OVERVIEW`), paints last snapshot on a failed refresh. |
 | `hooks/useProjectOverview.ts` | `GET /v1/projects/:id/overview` for `ProjectPage`; same per-id cache-then-refresh contract as `useRepositoryModel`. |
 | `hooks/useProjectMap.ts` | `GET /v1/projects/:id/map` for the Architecture tab; same per-id cache-then-refresh contract, loaded only once that tab mounts. |
 | `hooks/useWorkspaceMap.ts` | `GET /v1/projects/map` for the hub's Map view; loaded only once that view is selected. |
 | `hooks/useRepositoryModel.ts` | `GET /v1/repositories/:id/model` for `RepositoryPage`; per-id cached snapshot. |
+| `hooks/useDesignSystem.ts` | `useProjectDesignSystem` / `useRepositoryDesignSystem`: the Design System tabs' views + generate (+ base-project choice), same per-id cache-then-refresh contract, re-polled every 10s while the opened design task is still open. |
 | `hooks/useScanProgress.ts` | Polls a repository's latest scan until it finishes; used by the add-repository flow's `add/ScanStep` and `RepositoryPage`'s scan banner. |
 
 `components/projects/hub/`: `ProjectCard`, `ProjectFilters` (role + search, kept in
@@ -220,6 +221,71 @@ requires `<workflow> › <job>` before hand-off" → OK (`updateCheck(id,
 {reviewed:true})`) / Make informative (`{gate:"info", reviewed:true}`)),
 `RoleBadge`, `ScanProgressList`.
 
+## Design systems — project and repository "Design System" tabs
+
+One base design system per project, plus an optional layer per repository that
+adds or overrides tokens (API: `.ai/api-spec.md` "Design systems"). Versions
+come from a `design` task the `ui-designer` agent runs; the human approves it
+on the analysis review page like an `analiz` task.
+
+`components/projects/designsystem/`:
+
+| Piece | What it is |
+|---|---|
+| `ProjectDesignSystemTab` | Organism, the project page's tab (loaded only when mounted, via `hooks/useDesignSystem`'s `useProjectDesignSystem`): the create card (no base yet) or, once a base exists, the base's `DesignSystemVersionPanel` followed by an "Update from code" card; pending proposals, version history (history rows and pending rows select which version the panel shows, with "Show the current version" back), and `DesignSystemRepositoriesTable`. |
+| `RepositoryDesignSystemTab` | Organism, the repository page's tab (`useRepositoryDesignSystem`): `DesignBaseProjectPicker` (when `project_choices.length > 1` or `base_project_id` is set), a warning `Notice` while `effective.ambiguous`, the create card when there is neither a project base nor a layer (the layer then is its whole design system), the project-base summary (links to the project's tab), the effective (merged) tokens with `DesignLintChecks` over `view.lint` (the merged checks — a layer can break a contrast pair the base had right), `DesignSystemFilesCard`, the layer's `DesignSystemVersionPanel` with its overrides, the create/update-layer card, pending layers and history. |
+| `DesignSystemVersionPanel` | Organism: one version — version + `DesignSystemStatusBadge`, source task link, proposed/approved date, a layer's rationale, a `children` slot, `DesignLintChecks` over `version.lint`, then pill `Tabs`: Overview (`design_md` via `MarkdownContent`), Tokens (`DesignTokensPreview`), Components (`inventory_md`). |
+| `DesignLintChecks` | Molecule: the "Checks" block — error/warning count badges, then every finding errors first (`lib/designLint`'s `sortLintFindings`), each a severity `Badge` + the sentence `lintMessage` builds from its fields; a green "No problems found" line when the list is empty or absent (the server omits an empty `lint`). |
+| `DesignSystemFilesCard` | Organism: the repository's rendered files (`DESIGN.md`, `design/tokens.json`, `design/tokens.css`, `design/INVENTORY.md`). Collapsed until "Show files"; only then `useDesignSystemFiles` fetches (refresh button once loaded, retry on error). Each file: path, Copy (`lib/clipboard`'s `copyText` — Clipboard API, else a hidden textarea + `execCommand("copy")`), content in a scrollable `pre`. |
+| `DesignTokensPreview` | Organism: walks a DTCG tree (`lib/designTokens.ts`) — color swatches, a type-scale sample, spacing bars, radius boxes, shadow samples, and a path → type → value table for everything else; aliases show as written (`{color.primary}`) with what they resolve to, or "Unresolved alias". Inline styles carry only each token's own value, and a color reaches `background` only if it passes `cssColor` (hex, a color function with no nested parentheses, or a named color), so token data cannot inject a `url()`. Optional `overriddenPaths` mark a layer's overrides. |
+| `DesignSystemGenerateCard` | Organism: the call to action (`mode="create"` = `ui/empty-state` inside a `Card` with the explanation; `mode="update"` = compact card), an optional notes textarea sent as `notes`, then the opened task (key, title, column, "Open task" → `/board?task=` or, in `analiz_review`, "Review and approve"). Says "already running" for `created: false`; a 409 shows the no-repository `Notice` with "Add repository". |
+| `DesignSystemVersionList` | Molecule: `variant="pending"` (each row has "Review and approve") or `"history"` — a `Card` of `divide-y` rows: version, status, layer/repository, source task, date, and Preview/View → `onSelect`. |
+| `DesignSystemRepositoriesTable` | Molecule: the project's repositories — layer version, "Layer in review", builds on this project / another project's base / "Base project not chosen", each linking to the repository's Design System tab. |
+| `DesignBaseProjectPicker` | Molecule: `ui/select` with "Automatic" + every project (with its base version); `PUT …/base-project` on change, toast on success/failure. |
+| `DesignSystemStatusBadge` | Molecule: approved → success, in review → warning, superseded → secondary. |
+| `DesignTaskLink` | Molecule (forwards ref, so `Button asChild` works): opens a design task's analysis review page from `repositoryId` (a version's `source_task_repository_id`, a request's `repository_id`); only without one is the href `/board?task=<id>`, with a plain click resolving the repository through `api.lookupTask(key)` first. |
+
+`lib/designTokens.ts` (pure, unit-tested): `flattenDesignTokens` (group `$type`
+inheritance, `$`-metadata skipped, alias resolution with a cycle guard),
+`groupDesignTokens`, `cssColor`/`cssDimension`/`cssShadow`/`typographySample`,
+`formatTokenValue`. `lib/design-system.ts`: `DESIGN_SYSTEM_TAB`,
+`projectDesignSystemPath`, `repositoryDesignSystemPath`, `DESIGN_TASK_TYPE`, `isDesignTask`,
+and the document title convention (unit-tested): `designDocumentKind` (`design: <screen> · <variant>`
+HTML → mockup, `handoff: <screen>` markdown → handoff, `design system: <name> v<N>` → system,
+`design review: <screen>` → review), `designDocumentLabel` (the title without its prefix),
+`designHtmlDocuments` (mockups first, in variant order) / `designMarkdownDocuments` (hand-offs
+first), and the variant choice marker: `CHOSEN_VARIANT_PREFIX` (`"Chosen variant: "`, always
+English — the designer agent looks for it), `chosenVariantComment`, `chosenVariantTitle` (the
+newest marker comment's title). `lib/designLint.ts` (unit-tested): `sortLintFindings`,
+`lintCounts`, `lintMessage(finding, t, lang)` — code → `designSystem.checks.messages.<code>`
+(an unknown code → `unknown`), the ratio formatted for the language. `hooks/useDesignSystem`
+also exports `useDesignSystemFiles(repositoryId, enabled)`.
+
+### Designs under a task
+
+| Piece | What it is |
+|---|---|
+| `hooks/useTaskDesign` | `GET …/tasks/:taskId/design` once per opened task (not on the drawer's poll), then `listTaskAttachments` for each referenced design task, keeping only images (the screenshots the designer saved with `attach_to_task`). |
+| `board/TaskDesignSection` | Organism in `TaskDetailDrawer`, under the technical description; renders nothing when there are no references and no design system. A design-system line ("TaskTrooper v3 · web layer v1", a warning badge while ambiguous) linking to the repository's Design System tab; then one `Card` per referenced design task: key + title → its review page, the markdown documents in an `Accordion` (hand-offs open by default, via `MarkdownContent`), the HTML documents as rows with "Open" → `DesignDocumentDialog`, and the screenshots through `attachments/AttachmentList` (blob thumbnails, never a raw `<img src>`). |
+| `board/DesignDocumentDialog` | Molecule: one design document in a large dialog, read-only, in `AnalysisFrame` (the same sandboxed frame — no annotations). |
+| `board/analysis/DesignVariantCompare` | Organism on `AnalysisReviewPage`: two documents side by side (stacked below `lg`), each pane with its own document `Select`, a read-only `AnalysisFrame`, a "Chosen" badge when the newest `Chosen variant: ` comment names it, and "Choose this variant", which posts `Chosen variant: <document title>` through `createTaskComment` (the marker stays English; only the label is translated). |
+
+`AnalysisFrame`'s `annotations`, `activeId` and the `on*` handlers are optional: without
+them it is a read-only view (no highlights, selections ignored). `AnalysisReviewPage` shows
+"Compare variants" only for a design task with 2+ HTML documents (it then reads the task's
+comments once); comparing replaces the frame + comments panel and hides the header document
+select, whose items also mark the chosen document.
+
+`design` tasks elsewhere: `lib/project-board`'s `BUILT_IN_TASK_TYPES` labels
+them ("Design"); everything that opens the review page is column-based
+(`analiz_review`), so they get it unchanged. For a design task the wording
+switches to `analysisReview.design.*`: "Review design" on
+`board/AnalizReviewDecision`'s link (and its decline placeholder), and on
+`AnalysisReviewPage` the empty state, revising banner, submit tooltip, toasts,
+`AnalysisFrame`'s iframe `title` and `AnnotationsPanel`'s `pausedLabel` (both
+optional props defaulting to the analysis wording). Both also say that
+approving a design task approves the design system versions it proposed.
+
 ## Architecture & workspace maps (Phase 3)
 
 `components/projects/map/` — React Flow (`@xyflow/react`, the one dependency
@@ -290,6 +356,17 @@ do not redeclare that switch elsewhere.
 | `operations/AppTestBuildsSection`, `operations/AppTestGroupsSection` (+ `NewTestGroupDialog`, `StoreTestersDialog`) | Ops → Apps drawer: the app's builds with open/close/compliance, and its TestFlight groups / Play tracks with the auto-distribute switches and testers. |
 | `board/TaskMobileTesting` | Human UAT box: renders `TaskStoreBuildsPanel` (one `TaskPlatformTestBuild` per linked platform) and `SimulatorRunPanel`, or nothing for a repository with no linked app. |
 | `hooks/useStoreTestBuilds`, `hooks/useStoreTestGroups` | Loaders; builds poll every 5s only while one is queued, building or processing. |
+
+## MCP servers — Settings → MCP Servers
+
+| Piece | What it is |
+|---|---|
+| `pages/MCPServersPage` | The server table, the add/edit `FormDialog`, the OAuth sign-in flow (start → open in the system browser → poll the list until `auth` is `oauth_connected`) and the agent list behind "listed by". |
+| `admin/MCPServerForm` | Organism: the add/edit form; "Available to" is a `ui/select` (`listed` default for a new server, `all`), with a one-line hint per choice. |
+| `admin/MCPServerTableRow` | Molecule: one row — transport, access badge + "Listed by …", status (or **Sign-in needed/expired** with Connect/Reconnect, **Signed in** with Disconnect, "Waiting for sign-in…" with a fallback link to the sign-in page), tools, enabled switch. |
+| `admin/MCPOAuthClientDialog` | Molecule (`admin/FormDialog`): client id + optional secret for an authorization server without dynamic registration, showing the redirect URI to register. |
+| `admin/MCPServerPicker` | Molecule used by `ToolPolicyForm`: the agent-side picker; each option says whether the server is available to all agents or only to agents that list it. |
+| `lib/mcpAccess.ts` | `agentsListingServer`, `needsOAuthSignIn`, `openAuthorizationPage` (desktop bridge `openExternal`, else `window.open`). No new bridge method. |
 
 ## Cloud accounts & environments (Phase 2)
 

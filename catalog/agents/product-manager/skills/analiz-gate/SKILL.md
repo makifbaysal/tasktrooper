@@ -18,7 +18,7 @@ Some work can go straight to implementation tasks; some needs the architect to i
 - The request is broad and needs technical slicing.
 - Repository feasibility is unknown (new integration, DB schema change).
 - Estimated scope > 1 developer-day with unclear breakdown.
-- A new web frontend has no design system yet — the architect sequences a foundation task before any screen, and an analiz description for UI work should carry the design brief (see implementation-task-spec).
+- A new frontend or app has no design system yet (`get_design_system` returns nothing) and its screens still need slicing — open the design-system task yourself with `request_design_system` (implementation-task-spec) so it runs alongside the analysis, and carry the design brief and its key in the analiz description; the architect makes the UI tasks wait for it.
 - The change spans two or more repositories, or creates a new API contract between layers.
 - It's a greenfield product or a brand-new repository.
 

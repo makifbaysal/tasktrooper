@@ -1,8 +1,9 @@
 import { Plus, Server } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { api, type MCPServerView } from "@/api";
+import { api, isOAuthClientRequiredError, type Agent, type MCPOAuthStartInput, type MCPServerView } from "@/api";
 import { FormDialog } from "@/components/admin/FormDialog";
+import { MCPOAuthClientDialog } from "@/components/admin/MCPOAuthClientDialog";
 import { isFormValid, MCPServerForm } from "@/components/admin/MCPServerForm";
 import { MCPServerTableRow } from "@/components/admin/MCPServerTableRow";
 import { PageHeader } from "@/components/admin/PageHeader";
@@ -22,7 +23,17 @@ import {
   formStateFromTemplate,
   type MCPServerFormState,
 } from "@/lib/mcpForm";
+import { agentsListingServer, openAuthorizationPage } from "@/lib/mcpAccess";
 import { MCP_TEMPLATES } from "@/lib/mcpTemplates";
+
+const SIGN_IN_POLL_MS = 2000;
+const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000;
+
+interface PendingSignIn {
+  serverId: string;
+  url: string;
+  startedAt: number;
+}
 
 export function MCPServersPage() {
   const { t } = useI18n();
@@ -37,12 +48,18 @@ export function MCPServersPage() {
   const [deleting, setDeleting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [redirectUri, setRedirectUri] = useState("");
+  const [signIn, setSignIn] = useState<PendingSignIn | null>(null);
+  const [clientFor, setClientFor] = useState<string | null>(null);
+  const [authBusyId, setAuthBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setInitialLoading(true);
     try {
       const data = await api.listMCPServers();
       setServers(data.servers ?? []);
+      setRedirectUri(data.oauth_redirect_uri ?? "");
     } catch (e) {
       if (!silent) {
         toast.error(e instanceof Error ? e.message : t("content.mcp.loadFailed"));
@@ -55,9 +72,70 @@ export function MCPServersPage() {
   useEffect(() => {
     void refresh(false);
   }, [refresh]);
+  useEffect(() => {
+    api
+      .listAgents()
+      .then((data) => setAgents(data.agents ?? []))
+      .catch(() => setAgents([]));
+  }, []);
   // Silent background refresh, gated on tab visibility: a hidden tab stops
-  // polling entirely and refreshes once when it comes back.
-  usePolling(() => refresh(true), 5000, true);
+  // polling entirely and refreshes once when it comes back. Faster while a
+  // sign-in is open in the browser, so "Signed in" shows up right after it.
+  usePolling(() => refresh(true), signIn ? SIGN_IN_POLL_MS : 5000, true);
+
+  useEffect(() => {
+    if (!signIn) return;
+    const server = servers.find((s) => s.id === signIn.serverId);
+    if (server?.auth === "oauth_connected") {
+      toast.success(t("content.mcp.signInDone", { id: signIn.serverId }));
+      setSignIn(null);
+      return;
+    }
+    const remaining = SIGN_IN_TIMEOUT_MS - (Date.now() - signIn.startedAt);
+    const timer = window.setTimeout(() => {
+      toast.error(t("content.mcp.signInTimedOut", { id: signIn.serverId }));
+      setSignIn(null);
+    }, Math.max(0, remaining));
+    return () => window.clearTimeout(timer);
+  }, [signIn, servers, t]);
+
+  const listedBy = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const server of servers) out.set(server.id, agentsListingServer(agents, server.id));
+    return out;
+  }, [agents, servers]);
+
+  const startSignIn = async (serverId: string, client?: MCPOAuthStartInput) => {
+    setAuthBusyId(serverId);
+    try {
+      const started = await api.startMCPOAuth(serverId, client);
+      setClientFor(null);
+      setSignIn({ serverId, url: started.authorization_url, startedAt: Date.now() });
+      toast.info(t("content.mcp.signInStarted", { id: serverId }));
+      await openAuthorizationPage(started.authorization_url);
+    } catch (e) {
+      if (isOAuthClientRequiredError(e)) {
+        setClientFor(serverId);
+      } else {
+        toast.error(e instanceof Error && e.message ? e.message : t("content.mcp.signInFailed"));
+      }
+    } finally {
+      setAuthBusyId(null);
+    }
+  };
+
+  const disconnect = async (serverId: string) => {
+    setAuthBusyId(serverId);
+    try {
+      await api.disconnectMCPOAuth(serverId);
+      toast.success(t("content.mcp.disconnectedToast", { id: serverId }));
+      await refresh(true);
+    } catch (e) {
+      toast.error(e instanceof Error && e.message ? e.message : t("content.mcp.disconnectFailed"));
+    } finally {
+      setAuthBusyId(null);
+    }
+  };
 
   const existingIds = useMemo(() => new Set(servers.map((s) => s.id)), [servers]);
   const availableTemplates = useMemo(
@@ -195,6 +273,7 @@ export function MCPServersPage() {
                 <tr className="border-b border-border bg-muted/50">
                   <th className="px-4 py-3 text-left font-medium">{t("content.mcp.colServer")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("content.mcp.colTransport")}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t("content.mcp.colAccess")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("content.mcp.colStatus")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("content.mcp.colTools")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("content.mcp.colEnabled")}</th>
@@ -214,6 +293,11 @@ export function MCPServersPage() {
                     onToggleEnabled={(enabled) => handleToggle(server, enabled)}
                     onEdit={() => openEdit(server)}
                     onDelete={() => setDeleteId(server.id)}
+                    listedBy={listedBy.get(server.id)}
+                    onConnect={() => void startSignIn(server.id)}
+                    onDisconnect={() => void disconnect(server.id)}
+                    signInUrl={signIn?.serverId === server.id ? signIn.url : null}
+                    authBusy={authBusyId === server.id}
                   />
                 ))}
               </tbody>
@@ -251,6 +335,16 @@ export function MCPServersPage() {
           />
         )}
       </FormDialog>
+
+      <MCPOAuthClientDialog
+        serverId={clientFor}
+        redirectUri={redirectUri}
+        submitting={clientFor !== null && authBusyId === clientFor}
+        onCancel={() => setClientFor(null)}
+        onSubmit={(client) => {
+          if (clientFor) void startSignIn(clientFor, client);
+        }}
+      />
 
       <ConfirmDialog
         open={deleteId !== null}

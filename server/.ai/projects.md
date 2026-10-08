@@ -217,6 +217,24 @@ component/area) is, what it runs, what it talks to, and the required checks to r
 hand-off — capped at 8000 characters, dropping the lowest-priority component blocks first
 rather than truncating mid-sentence.
 
+## Design systems (migration 178)
+
+A project owns one base design system; each repository may add a layer that adds or
+overrides tokens on top of it (`design_systems`, versioned, `in_review → approved →
+superseded`). A repository's effective design system is its base project's approved base
+merged with its own approved layer: the base project is the one chosen in
+`repository_design_settings`, else the only linked project with an approved base (several
+is `ambiguous`, no base applies until one is chosen). A repository with no project base
+can carry a layer-only design system. Versions are proposed by `design` tasks (the
+`ui-designer` agent) and approved with them; the Design System tabs open those tasks
+(`design_system_requests`). Routes: [API Specification](api-spec.md#design-systems-migration-178).
+
+A `design` task holds the tasks it `blocks` until it is released (its done run
+writes the hand-off and opens the implementation work), and the documents of an
+approved design task reach every run of a task it blocks or that derives from
+it (`repository.Service.AnalysisReferences`, rendered under "The approved
+design this task builds").
+
 ## Legacy projection (kind, sub_projects, pipeline slots, deploy targets)
 
 Several older subsystems still read repository-level columns directly rather than the

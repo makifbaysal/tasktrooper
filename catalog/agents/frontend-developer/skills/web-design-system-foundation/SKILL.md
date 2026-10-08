@@ -1,7 +1,7 @@
 ---
 name: web-design-system-foundation
 category: frontend
-description: Use when the repository has no design system yet (no tokens, no component library - a new site/app, or a task that asks for one), before building any page section.
+description: Use when the repository has no design system yet (no tokens, no component library - a new site/app, an "Apply design system" task, or a task that asks for one), before building any page section - writes the approved design system's generated files from get_design_system (files true) and builds the tokens on them when there is one.
 source: anthropics/skills frontend-design (Apache-2.0), adapted
 ---
 # Web Design System Foundation
@@ -14,6 +14,8 @@ A page built before tokens, a `cn()` helper, and the atomic folders exist turns 
 
 ## Detect first
 
+`get_design_system` with `files: true` for this repository before anything else. When it returns a design system, the direction is already decided and approved: skip the design direction below and materialize it instead. Write every file in `files` verbatim at its `path` — `DESIGN.md`, `design/tokens.json`, `design/tokens.css`, `design/INVENTORY.md`; each carries a generated-file header and is never edited by hand, never transcribed. Then build the token block in step (c) on them: `@import "../design/tokens.css";` right after `@import "tailwindcss";`, and every value in the step (c) block points at the generated variable by role instead of holding a value — each token is a CSS variable named by its path (`color.light.primary` → `--color-light-primary`), so `--primary: var(--color-light-primary)` in `:root`, `--primary: var(--color-dark-primary)` in `.dark`, `--font-sans: var(--font-family-sans)` in `@theme`. A generated name that already is a Tailwind theme variable (`--radius-md`, `--shadow-sm`, `--font-weight-semibold`) is used as it is: drop the step (c) line that would define it a second time, never point it at itself. `src/components/INVENTORY.md` lists the repository's components under the names `design/INVENTORY.md` gives them. A token block that already exists but differs keeps its structure and gets its values pointed at the generated variables. Only an empty answer leaves the direction to you.
+
 Greenfield (use this skill) vs existing (map and follow `component-composition`, never restructure):
 - `grep -r "@theme\|:root" src/index.css` (v4) or `tailwind.config.*` `theme.extend.colors` (v3) — tokens defined?
 - `ls src/components` — do `atoms/molecules/organisms/templates` already exist, or a `components.json` (shadcn already initialized)?
@@ -24,7 +26,7 @@ Any of these present → stop, this skill doesn't apply; follow `component-compo
 
 ## Design direction (5 minutes, written into the plan, not a separate doc)
 
-One line each, from the task brief (the brief's own words win over any default below): **audience + tone** (e.g. "B2B finance ops, calm and precise"); **4–6 named brand colors** mapped onto the semantic tokens (primary/accent/destructive at minimum — use the brief's colors if given); **type pairing**, max 2 families, self-hosted or Google Fonts `<link>` with `&display=swap`; **radius + shadow** choice (one `--radius`, elevation via `shadow-sm`/`shadow-md` only); **ASCII wireframe** of the key page at phone (360) and desktop (1440).
+Only when `get_design_system` returned nothing. One line each, from the task brief (the brief's own words win over any default below): **audience + tone** (e.g. "B2B finance ops, calm and precise"); **4–6 named brand colors** mapped onto the semantic tokens (primary/accent/destructive at minimum — use the brief's colors if given); **type pairing**, max 2 families, self-hosted or Google Fonts `<link>` with `&display=swap`; **radius + shadow** choice (one `--radius`, elevation via `shadow-sm`/`shadow-md` only); **ASCII wireframe** of the key page at phone (360) and desktop (1440).
 
 Avoid the generic-AI defaults (warm-cream+serif+terracotta; near-black+one acid accent; identical-card SaaS kit) unless the brief asks for one — see `ui-ux-craft`'s anti-generic-look list.
 

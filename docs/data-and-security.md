@@ -65,8 +65,8 @@ per-row tenant columns) was removed outright rather than kept dormant.
 A second secret, `mcp_secrets_key`, is generated alongside the bearer token
 and handed to the backend as `MCP_SECRETS_KEY`. It encrypts everything the
 backend stores that should not sit in the database in the clear: connected
-provider API keys, MCP server credentials, the GitHub token, Vercel and
-store credentials, and mobile signing assets.
+provider API keys, MCP server credentials and OAuth sign-in tokens, the GitHub
+token, Vercel and store credentials, and mobile signing assets.
 
 **`mcp_secrets_key` must never be regenerated on an install that already has
 encrypted rows.** It is meant to stay stable for the life of the install —

@@ -32,6 +32,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/designsystem"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/embedmap"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/evolution"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/indexer"
@@ -148,6 +149,7 @@ type Handler struct {
 	envRequirements EnvRequirementService
 	localPreviewSvc *localpreview.Service
 	simRunSvc       *simrun.Service
+	designSystemSvc *designsystem.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
 	mcpToolServer *mcpserver.Server
@@ -214,6 +216,7 @@ type Config struct {
 	EnvRequirements   EnvRequirementService
 	LocalPreviewSvc   *localpreview.Service
 	SimRunSvc         *simrun.Service
+	DesignSystemSvc   *designsystem.Service
 	MCPToolServer     *mcpserver.Server
 	BootSeed          BootSeed
 }
@@ -279,6 +282,7 @@ func NewHandler(cfg Config) *Handler {
 		envRequirements:   cfg.EnvRequirements,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		simRunSvc:         cfg.SimRunSvc,
+		designSystemSvc:   cfg.DesignSystemSvc,
 		mcpToolServer:     cfg.MCPToolServer,
 		bootSeed:          cfg.BootSeed,
 	}
@@ -331,6 +335,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerRepositoryOpsRoutes(app)
 	h.registerStoreOpsRoutes(app)
 	h.registerSimulatorRunRoutes(app)
+	h.registerDesignSystemRoutes(app)
 	h.registerWorkspaceRoutes(app)
 	h.registerWorkflowRoutes(app)
 	h.registerEvolutionRoutes(app)
@@ -755,7 +760,7 @@ func (h *Handler) Tools(c *fiber.Ctx) error {
 	// existing grant is never silently stripped because the picker didn't know
 	// the tool existed).
 	if c.Query("all") == "true" {
-		defs := h.registry.DefinitionsForPolicy(domain.ToolPolicy{})
+		defs := h.registry.Definitions()
 		return c.JSON(toolsResponse{Tools: defs, Count: len(defs)})
 	}
 	policy := h.resolvePolicy(c, domain.ToolPolicy{})

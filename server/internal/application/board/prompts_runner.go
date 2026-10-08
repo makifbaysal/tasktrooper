@@ -18,6 +18,10 @@ var columnCodeReviewKey = prompt.Define("board.column_code_review", struct{}{})
 var columnPMUATKey = prompt.Define("board.column_pm_uat", struct{}{})
 var columnDoneKey = prompt.Define("board.column_done", struct{}{})
 var columnDoneAnalizKey = prompt.Define("board.column_done_analiz", struct{}{})
+var columnTodoDesignKey = prompt.Define("board.column_todo_design", struct{}{})
+var columnInProgressDesignKey = prompt.Define("board.column_in_progress_design", struct{}{})
+var columnNeedRevisionDesignKey = prompt.Define("board.column_need_revision_design", struct{}{})
+var columnDoneDesignKey = prompt.Define("board.column_done_design", struct{}{})
 var columnReleasedKey = prompt.Define("board.column_released", struct{}{})
 
 type columnPassToInput struct{ PassTo string }
@@ -99,6 +103,8 @@ type previousRunFailuresInput struct{ ErrorPattern string }
 var previousRunFailuresKey = prompt.Define("board.previous_run_failures", previousRunFailuresInput{ErrorPattern: "x"})
 
 var analysisContextIntroKey = prompt.Define("board.analysis_context_intro", struct{}{})
+var designContextIntroKey = prompt.Define("board.design_context_intro", struct{}{})
+var designContextRefHeaderKey = prompt.Define("board.design_context_ref_header", analysisContextRefHeaderInput{Label: "x", Key: "y"})
 
 type analysisContextNoDocsInput struct{ Label string }
 

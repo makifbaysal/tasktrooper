@@ -89,8 +89,27 @@ per-server connectivity:
 
 ```json
 {"servers": [{"id": "browser", "connected": true, "tool_count": 12},
-             {"id": "github", "connected": false, "last_error": "connect: ..."}]}
+             {"id": "github", "connected": false, "last_error": "connect: ..."},
+             {"id": "figma", "connected": false, "auth_required": true, "last_error": "connect: ... Unauthorized"}]}
 ```
+
+`auth_required` appears when the server answered 401 (with no usable OAuth token). `?all=true`
+on `/v1/tools` lists every registered tool, MCP access modes included (the admin picker).
+
+## MCP servers (migration 179)
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/mcp/servers` · `GET /admin/mcp-servers` | `{servers, count, oauth_redirect_uri}`. Each server: config (secrets masked), `access`, `status` (`connected`\|`disabled`\|`needs_config`\|`error`), `auth` (`none`\|`oauth_connected`\|`oauth_needed`\|`oauth_expired`), tools. `oauth_redirect_uri` is `http://127.0.0.1:<port>/oauth/mcp/callback` (empty without OAuth) |
+| `POST /admin/mcp-servers` · `PUT /admin/mcp-servers/{id}` · `DELETE …` | Body takes `access`: `all` or `listed`. Create defaults to `listed`; an update without `access` keeps the stored one; anything else is 400. Changing `url` or `transport` deletes the server's OAuth sign-in |
+| `POST /v1/mcp/servers/{id}/oauth/start` | Optional `{client_id, client_secret}`. Discovers the authorization server, registers a client dynamically when none was given (reused while the issuer and redirect URI are unchanged), returns `{authorization_url, expires_at}` (PKCE S256, `resource` = the MCP server, single-use `state`, 10 min). 400 `invalid_request_error` for a stdio server; 400 `oauth_client_required` when the authorization server has no registration endpoint and no client id was given; 502 `upstream_error` when discovery or registration fails |
+| `GET /oauth/mcp/callback` | **Public** (no bearer — see `isPublicPath`): the browser returning from the authorization server. Consumes `state` first (unknown/expired/replayed → 400 page), checks `iss` when present, exchanges `code` with the verifier, stores the tokens encrypted, reconnects MCP servers in the background. Answers a self-contained HTML page (`Content-Security-Policy: default-src 'none'`, `no-store`) |
+| `POST /v1/mcp/servers/{id}/oauth/disconnect` | 204. Deletes the tokens; a dynamically registered client is dropped, a hand-entered one kept |
+
+Access: an agent's tool policy with a non-empty `allow_mcp_servers` gets exactly those
+servers; an empty one gets only `access = 'all'` servers. Applied in
+`application/registry` to the tool list, to execution and to the `/mcp` endpoint alike.
+Rows that existed before migration 179 are `all`; seeded templates are `all`.
 
 ## Sessions and jobs
 
@@ -780,6 +799,33 @@ fetched on demand through the `get_project_brief` tool.
 
 PATCH bodies distinguish an absent field (leave), `null` (revert to detected) and a
 value (set the override). Errors are flat `{"error": "…"}`.
+
+## Design systems (migration 178)
+
+One base design system per project (`scope: "project"`) and an optional layer per
+repository (`scope: "repository"`) that adds or overrides tokens on top of it. Every
+version is proposed by a `design` task through `propose_design_system`; moving that
+task to `done` (the human's approval in `analiz_review`) approves the versions it
+proposed and supersedes the ones they replace (`approve_design_system_on_enter`).
+Nothing here approves directly.
+
+| Route | Body / response |
+|---|---|
+| `GET /v1/projects/{projectId}/design-system` | `designsystem.ProjectView`: `current` (approved base), `pending`, `versions` (newest first), `repositories` (each with its approved `layer`, `pending_layer`, `builds_on_this_project`, `ambiguous`) and `request` (the last design task opened from here) |
+| `POST /v1/projects/{projectId}/design-system/generate` | Body `{notes?}`. Opens a design task, in one of the project's UI repositories, that derives (or updates) the base and the repository layers from the code the repositories already have. 201 `{task, created: true}`; 200 `{task, created: false}` with the task already open; 409 when the project has no repository |
+| `GET /v1/repositories/{id}/design-system` | `designsystem.RepositoryView`: `effective` (`base`, `layer`, merged DTCG `tokens`, `ambiguous`), `base_project_id`, `project_choices`, `pending_layers`, `layer_versions`, `overrides` (token paths the layer changes), `request` |
+| `POST /v1/repositories/{id}/design-system/generate` | Body `{notes?}`. Opens a design task for the repository's layer — or its whole design system when it has no project base. Same responses as the project route |
+| `PUT /v1/repositories/{id}/design-system/base-project` | Body `{project_id}` (or `null` for automatic). A repository in several projects that each have a base is `ambiguous` until one is chosen; the project must be linked to the repository (400 otherwise) |
+| `GET /v1/design-systems/{designSystemId}` | One `domain.DesignSystem` version |
+| `GET /v1/repositories/{id}/design-system/files` | `{files: [{path, content}]}` — `DESIGN.md`, `design/tokens.json`, `design/tokens.css`, `design/INVENTORY.md` rendered from the effective design system (empty when it has none) |
+| `GET /v1/repositories/{id}/tasks/{taskId}/design` | `{references, design_system?}` — the approved design tasks the task derives from or is blocked by (each a `domain.AnalysisReference` with `task_type: "design"` and its documents) and the version summary of the repository's design system |
+
+Every version, and the repository view's merged tokens, carries `lint`
+(`domain.DesignLintFinding`: `code` `unresolved_alias | invalid_color |
+contrast_below_aa | empty_group | missing_section`, `severity`, `path`,
+`related_path`, `value`, `ratio`), computed on read. A `design` task blocks the
+work it `blocks` until it is `released`, not `done`
+(`postgres.unfinishedBlockerSQL`).
 
 ## Embedding map (UMAP source data)
 

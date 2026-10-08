@@ -7,6 +7,7 @@ export const repositoryPage = {
     checks: "Comprobaciones",
     links: "Vínculos",
     deployRuntime: "Despliegue y ejecución",
+    designSystem: "Sistema de diseño",
     settings: "Configuración",
   },
   header: {

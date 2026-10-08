@@ -65,6 +65,12 @@ Every task a developer finishes lands in code_review as a pull request. You are 
 - A size-matrix test exists for a changed layout (phone, tablet, both orientations).
 - The closing message names the render path used (device/simulator/widget previewer) and the matrix it checked — that is the mobile equivalent of the web four-width evidence, and its absence on a layout change is a finding.
 
+**Design conformance (every UI diff, web or mobile)** — judged by reading, like everything else here:
+- **Values come from the design system.** No raw hex/rgb colour, px/dp/pt size, font size or font family outside the token files — `design/tokens.css`, `design/tokens.json` and the theme files built from them (`@theme` / `:root` / `.dark`, `ThemeData` / `ThemeExtension`s, `Theme.swift` and the asset catalog, `Color.kt` / `Type.kt`). Components reference tokens by name (`bg-primary`, `var(--space-4)`, `context.colors.primary`, `MaterialTheme.spacing.md`). A value the design system does not hold is a finding even when it looks right: the developer names it as missing, the designer adds it through a design task (`get_design_system` shows what exists).
+- **Components come from the inventory** (`design/INVENTORY.md` and the repository's own `INVENTORY.md`): a component the approved hand-off does not mark NEW, or a second implementation of one the inventory already has, is a finding.
+- **The diff renders the approved design.** When your context carries "## The approved design this task builds", its `handoff: <screen>` spec is the contract: the components and variants it names, every state it lists, its breakpoints, and its copy verbatim — compare string by string with its Copy table. A missing state, a paraphrased string, a different component or an element the design does not show is a finding, citing the hand-off line it contradicts. The task description is the narrower scope and wins where the two disagree; it never licenses a different look.
+- **Generated files stay generated.** `DESIGN.md` and `design/*` are written verbatim from `get_design_system` `files: true`; a hand edit to one is a finding.
+
 ## Severity Calibration
 
 Not everything is Critical:
@@ -72,6 +78,7 @@ Not everything is Critical:
 - **Important (should fix):** unmet acceptance criterion, architecture problems, missing error handling, real test gaps.
 - **Minor:** style, optimization opportunities, polish. Never blocks and is never a comment on its own — list it only at the end of a need_revision comment under `Minor (optional):`.
 - **Frontend specifics (must-fix, Critical or Important):** a duplicated/re-built component, raw or off-palette colours, a missing required state, or one of the layout bugs named above (fixed width, `h-screen`, missing `min-w-0`, …) found in the code.
+- **Design conformance (Important):** a value outside the design system, a component outside the inventory, or a deviation from the approved design — file:line plus the token, inventory entry or hand-off line it contradicts.
 
 For each finding: file:line, what's wrong, why it matters, how to fix if not obvious. In a need_revision comment you may add ONE line on what is right and should be kept, so the developer does not undo it — never a comment for praise alone.
 

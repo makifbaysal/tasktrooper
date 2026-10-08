@@ -36,8 +36,8 @@ import (
 	vercelapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/cloud/vercel"
 	httpadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/http"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/llm"
-	desktopadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/desktop"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/appiumhub"
+	desktopadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/desktop"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localdevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localtoolchain"
 	simrunhost "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/simrun"
@@ -50,6 +50,7 @@ import (
 	browsertools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/browser"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/clarification"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/code"
+	designsystemtools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/designsystem"
 	memorytools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/memory"
 	mobiletools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/mobile"
 	opstools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/ops"
@@ -76,6 +77,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploywatch"
+	designsystemapp "github.com/makifbaysal/tasktrooper/server/internal/application/designsystem"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/embedmap"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/envreq"
@@ -289,6 +291,7 @@ type engine struct {
 	storeOpsSvc     *storeops.Service
 	storeMonitor    *storeops.Monitor
 	simRunSvc       *simrunapp.Service
+	designSystemSvc *designsystemapp.Service
 	deployOpsSvc    *deployops.Service
 	deployWatchSvc  *deploywatch.Service
 	releaseSvc      *releaseapp.Service
@@ -1005,6 +1008,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		// manager. Wired unconditionally — the refusal to rebuild lives in
 		// reloadMCP itself; an early guard here was walked past by engine.reload.
 		mcpService = mcpsvc.NewService(mcpStore, e.secretsCipher, e.reloadMCP)
+		e.enableMCPOAuth(mcpService, mcpStore)
 		// Default MCP server catalog, seeded as a boot step after the board seed.
 		e.bootSeed.AddStep("mcp_servers", mcpService.SeedDefaultsIfEmpty)
 		resolved, err := mcpService.ResolvedConfigs(ctx)
@@ -1088,6 +1092,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		// the feed can show the human the picture the model was handed.
 		if e.agentLoop != nil {
 			e.agentLoop.SetScreenshotArchiver(attachmentSvc)
+		}
+		// attach_to_task: a screenshot the agent asked to keep lands on its task.
+		if e.browserSession != nil {
+			e.browserSession.SetTaskAttacher(attachmentSvc)
 		}
 	}
 
@@ -1732,6 +1740,24 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			e.newRepoSvc = newRepoSvc
 		}
 
+		// Design systems: each project's base and each repository's layer,
+		// derived and revised by design tasks and approved with them.
+		if e.pgDB != nil && initiativeStore != nil {
+			designSystemSvc := designsystemapp.NewService(pgstore.NewDesignSystemStore(e.pgDB), initiativeStore, repositorySvc)
+			designSystemSvc.SetTaskCreator(repositorySvc)
+			repositorySvc.SetDesignSystemApprover(designSystemSvc)
+			if boardRunner != nil {
+				boardRunner.SetDesignSystems(designSystemSvc)
+			}
+			if e.newRepoSvc != nil {
+				e.newRepoSvc.SetDesignSystems(designSystemSvc)
+			}
+			for _, tool := range designsystemtools.NewExecutors(&designsystemtools.ToolKit{Service: designSystemSvc, Tasks: repositorySvc}) {
+				e.reg.Register(tool)
+			}
+			e.designSystemSvc = designSystemSvc
+		}
+
 		if attachmentStore != nil {
 			// Task detail responses carry attachment metadata alongside documents.
 			repositorySvc.SetAttachmentStore(attachmentStore)
@@ -2052,6 +2078,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// would spend a turn on saying.
 			if e.mobilePool == nil {
 				e.mobilePool = mobiletools.NewPool()
+			}
+			if attachmentSvc != nil {
+				e.mobilePool.SetTaskAttacher(attachmentSvc)
 			}
 			// The desktop sets APPIUM_BIN when Appium is installed and no longer
 			// runs a hub itself: one is started by the first mobile tool call that
@@ -2912,6 +2941,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		ReleaseWaker:      releaseWaker,
 		LocalPreviewSvc:   localPreviewSvc,
 		SimRunSvc:         e.simRunSvc,
+		DesignSystemSvc:   e.designSystemSvc,
 		InitiativeSvc:     initiativeSvc,
 		WorkspaceSvc:      workspaceSvc,
 		WorkflowSvc:       workflowSvc,
@@ -2954,7 +2984,12 @@ func (e *engine) reloadMCP(configs []domain.MCPServerConfig) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	e.mcpManager = &mcpadapter.Manager{}
+	// The same manager, not a new one: the HTTP handler holds this pointer for
+	// the server list's health, and the manager remembers which tools it
+	// registered so a removed server's tools leave the registry.
+	if e.mcpManager == nil {
+		e.mcpManager = &mcpadapter.Manager{}
+	}
 	e.mcpManager.LoadAndRegister(ctx, configs, e.reg)
 	return nil
 }

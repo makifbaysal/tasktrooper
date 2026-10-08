@@ -16,6 +16,7 @@ type Service struct {
 	store  port.MCPStore
 	cipher *secrets.Cipher
 	reload ReloadFunc
+	oauth  *oauthFlows
 }
 
 func NewService(store port.MCPStore, cipher *secrets.Cipher, reload ReloadFunc) *Service {
@@ -44,7 +45,12 @@ func (s *Service) ListViews(ctx context.Context, health []map[string]interface{}
 		if err != nil {
 			return nil, err
 		}
-		views = append(views, mergeHealth(masked, healthByID[server.ID]))
+		view := mergeHealth(masked, healthByID[server.ID])
+		view.Auth, err = s.authStatus(ctx, server, healthByID[server.ID])
+		if err != nil {
+			return nil, err
+		}
+		views = append(views, view)
 	}
 	return views, nil
 }
@@ -55,6 +61,9 @@ func (s *Service) Create(ctx context.Context, req domain.CreateMCPServerRequest)
 	}
 	if req.Transport == "" {
 		req.Transport = "stdio"
+	}
+	if req.Access == "" {
+		req.Access = domain.DefaultNewMCPAccess
 	}
 
 	server := stripIncomingSecrets(req)
@@ -80,11 +89,15 @@ func (s *Service) Update(ctx context.Context, id string, req domain.UpdateMCPSer
 		req.Transport = "stdio"
 	}
 
-	if _, err := s.store.Get(ctx, id); err != nil {
+	existing, err := s.store.Get(ctx, id)
+	if err != nil {
 		if errors.Is(err, domain.ErrMCPServerNotFound) {
 			return domain.MCPServerView{}, err
 		}
 		return domain.MCPServerView{}, fmt.Errorf("get mcp server: %w", err)
+	}
+	if req.Access == "" {
+		req.Access = existing.Access.Effective()
 	}
 
 	req.ID = id
@@ -96,6 +109,13 @@ func (s *Service) Update(ctx context.Context, id string, req domain.UpdateMCPSer
 	if err := s.applySecretUpdates(ctx, id, req); err != nil {
 		return domain.MCPServerView{}, err
 	}
+	// A sign-in names the resource it was granted for; once the server points
+	// somewhere else its token must never be sent there.
+	if existing.Transport != updated.Transport || existing.URL != updated.URL {
+		if err := s.forgetOAuth(ctx, id); err != nil {
+			return domain.MCPServerView{}, err
+		}
+	}
 	if err := s.reloadStored(ctx); err != nil {
 		return domain.MCPServerView{}, err
 	}
@@ -106,6 +126,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	if err := s.store.Delete(ctx, id); err != nil {
 		return err
 	}
+	s.dropPendingOAuth(id)
 	if err := s.store.DeleteSecretsForServer(ctx, id); err != nil {
 		return err
 	}

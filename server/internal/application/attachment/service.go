@@ -121,3 +121,13 @@ func (s *Service) UnlinkTask(ctx context.Context, taskID, attachmentID uuid.UUID
 func (s *Service) LinkMessage(ctx context.Context, messageID, attachmentID uuid.UUID) error {
 	return s.store.LinkMessage(ctx, messageID, attachmentID)
 }
+
+// AttachToTask stores a tool's image (a screenshot) and links it to the task
+// the run is working.
+func (s *Service) AttachToTask(ctx context.Context, repositoryID, taskID uuid.UUID, filename, contentType string, data []byte) (domain.AttachmentMeta, error) {
+	meta, err := s.Upload(ctx, filename, contentType, data, &repositoryID, "agent", "")
+	if err != nil {
+		return domain.AttachmentMeta{}, err
+	}
+	return s.LinkTask(ctx, repositoryID, taskID, meta.ID)
+}

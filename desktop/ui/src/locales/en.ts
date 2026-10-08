@@ -9,6 +9,7 @@ import { boardArea } from "@/locales/en/boardArea";
 import { chatArea } from "@/locales/en/chatArea";
 import { cloud } from "@/locales/en/cloud";
 import { content } from "@/locales/en/content";
+import { designSystem } from "@/locales/en/designSystem";
 import { frame } from "@/locales/en/frame";
 import { lib } from "@/locales/en/lib";
 import { operations } from "@/locales/en/operations";
@@ -127,6 +128,7 @@ export const en = {
   chatArea,
   cloud,
   content,
+  designSystem,
   frame,
   lib,
   operations,

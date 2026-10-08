@@ -11,6 +11,7 @@ export const repositoryPage = {
     checks: "Checks",
     links: "Links",
     deployRuntime: "Deploy & Runtime",
+    designSystem: "Design System",
     settings: "Settings",
   },
   header: {

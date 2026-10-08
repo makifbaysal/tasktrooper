@@ -59,6 +59,7 @@ tool_policy:
         - list_links
         - get_environment
         - list_runtime_errors
+        - request_design_system
     allow_mcp_servers: []
 roles:
     - key: architect

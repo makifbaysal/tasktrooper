@@ -12,6 +12,19 @@ type ToolExecutor interface {
 	Execute(ctx context.Context, arguments string) domain.ToolResult
 }
 
+// MCPServerTool is implemented by an executor that proxies a tool of a
+// user-configured MCP server; the registry reads it to apply that server's
+// agent access mode.
+type MCPServerTool interface {
+	MCPSource() domain.MCPToolSource
+}
+
+// ToolUnregisterer is implemented by a registry that can drop a tool, so an
+// MCP reload retires the tools of a server that was removed or disabled.
+type ToolUnregisterer interface {
+	Unregister(name string)
+}
+
 type ScopedFilesystemExecutor interface {
 	ExecuteScoped(ctx context.Context, root string, call domain.ToolCall) domain.ToolResult
 }

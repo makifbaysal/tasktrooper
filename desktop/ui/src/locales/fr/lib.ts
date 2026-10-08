@@ -6,6 +6,7 @@ export const lib = {
       analiz: "Analyse",
       bug: "Bug",
       technical: "Technique",
+      design: "Design",
     },
     taskPriority: {
       low: "Basse",

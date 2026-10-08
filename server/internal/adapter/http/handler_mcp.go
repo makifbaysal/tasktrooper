@@ -14,6 +14,10 @@ func (h *Handler) registerMCPRoutes(app *fiber.App) {
 	app.Post("/admin/mcp-servers", h.CreateMCPServer)
 	app.Put("/admin/mcp-servers/:id", h.UpdateMCPServer)
 	app.Delete("/admin/mcp-servers/:id", h.DeleteMCPServer)
+	app.Post("/v1/mcp/servers/:id/oauth/start", h.StartMCPOAuth)
+	app.Post("/v1/mcp/servers/:id/oauth/disconnect", h.DisconnectMCPOAuth)
+	// Public (state-authenticated) — see isPublicPath and MCPOAuthCallbackPath.
+	app.Get(MCPOAuthCallbackPath, h.MCPOAuthCallback)
 }
 
 func (h *Handler) ListMCPServers(c *fiber.Ctx) error {
@@ -30,7 +34,11 @@ func (h *Handler) ListMCPServers(c *fiber.Ctx) error {
 	if err != nil {
 		return internalError(c, err)
 	}
-	return c.JSON(domain.MCPServerListResponse{Servers: servers, Count: len(servers)})
+	return c.JSON(domain.MCPServerListResponse{
+		Servers:          servers,
+		Count:            len(servers),
+		OAuthRedirectURI: h.mcpSvc.OAuthRedirectURI(),
+	})
 }
 
 func (h *Handler) CreateMCPServer(c *fiber.Ctx) error {
@@ -91,8 +99,20 @@ func mcpHandlerError(c *fiber.Ctx, err error) error {
 		return c.Status(fiber.StatusConflict).JSON(errorResponse{
 			Error: errorDetail{Message: err.Error(), Type: "conflict"},
 		})
-	case errors.Is(err, domain.ErrMCPInvalidRequest):
+	case errors.Is(err, domain.ErrMCPInvalidRequest), errors.Is(err, domain.ErrMCPOAuthNotHTTP):
 		return badRequest(c, err.Error())
+	case errors.Is(err, domain.ErrMCPOAuthClientRequired):
+		return c.Status(fiber.StatusBadRequest).JSON(errorResponse{
+			Error: errorDetail{Message: err.Error(), Type: "oauth_client_required"},
+		})
+	case errors.Is(err, domain.ErrMCPOAuthDiscovery):
+		return c.Status(fiber.StatusBadGateway).JSON(errorResponse{
+			Error: errorDetail{Message: err.Error(), Type: "upstream_error"},
+		})
+	case errors.Is(err, domain.ErrMCPOAuthUnavailable):
+		return c.Status(fiber.StatusServiceUnavailable).JSON(errorResponse{
+			Error: errorDetail{Message: err.Error(), Type: "service_unavailable"},
+		})
 	default:
 		return internalError(c, err)
 	}

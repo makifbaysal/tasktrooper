@@ -65,7 +65,8 @@ func isServerPath(path string) bool {
 		path == "/health" || path == "/metrics" || strings.HasPrefix(path, "/docs") ||
 		// The Claude Code tool endpoint. Answering a JSON-RPC call with an HTML
 		// page makes the CLI report a parse error rather than a missing route.
-		path == mcpserver.Path
+		path == mcpserver.Path ||
+		path == MCPOAuthCallbackPath
 }
 
 func (h *Handler) registerEmbeddedUI(app *fiber.App, assets fs.FS) {
@@ -106,6 +107,12 @@ func (h *Handler) isPublicPath(path string) bool {
 	// below, because it is a decision, not a side effect of the path we
 	// happened to pick.
 	if path == mcpserver.Path {
+		return true
+	}
+	// The browser returning from an MCP server's authorization server holds
+	// no credential of ours. The single-use state it carries is what
+	// authenticates it (MCPOAuthCallback), so the API key is not asked for.
+	if path == MCPOAuthCallbackPath {
 		return true
 	}
 	if !strings.HasPrefix(path, "/v1") && !strings.HasPrefix(path, "/admin") {

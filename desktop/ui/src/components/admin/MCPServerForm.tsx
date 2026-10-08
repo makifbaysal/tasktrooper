@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { MCPEnvSchemaField, MCPServerView } from "@/api";
+import type { MCPAccess, MCPEnvSchemaField, MCPServerView } from "@/api";
 import { KeyValueEditor } from "@/components/admin/KeyValueEditor";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,6 +128,24 @@ export function MCPServerForm({
       <div className="flex items-center gap-2">
         <Switch checked={form.enabled} onCheckedChange={(enabled) => update({ enabled })} />
         <Label>{t("frame.admin.mcpForm.enabled")}</Label>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="mcp-access">{t("frame.admin.mcpForm.access")}</Label>
+        <Select value={form.access} onValueChange={(access: MCPAccess) => update({ access })}>
+          <SelectTrigger id="mcp-access">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="listed">{t("frame.admin.mcpForm.accessListed")}</SelectItem>
+            <SelectItem value="all">{t("frame.admin.mcpForm.accessAll")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {form.access === "all"
+            ? t("frame.admin.mcpForm.accessAllHint")
+            : t("frame.admin.mcpForm.accessListedHint")}
+        </p>
       </div>
 
       <div className="space-y-2">

@@ -13,6 +13,7 @@ The criteria are the floor, not the ceiling. They summarise the request in a few
 - The implied cases nobody wrote down, with `criterion_id` empty (boundary-negative-testing for the data catalogue).
 - Backend: the worker/async cases the request implies (worker-job-testing).
 - Frontend: the visual cases at all four widths, empty/loading/error states (frontend-manual-testing).
+- UI built from an approved design (your context carries "## The approved design this task builds"): the `design:` cases per state and width (design-conformance).
 - A regression case for the adjacent behaviour this change could break (regression-checklist).
 - The cases you considered and REJECTED, as `status=invalid` with the reason in `notes`.
 

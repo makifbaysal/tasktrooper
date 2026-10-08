@@ -369,6 +369,10 @@ export const settingsPages = {
         label: "Build de teste da loja ao entrar",
         description: "Entrar nesta etapa compila a tarefa para cada app de loja vinculado e envia para o TestFlight / Play internal app sharing.",
       },
+      approve_design_system_on_enter: {
+        label: "Aprovar o sistema de design ao entrar",
+        description: "Entrar nesta etapa aprova cada versão do sistema de design proposta pela tarefa e marca como substituída a versão que cada uma substitui.",
+      },
       auto_enter: {
         label: "Entrada automática",
         description: "O despachador move a tarefa direto para a coluna indicada ao atribuí-la ou acordá-la.",

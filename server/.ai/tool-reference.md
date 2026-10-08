@@ -166,6 +166,22 @@ The structured project model's agent-facing surface (`internal/adapter/tools/pro
 
 Granted: all three to `system-architect`, `backend-developer`, `frontend-developer`, `mobile-developer`, `qa-agent` (every role that writes or reviews code) and, narrower, `get_project_brief` + `list_links` to `product-manager`.
 
+### `get_design_system`, `propose_design_system`
+
+The design system's agent-facing surface (`internal/adapter/tools/designsystem`, migration 178).
+
+- **`get_design_system`** `{repository_id?, project_id?}` — the design system a repository follows: the project `base`, the repository's own `layer` and the merged DTCG `tokens`; `project_id` instead returns that project's approved base, pending proposals and each repository's layer. Read-only and in `workspaceReadAlwaysTools`, so every tool-scoped agent holds it. A run in a repository that has a design system also carries a short "Design system" block (versions + DESIGN.md excerpt) next to the project context.
+- **`propose_design_system`** `{scope, project_id?, repository_id?, design_md?, tokens?, inventory_md?, rationale?}` — a new pending version of a project's base or a repository's layer, from the `design` task the run is working (refused from any other task type: approving that task is what approves the proposal). A base needs `design_md`; a layer needs a `rationale` and cannot set a token to `null`. A second call for the same target from the same task replaces its pending version.
+
+- **`request_design_system`** `{scope, project_id?, repository_id?, notes?}` — opens the design task that derives or updates a design system from existing code (`designsystem.Service.RequestForProject` / `RequestForRepository`, the same as the Design System tabs), or returns the one still open for that target (`created: false`). The caller then makes its own work wait with `update_board_task` `blocked_by`.
+- `get_design_system` `files: true` adds `files` (`domain.DesignSystemFile`: DESIGN.md, design/tokens.json, design/tokens.css, design/INVENTORY.md). Every version in either tool's result carries `lint` (`domain.LintDesignSystem`).
+
+Granted: `get_design_system` to every agent; `propose_design_system` to `ui-designer`; `request_design_system` to `ui-designer`, `system-architect`, `product-manager`.
+
+### `attach_to_task` on `browser_screenshot` and `mobile_screenshot`
+
+`{attach_to_task: true, title?}` also stores the image as an attachment of the run's task (`port.TaskImageAttacher`, `attachment.Service.AttachToTask`; `adapter/tools/toolattach`), so the human sees it under the task. Without a task in context the flag is ignored and the result says so; a failed save never fails the screenshot.
+
 ### `get_environment`, `query_runtime_logs`, `list_runtime_errors`, `list_deployments`
 
 The runtime picture of a component's environment (`internal/adapter/tools/runtime`), read through `cloud.Service` — the Phase 2 cloud accounts/environments API that replaced the standalone Vercel/GCloud settings. All four resolve their repository the way the project-model tools do (`repository_id` optional, run context otherwise) and their component the same way: `component` is a component's own path, or `.`/omitted resolves to the repository's only component — with more than one and no path given, the error lists every path to retry with.
@@ -586,6 +602,10 @@ release is watched".
 ## MCP Tools
 
 MCP tools are named `mcp_<server_id>_<original_tool_name>`. Their parameters and descriptions are sourced directly from the MCP server's tool definitions.
+
+Who sees them is per server (`mcp_servers.access`, migration 179): `all` reaches every agent whose policy has an empty `allow_mcp_servers`; `listed` (the default for a server added through the API) reaches only agents whose `allow_mcp_servers` names it. A non-empty `allow_mcp_servers` is exact either way.
+
+Image content in a result (png/jpeg/gif/webp, ≤ 5 MB) is returned in `ToolResult.Images`, like `browser_screenshot`; text stays text.
 
 To see which MCP tools are active: `GET /v1/tools`.
 

@@ -7,9 +7,10 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-func mcpServerPrefix(serverID string) string {
-	return "mcp_" + serverID + "_"
-}
+const mcpToolPrefix = "mcp_"
+
+// MCPSources maps a registered tool name to the MCP server it proxies.
+type MCPSources map[string]domain.MCPToolSource
 
 func matchesPattern(name, pattern string) bool {
 	if pattern == name {
@@ -32,69 +33,60 @@ func matchesAny(name string, patterns []string) bool {
 }
 
 func isMCPTool(name string) bool {
-	return strings.HasPrefix(name, "mcp_")
+	return strings.HasPrefix(name, mcpToolPrefix)
 }
 
-func mcpServerFromTool(name string) string {
+// resolve finds the MCP server behind a tool name. A name registered without
+// its source (tests, or anything outside adapter/mcp) is attributed to the
+// longest known server id it is namespaced under, so "mcp_my_server_list" is
+// never read as server "my"; only an id nothing else claims falls back to
+// the first underscore.
+func (s MCPSources) resolve(name string) (domain.MCPToolSource, bool) {
 	if !isMCPTool(name) {
-		return ""
+		return domain.MCPToolSource{}, false
 	}
-	rest := strings.TrimPrefix(name, "mcp_")
-	idx := strings.Index(rest, "_")
-	if idx <= 0 {
-		return ""
+	if src, ok := s[name]; ok {
+		return src, true
 	}
-	return rest[:idx]
+	var best domain.MCPToolSource
+	for _, src := range s {
+		if src.ServerID == "" || len(src.ServerID) <= len(best.ServerID) {
+			continue
+		}
+		if strings.HasPrefix(name, mcpToolPrefix+src.ServerID+"_") {
+			best = src
+		}
+	}
+	if best.ServerID != "" {
+		return best, true
+	}
+	rest := strings.TrimPrefix(name, mcpToolPrefix)
+	if idx := strings.Index(rest, "_"); idx > 0 {
+		return domain.MCPToolSource{ServerID: rest[:idx], Access: domain.MCPAccessAll}, true
+	}
+	return domain.MCPToolSource{Access: domain.MCPAccessAll}, true
 }
 
-func FilterToolNames(all []string, policy domain.ToolPolicy) []string {
-	if policy.IsZero() {
-		return all
+// IsToolAllowed applies a policy to one tool. MCP tools are decided by
+// server: an explicit allow_mcp_servers list admits exactly those servers,
+// and without one only servers whose access mode is "all" are visible — so a
+// zero policy still hides a "listed" server.
+func IsToolAllowed(name string, policy domain.ToolPolicy, sources MCPSources) bool {
+	if src, ok := sources.resolve(name); ok {
+		return policy.AllowsMCPServer(src.ServerID, src.Access)
 	}
-
-	restrictTools := len(policy.AllowTools) > 0
-	restrictMCP := len(policy.AllowMCPServers) > 0
-
-	if !restrictTools && !restrictMCP {
-		return all
+	if len(policy.AllowTools) == 0 {
+		return true
 	}
+	return matchesAny(name, policy.AllowTools)
+}
 
+func FilterToolNames(all []string, policy domain.ToolPolicy, sources MCPSources) []string {
 	result := make([]string, 0, len(all))
 	for _, name := range all {
-		if isMCPTool(name) {
-			if !restrictMCP {
-				result = append(result, name)
-				continue
-			}
-			server := mcpServerFromTool(name)
-			for _, allowed := range policy.AllowMCPServers {
-				if server == allowed {
-					result = append(result, name)
-					break
-				}
-			}
-			continue
-		}
-		if !restrictTools {
-			result = append(result, name)
-			continue
-		}
-		if matchesAny(name, policy.AllowTools) {
+		if IsToolAllowed(name, policy, sources) {
 			result = append(result, name)
 		}
 	}
 	return result
-}
-
-func IsToolAllowed(name string, policy domain.ToolPolicy, all []string) bool {
-	if policy.IsZero() {
-		return true
-	}
-	allowed := FilterToolNames(all, policy)
-	for _, n := range allowed {
-		if n == name {
-			return true
-		}
-	}
-	return false
 }

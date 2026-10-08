@@ -79,6 +79,9 @@ Read-only, and available even on a repository with no semantic index yet.
 | `get_project_brief` | Reads the structured project model's brief: what a repository/component is, what it runs, what it talks to; fetched on demand, never injected into a run's context | `system-architect`, developer roles, `qa-agent`, `product-manager` |
 | `list_component_checks` | Lists each component's CI checks — workflow, purpose, gate, the exact local command that reproduces it | `system-architect`, developer roles, `qa-agent` |
 | `list_links` | Lists what a component talks to and what talks to it (other components, system resources) | `system-architect`, developer roles, `qa-agent`, `product-manager` |
+| `get_design_system` | Reads the design system a repository follows — the project base, the repository's layer and the merged tokens, with lint findings; `files: true` also returns `DESIGN.md`, `design/tokens.json`, `design/tokens.css` and `design/INVENTORY.md` to write into the repository | Every role |
+| `propose_design_system` | Proposes a new version of a project's base or a repository's layer from a `design` task; approved with the task | `ui-designer` |
+| `request_design_system` | Opens the design task that derives or updates a design system from existing code — what the Design System tab's button does | `ui-designer`, `system-architect`, `product-manager` |
 
 ## Cloud runtime
 
@@ -153,7 +156,7 @@ security](data-and-security.md)).
 | Tool | What it does | Typically held by |
 |---|---|---|
 | `browser_navigate` | Opens a URL | Developer roles, `system-architect`, `qa-agent`, `product-manager` |
-| `browser_screenshot` | Captures the current page | Same |
+| `browser_screenshot` | Captures the current page; with `attach_to_task` it also saves the image on the task | Same, and `ui-designer` |
 | `browser_click` | Clicks an element | Same |
 | `browser_fill` | Fills a form field | Same |
 | `browser_read_dom` | Reads the page's DOM/text | Same |
@@ -170,7 +173,7 @@ run stays on it. Registered at all only when a device is attached; see
 | Tool | What it does | Typically held by |
 |---|---|---|
 | `mobile_launch_app` | Installs/launches the app on the claimed device | `qa-agent`, `mobile-developer`, `product-manager` (UAT) |
-| `mobile_screenshot` | Captures the device screen | Same |
+| `mobile_screenshot` | Captures the device screen; with `attach_to_task` it also saves the image on the task | Same |
 | `mobile_read_ui` | Reads the current screen's UI tree | Same |
 | `mobile_tap` | Taps a coordinate or element | Same |
 | `mobile_type_text` | Types into the focused field | Same |
@@ -204,8 +207,11 @@ See [Skills and rules](skills-and-rules.md).
 
 MCP tools are named `mcp_<server_id>_<original_tool_name>`; their parameters
 and descriptions come straight from the MCP server's own tool definitions.
-`GET /v1/tools` shows which are currently active. See [MCP
-servers](mcp-servers.md) for adding one.
+`GET /v1/tools` shows which are currently active. A server you add reaches only
+the agents whose tool policy names it unless you make it available to all
+agents; images a tool returns reach the model as pictures. See [MCP
+servers](mcp-servers.md) for adding one and for signing in to hosted servers
+with OAuth.
 
 The reverse direction also exists: a Claude Code CLI session TaskTrooper
 spawns gets the registry's own tools back over `/mcp`, named

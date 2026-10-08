@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api } from "@/api";
 import { ChecksTab } from "@/components/projects/repository/ChecksTab";
 import { ComponentsTab } from "@/components/projects/repository/ComponentsTab";
+import { RepositoryDesignSystemTab } from "@/components/projects/designsystem/RepositoryDesignSystemTab";
 import { DeployRuntimeTab } from "@/components/projects/repository/deploy/DeployRuntimeTab";
 import { LinksTab } from "@/components/projects/repository/LinksTab";
 import { OverviewTab } from "@/components/projects/repository/OverviewTab";
@@ -20,7 +21,7 @@ import { useRepositoryModel } from "@/hooks/useRepositoryModel";
 import { useScanProgress } from "@/hooks/useScanProgress";
 import { reviewCount } from "@/lib/project-model";
 
-const TABS = ["overview", "components", "checks", "links", "deploy", "settings"] as const;
+const TABS = ["overview", "components", "checks", "links", "deploy", "design", "settings"] as const;
 type RepositoryTab = (typeof TABS)[number];
 
 function tabFromParam(raw: string | null): RepositoryTab {
@@ -182,6 +183,7 @@ export function RepositoryPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="deploy">{t("repositoryPage.tabs.deployRuntime")}</TabsTrigger>
+          <TabsTrigger value="design">{t("repositoryPage.tabs.designSystem")}</TabsTrigger>
           <TabsTrigger value="settings">{t("repositoryPage.tabs.settings")}</TabsTrigger>
         </TabsList>
 
@@ -211,6 +213,9 @@ export function RepositoryPage() {
             onSelectComponent={setSelectedComponentId}
             onReload={reload}
           />
+        </TabsContent>
+        <TabsContent value="design">
+          <RepositoryDesignSystemTab repositoryId={model.repository.id} />
         </TabsContent>
         <TabsContent value="settings">
           <SettingsTab model={model} repositoryId={model.repository.id} onReload={reload} />

@@ -100,7 +100,7 @@ func (s *Service) RecordQuestions(ctx context.Context, repositoryID, taskID uuid
 	if s.questions == nil {
 		return nil, errQuestionsDisabled
 	}
-	if task.TaskType != domain.TaskTypeAnaliz {
+	if !task.TaskType.IsDocumentWork() {
 		return nil, errors.New(prompt.Text(openQuestionsNonAnalizKey))
 	}
 	if len(add) > domain.MaxQuestionsPerTask {

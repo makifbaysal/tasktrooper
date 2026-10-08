@@ -369,6 +369,10 @@ export const settingsPages = {
         label: "进入时生成商店测试构建",
         description: "进入此阶段时，会为每个已关联的商店应用构建该任务，并上传到 TestFlight / Play 内部应用共享。",
       },
+      approve_design_system_on_enter: {
+        label: "进入时批准设计系统",
+        description: "进入此阶段时，会批准该任务提出的每个设计系统版本，并将各自替换的版本标记为已被取代。",
+      },
       auto_enter: {
         label: "自动进入",
         description: "分配或唤醒时，调度器会将任务直接移入指定列。",

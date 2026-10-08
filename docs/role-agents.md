@@ -14,7 +14,7 @@ those tabs or replaced with [your own agents](custom-agents.md) — but they are
 built to run a board end to end without any setup beyond registering a
 repository.
 
-## The six agents
+## The agents
 
 | Agent | Runs as | Effort | What it does |
 |---|---|---|---|
@@ -24,6 +24,7 @@ repository.
 | `frontend-developer` | `frontend-engineer` | high | React/Vite/Tailwind UI |
 | `mobile-developer` | `mobile-dev-engineer` | high | Flutter, SwiftUI, Jetpack Compose apps; store deploys |
 | `qa-agent` | `generalPurpose` | medium | Manual test rounds against a running build |
+| `ui-designer` | `generalPurpose` | high | The project's design system, screen designs before they are built, design reviews — see [Design systems](design-systems.md) |
 
 "Runs as" is the **subagent type** shown on the agent's Settings tab — it is
 metadata the CLI session carries, not a separate program. "Effort" is the CLI
@@ -54,7 +55,9 @@ automatically instead of bouncing back to whoever implemented the task:
 | `product-manager` | PM UAT | Reviews the finished task against its acceptance criteria |
 
 Analysis Review and Human UAT have no subscriber on purpose: those are the
-two columns where a human approves or rejects, not an agent.
+two columns where a human approves or rejects, not an agent. The
+`ui-designer` subscribes to nothing either: every `design` task is assigned
+to it, so it is dispatched as the assignee.
 
 A task's **assignee** (a developer, typically) is dispatched when the task
 sits in a column nobody subscribes to — Todo, In Progress, Need Revision — and
@@ -75,7 +78,8 @@ as seeded today:
 | `backend-developer` | 27 (12 shared + 15 of its own) | 10 |
 | `frontend-developer` | 21 (12 shared + 9 of its own) | 7 |
 | `mobile-developer` | 25 (12 shared + 13 of its own) | 8 |
-| `qa-agent` | 17 enabled + 4 disabled (3 shared + 18 of its own) | 13 enabled + 2 disabled |
+| `qa-agent` | 20 enabled + 4 disabled (3 shared + 21 of its own) | 16 enabled + 2 disabled |
+| `ui-designer` | 9 (3 shared + 6 of its own) | 10 |
 
 The three developer roles share a dozen skills (board comment style,
 performance awareness, TDD workflow, incremental commits, root-cause

@@ -75,6 +75,7 @@ export const projectsHub: ProjectsHubDict = {
       architecture: "Mimari",
       repositories: "Repolar",
       review: "İnceleme",
+      designSystem: "Tasarım Sistemi",
       settings: "Ayarlar",
     },
     table: {

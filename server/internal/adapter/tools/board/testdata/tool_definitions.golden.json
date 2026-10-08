@@ -296,7 +296,7 @@
             "type": "string"
           },
           "blocked_by": {
-            "description": "Work ordering: task UUIDs or board keys (e.g. [\"T-1\"]) that must be FINISHED (done or released) before anyone starts this task. THIS task waits for the ones you list — same direction as deploy_depends_on. Enforced: while any of them is open this task is parked in `blocked` instead of being dispatched, and it is picked up automatically the moment the last one lands. Use it when one task's code has to exist before the next can be written; use deploy_depends_on when the order is about shipping, and both when it is both. A cycle is refused at creation.",
+            "description": "Work ordering: task UUIDs or board keys (e.g. [\"T-1\"]) that must be FINISHED (done or released; a design task only once released, after its designer wrote the hand-off) before anyone starts this task. THIS task waits for the ones you list, and an approved design task among them hands this task its documents — same direction as deploy_depends_on. Enforced: while any of them is open this task is parked in `blocked` instead of being dispatched, and it is picked up automatically the moment the last one lands. Use it when one task's code has to exist before the next can be written; use deploy_depends_on when the order is about shipping, and both when it is both. A cycle is refused at creation.",
             "items": {
               "type": "string"
             },
@@ -1039,7 +1039,7 @@
                   "type": "string"
                 },
                 "evidence": {
-                  "description": "Command + output, request/response, or — for a screenshot — the url and viewport browser_screenshot reported and what it showed (it saves no file, so never a path).",
+                  "description": "Command + output, request/response, or — for a screenshot — the url and viewport browser_screenshot reported and what it showed, plus the file name it was saved under when you passed attach_to_task (without it no file is saved, so never a path).",
                   "type": "string"
                 },
                 "expected": {
@@ -1345,13 +1345,14 @@
             "type": "string"
           },
           "blocked_by": {
-            "description": "Work ordering: task UUIDs or board keys that must be FINISHED (done or released) before anyone starts this task — THIS task waits for them. ADDS to the task's existing blockers rather than replacing them, so send only the ones you are adding. Enforced: while any blocker is open the task is parked in `blocked` instead of being dispatched, and it is picked up automatically when the last one lands. A cycle is refused.",
+            "description": "Work ordering: task UUIDs or board keys that must be FINISHED (done or released; a design task only once released, after its designer wrote the hand-off) before anyone starts this task — THIS task waits for them, and an approved design task among them hands this task its documents. ADDS to the task's existing blockers rather than replacing them, so send only the ones you are adding. Enforced: while any blocker is open the task is parked in `blocked` instead of being dispatched, and it is picked up automatically when the last one lands. A cycle is refused.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "column": {
+            "description": "Put the task in this board column. For workflow moves prefer move_board_task; this is for sending your own task back to todo in the same call that adds the blocker it now waits for.",
             "type": "string"
           },
           "component": {

@@ -74,6 +74,7 @@ export const projectsHub = {
       architecture: "Architecture",
       repositories: "Repositories",
       review: "Review",
+      designSystem: "Design System",
       settings: "Settings",
     },
     table: {

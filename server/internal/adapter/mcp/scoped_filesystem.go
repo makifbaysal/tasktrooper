@@ -91,7 +91,7 @@ func getScopedFilesystemSession(ctx context.Context, root string) (*scopedFilesy
 	// stdio transport, so the URL policy is never consulted; the default is
 	// passed rather than a zero Policy so this stays correct if the transport
 	// ever changes.
-	executors, closeFn, err := connectServer(connectCtx, cfg, urlguard.Default())
+	executors, closeFn, err := connectServer(connectCtx, cfg, urlguard.Default(), nil)
 	if err != nil {
 		return nil, err
 	}

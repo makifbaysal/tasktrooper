@@ -1,7 +1,7 @@
 ---
 name: mobile-design-system-foundation
 category: mobile
-description: Use when the mobile repository has no theme tokens or component library yet (a new app, or a task that asks for one), before building any screen.
+description: Use when the mobile repository has no theme tokens or component library yet (a new app, an "Apply design system" task, or a task that asks for one), before building any screen - writes the approved design system's generated files from get_design_system (files true) and builds the theme from them when there is one.
 source: ehmo/platform-design-skills (MIT), android/skills (Apache-2.0), adapted
 ---
 # Mobile Design System Foundation
@@ -14,11 +14,13 @@ A screen built before tokens and an atomic component library exist turns into `C
 
 ## Detect first
 
-A `ThemeData`/`ThemeExtension`, an asset-catalog colour set, a `MaterialTheme` wrapper, or an `INVENTORY.md` already present means this skill doesn't apply — stop, map and follow the existing structure (`flutter-atomic-components` / `mobile-ui-ux`) instead.
+`get_design_system` with `files: true` for this repository before anything else. When it returns a design system, the direction is already decided and approved: skip the design direction below and materialize it instead. Write every file in `files` verbatim at its `path` — `DESIGN.md`, `design/tokens.json`, `design/tokens.css`, `design/INVENTORY.md`; each carries a generated-file header and is never edited by hand, never transcribed. Then build the stack's theme from `design/tokens.json` by role (Flutter: `ColorScheme` light and dark plus `ThemeExtension`s for spacing, radius and sizes; SwiftUI: asset-catalog colour sets with Any/Dark appearances plus `Theme.swift` for type, spacing and radius; Compose: `Color.kt` / `Theme.kt` / `Type.kt` / `Shape.kt` with a light and a dark `ColorScheme`), each value exactly as its token holds it and named after it (`color.light.primary` → `primary`). Use the colours as given — no `ColorScheme.fromSeed` that would recompute them. The repository's own `INVENTORY.md` lists its components under the names `design/INVENTORY.md` gives them. A theme that already exists but differs from it gets its VALUES updated to the design system's, its structure kept. Only an empty answer leaves the direction to you.
+
+A `ThemeData`/`ThemeExtension`, an asset-catalog colour set, a `MaterialTheme` wrapper, or an `INVENTORY.md` already present (and, when `get_design_system` returned a design system, the generated `design/` files present and matching it) means this skill doesn't apply — stop, map and follow the existing structure (`flutter-atomic-components` / `mobile-ui-ux`) instead.
 
 ## Design direction (5 minutes, written into the plan, not a separate doc)
 
-One line each, from the task brief (the brief's own words win over any default below): **audience + tone**; **4–6 named brand colours** mapped onto semantic roles (primary/secondary/error at minimum); **type pairing**; **radius** choice; **ASCII wireframe** of the key screen at phone (360) and tablet (768) width.
+Only when `get_design_system` returned nothing. One line each, from the task brief (the brief's own words win over any default below): **audience + tone**; **4–6 named brand colours** mapped onto semantic roles (primary/secondary/error at minimum); **type pairing**; **radius** choice; **ASCII wireframe** of the key screen at phone (360) and tablet (768) width.
 
 ## Per-stack tokens
 

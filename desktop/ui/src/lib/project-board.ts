@@ -180,8 +180,8 @@ export const DEFAULT_BOARD_COLUMNS: {
   { slug: "released", label: "Released", position: 12, is_backlog: false },
 ];
 
-// The four types that shipped before task types became data (task_types
-// table, see hooks/useTaskTypes). Their locale strings stay the translation
+// The types the server ships built in: the four that predate task types as data (task_types
+// table, see hooks/useTaskTypes) plus `design` (migration 178). Their locale strings stay the translation
 // for these keys as long as nobody has renamed them server-side — see
 // taskTypeLabel below.
 export const BUILT_IN_TASK_TYPES: { key: string; defaultLabel: string; labelKey: string }[] = [
@@ -189,6 +189,7 @@ export const BUILT_IN_TASK_TYPES: { key: string; defaultLabel: string; labelKey:
   { key: "analiz", defaultLabel: "Analysis", labelKey: "lib.projectBoard.taskType.analiz" },
   { key: "bug", defaultLabel: "Bug", labelKey: "lib.projectBoard.taskType.bug" },
   { key: "technical", defaultLabel: "Technical", labelKey: "lib.projectBoard.taskType.technical" },
+  { key: "design", defaultLabel: "Design", labelKey: "lib.projectBoard.taskType.design" },
 ];
 
 export const TASK_PRIORITY_OPTIONS: { value: TaskPriority; labelKey: string }[] = [
@@ -202,7 +203,7 @@ export const TASK_PRIORITY_OPTIONS: { value: TaskPriority; labelKey: string }[] 
  * A task type's display label. `types` is the loaded task_types list
  * (hooks/useTaskTypes); omitted or not-yet-loaded, this falls back to the
  * built-in locale strings so a board painted before the list arrives still
- * reads correctly for task/analiz/bug/technical.
+ * reads correctly for task/analiz/bug/technical/design.
  *
  * For a built-in key whose server label is still the untouched English
  * default ("Task", "Analysis", ...), the locale string is preferred so the
@@ -229,7 +230,7 @@ export function taskTypeLabel(type: TaskType, types?: TaskTypeDef[]): string {
 
 /**
  * Select options for a task-type picker. Prefers the loaded task_types list
- * (server order via `position`); falls back to the four built-ins when the
+ * (server order via `position`); falls back to the built-ins when the
  * list has not loaded yet or came back empty (a workspace mid-migration).
  */
 export function taskTypeOptions(types: TaskTypeDef[] | undefined): { value: string; label: string }[] {

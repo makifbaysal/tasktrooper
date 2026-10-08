@@ -477,6 +477,26 @@ Settings → Integrations (`admin/GitHubCard`). `GET /v1/settings/github` → `{
 it encrypted (scopes: `repo`, `admin:repo_hook`, `read:org`); `DELETE` removes it. There is no OAuth
 hop — nothing here can hold an OAuth app's client secret or receive GitHub's callback.
 
+## MCP servers
+
+Settings → MCP Servers (`pages/MCPServersPage`). `GET /admin/mcp-servers` →
+`{servers, count, oauth_redirect_uri}`; each server carries `access` (`all` | `listed`,
+absent on an old server = `all`) and `auth` (`none` | `oauth_connected` | `oauth_needed` |
+`oauth_expired`). Create/update send `access` from the form's "Available to" select (new
+servers default to `listed`). The "listed by" names are computed client-side from
+`GET /admin/agents` (`tool_policy.allow_mcp_servers`, exact id or `*` pattern —
+`lib/mcpAccess`).
+
+- `POST /v1/mcp/servers/{id}/oauth/start` (`api.startMCPOAuth`, optional
+  `{client_id, client_secret}`) → `{authorization_url, expires_at}`; the page opens the URL
+  with `lib/mcpAccess.openAuthorizationPage` (the bridge's existing `openExternal` in the
+  desktop shell, a new tab in a browser), then polls the list every 2 s until the server's
+  `auth` is `oauth_connected` (gives up after 5 min). A 400 `oauth_client_required`
+  (`isOAuthClientRequiredError`) opens `admin/MCPOAuthClientDialog`, which shows
+  `oauth_redirect_uri` and retries with the entered client.
+- `POST /v1/mcp/servers/{id}/oauth/disconnect` (`api.disconnectMCPOAuth`) → 204.
+- The browser, not this app, calls `GET /oauth/mcp/callback` on the backend.
+
 ## Cloud accounts & environments (Phase 2)
 
 Replaced the old one-account-each `/v1/settings/vercel*` and `/v1/gcloud/*` (plus
@@ -536,12 +556,12 @@ renders per component on the projects hub.
 
 ## Roles, task types & workflows
 
-Task types (`task`/`analiz`/`bug`/`technical` plus anything custom) and their
+Task types (`task`/`analiz`/`bug`/`technical`/`design` plus anything custom) and their
 per-column workflow stages are data now, not a closed enum — edited under
 Settings → Roles / Settings → Workflows (`pages/RolesSettingsPage.tsx`,
 `pages/WorkflowSettingsPage.tsx`). `TaskType` (`api.ts`) is a plain `string`;
 `hooks/useTaskTypes.ts` loads the list and `lib/project-board.ts`'s
-`taskTypeOptions`/`taskTypeLabel` read it, falling back to the four built-ins
+`taskTypeOptions`/`taskTypeLabel` read it, falling back to the built-ins
 (with their locale strings) until the list has loaded.
 
 - `GET /v1/roles` → `{roles:[{id,key,name,description,required_tools:[],assignments:[{agent_id,agent_name,areas:[]|null,priority}],purposes:[]}]}`.
@@ -836,6 +856,83 @@ plus the Phase 1/2 types above.
   "provider_error"` — `RuntimePanel` reads this to decide Reconnect
   (`cloud_auth`) vs Connect (`not_connected`), never the `unavailable` message
   text.
+
+## Design systems
+
+JSON shapes are `server/internal/domain/design_system.go` and
+`application/designsystem`'s view structs (Go tags exactly); `api.ts` mirrors
+them as `DesignSystemVersion`, `DesignTaskRef`, `ProjectDesignSystemView`,
+`RepositoryDesignSystemView`, `EffectiveDesignSystem`,
+`DesignSystemGenerateResult`. One **base** per project (`scope: "project"`);
+a repository may add a **layer** (`scope: "repository"`) that adds/overrides
+tokens, each layer with a `rationale`. `tokens` is a DTCG tree (groups are
+objects, a token is `{$value, $type?}`, aliases are `"{color.primary}"`).
+Versions are proposed by a `design` task (key prefix `D`, run by the
+`ui-designer` agent) and approved by approving that task in `analiz_review`
+on the analysis review page — the `design` workflow's `done` stage has the
+`approve_design_system_on_enter` behaviour, which approves every version the
+task proposed and supersedes the one each replaces.
+
+- `GET /v1/projects/{projectId}/design-system` → `ProjectDesignSystemView
+  {project, current?, pending[], versions[], repositories[{id,name,kind,layer?,pending_layer,builds_on_this_project,ambiguous}], request?}`
+  — `current` is the approved base, `pending` the `in_review` proposals,
+  `versions` every version newest first, `request` the latest design task the
+  tab opened (`{id, repository_id, key, title, column, open}`).
+- `POST /v1/projects/{projectId}/design-system/generate` `{notes?}` → `201
+  {task: BoardTask, created: true}`, or `200 {task, created: false}` when a
+  design task for the project is already open; `409` when the project has no
+  repository (the UI says so and links to `/projects/new?project=<id>`).
+- `GET /v1/repositories/{id}/design-system` → `RepositoryDesignSystemView
+  {repository_id, repository_name, repository_kind, effective:{repository_id, project?, base?, layer?, tokens, ambiguous?}, base_project_id?, project_choices[{project, base_version?}], pending_layers[], layer_versions[], overrides[], lint[], request?}`
+  — `effective.tokens` is the base merged with the layer; `overrides` lists
+  the token paths the layer overrides; `ambiguous` is true while the
+  repository belongs to several projects with a base and none was chosen;
+  `lint` checks the merged tokens.
+- `POST /v1/repositories/{id}/design-system/generate` `{notes?}` → same shape
+  as the project generate.
+- `PUT /v1/repositories/{id}/design-system/base-project` `{project_id: string | null}`
+  → `RepositoryDesignSystemView`; `null` goes back to the automatic choice.
+- `GET /v1/design-systems/{id}` → `DesignSystemVersion`.
+- `GET /v1/repositories/{id}/design-system/files` → `{files: [{path, content}]}` —
+  `DESIGN.md`, `design/tokens.json`, `design/tokens.css` and (when there is an
+  inventory) `design/INVENTORY.md`, rendered from the effective version; an
+  empty list when the repository follows no design system (`DesignSystemFile`).
+- `GET /v1/repositories/{id}/tasks/{taskId}/design` → `TaskDesign
+  {references: [{task_id, key, title, task_type: "design", column, repository_id, documents: TaskDocument[]}], design_system?: {project_id?, project_name?, base_version?, layer_version?, ambiguous?}}`
+  — the approved design tasks this task derives from or is blocked by, with
+  their documents (the same ones every run on the task receives in its
+  prompt), and a summary of the design system its repository follows (absent
+  when there is none). Their screenshots are read separately with
+  `GET /v1/repositories/{repository_id}/tasks/{task_id}/attachments`.
+
+**Lint.** Every `DesignSystemVersion` (in both views and `GET
+/v1/design-systems/{id}`) carries `lint?: DesignLintFinding[]`, computed on
+read and omitted when empty; `RepositoryDesignSystemView.lint` is always
+present. A finding is codes and values only — `{code, severity: "error" |
+"warning", path?, related_path?, value?, ratio?}` with `code` one of
+`unresolved_alias` (`value` = the alias), `invalid_color` (`value`),
+`contrast_below_aa` (`path` + `related_path`, `ratio` vs AA's 4.5),
+`empty_group` (`path`) and `missing_section` (`value` = the DESIGN.md section,
+e.g. "Do's and Don'ts"; project bases only). The UI words them
+(`lib/designLint.ts`).
+
+**Design documents.** A design task's documents follow a title convention the
+UI reads (`lib/design-system.ts`): `design: <screen> · <variant>` (HTML, one
+per variant), `handoff: <screen>` (markdown), `design system: <name> v<N>`
+(HTML), `design review: <screen>` (HTML). Choosing a variant on the review page
+posts a human task comment through `POST …/tasks/{taskId}/comments` with the
+exact text `Chosen variant: <document title>` — an English marker the designer
+agent looks for; the newest such comment is the current choice.
+
+Read through `hooks/useDesignSystem` (`useProjectDesignSystem`,
+`useRepositoryDesignSystem`: per-id cache-then-refresh, re-polled every 10s
+while `request.open`). Every version carries `source_task_id`,
+`source_task_key` and `source_task_repository_id` (read from the source task);
+the last addresses the task's review page
+(`/repositories/{source_task_repository_id}/tasks/{source_task_id}/analysis`).
+Only when it is absent (an older server, a deleted task) does
+`projects/designsystem/DesignTaskLink` fall back to `/board?task=<id>`, resolving
+the repository with `GET /v1/tasks/lookup?key=` on a plain click.
 
 ## Embedding map (UMAP source data)
 

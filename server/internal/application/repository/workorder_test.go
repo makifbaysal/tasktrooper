@@ -146,6 +146,9 @@ func newOrderFixture(t *testing.T, keys ...string) *orderFixture {
 		if strings.HasPrefix(key, "A-") {
 			taskType = "analiz"
 		}
+		if strings.HasPrefix(key, "D-") {
+			taskType = domain.TaskTypeDesign
+		}
 		tasks.tasks[id] = domain.BoardTask{
 			ID: id, RepositoryID: repoID, Key: key, Title: "work for " + key,
 			Column: domain.TaskColumnTodo, TaskType: taskType,
@@ -396,6 +399,83 @@ func TestAnalysisReferencesReturnsTheAnalizTasksDocuments(t *testing.T) {
 	require.Len(t, refs[0].Documents, 2)
 	assert.Equal(t, "spec: 2026-08-17 export", refs[0].Documents[0].Title)
 	assert.Contains(t, refs[0].Documents[1].Content, "TaskExporter")
+}
+
+func TestAnalysisReferencesHandsAnApprovedDesignToTheTasksItBlocks(t *testing.T) {
+	f := newOrderFixture(t, "D-3", "D-4", "T-1", "T-2")
+	approved, pending, blocker, impl := f.id(t, "D-3"), f.id(t, "D-4"), f.id(t, "T-1"), f.id(t, "T-2")
+	design := f.tasks.tasks[approved]
+	design.Column = domain.TaskColumnReleased
+	f.tasks.tasks[approved] = design
+	_, err := f.documents.Create(context.Background(), domain.TaskDocument{
+		TaskID: approved, Title: "handoff: export dialog", Content: "Primary action: Export CSV",
+	})
+	require.NoError(t, err)
+	f.relations.add(approved, impl, domain.TaskRelationBlocks)
+	f.relations.add(pending, impl, domain.TaskRelationBlocks)
+	f.relations.add(blocker, impl, domain.TaskRelationBlocks)
+
+	refs, err := f.svc.AnalysisReferences(context.Background(), impl)
+
+	require.NoError(t, err)
+	require.Len(t, refs, 1, "only the approved design: an unapproved one and an ordinary blocker carry no contract")
+	assert.Equal(t, "D-3", refs[0].Key)
+	assert.True(t, refs[0].IsDesign())
+	assert.Equal(t, f.repoID, refs[0].RepositoryID)
+	require.Len(t, refs[0].Documents, 1)
+	assert.Equal(t, "handoff: export dialog", refs[0].Documents[0].Title)
+}
+
+func TestAnalysisReferencesDoesNotRepeatADesignNamedTwice(t *testing.T) {
+	f := newOrderFixture(t, "D-3", "T-2")
+	design, impl := f.id(t, "D-3"), f.id(t, "T-2")
+	task := f.tasks.tasks[design]
+	task.Column = domain.TaskColumnDone
+	f.tasks.tasks[design] = task
+	f.relations.add(impl, design, domain.TaskRelationDerivedFrom)
+	f.relations.add(design, impl, domain.TaskRelationBlocks)
+
+	refs, err := f.svc.AnalysisReferences(context.Background(), impl)
+
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
+	assert.Equal(t, domain.TaskTypeDesign, refs[0].TaskType)
+}
+
+type designChoiceComments struct{ byTask map[uuid.UUID][]domain.TaskComment }
+
+func (d designChoiceComments) Create(_ context.Context, c domain.TaskComment) (domain.TaskComment, error) {
+	return c, nil
+}
+
+func (d designChoiceComments) ListByTask(_ context.Context, taskID uuid.UUID) ([]domain.TaskComment, error) {
+	return d.byTask[taskID], nil
+}
+
+func TestAnalysisReferencesDropTheVariantsTheHumanDidNotChoose(t *testing.T) {
+	f := newOrderFixture(t, "D-3", "T-2")
+	design, impl := f.id(t, "D-3"), f.id(t, "T-2")
+	task := f.tasks.tasks[design]
+	task.Column = domain.TaskColumnReleased
+	f.tasks.tasks[design] = task
+	for _, title := range []string{"design: export · A", "design: export · B", "handoff: export"} {
+		_, err := f.documents.Create(context.Background(), domain.TaskDocument{TaskID: design, Title: title, Content: title})
+		require.NoError(t, err)
+	}
+	f.svc.comments = designChoiceComments{byTask: map[uuid.UUID][]domain.TaskComment{
+		design: {{AuthorType: "user", Content: "Chosen variant: design: export · B"}},
+	}}
+	f.relations.add(design, impl, domain.TaskRelationBlocks)
+
+	refs, err := f.svc.AnalysisReferences(context.Background(), impl)
+
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
+	titles := []string{}
+	for _, d := range refs[0].Documents {
+		titles = append(titles, d.Title)
+	}
+	assert.ElementsMatch(t, []string{"design: export · B", "handoff: export"}, titles)
 }
 
 func TestAnalysisReferencesIgnoresOrderingRelations(t *testing.T) {

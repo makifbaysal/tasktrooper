@@ -133,6 +133,16 @@ var analizExtraBehaviours = map[domain.TaskColumn][]domain.BehaviourRef{
 	domain.TaskColumnNeedRevision: {ref(domain.BehaviourAdvanceOnDocument, "to", "analiz_review")},
 }
 
+// designExtraBehaviours is the design type's extra set (migration 178): the
+// analiz spine, reviewed in analiz_review, and approving the task approves the
+// design system versions it proposed.
+var designExtraBehaviours = map[domain.TaskColumn][]domain.BehaviourRef{
+	domain.TaskColumnInProgress:   {ref(domain.BehaviourAdvanceOnDocument, "to", "analiz_review")},
+	domain.TaskColumnAnalizReview: {ref(domain.BehaviourReviewChainStage, "label", "design review", "remedy", "move it to analiz_review and approve the design there")},
+	domain.TaskColumnNeedRevision: {ref(domain.BehaviourAdvanceOnDocument, "to", "analiz_review")},
+	domain.TaskColumnDone:         {ref(domain.BehaviourApproveDesignSystem)},
+}
+
 // onPath reports whether col is on the type's happy-path spine.
 // need_revision/blocked are off-path for every type; pm_uat is additionally
 // off-path for technical (migration 140's intent: technical skips pm_uat);
@@ -141,7 +151,7 @@ func onPath(taskType domain.TaskType, col domain.TaskColumn) bool {
 	if col == domain.TaskColumnNeedRevision || col == domain.TaskColumnBlocked {
 		return false
 	}
-	if taskType == taskTypeAnaliz {
+	if taskType == taskTypeAnaliz || taskType == taskTypeDesign {
 		switch col {
 		case domain.TaskColumnBacklog, domain.TaskColumnTodo, domain.TaskColumnInProgress,
 			domain.TaskColumnAnalizReview, domain.TaskColumnDone, domain.TaskColumnReleased:
@@ -182,7 +192,7 @@ var analizRemovedColumns = map[domain.TaskColumn]bool{
 func stagesFor(taskType domain.TaskType) []domain.WorkflowStage {
 	stages := make([]domain.WorkflowStage, 0, len(columns))
 	for i, c := range columns {
-		if taskType == taskTypeAnaliz && analizRemovedColumns[c.Slug] {
+		if (taskType == taskTypeAnaliz || taskType == taskTypeDesign) && analizRemovedColumns[c.Slug] {
 			continue
 		}
 		var behaviours []domain.BehaviourRef
@@ -194,6 +204,8 @@ func stagesFor(taskType domain.TaskType) []domain.WorkflowStage {
 			// full prompt now lives in catalog/agents/system-architect's column
 			// md files (see the catalog content test), not in the DB or here.
 			behaviours = append(behaviours, analizExtraBehaviours[c.Slug]...)
+		case taskTypeDesign:
+			behaviours = append(behaviours, designExtraBehaviours[c.Slug]...)
 		default: // task, bug, technical
 			extra := codingExtra[c.Slug]
 			if taskType == taskTypeTechnical {
@@ -249,6 +261,7 @@ func technicalOverride(col domain.TaskColumn, extra []domain.BehaviourRef) []dom
 func participantsFor(taskType domain.TaskType, col domain.TaskColumn) []domain.StageParticipant {
 	developerID, analystID, architectID, qaID, pmID := RoleID("developer"), RoleID("analyst"), RoleID("architect"), RoleID("qa"), RoleID("product_manager")
 	releaseID := RoleID("release")
+	designerID := RoleID("designer")
 	worker := func(roleID uuid.UUID) domain.StageParticipant {
 		return domain.StageParticipant{RoleID: roleID, Mode: domain.ParticipantModeWorker}
 	}
@@ -259,6 +272,14 @@ func participantsFor(taskType domain.TaskType, col domain.TaskColumn) []domain.S
 		switch col {
 		case domain.TaskColumnInProgress, domain.TaskColumnNeedRevision, domain.TaskColumnDone:
 			return []domain.StageParticipant{worker(analystID)}
+		default:
+			return nil
+		}
+	}
+	if taskType == taskTypeDesign {
+		switch col {
+		case domain.TaskColumnInProgress, domain.TaskColumnNeedRevision, domain.TaskColumnDone:
+			return []domain.StageParticipant{worker(designerID)}
 		default:
 			return nil
 		}

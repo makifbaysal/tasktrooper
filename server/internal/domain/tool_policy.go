@@ -354,6 +354,9 @@ var workspaceReadAlwaysTools = []string{
 	"list_repositories",
 	"get_board_summary",
 	"list_team",
+	// Every agent that touches UI has to build with the design system, and an
+	// agent row seeded before the tool existed would otherwise never see it.
+	"get_design_system",
 }
 
 func UpliftWorkspaceTools(p ToolPolicy) ToolPolicy {

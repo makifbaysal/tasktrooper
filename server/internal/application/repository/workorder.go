@@ -198,14 +198,20 @@ func (s *Service) AnalysisReferences(ctx context.Context, taskID uuid.UUID) ([]d
 		return nil, err
 	}
 	var out []domain.AnalysisReference
+	seen := map[uuid.UUID]bool{}
 	for _, rel := range rels {
-		if rel.RelationType != domain.TaskRelationDerivedFrom {
+		if rel.RelationType != domain.TaskRelationDerivedFrom || seen[rel.TargetTaskID] {
 			continue
 		}
 		ref := domain.AnalysisReference{
 			TaskID: rel.TargetTaskID,
 			Key:    rel.TargetKey,
 			Title:  rel.TargetTitle,
+		}
+		if s.tasks != nil {
+			if target, terr := s.tasks.GetByID(ctx, rel.TargetTaskID); terr == nil {
+				ref.TaskType, ref.Column, ref.RepositoryID = target.TaskType, target.Column, target.RepositoryID
+			}
 		}
 		docs, derr := s.documents.ListByTask(ctx, rel.TargetTaskID)
 		if derr != nil {
@@ -214,7 +220,66 @@ func (s *Service) AnalysisReferences(ctx context.Context, taskID uuid.UUID) ([]d
 			continue
 		}
 		ref.Documents = docs
+		if ref.IsDesign() {
+			ref.Documents = s.chosenDesignDocs(ctx, ref.TaskID, docs)
+		}
+		seen[rel.TargetTaskID] = true
 		out = append(out, ref)
 	}
+	designs, err := s.approvedDesignBlockers(ctx, taskID, seen)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("design reference: reading blockers failed")
+	}
+	return append(out, designs...), nil
+}
+
+// approvedDesignBlockers are the approved design tasks that block taskID: a
+// screen designed before it was built hands its documents to the work it
+// blocks without a derived_from relation, which an implementation task opened
+// before the design (or in another repository) cannot be given afterwards.
+func (s *Service) approvedDesignBlockers(ctx context.Context, taskID uuid.UUID, seen map[uuid.UUID]bool) ([]domain.AnalysisReference, error) {
+	if s.tasks == nil {
+		return nil, nil
+	}
+	blockers, err := s.relations.ListBlockedBy(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	var out []domain.AnalysisReference
+	for _, rel := range blockers {
+		if seen[rel.SourceTaskID] {
+			continue
+		}
+		source, err := s.tasks.GetByID(ctx, rel.SourceTaskID)
+		if err != nil || source.TaskType != domain.TaskTypeDesign {
+			continue
+		}
+		if source.Column != domain.TaskColumnDone && source.Column != domain.TaskColumnReleased {
+			continue
+		}
+		docs, err := s.documents.ListByTask(ctx, source.ID)
+		if err != nil {
+			log.Warn().Err(err).Str("design_task_id", source.ID.String()).Msg("design reference: reading documents failed")
+			continue
+		}
+		seen[source.ID] = true
+		out = append(out, domain.AnalysisReference{
+			TaskID: source.ID, Key: source.Key, Title: source.Title, Documents: s.chosenDesignDocs(ctx, source.ID, docs),
+			TaskType: source.TaskType, Column: source.Column, RepositoryID: source.RepositoryID,
+		})
+	}
 	return out, nil
+}
+
+// chosenDesignDocs keeps an approved design's documents minus the variants the
+// human did not choose, so nobody builds a variant that lost.
+func (s *Service) chosenDesignDocs(ctx context.Context, designTaskID uuid.UUID, docs []domain.TaskDocument) []domain.TaskDocument {
+	if s.comments == nil {
+		return docs
+	}
+	comments, err := s.comments.ListByTask(ctx, designTaskID)
+	if err != nil {
+		return docs
+	}
+	return domain.WithoutUnchosenVariants(docs, domain.ChosenVariant(comments))
 }

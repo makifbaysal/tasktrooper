@@ -55,6 +55,7 @@ const (
 	taskTypeAnaliz    = domain.TaskType("analiz")
 	taskTypeBug       = domain.TaskType("bug")
 	taskTypeTechnical = domain.TaskType("technical")
+	taskTypeDesign    = domain.TaskType("design")
 )
 
 // Default builds the roles, task types and per-type workflow stages the
@@ -71,6 +72,7 @@ func Default() Fixture {
 	qaID := RoleID("qa")
 	pmID := RoleID("product_manager")
 	releaseID := RoleID("release")
+	designerID := RoleID("designer")
 
 	roles := []domain.AgentRole{
 		{
@@ -112,6 +114,12 @@ func Default() Fixture {
 			ID: releaseID, Key: "release", Name: "Release Engineer",
 			Description: "Merges signed-off work, ships it, verifies production after the deploy and rolls back what breaks.",
 		},
+		{
+			// No assignment: the ui-designer agent is created by the catalog
+			// sync at boot, after migrations have run (migration 178).
+			ID: designerID, Key: "designer", Name: "Designer",
+			Description: "Owns the design system and designs screens before they are built.",
+		},
 	}
 
 	purposes := []domain.RolePurpose{
@@ -131,6 +139,11 @@ func Default() Fixture {
 		},
 		{Key: taskTypeBug, Label: "Bug", KeyPrefix: "B", Position: 2, IsDefect: true, BuiltIn: true, AssigneeMode: domain.AssigneeModeNone},
 		{Key: taskTypeTechnical, Label: "Technical", KeyPrefix: "TC", Position: 3, BuiltIn: true, AssigneeMode: domain.AssigneeModeNone},
+		{
+			Key: taskTypeDesign, Label: "Design", KeyPrefix: "D", Position: 4, BuiltIn: true,
+			AssigneeRoleID: &designerID, AssigneeMode: domain.AssigneeModeOverride,
+			Behaviours: []domain.BehaviourRef{ref(domain.BehaviourNoWorkspaceWrites)},
+		},
 	}
 
 	workflows := map[domain.TaskType]domain.Workflow{}
