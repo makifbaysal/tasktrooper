@@ -37,9 +37,9 @@ import {
 } from "@/lib/analysis-review";
 import {
   chosenVariantComment,
-  chosenVariantTitle,
+  chosenVariantTitles,
   designDocumentLabel,
-  designHtmlDocuments,
+  designVariantGroups,
   isDesignTask,
 } from "@/lib/design-system";
 
@@ -153,8 +153,9 @@ export function AnalysisReviewPage() {
   );
   const openCount = annotationCounts(annotations).open;
 
-  const variantDocs = useMemo(() => (design ? designHtmlDocuments(documents) : []), [design, documents]);
-  const canCompare = variantDocs.length >= 2;
+  const variantGroups = useMemo(() => (design ? designVariantGroups(documents) : []), [design, documents]);
+  const variantDocs = useMemo(() => variantGroups.flatMap((group) => group.documents), [variantGroups]);
+  const canCompare = variantGroups.length > 0;
   const comparing = compare && canCompare;
   const leftId = (variantDocs.find((doc) => doc.id === compareIds.left) ?? variantDocs[0])?.id ?? null;
   const rightId = (variantDocs.find((doc) => doc.id === compareIds.right) ?? variantDocs[1] ?? variantDocs[0])?.id ?? null;
@@ -188,8 +189,15 @@ export function AnalysisReviewPage() {
     };
   }, [canCompare, repositoryId, taskId]);
 
-  const chosenTitle = useMemo(() => (canCompare ? chosenVariantTitle(comments) : null), [canCompare, comments]);
-  const needsChoice = canCompare && chosenTitle === null;
+  const chosenTitles = useMemo(
+    () =>
+      canCompare
+        ? chosenVariantTitles(comments).filter((title) => variantDocs.some((doc) => doc.title.trim() === title))
+        : [],
+    [canCompare, comments, variantDocs],
+  );
+  const needsChoice =
+    canCompare && variantGroups.some((group) => !group.documents.some((doc) => chosenTitles.includes(doc.title.trim())));
 
   const blockedOnQuestions = task?.column === "blocked" && task?.blocked_resource === "analysis_questions";
   const shownQuestions = useMemo(() => visibleQuestions(questions), [questions]);
@@ -406,7 +414,7 @@ export function AnalysisReviewPage() {
             <SelectContent>
               {documents.map((doc) => (
                 <SelectItem key={doc.id} value={doc.id}>
-                  {chosenTitle !== null && doc.title.trim() === chosenTitle
+                  {chosenTitles.includes(doc.title.trim())
                     ? `${doc.title} · ${t("analysisReview.design.compare.chosen")}`
                     : doc.title}
                 </SelectItem>
@@ -416,17 +424,19 @@ export function AnalysisReviewPage() {
         )}
         {canCompare && (
           <div className="flex items-center gap-2">
-            {chosenTitle !== null ? (
+            {chosenTitles.length > 0 ? (
               <Badge variant="success" className="h-9 max-w-64 gap-1.5 px-3">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 <span className="truncate">
-                  {t("analysisReview.design.choice.current", { title: designDocumentLabel({ title: chosenTitle }) })}
+                  {t("analysisReview.design.choice.current", {
+                    title: chosenTitles.map((title) => designDocumentLabel({ title })).join(", "),
+                  })}
                 </span>
               </Badge>
             ) : (
               <span className="text-caption text-muted-foreground">{t("analysisReview.design.choice.none")}</span>
             )}
-            <Button variant={chosenTitle === null ? "default" : "outline"} onClick={() => openChoice(null)}>
+            <Button variant={needsChoice ? "default" : "outline"} onClick={() => openChoice(null)}>
               <CheckCircle2 />
               {t("analysisReview.design.choice.open")}
             </Button>
@@ -502,7 +512,7 @@ export function AnalysisReviewPage() {
             onRightChange={(id) => setCompareIds((prev) => ({ ...prev, right: id }))}
             annotations={panelAnnotations}
             activeId={activeId}
-            chosenTitle={chosenTitle}
+            chosenTitles={chosenTitles}
             onChoose={openChoice}
             onSelection={(documentId, selection) => {
               if (!revising) setPending({ ...selection, documentId });
@@ -559,8 +569,8 @@ export function AnalysisReviewPage() {
       <ChooseVariantDialog
         open={chooseOpen}
         onOpenChange={setChooseOpen}
-        documents={variantDocs}
-        chosenTitle={chosenTitle}
+        groups={variantGroups}
+        chosenTitles={chosenTitles}
         initialId={chooseInitialId}
         onChoose={chooseVariant}
       />

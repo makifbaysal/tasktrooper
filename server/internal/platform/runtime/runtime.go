@@ -1010,7 +1010,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		mcpService = mcpsvc.NewService(mcpStore, e.secretsCipher, e.reloadMCP)
 		e.enableMCPOAuth(mcpService, mcpStore)
 		// Default MCP server catalog, seeded as a boot step after the board seed.
-		e.bootSeed.AddStep("mcp_servers", mcpService.SeedDefaultsIfEmpty)
+		e.bootSeed.AddStep("mcp_servers", mcpService.SeedNewTemplates)
 		resolved, err := mcpService.ResolvedConfigs(ctx)
 		if err != nil {
 			log.Warn().Err(err).Msg("mcp server config resolve failed")
