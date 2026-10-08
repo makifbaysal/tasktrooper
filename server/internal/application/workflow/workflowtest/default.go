@@ -73,6 +73,7 @@ func Default() Fixture {
 	pmID := RoleID("product_manager")
 	releaseID := RoleID("release")
 	designerID := RoleID("designer")
+	securityID := RoleID("security")
 
 	roles := []domain.AgentRole{
 		{
@@ -119,6 +120,12 @@ func Default() Fixture {
 			// sync at boot, after migrations have run (migration 178).
 			ID: designerID, Key: "designer", Name: "Designer",
 			Description: "Owns the design system and designs screens before they are built.",
+		},
+		{
+			// No assignment: the security-agent is created by the catalog sync
+			// at boot, after migrations have run.
+			ID: securityID, Key: "security", Name: "Security Reviewer",
+			Description: "Reviews every pull request in code_review for security issues and blocks the ones that introduce an exploitable vulnerability.",
 		},
 	}
 

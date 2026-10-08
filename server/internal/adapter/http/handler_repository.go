@@ -70,6 +70,7 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Post("/v1/repositories/:id/tasks/:taskId/local-preview/start", h.StartLocalPreview)
 	app.Post("/v1/repositories/:id/local-preview/stop", h.StopLocalPreview)
 	app.Get("/v1/repositories/:id/tasks/:taskId/events", h.ListTaskEvents)
+	app.Get("/v1/repositories/:id/tasks/:taskId/reviews", h.ListTaskReviews)
 	app.Get("/v1/repositories/:id/tasks/:taskId/pipelines", h.ListTaskPipelines)
 	app.Get("/v1/repositories/:id/tasks/:taskId/pipelines/:pipelineId", h.GetTaskPipeline)
 	app.Post("/v1/repositories/:id/tasks/:taskId/pipelines", h.TriggerTaskPipeline)
@@ -777,4 +778,21 @@ func parseRepositoryTaskParams(c *fiber.Ctx) (uuid.UUID, uuid.UUID, error) {
 		return uuid.Nil, uuid.Nil, err
 	}
 	return repositoryID, taskID, nil
+}
+
+// ListTaskReviews — GET /v1/repositories/:id/tasks/:taskId/reviews: every
+// code_review round with each reviewer's verdict, pending ones included.
+func (h *Handler) ListTaskReviews(c *fiber.Ctx) error {
+	repositoryID, taskID, err := parseRepositoryTaskParams(c)
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	reviews, err := h.repositorySvc.TaskReviews(h.enrichContext(c), repositoryID, taskID)
+	if err != nil {
+		if errors.Is(err, domain.ErrBoardTaskNotFound) {
+			return notFound(c, err.Error())
+		}
+		return internalError(c, err)
+	}
+	return c.JSON(reviews)
 }

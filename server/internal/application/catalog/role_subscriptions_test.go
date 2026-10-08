@@ -308,3 +308,42 @@ func (m *memBoardConfigStore) AgentsForColumn(context.Context, string, string) (
 func (m *memBoardConfigStore) ValidateColumnSlug(context.Context, string) (bool, error) {
 	return true, nil
 }
+
+func TestCreateAgentFromTemplate_SecondReviewerJoinsCodeReview(t *testing.T) {
+	store := newMemCatalogStore()
+	templates := &memTemplateStore{}
+	board := &memBoardConfigStore{subs: map[uuid.UUID][]string{}}
+	svc := NewService(store, stubLLMClient{}, "")
+	svc.SetTemplateStore(templates)
+	svc.SetBoardConfigStore(board)
+	ctx := context.Background()
+
+	architectTpl, err := templates.UpsertByName(ctx, domain.AgentTemplate{
+		Name: "system-architect", Description: "built-in role", BuiltIn: true,
+		Subscriptions: []domain.TaskColumn{domain.TaskColumnCodeReview},
+	})
+	require.NoError(t, err)
+	architect, err := svc.CreateAgentFromTemplate(ctx, architectTpl.ID, domain.CreateAgentRequest{})
+	require.NoError(t, err)
+	require.Equal(t, []string{string(domain.TaskColumnCodeReview)}, board.subs[architect.ID])
+
+	qaTpl, err := templates.UpsertByName(ctx, domain.AgentTemplate{
+		Name: "qa-agent", Description: "built-in role", BuiltIn: true,
+		Subscriptions: []domain.TaskColumn{domain.TaskColumnReadyForQA},
+	})
+	require.NoError(t, err)
+	_, err = svc.CreateAgentFromTemplate(ctx, qaTpl.ID, domain.CreateAgentRequest{})
+	require.NoError(t, err)
+
+	securityTpl, err := templates.UpsertByName(ctx, domain.AgentTemplate{
+		Name: "security-agent", Description: "built-in role", BuiltIn: true,
+		Subscriptions: []domain.TaskColumn{domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA},
+	})
+	require.NoError(t, err)
+	security, err := svc.CreateAgentFromTemplate(ctx, securityTpl.ID, domain.CreateAgentRequest{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{string(domain.TaskColumnCodeReview)}, board.subs[security.ID],
+		"code_review takes every reviewer; ready_for_qa stays a single seat")
+	assert.Equal(t, []string{string(domain.TaskColumnCodeReview)}, board.subs[architect.ID], "the architect keeps its seat")
+}

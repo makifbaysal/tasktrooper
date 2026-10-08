@@ -70,6 +70,7 @@ type Service struct {
 	scorer           *board.ScoreTracker
 	completion       *board.CompletionStamper
 	reviewGate       *board.ReviewGate
+	reviewQuorum     *board.ReviewQuorum
 	workOrderSweeper *board.WorkOrderSweeper
 	evolution        RevisionNotifier
 	pipelines        *board.PipelineRunner
@@ -164,6 +165,20 @@ func (s *Service) SetCompletionStamper(cs *board.CompletionStamper) {
 
 func (s *Service) SetReviewGate(g *board.ReviewGate) {
 	s.reviewGate = g
+}
+
+func (s *Service) SetReviewQuorum(q *board.ReviewQuorum) {
+	s.reviewQuorum = q
+}
+
+// TaskReviews is the per-reviewer verdict history of the task's code_review
+// rounds; empty when no quorum ledger is wired.
+func (s *Service) TaskReviews(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.TaskReviews, error) {
+	task, err := s.tasks.Get(ctx, repositoryID, taskID)
+	if err != nil {
+		return domain.TaskReviews{}, err
+	}
+	return s.reviewQuorum.TaskReviews(ctx, task)
 }
 
 func (s *Service) SetAnnotationStore(store port.TaskDocumentAnnotationStore) {
@@ -1791,8 +1806,30 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		task.ComponentID = req.ComponentID.Value
 	}
 
+	if req.Column != nil && *req.Column != prevColumn && s.reviewQuorum != nil {
+		decision, err := s.reviewQuorum.Decide(ctx, task, prevColumn, *req.Column, req.Actor, req.ActorAgentID)
+		if err != nil {
+			return domain.BoardTask{}, err
+		}
+		if decision.Hold {
+			task.Column = prevColumn
+			return task, nil
+		}
+		if decision.Target != *req.Column {
+			if s.columns != nil {
+				if err := s.columns.ValidateTransition(ctx, string(prevColumn), string(decision.Target)); err != nil {
+					return domain.BoardTask{}, err
+				}
+			}
+			target := decision.Target
+			req.Column = &target
+			task.Column = target
+		}
+	}
+
 	if req.Column != nil && *req.Column != prevColumn && s.reviewGate != nil {
 		if !s.reviewGate.InterceptAgentMove(ctx, task, prevColumn, *req.Column, req.Actor, repo) {
+			task.Column = prevColumn
 			return task, nil
 		}
 	}

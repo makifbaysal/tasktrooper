@@ -354,6 +354,24 @@ export const boardArea = {
       pullRequestOpen: "打开拉取请求",
       pullRequestMerged: "已合并为 {sha}",
       pullRequestLinkFailed: "无法打开该链接",
+      codeReview: {
+        title: "代码审查",
+        round: "第 {round} 轮",
+        waitingForFirst: "等待审查者开始。",
+        noVerdicts: "尚无审查者做出决定。",
+        earlierRounds: "之前的轮次（{count}）",
+        outcome: {
+          open: "审查中",
+          approved: "已批准",
+          rejected: "要求修改",
+          closed: "已关闭",
+        },
+        verdict: {
+          approve: "已批准",
+          reject: "要求修改",
+          pending: "待定",
+        },
+      },
     },
   },
 };

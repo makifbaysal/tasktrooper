@@ -184,6 +184,22 @@ onto the task it just stopped, and re-run would start every agent configured for
 column rather than the one asked for. Each records its own board event
 (`task.run_cancelled` / `task.rerun_requested`).
 
+## Code review verdicts (migration 180)
+
+Every enabled agent subscribed to `code_review` is a required reviewer (by default the
+system-architect and the security-agent). An agent's `move_board_task` out of
+`code_review` is recorded as that reviewer's verdict in `task_review_verdicts` —
+`ready_for_qa` (the stage's exit) is `approve`, `need_revision` is `reject` — and the
+card stays put until every required reviewer has decided. The last verdict moves it:
+to `need_revision` when anyone rejected, to the exit otherwise. A person's move is never
+held. A park to `blocked` does not split a round.
+
+- `GET /v1/repositories/{id}/tasks/{taskId}/reviews` →
+  `{column: "code_review", rounds: [{round, entered_at, left_at?, outcome, reviewers: [{agent_id?, agent_name, verdict, decided_at?, required}]}]}`.
+  `outcome` is `open` / `approved` / `rejected` / `closed`; `verdict` is `approve` /
+  `reject`, or `pending` for a required reviewer of the open round that has not decided.
+  `404 not_found` for an unknown task.
+
 ## Roles, task types and workflows (migration 143)
 
 Roles, task types and their per-column workflow stages are data now, not hardcoded agent

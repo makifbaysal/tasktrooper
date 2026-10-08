@@ -14,6 +14,7 @@ const detail = vi.hoisted(() => ({
   listTaskAttachments: vi.fn(),
   listTestCases: vi.fn(),
   listReleases: vi.fn(),
+  listTaskReviews: vi.fn(),
 }));
 
 // Everything the drawer's child sections fetch on their own never answers:
@@ -87,6 +88,7 @@ function answerWithRuns(runs: TaskAgentRun[]) {
   detail.listTaskAttachments.mockResolvedValue({ attachments: [] });
   detail.listTestCases.mockResolvedValue({ items: [] });
   detail.listReleases.mockResolvedValue({ releases: [] });
+  detail.listTaskReviews.mockResolvedValue({ column: "code_review", rounds: [] });
 }
 
 describe("TaskDetailDrawer detail poll", () => {

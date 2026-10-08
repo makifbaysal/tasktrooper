@@ -78,5 +78,24 @@ func (t *moveTaskTool) Execute(ctx context.Context, arguments string) domain.Too
 	if err != nil {
 		return toolError(moveBoardTaskToolName, err.Error())
 	}
+	if task.Column != col {
+		return toolJSON(moveBoardTaskToolName, map[string]any{
+			"moved": false,
+			"task":  task,
+			"hint":  movedElsewhereHint(task.Column, col),
+		})
+	}
 	return toolJSON(moveBoardTaskToolName, task)
+}
+
+// A review column holds a reviewer's move until every required reviewer (or a
+// person) has decided, and the last approval of a round someone rejected lands
+// in need_revision; either way the reviewer must hear that its part is done
+// rather than read an unchanged column as a failed move and retry it.
+func movedElsewhereHint(landed, requested domain.TaskColumn) string {
+	in := moveVerdictInput{Column: string(landed), Requested: string(requested)}
+	if landed == domain.TaskColumnNeedRevision {
+		return moveVerdictRedirectedKey.Render(in)
+	}
+	return moveVerdictHeldKey.Render(in)
 }

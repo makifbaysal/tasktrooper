@@ -117,6 +117,16 @@ func TestBoardProsePinnedByteIdentical(t *testing.T) {
 			"Use this task instead of creating another: move_board_task / update_board_task / add_task_comment. Pass allow_duplicate=true only if it is genuinely different work.",
 		},
 		{
+			"move_verdict_held",
+			moveVerdictHeldKey.Render(moveVerdictInput{Column: "code_review", Requested: "ready_for_qa"}),
+			"Your verdict is recorded, but the card stays in `code_review`: it moves to `ready_for_qa` only when every required reviewer has decided, or when a person signs it off. Your review is complete — do not move the card again and do not re-review it; end the run.",
+		},
+		{
+			"move_verdict_redirected",
+			moveVerdictRedirectedKey.Render(moveVerdictInput{Column: "need_revision", Requested: "ready_for_qa"}),
+			"Your verdict is recorded, but another required reviewer asked for changes, so the card went to `need_revision` instead of `ready_for_qa` with every reviewer's comments on it. Your review is complete — do not move the card again; end the run.",
+		},
+		{
 			"criteria_dropped_hint",
 			criteriaDroppedHintKey.Render(countInput{Count: 2}),
 			"2 acceptance criterion/criteria were board actions (moving the card, opening the next tasks, attaching things, hand-offs) and were not saved. Acceptance criteria describe what the finished work IS — the content of the spec, the behaviour of the endpoint, the state of the screen — never the board steps around it. Re-send them as observable statements about the deliverable, or leave them out.",

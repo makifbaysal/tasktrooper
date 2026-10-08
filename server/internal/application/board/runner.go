@@ -185,6 +185,7 @@ type Runner struct {
 	blocker           TaskBlocker
 	toolchains        port.ToolchainDetector
 	parks             *ParkJournal
+	reviewQuorum      *ReviewQuorum
 	prRecorder        TaskPRRecorder
 	prReader          PullRequestReader
 	agentCLIs         AgentCLIConnections
@@ -374,6 +375,10 @@ func (r *Runner) detectToolchain(ctx context.Context, job RunJob, workDir string
 
 func (r *Runner) SetParkJournal(j *ParkJournal) {
 	r.parks = j
+}
+
+func (r *Runner) SetReviewQuorum(q *ReviewQuorum) {
+	r.reviewQuorum = q
 }
 
 func (r *Runner) Start(ctx context.Context) {

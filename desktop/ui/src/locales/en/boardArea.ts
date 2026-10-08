@@ -375,6 +375,24 @@ export const boardArea = {
       pullRequestOpen: "Open the pull request",
       pullRequestMerged: "Merged as {sha}",
       pullRequestLinkFailed: "That link could not be opened",
+      codeReview: {
+        title: "Code review",
+        round: "Round {round}",
+        waitingForFirst: "Waiting for the reviewers to start.",
+        noVerdicts: "No reviewer has decided yet.",
+        earlierRounds: "Earlier rounds ({count})",
+        outcome: {
+          open: "In review",
+          approved: "Approved",
+          rejected: "Changes requested",
+          closed: "Closed",
+        },
+        verdict: {
+          approve: "Approved",
+          reject: "Changes requested",
+          pending: "Pending",
+        },
+      },
     },
   },
 };

@@ -250,6 +250,10 @@ The task drawer's stop / re-run buttons. Both return the run under a `run` key
 (`{"run": {...domain.TaskAgentRun...}}`) and answer `503 service_unavailable`
 when the build has no board runner wired.
 
+- `GET /v1/repositories/{id}/tasks/{taskId}/reviews` → `TaskReviews`: each
+  code_review round with every reviewer's verdict (`approve` / `reject`, or
+  `pending` for a required reviewer of the open round). Read by the task
+  drawer's detail poll (`CodeReviewApprovals`).
 - `POST /v1/repositories/{id}/tasks/{taskId}/runs/{runId}/cancel` — stops a
   `pending`/`running` run and parks the task as **blocked** with the reason;
   recovery is a human dragging the task onto a column, which releases the block

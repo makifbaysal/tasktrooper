@@ -1645,12 +1645,25 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// The span ledger is also the review-chain gate's evidence: which stages a
 			// task actually passed through.
 			repositorySvc.SetSpanStore(taskSpanStore)
+			var reviewQuorum *boardapp.ReviewQuorum
+			if e.pgDB != nil {
+				var quorumWorkflows port.WorkflowReader
+				if workflowSvc != nil {
+					quorumWorkflows = workflowSvc
+				}
+				reviewQuorum = boardapp.NewReviewQuorum(pgstore.NewTaskReviewStore(e.pgDB), quorumWorkflows)
+				repositorySvc.SetReviewQuorum(reviewQuorum)
+				if boardRunner != nil {
+					boardRunner.SetReviewQuorum(reviewQuorum)
+				}
+			}
 			if scoreTracker != nil {
 				reviewGate := boardapp.NewReviewGate(taskSpanStore, scoreTracker)
 				if workflowSvc != nil {
 					reviewGate.SetWorkflows(workflowSvc)
 					reviewGate.SetRoleResolver(workflowSvc)
 				}
+				reviewGate.SetQuorum(reviewQuorum)
 				repositorySvc.SetReviewGate(reviewGate)
 			}
 		}

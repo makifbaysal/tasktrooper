@@ -874,6 +874,33 @@ export type TaskRelationType = "blocks" | "deploy_depends_on";
 
 export type CriterionReviewRole = "qa" | "pm";
 
+export type ReviewerVerdict = "approve" | "reject" | "pending";
+
+/** One reviewer's standing in a code_review round. `pending` only appears on the open round, for a required reviewer that has not decided yet. */
+export interface ReviewerStatus {
+  agent_id?: string;
+  agent_name: string;
+  verdict: ReviewerVerdict;
+  decided_at?: string;
+  required: boolean;
+}
+
+export type ReviewRoundOutcome = "open" | "approved" | "rejected" | "closed";
+
+/** One pass of a task through code_review; a park to blocked does not split a round. */
+export interface TaskReviewRound {
+  round: number;
+  entered_at: string;
+  left_at?: string;
+  outcome: ReviewRoundOutcome;
+  reviewers: ReviewerStatus[];
+}
+
+export interface TaskReviews {
+  column: string;
+  rounds: TaskReviewRound[];
+}
+
 // One reviewer role's own verdict on a criterion. `completed` on the
 // criterion is the implementer's claim; QA and PM each verify independently.
 export interface CriterionCheck {
@@ -5351,6 +5378,9 @@ export const api = {
 
   listTaskEvents: (repositoryId: string, taskId: string) =>
     request<{ events: TaskEvent[] }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/events`),
+
+  listTaskReviews: (repositoryId: string, taskId: string) =>
+    request<TaskReviews>(`/v1/repositories/${repositoryId}/tasks/${taskId}/reviews`),
 
   listTaskPipelines: (repositoryId: string, taskId: string) =>
     request<{ pipelines: TaskPipeline[] }>(

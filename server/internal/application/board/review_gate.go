@@ -23,6 +23,7 @@ type ReviewGate struct {
 	escapes   EscapeCharger
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
+	quorum    *ReviewQuorum
 }
 
 func NewReviewGate(spans VerdictStore, escapes EscapeCharger) *ReviewGate {
@@ -31,6 +32,7 @@ func NewReviewGate(spans VerdictStore, escapes EscapeCharger) *ReviewGate {
 
 func (g *ReviewGate) SetWorkflows(w port.WorkflowReader)  { g.workflows = w }
 func (g *ReviewGate) SetRoleResolver(r port.RoleResolver) { g.roles = r }
+func (g *ReviewGate) SetQuorum(q *ReviewQuorum)           { g.quorum = q }
 
 // Approval becomes a verdict and is held; rejection is allowed through - human gates let work through, not send it back.
 func (g *ReviewGate) InterceptAgentMove(ctx context.Context, task domain.BoardTask, from, to domain.TaskColumn, actor domain.TaskActor, repo domain.Repository) bool {
@@ -68,8 +70,18 @@ func (g *ReviewGate) OnHumanRejection(ctx context.Context, task domain.BoardTask
 		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("open span lookup failed")
 		return
 	}
-	if !ok || span.BoardColumn != string(from) ||
-		span.ReviewVerdict != domain.ReviewVerdictApprove || span.AgentID == nil {
+	if !ok || span.BoardColumn != string(from) || span.ReviewVerdict != domain.ReviewVerdictApprove {
+		return
+	}
+	// Every reviewer that signed off missed what the human caught, not only
+	// the one the span happened to record first.
+	if approvers := g.quorum.Approvers(ctx, task.ID, from); len(approvers) > 0 {
+		for _, id := range approvers {
+			g.escapes.ApplyReviewEscape(ctx, task, id)
+		}
+		return
+	}
+	if span.AgentID == nil {
 		return
 	}
 	g.escapes.ApplyReviewEscape(ctx, task, *span.AgentID)

@@ -13,7 +13,7 @@ A new board comes with thirteen columns, in this order:
 | 1 | Todo | `todo` | the task's assignee |
 | 2 | In Progress | `in_progress` | the task's assignee (a developer role) |
 | 3 | Analiz Review | `analiz_review` | none — a human review gate |
-| 4 | Code Review | `code_review` | `system-architect` |
+| 4 | Code Review | `code_review` | `system-architect`, `security-agent` (every subscriber is a required reviewer) |
 | 5 | Ready for QA | `ready_for_qa` | `qa-agent` (queue — see below) |
 | 6 | In QA | `in_qa` | `qa-agent` (testing happens here) |
 | 7 | Need Revision | `need_revision` | the task's assignee |
