@@ -1,7 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Spinner } from "@/components/ui/spinner";
 import { useSetup } from "@/hooks/useSetup";
-import { SETUP_PATH } from "@/lib/setup";
+import { ADD_REPOSITORY_PATH, SETUP_PATH } from "@/lib/setup";
 
 /**
  * Not an auth gate — there is no sign-in. Its one job is the guided first-run
@@ -20,9 +20,11 @@ export function ProtectedRoute() {
   const location = useLocation();
 
   const onSetup = location.pathname.startsWith(SETUP_PATH);
-  // Settings is where several steps are finished — an API key, a provider — so
-  // the sequence links there and must not bounce the user straight back.
-  const exempt = onSetup || location.pathname.startsWith("/settings");
+  // Settings is where several steps are finished — an API key, a provider — and
+  // the add-repository flow is where the project step is, so the sequence links
+  // to both and must not bounce the user straight back.
+  const exempt =
+    onSetup || location.pathname.startsWith("/settings") || location.pathname.startsWith(ADD_REPOSITORY_PATH);
   if (!exempt && setup.redirectToSetup) {
     // The search string travels: the GitHub callback lands on /settings?github=…
     // and this is the hop that has to carry that answer to the step waiting for it.

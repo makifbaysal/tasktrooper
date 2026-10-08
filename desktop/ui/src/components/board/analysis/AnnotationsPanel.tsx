@@ -11,15 +11,20 @@ import { useI18n } from "@/hooks/useI18n";
 import { annotationCounts } from "@/lib/analysis-review";
 import { cn } from "@/lib/utils";
 
+/** A selection waiting for its comment; `documentId` when it is not the panel's own document. */
+export type PendingSelection = FrameSelection & { documentId?: string };
+
 interface AnnotationsPanelProps {
   repositoryId: string;
   taskId: string;
   documentId: string | null;
-  /** This document's annotations only. */
+  /** The shown documents' annotations only. */
   annotations: TaskAnnotation[];
   anchored: Record<string, boolean>;
   activeId: string | null;
-  pending: FrameSelection | null;
+  pending: PendingSelection | null;
+  /** Names each annotation's document — set when the panel lists more than one. */
+  documentLabel?: (documentId: string) => string | undefined;
   canComment: boolean;
   onActivate: (id: string) => void;
   onCancelPending: () => void;
@@ -46,6 +51,7 @@ export function AnnotationsPanel({
   onUpsert,
   onRemove,
   pausedLabel,
+  documentLabel,
   className,
 }: AnnotationsPanelProps) {
   const { t } = useI18n();
@@ -65,10 +71,11 @@ export function AnnotationsPanel({
   const failure = (e: unknown, fallback: string) => toast.error(e instanceof Error ? e.message : t(fallback));
 
   const create = async (body: string) => {
-    if (!pending || !documentId) return;
+    const target = pending?.documentId ?? documentId;
+    if (!pending || !target) return;
     setCreating(true);
     try {
-      const created = await api.createTaskAnnotation(repositoryId, taskId, documentId, {
+      const created = await api.createTaskAnnotation(repositoryId, taskId, target, {
         quote: pending.quote,
         prefix: pending.prefix,
         suffix: pending.suffix,
@@ -135,6 +142,7 @@ export function AnnotationsPanel({
         {pending && canComment && (
           <AnnotationComposer
             quote={pending.quote}
+            label={documentLabel?.(pending.documentId ?? documentId ?? "")}
             saving={creating}
             onSave={create}
             onCancel={onCancelPending}
@@ -164,6 +172,7 @@ export function AnnotationsPanel({
                 else itemRefs.current.delete(annotation.id);
               }}
               annotation={annotation}
+              label={documentLabel?.(annotation.document_id)}
               found={anchored[annotation.id]}
               active={annotation.id === activeId}
               onActivate={() => onActivate(annotation.id)}

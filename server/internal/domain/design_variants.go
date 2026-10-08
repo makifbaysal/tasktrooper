@@ -14,7 +14,9 @@ const (
 )
 
 // ChosenVariant is the document title the human chose last, read from the
-// design task's comments; "" when nobody chose.
+// design task's comments; "" when nobody chose. Only the marker's own line
+// names the document: the review page puts the human's note on the choice on
+// the lines after it.
 func ChosenVariant(comments []TaskComment) string {
 	var chosen string
 	var at int64
@@ -26,8 +28,13 @@ func ChosenVariant(comments []TaskComment) string {
 		if !strings.HasPrefix(content, ChosenVariantMarker) {
 			continue
 		}
+		title, _, _ := strings.Cut(strings.TrimPrefix(content, ChosenVariantMarker), "\n")
+		title = strings.TrimSpace(title)
+		if title == "" {
+			continue
+		}
 		if ts := c.CreatedAt.UnixNano(); chosen == "" || ts >= at {
-			chosen, at = strings.TrimSpace(strings.TrimPrefix(content, ChosenVariantMarker)), ts
+			chosen, at = title, ts
 		}
 	}
 	return chosen

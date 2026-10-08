@@ -142,4 +142,29 @@ describe("AnalysisFrame", () => {
     expect(srcdoc).toContain("<strong>markdown</strong>");
     expect(srcdoc).toContain("Content-Security-Policy");
   });
+
+  it("shows an HTML canvas with its zoom bar, which drives and mirrors the frame's zoom", async () => {
+    const { container, getByRole } = renderFrame({ canvas: true });
+    const iframe = await frameOf(container);
+    expect(iframe.getAttribute("srcdoc")).toMatch(/<html[^>]*\sdata-tt-canvas/);
+    const post = vi.spyOn(iframe.contentWindow!, "postMessage");
+
+    act(() => getByRole("button", { name: "Zoom in" }).click());
+    expect(post).toHaveBeenLastCalledWith({ type: "tt:zoom", action: "in" }, "*");
+    act(() => getByRole("button", { name: "Fit to width" }).click());
+    expect(post).toHaveBeenLastCalledWith({ type: "tt:zoom", action: "fit" }, "*");
+
+    fromFrame({ type: "tt:zoom", zoom: 0.5 }, iframe.contentWindow);
+    expect(getByRole("button", { name: "Zoom to 100%" })).toHaveTextContent("50%");
+  });
+
+  it("keeps a markdown document out of canvas mode", async () => {
+    const { container, queryByRole } = renderFrame({
+      canvas: true,
+      document: { id: "doc-3", content: "# design review: list", format: "markdown" },
+    });
+    const iframe = await frameOf(container);
+    expect(iframe.getAttribute("srcdoc")).not.toMatch(/<html[^>]*\sdata-tt-canvas/);
+    expect(queryByRole("toolbar")).toBeNull();
+  });
 });

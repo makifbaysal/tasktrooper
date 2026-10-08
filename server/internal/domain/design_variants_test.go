@@ -19,6 +19,15 @@ func TestChosenVariantIsTheLatestHumanChoice(t *testing.T) {
 	assert.Empty(t, ChosenVariant(nil))
 }
 
+func TestChosenVariantReadsOnlyTheMarkerLine(t *testing.T) {
+	now := time.Now()
+	comments := []TaskComment{
+		{AuthorType: "user", Content: "Chosen variant: design: export · A\n\nKeep B's empty state.", CreatedAt: now},
+		{AuthorType: "user", Content: "Chosen variant: \nno title on the marker line", CreatedAt: now.Add(time.Hour)},
+	}
+	assert.Equal(t, "design: export · A", ChosenVariant(comments))
+}
+
 func TestWithoutUnchosenVariantsKeepsTheChoiceAndEverythingElse(t *testing.T) {
 	docs := []TaskDocument{
 		{Title: "design: export dialog · A"},

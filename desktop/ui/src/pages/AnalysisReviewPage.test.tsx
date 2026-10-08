@@ -18,6 +18,7 @@ const {
   submitTaskQuestions,
   listTaskComments,
   createTaskComment,
+  createTaskAnnotation,
 } = vi.hoisted(() => ({
   listRepositoryTasks: vi.fn(),
   listTaskDocuments: vi.fn(),
@@ -29,6 +30,7 @@ const {
   submitTaskQuestions: vi.fn(),
   listTaskComments: vi.fn(),
   createTaskComment: vi.fn(),
+  createTaskAnnotation: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -47,6 +49,7 @@ vi.mock("@/api", async () => {
       submitTaskQuestions,
       listTaskComments,
       createTaskComment,
+      createTaskAnnotation,
     },
   };
 });
@@ -374,18 +377,78 @@ describe("AnalysisReviewPage", () => {
 
     await waitFor(() => expect(within(left).getByText("Chosen")).toBeInTheDocument());
     expect(within(right).queryByText("Chosen")).not.toBeInTheDocument();
-    expect(within(left).getByRole("button", { name: "Choose this variant" })).toBeDisabled();
+    expect(within(left).queryByRole("button", { name: "Choose this variant" })).not.toBeInTheDocument();
+    expect(screen.getByText("Chosen: export dialog · A")).toBeInTheDocument();
+    expect(screen.getByText("No comments yet")).toBeInTheDocument();
 
     fireEvent.click(within(right).getByRole("button", { name: "Choose this variant" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("radio", { name: "export dialog · B" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: "Keep A's empty state." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Choose export dialog · B" }));
     await waitFor(() =>
-      expect(createTaskComment).toHaveBeenCalledWith("repo-1", "task-1", "Chosen variant: design: export dialog · B"),
+      expect(createTaskComment).toHaveBeenCalledWith(
+        "repo-1",
+        "task-1",
+        "Chosen variant: design: export dialog · B\n\nKeep A's empty state.",
+      ),
     );
     expect(await within(right).findByText("Chosen")).toBeInTheDocument();
     expect(within(left).queryByText("Chosen")).not.toBeInTheDocument();
+    expect(screen.getByText("Chosen: export dialog · B")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to comments" }));
+    fireEvent.click(screen.getByRole("button", { name: "Single view" }));
     expect(screen.queryByRole("region", { name: "Left variant" })).not.toBeInTheDocument();
     expect(screen.getByText("No comments yet")).toBeInTheDocument();
+  });
+
+  it("takes a comment on either variant while comparing, labelled with its variant", async () => {
+    listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design", key: "D-12" })] });
+    listTaskDocuments.mockResolvedValue({
+      documents: [
+        makeDoc({ id: "doc-a", title: "design: export dialog · A", content: "<p>Variant A</p>" }),
+        makeDoc({ id: "doc-b", title: "design: export dialog · B", content: "<p>Variant B empty state</p>" }),
+      ],
+    });
+    listTaskAnnotations.mockResolvedValue({ annotations: [] });
+    listTaskComments.mockResolvedValue({ comments: [] });
+    createTaskAnnotation.mockImplementation(async (_repo: string, _task: string, documentId: string, input) => ({
+      id: "note-1",
+      task_id: "task-1",
+      document_id: documentId,
+      status: "open",
+      created_at: "2026-09-22T00:00:00Z",
+      updated_at: "2026-09-22T00:00:00Z",
+      ...input,
+    }));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Compare variants" }));
+    const right = screen.getByRole("region", { name: "Right variant" });
+    const frame = await waitFor(() => {
+      const iframe = right.querySelector("iframe");
+      if (!iframe) throw new Error("no frame yet");
+      return iframe;
+    });
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "tt:selection", quote: "empty state", prefix: "Variant B ", suffix: "" },
+        source: frame.contentWindow,
+      }),
+    );
+
+    const composer = await screen.findByPlaceholderText("What should change here?");
+    expect(screen.getAllByText("export dialog · B").length).toBeGreaterThan(0);
+    fireEvent.change(composer, { target: { value: "Use this empty state in A too." } });
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+    await waitFor(() =>
+      expect(createTaskAnnotation).toHaveBeenCalledWith("repo-1", "task-1", "doc-b", {
+        quote: "empty state",
+        prefix: "Variant B ",
+        suffix: "",
+        body: "Use this empty state in A too.",
+      }),
+    );
   });
 
   it("offers no comparison for a design task with a single HTML document", async () => {

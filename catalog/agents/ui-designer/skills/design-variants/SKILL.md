@@ -48,7 +48,7 @@ recommended_answer: "design: Invoices — list · A — table first: finance sta
 
 ## How the choice is read
 
-The human compares the documents on the review page and clicks "Choose this variant", which posts a comment with the exact text `Chosen variant: <document title>`. Read the choice in this order:
+The human compares the documents side by side on the review page — page by page, commenting on either — and chooses one, which posts a comment whose first line is exactly `Chosen variant: <document title>`. Any lines after it are the human's note on the choice ("keep B's empty state"): act on it like a review comment — a request to take parts of another variant is a combination, so a new variant (see In revision). Read the choice in this order:
 
 1. The latest human comment `Chosen variant: <document title>` — it overrides the question, answered or not.
 2. Else the answered variant question.

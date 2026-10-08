@@ -15,6 +15,9 @@
 /** The route the sequence lives on. Named so the gate and the links cannot drift. */
 export const SETUP_PATH = "/setup";
 
+/** Where the project step is finished: the gate lets it through, the step links to it. */
+export const ADD_REPOSITORY_PATH = "/projects/new";
+
 /**
  * The sequence, in order. Each one is gated on the previous being `done` —
  * genuinely done, not merely visited.

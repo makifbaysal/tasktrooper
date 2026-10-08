@@ -100,6 +100,17 @@ describe("buildAnalysisSrcdoc", () => {
     expect(fragment.head.firstElementChild?.getAttribute("content")).toBe(frameCsp("n"));
     expect(fragment.querySelector("h1")?.textContent).toBe("Only a heading");
   });
+
+  it("marks the document as a canvas only when asked", () => {
+    expect(doc.documentElement.hasAttribute("data-tt-canvas")).toBe(false);
+    expect(srcdoc).not.toContain("tt-panning");
+
+    const canvas = buildAnalysisSrcdoc("<main>Frames</main>", { nonce: "n", script: "", canvas: true });
+    const canvasDoc = parse(canvas);
+    expect(canvasDoc.documentElement.hasAttribute("data-tt-canvas")).toBe(true);
+    expect(canvasDoc.head.querySelector("style")?.textContent).toContain("html[data-tt-canvas].tt-panning");
+    expect(canvasDoc.querySelector("main")?.textContent).toBe("Frames");
+  });
 });
 
 describe("markdownFrameHtml", () => {
@@ -160,6 +171,14 @@ describe("parseFrameMessage", () => {
       id: "q1",
       text: "x".repeat(4000),
     });
+  });
+
+  it("accepts a canvas zoom report only as a plausible number", () => {
+    expect(parseFrameMessage({ type: "tt:zoom", zoom: 0.5, extra: true })).toEqual({ type: "tt:zoom", zoom: 0.5 });
+    expect(parseFrameMessage({ type: "tt:zoom", zoom: "1" })).toBeNull();
+    expect(parseFrameMessage({ type: "tt:zoom", zoom: Number.NaN })).toBeNull();
+    expect(parseFrameMessage({ type: "tt:zoom", zoom: 0 })).toBeNull();
+    expect(parseFrameMessage({ type: "tt:zoom", zoom: 1000 })).toBeNull();
   });
 });
 

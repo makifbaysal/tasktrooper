@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { ANNOTATION_BODY_MAX, ANNOTATION_QUOTE_MAX } from "@/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -9,12 +10,14 @@ import { useI18n } from "@/hooks/useI18n";
 
 interface AnnotationComposerProps {
   quote: string;
+  /** The variant the passage is in, when the panel lists more than one document. */
+  label?: string;
   saving: boolean;
   onSave: (body: string) => void;
   onCancel: () => void;
 }
 
-export function AnnotationComposer({ quote, saving, onSave, onCancel }: AnnotationComposerProps) {
+export function AnnotationComposer({ quote, label, saving, onSave, onCancel }: AnnotationComposerProps) {
   const { t } = useI18n();
   const [body, setBody] = useState("");
   const trimmed = body.trim();
@@ -27,9 +30,16 @@ export function AnnotationComposer({ quote, saving, onSave, onCancel }: Annotati
 
   return (
     <Card className="space-y-3 border-primary/60 p-3">
-      <Label htmlFor="analysis-annotation-body" className="text-caption text-muted-foreground">
-        {t("analysisReview.panel.composerTitle")}
-      </Label>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label htmlFor="analysis-annotation-body" className="text-caption text-muted-foreground">
+          {t("analysisReview.panel.composerTitle")}
+        </Label>
+        {label && (
+          <Badge variant="outline" className="max-w-40 truncate">
+            {label}
+          </Badge>
+        )}
+      </div>
       <blockquote className="line-clamp-4 border-l-2 border-primary/60 pl-2 text-caption italic text-muted-foreground">
         {quote}
       </blockquote>

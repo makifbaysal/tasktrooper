@@ -1,13 +1,19 @@
-import { Columns2, FileText, HelpCircle, Loader2, SearchX, Send } from "lucide-react";
+import { CheckCircle2, Columns2, FileText, HelpCircle, Loader2, SearchX, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, type BoardTask, type TaskAnnotation, type TaskComment, type TaskDocument, type TaskQuestion } from "@/api";
 import { AnalysisFrame, type AnalysisFrameHandle } from "@/components/board/analysis/AnalysisFrame";
-import { AnnotationsPanel } from "@/components/board/analysis/AnnotationsPanel";
-import { DesignVariantCompare } from "@/components/board/analysis/DesignVariantCompare";
+import { AnnotationsPanel, type PendingSelection } from "@/components/board/analysis/AnnotationsPanel";
+import { ChooseVariantDialog } from "@/components/board/analysis/ChooseVariantDialog";
+import { DesignPagesList } from "@/components/board/analysis/DesignPagesList";
+import {
+  DesignVariantCompare,
+  type DesignVariantCompareHandle,
+} from "@/components/board/analysis/DesignVariantCompare";
 import { SubmitAnnotationsDialog } from "@/components/board/analysis/SubmitAnnotationsDialog";
-import type { FrameSelection } from "@/components/board/analysis/srcdoc";
+import type { CanvasPage } from "@/components/board/analysis/srcdoc";
+import { Badge } from "@/components/ui/badge";
 import { PageBackLink } from "@/components/layout/PageBackLink";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -22,6 +28,7 @@ import {
   answeredUnsubmittedQuestions,
   annotationCounts,
   canSendAnswers,
+  documentFormat,
   isQuestionAnswerEditable,
   isRevising,
   pendingBlockingQuestions,
@@ -58,15 +65,20 @@ export function AnalysisReviewPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [anchored, setAnchored] = useState<Record<string, boolean>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [pending, setPending] = useState<FrameSelection | null>(null);
+  const [pending, setPending] = useState<PendingSelection | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
   const [approving, setApproving] = useState(false);
   const [sendingAnswers, setSendingAnswers] = useState(false);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [compare, setCompare] = useState(false);
-  const [choosingId, setChoosingId] = useState<string | null>(null);
+  const [compareIds, setCompareIds] = useState<{ left: string | null; right: string | null }>({ left: null, right: null });
+  const [chooseOpen, setChooseOpen] = useState(false);
+  const [chooseInitialId, setChooseInitialId] = useState<string | null>(null);
+  const [outline, setOutline] = useState<CanvasPage[]>([]);
+  const [page, setPage] = useState<string | null>(null);
   const frameRef = useRef<AnalysisFrameHandle>(null);
+  const compareRef = useRef<DesignVariantCompareHandle>(null);
   // Bumped by every local annotation change, so a poll that left before the
   // change cannot land after it and put the old list back.
   const mutationVersion = useRef(0);
@@ -144,6 +156,23 @@ export function AnalysisReviewPage() {
   const variantDocs = useMemo(() => (design ? designHtmlDocuments(documents) : []), [design, documents]);
   const canCompare = variantDocs.length >= 2;
   const comparing = compare && canCompare;
+  const leftId = (variantDocs.find((doc) => doc.id === compareIds.left) ?? variantDocs[0])?.id ?? null;
+  const rightId = (variantDocs.find((doc) => doc.id === compareIds.right) ?? variantDocs[1] ?? variantDocs[0])?.id ?? null;
+  const canvasDoc = design && currentDoc !== null && documentFormat(currentDoc) === "html";
+  const panelAnnotations = useMemo(
+    () =>
+      comparing
+        ? annotations.filter((annotation) => annotation.document_id === leftId || annotation.document_id === rightId)
+        : docAnnotations,
+    [comparing, annotations, docAnnotations, leftId, rightId],
+  );
+  const documentLabel = useCallback(
+    (id: string) => {
+      const doc = documents.find((item) => item.id === id);
+      return doc ? designDocumentLabel(doc) : undefined;
+    },
+    [documents],
+  );
 
   useEffect(() => {
     if (!canCompare) return;
@@ -160,6 +189,7 @@ export function AnalysisReviewPage() {
   }, [canCompare, repositoryId, taskId]);
 
   const chosenTitle = useMemo(() => (canCompare ? chosenVariantTitle(comments) : null), [canCompare, comments]);
+  const needsChoice = canCompare && chosenTitle === null;
 
   const blockedOnQuestions = task?.column === "blocked" && task?.blocked_resource === "analysis_questions";
   const shownQuestions = useMemo(() => visibleQuestions(questions), [questions]);
@@ -188,6 +218,11 @@ export function AnalysisReviewPage() {
     setPending(null);
     setActiveId(null);
     setAnchored({});
+  }, [currentDocId, comparing]);
+
+  useEffect(() => {
+    setOutline([]);
+    setPage(null);
   }, [currentDocId]);
 
   const selectDocument = (id: string) => {
@@ -218,21 +253,34 @@ export function AnalysisReviewPage() {
 
   const activate = (id: string) => {
     setActiveId(id);
-    frameRef.current?.scrollTo(id);
+    if (!comparing) {
+      frameRef.current?.scrollTo(id);
+      return;
+    }
+    const annotation = annotations.find((item) => item.id === id);
+    if (annotation) compareRef.current?.scrollTo(id, annotation.document_id);
   };
 
-  // The comment text is an English marker the designer agent reads; only the button is translated.
-  const chooseVariant = async (doc: TaskDocument) => {
-    const content = chosenVariantComment(doc.title);
-    setChoosingId(doc.id);
+  const mergeAnchored = useCallback((found: Record<string, boolean>) => {
+    setAnchored((prev) => ({ ...prev, ...found }));
+  }, []);
+
+  const openChoice = (doc: TaskDocument | null) => {
+    setChooseInitialId(doc?.id ?? null);
+    setChooseOpen(true);
+  };
+
+  // The marker line is English — the designer agent reads it; the reviewer's
+  // note follows on its own lines. Only the buttons are translated.
+  const chooseVariant = async (doc: TaskDocument, note: string) => {
+    const content = note ? `${chosenVariantComment(doc.title)}\n\n${note}` : chosenVariantComment(doc.title);
     try {
       const comment = await api.createTaskComment(repositoryId, taskId, content);
       setComments((prev) => [...prev, { ...comment, content, created_at: comment.created_at || new Date().toISOString() }]);
       toast.success(t("analysisReview.design.compare.chosenToast", { title: designDocumentLabel(doc) }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("analysisReview.design.compare.chooseFailed"));
-    } finally {
-      setChoosingId(null);
+      throw e;
     }
   };
 
@@ -314,6 +362,26 @@ export function AnalysisReviewPage() {
     );
   }
 
+  const annotationsPanel = (width: string) => (
+    <AnnotationsPanel
+      className={`${width} shrink-0 border-l border-border`}
+      repositoryId={repositoryId}
+      taskId={taskId}
+      documentId={comparing ? leftId : currentDocId}
+      annotations={panelAnnotations}
+      anchored={anchored}
+      activeId={activeId}
+      pending={pending}
+      canComment={!revising && (comparing || currentDoc !== null)}
+      onActivate={activate}
+      onCancelPending={() => setPending(null)}
+      onUpsert={upsert}
+      onRemove={remove}
+      pausedLabel={design ? t("analysisReview.design.commentingPaused") : undefined}
+      documentLabel={comparing ? documentLabel : undefined}
+    />
+  );
+
   const frameAnnotations = docAnnotations.map(({ id, quote, prefix, suffix, status }) => ({
     id,
     quote,
@@ -347,6 +415,24 @@ export function AnalysisReviewPage() {
           </Select>
         )}
         {canCompare && (
+          <div className="flex items-center gap-2">
+            {chosenTitle !== null ? (
+              <Badge variant="success" className="h-9 max-w-64 gap-1.5 px-3">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="truncate">
+                  {t("analysisReview.design.choice.current", { title: designDocumentLabel({ title: chosenTitle }) })}
+                </span>
+              </Badge>
+            ) : (
+              <span className="text-caption text-muted-foreground">{t("analysisReview.design.choice.none")}</span>
+            )}
+            <Button variant={chosenTitle === null ? "default" : "outline"} onClick={() => openChoice(null)}>
+              <CheckCircle2 />
+              {t("analysisReview.design.choice.open")}
+            </Button>
+          </div>
+        )}
+        {canCompare && (
           <Button variant="outline" aria-pressed={comparing} onClick={() => setCompare((v) => !v)}>
             <Columns2 />
             {comparing ? t("analysisReview.design.compare.close") : t("analysisReview.design.compare.toggle")}
@@ -355,7 +441,9 @@ export function AnalysisReviewPage() {
         {inReview && (
           <Button
             variant="outline"
-            onClick={() => (openCount > 0 || unsubmittedAnswers.length > 0 ? setApproveConfirmOpen(true) : void approve())}
+            onClick={() =>
+              openCount > 0 || unsubmittedAnswers.length > 0 || needsChoice ? setApproveConfirmOpen(true) : void approve()
+            }
             disabled={approving}
           >
             {approving && <Loader2 className="animate-spin" />}
@@ -403,33 +491,60 @@ export function AnalysisReviewPage() {
       {inReview && design && (
         <Notice variant="info" title={t("analysisReview.page.designApproveHint")} className="mx-6 mt-3" />
       )}
-      {comparing ? (
-        <DesignVariantCompare
-          documents={variantDocs}
-          chosenTitle={chosenTitle}
-          choosingId={choosingId}
-          onChoose={(doc) => void chooseVariant(doc)}
-          theme={theme}
-        />
+      {comparing && leftId && rightId ? (
+        <div className="flex min-h-0 flex-1">
+          <DesignVariantCompare
+            ref={compareRef}
+            documents={variantDocs}
+            leftId={leftId}
+            rightId={rightId}
+            onLeftChange={(id) => setCompareIds((prev) => ({ ...prev, left: id }))}
+            onRightChange={(id) => setCompareIds((prev) => ({ ...prev, right: id }))}
+            annotations={panelAnnotations}
+            activeId={activeId}
+            chosenTitle={chosenTitle}
+            onChoose={openChoice}
+            onSelection={(documentId, selection) => {
+              if (!revising) setPending({ ...selection, documentId });
+            }}
+            onFocusAnnotation={setActiveId}
+            onAnchored={mergeAnchored}
+            theme={theme}
+          />
+          {annotationsPanel("w-[320px]")}
+        </div>
       ) : (
         <div className="flex min-h-0 flex-1">
           {currentDoc ? (
-            <AnalysisFrame
-              ref={frameRef}
-              className="flex-1"
-              document={currentDoc}
-              annotations={frameAnnotations}
-              questions={frameQuestions}
-              activeId={activeId}
-              theme={theme}
-              onSelection={(selection) => {
-                if (!revising) setPending(selection);
-              }}
-              onFocusAnnotation={setActiveId}
-              onAnchored={setAnchored}
-              onAnswer={(id, text) => void answerQuestion(id, text)}
-              title={design ? t("analysisReview.design.frameTitle") : undefined}
-            />
+            <>
+              {canvasDoc && (
+                <DesignPagesList
+                  className="w-52 shrink-0 border-r border-border"
+                  pages={outline}
+                  activeId={page}
+                  onSelect={(id) => frameRef.current?.goToPage(id)}
+                />
+              )}
+              <AnalysisFrame
+                ref={frameRef}
+                className="min-w-0 flex-1"
+                document={currentDoc}
+                annotations={frameAnnotations}
+                questions={frameQuestions}
+                activeId={activeId}
+                theme={theme}
+                onSelection={(selection) => {
+                  if (!revising) setPending({ ...selection, documentId: currentDoc.id });
+                }}
+                onFocusAnnotation={setActiveId}
+                onAnchored={setAnchored}
+                onAnswer={(id, text) => void answerQuestion(id, text)}
+                title={design ? t("analysisReview.design.frameTitle") : undefined}
+                canvas={design}
+                onOutline={setOutline}
+                onPageChange={(id) => setPage(id)}
+              />
+            </>
           ) : (
             <EmptyState
               className="flex-1"
@@ -438,24 +553,17 @@ export function AnalysisReviewPage() {
               description={t(design ? "analysisReview.design.noDocumentsBody" : "analysisReview.page.noDocumentsBody")}
             />
           )}
-          <AnnotationsPanel
-            className="w-[360px] shrink-0 border-l border-border"
-            repositoryId={repositoryId}
-            taskId={taskId}
-            documentId={currentDocId}
-            annotations={docAnnotations}
-            anchored={anchored}
-            activeId={activeId}
-            pending={pending}
-            canComment={!revising && currentDoc !== null}
-            onActivate={activate}
-            onCancelPending={() => setPending(null)}
-            onUpsert={upsert}
-            onRemove={remove}
-            pausedLabel={design ? t("analysisReview.design.commentingPaused") : undefined}
-          />
+          {annotationsPanel("w-[360px]")}
         </div>
       )}
+      <ChooseVariantDialog
+        open={chooseOpen}
+        onOpenChange={setChooseOpen}
+        documents={variantDocs}
+        chosenTitle={chosenTitle}
+        initialId={chooseInitialId}
+        onChoose={chooseVariant}
+      />
       <SubmitAnnotationsDialog
         open={submitOpen}
         onOpenChange={setSubmitOpen}
@@ -469,10 +577,13 @@ export function AnalysisReviewPage() {
         title={
           openCount > 0
             ? t("analysisReview.page.approveWithOpenTitle")
-            : t("analysisReview.questions.approveWithAnswersTitle")
+            : unsubmittedAnswers.length > 0
+              ? t("analysisReview.questions.approveWithAnswersTitle")
+              : t("analysisReview.design.choice.approveTitle")
         }
         description={[
           openCount > 0 ? t("analysisReview.page.approveWithOpenBody", { count: openCount }) : null,
+          needsChoice ? t("analysisReview.design.choice.approveNote") : null,
           unsubmittedAnswers.length > 0
             ? t("analysisReview.questions.approveNote", { count: unsubmittedAnswers.length })
             : null,
