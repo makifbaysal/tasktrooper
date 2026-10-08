@@ -80,6 +80,14 @@ export const analysisReview = {
       resolved: "已解决",
     },
   },
+  canvas: {
+    label: "画布缩放",
+    zoomIn: "放大",
+    zoomOut: "缩小",
+    reset: "缩放至 100%",
+    fit: "适应宽度",
+    hint: "拖动空白处可在设计中移动，或按住空格键在任意位置拖动。双指捏合或 Ctrl/⌘ + 滚轮可缩放。在文字上拖动可选中并添加评论。",
+  },
   design: {
     openReview: "审查设计",
     openReviewCount: "审查设计（{count} 条未解决评论）",

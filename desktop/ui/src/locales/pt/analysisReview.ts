@@ -80,6 +80,14 @@ export const analysisReview = {
       resolved: "Resolvido",
     },
   },
+  canvas: {
+    label: "Zoom da tela",
+    zoomIn: "Aumentar zoom",
+    zoomOut: "Diminuir zoom",
+    reset: "Zoom em 100%",
+    fit: "Ajustar à largura",
+    hint: "Arraste um espaço vazio para navegar pelo design, ou segure Espaço e arraste em qualquer lugar. Faça pinça ou use Ctrl/⌘ + rolagem para dar zoom. Arraste sobre o texto para selecioná-lo e comentar.",
+  },
   design: {
     openReview: "Revisar design",
     openReviewCount: "Revisar design ({count} comentários abertos)",

@@ -130,6 +130,7 @@ function VariantPane({
         document={doc}
         theme={theme}
         title={t("designSystem.task.frameTitle", { title: designDocumentLabel(doc) })}
+        canvas
       />
       <Button
         variant={chosen ? "outline" : "default"}

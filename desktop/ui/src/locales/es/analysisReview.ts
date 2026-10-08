@@ -80,6 +80,14 @@ export const analysisReview = {
       resolved: "Resuelto",
     },
   },
+  canvas: {
+    label: "Zoom del lienzo",
+    zoomIn: "Acercar",
+    zoomOut: "Alejar",
+    reset: "Zoom al 100 %",
+    fit: "Ajustar al ancho",
+    hint: "Arrastra un espacio vacío para moverte por el diseño, o mantén pulsada la barra espaciadora y arrastra desde cualquier punto. Pellizca o usa Ctrl/⌘ + rueda para hacer zoom. Arrastra sobre el texto para seleccionarlo y comentarlo.",
+  },
   design: {
     openReview: "Revisar diseño",
     openReviewCount: "Revisar diseño ({count} comentarios abiertos)",

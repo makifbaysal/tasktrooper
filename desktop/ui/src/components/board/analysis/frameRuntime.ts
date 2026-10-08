@@ -1,3 +1,4 @@
+import { canvasRuntime } from "@/components/board/analysis/canvasRuntime";
 import { textQuoteKit, type TextQuoteKit, type TextSpan } from "@/components/board/analysis/textQuote";
 
 /**
@@ -411,5 +412,8 @@ export function frameRuntime(kit: TextQuoteKit, win: Window): void {
 }
 
 export function buildFrameScript(): string {
-  return `(${frameRuntime.toString()})((${textQuoteKit.toString()})(), window);`;
+  return (
+    `(${frameRuntime.toString()})((${textQuoteKit.toString()})(), window);` +
+    `(${canvasRuntime.toString()})(window);`
+  );
 }

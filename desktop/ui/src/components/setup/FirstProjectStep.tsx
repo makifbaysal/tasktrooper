@@ -8,14 +8,16 @@ import { Notice } from "@/components/ui/notice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
+import { ADD_REPOSITORY_PATH } from "@/lib/setup";
 
 /**
  * Step 4: a project, and the first repository imported into it.
  *
- * Creating the project stays here (`ProjectFormDialog`, same as the Projects
- * page); importing a repository is now the full-page `/projects/new` flow, so
- * this step only has to send the user there — with `?project=` once a project
- * exists, so the wizard lands pre-selected instead of asking again.
+ * Strictly in that order: the project is created here (`ProjectFormDialog`,
+ * same as the Projects page), and only then does its row offer the import —
+ * the full-page `/projects/new?project=` flow, landing with that project
+ * pre-selected. No import without a project, so nobody is asked to name one
+ * twice.
  *
  * The step is done when a project has at least one repository linked to it,
  * which `useSetup` derives; this component only has to get the user there.
@@ -52,7 +54,6 @@ export function FirstProjectStep() {
   // this screen — editing, deleting, the other projects — belongs on the
   // Projects page, which is one click away once this is done.
   const project = projects?.[0] ?? null;
-  const addRepositoryHref = project ? `/projects/new?project=${project.id}` : "/projects/new";
 
   return (
     <div className="space-y-3">
@@ -77,7 +78,7 @@ export function FirstProjectStep() {
       {projects === null && !loadError && <Skeleton className="h-32 rounded-xl" />}
 
       {projects !== null && project === null && (
-        <Button variant="outline" className="gap-2" onClick={() => setDialogOpen(true)}>
+        <Button className="gap-2" onClick={() => setDialogOpen(true)}>
           <FolderPlus className="h-4 w-4" />
           {t("setup.project.createProject")}
         </Button>
@@ -95,22 +96,21 @@ export function FirstProjectStep() {
             </Notice>
           )}
 
-          <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-            <p className="text-body font-medium">{project.name}</p>
-            <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)}>
-              {t("projectsHub.project.edit")}
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <p className="min-w-0 truncate text-body font-medium">{project.name}</p>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)}>
+                {t("projectsHub.project.edit")}
+              </Button>
+              <Button asChild size="sm" variant={step.state === "done" ? "outline" : "default"} className="gap-2">
+                <Link to={`${ADD_REPOSITORY_PATH}?project=${project.id}`}>
+                  <Plus className="h-4 w-4" />
+                  {t("projectsHub.actions.addRepository")}
+                </Link>
+              </Button>
+            </div>
           </div>
         </>
-      )}
-
-      {projects !== null && (
-        <Button asChild className="gap-2">
-          <Link to={addRepositoryHref}>
-            <Plus className="h-4 w-4" />
-            {t("projectsHub.actions.addRepository")}
-          </Link>
-        </Button>
       )}
 
       <ProjectFormDialog

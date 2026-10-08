@@ -84,6 +84,14 @@ export const analysisReview: AnalysisReviewDict = {
       resolved: "Çözüldü",
     },
   },
+  canvas: {
+    label: "Tuval yakınlaştırma",
+    zoomIn: "Yakınlaştır",
+    zoomOut: "Uzaklaştır",
+    reset: "%100'e döndür",
+    fit: "Genişliğe sığdır",
+    hint: "Tasarımda gezinmek için boş alanı sürükleyin ya da Boşluk tuşunu basılı tutup her yerden sürükleyin. Yakınlaştırmak için iki parmakla sıkıştırın veya Ctrl/⌘ + kaydırın. Yorum yazmak için metnin üzerinden sürükleyip seçin.",
+  },
   design: {
     openReview: "Tasarımı incele",
     openReviewCount: "Tasarımı incele ({count} açık yorum)",

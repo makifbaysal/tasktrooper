@@ -20,7 +20,7 @@ export function DesignDocumentDialog({ document, onOpenChange }: DesignDocumentD
   return (
     <Dialog open={document !== null} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-[90vh] w-[95vw] max-w-6xl flex-col gap-3 p-4 sm:p-6"
+        className="flex h-[92vh] w-[96vw] max-w-none flex-col gap-3 p-4 sm:p-6"
         aria-describedby={undefined}
       >
         <DialogHeader className="pr-8">
@@ -41,6 +41,7 @@ function DesignDocumentFrame({ document }: { document: TaskDocument }) {
       document={document}
       theme={theme}
       title={t("designSystem.task.frameTitle", { title: designDocumentLabel(document) })}
+      canvas
     />
   );
 }

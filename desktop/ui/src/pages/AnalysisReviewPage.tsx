@@ -429,6 +429,7 @@ export function AnalysisReviewPage() {
               onAnchored={setAnchored}
               onAnswer={(id, text) => void answerQuestion(id, text)}
               title={design ? t("analysisReview.design.frameTitle") : undefined}
+              canvas={design}
             />
           ) : (
             <EmptyState

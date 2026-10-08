@@ -36,6 +36,18 @@ mark[data-tt-id][data-tt-status="resolved"]{background:rgba(34,197,94,.2)!import
 mark[data-tt-id][data-tt-active="true"]{outline:2px solid rgb(249,115,22)!important;outline-offset:1px}
 `;
 
+// Design documents only (see canvasRuntime.ts). The scrollbars go because the
+// canvas is moved by dragging and pinching; the overflow and scroll-behavior
+// overrides because a document that hides its horizontal overflow, or scrolls
+// smoothly, would otherwise fight every drag.
+const CANVAS_CSS = `
+html[data-tt-canvas]{overflow:auto!important;scroll-behavior:auto!important;scrollbar-width:none}
+html[data-tt-canvas]::-webkit-scrollbar{display:none}
+html[data-tt-canvas]>body{overflow:visible!important}
+html[data-tt-canvas].tt-grab,html[data-tt-canvas].tt-grab *{cursor:grab!important}
+html[data-tt-canvas].tt-panning,html[data-tt-canvas].tt-panning *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
+`;
+
 /** The frame body element the Open questions section is mounted in, always present, empty when there are none. */
 export const OPEN_QUESTIONS_ID = "tt-questions";
 
@@ -85,7 +97,10 @@ const STRIPPED = "meta[http-equiv], base, link, noscript";
  * `<body>`. Scripts the document carries stay in place but, lacking the nonce,
  * are refused by the policy.
  */
-export function buildAnalysisSrcdoc(html: string, options: { nonce: string; script: string }): string {
+export function buildAnalysisSrcdoc(
+  html: string,
+  options: { nonce: string; script: string; canvas?: boolean },
+): string {
   const parsed = new DOMParser().parseFromString(html, "text/html");
   for (const element of Array.from(parsed.querySelectorAll(STRIPPED))) element.remove();
   for (const element of Array.from(parsed.querySelectorAll("[nonce]"))) element.removeAttribute("nonce");
@@ -97,8 +112,9 @@ export function buildAnalysisSrcdoc(html: string, options: { nonce: string; scri
   head.insertBefore(csp, head.firstChild);
 
   const style = parsed.createElement("style");
-  style.textContent = HIGHLIGHT_CSS + QUESTIONS_CSS;
+  style.textContent = HIGHLIGHT_CSS + QUESTIONS_CSS + (options.canvas ? CANVAS_CSS : "");
   head.appendChild(style);
+  if (options.canvas) parsed.documentElement.setAttribute("data-tt-canvas", "");
 
   // Always present so the runtime never has to create it later — just filled
   // (or hidden) once the page posts `tt:questions`. Excluded from text-quote
@@ -186,9 +202,12 @@ export type FrameMessage =
   | ({ type: "tt:selection"; rect: { top: number; left: number; width: number; height: number } } & FrameSelection)
   | { type: "tt:anchored"; results: { id: string; found: boolean }[] }
   | { type: "tt:focus"; id: string }
-  | { type: "tt:answer"; id: string; text: string };
+  | { type: "tt:answer"; id: string; text: string }
+  | { type: "tt:zoom"; zoom: number };
 
 const QUOTE_LIMIT = 20000;
+const ZOOM_MIN = 0.05;
+const ZOOM_MAX = 10;
 const ID_LIMIT = 200;
 
 function isId(value: unknown): value is string {
@@ -234,6 +253,9 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
     case "tt:answer":
       if (!isId(d.id) || typeof d.text !== "string" || d.text.length > TASK_QUESTION_ANSWER_MAX) return null;
       return { type: "tt:answer", id: d.id, text: d.text };
+    case "tt:zoom":
+      if (typeof d.zoom !== "number" || !Number.isFinite(d.zoom) || d.zoom < ZOOM_MIN || d.zoom > ZOOM_MAX) return null;
+      return { type: "tt:zoom", zoom: d.zoom };
     default:
       return null;
   }

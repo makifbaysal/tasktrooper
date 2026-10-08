@@ -9,7 +9,7 @@ description: Use when you draw a screen as HTML mockup documents (one per varian
 
 The HTML documents on the task ARE the design — one per variant, titled `design: <screen> · <letter>` (`design: Invoices — list · A`), so the review page can lay them side by side for the human to choose one. A human reviews each in a sandboxed frame, selects passages and comments on them; developers receive them in their run context as plain text. Nothing in them runs, loads or reacts — so every state is drawn, side by side, as its own static frame, and every decision a reviewer may question is text they can select.
 
-**Core principle:** Draw states, don't simulate them. Lay each frame out by its own class, not by media queries — the review pane is not the device.
+**Core principle:** Draw states, don't simulate them. Lay each frame out by its own class, not by media queries — the review pane is not the device. It is a pan-and-zoom canvas, like Figma: frames sit at their real widths in rows as wide as they need, and the reviewer drags and pinches to move around them — so never put frames in a scrolling box.
 
 ## Document anatomy
 
@@ -44,7 +44,7 @@ body{margin:0;background:var(--doc-bg);color:var(--doc-fg);font:14px/1.55 var(--
 main{padding:24px}
 h2{margin:40px 0 8px;font-size:18px}
 pre{font:12px/1.35 var(--doc-mono);border:1px solid var(--doc-line);padding:12px;overflow:auto}
-.strip{display:flex;gap:32px;align-items:flex-start;overflow-x:auto;padding:8px 0 16px}
+.strip{display:flex;gap:32px;align-items:flex-start;width:max-content;padding:8px 0 16px}
 figure{margin:0;flex:none}
 figcaption{font:12px/1.4 var(--doc-sans);color:var(--doc-muted);margin:0 0 6px}
 
@@ -128,6 +128,8 @@ background:var(--background);color:var(--foreground);font:16px/1.5 var(--font-sa
 ```
 
 The `:root` block styles the review page itself — neutral, not the product. The `.ds` block is the design system: every token you use, as a CSS variable, light on `.ds` and dark on `.ds.dark` — one place per document, identical in every variant's document, so a token change in review is one edit in each.
+
+A strip runs as wide as its frames (`width:max-content`), wider than the page — that is the point. No `overflow:auto`/`scroll` on a strip, a section or `main`, and no `overflow-x:hidden` on `body`: a scrolling strip shows one frame and a scrollbar, and a hidden one cuts the wide frames off. The canvas opens what it can, but the document should not depend on it.
 
 ## Drawing without form controls
 

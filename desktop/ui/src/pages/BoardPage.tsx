@@ -528,11 +528,13 @@ export function BoardPage() {
           </Card>
         ) : (
           <div className="flex min-h-0 flex-1 overflow-x-auto pb-1">
-            <div className="flex h-full min-h-0 min-w-max gap-3">
+            {/* Lanes share the board's width and scroll only once they would drop
+                below 15rem; a fixed lane width left most of a wide screen empty. */}
+            <div className="grid h-full min-h-0 w-full auto-cols-[minmax(15rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-3">
               {lanes.map((lane) => (
                 <BoardLane
                   key={lane.key}
-                  className="w-60"
+                  className="min-w-0"
                   stages={lane.columns.map((column) => ({
                     slug: column.slug,
                     label: column.label,

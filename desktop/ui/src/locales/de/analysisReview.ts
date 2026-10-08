@@ -80,6 +80,14 @@ export const analysisReview = {
       resolved: "Gelöst",
     },
   },
+  canvas: {
+    label: "Zoom der Arbeitsfläche",
+    zoomIn: "Vergrößern",
+    zoomOut: "Verkleinern",
+    reset: "Auf 100 % zoomen",
+    fit: "An Breite anpassen",
+    hint: "Ziehe auf einer leeren Stelle, um dich im Design zu bewegen, oder halte die Leertaste gedrückt und ziehe an beliebiger Stelle. Zum Zoomen mit zwei Fingern ziehen oder Strg/⌘ + Scrollen. Ziehe über Text, um ihn auszuwählen und zu kommentieren.",
+  },
   design: {
     openReview: "Design prüfen",
     openReviewCount: "Design prüfen ({count} offene Kommentare)",

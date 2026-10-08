@@ -80,6 +80,14 @@ export const analysisReview = {
       resolved: "Résolu",
     },
   },
+  canvas: {
+    label: "Zoom du canevas",
+    zoomIn: "Zoom avant",
+    zoomOut: "Zoom arrière",
+    reset: "Zoom à 100 %",
+    fit: "Ajuster à la largeur",
+    hint: "Faites glisser une zone vide pour parcourir la maquette, ou maintenez Espace et faites glisser n'importe où. Pincez ou utilisez Ctrl/⌘ + molette pour zoomer. Faites glisser sur du texte pour le sélectionner et le commenter.",
+  },
   design: {
     openReview: "Examiner le design",
     openReviewCount: "Examiner le design (commentaires ouverts : {count})",

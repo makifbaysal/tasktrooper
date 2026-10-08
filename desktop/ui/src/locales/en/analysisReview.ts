@@ -85,6 +85,14 @@ export const analysisReview = {
       resolved: "Resolved",
     },
   },
+  canvas: {
+    label: "Canvas zoom",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
+    reset: "Zoom to 100%",
+    fit: "Fit to width",
+    hint: "Drag empty space to move around the design, or hold Space and drag anywhere. Pinch or Ctrl/⌘ + scroll to zoom. Drag over text to select it and comment.",
+  },
   // A design task is reviewed on the same page; these replace the analysis wording for it.
   design: {
     openReview: "Review design",
