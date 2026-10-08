@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="A rate-limiting card dragged from Todo to In Progress, where the backend-developer agent picks it up; the task opens with its description, acceptance criteria and the product manager's and architect's comments; then Settings, Board shows the transition rules graph and the moves allowed out of In Progress." width="100%">
+  <img src="docs/assets/demo.gif" alt="A CSV-export request typed to the product-manager agent becomes card T-9 with its assumptions and acceptance criteria; after 'Looks good, go ahead' the backend-developer agent picks it up, then the card sits in Code Review with every criterion ticked by Dev and the security agent and system architect reviewing." width="100%">
 </p>
 # TaskTrooper
 
