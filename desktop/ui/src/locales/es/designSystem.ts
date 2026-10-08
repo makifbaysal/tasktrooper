@@ -73,6 +73,8 @@ export const designSystem = {
     noRepositoryTitle: "Este proyecto todavía no tiene repositorios",
     noRepositoryBody: "El diseñador lee el código de los repositorios del proyecto. Primero añade un repositorio.",
     addRepository: "Añadir repositorio",
+    waitingForDesigner: "Todavía ningún agente tiene el rol de diseñador (puede que la sincronización del catálogo aún lo esté añadiendo). La tarea espera sin asignar y ningún otro agente la toma.",
+    assignDesigner: "Asignar al diseñador",
     failed: "No se pudo crear la tarea de diseño",
   },
   pending: {

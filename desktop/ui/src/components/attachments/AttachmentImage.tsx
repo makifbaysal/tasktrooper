@@ -1,12 +1,14 @@
+import { useState } from "react";
 import { ImageOff } from "lucide-react";
+import { ImageLightbox } from "@/components/attachments/ImageLightbox";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
-import { openAttachmentBlob, useAttachmentBlob } from "./useAttachmentBlob";
+import { useAttachmentBlob } from "./useAttachmentBlob";
 
 /**
  * Atom: one stored image, addressed by attachment id, rendered as a clickable
- * thumbnail that opens full size in a new tab.
+ * thumbnail that opens full size in a lightbox.
  *
  * It is separate from AttachmentList (a molecule, which renders a grid of
  * AttachmentMeta with filenames, sizes and non-image fallbacks) because the
@@ -24,6 +26,7 @@ export function AttachmentImage({
 }) {
   const { t } = useI18n();
   const { url, loading } = useAttachmentBlob(id);
+  const [viewing, setViewing] = useState(false);
 
   if (loading) {
     return (
@@ -47,17 +50,21 @@ export function AttachmentImage({
     );
   }
 
+  const title = alt ?? t("frame.ui.attachments.openFullSize");
   return (
-    <button
-      type="button"
-      onClick={() => void openAttachmentBlob(id)}
-      className={cn(
-        "block w-full overflow-hidden rounded border border-border bg-muted transition hover:border-primary",
-        className,
-      )}
-      title={alt ?? t("frame.ui.attachments.openFullSize")}
-    >
-      <img src={url} alt={alt ?? ""} className="max-h-64 w-full object-contain" />
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => setViewing(true)}
+        className={cn(
+          "block w-full overflow-hidden rounded border border-border bg-muted transition hover:border-primary",
+          className,
+        )}
+        title={title}
+      >
+        <img src={url} alt={alt ?? ""} className="max-h-64 w-full object-contain" />
+      </button>
+      <ImageLightbox src={url} title={title} filename={`${id}.png`} open={viewing} onOpenChange={setViewing} />
+    </>
   );
 }

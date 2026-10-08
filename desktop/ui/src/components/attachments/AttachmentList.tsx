@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { FileText, X } from "lucide-react";
 import { toast } from "sonner";
 import type { AttachmentMeta } from "@/api";
+import { ImageLightbox } from "@/components/attachments/ImageLightbox";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { useAttachmentBlob, openAttachmentBlob } from "@/components/attachments/useAttachmentBlob";
+import { downloadAttachmentBlob, useAttachmentBlob } from "@/components/attachments/useAttachmentBlob";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 
@@ -29,15 +31,16 @@ export function formatAttachmentSize(bytes: number): string {
 /**
  * Molecule: grid of binary attachments. Images render an authenticated blob
  * thumbnail (an <img src> to the API would arrive without the Authorization
- * header); other types render a file chip. Click opens the blob in a new tab.
+ * header) that opens full size in a lightbox; other types render a file chip
+ * that downloads the file.
  */
 export function AttachmentList({ attachments, onRemove, compact = false, className }: AttachmentListProps) {
   const { t } = useI18n();
   if (attachments.length === 0) return null;
 
-  const open = async (meta: AttachmentMeta) => {
+  const download = async (meta: AttachmentMeta) => {
     try {
-      await openAttachmentBlob(meta.id);
+      await downloadAttachmentBlob(meta.id, meta.filename);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("frame.ui.attachments.openFailed"));
     }
@@ -50,7 +53,7 @@ export function AttachmentList({ attachments, onRemove, compact = false, classNa
           key={meta.id}
           meta={meta}
           compact={compact}
-          onOpen={() => open(meta)}
+          onDownload={() => download(meta)}
           onRemove={onRemove ? () => onRemove(meta) : undefined}
         />
       ))}
@@ -61,18 +64,20 @@ export function AttachmentList({ attachments, onRemove, compact = false, classNa
 function AttachmentItem({
   meta,
   compact,
-  onOpen,
+  onDownload,
   onRemove,
 }: {
   meta: AttachmentMeta;
   compact: boolean;
-  onOpen: () => void;
+  onDownload: () => void;
   onRemove?: () => void;
 }) {
   const { t } = useI18n();
   const image = isImage(meta);
   // Only images fetch bytes eagerly (for the thumbnail); other types fetch on click.
   const { url, loading } = useAttachmentBlob(image ? meta.id : null);
+  const [viewing, setViewing] = useState(false);
+  const onOpen = image ? () => setViewing(true) : onDownload;
 
   return (
     <div
@@ -128,6 +133,9 @@ function AttachmentItem({
         >
           <X className="h-3 w-3" />
         </Button>
+      )}
+      {image && (
+        <ImageLightbox src={url} title={meta.filename} open={viewing} onOpenChange={setViewing} />
       )}
     </div>
   );

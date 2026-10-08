@@ -498,5 +498,15 @@ export const settingsPages = {
     applying: "Wird angewendet…",
     applyToast: "Katalogversion angewendet",
     applyFailed: "Katalogversion konnte nicht angewendet werden",
+    alreadyRunning: "Ein Sync läuft bereits; sein Fortschritt wird hier angezeigt.",
+    progress: {
+      adding: "{agent} wird hinzugefügt",
+      updating: "{agent} wird aktualisiert",
+      reading: "Katalog wird gelesen…",
+      skills: "{done} von {total} neuen Skills indexiert",
+      agents: "Agent {done} von {total}",
+      added: "hinzugefügt: {names}",
+      note: "Jeder neue Skill wird für die Suche indexiert, je einige Sekunden – ein Release mit neuen Agenten dauert daher einige Minuten. Jeder Agent erscheint in der Seitenleiste, sobald er bereit ist.",
+    },
   },
 };

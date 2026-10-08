@@ -75,6 +75,8 @@ export const designSystem: DesignSystemDict = {
     noRepositoryTitle: "Bu projede henüz repo yok",
     noRepositoryBody: "Tasarımcı, projenin repolarındaki kodu okur. Önce bir repo ekle.",
     addRepository: "Repo ekle",
+    waitingForDesigner: "Henüz tasarımcı rolünde bir ajan yok (katalog senkronu hâlâ ekliyor olabilir). Görev atanmadan bekler ve başka hiçbir ajan onu almaz.",
+    assignDesigner: "Tasarımcıya ata",
     failed: "Tasarım görevi oluşturulamadı",
   },
   pending: {

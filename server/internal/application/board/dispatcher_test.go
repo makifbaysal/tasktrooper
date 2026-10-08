@@ -311,6 +311,40 @@ func (s *DispatcherSuite) TestDispatchTodoColumn() {
 	s.Len(s.runner.jobs, 1)
 }
 
+func (s *DispatcherSuite) TestUnassignedDesignTaskWaitsForTheDesigner() {
+	taskID := uuid.New()
+	repositoryID := uuid.New()
+	for _, event := range []domain.BoardEventType{domain.BoardEventTaskCreated, domain.BoardEventTaskMoved, domain.BoardEventTaskCommented} {
+		err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+			RepositoryID: repositoryID,
+			Task: domain.BoardTask{
+				ID: taskID, RepositoryID: repositoryID, Title: "Design system layer: web",
+				TaskType: "design", Column: domain.TaskColumnTodo,
+			},
+			EventType: event,
+		})
+		s.Require().NoError(err)
+	}
+	s.Empty(s.runs.runs, "the todo column's watcher must not pick up a task reserved for the designer")
+	s.Empty(s.runner.jobs)
+}
+
+func (s *DispatcherSuite) TestAssignedDesignTaskGoesToItsAssignee() {
+	designer := uuid.New()
+	repositoryID := uuid.New()
+	err := s.disp.Dispatch(context.Background(), board.DispatchInput{
+		RepositoryID: repositoryID,
+		Task: domain.BoardTask{
+			ID: uuid.New(), RepositoryID: repositoryID, Title: "Design system layer: web",
+			TaskType: "design", Column: domain.TaskColumnTodo, AssigneeAgentID: &designer,
+		},
+		EventType: domain.BoardEventTaskCreated,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(s.runs.runs, 1)
+	s.Equal(designer, s.runs.runs[0].AgentID)
+}
+
 func (s *DispatcherSuite) TestActorAgentNotRedispatchedOnOwnMove() {
 	assignee := uuid.New()
 	repositoryID := uuid.New()

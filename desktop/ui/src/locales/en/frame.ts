@@ -6,6 +6,13 @@ export const frame = {
     header: {
       lightTheme: "Light theme",
       darkTheme: "Dark theme",
+      catalogSync: {
+        adding: "Adding {agent}",
+        updating: "Updating {agent}",
+        syncing: "Syncing the agent catalog",
+        skills: "{done}/{total} skills",
+        detail: "Agent catalog sync: agent {done} of {total}. Each new skill is indexed for search, a few seconds each.",
+      },
       leadAsk: {
         label: "Message {name}",
         placeholder: "Ask the PM…",
@@ -182,6 +189,8 @@ export const frame = {
       remove: "Remove",
       imageUnavailable: "Image unavailable",
       openFullSize: "Open full size",
+      download: "Download",
+      lightboxDescription: "The attachment at full size.",
     },
   },
 };

@@ -65,6 +65,12 @@ export function DesignSystemGenerateCard({
   const live = request?.open ? request : undefined;
   const fresh = result && (!request || request.id !== result.task.id || request.open) ? result : null;
   const task: TaskSummary | undefined = live && fresh && live.id === fresh.task.id ? live : (fresh?.task ?? live);
+  // The answer to a press is newer than the view about who holds the task.
+  const waiting = task
+    ? fresh && fresh.task.id === task.id
+      ? !!fresh.waiting_for_designer
+      : !!live?.waiting_for_designer
+    : false;
 
   const submit = async () => {
     setBusy(true);
@@ -119,6 +125,9 @@ export function DesignSystemGenerateCard({
   const status = task && (
     <DesignTaskStatus
       task={task}
+      waiting={waiting}
+      busy={busy}
+      onAssign={() => void submit()}
       title={
         task.column === "analiz_review"
           ? t("designSystem.generate.inReview")
@@ -160,7 +169,19 @@ export function DesignSystemGenerateCard({
   );
 }
 
-function DesignTaskStatus({ task, title }: { task: TaskSummary; title: string }) {
+function DesignTaskStatus({
+  task,
+  title,
+  waiting = false,
+  busy = false,
+  onAssign,
+}: {
+  task: TaskSummary;
+  title: string;
+  waiting?: boolean;
+  busy?: boolean;
+  onAssign?: () => void;
+}) {
   const { t } = useI18n();
   const inReview = task.column === "analiz_review";
   return (
@@ -172,6 +193,17 @@ function DesignTaskStatus({ task, title }: { task: TaskSummary; title: string })
         <p className="text-caption text-muted-foreground">
           {t("designSystem.generate.taskColumn", { column: columnLabel(task.column, DEFAULT_BOARD_COLUMNS) })}
         </p>
+        {waiting && (
+          <div className="space-y-2" data-testid="design-task-waiting">
+            <p className="text-caption">{t("designSystem.generate.waitingForDesigner")}</p>
+            {onAssign && (
+              <Button size="sm" onClick={onAssign} disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                {t("designSystem.generate.assignDesigner")}
+              </Button>
+            )}
+          </div>
+        )}
         {inReview ? (
           <Button size="sm" asChild>
             <DesignTaskLink taskId={task.id} taskKey={task.key} repositoryId={task.repository_id}>

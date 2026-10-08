@@ -482,6 +482,16 @@ kind: {
     applying: "Applying…",
     applyToast: "Catalog version applied",
     applyFailed: "Could not apply the catalog version",
+    alreadyRunning: "A sync is already running; its progress is shown here.",
+    progress: {
+      adding: "Adding {agent}",
+      updating: "Updating {agent}",
+      reading: "Reading the catalog…",
+      skills: "{done} of {total} new skills indexed",
+      agents: "Agent {done} of {total}",
+      added: "added: {names}",
+      note: "Every new skill is indexed for search, a few seconds each, so a release with new agents takes a few minutes. Each agent appears in the sidebar as soon as it is ready.",
+    },
   },
 
 };

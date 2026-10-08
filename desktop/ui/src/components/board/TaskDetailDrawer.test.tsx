@@ -129,4 +129,16 @@ describe("TaskDetailDrawer detail poll", () => {
     await act(() => vi.advanceTimersByTimeAsync(2000));
     expect(detail.listTaskComments).toHaveBeenCalledTimes(3);
   });
+
+  it("renders no two siblings under the same key", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    answerWithRuns([run("completed")]);
+    renderDrawer();
+    await waitFor(() => expect(detail.listTaskComments).toHaveBeenCalled());
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+
+    const duplicateKeys = consoleError.mock.calls.filter((call) => String(call[0]).includes("same key"));
+    expect(duplicateKeys).toEqual([]);
+    consoleError.mockRestore();
+  });
 });

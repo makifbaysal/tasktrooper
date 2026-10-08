@@ -1,7 +1,8 @@
 import { Menu, Moon, Sun } from "lucide-react";
 import { useLocation } from "react-router-dom";
-import type { Agent } from "@/api";
+import type { Agent, CatalogSyncProgress } from "@/api";
 import { Button } from "@/components/ui/button";
+import { CatalogSyncIndicator } from "@/components/layout/CatalogSyncIndicator";
 import { HealthStatus } from "@/components/layout/HealthStatus";
 import { LeadQuickAsk } from "@/components/layout/LeadQuickAsk";
 import { NotificationCenter } from "@/components/layout/NotificationCenter";
@@ -16,6 +17,8 @@ interface HeaderProps {
   /** Advances an agent's sidebar "last viewed" from a notification-center click. Optional so a Header shown outside WorkspaceShell (none today) still renders without a bell. */
   onAgentSeen?: (agentId: string, iso: string) => void;
   leadAgent?: Agent | null;
+  /** The catalog sync in flight, if any; shown while it adds agents or indexes skills. */
+  catalogSync?: CatalogSyncProgress | null;
 }
 
 function LeadAskSlot({ agent }: { agent: Agent }) {
@@ -24,7 +27,14 @@ function LeadAskSlot({ agent }: { agent: Agent }) {
   return <LeadQuickAsk agent={agent} />;
 }
 
-export function Header({ title, onMenuClick, sidebarCollapsed = false, onAgentSeen, leadAgent = null }: HeaderProps) {
+export function Header({
+  title,
+  onMenuClick,
+  sidebarCollapsed = false,
+  onAgentSeen,
+  leadAgent = null,
+  catalogSync = null,
+}: HeaderProps) {
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
 
@@ -55,6 +65,7 @@ export function Header({ title, onMenuClick, sidebarCollapsed = false, onAgentSe
       </div>
 
       <div className="flex items-center gap-2">
+        <CatalogSyncIndicator progress={catalogSync} />
         {onAgentSeen && <NotificationCenter onAgentSeen={onAgentSeen} />}
         <HealthStatus />
 

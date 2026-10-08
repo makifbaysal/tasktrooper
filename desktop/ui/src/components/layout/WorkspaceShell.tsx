@@ -4,6 +4,7 @@ import type { Agent, WorkspaceConfig } from "@/api";
 import { Header } from "@/components/layout/Header";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
 import { useAgentUnread } from "@/hooks/useAgentUnread";
+import { useCatalogSync } from "@/hooks/useCatalogSync";
 
 interface WorkspaceShellProps {
   config: WorkspaceConfig | null;
@@ -34,6 +35,7 @@ export function WorkspaceShell({
   const activeAgentMatch = /^\/agents\/([^/]+)\/chat/.exec(location.pathname);
   const activeAgentId = activeAgentMatch ? activeAgentMatch[1] : null;
   const { unread: unreadAgentIds, markAgentSeen } = useAgentUnread(agents, activeAgentId);
+  const { progress: catalogSync } = useCatalogSync(onRefresh);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
@@ -42,6 +44,7 @@ export function WorkspaceShell({
         sidebarCollapsed={collapsed}
         onAgentSeen={markAgentSeen}
         leadAgent={leadAgent}
+        catalogSync={catalogSync}
       />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <WorkspaceSidebar

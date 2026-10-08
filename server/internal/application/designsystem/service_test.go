@@ -478,3 +478,51 @@ func TestProposeAndViewsCarryLint(t *testing.T) {
 	require.Len(t, view.Pending, 1)
 	assert.NotEmpty(t, view.Pending[0].Lint)
 }
+
+func (m *memTasks) UpdateTask(_ context.Context, _, id uuid.UUID, req domain.UpdateBoardTaskRequest) (domain.BoardTask, error) {
+	t, ok := m.tasks[id]
+	if !ok {
+		return domain.BoardTask{}, errors.New("task not found")
+	}
+	if req.AssigneeAgentID.Present {
+		t.AssigneeAgentID = req.AssigneeAgentID.Value
+	}
+	m.tasks[id] = t
+	return t, nil
+}
+
+type stubDesigner struct{ id *uuid.UUID }
+
+func (s *stubDesigner) AssigneeForNewTask(context.Context, domain.TaskType, string, *uuid.UUID) (*uuid.UUID, error) {
+	return s.id, nil
+}
+
+func TestRequestWaitsForADesignerAndHandsTheTaskOverOnceThereIsOne(t *testing.T) {
+	f := newFixture()
+	roles := &stubDesigner{}
+	f.svc.SetRoleResolver(roles)
+
+	first, err := f.svc.RequestForRepository(context.Background(), f.web.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Created || !first.WaitingForDesigner {
+		t.Fatalf("a task opened with no designer must say it waits for one: %+v", first)
+	}
+
+	designer := uuid.New()
+	roles.id = &designer
+	again, err := f.svc.RequestForRepository(context.Background(), f.web.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Created || again.Task.ID != first.Task.ID {
+		t.Fatalf("the open task is reused, not duplicated: %+v", again)
+	}
+	if again.WaitingForDesigner || again.Task.AssigneeAgentID == nil || *again.Task.AssigneeAgentID != designer {
+		t.Fatalf("pressing again once the designer exists must assign it: %+v", again)
+	}
+	if got := f.tasks.tasks[first.Task.ID].AssigneeAgentID; got == nil || *got != designer {
+		t.Fatalf("the stored task keeps no designer: %v", got)
+	}
+}

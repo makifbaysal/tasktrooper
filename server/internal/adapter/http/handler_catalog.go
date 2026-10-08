@@ -27,7 +27,10 @@ func (h *Handler) SyncExternalCatalog(c *fiber.Ctx) error {
 			Error: errorDetail{Message: "external catalog not configured (set AGENT_CATALOG_REPO)", Type: "service_unavailable"},
 		})
 	}
-	res, err := h.catalogSvc.SyncFromCatalog(h.enrichContext(c), h.catalogRepo, h.catalogSyncStore)
+	res, started, err := h.catalogSvc.TrySyncFromCatalog(h.enrichContext(c), h.catalogRepo, h.catalogSyncStore)
+	if !started {
+		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"running": true, "progress": h.catalogSvc.SyncProgress()})
+	}
 	if err != nil {
 		// A sync that failed is still reported through the state row; the
 		// in-flight response carries the same sentence the status endpoint will.
@@ -48,7 +51,7 @@ func (h *Handler) ExternalCatalogStatus(c *fiber.Ctx) error {
 	if err != nil {
 		return internalError(c, err)
 	}
-	return c.JSON(fiber.Map{"configured": true, "state": state})
+	return c.JSON(fiber.Map{"configured": true, "state": state, "progress": h.catalogSvc.SyncProgress()})
 }
 
 func (h *Handler) ListCatalogPending(c *fiber.Ctx) error {

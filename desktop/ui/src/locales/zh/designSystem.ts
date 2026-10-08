@@ -72,6 +72,8 @@ export const designSystem = {
     noRepositoryTitle: "此项目还没有仓库",
     noRepositoryBody: "设计师会读取项目各仓库的代码。请先添加一个仓库。",
     addRepository: "添加仓库",
+    waitingForDesigner: "目前还没有智能体担任设计师角色（目录同步可能仍在添加）。任务保持未分配，其他智能体不会接手。",
+    assignDesigner: "分配给设计师",
     failed: "无法创建设计任务",
   },
   pending: {
