@@ -73,3 +73,31 @@ func TestGitHubTemplateIsTheHostedServer(t *testing.T) {
 	assert.Equal(t, "https://api.githubcopilot.com/mcp/", template.URL)
 	assert.Contains(t, template.Headers, "Authorization")
 }
+
+func TestSpecialistAgentTemplatesShipDisabled(t *testing.T) {
+	for _, id := range []string{
+		"unity", "godot", "unreal", "blender",
+		"jupyter", "duckdb", "dbt", "mlflow",
+		"semgrep", "osv-scanner", "github-security", "snyk",
+	} {
+		template, ok := domain.MCPTemplateByID(id)
+		require.True(t, ok, id)
+		assert.False(t, template.Enabled, "%s needs an editor, a server or an account the user sets up first", id)
+	}
+}
+
+func TestGitHubSecurityTemplateIsReadOnly(t *testing.T) {
+	template, ok := domain.MCPTemplateByID("github-security")
+	require.True(t, ok)
+
+	assert.Equal(t, "true", template.Headers["X-MCP-Readonly"])
+	assert.Equal(t, []string{"Authorization"}, fieldKeys(domain.SecretFieldsForServer("github-security")))
+}
+
+func TestDbtTemplateWaitsForItsProjectAndExecutable(t *testing.T) {
+	template, ok := domain.MCPTemplateByID("dbt")
+	require.True(t, ok)
+
+	missing := domain.MissingConfigFields(domain.MCPServer{ID: "dbt", Env: template.Env}, nil)
+	assert.Equal(t, []string{"DBT_PROJECT_DIR", "DBT_PATH"}, fieldKeys(missing))
+}

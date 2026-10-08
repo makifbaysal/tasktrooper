@@ -247,8 +247,20 @@ func (s *ServiceSuite) TestAccessMode() {
 func (s *ServiceSuite) TestSeededTemplatesKeepReachingEveryAgent() {
 	s.Require().NoError(s.svc.SeedDefaultsIfEmpty(context.Background()))
 	s.Require().NotEmpty(s.store.servers)
-	for id, server := range s.store.servers {
+	for _, id := range []string{"filesystem", "git", "github", "gitlab", "postgres", "slack", "huggingface", "browser"} {
+		server, ok := s.store.servers[id]
+		s.Require().True(ok, id)
 		s.Equal(domain.MCPAccessAll, server.Access, id)
+	}
+}
+
+func (s *ServiceSuite) TestSeededSpecialistTemplatesReachOnlyTheAgentsThatNameThem() {
+	s.Require().NoError(s.svc.SeedDefaultsIfEmpty(context.Background()))
+	for _, id := range []string{"unity", "godot", "unreal", "blender", "jupyter", "duckdb", "dbt", "mlflow", "semgrep", "osv-scanner", "github-security", "snyk"} {
+		server, ok := s.store.servers[id]
+		s.Require().True(ok, id)
+		s.Equal(domain.MCPAccessListed, server.Access, "%s drives an editor, a kernel or a scanner for one agent", id)
+		s.False(server.Enabled, id)
 	}
 }
 
