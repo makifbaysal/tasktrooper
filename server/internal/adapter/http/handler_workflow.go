@@ -271,8 +271,7 @@ func (h *Handler) ListWorkflowBehaviours(c *fiber.Ctx) error {
 		})
 	}
 	kinds := []string{"intake", "queue", "work", "review", "approval", "rework", "parked", "terminal"}
-	areas := []string{"backend", "frontend", "mobile"}
-	return c.JSON(fiber.Map{"behaviours": out, "kinds": kinds, "areas": areas})
+	return c.JSON(fiber.Map{"behaviours": out, "kinds": kinds, "areas": domain.RoleAreas()})
 }
 
 // workflowValidationError renders a *workflow.ValidationError as 422 with a

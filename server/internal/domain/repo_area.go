@@ -18,12 +18,17 @@ func RepoArea(kind string, subProjects []RepoSubProject) string {
 		counts[areaForSingleKind(sp.Kind)]++
 	}
 	best, bestCount := RepoKindBackend, 0
-	for _, area := range []string{RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindData, RepoKindGame} {
+	for _, area := range RoleAreas() {
 		if counts[area] > bestCount {
 			best, bestCount = area, counts[area]
 		}
 	}
 	return best
+}
+
+// RoleAreas is every area RepoArea can resolve to, in its tie-break order.
+func RoleAreas() []string {
+	return []string{RepoKindBackend, RepoKindFrontend, RepoKindMobile, RepoKindData, RepoKindGame}
 }
 
 func areaForSingleKind(kind string) string {
