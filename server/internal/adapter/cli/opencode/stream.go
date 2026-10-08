@@ -122,6 +122,11 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 	sessionAnnounced := false
 	turnSeen := false
 	texts := textAccum{values: map[string]string{}}
+	// failure is the last error event no finished step has come after yet.
+	// opencode also reports errors it recovers from (it compacts an
+	// overflowing context and keeps going), so an error only ends the run
+	// when nothing finishes after it.
+	var failure *errorPayload
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -183,23 +188,36 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 				out.Status = p.Reason
 				out.CostUSD += p.Cost
 				out.Usage = addUsage(out.Usage, p.Tokens.toDomain())
+				if failure != nil {
+					out.RecoveredError = failure.describe()
+					failure = nil
+				}
 			}
 		case "error":
 			out.SawResult = true
-			out.IsError = true
+			failure = &errorPayload{}
 			if ev.Error != nil {
-				out.Status = ev.Error.Name
-				out.Text = ev.Error.Data.Message
+				failure = ev.Error
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return out, fmt.Errorf("read opencode stream: %w", err)
 	}
-	if strings.TrimSpace(out.Text) == "" {
-		out.Text = texts.join()
+	if failure != nil {
+		out.IsError = true
+		out.Status = failure.Name
+		out.Text = failure.describe()
+		return out, nil
 	}
+	out.Text = texts.join()
 	return out, nil
+}
+
+// describe is the error's own message, or its name when it carries none —
+// never the session's answer text, which is not what went wrong.
+func (e *errorPayload) describe() string {
+	return core.FirstNonEmpty(e.Data.Message, e.Name)
 }
 
 type textAccum struct {

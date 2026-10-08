@@ -1,6 +1,8 @@
 package core
 
 import (
+	"errors"
+	"os/exec"
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -24,6 +26,9 @@ type Outcome struct {
 	ToolCalls int
 	ToolFailures int
 	SawResult bool
+	// RecoveredError is an error the CLI reported mid-session and then
+	// carried on past; the session still answered.
+	RecoveredError string
 	// ChildSessions are subagent sessions the CLI ran on the parent's behalf
 	// whose usage its own stream never reports.
 	ChildSessions []string
@@ -100,8 +105,19 @@ func (s Session) SessionID() string {
 	return FirstNonEmpty(s.Out.SessionID, s.Trace.SessionID())
 }
 
+// exitErr is WaitErr unless the only thing it says is the error the session
+// already recovered from: opencode run exits 1 once any session error was
+// reported, even when the session carried on and answered.
+func (s Session) exitErr() error {
+	var exitErr *exec.ExitError
+	if s.Out.RecoveredError != "" && errors.As(s.WaitErr, &exitErr) && exitErr.ExitCode() == 1 {
+		return nil
+	}
+	return s.WaitErr
+}
+
 func (s Session) Failed() bool {
-	if s.TimedOut || s.ParseErr != nil || s.WaitErr != nil || !s.Out.SawResult || s.Out.IsError {
+	if s.TimedOut || s.ParseErr != nil || s.exitErr() != nil || !s.Out.SawResult || s.Out.IsError {
 		return true
 	}
 	switch s.Out.Subtype {

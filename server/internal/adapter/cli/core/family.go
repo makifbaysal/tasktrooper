@@ -283,9 +283,16 @@ func (f *Family) finishInner(ctx context.Context, label string, s Session, now f
 		return domain.AgentResponse{}, fmt.Errorf("%s failed (%s): %s",
 			f.spec.ProcessName, out.Status, domain.TruncateHead(FirstNonEmpty(out.Text, strings.TrimSpace(s.StderrTail)), 1000))
 	}
-	if s.WaitErr != nil {
+	if waitErr := s.exitErr(); waitErr != nil {
 		return domain.AgentResponse{}, fmt.Errorf("%s exited with an error after reporting success (%v): %s",
-			f.spec.ProcessName, s.WaitErr, domain.TruncateHead(strings.TrimSpace(s.StderrTail), 500))
+			f.spec.ProcessName, waitErr, domain.TruncateHead(strings.TrimSpace(s.StderrTail), 500))
+	}
+	if out.RecoveredError != "" {
+		log.Warn().
+			Str("task_key", label).
+			Str("cli_session_id", out.SessionID).
+			Str("recovered_error", domain.TruncateHead(out.RecoveredError, 500)).
+			Msgf("%s reported an error mid-session and carried on; keeping its answer", f.spec.ProcessName)
 	}
 	if strings.TrimSpace(out.Text) == "" {
 		return domain.AgentResponse{}, errors.New(f.spec.ProcessName + " finished without producing any answer")

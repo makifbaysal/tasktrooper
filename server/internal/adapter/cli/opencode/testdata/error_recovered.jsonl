@@ -1,0 +1,7 @@
+{"type":"step_start","sessionID":"ses_rec1"}
+{"type":"tool_use","sessionID":"ses_rec1","part":{"callID":"call_1","tool":"bash","state":{"status":"completed","input":{"command":"gh run view 37640086261"},"output":"completed success"}}}
+{"type":"step_finish","sessionID":"ses_rec1","part":{"reason":"tool-calls","cost":0.01,"tokens":{"input":1000,"output":100,"reasoning":0,"cache":{"read":5000,"write":0}}}}
+{"type":"error","sessionID":"ses_rec1","error":{"name":"ContextOverflowError","data":{"message":"prompt is too long: 214803 tokens > 200000 maximum"}}}
+{"type":"step_start","sessionID":"ses_rec1"}
+{"type":"text","sessionID":"ses_rec1","part":{"id":"prt_2","text":"The pipeline is green: build 33 is on TestFlight."}}
+{"type":"step_finish","sessionID":"ses_rec1","part":{"reason":"stop","cost":0.02,"tokens":{"input":2000,"output":200,"reasoning":0,"cache":{"read":0,"write":0}}}}
