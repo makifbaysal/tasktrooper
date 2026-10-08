@@ -13,6 +13,8 @@ import (
 // cannot drift from what actually ships.
 const monorepoCatalog = "../../../../catalog"
 
+var developerSlugs = []string{"backend-developer", "frontend-developer", "mobile-developer", "data-scientist", "game-developer"}
+
 func repoCatalogAgents(t *testing.T) map[string]domain.UpstreamAgent {
 	t.Helper()
 	agents, _, err := (&Reader{Source: monorepoCatalog}).ReadCatalog(context.Background())
@@ -46,7 +48,7 @@ func columnInstruction(t *testing.T, agents map[string]domain.UpstreamAgent, slu
 // todo/in_progress/need_revision column md.
 func TestDeveloperColumnsCarryTheStandingAcceptanceCriteria(t *testing.T) {
 	agents := repoCatalogAgents(t)
-	for _, slug := range []string{"backend-developer", "frontend-developer", "mobile-developer"} {
+	for _, slug := range developerSlugs {
 		for _, col := range []domain.TaskColumn{
 			domain.TaskColumnTodo, domain.TaskColumnInProgress, domain.TaskColumnNeedRevision,
 		} {
@@ -70,7 +72,7 @@ func TestDeveloperColumnsCarryTheStandingAcceptanceCriteria(t *testing.T) {
 // this used to be part of board.columnInstruction's need_revision case.
 func TestDeveloperNeedRevisionReadsBothCommentSources(t *testing.T) {
 	agents := repoCatalogAgents(t)
-	for _, slug := range []string{"backend-developer", "frontend-developer", "mobile-developer"} {
+	for _, slug := range developerSlugs {
 		got := columnInstruction(t, agents, slug, domain.TaskColumnNeedRevision)
 		for _, want := range []string{"list_task_comments", "get_task_pull_request"} {
 			if !strings.Contains(got, want) {
@@ -124,6 +126,64 @@ func TestSystemArchitectCodeReviewCarriesTheReviewerRules(t *testing.T) {
 			t.Errorf("system-architect/code_review: missing %q:\n%s", want, got)
 		}
 	}
+}
+
+// The security reviewer is one of code_review's required reviewers: it reads,
+// never runs or edits, and its verdict is the move.
+func TestSecurityAgentCodeReviewCarriesTheReviewerRules(t *testing.T) {
+	agents := repoCatalogAgents(t)
+	got := columnInstruction(t, agents, "security-agent", domain.TaskColumnCodeReview)
+	for _, want := range []string{
+		"never edit the code you are reviewing",
+		"never run a build or a test suite",
+		"list_task_comments",
+		"move_board_task",
+		"ready_for_qa",
+		"need_revision",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("security-agent/code_review: missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// The new developers and the security reviewer route by role and area; a
+// manifest that lost them would leave their repositories with nobody.
+func TestSpecialistAgentsDeclareTheirRolesAndColumns(t *testing.T) {
+	agents := repoCatalogAgents(t)
+	cases := []struct {
+		slug    string
+		role    string
+		areas   []string
+		columns []domain.TaskColumn
+	}{
+		{"data-scientist", "developer", []string{"data"}, []domain.TaskColumn{domain.TaskColumnTodo, domain.TaskColumnNeedRevision}},
+		{"game-developer", "developer", []string{"game"}, []domain.TaskColumn{domain.TaskColumnTodo, domain.TaskColumnNeedRevision}},
+		{"security-agent", "security", nil, []domain.TaskColumn{domain.TaskColumnCodeReview}},
+	}
+	for _, tc := range cases {
+		agent, ok := agents[tc.slug]
+		if !ok {
+			t.Fatalf("catalog is missing agent %q", tc.slug)
+		}
+		if len(agent.Roles) != 1 || agent.Roles[0].Key != tc.role || strings.Join(agent.Roles[0].Areas, ",") != strings.Join(tc.areas, ",") {
+			t.Errorf("%s roles = %+v, want %s %v", tc.slug, agent.Roles, tc.role, tc.areas)
+		}
+		if strings.Join(columnStrings(agent.Subscriptions), ",") != strings.Join(columnStrings(tc.columns), ",") {
+			t.Errorf("%s subscriptions = %v, want %v", tc.slug, agent.Subscriptions, tc.columns)
+		}
+		if len(agent.TechStacks) < 3 {
+			t.Errorf("%s ships %d tech stacks, want several", tc.slug, len(agent.TechStacks))
+		}
+	}
+}
+
+func columnStrings(cols []domain.TaskColumn) []string {
+	out := make([]string, len(cols))
+	for i, c := range cols {
+		out[i] = string(c)
+	}
+	return out
 }
 
 // The QA execution rules (approve only what was executed and observed) that
@@ -214,7 +274,7 @@ func TestReleaseEngineerDoneAndReleasedForbidEditingCode(t *testing.T) {
 // developer's own todo.md, matching system-architect's analiz todo.md.
 func TestDeveloperTodoSkipsWhenNotRelevant(t *testing.T) {
 	agents := repoCatalogAgents(t)
-	for _, slug := range []string{"backend-developer", "frontend-developer", "mobile-developer"} {
+	for _, slug := range developerSlugs {
 		got := columnInstruction(t, agents, slug, domain.TaskColumnTodo)
 		if !strings.Contains(got, "not relevant to your role, take no action") {
 			t.Errorf("%s/todo: missing the not-relevant-take-no-action rule:\n%s", slug, got)
@@ -229,8 +289,8 @@ func TestDeveloperTodoSkipsWhenNotRelevant(t *testing.T) {
 func TestBoardRunningAgentsCarryTheBookkeepingRule(t *testing.T) {
 	agents := repoCatalogAgents(t)
 	for _, slug := range []string{
-		"backend-developer", "frontend-developer", "mobile-developer",
-		"qa-agent", "system-architect", "release-engineer", "ui-designer",
+		"backend-developer", "frontend-developer", "mobile-developer", "data-scientist", "game-developer",
+		"qa-agent", "system-architect", "release-engineer", "ui-designer", "security-agent",
 	} {
 		agent, ok := agents[slug]
 		if !ok {

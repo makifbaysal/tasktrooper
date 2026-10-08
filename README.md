@@ -64,7 +64,7 @@ carries on from where it stopped instead of starting over.
 
 ### Role agents
 
-Eight role agents ship with a catalog-driven library of skills, rules and tool
+Eleven role agents ship with a catalog-driven library of skills, rules and tool
 policies — the repo's `catalog/` directory is the source of truth and the
 backend syncs it into the database at boot and on an interval. They run on the
 connected agent CLI (Claude Code, Cursor, Antigravity or OpenCode) or on a
@@ -75,9 +75,12 @@ agent is given its own.
 |---|---|
 | `product-manager` | backlog, requirements, PM UAT |
 | `system-architect` | analysis tasks, task breakdown, code review |
+| `security-agent` | a second, security-only code review of every pull request; its rejection sends the task back |
 | `backend-developer` | APIs, databases and tests (Go, Java/Quarkus) |
 | `frontend-developer` | React, Vite and Tailwind UIs |
 | `mobile-developer` | Flutter, SwiftUI, Compose, store releases |
+| `data-scientist` | data pipelines, SQL/dbt analytics, model training and evaluation, notebooks turned into tested modules |
+| `game-developer` | Unity, Godot, Unreal Engine, web (Phaser, PixiJS, three.js, Babylon.js) and Bevy games |
 | `qa-agent` | manual test rounds with real requests and headless-browser screenshots; it cannot pass a task without running something |
 | `ui-designer` | the project's design system and screen designs, approved before they are built |
 | `release-engineer` | merges signed-off work, ships it, verifies production and rolls back what breaks — the only agent that touches Done and Released |

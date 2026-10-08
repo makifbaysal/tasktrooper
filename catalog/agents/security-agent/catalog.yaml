@@ -1,0 +1,116 @@
+name: security-agent
+description: Blocking security reviewer at code_review — judges every diff for exploitable vulnerabilities only, never edits or runs it
+subagent_type: security-reviewer
+effort: high
+max_turns: 0
+self_evolution: false
+enabled: true
+tool_policy:
+    allow_tools:
+        - run_terminal
+        - web_search
+        - fetch_url
+        - codebase_search
+        - grep_code
+        - get_repo_tree
+        - get_symbol_skeleton
+        - expand_symbol_context
+        - read_file
+        - list_board_tasks
+        - move_board_task
+        - add_task_comment
+        - list_task_comments
+        - list_task_documents
+        - list_acceptance_criteria
+        - list_test_cases
+        - list_projects
+        - list_repositories
+        - get_board_summary
+        - list_team
+        - get_pipeline_status
+        - get_task_pull_request
+        - comment_on_pull_request
+        - save_memory
+        - search_memory
+        - delete_memory
+        - load_skill
+        - create_skill
+        - get_project_brief
+        - list_component_checks
+        - list_links
+        - get_environment
+        - list_runtime_errors
+    allow_mcp_servers:
+        - semgrep
+        - osv-scanner
+        - github-security
+        - snyk
+roles:
+    - key: security
+      areas: []
+subscriptions:
+    - code_review
+tech_stacks:
+    - name: Secure review method
+      description: 'Differential, risk-first review of a diff mapped to OWASP Top 10:2025, ASVS 5.0 and CWE; false-positive gate, verdict policy, read-only scanners'
+      position: 1
+    - name: Web & API
+      description: 'Server and browser vulnerability classes: access control, injection, files, SSRF, authentication, secrets and crypto, XSS/CSRF'
+      position: 2
+    - name: Go
+      description: 'Go services: net/http and Fiber handlers, os/exec, filepath and os.Root, crypto/rand, html/template, database/sql'
+      position: 3
+    - name: Java & Kotlin
+      description: 'JVM services on Quarkus and Spring: security config, JPA/JPQL, deserialization, XML parsers, SpEL and template engines'
+      position: 4
+    - name: TypeScript & Node
+      description: 'Node/TypeScript backends and Next.js: child_process, prototype pollution, ORM raw queries, server actions, JWT libraries'
+      position: 5
+    - name: Python & data
+      description: 'Python services, notebooks and ML code: Django/Flask/FastAPI, subprocess, pickle/torch.load/joblib, yaml.load, Jinja2'
+      position: 6
+    - name: Mobile
+      description: 'iOS, Android and Flutter apps against OWASP MASVS: storage, network/ATS, exported components, deep links, WebViews'
+      position: 7
+    - name: Supply chain & CI/IaC
+      description: 'New or changed dependencies, GitHub Actions, Dockerfiles, Terraform and Kubernetes manifests'
+      position: 8
+    - name: LLM & agent systems
+      description: 'Prompt injection with tools, excessive agency, model output to sinks, MCP and agent configs (OWASP LLM 2025, Agentic 2026)'
+      position: 9
+    - name: Game code
+      description: 'C#, GDScript and C++ game code: authoritative server, network message validation, save tampering, mod and script loading'
+      position: 10
+kpis:
+    - metric_key: clean_time_code_review
+      name: Clean review time
+      description: ""
+      period: weekly
+      target_full: 0.5
+      target_half: 2
+      weight: 1
+      enabled: true
+    - metric_key: review_escapes
+      name: Weekly review escapes
+      description: ""
+      period: weekly
+      target_full: 0
+      target_half: 1
+      weight: 2
+      enabled: true
+    - metric_key: gate_rejected_runs
+      name: Gate-rejected runs
+      description: ""
+      period: weekly
+      target_full: 0
+      target_half: 2
+      weight: 1.5
+      enabled: true
+    - metric_key: tool_error_rate
+      name: Tool error rate
+      description: ""
+      period: weekly
+      target_full: 3
+      target_half: 6
+      weight: 0.5
+      enabled: true

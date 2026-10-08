@@ -23,6 +23,9 @@ repository.
 | `backend-developer` | `backend-engineer` | high | Go/Fiber and Java/Quarkus APIs, database migrations, backend tests |
 | `frontend-developer` | `frontend-engineer` | high | React/Vite/Tailwind UI |
 | `mobile-developer` | `mobile-dev-engineer` | high | Flutter, SwiftUI, Jetpack Compose apps; store deploys |
+| `data-scientist` | `data-scientist` | high | Data pipelines, SQL/dbt analytics, model training and evaluation, notebooks turned into tested modules |
+| `game-developer` | `game-developer` | high | Unity, Godot, Unreal Engine, web (Phaser, PixiJS, three.js, Babylon.js) and Bevy games |
+| `security-agent` | `security-reviewer` | high | Security-only review of every pull request in Code Review; blocks the ones that introduce an exploitable vulnerability |
 | `qa-agent` | `generalPurpose` | medium | Manual test rounds against a running build |
 | `ui-designer` | `generalPurpose` | high | The project's design system, screen designs before they are built, design reviews — see [Design systems](design-systems.md) |
 
@@ -51,8 +54,23 @@ automatically instead of bouncing back to whoever implemented the task:
 | Agent | Subscribed columns | Why |
 |---|---|---|
 | `system-architect` | Code Review | Reviews the diff once a developer hands a task there |
+| `security-agent` | Code Review | Reviews the same diff for security only |
 | `qa-agent` | Ready for QA, In QA, Done | Picks the task up, tests it, and — once it is signed off — merges its pull request |
 | `product-manager` | PM UAT | Reviews the finished task against its acceptance criteria |
+
+Code Review is the one column where every subscriber is a **required
+reviewer**: each records its own verdict, and the task leaves only when all of
+them have decided — to Ready for QA when every reviewer approved, to Need
+Revision when any of them asked for changes. The task's detail panel lists each
+reviewer's verdict per review round, pending ones included. Unsubscribe the
+`security-agent` from Code Review (its Columns tab) to go back to a single
+reviewer.
+
+The developer agents are routed by the repository's area: `data` repositories
+(Python data/ML code, dbt projects, notebooks) go to `data-scientist`, `game`
+repositories (Unity, Godot, Unreal, web-engine and Bevy projects) go to
+`game-developer`. With neither agent assigned, both areas fall back to the
+backend developer.
 
 Analysis Review and Human UAT have no subscriber on purpose: those are the
 two columns where a human approves or rejects, not an agent. The

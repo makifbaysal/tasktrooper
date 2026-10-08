@@ -47,6 +47,8 @@ Split into three tasks:
 | Add export button to web board | web | frontend-developer | `derived_from: ["A-12"]`, `blocked_by: ["T-1"]`, `deploy_depends_on: ["T-1"]` | Calls the endpoint, downloads the file; plan slice with component + api client |
 | Add export action to mobile board | mobile | mobile-developer | `derived_from: ["A-12"]`, `blocked_by: ["T-1"]`, `deploy_depends_on: ["T-1"]` | Same endpoint, native share sheet; plan slice with screen + api client |
 
+A data or game slice follows the same rule: a churn model's training pipeline (data-scientist, in the analytics repository) and the endpoint that serves its score (backend-developer, in the API) are two tasks, the second `blocked_by` the first and consuming the model artifact's name and version from it.
+
 The exact endpoint path and CSV column order are defined in the backend task and copied into both consumer tasks' plan slices. All three go to `todo` together with `repository` set on each (`backend-api`, `web`, `mobile`): the two consumers park themselves behind T-1 and are picked up automatically when it lands, and neither can be released ahead of it.
 
 ## Common Mistakes

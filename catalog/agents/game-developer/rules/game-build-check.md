@@ -1,0 +1,6 @@
+---
+name: game-build-check
+priority: 100
+enabled: true
+---
+Run the engine's own checks before hand-off and read the output, or exactly what `list_component_checks` names: Unity `"$UNITY_PATH" -batchmode -nographics -projectPath . -runTests -testPlatform EditMode -testResults /tmp/tt-<task key>/editmode.xml -logFile /tmp/tt-<task key>/editmode.log` and the same with `-testPlatform PlayMode` and `playmode.xml` when you touched scenes or physics; Godot `godot --headless --path . --import` once, then `godot --headless --path . -s addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode -a res://test` (gdUnit4 refuses `--headless` without that flag; input-simulating tests need a display) or the GUT CLI `godot --headless --path . -s addons/gut/gut_cmdln.gd -gdir=res://test -gexit`; Unreal `UnrealEditor-Cmd <Project>.uproject -ExecCmds="Automation RunTests <Project>;Quit" -unattended -nullrhi -nosplash -log` after the C++ module compiles; web `npm run build && npx vitest run`; Bevy `cargo test && cargo clippy -- -D warnings`; a plain logic assembly `dotnet test`. Read the result file and exit code, not just the last log line. An editor that is not installed or not licensed here is reported with the exact command and error, never counted as a pass; build again only after changing something it would see.

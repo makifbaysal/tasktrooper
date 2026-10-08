@@ -66,6 +66,10 @@ export const SUBAGENT_TYPES = [
   "backend-engineer",
   "frontend-engineer",
   "mobile-dev-engineer",
+  "system-architect",
+  "data-scientist",
+  "game-developer",
+  "security-reviewer",
 ] as const;
 
 export type SubagentType = (typeof SUBAGENT_TYPES)[number];
