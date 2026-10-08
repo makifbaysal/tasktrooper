@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { TaskDocument } from "@/api";
 import {
   chosenVariantComment,
-  chosenVariantTitle,
+  chosenVariantTitles,
   designDocumentKind,
   designDocumentLabel,
   designHtmlDocuments,
   designMarkdownDocuments,
+  designVariantGroups,
+  designVariantScreen,
 } from "@/lib/design-system";
 
 function doc(title: string, format: TaskDocument["format"], position = 0): TaskDocument {
@@ -73,8 +75,48 @@ describe("chosen variant", () => {
       { content: "Looks good", created_at: "2026-01-01T12:00:00Z" },
       { content: "Chosen variant: design: export dialog · B", created_at: "2026-01-01T11:00:00Z" },
     ];
-    expect(chosenVariantTitle(comments)).toBe("design: export dialog · B");
-    expect(chosenVariantTitle([{ content: "chosen variant: lower case", created_at: "x" }])).toBeNull();
-    expect(chosenVariantTitle([])).toBeNull();
+    expect(chosenVariantTitles(comments)).toEqual(["design: export dialog · B"]);
+    expect(chosenVariantTitles([{ content: "chosen variant: lower case", created_at: "x" }])).toEqual([]);
+    expect(chosenVariantTitles([])).toEqual([]);
+  });
+
+  it("keeps one choice per screen", () => {
+    const comments = [
+      { content: "Chosen variant: design: Home · B", created_at: "2026-01-01T10:00:00Z" },
+      { content: "Chosen variant: design: Gallery · A", created_at: "2026-01-01T11:00:00Z" },
+      { content: "Chosen variant: design: Gallery · B\n\nKeep A's grid.", created_at: "2026-01-01T12:00:00Z" },
+    ];
+    expect(chosenVariantTitles(comments)).toEqual(["design: Gallery · B", "design: Home · B"]);
+  });
+});
+
+describe("design variant groups", () => {
+  it("reads the screen off a mockup title", () => {
+    expect(designVariantScreen("design: Ana Sayfa · A")).toBe("Ana Sayfa");
+    expect(designVariantScreen("design: Invoices — list · B")).toBe("Invoices — list");
+    expect(designVariantScreen("design: no variant letter")).toBeNull();
+    expect(designVariantScreen("design system: Shop · v2")).toBeNull();
+    expect(designVariantScreen("handoff: Home · A")).toBeNull();
+  });
+
+  // The bug this guards: seven pages drawn once each were offered as seven
+  // "variants" to choose between.
+  it("offers nothing when every screen has a single variant", () => {
+    const docs = ["Ana Sayfa", "Galeri", "Hakkımda", "İletişim"].map((screen) => doc(`design: ${screen} · A`, "html"));
+    expect(designVariantGroups(docs)).toEqual([]);
+  });
+
+  it("offers only the screens that have alternatives, each with its variants in order", () => {
+    const docs = [
+      doc("design: Galeri · B", "html"),
+      doc("design: Ana Sayfa · A", "html"),
+      doc("design: Galeri · A", "html"),
+      doc("design: Hakkımda · A", "html"),
+      doc("design review: Galeri", "html"),
+      doc("handoff: Galeri", "markdown"),
+    ];
+    const groups = designVariantGroups(docs);
+    expect(groups.map((group) => group.screen)).toEqual(["Galeri"]);
+    expect(groups[0]!.documents.map((d) => d.title)).toEqual(["design: Galeri · A", "design: Galeri · B"]);
   });
 });

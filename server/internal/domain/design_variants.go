@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"sort"
 	"strings"
 )
 
@@ -13,13 +14,17 @@ const (
 	variantSeparator = " · "
 )
 
-// ChosenVariant is the document title the human chose last, read from the
-// design task's comments; "" when nobody chose. Only the marker's own line
-// names the document: the review page puts the human's note on the choice on
-// the lines after it.
-func ChosenVariant(comments []TaskComment) string {
-	var chosen string
-	var at int64
+// ChosenVariants is the document title the human chose last for each screen,
+// read from the design task's comments, in title order; empty when nobody
+// chose. A choice is per screen — picking the gallery's variant does not undo
+// the home page's. Only the marker's own line names the document: the review
+// page puts the human's note on the choice on the lines after it.
+func ChosenVariants(comments []TaskComment) []string {
+	type choice struct {
+		title string
+		at    int64
+	}
+	latest := map[string]choice{}
 	for _, c := range comments {
 		if c.AuthorType != "human" && c.AuthorType != "user" {
 			continue
@@ -33,11 +38,21 @@ func ChosenVariant(comments []TaskComment) string {
 		if title == "" {
 			continue
 		}
-		if ts := c.CreatedAt.UnixNano(); chosen == "" || ts >= at {
-			chosen, at = title, ts
+		key := title
+		if screen, ok := designScreen(title); ok {
+			key = screen
+		}
+		ts := c.CreatedAt.UnixNano()
+		if prev, ok := latest[key]; !ok || ts >= prev.at {
+			latest[key] = choice{title: title, at: ts}
 		}
 	}
-	return chosen
+	out := make([]string, 0, len(latest))
+	for _, c := range latest {
+		out = append(out, c.title)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // designScreen splits a mockup title "design: <screen> · <variant>" into its
@@ -54,28 +69,31 @@ func designScreen(title string) (string, bool) {
 	return strings.TrimSpace(t[len(designDocPrefix):i]), true
 }
 
-// WithoutUnchosenVariants drops the chosen screen's other variants, so what
-// is built from an approved design is the variant the human picked. Other
-// screens' mockups, hand-off specs and reports stay.
-func WithoutUnchosenVariants(docs []TaskDocument, chosen string) []TaskDocument {
-	screen, ok := designScreen(chosen)
-	if !ok {
-		return docs
-	}
-	present := false
+// WithoutUnchosenVariants drops each chosen screen's other variants, so what
+// is built from an approved design is the variant the human picked for every
+// screen they chose on. Unchosen screens' mockups, hand-off specs and reports
+// stay; a choice naming no document filters nothing.
+func WithoutUnchosenVariants(docs []TaskDocument, chosen []string) []TaskDocument {
+	titles := make(map[string]bool, len(docs))
 	for _, d := range docs {
-		if strings.TrimSpace(d.Title) == chosen {
-			present = true
-			break
+		titles[strings.TrimSpace(d.Title)] = true
+	}
+	keep := map[string]string{}
+	for _, title := range chosen {
+		screen, ok := designScreen(title)
+		if ok && titles[title] {
+			keep[screen] = title
 		}
 	}
-	if !present {
+	if len(keep) == 0 {
 		return docs
 	}
 	out := make([]TaskDocument, 0, len(docs))
 	for _, d := range docs {
-		if s, ok := designScreen(d.Title); ok && s == screen && strings.TrimSpace(d.Title) != chosen {
-			continue
+		if s, ok := designScreen(d.Title); ok {
+			if want, chosenScreen := keep[s]; chosenScreen && strings.TrimSpace(d.Title) != want {
+				continue
+			}
 		}
 		out = append(out, d)
 	}

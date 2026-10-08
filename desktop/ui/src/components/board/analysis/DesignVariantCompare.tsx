@@ -32,7 +32,7 @@ export interface DesignVariantCompareHandle {
 }
 
 interface DesignVariantCompareProps {
-  /** The design task's HTML documents, in the order the selects list them; at least two. */
+  /** The variants of every screen that has more than one, in the order the selects list them; at least two. */
   documents: TaskDocument[];
   leftId: string;
   rightId: string;
@@ -41,8 +41,8 @@ interface DesignVariantCompareProps {
   /** Every annotation of the task; each pane draws its own document's. */
   annotations: TaskAnnotation[];
   activeId: string | null;
-  /** The title the newest `Chosen variant: ` comment names. */
-  chosenTitle: string | null;
+  /** The titles the newest `Chosen variant: ` comments name, one per screen. */
+  chosenTitles: string[];
   /** Opens the choice for this document; the page owns the dialog. */
   onChoose: (doc: TaskDocument) => void;
   onSelection: (documentId: string, selection: FrameSelection) => void;
@@ -69,7 +69,7 @@ export const DesignVariantCompare = forwardRef<DesignVariantCompareHandle, Desig
       onRightChange,
       annotations,
       activeId,
-      chosenTitle,
+      chosenTitles,
       onChoose,
       onSelection,
       onFocusAnnotation,
@@ -138,14 +138,14 @@ export const DesignVariantCompare = forwardRef<DesignVariantCompareHandle, Desig
         documents={documents}
         doc={doc}
         onSelect={onChange}
-        chosenTitle={chosenTitle}
+        chosenTitles={chosenTitles}
         onChoose={onChoose}
       >
         <AnalysisFrame
           ref={frames[side]}
           className={cn(
             "min-h-0 flex-1 overflow-hidden rounded-lg border",
-            isChosen(doc, chosenTitle) ? "border-success" : "border-border",
+            isChosen(doc, chosenTitles) ? "border-success" : "border-border",
           )}
           document={doc}
           annotations={frameAnnotations(annotations, doc.id)}
@@ -187,8 +187,8 @@ export const DesignVariantCompare = forwardRef<DesignVariantCompareHandle, Desig
   },
 );
 
-function isChosen(doc: TaskDocument, chosenTitle: string | null): boolean {
-  return chosenTitle !== null && doc.title.trim() === chosenTitle;
+function isChosen(doc: TaskDocument, chosenTitles: string[]): boolean {
+  return chosenTitles.includes(doc.title.trim());
 }
 
 function frameAnnotations(annotations: TaskAnnotation[], documentId: string): FrameAnnotation[] {
@@ -202,7 +202,7 @@ function VariantPane({
   documents,
   doc,
   onSelect,
-  chosenTitle,
+  chosenTitles,
   onChoose,
   children,
 }: {
@@ -210,20 +210,20 @@ function VariantPane({
   documents: TaskDocument[];
   doc: TaskDocument;
   onSelect: (id: string) => void;
-  chosenTitle: string | null;
+  chosenTitles: string[];
   onChoose: (doc: TaskDocument) => void;
   children: ReactNode;
 }) {
   const { t } = useI18n();
-  const chosen = isChosen(doc, chosenTitle);
+  const chosen = isChosen(doc, chosenTitles);
   const chosenLabel = t("analysisReview.design.compare.chosen");
   const options = useMemo(
     () =>
       documents.map((item) => ({
         id: item.id,
-        label: isChosen(item, chosenTitle) ? `${designDocumentLabel(item)} · ${chosenLabel}` : designDocumentLabel(item),
+        label: isChosen(item, chosenTitles) ? `${designDocumentLabel(item)} · ${chosenLabel}` : designDocumentLabel(item),
       })),
-    [documents, chosenTitle, chosenLabel],
+    [documents, chosenTitles, chosenLabel],
   );
 
   return (

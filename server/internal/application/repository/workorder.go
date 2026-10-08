@@ -281,5 +281,5 @@ func (s *Service) chosenDesignDocs(ctx context.Context, designTaskID uuid.UUID, 
 	if err != nil {
 		return docs
 	}
-	return domain.WithoutUnchosenVariants(docs, domain.ChosenVariant(comments))
+	return domain.WithoutUnchosenVariants(docs, domain.ChosenVariants(comments))
 }

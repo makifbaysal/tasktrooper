@@ -460,6 +460,52 @@ describe("AnalysisReviewPage", () => {
     expect(listTaskComments).not.toHaveBeenCalled();
   });
 
+  // Seven pages drawn once each used to be offered as seven variants to pick
+  // between, and approving asked for a choice that did not exist.
+  it("offers no variant choice when every screen is drawn once", async () => {
+    listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design", key: "D-13" })] });
+    listTaskDocuments.mockResolvedValue({
+      documents: ["Ana Sayfa", "Galeri", "Hakkımda"].map((screen, i) =>
+        makeDoc({ id: `doc-${i}`, title: `design: ${screen} · A`, content: `<p>${screen}</p>` }),
+      ),
+    });
+    listTaskAnnotations.mockResolvedValue({ annotations: [] });
+    renderPage();
+
+    await srcdoc();
+    expect(screen.queryByRole("button", { name: "Choose variant" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Compare variants" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No variant chosen yet")).not.toBeInTheDocument();
+  });
+
+  it("offers only the screens that have alternatives, grouped by screen", async () => {
+    listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design", key: "D-14" })] });
+    listTaskDocuments.mockResolvedValue({
+      documents: [
+        makeDoc({ id: "home-a", title: "design: Ana Sayfa · A", content: "<p>Home A</p>" }),
+        makeDoc({ id: "home-b", title: "design: Ana Sayfa · B", content: "<p>Home B</p>" }),
+        makeDoc({ id: "gallery-a", title: "design: Galeri · A", content: "<p>Gallery A</p>" }),
+        makeDoc({ id: "gallery-b", title: "design: Galeri · B", content: "<p>Gallery B</p>" }),
+        makeDoc({ id: "about-a", title: "design: Hakkımda · A", content: "<p>About</p>" }),
+      ],
+    });
+    listTaskAnnotations.mockResolvedValue({ annotations: [] });
+    listTaskComments.mockResolvedValue({ comments: [] });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Choose variant" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByRole("radio").map((radio) => radio.textContent)).toEqual([
+      "Ana Sayfa · A",
+      "Ana Sayfa · B",
+      "Galeri · A",
+      "Galeri · B",
+    ]);
+    expect(within(dialog).getByRole("group", { name: "Ana Sayfa" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "Galeri" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("radio", { name: "Hakkımda · A" })).not.toBeInTheDocument();
+  });
+
   it("uses design wording while the agent revises a design", async () => {
     listRepositoryTasks.mockResolvedValue({ tasks: [makeTask({ task_type: "design", column: "need_revision" })] });
     renderPage();

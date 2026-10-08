@@ -71,7 +71,7 @@ Bulk actions, CSV export, the invoice detail page.
 
 ## Rules
 
-- **Chosen variant only.** The chosen variant is the latest human comment `Chosen variant: <document title>`, else the answered variant question, else its recommended answer. The header names its document by exact title and how it was chosen, and lists the other variant documents as not chosen — they reach the developer's run too, and this line is what tells them apart. Beyond that line the others do not appear, not even as "alternative".
+- **Chosen variant only.** Each screen's chosen variant is the latest human comment `Chosen variant: <document title>` naming one of its documents, else the answered variant question, else its recommended answer. The header names its document by exact title and how it was chosen, and lists the other variant documents as not chosen — they reach the developer's run too, and this line is what tells them apart. Beyond that line the others do not appear, not even as "alternative".
 - **Name, don't measure.** Tokens by role (`muted-foreground`, `space.4`), never a hex or a pixel the design system does not hold.
 - **Every element maps to the inventory** — the existing component, its variant and props — or is marked NEW with its level, props and states. NEW is the exception, and it is the developer's job to add it to `INVENTORY.md`.
 - **Every state the mockup drew**, in words, with its exact copy.

@@ -88,15 +88,61 @@ export function chosenVariantComment(documentTitle: string): string {
   return `${CHOSEN_VARIANT_PREFIX}${documentTitle.trim()}`;
 }
 
-/** The document title the newest `Chosen variant: ` comment names, or null. */
-export function chosenVariantTitle(comments: Pick<TaskComment, "content" | "created_at">[]): string | null {
-  let latest: { title: string; at: string } | null = null;
+const VARIANT_SEPARATOR = " · ";
+
+/**
+ * The screen a mockup title draws — "design: Home · B" → "Home" — or null for a
+ * title that is not `design: <screen> · <variant>`. Mirrors the server's
+ * `designScreen`, which decides what an approved design hands on.
+ */
+export function designVariantScreen(title: string): string | null {
+  const trimmed = title.trim();
+  if (!/^design\s*:/i.test(trimmed) || /^design\s+(system|review)\s*:/i.test(trimmed)) return null;
+  const label = designDocumentLabel({ title: trimmed });
+  const at = label.lastIndexOf(VARIANT_SEPARATOR);
+  if (at <= 0) return null;
+  return label.slice(0, at).trim();
+}
+
+export interface DesignVariantGroup {
+  screen: string;
+  /** Two or more, variant A first. */
+  documents: TaskDocument[];
+}
+
+/**
+ * The screens that have more than one variant — the only choices there are.
+ * A screen drawn once (`· A` alone) has nothing to choose between, however
+ * many screens the task has.
+ */
+export function designVariantGroups(documents: TaskDocument[]): DesignVariantGroup[] {
+  const byScreen = new Map<string, TaskDocument[]>();
+  for (const doc of designHtmlDocuments(documents)) {
+    if (designDocumentKind(doc) !== "mockup") continue;
+    const screen = designVariantScreen(doc.title);
+    if (screen === null) continue;
+    byScreen.set(screen, [...(byScreen.get(screen) ?? []), doc]);
+  }
+  return [...byScreen.entries()]
+    .filter(([, docs]) => docs.length > 1)
+    .map(([screen, docs]) => ({ screen, documents: docs }));
+}
+
+/**
+ * The document title the newest `Chosen variant: ` comment names for each
+ * screen. A choice is per screen: choosing the gallery's variant does not undo
+ * the home page's.
+ */
+export function chosenVariantTitles(comments: Pick<TaskComment, "content" | "created_at">[]): string[] {
+  const latest = new Map<string, { title: string; at: string }>();
   for (const comment of comments) {
     const content = comment.content.trim();
     if (!content.startsWith(CHOSEN_VARIANT_PREFIX)) continue;
     const title = content.slice(CHOSEN_VARIANT_PREFIX.length).split("\n")[0].trim();
     if (!title) continue;
-    if (!latest || comment.created_at >= latest.at) latest = { title, at: comment.created_at };
+    const key = designVariantScreen(title) ?? title;
+    const prev = latest.get(key);
+    if (!prev || comment.created_at >= prev.at) latest.set(key, { title, at: comment.created_at });
   }
-  return latest?.title ?? null;
+  return [...latest.values()].map((choice) => choice.title).sort();
 }

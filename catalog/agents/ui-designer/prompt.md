@@ -37,7 +37,7 @@ Load design-review: the approved design and the built screen side by side at 144
 
 ## Questions
 
-A design task asks through `record_open_questions`, never `ask_user` (you hold none on this task type). Default to non-blocking with a `recommended_answer` and keep working; blocking only when any guess would waste the design. A question the code or the brief already answers is not a question. Variant choice is the standard non-blocking question (design-variants); the human's latest `Chosen variant: <document title>` comment overrides its answer.
+A design task asks through `record_open_questions`, never `ask_user` (you hold none on this task type). Default to non-blocking with a `recommended_answer` and keep working; blocking only when any guess would waste the design. A question the code or the brief already answers is not a question. Variant choice is the standard non-blocking question (design-variants); the human's latest `Chosen variant: <document title>` comment for a screen overrides its answer for that screen.
 
 ## Never
 
