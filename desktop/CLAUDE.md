@@ -1,24 +1,59 @@
 # desktop/ — working notes
 
-The Electron desktop app (macOS, Windows, Linux). It runs the whole product on this machine: the Go
-backend from `../server`, an embedded Postgres the backend starts, the bundled
-embedding engine, and Claude Code. Single user, single machine, no cloud, no
-sign-in.
+The Electron desktop app (macOS, Windows, Linux), in one of two modes chosen at
+runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
+
+- **Local** (the default): it runs the whole product on this machine — the Go
+  backend from `../server`, an embedded Postgres the backend starts, the
+  bundled embedding engine, and Claude Code. Single user, no cloud, no sign-in.
+- **Account**: the local backend, its Postgres and the embedder are stopped;
+  the window shows the account's web app from its origin
+  (`https://app.tasktrooper.ai` by default) in a partition of its own, and the
+  runner (`runner/`) plus the executor it starts are what run here. Sign-in
+  happens on that web page with its cookie; this process holds no session.
 
 ## Invariants
 
-- **The window waits for the backend.** `Shell.create()` makes the chrome only.
-  The `WebContentsView` that renders the SPA is attached by `Shell.serve()`,
-  called from `main/index.ts` when the supervisor emits `server`. The page reads
-  `apiBase`/`apiToken` synchronously in its preload, so a view attached earlier
-  is a page pointed at nothing, permanently.
+- **In local mode the window waits for the backend.** `Shell.create()` makes the
+  chrome only. The `WebContentsView` that renders the SPA is attached by
+  `Shell.serve()`, called from `main/index.ts` when the supervisor emits
+  `server`. The page reads `apiBase`/`apiToken` synchronously in its preload,
+  so a view attached earlier is a page pointed at nothing, permanently. In
+  account mode there is nothing local to wait for: `serve("/home")` runs at
+  launch, `serve("/login")` on sign-in.
+- **A mode switch replaces the view, it never navigates it.** `Shell.retire()`
+  closes the old page first; the next `serve()` builds a view in the new
+  mode's partition (`persist:account:<origin>`, or the default session for
+  local) on the new mode's origin. Entering account mode: notifications and
+  the local backend stop (`supervisor.drain()`, the embedder with it), the
+  mode is persisted, `${origin}/login` loads. Leaving it: the account's view
+  goes first, then the runner and executor stop and the pairing is forgotten,
+  the mode is persisted, the partition is cleared, the embedder and the
+  backend start, and `app://tasktrooper` loads on `server`. Local data is never
+  touched. The order is `mode.test.ts`'s to assert. When the account's page
+  cannot load there is no page to sign out from, so the chrome's failure
+  screen offers "Use TaskTrooper without an account"
+  (`shell:account:use-local`, guarded on the chrome as the sender).
+- **One trusted origin at a time.** The sender guard (`sender-guard.ts`) and the
+  navigation policy (`window.ts`) trust `app://tasktrooper` in local mode and
+  the account's origin in account mode, never both. Off-origin navigation goes
+  to the real browser; popups are denied. https only — plain http to loopback
+  for the account origin only when not packaged (`TASKTROOPER_ACCOUNT_ORIGIN`
+  is the dev override).
+- **The account's page gets no local secret.** In account mode `apiBase` and
+  `apiToken` answer "", `overridesSet` is refused (an override names a program
+  the runner execs), and a pairing bundle is refused unless its `tm_base_url`
+  is the account's origin (`ModeController.checkPairing`).
 - **`PORT=0`, so the base URL is not stable.** The backend prints
   `LISTENING http://127.0.0.1:<port>`; a restart binds a different port. The
   `server` event carries the new one and `index.ts` reloads the view. Do not
   cache a base anywhere else.
-- **A Disconnect stops the backend only; the embedder only on quit.** The
-  embedder survives a Disconnect so a restart does not pay for a model reload.
-  `drain()` is the only thing that stops it.
+- **A Disconnect stops the backend only; the embedder only on quit or on
+  entering account mode.** The embedder survives a Disconnect so a restart does
+  not pay for a model reload. `drain()` is the only thing that stops it.
+  Account mode runs none until local indexing (Faz 3):
+  `ACCOUNT_MODE_RUNS_EMBEDDER` in `account/mode.ts` and `embeddingsBaseURL` in
+  `runner/env.ts` are the seam.
 - **This app runs no Appium hub.** When Appium is installed the backend gets
   `APPIUM_BIN` + `MOBILE_APPIUM_HUB_URL` and starts the hub itself when a
   mobile tool needs it, stops it after 10 idle minutes and on its own shutdown
@@ -29,8 +64,16 @@ sign-in.
   provider credentials — they are encrypted with it.
 - **`src/shared/` may not import Electron or Node.** Enforced by eslint.
 - **No secret crosses the bridge except `apiToken`**, and that is the bearer for
-  a loopback server this process started. There is no session, no OAuth and no
-  credential-returning channel; do not add one.
+  a loopback server this process started — local mode only. Account mode's
+  session lives in the web page's own cookie on its own origin; this process
+  holds none, and no channel returns a credential: the pairing bundle goes in
+  (`runner.pair`) and comes back without its token (`runner.pairing`). Do not
+  add one.
+- **Secrets for the runner go on its stdin, nowhere else.** The pairing token
+  (`pairing.bin`) and the member's provider keys (`providers.bin`), both
+  `safeStorage`-encrypted at 0600, are written into the runner's one-line
+  config (`runner/env.ts`), which hands the keys to the executor on ITS stdin.
+  Never argv, never an environment block, never the bridge, never the cloud.
 
 ## Where things are
 
@@ -45,6 +88,12 @@ sign-in.
 | One shared sweep at a time; login PATH + `--version` cache in `preflight-cache.json` | `src/main/services/preflight-sweep.ts`, `preflight-cache.ts` |
 | `app://tasktrooper`, `webRoot()` | `src/main/services/app-scheme.ts` |
 | Generated secrets in `local.bin` | `src/main/config/secrets.ts` |
+| Local ↔ account switch, pairing origin check | `src/main/account/mode.ts` |
+| Account origin rules, default, partition name | `src/main/account/origin.ts` |
+| Who may call the cloud bridge | `src/main/sender-guard.ts` |
+| Account mode's supervisor, the runner child, its stdin config, its log | `src/main/runner/` |
+| Runner pairing (`pairing.bin`), provider keys (`providers.bin`) | `src/main/config/pairing.ts`, `providers.ts` |
+| The Go runner and its executor supervision | `runner/` (its own `CLAUDE.md`) |
 | Channels, host contract, validators | `src/ipc/` |
 | Wiring, boot order, sender guards | `src/main/index.ts` |
 
@@ -55,16 +104,25 @@ are separate declarations and must be changed together.
 
 ```ts
 window.__tasktrooperDesktop = {
-  info(), apiBase?, apiToken?, runner: { snapshot, subscribe, connect, ... },
+  info(), apiBase?, apiToken?, bridgeVersion: 1, mode: "local" | "account",
+  account: { signIn(origin?), signOut(), state() },
+  runner: { snapshot, subscribe, connect, ..., pair, unpair, pairing, restart },
   updates: { status, subscribe, check, restart }
 }
 ```
 
-`ChildId` is `"embedder" | "agent-server"`. `HostRunnerSnapshot` has
-no tunnel field. `PreflightId` is the fourteen ids in `src/ipc/types.ts`; the
-SPA's own union must match exactly.
+`ChildId` is `"embedder" | "agent-server" | "runner"` (`CHILD_IDS` keeps the
+local two). `HostRunnerSnapshot.tunnel` is set in account mode only.
+`PreflightId` is the sixteen ids in `src/ipc/types.ts` (`runner` and
+`executor` are account mode's); the SPA's own union must match exactly.
+`account.state()` answers `{mode, origin, switching, paired, error?}`, a
+superset of the page half's `{mode, origin?}`.
 
 ## Boot order (`whenReady`)
+
+Local mode as below. In account mode step 2 also calls `shellWindow.serve("/home")`,
+step 5 skips the embedder, step 7 is `runnerSupervisor.detect()` and step 8
+starts the runner when this computer is paired and `autoConnect` is on.
 
 1. `serveAppScheme()` — before any window, or the first load is a blank frame.
 2. `registerIpc`, then `shellWindow.create()` — the chrome and its starting
@@ -88,8 +146,13 @@ SPA's own union must match exactly.
   exclude all Go files", which reads like a toolchain problem and is not one.
   Cross-compiling darwin/amd64 from arm64 still works — clang takes `-arch`
   from Go.
-- The window loads `app://tasktrooper` from `ui/dist`, never a Vite dev server:
-  the bridge's sender checks are written against that origin.
+- In local mode the window loads `app://tasktrooper` from `ui/dist`, never a
+  Vite dev server: the bridge's sender checks are written against that origin.
+  In account mode it loads the account's origin; point a dev build at a local
+  control plane with `TASKTROOPER_ACCOUNT_ORIGIN=http://127.0.0.1:<port>`.
+- `build:runner` is pure Go (`CGO_ENABLED=0`); `build:executor` builds
+  `../server/cmd/executor` with cgo, like `build:server`. `npm run package`
+  builds and signs all three.
 - Everything under `bin/`, `dist/`, `ui/dist/` is build output. `ui/` has its
   own package and its own lint config; this package's eslint ignores it.
 - `webRoot()`'s packaged path (`Resources/web`) must agree with
