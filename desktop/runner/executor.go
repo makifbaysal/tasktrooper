@@ -87,6 +87,9 @@ type providerConfig struct {
 	BaseURL string   `json:"base_url,omitempty"`
 	APIKey  string   `json:"api_key,omitempty"`
 	Models  []string `json:"models,omitempty"`
+	// TimeoutSeconds is the executor's per-provider request timeout; 0 keeps
+	// its default.
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 }
 
 // executorConfig is the one JSON line the executor reads on stdin. stdin then
@@ -135,6 +138,9 @@ func checkProviders(in []providerConfig) ([]providerConfig, error) {
 			if err := checkProviderBaseURL(p.BaseURL); err != nil {
 				return nil, fmt.Errorf("%s.base_url: %w", where, err)
 			}
+		}
+		if p.TimeoutSeconds < 0 || p.TimeoutSeconds > 3600 {
+			return nil, fmt.Errorf("%s.timeout_seconds %d is out of range 0..3600", where, p.TimeoutSeconds)
 		}
 		for j, m := range p.Models {
 			if m == "" || len(m) > 256 || providerControl.MatchString(m) {
@@ -602,12 +608,26 @@ func randomHex(n int) (string, error) {
 // --- the two forwarded methods ----------------------------------------------
 
 // agentRunHead is what this side reads out of an agent.run body before
-// forwarding it unchanged: the id POST /cancel names, and the two values a
-// containment and a token grammar can refuse before the executor sees them.
+// forwarding it unchanged: the ids, and the two values a containment and a
+// token grammar can refuse before the executor sees them.
+//
+// `id` is the caller's call id, the one every frame of the stream carries and
+// POST /cancel names — the same as claude.run's. The executor echoes it on
+// its frames, and falls back to `run_id` when the caller sent none; this side
+// registers the same one, so a cancel by either name finds the run.
 type agentRunHead struct {
+	ID        string     `json:"id"`
 	RunID     string     `json:"run_id"`
 	Workspace string     `json:"workspace"`
 	MCP       *mcpParams `json:"mcp"`
+}
+
+// callID is the id the stream's frames carry.
+func (h agentRunHead) callID() string {
+	if h.ID != "" {
+		return h.ID
+	}
+	return h.RunID
 }
 
 func (s *runnerServer) executorRedactor(mcpToken string) func([]byte) []byte {
@@ -618,9 +638,11 @@ func (s *runnerServer) executorRedactor(mcpToken string) func([]byte) []byte {
 
 // handleAgentRun forwards POST /agent.run to the executor's /exec/agent.run
 // and streams its NDJSON back line by line, flushed as each arrives. The
-// bytes are the executor's; the only change is the scrubbing of keys this
-// side holds, and a `done` this side adds when the executor's stream ended
-// without one — the caller is promised exactly one.
+// frames are the executor's, in claude.run's envelope (`started`, `event`
+// with a `payload`, one `done`), so the cloud reads them with the parser it
+// already has. The only change is the scrubbing of keys this side holds, and
+// a `done` this side adds when the executor's stream ended without one — the
+// caller is promised exactly one.
 func (s *runnerServer) handleAgentRun(w http.ResponseWriter, r *http.Request) {
 	body, readErr := readBody(r)
 	if readErr != nil {
@@ -641,6 +663,10 @@ func (s *runnerServer) handleAgentRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, failure(codeBadRequest, "run_id %q is not a run id this runner will register", head.RunID))
 		return
 	}
+	if head.ID != "" && !agentRunID.MatchString(head.ID) {
+		writeError(w, failure(codeBadRequest, "id %q is not a call id this runner will register", head.ID))
+		return
+	}
 	if head.Workspace != "" {
 		if _, err := resolveInWorkspace(s.cfg.workspaceDir, head.Workspace); err != nil {
 			writeError(w, failure(codeBadRequest, "workspace: %v", err))
@@ -655,11 +681,12 @@ func (s *runnerServer) handleAgentRun(w http.ResponseWriter, r *http.Request) {
 
 	runCtx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	if !s.register(head.RunID, cancel) {
-		writeError(w, failure(codeBadRequest, "a call with id %q is already running on this machine", head.RunID))
+	callID := head.callID()
+	if !s.register(callID, cancel) {
+		writeError(w, failure(codeBadRequest, "a call with id %q is already running on this machine", callID))
 		return
 	}
-	defer s.unregister(head.RunID)
+	defer s.unregister(callID)
 	if !s.enterRun() {
 		writeError(w, failure(codeCancelled, "this machine's tunnel session is shutting down and is not taking new runs"))
 		return
@@ -731,7 +758,7 @@ func (s *runnerServer) handleAgentRun(w http.ResponseWriter, r *http.Request) {
 	if runCtx.Err() != nil {
 		code, message = codeCancelled, "the run was cancelled"
 	}
-	closing, _ := json.Marshal(map[string]any{"type": "done", "ok": false, "error": rpcError{Code: code, Message: message}})
+	closing, _ := json.Marshal(doneEvent{V: protocolVersion, ID: callID, Event: "done", OK: false, Error: &rpcError{Code: code, Message: message}})
 	if _, err := w.Write(append(closing, '\n')); err == nil {
 		flusher.Flush()
 	}
@@ -857,11 +884,13 @@ func relayNDJSON(w io.Writer, flush func(), body io.Reader, redact func([]byte) 
 	}
 }
 
+// isDoneLine reads a frame of the runner's own streamed envelope, which the
+// executor speaks: `{"v":1,"id":…,"event":"done",…}`.
 func isDoneLine(line []byte) bool {
 	var frame struct {
-		Type string `json:"type"`
+		Event string `json:"event"`
 	}
-	return json.Unmarshal(bytes.TrimSpace(line), &frame) == nil && frame.Type == "done"
+	return json.Unmarshal(bytes.TrimSpace(line), &frame) == nil && frame.Event == "done"
 }
 
 // cancelRun tells the executor a forwarded run's caller is gone. The closed

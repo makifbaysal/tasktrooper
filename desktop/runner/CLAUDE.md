@@ -188,12 +188,13 @@ POST /cancel              → 200 application/json
 | `POST /mobile.release` | `workspace`, `platform`, `channel`, `script`, `script_sha256` (REQUIRED), optional `secrets`, `build_number`, `rollout`, `skip_upload`, `timeout_ms` | NDJSON, same shape as claude.run's; the signing material in `secrets` is redacted out of every line of it — see mobile_release.go |
 | `POST /models.list` | `flavor` (`cursor` or `opencode` — not `antigravity`, which this runner does not drive; `claude_code`'s list is a cloud-side constant and never reaches this Mac) | `{v, flavor, output}` — the CLI's own raw stdout, unparsed |
 | `GET /preflight.report` | — | the desktop app's environment report, verbatim |
-| `POST /agent.run` | the executor contract's body: `run_id` (REQUIRED — the id `POST /cancel` names), `kind`, `agent`, `prompt` or `messages`, `workspace` (relative), `mcp`, `timeout_ms` | the executor's NDJSON unchanged (`{"type":"started"}`, `{"type":"event",…}`, one `{"type":"done",…}`), scrubbed of the keys this runner holds; 409 `not_ready` with no executor |
+| `POST /agent.run` | the executor contract's body (`server/.ai/executor.md`): optional `id` (the call id, as claude.run's), `run_id` (REQUIRED), `kind`, `agent`, `prompt` or `messages`, `workspace` (relative, must exist), `mcp`, `timeout_ms` | the executor's NDJSON unchanged, in claude.run's envelope (`{"v":1,"id":…,"event":"started"}`, `"event":"event"` with a `payload`, one `"event":"done"`), scrubbed of the keys this runner holds; 409 `not_ready` with no executor |
 | `POST /llm.complete` | `{provider_id, model, system, messages, max_tokens}` | the executor's status and body, verbatim but scrubbed |
 | `POST /cancel` | `{"id": "…"}` | `{"v":1,"id":"…","cancelled":true|false}` |
 
 `POST /cancel` names a streamed call: `claude.run`, `opencode.run`,
-`cursor.run`, `mobile.release`, or an `agent.run` by its `run_id`. Every other
+`cursor.run`, `mobile.release`, or an `agent.run` by its `id` (its `run_id`
+when it was sent none). Every other
 method is cancelled by the caller closing the connection, which `http.Server`
 turns into a cancelled request context — the same trigger, without an id to
 register. `mobile.boot` is the long one and is the reason this is worth stating:
@@ -789,8 +790,9 @@ for a checkout that was never made is a lie with the right shape.
 
 ### `agent.run` and `llm.complete` — the local executor
 
-The executor is agent-server's headless mode (`server/cmd/executor`, built by
-`npm run build:executor` into `bin/executor`): an agent loop with the member's
+The executor is agent-server's headless mode (`server/cmd/executor`, contract
+in `server/.ai/executor.md`, built by `npm run build:executor` into
+`bin/executor`): an agent loop with the member's
 own API keys, local tools in the workspace, coordination tools from the cloud's
 MCP. This runner starts it, keeps it running and forwards to it; it never runs
 an agent itself.
@@ -811,15 +813,22 @@ an agent itself.
   `not_ready` with the last failure in the message.
 - **Stopped beside the drain**, like the Appium hub: stdin closed, 15 s, then
   the process group killed. That fits inside the supervisor's grace.
-- **Forwarding is byte-for-byte except for two things.** Every line is scrubbed
-  of the providers' keys and the run's MCP token (and, per `policy`, this
-  process's credential environment). And when the executor's stream ends
-  without a `done`, this side writes one — `upstream`, or `cancelled` when the
-  caller cancelled — because the caller is promised exactly one.
+- **Forwarding is byte-for-byte except for two things.** The executor speaks
+  claude.run's envelope — `{"v":1,"id":…,"event":"started"}`, `"event":"event"`
+  frames with a `payload`, one `"event":"done"` — echoing the request's `id`
+  (or `run_id`), so the cloud's existing stream reader takes it unchanged.
+  Every line is scrubbed of the providers' keys and the run's MCP token (and,
+  per `policy`, this process's credential environment). And when the
+  executor's stream ends without a `done`, this side writes one in the same
+  envelope — `upstream`, or `cancelled` when the caller cancelled — because
+  the caller is promised exactly one.
 - **Refused before it is forwarded:** a missing or malformed `run_id`, a
   `workspace` outside the workspace root, an `mcp` that fails `checkMCP`.
-- **Cancellation** is the same two triggers as `claude.run`, and the executor
-  is also told by name (`POST /exec/cancel {run_id}`, best effort, 3 s).
+- **Cancellation** is the same two triggers as `claude.run` (`POST /cancel`
+  names the `id`), and the executor is also told by name
+  (`POST /exec/cancel {run_id}`, best effort, 3 s).
+- **The executor has no concurrency cap of its own**, so `agent.run` takes a
+  slot of the session semaphore like every CLI run.
 - `agent.run` shares the session semaphore and the drain accounting with the
   CLI runs; `llm.complete` shares the drain accounting.
 
@@ -1123,10 +1132,12 @@ on purpose: this runner has no Antigravity flavor.
   it does not implement.
 
 - **`executor_bin` is optional and `executor_data_dir` comes with it.** Absent,
-  `agent.run` and `llm.complete` answer `not_ready`. `providers` is validated
-  here (ids and types are identifiers, a key has no control characters, a
+  `agent.run` and `llm.complete` answer `not_ready`. `providers`
+  (`{id, type, base_url, api_key, models, timeout_seconds}`) is validated here
+  (ids and types are identifiers, a key has no control characters, a
   `base_url` is https or loopback http because the key travels to it, no
-  duplicate ids, at most 64) and is never logged.
+  duplicate ids, at most 64) and is never logged; which types exist is the
+  executor's to say.
 - **`policy` is optional and every field in it is.** See `policy.go`: absent is
   strict, and a malformed provider name or an unknown field is a startup error.
 

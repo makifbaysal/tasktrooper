@@ -111,10 +111,11 @@ mac:
   # app, and therefore signs nothing that ships.
   #
   # Adding a line for a binary that is not staged fails the whole build at the
-  # signing step, ten minutes in, with "No such file or directory" — so the
-  # executor is listed here only once `npm run package` builds it.
+  # signing step, ten minutes in, with "No such file or directory" — every one
+  # here is built by `npm run package`.
   binaries:
     - Contents/Resources/bin/agent-server
+    - Contents/Resources/bin/executor
     - Contents/Resources/bin/runner
   # Submits the signed .app to Apple and staples the ticket, using whichever of
   # APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER (preferred) or

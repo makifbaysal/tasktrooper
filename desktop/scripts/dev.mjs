@@ -65,9 +65,9 @@ await run(process.execPath, [path.join(root, "scripts/build-server.mjs")]);
 // child fails to spawn and embeddings are silently unavailable all session.
 await run(process.execPath, [path.join(root, "scripts/build-embedder.mjs")]);
 
-// Account mode's two: the runner always, and the executor once its command
-// exists in ../server. Without them signing in leaves a runner that cannot
-// start, or agent.run answering not_ready.
+// Account mode's two: the runner, and the executor from ../server (skipped
+// on a checkout that predates it). Without them signing in leaves a runner
+// that cannot start, or agent.run answering not_ready.
 await run(process.execPath, [path.join(root, "scripts/build-runner.mjs")]);
 if (existsSync(path.join(root, "..", "server", "cmd", "executor"))) {
   await run(process.execPath, [path.join(root, "scripts/build-server.mjs"), "--executor"]);

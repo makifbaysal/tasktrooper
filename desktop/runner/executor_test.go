@@ -91,10 +91,19 @@ func fakeExecutor(mode string) int {
 		}
 		raw, _ := io.ReadAll(r.Body)
 		body := string(raw)
+		var req struct {
+			ID    string `json:"id"`
+			RunID string `json:"run_id"`
+		}
+		_ = json.Unmarshal(raw, &req)
+		id := req.ID
+		if id == "" {
+			id = req.RunID
+		}
 		if strings.Contains(body, "refuse") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"error":{"code":"bad_request","message":"refused ` + key + `"}}`))
+			_, _ = w.Write([]byte(`{"v":1,"error":{"code":"bad_request","message":"refused ` + key + `"}}`))
 			return
 		}
 		flusher := w.(http.Flusher)
@@ -103,10 +112,10 @@ func fakeExecutor(mode string) int {
 			_, _ = w.Write([]byte(s + "\n"))
 			flusher.Flush()
 		}
-		send(`{"type":"started"}`)
-		send(`{"type":"event","event":{"kind":"text","text":"root=` + cfg.WorkspaceRoot + `"}}`)
+		send(`{"v":1,"id":"` + id + `","event":"started"}`)
+		send(`{"v":1,"id":"` + id + `","event":"event","payload":{"seq":1,"kind":"text","delta":"root=` + cfg.WorkspaceRoot + `"}}`)
 		if strings.Contains(body, "leak") {
-			send(`{"type":"event","event":{"kind":"tool_result","text":"` + key + `"}}`)
+			send(`{"v":1,"id":"` + id + `","event":"event","payload":{"seq":2,"kind":"tool_result","content":"` + key + `"}}`)
 		}
 		if strings.Contains(body, "hang") {
 			<-r.Context().Done()
@@ -115,7 +124,7 @@ func fakeExecutor(mode string) int {
 		if strings.Contains(body, "nodone") {
 			return
 		}
-		send(`{"type":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1}}`)
+		send(`{"v":1,"id":"` + id + `","event":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1}}`)
 	})
 	mux.HandleFunc("POST /exec/llm.complete", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) {
@@ -139,10 +148,11 @@ func fakeExecutor(mode string) int {
 		}
 		var req struct {
 			RunID string `json:"run_id"`
+			ID    string `json:"id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		record("cancels", req.RunID)
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		record("cancels", req.RunID+"|"+req.ID)
+		_, _ = w.Write([]byte(`{"v":1,"run_id":"` + req.RunID + `","cancelled":true}`))
 	})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -261,13 +271,13 @@ func TestAgentRunIsForwardedAndStreamedUnchanged(t *testing.T) {
 	h.awaitReady(t)
 
 	res := request(t, h.cfg, h.st, http.MethodPost, "/agent.run",
-		`{"run_id":"r-1","kind":"board","agent":{"name":"dev"},"prompt":"go","workspace":"repos/a/task-1"}`)
+		`{"id":"c-91","run_id":"r-1","kind":"board","agent":{"name":"dev"},"prompt":"go","workspace":"repos/a/task-1"}`)
 	if res.status != http.StatusOK {
 		t.Fatalf("status = %d body=%s", res.status, res.body)
 	}
-	want := `{"type":"started"}` + "\n" +
-		`{"type":"event","event":{"kind":"text","text":"root=` + h.cfg.workspaceDir + `"}}` + "\n" +
-		`{"type":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1}}` + "\n"
+	want := `{"v":1,"id":"c-91","event":"started"}` + "\n" +
+		`{"v":1,"id":"c-91","event":"event","payload":{"seq":1,"kind":"text","delta":"root=` + h.cfg.workspaceDir + `"}}` + "\n" +
+		`{"v":1,"id":"c-91","event":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1}}` + "\n"
 	if res.body != want {
 		t.Fatalf("body =\n%s\nwant\n%s", res.body, want)
 	}
@@ -317,7 +327,7 @@ func TestCancelStopsAForwardedRunAndTellsTheExecutorByName(t *testing.T) {
 	srv := httptest.NewServer(newRunnerServer(h.cfg, h.st).handler())
 	t.Cleanup(srv.Close)
 
-	res, err := http.Post(srv.URL+"/agent.run", "application/json", strings.NewReader(`{"run_id":"r-hang","prompt":"hang"}`))
+	res, err := http.Post(srv.URL+"/agent.run", "application/json", strings.NewReader(`{"id":"c-hang","run_id":"r-hang","prompt":"hang"}`))
 	if err != nil {
 		t.Fatalf("agent.run: %v", err)
 	}
@@ -329,7 +339,7 @@ func TestCancelStopsAForwardedRunAndTellsTheExecutorByName(t *testing.T) {
 		}
 	}
 
-	cancel, err := http.Post(srv.URL+"/cancel", "application/json", strings.NewReader(`{"id":"r-hang"}`))
+	cancel, err := http.Post(srv.URL+"/cancel", "application/json", strings.NewReader(`{"id":"c-hang"}`))
 	if err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
@@ -340,8 +350,13 @@ func TestCancelStopsAForwardedRunAndTellsTheExecutorByName(t *testing.T) {
 	}
 
 	rest, _ := io.ReadAll(reader)
-	if !strings.Contains(string(rest), `"type":"done"`) || !strings.Contains(string(rest), codeCancelled) {
-		t.Fatalf("the stream ended with %q, want one done carrying %s", rest, codeCancelled)
+	var done struct {
+		ID    string    `json:"id"`
+		Event string    `json:"event"`
+		Error *rpcError `json:"error"`
+	}
+	if err := json.Unmarshal(rest, &done); err != nil || done.Event != "done" || done.ID != "c-hang" || done.Error == nil || done.Error.Code != codeCancelled {
+		t.Fatalf("the stream ended with %q (%v), want one done for c-hang carrying %s", rest, err, codeCancelled)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for len(h.lines(t, "cancels")) == 0 {
@@ -350,8 +365,8 @@ func TestCancelStopsAForwardedRunAndTellsTheExecutorByName(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if got := h.lines(t, "cancels"); got[0] != "r-hang" {
-		t.Fatalf("cancels = %v, want r-hang", got)
+	if got := h.lines(t, "cancels"); !strings.HasPrefix(got[0], "r-hang|") {
+		t.Fatalf("cancels = %v, want the run named by its run_id", got)
 	}
 }
 
@@ -361,8 +376,11 @@ func TestAStreamThatEndsWithoutDoneGetsOne(t *testing.T) {
 	res := request(t, h.cfg, h.st, http.MethodPost, "/agent.run", `{"run_id":"r-4","prompt":"nodone"}`)
 	lines := strings.Split(strings.TrimSpace(res.body), "\n")
 	last := lines[len(lines)-1]
-	if !strings.Contains(last, `"type":"done"`) || !strings.Contains(last, codeUpstream) {
-		t.Fatalf("last line = %s, want a done carrying %s", last, codeUpstream)
+	if !strings.Contains(last, `"event":"done"`) || !strings.Contains(last, `"id":"r-4"`) || !strings.Contains(last, codeUpstream) {
+		t.Fatalf("last line = %s, want a done for r-4 carrying %s", last, codeUpstream)
+	}
+	if strings.Count(res.body, `"event":"done"`) != 1 {
+		t.Fatalf("body = %s, want exactly one done", res.body)
 	}
 }
 
@@ -475,13 +493,14 @@ func TestLoadConfigExecutorFields(t *testing.T) {
 			{"id": "openai-main", "type": "openai", "api_key": "sk-1", "models": []string{"gpt-4.1"}},
 			{"id": "lmstudio", "type": "openai", "base_url": "http://127.0.0.1:1234/v1"},
 			{"id": "proxy", "type": "anthropic", "base_url": "https://llm.example.com", "api_key": "k"},
+			{"id": "8f0e7c0a-1b2c-4d5e-9f00-0123456789ab", "type": "openai_compatible", "base_url": "https://openrouter.ai/api/v1", "api_key": "k", "timeout_seconds": 120},
 		},
 	}
 	cfg, err := loadConfig([]byte(configWith(t, ok)))
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if cfg.executorBin == "" || len(cfg.providers) != 3 || cfg.providers[0].APIKey != "sk-1" {
+	if cfg.executorBin == "" || len(cfg.providers) != 4 || cfg.providers[0].APIKey != "sk-1" || cfg.providers[3].TimeoutSeconds != 120 {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 
@@ -495,6 +514,7 @@ func TestLoadConfigExecutorFields(t *testing.T) {
 		"newline in a key":        {"providers": []map[string]any{{"id": "a", "type": "openai", "api_key": "k\nX-Evil: 1"}}},
 		"unknown provider field":  {"providers": []map[string]any{{"id": "a", "type": "openai", "secret": "x"}}},
 		"credentials in base url": {"providers": []map[string]any{{"id": "a", "type": "openai", "base_url": "https://u:p@llm.example.com"}}},
+		"negative timeout":        {"providers": []map[string]any{{"id": "a", "type": "openai", "timeout_seconds": -1}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := loadConfig([]byte(configWith(t, changes))); err == nil {

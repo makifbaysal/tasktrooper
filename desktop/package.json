@@ -19,14 +19,15 @@
     "build:runner": "node scripts/build-runner.mjs",
     "build:runner:universal": "node scripts/build-runner.mjs --universal",
     "build:executor": "node scripts/build-server.mjs --executor",
+    "build:executor:universal": "node scripts/build-server.mjs --executor --universal",
     "build:ui": "npm --prefix ui run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.tools.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "package": "npm run build && npm run build:ui && npm run build:server:universal && npm run build:runner:universal && npm run build:embedder && electron-builder --mac --publish never",
+    "package": "npm run build && npm run build:ui && npm run build:server:universal && npm run build:executor:universal && npm run build:runner:universal && npm run build:embedder && electron-builder --mac --publish never",
     "start": "npm run build && npm run build:server && npm run build:embedder && electron .",
-    "package:win": "npm run build && npm run build:ui && npm run build:server && npm run build:runner && npm run build:embedder && electron-builder --win --publish never",
-    "package:linux": "npm run build && npm run build:ui && npm run build:server && npm run build:runner && npm run build:embedder && electron-builder --linux --publish never"
+    "package:win": "npm run build && npm run build:ui && npm run build:server && npm run build:executor && npm run build:runner && npm run build:embedder && electron-builder --win --publish never",
+    "package:linux": "npm run build && npm run build:ui && npm run build:server && npm run build:executor && npm run build:runner && npm run build:embedder && electron-builder --linux --publish never"
   },
   "dependencies": {
     "@huggingface/tokenizers": "^0.1.3",
