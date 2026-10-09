@@ -145,6 +145,12 @@ the runner's `claude.run` envelope:
     payload a local run stores.
   - `tool_call` and `tool_result` carry `source` `local` or `remote`. Content
     is capped at 4000 characters, with `truncated` set when cut.
+  - `attachment` is one per image a tool result carries (a screenshot), sent
+    right after that call's `tool_result`: `{call_id, mime, size, data_base64}`,
+    `size` being the decoded bytes. Above 2 MB the data is left out and the
+    frame is `{call_id, mime, size, too_large: true}`. The image still reaches
+    the model either way; the frame is what lets the caller archive it and
+    cite it as evidence.
   - `text` is a streamed delta, or `segment_break: true` (chat only).
   - `usage` is one per model call, including summaries, the wrap-up and a
     chat run's index query rewrite.

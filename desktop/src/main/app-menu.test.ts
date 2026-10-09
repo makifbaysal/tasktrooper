@@ -20,6 +20,20 @@ describe("applicationMenuTemplate", () => {
     expect(JSON.stringify(bare)).not.toContain("API");
   });
 
+  it("puts API keys… in the macOS app menu and keeps the default roles", () => {
+    let opened = 0;
+    const menu = applicationMenuTemplate("darwin", false, { openKeys: () => (opened += 1) });
+    const app = menu[0]?.submenu as { label?: string; role?: string; click?: () => void }[];
+    const at = app.findIndex((i) => i.label === "API keys…");
+    expect(at).toBeGreaterThan(app.findIndex((i) => i.role === "about"));
+    expect(at).toBeLessThan(app.findIndex((i) => i.role === "quit"));
+    app[at]?.click?.();
+    expect(opened).toBe(1);
+    const roles = menu.map((item) => item.role);
+    expect(roles).toEqual(expect.arrayContaining(["editMenu", "windowMenu"]));
+    expect(JSON.stringify(applicationMenuTemplate("darwin", false))).not.toContain("API");
+  });
+
   it("keeps the Edit roles that bind copy and paste in text fields", () => {
     expect(applicationMenuTemplate("linux", false).some((item) => item.role === "editMenu")).toBe(true);
   });

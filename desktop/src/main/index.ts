@@ -826,13 +826,11 @@ app.whenReady().then(
     // the first preflight.
     supervisor.warmUp();
 
-    if (process.platform !== "darwin") {
-      Menu.setApplicationMenu(
-        Menu.buildFromTemplate(
-          applicationMenuTemplate(process.platform, !app.isPackaged, { openKeys: () => keysWindow.open() }),
-        ),
-      );
-    }
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate(
+        applicationMenuTemplate(process.platform, !app.isPackaged, { openKeys: () => keysWindow.open() }),
+      ),
+    );
 
     loadSecrets();
 
