@@ -123,6 +123,7 @@ func (r *Router) execute(
 		Effort:    cfg.effort,
 		Policy:    policy,
 		WorkDir:   workDir,
+		Env:       registry.SessionEnvFromContext(ctx),
 		TaskKey:   cfg.cliLabel,
 		TaskTitle: cfg.cliTitle,
 	}

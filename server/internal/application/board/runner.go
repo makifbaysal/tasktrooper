@@ -853,6 +853,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		runCtx = registry.ContextWithBranch(runCtx, taskBranch)
 	}
 	sessionEnv := r.detectToolchain(runCtx, job, workDir)
+	runCtx = registry.ContextWithSessionEnv(runCtx, sessionEnv)
 	if overlay := toolchain.Default.Overlay(workDir); len(overlay.Env) > 0 || len(overlay.Warnings) > 0 {
 		runCtx = registry.ContextWithTaskEnv(runCtx, overlay.Env)
 		for _, w := range overlay.Warnings {
