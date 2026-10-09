@@ -279,7 +279,8 @@ func (s *Service) productManager(ctx context.Context, deps *ConversionDeps, repo
 // continues the conversation the person may already have read.
 func (s *Service) conversionSession(ctx context.Context, deps *ConversionDeps, imp domain.IssueImport, repositoryID, pmID uuid.UUID) (uuid.UUID, error) {
 	if imp.ConversionSessionID != nil {
-		if sess, _, err := deps.Sessions.Get(ctx, *imp.ConversionSessionID); err == nil {
+		sess, _, err := deps.Sessions.Get(ctx, *imp.ConversionSessionID)
+		if err == nil && (sess.ExpiresAt == nil || s.now().Before(*sess.ExpiresAt)) {
 			return sess.ID, nil
 		}
 	}

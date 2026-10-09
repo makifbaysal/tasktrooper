@@ -421,3 +421,36 @@ func TestRetryConversionAfterAProductManagerWasAdded(t *testing.T) {
 		t.Errorf("retrying a converted import: err = %v, want ErrConversionNotRetryable", err)
 	}
 }
+
+func TestRetryContinuesTheSameChatUnlessItExpired(t *testing.T) {
+	cf := newConversionFixture(t)
+	cf.sessions.turn = func(context.Context, uuid.UUID) (domain.AgentResponse, error) {
+		return domain.AgentResponse{}, errors.New("provider unreachable")
+	}
+	imported := cf.importGitHub(t, "acme/widget#7", "user-1")
+	cf.svc.RunConversionsOnce(context.Background())
+
+	if _, err := cf.svc.RetryConversion(context.Background(), imported.Import.ID); err != nil {
+		t.Fatalf("RetryConversion: %v", err)
+	}
+	cf.svc.RunConversionsOnce(context.Background())
+	if n := len(cf.sessions.requests); n != 1 {
+		t.Fatalf("chats opened = %d, want the first one reused", n)
+	}
+
+	imp := cf.imports.byKey(t, domain.IssueProviderGitHub, "acme/widget#7")
+	expired := time.Now().Add(-time.Minute)
+	cf.sessions.mu.Lock()
+	sess := cf.sessions.sessions[*imp.ConversionSessionID]
+	sess.ExpiresAt = &expired
+	cf.sessions.sessions[sess.ID] = sess
+	cf.sessions.mu.Unlock()
+
+	if _, err := cf.svc.RetryConversion(context.Background(), imported.Import.ID); err != nil {
+		t.Fatalf("RetryConversion: %v", err)
+	}
+	cf.svc.RunConversionsOnce(context.Background())
+	if n := len(cf.sessions.requests); n != 2 {
+		t.Fatalf("chats opened = %d, want a new one for the expired chat", n)
+	}
+}
