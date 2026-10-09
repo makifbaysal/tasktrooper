@@ -18,6 +18,7 @@ local edition (`cmd/agent-server`) does not use it and is unchanged.
 | runs | `application/executor` (validation, per-run registry and loop, events) |
 | coordination tools | `port.RemoteToolConnector` → `adapter/mcp.RemoteConnector` |
 | code index | `port.LocalCodeIndex` → `application/localindex` (the server's indexer and injector over its own store); `platform/executor` wires the embedder (`embedder.go`) and the store (`indexstore.go`) |
+| post-run half | `application/executor/checkout.go`: the verification pass is `board.VerifyWorkspace` (the board's own verify step), git is `port.CheckoutGit` → `adapter/vcs/git.Checkout` |
 
 ## Process contract
 
@@ -178,7 +179,8 @@ domain JSON / JSON-schema format).
 ### `POST /exec/cancel`
 
 Request: `{"run_id":"r-1"}`, or `{"id":"<stream id>"}` so a runner can forward
-its own cancel body. An index pass is cancelled by `{"id":"<its stream id>"}`.
+its own cancel body. An index pass or a verification is cancelled by
+`{"id":"<its stream id>"}`.
 
 Response: `{"v":1,"run_id":"r-1","cancelled":true|false}`. A run that already
 ended answers `false` and is not an error.
@@ -255,6 +257,125 @@ Response: `{"v":1,"embeddings_base_url":"…","embeddings_source":"onnx-int8"}`.
   index stale, and each is re-embedded whole on its next pass.
 - A call in flight finishes against the old address; the indexer retries a
   refused connection, which reaches the new one.
+
+## The post-run half: verify, git, commit and push
+
+A board run's agent turn is half of it. The other half — build and test the
+checkout, feed a failure back into a fix round, commit, push, open the pull
+request — needs the checkout, so for a run on this computer the caller drives
+it here, after `agent.run`, through these routes. The caller keeps the
+decisions (which checks, how many fix rounds, the commit message, the branch,
+the pull request); the build, the tests and this computer's git credentials
+stay on this computer. Every `workspace` is relative to `workspace_root` and
+must exist.
+
+### `POST /exec/verify`
+
+One verification pass, exactly the board's own (`board.VerifyWorkspace`):
+
+```json
+{"id":"<optional stream id>","workspace":"repos/app/task-1",
+ "commands":[{"dir":"api","argv":["go","test","./..."]}],
+ "verify_command":"make check",
+ "quality":{"coverage":{"enabled":true,"threshold":80},"mutation":{"enabled":false}},
+ "env":{"GOTOOLCHAIN":"go1.24.3"},
+ "timeout_ms":0}
+```
+
+- The checks are picked as a board run picks them: `commands` (the project
+  model's required checks, each run in `dir` under the checkout) when there
+  are any, else `verify_command` (the repository's own, split on spaces),
+  else what the checkout's build files declare (`go.mod` → build and vet,
+  `package.json`'s `build` script, `Cargo.toml`, …). Sending neither is "auto".
+  An npm install runs first where a `package-lock.json` has no
+  `node_modules`; when it fails, the pass reports nothing rather than a
+  failure.
+- Each stage runs with the toolchain this computer resolves from the
+  checkout's own version files, then `env` (the same rules as `agent.run`'s:
+  no `PATH`).
+- `quality` runs the coverage and mutation gates the repository enforces once
+  the build passes, and reports the ones it has but does not enforce in
+  `result.advisory` (the caller may measure those after the hand-off).
+  Without it nothing beyond the build runs.
+- `id` defaults to `verify:<workspace>`. One pass per checkout at a time: a
+  second one, or a second one under the same id, is 409.
+- `timeout_ms` bounds the whole pass; each stage also has its own (5 minutes,
+  15 for an install).
+
+The answer is the `agent.run` envelope: `started`, `verify_stage` events
+(`phase` `started` then `finished`, with `outcome` `passed` | `failed` |
+`unverified`, `exit_code`, `duration_ms`), `verify_output` events (the stage's
+stdout and stderr as they come, in chunks of at most 16 KiB, at most 256 KiB
+per stage, then one `truncated: true`), and one `done`:
+
+```
+{"v":1,"id":"c-7","event":"started"}
+{"v":1,"id":"c-7","event":"event","payload":{"seq":1,"at":"…","kind":"verify_stage","phase":"started","name":"check:api:go","dir":"api","command":["go","test","./..."]}}
+{"v":1,"id":"c-7","event":"event","payload":{"seq":2,"at":"…","kind":"verify_output","stage":"check:api:go","data":"--- FAIL: TestRefresh…"}}
+{"v":1,"id":"c-7","event":"event","payload":{"seq":3,"at":"…","kind":"verify_stage","phase":"finished","name":"check:api:go","dir":"api","command":["go","test","./..."],"outcome":"failed","exit_code":1,"duration_ms":5120}}
+{"v":1,"id":"c-7","event":"done","ok":true,"result":{"passed":false,"report":"$ go test ./...\n--- FAIL: TestRefresh…","stages":[…],"advisory":{"coverage":false,"mutation":false},"duration_ms":5190}}
+```
+
+- A failing build is a verdict, not a failed call: `ok` is true and
+  `result.passed` false. `result.report` is what the board hands a fix round
+  (each failing command and the tail of its output); on a pass it carries the
+  notes (`[unverified] …` for a tool that is not installed here, coverage
+  figures).
+- Failure codes: `bad_request`, `conflict`, `cancelled`, `timeout`.
+
+### `POST /exec/git.status`, `git.diff`, `git.log`
+
+One document each way. Request `{"workspace", "timeout_ms"?}` plus:
+
+| route | request | answer |
+|---|---|---|
+| `git.status` | — | `{"branch","head","upstream","ahead","behind","clean","files":[{"path","orig_path"?,"index","worktree"}]}` (`branch` empty when detached, `index`/`worktree` the porcelain letters, `?` untracked) |
+| `git.diff` | `base`?, `name_only`?, `max_bytes`? | `{"base","files":[…],"stat","patch","truncated"}` |
+| `git.log` | `base`?, `limit`? | `{"commits":[{"sha","subject","author","date"}]}` |
+
+- `git.diff` with no `base` is the task's whole change: the working tree
+  against its merge-base with the remote's default branch (`origin/HEAD`,
+  else `origin/main`, `origin/master`), the diff a hand-off is judged on.
+  `"base":"HEAD"` is the uncommitted changes alone. `files` is `--name-only`;
+  `patch` is capped at `max_bytes` (256 KiB, at most 4 MiB). No base to
+  compare with answers an empty `base` and no files.
+- `git.log` is the newest `limit` commits (20, at most 200) of HEAD, or of
+  `base..HEAD`.
+- A `base` is a revision name that cannot begin with a dash; anything else is
+  `bad_request`, and so is a workspace that is not a git checkout.
+
+### `POST /exec/commit_push`
+
+```json
+{"workspace":"repos/app/task-1","message":"feat(auth): refresh tokens (tt-12)","branch":"feature/tt-12","github_token":"<optional>"}
+```
+
+Commits everything the working tree holds (`git add -A`) onto `branch` and
+pushes it to origin (`git push -u origin HEAD`).
+
+- **The branch is cut here when it does not exist**, from what is checked out
+  with the working tree carried along: a task's first run starts on the
+  default branch when the task branch is not on origin yet. A checkout on
+  another branch while `branch` exists here too is `conflict` and nothing is
+  touched — switching would leave that work behind. `branch` may not be the
+  remote's default branch (`conflict`), and must be a branch name that cannot
+  begin with a dash.
+- **Credentials are this computer's own.** `github_token`, when sent, reaches
+  git only as `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0`
+  (`http.https://github.com/.extraheader`) in the push's environment — never
+  argv, never the checkout's config — and the commit is authored as that
+  token's GitHub user; it is scrubbed out of the answer. Without one, git uses
+  whatever this computer's own login is.
+- Nothing to commit is not an error: the branch is still pushed.
+
+Answer: `{"branch","branch_created","head_before","head","committed","subject","files":[…]}`
+— `files` is the task's changed files after the commit, `subject` the head
+commit's.
+
+Failure codes: `bad_request`, `conflict`, `upstream` (the push failed; with
+`"reason":"workflow_scope"` when GitHub refused it because the token may not
+change `.github/workflows` — nothing but a better token helps), `timeout`
+(10 minutes by default), `cancelled`.
 
 ## Runs that name an index
 

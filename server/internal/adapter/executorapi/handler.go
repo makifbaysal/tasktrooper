@@ -26,6 +26,11 @@ const (
 	PathIndexEnsure = "/exec/index.ensure"
 	PathIndexSearch = "/exec/index.search"
 	PathEmbeddings  = "/exec/embeddings.set"
+	PathVerify      = "/exec/verify"
+	PathGitStatus   = "/exec/git.status"
+	PathGitDiff     = "/exec/git.diff"
+	PathGitLog      = "/exec/git.log"
+	PathCommitPush  = "/exec/commit_push"
 )
 
 const (
@@ -83,6 +88,11 @@ func NewHandler(svc *executor.Service, opts Options) *Handler {
 		PathIndexEnsure: {http.MethodPost, h.indexEnsure},
 		PathIndexSearch: {http.MethodPost, h.indexSearch},
 		PathEmbeddings:  {http.MethodPost, h.setEmbeddings},
+		PathVerify:      {http.MethodPost, h.verify},
+		PathGitStatus:   {http.MethodPost, h.gitStatus},
+		PathGitDiff:     {http.MethodPost, h.gitDiff},
+		PathGitLog:      {http.MethodPost, h.gitLog},
+		PathCommitPush:  {http.MethodPost, h.commitPush},
 	}
 	return h
 }
@@ -303,7 +313,7 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	}
 	cancelled := runID != "" && h.svc.Cancel(runID)
 	if runID == "" {
-		cancelled = h.svc.CancelIndexEnsure(streamID)
+		cancelled = h.svc.CancelIndexEnsure(streamID) || h.svc.CancelVerify(streamID)
 	}
 	log.Info().Str("run_id", runID).Str("id", streamID).Bool("found", cancelled).Msg("executor cancel requested")
 	if runID == "" {
