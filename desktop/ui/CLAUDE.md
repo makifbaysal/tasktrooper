@@ -40,10 +40,13 @@ work; it is the authority, this section is the summary.
 
 ## Auth
 
-There is no login screen and no account. `src/lib/auth.ts` resolves one bearer
-token — the desktop shell's `window.__tasktrooperDesktop.apiToken`, else
-`VITE_API_KEY` — and `main.tsx` renders `ConfigErrorPage` when there is none.
-Nothing else in `src/` may read a credential.
+There is no login screen and no account in this bundle. `src/lib/auth.ts`
+resolves one bearer token — the desktop shell's
+`window.__tasktrooperDesktop.apiToken`, else `VITE_API_KEY` — and `main.tsx`
+renders `ConfigErrorPage` when there is none. Nothing else in `src/` may read a
+credential. The shell's account mode does not change that: it shows the
+account's own web app from its origin, not this bundle; from here,
+`account.signIn()` only hands the window over.
 
 ## API calls
 
@@ -63,8 +66,15 @@ Nothing else in `src/` may read a credential.
 builds with no knowledge of that package; **change both together**. The shell
 exposes `info()`, `apiBase`, `apiToken`, `runner` (process supervision,
 preflight, settings, diagnostics) and `updates` (the auto-updater, for
-Settings); `runner.connect()`/`disconnect()` start and stop the **backend**,
-not a tunnel.
+Settings); in local mode `runner.connect()`/`disconnect()` start and stop the
+**backend**. `account` (`signIn(origin?)`, `signOut()`, `state()`) switches
+the shell between local and account mode — Settings' Account card and the
+first-run screen call it; the page it is called from is replaced when it
+succeeds. `bridgeVersion` (1) and `mode` are synchronous values;
+`runner.pair`/`unpair`/`pairing`/`restart` and the snapshot's `tunnel` are
+account mode's, used by the account's web app, not by this bundle.
+`account`, `bridgeVersion` and `mode` are optional on this side: a browser and
+an older shell have none.
 
 ## Locales
 

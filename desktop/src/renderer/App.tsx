@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpCircle, Loader2, RefreshCw, WifiOff } from "lucide-react";
-import type { AppInfo, CloudStatus, SupervisorSnapshot, UpdateStatus } from "@ipc/types.js";
+import { ArrowUpCircle, HardDrive, Loader2, RefreshCw, WifiOff } from "lucide-react";
+import type { AccountState, AppInfo, CloudStatus, SupervisorSnapshot, UpdateStatus } from "@ipc/types.js";
 import { Button } from "@shared/ui/button.js";
-import { api } from "./bridge";
-import { startFailureCopy, unreachableCopy } from "./copy";
+import { api, errorMessage } from "./bridge";
+import { accountUnreachableCopy, startFailureCopy, unreachableCopy } from "./copy";
 
 // Only macOS draws traffic lights inside the window, over the title bar. The
 // strip below exists for them alone, so it is drawn on the same condition as
@@ -34,21 +34,25 @@ export default function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
+  const [account, setAccount] = useState<AccountState | null>(null);
 
   useEffect(() => {
     void api.supervisorState().then(setSnapshot);
     void api.cloudStatus().then(setCloud);
     void api.appInfo().then(setInfo);
     void api.updateStatus().then(setUpdate);
+    void api.accountState().then(setAccount);
     const offState = api.onSupervisorState(setSnapshot);
     const offCloud = api.onCloudStatus(setCloud);
     const offUpdate = api.onUpdateStatus(setUpdate);
     const offFullScreen = api.onFullScreen(setFullScreen);
+    const offAccount = api.onAccountState(setAccount);
     return () => {
       offState();
       offCloud();
       offUpdate();
       offFullScreen();
+      offAccount();
     };
   }, []);
 
@@ -63,7 +67,9 @@ export default function App() {
       ) : null}
 
       <div className="min-h-0 flex-1">
-        {cloud?.state === "failed" ? <Unreachable status={cloud} info={info} onRetry={reload} /> : null}
+        {cloud?.state === "failed" ? (
+          <Unreachable status={cloud} info={info} account={account} onRetry={reload} />
+        ) : null}
         {cloud?.state === "loading" ? <Loading detail={snapshot?.detail} /> : null}
         {/* When the hosted app is up, the view covers this area exactly, which
             is why there is nothing to render for it here. */}
@@ -142,19 +148,42 @@ function UpdatePopup({ status }: { status: UpdateStatus | null }) {
 function Unreachable({
   status,
   info,
+  account,
   onRetry,
 }: {
   status: CloudStatus;
   info: AppInfo | null;
+  account: AccountState | null;
   onRetry: () => void;
 }) {
+  const inAccount = account?.mode === "account";
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  // In account mode the page that has "Sign out" on it is the one that did not
+  // load, so the way back to running locally has to be here.
+  const useLocally = useCallback(() => {
+    setLeaving(true);
+    setLeaveError(null);
+    api.useLocalMode().then(
+      () => setLeaving(false),
+      (err: unknown) => {
+        setLeaving(false);
+        setLeaveError(errorMessage(err));
+      },
+    );
+  }, []);
+
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="max-w-md text-center">
         <WifiOff className="mx-auto size-8 text-muted-foreground" />
-        <h1 className="mt-4 text-base font-semibold">TaskTrooper could not start</h1>
+        <h1 className="mt-4 text-base font-semibold">
+          {inAccount ? "TaskTrooper could not reach your account" : "TaskTrooper could not start"}
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          {startFailureCopy(status.description) ?? unreachableCopy(IS_MAC)}
+          {inAccount
+            ? accountUnreachableCopy(account.origin)
+            : (startFailureCopy(status.description) ?? unreachableCopy(IS_MAC))}
         </p>
         {status.description ? (
           <code className="selectable mt-3 block whitespace-pre-wrap break-words rounded bg-muted px-2 py-1.5 text-left font-mono text-xs">
@@ -162,10 +191,19 @@ function Unreachable({
             {status.code !== undefined ? ` (${status.code})` : ""}
           </code>
         ) : null}
-        <Button className="no-drag mt-4" onClick={onRetry}>
-          <RefreshCw />
-          Try again
-        </Button>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <Button className="no-drag" onClick={onRetry}>
+            <RefreshCw />
+            Try again
+          </Button>
+          {inAccount ? (
+            <Button className="no-drag" variant="secondary" onClick={useLocally} disabled={leaving}>
+              <HardDrive />
+              Use TaskTrooper without an account
+            </Button>
+          ) : null}
+        </div>
+        {leaveError ? <p className="mt-2 text-xs text-destructive">{leaveError}</p> : null}
         {info ? <p className="mt-4 text-xs text-muted-foreground">TaskTrooper {info.version}</p> : null}
       </div>
     </div>

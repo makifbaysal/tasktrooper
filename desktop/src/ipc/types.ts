@@ -22,7 +22,14 @@
  * it was a ~100 MB process on every machine that merely had Appium installed.
  */
 export const CHILD_IDS = ["embedder", "agent-server"] as const;
-export type ChildId = (typeof CHILD_IDS)[number];
+/**
+ * `"runner"` is account mode's one supervised child (`main/runner/`). It is
+ * not in `CHILD_IDS`: that array drives the local `Supervisor`'s fixed child
+ * map and `restartChild`, neither of which account mode uses —
+ * `RunnerSupervisor` has its own channels (`runnerPair`, `runnerRestart`, …).
+ * It is a member of `ChildId` so `ChildStatus` and `LogLine` can name it.
+ */
+export type ChildId = (typeof CHILD_IDS)[number] | "runner";
 
 /**
  * The children whose health IS this app's health.
@@ -114,6 +121,29 @@ export interface SupervisorSnapshot {
    * everything optional degrades silently.
    */
   blocker?: Blocker;
+  /** Account mode only — the runner's tunnel to the control plane. */
+  tunnel?: TunnelStatus;
+}
+
+/**
+ * The runner's reverse tunnel to the control plane, account mode only.
+ *
+ * The runner opens no port, so this is the only readiness signal it has: its
+ * state arrives as a JSON log line (`main/runner/runner-log.ts` parses it).
+ * `auth-failed` is terminal — the control plane rejected this computer's
+ * token, and retrying changes nothing until it is paired again.
+ */
+export type TunnelState = "unknown" | "attached" | "detached" | "reconnecting" | "auth-failed";
+
+export interface TunnelStatus {
+  state: TunnelState;
+  changedAt: number;
+  /** One sentence for a person, present for `reconnecting` and `auth-failed`. */
+  detail?: string;
+  /** Epoch ms the next reconnect attempt is due, while `reconnecting`. */
+  retryAt?: number;
+  /** How many streams the tunnel served before it detached. */
+  streams?: number;
 }
 
 export interface Blocker {
@@ -142,7 +172,30 @@ export interface LogLine {
 // --- what the user actually sets --------------------------------------------
 
 /**
- * The entire user-facing configuration. Three fields.
+ * Where the product runs for this computer.
+ *
+ * `local`: the backend, its Postgres and the embedder run here and the window
+ * shows `app://tasktrooper`. `account`: the window shows the account's web app
+ * from `accountOrigin`, the local backend is stopped, and the runner (with the
+ * executor) is what runs here. Chosen at runtime by `main/account/mode.ts`.
+ */
+export type AccountMode = "local" | "account";
+
+/** What `account.state()` answers, and what is pushed when it changes. */
+export interface AccountState {
+  mode: AccountMode;
+  /** The account origin: the one in use, or the one signing in would open. */
+  origin: string;
+  /** True while a sign-in or sign-out is under way. */
+  switching: boolean;
+  /** Whether this computer holds a runner pairing. */
+  paired: boolean;
+  /** Why the last switch failed, when it did. */
+  error?: string;
+}
+
+/**
+ * The entire user-facing configuration.
  *
  * Everything else this app needs — the `claude` binary, `git`, a port, a
  * database — is detected, allocated or started. A settings form for any of it
@@ -158,6 +211,13 @@ export interface UserSettings {
   autoConnect: boolean;
   /** Desktop notifications for board events the stakeholder must act on. */
   notifications: NotificationPreferences;
+  /**
+   * Local or account. Changed only by signing in or out, never by a settings
+   * patch from a page.
+   */
+  mode: AccountMode;
+  /** The account origin last signed in to; absent means the default. */
+  accountOrigin?: string;
 }
 
 /**
@@ -207,6 +267,10 @@ export interface Overrides {
  * account may use it" is what lets the second one be said before the run.
  */
 export const PREFLIGHT_IDS = [
+  // Account mode only: the bundled runner, which stands in for `agent-server`
+  // there (no local backend is started), and the executor it starts.
+  "runner",
+  "executor",
   "agent-server",
   // Never blocking: an absent Postgres is one the backend downloads on its
   // first start. It is listed so that download is a thing the user was told
@@ -301,6 +365,27 @@ export interface Diagnostics {
   dataFree?: number;
   app: AppInfo;
 }
+
+// --- pairing (account mode) -------------------------------------------------
+
+/**
+ * What `POST /api/runner/pair` returns, and what the runner is configured
+ * from (`main/runner/env.ts#runnerConfig`). Field names are the control
+ * plane's own — a projection, never a translation, so a renamed field fails
+ * loudly at the boundary instead of silently reading as empty.
+ */
+export interface RunnerPairingBundle {
+  runner_token: string;
+  tm_base_url: string;
+  tenant_id: string;
+  member_uid: string;
+  paired_at: string;
+  /** The device label this computer was paired under — a hostname, usually. */
+  label: string;
+}
+
+/** The stored bundle, minus the token — what a page is allowed to see. */
+export type RunnerPairingSummary = Omit<RunnerPairingBundle, "runner_token">;
 
 // --- workspace --------------------------------------------------------------
 

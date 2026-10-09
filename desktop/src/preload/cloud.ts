@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS, type ChooseDirectoryRequest } from "../ipc/channels.js";
 import type {
+  DesktopAccountHost,
   DesktopHost,
   DesktopRunnerHost,
   DesktopUpdatesHost,
@@ -11,7 +12,16 @@ import type {
   HostSettings,
   HostWorkspaceChoice,
 } from "../ipc/host.js";
-import type { ChildId, Diagnostics, LogLine, PreflightReport, UpdateStatus } from "../ipc/types.js";
+import type {
+  AccountState,
+  ChildId,
+  Diagnostics,
+  LogLine,
+  PreflightReport,
+  RunnerPairingBundle,
+  RunnerPairingSummary,
+  UpdateStatus,
+} from "../ipc/types.js";
 
 /**
  * The preload for the view that renders the web app — which is the entire
@@ -27,9 +37,13 @@ import type { ChildId, Diagnostics, LogLine, PreflightReport, UpdateStatus } fro
  *    the workspace folder — which it can ask to open a native picker for, and
  *    cannot name.
  *
- * There is no session, no sign-in and no OAuth on this bridge. The one value
+ * The same preload serves both modes' pages. In local mode the one secret
  * that travels shell → page is `apiToken`, the bearer for a loopback server
- * this same process started.
+ * this same process started. In account mode the page is the account's web
+ * app, which signs in on its own origin with its own cookie: the main process
+ * answers `apiBase` and `apiToken` with nothing, and the pairing bundle the
+ * page hands over goes in only — `runner.pairing()` returns it without the
+ * token.
  */
 
 /**
@@ -99,6 +113,11 @@ const runner: DesktopRunnerHost = {
   restartChild: (child: ChildId) =>
     call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerRestartChild, { child }),
 
+  pair: (bundle: RunnerPairingBundle) => call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerPair, { bundle }),
+  unpair: () => call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerUnpair),
+  pairing: () => call<RunnerPairingSummary | null>(CLOUD_CHANNELS.runnerPairingInfo),
+  restart: () => call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerRestart),
+
   logs: (req?: HostLogsRequest) => call<LogLine[]>(CLOUD_CHANNELS.runnerLogs, req ?? {}),
   subscribeLogs,
   clearLogs: () => call<void>(CLOUD_CHANNELS.runnerClearLogs),
@@ -123,6 +142,16 @@ const runner: DesktopRunnerHost = {
   setOverrides: (patch: HostOverrides) => call<Diagnostics>(CLOUD_CHANNELS.overridesSet, patch),
 };
 
+const account: DesktopAccountHost = {
+  signIn: async (origin?: string) => {
+    await call<AccountState>(CLOUD_CHANNELS.accountSignIn, origin === undefined ? {} : { origin });
+  },
+  signOut: async () => {
+    await call<AccountState>(CLOUD_CHANNELS.accountSignOut);
+  },
+  state: () => call<AccountState>(CLOUD_CHANNELS.accountState),
+};
+
 const updates: DesktopUpdatesHost = {
   status: () => call<UpdateStatus>(CLOUD_CHANNELS.updateGet),
   subscribe: (cb) => subscribe<UpdateStatus>(CLOUD_EVENTS.updateStatus, cb),
@@ -131,7 +160,7 @@ const updates: DesktopUpdatesHost = {
 };
 
 /**
- * The two synchronous reads, made once while the preload runs.
+ * The synchronous reads, made once while the preload runs.
  *
  * They have to be values before the page's first line executes: `api.ts` reads
  * the base and the token on every request, so a promise here would mean an
@@ -150,16 +179,25 @@ function syncString(channel: string): string | undefined {
 
 const apiBase = syncString(CLOUD_CHANNELS.apiBase);
 const apiToken = syncString(CLOUD_CHANNELS.apiToken);
+const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : "local";
 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
+  bridgeVersion: 1,
+  mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
+  account,
   runner,
   updates,
 };
 
 contextBridge.exposeInMainWorld(
   CLOUD_BRIDGE_KEY,
-  Object.freeze({ ...host, runner: Object.freeze(runner), updates: Object.freeze(updates) }),
+  Object.freeze({
+    ...host,
+    account: Object.freeze(account),
+    runner: Object.freeze(runner),
+    updates: Object.freeze(updates),
+  }),
 );

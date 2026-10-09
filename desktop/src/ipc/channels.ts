@@ -12,20 +12,25 @@
  *   SHELL_* — the native chrome: a title bar with a status pill, a reload
  *             button, the update affordance and the screen that says so when
  *             the backend did not come up. It asks for almost nothing.
- *   CLOUD_* — the WebContentsView running the bundled SPA. Our own code, served
- *             from `app://tasktrooper`, but it is still the widest half of the
- *             surface — Connect, the workspace picker, the preflight and
- *             diagnostics all live there — so every handler on it verifies the
- *             sender on every call, not once at load. See main/ipc.ts.
+ *   CLOUD_* — the WebContentsView running the web app: our own bundle from
+ *             `app://tasktrooper` in local mode, the account's web app from
+ *             its origin in account mode. It is the widest half of the surface
+ *             — Connect, the workspace picker, the preflight, pairing — so
+ *             every handler on it verifies the sender on every call, not once
+ *             at load, against the one origin the current mode trusts. See
+ *             main/ipc.ts.
  */
 
 import type {
+  AccountState,
   AppInfo,
   ChildId,
   CloudStatus,
   Diagnostics,
   LogLine,
   PreflightReport,
+  RunnerPairingBundle,
+  RunnerPairingSummary,
   SupervisorSnapshot,
   UpdateStatus,
 } from "./types.js";
@@ -56,6 +61,14 @@ export const SHELL_CHANNELS = {
   updateGet: "shell:update:get",
   updateCheck: "shell:update:check",
   updateRestart: "shell:update:restart",
+
+  /**
+   * Account mode, for the chrome's own failure screen: when the account's web
+   * app cannot be reached there is no page to sign out from, and this is the
+   * way back to running locally. Guarded on the sender like the update pair.
+   */
+  accountState: "shell:account:state",
+  accountUseLocal: "shell:account:use-local",
 } as const;
 
 /** Main → the native chrome. One-way; it never replies. */
@@ -70,6 +83,7 @@ export const SHELL_EVENTS = {
    * every click on the page's header became a window drag instead.
    */
   fullScreen: "shell:event:full-screen",
+  accountState: "shell:event:account-state",
 } as const;
 
 /**
@@ -101,6 +115,22 @@ export const CLOUD_CHANNELS = {
    */
   apiToken: "cloud:api-token",
 
+  /**
+   * `"local"` or `"account"`, synchronous like the two above: a page needs to
+   * know which world it is in before its first render — the account's web app
+   * authenticates with its own cookie and must not look for `apiToken`.
+   */
+  accountMode: "cloud:account:mode",
+  accountState: "cloud:account:state",
+  /**
+   * Leave local mode for the account at an origin (absent: the configured
+   * one). Stops the local backend and loads the account's sign-in page in
+   * this window. A no-op when already signed in there.
+   */
+  accountSignIn: "cloud:account:sign-in",
+  /** Stop the runner, forget the pairing, clear the account session, run locally again. */
+  accountSignOut: "cloud:account:sign-out",
+
   runnerSnapshot: "cloud:runner:snapshot",
   runnerConnect: "cloud:runner:connect",
   runnerDisconnect: "cloud:runner:disconnect",
@@ -114,6 +144,17 @@ export const CLOUD_CHANNELS = {
    */
   runnerLogsStream: "cloud:runner:logs-stream",
   runnerClearLogs: "cloud:runner:clear-logs",
+
+  /**
+   * Account mode only. Pairing this computer is the same act as starting its
+   * runner: `runnerPair` checks the bundle's origin against the account's,
+   * stores it encrypted, and starts the runner. `runnerRestart` is
+   * `restartChild` without a `ChildId` — account mode supervises one child.
+   */
+  runnerPair: "cloud:runner:pair",
+  runnerUnpair: "cloud:runner:unpair",
+  runnerPairingInfo: "cloud:runner:pairing-info",
+  runnerRestart: "cloud:runner:restart",
 
   settingsGet: "cloud:settings:get",
   settingsSetPreferences: "cloud:settings:set-preferences",
@@ -224,6 +265,16 @@ export interface PreflightRequest {
   force?: boolean;
 }
 
+/** What `POST /api/runner/pair` returned. */
+export interface PairRequest {
+  bundle: RunnerPairingBundle;
+}
+
+export interface AccountSignInRequest {
+  /** An origin, `https://host[:port]`; absent means the configured one. */
+  origin?: string;
+}
+
 /**
  * What the native chrome can ask for.
  *
@@ -249,6 +300,10 @@ export interface ShellBridge {
   onCloudStatus(cb: (status: CloudStatus) => void): () => void;
   onUpdateStatus(cb: (status: UpdateStatus) => void): () => void;
   onFullScreen(cb: (fullScreen: boolean) => void): () => void;
+  accountState(): Promise<AccountState>;
+  /** Sign out of the account and run locally. The failure screen's escape. */
+  useLocalMode(): Promise<AccountState>;
+  onAccountState(cb: (state: AccountState) => void): () => void;
 }
 
 /** Re-exported so the preload and the main process name one shape. */
@@ -260,7 +315,15 @@ export type {
   HostSettings,
   HostWorkspaceChoice,
 };
-export type { Diagnostics, LogLine, PreflightReport, UpdateStatus };
+export type {
+  AccountState,
+  Diagnostics,
+  LogLine,
+  PreflightReport,
+  RunnerPairingBundle,
+  RunnerPairingSummary,
+  UpdateStatus,
+};
 
 export const SHELL_BRIDGE_KEY = "tasktrooper";
 

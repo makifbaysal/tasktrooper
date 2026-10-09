@@ -8,11 +8,15 @@ import type {
   HostWorkspaceChoice,
 } from "../ipc/host.js";
 import type {
+  AccountMode,
+  AccountState,
   AppInfo,
   CloudStatus,
   Diagnostics,
   LogLine,
   PreflightReport,
+  RunnerPairingBundle,
+  RunnerPairingSummary,
   SupervisorSnapshot,
   UpdateStatus,
 } from "../ipc/types.js";
@@ -25,10 +29,12 @@ import {
   validateLogsStream,
   validateOpenExternal,
   validateOverrides,
+  validatePairRequest,
   validatePreferences,
   validatePreflightRequest,
   validateRestartChild,
   validateReveal,
+  validateSignIn,
 } from "../ipc/validate.js";
 
 /**
@@ -49,8 +55,9 @@ import {
  *      second view, a popup, or the chrome's own renderer is not.
  *   2. Is it the TOP frame of that view? An iframe — including one injected by
  *      a compromised page — is a different frame and inherits nothing.
- *   3. Is that frame's origin still the trusted one? A view that navigated
- *      somewhere else keeps the preload but loses the powers.
+ *   3. Is that frame's origin still the trusted one — `app://tasktrooper` in
+ *      local mode, the account's origin in account mode, never both? A view
+ *      that navigated somewhere else keeps the preload but loses the powers.
  *
  * Any of those failing is a refusal, not a coerced default. `will-navigate` in
  * window.ts already prevents (3) from happening in the first place; this is
@@ -67,6 +74,12 @@ export interface IpcServices {
   checkForUpdate(): Promise<UpdateStatus>;
   /** Drain the tunnel, then hand off to Squirrel. Never returns. */
   restartToUpdate(): void;
+
+  // --- account mode ---
+  accountMode(): AccountMode;
+  accountState(): AccountState;
+  accountSignIn(origin?: string): Promise<AccountState>;
+  accountSignOut(): Promise<AccountState>;
 
   // --- the web app's local half ---
   hostInfo(): { app: string; version: string; platform: string };
@@ -86,6 +99,12 @@ export interface IpcServices {
   /** Push log batches to the page (true) or stop (false). */
   streamLogs(on: boolean): void;
   clearLogs(): void;
+
+  // Account mode only.
+  pair(bundle: RunnerPairingBundle): Promise<HostRunnerSnapshot>;
+  unpair(): Promise<HostRunnerSnapshot>;
+  pairingInfo(): RunnerPairingSummary | null;
+  restartRunner(): Promise<HostRunnerSnapshot>;
 
   getSettings(): HostSettings;
   setPreferences(patch: HostPreferences): Promise<HostSettings>;
@@ -183,6 +202,8 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   shell(SHELL_CHANNELS.updateRestart, () => {
     services.restartToUpdate();
   });
+  handle(SHELL_CHANNELS.accountState, () => services.accountState());
+  shell(SHELL_CHANNELS.accountUseLocal, () => services.accountSignOut());
 
   // --- the web app ---
   cloud(CLOUD_CHANNELS.hostInfo, () => services.hostInfo());
@@ -201,12 +222,17 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
       // Only the refusal is logged, and it earns its line: a page that gets no
       // base calls its own origin instead, and that failure surfaces several
       // layers from this decision.
-      if (value === "") console.warn(`[${channel}] refused or not ready`);
+      if (value === "" && services.accountMode() === "local") console.warn(`[${channel}] refused or not ready`);
       event.returnValue = value;
     });
   };
   syncValue(CLOUD_CHANNELS.apiBase, () => services.apiBase());
   syncValue(CLOUD_CHANNELS.apiToken, () => services.apiToken());
+  syncValue(CLOUD_CHANNELS.accountMode, () => services.accountMode());
+
+  cloud(CLOUD_CHANNELS.accountState, () => services.accountState());
+  cloud(CLOUD_CHANNELS.accountSignIn, (payload) => services.accountSignIn(validateSignIn(payload).origin));
+  cloud(CLOUD_CHANNELS.accountSignOut, () => services.accountSignOut());
 
   cloud(CLOUD_CHANNELS.runnerSnapshot, () => services.runnerSnapshot());
   cloud(CLOUD_CHANNELS.runnerConnect, () => services.connect());
@@ -219,6 +245,11 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.runnerClearLogs, () => {
     services.clearLogs();
   });
+
+  cloud(CLOUD_CHANNELS.runnerPair, (payload) => services.pair(validatePairRequest(payload).bundle));
+  cloud(CLOUD_CHANNELS.runnerUnpair, () => services.unpair());
+  cloud(CLOUD_CHANNELS.runnerPairingInfo, () => services.pairingInfo());
+  cloud(CLOUD_CHANNELS.runnerRestart, () => services.restartRunner());
 
   cloud(CLOUD_CHANNELS.settingsGet, () => services.getSettings());
   cloud(CLOUD_CHANNELS.settingsSetPreferences, (payload) => services.setPreferences(validatePreferences(payload)));

@@ -408,6 +408,15 @@ export function dataDir(): string {
 }
 
 /**
+ * The executor's own data directory in account mode (`executor_data_dir`).
+ * A sibling of `dataDir()` rather than inside it, so nothing an account keeps
+ * on this machine mixes with local-mode data and either can be deleted alone.
+ */
+export function executorDataDir(): string {
+  return path.join(app.getPath("userData"), "executor");
+}
+
+/**
  * Where the embedded Postgres binaries are downloaded and extracted.
  *
  * Deliberately NOT under `dataDir()`: it is a cache that can be deleted and
@@ -472,6 +481,33 @@ function probeAgentServer(): PreflightItem {
       ? "This copy of TaskTrooper is incomplete. Reinstall it from the latest build."
       : "Build it: npm run build:server",
     ...(app.isPackaged ? {} : { command: "npm run build:server" }),
+  };
+}
+
+/** The bundled runner's and executor's file names on this platform, account mode only. */
+export const RUNNER_BINARY = process.platform === "win32" ? "runner.exe" : "runner";
+export const EXECUTOR_BINARY = process.platform === "win32" ? "executor.exe" : "executor";
+
+/**
+ * A binary this app ships for account mode, `probeAgentServer`'s rule: the
+ * user cannot install it, so missing is a broken build, and in development
+ * the remediation is the npm script that builds it.
+ */
+function probeBundled(id: "runner" | "executor", label: string, file: string, script: string, required: boolean): PreflightItem {
+  const bundled = path.join(binDir(), file);
+  if (isExecutable(bundled)) {
+    return { id, label, required, status: "ok", path: bundled, source: app.isPackaged ? "bundled" : "dev-bin" };
+  }
+  return {
+    id,
+    label,
+    required,
+    status: "missing",
+    detail: `Not found at ${bundled}.`,
+    remediation: app.isPackaged
+      ? "This copy of TaskTrooper is incomplete. Reinstall it from the latest build."
+      : `Build it: npm run ${script}`,
+    ...(app.isPackaged ? {} : { command: `npm run ${script}` }),
   };
 }
 
@@ -1522,6 +1558,70 @@ export function startPreflight(opts: PreflightOptions = {}): PreflightRun {
 /** Run every check and assemble the whole report: `startPreflight`'s complete half. */
 export function preflight(opts: PreflightOptions = {}): Promise<PreflightReport> {
   return startPreflight(opts).complete;
+}
+
+/**
+ * The preflight for account mode: no local backend, no embedded Postgres, no
+ * Antigravity (the runner has no flavor for it). The runner binary stands in
+ * for `agent-server`, and `git`, `claude` and the Claude account are REQUIRED
+ * — the runner refuses to start without `claude_bin` and `git_bin` — where
+ * local mode leaves them optional because an install may run no agent CLI.
+ *
+ * The executor is optional: without it the runner answers agent.run with
+ * not_ready, and the CLI runs still work. The mobile toolchain and the other
+ * two host-executed CLIs stay optional too, and their presence is how
+ * `main/runner/env.ts#runnerConfig` learns the paths it sends only when
+ * detected — reusing this sweep rather than a second, narrower one keeps those
+ * paths from drifting out of step with what the preflight screen showed.
+ */
+export async function accountPreflight(opts: PreflightOptions): Promise<PreflightReport> {
+  const overrides = opts.overrides ?? {};
+  const dirs = searchDirs();
+  const find = (override: string | undefined, name: string): Located | null =>
+    which(override && override !== "" ? override : name, dirs);
+  const gitBin = find(overrides.gitBin, "git");
+  const claudeBin = find(overrides.claudeBin, "claude");
+  // Read before the first await: iOS simulators exist only on macOS, and
+  // xcuitest is a missing row anywhere else that no install can fix.
+  const ios = process.platform === "darwin";
+  const xcodeBin = ios ? (which("xcodebuild", dirs) ?? which("xcrun", dirs)) : undefined;
+  const appiumBin = find(overrides.appiumBin, "appium");
+  const clis = simpleClis()
+    .filter((cli) => cli.id !== "agy")
+    .map((cli): [SimpleCli, Located | null] => [cli, which(cli.binaryName, dirs)]);
+
+  const claude = versionOf(claudeBin, opts, claudeAnswered).then((answer) => claudeItem(claudeBin, answer));
+  const account = claude.then(probeClaudeAccount);
+  const appium = appiumBin
+    ? Promise.all([
+        versionOf(appiumBin, opts),
+        run(appiumBin.path, ["driver", "list", "--installed"]),
+        appiumHubIsAnswering(),
+      ]).then(([version, installed, hubUp]) => appiumItems(appiumBin, ios, { version, installed, hubUp }))
+    : Promise.resolve(appiumItems(null, ios));
+
+  const [git, claudeDone, accountDone, xcode, appiumDone, cliItems] = await Promise.all([
+    versionOf(gitBin, opts).then((answer) => gitItem(gitBin, answer)),
+    claude,
+    account,
+    xcodeBin === undefined ? Promise.resolve(undefined) : versionOf(xcodeBin, opts).then((answer) => xcodeItem(xcodeBin, answer)),
+    appium,
+    Promise.all(clis.map(([cli, found]) => versionOf(found, opts).then((answer) => simpleCliItem(cli, found, answer)))),
+  ]);
+
+  const items: PreflightItem[] = [
+    probeBundled("runner", "TaskTrooper runner", RUNNER_BINARY, "build:runner", true),
+    probeBundled("executor", "TaskTrooper executor", EXECUTOR_BINARY, "build:executor", false),
+    { ...git, required: true },
+    { ...claudeDone, required: true },
+    { ...accountDone, required: true },
+    ...(xcode ? [xcode] : []),
+    ...appiumDone,
+    probeAndroidSdk(dirs),
+    ...cliItems,
+  ];
+
+  return { generatedAt: Date.now(), items, ready: itemsAreReady(items) };
 }
 
 /**

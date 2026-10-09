@@ -14,13 +14,21 @@
  * have needed custom refinements for anyway.
  */
 
-import { CHILD_IDS, type ChildId, type NotificationPreferences, type UserSettings } from "./types.js";
+import {
+  CHILD_IDS,
+  type ChildId,
+  type NotificationPreferences,
+  type RunnerPairingBundle,
+  type UserSettings,
+} from "./types.js";
 import type {
+  AccountSignInRequest,
   ChatFocusRequest,
   ChooseDirectoryRequest,
   DiagnosticsRequest,
   LogsStreamRequest,
   OpenExternalRequest,
+  PairRequest,
   PreflightRequest,
   RestartChildRequest,
   RevealRequest,
@@ -173,7 +181,7 @@ export function validateLogsRequest(raw: unknown): HostLogsRequest {
   const out: HostLogsRequest = {};
   if (o.child !== undefined) {
     const child = asString(o.child, "logs.child", { max: 64 });
-    if (child !== "supervisor" && !(CHILD_IDS as readonly string[]).includes(child)) {
+    if (child !== "supervisor" && child !== "runner" && !(CHILD_IDS as readonly string[]).includes(child)) {
       fail(`logs.child: unknown child ${child}`);
     }
     out.child = child as ChildId | "supervisor";
@@ -216,7 +224,63 @@ export function validateSettingsPatch(raw: unknown): Partial<UserSettings> {
   if (o.launchAtLogin !== undefined) out.launchAtLogin = asBoolean(o.launchAtLogin, "settings.launchAtLogin");
   if (o.autoConnect !== undefined) out.autoConnect = asBoolean(o.autoConnect, "settings.autoConnect");
   if (o.notifications !== undefined) out.notifications = asNotifications(o.notifications, "settings.notifications");
+  if (o.mode !== undefined) {
+    if (o.mode !== "local" && o.mode !== "account") fail("settings.mode: expected local or account");
+    out.mode = o.mode;
+  }
+  if (o.accountOrigin !== undefined) out.accountOrigin = asOriginShaped(o.accountOrigin, "settings.accountOrigin");
   return out;
+}
+
+/**
+ * The shape of an account origin, and only the shape: `http(s)://host[:port]`
+ * with nothing after it. Which schemes and hosts are acceptable on this build
+ * is `main/account/origin.ts`'s decision, made where it is used.
+ */
+function asOriginShaped(value: unknown, what: string): string {
+  const raw = asCleanNonEmpty(value, what, { max: 512 });
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    fail(`${what}: not a URL`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") fail(`${what}: expected http or https`);
+  if (url.username !== "" || url.password !== "") fail(`${what}: must not carry credentials`);
+  if ((url.pathname !== "/" && url.pathname !== "") || url.search !== "" || url.hash !== "") {
+    fail(`${what}: expected an origin, with no path, query or fragment`);
+  }
+  return `${url.protocol}//${url.host}`;
+}
+
+/**
+ * `account.signIn(origin?)`. The origin is optional — absent means the one
+ * this app would use anyway — and only its shape is checked here.
+ */
+export function validateSignIn(raw: unknown): AccountSignInRequest {
+  if (raw === undefined || raw === null) return {};
+  const o = asRecord(raw, "signIn");
+  return o.origin === undefined ? {} : { origin: asOriginShaped(o.origin, "signIn.origin") };
+}
+
+/**
+ * The shape of a pairing bundle crossing IPC: every field a clean, non-empty
+ * string. Shallow on purpose; `main/config/pairing.ts#asPairingBundle`
+ * re-validates (`tm_base_url` https or loopback) before anything is written,
+ * and the main process checks the bundle's origin against the account's.
+ */
+export function validatePairRequest(raw: unknown): PairRequest {
+  const o = asRecord(raw, "pair");
+  const b = asRecord(o.bundle, "pair.bundle");
+  const bundle: RunnerPairingBundle = {
+    runner_token: asCleanNonEmpty(b.runner_token, "pair.bundle.runner_token", { max: 4096 }),
+    tm_base_url: asCleanNonEmpty(b.tm_base_url, "pair.bundle.tm_base_url", { max: 512 }),
+    tenant_id: asCleanNonEmpty(b.tenant_id, "pair.bundle.tenant_id", { max: 256 }),
+    member_uid: asCleanNonEmpty(b.member_uid, "pair.bundle.member_uid", { max: 256 }),
+    paired_at: asCleanNonEmpty(b.paired_at, "pair.bundle.paired_at", { max: 64 }),
+    label: asCleanNonEmpty(b.label, "pair.bundle.label", { max: 256 }),
+  };
+  return { bundle };
 }
 
 /**

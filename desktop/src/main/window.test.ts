@@ -492,6 +492,74 @@ describe("the navigation boundary is unchanged", () => {
   });
 });
 
+/**
+ * Account mode: the same view, created in the account origin's own partition,
+ * holding that origin and nothing else, and replaced — not navigated — when
+ * the mode changes.
+ */
+describe("the account's view", () => {
+  const ACCOUNT = "https://app.tasktrooper.ai";
+
+  function account(): { shell: InstanceType<typeof Shell>; mode: { origin: string; partition?: string } } {
+    const mode: { origin: string; partition?: string } = { origin: ORIGIN };
+    const shell = new Shell({
+      origin: () => mode.origin,
+      partition: () => mode.partition,
+      onCloudStatus: () => undefined,
+      quitStarted: () => false,
+    });
+    shell.create();
+    return { shell, mode };
+  }
+
+  it("opens the route it was served with, in the partition it was given", () => {
+    const { shell, mode } = account();
+    mode.origin = ACCOUNT;
+    mode.partition = `persist:account:${ACCOUNT}`;
+    shell.serve("/login");
+    const view = views.at(-1)!;
+    expect(view.options).toMatchObject({ webPreferences: { partition: `persist:account:${ACCOUNT}` } });
+    expect(view.webContents.loaded).toEqual([`${ACCOUNT}/login`]);
+  });
+
+  it("leaves the local view in the default session", () => {
+    const { view } = start();
+    expect((view.options as { webPreferences: Record<string, unknown> }).webPreferences).not.toHaveProperty("partition");
+  });
+
+  it("closes the old page on retire and builds a new one on the next serve", () => {
+    const { shell, mode } = account();
+    shell.serve();
+    const local = views.at(-1)!;
+    shell.retire();
+    expect(local.webContents.isDestroyed()).toBe(true);
+    expect(shell.cloudContents).toBeNull();
+
+    mode.origin = ACCOUNT;
+    mode.partition = `persist:account:${ACCOUNT}`;
+    shell.serve("/login");
+    const remote = views.at(-1)!;
+    expect(remote).not.toBe(local);
+    expect(shell.cloudContents).toBe(remote.webContents);
+  });
+
+  it("keeps the account's page on its origin and sends everything else to the browser", () => {
+    const { shell, mode } = account();
+    mode.origin = ACCOUNT;
+    shell.serve("/login");
+    const contents = views.at(-1)!.webContents;
+
+    let prevented = false;
+    contents.emit("will-navigate", { preventDefault: () => (prevented = true) }, `${ACCOUNT}/board`);
+    expect(prevented).toBe(false);
+
+    contents.emit("will-navigate", { preventDefault: () => (prevented = true) }, `${ORIGIN}/home`);
+    expect(prevented).toBe(true);
+    contents.emit("will-navigate", { preventDefault: () => undefined }, "https://accounts.example.com/o/oauth2");
+    expect(openedExternally).toEqual(["https://accounts.example.com/o/oauth2"]);
+  });
+});
+
 describe("closing the window", () => {
   it("hides the window instead of destroying it while quit has not started", () => {
     const { window } = start(ORIGIN, () => false);

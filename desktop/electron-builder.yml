@@ -110,10 +110,13 @@ mac:
   # copy in ./bin — which is signed long after it was already copied into the
   # app, and therefore signs nothing that ships.
   #
-  # One entry, and adding a line for a binary that is not staged fails the whole
-  # build at the signing step, ten minutes in, with "No such file or directory".
+  # Adding a line for a binary that is not staged fails the whole build at the
+  # signing step, ten minutes in, with "No such file or directory" — every one
+  # here is built by `npm run package`.
   binaries:
     - Contents/Resources/bin/agent-server
+    - Contents/Resources/bin/executor
+    - Contents/Resources/bin/runner
   # Submits the signed .app to Apple and staples the ticket, using whichever of
   # APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER (preferred) or
   # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID is present in the

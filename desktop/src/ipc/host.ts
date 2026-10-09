@@ -14,13 +14,18 @@
  * structurally identical instead — a change here that is not made there shows
  * up as a page that calls a method the shell does not have.
  *
- * There is no sign-in anywhere in this product, so nothing on this bridge is a
- * credential for a person. `apiToken` is the bearer for a loopback server this
- * same process started; it is the one value that travels shell → page, and it
- * grants access to nothing that is not already on this machine.
+ * Nothing on this bridge is a credential for a person. In local mode
+ * `apiToken` is the bearer for a loopback server this same process started; it
+ * is the one value that travels shell → page, and it grants access to nothing
+ * that is not already on this machine. In account mode the page is the
+ * account's web app on its own origin and signs in there with its own cookie:
+ * it gets no `apiBase` and no `apiToken`, and the pairing it hands this side
+ * goes in, never back out (`runner.pairing()` omits the token).
  */
 
 import type {
+  AccountMode,
+  AccountState,
   Blocker,
   ChildId,
   ChildState,
@@ -28,6 +33,9 @@ import type {
   LogLine,
   NotificationPreferences,
   PreflightReport,
+  RunnerPairingBundle,
+  RunnerPairingSummary,
+  TunnelStatus,
   UpdateStatus,
   WorkspaceCheck,
 } from "./types.js";
@@ -72,6 +80,8 @@ export interface HostRunnerSnapshot {
    * sentence.
    */
   blocker?: Blocker;
+  /** Account mode only — the runner's tunnel to the control plane. */
+  tunnel?: TunnelStatus;
 }
 
 /** The whole user-facing configuration. Four fields, and one of them is a path. */
@@ -135,6 +145,18 @@ export interface DesktopRunnerHost {
   disconnect(): Promise<HostRunnerSnapshot>;
   restartChild(child: ChildId): Promise<HostRunnerSnapshot>;
 
+  /**
+   * Account mode only. `pair` takes the bundle `POST /api/runner/pair`
+   * returned, refuses one for another origin than the account's, stores it
+   * encrypted and starts the runner; `unpair` stops the runner and forgets it.
+   * `pairing` is the stored bundle WITHOUT its token, `null` when unpaired.
+   */
+  pair(bundle: RunnerPairingBundle): Promise<HostRunnerSnapshot>;
+  unpair(): Promise<HostRunnerSnapshot>;
+  pairing(): Promise<RunnerPairingSummary | null>;
+  /** Restart the runner — account mode's `restartChild`, one child, no id. */
+  restart(): Promise<HostRunnerSnapshot>;
+
   logs(req?: HostLogsRequest): Promise<LogLine[]>;
   subscribeLogs(cb: (lines: LogLine[]) => void): () => void;
   clearLogs(): Promise<void>;
@@ -194,6 +216,24 @@ export interface DesktopUpdatesHost {
 }
 
 /**
+ * Local or account, switched at runtime.
+ *
+ * `signIn` stops the local backend and loads the account's sign-in page in
+ * this window; the web app there pairs the runner with `runner.pair`.
+ * `signOut` stops the runner and the executor, forgets the pairing, clears the
+ * account's session and starts the local backend again. Local data is left
+ * as it was. Both resolve once the switch is done — or never, for the page
+ * that asked, when the switch replaced that page. `state()` carries more than
+ * the page's half declares (`switching`, `paired`, `error`); it is a
+ * superset, so the two stay assignable.
+ */
+export interface DesktopAccountHost {
+  signIn(origin?: string): Promise<void>;
+  signOut(): Promise<void>;
+  state(): Promise<AccountState>;
+}
+
+/**
  * What the web app finds on `window.__tasktrooperDesktop`.
  *
  * The presence of this object IS the "we are running in the desktop shell"
@@ -215,8 +255,16 @@ export interface DesktopHost {
    * same reason `apiBase` is.
    */
   apiToken?: string;
+  /**
+   * Bumped when the bridge gains something a page may need to feature-test.
+   * 1: `account`, `mode` and the runner's pairing calls.
+   */
+  bridgeVersion: 1;
+  /** Which world this page is in, read synchronously before the first render. */
+  mode: AccountMode;
+  account: DesktopAccountHost;
   runner: DesktopRunnerHost;
   updates: DesktopUpdatesHost;
 }
 
-export type { ChooseDirectoryRequest, UpdateStatus };
+export type { AccountMode, AccountState, ChooseDirectoryRequest, RunnerPairingBundle, RunnerPairingSummary, UpdateStatus };

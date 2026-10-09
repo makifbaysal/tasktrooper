@@ -4,6 +4,14 @@ The macOS app. It starts the backend, the database and the embedding engine on
 this machine, serves the web UI from inside the bundle, and runs the agent CLI sessions
 (Claude Code, Cursor, Antigravity or OpenCode) here. One user, one machine, no cloud.
 
+That is **local mode**, the default. **Account mode** is optional: Settings →
+Account → "Connect an account" stops the local processes and opens the account's
+web app (`https://app.tasktrooper.ai`) in this window. The board, tasks and
+chat then live in the account; the work still runs on this computer, through
+the runner (`runner/`) and the executor it starts, with your own API keys.
+"Sign out" in the account's web app comes back to local mode; local data is
+never touched by either switch.
+
 ## What runs when you open it
 
 | # | Process | Started by | Gates the window? |
@@ -23,6 +31,20 @@ The window itself is a title bar plus a `WebContentsView` that loads
 `src/main/services/app-scheme.ts`. It is created only after the backend answers,
 because the page reads its API base synchronously from the preload.
 
+## Account mode
+
+| # | Process | Started by |
+|---|---|---|
+| 1 | `runner` (`runner/`, Go) | the runner supervisor, once the account's web app has paired this computer |
+| 2 | `executor` (`../server/cmd/executor`) | the runner, with your provider keys on its stdin |
+
+The local backend, its Postgres and the embedder do not run. The account's web
+app is loaded from its origin in a session of its own (cleared on sign-out);
+the pairing token (`pairing.bin`) and provider keys (`providers.bin`) are
+encrypted with the OS key store and only ever reach the runner on its stdin.
+`TASKTROOPER_ACCOUNT_ORIGIN=http://127.0.0.1:<port>` points a development
+build at a control plane on this machine.
+
 ## Layout
 
 | Path | What |
@@ -34,7 +56,8 @@ because the page reads its API base synchronously from the preload.
 | `src/shared/` | small UI pieces the renderer uses. No Electron, no Node |
 | `embedder/` | the bundled ONNX embedding server (its own esbuild bundle) |
 | `ui/` | the SPA. Built by `npm run build:ui`, staged as `Resources/web` |
-| `bin/` | `agent-server`, built from `../server`. Not in git |
+| `runner/` | the account-mode runner (Go, its own module) |
+| `bin/` | `agent-server` and `executor` built from `../server`, `runner` from `runner/`. Not in git |
 | `scripts/` | the build scripts |
 
 ## Commands
@@ -48,6 +71,8 @@ because the page reads its API base synchronously from the preload.
 | `npm run build:server:universal` | arm64 + amd64, joined with `lipo` |
 | `npm run build:ui` | `npm --prefix ui run build` |
 | `npm run build:embedder` | the embedder bundle into `dist/embedder` |
+| `npm run build:runner` | `go build` in `runner/` into `bin/runner` (`:universal` for packaging) |
+| `npm run build:executor` | `go build` of `../server/cmd/executor` into `bin/executor` (`:universal` for packaging) |
 | `npm run typecheck` / `lint` / `test` | three tsconfigs, eslint 9, vitest |
 | `npm run package` | all of the above plus `electron-builder --mac` |
 

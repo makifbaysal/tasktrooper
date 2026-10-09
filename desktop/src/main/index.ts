@@ -1,6 +1,6 @@
 import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { BrowserWindow, Menu, app, powerMonitor, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, Menu, app, powerMonitor, session, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { CLOUD_EVENTS, SHELL_EVENTS } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -10,14 +10,21 @@ import type {
   HostWorkspaceChoice,
 } from "../ipc/host.js";
 import type {
+  AccountState,
   AppInfo,
   CloudStatus,
   Diagnostics,
   LogLine,
   PreflightReport,
+  RunnerPairingBundle,
+  RunnerPairingSummary,
   SupervisorSnapshot,
   UpdateStatus,
 } from "../ipc/types.js";
+import { ACCOUNT_MODE_RUNS_EMBEDDER, ModeController } from "./account/mode.js";
+import { ACCOUNT_HOME_ROUTE, accountPartition, defaultAccountOrigin } from "./account/origin.js";
+import { PairingStore } from "./config/pairing.js";
+import { ProviderStore } from "./config/providers.js";
 import { SecretStore, type LocalSecrets } from "./config/secrets.js";
 import { SettingsStore } from "./config/settings.js";
 import { checkWorkspace, pickDirectory, pickWorkspace, reveal } from "./config/workspace.js";
@@ -25,7 +32,8 @@ import { applicationMenuTemplate } from "./app-menu.js";
 import { registerIpc, type IpcServices } from "./ipc.js";
 import { launchedHidden, setLaunchAtLogin } from "./login-item.js";
 import { quitSequence } from "./quit.js";
-import { APP_ORIGIN, originOf, registerAppSchemePrivileges, serveAppScheme } from "./services/app-scheme.js";
+import { isTrustedFrame } from "./sender-guard.js";
+import { APP_ORIGIN, registerAppSchemePrivileges, serveAppScheme } from "./services/app-scheme.js";
 import { binDir, dataDir } from "./services/detect.js";
 import { NotificationWatcher } from "./services/notifications.js";
 import {
@@ -36,6 +44,7 @@ import {
   resolveFeed,
   type UpdaterBackend,
 } from "./services/updater.js";
+import { RunnerSupervisor } from "./runner/supervisor.js";
 import { Supervisor } from "./supervisor/supervisor.js";
 import { AppTray } from "./tray.js";
 import { openExternally, Shell } from "./window.js";
@@ -43,10 +52,16 @@ import { openExternally, Shell } from "./window.js";
 /**
  * The main process: wiring, and only wiring.
  *
- * Everything with behaviour lives in supervisor/, config/ or services/, so this
- * file reads as the list of decisions the app makes at the top level — what
- * happens at launch, what happens on quit, and which sender is allowed to ask
- * for any of it.
+ * Everything with behaviour lives in supervisor/, runner/, account/, config/
+ * or services/, so this file reads as the list of decisions the app makes at
+ * the top level — what happens at launch, what happens on quit, and which
+ * sender is allowed to ask for any of it.
+ *
+ * Two modes, switched at runtime by `account/mode.ts`. Local: `supervisor`
+ * runs the backend and the embedder, and the window shows `app://tasktrooper`.
+ * Account: `runnerSupervisor` runs the runner, and the window shows the
+ * account's web app from its origin. Almost every function below that touches
+ * a supervisor asks which mode is current rather than branching on a build.
  */
 
 // One instance. Two supervisors on one Mac would each start a backend against
@@ -64,6 +79,51 @@ if (process.platform === "win32") app.setAppUserModelId("ai.tasktrooper.desktop"
 const settingsStore = new SettingsStore();
 const secretStore = new SecretStore();
 const supervisor = new Supervisor();
+const runnerSupervisor = new RunnerSupervisor(
+  new PairingStore(app.getPath("userData")),
+  new ProviderStore(app.getPath("userData")),
+);
+
+/**
+ * Local or account. Built before the window, which asks it which origin to
+ * trust; its steps reach for things declared further down, and only run once
+ * the app is ready.
+ */
+const modeController = new ModeController({
+  settings: settingsStore,
+  rules: { allowLoopbackHttp: !app.isPackaged },
+  defaultOrigin: defaultAccountOrigin({ packaged: app.isPackaged }),
+  stopLocal: async () => {
+    notifications.stop();
+    await (ACCOUNT_MODE_RUNS_EMBEDDER ? supervisor.disconnect() : supervisor.drain());
+  },
+  startLocal: () => startLocal(),
+  stopAccount: async () => {
+    await runnerSupervisor.unpair();
+  },
+  showAccount: (_origin, route) => {
+    servedBase = null;
+    shellWindow.retire();
+    shellWindow.serve(route);
+  },
+  showLocal: () => {
+    servedBase = null;
+    shellWindow.retire();
+  },
+  clearAccountSession: async (origin) => {
+    const partition = session.fromPartition(accountPartition(origin));
+    await partition.clearStorageData();
+    await partition.clearCache();
+  },
+  paired: () => runnerSupervisor.paired,
+});
+
+const accountMode = (): boolean => modeController.mode === "account";
+
+/** The one origin the web app's view may hold right now. */
+function trustedOrigin(): string {
+  return accountMode() ? modeController.origin : APP_ORIGIN;
+}
 
 /**
  * The API key and the MCP secrets key this install was generated with, held in
@@ -144,13 +204,14 @@ function streamLogs(on: boolean): void {
   const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
     if (details.isMainFrame && !details.isSameDocument) stop();
   };
+  const source = accountMode() ? runnerSupervisor : supervisor;
   const stop = (): void => {
-    supervisor.off("logs", forward);
+    source.off("logs", forward);
     contents.off("did-start-navigation", onNavigation);
     contents.off("destroyed", stop);
     stopLogStream = null;
   };
-  supervisor.on("logs", forward);
+  source.on("logs", forward);
   contents.on("did-start-navigation", onNavigation);
   contents.once("destroyed", stop);
   stopLogStream = stop;
@@ -196,7 +257,8 @@ function startUpdates(): void {
 registerAppSchemePrivileges();
 
 const shellWindow = new Shell({
-  origin: () => APP_ORIGIN,
+  origin: trustedOrigin,
+  partition: () => (accountMode() ? accountPartition(modeController.origin) : undefined),
   onCloudStatus: (status) => broadcast(SHELL_EVENTS.cloudStatus, status),
   onFullScreen: (fullScreen) => broadcast(SHELL_EVENTS.fullScreen, fullScreen),
   // `quit` is assigned further down, but this closure is not called until the
@@ -240,6 +302,7 @@ function toCloud(channel: string, payload: unknown): void {
 }
 
 function reconfigure(): void {
+  runnerSupervisor.configure(settingsStore.get(), settingsStore.overrides());
   supervisor.configure({
     secrets,
     ...(secretsError !== undefined ? { secretsError } : {}),
@@ -277,7 +340,11 @@ function loadSecrets(): void {
  * here. It gets what is running, whether it is healthy, and one line saying why
  * not.
  */
-function hostSnapshot(snapshot: SupervisorSnapshot = supervisor.snapshot()): HostRunnerSnapshot {
+function activeSnapshot(): SupervisorSnapshot {
+  return accountMode() ? runnerSupervisor.snapshot() : supervisor.snapshot();
+}
+
+function hostSnapshot(snapshot: SupervisorSnapshot = activeSnapshot()): HostRunnerSnapshot {
   const phase = ((): HostRunnerSnapshot["phase"] => {
     switch (snapshot.state) {
       case "preflight":
@@ -311,6 +378,7 @@ function hostSnapshot(snapshot: SupervisorSnapshot = supervisor.snapshot()): Hos
       ...(child.exitedAt !== undefined ? { exitedAt: child.exitedAt } : {}),
     })),
     ...(snapshot.blocker !== undefined ? { blocker: snapshot.blocker } : {}),
+    ...(snapshot.tunnel !== undefined ? { tunnel: snapshot.tunnel } : {}),
   };
 }
 
@@ -363,7 +431,13 @@ const quit = quitSequence({
     tray?.destroy();
     tray = null;
   },
-  drain: () => supervisor.drain(),
+  // Both, whichever mode is current: a session that switched modes can have
+  // an embedder from local mode and a runner from account mode, and draining
+  // an idle supervisor costs nothing.
+  drain: async () => {
+    const [local] = await Promise.all([supervisor.drain(), runnerSupervisor.drain()]);
+    return local;
+  },
   installUpdate: () => updates?.install() ?? false,
   exit: (code) => app.exit(code),
 });
@@ -393,13 +467,24 @@ function appInfo(): AppInfo {
     platform: process.platform,
     arch: process.arch,
     packaged: app.isPackaged,
-    origin: supervisor.apiBase ?? "",
+    origin: accountMode() ? modeController.origin : (supervisor.apiBase ?? ""),
   };
+}
+
+/**
+ * The pairing the account's web app hands over, checked against the account
+ * this computer is signed in to before the runner sees it: its `tm_base_url`
+ * is where the runner dials with a bearer token.
+ */
+async function pairRunner(bundle: RunnerPairingBundle): Promise<HostRunnerSnapshot> {
+  const refusal = modeController.checkPairing(bundle);
+  if (refusal) throw new Error(refusal);
+  return hostSnapshot(await runnerSupervisor.pair(bundle));
 }
 
 const services: IpcServices = {
   appInfo,
-  supervisorState: () => supervisor.snapshot(),
+  supervisorState: activeSnapshot,
   cloudStatus: (): CloudStatus => shellWindow.status,
   reloadCloud: () => shellWindow.reloadCloud(),
 
@@ -408,28 +493,54 @@ const services: IpcServices = {
     (await updates?.check()) ?? { phase: "unsupported", detail: "The updater has not started yet." },
   restartToUpdate,
 
+  accountMode: () => modeController.mode,
+  accountState: (): AccountState => modeController.state(),
+  accountSignIn: (origin?: string) => modeController.signIn(origin),
+  accountSignOut: () => modeController.signOut(),
+
   hostInfo: () => ({ app: "tasktrooper-desktop", version: app.getVersion(), platform: process.platform }),
 
-  // The page is served from APP_ORIGIN, which has no gateway behind it, so it
-  // has to be told where the API lives — and, because the backend picks its own
-  // port, that address is not knowable until it has answered. The window is not
-  // created until then, so an empty answer here means something is wrong rather
-  // than something is early.
-  apiBase: () => supervisor.apiBase ?? "",
-  apiToken: () => secrets?.api_token ?? "",
+  // Local mode: the page is served from APP_ORIGIN, which has no gateway
+  // behind it, so it has to be told where the API lives — and, because the
+  // backend picks its own port, that address is not knowable until it has
+  // answered. The window is not created until then, so an empty answer here
+  // means something is wrong rather than something is early.
+  //
+  // Account mode: nothing, and the token above all. The page is the account's
+  // web app on its own origin, talking to its own API with its own cookie;
+  // the local backend's bearer is not something a remote origin may hold.
+  apiBase: () => (accountMode() ? "" : (supervisor.apiBase ?? "")),
+  apiToken: () => (accountMode() ? "" : (secrets?.api_token ?? "")),
 
   runnerSnapshot: () => hostSnapshot(),
   connect: async () => {
+    if (accountMode()) return hostSnapshot(await runnerSupervisor.connect());
     loadSecrets();
     return hostSnapshot(await supervisor.connect());
   },
-  disconnect: async () => hostSnapshot(await supervisor.disconnect()),
-  restartChild: async (child) => hostSnapshot(await supervisor.restartChild(child as never)),
-  logs: (req) => supervisor.logs(req.child as never, req.afterSeq ?? 0, req.limit),
+  disconnect: async () =>
+    hostSnapshot(accountMode() ? await runnerSupervisor.disconnect() : await supervisor.disconnect()),
+  restartChild: async (child) => {
+    if (accountMode()) return hostSnapshot(await runnerSupervisor.restart());
+    return hostSnapshot(await supervisor.restartChild(child as never));
+  },
+  logs: (req) => {
+    if (!accountMode()) return supervisor.logs(req.child as never, req.afterSeq ?? 0, req.limit);
+    const child = req.child === undefined ? undefined : req.child === "supervisor" ? "supervisor" : "runner";
+    return runnerSupervisor.logs(child, req.afterSeq ?? 0, req.limit);
+  },
   streamLogs,
-  clearLogs: () => supervisor.clearLogs(),
+  clearLogs: () => (accountMode() ? runnerSupervisor.clearLogs() : supervisor.clearLogs()),
 
-  getSettings: (): HostSettings => settingsStore.get(),
+  pair: pairRunner,
+  unpair: async () => hostSnapshot(await runnerSupervisor.unpair()),
+  pairingInfo: (): RunnerPairingSummary | null => runnerSupervisor.pairingInfo(),
+  restartRunner: async () => hostSnapshot(await runnerSupervisor.restart()),
+
+  getSettings: (): HostSettings => {
+    const { workspaceDir, launchAtLogin, autoConnect, notifications: prefs } = settingsStore.get();
+    return { workspaceDir, launchAtLogin, autoConnect, notifications: prefs };
+  },
 
   setPreferences: async (patch: HostPreferences): Promise<HostSettings> => {
     const next = settingsStore.set(patch);
@@ -451,13 +562,14 @@ const services: IpcServices = {
     const chosen = await pickWorkspace(settingsStore.get().workspaceDir);
     if (!chosen) return null;
     if (!chosen.ok) return { check: chosen };
-    const next = settingsStore.set({ workspaceDir: chosen.path });
+    settingsStore.set({ workspaceDir: chosen.path });
     reconfigure();
-    if (supervisor.running) {
-      await supervisor.disconnect();
-      void supervisor.connect();
+    const active = accountMode() ? runnerSupervisor : supervisor;
+    if (active.running) {
+      await active.disconnect();
+      void active.connect();
     }
-    return { check: chosen, settings: next };
+    return { check: chosen, settings: services.getSettings() };
   },
 
   chooseDirectory: (options) => pickDirectory(options),
@@ -487,6 +599,11 @@ const services: IpcServices = {
 
   diagnostics: (force: boolean): Promise<Diagnostics> => buildDiagnostics(force),
   setOverrides: async (patch: HostOverrides): Promise<Diagnostics> => {
+    // An override names a binary this app will run — the runner execs it with
+    // a task's prompt on its stdin. That is not a decision a remote origin's
+    // page gets to make; in account mode it is refused here, and made in local
+    // mode, on this app's own page.
+    if (accountMode()) throw new Error("Paths to programs can only be changed while TaskTrooper runs locally.");
     settingsStore.setOverrides(checkedOverrides(patch));
     reconfigure();
     return buildDiagnostics(true);
@@ -497,20 +614,14 @@ const services: IpcServices = {
  * Is this call really from the web app's view, right now?
  *
  * Three questions, all of which must answer yes: the exact WebContents we
- * created for it, its top frame, and an origin that is still the trusted one. A
- * popup, an iframe, the chrome's own renderer and a view that navigated
- * elsewhere all fail at least one.
+ * created for it, its top frame, and an origin that is still the trusted one —
+ * `app://tasktrooper` in local mode, the account's origin in account mode,
+ * never both. A popup, an iframe, the chrome's own renderer, a view that
+ * navigated elsewhere and the other mode's origin all fail at least one.
  */
 function isTrustedCloudSender(event: IpcMainInvokeEvent): boolean {
-  const contents = shellWindow.cloudContents;
-  if (!contents || contents.isDestroyed() || event.sender !== contents) return false;
-
-  const frame = event.senderFrame;
-  const main = contents.mainFrame;
-  if (!frame || frame.processId !== main.processId || frame.routingId !== main.routingId) return false;
-
   try {
-    return originOf(frame.url) === APP_ORIGIN;
+    return isTrustedFrame(event, shellWindow.cloudContents, trustedOrigin());
   } catch {
     return false;
   }
@@ -524,8 +635,8 @@ function isTrustedCloudSender(event: IpcMainInvokeEvent): boolean {
  * base and no token, sending every request at its own `app://` origin where the
  * static handler answers each one with index.html.
  *
- * Only the two synchronous channels use this. Neither takes an argument and
- * neither changes anything.
+ * Only the synchronous channels use this. None takes an argument and none
+ * changes anything, and in account mode the two that carry values answer "".
  */
 function isCloudWebContents(event: IpcMainEvent): boolean {
   const contents = shellWindow.cloudContents;
@@ -557,6 +668,11 @@ function isShellSender(event: IpcMainInvokeEvent): boolean {
  * tells the user their fix did not work.
  */
 function runPreflight(force: boolean): Promise<PreflightReport> {
+  if (accountMode()) {
+    const current = runnerSupervisor.preflight;
+    if (!force && current.items.length > 0) return Promise.resolve(current);
+    return runnerSupervisor.detect();
+  }
   return supervisor.detect(force ? { force: true } : { maxAgeMs: Number.POSITIVE_INFINITY });
 }
 
@@ -585,16 +701,41 @@ app.on("second-instance", () => showWindow());
 /**
  * Start the backend and, once it answers, put the web app on screen.
  *
- * This is the launch path and also what the tray's Connect calls. A failure is
+ * This is the local launch path and what the tray's Start calls. A failure is
  * not thrown at anybody: the supervisor already narrated it, and the chrome's
  * own offline screen is where a user is looking.
  */
 async function startBackend(): Promise<void> {
   loadSecrets();
   const snapshot = await supervisor.connect();
-  if (snapshot.state === "failed") {
+  if (snapshot.state === "failed" && !accountMode()) {
     shellWindow.markUnavailable(snapshot.detail ?? "The local server did not start.");
   }
+}
+
+/**
+ * Local mode coming back after an account: the embedder too, which account
+ * mode stopped (`ACCOUNT_MODE_RUNS_EMBEDDER`), then the backend.
+ */
+async function startLocal(): Promise<void> {
+  if (!ACCOUNT_MODE_RUNS_EMBEDDER) void supervisor.startEmbedder();
+  await startBackend();
+}
+
+/**
+ * Account mode's start: the runner, once this computer is paired. Unpaired is
+ * not a failure — the account's web app pairs it after sign-in — and a runner
+ * that does not attach is the page's to show, not the window's: the page is
+ * already on screen, served from the account's origin.
+ */
+async function startRunner(): Promise<void> {
+  if (!runnerSupervisor.paired) return;
+  await runnerSupervisor.connect();
+}
+
+/** What the tray's Start does in the current mode. */
+function startActive(): void {
+  void (accountMode() ? startRunner() : startBackend());
 }
 
 app.whenReady().then(
@@ -611,11 +752,14 @@ app.whenReady().then(
     // loadSecrets(), spawning children: it owns the "starting…" screen, which
     // is what the user looks at while the backend comes up, and its renderer
     // loads in parallel with everything below. Its IPC handlers are registered
-    // first because its renderer starts asking as soon as it exists. The web
-    // app's own view is attached by the `server` handler below, once /health
-    // has answered.
+    // first because its renderer starts asking as soon as it exists. In local
+    // mode the web app's own view is attached by the `server` handler below,
+    // once /health has answered; in account mode there is nothing local to
+    // wait for, and the account's web app is served at once.
     registerIpc(services, { isTrustedCloudSender, isCloudWebContents, isShellSender });
     shellWindow.create({ hidden: launchedHidden() });
+    const launchedInAccountMode = accountMode();
+    if (launchedInAccountMode) shellWindow.serve(ACCOUNT_HOME_ROUTE);
 
     // As early as possible: the PATH the last launch's login shell reported is
     // put to use at once, and this launch's own login shell (a second or so
@@ -629,26 +773,28 @@ app.whenReady().then(
 
     loadSecrets();
 
-    // Unconditionally, and first among the children: the backend is handed this
-    // child's resolved loopback URL, and a cold model download benefits from
-    // every second before that. Never awaited — it never blocks app startup,
-    // and the supervisor reports its own failures.
+    // First among the children: the backend is handed this child's resolved
+    // loopback URL, and a cold model download benefits from every second
+    // before that. Never awaited — it never blocks app startup, and the
+    // supervisor reports its own failures. Not in account mode, which has no
+    // use for it yet (`ACCOUNT_MODE_RUNS_EMBEDDER`).
     void supervisor.reapStale();
-    void supervisor.startEmbedder();
+    if (!launchedInAccountMode || ACCOUNT_MODE_RUNS_EMBEDDER) void supervisor.startEmbedder();
 
     // The tray outlives the window, which is the point: closing the window must
     // not stop the backend, and without a tray there would then be no way back
     // to it.
     tray = new AppTray({
       showWindow,
-      start: () => void startBackend(),
-      stop: () => void supervisor.disconnect(),
+      start: startActive,
+      stop: () => void (accountMode() ? runnerSupervisor.disconnect() : supervisor.disconnect()),
       quit: () => void quit.run(),
       checkForUpdate: () => void updates?.check(),
       restartToUpdate,
+      subject: () => (accountMode() ? "the runner" : "the local server"),
     });
     tray.create();
-    tray.update(supervisor.snapshot());
+    tray.update(activeSnapshot());
 
     // After the tray, which renders the update state; `startUpdates` hands it
     // the real one as soon as there is one.
@@ -677,14 +823,29 @@ app.whenReady().then(
     // which on a laptop that only ever sleeps can be weeks away.
     powerMonitor.on("resume", () => void supervisor.reapStale());
 
+    // Each supervisor speaks for the window only in its own mode: during a
+    // switch the outgoing one is still narrating its stop, and that belongs to
+    // the page that is going away.
     supervisor.on("state", (snapshot: SupervisorSnapshot) => {
+      if (!accountMode()) {
+        tray?.update(snapshot);
+        broadcast(SHELL_EVENTS.supervisorState, snapshot);
+        toCloud(CLOUD_EVENTS.runnerState, hostSnapshot(snapshot));
+      }
+      // The watcher polls only while there is a backend to poll — `start()` is
+      // idempotent, so calling it on every "running" event is harmless.
+      if (supervisor.apiBase && !accountMode()) notifications.start();
+      else notifications.stop();
+    });
+    runnerSupervisor.on("state", (snapshot: SupervisorSnapshot) => {
+      if (!accountMode()) return;
       tray?.update(snapshot);
       broadcast(SHELL_EVENTS.supervisorState, snapshot);
       toCloud(CLOUD_EVENTS.runnerState, hostSnapshot(snapshot));
-      // The watcher polls only while there is a backend to poll — `start()` is
-      // idempotent, so calling it on every "running" event is harmless.
-      if (supervisor.apiBase) notifications.start();
-      else notifications.stop();
+    });
+    modeController.on("state", (state: AccountState) => {
+      broadcast(SHELL_EVENTS.accountState, state);
+      tray?.update(activeSnapshot());
     });
 
     // The moment somebody who just started a run walks away from it is when
@@ -701,7 +862,7 @@ app.whenReady().then(
      * life calling a port nothing is listening on.
      */
     supervisor.on("server", (baseUrl) => {
-      if (baseUrl === null) return;
+      if (baseUrl === null || accountMode()) return;
       const moved = servedBase !== null && servedBase !== baseUrl;
       servedBase = baseUrl;
       shellWindow.serve();
@@ -712,12 +873,21 @@ app.whenReady().then(
     // screen has answers the moment someone opens it. The start below joins
     // this same sweep rather than running its own.
     // A failure is narrated by the supervisor itself.
-    void supervisor.detect().then(
-      () => tray?.update(supervisor.snapshot()),
-      () => undefined,
-    );
+    if (launchedInAccountMode) {
+      void runnerSupervisor.detect().then(
+        () => tray?.update(activeSnapshot()),
+        () => undefined,
+      );
+    } else {
+      void supervisor.detect().then(
+        () => tray?.update(supervisor.snapshot()),
+        () => undefined,
+      );
+    }
 
-    if (settingsStore.get().autoConnect) {
+    if (launchedInAccountMode) {
+      if (settingsStore.get().autoConnect) void startRunner();
+    } else if (settingsStore.get().autoConnect) {
       void startBackend();
     } else {
       shellWindow.markUnavailable(
@@ -729,7 +899,11 @@ app.whenReady().then(
   },
   () => {
     const giveUp = new Promise<void>((resolve) => setTimeout(resolve, 10_000).unref());
-    void Promise.race([supervisor.drain().then(() => undefined, () => undefined), giveUp]).then(() => app.exit(1));
+    const drained = Promise.all([supervisor.drain(), runnerSupervisor.drain()]).then(
+      () => undefined,
+      () => undefined,
+    );
+    void Promise.race([drained, giveUp]).then(() => app.exit(1));
   },
 );
 
