@@ -283,6 +283,10 @@ func startFakeExecutor(t *testing.T, mode string, timings executorTimings) *exec
 			{ID: "openai-main", Type: "openai", APIKey: fakeProviderKey, Models: []string{"gpt-4.1"}},
 			{ID: "local", Type: "openai", BaseURL: "http://127.0.0.1:1234/v1"},
 		},
+		mcpServers: []mcpServerConfig{
+			{Name: "notes", Command: "/usr/local/bin/notes-mcp", Args: []string{"--stdio"}, Env: map[string]string{"NOTES_TOKEN": fakeMemberSecret}},
+			{Name: "wiki", URL: "https://wiki.example/mcp", Headers: map[string]string{"Authorization": "Bearer " + fakeMemberHeader}},
+		},
 	}
 	st := newState()
 	st.executor = newExecutorSupervisor(cfg, func() string { return "" }, timings)
@@ -339,6 +343,10 @@ func TestTheExecutorIsHandedTheWorkspaceRootTheProvidersAndAFreshBearer(t *testi
 	}
 	if len(got.Providers) != 2 || got.Providers[0].APIKey != fakeProviderKey || got.Providers[1].BaseURL == "" {
 		t.Errorf("providers = %+v, want both, keys included", got.Providers)
+	}
+	if len(got.MCPServers) != 2 || got.MCPServers[0].Env["NOTES_TOKEN"] != fakeMemberSecret || got.MCPServers[0].Command == "" ||
+		got.MCPServers[1].Headers["Authorization"] != "Bearer "+fakeMemberHeader || got.MCPServers[1].URL == "" {
+		t.Errorf("mcp_servers = %+v, want both, env and headers included", got.MCPServers)
 	}
 	if info, err := os.Stat(h.cfg.executorDataDir); err != nil || !info.IsDir() {
 		t.Errorf("the data directory was not created: %v", err)
@@ -618,6 +626,50 @@ func TestAgentRunRefusesBeforeForwarding(t *testing.T) {
 			res := request(t, h.cfg, h.st, http.MethodPost, "/agent.run", body)
 			if res.status != http.StatusBadRequest {
 				t.Fatalf("status = %d body=%s, want 400 before the executor sees it", res.status, res.body)
+			}
+		})
+	}
+}
+
+const (
+	fakeMemberSecret = "member-env-secret-7731"
+	fakeMemberHeader = "member-header-secret-5520"
+)
+
+func TestLoadConfigMCPServers(t *testing.T) {
+	ok := map[string]any{
+		"mcp_servers": []map[string]any{
+			{"name": "notes", "command": "/usr/local/bin/notes-mcp", "args": []string{"--stdio"}, "env": map[string]string{"TOKEN": "t"}},
+			{"name": "wiki", "url": "http://127.0.0.1:9000/mcp", "headers": map[string]string{"Authorization": "Bearer t"}},
+		},
+	}
+	cfg, err := loadConfig([]byte(configWith(t, ok)))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if len(cfg.mcpServers) != 2 || cfg.mcpServers[0].Env["TOKEN"] != "t" || cfg.mcpServers[1].Headers["Authorization"] != "Bearer t" {
+		t.Fatalf("mcpServers = %+v", cfg.mcpServers)
+	}
+	held := providerSecrets(cfg)
+	if len(held) != 2 {
+		t.Fatalf("the redactor holds %v, want the env value and the header value", held)
+	}
+
+	for name, servers := range map[string][]map[string]any{
+		"both":             {{"name": "a", "command": "x", "url": "https://a.example"}},
+		"neither":          {{"name": "a"}},
+		"underscore name":  {{"name": "a_b", "command": "x"}},
+		"duplicate":        {{"name": "a", "command": "x"}, {"name": "a", "command": "y"}},
+		"ftp":              {{"name": "a", "url": "ftp://a.example"}},
+		"userinfo":         {{"name": "a", "url": "https://u:p@a.example"}},
+		"headers on stdio": {{"name": "a", "command": "x", "headers": map[string]string{"A": "b"}}},
+		"newline header":   {{"name": "a", "url": "https://a.example", "headers": map[string]string{"A": "b\nX: 1"}}},
+		"bad env name":     {{"name": "a", "command": "x", "env": map[string]string{"1X": "v"}}},
+		"unknown field":    {{"name": "a", "command": "x", "shell": true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadConfig([]byte(configWith(t, map[string]any{"mcp_servers": servers}))); err == nil {
+				t.Fatal("loadConfig accepted it")
 			}
 		})
 	}

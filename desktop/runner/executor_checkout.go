@@ -53,7 +53,7 @@ func (s *runnerServer) readCheckoutCall(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *runnerServer) checkoutRedactor(githubToken string) func([]byte) []byte {
-	held := providerSecrets(s.cfg.providers)
+	held := providerSecrets(s.cfg)
 	held[githubTokenLabel] = githubToken
 	return heldSecretRedactor(s.cfg.policy, held)
 }

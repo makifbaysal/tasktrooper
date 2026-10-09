@@ -195,6 +195,11 @@ type wireConfig struct {
 	// memory and handed to the executor on its stdin; they never cross the
 	// tunnel and never reach a log line (executor.go).
 	Providers []providerConfig `json:"providers,omitempty"`
+	// MCPServers are the member's own MCP servers on this computer (stdio
+	// command and env, or http url and headers). Held in memory and handed to
+	// the executor on its stdin like the providers; their secrets never cross
+	// the tunnel, argv or a log line.
+	MCPServers []mcpServerConfig `json:"mcp_servers,omitempty"`
 
 	// RunnerDataDir is where this runner keeps what it writes for itself: the
 	// durable runs' buffers. Optional; absent is the user's cache directory.
@@ -239,6 +244,7 @@ type config struct {
 	executorDataDir          string
 	executorPostgresCacheDir string
 	providers                []providerConfig
+	mcpServers               []mcpServerConfig
 	runnerDataDir            string
 	runBufferBytes           int64
 }
@@ -427,6 +433,10 @@ func loadConfig(line []byte) (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	mcpServers, err := checkMCPServers(wire.MCPServers)
+	if err != nil {
+		return config{}, err
+	}
 	runnerData := strings.TrimSpace(wire.RunnerDataDir)
 	if runnerData != "" {
 		if !filepath.IsAbs(runnerData) {
@@ -465,6 +475,7 @@ func loadConfig(line []byte) (config, error) {
 		executorDataDir:          executorData,
 		executorPostgresCacheDir: executorPostgres,
 		providers:                providers,
+		mcpServers:               mcpServers,
 		runnerDataDir:            runnerData,
 		runBufferBytes:           runBuffer,
 	}, nil

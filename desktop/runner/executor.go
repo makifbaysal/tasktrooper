@@ -106,14 +106,90 @@ type executorConfig struct {
 	EmbeddingsBaseURL string           `json:"embeddings_base_url,omitempty"`
 	PostgresCacheDir  string           `json:"postgres_cache_dir,omitempty"`
 	Providers         []providerConfig `json:"providers"`
+	// MCPServers are the member's own MCP servers on this computer; their env
+	// and header values are secrets, held like the provider keys.
+	MCPServers []mcpServerConfig `json:"mcp_servers,omitempty"`
 }
 
-const maxProviders = 64
+// mcpServerConfig is one of the member's own MCP servers, exactly as the
+// executor contract names it: a stdio command, or an http url, never both.
+type mcpServerConfig struct {
+	Name    string            `json:"name"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+const (
+	maxProviders  = 64
+	maxMCPServers = 32
+)
 
 var (
-	providerIdent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	agentRunID    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	providerIdent    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	agentRunID       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+	memberServerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,31}$`)
+	mcpEnvName       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	mcpHeaderName    = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$")
 )
+
+// checkMCPServers validates what the desktop app sent, as the executor will
+// again: a stdio server has a command, an http one an http(s) url with no
+// credentials in it, and neither carries a control character.
+func checkMCPServers(in []mcpServerConfig) ([]mcpServerConfig, error) {
+	if len(in) > maxMCPServers {
+		return nil, fmt.Errorf("mcp_servers: %d entries, at most %d", len(in), maxMCPServers)
+	}
+	seen := make(map[string]bool, len(in))
+	for i, m := range in {
+		where := fmt.Sprintf("mcp_servers[%d]", i)
+		if !memberServerName.MatchString(m.Name) {
+			return nil, fmt.Errorf("%s.name %q is not a server name", where, m.Name)
+		}
+		if seen[m.Name] {
+			return nil, fmt.Errorf("%s.name %q appears twice", where, m.Name)
+		}
+		seen[m.Name] = true
+		hasCommand, hasURL := strings.TrimSpace(m.Command) != "", strings.TrimSpace(m.URL) != ""
+		if hasCommand == hasURL {
+			return nil, fmt.Errorf("%s has either a command or a url, not both and not neither", where)
+		}
+		if hasURL {
+			if len(m.Args) > 0 || len(m.Env) > 0 {
+				return nil, fmt.Errorf("%s: an http server takes headers, not args or env", where)
+			}
+			u, err := url.Parse(m.URL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+				return nil, fmt.Errorf("%s.url is not an http(s) address without credentials", where)
+			}
+			for k, v := range m.Headers {
+				if !mcpHeaderName.MatchString(k) || providerControl.MatchString(v) {
+					return nil, fmt.Errorf("%s.headers[%q] is not a header", where, k)
+				}
+			}
+			continue
+		}
+		if len(m.Headers) > 0 {
+			return nil, fmt.Errorf("%s: a stdio server takes args and env, not headers", where)
+		}
+		if providerControl.MatchString(m.Command) {
+			return nil, fmt.Errorf("%s.command contains control characters", where)
+		}
+		for _, a := range m.Args {
+			if strings.ContainsRune(a, 0) {
+				return nil, fmt.Errorf("%s.args contains a NUL", where)
+			}
+		}
+		for k, v := range m.Env {
+			if !mcpEnvName.MatchString(k) || strings.ContainsRune(v, 0) {
+				return nil, fmt.Errorf("%s.env[%q] is not an environment variable", where, k)
+			}
+		}
+	}
+	return in, nil
+}
 
 // checkProviders validates what the desktop app sent. A key may be empty (a
 // local model server needs none); a base URL that is not loopback must be
@@ -178,13 +254,25 @@ func checkProviderBaseURL(raw string) error {
 	return nil
 }
 
-// providerSecrets is every key the executor holds, labelled for the
-// redaction marker.
-func providerSecrets(providers []providerConfig) map[string]string {
-	out := make(map[string]string, len(providers))
-	for _, p := range providers {
+// providerSecrets is every key and every MCP env or header value the
+// executor holds, labelled for the redaction marker.
+func providerSecrets(cfg config) map[string]string {
+	out := make(map[string]string, len(cfg.providers))
+	for _, p := range cfg.providers {
 		if p.APIKey != "" {
 			out["PROVIDER_API_KEY:"+p.ID] = p.APIKey
+		}
+	}
+	for _, m := range cfg.mcpServers {
+		for k, v := range m.Env {
+			if v != "" {
+				out["MCP_SERVER_ENV:"+m.Name+":"+k] = v
+			}
+		}
+		for k, v := range m.Headers {
+			if v != "" {
+				out["MCP_SERVER_HEADER:"+m.Name+":"+k] = v
+			}
 		}
 	}
 	return out
@@ -203,6 +291,7 @@ type executorSupervisor struct {
 	postgresCacheDir string
 	workspace        string
 	providers        []providerConfig
+	mcpServers       []mcpServerConfig
 	embeddings       func() string
 	t                executorTimings
 	client           *http.Client
@@ -248,10 +337,11 @@ func newExecutorSupervisor(cfg config, embeddings func() string, t executorTimin
 		postgresCacheDir: cfg.executorPostgresCacheDir,
 		workspace:        cfg.workspaceDir,
 		providers:        cfg.providers,
+		mcpServers:       cfg.mcpServers,
 		embeddings:       embeddings,
 		t:                t,
 		client:           loopbackClient(),
-		scrub:            heldSecretRedactor(cfg.policy, providerSecrets(cfg.providers)),
+		scrub:            heldSecretRedactor(cfg.policy, providerSecrets(cfg)),
 		ctx:              ctx,
 		cancel:           cancel,
 		done:             make(chan struct{}),
@@ -411,6 +501,7 @@ func (e *executorSupervisor) spawn() (*executorProcess, error) {
 		EmbeddingsBaseURL: e.embeddings(),
 		PostgresCacheDir:  e.postgresCacheDir,
 		Providers:         providers,
+		MCPServers:        e.mcpServers,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encoding the executor's config: %w", err)
@@ -657,7 +748,7 @@ func (h agentRunHead) callID() string {
 }
 
 func (s *runnerServer) executorRedactor(mcpToken string) func([]byte) []byte {
-	held := providerSecrets(s.cfg.providers)
+	held := providerSecrets(s.cfg)
 	held[mcpRunTokenLabel] = mcpToken
 	return heldSecretRedactor(s.cfg.policy, held)
 }
