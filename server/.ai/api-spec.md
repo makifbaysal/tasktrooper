@@ -768,7 +768,7 @@ repository's own `local_run` doc (`scripts/dev.sh`).
   signature → `401`; otherwise `202 {accepted, reason}`, where `reason` is diagnostic and
   shows up in GitHub's delivery log.
 
-  Three `X-GitHub-Event` values are handled; anything else (`ping`, `installation`, …) is
+  Four `X-GitHub-Event` values are handled; anything else (`ping`, `installation`, …) is
   acknowledged with `204` and ignored.
 
   - `push` to the default branch debounces a reindex + a project-model rescan (trigger `push`).
@@ -779,14 +779,64 @@ repository's own `local_run` doc (`scripts/dev.sh`).
     completed, a payload with no head SHA, or a redelivered `X-GitHub-Delivery` is
     acknowledged and does nothing. Most deliveries legitimately match no waiting pipeline
     (`reason: "no pipeline is waiting on this commit"`), which is not an error.
+  - `issues` (`opened`, `labeled`): an issue carrying the issue-sync label is imported when
+    GitHub auto-import is on (`issuesync.Service.HandleGitHubIssuesEvent`). Pull requests
+    delivered through the issues event are ignored. The poller imports the same issues
+    without the webhook, which is the usual case on a local install.
 
 - `POST /v1/repositories/{id}/webhook` — one-click install/rotate: mints a fresh secret
   and `PATCH`es or `POST`s the hook so GitHub agrees with both the stored secret and
-  `githubapi.WebhookEvents` (`push`, `workflow_run`, `check_suite`). Returns the updated
+  `githubapi.WebhookEvents` (`push`, `workflow_run`, `check_suite`, `issues`). Returns the updated
   `domain.Repository` (`webhook_installed`); 400 with the reason when the repository has
   no GitHub remote, GitHub is not connected, or `server.public_base_url` is unset.
   Existing hooks are also repaired at boot, without this call and without rotating any
   secret.
+
+## Issue sync (migration 183)
+
+GitHub and Jira issues imported as board tasks (`internal/application/issuesync`). Routes are
+registered only when Postgres is connected.
+
+- `GET /v1/issues/search?provider=github|jira` — GitHub needs `repository_id`, Jira `project`;
+  optional `q`. `{issues: [domain.ExternalIssue]}`, each with `imported_task` when already linked.
+- `POST /v1/issues/import {provider, key, repository_id}` — 201 `issuesync.Imported`
+  `{task, link, import}`. Errors: 400 `invalid_issue` / `issue_source_not_configured`, 409
+  `issue_already_imported` (`task_id`, `task_key`, `repository_id` beside `error`), 502
+  `issue_source_error`.
+- `POST /v1/issues/imports/{id}/convert` — re-queues the product manager's conversion of a
+  `failed`, `skipped` or never-converted import whose imported task still exists. 202
+  `{import}`; 409 `issue_conversion_unavailable` otherwise.
+- `GET /v1/repositories/{id}/tasks/{taskId}/issue-link` — `{link, import}`, both `null` for a
+  task with no issue.
+- `GET|PUT|DELETE /v1/settings/jira`, `GET /v1/settings/jira/projects` — Jira Cloud only
+  (`https://<name>.atlassian.net`); PUT verifies with `/myself` before storing; the API token is
+  encrypted like `github_token` and never returned (400 `invalid_jira_site`, `jira_auth_failed`).
+- `GET|PUT /v1/settings/issue-sync` — `domain.IssueSyncSettings`; defaults: label `tasktrooper`,
+  both auto-imports off, `write_back` and `convert_with_pm` on.
+
+**Tables.** `issue_imports` is one row per issue (unique `(provider, external_key)`): the
+idempotency key, the intake task, the conversion's status, chat session and error, and
+`closed_at`. `issue_links` is one row per task (unique `task_id`, cascades with the task);
+an issue the product manager split has several.
+
+**Conversion.** An import opens the issue as an intake task in backlog and, when
+`convert_with_pm` is on and the session service is wired, queues the import (`pending`). One
+worker (`StartConversions`) opens a chat with the agent holding `product_manager` for the
+repository's area, project-bound and not task-bound, and sends
+`catalog/system/prompts/issuesync/convert_request.md` through `session.Service.SendMessage`, so
+an agent CLI provider runs it on this machine. Tasks `create_board_task` opens in that chat
+reach `repository.Service`'s `TaskCreatedObserver`, which links them to the issue by the session
+on the tool call's context — also for turns after the person answers a question in the chat.
+Once at least one task is linked the intake task is deleted and the issue gets one "Tracked in
+TaskTrooper as …" comment. No product manager → `skipped`; a failed turn or no task opened →
+`failed`; a question or a parked quota → `needs_input`. In each of those the intake task stays.
+A restart puts `converting` back to `pending`; a conversion that had already opened tasks is
+finished without running the agent again.
+
+**Write-back** (when `write_back` is on) goes through the board dispatcher's `TaskNotifier`: a
+comment per column change of any linked task, and once every linked task is done or released,
+the GitHub issue is closed (`state_reason=completed`) or the Jira issue transitioned to a done
+status, once (`closed_at`).
 
 ## Project model
 

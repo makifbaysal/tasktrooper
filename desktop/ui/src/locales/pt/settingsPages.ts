@@ -6,6 +6,7 @@ export const settingsPages = {
       code: "Hospedagem de código",
       cloud: "Nuvem e deploy",
       stores: "Lojas de aplicativos",
+      issues: "Acompanhamento de issues",
     },
     status: {
       connected: "Conectado",

@@ -10,6 +10,7 @@ export const settingsPages: SettingsPagesDict = {
       code: "Kod barındırma",
       cloud: "Bulut ve deploy",
       stores: "Uygulama mağazaları",
+      issues: "İş takibi",
     },
     status: {
       connected: "Bağlı",

@@ -11,6 +11,7 @@ import { cloud } from "@/locales/en/cloud";
 import { content } from "@/locales/en/content";
 import { designSystem } from "@/locales/en/designSystem";
 import { frame } from "@/locales/en/frame";
+import { issues } from "@/locales/en/issues";
 import { lib } from "@/locales/en/lib";
 import { operations } from "@/locales/en/operations";
 import { projectAdmin } from "@/locales/en/projectAdmin";
@@ -150,6 +151,7 @@ export const en = {
   content,
   designSystem,
   frame,
+  issues,
   lib,
   operations,
   projectAdmin,

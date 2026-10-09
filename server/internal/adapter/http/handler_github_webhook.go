@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -98,6 +99,8 @@ func (h *Handler) GitHubWebhook(c *fiber.Ctx) error {
 		return h.githubPushEvent(c)
 	case "workflow_run", "check_suite":
 		return h.githubWorkflowEvent(c)
+	case "issues":
+		return h.githubIssuesEvent(c)
 	default:
 		// ping, installation, etc. — acknowledged, ignored.
 		return c.SendStatus(fiber.StatusNoContent)
@@ -142,6 +145,46 @@ func (h *Handler) githubWorkflowEvent(c *fiber.Ctx) error {
 		c.UserContext(), repo.ID, c.Get("X-GitHub-Delivery"),
 		payload.Action, payload.status(), payload.headSHA(),
 	)
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"accepted": accepted, "reason": reason})
+}
+
+// githubIssuesPayload: pull_request is present (any value, even null) exactly
+// when GitHub is describing a pull request through the issues API.
+type githubIssuesPayload struct {
+	Action     string `json:"action"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+	Issue struct {
+		Number int `json:"number"`
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		PullRequest *json.RawMessage `json:"pull_request"`
+	} `json:"issue"`
+}
+
+// githubIssuesEvent only resolves and verifies the delivery; whether the issue
+// is imported is issuesync's call.
+func (h *Handler) githubIssuesEvent(c *fiber.Ctx) error {
+	body := c.Body()
+	var payload githubIssuesPayload
+	if err := json.Unmarshal(body, &payload); err != nil || payload.Repository.FullName == "" {
+		return badRequest(c, "invalid issues payload")
+	}
+	repo, ok, err := h.verifiedWebhookRepo(c, payload.Repository.FullName, body)
+	if err != nil || !ok {
+		return err
+	}
+	if h.issueSyncSvc == nil || payload.Issue.PullRequest != nil {
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+	labels := make([]string, 0, len(payload.Issue.Labels))
+	for _, l := range payload.Issue.Labels {
+		labels = append(labels, l.Name)
+	}
+	key := payload.Repository.FullName + "#" + strconv.Itoa(payload.Issue.Number)
+	accepted, reason := h.issueSyncSvc.HandleGitHubIssuesEvent(c.UserContext(), repo.ID, payload.Action, key, labels)
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"accepted": accepted, "reason": reason})
 }
 

@@ -121,6 +121,18 @@ type Service struct {
 	roles     port.RoleResolver
 
 	ciSetupMu sync.Mutex
+
+	createdObserver TaskCreatedObserver
+}
+
+// TaskCreatedObserver hears about every task CreateTask opens, with the
+// caller's context: an agent's tool call carries its chat session on it.
+type TaskCreatedObserver interface {
+	TaskCreated(ctx context.Context, task domain.BoardTask)
+}
+
+func (s *Service) SetTaskCreatedObserver(o TaskCreatedObserver) {
+	s.createdObserver = o
 }
 
 func NewService(
@@ -1658,6 +1670,9 @@ func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req do
 		createdPayload["assignee_agent_id"] = task.AssigneeAgentID.String()
 	}
 	_ = s.emit(ctx, repo, task, domain.BoardEventTaskCreated, createdPayload)
+	if s.createdObserver != nil {
+		s.createdObserver.TaskCreated(ctx, task)
+	}
 	return task, nil
 }
 

@@ -9,6 +9,7 @@
       { "slug": "board-and-columns", "title": "Board and columns" },
       { "slug": "tasks", "title": "Tasks, criteria and documents" },
       { "slug": "ordering-and-relations", "title": "Ordering and relations" },
+      { "slug": "issue-sync", "title": "GitHub and Jira issues" },
       { "slug": "design-systems", "title": "Design systems" },
       { "slug": "quality-gates", "title": "Quality gates" }
     ]},

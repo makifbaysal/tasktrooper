@@ -9,6 +9,7 @@ import { cloud } from "@/locales/zh/cloud";
 import { content } from "@/locales/zh/content";
 import { designSystem } from "@/locales/zh/designSystem";
 import { frame } from "@/locales/zh/frame";
+import { issues } from "@/locales/zh/issues";
 import { lib } from "@/locales/zh/lib";
 import { operations } from "@/locales/zh/operations";
 import { projectAdmin } from "@/locales/zh/projectAdmin";
@@ -148,6 +149,7 @@ export const zh: Dict = {
   content,
   designSystem,
   frame,
+  issues,
   lib,
   operations,
   projectAdmin,

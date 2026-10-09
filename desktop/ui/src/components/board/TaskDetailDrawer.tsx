@@ -40,6 +40,7 @@ import { TaskAssigneeFields } from "@/components/board/TaskAssigneeFields";
 import { TaskDesignSection } from "@/components/board/TaskDesignSection";
 import { TaskDocumentList } from "@/components/board/TaskDocumentList";
 import { TaskHistory } from "@/components/board/TaskHistory";
+import { TaskIssueLink } from "@/components/issues/TaskIssueLink";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { EnvVarsCard } from "@/components/projects/repository/deploy/EnvVarsCard";
 import { MarkdownField } from "@/components/markdown/MarkdownField";
@@ -1164,6 +1165,8 @@ export function TaskDetailDrawer({
                       />
                     </div>
                   </section>
+
+                  <TaskIssueLink repositoryId={repositoryId} taskId={task.id} />
 
                   {/* The pull request lives HERE, with the task's other
                       properties, and not in the content column beside the

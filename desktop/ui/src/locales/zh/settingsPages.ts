@@ -6,6 +6,7 @@ export const settingsPages = {
       code: "代码托管",
       cloud: "云与部署",
       stores: "应用商店",
+      issues: "问题跟踪",
     },
     status: {
       connected: "已连接",
