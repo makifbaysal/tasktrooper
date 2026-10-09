@@ -62,6 +62,39 @@ export const setup = {
     doneBody: "Está vinculado al proyecto y se está indexando en segundo plano. Añade más cuando quieras.",
     loadFailed: "No se pudieron cargar tus proyectos",
   },
+  firstRun: {
+    title: "¿Cómo quieres usar TaskTrooper?",
+    description: "Elige ahora; puedes cambiarlo más tarde en Ajustes.",
+    local: {
+      title: "En este ordenador, sin cuenta",
+      body: "El servidor, la base de datos y tus agentes se ejecutan en esta máquina. Sin inicio de sesión y nada sale de ella.",
+      action: "Continuar sin cuenta",
+    },
+    account: {
+      title: "Con una cuenta",
+      body: "Inicia sesión para acceder a tu tablero y equipo desde cualquier dispositivo.",
+      action: "Iniciar sesión",
+      signingIn: "Iniciando sesión…",
+      failed: "No se pudo iniciar sesión",
+    },
+  },
+  team: {
+    title: "¿Qué tipo de equipo?",
+    description:
+      "Elige un punto de partida. Los agentes que activa vienen preseleccionados; puedes cambiarlos aquí y más tarde en Ajustes.",
+    agentsLabel: "Agentes",
+    pmLocked: "El product manager siempre está activo.",
+    confirm: "Crear este equipo",
+    loadFailed: "No se pudieron cargar tus agentes",
+    saveFailed: "No se pudo guardar tu equipo",
+    templates: {
+      web: { name: "Aplicación web", description: "Frontend, backend y quienes los publican." },
+      mobile: { name: "Aplicación móvil", description: "Un desarrollador móvil junto al backend y el diseño." },
+      game: { name: "Juego", description: "Un desarrollador de juegos, diseño y QA." },
+      data: { name: "Datos y analítica", description: "Un científico de datos con el backend y QA." },
+      custom: { name: "Personalizado", description: "Empezar solo con el product manager." },
+    },
+  },
   nav: {
     finishSetup: "Terminar configuración",
   },
