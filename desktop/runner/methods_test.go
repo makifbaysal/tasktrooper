@@ -352,6 +352,27 @@ func TestPreflightReportIsRelayedUnchanged(t *testing.T) {
 	}
 }
 
+// What the runner knows about itself rides on the report, after the app's own
+// fields, so the cloud can feature-detect durable runs.
+func TestPreflightAdvertisesTheRunCapabilities(t *testing.T) {
+	st := newState()
+	st.setPreflight(json.RawMessage(`{"generatedAt":17,"ready":true,"items":[]}`))
+	res := request(t, config{}, st, http.MethodGet, "/preflight.report", "")
+	var got struct {
+		GeneratedAt  int      `json:"generatedAt"`
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal([]byte(res.body), &got); err != nil {
+		t.Fatalf("the report is not JSON: %v (%s)", err, res.body)
+	}
+	if got.GeneratedAt != 17 || strings.Join(got.Capabilities, ",") != "run.attach,run.status" {
+		t.Fatalf("report = %s, want the app's fields and the runner's capabilities", res.body)
+	}
+	if got := string(withRunnerFields(json.RawMessage(`{}`), map[string]any{"a": 1})); got != `{"a":1}` {
+		t.Fatalf("an empty report became %s", got)
+	}
+}
+
 // The status mapping, which is the half of the contract a caller branches on
 // before it has read a body.
 //

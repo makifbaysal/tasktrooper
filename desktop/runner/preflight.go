@@ -1,6 +1,9 @@
 package main
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 // preflight.report — what this Mac can and cannot do, as the desktop app sees
 // it.
@@ -25,5 +28,28 @@ func (s *runnerServer) preflightReport() (json.RawMessage, *rpcError) {
 		// apart would show a healthy Mac as having nothing installed.
 		return nil, failure(codeNotReady, "this machine has not reported its environment yet; the desktop app pushes it as soon as the checks finish")
 	}
-	return report, nil
+	return withRunnerFields(report, map[string]any{"capabilities": runnerCapabilities}), nil
+}
+
+// withRunnerFields adds what this program knows about itself to the desktop
+// app's report: appended to its bytes rather than re-encoded, so the rest is
+// still the app's, and last, so a field the app sent under the same name is
+// the one a decoder drops.
+func withRunnerFields(report json.RawMessage, fields map[string]any) json.RawMessage {
+	trimmed := bytes.TrimSpace(report)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' {
+		return report
+	}
+	extra, err := json.Marshal(fields)
+	if err != nil || len(extra) <= 2 {
+		return report
+	}
+	body := bytes.TrimSpace(trimmed[:len(trimmed)-1])
+	out := make([]byte, 0, len(body)+len(extra)+1)
+	out = append(out, body...)
+	if body[len(body)-1] != '{' {
+		out = append(out, ',')
+	}
+	out = append(out, extra[1:]...)
+	return out
 }
