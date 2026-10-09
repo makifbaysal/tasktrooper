@@ -72,12 +72,10 @@ func (c cliSurface) held() map[string]string {
 // the executor shares.
 func (s *runnerServer) openCLISurface(ctx context.Context, callID, workspace string, cloud *mcpConfig, policy json.RawMessage, env map[string]string, timeout time.Duration) cliSurface {
 	fallback := cliSurface{mcp: cloud, close: func() {}}
-	if cloud != nil {
-		fallback.cloudToken = cloud.token
-	}
 	if cloud == nil {
 		return fallback
 	}
+	fallback.cloudToken = cloud.token
 	ex := s.state.executorSupervisor()
 	if ex == nil {
 		return fallback
@@ -122,8 +120,10 @@ func (s *runnerServer) openCLISurface(ctx context.Context, callID, workspace str
 		return fallback
 	}
 	if resp.StatusCode != http.StatusOK {
-		scrub := heldSecretRedactor(s.cfg.policy, map[string]string{mcpRunTokenLabel: cloud.token})
-		log.Warn().Str("call", callID).Int("status", resp.StatusCode).Str("answer", clipLine(string(scrub(raw)), 400)).
+		if scrub := heldSecretRedactor(s.cfg.policy, map[string]string{mcpRunTokenLabel: cloud.token}); scrub != nil {
+			raw = scrub(raw)
+		}
+		log.Warn().Str("call", callID).Int("status", resp.StatusCode).Str("answer", clipLine(string(raw), 400)).
 			Msg("the run uses the cloud's MCP: the local executor did not open a surface")
 		return fallback
 	}
