@@ -192,6 +192,14 @@ export interface AccountState {
   paired: boolean;
   /** Why the last switch failed, when it did. */
   error?: string;
+  /**
+   * Signed in, but running locally for now: the account's page could not be
+   * reached and the member chose to carry on without it. The pairing, the
+   * account's session and the persisted mode are untouched — `mode` reads
+   * "local" until the member goes back or the app is launched again, which
+   * tries the account first.
+   */
+  temporaryLocal: boolean;
 }
 
 /**
@@ -268,9 +276,12 @@ export interface Overrides {
  */
 export const PREFLIGHT_IDS = [
   // Account mode only: the bundled runner, which stands in for `agent-server`
-  // there (no local backend is started), and the executor it starts.
+  // there (no local backend is started), the executor it starts, and whether
+  // this computer can run an agent at all — the member's own API keys or an
+  // agent CLI (`detect.ts#agentAccessItem`).
   "runner",
   "executor",
+  "api-keys",
   "agent-server",
   // Never blocking: an absent Postgres is one the backend downloads on its
   // first start. It is listed so that download is a thing the user was told
@@ -386,6 +397,34 @@ export interface RunnerPairingBundle {
 
 /** The stored bundle, minus the token — what a page is allowed to see. */
 export type RunnerPairingSummary = Omit<RunnerPairingBundle, "runner_token">;
+
+// --- provider keys (account mode) ---------------------------------------------
+
+/**
+ * The provider types the key screen offers. A built-in provider's id IS its
+ * type (`anthropic`, `openai`, …), so an agent in the cloud can name it
+ * without knowing this computer; a custom OpenAI-compatible endpoint's id is
+ * a UUID, since a member may have several.
+ */
+export const BUILT_IN_PROVIDER_TYPES = ["anthropic", "openai", "gemini", "groq", "local"] as const;
+export const CUSTOM_PROVIDER_TYPE = "openai_compatible";
+export type ProviderKeyType = (typeof BUILT_IN_PROVIDER_TYPES)[number] | typeof CUSTOM_PROVIDER_TYPE;
+
+/** One provider as the key screen shows it: whether a key is set, never the key. */
+export interface ProviderKeySummary {
+  id: string;
+  type: string;
+  base_url?: string;
+  models?: string[];
+  hasKey: boolean;
+}
+
+/** Every answer of the key screen's three channels. */
+export interface ProviderKeysState {
+  providers: ProviderKeySummary[];
+  /** True when the change restarted the runner (and the executor) to take effect. */
+  runnerRestarting: boolean;
+}
 
 // --- workspace --------------------------------------------------------------
 

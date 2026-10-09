@@ -3,6 +3,8 @@ import {
   ValidationError,
   validateChatFocus,
   validateChooseDirectory,
+  validateKeyRemove,
+  validateKeySet,
   validateLogsStream,
   validateOpenExternal,
   validateOverrides,
@@ -248,5 +250,58 @@ describe("account mode", () => {
     expect(() => validatePairRequest({ bundle: { ...bundle, runner_token: "" } })).toThrow(ValidationError);
     expect(() => validatePairRequest({ bundle: { ...bundle, label: "a\nb" } })).toThrow(ValidationError);
     expect(() => validatePairRequest({})).toThrow(ValidationError);
+  });
+});
+
+/**
+ * The API-key window's payloads. A key is checked for shape and never quoted
+ * back: every refusal names the field, not the value.
+ */
+describe("validateKeySet", () => {
+  const KEY = "sk-ant-SHAPE-ONLY-123";
+
+  it("keeps what a set may carry, trimming the key and dropping an empty one", () => {
+    expect(validateKeySet({ type: "anthropic", api_key: `  ${KEY} `, models: ["claude-sonnet-4-5"] })).toEqual({
+      type: "anthropic",
+      api_key: KEY,
+      models: ["claude-sonnet-4-5"],
+    });
+    expect(validateKeySet({ type: "openai", api_key: "" })).toEqual({ type: "openai" });
+    expect(validateKeySet({ id: "8f0e7c0a-1b2c-4d5e-9f00-0123456789ab", type: "openai_compatible", base_url: " https://x.example/v1 " })).toEqual({
+      id: "8f0e7c0a-1b2c-4d5e-9f00-0123456789ab",
+      type: "openai_compatible",
+      base_url: "https://x.example/v1",
+    });
+  });
+
+  it("refuses a type this app does not offer, an agent CLI's above all", () => {
+    for (const type of ["claude_code", "cursor_agent", "", 3]) {
+      expect(() => validateKeySet({ type, api_key: KEY }), String(type)).toThrow(ValidationError);
+    }
+  });
+
+  it("refuses a malformed field without quoting the key", () => {
+    for (const payload of [
+      { type: "anthropic", api_key: `${KEY}\r\nX: 1` },
+      { type: "anthropic", api_key: 42 },
+      { type: "anthropic", api_key: KEY, id: "-flag" },
+      { type: "anthropic", api_key: KEY, models: "gpt" },
+      { type: "anthropic", api_key: KEY, models: Array.from({ length: 33 }, (_, i) => `m${i}`) },
+    ]) {
+      let message = "";
+      try {
+        validateKeySet(payload);
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message, JSON.stringify(payload)).not.toBe("");
+      expect(message).not.toContain(KEY);
+    }
+  });
+
+  it("removes by an identifier only", () => {
+    expect(validateKeyRemove({ id: "openai" })).toEqual({ id: "openai" });
+    expect(() => validateKeyRemove({ id: "../x" })).toThrow(ValidationError);
+    expect(() => validateKeyRemove({})).toThrow(ValidationError);
   });
 });

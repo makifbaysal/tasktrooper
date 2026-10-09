@@ -41,6 +41,12 @@ function harness(initial: Partial<UserSettings> = {}, overrides: Partial<ModeCon
       calls.push(`stopAccount mode=${store.value.mode}`);
       paired = false;
     },
+    pauseAccount: async () => {
+      calls.push(`pauseAccount mode=${store.value.mode}`);
+    },
+    resumeAccount: async () => {
+      calls.push(`resumeAccount mode=${store.value.mode}`);
+    },
     showAccount: (origin, route) => calls.push(`showAccount ${origin}${route} mode=${store.value.mode}`),
     showLocal: () => calls.push(`showLocal mode=${store.value.mode}`),
     clearAccountSession: async (origin) => {
@@ -165,6 +171,103 @@ describe("signing out", () => {
       `clear ${CLOUD}`,
       "startLocal mode=local",
     ]);
+  });
+});
+
+/**
+ * The account's page did not load at launch, and the member carries on
+ * locally. Nothing about the account may be forgotten on the way — the
+ * pairing, the persisted mode, the partition — or the next launch would not
+ * be the account again, and only an explicit Sign out may do that.
+ */
+describe("running locally for now", () => {
+  const signedIn = { mode: "account" as const, accountOrigin: CLOUD };
+
+  it("takes the account's page down, stops the runner without unpairing, keeps the mode and starts locally", async () => {
+    const { controller, calls, store, pair } = harness(signedIn);
+    pair();
+    const state = await controller.useLocalForNow();
+    expect(calls).toEqual(["showLocal mode=account", "pauseAccount mode=account", "startLocal mode=account"]);
+    expect(calls.some((c) => c.startsWith("stopAccount") || c.startsWith("clear"))).toBe(false);
+    expect(store.value.mode).toBe("account");
+    expect(store.value.accountOrigin).toBe(CLOUD);
+    expect(state).toMatchObject({ mode: "local", temporaryLocal: true, paired: true, origin: CLOUD });
+    expect(controller.mode).toBe("local");
+  });
+
+  it("is a no-op in local mode, and when already local for now", async () => {
+    const local = harness();
+    await local.controller.useLocalForNow();
+    expect(local.calls).toEqual([]);
+    expect(local.controller.state().temporaryLocal).toBe(false);
+
+    const twice = harness(signedIn);
+    await twice.controller.useLocalForNow();
+    await twice.controller.useLocalForNow();
+    expect(twice.calls.filter((c) => c.startsWith("pauseAccount"))).toHaveLength(1);
+  });
+
+  it("still goes local, and says so, when the runner does not stop cleanly", async () => {
+    const { controller, calls } = harness(signedIn, {
+      pauseAccount: async () => {
+        throw new Error("runner hung");
+      },
+    });
+    const state = await controller.useLocalForNow();
+    expect(state).toMatchObject({ mode: "local", temporaryLocal: true });
+    expect(state.error).toMatch(/runner hung/);
+    expect(calls).toContain("startLocal mode=account");
+  });
+
+  it("goes back to the account's home on sign-in — the session is still there — and starts the runner", async () => {
+    const { controller, calls, store } = harness(signedIn);
+    await controller.useLocalForNow();
+    calls.length = 0;
+    const state = await controller.signIn();
+    expect(calls).toEqual(["stopLocal mode=account", `showAccount ${CLOUD}/home mode=account`, "resumeAccount mode=account"]);
+    expect(store.value.mode).toBe("account");
+    expect(state).toMatchObject({ mode: "account", temporaryLocal: false });
+  });
+
+  it("stays local for now, and says why, when the local backend will not stop to go back", async () => {
+    const { controller, calls } = harness(signedIn, {
+      stopLocal: async () => {
+        throw new Error("drain failed");
+      },
+    });
+    await controller.useLocalForNow();
+    calls.length = 0;
+    await expect(controller.signIn()).rejects.toThrow("drain failed");
+    expect(controller.state()).toMatchObject({ mode: "local", temporaryLocal: true, error: "drain failed" });
+    expect(calls).toEqual(["startLocal mode=account"]);
+  });
+
+  it("refuses to go back to another account than the one signed in to", async () => {
+    const { controller, calls } = harness(signedIn);
+    await controller.useLocalForNow();
+    calls.length = 0;
+    await expect(controller.signIn("https://other.example")).rejects.toThrow(/Sign out first/);
+    expect(calls).toEqual([]);
+    expect(controller.temporaryLocal).toBe(true);
+  });
+
+  it("forgets the account only on an explicit sign-out, leaving the running local backend alone", async () => {
+    const { controller, calls, store, pair } = harness(signedIn);
+    pair();
+    await controller.useLocalForNow();
+    calls.length = 0;
+    const state = await controller.signOut();
+    expect(calls).toEqual(["stopAccount mode=account", `clear ${CLOUD}`]);
+    expect(store.value.mode).toBe("local");
+    expect(state).toMatchObject({ mode: "local", temporaryLocal: false, paired: false });
+  });
+
+  it("is not remembered: a controller built at the next launch is in the account again", async () => {
+    const first = harness(signedIn);
+    await first.controller.useLocalForNow();
+    const next = harness(first.store.value);
+    expect(next.controller.mode).toBe("account");
+    expect(next.controller.state().temporaryLocal).toBe(false);
   });
 });
 

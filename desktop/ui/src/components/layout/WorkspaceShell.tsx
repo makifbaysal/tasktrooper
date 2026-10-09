@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import type { Agent, WorkspaceConfig } from "@/api";
 import { Header } from "@/components/layout/Header";
 import { WorkspaceSidebar } from "@/components/layout/WorkspaceSidebar";
+import { TemporaryLocalBanner } from "@/components/runner/TemporaryLocalBanner";
 import { useAgentUnread } from "@/hooks/useAgentUnread";
 import { useCatalogSync } from "@/hooks/useCatalogSync";
 
@@ -46,6 +47,7 @@ export function WorkspaceShell({
         leadAgent={leadAgent}
         catalogSync={catalogSync}
       />
+      <TemporaryLocalBanner />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <WorkspaceSidebar
           config={config}

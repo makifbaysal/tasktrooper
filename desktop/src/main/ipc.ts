@@ -1,5 +1,11 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
-import { CLOUD_CHANNELS, SHELL_CHANNELS, type ChooseDirectoryRequest } from "../ipc/channels.js";
+import {
+  CLOUD_CHANNELS,
+  KEYS_CHANNELS,
+  SHELL_CHANNELS,
+  type ChooseDirectoryRequest,
+  type KeySetRequest,
+} from "../ipc/channels.js";
 import type {
   HostOverrides,
   HostPreferences,
@@ -15,6 +21,7 @@ import type {
   Diagnostics,
   LogLine,
   PreflightReport,
+  ProviderKeysState,
   RunnerPairingBundle,
   RunnerPairingSummary,
   SupervisorSnapshot,
@@ -25,6 +32,8 @@ import {
   validateChatFocus,
   validateChooseDirectory,
   validateDiagnosticsRequest,
+  validateKeyRemove,
+  validateKeySet,
   validateLogsRequest,
   validateLogsStream,
   validateOpenExternal,
@@ -80,6 +89,15 @@ export interface IpcServices {
   accountState(): AccountState;
   accountSignIn(origin?: string): Promise<AccountState>;
   accountSignOut(): Promise<AccountState>;
+  /** Run locally for now, still signed in — the chrome's failure screen. */
+  accountUseLocalForNow(): Promise<AccountState>;
+  /** Bring up the API-key window. */
+  openKeys(): void;
+
+  // --- the API-key window ---
+  keysList(): ProviderKeysState;
+  keysSet(request: KeySetRequest): ProviderKeysState;
+  keysRemove(id: string): ProviderKeysState;
 
   // --- the web app's local half ---
   hostInfo(): { app: string; version: string; platform: string };
@@ -143,6 +161,12 @@ export interface SenderGuard {
    * make it.
    */
   isShellSender(event: IpcMainInvokeEvent): boolean;
+  /**
+   * The API-key window's own page, its top frame — and nothing else: not the
+   * web app's view on either mode's origin, not the chrome. The only sender
+   * that may hand this process a key.
+   */
+  isKeysSender(event: IpcMainInvokeEvent): boolean;
 }
 
 /**
@@ -203,7 +227,25 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
     services.restartToUpdate();
   });
   handle(SHELL_CHANNELS.accountState, () => services.accountState());
-  shell(SHELL_CHANNELS.accountUseLocal, () => services.accountSignOut());
+  shell(SHELL_CHANNELS.accountUseLocalForNow, () => services.accountUseLocalForNow());
+
+  // --- the API-key window ---
+  /**
+   * The guard runs before the payload is read, like the cloud one: a sender
+   * that is not the key window learns nothing, including whether its key
+   * would have been accepted.
+   */
+  const keys = <T>(channel: string, fn: (payload: unknown) => T | Promise<T>): void => {
+    handle(channel, (payload, event) => {
+      if (!guard.isKeysSender(event)) {
+        throw new Error("refused: API keys are changed only in TaskTrooper's own API keys window.");
+      }
+      return fn(payload);
+    });
+  };
+  keys(KEYS_CHANNELS.list, () => services.keysList());
+  keys(KEYS_CHANNELS.set, (payload) => services.keysSet(validateKeySet(payload)));
+  keys(KEYS_CHANNELS.remove, (payload) => services.keysRemove(validateKeyRemove(payload).id));
 
   // --- the web app ---
   cloud(CLOUD_CHANNELS.hostInfo, () => services.hostInfo());
@@ -233,6 +275,9 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.accountState, () => services.accountState());
   cloud(CLOUD_CHANNELS.accountSignIn, (payload) => services.accountSignIn(validateSignIn(payload).origin));
   cloud(CLOUD_CHANNELS.accountSignOut, () => services.accountSignOut());
+  cloud(CLOUD_CHANNELS.accountOpenKeys, () => {
+    services.openKeys();
+  });
 
   cloud(CLOUD_CHANNELS.runnerSnapshot, () => services.runnerSnapshot());
   cloud(CLOUD_CHANNELS.runnerConnect, () => services.connect());

@@ -174,7 +174,7 @@ POST /cancel              → 200 application/json
 
 | method | body | answer |
 |---|---|---|
-| `POST /claude.run` | `workspace` (relative), `prompt`, optional `id`, `model`, `permission_mode`, `max_turns`, `session_id`, `resume`, `timeout_ms`, `mcp`, `tools`, `effort`, `env` | NDJSON: one `started`, then `output` events, then exactly one `done` carrying `{workspace, exit_code, signal?, duration_ms}` |
+| `POST /claude.run` | `workspace` (relative), `prompt`, optional `id`, `model`, `permission_mode`, `max_turns`, `session_id`, `resume`, `timeout_ms`, `mcp`, `tools`, `effort`, `env` | NDJSON: one `started`, then `output` events, then exactly one `done` carrying `{workspace, exit_code, signal?, duration_ms}`; 409 `not_ready` when `claude_bin` was not sent |
 | `POST /opencode.run` | `workspace` (relative), `prompt`, `model` (REQUIRED, `provider/model`), optional `id`, `resume`, `timeout_ms`, `mcp`, `env` | NDJSON, same shape as claude.run's; by default (`policy`) `model`'s provider may not be `anthropic` or `google` (case-insensitive) — refused before the 200 |
 | `POST /cursor.run` | `workspace` (relative), `prompt`, optional `id`, `model`, `resume`, `timeout_ms`, `mcp`, `env` | NDJSON, same shape again; 409 `not_ready` when `cursor_agent_bin` was not sent |
 | `POST /workspace.prepare` | `repo_url`, `dir` (relative, REQUIRED), optional `branch`, `depth` | `{path, rel, branch, head, cloned}` |
@@ -422,10 +422,11 @@ program's rules.
   cursor executor does — it flattens conversation history into a fresh prompt
   every turn and never drives this flag — but that is a decision agent-server
   made for its own calling convention, not a limit of cursor-agent itself.
-- **`cursor_agent_bin` and `opencode_bin` missing means `not_ready`**, the same
-  way a `mobile.*` call answers `not_ready` for a capability this Mac lacks: a
-  Mac without Cursor or OpenCode installed is a common state, not a
-  misconfiguration.
+- **`claude_bin`, `cursor_agent_bin` and `opencode_bin` missing means
+  `not_ready`**, the same way a `mobile.*` call answers `not_ready` for a
+  capability this Mac lacks: a Mac without Claude Code, Cursor or OpenCode
+  installed is a common state, not a misconfiguration — a member may work
+  with their own API keys alone (`agent.run`).
 
 ### The redactor — secrets never leave through output
 
@@ -901,7 +902,8 @@ is missing — not `bad_request`, because the caller did not ask wrongly, and no
 on-demand hub would not start is the opposite case and is `upstream`:
 something failed, and agent-server reads `not_ready` as a park that a broken
 install would never release. `cursor.run` and `models.list` answer it the
-same way for a missing `cursor_agent_bin` or `opencode_bin`, and
+same way for a missing `cursor_agent_bin` or `opencode_bin`, `claude.run`
+for a missing `claude_bin`, and
 `embeddings.create` answers it when this Mac has no local embedding engine
 configured — an ordinary case, not a misconfiguration.
 
@@ -1086,8 +1088,8 @@ is one JSON document, and stdin then stays open as a control channel.
 ```
 
 Every field is required except `reconnect_max_backoff`, the five mobile ones,
-the two embeddings ones, the two other host-executed CLIs' binaries, the
-executor's three and `policy`, and a
+the two embeddings ones, the three host-executed CLIs' binaries
+(`claude_bin` among them), the executor's three and `policy`, and a
 missing or malformed required field is a startup error on stderr with a
 non-zero exit — never a zero-value default silently wired in. **Unknown fields
 are refused too** (`DisallowUnknownFields`), which is why `main_test.go` reads
@@ -1123,10 +1125,12 @@ on purpose: this runner has no Antigravity flavor.
   accepted whether or not this document set one, which is what lets an
   embedder that started after the runner attached — or restarted on a new
   port — turn the capability on without a reconnect.
-- **`cursor_agent_bin` and `opencode_bin` are optional for the same reason the
-  mobile fields are.** A Mac without Cursor or OpenCode installed is a common
-  state; `cursor.run` and `models.list` answer `not_ready` for the missing one
-  rather than exec'ing `""`. There is no `antigravity_bin`: this runner has no
+- **`claude_bin`, `cursor_agent_bin` and `opencode_bin` are optional for the
+  same reason the mobile fields are.** A Mac without Claude Code, Cursor or
+  OpenCode installed is a common state — a member may run every task with
+  their own API keys through the executor — and `claude.run`, `cursor.run`
+  and `models.list` answer `not_ready` for the missing one rather than
+  exec'ing `""`. Present, each must be an absolute path. There is no `antigravity_bin`: this runner has no
   Antigravity flavor, so a supervisor sending it fails loudly at startup
   (`DisallowUnknownFields`) instead of this Mac quietly accepting a capability
   it does not implement.

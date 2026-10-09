@@ -4,10 +4,20 @@ import { applicationMenuTemplate } from "./app-menu.js";
 describe("applicationMenuTemplate", () => {
   it("binds Ctrl+Q to the draining quit on Windows and Linux", () => {
     for (const platform of ["win32", "linux"] as const) {
-      const file = applicationMenuTemplate(platform, false)[0];
-      const quit = (file?.submenu as { role?: string; accelerator?: string }[])[0];
+      const file = applicationMenuTemplate(platform, false, { openKeys: () => undefined })[0];
+      const quit = (file?.submenu as { role?: string; accelerator?: string }[]).find((item) => item.role === "quit");
       expect(quit).toMatchObject({ role: "quit", accelerator: "Ctrl+Q" });
     }
+  });
+
+  it("opens the API-key window from File, when it is given one", () => {
+    let opened = 0;
+    const file = applicationMenuTemplate("linux", false, { openKeys: () => (opened += 1) })[0];
+    const item = (file?.submenu as { label?: string; click?: () => void }[]).find((i) => i.label === "API &keys…");
+    item?.click?.();
+    expect(opened).toBe(1);
+    const bare = applicationMenuTemplate("linux", false)[0];
+    expect(JSON.stringify(bare)).not.toContain("API");
   });
 
   it("keeps the Edit roles that bind copy and paste in text fields", () => {

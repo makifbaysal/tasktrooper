@@ -16,8 +16,8 @@ import type { AccountState, AppInfo, CloudStatus, SupervisorSnapshot, UpdateStat
  * Runner page, over the cloud bridge, where every call is origin-checked.
  *
  * The exceptions are `restartToUpdate`, which drives the chrome's update
- * popup, and `useLocalMode`, the failure screen's way out of an account whose
- * web app cannot be reached. The main process checks that the sender is this
+ * popup, and `useLocalForNow`, the failure screen's way on when the account's
+ * web app cannot be reached — locally, still signed in. The main process checks that the sender is this
  * window before acting on either. Settings has its own copy of the update
  * calls on the cloud bridge, behind that bridge's origin check; both reach the
  * same updater.
@@ -44,7 +44,7 @@ const bridge: ShellBridge = {
   onUpdateStatus: (cb) => subscribe<UpdateStatus>(SHELL_EVENTS.updateStatus, cb),
   onFullScreen: (cb) => subscribe<boolean>(SHELL_EVENTS.fullScreen, cb),
   accountState: () => ipcRenderer.invoke(SHELL_CHANNELS.accountState) as Promise<AccountState>,
-  useLocalMode: () => ipcRenderer.invoke(SHELL_CHANNELS.accountUseLocal) as Promise<AccountState>,
+  useLocalForNow: () => ipcRenderer.invoke(SHELL_CHANNELS.accountUseLocalForNow) as Promise<AccountState>,
   onAccountState: (cb) => subscribe<AccountState>(SHELL_EVENTS.accountState, cb),
 };
 

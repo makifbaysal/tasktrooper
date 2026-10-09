@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import path from "node:path";
 
 /**
- * Bundles the main process and the two preloads.
+ * Bundles the main process and the three preloads.
  *
  * CommonJS, and `.cjs` extensions, because package.json says `"type":
  * "module"`: Electron's main process and preload scripts load more reliably as
@@ -44,4 +44,9 @@ await build({
   ...common,
   entryPoints: [path.join(root, "src/preload/cloud.ts")],
   outfile: path.join(outdir, "preload/cloud.cjs"),
+});
+await build({
+  ...common,
+  entryPoints: [path.join(root, "src/preload/keys.ts")],
+  outfile: path.join(outdir, "preload/keys.cjs"),
 });

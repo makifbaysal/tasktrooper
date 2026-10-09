@@ -122,6 +122,12 @@ export const de: Dict = {
       cancel: "Abbrechen",
       failed: "Der Wechsel ist fehlgeschlagen",
       unavailable: "Konten gibt es nur in der TaskTrooper-Desktop-App.",
+      temporaryLocal: "Bei {origin} angemeldet, aber TaskTrooper läuft vorerst ohne das Konto auf diesem Computer. Dir dort zugewiesene Aufgaben warten, bis du zurückkehrst; beim nächsten Start wird das Konto wieder versucht.",
+      backToAccount: "Zurück zum Konto",
+      apiKeys: "API-Schlüssel…",
+      apiKeysHelp: "Die Schlüssel, mit denen Agenten auf diesem Computer deine eigenen Anbieterkonten nutzen. Sie bleiben verschlüsselt hier; die Server von TaskTrooper sehen sie nie.",
+      bannerTitle: "TaskTrooper läuft vorerst ohne dein Konto",
+      bannerBody: "Du bist weiterhin bei {origin} angemeldet. Dir dort zugewiesene Aufgaben warten, bis du zurückkehrst.",
     },
     updates: {
       title: "Updates",

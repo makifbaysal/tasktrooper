@@ -30,5 +30,12 @@ export default defineConfig({
     // open, and the renderer never sees a secret to begin with — keeping it
     // that way is cheaper than auditing the map.
     sourcemap: false,
+    // Two pages: the chrome, and the API-key window (main/keys/window.ts).
+    rolldownOptions: {
+      input: {
+        index: path.resolve(import.meta.dirname, "src/renderer/index.html"),
+        keys: path.resolve(import.meta.dirname, "src/renderer/keys.html"),
+      },
+    },
   },
 });

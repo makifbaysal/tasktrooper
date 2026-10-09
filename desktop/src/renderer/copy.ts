@@ -11,10 +11,11 @@ export function unreachableCopy(isMac: boolean): string {
 
 /**
  * Account mode's version: the page comes from the account's origin, so what
- * failed is the network path to it, and running locally is the other way on.
+ * failed is the network path to it, and running locally for now is the other
+ * way on — without signing out.
  */
 export function accountUnreachableCopy(origin: string): string {
-  return `This computer is signed in to ${origin}, and the window shows TaskTrooper from there. Check the internet connection, VPN or proxy and retry — or sign out and use TaskTrooper on this computer without an account. Nothing stored locally is lost either way.`;
+  return `This computer is signed in to ${origin}, and the window shows TaskTrooper from there. Check the internet connection, VPN or proxy and retry — or use TaskTrooper on this computer without the account for now. You stay signed in, tasks assigned to you there wait, and the next launch tries the account again.`;
 }
 
 /**

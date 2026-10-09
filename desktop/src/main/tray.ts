@@ -30,6 +30,20 @@ export interface TrayDeps {
    * mode the runner. Read at each render, so it follows a mode switch.
    */
   subject?: () => string;
+  /** API keys… — the API-key window. */
+  openKeys?: () => void;
+  /**
+   * A state worth saying at the top of the menu itself — running locally for
+   * now while still signed in — and the press that ends it. Read at each
+   * render.
+   */
+  banner?: () => TrayBanner | null;
+}
+
+export interface TrayBanner {
+  label: string;
+  action: string;
+  run: () => void;
 }
 
 export class AppTray {
@@ -109,15 +123,37 @@ export class AppTray {
     const up = snapshot?.state === "running" || snapshot?.state === "degraded";
     const update = this.#update;
     const subject = this.#deps.subject?.() ?? "the local server";
-    const shown = JSON.stringify([glyph, tone, line, busy, up, subject, update.phase, update.version, update.percent, update.detail]);
+    const banner = this.#deps.banner?.() ?? null;
+    const shown = JSON.stringify([
+      glyph,
+      tone,
+      line,
+      busy,
+      up,
+      subject,
+      banner?.label,
+      banner?.action,
+      update.phase,
+      update.version,
+      update.percent,
+      update.detail,
+    ]);
     if (shown === this.#shown) return;
     this.#shown = shown;
 
     tray.setImage(trayIcon(glyph, tone));
-    tray.setToolTip(`TaskTrooper — ${line}`);
+    tray.setToolTip(banner ? `TaskTrooper — ${banner.label}; ${line}` : `TaskTrooper — ${line}`);
 
+    const openKeys = this.#deps.openKeys;
     tray.setContextMenu(
       Menu.buildFromTemplate([
+        ...(banner
+          ? [
+              { label: banner.label, enabled: false },
+              { label: banner.action, click: () => banner.run() },
+              { type: "separator" as const },
+            ]
+          : []),
         { label: line, enabled: false },
         { type: "separator" },
         { label: `Start ${subject}`, enabled: !busy && !up, click: () => this.#deps.start() },
@@ -127,6 +163,7 @@ export class AppTray {
         // the Claude Code card of Settings → LLM Connection.
         { label: "Claude Code settings…", click: () => this.#deps.showWindow("/settings/llm") },
         { label: "Board…", click: () => this.#deps.showWindow("/board") },
+        ...(openKeys ? [{ label: "API keys…", click: () => openKeys() }] : []),
         ...this.#updateItems(up, subject),
         { type: "separator" },
         {

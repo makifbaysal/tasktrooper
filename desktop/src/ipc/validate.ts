@@ -15,8 +15,11 @@
  */
 
 import {
+  BUILT_IN_PROVIDER_TYPES,
   CHILD_IDS,
+  CUSTOM_PROVIDER_TYPE,
   type ChildId,
+  type ProviderKeyType,
   type NotificationPreferences,
   type RunnerPairingBundle,
   type UserSettings,
@@ -26,6 +29,8 @@ import type {
   ChatFocusRequest,
   ChooseDirectoryRequest,
   DiagnosticsRequest,
+  KeyRemoveRequest,
+  KeySetRequest,
   LogsStreamRequest,
   OpenExternalRequest,
   PairRequest,
@@ -337,4 +342,55 @@ export function validateChooseDirectory(raw: unknown): ChooseDirectoryRequest {
     out.buttonLabel = asClean(o.buttonLabel, "chooseDirectory.buttonLabel", { max: 64 }).trim();
   }
   return out;
+}
+
+/**
+ * A provider id: the identifier rule the runner holds `providers` to — a
+ * built-in type's name, or a custom endpoint's UUID.
+ */
+const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function asProviderId(value: unknown, what: string): string {
+  const id = asCleanNonEmpty(value, what, { max: 64 });
+  if (!PROVIDER_ID.test(id)) fail(`${what}: letters, digits, '.', '_' and '-' only`);
+  return id;
+}
+
+/**
+ * The API-key window's `set`. Shape only — which id a type takes, whether a
+ * key may be left out and where it may travel are `main/keys/keys.ts`'s.
+ *
+ * No message here quotes a value it refuses: the key is one of them, and a
+ * refusal is read back by the page and may reach a log.
+ */
+export function validateKeySet(raw: unknown): KeySetRequest {
+  const o = asRecord(raw, "keys.set");
+  const type = asString(o.type, "keys.set.type", { max: 64 });
+  if (!(BUILT_IN_PROVIDER_TYPES as readonly string[]).includes(type) && type !== CUSTOM_PROVIDER_TYPE) {
+    fail("keys.set.type: not a provider type this app offers");
+  }
+  const out: KeySetRequest = { type: type as ProviderKeyType };
+  if (o.id !== undefined) out.id = asProviderId(o.id, "keys.set.id");
+  if (o.base_url !== undefined) {
+    const base = asClean(o.base_url, "keys.set.base_url", { max: 512 }).trim();
+    if (base !== "") out.base_url = base;
+  }
+  if (o.models !== undefined) {
+    if (!Array.isArray(o.models)) fail("keys.set.models: expected a list");
+    if (o.models.length > 32) fail("keys.set.models: at most 32");
+    out.models = o.models.map((m, i) => asCleanNonEmpty(m, `keys.set.models[${i}]`, { max: 256 }));
+  }
+  if (o.api_key !== undefined) {
+    if (typeof o.api_key !== "string") fail("keys.set.api_key: expected a string");
+    if (o.api_key.length > 4096) fail("keys.set.api_key: longer than 4096 characters");
+    if (CONTROL_CHARS.test(o.api_key)) fail("keys.set.api_key: contains control characters");
+    const key = o.api_key.trim();
+    if (key !== "") out.api_key = key;
+  }
+  return out;
+}
+
+export function validateKeyRemove(raw: unknown): KeyRemoveRequest {
+  const o = asRecord(raw, "keys.remove");
+  return { id: asProviderId(o.id, "keys.remove.id") };
 }

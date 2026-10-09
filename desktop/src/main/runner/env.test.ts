@@ -5,7 +5,7 @@ vi.mock("electron", () => ({
   app: { getAppPath: () => "/app", getPath: () => "/userData", isPackaged: false },
 }));
 
-const { childEnv, preflightMessage, runnerConfig } = await import("./env.js");
+const { childEnv, embeddingsMessage, preflightMessage, runnerConfig } = await import("./env.js");
 
 const bundle: RunnerPairingBundle = {
   runner_token: "rtok-1",
@@ -106,14 +106,29 @@ describe("runnerConfig", () => {
     expect(parsed).not.toHaveProperty("antigravity_bin");
   });
 
-  it("never sends the embeddings fields while account mode runs no embedder", () => {
+  it("omits claude_bin for a member without Claude Code — the runner answers claude.run with not_ready", () => {
+    const items = report().items.filter((i) => i.id !== "claude");
+    const parsed = config({ ...report(), items: [...items, { id: "claude", label: "Claude Code CLI", required: false, status: "missing" }] });
+    expect(parsed).not.toHaveProperty("claude_bin");
+    expect(parsed.git_bin).toBe("/usr/bin/git");
+  });
+
+  it("never sends the embeddings fields before the embedder has an address", () => {
     const parsed = config(report());
     expect(parsed).not.toHaveProperty("embeddings_base_url");
     expect(parsed).not.toHaveProperty("embedding_model");
   });
 
-  it("passes the embedder's URL on for the executor once there is one", () => {
-    expect(config(report(), { embeddingsBaseURL: "http://127.0.0.1:5123" }).embeddings_base_url).toBe("http://127.0.0.1:5123");
+  it("passes the embedder's URL on for the executor once there is one, with the model it serves pinned", () => {
+    const parsed = config(report(), { embeddingsBaseURL: "http://127.0.0.1:5123" });
+    expect(parsed.embeddings_base_url).toBe("http://127.0.0.1:5123");
+    expect(parsed.embedding_model).toBe("nomic-embed-text-v1.5");
+  });
+
+  it("moves the runner to the embedder's new port with one control line", () => {
+    const line = embeddingsMessage("http://127.0.0.1:6001");
+    expect(line.endsWith("\n")).toBe(true);
+    expect(JSON.parse(line)).toEqual({ type: "embeddings-base-url", embeddings_base_url: "http://127.0.0.1:6001" });
   });
 
   it("sends the executor and its data directory only when this build has one", () => {

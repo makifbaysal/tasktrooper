@@ -160,11 +160,12 @@ function Unreachable({
   const [leaving, setLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
   // In account mode the page that has "Sign out" on it is the one that did not
-  // load, so the way back to running locally has to be here.
+  // load, so the way on has to be here: locally for now, still signed in —
+  // nothing about the account is forgotten, and the next launch tries it again.
   const useLocally = useCallback(() => {
     setLeaving(true);
     setLeaveError(null);
-    api.useLocalMode().then(
+    api.useLocalForNow().then(
       () => setLeaving(false),
       (err: unknown) => {
         setLeaving(false);
@@ -199,7 +200,7 @@ function Unreachable({
           {inAccount ? (
             <Button className="no-drag" variant="secondary" onClick={useLocally} disabled={leaving}>
               <HardDrive />
-              Use TaskTrooper without an account
+              Use without an account for now
             </Button>
           ) : null}
         </div>
