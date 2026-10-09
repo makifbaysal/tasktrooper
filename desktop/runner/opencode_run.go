@@ -97,11 +97,6 @@ type preparedOpencodeRun struct {
 	args   []string
 	prompt string
 	env    []string
-	// mcpToken is the run's own MCP bearer token, when it has one, kept
-	// alongside the prepared run so the handler can hand it to
-	// credentialRedactor without re-parsing the (already-consumed) mcp
-	// params.
-	mcpToken string
 	// mcp is rendered at launch, once the CLI's generation decides where the
 	// config goes: the run's own env (1.x) or its private server's (2.x).
 	mcp     *mcpConfig
@@ -172,9 +167,6 @@ func (s *runnerServer) prepareOpencodeRun(p opencodeRunParams) (preparedOpencode
 		mcp:     mcpCfg,
 		timeout: time.Duration(p.TimeoutMS) * time.Millisecond,
 	}
-	if mcpCfg != nil {
-		prepared.mcpToken = mcpCfg.token
-	}
 	return prepared, nil
 }
 
@@ -237,8 +229,10 @@ func (s *runnerServer) handleOpencodeRun(w http.ResponseWriter, r *http.Request)
 	if !queued {
 		return
 	}
+	surface := s.openCLISurface(run.ctx, id, req.Workspace, prepared.mcp, surfaceToolPolicy(prepared.mcp, nil), req.Env, prepared.timeout)
+	prepared.mcp = surface.mcp
 
-	s.serveDurable(w, r, run, []func(){releaseSlot}, func(runCtx context.Context, frames io.Writer) {
+	s.serveDurable(w, r, run, []func(){releaseSlot, surface.close}, func(runCtx context.Context, frames io.Writer) {
 		c := &call{
 			ctx:    runCtx,
 			id:     id,
@@ -249,7 +243,7 @@ func (s *runnerServer) handleOpencodeRun(w http.ResponseWriter, r *http.Request)
 			// opencode inherits this process's environment unmodified too —
 			// see spawnOpencode — so the same transcript-side scrubbing
 			// claude.run gets applies here. See redact.go.
-			redact: credentialRedactor(s.cfg.policy, prepared.mcpToken),
+			redact: heldSecretRedactor(s.cfg.policy, surface.held()),
 		}
 		_ = c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"})
 

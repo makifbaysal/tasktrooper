@@ -218,6 +218,9 @@ type executorSupervisor struct {
 	changed chan struct{}
 	lastErr string
 	fatal   bool
+	// localTools is what the last healthy executor said its tool surfaces
+	// serve of their own; kept across a restart, which serves the same.
+	localTools []string
 }
 
 type executorProcess struct {
@@ -473,9 +476,10 @@ func (e *executorSupervisor) spawn() (*executorProcess, error) {
 }
 
 type executorHealth struct {
-	OK       bool   `json:"ok"`
-	Version  string `json:"version"`
-	Protocol int    `json:"protocol"`
+	OK         bool     `json:"ok"`
+	Version    string   `json:"version"`
+	Protocol   int      `json:"protocol"`
+	LocalTools []string `json:"local_tools"`
 }
 
 func (e *executorSupervisor) checkHealth(p *executorProcess) error {
@@ -501,7 +505,21 @@ func (e *executorSupervisor) checkHealth(p *executorProcess) error {
 	if resp.StatusCode != http.StatusOK || !h.OK {
 		return fmt.Errorf("the executor reports itself unhealthy (HTTP %d)", resp.StatusCode)
 	}
+	e.mu.Lock()
+	e.localTools = h.LocalTools
+	e.mu.Unlock()
 	return nil
+}
+
+// localToolNames is nil until an executor has answered, and for one that
+// serves no tool surfaces.
+func (e *executorSupervisor) localToolNames() []string {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.localTools...)
 }
 
 // stop asks first — stdin EOF is the executor's shutdown request, on every

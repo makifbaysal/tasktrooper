@@ -27,7 +27,11 @@ const (
 	fakeExecutorEnv     = "TT_FAKE_EXECUTOR"
 	fakeExecutorDumpEnv = "TT_FAKE_EXECUTOR_DUMP"
 	fakeProviderKey     = "sk-fake-provider-0123456789abcdef"
+	fakeSurfaceToken    = "surface-token-fedcba9876543210"
 )
+
+// fakeLocalTools is what the fake executor's health says its surfaces serve.
+var fakeLocalTools = []string{"browser_navigate", "codebase_search", "http_request"}
 
 // fakeExecutor is the stand-in executor. Modes: "ok" serves until stdin
 // closes; "exit" exits shortly after it is ready, so the runner restarts it;
@@ -83,7 +87,48 @@ func fakeExecutor(mode string) int {
 		if !authorized(w, r) {
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "version": "fake", "protocol": protocol})
+		health := map[string]any{"ok": true, "version": "fake", "protocol": protocol}
+		if mode != "nomcp" {
+			health["local_tools"] = fakeLocalTools
+		}
+		_ = json.NewEncoder(w).Encode(health)
+	})
+	mux.HandleFunc("POST /exec/mcp.open", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		record("surface-opens", string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		var req struct {
+			RunID    string `json:"run_id"`
+			CloudMCP struct {
+				Token      string `json:"token"`
+				ServerName string `json:"server_name"`
+			} `json:"cloud_mcp"`
+		}
+		_ = json.Unmarshal(raw, &req)
+		switch mode {
+		case "nomcp":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"v":1,"error":{"code":"unsupported_method","message":"no POST /exec/mcp.open here"}}`))
+		case "mcpfail":
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"v":1,"error":{"code":"upstream","message":"could not reach the cloud with ` + req.CloudMCP.Token + `"}}`))
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"v": 1, "run_id": req.RunID, "url": "http://" + r.Host + "/mcp", "token": fakeSurfaceToken,
+				"server_name": req.CloudMCP.ServerName, "tools": fakeLocalTools,
+			})
+		}
+	})
+	mux.HandleFunc("POST /exec/mcp.close", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		record("surface-closes", string(raw))
+		_, _ = w.Write([]byte(`{"v":1,"closed":true}`))
 	})
 	mux.HandleFunc("POST /exec/agent.run", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) {

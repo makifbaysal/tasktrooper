@@ -539,13 +539,15 @@ func (s *runnerServer) handleClaudeRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The MCP file is written once a slot is free — a call queued behind
-	// fifteen others has no business holding a bearer token on disk — and is
-	// removed when the run ends, however it ends. That is no longer when this
+	// The surface and the MCP file come once a slot is free — a call queued
+	// behind fifteen others has no business holding a bearer token on disk —
+	// and go when the run ends, however it ends. That is no longer when this
 	// request ends: the run outlives a dropped stream.
-	mcpArgs, removeMCP, mcpErr := writeMCPRun(s.mcpRoot, id, prepared.mcp)
+	surface := s.openCLISurface(run.ctx, id, req.Workspace, prepared.mcp, surfaceToolPolicy(prepared.mcp, req.Tools), req.Env, prepared.timeout)
+	mcpArgs, removeMCP, mcpErr := writeMCPRun(s.mcpRoot, id, surface.mcp)
 	if mcpErr != nil {
 		removeMCP()
+		surface.close()
 		releaseSlot()
 		run.abandon()
 		writeError(w, mcpErr)
@@ -553,7 +555,7 @@ func (s *runnerServer) handleClaudeRun(w http.ResponseWriter, r *http.Request) {
 	}
 	args := append(prepared.args, mcpArgs...)
 
-	s.serveDurable(w, r, run, []func(){releaseSlot, removeMCP}, func(runCtx context.Context, frames io.Writer) {
+	s.serveDurable(w, r, run, []func(){releaseSlot, surface.close, removeMCP}, func(runCtx context.Context, frames io.Writer) {
 		c := &call{
 			ctx:    runCtx,
 			id:     id,
@@ -565,7 +567,7 @@ func (s *runnerServer) handleClaudeRun(w http.ResponseWriter, r *http.Request) {
 			// spawnClaude — so the credential values that authenticate it are
 			// exactly the ones a misbehaving tool on the far side could echo
 			// back into the transcript.
-			redact: credentialRedactor(s.cfg.policy, mcpTokenOf(prepared.mcp)),
+			redact: heldSecretRedactor(s.cfg.policy, surface.held()),
 		}
 		// The first line, always, and it carries the id — including one this
 		// side generated, which is the only way a caller that did not choose

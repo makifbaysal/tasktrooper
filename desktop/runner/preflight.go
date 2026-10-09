@@ -28,7 +28,13 @@ func (s *runnerServer) preflightReport() (json.RawMessage, *rpcError) {
 		// apart would show a healthy Mac as having nothing installed.
 		return nil, failure(codeNotReady, "this machine has not reported its environment yet; the desktop app pushes it as soon as the checks finish")
 	}
-	return withRunnerFields(report, map[string]any{"capabilities": runnerCapabilities}), nil
+	fields := map[string]any{"capabilities": runnerCapabilities}
+	// The tools a CLI run here gets from this computer's own surface
+	// (mcp_surface.go), so the cloud can stop withholding them.
+	if tools := s.state.executorSupervisor().localToolNames(); len(tools) > 0 {
+		fields["local_tools"] = tools
+	}
+	return withRunnerFields(report, fields), nil
 }
 
 // withRunnerFields adds what this program knows about itself to the desktop

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -103,6 +104,11 @@ type mcpParams struct {
 	Token string `json:"token"`
 	// ServerName is what the tools are named after, on both sides.
 	ServerName string `json:"server_name"`
+	// ToolPolicy and Index are for the run's local tool surface
+	// (mcp_surface.go): forwarded to the executor's mcp.open as they came,
+	// read by nothing here.
+	ToolPolicy json.RawMessage `json:"tool_policy,omitempty"`
+	Index      json.RawMessage `json:"index,omitempty"`
 }
 
 // mcpConfig is the validated form of mcpParams, the same way config is the
@@ -115,7 +121,9 @@ type mcpConfig struct {
 	serverName string
 	// host is kept for the log line, so nothing has to re-parse the URL to
 	// say where a session's tools live.
-	host string
+	host       string
+	toolPolicy json.RawMessage
+	index      json.RawMessage
 }
 
 // checkMCP validates the object, or refuses it. It is called during
@@ -177,7 +185,31 @@ func checkMCP(p *mcpParams) (*mcpConfig, *rpcError) {
 		return nil, failure(codeBadRequest, "mcp.server_name %q is not a plain identifier", name)
 	}
 
-	return &mcpConfig{url: u.String(), token: p.Token, serverName: name, host: u.Host}, nil
+	toolPolicy, rpcErr := surfaceObject("mcp.tool_policy", p.ToolPolicy)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	index, rpcErr := surfaceObject("mcp.index", p.Index)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return &mcpConfig{url: u.String(), token: p.Token, serverName: name, host: u.Host, toolPolicy: toolPolicy, index: index}, nil
+}
+
+// surfaceObject is a field this runner forwards to the executor and does not
+// read: a JSON object of bounded size, or absent.
+func surfaceObject(field string, raw json.RawMessage) (json.RawMessage, *rpcError) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	if len(trimmed) > maxSurfaceExtra {
+		return nil, failure(codeBadRequest, "%s is longer than %d bytes", field, maxSurfaceExtra)
+	}
+	if trimmed[0] != '{' || !json.Valid(trimmed) {
+		return nil, failure(codeBadRequest, "%s must be a JSON object", field)
+	}
+	return append(json.RawMessage(nil), trimmed...), nil
 }
 
 // mcpTokenOf reads the token out of a validated config that may be nil — the

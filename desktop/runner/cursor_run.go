@@ -281,16 +281,18 @@ func (s *runnerServer) handleCursorRun(w http.ResponseWriter, r *http.Request) {
 	// behind fifteen others has no business holding a bearer token merged
 	// into the workspace's own config file while it waits — and restored when
 	// the run ends, which may be long after this request does.
-	restoreMCP, mcpErr := writeCursorMCP(prepared.dir, prepared.mcp)
+	surface := s.openCLISurface(run.ctx, id, req.Workspace, prepared.mcp, surfaceToolPolicy(prepared.mcp, nil), req.Env, prepared.timeout)
+	restoreMCP, mcpErr := writeCursorMCP(prepared.dir, surface.mcp)
 	if mcpErr != nil {
 		restoreMCP()
+		surface.close()
 		releaseSlot()
 		run.abandon()
 		writeError(w, mcpErr)
 		return
 	}
 
-	s.serveDurable(w, r, run, []func(){releaseSlot, restoreMCP}, func(runCtx context.Context, frames io.Writer) {
+	s.serveDurable(w, r, run, []func(){releaseSlot, surface.close, restoreMCP}, func(runCtx context.Context, frames io.Writer) {
 		c := &call{
 			ctx:    runCtx,
 			id:     id,
@@ -301,7 +303,7 @@ func (s *runnerServer) handleCursorRun(w http.ResponseWriter, r *http.Request) {
 			// cursor-agent inherits this process's environment unmodified too
 			// — see spawnCursor — so the same transcript-side scrubbing
 			// claude.run and opencode.run get applies here. See redact.go.
-			redact: credentialRedactor(s.cfg.policy, mcpTokenOf(prepared.mcp)),
+			redact: heldSecretRedactor(s.cfg.policy, surface.held()),
 		}
 		_ = c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"})
 
