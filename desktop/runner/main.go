@@ -196,6 +196,12 @@ type wireConfig struct {
 	// tunnel and never reach a log line (executor.go).
 	Providers []providerConfig `json:"providers,omitempty"`
 
+	// RunnerDataDir is where this runner keeps what it writes for itself: the
+	// durable runs' buffers. Optional; absent is the user's cache directory.
+	RunnerDataDir string `json:"runner_data_dir,omitempty"`
+	// RunBufferMaxBytes caps one run's frame buffer. Optional; 16 MiB.
+	RunBufferMaxBytes int64 `json:"run_buffer_max_bytes,omitempty"`
+
 	// Policy is what this runner refuses on behalf of the service it is paired
 	// with. Optional: absent keeps every default, and the defaults are strict
 	// (policy.go).
@@ -233,6 +239,8 @@ type config struct {
 	executorDataDir          string
 	executorPostgresCacheDir string
 	providers                []providerConfig
+	runnerDataDir            string
+	runBufferBytes           int64
 }
 
 // loadConfig reads one JSON document — the FIRST LINE of stdin — and validates
@@ -419,6 +427,20 @@ func loadConfig(line []byte) (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	runnerData := strings.TrimSpace(wire.RunnerDataDir)
+	if runnerData != "" {
+		if !filepath.IsAbs(runnerData) {
+			return config{}, fmt.Errorf("runner_data_dir %q must be an absolute path", runnerData)
+		}
+		runnerData = filepath.Clean(runnerData)
+	}
+	runBuffer := int64(defaultRunBufferBytes)
+	if wire.RunBufferMaxBytes != 0 {
+		if wire.RunBufferMaxBytes < minRunBufferBytes || wire.RunBufferMaxBytes > maxRunBufferBytes {
+			return config{}, fmt.Errorf("run_buffer_max_bytes %d is outside %d..%d", wire.RunBufferMaxBytes, minRunBufferBytes, maxRunBufferBytes)
+		}
+		runBuffer = wire.RunBufferMaxBytes
+	}
 
 	return config{
 		tunnelURL:                tunnelURL,
@@ -443,6 +465,8 @@ func loadConfig(line []byte) (config, error) {
 		executorDataDir:          executorData,
 		executorPostgresCacheDir: executorPostgres,
 		providers:                providers,
+		runnerDataDir:            runnerData,
+		runBufferBytes:           runBuffer,
 	}, nil
 }
 
@@ -546,6 +570,7 @@ func main() {
 			sweepReleaseWrappers(cfg.workspaceDir)
 
 			state := newState()
+			state.runs = newRunRegistry(runsDir(cfg), cfg.runBufferBytes, runRetention)
 			state.hub = newAppiumHub(cfg, defaultHubTimings)
 			state.hub.resume()
 			state.seedEmbeddingsBaseURLIfUnset(cfg.embeddingsBaseURL)
@@ -562,8 +587,12 @@ func main() {
 			// cancelled by the drain, and its own stop fits inside the
 			// supervisor's grace only when it runs beside the drain.
 			context.AfterFunc(ctx, state.executor.close)
+			// Durable runs outlive a tunnel session, not the process: they are
+			// cancelled beside the drain, and reaped before this returns.
+			context.AfterFunc(ctx, state.runs.shutdown)
 
 			runErr := run(ctx, cfg, state, defaultTimings)
+			state.runs.close()
 			state.hub.close()
 			state.executor.close()
 			if runErr != nil {
@@ -738,9 +767,12 @@ type state struct {
 	// executor is set once at startup, like hub, and nil when the desktop app
 	// sent no executor_bin.
 	executor *executorSupervisor
+	// runs are the durable runs, which outlive any one tunnel session. A
+	// fresh state keeps their buffers in memory; main gives it the disk.
+	runs *runRegistry
 }
 
-func newState() *state { return &state{} }
+func newState() *state { return &state{runs: newRunRegistry("", defaultRunBufferBytes, runRetention)} }
 
 func (s *state) appiumHub() *appiumHub {
 	if s == nil {
@@ -1006,10 +1038,9 @@ func connectAndServe(ctx context.Context, cfg config, state *state) (time.Durati
 	stopOnShutdown := context.AfterFunc(ctx, func() { _ = session.Close() })
 	defer stopOnShutdown()
 
-	// Calls in flight belong to this session, and a session that ends takes
-	// them with it. Cancelling here is what makes a dropped tunnel kill the
-	// `claude` processes it was streaming: nobody is left to receive their
-	// output, and a session that keeps running is a session nobody can stop.
+	// Requests belong to this session and end with it. A durable run does
+	// not: once started it is the registry's (runs.go), and only its stream
+	// to this session's caller ends here.
 	sessionCtx, endSession := context.WithCancel(ctx)
 	defer endSession()
 
@@ -1026,10 +1057,9 @@ func connectAndServe(ctx context.Context, cfg config, state *state) (time.Durati
 		Handler:           runner.handler(),
 		ReadHeaderTimeout: requestHeaderTimeout,
 		IdleTimeout:       idleTimeout,
-		// Every request context descends from this one. That is what makes a
-		// session ending cancel the runs it was streaming — and killing those
-		// process groups is the difference between a dropped tunnel and a Mac
-		// left with an orphaned `claude` chewing through somebody's repository.
+		// Every request context descends from this one, so a session ending
+		// ends its requests: the queued calls, the non-durable ones, and the
+		// streams of durable runs, which go on without them.
 		BaseContext: func(net.Listener) context.Context { return sessionCtx },
 		// net/http's own complaints, routed into this program's JSON log. Its
 		// default is the stdlib logger writing raw text to stderr, which the
@@ -1048,11 +1078,11 @@ func connectAndServe(ctx context.Context, cfg config, state *state) (time.Durati
 	log.Info().Msg("tunnel attached")
 	attachedAt := time.Now()
 	defer func() {
-		// Cancel first, then wait, then close. Cancelling gives every in-flight
-		// run the chance to kill its process group and be reaped; closing first
-		// would tear the connections down and leave the children behind, which
-		// is the bug this ordering exists to prevent. Only then is the detach
-		// true: after this line the Mac is running nothing.
+		// Cancel first, then wait, then close. Cancelling gives every request
+		// still in flight — a non-durable run among them — the chance to kill
+		// its process group and be reaped; closing first would tear the
+		// connections down and leave those children behind. Durable runs are
+		// not waited for: they go on, and a later session attaches to them.
 		endSession()
 		runner.drain()
 		_ = srv.Close()

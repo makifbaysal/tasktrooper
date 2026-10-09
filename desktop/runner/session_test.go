@@ -193,6 +193,17 @@ func TestCancellingASessionKillsTheWholeProcessTree(t *testing.T) {
 type runHarness struct {
 	srv    *httptest.Server
 	client *http.Client
+	st     *state
+}
+
+// testState is a state whose durable runs are stopped when the test ends.
+// Registered after the server's Close, so it runs first: a handler streaming
+// a run returns once the run does, and Close waits for its handlers.
+func testState(t *testing.T) *state {
+	t.Helper()
+	st := newState()
+	st.runs = newRunRegistry(t.TempDir(), defaultRunBufferBytes, runRetention)
+	return st
 }
 
 func newRunHarness(t *testing.T, claudeBin, workspace string) *runHarness {
@@ -204,9 +215,11 @@ func newRunHarness(t *testing.T, claudeBin, workspace string) *runHarness {
 		embeddingsBaseURL: "http://127.0.0.1:1234/v1",
 		embeddingModel:    "nomic-embed-text-v1.5",
 	}
-	srv := httptest.NewServer(newRunnerServer(cfg, newState()).handler())
+	st := testState(t)
+	srv := httptest.NewServer(newRunnerServer(cfg, st).handler())
 	t.Cleanup(srv.Close)
-	return &runHarness{srv: srv, client: srv.Client()}
+	t.Cleanup(st.runs.close)
+	return &runHarness{srv: srv, client: srv.Client(), st: st}
 }
 
 // start posts a claude.run and returns the live response, unread.
@@ -349,15 +362,12 @@ func TestCancelEndpointStopsTheSession(t *testing.T) {
 	awaitGone(t, child, 5*time.Second)
 }
 
-// The second trigger, and the one the protocol change added: the client closes
-// the response body.
-//
-// With HTTP there is no half-close to protect any more — a request either has a
-// body or it does not, and it is complete before the response starts — so the
-// old rule that EOF must never cancel has nothing left to protect. What is left
-// is the failure it would cause: a tunnel that drops mid-run leaving a `claude`
-// alive on somebody's Mac, chewing through a repository nobody is watching.
-func TestClosingTheResponseBodyStopsTheSession(t *testing.T) {
+// A caller that stops reading is no longer a cancellation. The cloud's load
+// balancer cuts the tunnel at an hour and tasks run longer than that, so a run
+// outlives its stream; it stops on POST /cancel, its own timeout, or this
+// runner shutting down — and the shutdown still takes the whole group down,
+// SIGTERM-deaf grandchild included.
+func TestClosingTheResponseBodyLeavesTheRunGoing(t *testing.T) {
 	workspace := emptyWorkspace(t)
 	h := newRunHarness(t, stubbornClaude(t), workspace)
 
@@ -379,13 +389,24 @@ func TestClosingTheResponseBodyStopsTheSession(t *testing.T) {
 		t.Fatalf("the fake session's child (%d) was not running before the close", child)
 	}
 
-	// No cancel, no request. Just a caller that stopped listening — which is
-	// what a dropped tunnel looks like from this side.
+	id, _ := first["id"].(string)
 	if err := res.Body.Close(); err != nil {
 		t.Fatalf("closing the response body: %v", err)
 	}
 
-	awaitGone(t, child, claudeGrace+claudeReapTimeout+10*time.Second)
+	time.Sleep(time.Second)
+	if !alive(child) {
+		t.Fatalf("the session's child (%d) died with the stream; a run must outlive its caller", child)
+	}
+	if st := h.st.runs.status(id); st.State != "running" {
+		t.Fatalf("status after the stream closed = %+v, want running", st)
+	}
+
+	h.st.runs.close()
+	awaitGone(t, child, 5*time.Second)
+	if st := h.st.runs.status(id); st.State != "unknown" {
+		t.Fatalf("status after shutdown = %+v, want the run forgotten", st)
+	}
 }
 
 // The streaming property, stated on its own: output arrives while the session
@@ -645,10 +666,10 @@ func TestADrainingSessionStartsNoNewRuns(t *testing.T) {
 	}
 }
 
-// drain returns only after the runs it is waiting for have returned — which,
-// because claude.run reaps its process group before returning, is the moment
-// the Mac is genuinely running nothing. That ordering is what "tunnel detached"
-// claims, so it is asserted rather than assumed.
+// drain returns only after the requests in flight have returned. A durable
+// run's own request streams it until its done, so with the session's context
+// still live this drain waits out the run; connectAndServe cancels that context
+// first, and then it waits only for the streams to let go.
 func TestDrainWaitsForTheRunsInFlight(t *testing.T) {
 	workspace := emptyWorkspace(t)
 	dir := t.TempDir()

@@ -41,6 +41,8 @@ import (
 //	POST /models.list         → 200 application/json
 //	POST /agent.run           → the local executor's NDJSON, streamed
 //	POST /llm.complete        → the local executor's status and body
+//	POST /run.attach          → a durable run's frames after a seq, then live
+//	POST /run.status          → 200 application/json
 //	POST /cancel              → 200 application/json
 //
 // Nothing here binds a socket. The only listener is the session, and the rule
@@ -88,6 +90,7 @@ const (
 	codeCancelled         = "cancelled"          // the caller asked, or the tunnel went away
 	codeUpstream          = "upstream"           // something this Mac depends on failed (the embedding engine, a git remote)
 	codeInternal          = "internal"           // a bug here
+	codeUnknownRun        = "unknown_run"        // run.attach for an id this machine holds no run for
 )
 
 // statusCancelled is 499, nginx's "client closed request".
@@ -105,7 +108,7 @@ func statusFor(code string) int {
 	switch code {
 	case codeBadRequest:
 		return http.StatusBadRequest
-	case codeUnsupportedMethod:
+	case codeUnsupportedMethod, codeUnknownRun:
 		return http.StatusNotFound
 	case codeNotReady:
 		return http.StatusConflict
@@ -139,7 +142,8 @@ type runnerServer struct {
 	mu   sync.Mutex
 	runs map[string]context.CancelFunc
 
-	// sem bounds concurrent Claude Code sessions; see maxConcurrentSessions.
+	// sem bounds concurrent sessions; see maxConcurrentSessions. It is the
+	// run registry's, so runs that outlived an earlier session still count.
 	sem chan struct{}
 
 	// mcpRoot is where a run's MCP config directory is created — the user's
@@ -219,7 +223,7 @@ func newRunnerServer(cfg config, st *state) *runnerServer {
 		cfg:     cfg,
 		state:   st,
 		runs:    map[string]context.CancelFunc{},
-		sem:     make(chan struct{}, maxConcurrentSessions),
+		sem:     st.runs.sem,
 		mcpRoot: os.TempDir(),
 	}
 }
@@ -320,6 +324,10 @@ func (s *runnerServer) handler() http.Handler {
 			route(http.MethodPost, s.handleAgentRun)
 		case "/llm.complete":
 			route(http.MethodPost, s.handleLLMComplete)
+		case "/run.attach":
+			route(http.MethodPost, s.handleRunAttach)
+		case "/run.status":
+			route(http.MethodPost, s.handleRunStatus)
 		case "/cancel":
 			route(http.MethodPost, s.handleCancel)
 		default:
@@ -517,128 +525,70 @@ func (s *runnerServer) handleClaudeRun(w http.ResponseWriter, r *http.Request) {
 		id = newCallID()
 	}
 
-	runCtx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	if !s.register(id, cancel) {
-		writeError(w, failure(codeBadRequest, "a call with id %q is already running on this machine", id))
-		return
-	}
-	defer s.unregister(id)
-
-	// Claim a place in the in-flight accounting, or be refused because this
-	// session is going away. A run that started here after `drain` had returned
-	// would be a `claude` nobody is waiting for on a tunnel that has detached.
+	// The in-flight accounting covers this handler, which streams the run for
+	// as long as its caller reads; the run itself is the registry's once it
+	// starts. A session tearing down refuses new runs here.
 	if !s.enterRun() {
 		writeError(w, failure(codeCancelled, "this machine's tunnel session is shutting down and is not taking new runs"))
 		return
 	}
 	defer s.leaveRun()
 
-	// Cancellation beats the queue, deterministically.
-	//
-	// A `select` with both cases ready picks at RANDOM, so a request that
-	// arrived as the session was being torn down had roughly even odds of
-	// taking the semaphore and spawning `claude` anyway. Checking first makes
-	// the common case exact, and re-checking after the semaphore closes the
-	// remaining window: the two can still become ready together, and the
-	// re-check is what decides it in cancellation's favour every time.
-	if runCtx.Err() != nil {
-		writeError(w, failure(codeCancelled, "the call was cancelled before it started"))
-		return
-	}
-	// Registered before the wait, so a caller that changes its mind while
-	// queued can still cancel by id and is not left waiting on a Mac it has
-	// stopped caring about.
-	select {
-	case s.sem <- struct{}{}:
-		if runCtx.Err() != nil {
-			<-s.sem
-			writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
-			return
-		}
-		defer func() { <-s.sem }()
-	case <-runCtx.Done():
-		writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
+	run, releaseSlot, queued := s.queueDurable(w, r, id, "claude.run")
+	if !queued {
 		return
 	}
 
-	// The MCP configuration becomes a file on disk for exactly as long as this
-	// run, and the defer is the whole guarantee: it fires however the call ends
-	// — a return from here, the session finishing or failing, a POST /cancel,
-	// or the tunnel dropping and cancelling the request context under it. It is
-	// registered BEFORE the error is looked at, because a half-written file is
-	// still a file with a token in it, and BEFORE the 200, so a disk that
-	// refused is a status rather than a frame nobody reads until later.
-	//
-	// It is also registered after `defer s.leaveRun()`, so it runs first:
-	// by the time a session teardown reports "tunnel detached", the tokens of
-	// the runs it was serving are already off the disk.
+	// The MCP file is written once a slot is free — a call queued behind
+	// fifteen others has no business holding a bearer token on disk — and is
+	// removed when the run ends, however it ends. That is no longer when this
+	// request ends: the run outlives a dropped stream.
 	mcpArgs, removeMCP, mcpErr := writeMCPRun(s.mcpRoot, id, prepared.mcp)
-	defer removeMCP()
 	if mcpErr != nil {
+		removeMCP()
+		releaseSlot()
+		run.abandon()
 		writeError(w, mcpErr)
 		return
 	}
 	args := append(prepared.args, mcpArgs...)
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, failure(codeInternal, "this response cannot be streamed"))
-		return
-	}
+	s.serveDurable(w, r, run, []func(){releaseSlot, removeMCP}, func(runCtx context.Context, frames io.Writer) {
+		c := &call{
+			ctx:    runCtx,
+			id:     id,
+			cfg:    s.cfg,
+			state:  s.state,
+			params: body,
+			w:      frames,
+			// claude inherits this process's environment unmodified — see
+			// spawnClaude — so the credential values that authenticate it are
+			// exactly the ones a misbehaving tool on the far side could echo
+			// back into the transcript.
+			redact: credentialRedactor(s.cfg.policy, mcpTokenOf(prepared.mcp)),
+		}
+		// The first line, always, and it carries the id — including one this
+		// side generated, which is the only way a caller that did not choose
+		// one can ever cancel or attach.
+		_ = c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"})
 
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	// Nothing between here and the caller should try to buffer a response whose
-	// whole value is arriving early. Harmless where it is not understood.
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
+		// Kept OFF c.ctx: spawnClaude tells a timeout from a cancellation by
+		// comparing the two.
+		spawnCtx := runCtx
+		if prepared.timeout > 0 {
+			var stopTimeout context.CancelFunc
+			spawnCtx, stopTimeout = context.WithTimeout(runCtx, prepared.timeout)
+			defer stopTimeout()
+		}
 
-	c := &call{
-		ctx:    runCtx,
-		id:     id,
-		cfg:    s.cfg,
-		state:  s.state,
-		params: body,
-		w:      w,
-		flush:  flusher.Flush,
-		// claude inherits this process's environment unmodified — see
-		// spawnClaude — so the credential values that authenticate it are
-		// exactly the ones a misbehaving tool on the far side could echo back
-		// into the transcript. This is what keeps them out of it.
-		redact: credentialRedactor(s.cfg.policy, mcpTokenOf(prepared.mcp)),
-	}
-
-	// The first line, always, and it carries the id — including the one this
-	// side generated, which is the only way a caller that did not choose one
-	// can ever cancel. It also tells the caller the wait for a slot is over,
-	// which "no output yet" cannot.
-	if err := c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"}); err != nil {
-		log.Debug().Str("call", id).Err(err).Msg("caller went away before the session started")
-		return
-	}
-
-	// The run's own ceiling, if it asked for one. Kept OFF `c.ctx` on purpose:
-	// spawnClaude tells a timeout from a cancellation by comparing the two, and
-	// a caller that set a timeout still deserves to be told which of the two
-	// stopped its task.
-	spawnCtx := runCtx
-	if prepared.timeout > 0 {
-		var stopTimeout context.CancelFunc
-		spawnCtx, stopTimeout = context.WithTimeout(runCtx, prepared.timeout)
-		defer stopTimeout()
-	}
-
-	result, callErr := spawnClaude(spawnCtx, c, prepared.dir, args, prepared.prompt, prepared.env)
-
-	// A cancelled call reports as cancelled whatever the method returned. A
-	// process killed mid-flight usually surfaces as some incidental error — a
-	// closed pipe, a signal — and reporting that instead would make every
-	// cancellation look like a different bug.
-	if callErr == nil && runCtx.Err() != nil {
-		callErr = failure(codeCancelled, "the call was cancelled")
-	}
-	c.finish(result, callErr)
+		result, callErr := spawnClaude(spawnCtx, c, prepared.dir, args, prepared.prompt, prepared.env)
+		// A process killed mid-flight surfaces as some incidental error; a
+		// cancelled run reports as cancelled whatever the method returned.
+		if callErr == nil && runCtx.Err() != nil {
+			callErr = failure(codeCancelled, "the call was cancelled")
+		}
+		c.finish(result, callErr)
+	})
 }
 
 // --- the JSON methods -------------------------------------------------------
@@ -773,7 +723,7 @@ func (s *runnerServer) handleCancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, failure(codeBadRequest, "id is required: a cancel names the call it stops"))
 		return
 	}
-	cancelled := s.cancelRun(req.ID)
+	cancelled := s.state.runs.cancelRun(req.ID) || s.cancelRun(req.ID)
 	log.Info().Str("call", req.ID).Bool("found", cancelled).Msg("cancel requested")
 	writeJSON(w, http.StatusOK, cancelResponse{V: protocolVersion, ID: req.ID, Cancelled: cancelled})
 }

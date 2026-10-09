@@ -418,6 +418,7 @@ func TestConnectAndServeBoundsConcurrentSessions(t *testing.T) {
 	gw := newFakeGateway(t, nil)
 	cfg := testConfig(t, gw.baseURL())
 	st := newState()
+	t.Cleanup(st.runs.close)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -434,11 +435,8 @@ func TestConnectAndServeBoundsConcurrentSessions(t *testing.T) {
 	// Each request asks for a session that never ends. Every accepted one holds
 	// its slot; the rest wait, having sent no bytes back.
 	//
-	// The reader keeps the response body OPEN for the life of the test, and
-	// that is not incidental: closing it is itself a cancellation now, so a
-	// reader that stopped as soon as it had counted would free the slot it was
-	// there to occupy and let the next queued call through — which is a
-	// perfectly good test of the wrong thing.
+	// The runs hold their slots whether or not anybody reads them, so the cap
+	// is a property of the runs, not of the open streams.
 	const overshoot = 8
 	var started atomic.Int64
 	var wg sync.WaitGroup

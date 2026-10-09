@@ -220,6 +220,7 @@ func startFakeExecutor(t *testing.T, mode string, timings executorTimings) *exec
 	st.executor = newExecutorSupervisor(cfg, func() string { return "" }, timings)
 	st.executor.start()
 	t.Cleanup(st.executor.close)
+	t.Cleanup(st.runs.close)
 	return &executorHarness{cfg: cfg, st: st, sup: st.executor, dump: dump}
 }
 
@@ -333,6 +334,8 @@ func TestAnEmbedderMoveWithNoExecutorIsDropped(t *testing.T) {
 	}
 }
 
+// Unchanged but for the seq the runner numbers every frame of a run with,
+// added last so the executor's own bytes come first.
 func TestAgentRunIsForwardedAndStreamedUnchanged(t *testing.T) {
 	h := startFakeExecutor(t, "ok", fastExecutorTimings)
 	h.awaitReady(t)
@@ -342,9 +345,9 @@ func TestAgentRunIsForwardedAndStreamedUnchanged(t *testing.T) {
 	if res.status != http.StatusOK {
 		t.Fatalf("status = %d body=%s", res.status, res.body)
 	}
-	want := `{"v":1,"id":"c-91","event":"started"}` + "\n" +
-		`{"v":1,"id":"c-91","event":"event","payload":{"seq":1,"kind":"text","delta":"root=` + h.cfg.workspaceDir + `"}}` + "\n" +
-		`{"v":1,"id":"c-91","event":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1}}` + "\n"
+	want := `{"v":1,"id":"c-91","event":"started","seq":1}` + "\n" +
+		`{"v":1,"id":"c-91","event":"event","payload":{"seq":1,"kind":"text","delta":"root=` + h.cfg.workspaceDir + `"},"seq":2}` + "\n" +
+		`{"v":1,"id":"c-91","event":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1},"seq":3}` + "\n"
 	if res.body != want {
 		t.Fatalf("body =\n%s\nwant\n%s", res.body, want)
 	}

@@ -227,90 +227,52 @@ func (s *runnerServer) handleOpencodeRun(w http.ResponseWriter, r *http.Request)
 		id = newCallID()
 	}
 
-	runCtx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	if !s.register(id, cancel) {
-		writeError(w, failure(codeBadRequest, "a call with id %q is already running on this machine", id))
-		return
-	}
-	defer s.unregister(id)
-
 	if !s.enterRun() {
 		writeError(w, failure(codeCancelled, "this machine's tunnel session is shutting down and is not taking new runs"))
 		return
 	}
 	defer s.leaveRun()
 
-	// Same race-avoidance as claude.run: check cancellation before AND after
-	// taking the shared session semaphore, so a call that changed its mind
-	// while queued never spawns a process nobody is waiting on.
-	if runCtx.Err() != nil {
-		writeError(w, failure(codeCancelled, "the call was cancelled before it started"))
+	run, releaseSlot, queued := s.queueDurable(w, r, id, "opencode.run")
+	if !queued {
 		return
 	}
-	select {
-	case s.sem <- struct{}{}:
-		if runCtx.Err() != nil {
-			<-s.sem
-			writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
+
+	s.serveDurable(w, r, run, []func(){releaseSlot}, func(runCtx context.Context, frames io.Writer) {
+		c := &call{
+			ctx:    runCtx,
+			id:     id,
+			cfg:    s.cfg,
+			state:  s.state,
+			params: body,
+			w:      frames,
+			// opencode inherits this process's environment unmodified too —
+			// see spawnOpencode — so the same transcript-side scrubbing
+			// claude.run gets applies here. See redact.go.
+			redact: credentialRedactor(s.cfg.policy, prepared.mcpToken),
+		}
+		_ = c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"})
+
+		spawnCtx := runCtx
+		if prepared.timeout > 0 {
+			var stopTimeout context.CancelFunc
+			spawnCtx, stopTimeout = context.WithTimeout(runCtx, prepared.timeout)
+			defer stopTimeout()
+		}
+
+		launch, launchErr := s.launchOpencode(spawnCtx, id, prepared)
+		if launchErr != nil {
+			c.finish(nil, launchErr)
 			return
 		}
-		defer func() { <-s.sem }()
-	case <-runCtx.Done():
-		writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
-		return
-	}
+		defer launch.stop()
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, failure(codeInternal, "this response cannot be streamed"))
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	c := &call{
-		ctx:    runCtx,
-		id:     id,
-		cfg:    s.cfg,
-		state:  s.state,
-		params: body,
-		w:      w,
-		flush:  flusher.Flush,
-		// opencode inherits this process's environment unmodified too — see
-		// spawnOpencode — so the same transcript-side scrubbing claude.run
-		// gets applies here. See redact.go.
-		redact: credentialRedactor(s.cfg.policy, prepared.mcpToken),
-	}
-
-	if err := c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"}); err != nil {
-		log.Debug().Str("call", id).Err(err).Msg("caller went away before the session started")
-		return
-	}
-
-	spawnCtx := runCtx
-	if prepared.timeout > 0 {
-		var stopTimeout context.CancelFunc
-		spawnCtx, stopTimeout = context.WithTimeout(runCtx, prepared.timeout)
-		defer stopTimeout()
-	}
-
-	launch, launchErr := s.launchOpencode(spawnCtx, id, prepared)
-	if launchErr != nil {
-		c.finish(nil, launchErr)
-		return
-	}
-	defer launch.stop()
-
-	result, callErr := spawnOpencode(spawnCtx, c, prepared.dir, launch.args, prepared.prompt, launch.env)
-
-	if callErr == nil && runCtx.Err() != nil {
-		callErr = failure(codeCancelled, "the call was cancelled")
-	}
-	c.finish(result, callErr)
+		result, callErr := spawnOpencode(spawnCtx, c, prepared.dir, launch.args, prepared.prompt, launch.env)
+		if callErr == nil && runCtx.Err() != nil {
+			callErr = failure(codeCancelled, "the call was cancelled")
+		}
+		c.finish(result, callErr)
+	})
 }
 
 // spawnOpencode runs one opencode session to completion, streaming its
