@@ -34,11 +34,18 @@ export interface RunnerConfigInputs {
   /** `executorDataDir()`, sent with the executor's path when there is one. */
   executorDataDir: string;
   /**
-   * The local embedder's URL for the executor. Absent until account mode runs
-   * the embedder (`ACCOUNT_MODE_RUNS_EMBEDDER`).
+   * The local embedder's URL, for the runner's `embeddings.create` and the
+   * executor it starts. Absent when the embedder has not printed its port.
    */
   embeddingsBaseURL?: string;
 }
+
+/**
+ * The one model the bundled embedder serves (`embedder/src/server.ts`). Sent
+ * as the runner's `embedding_model`, which is a pin: a request naming another
+ * model is refused, because vectors from two models are not comparable.
+ */
+export const EMBEDDING_MODEL = "nomic-embed-text-v1.5";
 
 /** The CLIs the runner execs, whose directories PATH must reach. */
 const RUNNER_CLIS = ["claude", "git", "opencode", "cursor-agent", "appium"] as const;
@@ -167,6 +174,7 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
     ...(executorBin !== "" ? { executor_data_dir: inputs.executorDataDir } : {}),
     ...(providerList.length > 0 ? { providers: providerList } : {}),
     ...(embeddings !== "" ? { embeddings_base_url: embeddings } : {}),
+    ...(embeddings !== "" ? { embedding_model: EMBEDDING_MODEL } : {}),
 
     reconnect_max_backoff: "30s",
   })}\n`;
@@ -183,4 +191,12 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
  */
 export function preflightMessage(report: PreflightReport): string {
   return `${JSON.stringify({ type: "preflight", report })}\n`;
+}
+
+/**
+ * The embedder's new address, as one control line: it binds an OS-assigned
+ * port, so a restart moves it under a runner that is already attached.
+ */
+export function embeddingsMessage(url: string): string {
+  return `${JSON.stringify({ type: "embeddings-base-url", embeddings_base_url: url })}\n`;
 }

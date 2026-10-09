@@ -5,13 +5,15 @@ import { ACCOUNT_LOGIN_ROUTE, normalizeAccountOrigin, originOfUrl, type OriginRu
 /**
  * Whether account mode keeps the local embedder running.
  *
- * Off until local indexing (Faz 3): nothing in account mode reads embeddings
- * yet, and the model is ~650 MB of RAM. Turning it on means starting the
- * embedder at an account-mode launch and passing its URL to the runner as
- * `embeddings_base_url` (`main/runner/env.ts`), which hands it to the
- * executor.
+ * On: the code index and its embeddings are this computer's in account mode
+ * too, so the embedder starts at every launch, survives the switch into
+ * account mode (`supervisor.disconnect()`, not `drain()`), and its URL goes to
+ * the runner as `embeddings_base_url` (`main/runner/env.ts`), which hands it
+ * to the executor. It costs little until something asks: the model loads on
+ * the first request and unloads after ten idle minutes
+ * (`embedder/src/server.ts`).
  */
-export const ACCOUNT_MODE_RUNS_EMBEDDER = false;
+export const ACCOUNT_MODE_RUNS_EMBEDDER = true;
 
 /**
  * What the switch drives. Each is a step the transition names, so the order

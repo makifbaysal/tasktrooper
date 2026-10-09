@@ -17,7 +17,7 @@ import type { ProviderStore } from "../config/providers.js";
 import { accountPreflight, emptyReport, executorDataDir, firstBlocker, itemById } from "../services/detect.js";
 import { LogStore } from "../supervisor/log-buffer.js";
 import { RunnerChild } from "./child.js";
-import { childEnv, preflightMessage, runnerConfig } from "./env.js";
+import { childEnv, embeddingsMessage, preflightMessage, runnerConfig } from "./env.js";
 import { isAuthRejection, parseRunnerLine } from "./runner-log.js";
 
 /**
@@ -26,7 +26,9 @@ import { isAuthRejection, parseRunnerLine } from "./runner-log.js";
  * the bridge can treat the two modes almost identically.
  *
  * What is deliberately NOT here, unlike the local supervisor: no agent-server,
- * no embedded Postgres, no embedder, no Appium hub — the runner starts its own
+ * no embedded Postgres, no Appium hub, and the embedder is the local
+ * supervisor's (it runs in both modes) — only its address comes here, through
+ * `RunnerSupervisorOptions.embeddings`. The runner starts its own
  * hub when an Appium call needs one (`appium_bin`) and its own executor
  * (`executor_bin`). There is no local backend in account mode — the web app
  * talks to its own origin — so this supervises exactly the process that makes
@@ -38,6 +40,15 @@ export interface RunnerSupervisorEvents {
   logs: [lines: LogLine[]];
 }
 
+export interface RunnerSupervisorOptions {
+  /**
+   * The local embedder's address, or null when it has none (yet). Asked at
+   * every spawn; a later move reaches a running runner through
+   * `setEmbeddingsBaseURL`.
+   */
+  embeddings?: () => Promise<string | null>;
+}
+
 /** How long the runner gets to attach before Connect gives up. */
 const ATTACH_TIMEOUT_MS = 45_000;
 
@@ -47,6 +58,7 @@ const LOG_FLUSH_MS = 120;
 export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
   readonly #pairing: PairingStore;
   readonly #providers: ProviderStore;
+  readonly #embeddings: () => Promise<string | null>;
   readonly #child = new RunnerChild();
   readonly #logs = new LogStore();
 
@@ -66,10 +78,11 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
   /** Serialises every transition so two clicks cannot interleave two teardowns. */
   #transition: Promise<unknown> = Promise.resolve();
 
-  constructor(pairing: PairingStore, providers: ProviderStore) {
+  constructor(pairing: PairingStore, providers: ProviderStore, options: RunnerSupervisorOptions = {}) {
     super();
     this.#pairing = pairing;
     this.#providers = providers;
+    this.#embeddings = options.embeddings ?? (() => Promise.resolve(null));
     this.#child.on("log", (stream, text) => this.#onChildLog(stream, text));
     this.#child.on("state", () => this.#emitState());
     this.#child.on("crashed", () => this.#onChildCrashed());
@@ -125,6 +138,15 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
     this.#preflight = await accountPreflight({ overrides: this.#overrides });
     this.#child.send(preflightMessage(this.#preflight));
     return this.#preflight;
+  }
+
+  /**
+   * The embedder moved (a restart binds a new port): tell a running runner,
+   * on its control channel. A runner that is not running learns the address
+   * at its next spawn instead.
+   */
+  setEmbeddingsBaseURL(url: string): void {
+    this.#child.send(embeddingsMessage(url));
   }
 
   // --- pairing -----------------------------------------------------------------
@@ -217,13 +239,14 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
     this.#startAbort = abort;
     this.#setState("starting");
     this.#note("Connecting to TaskTrooper…");
+    const embeddings = await this.#embeddings();
 
     try {
       await this.#child.start({
         command: runnerBin.path,
         args: [],
         env: childEnv(this.#preflight),
-        stdin: this.#config(bundle, settings),
+        stdin: this.#config(bundle, settings, embeddings),
       });
     } catch (err) {
       await this.#stop("failed");
@@ -272,13 +295,14 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
    * The stdin document, built at each spawn: the providers are read from
    * their store here, so a key changed since the last start is the one sent.
    */
-  #config(bundle: RunnerPairingBundle, settings: UserSettings): string {
+  #config(bundle: RunnerPairingBundle, settings: UserSettings, embeddings: string | null): string {
     return runnerConfig({
       bundle,
       settings,
       preflight: this.#preflight,
       providers: this.#providers.read(),
       executorDataDir: executorDataDir(),
+      ...(embeddings !== null ? { embeddingsBaseURL: embeddings } : {}),
     });
   }
 
@@ -355,12 +379,13 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
     if (!bundle || !settings || !runnerBin?.path) return;
 
     this.#note("Restarting…");
+    const embeddings = await this.#embeddings();
     try {
       await this.#child.start({
         command: runnerBin.path,
         args: [],
         env: childEnv(this.#preflight),
-        stdin: this.#config(bundle, settings),
+        stdin: this.#config(bundle, settings, embeddings),
       });
     } catch (err) {
       this.#note(`failed to restart: ${describe(err)}`);

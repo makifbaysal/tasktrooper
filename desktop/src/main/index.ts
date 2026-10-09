@@ -82,6 +82,11 @@ const supervisor = new Supervisor();
 const runnerSupervisor = new RunnerSupervisor(
   new PairingStore(app.getPath("userData")),
   new ProviderStore(app.getPath("userData")),
+  {
+    // The embedder is the local supervisor's and runs in both modes; the
+    // runner only needs to know where it is.
+    embeddings: () => (ACCOUNT_MODE_RUNS_EMBEDDER ? supervisor.embedderUrl() : Promise.resolve(null)),
+  },
 );
 
 /**
@@ -714,8 +719,8 @@ async function startBackend(): Promise<void> {
 }
 
 /**
- * Local mode coming back after an account: the embedder too, which account
- * mode stopped (`ACCOUNT_MODE_RUNS_EMBEDDER`), then the backend.
+ * Local mode coming back after an account: the embedder too when account mode
+ * stopped it (`ACCOUNT_MODE_RUNS_EMBEDDER` off), then the backend.
  */
 async function startLocal(): Promise<void> {
   if (!ACCOUNT_MODE_RUNS_EMBEDDER) void supervisor.startEmbedder();
@@ -773,11 +778,12 @@ app.whenReady().then(
 
     loadSecrets();
 
-    // First among the children: the backend is handed this child's resolved
-    // loopback URL, and a cold model download benefits from every second
-    // before that. Never awaited — it never blocks app startup, and the
-    // supervisor reports its own failures. Not in account mode, which has no
-    // use for it yet (`ACCOUNT_MODE_RUNS_EMBEDDER`).
+    // First among the children: the backend — or in account mode the runner
+    // and its executor — is handed this child's resolved loopback URL, and a
+    // cold model download benefits from every second before that. Never
+    // awaited — it never blocks app startup, and the supervisor reports its
+    // own failures. The model itself loads on the first request
+    // (`ACCOUNT_MODE_RUNS_EMBEDDER`).
     void supervisor.reapStale();
     if (!launchedInAccountMode || ACCOUNT_MODE_RUNS_EMBEDDER) void supervisor.startEmbedder();
 
@@ -846,6 +852,11 @@ app.whenReady().then(
     modeController.on("state", (state: AccountState) => {
       broadcast(SHELL_EVENTS.accountState, state);
       tray?.update(activeSnapshot());
+    });
+    // The embedder runs in both modes and a restart moves its port; a runner
+    // already attached hears about it on its control channel.
+    supervisor.on("embedder", (url: string) => {
+      if (ACCOUNT_MODE_RUNS_EMBEDDER) runnerSupervisor.setEmbeddingsBaseURL(url);
     });
 
     // The moment somebody who just started a run walks away from it is when

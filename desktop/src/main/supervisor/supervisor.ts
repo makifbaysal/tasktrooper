@@ -76,6 +76,12 @@ export interface SupervisorEvents {
    * until something reloads it. `main/index.ts` is what notices.
    */
   server: [baseUrl: string | null];
+  /**
+   * The embedder's loopback URL, on every `EMBEDDER_LISTENING` line. Account
+   * mode passes it on to a running runner: the embedder runs in both modes
+   * and a restart moves it to another port.
+   */
+  embedder: [url: string];
 }
 
 /**
@@ -598,6 +604,14 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   }
 
   /**
+   * The embedder's URL for account mode's runner: the one it printed, or the
+   * next one within the same bound the backend waits, or null.
+   */
+  embedderUrl(): Promise<string | null> {
+    return this.#resolveEmbedderUrl();
+  }
+
+  /**
    * Resolved by the embedder's own line the moment it is read, or with null at
    * the bound. Now that the start no longer waits on a whole preflight, this
    * is often the last thing it waits on, and a 100 ms poll was most of it.
@@ -729,6 +743,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         const url = `http://127.0.0.1:${port}`;
         this.#embedderUrl = url;
         for (const waiter of [...this.#embedderWaiters]) waiter(url);
+        this.emit("embedder", url);
       }
       this.#queueLog(this.#logs.append(id, stream, text));
       return;
