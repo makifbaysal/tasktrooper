@@ -14,6 +14,7 @@ Detailed docs:
 - [Configuration Reference](.ai/config-reference.md)
 - [Workspace](.ai/workspace.md)
 - [Repositories & Projects](.ai/projects.md)
+- [Executor](.ai/executor.md) — `cmd/executor`, the headless mode a runner drives: its stdin/stdout contract and `/exec/*` API
 
 This file and `README.md` are the current word on how the process is
 configured and started; the docs above cover the domain model, the tool
@@ -29,6 +30,7 @@ the code does; well-named identifiers already do that.
 
 ```
 cmd/agent-server/   server binary (env → internal/platform/runtime.Run)
+cmd/executor/       headless executor (stdin config → internal/platform/executor.Start)
 cmd/migrate/        migration runner; migrations/ must stay in this module
                     because the embed path is relative to it
 internal/
