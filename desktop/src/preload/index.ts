@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { SHELL_BRIDGE_KEY, SHELL_CHANNELS, SHELL_EVENTS, type ShellBridge } from "../ipc/channels.js";
-import type { AppInfo, CloudStatus, SupervisorSnapshot, UpdateStatus } from "../ipc/types.js";
+import type { AccountState, AppInfo, CloudStatus, SupervisorSnapshot, UpdateStatus } from "../ipc/types.js";
 
 /**
  * The native chrome's preload.
@@ -15,10 +15,12 @@ import type { AppInfo, CloudStatus, SupervisorSnapshot, UpdateStatus } from "../
  * picker and the preflight moved to the hosted app's own Settings → Local
  * Runner page, over the cloud bridge, where every call is origin-checked.
  *
- * The exception is `restartToUpdate`, which drives the chrome's update popup.
- * The main process checks that the sender is this window before acting.
- * Settings has its own copy on the cloud bridge, behind that bridge's origin
- * check; both reach the same updater.
+ * The exceptions are `restartToUpdate`, which drives the chrome's update
+ * popup, and `useLocalMode`, the failure screen's way out of an account whose
+ * web app cannot be reached. The main process checks that the sender is this
+ * window before acting on either. Settings has its own copy of the update
+ * calls on the cloud bridge, behind that bridge's origin check; both reach the
+ * same updater.
  */
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -41,6 +43,9 @@ const bridge: ShellBridge = {
   onCloudStatus: (cb) => subscribe<CloudStatus>(SHELL_EVENTS.cloudStatus, cb),
   onUpdateStatus: (cb) => subscribe<UpdateStatus>(SHELL_EVENTS.updateStatus, cb),
   onFullScreen: (cb) => subscribe<boolean>(SHELL_EVENTS.fullScreen, cb),
+  accountState: () => ipcRenderer.invoke(SHELL_CHANNELS.accountState) as Promise<AccountState>,
+  useLocalMode: () => ipcRenderer.invoke(SHELL_CHANNELS.accountUseLocal) as Promise<AccountState>,
+  onAccountState: (cb) => subscribe<AccountState>(SHELL_EVENTS.accountState, cb),
 };
 
 contextBridge.exposeInMainWorld(SHELL_BRIDGE_KEY, bridge);

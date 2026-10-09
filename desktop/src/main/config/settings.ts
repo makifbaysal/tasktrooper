@@ -6,8 +6,9 @@ import { validateOverrides, validateSettingsPatch } from "../../ipc/validate.js"
 import { defaultWorkspaceDir } from "./workspace.js";
 
 /**
- * Non-secret state: three user settings, and any manual overrides for what
- * detection failed to find. Plain JSON in userData.
+ * Non-secret state: the user settings (the account mode and origin among
+ * them), and any manual overrides for what detection failed to find. Plain
+ * JSON in userData.
  *
  * Split from the Keychain-backed secrets on purpose. These are values a user
  * might reasonably read, diff, or paste into a bug report; putting them behind
@@ -43,6 +44,7 @@ export function defaultSettings(): UserSettings {
       agentComments: true,
       agentChatReplies: true,
     },
+    mode: "local",
   };
 }
 

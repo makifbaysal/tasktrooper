@@ -1,9 +1,11 @@
 // The bridge to the TaskTrooper desktop shell.
 //
-// The desktop app is this app in a window, plus the local machine. The shell
-// starts an embedded Postgres and the Go server on this Mac, serves these
-// assets, and runs the agent CLIs; every screen a user sees is served from
-// this origin.
+// The desktop app is this app in a window, plus the local machine. In local
+// mode the shell starts an embedded Postgres and the Go server on this Mac,
+// serves these assets from `app://tasktrooper`, and runs the agent CLIs. In
+// account mode it stops all of that, shows the account's web app from the
+// account's own origin, and runs the runner instead; `account` switches
+// between the two.
 //
 // What the shell adds is the set of things a browser tab cannot do: supervise
 // those child processes, open a native folder picker, and report what this Mac
@@ -25,10 +27,12 @@
 /**
  * The processes the shell supervises. `agent-server` is the Go backend this
  * app talks to, so `connect()`/`disconnect()` on the host below start and stop
- * the backend itself. The Appium hub is not one of them: the backend starts it
- * when a mobile tool needs it.
+ * the backend itself. `runner` is account mode's one child, which supervises
+ * that instead of the local set — see `restart()` below. The Appium hub is not
+ * one of them: the backend, or in account mode the runner, starts it when a
+ * mobile call needs one.
  */
-export type DesktopChildId = "embedder" | "agent-server";
+export type DesktopChildId = "embedder" | "agent-server" | "runner";
 
 export type DesktopChildState =
   | "idle"
@@ -76,7 +80,46 @@ export interface DesktopRunnerSnapshot {
   since: number;
   children: DesktopChild[];
   blocker?: DesktopBlocker;
+  /** Account mode only — the runner's tunnel to the control plane. */
+  tunnel?: DesktopTunnelStatus;
 }
+
+/**
+ * The runner's reverse tunnel to the control plane, account mode only. The
+ * runner opens no port, so this is the only readiness signal a person has.
+ * `auth-failed` is terminal — the control plane rejected this computer's
+ * token, and retrying changes nothing until it is paired again.
+ */
+export type DesktopTunnelState = "unknown" | "attached" | "detached" | "reconnecting" | "auth-failed";
+
+export interface DesktopTunnelStatus {
+  state: DesktopTunnelState;
+  changedAt: number;
+  /** One sentence for a person, present for `reconnecting` and `auth-failed`. */
+  detail?: string;
+  /** Epoch ms the next reconnect attempt is due, while `reconnecting`. */
+  retryAt?: number;
+  /** How many streams the tunnel served before it detached. */
+  streams?: number;
+}
+
+/**
+ * What `POST /api/runner/pair` returns, and what the runner is configured
+ * from. Field names are the control plane's own — a projection, never a
+ * translation, so a renamed field fails loudly at the boundary.
+ */
+export interface RunnerPairingBundle {
+  runner_token: string;
+  tm_base_url: string;
+  tenant_id: string;
+  member_uid: string;
+  paired_at: string;
+  /** The device label this computer was paired under. */
+  label: string;
+}
+
+/** The stored bundle, minus the token — what a page is allowed to see. */
+export type RunnerPairingSummary = Omit<RunnerPairingBundle, "runner_token">;
 
 export interface DesktopLogLine {
   /** Monotonic within a session; used to de-duplicate overlapping batches. */
@@ -162,6 +205,10 @@ export interface DesktopDiagnostics {
  * something that was never the problem.
  */
 export const DESKTOP_PREFLIGHT_IDS = [
+  // Account mode only: the bundled runner, standing in for `agent-server`,
+  // and the executor it starts.
+  "runner",
+  "executor",
   "agent-server",
   "postgres",
   "git",
@@ -265,6 +312,19 @@ export interface DesktopRunnerHost {
   disconnect(): Promise<DesktopRunnerSnapshot>;
   restartChild(child: DesktopChildId): Promise<DesktopRunnerSnapshot>;
 
+  /**
+   * Account mode only. `pair` takes the bundle `POST /api/runner/pair`
+   * returned; the shell refuses one for another origin than the account's,
+   * stores it encrypted and starts the runner. `unpair` stops the runner and
+   * forgets it. `pairing` is the stored bundle WITHOUT its token, `null` when
+   * this computer has never paired.
+   */
+  pair(bundle: RunnerPairingBundle): Promise<DesktopRunnerSnapshot>;
+  unpair(): Promise<DesktopRunnerSnapshot>;
+  pairing(): Promise<RunnerPairingSummary | null>;
+  /** Restart the runner — account mode's `restartChild`, one child, no id. */
+  restart(): Promise<DesktopRunnerSnapshot>;
+
   logs(req?: { child?: DesktopChildId | "supervisor"; afterSeq?: number; limit?: number }): Promise<DesktopLogLine[]>;
   subscribeLogs(cb: (lines: DesktopLogLine[]) => void): () => void;
   clearLogs(): Promise<void>;
@@ -337,6 +397,15 @@ export interface TaskTrooperDesktopHost {
   info?: () => Promise<{ app: string; version: string; platform: string }>;
   /** The local half. Absent in a browser. */
   runner?: DesktopRunnerHost;
+  /**
+   * Account mode. Absent in a browser and in a shell that predates it — the
+   * first-run screen only offers "Hesapla" when `signIn` is here.
+   */
+  account?: {
+    signIn(origin?: string): Promise<void>;
+    signOut(): Promise<void>;
+    state(): Promise<{ mode: "local" | "account"; origin?: string }>;
+  };
   /** Absent in a browser, and in a shell older than the Settings update card. */
   updates?: DesktopUpdatesHost;
   /**
@@ -349,6 +418,18 @@ export interface TaskTrooperDesktopHost {
   apiBase?: string;
   /** The bearer token for that server, generated on first run. Sync, same reason. */
   apiToken?: string;
+  /**
+   * Bumped when the bridge gains something a page may need to feature-test.
+   * 1: `account`, `mode` and the runner's pairing calls. Absent before that.
+   */
+  bridgeVersion?: number;
+  /**
+   * Which world this page is in, synchronously: "account" when the shell shows
+   * the account's web app from its own origin (no `apiBase`, no `apiToken` —
+   * that page signs in with its own cookie). Absent in older shells, where it
+   * is always local.
+   */
+  mode?: "local" | "account";
 }
 
 declare global {
@@ -371,4 +452,8 @@ export function desktopRunner(): DesktopRunnerHost | null {
 
 export function desktopUpdates(): DesktopUpdatesHost | null {
   return window.__tasktrooperDesktop?.updates ?? null;
+}
+
+export function desktopAccount(): NonNullable<TaskTrooperDesktopHost["account"]> | null {
+  return window.__tasktrooperDesktop?.account ?? null;
 }

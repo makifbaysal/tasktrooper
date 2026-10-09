@@ -4,8 +4,9 @@ import type { CloudStatus } from "../ipc/types.js";
 import { originOf } from "./services/app-scheme.js";
 
 /**
- * The window: a thin native chrome, and the bundled web app filling everything
- * below it.
+ * The window: a thin native chrome, and the web app filling everything below
+ * it — the bundled one on `app://tasktrooper` in local mode, the account's own
+ * from its origin in account mode.
  *
  * There are no tabs, and that is the point. The desktop app is the web app in a
  * window plus a supervisor; a second navigation model in the shell would be a
@@ -49,8 +50,18 @@ export function chromeHeight(platform: NodeJS.Platform = process.platform): numb
 export const HOME_ROUTE = "/home";
 
 export interface WindowDeps {
-  /** Where the web app is served from: this app's own scheme. */
+  /**
+   * The one origin the web app's view may hold: this app's own scheme in local
+   * mode, the account's origin in account mode. Read on every navigation, so
+   * it follows a mode switch.
+   */
   origin: () => string;
+  /**
+   * The session partition a new view is created in. Undefined is the default
+   * session, which is local mode's; account mode keeps the remote origin's
+   * cookies and storage in a partition of its own (`main/account/origin.ts`).
+   */
+  partition?: () => string | undefined;
   /** Told whenever the web app starts loading, loads, or fails to. */
   onCloudStatus: (status: CloudStatus) => void;
   /**
@@ -80,6 +91,8 @@ export class Shell {
    * view attached early would be a page permanently pointed at nothing.
    */
   #ready = false;
+  /** The route the next view opens on; the home route when unset. */
+  #route: string | undefined;
   /**
    * Whether the window is where somebody can see it. The SPA's polls and
    * animations pause only on `visibilityState` "hidden". Electron 41 on macOS
@@ -94,11 +107,11 @@ export class Shell {
     this.#status = { state: "loading", url: this.startUrl };
   }
 
-  /** Where the window opens: the trusted origin, at the product's home route. */
+  /** Where the window opens: the trusted origin, at the product's home route (or the route `serve` was given). */
   get startUrl(): string {
     const origin = this.#deps.origin();
     try {
-      return new URL(HOME_ROUTE, origin).toString();
+      return new URL(this.#route ?? HOME_ROUTE, origin).toString();
     } catch {
       return origin;
     }
@@ -234,10 +247,30 @@ export class Shell {
    * Idempotent, and it has to be — it is called on every `server` event, which
    * includes every restart the backend makes on its own.
    */
-  serve(): void {
+  serve(route?: string): void {
     this.#ready = true;
+    if (route !== undefined && !this.#cloud) this.#route = route;
     const window = this.#window;
     if (window && !window.isDestroyed() && !this.#cloud) this.#attachCloud(window);
+  }
+
+  /**
+   * Take the web app's view down, for a mode switch: the next `serve()`
+   * creates a new one, in the partition and on the origin the new mode names.
+   * The old view's page — and with it every IPC sender check that named it —
+   * is gone before anything else about the switch happens.
+   */
+  retire(): void {
+    this.#ready = false;
+    this.#route = undefined;
+    const view = this.#cloud;
+    this.#cloud = null;
+    if (view) {
+      const window = this.#window;
+      if (window && !window.isDestroyed()) window.contentView.removeChildView(view);
+      if (!view.webContents.isDestroyed()) view.webContents.close();
+    }
+    this.#setStatus({ state: "loading", url: this.startUrl });
   }
 
   /**
@@ -279,8 +312,10 @@ export class Shell {
   }
 
   #attachCloud(window: BrowserWindow): void {
+    const partition = this.#deps.partition?.();
     const view = new WebContentsView({
       webPreferences: {
+        ...(partition !== undefined ? { partition } : {}),
         preload: path.join(app.getAppPath(), "dist", "preload", "cloud.cjs"),
         // Same three settings as the shell window, and here they are load
         // bearing rather than hygiene: this view's preload is the one that can
@@ -463,9 +498,9 @@ function hardenShellNavigation(window: BrowserWindow): void {
  *  - `will-navigate` refuses anything off the trusted origin and hands it to
  *    the real browser instead. A link to an external site opens in Safari;
  *    it does not become a page holding this bridge.
- *  - `setWindowOpenHandler` denies every popup for the same reason. There is no
- *    sign-in in this product, so there is no window worth making an exception
- *    for.
+ *  - `setWindowOpenHandler` denies every popup for the same reason. In account
+ *    mode the sign-in is the account's own page, on its own origin, in this
+ *    view; a popup would be a second page holding nothing and is not needed.
  *
  * The main process re-checks the origin on every IPC call regardless
  * (`main/ipc.ts`), because a policy is only as good as the case its author
@@ -502,9 +537,8 @@ function hardenCloudNavigation(
     onHttpError(url, httpResponseCode, httpStatusText);
   });
 
-  // There is no sign-in in this product, so there is no popup worth allowing:
-  // every window this page tries to open is a link, and links go to the user's
-  // real browser.
+  // No popup is worth allowing: every window this page tries to open is a link,
+  // and links go to the user's real browser.
   contents.setWindowOpenHandler(({ url }) => {
     openExternally(url);
     return { action: "deny" };

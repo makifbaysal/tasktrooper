@@ -25,6 +25,11 @@ export interface TrayDeps {
   checkForUpdate: () => void;
   /** Drains the children, then hands off to Squirrel. Relaunches the app. */
   restartToUpdate: () => void;
+  /**
+   * What Start and Stop act on, in words: the local server, or in account
+   * mode the runner. Read at each render, so it follows a mode switch.
+   */
+  subject?: () => string;
 }
 
 export class AppTray {
@@ -103,7 +108,8 @@ export class AppTray {
     const busy = snapshot?.state === "starting" || snapshot?.state === "stopping" || snapshot?.state === "preflight";
     const up = snapshot?.state === "running" || snapshot?.state === "degraded";
     const update = this.#update;
-    const shown = JSON.stringify([glyph, tone, line, busy, up, update.phase, update.version, update.percent, update.detail]);
+    const subject = this.#deps.subject?.() ?? "the local server";
+    const shown = JSON.stringify([glyph, tone, line, busy, up, subject, update.phase, update.version, update.percent, update.detail]);
     if (shown === this.#shown) return;
     this.#shown = shown;
 
@@ -114,21 +120,21 @@ export class AppTray {
       Menu.buildFromTemplate([
         { label: line, enabled: false },
         { type: "separator" },
-        { label: "Start the local server", enabled: !busy && !up, click: () => this.#deps.start() },
-        { label: "Stop the local server", enabled: !busy && up, click: () => this.#deps.stop() },
+        { label: `Start ${subject}`, enabled: !busy && !up, click: () => this.#deps.start() },
+        { label: `Stop ${subject}`, enabled: !busy && up, click: () => this.#deps.stop() },
         { type: "separator" },
         // Routes in the web app, not tabs in a shell: the local controls live on
         // the Claude Code card of Settings → LLM Connection.
         { label: "Claude Code settings…", click: () => this.#deps.showWindow("/settings/llm") },
         { label: "Board…", click: () => this.#deps.showWindow("/board") },
-        ...this.#updateItems(up),
+        ...this.#updateItems(up, subject),
         { type: "separator" },
         {
           // The label says what it does, because "Quit" next to a running
           // backend is a promise about how it ends. The accelerator is only a
           // label in a tray menu; the application menu (app-menu.ts) is what
           // binds it, on every platform.
-          label: up ? "Quit (stops the local server)" : "Quit",
+          label: up ? `Quit (stops ${subject})` : "Quit",
           accelerator: "CmdOrCtrl+Q",
           click: () => this.#deps.quit(),
         },
@@ -144,7 +150,7 @@ export class AppTray {
    * ready says what pressing it costs, because pressing it takes the backend
    * down and brings the app back.
    */
-  #updateItems(up: boolean): Electron.MenuItemConstructorOptions[] {
+  #updateItems(up: boolean, subject: string): Electron.MenuItemConstructorOptions[] {
     const status = this.#update;
     if (status.phase === "unsupported") return [];
 
@@ -153,7 +159,7 @@ export class AppTray {
     if (status.phase === "ready") {
       items.push({
         label: up
-          ? `Restart to update${status.version ? ` to ${status.version}` : ""} (stops the local server)`
+          ? `Restart to update${status.version ? ` to ${status.version}` : ""} (stops ${subject})`
           : `Restart to update${status.version ? ` to ${status.version}` : ""}`,
         click: () => this.#deps.restartToUpdate(),
       });

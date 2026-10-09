@@ -8,8 +8,10 @@ import {
   validateOverrides,
   validatePreferences,
   validateRestartChild,
+  validatePairRequest,
   validateReveal,
   validateSettingsPatch,
+  validateSignIn,
 } from "./validate.js";
 
 const NOTIFICATIONS = {
@@ -202,5 +204,49 @@ describe("validateLogsStream", () => {
     for (const bad of [undefined, null, {}, { on: "yes" }, { on: 1 }, []]) {
       expect(() => validateLogsStream(bad)).toThrow(ValidationError);
     }
+  });
+});
+
+/**
+ * Account mode's payloads. The mode itself is never one of them: a page can
+ * ask to sign in or out, and only the settings file (read through
+ * `validateSettingsPatch`) carries `mode`.
+ */
+describe("account mode", () => {
+  it("reads the mode and the origin from the settings file, and refuses anything else there", () => {
+    expect(validateSettingsPatch({ mode: "account", accountOrigin: "https://app.tasktrooper.ai/" })).toEqual({
+      mode: "account",
+      accountOrigin: "https://app.tasktrooper.ai",
+    });
+    expect(() => validateSettingsPatch({ mode: "cloud" })).toThrow(ValidationError);
+    expect(() => validateSettingsPatch({ accountOrigin: "https://app.tasktrooper.ai/login" })).toThrow(ValidationError);
+    expect(() => validateSettingsPatch({ accountOrigin: "file:///etc" })).toThrow(ValidationError);
+  });
+
+  it("keeps the page's preferences unable to switch modes", () => {
+    expect(validatePreferences({ mode: "account", accountOrigin: "https://evil.example" })).toEqual({});
+  });
+
+  it("takes an optional origin for signing in, shaped as an origin", () => {
+    expect(validateSignIn(undefined)).toEqual({});
+    expect(validateSignIn({})).toEqual({});
+    expect(validateSignIn({ origin: "https://acme.example" })).toEqual({ origin: "https://acme.example" });
+    expect(() => validateSignIn({ origin: "https://acme.example/x?y" })).toThrow(ValidationError);
+    expect(() => validateSignIn({ origin: 42 })).toThrow(ValidationError);
+  });
+
+  it("checks a pairing bundle's every field before it reaches the main process", () => {
+    const bundle = {
+      runner_token: "rtok",
+      tm_base_url: "https://app.tasktrooper.ai",
+      tenant_id: "t",
+      member_uid: "m",
+      paired_at: "2026-10-09T00:00:00Z",
+      label: "laptop",
+    };
+    expect(validatePairRequest({ bundle }).bundle).toEqual(bundle);
+    expect(() => validatePairRequest({ bundle: { ...bundle, runner_token: "" } })).toThrow(ValidationError);
+    expect(() => validatePairRequest({ bundle: { ...bundle, label: "a\nb" } })).toThrow(ValidationError);
+    expect(() => validatePairRequest({})).toThrow(ValidationError);
   });
 });
