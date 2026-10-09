@@ -176,6 +176,14 @@ func (s *ServiceSuite) TestCreateRejectsDuplicateID() {
 	s.ErrorIs(err, domain.ErrMCPServerAlreadyExists)
 }
 
+func (s *ServiceSuite) TestCreateRefusesTheReservedID() {
+	for _, id := range []string{"tasktrooper", "TaskTrooper", " TASKTROOPER "} {
+		_, err := s.svc.Create(context.Background(), domain.CreateMCPServerRequest{ID: id, Transport: "stdio", Command: "npx"})
+		s.ErrorIs(err, domain.ErrMCPInvalidRequest, id)
+	}
+	s.Empty(s.store.servers)
+}
+
 func (s *ServiceSuite) TestCreateValidatesTransport() {
 	ctx := context.Background()
 	_, err := s.svc.Create(ctx, domain.CreateMCPServerRequest{

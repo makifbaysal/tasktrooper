@@ -77,6 +77,9 @@ func (m MCPServerConfig) validate() error {
 	if !mcpServerName.MatchString(m.Name) {
 		return fmt.Errorf("name %q is not a server name (letters, digits and hyphens, at most 32)", m.Name)
 	}
+	if domain.IsReservedMCPServerID(m.Name) {
+		return fmt.Errorf("name %q is reserved for TaskTrooper's own server", m.Name)
+	}
 	hasCommand, hasURL := strings.TrimSpace(m.Command) != "", strings.TrimSpace(m.URL) != ""
 	if hasCommand == hasURL {
 		return errors.New("a server has either a command (stdio) or a url (http), not both and not neither")

@@ -35,6 +35,8 @@ describe("asMcpServers", () => {
   it("refuses what the runner would refuse", () => {
     for (const bad of [
       [{ name: "a_b", command: "x" }],
+      [{ name: "tasktrooper", command: "x" }],
+      [{ name: "TaskTrooper", command: "x" }],
       [{ name: "-a", command: "x" }],
       [{ name: "a", command: "x" }, { name: "a", command: "y" }],
       [{ name: "a" }],

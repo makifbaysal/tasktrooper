@@ -3,7 +3,7 @@ import { CheckCircle2, Loader2, Plus, Server, Trash2 } from "lucide-react";
 import type { KeysBridge } from "@ipc/channels.js";
 import type { McpServersState, McpServerSummary } from "@ipc/types.js";
 import { Button } from "@shared/ui/button.js";
-import { emptyMcpForm, mcpFormFor, secretLabel, toMcpRequest, type McpForm, type McpTransport } from "./mcp-form";
+import { emptyMcpForm, mcpFormFor, mcpFormProblem, secretLabel, toMcpRequest, type McpForm, type McpTransport } from "./mcp-form";
 
 const FIELD =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
@@ -39,6 +39,12 @@ export default function McpServers({ keys }: { keys: KeysBridge }) {
   const save = useCallback(
     (event: FormEvent) => {
       event.preventDefault();
+      const problem = mcpFormProblem(form);
+      if (problem) {
+        setError(problem);
+        setNotice(null);
+        return;
+      }
       const request = toMcpRequest(form);
       setForm((f) => ({ ...f, secrets: f.secrets.map((row) => ({ ...row, value: "" })) }));
       setBusy(true);

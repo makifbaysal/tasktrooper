@@ -7,6 +7,7 @@ import {
   validateKeysPrefill,
   validateKeySet,
   validateLogsStream,
+  validateMcpServerSet,
   validateOpenExternal,
   validateOverrides,
   validatePreferences,
@@ -356,5 +357,17 @@ describe("validateKeysPrefill", () => {
     }
     expect(message).not.toBe("");
     expect(message).not.toContain(KEY);
+  });
+});
+
+describe("validateMcpServerSet", () => {
+  it("accepts an ordinary name", () => {
+    expect(validateMcpServerSet({ name: "notes", command: "/bin/notes" }).name).toBe("notes");
+  });
+
+  it("refuses the name TaskTrooper's own server holds, in any case", () => {
+    for (const name of ["tasktrooper", "TaskTrooper", "TASKTROOPER"]) {
+      expect(() => validateMcpServerSet({ name, command: "/bin/notes" })).toThrow(ValidationError);
+    }
   });
 });

@@ -49,6 +49,8 @@ func TestParseConfigRejects(t *testing.T) {
 		{"agent cli type", configLine(`,"providers":[{"id":"a","type":"claude_code"}]`)},
 		{"endpoint without base url", configLine(`,"providers":[{"id":"a","type":"openai_compatible"}]`)},
 		{"negative timeout", configLine(`,"providers":[{"id":"a","type":"openai","timeout_seconds":-1}]`)},
+		{"reserved server name", configLine(`,"mcp_servers":[{"name":"tasktrooper","command":"npx"}]`)},
+		{"reserved server name in another case", configLine(`,"mcp_servers":[{"name":"TaskTrooper","command":"npx"}]`)},
 		{"embedder off this computer", configLine(`,"embeddings_base_url":"http://192.168.1.20:8080/v1"`)},
 		{"embedder by host name", configLine(`,"embeddings_base_url":"https://embed.example.com/v1"`)},
 		{"embedder not http", configLine(`,"embeddings_base_url":"unix:///tmp/embed.sock"`)},

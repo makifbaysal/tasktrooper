@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyMcpForm, mcpFormFor, toMcpRequest } from "./mcp-form";
+import { emptyMcpForm, mcpFormFor, mcpFormProblem, toMcpRequest } from "./mcp-form";
 
 describe("toMcpRequest", () => {
   it("builds a stdio request with arguments one per line and the variables typed", () => {
@@ -29,5 +29,17 @@ describe("mcpFormFor", () => {
     const form = mcpFormFor({ name: "notes", transport: "stdio", command: "/bin/notes", args: ["--stdio"], secretNames: ["NOTES_TOKEN"], hasSecret: true });
     expect(form.secrets).toEqual([{ name: "NOTES_TOKEN", value: "" }]);
     expect(toMcpRequest(form)).toEqual({ name: "notes", command: "/bin/notes", args: ["--stdio"], env: { NOTES_TOKEN: "" } });
+  });
+});
+
+describe("mcpFormProblem", () => {
+  it("refuses the name TaskTrooper's own server holds, in any case", () => {
+    for (const name of ["tasktrooper", "TaskTrooper", " TASKTROOPER "]) {
+      expect(mcpFormProblem({ ...emptyMcpForm(), name, command: "x" })).not.toBeNull();
+    }
+  });
+
+  it("accepts any other name", () => {
+    expect(mcpFormProblem({ ...emptyMcpForm(), name: "notes", command: "x" })).toBeNull();
   });
 });

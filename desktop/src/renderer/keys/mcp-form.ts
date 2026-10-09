@@ -1,4 +1,5 @@
 import type { McpServerSetRequest } from "@ipc/channels.js";
+import { isReservedMcpName } from "@ipc/mcp-names.js";
 import type { McpServerSummary } from "@ipc/types.js";
 
 export type McpTransport = "stdio" | "http";
@@ -37,6 +38,11 @@ export function mcpFormFor(server: McpServerSummary): McpForm {
     url: server.url ?? "",
     secrets: server.secretNames.map((name) => ({ name, value: "" })),
   };
+}
+
+export function mcpFormProblem(form: McpForm): string | null {
+  if (isReservedMcpName(form.name)) return "TaskTrooper's own MCP server is always on for every agent. Pick another name.";
+  return null;
 }
 
 export function secretLabel(transport: McpTransport): string {

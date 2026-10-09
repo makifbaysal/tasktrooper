@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // MCPAccess decides which agents a user-configured MCP server's tools reach
 // when an agent's tool policy does not name its MCP servers.
 type MCPAccess string
@@ -8,6 +10,14 @@ const (
 	MCPAccessAll    MCPAccess = "all"
 	MCPAccessListed MCPAccess = "listed"
 )
+
+// ReservedMCPServerID is the name every CLI run gives TaskTrooper's own
+// coordination server; no configured or member server may take it.
+const ReservedMCPServerID = "tasktrooper"
+
+func IsReservedMCPServerID(id string) bool {
+	return strings.EqualFold(strings.TrimSpace(id), ReservedMCPServerID)
+}
 
 // DefaultNewMCPAccess is what a server added through the API gets when the
 // request does not say: a new server's tools (a design tool, a ticket

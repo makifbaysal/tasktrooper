@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:
 import path from "node:path";
 import { safeStorage } from "electron";
 import type { McpServerSummary } from "../../ipc/types.js";
+import { isReservedMcpName } from "../../ipc/mcp-names.js";
 import { keyStoreHelp } from "./keystore.js";
 
 /**
@@ -70,7 +71,7 @@ export function asMcpServers(raw: unknown): McpServerConfig[] | null {
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null) return null;
     const o = entry as Record<string, unknown>;
-    if (typeof o.name !== "string" || !NAME.test(o.name) || seen.has(o.name)) return null;
+    if (typeof o.name !== "string" || !NAME.test(o.name) || isReservedMcpName(o.name) || seen.has(o.name)) return null;
     seen.add(o.name);
     const hasCommand = typeof o.command === "string" && o.command.trim() !== "";
     const hasUrl = typeof o.url === "string" && o.url.trim() !== "";

@@ -14,6 +14,7 @@
  * have needed custom refinements for anyway.
  */
 
+import { isReservedMcpName } from "./mcp-names.js";
 import {
   BUILT_IN_PROVIDER_TYPES,
   CHILD_IDS,
@@ -485,6 +486,7 @@ function asSecretMap(value: unknown, what: string, keyPattern: RegExp, control: 
 export function validateMcpServerSet(raw: unknown): McpServerSetRequest {
   const o = asRecord(raw, "keys.mcp-set");
   const out: McpServerSetRequest = { name: asMcpName(o.name, "keys.mcp-set.name") };
+  if (isReservedMcpName(out.name)) fail(`keys.mcp-set.name: '${out.name}' is reserved for TaskTrooper's own server`);
   const command = o.command === undefined ? "" : asClean(o.command, "keys.mcp-set.command", { max: 1024 }).trim();
   const url = o.url === undefined ? "" : asClean(o.url, "keys.mcp-set.url", { max: 2048 }).trim();
   if ((command === "") === (url === "")) fail("keys.mcp-set: a server has a command or a url, not both and not neither");

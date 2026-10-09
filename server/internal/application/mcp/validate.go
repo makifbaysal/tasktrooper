@@ -17,6 +17,9 @@ func validateCreateRequest(req domain.CreateMCPServerRequest) error {
 	if strings.ContainsAny(req.ID, " /") {
 		return fmt.Errorf("%w: id must not contain spaces or slashes", domain.ErrMCPInvalidRequest)
 	}
+	if domain.IsReservedMCPServerID(req.ID) {
+		return fmt.Errorf("%w: id %q is reserved", domain.ErrMCPInvalidRequest, domain.ReservedMCPServerID)
+	}
 	if err := validateAccess(req.Access); err != nil {
 		return err
 	}
