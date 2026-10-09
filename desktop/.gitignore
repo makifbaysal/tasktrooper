@@ -15,6 +15,11 @@ out/
 # Rebuildable, large, and not source.
 bin/
 
+# What `go build` in runner/ leaves beside the source; `npm run build:runner`
+# writes the real one into bin/.
+runner/runner
+runner/runner.exe
+
 # Signing material, and this one is not a tidiness rule. A Developer ID
 # certificate or an App Store Connect key in the history is a revoke-and-reissue
 # incident, and a .p8 can never be downloaded again. Note that a leading `./` is
