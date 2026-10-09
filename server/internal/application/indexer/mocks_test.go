@@ -133,6 +133,12 @@ func (f *fakeIndexStore) CopyIndexData(_ context.Context, fromIndexID, toIndexID
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if src, ok := f.indexes[fromIndexID]; ok {
+		if dst, ok := f.indexes[toIndexID]; ok {
+			dst.EmbeddingModel, dst.EmbeddingDims = src.EmbeddingModel, src.EmbeddingDims
+			f.indexes[toIndexID] = dst
+		}
+	}
 	f.chunks[toIndexID] = append([]domain.WorkspaceChunk(nil), f.chunks[fromIndexID]...)
 	f.symbols[toIndexID] = append([]domain.WorkspaceSymbol(nil), f.symbols[fromIndexID]...)
 	f.edges[toIndexID] = append([]domain.WorkspaceEdge(nil), f.edges[fromIndexID]...)

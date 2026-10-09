@@ -50,7 +50,7 @@ func (s *StartParametersSuite) SetupTest() {
 }
 
 func (s *StartParametersSuite) config(port uint32) embedded.Config {
-	return clusterConfig(port, filepath.Join(s.dir, "postgres"), s.dir).
+	return clusterConfig(port, filepath.Join(s.dir, "postgres"), s.dir, filepath.Join(s.dir, "runtime")).
 		Version(embedded.V16).
 		CachePath("").
 		BinariesPath(filepath.Join(s.dir, "bin")).

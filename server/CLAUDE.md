@@ -31,6 +31,7 @@ the code does; well-named identifiers already do that.
 ```
 cmd/agent-server/   server binary (env → internal/platform/runtime.Run)
 cmd/executor/       headless executor (stdin config → internal/platform/executor.Start)
+cmd/skillvectors/   embeds catalog skills into catalog/skills.vectors.json (build time)
 cmd/migrate/        migration runner; migrations/ must stay in this module
                     because the embed path is relative to it
 internal/

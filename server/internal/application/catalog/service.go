@@ -24,6 +24,9 @@ type Service struct {
 	// Nil means no runner is attached — correct on every host without an agent CLI installed.
 	hostExecutor HostExecutorProbe
 	progress     syncProgress
+
+	shippedVectors  port.SkillVectorSource
+	embeddingEngine port.EmbeddingSourceResolver
 }
 
 type HostExecutorProbe func(domain.LLMProviderType) bool
@@ -122,7 +125,7 @@ func (s *Service) CreateSkillForAgent(ctx context.Context, agentID uuid.UUID, re
 	if tags == nil {
 		tags = []string{}
 	}
-	emb, err := s.llm.Embed(ctx, req.Name+"\n"+req.Description+"\n"+req.Content, s.embeddingModel)
+	emb, err := s.embedSkill(ctx, req.Name, req.Description, req.Content)
 	if err != nil {
 		return domain.Skill{}, fmt.Errorf("embed skill: %w", err)
 	}
@@ -170,7 +173,7 @@ func (s *Service) UpdateSkillForAgent(ctx context.Context, agentID, skillID uuid
 	if err != nil {
 		return domain.Skill{}, err
 	}
-	emb, err := s.llm.Embed(ctx, req.Name+"\n"+req.Description+"\n"+req.Content, s.embeddingModel)
+	emb, err := s.embedSkill(ctx, req.Name, req.Description, req.Content)
 	if err != nil {
 		return domain.Skill{}, fmt.Errorf("embed skill: %w", err)
 	}

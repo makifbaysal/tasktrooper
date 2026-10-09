@@ -1149,10 +1149,15 @@ func (s *IndexStore) DeleteIndexData(ctx context.Context, indexID uuid.UUID) err
 
 // CopyIndexData clones every derived row of one index into another so a fresh
 // branch index starts from the default branch's embeddings instead of
-// re-embedding the whole repository.
+// re-embedding the whole repository. The copied vectors keep the provenance
+// they were made with: a branch identical to its base finishes without
+// embedding anything, and without the stamp its searches would be refused as
+// built by an unrecorded model.
 func (s *IndexStore) CopyIndexData(ctx context.Context, fromIndexID, toIndexID uuid.UUID) error {
 	defer s.vectors.invalidate(toIndexID)
 	stmts := []string{
+		`UPDATE workspace_indexes AS dst SET embedding_model = src.embedding_model, embedding_dims = src.embedding_dims
+		 FROM workspace_indexes AS src WHERE src.id = $1 AND dst.id = $2`,
 		`INSERT INTO workspace_symbols (index_id, file_path, kind, name, signature, doc, start_line, end_line)
 		 SELECT $2, file_path, kind, name, signature, doc, start_line, end_line FROM workspace_symbols WHERE index_id = $1`,
 		`INSERT INTO workspace_edges (index_id, from_file, from_symbol, to_file, to_symbol, edge_kind)

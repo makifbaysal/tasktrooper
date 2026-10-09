@@ -37,7 +37,7 @@ func (s *Service) BackfillSkillEmbeddings(ctx context.Context) (int, error) {
 			if len(sk.Embedding) > 0 {
 				continue
 			}
-			emb, err := s.llm.Embed(ctx, sk.Name+"\n"+sk.Description+"\n"+sk.Content, s.embeddingModel)
+			emb, err := s.embedSkill(ctx, sk.Name, sk.Description, sk.Content)
 			if err != nil {
 				return updated, fmt.Errorf("embed skill %s: %w", sk.Name, err)
 			}

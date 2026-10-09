@@ -242,6 +242,46 @@ func (s *ExecutorSuite) TestBoardRunUsesALocalToolAndACloudToolAndReportsBoth() 
 	s.Contains(secondTurn[len(secondTurn)-1].(map[string]any)["content"], "package main")
 }
 
+func (s *ExecutorSuite) TestRunEnvReachesRunTerminalForThatRunOnly() {
+	runWith := func(runID string, env map[string]string) string {
+		s.provider.mu.Lock()
+		s.provider.turns = []map[string]any{
+			toolCallChoice("c1", "run_terminal", `{"command":"echo probe=$TT_PROBE_VERSION"}`),
+			textChoice("Printed it."),
+		}
+		s.provider.mu.Unlock()
+		run := s.boardRun()
+		run["run_id"] = runID
+		run["agent"].(map[string]any)["tool_policy"] = map[string]any{"allow_tools": []string{"run_terminal"}}
+		delete(run, "mcp")
+		if env != nil {
+			run["env"] = env
+		}
+		frames := s.frames(s.post("/exec/agent.run", run))
+		s.Require().True(*frames[len(frames)-1].OK, "%v", frames[len(frames)-1].Error)
+		for _, f := range frames {
+			if f.Event == "event" && f.Payload["kind"] == "tool_result" && f.Payload["name"] == "run_terminal" {
+				return f.Payload["content"].(string)
+			}
+		}
+		s.Fail("no run_terminal result")
+		return ""
+	}
+
+	s.Contains(runWith("run-env", map[string]string{"TT_PROBE_VERSION": "1.22.1"}), "probe=1.22.1")
+	s.Contains(runWith("run-no-env", nil), "probe=\n")
+}
+
+func (s *ExecutorSuite) TestARunThatSetsPathIsRefused() {
+	run := s.boardRun()
+	run["env"] = map[string]string{"PATH": "/opt/cloud/bin"}
+
+	resp := s.post("/exec/agent.run", run)
+	defer resp.Body.Close()
+
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
 func (s *ExecutorSuite) TestOneShotCompletionUsesTheUsersKey() {
 	s.provider.turns = []map[string]any{textChoice("Add login form")}
 

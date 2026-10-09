@@ -81,9 +81,6 @@ func (s *IndexBranchStoreSuite) listedFor(store *postgres.IndexStore, repoIDs ..
 	return out
 }
 
-// Each index below has a repository of its own: idx_workspace_indexes_repository
-// is still UNIQUE (repository_id) (migration 060 dropped it under its pre-022
-// name), so a repository holds one index row.
 func (s *IndexBranchStoreSuite) TestListBranchIndexesReturnsBranchRowsReanchored() {
 	wsRoot := filepath.Join(s.T().TempDir(), "workspaces")
 	store := postgres.NewIndexStore(s.db).SetHostRoots(wsRoot, nil)
@@ -159,4 +156,54 @@ func (s *IndexBranchStoreSuite) TestDeleteIndexRemovesTheRowAndItsData() {
 	s.Equal(1, defChunks)
 
 	s.NoError(store.DeleteIndex(s.ctx, branch.ID), "deleting an index that is already gone is not an error")
+}
+
+func (s *IndexBranchStoreSuite) TestARepositoryHoldsItsDefaultAndBranchIndexesSideBySide() {
+	store := postgres.NewIndexStore(s.db)
+	root := "/tmp/index-branch-" + uuid.NewString()
+	repo := s.newRepository(root)
+	def, err := store.CreateProjectIndex(s.ctx, repo.ID, root, "")
+	s.Require().NoError(err)
+
+	first, err := store.CreateProjectBranchIndex(s.ctx, repo.ID, "feature/a", root+"-a", "")
+	s.Require().NoError(err)
+	second, err := store.CreateProjectBranchIndex(s.ctx, repo.ID, "feature/b", root+"-b", "")
+	s.Require().NoError(err)
+
+	kept, err := store.GetIndexByProject(s.ctx, repo.ID)
+	s.Require().NoError(err)
+	s.Equal(def.ID, kept.ID)
+	gotA, err := store.GetIndexByProjectBranch(s.ctx, repo.ID, "feature/a")
+	s.Require().NoError(err)
+	s.Equal(first.ID, gotA.ID)
+	gotB, err := store.GetIndexByProjectBranch(s.ctx, repo.ID, "feature/b")
+	s.Require().NoError(err)
+	s.Equal(second.ID, gotB.ID)
+
+	again, err := store.CreateProjectBranchIndex(s.ctx, repo.ID, "feature/a", root+"-a", "")
+	s.Require().NoError(err)
+	s.NotEqual(first.ID, again.ID, "a branch's index is replaced, not duplicated")
+	_, err = store.GetIndexByProjectBranch(s.ctx, repo.ID, "feature/b")
+	s.NoError(err, "replacing one branch's index leaves the other's")
+}
+
+func (s *IndexBranchStoreSuite) TestCopyIndexDataCarriesTheEmbeddingProvenance() {
+	store := postgres.NewIndexStore(s.db)
+	root := "/tmp/index-branch-" + uuid.NewString()
+	repo := s.newRepository(root)
+	base, err := store.CreateProjectIndex(s.ctx, repo.ID, root, "")
+	s.Require().NoError(err)
+	s.Require().NoError(store.UpdateIndexEmbedding(s.ctx, base.ID, "nomic-embed-text-v1.5@onnx-int8", 768))
+	branch, err := store.CreateProjectBranchIndex(s.ctx, repo.ID, "feature/seeded", root+"-seeded", "")
+	s.Require().NoError(err)
+
+	s.Require().NoError(store.CopyIndexData(s.ctx, base.ID, branch.ID))
+
+	got, err := store.GetIndexByProjectBranch(s.ctx, repo.ID, "feature/seeded")
+	s.Require().NoError(err)
+	s.Equal("nomic-embed-text-v1.5@onnx-int8", got.EmbeddingModel)
+	s.Equal(768, got.EmbeddingDims)
+	kept, err := store.GetIndexByProject(s.ctx, repo.ID)
+	s.Require().NoError(err)
+	s.Equal("nomic-embed-text-v1.5@onnx-int8", kept.EmbeddingModel)
 }

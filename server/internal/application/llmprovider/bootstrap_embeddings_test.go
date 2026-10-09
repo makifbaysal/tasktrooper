@@ -57,3 +57,41 @@ func TestBootstrapEmbeddings_LeavesAUserConfiguredEndpointAlone(t *testing.T) {
 	require.Equal(t, mine, store.configs[domain.LLMProviderLocal])
 	require.Empty(t, store.embeddingProvider)
 }
+
+func TestResolvedEmbeddingSource_NamesTheEngineOnlyWhileEmbeddingsGoToTheBundledEmbedder(t *testing.T) {
+	tests := []struct {
+		name       string
+		bundled    string
+		moveTo     domain.LLMProviderType
+		repoint    string
+		wantSource string
+	}{
+		{"the bundled embedder", domain.EmbeddingSourceONNXInt8, "", "", domain.EmbeddingSourceONNXInt8},
+		{"no engine named at boot", "", "", "", ""},
+		{"embeddings moved to another provider", domain.EmbeddingSourceONNXInt8, domain.LLMProviderOpenAI, "", ""},
+		{"the local row pointed elsewhere", domain.EmbeddingSourceONNXInt8, "", "http://127.0.0.1:1234/v1", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := newProviderStore()
+			svc := llmprovider.NewService(store, nil, nil, 0, nil)
+			require.NoError(t, svc.BootstrapEmbeddings(ctx, embedderURL))
+			svc.SetBundledEmbedder(embedderURL+"/", tt.bundled)
+			if tt.moveTo != "" {
+				store.embeddingProvider = tt.moveTo
+			}
+			if tt.repoint != "" {
+				row := store.configs[domain.LLMProviderLocal]
+				row.BaseURL = tt.repoint
+				store.configs[domain.LLMProviderLocal] = row
+			}
+
+			model, source, err := svc.ResolvedEmbeddingSource(ctx)
+
+			require.NoError(t, err)
+			require.Equal(t, domain.PinnedLocalEmbeddingModel, model)
+			require.Equal(t, tt.wantSource, source)
+		})
+	}
+}

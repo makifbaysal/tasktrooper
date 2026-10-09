@@ -28,6 +28,9 @@ const (
 	CodeRateLimited     = "rate_limited"
 	CodeBudgetExhausted = "budget_exhausted"
 	CodeInternal        = "internal"
+	// CodeNotReady is an answer that does not exist yet: no embedding engine
+	// on this computer, or no finished index for the repository.
+	CodeNotReady = "not_ready"
 )
 
 const (
@@ -36,6 +39,8 @@ const (
 	EventToolResult = "tool_result"
 	EventText       = "text"
 	EventUsage      = "usage"
+
+	EventIndexProgress = "index_progress"
 )
 
 const (
@@ -68,6 +73,23 @@ type AgentRun struct {
 	Workspace string           `json:"workspace"`
 	MCP       *RemoteTools     `json:"mcp,omitempty"`
 	TimeoutMS int64            `json:"timeout_ms,omitempty"`
+	// Index names the local code index the run reads: the run's checkout is
+	// indexed first, its context is injected before the first turn, and the
+	// index-backed code tools are served here.
+	Index *IndexRef `json:"index,omitempty"`
+	// Env is the repository's toolchain environment (GOTOOLCHAIN,
+	// NODE_VERSION, …), added for this run only to the processes its tools
+	// start, after the toolchain this computer resolves from the checkout.
+	Env map[string]string `json:"env,omitempty"`
+}
+
+type IndexRef struct {
+	RepoKey string `json:"repo_key"`
+	Branch  string `json:"branch,omitempty"`
+	// WaitMS bounds how long the run waits for its index pass before it starts
+	// without the index context; the pass goes on and the next run finds the
+	// index ready. 0 means three minutes.
+	WaitMS int64 `json:"wait_ms,omitempty"`
 }
 
 type UsageTotals struct {
@@ -186,4 +208,71 @@ type UsageEvent struct {
 // gone, and the run is cancelled rather than left working for nobody.
 type Sink interface {
 	Send(event Event) error
+}
+
+type IndexEnsureRequest struct {
+	Workspace string `json:"workspace"`
+	RepoKey   string `json:"repo_key"`
+	Branch    string `json:"branch,omitempty"`
+}
+
+type IndexSearchRequest struct {
+	RepoKey string `json:"repo_key"`
+	Branch  string `json:"branch,omitempty"`
+	Query   string `json:"query"`
+	K       int    `json:"k,omitempty"`
+}
+
+type IndexState struct {
+	RepoKey        string `json:"repo_key"`
+	Branch         string `json:"branch,omitempty"`
+	Status         string `json:"status"`
+	Files          int    `json:"files"`
+	Chunks         int    `json:"chunks"`
+	Symbols        int    `json:"symbols"`
+	CommitSHA      string `json:"commit_sha,omitempty"`
+	EmbeddingModel string `json:"embedding_model,omitempty"`
+	EmbeddingDims  int    `json:"embedding_dims,omitempty"`
+	SeededFrom     string `json:"seeded_from,omitempty"`
+}
+
+type IndexEnsureResult struct {
+	IndexState
+	DurationMS int64 `json:"duration_ms"`
+}
+
+type IndexHit struct {
+	Path      string  `json:"path"`
+	Symbol    string  `json:"symbol,omitempty"`
+	Kind      string  `json:"kind,omitempty"`
+	Language  string  `json:"language,omitempty"`
+	Signature string  `json:"signature,omitempty"`
+	StartLine int     `json:"start_line"`
+	EndLine   int     `json:"end_line"`
+	Score     float64 `json:"score"`
+	Snippet   string  `json:"snippet"`
+}
+
+type IndexSearchResult struct {
+	Index   IndexState `json:"index"`
+	Results []IndexHit `json:"results"`
+}
+
+type IndexProgressEvent struct {
+	EventHeader
+	Phase          string `json:"phase"`
+	FilesProcessed int    `json:"files_processed,omitempty"`
+	FilesTotal     int    `json:"files_total,omitempty"`
+	SeededFrom     string `json:"seeded_from,omitempty"`
+}
+
+type EmbeddingsRequest struct {
+	BaseURL string `json:"embeddings_base_url"`
+	Source  string `json:"embeddings_source,omitempty"`
+}
+
+type EmbeddingsState struct {
+	V       int    `json:"v"`
+	BaseURL string `json:"embeddings_base_url"`
+	Source  string `json:"embeddings_source"`
 }

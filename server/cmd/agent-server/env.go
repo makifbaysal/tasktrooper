@@ -74,6 +74,7 @@ func optionsFromEnv(getenv func(string) string) (localConfig, error) {
 			LazyMCP:           true,
 			CORSOrigins:       corsOriginsFromEnv(getenv("CORS_ORIGINS")),
 			EmbeddingsBaseURL: strings.TrimSpace(getenv("EMBEDDINGS_BASE_URL")),
+			EmbeddingsSource:  strings.TrimSpace(getenv("EMBEDDINGS_SOURCE")),
 			AllowedRoots:      allowedRootsFromEnv(getenv("ALLOWED_ROOTS")),
 		},
 		PostgresDSN:    dsn,

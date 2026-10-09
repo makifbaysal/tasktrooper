@@ -34,12 +34,31 @@ const (
 // dataDir/postgres. cacheDir holds the downloaded archive and the binaries
 // extracted from it; empty means dataDir/postgres-bin.
 func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error) {
+	return StartCluster(ctx, Options{DataDir: dataDir, CacheDir: cacheDir})
+}
+
+// Options place one cluster. RuntimeDir is where the library writes its
+// scratch files (the initdb password file) and wipes on every start; empty
+// means CacheDir/runtime. A second cluster sharing CacheDir with a running one
+// names its own, so its start does not clear the other's scratch mid-initdb.
+type Options struct {
+	DataDir    string
+	CacheDir   string
+	RuntimeDir string
+}
+
+func StartCluster(ctx context.Context, opts Options) (string, func(), error) {
+	dataDir, cacheDir := opts.DataDir, opts.CacheDir
 	if strings.TrimSpace(dataDir) == "" {
 		return "", nil, errors.New("embedded postgres needs a data directory")
 	}
 	pgData := filepath.Join(dataDir, "postgres")
 	if strings.TrimSpace(cacheDir) == "" {
 		cacheDir = filepath.Join(dataDir, "postgres-bin")
+	}
+	runtimeDir := opts.RuntimeDir
+	if strings.TrimSpace(runtimeDir) == "" {
+		runtimeDir = filepath.Join(cacheDir, "runtime")
 	}
 	if err := os.MkdirAll(pgData, 0o700); err != nil {
 		return "", nil, fmt.Errorf("create postgres data dir: %w", err)
@@ -87,7 +106,7 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 		log.Warn().Err(err).Str("cache_dir", cacheDir).Msg("could not mark the postgres binaries as extracted; they will be extracted again")
 	}
 
-	pg := embedded.NewDatabase(clusterConfig(port, pgData, cacheDir))
+	pg := embedded.NewDatabase(clusterConfig(port, pgData, cacheDir, runtimeDir))
 
 	if err := pg.Start(); err != nil {
 		return "", nil, wrapStartError(err)
@@ -109,7 +128,7 @@ func Start(ctx context.Context, dataDir, cacheDir string) (string, func(), error
 	}, nil
 }
 
-func clusterConfig(port uint32, pgData, cacheDir string) embedded.Config {
+func clusterConfig(port uint32, pgData, cacheDir, runtimeDir string) embedded.Config {
 	return embedded.DefaultConfig().
 		Version(version).
 		Username(user).
@@ -122,7 +141,7 @@ func clusterConfig(port uint32, pgData, cacheDir string) embedded.Config {
 		// both the download and the extraction.
 		BinariesPath(cacheDir).
 		CachePath(cacheDir).
-		RuntimePath(filepath.Join(cacheDir, "runtime")).
+		RuntimePath(runtimeDir).
 		StartTimeout(90 * time.Second).
 		Logger(logWriter{}).
 		Locale("C").

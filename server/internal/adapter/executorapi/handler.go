@@ -25,12 +25,12 @@ const (
 	PathCancel      = "/exec/cancel"
 	PathIndexEnsure = "/exec/index.ensure"
 	PathIndexSearch = "/exec/index.search"
+	PathEmbeddings  = "/exec/embeddings.set"
 )
 
 const (
 	codeUnauthorized      = "unauthorized"
 	codeUnsupportedMethod = "unsupported_method"
-	codeNotImplemented    = "not_implemented"
 )
 
 // statusCancelled is nginx's "client closed request", as the runner uses it:
@@ -80,8 +80,9 @@ func NewHandler(svc *executor.Service, opts Options) *Handler {
 		PathAgentRun:    {http.MethodPost, h.agentRun},
 		PathLLMComplete: {http.MethodPost, h.complete},
 		PathCancel:      {http.MethodPost, h.cancel},
-		PathIndexEnsure: {http.MethodPost, h.reserved},
-		PathIndexSearch: {http.MethodPost, h.reserved},
+		PathIndexEnsure: {http.MethodPost, h.indexEnsure},
+		PathIndexSearch: {http.MethodPost, h.indexSearch},
+		PathEmbeddings:  {http.MethodPost, h.setEmbeddings},
 	}
 	return h
 }
@@ -122,13 +123,6 @@ type healthResponse struct {
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	h.writeJSON(w, http.StatusOK, healthResponse{
 		OK: true, Version: h.version, Protocol: executor.ProtocolVersion, ActiveRuns: h.svc.ActiveRuns(),
-	})
-}
-
-func (h *Handler) reserved(w http.ResponseWriter, r *http.Request) {
-	h.writeError(w, &executor.Failure{
-		Code:    codeNotImplemented,
-		Message: r.URL.Path + " is reserved for the local code index and not served by this protocol version",
 	})
 }
 
@@ -179,7 +173,82 @@ func (h *Handler) agentRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, failure := prepared.Execute(stream)
-	stream.done(result, failure)
+	if failure != nil {
+		stream.done(nil, failure)
+		return
+	}
+	stream.done(result, nil)
+}
+
+type indexEnsureRequest struct {
+	ID string `json:"id,omitempty"`
+	executor.IndexEnsureRequest
+}
+
+// indexEnsure streams one index pass in the envelope agent.run uses: started,
+// index_progress events, and one done frame carrying the index's state.
+func (h *Handler) indexEnsure(w http.ResponseWriter, r *http.Request) {
+	var req indexEnsureRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	prepared, failure := h.svc.PrepareIndexEnsure(r.Context(), req.ID, req.IndexEnsureRequest)
+	if failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		prepared.Release()
+		h.writeError(w, &executor.Failure{Code: executor.CodeInternal, Message: "this response cannot be streamed"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	stream := &frameWriter{w: w, flush: flusher.Flush, id: prepared.ID(), redact: h.redact}
+	if err := stream.started(); err != nil {
+		prepared.Release()
+		log.Debug().Err(err).Str("id", prepared.ID()).Msg("caller went away before the index pass started")
+		return
+	}
+	result, failure := prepared.Execute(stream)
+	if failure != nil {
+		stream.done(nil, failure)
+		return
+	}
+	stream.done(result, nil)
+}
+
+func (h *Handler) indexSearch(w http.ResponseWriter, r *http.Request) {
+	var req executor.IndexSearchRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	found, failure := h.svc.SearchIndex(r.Context(), req)
+	if failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, found)
+}
+
+func (h *Handler) setEmbeddings(w http.ResponseWriter, r *http.Request) {
+	var req executor.EmbeddingsRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	state, failure := h.svc.SetEmbeddings(req)
+	if failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, state)
 }
 
 func mcpToken(run executor.AgentRun) string {
@@ -233,6 +302,9 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 		runID = h.runForStream(streamID)
 	}
 	cancelled := runID != "" && h.svc.Cancel(runID)
+	if runID == "" {
+		cancelled = h.svc.CancelIndexEnsure(streamID)
+	}
 	log.Info().Str("run_id", runID).Str("id", streamID).Bool("found", cancelled).Msg("executor cancel requested")
 	if runID == "" {
 		runID = streamID
@@ -286,8 +358,8 @@ func statusFor(code string) int {
 		return http.StatusTooManyRequests
 	case executor.CodeCancelled:
 		return statusCancelled
-	case codeNotImplemented:
-		return http.StatusNotImplemented
+	case executor.CodeNotReady:
+		return http.StatusServiceUnavailable
 	case executor.CodeUpstream:
 		return http.StatusBadGateway
 	case executor.CodeTimeout:
@@ -344,12 +416,12 @@ type eventFrame struct {
 }
 
 type doneFrame struct {
-	V      int                 `json:"v"`
-	ID     string              `json:"id"`
-	Event  string              `json:"event"`
-	OK     bool                `json:"ok"`
-	Result *executor.RunResult `json:"result,omitempty"`
-	Error  *executor.Failure   `json:"error,omitempty"`
+	V      int               `json:"v"`
+	ID     string            `json:"id"`
+	Event  string            `json:"event"`
+	OK     bool              `json:"ok"`
+	Result any               `json:"result,omitempty"`
+	Error  *executor.Failure `json:"error,omitempty"`
 }
 
 var errStreamClosed = errors.New("the run's stream already ended")
@@ -377,7 +449,9 @@ func (f *frameWriter) Send(event executor.Event) error {
 	return f.writeLine(eventFrame{V: executor.ProtocolVersion, ID: f.id, Event: "event", Payload: event}, false)
 }
 
-func (f *frameWriter) done(result *executor.RunResult, failure *executor.Failure) {
+// done takes the result as any so an index pass and a run share one stream
+// shape; pass a nil result (untyped) with a failure.
+func (f *frameWriter) done(result any, failure *executor.Failure) {
 	frame := doneFrame{V: executor.ProtocolVersion, ID: f.id, Event: "done", OK: failure == nil, Result: result, Error: failure}
 	if failure != nil {
 		frame.Result = nil

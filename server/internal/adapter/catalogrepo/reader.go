@@ -28,6 +28,8 @@ const LocalDirMarker = "dir:"
 type Reader struct {
 	Source   string
 	CacheDir string
+
+	vectors skillVectorsCache
 }
 
 func (r *Reader) ReadCatalog(ctx context.Context) ([]domain.UpstreamAgent, string, error) {

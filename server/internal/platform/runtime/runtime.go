@@ -235,6 +235,10 @@ type Options struct {
 	// EmbeddingsBaseURL, set, bootstraps an embedding provider at boot so RAG
 	// works without anyone opening the settings page.
 	EmbeddingsBaseURL string
+	// EmbeddingsSource names the engine behind EmbeddingsBaseURL (a
+	// domain.EmbeddingSource* value); empty means the desktop's own int8 ONNX
+	// embedder. Skill vectors shipped with the catalog are used only for it.
+	EmbeddingsSource string
 	// PublicBaseURL is the origin a Claude Code session calls the server's own
 	// tools back on. Empty until the listener binds (PORT=0), so Run fills it
 	// in and reloads re-apply the value instead of the config's empty one.
@@ -2728,6 +2732,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	// need embedding, and running it any earlier fails every skill with
 	// "unsupported protocol scheme" on the not-yet-configured embedder.
 	var catalogRepo port.CatalogRepoReader
+	var catalogSkillVectors port.SkillVectorSource
 	var catalogSyncStoreForHandler port.CatalogSyncStore
 	var catalogSyncOnce func(context.Context)
 	if strings.TrimSpace(cfg.AgentCatalog.Source) != "" && e.pgDB != nil && catalogSvc != nil {
@@ -2735,6 +2740,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		reader := &catalogrepo.Reader{Source: cfg.AgentCatalog.Source, CacheDir: cfg.AgentCatalog.CacheDir}
 		catalogSyncStoreForHandler = catalogSyncStore
 		catalogRepo = reader
+		catalogSkillVectors = reader
 		catalogSyncOnce = func(runCtx context.Context) {
 			syncCtx, cancel := context.WithTimeout(runCtx, 10*time.Minute)
 			defer cancel()
@@ -2828,8 +2834,16 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			e.bootSeed.AddStep("embeddings_endpoint", func(stepCtx context.Context) error {
 				return llmProviderSvc.BootstrapEmbeddings(stepCtx, embeddingsBaseURL)
 			})
-			log.Info().Str("embeddings_base_url", embeddingsBaseURL).
+			embeddingsSource := opts.EmbeddingsSource
+			if embeddingsSource == "" {
+				embeddingsSource = domain.EmbeddingSourceONNXInt8
+			}
+			llmProviderSvc.SetBundledEmbedder(embeddingsBaseURL, embeddingsSource)
+			log.Info().Str("embeddings_base_url", embeddingsBaseURL).Str("embeddings_source", embeddingsSource).
 				Msg("embeddings resolve to the bundled local embedder")
+		}
+		if catalogSvc != nil && catalogSkillVectors != nil {
+			catalogSvc.SetShippedSkillVectors(catalogSkillVectors, llmProviderSvc)
 		}
 
 		// What an index pass stamps itself with, and what a search compares

@@ -241,6 +241,13 @@ func (s *Service) StartIndexProject(ctx context.Context, projectID uuid.UUID, ro
 	s.startIndexProject(ctx, projectID, rootPath, onDone, false)
 }
 
+// IndexProject is the incremental project pass in the caller's goroutine, for
+// a caller that serialises passes per repository itself and needs the outcome:
+// StartIndexProject only logs a failure.
+func (s *Service) IndexProject(ctx context.Context, projectID uuid.UUID, rootPath string) (domain.WorkspaceIndex, error) {
+	return s.indexProject(ctx, projectID, rootPath, false)
+}
+
 func detachIndexContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -424,7 +431,7 @@ func (s *Service) IndexBranch(ctx context.Context, projectID uuid.UUID, branch, 
 			if copyErr := s.store.CopyIndexData(ctx, base.ID, index.ID); copyErr != nil {
 				log.Warn().Err(copyErr).Str("branch", branch).Msg("seed branch index from base failed; full pass")
 			} else {
-
+				index.EmbeddingModel, index.EmbeddingDims = base.EmbeddingModel, base.EmbeddingDims
 				isNew = false
 			}
 		}

@@ -49,12 +49,36 @@ func TestParseConfigRejects(t *testing.T) {
 		{"agent cli type", configLine(`,"providers":[{"id":"a","type":"claude_code"}]`)},
 		{"endpoint without base url", configLine(`,"providers":[{"id":"a","type":"openai_compatible"}]`)},
 		{"negative timeout", configLine(`,"providers":[{"id":"a","type":"openai","timeout_seconds":-1}]`)},
+		{"embedder off this computer", configLine(`,"embeddings_base_url":"http://192.168.1.20:8080/v1"`)},
+		{"embedder by host name", configLine(`,"embeddings_base_url":"https://embed.example.com/v1"`)},
+		{"embedder not http", configLine(`,"embeddings_base_url":"unix:///tmp/embed.sock"`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ParseConfig([]byte(tt.line))
 
 			assert.Error(t, err)
+		})
+	}
+}
+
+func TestParseConfigKeepsTheEmbedderOnThisComputer(t *testing.T) {
+	tests := []struct {
+		name, raw, want string
+	}{
+		{"loopback ip", " http://127.0.0.1:5123/v1/ ", "http://127.0.0.1:5123/v1"},
+		{"localhost", "http://localhost:5123/v1", "http://localhost:5123/v1"},
+		{"ipv6 loopback", "http://[::1]:5123/v1", "http://[::1]:5123/v1"},
+		{"none", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseConfig([]byte(configLine(fmt.Sprintf(`,"embeddings_base_url":%q,"embeddings_source":" tei ","postgres_cache_dir":"rel/pg"`, tt.raw))))
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.EmbeddingsBaseURL)
+			assert.Equal(t, "tei", cfg.EmbeddingsSource)
+			assert.True(t, filepath.IsAbs(cfg.PostgresCacheDir))
 		})
 	}
 }
