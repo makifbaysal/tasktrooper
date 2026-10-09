@@ -40,6 +40,11 @@ export interface RunnerConfigInputs {
    */
   executorPostgresCacheDir: string;
   /**
+   * `runnerDataDir()`, where the runner buffers the frames of runs that
+   * outlive a dropped tunnel. Absent, the runner uses the user's cache dir.
+   */
+  runnerDataDir?: string;
+  /**
    * The local embedder's URL, for the runner's `embeddings.create` and the
    * executor it starts. Absent when the embedder has not printed its port.
    */
@@ -143,6 +148,7 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
   const executorBin = executor?.status === "ok" && executor.path ? executor.path : "";
   const providerList = inputs.providers.map((p) => ({ ...p }));
   const embeddings = inputs.embeddingsBaseURL ?? "";
+  const runnerData = inputs.runnerDataDir ?? "";
 
   return `${JSON.stringify({
     tm_base_url: bundle.tm_base_url,
@@ -182,6 +188,7 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
     ...(providerList.length > 0 ? { providers: providerList } : {}),
     ...(embeddings !== "" ? { embeddings_base_url: embeddings } : {}),
     ...(embeddings !== "" ? { embedding_model: EMBEDDING_MODEL } : {}),
+    ...(runnerData !== "" ? { runner_data_dir: runnerData } : {}),
 
     reconnect_max_backoff: "30s",
   })}\n`;

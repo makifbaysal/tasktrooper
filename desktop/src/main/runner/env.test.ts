@@ -154,6 +154,11 @@ describe("runnerConfig", () => {
     expect(parsed.executor_postgres_cache_dir).toBe("/userData/postgres-bin");
   });
 
+  it("sends the runner's own data directory when it has one, for the buffers of runs that outlive a tunnel", () => {
+    expect(config(report())).not.toHaveProperty("runner_data_dir");
+    expect(config(report(), { runnerDataDir: "/userData/runner" }).runner_data_dir).toBe("/userData/runner");
+  });
+
   /** The keys travel on this pipe and nowhere else: not argv, not the environment. */
   it("sends the member's providers, keys included, and omits the field when there are none", () => {
     expect(config(report())).not.toHaveProperty("providers");

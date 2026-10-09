@@ -417,6 +417,15 @@ export function executorDataDir(): string {
 }
 
 /**
+ * The runner's own data directory in account mode (`runner_data_dir`): the
+ * buffers of the runs it keeps going across a dropped tunnel. Nothing in it
+ * outlives the runner process that wrote it.
+ */
+export function runnerDataDir(): string {
+  return path.join(app.getPath("userData"), "runner");
+}
+
+/**
  * Where the embedded Postgres binaries are downloaded and extracted.
  *
  * Deliberately NOT under `dataDir()`: it is a cache that can be deleted and
