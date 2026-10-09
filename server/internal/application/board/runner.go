@@ -1536,7 +1536,16 @@ type taskColumnReader interface {
 }
 
 func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.Workflow, taskWorkspace string, usage *registry.ToolUsage) bool {
-	if r.taskUpdater == nil || r.git == nil || taskWorkspace == "" {
+	if r.git == nil || taskWorkspace == "" {
+		return false
+	}
+	return r.advanceOnChanges(ctx, job, wf, workspaceChanges{git: r.git, workspace: taskWorkspace}, usage)
+}
+
+// advanceOnChanges is the hand-off to code review, judged on the run's
+// changes wherever its checkout is.
+func (r *Runner) advanceOnChanges(ctx context.Context, job RunJob, wf domain.Workflow, changes taskChanges, usage *registry.ToolUsage) bool {
+	if r.taskUpdater == nil || changes == nil {
 		return false
 	}
 	target, ok := wf.Param(job.Task.Column, domain.BehaviourAdvanceOnDiff, "to")
@@ -1544,7 +1553,7 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 		return false
 	}
 
-	diff, diffErr := r.git.TaskDiff(ctx, taskWorkspace)
+	diff, diffErr := changes.TaskDiff(ctx)
 	if diffErr != nil {
 		log.Warn().Err(diffErr).Str("task_id", job.Task.ID.String()).Msg("hand-off: task diff unreadable, leaving the column to the agent")
 		return false
@@ -1564,7 +1573,7 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 		}
 	}
 
-	if usage != nil && !usage.UsedAny(domain.ImplementationVerificationTools...) && !r.ciConfigOnlyDiff(ctx, taskWorkspace) {
+	if usage != nil && !usage.UsedAny(domain.ImplementationVerificationTools...) && !ciConfigOnly(ctx, changes) {
 		// A run whose every command failed (a red test, a blocked pkill) did
 		// execute something; telling it "you ran nothing" sends the next run
 		// after the wrong problem.
@@ -1583,7 +1592,7 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 
 	if usage != nil && r.uiRepo(ctx, job.RepositoryID) && !usage.UsedAny(domain.UIObservationTools...) {
 		needsUI := true
-		if files, filesErr := r.git.TaskChangedFiles(ctx, taskWorkspace); filesErr == nil {
+		if files, filesErr := changes.TaskChangedFiles(ctx); filesErr == nil {
 			needsUI = domain.DiffNeedsUIEvidence(files)
 		}
 		if needsUI {
@@ -1610,11 +1619,11 @@ func (r *Runner) advanceToCodeReview(ctx context.Context, job RunJob, wf domain.
 	return true
 }
 
-// ciConfigOnlyDiff reports a diff that only touches CI configuration: there
+// ciConfigOnly reports a diff that only touches CI configuration: there
 // is nothing to build locally, and the pipeline its pull request triggers is
 // the check that counts — the code_review stage waits for it.
-func (r *Runner) ciConfigOnlyDiff(ctx context.Context, taskWorkspace string) bool {
-	files, err := r.git.TaskChangedFiles(ctx, taskWorkspace)
+func ciConfigOnly(ctx context.Context, changes taskChanges) bool {
+	files, err := changes.TaskChangedFiles(ctx)
 	return err == nil && domain.CIConfigOnly(files)
 }
 

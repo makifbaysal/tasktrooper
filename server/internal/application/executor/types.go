@@ -125,8 +125,11 @@ type RunResult struct {
 // Run is set once the run got as far as executing, so a caller can still
 // account for the tokens and tools it spent.
 type Failure struct {
-	Code         string      `json:"code"`
-	Message      string      `json:"message"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	// Reason narrows a code for a caller that acts on the difference, such
+	// as ReasonWorkflowScope on an upstream push failure.
+	Reason       string      `json:"reason,omitempty"`
 	Run          *RunSummary `json:"run,omitempty"`
 	Partial      string      `json:"partial,omitempty"`
 	RetryAfterMS int64       `json:"retry_after_ms,omitempty"`

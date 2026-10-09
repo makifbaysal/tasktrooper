@@ -66,7 +66,10 @@ type Deps struct {
 	Index port.LocalCodeIndex
 	// Embeddings moves the index's embedding engine; nil answers not_ready.
 	Embeddings port.EmbeddingsEndpoint
-	Limits     Limits
+	// Git answers the post-run routes (git.*, commit_push); nil answers
+	// not_ready.
+	Git    port.CheckoutGit
+	Limits Limits
 }
 
 type Service struct {
@@ -77,10 +80,11 @@ type Service struct {
 	life    context.Context
 	endLife context.CancelCauseFunc
 
-	mu      sync.Mutex
-	runs    map[string]*PreparedRun
-	ensures map[string]*PreparedEnsure
-	closing bool
+	mu       sync.Mutex
+	runs     map[string]*PreparedRun
+	ensures  map[string]*PreparedEnsure
+	verifies map[string]*PreparedVerify
+	closing  bool
 }
 
 func NewService(deps Deps) *Service {
@@ -88,6 +92,7 @@ func NewService(deps Deps) *Service {
 	return &Service{
 		deps: deps, life: life, endLife: endLife,
 		runs: make(map[string]*PreparedRun), ensures: make(map[string]*PreparedEnsure),
+		verifies: make(map[string]*PreparedVerify),
 	}
 }
 
@@ -266,12 +271,19 @@ func (s *Service) Shutdown() {
 	for _, ensure := range s.ensures {
 		ensures = append(ensures, ensure)
 	}
+	verifies := make([]*PreparedVerify, 0, len(s.verifies))
+	for _, verify := range s.verifies {
+		verifies = append(verifies, verify)
+	}
 	s.mu.Unlock()
 	for _, run := range runs {
 		run.cancel(errShuttingDown)
 	}
 	for _, ensure := range ensures {
 		ensure.cancel(errShuttingDown)
+	}
+	for _, verify := range verifies {
+		verify.cancel(errShuttingDown)
 	}
 	s.endLife(errShuttingDown)
 }

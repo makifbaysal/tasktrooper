@@ -17,6 +17,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/executorapi"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcp"
+	gitadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/git"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/config"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
 	execapp "github.com/makifbaysal/tasktrooper/server/internal/application/executor"
@@ -120,6 +121,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		Remote:         remote,
 		Index:          index,
 		Embeddings:     embedder,
+		Git:            gitadapter.NewCheckout(),
 		Limits: execapp.Limits{
 			MaxIterations:      appCfg.LLM.MaxIterations,
 			TaskMaxIterations:  appCfg.LLM.TaskMaxIterations,

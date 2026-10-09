@@ -55,10 +55,38 @@ func (r *Runner) verifyAndFix(
 	policy domain.ToolPolicy,
 	workspace string,
 ) (domain.AgentResponse, bool, *domain.QuotaBlock, advisoryChecks) {
-	attempts := r.verifyFixAttempts
-	if attempts <= 0 {
-		attempts = 2
+	repo := r.verifyRepository(ctx, job)
+	required := r.requiredVerifyCommands(ctx, job, agentRec, workspaceChanges{git: r.git, workspace: workspace})
+	return r.verifyAndFixWith(ctx, job, agentRec, history, resp, model, policy, localVerifyCheck(workspace, repo, required))
+}
+
+// verifyCheck is one verification pass of a run's checkout: whether it
+// passed, the report a fix round is handed (or the notes a pass carries), and
+// the advisory checks still owed after the hand-off.
+type verifyCheck func(ctx context.Context) (bool, string, advisoryChecks)
+
+// Coverage is measured only once the code compiles, and it reports instead of gating.
+func localVerifyCheck(workspace string, repo domain.Repository, required []domain.LocalCommand) verifyCheck {
+	return func(ctx context.Context) (bool, string, advisoryChecks) {
+		ok, report := runVerification(ctx, workspace, repo, required)
+		if !ok {
+			return false, report, advisoryChecks{}
+		}
+		notes, deferred := enforcedQualityChecks(ctx, workspace, repo)
+		return true, appendVerifyNotes(report, notes), deferred
 	}
+}
+
+func appendVerifyNotes(report string, notes []string) string {
+	for _, note := range notes {
+		if note != "" {
+			report = strings.TrimSpace(report + "\n" + note)
+		}
+	}
+	return report
+}
+
+func (r *Runner) verifyRepository(ctx context.Context, job RunJob) domain.Repository {
 	repo, cached := runRepositoryFrom(ctx)
 	if !cached && r.projects != nil {
 		fetched, err := r.projects.ResolveRepository(ctx, job.RepositoryID)
@@ -68,25 +96,32 @@ func (r *Runner) verifyAndFix(
 			repo = fetched
 		}
 	}
-	required := r.requiredVerifyCommands(ctx, job, agentRec, workspace)
+	return repo
+}
+
+// verifyAndFixWith is verifyAndFix around any check: the fix rounds go
+// through the agent loop either way, which reaches wherever the run executes.
+func (r *Runner) verifyAndFixWith(
+	ctx context.Context,
+	job RunJob,
+	agentRec domain.Agent,
+	history []domain.Message,
+	resp domain.AgentResponse,
+	model string,
+	policy domain.ToolPolicy,
+	check verifyCheck,
+) (domain.AgentResponse, bool, *domain.QuotaBlock, advisoryChecks) {
+	attempts := r.verifyFixAttempts
+	if attempts <= 0 {
+		attempts = 2
+	}
 	rec := activity.FromContext(ctx)
 	headLen := len(history)
 	for attempt := 0; ; attempt++ {
 		if rec != nil {
 			rec.Step("build_verification_start", map[string]any{"attempt": attempt + 1})
 		}
-		ok, failReport := runVerification(ctx, workspace, repo, required)
-		// Coverage is measured only once the code compiles, and it reports instead of gating.
-		var deferred advisoryChecks
-		if ok {
-			var notes []string
-			notes, deferred = enforcedQualityChecks(ctx, workspace, repo)
-			for _, note := range notes {
-				if note != "" {
-					failReport = strings.TrimSpace(failReport + "\n" + note)
-				}
-			}
-		}
+		ok, failReport, deferred := check(ctx)
 		if ok {
 			if attempt > 0 {
 				log.Info().Str("task_id", job.Task.ID.String()).Int("fix_rounds", attempt).Msg("verification passed after fixes")
@@ -245,7 +280,7 @@ func verificationFailureComment(failReport string) string {
 // required local commands. An empty scope asks RequiredCommands for every
 // component, which is also what a nil ProjectModel or a failed lookup falls
 // back to via ResolveVerifyStages's VerifyCommand/detectBuild path.
-func (r *Runner) requiredVerifyCommands(ctx context.Context, job RunJob, agentRec domain.Agent, workspace string) []domain.LocalCommand {
+func (r *Runner) requiredVerifyCommands(ctx context.Context, job RunJob, agentRec domain.Agent, changes taskChanges) []domain.LocalCommand {
 	if r.projectModel == nil {
 		return nil
 	}
@@ -254,8 +289,8 @@ func (r *Runner) requiredVerifyCommands(ctx context.Context, job RunJob, agentRe
 	case job.Task.ComponentID != nil:
 		componentIDs = []uuid.UUID{*job.Task.ComponentID}
 	default:
-		if r.git != nil {
-			if files, err := r.git.TaskChangedFiles(ctx, workspace); err == nil && len(files) > 0 {
+		if changes != nil {
+			if files, err := changes.TaskChangedFiles(ctx); err == nil && len(files) > 0 {
 				if ids, err := r.projectModel.ComponentsForPaths(ctx, job.RepositoryID, files); err == nil && len(ids) > 0 {
 					componentIDs = ids
 				}
@@ -279,19 +314,35 @@ func (r *Runner) requiredVerifyCommands(ctx context.Context, job RunJob, agentRe
 }
 
 func runVerification(ctx context.Context, dir string, repo domain.Repository, required []domain.LocalCommand) (bool, string) {
+	ok, report, _ := runVerificationObserved(ctx, dir, repo, required, nil, nil)
+	return ok, report
+}
+
+func runVerificationObserved(ctx context.Context, dir string, repo domain.Repository, required []domain.LocalCommand, extraEnv []string, obs *VerifyObserver) (bool, string, []VerifyStageResult) {
 	stages := ResolveVerifyStages(dir, repo, required)
 	if len(stages) == 0 {
-		return true, ""
+		return true, "", nil
 	}
 	// Judge with the repo's declared toolchain, not the host PATH: otherwise the fix loop trains against the wrong compiler.
 	overlay := toolchain.Default.Overlay(dir)
+	env := append(append([]string(nil), overlay.Env...), extraEnv...)
 	var failures []string
 	var unverified []string
+	results := make([]VerifyStageResult, 0, len(stages))
+	finish := func(result VerifyStageResult, started time.Time) {
+		result.DurationMS = time.Since(started).Milliseconds()
+		results = append(results, result)
+		obs.stageFinished(result)
+	}
 	for _, stage := range stages {
 		args := stage.Command
+		info := VerifyStageInfo{Name: stage.Name, Dir: stage.Dir, Command: args, Setup: stage.Setup}
+		started := time.Now()
+		obs.stageStarted(info)
 		workDir, dirErr := stageWorkDir(dir, stage.Dir)
 		if dirErr != nil {
 			failures = append(failures, dirErr.Error())
+			finish(VerifyStageResult{VerifyStageInfo: info, Outcome: VerifyStageFailed, ExitCode: -1}, started)
 			continue
 		}
 		timeout := stage.Timeout
@@ -303,13 +354,15 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 		cmd := exec.CommandContext(cmdCtx, argv[0], argv[1:]...)
 		cmd.Dir = workDir
 		// The overlay is set unconditionally: empty used to leave cmd.Env nil, and exec reads nil as "inherit the parent".
-		cmd.Env = verifyEnv(os.Environ(), overlay.Env)
+		cmd.Env = verifyEnv(os.Environ(), env)
 		var buf bytes.Buffer
-		cmd.Stdout = &buf
-		cmd.Stderr = &buf
+		output := obs.stageWriter(info, &buf)
+		cmd.Stdout = output
+		cmd.Stderr = output
 		err := runTree(cmd)
 		cancel()
 		if err == nil {
+			finish(VerifyStageResult{VerifyStageInfo: info, Outcome: VerifyStagePassed}, started)
 			continue
 		}
 		if errors.Is(err, exec.ErrNotFound) || missingToolExit(runtime.GOOS, err) {
@@ -317,8 +370,10 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 				stage.Name, args[0]))
 			log.Warn().Str("stage", stage.Name).Str("tool", args[0]).
 				Msg("verify stage skipped: the tool is not installed")
+			finish(VerifyStageResult{VerifyStageInfo: info, Outcome: VerifyStageUnverified, ExitCode: exitCodeOf(err)}, started)
 			continue
 		}
+		finish(VerifyStageResult{VerifyStageInfo: info, Outcome: VerifyStageFailed, ExitCode: exitCodeOf(err)}, started)
 		out := buf.String()
 		if len(out) > 6000 {
 			out = truncateTail(out, 6000)
@@ -326,15 +381,15 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 		if stage.Setup {
 			log.Warn().Str("stage", stage.Name).Str("workspace", dir).
 				Msg("verification setup stage failed; skipping the checks that depend on it")
-			return true, ""
+			return true, "", results
 		}
 		failures = append(failures, fmt.Sprintf("$ %s\n%s", strings.Join(args, " "), strings.TrimSpace(out)))
 	}
 	if len(failures) == 0 {
 		if len(unverified) > 0 {
-			return true, "[unverified] " + strings.Join(unverified, "; ")
+			return true, "[unverified] " + strings.Join(unverified, "; "), results
 		}
-		return true, ""
+		return true, "", results
 	}
 	if len(unverified) > 0 {
 		failures = append(failures, "[unverified] "+strings.Join(unverified, "; "))
@@ -342,7 +397,15 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 	if len(overlay.Warnings) > 0 {
 		failures = append(failures, "[toolchain] "+strings.Join(overlay.Warnings, "\n[toolchain] "))
 	}
-	return false, strings.Join(failures, "\n\n")
+	return false, strings.Join(failures, "\n\n"), results
+}
+
+func exitCodeOf(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 // stageWorkDir resolves a stage's repo-relative Dir against the workspace
