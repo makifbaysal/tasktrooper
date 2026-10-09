@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
-import { writeFirstRunMode, type FirstRunMode } from "@/lib/firstRun";
+import { clearFirstRunMode, writeFirstRunMode, type FirstRunMode } from "@/lib/firstRun";
 
 /**
  * The first screen: local, or an account.
@@ -28,10 +28,12 @@ export function FirstRunChoice({ onChosen }: { onChosen: (mode: FirstRunMode) =>
     if (!account?.signIn) return;
     setSigningIn(true);
     setAccountError("");
+    writeFirstRunMode("account");
     try {
       await account.signIn();
-      choose("account");
+      onChosen("account");
     } catch (e) {
+      clearFirstRunMode();
       setAccountError(e instanceof Error ? e.message : t("setup.firstRun.account.failed"));
       setSigningIn(false);
     }

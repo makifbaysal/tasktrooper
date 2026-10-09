@@ -26,6 +26,14 @@ export function writeFirstRunMode(mode: FirstRunMode): void {
   }
 }
 
+export function clearFirstRunMode(): void {
+  try {
+    window.localStorage.removeItem(FIRST_RUN_MODE_KEY);
+  } catch {
+    /* private-mode storage or a quota error — the sequence simply asks again */
+  }
+}
+
 export function readFirstRunTeamDone(): boolean {
   try {
     return window.localStorage.getItem(FIRST_RUN_TEAM_DONE_KEY) === "1";
