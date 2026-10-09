@@ -81,7 +81,6 @@ func NewService(deps Deps) *Service {
 type PreparedRun struct {
 	svc      *Service
 	spec     AgentRun
-	provider Provider
 	model    string
 	workDir  string
 	messages []domain.Message
@@ -114,7 +113,7 @@ func (s *Service) Prepare(ctx context.Context, run AgentRun) (*PreparedRun, *Fai
 	if run.TimeoutMS < 0 {
 		return nil, badRequest("timeout_ms cannot be negative")
 	}
-	provider, model, failure := s.resolveModel(run.Agent.ProviderID, run.Agent.Model)
+	_, model, failure := s.resolveModel(run.Agent.ProviderID, run.Agent.Model)
 	if failure != nil {
 		return nil, failure
 	}
@@ -132,7 +131,7 @@ func (s *Service) Prepare(ctx context.Context, run AgentRun) (*PreparedRun, *Fai
 
 	runCtx, cancel := context.WithCancelCause(ctx)
 	prepared := &PreparedRun{
-		svc: s, spec: run, provider: provider, model: model, workDir: workDir,
+		svc: s, spec: run, model: model, workDir: workDir,
 		messages: messages, ctx: runCtx, cancel: cancel,
 	}
 	s.mu.Lock()
