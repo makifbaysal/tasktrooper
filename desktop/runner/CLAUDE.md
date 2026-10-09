@@ -71,6 +71,9 @@ redact.go        the scrubbing claude.run, opencode.run and cursor.run each
                  values, plus a run's own MCP token
 mcp.go           the per-run MCP config file: the grammars, the write, the
                  removal, and the sweep for what a killed process left behind
+mcp_surface.go   a CLI run's local tool surface: the executor's mcp.open before
+                 the run, the CLI handed its loopback URL and bearer, mcp.close
+                 after, and the fallback to the cloud's URL
 workspace.go     workspace.prepare and workspace.ensure — clone or fetch, and
                  the git argv gates
 toolchain.go     toolchain.detect — the pin files, and what they translate into
@@ -111,6 +114,11 @@ runs_test.go     the registry and the ring with synthetic runs (every OS): seq,
                  the disk bound and the gap notice, status for unknown, running
                  and done, replay then retention GC, one live id at a time,
                  the bound on finished runs, shutdown, the capabilities
+mcp_surface_test.go  claude.run and cursor.run handed the surface (never the
+                 cloud's URL or token), what mcp.open is asked with, mcp.close at
+                 the end, both tokens scrubbed from frames and log, the fallback
+                 when the executor is absent, predates mcp.open or fails, and
+                 local_tools in the preflight
 runs_process_test.go  a dropped stream resumed with run.attach (every frame
                  once, in order) and a dropped tunnel the CLI never notices,
                  against real processes and the in-process control plane
@@ -313,6 +321,8 @@ long method joins by going through `queueDurable`/`serveDurable`.)
 - **`preflight.report` says so**: `"capabilities":["run.attach","run.status"]`
   is appended to the desktop app's report (the app's bytes are otherwise
   untouched), so the cloud can feature-detect before it relies on either.
+  So is `"local_tools":[…]` (see the local tool surface below) once an
+  executor that serves surfaces has answered.
 
 The cloud's loop: read the stream, remember the last `seq`; on a broken stream
 or a new tunnel session, `run.status`; `running` or `done` → `run.attach` with
@@ -373,6 +383,64 @@ the token WITH the call.
   config file and a failure minutes later.
 - **Absent is valid.** It means this run gets none of those tools. Nothing here
   invents a url or a token the cloud did not send.
+- **`tool_policy` and `index` are optional and forwarded, never read here**:
+  JSON objects of at most 64 KiB, for the local tool surface below.
+
+#### The local tool surface — `mcp.open` before a CLI run
+
+The cloud's MCP serves coordination tools (board, documents, criteria,
+memory, `ask_user`); tools that must act on THIS computer — `browser_*`,
+`codebase_search`, `get_symbol_skeleton` and `expand_symbol_context` (the
+executor's local code index), `download_file`, `http_request` to the member's
+own localhost — cannot come from there. So when a `claude.run`, `opencode.run`
+or `cursor.run` carries an `mcp` and this runner has an executor, once the run
+has its slot (`mcp_surface.go`):
+
+1. `POST /exec/mcp.open` with `{run_id: <call id>, workspace, tool_policy?,
+   cloud_mcp: {url, token, server_name}, index?, env?, timeout_ms?}`.
+   `tool_policy` is `mcp.tool_policy` when the cloud sent one, else the MCP
+   half of `claude.run`'s `tools` with the `mcp__<server>__` prefix removed
+   (none when that half is empty); `index` is `mcp.index`; `env` the run's;
+   `timeout_ms` the run's own plus `drainBudget`, so the surface cannot end
+   before the run's kill sequence has.
+2. The executor answers `{url: "http://127.0.0.1:<port>/mcp", token,
+   server_name}` — the same `server_name`, so `mcp__<server>__<tool>` names
+   and `--allowedTools` are unchanged. The CLI's MCP config (the file for
+   claude, the env for opencode, the workspace's `.cursor/mcp.json` for
+   cursor) gets that url and token **instead of the cloud's**: the cloud's
+   bearer never reaches the CLI; the executor holds it and proxies the
+   coordination tools with it.
+3. `POST /exec/mcp.close {run_id}` when the run ends, however it ends —
+   beside the MCP file's removal. The surface also ends at its own timeout
+   and with the executor.
+
+**Anything short of a surface falls back to today's behaviour** — the cloud's
+url and token in the CLI's config: no executor, an executor answering 404
+(`unsupported_method`, one that predates `mcp.open`), one not ready, one
+that cannot reach the cloud, or an answer that is not a loopback URL and a
+well-formed token. The run never fails for want of a surface. **Both tokens
+are scrubbed** from everything forwarded (`MCP_TOKEN`, `MCP_LOCAL_TOKEN`),
+and neither is logged; a refusal from the executor is scrubbed of the cloud
+token before it is logged.
+
+**`preflight.report` carries `"local_tools":[…]`**, the executor's own
+`local_tools` from its health answer: what a surface here serves of its own,
+so the cloud can stop withholding those tools from runs on this computer.
+Absent with no executor or one that serves no surfaces.
+
+**TODO — the member's own MCP servers.** A member's stdio or http MCP servers
+on this computer are not on the surface; `--strict-mcp-config` keeps them out
+of every run, deliberately. They would plug into the same surface rather than
+the CLI's config: the executor already speaks to MCP servers
+(`server/internal/adapter/mcp`, stdio and http clients) and registers their
+tools under `mcp_<server>_<tool>` names that a tool policy's
+`allow_mcp_servers` scopes. So: the desktop app sends the member's chosen
+servers (commands and env on the runner's stdin, never argv; OAuth tokens
+from the app's own store), the runner hands them to the executor on its
+stdin, the executor connects them per surface (or keeps one connection per
+server) and registers their tools on the surface's registry beside the local
+ones, and the cloud's `tool_policy.allow_mcp_servers` decides which a run
+gets. Nothing here would need a second config file or a second token.
 
 ### `tools`, `effort`, `env` — and the flag that is not a parameter
 
@@ -523,7 +591,8 @@ process's own environment, read for a fixed set of credential-bearing names
 (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `CURSOR_API_KEY`,
 `GITHUB_TOKEN`, `GH_TOKEN`), and the run's own MCP bearer token, when it has
-one. It generalises `mobile_release.go`'s `newSecretRedactor` — the same
+one — both of them, the cloud's and the local surface's, when the run has a
+surface (`heldSecretRedactor`). It generalises `mobile_release.go`'s `newSecretRedactor` — the same
 short-value floor (nothing under 8 characters is searched for, so a redactor is
 never the reason a legitimately short word disappears from a log), the same
 per-physical-line matching for a value a forwarder splits across frames, the
