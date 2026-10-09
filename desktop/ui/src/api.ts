@@ -3768,6 +3768,95 @@ export interface WorkspaceSharedResource {
   project_ids: string[];
 }
 
+export type IssueProvider = "github" | "jira";
+
+/**
+ * A GitHub or Jira issue before it is a task. `imported_task` is set when the
+ * issue already became one, so the dialog offers that task instead of a second
+ * import.
+ */
+export interface ExternalIssue {
+  provider: IssueProvider;
+  /** github: "owner/repo#12"; jira: "PROJ-12". */
+  key: string;
+  title: string;
+  url: string;
+  /** github: "open" | "closed"; jira: the status name, e.g. "To Do". */
+  state: string;
+  labels: string[];
+  updated_at: string;
+  imported_task: { id: string; key: string; repository_id: string } | null;
+}
+
+/** Ties one task to the issue it came from; an issue split into several tasks has one per task. */
+export interface IssueLink {
+  provider: IssueProvider;
+  key: string;
+  url: string;
+  title: string;
+  created_at: string;
+  /** Set once TaskTrooper closed the issue or moved it to done. */
+  closed_at: string | null;
+}
+
+/**
+ * The product manager turning an imported issue into board tasks. "" when no
+ * conversion was asked for; "needs_input" when it waits on an answer in its chat.
+ */
+export type IssueConversionStatus =
+  | ""
+  | "pending"
+  | "converting"
+  | "converted"
+  | "needs_input"
+  | "failed"
+  | "skipped";
+
+/** One per imported issue. */
+export interface IssueImport {
+  id: string;
+  provider: IssueProvider;
+  key: string;
+  repository_id: string;
+  url: string;
+  title: string;
+  /** The task opened straight from the issue; null once the conversion replaced it. */
+  intake_task_id: string | null;
+  conversion_status: IssueConversionStatus;
+  /** The product manager's chat for this issue. */
+  conversion_session_id: string | null;
+  conversion_error?: string;
+  closed_at: string | null;
+}
+
+/** GET/PUT /v1/settings/jira. Neither shape ever carries the token. */
+export interface JiraStatus {
+  connected: boolean;
+  /** "" when not connected, else e.g. "https://acme.atlassian.net". */
+  site_url: string;
+  email: string;
+  /** Only in the PUT answer. */
+  display_name?: string;
+}
+
+export interface JiraProject {
+  key: string;
+  name: string;
+}
+
+/** GET/PUT /v1/settings/issue-sync. */
+export interface IssueSyncSettings {
+  /** Issues carrying this label are imported automatically. */
+  label: string;
+  github_auto_import: boolean;
+  jira_auto_import: boolean;
+  /** Comment on the issue and close it once its tasks are done. */
+  write_back: boolean;
+  /** Let the product manager turn each imported issue into board tasks. */
+  convert_with_pm: boolean;
+  jira_projects: { project_key: string; repository_id: string }[];
+}
+
 /** GET /v1/projects/map. */
 export interface WorkspaceMap {
   projects: WorkspaceMapProject[];
@@ -3950,6 +4039,38 @@ export interface DesignSystemGenerateResult {
 
 export const api = {
   health: () => request<HealthResponse>("/health"),
+
+  searchIssues: (params: { provider: IssueProvider; repositoryId?: string; project?: string; q?: string }) => {
+    const query = new URLSearchParams({ provider: params.provider });
+    if (params.repositoryId) query.set("repository_id", params.repositoryId);
+    if (params.project) query.set("project", params.project);
+    if (params.q) query.set("q", params.q);
+    return request<{ issues: ExternalIssue[] }>(`/v1/issues/search?${query.toString()}`);
+  },
+  importIssue: (provider: IssueProvider, key: string, repositoryId: string) =>
+    request<{ task: BoardTask; link: IssueLink; import: IssueImport }>("/v1/issues/import", {
+      method: "POST",
+      body: JSON.stringify({ provider, key, repository_id: repositoryId }),
+    }),
+  convertIssueImport: (importId: string) =>
+    request<{ import: IssueImport }>(`/v1/issues/imports/${encodeURIComponent(importId)}/convert`, {
+      method: "POST",
+    }),
+  getTaskIssueLink: (repositoryId: string, taskId: string) =>
+    request<{ link: IssueLink | null; import: IssueImport | null }>(
+      `/v1/repositories/${encodeURIComponent(repositoryId)}/tasks/${encodeURIComponent(taskId)}/issue-link`,
+    ),
+  getJiraStatus: () => request<JiraStatus>("/v1/settings/jira"),
+  setJira: (input: { site_url: string; email: string; api_token: string }) =>
+    request<JiraStatus>("/v1/settings/jira", { method: "PUT", body: JSON.stringify(input) }),
+  disconnectJira: () => request<void>("/v1/settings/jira", { method: "DELETE" }),
+  listJiraProjects: () => request<{ projects: JiraProject[] }>("/v1/settings/jira/projects"),
+  getIssueSyncSettings: () => request<IssueSyncSettings>("/v1/settings/issue-sync"),
+  updateIssueSyncSettings: (settings: IssueSyncSettings) =>
+    request<IssueSyncSettings>("/v1/settings/issue-sync", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
   usageSummary: (days = 30, tz = "") =>
     request<UsageSummary>(`/v1/usage?days=${days}&tz=${encodeURIComponent(tz)}`),
   billingStatus: () => request<BillingStatus>("/v1/billing"),

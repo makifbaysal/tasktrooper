@@ -6,6 +6,8 @@ import { CloudAccountsCard } from "@/components/admin/CloudAccountsCard";
 import { GitHubCard } from "@/components/admin/GitHubCard";
 import { GooglePlayCard } from "@/components/admin/GooglePlayCard";
 import { IntegrationSection } from "@/components/admin/IntegrationCard";
+import { IssueSyncCard } from "@/components/admin/IssueSyncCard";
+import { JiraCard } from "@/components/admin/JiraCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { tStatic, useI18n } from "@/hooks/useI18n";
 
@@ -53,9 +55,13 @@ export function IntegrationsSettingsPage() {
           )}
         </IntegrationSection>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 space-y-8">
         <IntegrationSection title={t("settingsPages.integrations.sections.cloud")}>
           <CloudAccountsCard />
+        </IntegrationSection>
+        <IntegrationSection title={t("settingsPages.integrations.sections.issues")}>
+          <JiraCard />
+          <IssueSyncCard />
         </IntegrationSection>
       </div>
     </div>

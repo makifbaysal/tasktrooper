@@ -9,6 +9,7 @@ import { cloud } from "@/locales/de/cloud";
 import { content } from "@/locales/de/content";
 import { designSystem } from "@/locales/de/designSystem";
 import { frame } from "@/locales/de/frame";
+import { issues } from "@/locales/de/issues";
 import { lib } from "@/locales/de/lib";
 import { operations } from "@/locales/de/operations";
 import { projectAdmin } from "@/locales/de/projectAdmin";
@@ -148,6 +149,7 @@ export const de: Dict = {
   content,
   designSystem,
   frame,
+  issues,
   lib,
   operations,
   projectAdmin,
