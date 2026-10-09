@@ -27,6 +27,10 @@ type TokenSource func(ctx context.Context) (string, error)
 type Client struct {
 	tokens TokenSource
 
+	// observe is a test seam: production leaves it nil, tests assert on the
+	// argv and env of child commands through it.
+	observe func(cmd *exec.Cmd)
+
 	identityMu    sync.Mutex
 	identityToken string
 	identity      githubapi.Identity
@@ -54,9 +58,21 @@ func (c *Client) token(ctx context.Context) string {
 	return strings.TrimSpace(tok)
 }
 
-func authFlags(token string) []string {
+// authEnv hands git the GitHub credential through the child's environment:
+// GIT_CONFIG_* is `-c` spelled as env, so the token never lands on argv, where
+// ps, a crash report or a shell history can read it. No token means no header
+// at all — an empty Authorization would break an anonymous clone.
+func (c *Client) authEnv(ctx context.Context) []string {
+	token := c.token(ctx)
+	if token == "" {
+		return nil
+	}
 	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	return []string{"-c", "http.https://github.com/.extraheader=Authorization: Basic " + basic}
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+		"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + basic,
+	}
 }
 
 func (c *Client) HasGit(rootPath string) bool {
@@ -137,8 +153,7 @@ func (c *Client) EnsureRepoWithRemote(ctx context.Context, rootPath, name, owner
 		if _, err := c.run(ctx, rootPath, "git", "remote", "add", "origin", repo.CloneURL); err != nil {
 			return created(fmt.Errorf("git remote add: %w", err))
 		}
-		args := append(authFlags(tok), "push", "-u", "origin", "HEAD")
-		if out, err := c.run(ctx, rootPath, "git", args...); err != nil {
+		if out, err := c.runEnv(ctx, rootPath, c.authEnv(ctx), "git", "push", "-u", "origin", "HEAD"); err != nil {
 			return created(fmt.Errorf("git push: %w (%s)", err, strings.TrimSpace(out)))
 		}
 		return nil
@@ -155,10 +170,7 @@ func (c *Client) CloneRepo(ctx context.Context, cloneURL, dest string) error {
 		return fmt.Errorf("clone parent: %w", err)
 	}
 	args := cloneArgs(runtime.GOOS, cloneURL, dest)
-	if tok := c.token(ctx); tok != "" {
-		args = append(authFlags(tok), args...)
-	}
-	if out, err := c.run(ctx, filepath.Dir(dest), "git", args...); err != nil {
+	if out, err := c.runEnv(ctx, filepath.Dir(dest), c.authEnv(ctx), "git", args...); err != nil {
 		return fmt.Errorf("git clone: %w (%s)", err, strings.TrimSpace(out))
 	}
 	return nil
@@ -179,11 +191,7 @@ func (c *Client) FetchLatest(ctx context.Context, rootPath string) error {
 	if !c.HasGit(rootPath) {
 		return fmt.Errorf("not a git repository: %s", rootPath)
 	}
-	args := []string{"fetch", "--prune", "origin"}
-	if tok := c.token(ctx); tok != "" {
-		args = append(authFlags(tok), args...)
-	}
-	if out, err := c.run(ctx, rootPath, "git", args...); err != nil {
+	if out, err := c.runEnv(ctx, rootPath, c.authEnv(ctx), "git", "fetch", "--prune", "origin"); err != nil {
 		return fmt.Errorf("git fetch: %w (%s)", err, strings.TrimSpace(out))
 	}
 	return nil
@@ -318,10 +326,7 @@ func (c *Client) LatestTag(ctx context.Context, rootPath, glob string) (string, 
 		glob = "*"
 	}
 	args := []string{"fetch", "--prune", "--tags", "origin"}
-	if tok := c.token(ctx); tok != "" {
-		args = append(authFlags(tok), args...)
-	}
-	if out, err := c.run(ctx, rootPath, "git", args...); err != nil {
+	if out, err := c.runEnv(ctx, rootPath, c.authEnv(ctx), "git", args...); err != nil {
 		return "", fmt.Errorf("git fetch --tags: %w (%s)", err, strings.TrimSpace(out))
 	}
 	out, err := c.run(ctx, rootPath, "git", "tag", "--list", glob, "--sort=-v:refname")
@@ -746,10 +751,7 @@ func (c *Client) CommitAndPush(ctx context.Context, workspacePath, message strin
 		}
 	}
 	pushArgs := []string{"push", "-u", "origin", "HEAD"}
-	if tok := c.token(ctx); tok != "" {
-		pushArgs = append(authFlags(tok), pushArgs...)
-	}
-	if out, err := c.run(ctx, workspacePath, "git", pushArgs...); err != nil {
+	if out, err := c.runEnv(ctx, workspacePath, c.authEnv(ctx), "git", pushArgs...); err != nil {
 		return pushError(err, out)
 	}
 	return nil
@@ -768,10 +770,7 @@ func pushError(err error, out string) error {
 
 func (c *Client) PushBranch(ctx context.Context, workspacePath string) error {
 	pushArgs := []string{"push", "-u", "origin", "HEAD"}
-	if tok := c.token(ctx); tok != "" {
-		pushArgs = append(authFlags(tok), pushArgs...)
-	}
-	if out, err := c.run(ctx, workspacePath, "git", pushArgs...); err != nil {
+	if out, err := c.runEnv(ctx, workspacePath, c.authEnv(ctx), "git", pushArgs...); err != nil {
 		return pushError(err, out)
 	}
 	return nil
@@ -883,10 +882,7 @@ func (c *Client) RevertOnDefaultBranch(ctx context.Context, rootPath string, sha
 	}
 
 	pushArgs := []string{"push", "origin", "HEAD:refs/heads/" + branch}
-	if tok := c.token(ctx); tok != "" {
-		pushArgs = append(authFlags(tok), pushArgs...)
-	}
-	if out, err := c.run(ctx, worktree, "git", pushArgs...); err != nil {
+	if out, err := c.runEnv(ctx, worktree, c.authEnv(ctx), "git", pushArgs...); err != nil {
 		return "", fmt.Errorf("git push of the revert to origin/%s failed — the revert was NOT pushed and production is unchanged: %w (%s)",
 			branch, err, strings.TrimSpace(out))
 	}
@@ -1123,10 +1119,14 @@ func (c *Client) runEnv(ctx context.Context, dir string, extra []string, name st
 	cmd.Dir = dir
 	cmd.Env = toolPathEnv(runtime.GOOS, os.Environ())
 	cmd.Env = append(cmd.Env, commitIdentityEnv()...)
+	cmd.Env = append(cmd.Env, noPromptEnv()...)
 	cmd.Env = append(cmd.Env, extra...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if c.observe != nil {
+		c.observe(cmd)
+	}
 	tree, err := proctree.Start(cmd)
 	if err == nil {
 		err = cmd.Wait()
@@ -1283,6 +1283,13 @@ func commitIdentityEnv() []string {
 		"GIT_COMMITTER_NAME=" + name,
 		"GIT_COMMITTER_EMAIL=" + email,
 	}
+}
+
+// noPromptEnv keeps an auth failure a clean error instead of a hung prompt the
+// headless server can never answer; GCM_INTERACTIVE=never does the same for Git
+// Credential Manager, which would otherwise open a sign-in window on Windows.
+func noPromptEnv() []string {
+	return []string{"GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never"}
 }
 
 func envOrDefault(key, fallback string) string {
