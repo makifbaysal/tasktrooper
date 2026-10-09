@@ -481,6 +481,32 @@ Settings → Integrations (`admin/GitHubCard`). `GET /v1/settings/github` → `{
 it encrypted (scopes: `repo`, `admin:repo_hook`, `read:org`); `DELETE` removes it. There is no OAuth
 hop — nothing here can hold an OAuth app's client secret or receive GitHub's callback.
 
+## Issue sync (GitHub and Jira issues)
+
+Settings → Integrations → Issue tracking (`admin/JiraCard`, `admin/IssueSyncCard`); the import
+dialog (`issues/ImportIssueDialog`, from New task) and the task drawer's issue panel
+(`issues/TaskIssueLink`).
+
+- `GET /v1/issues/search?provider=github&repository_id=…|provider=jira&project=KEY[&q=…]` →
+  `{issues: ExternalIssue[]}`; `imported_task` is set on an issue that is already on the board.
+  400 `issue_source_not_configured` when GitHub/Jira is not connected (or the repository has no
+  GitHub remote), 502 `issue_source_error` when the tracker failed.
+- `POST /v1/issues/import {provider, key, repository_id}` → 201 `{task, link, import}`. `task` is
+  the card opened straight from the issue; `import.conversion_status` is `"pending"` when the
+  product manager is about to replace it with its own tasks, `""` when it stays. 409
+  `issue_already_imported` carries `task_id`, `task_key`, `repository_id` at the top level.
+- `POST /v1/issues/imports/{id}/convert` → 202 `{import}` (pending again); 409
+  `issue_conversion_unavailable` when no conversion can run or this one cannot be repeated.
+- `GET /v1/repositories/{id}/tasks/{taskId}/issue-link` → `{link, import}`, both `null` for a
+  task that came from no issue. `import.conversion_session_id` is the product manager's chat
+  (`GET /v1/sessions/{id}` gives its `agent_id` for the chat route).
+- `GET|PUT|DELETE /v1/settings/jira` — `{connected, site_url, email, display_name?}`; PUT takes
+  `{site_url, email, api_token}` and checks them with Jira first (400 `invalid_jira_site` /
+  `jira_auth_failed`). The token is never returned. `GET /v1/settings/jira/projects` →
+  `{projects: [{key, name}]}`.
+- `GET|PUT /v1/settings/issue-sync` — `{label, github_auto_import, jira_auto_import, write_back,
+  convert_with_pm, jira_projects: [{project_key, repository_id}]}`.
+
 ## MCP servers
 
 Settings → MCP Servers (`pages/MCPServersPage`). `GET /admin/mcp-servers` →

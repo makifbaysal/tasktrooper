@@ -61,6 +61,19 @@ Migration 133 dropped the multi-tenant schema (row-level security, every
 `tenant_id`, `tenants`). It cannot be undone, so the embedded cluster is copied
 to `$DATA_DIR/postgres-backup-pre-133` before its first start on that build.
 
+## Issue sync
+
+`internal/application/issuesync` imports GitHub and Jira issues (by hand, from a
+two-minute poller for labelled issues, and from GitHub's `issues` webhook when it
+can reach this server), has the product manager turn each into board tasks, and
+writes back to the issue. The conversion is a normal chat turn with the agent
+holding `product_manager` (`session.Service.SendMessage`, so agent CLIs run it on
+this machine); tasks it opens with `create_board_task` are linked to the issue
+through `repository.Service.SetTaskCreatedObserver`, keyed by the chat session on
+the tool call's context. Its prompt is `catalog/system/prompts/issuesync/convert_request.md`.
+Migration 183 holds `issue_imports` (one per issue) and `issue_links` (one per
+task). Details: [API Specification](.ai/api-spec.md#issue-sync-migration-183).
+
 ## Build
 
 `CGO_ENABLED=1` — `smacker/go-tree-sitter` is a cgo package.
