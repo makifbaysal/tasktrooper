@@ -82,6 +82,8 @@ jobs:
           npm run build
           npm run build:ui
           npm run build:server:universal
+          npm run build:executor:universal
+          npm run build:runner:universal
           npm run build:embedder
 
       # @electron/notarize wants APPLE_API_KEY to be a *path* to the .p8 and the
@@ -207,6 +209,8 @@ jobs:
           npm run build
           npm run build:ui
           npm run build:server
+          npm run build:executor
+          npm run build:runner
           npm run build:embedder
 
       - name: Package
@@ -271,6 +275,8 @@ jobs:
           npm run build
           npm run build:ui
           npm run build:server
+          npm run build:executor
+          npm run build:runner
           npm run build:embedder
 
       - name: Package
