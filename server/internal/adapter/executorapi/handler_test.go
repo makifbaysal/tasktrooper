@@ -128,6 +128,8 @@ func (s *HandlerSuite) TestEveryRouteRequiresTheToken() {
 		{http.MethodPost, PathIndexEnsure},
 		{http.MethodPost, PathIndexSearch},
 		{http.MethodPost, PathEmbeddings},
+		{http.MethodPost, PathMCPOpen},
+		{http.MethodPost, PathMCPClose},
 		{http.MethodGet, "/nowhere"},
 	}
 	for _, route := range routes {
@@ -140,6 +142,25 @@ func (s *HandlerSuite) TestEveryRouteRequiresTheToken() {
 			})
 		}
 	}
+}
+
+// An executor built without a surface server says so, and advertises no local
+// tools; a close names its run.
+func (s *HandlerSuite) TestMCPOpenWithoutASurfaceServerIsNotReady() {
+	resp := s.request(context.Background(), http.MethodPost, PathMCPOpen, testToken, map[string]any{
+		"run_id": "cli-1", "cloud_mcp": map[string]any{"url": "https://cloud.example/api/mcp", "token": "cloud-token-0123456789", "server_name": "tasktrooper"},
+	})
+	s.Equal(http.StatusServiceUnavailable, resp.StatusCode)
+	s.Equal(executor.CodeNotReady, s.errorOf(resp).Code)
+
+	resp = s.request(context.Background(), http.MethodPost, PathMCPClose, testToken, map[string]any{})
+	s.Equal(http.StatusBadRequest, resp.StatusCode)
+
+	resp = s.request(context.Background(), http.MethodGet, PathHealth, testToken, nil)
+	defer resp.Body.Close()
+	var body map[string]any
+	s.Require().NoError(json.NewDecoder(resp.Body).Decode(&body))
+	s.NotContains(body, "local_tools")
 }
 
 func (s *HandlerSuite) TestHealthReportsTheProtocol() {

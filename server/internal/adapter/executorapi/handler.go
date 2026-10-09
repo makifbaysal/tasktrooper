@@ -26,6 +26,8 @@ const (
 	PathIndexEnsure = "/exec/index.ensure"
 	PathIndexSearch = "/exec/index.search"
 	PathEmbeddings  = "/exec/embeddings.set"
+	PathMCPOpen     = "/exec/mcp.open"
+	PathMCPClose    = "/exec/mcp.close"
 )
 
 const (
@@ -83,6 +85,8 @@ func NewHandler(svc *executor.Service, opts Options) *Handler {
 		PathIndexEnsure: {http.MethodPost, h.indexEnsure},
 		PathIndexSearch: {http.MethodPost, h.indexSearch},
 		PathEmbeddings:  {http.MethodPost, h.setEmbeddings},
+		PathMCPOpen:     {http.MethodPost, h.mcpOpen},
+		PathMCPClose:    {http.MethodPost, h.mcpClose},
 	}
 	return h
 }
@@ -114,16 +118,55 @@ func (h *Handler) authorized(r *http.Request) bool {
 }
 
 type healthResponse struct {
-	OK         bool   `json:"ok"`
-	Version    string `json:"version"`
-	Protocol   int    `json:"protocol"`
-	ActiveRuns int    `json:"active_runs"`
+	OK         bool     `json:"ok"`
+	Version    string   `json:"version"`
+	Protocol   int      `json:"protocol"`
+	ActiveRuns int      `json:"active_runs"`
+	LocalTools []string `json:"local_tools,omitempty"`
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	h.writeJSON(w, http.StatusOK, healthResponse{
 		OK: true, Version: h.version, Protocol: executor.ProtocolVersion, ActiveRuns: h.svc.ActiveRuns(),
+		LocalTools: h.svc.LocalToolNames(),
 	})
+}
+
+// mcpOpen answers with the surface's own bearer, which is the point of the
+// call; the coordination token it was handed never leaves in any answer.
+func (h *Handler) mcpOpen(w http.ResponseWriter, r *http.Request) {
+	var req executor.MCPOpen
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	cloudToken := ""
+	if req.CloudMCP != nil {
+		cloudToken = req.CloudMCP.Token
+	}
+	surface, failure := h.svc.OpenMCP(r.Context(), req)
+	if failure != nil {
+		h.writeError(w, failure, cloudToken)
+		return
+	}
+	h.write(w, http.StatusOK, surface, cloudToken)
+}
+
+type mcpCloseRequest struct {
+	RunID string `json:"run_id"`
+}
+
+func (h *Handler) mcpClose(w http.ResponseWriter, r *http.Request) {
+	var req mcpCloseRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	if strings.TrimSpace(req.RunID) == "" {
+		h.writeError(w, &executor.Failure{Code: executor.CodeBadRequest, Message: "run_id is required: a close names the surface it stops"})
+		return
+	}
+	h.writeJSON(w, http.StatusOK, h.svc.CloseMCP(req.RunID))
 }
 
 // agentRunRequest carries the runner's own call id beside the run: when the

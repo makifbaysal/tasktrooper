@@ -47,13 +47,13 @@ func runEnv(env map[string]string) ([]string, *Failure) {
 // withRunEnv puts the run's env after the toolchain this computer resolves
 // for the checkout, so both reach run_terminal: the shell resolves its own
 // overlay only when the context carries none.
-func (r *PreparedRun) withRunEnv(ctx context.Context) context.Context {
-	if len(r.env) == 0 {
+func withRunEnv(ctx context.Context, workDir string, env []string) context.Context {
+	if len(env) == 0 {
 		return ctx
 	}
 	var overlay []string
-	if r.workDir != "" {
-		overlay = toolchain.Default.Overlay(r.workDir).Env
+	if workDir != "" {
+		overlay = toolchain.Default.Overlay(workDir).Env
 	}
-	return registry.ContextWithTaskEnv(ctx, append(append([]string(nil), overlay...), r.env...))
+	return registry.ContextWithTaskEnv(ctx, append(append([]string(nil), overlay...), env...))
 }
