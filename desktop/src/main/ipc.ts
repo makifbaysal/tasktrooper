@@ -80,6 +80,8 @@ export interface IpcServices {
   accountState(): AccountState;
   accountSignIn(origin?: string): Promise<AccountState>;
   accountSignOut(): Promise<AccountState>;
+  /** Run locally for now, still signed in — the chrome's failure screen. */
+  accountUseLocalForNow(): Promise<AccountState>;
 
   // --- the web app's local half ---
   hostInfo(): { app: string; version: string; platform: string };
@@ -203,7 +205,7 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
     services.restartToUpdate();
   });
   handle(SHELL_CHANNELS.accountState, () => services.accountState());
-  shell(SHELL_CHANNELS.accountUseLocal, () => services.accountSignOut());
+  shell(SHELL_CHANNELS.accountUseLocalForNow, () => services.accountUseLocalForNow());
 
   // --- the web app ---
   cloud(CLOUD_CHANNELS.hostInfo, () => services.hostInfo());

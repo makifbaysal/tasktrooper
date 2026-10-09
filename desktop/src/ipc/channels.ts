@@ -64,11 +64,12 @@ export const SHELL_CHANNELS = {
 
   /**
    * Account mode, for the chrome's own failure screen: when the account's web
-   * app cannot be reached there is no page to sign out from, and this is the
-   * way back to running locally. Guarded on the sender like the update pair.
+   * app cannot be reached, this runs TaskTrooper locally FOR NOW — the
+   * account stays signed in and paired, and the next launch tries it again.
+   * Guarded on the sender like the update pair.
    */
   accountState: "shell:account:state",
-  accountUseLocal: "shell:account:use-local",
+  accountUseLocalForNow: "shell:account:use-local-for-now",
 } as const;
 
 /** Main → the native chrome. One-way; it never replies. */
@@ -301,8 +302,11 @@ export interface ShellBridge {
   onUpdateStatus(cb: (status: UpdateStatus) => void): () => void;
   onFullScreen(cb: (fullScreen: boolean) => void): () => void;
   accountState(): Promise<AccountState>;
-  /** Sign out of the account and run locally. The failure screen's escape. */
-  useLocalMode(): Promise<AccountState>;
+  /**
+   * Run locally for now, still signed in. The failure screen's way on when
+   * the account's page cannot be reached; only an explicit sign-out unpairs.
+   */
+  useLocalForNow(): Promise<AccountState>;
   onAccountState(cb: (state: AccountState) => void): () => void;
 }
 

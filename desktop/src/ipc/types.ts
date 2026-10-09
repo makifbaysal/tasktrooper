@@ -192,6 +192,14 @@ export interface AccountState {
   paired: boolean;
   /** Why the last switch failed, when it did. */
   error?: string;
+  /**
+   * Signed in, but running locally for now: the account's page could not be
+   * reached and the member chose to carry on without it. The pairing, the
+   * account's session and the persisted mode are untouched — `mode` reads
+   * "local" until the member goes back or the app is launched again, which
+   * tries the account first.
+   */
+  temporaryLocal: boolean;
 }
 
 /**

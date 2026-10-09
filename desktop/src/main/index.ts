@@ -106,6 +106,10 @@ const modeController = new ModeController({
   stopAccount: async () => {
     await runnerSupervisor.unpair();
   },
+  pauseAccount: async () => {
+    await runnerSupervisor.disconnect();
+  },
+  resumeAccount: () => startRunner(),
   showAccount: (_origin, route) => {
     servedBase = null;
     shellWindow.retire();
@@ -502,6 +506,7 @@ const services: IpcServices = {
   accountState: (): AccountState => modeController.state(),
   accountSignIn: (origin?: string) => modeController.signIn(origin),
   accountSignOut: () => modeController.signOut(),
+  accountUseLocalForNow: () => modeController.useLocalForNow(),
 
   hostInfo: () => ({ app: "tasktrooper-desktop", version: app.getVersion(), platform: process.platform }),
 
@@ -798,6 +803,14 @@ app.whenReady().then(
       checkForUpdate: () => void updates?.check(),
       restartToUpdate,
       subject: () => (accountMode() ? "the runner" : "the local server"),
+      banner: () =>
+        modeController.temporaryLocal
+          ? {
+              label: "Using TaskTrooper without your account for now",
+              action: `Back to ${new URL(modeController.origin).host}`,
+              run: () => void modeController.signIn().catch(() => undefined),
+            }
+          : null,
     });
     tray.create();
     tray.update(activeSnapshot());

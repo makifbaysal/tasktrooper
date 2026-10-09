@@ -226,6 +226,10 @@ export interface DesktopUpdatesHost {
  * that asked, when the switch replaced that page. `state()` carries more than
  * the page's half declares (`switching`, `paired`, `error`); it is a
  * superset, so the two stay assignable.
+ *
+ * While the member runs locally for now (`state().temporaryLocal`), `signIn`
+ * goes back to the account they are still signed in to, and `signOut` is the
+ * one call that forgets it.
  */
 export interface DesktopAccountHost {
   signIn(origin?: string): Promise<void>;

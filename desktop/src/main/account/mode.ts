@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { AccountMode, AccountState, RunnerPairingBundle, UserSettings } from "../../ipc/types.js";
-import { ACCOUNT_LOGIN_ROUTE, normalizeAccountOrigin, originOfUrl, type OriginRules } from "./origin.js";
+import { ACCOUNT_HOME_ROUTE, ACCOUNT_LOGIN_ROUTE, normalizeAccountOrigin, originOfUrl, type OriginRules } from "./origin.js";
 
 /**
  * Whether account mode keeps the local embedder running.
@@ -30,6 +30,10 @@ export interface ModeControllerDeps {
   startLocal(): Promise<void>;
   /** Stop the runner and its executor, and forget the pairing. */
   stopAccount(): Promise<void>;
+  /** Stop the runner and its executor; the pairing stays. */
+  pauseAccount(): Promise<void>;
+  /** Start the runner again when this computer is paired. */
+  resumeAccount(): Promise<void>;
   /** Replace the window's page with the account's web app at `route`. */
   showAccount(origin: string, route: string): void;
   /** Take the account's page down; the local page comes back with the backend. */
@@ -56,11 +60,19 @@ export interface ModeControllerEvents {
  * cleared, and the local backend starts; `app://tasktrooper` loads when it
  * answers. Local data is never touched.
  *
+ * Running locally FOR NOW (`useLocalForNow`) is the third state, for when the
+ * account's page cannot be reached: still signed in and paired, the persisted
+ * mode still `account`, but the runner is stopped and the local backend and
+ * `app://tasktrooper` are what run — `mode` reads "local" while it lasts.
+ * Signing in again goes back to the account; signing out is the one way that
+ * forgets it; the next launch simply tries the account again.
+ *
  * Transitions are serialised: a second click waits for the first.
  */
 export class ModeController extends EventEmitter<ModeControllerEvents> {
   readonly #deps: ModeControllerDeps;
   #switching = false;
+  #temporaryLocal = false;
   #error: string | undefined;
   #transition: Promise<unknown> = Promise.resolve();
 
@@ -69,8 +81,18 @@ export class ModeController extends EventEmitter<ModeControllerEvents> {
     this.#deps = deps;
   }
 
+  /** The mode in effect: local while running locally for now. */
   get mode(): AccountMode {
-    return this.#deps.settings.get().mode === "account" ? "account" : "local";
+    return this.#signedIn && !this.#temporaryLocal ? "account" : "local";
+  }
+
+  get temporaryLocal(): boolean {
+    return this.#temporaryLocal;
+  }
+
+  /** The persisted mode: signed in, whether or not the account is on screen. */
+  get #signedIn(): boolean {
+    return this.#deps.settings.get().mode === "account";
   }
 
   /**
@@ -90,6 +112,7 @@ export class ModeController extends EventEmitter<ModeControllerEvents> {
       origin: this.origin,
       switching: this.#switching,
       paired: this.#deps.paired(),
+      temporaryLocal: this.#temporaryLocal,
       ...(this.#error !== undefined ? { error: this.#error } : {}),
     };
   }
@@ -99,6 +122,12 @@ export class ModeController extends EventEmitter<ModeControllerEvents> {
       const origin = requested === undefined ? this.origin : normalizeAccountOrigin(requested, this.#deps.rules);
       if (!origin) {
         throw new Error(`${requested ?? ""} is not an account address this app will open. Use an https:// address.`);
+      }
+      if (this.#temporaryLocal) {
+        if (origin !== this.origin) {
+          throw new Error(`This computer is signed in to ${this.origin}. Sign out first.`);
+        }
+        return this.#backToAccount();
       }
       if (this.mode === "account") {
         if (origin !== this.origin) {
@@ -124,8 +153,50 @@ export class ModeController extends EventEmitter<ModeControllerEvents> {
     });
   }
 
+  /**
+   * Run locally for now: the account's page goes, the runner stops with its
+   * pairing kept, and the local backend starts. Nothing about the account is
+   * forgotten or written — the next launch opens it again.
+   */
+  useLocalForNow(): Promise<AccountState> {
+    return this.#serialise(async () => {
+      if (this.mode !== "account") return this.state();
+      this.#begin();
+      this.#deps.showLocal();
+      // On regardless: the account's page is already gone, and a window with
+      // neither page is the one outcome worse than a runner that stopped
+      // untidily.
+      await this.#deps.pauseAccount().catch((err: unknown) => {
+        this.#error = `The runner did not stop cleanly: ${describe(err)}`;
+      });
+      this.#temporaryLocal = true;
+      this.#end();
+      void this.#deps.startLocal();
+      return this.state();
+    });
+  }
+
+  async #backToAccount(): Promise<AccountState> {
+    this.#begin();
+    try {
+      await this.#deps.stopLocal();
+      this.#temporaryLocal = false;
+      this.#deps.showAccount(this.origin, ACCOUNT_HOME_ROUTE);
+    } catch (err) {
+      this.#temporaryLocal = true;
+      this.#error = describe(err);
+      void this.#deps.startLocal();
+      throw err;
+    } finally {
+      this.#end();
+    }
+    void this.#deps.resumeAccount();
+    return this.state();
+  }
+
   signOut(): Promise<AccountState> {
     return this.#serialise(async () => {
+      if (this.#temporaryLocal) return this.#signOutWhileLocal();
       if (this.mode !== "account") return this.state();
       const origin = this.origin;
       this.#begin();
@@ -142,6 +213,27 @@ export class ModeController extends EventEmitter<ModeControllerEvents> {
       void this.#deps.startLocal();
       return this.state();
     });
+  }
+
+  /**
+   * Signing out while running locally for now: the account's page is already
+   * gone and the local backend already up, so what is left is the account's
+   * half — forget the pairing, persist local, clear the partition.
+   */
+  async #signOutWhileLocal(): Promise<AccountState> {
+    const origin = this.origin;
+    this.#begin();
+    try {
+      await this.#deps.stopAccount();
+      this.#deps.settings.set({ mode: "local" });
+      this.#temporaryLocal = false;
+      await this.#deps.clearAccountSession(origin).catch((err: unknown) => {
+        this.#error = `The account's session could not be cleared: ${describe(err)}`;
+      });
+    } finally {
+      this.#end();
+    }
+    return this.state();
   }
 
   /**
