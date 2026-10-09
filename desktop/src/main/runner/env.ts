@@ -126,6 +126,7 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
   const cursorAgent = itemById(preflight, "cursor-agent");
   const opencode = itemById(preflight, "opencode");
   const executor = itemById(preflight, "executor");
+  const claude = itemById(preflight, "claude");
   const executorBin = executor?.status === "ok" && executor.path ? executor.path : "";
   const providerList = inputs.providers.map((p) => ({ ...p }));
   const embeddings = inputs.embeddingsBaseURL ?? "";
@@ -139,10 +140,9 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
     // it is would be a tenant-wide runner.
     member_uid: bundle.member_uid,
     workspace_dir: settings.workspaceDir,
-    claude_bin: itemById(preflight, "claude")?.path ?? "",
     git_bin: itemById(preflight, "git")?.path ?? "",
 
-    // The mobile toolchain and the other two host-executed CLIs, all OMITTED
+    // The mobile toolchain and the three host-executed CLIs, all OMITTED
     // rather than sent empty when this computer does not have them. The runner
     // refuses an empty path and treats an absent field as "this computer
     // cannot do that part" — a state it reports itself, instead of exec'ing ""
@@ -154,6 +154,9 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
     // The runner starts the hub on that address when an Appium call needs one
     // and stops it once idle; nothing here runs a hub of its own.
     ...(appium?.status === "ok" && appium.path ? { appium_bin: appium.path } : {}),
+    // Claude Code too: a member who works with their own API keys alone has
+    // none, and claude.run answers not_ready for them.
+    ...(claude?.status === "ok" && claude.path ? { claude_bin: claude.path } : {}),
     ...(cursorAgent?.status === "ok" && cursorAgent.path ? { cursor_agent_bin: cursorAgent.path } : {}),
     ...(opencode?.status === "ok" && opencode.path ? { opencode_bin: opencode.path } : {}),
 

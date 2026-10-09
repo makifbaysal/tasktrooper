@@ -268,9 +268,12 @@ export interface Overrides {
  */
 export const PREFLIGHT_IDS = [
   // Account mode only: the bundled runner, which stands in for `agent-server`
-  // there (no local backend is started), and the executor it starts.
+  // there (no local backend is started), the executor it starts, and whether
+  // this computer can run an agent at all — the member's own API keys or an
+  // agent CLI (`detect.ts#agentAccessItem`).
   "runner",
   "executor",
+  "api-keys",
   "agent-server",
   // Never blocking: an absent Postgres is one the backend downloads on its
   // first start. It is listed so that download is a thing the user was told

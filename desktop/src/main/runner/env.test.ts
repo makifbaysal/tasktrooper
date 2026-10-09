@@ -106,7 +106,14 @@ describe("runnerConfig", () => {
     expect(parsed).not.toHaveProperty("antigravity_bin");
   });
 
-  it("never sends the embeddings fields while account mode runs no embedder", () => {
+  it("omits claude_bin for a member without Claude Code — the runner answers claude.run with not_ready", () => {
+    const items = report().items.filter((i) => i.id !== "claude");
+    const parsed = config({ ...report(), items: [...items, { id: "claude", label: "Claude Code CLI", required: false, status: "missing" }] });
+    expect(parsed).not.toHaveProperty("claude_bin");
+    expect(parsed.git_bin).toBe("/usr/bin/git");
+  });
+
+  it("never sends the embeddings fields before the embedder has an address", () => {
     const parsed = config(report());
     expect(parsed).not.toHaveProperty("embeddings_base_url");
     expect(parsed).not.toHaveProperty("embedding_model");

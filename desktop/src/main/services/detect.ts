@@ -1560,21 +1560,87 @@ export function preflight(opts: PreflightOptions = {}): Promise<PreflightReport>
   return startPreflight(opts).complete;
 }
 
+/** What the account-mode sweep needs beyond what the local one does. */
+export interface AccountPreflightOptions extends PreflightOptions {
+  /**
+   * The ids of the providers in `providers.bin` — never their keys. Absent
+   * reads as none.
+   */
+  providerIds?: readonly string[];
+}
+
+/**
+ * Can this computer run an agent at all? Account mode only, as the `api-keys`
+ * row.
+ *
+ * A member runs tasks with their own API keys (the executor), or with an
+ * agent CLI the runner starts: Claude Code signed in to a plan that includes
+ * it, OpenCode or Cursor. Any one is enough. The row is REQUIRED only when it
+ * is the last way left — with no key and no usable CLI the runner would
+ * attach and then answer every run with not_ready, so Connect is refused here
+ * instead, with the sentence that fixes it. Keys need the executor, which is
+ * what uses them.
+ */
+export function agentAccessItem(input: {
+  providerIds: readonly string[];
+  executor: PreflightItem | undefined;
+  claude: PreflightItem | undefined;
+  claudeAccount: PreflightItem | undefined;
+  clis: readonly PreflightItem[];
+  platform?: NodeJS.Platform;
+}): PreflightItem {
+  const ok = (item: PreflightItem | undefined): boolean => item?.status === "ok";
+  const cliReady =
+    (ok(input.claude) && ok(input.claudeAccount)) ||
+    input.clis.some((cli) => (cli.id === "opencode" || cli.id === "cursor-agent") && ok(cli));
+  const menu = (input.platform ?? process.platform) === "darwin" ? "menu bar" : "system tray";
+  const where = `API keys… in the TaskTrooper ${menu} menu`;
+  const base = { id: "api-keys" as const, label: "API keys", required: !cliReady };
+  const count = input.providerIds.length;
+
+  if (count > 0 && ok(input.executor)) {
+    return {
+      ...base,
+      status: "ok",
+      detail: `${count === 1 ? "One provider" : `${count} providers`} on this computer: ${input.providerIds.join(", ")}.`,
+    };
+  }
+  if (count > 0) {
+    return {
+      ...base,
+      status: "unusable",
+      detail: "API keys are set, but this copy of TaskTrooper has no executor to run agents with them.",
+      remediation: cliReady
+        ? "Tasks that use an API provider wait until the executor is back. Reinstall TaskTrooper from the latest build."
+        : "Reinstall TaskTrooper from the latest build, or install Claude Code, OpenCode or Cursor to run tasks with.",
+    };
+  }
+  return {
+    ...base,
+    status: "missing",
+    detail: "No API key is set on this computer. Keys stay here; TaskTrooper's servers never see them.",
+    remediation: cliReady
+      ? `Tasks that use an API provider wait until one is added under ${where}.`
+      : `Add a key under ${where}, or install Claude Code (signed in), OpenCode or Cursor. Tasks need one of them to run here.`,
+  };
+}
+
 /**
  * The preflight for account mode: no local backend, no embedded Postgres, no
  * Antigravity (the runner has no flavor for it). The runner binary stands in
- * for `agent-server`, and `git`, `claude` and the Claude account are REQUIRED
- * — the runner refuses to start without `claude_bin` and `git_bin` — where
- * local mode leaves them optional because an install may run no agent CLI.
+ * for `agent-server`, and `git` is REQUIRED — the runner refuses to start
+ * without `git_bin`. No agent CLI is required on its own: a member may work
+ * with their own API keys alone, and `agentAccessItem` (the `api-keys` row)
+ * is what refuses a computer that has no way to run an agent at all.
  *
  * The executor is optional: without it the runner answers agent.run with
- * not_ready, and the CLI runs still work. The mobile toolchain and the other
- * two host-executed CLIs stay optional too, and their presence is how
- * `main/runner/env.ts#runnerConfig` learns the paths it sends only when
- * detected — reusing this sweep rather than a second, narrower one keeps those
- * paths from drifting out of step with what the preflight screen showed.
+ * not_ready, and the CLI runs still work. Claude Code, the mobile toolchain
+ * and the other two host-executed CLIs stay optional too, and their presence
+ * is how `main/runner/env.ts#runnerConfig` learns the paths it sends only
+ * when detected — reusing this sweep rather than a second, narrower one keeps
+ * those paths from drifting out of step with what the preflight screen showed.
  */
-export async function accountPreflight(opts: PreflightOptions): Promise<PreflightReport> {
+export async function accountPreflight(opts: AccountPreflightOptions): Promise<PreflightReport> {
   const overrides = opts.overrides ?? {};
   const dirs = searchDirs();
   const find = (override: string | undefined, name: string): Located | null =>
@@ -1609,12 +1675,20 @@ export async function accountPreflight(opts: PreflightOptions): Promise<Prefligh
     Promise.all(clis.map(([cli, found]) => versionOf(found, opts).then((answer) => simpleCliItem(cli, found, answer)))),
   ]);
 
+  const executor = probeBundled("executor", "TaskTrooper executor", EXECUTOR_BINARY, "build:executor", false);
   const items: PreflightItem[] = [
     probeBundled("runner", "TaskTrooper runner", RUNNER_BINARY, "build:runner", true),
-    probeBundled("executor", "TaskTrooper executor", EXECUTOR_BINARY, "build:executor", false),
+    executor,
     { ...git, required: true },
-    { ...claudeDone, required: true },
-    { ...accountDone, required: true },
+    agentAccessItem({
+      providerIds: opts.providerIds ?? [],
+      executor,
+      claude: claudeDone,
+      claudeAccount: accountDone,
+      clis: cliItems,
+    }),
+    claudeDone,
+    accountDone,
     ...(xcode ? [xcode] : []),
     ...appiumDone,
     probeAndroidSdk(dirs),

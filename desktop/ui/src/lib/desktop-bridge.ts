@@ -206,9 +206,11 @@ export interface DesktopDiagnostics {
  */
 export const DESKTOP_PREFLIGHT_IDS = [
   // Account mode only: the bundled runner, standing in for `agent-server`,
-  // and the executor it starts.
+  // the executor it starts, and whether this computer can run an agent at
+  // all — the member's own API keys, or an agent CLI.
   "runner",
   "executor",
+  "api-keys",
   "agent-server",
   "postgres",
   "git",

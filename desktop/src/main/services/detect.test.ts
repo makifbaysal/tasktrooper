@@ -47,6 +47,7 @@ vi.mock("./login-env.js", () => ({
 }));
 
 const {
+  agentAccessItem,
   androidSdkDefaultRoot,
   androidToolPath,
   classifyAuthStatus,
@@ -708,6 +709,55 @@ describe("the two items the user cannot install", () => {
     expect(pg.required).toBe(false);
     expect(pg.status).toBe("ok");
     expect(pg.remediation).toBeUndefined();
+  });
+});
+
+/**
+ * Account mode: a member runs tasks with their own API keys or with an agent
+ * CLI, and either is enough. Claude Code is no longer required; a computer
+ * with neither a key nor a usable CLI is refused at Connect, by the
+ * `api-keys` row, with the sentence that fixes it.
+ */
+describe("account preflight: a way to run an agent", () => {
+  const ok = (id: PreflightId): PreflightItem => ({ id, label: id, required: false, status: "ok", path: `/bin/${id}` });
+  const missing = (id: PreflightId): PreflightItem => ({ id, label: id, required: false, status: "missing" });
+  const none = { executor: ok("executor"), claude: missing("claude"), claudeAccount: missing("claude-account"), clis: [] };
+
+  it("passes with a key and the executor that uses it, and names the providers but nothing else", () => {
+    const item = agentAccessItem({ ...none, providerIds: ["anthropic", "openai"] });
+    expect(item).toMatchObject({ id: "api-keys", status: "ok", required: true });
+    expect(item.detail).toBe("2 providers on this computer: anthropic, openai.");
+    expect(firstBlocker({ generatedAt: 1, ready: true, items: [item] })).toBeUndefined();
+  });
+
+  it("blocks Connect with neither a key nor a usable CLI, and says both ways out", () => {
+    const item = agentAccessItem({ ...none, providerIds: [], platform: "darwin" });
+    expect(item).toMatchObject({ status: "missing", required: true });
+    expect(item.remediation).toMatch(/API keys… in the TaskTrooper menu bar menu/);
+    expect(item.remediation).toMatch(/Claude Code \(signed in\), OpenCode or Cursor/);
+    expect(firstBlocker({ generatedAt: 1, ready: false, items: [item] })?.id).toBe("api-keys");
+  });
+
+  it("is optional once any CLI can run an agent — Claude Code signed in, OpenCode, or Cursor", () => {
+    for (const cli of [
+      { claude: ok("claude"), claudeAccount: ok("claude-account") },
+      { clis: [ok("opencode")] },
+      { clis: [ok("cursor-agent")] },
+    ]) {
+      const item = agentAccessItem({ ...none, ...cli, providerIds: [] });
+      expect(item.required, JSON.stringify(cli)).toBe(false);
+      expect(item.status).toBe("missing");
+    }
+  });
+
+  it("does not count a Claude Code whose account cannot run it", () => {
+    const unusable: PreflightItem = { ...missing("claude-account"), status: "unusable" };
+    expect(agentAccessItem({ ...none, claude: ok("claude"), claudeAccount: unusable, providerIds: [] }).required).toBe(true);
+  });
+
+  it("does not count keys without the executor that would use them", () => {
+    const item = agentAccessItem({ ...none, executor: missing("executor"), providerIds: ["openai"] });
+    expect(item).toMatchObject({ status: "unusable", required: true });
   });
 });
 
