@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"sync"
 	"time"
@@ -12,7 +13,10 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-const toolResultContentLimit = 4000
+const (
+	toolResultContentLimit = 4000
+	attachmentSizeLimit    = 2 << 20
+)
 
 type emitter struct {
 	mu       sync.Mutex
@@ -196,5 +200,24 @@ func (r *eventingRegistry) ExecuteWithPolicy(ctx context.Context, call domain.To
 		IsError: result.IsError, Content: content, Truncated: truncated,
 		Images: len(result.Images), DurationMS: time.Since(started).Milliseconds(),
 	})
+	for _, img := range result.Images {
+		r.em.emit(EventAttachment, attachmentEvent(call.ID, img))
+	}
 	return result
+}
+
+func attachmentEvent(callID string, img domain.ToolResultImage) *AttachmentEvent {
+	size := base64.StdEncoding.DecodedLen(len(img.Data))
+	if n := len(img.Data); n > 0 {
+		for i := n - 1; i >= 0 && i >= n-2 && img.Data[i] == '='; i-- {
+			size--
+		}
+	}
+	ev := &AttachmentEvent{CallID: callID, MIME: img.MediaType, Size: size}
+	if size > attachmentSizeLimit {
+		ev.TooLarge = true
+	} else {
+		ev.DataBase64 = img.Data
+	}
+	return ev
 }

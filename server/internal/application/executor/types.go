@@ -39,6 +39,7 @@ const (
 	EventToolResult = "tool_result"
 	EventText       = "text"
 	EventUsage      = "usage"
+	EventAttachment = "attachment"
 
 	EventIndexProgress = "index_progress"
 )
@@ -189,6 +190,15 @@ type ToolResultEvent struct {
 	Truncated  bool   `json:"truncated,omitempty"`
 	Images     int    `json:"images,omitempty"`
 	DurationMS int64  `json:"duration_ms"`
+}
+
+type AttachmentEvent struct {
+	EventHeader
+	CallID     string `json:"call_id"`
+	MIME       string `json:"mime"`
+	Size       int    `json:"size"`
+	DataBase64 string `json:"data_base64,omitempty"`
+	TooLarge   bool   `json:"too_large,omitempty"`
 }
 
 type TextEvent struct {
