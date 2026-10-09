@@ -2,6 +2,7 @@ import { Activity, Bell, Globe, Package, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, setStoredLocale, type AppSettings } from "@/api";
+import { AccountCard } from "@/components/runner/AccountCard";
 import { AppUpdatesCard } from "@/components/runner/AppUpdatesCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -389,6 +390,7 @@ export function SettingsPage() {
         <ConcurrencyCard />
       </div>
       <div className="min-w-0 space-y-4">
+        <AccountCard />
         <AppUpdatesCard />
         <BoilerplateCatalogCard />
         <NotificationsCard />
