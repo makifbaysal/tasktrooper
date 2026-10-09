@@ -91,8 +91,6 @@ export function TeamTemplateStep({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">{t("setup.team.description")}</p>
-
       {loadError && (
         <Notice variant="error" title={t("setup.team.loadFailed")}>
           <p>{loadError}</p>

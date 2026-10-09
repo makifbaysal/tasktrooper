@@ -122,5 +122,7 @@ export function agentUpdate(agent: Agent, enabled: boolean): AgentInput {
     tool_policy: agent.tool_policy,
     enabled,
     self_evolution_enabled: agent.self_evolution_enabled,
+    max_turns: agent.max_turns,
+    effort: agent.effort,
   };
 }

@@ -244,6 +244,8 @@ export function AgentPerformancePage() {
         tool_policy: agent.tool_policy ?? {},
         enabled: agent.enabled,
         self_evolution_enabled: enabled,
+        max_turns: agent.max_turns,
+        effort: agent.effort,
       });
       setAgent({ ...agent, self_evolution_enabled: enabled });
       toast.success(enabled ? t("agentArea.perf.selfEvo.on") : t("agentArea.perf.selfEvo.off"));
