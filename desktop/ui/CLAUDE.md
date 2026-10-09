@@ -70,7 +70,7 @@ Settings); in local mode `runner.connect()`/`disconnect()` start and stop the
 **backend**. `account` (`signIn(origin?)`, `signOut()`, `state()`) switches
 the shell between local and account mode — Settings' Account card and the
 first-run screen call it; the page it is called from is replaced when it
-succeeds. `bridgeVersion` (1) and `mode` are synchronous values;
+succeeds. `bridgeVersion` (2) and `mode` are synchronous values;
 `runner.pair`/`unpair`/`pairing`/`restart` and the snapshot's `tunnel` are
 account mode's, used by the account's web app, not by this bundle.
 `account`, `bridgeVersion` and `mode` are optional on this side: a browser and

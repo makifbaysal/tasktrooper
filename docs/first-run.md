@@ -10,6 +10,22 @@ so quitting mid-setup, restarting the app, or disconnecting something next
 week all land you back on the right screen with nothing stale to work
 around.
 
+## Two choices before the sequence
+
+The first run asks two one-time questions, answered only once each and
+remembered in `localStorage` (`tt.firstRun.*`): **local or an account**, and
+**which team to start from**. Each is skipped once it has been answered.
+
+| Question | What it asks |
+|---|---|
+| Local or an account? | Run everything on this computer with no sign-in, or join your board and team from any device with an account. The account option hands the window over to the account's own web app (and is offered only when the desktop shell exposes `account.signIn()`); the local choice goes straight into the sequence. You can change it later in Settings, and signing out of an account returns this first-run question nothing — the choice is saved before the hand-over, so the app goes back to your chosen setup, not to "local or account?" again. |
+| What kind of team? | Pick a starting team: **Web application**, **Mobile application**, **Game**, **Data & analytics**, or **Custom**. A template preselects the catalog agents that team starts with; every agent is shown with a toggle and can be turned on or off before you confirm. The **product manager is always on** — the board has no lead without one — so its toggle is locked. The rest, including the **security agent**, start from the template's choice and are toggled through each agent's `enabled` flag (`PUT /admin/agents/:id` on Confirm). |
+
+The team's agent list is not set in stone: after setup, open **Settings →
+Agents** to toggle any agent on or off, or edit an agent's role, runtime and
+tools, and add your own agents — see [Role agents](role-agents.md) and
+[Your own agents](custom-agents.md).
+
 | Step | What it does |
 |---|---|
 | Check this Mac | Probes git, agent CLIs, and optional capabilities (Chrome, Xcode, Appium, the Android SDK) |
