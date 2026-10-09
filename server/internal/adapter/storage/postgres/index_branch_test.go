@@ -186,3 +186,24 @@ func (s *IndexBranchStoreSuite) TestARepositoryHoldsItsDefaultAndBranchIndexesSi
 	_, err = store.GetIndexByProjectBranch(s.ctx, repo.ID, "feature/b")
 	s.NoError(err, "replacing one branch's index leaves the other's")
 }
+
+func (s *IndexBranchStoreSuite) TestCopyIndexDataCarriesTheEmbeddingProvenance() {
+	store := postgres.NewIndexStore(s.db)
+	root := "/tmp/index-branch-" + uuid.NewString()
+	repo := s.newRepository(root)
+	base, err := store.CreateProjectIndex(s.ctx, repo.ID, root, "")
+	s.Require().NoError(err)
+	s.Require().NoError(store.UpdateIndexEmbedding(s.ctx, base.ID, "nomic-embed-text-v1.5@onnx-int8", 768))
+	branch, err := store.CreateProjectBranchIndex(s.ctx, repo.ID, "feature/seeded", root+"-seeded", "")
+	s.Require().NoError(err)
+
+	s.Require().NoError(store.CopyIndexData(s.ctx, base.ID, branch.ID))
+
+	got, err := store.GetIndexByProjectBranch(s.ctx, repo.ID, "feature/seeded")
+	s.Require().NoError(err)
+	s.Equal("nomic-embed-text-v1.5@onnx-int8", got.EmbeddingModel)
+	s.Equal(768, got.EmbeddingDims)
+	kept, err := store.GetIndexByProject(s.ctx, repo.ID)
+	s.Require().NoError(err)
+	s.Equal("nomic-embed-text-v1.5@onnx-int8", kept.EmbeddingModel)
+}

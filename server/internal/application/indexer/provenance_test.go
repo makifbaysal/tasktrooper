@@ -230,6 +230,54 @@ func TestStaleIndexIsReEmbeddedWhole(t *testing.T) {
 	}
 }
 
+func TestABranchSeededFromItsBaseCarriesTheBaseProvenance(t *testing.T) {
+	tests := []struct {
+		name       string
+		nowModel   string
+		wantEmbeds bool
+	}{
+		{"identical tree, same model", "model-a", false},
+		{"identical tree, model changed since the base", "model-b", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := newFakeIndexStore()
+			embeds := 0
+			llm := &fakeLLM{embedFn: func(context.Context, string, string) ([]float32, error) {
+				embeds++
+				return make([]float32, 768), nil
+			}}
+			svc := newProvenanceService(t, store, llm)
+			svc.SetEmbeddingResolver(&fakeEmbeddingResolver{model: "model-a", dims: 768})
+			repo := uuid.New()
+			if _, err := svc.IndexProject(ctx, repo, mapperFixtureRoot()); err != nil {
+				t.Fatalf("base pass: %v", err)
+			}
+			svc.SetEmbeddingResolver(&fakeEmbeddingResolver{model: tt.nowModel, dims: 768})
+			embeds = 0
+
+			idx, err := svc.IndexBranch(ctx, repo, "feature/same", mapperFixtureRoot())
+
+			if err != nil {
+				t.Fatalf("branch pass: %v", err)
+			}
+			if (embeds > 0) != tt.wantEmbeds {
+				t.Fatalf("the branch pass embedded %d chunks, want embedding: %v", embeds, tt.wantEmbeds)
+			}
+			stored, err := store.GetIndexByProjectBranch(ctx, repo, "feature/same")
+			if err != nil {
+				t.Fatalf("read back: %v", err)
+			}
+			for _, got := range []domain.WorkspaceIndex{idx, stored} {
+				if got.EmbeddingModel != tt.nowModel || got.EmbeddingDims != 768 {
+					t.Fatalf("branch index records %q/%d, want %s/768", got.EmbeddingModel, got.EmbeddingDims, tt.nowModel)
+				}
+			}
+		})
+	}
+}
+
 func contains(haystack, needle string) bool {
 	return len(needle) > 0 && len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0
 }
