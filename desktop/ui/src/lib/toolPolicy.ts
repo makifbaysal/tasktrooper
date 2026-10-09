@@ -14,13 +14,14 @@ export function selectedBuiltinTools(policy: ToolPolicy, known?: string[]): stri
   return allowed.filter((name) => set.has(name));
 }
 
-export function selectedMCPServers(policy: ToolPolicy, known?: string[]): string[] {
-  const allowed = policy.allow_mcp_servers ?? [];
-  if (!known || known.length === 0) {
-    return allowed;
-  }
-  const set = new Set(known);
-  return allowed.filter((id) => set.has(id));
+export const TASKTROOPER_MCP_ID = "tasktrooper";
+
+export function isTaskTrooperMCP(id: string): boolean {
+  return id.trim().toLowerCase() === TASKTROOPER_MCP_ID;
+}
+
+export function selectedMCPServers(policy: ToolPolicy): string[] {
+  return (policy.allow_mcp_servers ?? []).filter((id) => !isTaskTrooperMCP(id));
 }
 
 export function withAllowedBuiltinTools(policy: ToolPolicy, allowTools: string[]): ToolPolicy {
@@ -35,8 +36,9 @@ export function withAllowedBuiltinTools(policy: ToolPolicy, allowTools: string[]
 
 export function withAllowedMCPServers(policy: ToolPolicy, serverIds: string[]): ToolPolicy {
   const next = { ...policy };
-  if (serverIds.length > 0) {
-    next.allow_mcp_servers = serverIds;
+  const ids = serverIds.filter((id) => !isTaskTrooperMCP(id));
+  if (ids.length > 0) {
+    next.allow_mcp_servers = ids;
   } else {
     delete next.allow_mcp_servers;
   }

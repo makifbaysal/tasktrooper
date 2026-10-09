@@ -127,7 +127,7 @@ export const frame: FrameDict = {
       addField: "Alan Ekle",
     },
     toolPolicy: {
-      mcpServersHint: "Boş bırakırsanız bu ajan tüm ajanlara açık her sunucuyu alır. Sunucu seçerseniz yalnızca seçtiklerinizi alır; buna yalnızca listeleyen ajanlara açık sunucular da dahildir.",
+      mcpServersHint: "Boş bırakırsanız bu ajan tüm ajanlara açık her sunucuyu alır. Sunucu seçerseniz yalnızca seçtiklerinizi alır; buna yalnızca listeleyen ajanlara açık sunucular da dahildir. TaskTrooper'ın kendi sunucusu her zaman açıktır ve bu seçimin parçası değildir.",
       description:
         "Seçilmeyen araç ve sunucular otomatik olarak engellenir. Boş bırakırsanız o kategoride kısıtlama uygulanmaz.",
       builtinTools: "Yerleşik araçlar",
@@ -135,6 +135,8 @@ export const frame: FrameDict = {
       mcpServers: "MCP sunucuları",
     },
     mcpPicker: {
+      tasktrooperDescription: "Pano ve koordinasyon araçları, her ajanda açık",
+      notConfigured: "Burada yapılandırılmamış",
       accessAll: "tüm ajanlar",
       accessListed: "yalnızca listeleyen ajanlar",
       defaultLabel: "MCP sunucuları",

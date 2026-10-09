@@ -124,13 +124,15 @@ export const frame = {
       addField: "添加字段",
     },
     toolPolicy: {
-      mcpServersHint: "留空则此智能体获得所有对全部智能体开放的服务器。选择服务器后，它只获得所选的服务器，包括仅对列出它们的智能体开放的服务器。",
+      mcpServersHint: "留空则此智能体获得所有对全部智能体开放的服务器。选择服务器后，它只获得所选的服务器，包括仅对列出它们的智能体开放的服务器。TaskTrooper 自带的服务器始终开启，不属于此选择。",
       description: "未选中的工具和服务器会被自动阻止。留空表示该类别不做限制。",
       builtinTools: "内置工具",
       noBuiltinTools: "未找到内置工具",
       mcpServers: "MCP 服务器",
     },
     mcpPicker: {
+      tasktrooperDescription: "看板与协调工具，对每个智能体始终开启",
+      notConfigured: "此处未配置",
       accessAll: "所有智能体",
       accessListed: "仅列出它的智能体",
       defaultLabel: "MCP 服务器",

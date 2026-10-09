@@ -124,13 +124,15 @@ export const frame = {
       addField: "Feld hinzufügen",
     },
     toolPolicy: {
-      mcpServersHint: "Leer lassen, damit dieser Agent jeden Server erhält, der für alle Agenten verfügbar ist. Wer Server auswählt, gibt ihm genau diese, auch Server, die nur Agenten zur Verfügung stehen, die sie auflisten.",
+      mcpServersHint: "Leer lassen, damit dieser Agent jeden Server erhält, der für alle Agenten verfügbar ist. Wer Server auswählt, gibt ihm genau diese, auch Server, die nur Agenten zur Verfügung stehen, die sie auflisten. Der eigene Server von TaskTrooper ist immer aktiv und nicht Teil dieser Auswahl.",
       description: "Nicht ausgewählte Tools und Server werden automatisch blockiert. Leer lassen, um in dieser Kategorie nichts einzuschränken.",
       builtinTools: "Integrierte Tools",
       noBuiltinTools: "Keine integrierten Tools gefunden",
       mcpServers: "MCP-Server",
     },
     mcpPicker: {
+      tasktrooperDescription: "Board- und Koordinationswerkzeuge, für jeden Agenten immer aktiv",
+      notConfigured: "Hier nicht konfiguriert",
       accessAll: "alle Agenten",
       accessListed: "nur Agenten, die ihn auflisten",
       defaultLabel: "MCP-Server",

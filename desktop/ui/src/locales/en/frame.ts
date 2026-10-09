@@ -126,7 +126,7 @@ export const frame = {
       addField: "Add Field",
     },
     toolPolicy: {
-      mcpServersHint: "Leave empty to give this agent every server available to all agents. Picking servers gives it exactly those, including servers only available to agents that list them.",
+      mcpServersHint: "Leave empty to give this agent every server available to all agents. Picking servers gives it exactly those, including servers only available to agents that list them. TaskTrooper's own server is always on and is not part of this choice.",
       description:
         "Unselected tools and servers are automatically blocked. Leave empty to apply no restriction in that category.",
       builtinTools: "Built-in tools",
@@ -134,6 +134,8 @@ export const frame = {
       mcpServers: "MCP servers",
     },
     mcpPicker: {
+      tasktrooperDescription: "Board and coordination tools, always on for every agent",
+      notConfigured: "Not configured here",
       accessAll: "all agents",
       accessListed: "only agents that list it",
       defaultLabel: "MCP servers",

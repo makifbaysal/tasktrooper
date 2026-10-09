@@ -13,6 +13,7 @@ export interface MultiSelectOption {
   value: string;
   label?: string;
   description?: string;
+  locked?: boolean;
 }
 
 interface MultiSelectPickerProps {
@@ -32,8 +33,8 @@ function normalize(value: string) {
 export function MultiSelectPicker({
   label,
   options,
-  selected,
-  onChange,
+  selected: chosen,
+  onChange: emit,
   exclude = [],
   loading = false,
   emptyText,
@@ -41,6 +42,15 @@ export function MultiSelectPicker({
   const { t } = useI18n();
   const resolvedEmptyText = emptyText ?? t("frame.admin.multiSelect.emptyDefault");
   const baseId = useId();
+  const lockedValues = useMemo(
+    () => options.filter((option) => option.locked).map((option) => option.value),
+    [options],
+  );
+  const selected = useMemo(
+    () => [...lockedValues, ...chosen.filter((value) => !lockedValues.includes(value))],
+    [lockedValues, chosen],
+  );
+  const onChange = (values: string[]) => emit(values.filter((value) => !lockedValues.includes(value)));
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -117,14 +127,16 @@ export function MultiSelectPicker({
                 return (
                 <Badge key={value} variant="secondary" className="max-w-full gap-1 pr-1 text-micro">
                   <span className="truncate">{displayLabel}</span>
-                  <button
-                    type="button"
-                    onClick={() => remove(value)}
-                    className="rounded-full p-0.5 hover:bg-muted"
-                    aria-label={t("frame.admin.multiSelect.remove", { label: displayLabel })}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+                  {lockedValues.includes(value) ? null : (
+                    <button
+                      type="button"
+                      onClick={() => remove(value)}
+                      className="rounded-full p-0.5 hover:bg-muted"
+                      aria-label={t("frame.admin.multiSelect.remove", { label: displayLabel })}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
                 </Badge>
                 );
               })}
@@ -167,6 +179,7 @@ export function MultiSelectPicker({
                     filteredOptions.map((option) => {
                       const checked = selected.includes(option.value);
                       const id = `${baseId}-${option.value}`;
+                      const locked = option.locked === true;
                       const title = option.description ?? option.label ?? option.value;
                       return (
                         <label
@@ -174,13 +187,15 @@ export function MultiSelectPicker({
                           htmlFor={id}
                           title={title}
                           className={cn(
-                            "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50",
+                            "flex items-center gap-2 rounded-md px-2 py-1.5",
+                            locked ? "cursor-default" : "cursor-pointer hover:bg-muted/50",
                             checked && "bg-muted/40",
                           )}
                         >
                           <Checkbox
                             id={id}
                             checked={checked}
+                            disabled={locked}
                             onCheckedChange={(value) => toggle(option.value, value === true)}
                           />
                           <span className="truncate text-xs">{option.label ?? option.value}</span>
