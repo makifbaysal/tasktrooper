@@ -65,6 +65,7 @@ type Server struct {
 	http       *http.Server
 	svc        *execapp.Service
 	tools      localTools
+	members    *mcp.Members
 	indexStore *indexStoreOpener
 	done       chan struct{}
 }
@@ -112,6 +113,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 	if history.KeepRecentMessages <= 0 {
 		history.KeepRecentMessages = 10
 	}
+	members := connectMembers(cfg.MCPServers)
 	index, indexStore, embedder := buildLocalIndex(cfg, appCfg)
 	var indexToolNames []string
 	if cfg.DataDir != "" {
@@ -131,6 +133,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		Git:            gitadapter.NewCheckout(),
 		IndexToolNames: indexToolNames,
 		Surfaces:       mcpsurface.Server{},
+		MemberTools:    members.Tools(),
 		Limits: execapp.Limits{
 			MaxIterations:      appCfg.LLM.MaxIterations,
 			TaskMaxIterations:  appCfg.LLM.TaskMaxIterations,
@@ -142,18 +145,20 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 	handler := executorapi.NewHandler(svc, executorapi.Options{
 		Token:   cfg.Token,
 		Version: version(),
-		Secrets: append(providerSecrets(cfg.Providers), cfg.Token),
+		Secrets: append(append(providerSecrets(cfg.Providers), memberSecrets(cfg.MCPServers)...), cfg.Token),
 	})
 
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		tools.close()
+		members.Close()
 		return nil, fmt.Errorf("listen: %w", err)
 	}
 	addr := listener.Addr().String()
 	if _, err := fmt.Fprintf(stdout, "%shttp://%s\n", ListeningPrefix, addr); err != nil {
 		_ = listener.Close()
 		tools.close()
+		members.Close()
 		return nil, fmt.Errorf("announce the listener: %w", err)
 	}
 	if f, ok := stdout.(*os.File); ok {
@@ -169,6 +174,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		},
 		svc:        svc,
 		tools:      tools,
+		members:    members,
 		indexStore: indexStore,
 		done:       make(chan struct{}),
 	}
@@ -178,7 +184,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 			log.Error().Err(err).Msg("executor listener stopped")
 		}
 	}()
-	log.Info().Str("addr", addr).Int("providers", len(cfg.Providers)).Str("workspace_root", cfg.WorkspaceRoot).
+	log.Info().Str("addr", addr).Int("providers", len(cfg.Providers)).Int("mcp_servers", len(cfg.MCPServers)).Str("workspace_root", cfg.WorkspaceRoot).
 		Bool("embeddings", cfg.EmbeddingsBaseURL != "").Msg("executor listening")
 	return s, nil
 }
@@ -196,6 +202,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	<-s.done
 	proctree.Default.KillAll(processGrace)
 	s.tools.close()
+	s.members.Close()
 	if s.indexStore != nil {
 		s.indexStore.Close()
 	}

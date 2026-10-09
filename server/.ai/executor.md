@@ -36,7 +36,9 @@ local edition (`cmd/agent-server`) does not use it and is unchanged.
  "workspace_root":"/…/workspaces","embeddings_base_url":"http://127.0.0.1:…/v1",
  "embeddings_source":"onnx-int8","postgres_cache_dir":"/…/postgres-bin",
  "providers":[{"id":"anthropic","type":"anthropic","base_url":"","api_key":"sk-…","models":["claude-sonnet-4-5"]},
-              {"id":"<uuid>","type":"openai_compatible","base_url":"https://openrouter.ai/api/v1","api_key":"…","models":["…"]}]}
+              {"id":"<uuid>","type":"openai_compatible","base_url":"https://openrouter.ai/api/v1","api_key":"…","models":["…"]}],
+ "mcp_servers":[{"name":"notes","command":"/usr/local/bin/notes-mcp","args":["--stdio"],"env":{"NOTES_TOKEN":"…"}},
+                {"name":"wiki","url":"https://wiki.example/mcp","headers":{"Authorization":"Bearer …"}}]}
 ```
 
 - `listen` defaults to `127.0.0.1:0` and must be a loopback address.
@@ -51,6 +53,20 @@ local edition (`cmd/agent-server`) does not use it and is unchanged.
   per provider.
 - Keys live only in memory. They are never logged and never put on argv, and
   `Config` prints without them.
+- `mcp_servers` are the member's own MCP servers on this computer, up to 32.
+  `name` is letters, digits and hyphens (at most 32, no underscore, so
+  `mcp_<name>_<tool>` reads one way); each entry has a `command` (stdio, with
+  optional `args` and `env`) or a `url` (http, with optional `headers`), never
+  both. They are connected once at start, in parallel, each within ten
+  seconds, before the listening line; one that does not connect is logged by
+  name and skipped. Stdio children are `exec`ed directly (never a shell), with
+  the secret `env` in their environment and nothing secret on argv. An http
+  server may be on this computer or its network. Their tools are registered as
+  `mcp_<name>_<tool>` in every run's registry and on every surface, with access
+  `listed`: a run gets them only when its `tool_policy.allow_mcp_servers`
+  names the server. They are listed in `local_tools`, their calls are
+  recorded like the other local tools', and every `env` and `headers` value is
+  scrubbed from every response.
 - `embeddings_base_url` is the desktop embedder's OpenAI-compatible base. It
   must be on this computer (loopback IP or `localhost`): every chunk of code
   the index embeds is sent to it. Without it the index answers `not_ready`
@@ -91,7 +107,7 @@ Returns `{"ok":true,"version":"…","protocol":1,"active_runs":0,"local_tools":[
 `local_tools` is what a tool surface (`mcp.open`) on this computer serves of
 its own, before any coordination tool: the host and workspace tools minus the
 ones a CLI has natively, plus the index-backed three when the executor has a
-`data_dir`. The runner advertises it in its `preflight.report`, so the cloud
+`data_dir`, plus the member's own MCP servers' `mcp_<name>_<tool>` tools. The runner advertises it in its `preflight.report`, so the cloud
 can stop withholding those tools from runs on this computer. It is absent
 when the executor serves no surfaces.
 

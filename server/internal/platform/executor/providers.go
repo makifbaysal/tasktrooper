@@ -1,10 +1,12 @@
 package executor
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/llm"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcp"
 	execapp "github.com/makifbaysal/tasktrooper/server/internal/application/executor"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/llmprovider"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -51,4 +53,23 @@ func providerSecrets(configs []ProviderConfig) []string {
 		}
 	}
 	return secrets
+}
+
+func memberSecrets(servers []MCPServerConfig) []string {
+	var secrets []string
+	for _, m := range servers {
+		secrets = append(secrets, m.secrets()...)
+	}
+	return secrets
+}
+
+func connectMembers(servers []MCPServerConfig) *mcp.Members {
+	if len(servers) == 0 {
+		return nil
+	}
+	configs := make([]domain.MCPServerConfig, 0, len(servers))
+	for _, m := range servers {
+		configs = append(configs, m.domainConfig())
+	}
+	return mcp.ConnectMembers(context.Background(), configs)
 }

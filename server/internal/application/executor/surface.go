@@ -320,6 +320,9 @@ func (s *Service) LocalToolNames() []string {
 	for _, tool := range s.deps.WorkspaceTools {
 		add(tool.Name())
 	}
+	for _, tool := range s.deps.MemberTools {
+		add(tool.Name())
+	}
 	if s.deps.Index != nil {
 		for _, name := range s.deps.IndexToolNames {
 			add(name)
@@ -345,6 +348,7 @@ func (s *Service) toolRegistry(remote []port.ToolExecutor, workDir string, index
 		sources[tool.Name()] = SourceRemote
 	}
 	local := append([]port.ToolExecutor(nil), s.deps.HostTools...)
+	local = append(local, s.deps.MemberTools...)
 	if workDir != "" {
 		local = append(local, s.deps.WorkspaceTools...)
 	}

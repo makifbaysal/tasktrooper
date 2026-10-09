@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -42,7 +43,102 @@ type Config struct {
 	// data_dir.
 	PostgresCacheDir string           `json:"postgres_cache_dir,omitempty"`
 	Providers        []ProviderConfig `json:"providers"`
-	Debug            bool             `json:"debug,omitempty"`
+	// MCPServers are the member's own MCP servers on this computer. Their env
+	// and headers are secrets, so they are held like the provider keys.
+	MCPServers []MCPServerConfig `json:"mcp_servers,omitempty"`
+	Debug      bool              `json:"debug,omitempty"`
+}
+
+// MCPServerConfig is one of the member's MCP servers: a stdio command or an
+// http endpoint, never both.
+type MCPServerConfig struct {
+	Name    string            `json:"name"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+func (m MCPServerConfig) String() string { return m.Name }
+
+func (m MCPServerConfig) GoString() string { return m.Name }
+
+const maxMCPServers = 32
+
+var (
+	mcpServerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,31}$`)
+	mcpEnvName    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	mcpHeaderName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$")
+	configControl = regexp.MustCompile(`[\x00-\x1f\x7f]`)
+)
+
+func (m MCPServerConfig) validate() error {
+	if !mcpServerName.MatchString(m.Name) {
+		return fmt.Errorf("name %q is not a server name (letters, digits and hyphens, at most 32)", m.Name)
+	}
+	hasCommand, hasURL := strings.TrimSpace(m.Command) != "", strings.TrimSpace(m.URL) != ""
+	if hasCommand == hasURL {
+		return errors.New("a server has either a command (stdio) or a url (http), not both and not neither")
+	}
+	if hasURL {
+		if len(m.Args) > 0 || len(m.Env) > 0 {
+			return errors.New("an http server takes headers, not args or env")
+		}
+		u, err := url.Parse(strings.TrimSpace(m.URL))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+			return errors.New("url must be an http(s) address without credentials in it")
+		}
+		for k, v := range m.Headers {
+			if !mcpHeaderName.MatchString(k) || configControl.MatchString(v) {
+				return fmt.Errorf("header %q is not a header", k)
+			}
+		}
+		return nil
+	}
+	if len(m.Headers) > 0 {
+		return errors.New("a stdio server takes args and env, not headers")
+	}
+	if configControl.MatchString(m.Command) {
+		return errors.New("command contains control characters")
+	}
+	for _, a := range m.Args {
+		if strings.ContainsRune(a, 0) {
+			return errors.New("an arg contains a NUL")
+		}
+	}
+	for k, v := range m.Env {
+		if !mcpEnvName.MatchString(k) || strings.ContainsRune(v, 0) {
+			return fmt.Errorf("env %q is not an environment variable", k)
+		}
+	}
+	return nil
+}
+
+func (m MCPServerConfig) domainConfig() domain.MCPServerConfig {
+	cfg := domain.MCPServerConfig{ID: m.Name, Enabled: true, Access: domain.MCPAccessListed}
+	if strings.TrimSpace(m.URL) != "" {
+		cfg.Transport, cfg.URL, cfg.Headers = "http", strings.TrimSpace(m.URL), m.Headers
+		return cfg
+	}
+	cfg.Transport, cfg.Command, cfg.Args, cfg.Env = "stdio", strings.TrimSpace(m.Command), m.Args, m.Env
+	return cfg
+}
+
+// secrets are the values that must not leave this process in any answer.
+func (m MCPServerConfig) secrets() []string {
+	var out []string
+	for _, v := range m.Env {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	for _, v := range m.Headers {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 type ProviderConfig struct {
@@ -59,8 +155,12 @@ func (c Config) String() string {
 	for _, p := range c.Providers {
 		ids = append(ids, p.String())
 	}
-	return fmt.Sprintf("executor config{listen=%s workspace_root=%s data_dir=%s embeddings=%s providers=[%s]}",
-		c.Listen, c.WorkspaceRoot, c.DataDir, c.EmbeddingsBaseURL, strings.Join(ids, " "))
+	servers := make([]string, 0, len(c.MCPServers))
+	for _, m := range c.MCPServers {
+		servers = append(servers, m.Name)
+	}
+	return fmt.Sprintf("executor config{listen=%s workspace_root=%s data_dir=%s embeddings=%s providers=[%s] mcp_servers=[%s]}",
+		c.Listen, c.WorkspaceRoot, c.DataDir, c.EmbeddingsBaseURL, strings.Join(ids, " "), strings.Join(servers, " "))
 }
 
 func (c Config) GoString() string { return c.String() }
@@ -160,6 +260,19 @@ func (c *Config) normalize() error {
 		if p.TimeoutSeconds < 0 {
 			return fmt.Errorf("provider %q: timeout_seconds cannot be negative", p.ID)
 		}
+	}
+	if len(c.MCPServers) > maxMCPServers {
+		return fmt.Errorf("mcp_servers: %d entries, at most %d", len(c.MCPServers), maxMCPServers)
+	}
+	names := make(map[string]bool, len(c.MCPServers))
+	for i, m := range c.MCPServers {
+		if err := m.validate(); err != nil {
+			return fmt.Errorf("mcp_servers[%d]: %w", i, err)
+		}
+		if names[m.Name] {
+			return fmt.Errorf("mcp_servers[%d]: name %q appears twice", i, m.Name)
+		}
+		names[m.Name] = true
 	}
 	return nil
 }
