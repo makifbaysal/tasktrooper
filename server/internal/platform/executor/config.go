@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -28,13 +29,20 @@ const maxConfigLine = 1 << 20
 // provider keys, so it is never logged, and String keeps a stray %v from
 // printing them.
 type Config struct {
-	Listen            string           `json:"listen"`
-	Token             string           `json:"token"`
-	DataDir           string           `json:"data_dir"`
-	WorkspaceRoot     string           `json:"workspace_root"`
-	EmbeddingsBaseURL string           `json:"embeddings_base_url"`
-	Providers         []ProviderConfig `json:"providers"`
-	Debug             bool             `json:"debug,omitempty"`
+	Listen            string `json:"listen"`
+	Token             string `json:"token"`
+	DataDir           string `json:"data_dir"`
+	WorkspaceRoot     string `json:"workspace_root"`
+	EmbeddingsBaseURL string `json:"embeddings_base_url"`
+	// EmbeddingsSource names the engine behind EmbeddingsBaseURL in the index
+	// provenance; empty means the desktop's int8 ONNX embedder.
+	EmbeddingsSource string `json:"embeddings_source,omitempty"`
+	// PostgresCacheDir holds the Postgres binaries the index store runs on;
+	// the desktop's own cache spares a download. Empty means one under
+	// data_dir.
+	PostgresCacheDir string           `json:"postgres_cache_dir,omitempty"`
+	Providers        []ProviderConfig `json:"providers"`
+	Debug            bool             `json:"debug,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -51,8 +59,8 @@ func (c Config) String() string {
 	for _, p := range c.Providers {
 		ids = append(ids, p.String())
 	}
-	return fmt.Sprintf("executor config{listen=%s workspace_root=%s data_dir=%s providers=[%s]}",
-		c.Listen, c.WorkspaceRoot, c.DataDir, strings.Join(ids, " "))
+	return fmt.Sprintf("executor config{listen=%s workspace_root=%s data_dir=%s embeddings=%s providers=[%s]}",
+		c.Listen, c.WorkspaceRoot, c.DataDir, c.EmbeddingsBaseURL, strings.Join(ids, " "))
 }
 
 func (c Config) GoString() string { return c.String() }
@@ -121,6 +129,15 @@ func (c *Config) normalize() error {
 			return fmt.Errorf("data_dir: %w", err)
 		}
 	}
+	if strings.TrimSpace(c.PostgresCacheDir) != "" {
+		if c.PostgresCacheDir, err = filepath.Abs(strings.TrimSpace(c.PostgresCacheDir)); err != nil {
+			return fmt.Errorf("postgres_cache_dir: %w", err)
+		}
+	}
+	if c.EmbeddingsBaseURL, err = loopbackEmbeddings(c.EmbeddingsBaseURL); err != nil {
+		return err
+	}
+	c.EmbeddingsSource = strings.TrimSpace(c.EmbeddingsSource)
 
 	seen := make(map[string]bool, len(c.Providers))
 	for i := range c.Providers {
@@ -167,6 +184,27 @@ func loopbackListen(listen string) (string, error) {
 		return "", fmt.Errorf("listen %q is not a loopback address; the executor only serves this machine", listen)
 	}
 	return net.JoinHostPort(ip.String(), port), nil
+}
+
+// loopbackEmbeddings refuses an embedder off this machine: every chunk of
+// code the index embeds is sent to it, and code does not leave this computer.
+func loopbackEmbeddings(raw string) (string, error) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("embeddings_base_url %q is not an http(s) URL", raw)
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return raw, nil
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return "", fmt.Errorf("embeddings_base_url %q is not on this computer; the code it would embed does not leave it", raw)
+	}
+	return raw, nil
 }
 
 const (

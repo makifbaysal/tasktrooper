@@ -126,6 +126,8 @@ func (s *HandlerSuite) TestEveryRouteRequiresTheToken() {
 		{http.MethodPost, PathLLMComplete},
 		{http.MethodPost, PathCancel},
 		{http.MethodPost, PathIndexEnsure},
+		{http.MethodPost, PathIndexSearch},
+		{http.MethodPost, PathEmbeddings},
 		{http.MethodGet, "/nowhere"},
 	}
 	for _, route := range routes {
@@ -150,20 +152,21 @@ func (s *HandlerSuite) TestHealthReportsTheProtocol() {
 	s.Equal(healthResponse{OK: true, Version: "test", Protocol: 1}, body)
 }
 
-func (s *HandlerSuite) TestUnknownRoutesAndReservedIndexPaths() {
+func (s *HandlerSuite) TestUnknownRoutesAndIndexCallsWithoutAnIndex() {
 	tests := []struct {
 		method, path string
+		body         any
 		status       int
 		code         string
 	}{
-		{http.MethodGet, "/exec/nothing", http.StatusNotFound, codeUnsupportedMethod},
-		{http.MethodGet, PathAgentRun, http.StatusNotFound, codeUnsupportedMethod},
-		{http.MethodPost, PathIndexEnsure, http.StatusNotImplemented, codeNotImplemented},
-		{http.MethodPost, PathIndexSearch, http.StatusNotImplemented, codeNotImplemented},
+		{http.MethodGet, "/exec/nothing", nil, http.StatusNotFound, codeUnsupportedMethod},
+		{http.MethodGet, PathAgentRun, nil, http.StatusNotFound, codeUnsupportedMethod},
+		{http.MethodPost, PathIndexEnsure, map[string]any{"workspace": ".", "repo_key": "app"}, http.StatusServiceUnavailable, executor.CodeNotReady},
+		{http.MethodPost, PathIndexSearch, map[string]any{"repo_key": "app", "query": "auth"}, http.StatusServiceUnavailable, executor.CodeNotReady},
 	}
 	for _, tt := range tests {
 		s.Run(tt.method+" "+tt.path, func() {
-			resp := s.request(context.Background(), tt.method, tt.path, testToken, nil)
+			resp := s.request(context.Background(), tt.method, tt.path, testToken, tt.body)
 
 			s.Equal(tt.status, resp.StatusCode)
 			s.Equal(tt.code, s.errorOf(resp).Code)

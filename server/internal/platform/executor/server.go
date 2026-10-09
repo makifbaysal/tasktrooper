@@ -20,7 +20,9 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/config"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
 	execapp "github.com/makifbaysal/tasktrooper/server/internal/application/executor"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/localindex"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/makifbaysal/tasktrooper/server/resources"
@@ -35,9 +37,10 @@ const ListeningPrefix = "EXECUTOR_LISTENING "
 var Version = ""
 
 const (
-	readHeaderTimeout = 30 * time.Second
-	idleTimeout       = 5 * time.Minute
-	processGrace      = 3 * time.Second
+	readHeaderTimeout   = 30 * time.Second
+	idleTimeout         = 5 * time.Minute
+	processGrace        = 3 * time.Second
+	defaultEmbedTimeout = 60 * time.Second
 )
 
 // ConfigureLogger sends logs to stderr: stdout carries exactly the
@@ -56,11 +59,12 @@ func ConfigureLogger(debugLevel bool) {
 }
 
 type Server struct {
-	addr  string
-	http  *http.Server
-	svc   *execapp.Service
-	tools localTools
-	done  chan struct{}
+	addr       string
+	http       *http.Server
+	svc        *execapp.Service
+	tools      localTools
+	indexStore *indexStoreOpener
+	done       chan struct{}
 }
 
 // Options are the seams a test replaces; production passes the zero value.
@@ -106,6 +110,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 	if history.KeepRecentMessages <= 0 {
 		history.KeepRecentMessages = 10
 	}
+	index, indexStore, embedder := buildLocalIndex(cfg, appCfg)
 	svc := execapp.NewService(execapp.Deps{
 		LLM:            llmClient,
 		Providers:      providers,
@@ -113,6 +118,8 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		WorkspaceTools: tools.workspace,
 		HostTools:      tools.host,
 		Remote:         remote,
+		Index:          index,
+		Embeddings:     embedder,
 		Limits: execapp.Limits{
 			MaxIterations:      appCfg.LLM.MaxIterations,
 			TaskMaxIterations:  appCfg.LLM.TaskMaxIterations,
@@ -149,9 +156,10 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 			ReadHeaderTimeout: readHeaderTimeout,
 			IdleTimeout:       idleTimeout,
 		},
-		svc:   svc,
-		tools: tools,
-		done:  make(chan struct{}),
+		svc:        svc,
+		tools:      tools,
+		indexStore: indexStore,
+		done:       make(chan struct{}),
 	}
 	go func() {
 		defer close(s.done)
@@ -160,7 +168,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		}
 	}()
 	log.Info().Str("addr", addr).Int("providers", len(cfg.Providers)).Str("workspace_root", cfg.WorkspaceRoot).
-		Msg("executor listening")
+		Bool("embeddings", cfg.EmbeddingsBaseURL != "").Msg("executor listening")
 	return s, nil
 }
 
@@ -177,7 +185,38 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	<-s.done
 	proctree.Default.KillAll(processGrace)
 	s.tools.close()
+	if s.indexStore != nil {
+		s.indexStore.Close()
+	}
 	return err
+}
+
+// buildLocalIndex is always there to answer, if only to say why it cannot:
+// without an embedding engine (embeddings_base_url, or a later
+// /exec/embeddings.set) there is nothing to embed with, and without data_dir
+// no place for the store.
+func buildLocalIndex(cfg Config, appCfg *domain.Config) (*localindex.Service, *indexStoreOpener, *localEmbedder) {
+	timeout := appCfg.Embedding.RequestTimeout
+	if timeout <= 0 {
+		timeout = defaultEmbedTimeout
+	}
+	embedder := newLocalEmbedder(cfg.EmbeddingsBaseURL, cfg.EmbeddingsSource, timeout)
+	deps := localindex.Deps{
+		Embedder: embedder,
+		Tools:    indexTools(appCfg),
+		Config: localindex.Config{
+			Indexer:   appCfg.Indexer,
+			Graph:     appCfg.Graph,
+			Mapping:   appCfg.Mapping,
+			Embedding: appCfg.Embedding,
+		},
+	}
+	var opener *indexStoreOpener
+	if cfg.DataDir != "" {
+		opener = newIndexStoreOpener(cfg.DataDir, cfg.PostgresCacheDir)
+		deps.Opener = opener
+	}
+	return localindex.NewService(deps), opener, embedder
 }
 
 func loadPromptLibrary() (err error) {

@@ -61,19 +61,34 @@ type Deps struct {
 	WorkspaceTools []port.ToolExecutor
 	HostTools      []port.ToolExecutor
 	Remote         port.RemoteToolConnector
-	Limits         Limits
+	// Index is this computer's code index; nil answers index calls not_ready
+	// and runs that name an index run without it.
+	Index port.LocalCodeIndex
+	// Embeddings moves the index's embedding engine; nil answers not_ready.
+	Embeddings port.EmbeddingsEndpoint
+	Limits     Limits
 }
 
 type Service struct {
 	deps Deps
 
+	// life outlives every run and ends at Shutdown: an index pass a run
+	// stopped waiting for goes on under it.
+	life    context.Context
+	endLife context.CancelCauseFunc
+
 	mu      sync.Mutex
 	runs    map[string]*PreparedRun
+	ensures map[string]*PreparedEnsure
 	closing bool
 }
 
 func NewService(deps Deps) *Service {
-	return &Service{deps: deps, runs: make(map[string]*PreparedRun)}
+	life, endLife := context.WithCancelCause(context.Background())
+	return &Service{
+		deps: deps, life: life, endLife: endLife,
+		runs: make(map[string]*PreparedRun), ensures: make(map[string]*PreparedEnsure),
+	}
 }
 
 // PreparedRun is a validated run holding its run id. Execute runs it; Release
@@ -127,6 +142,16 @@ func (s *Service) Prepare(ctx context.Context, run AgentRun) (*PreparedRun, *Fai
 	}
 	if run.MCP != nil && strings.TrimSpace(run.MCP.URL) == "" {
 		run.MCP = nil
+	}
+	if run.Index != nil {
+		run.Index.RepoKey = strings.TrimSpace(run.Index.RepoKey)
+		run.Index.Branch = strings.TrimSpace(run.Index.Branch)
+		if run.Index.RepoKey == "" {
+			return nil, badRequest("index.repo_key is required when a run names an index")
+		}
+		if run.Index.WaitMS < 0 {
+			return nil, badRequest("index.wait_ms cannot be negative")
+		}
 	}
 
 	runCtx, cancel := context.WithCancelCause(ctx)
@@ -232,10 +257,18 @@ func (s *Service) Shutdown() {
 	for _, run := range s.runs {
 		runs = append(runs, run)
 	}
+	ensures := make([]*PreparedEnsure, 0, len(s.ensures))
+	for _, ensure := range s.ensures {
+		ensures = append(ensures, ensure)
+	}
 	s.mu.Unlock()
 	for _, run := range runs {
 		run.cancel(errShuttingDown)
 	}
+	for _, ensure := range ensures {
+		ensure.cancel(errShuttingDown)
+	}
+	s.endLife(errShuttingDown)
 }
 
 func (s *Service) ActiveRuns() int {
@@ -291,7 +324,6 @@ func (r *PreparedRun) Execute(sink Sink) (*RunResult, *Failure) {
 	}
 
 	llm := &meteredClient{inner: r.svc.deps.LLM, meter: meter, em: em}
-	loop := r.loop(llm, r.registry(remote, em))
 
 	ctx = registry.ContextWithWorkspaceDir(ctx, r.workDir)
 	scope := "exec:" + r.spec.RunID
@@ -299,15 +331,21 @@ func (r *PreparedRun) Execute(sink Sink) (*RunResult, *Failure) {
 	defer proctree.Default.KillScope(scope, processGrace)
 	ctx, _, _ = activity.StartRun(ctx, stepStore{em: em}, nil, r.spec.RunID, r.model)
 
+	r.ensureIndex(ctx, em)
+	index := r.attachIndex(ctx, llm)
+	loop := r.loop(llm, r.registry(remote, index, em))
+	ctx = indexContext(ctx, index)
+	messages := r.withIndexContext(ctx, index, r.messages)
+
 	providerRef := domain.LLMProviderType(r.spec.Agent.ProviderID)
 	opts := []agent.RunOption{agent.WithSessionLimits(r.spec.Agent.MaxTurns, r.spec.Agent.Effort)}
 	var resp domain.AgentResponse
 	var err error
 	if r.spec.Kind == KindChat {
 		ctx = agent.WithSegmentBreak(ctx, em.segmentBreak)
-		resp, err = loop.RunStream(ctx, r.messages, r.model, providerRef, r.spec.Agent.ToolPolicy, em.textDelta, opts...)
+		resp, err = loop.RunStream(ctx, messages, r.model, providerRef, r.spec.Agent.ToolPolicy, em.textDelta, opts...)
 	} else {
-		resp, err = loop.RunTask(ctx, r.messages, r.model, providerRef, r.spec.Agent.ToolPolicy, opts...)
+		resp, err = loop.RunTask(ctx, messages, r.model, providerRef, r.spec.Agent.ToolPolicy, opts...)
 	}
 	if err != nil {
 		return nil, r.failureFor(ctx, err, summary())
@@ -346,7 +384,7 @@ func (s *Service) limitsFor(ref domain.LLMProviderType, model string) appcontext
 	return appcontext.LimitsFor(ref, model)
 }
 
-func (r *PreparedRun) registry(remote []port.ToolExecutor, em *emitter) port.ToolRegistry {
+func (r *PreparedRun) registry(remote []port.ToolExecutor, index *port.LocalIndexAttachment, em *emitter) port.ToolRegistry {
 	inner := registry.New()
 	sources := make(map[string]string)
 	for _, tool := range remote {
@@ -356,9 +394,13 @@ func (r *PreparedRun) registry(remote []port.ToolExecutor, em *emitter) port.Too
 		inner.Register(tool)
 		sources[tool.Name()] = SourceRemote
 	}
-	local := r.svc.deps.HostTools
+	local := append([]port.ToolExecutor(nil), r.svc.deps.HostTools...)
 	if r.workDir != "" {
-		local = append(append([]port.ToolExecutor(nil), local...), r.svc.deps.WorkspaceTools...)
+		local = append(local, r.svc.deps.WorkspaceTools...)
+	}
+	// Last, so the index-backed get_symbol_skeleton replaces the by-file one.
+	if index != nil {
+		local = append(local, index.Tools...)
 	}
 	for _, tool := range local {
 		inner.Register(tool)
@@ -374,7 +416,9 @@ func (r *PreparedRun) registry(remote []port.ToolExecutor, em *emitter) port.Too
 // remoteWithheldTools act on the coordination server's own disk, processes or
 // index. Served from there they would build, preview, commit or search a copy
 // of the work that is not the one this run is editing; where this computer has
-// its own version, it is registered locally instead.
+// its own version, it is registered locally instead. The index-backed code
+// tools are this computer's only when the run names a local index; a run
+// without one goes without them rather than search the server's.
 var remoteWithheldTools = []string{
 	"download_file",
 	"start_task_preview",

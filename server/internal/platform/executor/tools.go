@@ -6,18 +6,40 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/search"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/shell"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/web"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/localindex"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mapper"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// indexFreeCodeTools are the code tools that read the checkout directly. The
-// rest of the code kit (codebase_search, expand_symbol_context) query a
-// semantic index, which this process does not build yet.
+// indexFreeCodeTools are the code tools that read the checkout directly, and
+// every run with a workspace gets them. get_symbol_skeleton here answers by
+// file only.
 var indexFreeCodeTools = map[string]bool{
 	"grep_code":           true,
 	"get_repo_tree":       true,
 	"get_symbol_skeleton": true,
+}
+
+// indexBackedCodeTools read the local code index; a run that names one gets
+// them on top, get_symbol_skeleton then answering by symbol too.
+var indexBackedCodeTools = map[string]bool{
+	"codebase_search":       true,
+	"expand_symbol_context": true,
+	"get_symbol_skeleton":   true,
+}
+
+func indexTools(cfg *domain.Config) localindex.ToolFactory {
+	return func(store port.IndexStore, embedder port.LLMClient) []port.ToolExecutor {
+		kit := code.NewToolKit(store, embedder, mapper.NewService(cfg.Mapping), cfg.Indexer, cfg.Graph, "")
+		var tools []port.ToolExecutor
+		for _, tool := range code.NewExecutors(kit) {
+			if indexBackedCodeTools[tool.Name()] {
+				tools = append(tools, tool)
+			}
+		}
+		return tools
+	}
 }
 
 type localTools struct {
