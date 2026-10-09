@@ -116,8 +116,11 @@ type wireConfig struct {
 	MemberUID string `json:"member_uid"`
 	// WorkspaceDir is the root every path this program touches must be inside.
 	WorkspaceDir string `json:"workspace_dir"`
-	ClaudeBin    string `json:"claude_bin"`
-	GitBin       string `json:"git_bin"`
+	// ClaudeBin is optional: a member who works only with their own API keys
+	// (the executor) or another CLI has no Claude Code, and claude.run answers
+	// not_ready for them the way cursor.run does without cursor_agent_bin.
+	ClaudeBin string `json:"claude_bin,omitempty"`
+	GitBin    string `json:"git_bin"`
 	// EmbeddingsBaseURL is the OpenAI-compatible base for this Mac's bundled
 	// embedding engine. Optional: a Mac with no local embedding engine is
 	// a common case rather than a misconfiguration — embeddings.create
@@ -141,8 +144,7 @@ type wireConfig struct {
 	// missing and why, and `mobile.boot` refuses with the same sentence instead
 	// of failing on an exec of "".
 	//
-	// They are PASSED, not looked up, for the same reason `claude_bin` and
-	// `git_bin` are: detection lives in the desktop app's services/detect.ts and
+	// They are PASSED, not looked up, for the same reason `git_bin` is: detection lives in the desktop app's services/detect.ts and
 	// nowhere else. A second search here with slightly different rules is how a
 	// Mac drives one adb and reports another.
 	XcrunBin    string `json:"xcrun_bin,omitempty"`
@@ -300,9 +302,9 @@ func loadConfig(line []byte) (config, error) {
 		return config{}, fmt.Errorf("workspace_dir %q must be an absolute path", workspace)
 	}
 
-	claudeBin := strings.TrimSpace(wire.ClaudeBin)
-	if claudeBin == "" || !filepath.IsAbs(claudeBin) {
-		return config{}, errors.New("claude_bin is required and must be an absolute path (the desktop app detects it)")
+	claudeBin, err := optionalBin("claude_bin", wire.ClaudeBin)
+	if err != nil {
+		return config{}, err
 	}
 	gitBin := strings.TrimSpace(wire.GitBin)
 	if gitBin == "" || !filepath.IsAbs(gitBin) {
@@ -327,8 +329,7 @@ func loadConfig(line []byte) (config, error) {
 	// The mobile toolchain. Absent is valid and means "this Mac cannot do that
 	// half"; PRESENT and wrong is not, because a relative path here would be
 	// resolved against a working directory nobody set — which is the same rule
-	// claude_bin and git_bin are held to, applied to a field that may be
-	// omitted.
+	// git_bin is held to, applied to a field that may be omitted.
 	xcrun, err := optionalBin("xcrun_bin", wire.XcrunBin)
 	if err != nil {
 		return config{}, err

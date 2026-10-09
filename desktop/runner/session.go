@@ -234,6 +234,9 @@ func (s *runnerServer) prepareRun(p claudeRunParams) (preparedRun, *rpcError) {
 	if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
 		return preparedRun{}, failure(codeBadRequest, "workspace %q is not a directory on this machine; call workspace.prepare first", p.Workspace)
 	}
+	if s.cfg.claudeBin == "" {
+		return preparedRun{}, failure(codeNotReady, "this machine has no Claude Code CLI (claude_bin was not sent)")
+	}
 	if _, launchErr := launcherFor(s.cfg.claudeBin); launchErr != nil {
 		return preparedRun{}, failure(codeNotReady, "%v", launchErr)
 	}

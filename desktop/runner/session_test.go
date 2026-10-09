@@ -129,6 +129,19 @@ func grandchildPID(t *testing.T, out *syncBuffer, within time.Duration) int {
 
 // The core of it: a cancelled call takes the whole process tree with it, even
 // when every process in that tree ignores SIGTERM.
+// A computer without Claude Code — an API-key-only member — still runs a
+// runner; its claude.run is not_ready, never an exec of "".
+func TestClaudeRunNotReadyWithoutTheBinary(t *testing.T) {
+	cfg := config{gitBin: "/usr/bin/git", workspaceDir: emptyWorkspace(t)}
+	res := request(t, cfg, newState(), http.MethodPost, "/claude.run", `{"workspace":"repo","prompt":"go"}`)
+	if res.status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", res.status)
+	}
+	if res.code() != codeNotReady {
+		t.Fatalf("code = %q, want %s", res.code(), codeNotReady)
+	}
+}
+
 func TestCancellingASessionKillsTheWholeProcessTree(t *testing.T) {
 	workspace := emptyWorkspace(t)
 	claudeBin := stubbornClaude(t)

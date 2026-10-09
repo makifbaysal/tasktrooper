@@ -270,6 +270,18 @@ func TestLoadConfigAcceptsMissingEmbeddingsFields(t *testing.T) {
 	}
 }
 
+// A member who works only with their own API keys, or with OpenCode or
+// Cursor, has no Claude Code; their runner still starts.
+func TestLoadConfigAcceptsMissingClaudeBin(t *testing.T) {
+	cfg, err := loadConfig([]byte(configWith(t, map[string]any{"claude_bin": nil})))
+	if err != nil {
+		t.Fatalf("loadConfig without claude_bin: %v", err)
+	}
+	if cfg.claudeBin != "" {
+		t.Fatalf("claudeBin = %q, want empty", cfg.claudeBin)
+	}
+}
+
 // Every one of these is a startup error with a message, not a zero value
 // quietly wired in: a runner that dials nowhere with an empty token is far
 // harder to diagnose than one that refuses to start.
@@ -324,8 +336,7 @@ func TestLoadConfigRejects(t *testing.T) {
 			configWith(t, map[string]any{"workspace_dir": "TaskTrooper"}),
 			"must be an absolute path",
 		},
-		{"missing claude_bin", configWith(t, map[string]any{"claude_bin": nil}), "claude_bin is required"},
-		{"relative claude_bin", configWith(t, map[string]any{"claude_bin": "claude"}), "claude_bin is required"},
+		{"relative claude_bin", configWith(t, map[string]any{"claude_bin": "claude"}), "must be an absolute path"},
 		{"missing git_bin", configWith(t, map[string]any{"git_bin": nil}), "git_bin is required"},
 		{"bad backoff", configWith(t, map[string]any{"reconnect_max_backoff": "soon"}), "reconnect_max_backoff"},
 		{"backoff below floor", configWith(t, map[string]any{"reconnect_max_backoff": "10ms"}), "below the 1s floor"},
@@ -758,7 +769,7 @@ func TestEveryKeyTheSupervisorSendsIsAFieldThisBinaryDeclares(t *testing.T) {
 	// hat.
 	for _, required := range []string{
 		"tm_base_url", "runner_token", "tenant_id", "member_uid",
-		"workspace_dir", "claude_bin", "git_bin",
+		"workspace_dir", "git_bin",
 	} {
 		if !seen[required] {
 			t.Errorf("%s no longer sends %q, which loadConfig requires", envTS, required)
