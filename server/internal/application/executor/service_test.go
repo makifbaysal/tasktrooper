@@ -450,3 +450,15 @@ func TestRemoteWithheld(t *testing.T) {
 		})
 	}
 }
+
+func (s *ServiceSuite) TestCompleteBlamesTheProviderForAFailureItCannotName() {
+	s.llm.On("Chat", mock.Anything, mock.Anything).
+		Return(domain.AgentResponse{}, errors.New("http request: dial tcp 127.0.0.1:9: connect: connection refused")).Once()
+
+	_, failure := s.svc.Complete(context.Background(), CompletionRequest{
+		ProviderID: "anthropic-main", Messages: []domain.Message{{Role: domain.RoleUser, Content: "title this"}},
+	})
+
+	s.Require().NotNil(failure)
+	s.Equal(CodeUpstream, failure.Code)
+}

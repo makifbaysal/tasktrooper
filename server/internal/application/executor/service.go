@@ -453,7 +453,7 @@ func (r *PreparedRun) failureFor(ctx context.Context, err error, summary *RunSum
 	if errors.As(err, &budget) {
 		return &Failure{Code: CodeBudgetExhausted, Message: budget.Error(), Run: summary, Partial: budget.Partial}
 	}
-	failure := classifyLLMError(err)
+	failure := classifyLLMError(err, CodeInternal)
 	failure.Run = summary
 	if failure.Code == CodeInternal {
 		log.Warn().Err(err).Str("run_id", r.spec.RunID).Msg("executor run failed")
@@ -461,7 +461,10 @@ func (r *PreparedRun) failureFor(ctx context.Context, err error, summary *RunSum
 	return failure
 }
 
-func classifyLLMError(err error) *Failure {
+// classifyLLMError names a failed model call; fallback is the code for an
+// error that says nothing about where it came from. A one-shot call has only
+// the provider to blame, a run also has its own code.
+func classifyLLMError(err error, fallback string) *Failure {
 	if rl, ok := domain.RateLimitOf(err); ok {
 		return &Failure{Code: CodeRateLimited, Message: rl.UserMessage(), RetryAfterMS: rl.RetryAfter.Milliseconds()}
 	}
@@ -473,7 +476,7 @@ func classifyLLMError(err error) *Failure {
 	if errors.Is(err, domain.ErrHostExecutedUnservable) {
 		return &Failure{Code: CodeBadRequest, Message: err.Error()}
 	}
-	return &Failure{Code: CodeInternal, Message: err.Error()}
+	return &Failure{Code: fallback, Message: err.Error()}
 }
 
 func (s *Service) Complete(ctx context.Context, req CompletionRequest) (*Completion, *Failure) {
@@ -516,7 +519,7 @@ func (s *Service) Complete(ctx context.Context, req CompletionRequest) (*Complet
 			}
 			return nil, &Failure{Code: CodeCancelled, Message: "the caller went away"}
 		}
-		return nil, classifyLLMError(err)
+		return nil, classifyLLMError(err, CodeUpstream)
 	}
 	return &Completion{Text: resp.Message.Content, Usage: resp.Usage, StopReason: resp.StopReason}, nil
 }
