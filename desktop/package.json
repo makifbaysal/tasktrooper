@@ -18,6 +18,7 @@
     "build:embedder": "node scripts/build-embedder.mjs",
     "build:runner": "node scripts/build-runner.mjs",
     "build:runner:universal": "node scripts/build-runner.mjs --universal",
+    "build:executor": "node scripts/build-server.mjs --executor",
     "build:ui": "npm --prefix ui run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.tools.json --noEmit",
     "lint": "eslint .",

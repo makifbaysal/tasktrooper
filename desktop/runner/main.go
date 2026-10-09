@@ -175,6 +175,20 @@ type wireConfig struct {
 	// MaxBackoff is a Go duration string ("30s", "1m"). Optional.
 	MaxBackoff string `json:"reconnect_max_backoff,omitempty"`
 
+	// ExecutorBin is the local executor (server/cmd/executor) this runner
+	// starts, restarts and forwards agent.run and llm.complete to. Optional:
+	// absent, both methods answer not_ready. Passed, not looked up, like every
+	// other binary.
+	ExecutorBin string `json:"executor_bin,omitempty"`
+	// ExecutorDataDir is the executor's own data directory, required with
+	// executor_bin. Separate from the local backend's, so nothing an account
+	// keeps on this machine mixes with local-mode data.
+	ExecutorDataDir string `json:"executor_data_dir,omitempty"`
+	// Providers are the member's own LLM providers, API keys included. Held in
+	// memory and handed to the executor on its stdin; they never cross the
+	// tunnel and never reach a log line (executor.go).
+	Providers []providerConfig `json:"providers,omitempty"`
+
 	// Policy is what this runner refuses on behalf of the service it is paired
 	// with. Optional: absent keeps every default, and the defaults are strict
 	// (policy.go).
@@ -206,6 +220,11 @@ type config struct {
 	opencodeBin    string
 	maxBackoff     time.Duration
 	policy         runnerPolicy
+	// The local executor. Empty executorBin means this machine runs no
+	// executor, which agent.run and llm.complete report as not_ready.
+	executorBin     string
+	executorDataDir string
+	providers       []providerConfig
 }
 
 // loadConfig reads one JSON document — the FIRST LINE of stdin — and validates
@@ -368,6 +387,25 @@ func loadConfig(line []byte) (config, error) {
 		return config{}, err
 	}
 
+	executorBin, err := optionalBin("executor_bin", wire.ExecutorBin)
+	if err != nil {
+		return config{}, err
+	}
+	executorData := strings.TrimSpace(wire.ExecutorDataDir)
+	if executorData != "" {
+		if !filepath.IsAbs(executorData) {
+			return config{}, fmt.Errorf("executor_data_dir %q must be an absolute path", executorData)
+		}
+		executorData = filepath.Clean(executorData)
+	}
+	if executorBin != "" && executorData == "" {
+		return config{}, errors.New("executor_data_dir is required with executor_bin")
+	}
+	providers, err := checkProviders(wire.Providers)
+	if err != nil {
+		return config{}, err
+	}
+
 	return config{
 		tunnelURL:         tunnelURL,
 		runnerToken:       wire.RunnerToken,
@@ -387,6 +425,9 @@ func loadConfig(line []byte) (config, error) {
 		opencodeBin:       opencodeBin,
 		maxBackoff:        maxBackoff,
 		policy:            policy,
+		executorBin:       executorBin,
+		executorDataDir:   executorData,
+		providers:         providers,
 	}, nil
 }
 
@@ -492,6 +533,9 @@ func main() {
 			state := newState()
 			state.hub = newAppiumHub(cfg, defaultHubTimings)
 			state.hub.resume()
+			state.seedEmbeddingsBaseURLIfUnset(cfg.embeddingsBaseURL)
+			state.executor = newExecutorSupervisor(cfg, state.getEmbeddingsBaseURL, defaultExecutorTimings)
+			state.executor.start()
 			// The rest of stdin, for as long as this process lives, and its
 			// closing is a shutdown request — see watchControl.
 			ctx = watchControl(ctx, stdin, state)
@@ -499,9 +543,14 @@ func main() {
 			// drain cancels every proxied call anyway, and the supervisor's
 			// grace (child.ts) covers the drain, not the drain plus a hub.
 			context.AfterFunc(ctx, state.hub.close)
+			// The executor too, and for the same reason: its runs are already
+			// cancelled by the drain, and its own stop fits inside the
+			// supervisor's grace only when it runs beside the drain.
+			context.AfterFunc(ctx, state.executor.close)
 
 			runErr := run(ctx, cfg, state, defaultTimings)
 			state.hub.close()
+			state.executor.close()
 			if runErr != nil {
 				log.Fatal().Err(runErr).Msg("runner exiting")
 			}
@@ -668,6 +717,9 @@ type state struct {
 	preflight         json.RawMessage
 	embeddingsBaseURL string
 	hub               *appiumHub
+	// executor is set once at startup, like hub, and nil when the desktop app
+	// sent no executor_bin.
+	executor *executorSupervisor
 }
 
 func newState() *state { return &state{} }
@@ -677,6 +729,13 @@ func (s *state) appiumHub() *appiumHub {
 		return nil
 	}
 	return s.hub
+}
+
+func (s *state) executorSupervisor() *executorSupervisor {
+	if s == nil {
+		return nil
+	}
+	return s.executor
 }
 
 func (s *state) setPreflight(report json.RawMessage) {

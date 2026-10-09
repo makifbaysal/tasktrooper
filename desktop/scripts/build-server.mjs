@@ -13,17 +13,27 @@ import path from "node:path";
  * Apple Silicon and Intel. Packaging uses this — a universal app that ships a
  * single-arch helper dies on half the Macs it installs on, and it dies at
  * launch rather than at build time.
+ *
+ * `--executor`: the same module's headless executor (`cmd/executor`) into
+ * `bin/executor` instead — the process the runner starts in account mode.
+ * Same cgo rule, because it links the same tree-sitter grammars.
  */
 const root = path.resolve(import.meta.dirname, "..");
 const serverDir = path.resolve(root, "..", "server");
 const outDir = process.env.SERVER_OUT_DIR ?? path.join(root, "bin");
 const universal = process.argv.includes("--universal");
+const target = process.argv.includes("--executor") ? "executor" : "agent-server";
 
 if (!existsSync(path.join(serverDir, "go.mod"))) {
   console.error(
     `build-server: no Go module at ${serverDir}.\n` +
       "The desktop app bundles the backend from the sibling `server/` directory; check out the whole repository.",
   );
+  process.exit(1);
+}
+
+if (!existsSync(path.join(serverDir, "cmd", target))) {
+  console.error(`build-server: ${serverDir} has no cmd/${target}.`);
   process.exit(1);
 }
 
@@ -62,7 +72,7 @@ const buildEnv = { CGO_ENABLED: "1", GOOS: goos };
 // -s -w strips the symbol table and DWARF. Nothing debugs this binary in the
 // field, and the app is smaller for it.
 const ldflags = "-s -w";
-const pkg = "./cmd/agent-server";
+const pkg = `./cmd/${target}`;
 
 /**
  * `go build -o` refuses to overwrite a file it does not recognise as its own
@@ -75,24 +85,24 @@ const pkg = "./cmd/agent-server";
  * either way.
  */
 if (!universal) {
-  const out = path.join(outDir, `agent-server${exe}`);
+  const out = path.join(outDir, `${target}${exe}`);
   rmSync(out, { force: true });
   go(["build", "-trimpath", "-ldflags", ldflags, "-o", out, pkg], { ...buildEnv, GOARCH: goarch });
-  console.log(`agent-server -> ${out}`);
+  console.log(`${target} -> ${out}`);
 } else {
   if (goos !== "darwin") {
     console.error("build-server: --universal is a macOS build; build on each platform without it.");
     process.exit(1);
   }
-  const arm = path.join(outDir, "agent-server-arm64");
-  const amd = path.join(outDir, "agent-server-amd64");
+  const arm = path.join(outDir, `${target}-arm64`);
+  const amd = path.join(outDir, `${target}-amd64`);
   go(["build", "-trimpath", "-ldflags", ldflags, "-o", arm, pkg], { ...buildEnv, GOARCH: "arm64" });
   go(["build", "-trimpath", "-ldflags", ldflags, "-o", amd, pkg], { ...buildEnv, GOARCH: "amd64" });
-  const out = path.join(outDir, "agent-server");
+  const out = path.join(outDir, target);
   // lipo has the same objection to an existing target, for the same reason.
   rmSync(out, { force: true });
   execFileSync("lipo", ["-create", "-output", out, arm, amd], { stdio: "inherit" });
   rmSync(arm, { force: true });
   rmSync(amd, { force: true });
-  console.log(`agent-server (universal) -> ${out}`);
+  console.log(`${target} (universal) -> ${out}`);
 }

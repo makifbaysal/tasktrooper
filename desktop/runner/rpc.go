@@ -39,6 +39,8 @@ import (
 //	ANY  /mobile.appium/…     → the local Appium hub's own status and body, verbatim
 //	GET  /preflight.report    → 200 application/json
 //	POST /models.list         → 200 application/json
+//	POST /agent.run           → the local executor's NDJSON, streamed
+//	POST /llm.complete        → the local executor's status and body
 //	POST /cancel              → 200 application/json
 //
 // Nothing here binds a socket. The only listener is the session, and the rule
@@ -313,6 +315,11 @@ func (s *runnerServer) handler() http.Handler {
 			route(http.MethodGet, s.handlePreflight)
 		case "/models.list":
 			route(http.MethodPost, s.handleModels)
+		case "/agent.run":
+			// Streaming, forwarded to the local executor (executor.go).
+			route(http.MethodPost, s.handleAgentRun)
+		case "/llm.complete":
+			route(http.MethodPost, s.handleLLMComplete)
 		case "/cancel":
 			route(http.MethodPost, s.handleCancel)
 		default:

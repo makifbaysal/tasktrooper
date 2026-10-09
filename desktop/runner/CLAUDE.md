@@ -17,19 +17,25 @@ backend is `../../server`, supervised by `../src/main/supervisor/`.
   paths that disappear.** `policy` in the stdin document (`policy.go`) replaces
   the OpenCode provider refusals or turns off the scrubbing of this process's
   own credential environment; absent, every rule is the strict default. What
-  this program itself holds — a run's MCP token — is scrubbed whatever the
-  policy says.
+  this program itself holds — a run's MCP token, the providers' keys — is
+  scrubbed whatever the policy says.
+- The member's own API keys arrive from the desktop app on stdin
+  (`providers`), go to the local executor on ITS stdin, and live in memory in
+  both. They never cross the tunnel, never reach argv, an environment block, a
+  file or a log line, and are scrubbed out of everything forwarded back.
 
 A single-binary daemon. It dials out to the control plane over WebSocket,
 holds that connection open as a reverse tunnel, and serves HTTP over the yamux
 streams the control plane opens on it. The cloud coordinates; this computer
-executes: Claude Code / OpenCode / Cursor sessions, checkouts, the devices
-attached to this machine, and what this machine can do.
+executes: Claude Code / OpenCode / Cursor sessions, checkouts, the local
+executor (an agent run with the member's own keys), the devices attached to
+this machine, and what this machine can do.
 
 **Some of what it does, only it CAN do**, and that is the shape of everything
 here. A Linux pod cannot run an iOS simulator; a cloud process resolving a
 repository's toolchain overlay resolves it against a path that exists on this
-machine and not in a pod. Those are capabilities that have nowhere else to live, and they are RPC
+machine and not in a pod; a member's API key may not leave their computer.
+Those are capabilities that have nowhere else to live, and they are RPC
 methods reached down the tunnel rather than local servers somebody else
 discovers.
 
@@ -43,6 +49,8 @@ published or run on its own.
 main.go          config, the control channel, logging, the tunnel and its reconnect loop
 policy.go        the rules a paired service may change: OpenCode's refused
                  providers, the environment-credential scrubbing
+executor.go      the local executor: start, readiness, restart with backoff,
+                 the stop, and agent.run / llm.complete forwarded to it
 rpc.go           the HTTP surface: routing, the streamed response, the status
                  mapping, the run registry that POST /cancel looks in
 session.go       claude.run — spawn, stream, kill the process group
@@ -125,6 +133,10 @@ mobile_release_test.go  the signing material's own lifecycle and its redactor
 toolchain_test.go  every pin file, the constraint-is-not-a-pin rule, and that
                  every name it emits is one claude.run's `env` accepts
 rules_test.go    the hard rules below, enforced structurally
+executor_test.go the executor against a real child process — this test binary
+                 started with no arguments and TT_FAKE_EXECUTOR set: the stdin
+                 config line, the listening line, the bearer, forwarding,
+                 scrubbing, cancel by name, restart, the protocol check, stop
 runner_policy_test.go  the policy: strict when absent, replaceable, refused when
                  malformed
 ```
@@ -155,6 +167,8 @@ ANY  /mobile.appium/…     → the local Appium hub's own status and body, verb
 POST /mobile.release      → 200 application/x-ndjson, streamed
 GET  /preflight.report    → 200 application/json
 POST /models.list         → 200 application/json
+POST /agent.run           → the local executor's NDJSON, streamed
+POST /llm.complete        → the local executor's status and body
 POST /cancel              → 200 application/json
 ```
 
@@ -174,10 +188,12 @@ POST /cancel              → 200 application/json
 | `POST /mobile.release` | `workspace`, `platform`, `channel`, `script`, `script_sha256` (REQUIRED), optional `secrets`, `build_number`, `rollout`, `skip_upload`, `timeout_ms` | NDJSON, same shape as claude.run's; the signing material in `secrets` is redacted out of every line of it — see mobile_release.go |
 | `POST /models.list` | `flavor` (`cursor` or `opencode` — not `antigravity`, which this runner does not drive; `claude_code`'s list is a cloud-side constant and never reaches this Mac) | `{v, flavor, output}` — the CLI's own raw stdout, unparsed |
 | `GET /preflight.report` | — | the desktop app's environment report, verbatim |
+| `POST /agent.run` | the executor contract's body: `run_id` (REQUIRED — the id `POST /cancel` names), `kind`, `agent`, `prompt` or `messages`, `workspace` (relative), `mcp`, `timeout_ms` | the executor's NDJSON unchanged (`{"type":"started"}`, `{"type":"event",…}`, one `{"type":"done",…}`), scrubbed of the keys this runner holds; 409 `not_ready` with no executor |
+| `POST /llm.complete` | `{provider_id, model, system, messages, max_tokens}` | the executor's status and body, verbatim but scrubbed |
 | `POST /cancel` | `{"id": "…"}` | `{"v":1,"id":"…","cancelled":true|false}` |
 
 `POST /cancel` names a streamed call: `claude.run`, `opencode.run`,
-`cursor.run`, `mobile.release`. Every other
+`cursor.run`, `mobile.release`, or an `agent.run` by its `run_id`. Every other
 method is cancelled by the caller closing the connection, which `http.Server`
 turns into a cancelled request context — the same trigger, without an id to
 register. `mobile.boot` is the long one and is the reason this is worth stating:
@@ -771,6 +787,42 @@ for a checkout that was never made is a lie with the right shape.
   whatever is in the checkout.
 - **Bounded:** 1 MiB per file, 128 characters per version, 128 pins per answer.
 
+### `agent.run` and `llm.complete` — the local executor
+
+The executor is agent-server's headless mode (`server/cmd/executor`, built by
+`npm run build:executor` into `bin/executor`): an agent loop with the member's
+own API keys, local tools in the workspace, coordination tools from the cloud's
+MCP. This runner starts it, keeps it running and forwards to it; it never runs
+an agent itself.
+
+- **Started at runner startup, when `executor_bin` was sent**, and owned by
+  `state`, not by a tunnel session — a reconnect does not restart it. One JSON
+  line on its stdin: `listen` (`127.0.0.1:0`), a fresh 32-byte `token` per
+  start, `data_dir` (`executor_data_dir`), `workspace_root` (this runner's own
+  `workspace_dir`, so `repos/<repo>/task-<id>` means the same folder to both),
+  `embeddings_base_url` (the live value, when there is one) and `providers`.
+  stdin then stays open; its closing is the executor's shutdown request.
+- **Ready means two facts:** the first `EXECUTOR_LISTENING http://127.0.0.1:<port>`
+  line on its stdout (refused unless loopback), then `GET /exec/health` with
+  the bearer answering `protocol: 1`. Another protocol is fatal and not
+  retried — the same binary cannot answer differently.
+- **An exit is restarted** with 1 s → 30 s exponential backoff, reset after a
+  minute up. A call that arrives while it is starting waits up to 20 s, then is
+  `not_ready` with the last failure in the message.
+- **Stopped beside the drain**, like the Appium hub: stdin closed, 15 s, then
+  the process group killed. That fits inside the supervisor's grace.
+- **Forwarding is byte-for-byte except for two things.** Every line is scrubbed
+  of the providers' keys and the run's MCP token (and, per `policy`, this
+  process's credential environment). And when the executor's stream ends
+  without a `done`, this side writes one — `upstream`, or `cancelled` when the
+  caller cancelled — because the caller is promised exactly one.
+- **Refused before it is forwarded:** a missing or malformed `run_id`, a
+  `workspace` outside the workspace root, an `mcp` that fails `checkMCP`.
+- **Cancellation** is the same two triggers as `claude.run`, and the executor
+  is also told by name (`POST /exec/cancel {run_id}`, best effort, 3 s).
+- `agent.run` shares the session semaphore and the drain accounting with the
+  CLI runs; `llm.complete` shares the drain accounting.
+
 ### Cancellation
 
 Two triggers, and both must kill the process **group** — see the hard rules.
@@ -1014,6 +1066,10 @@ is one JSON document, and stdin then stays open as a control channel.
   "cursor_agent_bin": "/usr/local/bin/cursor-agent",
   "opencode_bin": "/opt/homebrew/bin/opencode",
 
+  "executor_bin": "/Applications/TaskTrooper.app/Contents/Resources/bin/executor",
+  "executor_data_dir": "/Users/you/Library/Application Support/TaskTrooper/executor",
+  "providers": [{"id": "openai", "type": "openai", "api_key": "sk-…", "models": ["gpt-4.1"]}],
+
   "policy": {"opencode_refused_providers": ["anthropic", "google"], "redact_credentials": true},
 
   "reconnect_max_backoff": "30s"
@@ -1021,8 +1077,8 @@ is one JSON document, and stdin then stays open as a control channel.
 ```
 
 Every field is required except `reconnect_max_backoff`, the five mobile ones,
-the two embeddings ones, the two other host-executed CLIs' binaries and
-`policy`, and a
+the two embeddings ones, the two other host-executed CLIs' binaries, the
+executor's three and `policy`, and a
 missing or malformed required field is a startup error on stderr with a
 non-zero exit — never a zero-value default silently wired in. **Unknown fields
 are refused too** (`DisallowUnknownFields`), which is why `main_test.go` reads
@@ -1066,6 +1122,11 @@ on purpose: this runner has no Antigravity flavor.
   (`DisallowUnknownFields`) instead of this Mac quietly accepting a capability
   it does not implement.
 
+- **`executor_bin` is optional and `executor_data_dir` comes with it.** Absent,
+  `agent.run` and `llm.complete` answer `not_ready`. `providers` is validated
+  here (ids and types are identifiers, a key has no control characters, a
+  `base_url` is https or loopback http because the key travels to it, no
+  duplicate ids, at most 64) and is never logged.
 - **`policy` is optional and every field in it is.** See `policy.go`: absent is
   strict, and a malformed provider name or an unknown field is a startup error.
 
@@ -1082,7 +1143,7 @@ on purpose: this runner has no Antigravity flavor.
   this side is a name that can disagree with the wire.
 - **Every binary path is passed, not looked up** — `claude_bin`, `git_bin`,
   `xcrun_bin`, `adb_bin`, `emulator_bin`, `appium_bin`, `cursor_agent_bin`,
-  `opencode_bin`.
+  `opencode_bin`, `executor_bin`.
   Detection lives in `../src/main/services/detect.ts` and nowhere else; a
   second search here with slightly different rules is how a Mac runs one
   `claude` and reports another, or drives one adb while reporting the SDK of a

@@ -67,6 +67,12 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "--address" {
 		os.Exit(fakeAppium(os.Args[1:]))
 	}
+	// Started with no arguments at all and this variable set, it is the fake
+	// executor the executor tests drive (executor_test.go). A test run always
+	// has -test.* flags, so the two can never be confused.
+	if mode := os.Getenv(fakeExecutorEnv); len(os.Args) == 1 && mode != "" {
+		os.Exit(fakeExecutor(mode))
+	}
 	log.Logger = zerolog.New(testSink).With().Timestamp().Logger()
 
 	r, w, err := os.Pipe()
