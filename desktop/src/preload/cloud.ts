@@ -150,6 +150,9 @@ const account: DesktopAccountHost = {
     await call<AccountState>(CLOUD_CHANNELS.accountSignOut);
   },
   state: () => call<AccountState>(CLOUD_CHANNELS.accountState),
+  openKeys: async () => {
+    await call<void>(CLOUD_CHANNELS.accountOpenKeys);
+  },
 };
 
 const updates: DesktopUpdatesHost = {
@@ -184,7 +187,7 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 1,
+  bridgeVersion: 2,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,

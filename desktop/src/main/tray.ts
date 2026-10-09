@@ -30,6 +30,8 @@ export interface TrayDeps {
    * mode the runner. Read at each render, so it follows a mode switch.
    */
   subject?: () => string;
+  /** API keys… — the API-key window. */
+  openKeys?: () => void;
   /**
    * A state worth saying at the top of the menu itself — running locally for
    * now while still signed in — and the press that ends it. Read at each
@@ -142,6 +144,7 @@ export class AppTray {
     tray.setImage(trayIcon(glyph, tone));
     tray.setToolTip(banner ? `TaskTrooper — ${banner.label}; ${line}` : `TaskTrooper — ${line}`);
 
+    const openKeys = this.#deps.openKeys;
     tray.setContextMenu(
       Menu.buildFromTemplate([
         ...(banner
@@ -160,6 +163,7 @@ export class AppTray {
         // the Claude Code card of Settings → LLM Connection.
         { label: "Claude Code settings…", click: () => this.#deps.showWindow("/settings/llm") },
         { label: "Board…", click: () => this.#deps.showWindow("/board") },
+        ...(openKeys ? [{ label: "API keys…", click: () => openKeys() }] : []),
         ...this.#updateItems(up, subject),
         { type: "separator" },
         {

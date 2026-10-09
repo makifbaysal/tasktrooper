@@ -69,7 +69,15 @@ describe("AppTray", () => {
   });
 });
 
-describe("AppTray: running locally for now", () => {
+describe("AppTray: API keys and running locally for now", () => {
+  it("offers the API-key window", () => {
+    let opened = 0;
+    const tray = new AppTray({ ...deps, openKeys: () => (opened += 1) });
+    tray.create();
+    native.menu.find((item) => item.label === "API keys…")?.click?.();
+    expect(opened).toBe(1);
+  });
+
   it("says so at the top while running locally for now, with the way back, and drops it after", () => {
     let banner: { label: string; action: string; run: () => void } | null = null;
     let back = 0;

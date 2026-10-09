@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeStorage } from "electron";
+import type { ProviderKeySummary } from "../../ipc/types.js";
 import { keyStoreHelp } from "./keystore.js";
 
 /**
@@ -12,7 +13,8 @@ import { keyStoreHelp } from "./keystore.js";
  * their plaintext only ever crosses the runner's stdin pipe, which hands them
  * to the executor's. Never argv, never an environment block, never the bridge.
  *
- * Read when the runner starts, so a change takes a runner restart.
+ * Read when the runner starts, so a change takes a runner restart. Written
+ * only by the API-key window (`main/keys/`), which shows `hasKey`, never a key.
  */
 
 const FILE = "providers.bin";
@@ -84,8 +86,27 @@ export function asProviders(raw: unknown): ProviderConfig[] | null {
   return out;
 }
 
+/** The list as the key screen may show it: no key, only whether there is one. */
+export function summarizeProviders(list: readonly ProviderConfig[]): ProviderKeySummary[] {
+  return list.map((p) => ({
+    id: p.id,
+    type: p.type,
+    ...(p.base_url !== undefined ? { base_url: p.base_url } : {}),
+    ...(p.models !== undefined ? { models: [...p.models] } : {}),
+    hasKey: typeof p.api_key === "string" && p.api_key !== "",
+  }));
+}
+
+/**
+ * The providers an agent can run on: one with a key, or a `local` server,
+ * which takes none. What the account preflight's `api-keys` row counts.
+ */
+export function usableProviderIds(list: readonly ProviderConfig[]): string[] {
+  return list.filter((p) => (typeof p.api_key === "string" && p.api_key !== "") || p.type === "local").map((p) => p.id);
+}
+
 /** https anywhere, or plain http to this machine: the key is sent to it. */
-function keyMayTravelTo(raw: string): boolean {
+export function keyMayTravelTo(raw: string): boolean {
   try {
     const url = new URL(raw);
     if (url.username !== "" || url.password !== "") return false;

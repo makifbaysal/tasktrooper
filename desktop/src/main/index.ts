@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { BrowserWindow, Menu, app, powerMonitor, session, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
-import { CLOUD_EVENTS, SHELL_EVENTS } from "../ipc/channels.js";
+import { CLOUD_EVENTS, SHELL_EVENTS, type KeySetRequest } from "../ipc/channels.js";
 import type {
   HostOverrides,
   HostPreferences,
@@ -30,9 +31,11 @@ import { SettingsStore } from "./config/settings.js";
 import { checkWorkspace, pickDirectory, pickWorkspace, reveal } from "./config/workspace.js";
 import { applicationMenuTemplate } from "./app-menu.js";
 import { registerIpc, type IpcServices } from "./ipc.js";
+import { KeyService } from "./keys/keys.js";
+import { KeysWindow } from "./keys/window.js";
 import { launchedHidden, setLaunchAtLogin } from "./login-item.js";
 import { quitSequence } from "./quit.js";
-import { isTrustedFrame } from "./sender-guard.js";
+import { isOwnPage, isTrustedFrame } from "./sender-guard.js";
 import { APP_ORIGIN, registerAppSchemePrivileges, serveAppScheme } from "./services/app-scheme.js";
 import { binDir, dataDir } from "./services/detect.js";
 import { NotificationWatcher } from "./services/notifications.js";
@@ -79,15 +82,15 @@ if (process.platform === "win32") app.setAppUserModelId("ai.tasktrooper.desktop"
 const settingsStore = new SettingsStore();
 const secretStore = new SecretStore();
 const supervisor = new Supervisor();
-const runnerSupervisor = new RunnerSupervisor(
-  new PairingStore(app.getPath("userData")),
-  new ProviderStore(app.getPath("userData")),
-  {
-    // The embedder is the local supervisor's and runs in both modes; the
-    // runner only needs to know where it is.
-    embeddings: () => (ACCOUNT_MODE_RUNS_EMBEDDER ? supervisor.embedderUrl() : Promise.resolve(null)),
-  },
-);
+const providerStore = new ProviderStore(app.getPath("userData"));
+const runnerSupervisor = new RunnerSupervisor(new PairingStore(app.getPath("userData")), providerStore, {
+  // The embedder is the local supervisor's and runs in both modes; the runner
+  // only needs to know where it is.
+  embeddings: () => (ACCOUNT_MODE_RUNS_EMBEDDER ? supervisor.embedderUrl() : Promise.resolve(null)),
+});
+
+/** The API-key window: this app's own page, the only one that may hand over a key. */
+const keysWindow = new KeysWindow();
 
 /**
  * Local or account. Built before the window, which asks it which origin to
@@ -481,6 +484,33 @@ function appInfo(): AppInfo {
 }
 
 /**
+ * After the API keys changed: the runner reads them at spawn and hands them to
+ * the executor on its stdin, so a running one restarts — stop and connect,
+ * which keeps the pairing. One that was refused for having no way to run an
+ * agent starts now that it may have one. Answers whether either happened.
+ */
+function providersChanged(): boolean {
+  if (!accountMode()) return false;
+  if (runnerSupervisor.running) {
+    void runnerSupervisor.restart();
+    return true;
+  }
+  if (runnerSupervisor.paired && runnerSupervisor.snapshot().blocker?.id === "api-keys") {
+    void runnerSupervisor.connect();
+    return true;
+  }
+  void runnerSupervisor.detect().catch(() => undefined);
+  return false;
+}
+
+const keyService = new KeyService({
+  store: providerStore,
+  changed: providersChanged,
+  log: (line) => console.warn(line),
+  newId: () => randomUUID(),
+});
+
+/**
  * The pairing the account's web app hands over, checked against the account
  * this computer is signed in to before the runner sees it: its `tm_base_url`
  * is where the runner dials with a bearer token.
@@ -507,6 +537,11 @@ const services: IpcServices = {
   accountSignIn: (origin?: string) => modeController.signIn(origin),
   accountSignOut: () => modeController.signOut(),
   accountUseLocalForNow: () => modeController.useLocalForNow(),
+  openKeys: () => keysWindow.open(),
+
+  keysList: () => keyService.list(),
+  keysSet: (request: KeySetRequest) => keyService.set(request),
+  keysRemove: (id: string) => keyService.remove(id),
 
   hostInfo: () => ({ app: "tasktrooper-desktop", version: app.getVersion(), platform: process.platform }),
 
@@ -668,6 +703,20 @@ function isShellSender(event: IpcMainInvokeEvent): boolean {
 }
 
 /**
+ * Is this call from the API-key window's own page? That exact WebContents, its
+ * top frame, on the URL it was opened with. The web app's view fails the
+ * first question whichever origin it holds — `app://tasktrooper` in local
+ * mode, the account's in account mode — and so does the chrome.
+ */
+function isKeysSender(event: IpcMainInvokeEvent): boolean {
+  try {
+    return isOwnPage(event, keysWindow.contents, keysWindow.pageUrl);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The preflight, run again or answered from the last sweep — always the
  * COMPLETE report, waiting for one in flight rather than handing the setup
  * screen the half a start was allowed to go ahead on.
@@ -766,7 +815,7 @@ app.whenReady().then(
     // mode the web app's own view is attached by the `server` handler below,
     // once /health has answered; in account mode there is nothing local to
     // wait for, and the account's web app is served at once.
-    registerIpc(services, { isTrustedCloudSender, isCloudWebContents, isShellSender });
+    registerIpc(services, { isTrustedCloudSender, isCloudWebContents, isShellSender, isKeysSender });
     shellWindow.create({ hidden: launchedHidden() });
     const launchedInAccountMode = accountMode();
     if (launchedInAccountMode) shellWindow.serve(ACCOUNT_HOME_ROUTE);
@@ -778,7 +827,11 @@ app.whenReady().then(
     supervisor.warmUp();
 
     if (process.platform !== "darwin") {
-      Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate(process.platform, !app.isPackaged)));
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(
+          applicationMenuTemplate(process.platform, !app.isPackaged, { openKeys: () => keysWindow.open() }),
+        ),
+      );
     }
 
     loadSecrets();
@@ -803,6 +856,7 @@ app.whenReady().then(
       checkForUpdate: () => void updates?.check(),
       restartToUpdate,
       subject: () => (accountMode() ? "the runner" : "the local server"),
+      openKeys: () => keysWindow.open(),
       banner: () =>
         modeController.temporaryLocal
           ? {

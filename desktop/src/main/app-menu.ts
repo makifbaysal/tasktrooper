@@ -10,15 +10,24 @@ import type { MenuItemConstructorOptions } from "electron";
  * regardless of how a renderer handles its keys. The window hides the bar
  * (`autoHideMenuBar`), so Alt shows it and nothing else does.
  *
- * macOS keeps Electron's default menu, which already is the platform's own.
+ * macOS keeps Electron's default menu, which already is the platform's own;
+ * there the menu-bar icon carries API keys….
  */
-export function applicationMenuTemplate(platform: NodeJS.Platform, devTools: boolean): MenuItemConstructorOptions[] {
+export function applicationMenuTemplate(
+  platform: NodeJS.Platform,
+  devTools: boolean,
+  actions: { openKeys?: () => void } = {},
+): MenuItemConstructorOptions[] {
+  const { openKeys } = actions;
   return [
     {
       label: "&File",
-      // The role's quit is `app.quit()`, which `before-quit` turns into the
-      // draining quit — the same path as the tray's Quit.
-      submenu: [{ role: "quit", label: platform === "win32" ? "E&xit" : "&Quit", accelerator: "Ctrl+Q" }],
+      submenu: [
+        ...(openKeys ? [{ label: "API &keys…", click: () => openKeys() }, { type: "separator" as const }] : []),
+        // The role's quit is `app.quit()`, which `before-quit` turns into the
+        // draining quit — the same path as the tray's Quit.
+        { role: "quit", label: platform === "win32" ? "E&xit" : "&Quit", accelerator: "Ctrl+Q" },
+      ],
     },
     { role: "editMenu" },
     {

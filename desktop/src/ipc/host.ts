@@ -230,11 +230,17 @@ export interface DesktopUpdatesHost {
  * While the member runs locally for now (`state().temporaryLocal`), `signIn`
  * goes back to the account they are still signed in to, and `signOut` is the
  * one call that forgets it.
+ *
+ * `openKeys` brings up the API-key window, which is this app's own — the keys
+ * are typed there, never into the page that asked. It takes nothing and
+ * answers nothing, so the account's page can offer the button without ever
+ * holding a key.
  */
 export interface DesktopAccountHost {
   signIn(origin?: string): Promise<void>;
   signOut(): Promise<void>;
   state(): Promise<AccountState>;
+  openKeys(): Promise<void>;
 }
 
 /**
@@ -262,8 +268,9 @@ export interface DesktopHost {
   /**
    * Bumped when the bridge gains something a page may need to feature-test.
    * 1: `account`, `mode` and the runner's pairing calls.
+   * 2: `account.openKeys()` and `account.state().temporaryLocal`.
    */
-  bridgeVersion: 1;
+  bridgeVersion: 2;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;

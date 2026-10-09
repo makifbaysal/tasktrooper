@@ -13,7 +13,7 @@ import type {
 } from "../../ipc/types.js";
 import { ensureWorkspace } from "../config/workspace.js";
 import { asPairingBundle, PairingStore, pairingSummary } from "../config/pairing.js";
-import type { ProviderStore } from "../config/providers.js";
+import { usableProviderIds, type ProviderStore } from "../config/providers.js";
 import { accountPreflight, emptyReport, executorDataDir, firstBlocker, itemById } from "../services/detect.js";
 import { LogStore } from "../supervisor/log-buffer.js";
 import { RunnerChild } from "./child.js";
@@ -135,7 +135,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
   }
 
   async detect(): Promise<PreflightReport> {
-    this.#preflight = await accountPreflight({ overrides: this.#overrides });
+    this.#preflight = await this.#sweep();
     this.#child.send(preflightMessage(this.#preflight));
     return this.#preflight;
   }
@@ -147,6 +147,11 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
    */
   setEmbeddingsBaseURL(url: string): void {
     this.#child.send(embeddingsMessage(url));
+  }
+
+  /** The account preflight, told which providers hold a key — by id, never the key. */
+  #sweep(): Promise<PreflightReport> {
+    return accountPreflight({ overrides: this.#overrides, providerIds: usableProviderIds(this.#providers.read()) });
   }
 
   // --- pairing -----------------------------------------------------------------
@@ -214,7 +219,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
     this.#blocker = undefined;
     this.#setState("preflight");
     this.#note("Checking what this computer can do…");
-    this.#preflight = await accountPreflight({ overrides: this.#overrides });
+    this.#preflight = await this.#sweep();
 
     const blocker = firstBlocker(this.#preflight);
     if (blocker) {

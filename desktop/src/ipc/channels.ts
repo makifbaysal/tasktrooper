@@ -7,11 +7,14 @@
  * the hole those two settings close. So: named channels, typed payloads,
  * validated in the main process before anything acts on them.
  *
- * Two namespaces:
+ * Three namespaces:
  *
  *   SHELL_* — the native chrome: a title bar with a status pill, a reload
  *             button, the update affordance and the screen that says so when
  *             the backend did not come up. It asks for almost nothing.
+ *   KEYS_*  — the API-key window, this app's own page in a window of its own
+ *             (`main/keys/`). The only channels that take a secret in, and
+ *             the only page that may call them; none sends one back.
  *   CLOUD_* — the WebContentsView running the web app: our own bundle from
  *             `app://tasktrooper` in local mode, the account's web app from
  *             its origin in account mode. It is the widest half of the surface
@@ -29,6 +32,8 @@ import type {
   Diagnostics,
   LogLine,
   PreflightReport,
+  ProviderKeysState,
+  ProviderKeyType,
   RunnerPairingBundle,
   RunnerPairingSummary,
   SupervisorSnapshot,
@@ -70,6 +75,20 @@ export const SHELL_CHANNELS = {
    */
   accountState: "shell:account:state",
   accountUseLocalForNow: "shell:account:use-local-for-now",
+} as const;
+
+/**
+ * The API-key window's three calls (`preload/keys.ts`). Guarded on the sender
+ * being that window's own top frame on its own page — never the web app's
+ * view, whichever origin it holds, and never the chrome.
+ *
+ * Keys go in on `set` and are never read back: every answer is the list with
+ * `hasKey`, never a value.
+ */
+export const KEYS_CHANNELS = {
+  list: "shell:keys:list",
+  set: "shell:keys:set",
+  remove: "shell:keys:remove",
 } as const;
 
 /** Main → the native chrome. One-way; it never replies. */
@@ -131,6 +150,12 @@ export const CLOUD_CHANNELS = {
   accountSignIn: "cloud:account:sign-in",
   /** Stop the runner, forget the pairing, clear the account session, run locally again. */
   accountSignOut: "cloud:account:sign-out",
+  /**
+   * Open the API-key window. No argument and nothing back: the page — the
+   * account's, from a remote origin — may bring the window up, and that is
+   * all. The keys are typed into the window, which is this app's own.
+   */
+  accountOpenKeys: "cloud:account:open-keys",
 
   runnerSnapshot: "cloud:runner:snapshot",
   runnerConnect: "cloud:runner:connect",
@@ -214,6 +239,7 @@ export const CLOUD_EVENTS = {
 } as const;
 
 export type ShellChannel = (typeof SHELL_CHANNELS)[keyof typeof SHELL_CHANNELS];
+export type KeysChannel = (typeof KEYS_CHANNELS)[keyof typeof KEYS_CHANNELS];
 export type ShellEvent = (typeof SHELL_EVENTS)[keyof typeof SHELL_EVENTS];
 export type CloudChannel = (typeof CLOUD_CHANNELS)[keyof typeof CLOUD_CHANNELS];
 export type CloudEvent = (typeof CLOUD_EVENTS)[keyof typeof CLOUD_EVENTS];
@@ -277,6 +303,30 @@ export interface AccountSignInRequest {
 }
 
 /**
+ * Add a provider or change one. A built-in type's id is the type and may be
+ * left out; a custom endpoint's id is a UUID — left out, a new one is made.
+ * An absent or empty `api_key` keeps the stored one.
+ */
+export interface KeySetRequest {
+  id?: string;
+  type: ProviderKeyType;
+  base_url?: string;
+  models?: string[];
+  api_key?: string;
+}
+
+export interface KeyRemoveRequest {
+  id: string;
+}
+
+/** What the API-key window finds on `window.tasktrooperKeys`. */
+export interface KeysBridge {
+  list(): Promise<ProviderKeysState>;
+  set(request: KeySetRequest): Promise<ProviderKeysState>;
+  remove(id: string): Promise<ProviderKeysState>;
+}
+
+/**
  * What the native chrome can ask for.
  *
  * Almost all of it is a read-out: the chrome is a title bar, and a title bar
@@ -330,6 +380,8 @@ export type {
 };
 
 export const SHELL_BRIDGE_KEY = "tasktrooper";
+
+export const KEYS_BRIDGE_KEY = "tasktrooperKeys";
 
 /**
  * The global the web app looks for. Two leading underscores, matching
