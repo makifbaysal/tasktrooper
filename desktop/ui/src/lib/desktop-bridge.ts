@@ -395,6 +395,20 @@ export interface DesktopUpdatesHost {
 }
 
 /**
+ * Which provider the shell's API-key window should ask a token for. Identity
+ * and address only: there is no key field, and the shell refuses one. `id` is
+ * a built-in type name (`anthropic`, `openai`, `gemini`, `groq`) or a custom
+ * endpoint's UUID.
+ */
+export interface DesktopKeysPrefill {
+  id: string;
+  type: "anthropic" | "openai" | "gemini" | "groq" | "openai_compatible";
+  base_url?: string;
+  models?: string[];
+  name?: string;
+}
+
+/**
  * What `account.state()` answers, as far as this page reads it — the shell's
  * own answer is a superset. `temporaryLocal`: signed in, but running locally
  * for now because the account's page could not be reached (bridge 2).
@@ -421,11 +435,12 @@ export interface TaskTrooperDesktopHost {
     signOut(): Promise<void>;
     state(): Promise<DesktopAccountState>;
     /**
-     * Bridge 2: bring up the shell's own API-key window. Takes nothing and
-     * returns nothing — the keys are typed into that window, never into a
-     * page. Absent in older shells.
+     * Bridge 2: bring up the shell's own API-key window. Returns nothing —
+     * the keys are typed into that window, never into a page. Bridge 3: the
+     * optional `prefill` focuses it on one provider, which it then asks only
+     * for a token; an older shell ignores the argument. Absent in older shells.
      */
-    openKeys?(): Promise<void>;
+    openKeys?(prefill?: DesktopKeysPrefill): Promise<void>;
   };
   /** Absent in a browser, and in a shell older than the Settings update card. */
   updates?: DesktopUpdatesHost;
@@ -443,6 +458,7 @@ export interface TaskTrooperDesktopHost {
    * Bumped when the bridge gains something a page may need to feature-test.
    * 1: `account`, `mode` and the runner's pairing calls. Absent before that.
    * 2: `account.openKeys()` and `account.state().temporaryLocal`.
+   * 3: `account.openKeys(prefill)` focuses the key window on one provider.
    */
   bridgeVersion?: number;
   /**

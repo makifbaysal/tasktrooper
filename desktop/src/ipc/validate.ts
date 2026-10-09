@@ -30,6 +30,7 @@ import type {
   ChooseDirectoryRequest,
   DiagnosticsRequest,
   KeyRemoveRequest,
+  KeysPrefill,
   KeySetRequest,
   LogsStreamRequest,
   OpenExternalRequest,
@@ -386,6 +387,57 @@ export function validateKeySet(raw: unknown): KeySetRequest {
     if (CONTROL_CHARS.test(o.api_key)) fail("keys.set.api_key: contains control characters");
     const key = o.api_key.trim();
     if (key !== "") out.api_key = key;
+  }
+  return out;
+}
+
+const PREFILL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PREFILL_LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+function isPrefillAddress(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.username !== "" || url.password !== "") return false;
+    return url.protocol === "https:" || (url.protocol === "http:" && PREFILL_LOOPBACK.has(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What the account's page may ask the key window to focus on. A key is not
+ * accepted at all: a field this does not name is dropped, and `api_key` is
+ * refused outright so a page that tries to send one learns it cannot.
+ */
+export function validateKeysPrefill(raw: unknown): KeysPrefill {
+  const o = asRecord(raw, "keys.prefill");
+  if ("api_key" in o) fail("keys.prefill: takes no key");
+  const type = asString(o.type, "keys.prefill.type", { max: 64 });
+  const builtIn = (BUILT_IN_PROVIDER_TYPES as readonly string[]).includes(type);
+  if (!builtIn && type !== CUSTOM_PROVIDER_TYPE) fail("keys.prefill.type: not a provider type this app offers");
+  const id = asString(o.id, "keys.prefill.id", { max: 64 });
+  if (builtIn ? id !== type : !PREFILL_UUID.test(id)) {
+    fail("keys.prefill.id: a built-in type's id is its type, a custom endpoint's a UUID");
+  }
+  const out: KeysPrefill = { id, type: type as ProviderKeyType };
+  if (o.base_url !== undefined) {
+    const base = asClean(o.base_url, "keys.prefill.base_url", { max: 512 }).trim();
+    if (base !== "") {
+      if (!isPrefillAddress(base)) fail("keys.prefill.base_url: must be https, or http to this computer");
+      out.base_url = base;
+    }
+  }
+  if (type === CUSTOM_PROVIDER_TYPE && out.base_url === undefined) {
+    fail("keys.prefill.base_url: a custom endpoint needs its address");
+  }
+  if (o.models !== undefined) {
+    if (!Array.isArray(o.models)) fail("keys.prefill.models: expected a list");
+    if (o.models.length > 32) fail("keys.prefill.models: at most 32");
+    out.models = o.models.map((m, i) => asCleanNonEmpty(m, `keys.prefill.models[${i}]`, { max: 256 }));
+  }
+  if (o.name !== undefined) {
+    const name = asClean(o.name, "keys.prefill.name", { max: 120 }).trim();
+    if (name !== "") out.name = name;
   }
   return out;
 }

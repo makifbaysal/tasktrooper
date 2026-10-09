@@ -52,7 +52,8 @@ function wire() {
       keysList: () => (calls.push("list"), state()),
       keysSet: (_request: KeySetRequest) => (calls.push("set"), state()),
       keysRemove: (id: string) => (calls.push(`remove ${id}`), state()),
-      openKeys: () => void calls.push("openKeys"),
+      openKeys: (prefill?: unknown) => void calls.push(prefill ? `openKeys ${JSON.stringify(prefill)}` : "openKeys"),
+      keysPrefill: () => (calls.push("prefill"), null),
       accountMode: () => "account",
     },
     {
@@ -127,6 +128,38 @@ describe("cloud:account:open-keys", () => {
     const { calls, invoke } = wire();
     await expect(invoke(CLOUD_CHANNELS.accountOpenKeys, from(accountView, `${ACCOUNT}/settings`))).resolves.toBeUndefined();
     expect(calls).toEqual(["openKeys"]);
+  });
+
+  it("hands the window a validated prefill and refuses one that carries a key or a bad address", async () => {
+    const { calls, invoke } = wire();
+    const page = from(accountView, `${ACCOUNT}/settings`);
+    const prefill = { id: "openai", type: "openai" };
+    await expect(invoke(CLOUD_CHANNELS.accountOpenKeys, page, prefill)).resolves.toBeUndefined();
+    expect(calls).toEqual([`openKeys ${JSON.stringify(prefill)}`]);
+
+    const refusals = [
+      { ...prefill, api_key: SECRET },
+      { id: "8f0e7c0a-1b2c-4d5e-9f00-0123456789ab", type: "openai_compatible", base_url: "http://evil.example/v1" },
+      { id: "not-a-uuid", type: "openai_compatible", base_url: "https://x.example/v1" },
+    ];
+    for (const bad of refusals) {
+      const message = await invoke(CLOUD_CHANNELS.accountOpenKeys, page, bad).then(
+        () => "",
+        (err: Error) => err.message,
+      );
+      expect(message, JSON.stringify(bad)).not.toBe("");
+      expect(message).not.toContain(SECRET);
+    }
+    expect(calls).toHaveLength(1);
+  });
+
+  it("answers the prefill only to the key window's own page, and never with a key", async () => {
+    const { calls, invoke } = wire();
+    await expect(invoke(KEYS_CHANNELS.prefill, from(accountView, `${ACCOUNT}/settings`))).rejects.toThrow(/refused/);
+    expect(calls).toEqual([]);
+    const reply = await invoke(KEYS_CHANNELS.prefill, from(keysWindow, KEYS_PAGE));
+    expect(JSON.stringify(reply)).not.toContain(SECRET);
+    expect(calls).toEqual(["prefill"]);
   });
 
   it("is the only keys channel a cloud page can reach", () => {

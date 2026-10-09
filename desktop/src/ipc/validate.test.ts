@@ -4,6 +4,7 @@ import {
   validateChatFocus,
   validateChooseDirectory,
   validateKeyRemove,
+  validateKeysPrefill,
   validateKeySet,
   validateLogsStream,
   validateOpenExternal,
@@ -303,5 +304,57 @@ describe("validateKeySet", () => {
     expect(validateKeyRemove({ id: "openai" })).toEqual({ id: "openai" });
     expect(() => validateKeyRemove({ id: "../x" })).toThrow(ValidationError);
     expect(() => validateKeyRemove({})).toThrow(ValidationError);
+  });
+});
+
+describe("validateKeysPrefill", () => {
+  const UUID = "8f0e7c0a-1b2c-4d5e-9f00-0123456789ab";
+
+  it("accepts a built-in type named by itself and a custom endpoint named by a UUID", () => {
+    expect(validateKeysPrefill({ id: "anthropic", type: "anthropic" })).toEqual({ id: "anthropic", type: "anthropic" });
+    expect(
+      validateKeysPrefill({
+        id: UUID,
+        type: "openai_compatible",
+        base_url: " https://llm.example/v1 ",
+        models: ["m1", "m2"],
+        name: " Team gateway ",
+      }),
+    ).toEqual({ id: UUID, type: "openai_compatible", base_url: "https://llm.example/v1", models: ["m1", "m2"], name: "Team gateway" });
+  });
+
+  it("allows http only to this computer", () => {
+    for (const host of ["127.0.0.1:11434", "localhost:1234", "[::1]:8080"]) {
+      expect(validateKeysPrefill({ id: UUID, type: "openai_compatible", base_url: `http://${host}/v1` }).base_url).toBe(
+        `http://${host}/v1`,
+      );
+    }
+    for (const base_url of ["http://llm.example/v1", "ftp://llm.example", "https://user:pw@llm.example/v1", "not a url"]) {
+      expect(() => validateKeysPrefill({ id: UUID, type: "openai_compatible", base_url }), base_url).toThrow(ValidationError);
+    }
+  });
+
+  it("refuses ids that do not match the type, and types this app does not offer", () => {
+    for (const payload of [
+      { id: "openai", type: "anthropic" },
+      { id: "my-endpoint", type: "openai_compatible", base_url: "https://x.example" },
+      { id: UUID, type: "anthropic" },
+      { id: "claude_code", type: "claude_code" },
+      { id: UUID, type: "openai_compatible" },
+    ]) {
+      expect(() => validateKeysPrefill(payload), JSON.stringify(payload)).toThrow(ValidationError);
+    }
+  });
+
+  it("takes no key, and says so without quoting one", () => {
+    const KEY = "sk-NEVER-IN-A-PREFILL";
+    let message = "";
+    try {
+      validateKeysPrefill({ id: "openai", type: "openai", api_key: KEY });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).not.toBe("");
+    expect(message).not.toContain(KEY);
   });
 });

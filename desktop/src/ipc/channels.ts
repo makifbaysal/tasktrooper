@@ -89,6 +89,13 @@ export const KEYS_CHANNELS = {
   list: "shell:keys:list",
   set: "shell:keys:set",
   remove: "shell:keys:remove",
+  /** What the page that opened the window asked it to focus on; null when nothing. */
+  prefill: "shell:keys:prefill",
+} as const;
+
+/** Main → the API-key window, one-way: the prefill changed while it was open. */
+export const KEYS_EVENTS = {
+  prefill: "shell:keys:event:prefill",
 } as const;
 
 /** Main → the native chrome. One-way; it never replies. */
@@ -151,7 +158,8 @@ export const CLOUD_CHANNELS = {
   /** Stop the runner, forget the pairing, clear the account session, run locally again. */
   accountSignOut: "cloud:account:sign-out",
   /**
-   * Open the API-key window. No argument and nothing back: the page — the
+   * Open the API-key window, optionally focused on one provider (`KeysPrefill`:
+   * identity and address, never a key). Nothing comes back: the page — the
    * account's, from a remote origin — may bring the window up, and that is
    * all. The keys are typed into the window, which is this app's own.
    */
@@ -315,6 +323,19 @@ export interface KeySetRequest {
   api_key?: string;
 }
 
+/**
+ * What the account's page may hand the key window: which provider to ask a key
+ * for. Identity and address only — there is no key field, here or anywhere on
+ * the way in. `id` is a built-in type name or a custom endpoint's UUID.
+ */
+export interface KeysPrefill {
+  id: string;
+  type: ProviderKeyType;
+  base_url?: string;
+  models?: string[];
+  name?: string;
+}
+
 export interface KeyRemoveRequest {
   id: string;
 }
@@ -324,6 +345,8 @@ export interface KeysBridge {
   list(): Promise<ProviderKeysState>;
   set(request: KeySetRequest): Promise<ProviderKeysState>;
   remove(id: string): Promise<ProviderKeysState>;
+  prefill(): Promise<KeysPrefill | null>;
+  onPrefill(cb: (prefill: KeysPrefill | null) => void): () => void;
 }
 
 /**

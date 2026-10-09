@@ -1,6 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { BrowserWindow, app } from "electron";
+import { KEYS_EVENTS, type KeysPrefill } from "../../ipc/channels.js";
 
 /**
  * The API-key window: this app's own page, in a window of its own.
@@ -21,6 +22,12 @@ const KEYS_PARTITION = "tasktrooper-keys";
 export class KeysWindow {
   #window: BrowserWindow | null = null;
   #pageUrl = "";
+  #prefill: KeysPrefill | null = null;
+
+  /** What the opener asked the window to focus on; null when it was opened plain. */
+  get prefill(): KeysPrefill | null {
+    return this.#prefill;
+  }
 
   /** The window's contents while it is open; the sender guard compares against it. */
   get contents(): Electron.WebContents | null {
@@ -33,10 +40,12 @@ export class KeysWindow {
     return this.contents ? this.#pageUrl : "";
   }
 
-  /** Bring the window up, creating it the first time. */
-  open(): void {
+  /** Bring the window up, creating it the first time, focused on `prefill` when given. */
+  open(prefill?: KeysPrefill): void {
+    this.#prefill = prefill ?? null;
     const existing = this.#window;
     if (existing && !existing.isDestroyed()) {
+      existing.webContents.send(KEYS_EVENTS.prefill, this.#prefill);
       if (existing.isMinimized()) existing.restore();
       existing.show();
       existing.focus();
@@ -70,6 +79,7 @@ export class KeysWindow {
       if (this.#window === window) {
         this.#window = null;
         this.#pageUrl = "";
+        this.#prefill = null;
       }
     });
     window.webContents.on("will-navigate", (event) => event.preventDefault());

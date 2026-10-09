@@ -1,4 +1,4 @@
-import type { KeySetRequest } from "@ipc/channels.js";
+import type { KeySetRequest, KeysPrefill } from "@ipc/channels.js";
 import {
   BUILT_IN_PROVIDER_TYPES,
   CUSTOM_PROVIDER_TYPE,
@@ -29,6 +29,10 @@ export interface KeyForm {
   baseUrl: string;
   models: string;
   apiKey: string;
+  /** True when a page asked for this provider: id, type and address are fixed. */
+  locked?: boolean;
+  /** The name the account calls this provider, shown only. */
+  name?: string;
 }
 
 export function emptyForm(type: ProviderKeyType = "anthropic"): KeyForm {
@@ -40,6 +44,18 @@ export function formFor(provider: ProviderKeySummary): KeyForm {
     ? (provider.type as ProviderKeyType)
     : CUSTOM_PROVIDER_TYPE;
   return { id: provider.id, type, baseUrl: provider.base_url ?? "", models: (provider.models ?? []).join(", "), apiKey: "" };
+}
+
+export function formForPrefill(prefill: KeysPrefill): KeyForm {
+  return {
+    id: prefill.id,
+    type: prefill.type,
+    baseUrl: prefill.base_url ?? "",
+    models: (prefill.models ?? []).join(", "),
+    apiKey: "",
+    locked: true,
+    ...(prefill.name !== undefined ? { name: prefill.name } : {}),
+  };
 }
 
 /** Whether the type asks for an address: always for a custom endpoint, optionally for a local server. */
