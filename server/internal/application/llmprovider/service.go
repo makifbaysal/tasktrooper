@@ -45,6 +45,9 @@ type Service struct {
 	invalidate InvalidateFunc
 
 	afterChange func(ctx context.Context)
+
+	bundledEmbedderURL    string
+	bundledEmbedderSource string
 }
 
 func (s *Service) SetAfterChange(fn func(ctx context.Context)) {

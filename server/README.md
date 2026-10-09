@@ -19,6 +19,8 @@ See [.ai/architecture.md](.ai/architecture.md).
 |---|---|
 | `cmd/agent-server/` | the server binary (env → `runtime.Run`) |
 | `cmd/migrate/` | applies `migrations/` out of band |
+| `cmd/executor/` | the headless executor a runner drives ([.ai/executor.md](.ai/executor.md)) |
+| `cmd/skillvectors/` | embeds the catalog's skills into `catalog/skills.vectors.json` |
 | `internal/` | domain / port / application / adapter / platform |
 | `migrations/` | SQL migrations (embedded) |
 | `resources/` | `config.yml`, `openapi.yaml` (embedded into the binary) |
@@ -65,6 +67,7 @@ Optional:
 | `SHUTDOWN_ON_STDIN_CLOSE` | no | `1` makes stdin EOF start the same drain as SIGTERM. The desktop app sets it so the server stops cleanly on Windows and never outlives the app. |
 | `EMBEDDED_POSTGRES_CACHE_DIR` | `$DATA_DIR/postgres-bin` | Where the Postgres binaries are downloaded and extracted (~30 MB, first start only) |
 | `EMBEDDINGS_BASE_URL` | — | OpenAI-compatible host exposing `POST /v1/embeddings`. Set, an embedding provider pointing at it (`nomic-embed-text-v1.5`, 768 dims) is created at boot. Idempotent. |
+| `EMBEDDINGS_SOURCE` | `onnx-int8` | The engine behind `EMBEDDINGS_BASE_URL`: `onnx-int8` (the desktop's embedder) or `tei`. The catalog's shipped skill vectors stand in for live embeddings only while embeddings go to that URL and this names the engine they were made with. |
 | `CORS_ORIGINS` | `app://tasktrooper,http://localhost:3200,http://127.0.0.1:3200` | Origins allowed to call this server |
 | `PUBLIC_BASE_URL` | `http://127.0.0.1:<port>` | The origin a Claude Code session calls TaskTrooper's tools back on |
 | `CLAUDE_CODE_BIN` | `claude` | The Claude Code CLI |
@@ -106,6 +109,22 @@ created — the board starts empty and the sync stays idle.
 The desktop bundles this directory under `Contents/Resources/catalog` and
 passes it as `AGENT_CATALOG_REPO`; `make dev` defaults it to the checkout's
 `catalog/`.
+
+`catalog/skills.vectors.json` holds every skill's vector, embedded once with
+the desktop's embedder (`nomic-embed-text-v1.5`, int8 ONNX, 768 dims) and
+keyed by the sha256 of the exact text a skill is embedded from
+(`name\ndescription\ncontent`). Creating, updating and backfilling a skill
+take the shipped vector instead of calling the embedder when the file's model
+and engine are the ones this install embeds with (`EMBEDDINGS_SOURCE`); an
+edited skill, or any other engine, is embedded live. After changing a skill,
+regenerate the file against a running desktop embedder:
+
+```sh
+go run ./cmd/skillvectors -catalog ../catalog -embeddings-url http://127.0.0.1:<port>/v1
+go run ./cmd/skillvectors -catalog ../catalog -check   # skills without a vector
+```
+
+Unchanged skills keep their vectors; only changed texts are embedded.
 
 ## Startup contract
 
