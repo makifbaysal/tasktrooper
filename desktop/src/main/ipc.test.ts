@@ -54,6 +54,9 @@ function wire() {
       keysRemove: (id: string) => (calls.push(`remove ${id}`), state()),
       openKeys: (prefill?: unknown) => void calls.push(prefill ? `openKeys ${JSON.stringify(prefill)}` : "openKeys"),
       keysPrefill: () => (calls.push("prefill"), null),
+      keysMcpList: () => (calls.push("mcp-list"), { servers: [], runnerRestarting: false }),
+      keysMcpSet: (_request: unknown) => (calls.push("mcp-set"), { servers: [], runnerRestarting: false }),
+      keysMcpRemove: (name: string) => (calls.push(`mcp-remove ${name}`), { servers: [], runnerRestarting: false }),
       accountMode: () => "account",
     },
     {
@@ -118,6 +121,58 @@ describe("shell:keys:*", () => {
       (err: unknown) => (err instanceof Error ? err.message : String(err)),
     );
     expect(refusal).toMatch(/invalid request: keys.set.api_key/);
+    expect(refusal).not.toContain(SECRET);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("shell:keys:mcp-*", () => {
+  const server = { name: "notes", command: "/bin/notes", env: { NOTES_TOKEN: SECRET } };
+
+  it("answers the key window's own page, without a secret in the reply", async () => {
+    const { calls, invoke } = wire();
+    const page = from(keysWindow, KEYS_PAGE);
+    const replies = [
+      await invoke(KEYS_CHANNELS.mcpList, page),
+      await invoke(KEYS_CHANNELS.mcpSet, page, server),
+      await invoke(KEYS_CHANNELS.mcpRemove, page, { name: "notes" }),
+    ];
+    expect(calls).toEqual(["mcp-list", "mcp-set", "mcp-remove notes"]);
+    expect(JSON.stringify(replies)).not.toContain(SECRET);
+  });
+
+  it("refuses the account's page, the chrome and a stranger on every MCP channel, before reading the payload", async () => {
+    const { calls, invoke } = wire();
+    const senders = [
+      from(accountView, `${ACCOUNT}/settings`),
+      from(chrome, "file:///app/dist/renderer/index.html"),
+      from(contents(99), KEYS_PAGE),
+      from(keysWindow, "https://evil.example/keys.html"),
+    ];
+    for (const page of senders) {
+      for (const [channel, payload] of [
+        [KEYS_CHANNELS.mcpList, undefined],
+        [KEYS_CHANNELS.mcpSet, server],
+        [KEYS_CHANNELS.mcpRemove, { name: "notes" }],
+      ] as const) {
+        await expect(invoke(channel, page, payload), channel).rejects.toThrow(/refused/);
+      }
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses a malformed server without quoting its secret", async () => {
+    const { calls, invoke } = wire();
+    const bad = `${SECRET}\nX-Injected: 1`;
+    const refusal = await invoke(KEYS_CHANNELS.mcpSet, from(keysWindow, KEYS_PAGE), {
+      name: "wiki",
+      url: "https://wiki.example/mcp",
+      headers: { Authorization: bad },
+    }).then(
+      () => "",
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+    expect(refusal).toMatch(/invalid request: keys.mcp-set.headers/);
     expect(refusal).not.toContain(SECRET);
     expect(calls).toEqual([]);
   });

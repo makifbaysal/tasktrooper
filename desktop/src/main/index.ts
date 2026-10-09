@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { BrowserWindow, Menu, app, powerMonitor, session, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
-import { CLOUD_EVENTS, SHELL_EVENTS, type KeySetRequest } from "../ipc/channels.js";
+import { CLOUD_EVENTS, SHELL_EVENTS, type KeySetRequest, type McpServerSetRequest } from "../ipc/channels.js";
 import type {
   HostOverrides,
   HostPreferences,
@@ -25,6 +25,7 @@ import type {
 import { ACCOUNT_MODE_RUNS_EMBEDDER, ModeController } from "./account/mode.js";
 import { ACCOUNT_HOME_ROUTE, accountPartition, defaultAccountOrigin } from "./account/origin.js";
 import { PairingStore } from "./config/pairing.js";
+import { McpServerStore } from "./config/mcp-servers.js";
 import { ProviderStore } from "./config/providers.js";
 import { SecretStore, type LocalSecrets } from "./config/secrets.js";
 import { SettingsStore } from "./config/settings.js";
@@ -83,7 +84,9 @@ const settingsStore = new SettingsStore();
 const secretStore = new SecretStore();
 const supervisor = new Supervisor();
 const providerStore = new ProviderStore(app.getPath("userData"));
+const mcpServerStore = new McpServerStore(app.getPath("userData"));
 const runnerSupervisor = new RunnerSupervisor(new PairingStore(app.getPath("userData")), providerStore, {
+  mcpServers: mcpServerStore,
   // The embedder is the local supervisor's and runs in both modes; the runner
   // only needs to know where it is.
   embeddings: () => (ACCOUNT_MODE_RUNS_EMBEDDER ? supervisor.embedderUrl() : Promise.resolve(null)),
@@ -484,7 +487,7 @@ function appInfo(): AppInfo {
 }
 
 /**
- * After the API keys changed: the runner reads them at spawn and hands them to
+ * After the API keys or the MCP servers changed: the runner reads them at spawn and hands them to
  * the executor on its stdin, so a running one restarts — stop and connect,
  * which keeps the pairing. One that was refused for having no way to run an
  * agent starts now that it may have one. Answers whether either happened.
@@ -505,6 +508,7 @@ function providersChanged(): boolean {
 
 const keyService = new KeyService({
   store: providerStore,
+  mcpStore: mcpServerStore,
   changed: providersChanged,
   log: (line) => console.warn(line),
   newId: () => randomUUID(),
@@ -543,6 +547,9 @@ const services: IpcServices = {
   keysSet: (request: KeySetRequest) => keyService.set(request),
   keysRemove: (id: string) => keyService.remove(id),
   keysPrefill: () => keysWindow.prefill,
+  keysMcpList: () => keyService.listMcp(),
+  keysMcpSet: (request: McpServerSetRequest) => keyService.setMcp(request),
+  keysMcpRemove: (name: string) => keyService.removeMcp(name),
 
   hostInfo: () => ({ app: "tasktrooper-desktop", version: app.getVersion(), platform: process.platform }),
 

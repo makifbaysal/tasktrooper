@@ -6,6 +6,7 @@ import {
   type ChooseDirectoryRequest,
   type KeySetRequest,
   type KeysPrefill,
+  type McpServerSetRequest,
 } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -22,6 +23,7 @@ import type {
   Diagnostics,
   LogLine,
   PreflightReport,
+  McpServersState,
   ProviderKeysState,
   RunnerPairingBundle,
   RunnerPairingSummary,
@@ -36,6 +38,8 @@ import {
   validateKeyRemove,
   validateKeySet,
   validateKeysPrefill,
+  validateMcpServerRemove,
+  validateMcpServerSet,
   validateLogsRequest,
   validateLogsStream,
   validateOpenExternal,
@@ -101,6 +105,9 @@ export interface IpcServices {
   keysSet(request: KeySetRequest): ProviderKeysState;
   keysRemove(id: string): ProviderKeysState;
   keysPrefill(): KeysPrefill | null;
+  keysMcpList(): McpServersState;
+  keysMcpSet(request: McpServerSetRequest): McpServersState;
+  keysMcpRemove(name: string): McpServersState;
 
   // --- the web app's local half ---
   hostInfo(): { app: string; version: string; platform: string };
@@ -250,6 +257,9 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   keys(KEYS_CHANNELS.set, (payload) => services.keysSet(validateKeySet(payload)));
   keys(KEYS_CHANNELS.prefill, () => services.keysPrefill());
   keys(KEYS_CHANNELS.remove, (payload) => services.keysRemove(validateKeyRemove(payload).id));
+  keys(KEYS_CHANNELS.mcpList, () => services.keysMcpList());
+  keys(KEYS_CHANNELS.mcpSet, (payload) => services.keysMcpSet(validateMcpServerSet(payload)));
+  keys(KEYS_CHANNELS.mcpRemove, (payload) => services.keysMcpRemove(validateMcpServerRemove(payload).name));
 
   // --- the web app ---
   cloud(CLOUD_CHANNELS.hostInfo, () => services.hostInfo());

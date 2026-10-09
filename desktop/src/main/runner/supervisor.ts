@@ -13,6 +13,7 @@ import type {
 } from "../../ipc/types.js";
 import { ensureWorkspace } from "../config/workspace.js";
 import { asPairingBundle, PairingStore, pairingSummary } from "../config/pairing.js";
+import type { McpServerConfig } from "../config/mcp-servers.js";
 import { usableProviderIds, type ProviderStore } from "../config/providers.js";
 import { accountPreflight, emptyReport, executorDataDir, firstBlocker, itemById, postgresCacheDir, runnerDataDir } from "../services/detect.js";
 import { LogStore } from "../supervisor/log-buffer.js";
@@ -47,6 +48,8 @@ export interface RunnerSupervisorOptions {
    * `setEmbeddingsBaseURL`.
    */
   embeddings?: () => Promise<string | null>;
+  /** The member's own MCP servers, read at every spawn like the providers. */
+  mcpServers?: { read(): McpServerConfig[] };
 }
 
 /** How long the runner gets to attach before Connect gives up. */
@@ -59,6 +62,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
   readonly #pairing: PairingStore;
   readonly #providers: ProviderStore;
   readonly #embeddings: () => Promise<string | null>;
+  readonly #mcpServers: { read(): McpServerConfig[] };
   readonly #child = new RunnerChild();
   readonly #logs = new LogStore();
 
@@ -83,6 +87,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
     this.#pairing = pairing;
     this.#providers = providers;
     this.#embeddings = options.embeddings ?? (() => Promise.resolve(null));
+    this.#mcpServers = options.mcpServers ?? { read: () => [] };
     this.#child.on("log", (stream, text) => this.#onChildLog(stream, text));
     this.#child.on("state", () => this.#emitState());
     this.#child.on("crashed", () => this.#onChildCrashed());
@@ -306,6 +311,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
       settings,
       preflight: this.#preflight,
       providers: this.#providers.read(),
+      mcpServers: this.#mcpServers.read(),
       executorDataDir: executorDataDir(),
       executorPostgresCacheDir: postgresCacheDir(),
       runnerDataDir: runnerDataDir(),

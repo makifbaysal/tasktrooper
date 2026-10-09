@@ -426,6 +426,30 @@ export interface ProviderKeysState {
   runnerRestarting: boolean;
 }
 
+/**
+ * One of the member's own MCP servers as the key screen shows it: where it
+ * runs and the names of the variables or headers that hold a value, never a
+ * value. `args` are shown, so a secret belongs in `env`, not there.
+ */
+export interface McpServerSummary {
+  name: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  /** The address without its query or fragment. */
+  url?: string;
+  /** Env variable names (stdio) or header names (http) that hold a value. */
+  secretNames: string[];
+  hasSecret: boolean;
+}
+
+/** Every answer of the key screen's MCP server channels. */
+export interface McpServersState {
+  servers: McpServerSummary[];
+  /** True when the change restarted the runner (and the executor) to take effect. */
+  runnerRestarting: boolean;
+}
+
 // --- workspace --------------------------------------------------------------
 
 /**

@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { PreflightReport, RunnerPairingBundle, UserSettings } from "../../ipc/types.js";
+import type { McpServerConfig } from "../config/mcp-servers.js";
 import type { ProviderConfig } from "../config/providers.js";
 import { emulatorPathFor, itemById } from "../services/detect.js";
 
@@ -31,6 +32,11 @@ export interface RunnerConfigInputs {
   preflight: PreflightReport;
   /** The member's own providers, keys included; handed on to the executor. */
   providers: ProviderConfig[];
+  /**
+   * The member's own MCP servers, env and headers included; handed on to the
+   * executor, which serves their tools as `mcp_<name>_<tool>`.
+   */
+  mcpServers?: McpServerConfig[];
   /** `executorDataDir()`, sent with the executor's path when there is one. */
   executorDataDir: string;
   /**
@@ -147,6 +153,7 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
   const claude = itemById(preflight, "claude");
   const executorBin = executor?.status === "ok" && executor.path ? executor.path : "";
   const providerList = inputs.providers.map((p) => ({ ...p }));
+  const mcpServerList = (inputs.mcpServers ?? []).map((s) => ({ ...s }));
   const embeddings = inputs.embeddingsBaseURL ?? "";
   const runnerData = inputs.runnerDataDir ?? "";
 
@@ -186,6 +193,7 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
     ...(executorBin !== "" ? { executor_data_dir: inputs.executorDataDir } : {}),
     ...(executorBin !== "" ? { executor_postgres_cache_dir: inputs.executorPostgresCacheDir } : {}),
     ...(providerList.length > 0 ? { providers: providerList } : {}),
+    ...(mcpServerList.length > 0 ? { mcp_servers: mcpServerList } : {}),
     ...(embeddings !== "" ? { embeddings_base_url: embeddings } : {}),
     ...(embeddings !== "" ? { embedding_model: EMBEDDING_MODEL } : {}),
     ...(runnerData !== "" ? { runner_data_dir: runnerData } : {}),
