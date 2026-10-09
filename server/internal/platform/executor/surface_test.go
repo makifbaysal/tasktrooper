@@ -348,3 +348,42 @@ func (s *SurfaceSuite) surfaceGone(opened openedSurface) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+func (s *SurfaceSuite) TestMCPCallsReportsEachLocalCallOnceByCursor() {
+	opened, _ := s.open(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	session, err := connect(ctx, opened.URL, opened.Token)
+	s.Require().NoError(err)
+	defer session.Close()
+
+	for _, name := range []string{"get_symbol_skeleton", "list_board_tasks"} {
+		_, err = session.CallTool(ctx, &sdkmcp.CallToolParams{Name: name, Arguments: map[string]any{"file_path": "auth.go"}})
+		s.Require().NoError(err)
+	}
+
+	type answer struct {
+		Calls []struct {
+			N       int    `json:"n"`
+			Name    string `json:"name"`
+			IsError bool   `json:"is_error"`
+		} `json:"calls"`
+		Next   int  `json:"next"`
+		Closed bool `json:"closed"`
+	}
+	read := func(after int) answer {
+		status, raw := s.call(executorapi.PathMCPCalls, map[string]any{"run_id": "cli-run-1", "after": after})
+		s.Require().Equal(http.StatusOK, status, string(raw))
+		var a answer
+		s.Require().NoError(json.Unmarshal(raw, &a))
+		return a
+	}
+	first := read(0)
+	s.Require().Len(first.Calls, 1, "the coordination endpoint's own tool is the cloud's to count")
+	s.Equal("get_symbol_skeleton", first.Calls[0].Name)
+	s.False(first.Calls[0].IsError)
+	s.Empty(read(first.Next).Calls)
+
+	s.call(executorapi.PathMCPClose, map[string]any{"run_id": "cli-run-1"})
+	s.True(read(first.Next).Closed)
+}

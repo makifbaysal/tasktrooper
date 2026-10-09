@@ -123,6 +123,28 @@ func fakeExecutor(mode string) int {
 			})
 		}
 	})
+	mux.HandleFunc("POST /exec/mcp.calls", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		var req struct {
+			After int `json:"after"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		record("surface-calls", fmt.Sprint(req.After))
+		recorded := []map[string]any{}
+		if mode == "calls" {
+			for _, c := range []map[string]any{
+				{"n": 1, "name": "browser_click", "is_error": false, "duration_ms": 12},
+				{"n": 2, "name": "mobile_tap", "is_error": true, "duration_ms": 30},
+			} {
+				if int(c["n"].(int)) > req.After {
+					recorded = append(recorded, c)
+				}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"v": 1, "calls": recorded, "next": 2})
+	})
 	mux.HandleFunc("POST /exec/mcp.close", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) {
 			return

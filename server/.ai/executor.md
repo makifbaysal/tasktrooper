@@ -457,6 +457,24 @@ Request: `{"run_id":"cli-91"}`. Response: `{"v":1,"run_id":"cli-91","closed":tru
 A surface that already closed (its timeout, say) answers `false` and is not an
 error.
 
+### `POST /exec/mcp.calls`
+
+Request: `{"run_id":"cli-91","after":0}`. Response:
+
+```json
+{"v":1,"run_id":"cli-91","calls":[{"n":1,"name":"browser_click","is_error":false,"duration_ms":412}],"next":1}
+```
+
+What a CLI called on this run's surface, recorded by the executor for each tool
+**it serves itself** (this computer's tools and the member's `mcp_*` tools; the
+coordination endpoint's are the cloud's to count). `n` counts from 1 per
+surface; `after` is the last `n` the caller has, and `next` the cursor to ask
+with next time, so a call is reported once. The log is bounded (4096 calls):
+`dropped` says how many were forgotten before `after`. A surface that is not
+open answers `"closed":true` with no calls, not an error. The runner emits each
+call into the CLI run's stream as
+`{"event":"event","payload":{"kind":"tool_call","source":"local","name":…,"is_error":…,"duration_ms":…}}`.
+
 ## Runs that name an index
 
 With `index` on `agent.run`:

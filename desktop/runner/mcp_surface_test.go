@@ -213,3 +213,54 @@ func TestPreflightAdvertisesTheExecutorsLocalTools(t *testing.T) {
 		t.Fatalf("an executor with no surfaces advertised local tools: %s", res.body)
 	}
 }
+
+func TestSurfaceToolCallsReachTheRunsStreamExactlyOnceBeforeItsDone(t *testing.T) {
+	for _, path := range []string{"/claude.run", "/cursor.run"} {
+		t.Run(path, func(t *testing.T) {
+			rig := surfaceRunHarness(t, "calls", "sleep 1.5\nexit 0\n")
+			body := surfaceRunBody("c-calls")
+			if path == "/cursor.run" {
+				body = `{"id":"c-calls","workspace":"repo","prompt":"go",` + surfaceRunMCP + `}`
+			}
+			res, err := rig.h.client.Post(rig.h.srv.URL+path, "application/json", strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			got := readFrames(t, res.Body)
+
+			var calls []map[string]any
+			doneAt := -1
+			var last int64
+			for i, f := range got {
+				if seq := seqOf(t, f); seq != last+1 {
+					t.Fatalf("seq %d after %d: frames must be contiguous", seq, last)
+				} else {
+					last = seq
+				}
+				switch f["event"] {
+				case "done":
+					doneAt = i
+				case "event":
+					payload, _ := f["payload"].(map[string]any)
+					if payload["kind"] == "tool_call" {
+						calls = append(calls, payload)
+						if doneAt >= 0 {
+							t.Fatalf("a tool_call frame came after the done")
+						}
+					}
+				}
+			}
+			if doneAt != len(got)-1 {
+				t.Fatalf("the done is not the last frame: %v", got)
+			}
+			if len(calls) != 2 {
+				t.Fatalf("tool_call frames = %v, want the executor's two exactly once each", calls)
+			}
+			if calls[0]["name"] != "browser_click" || calls[0]["source"] != "local" || calls[0]["is_error"] != false ||
+				calls[1]["name"] != "mobile_tap" || calls[1]["is_error"] != true {
+				t.Fatalf("tool_call frames = %v", calls)
+			}
+		})
+	}
+}

@@ -306,6 +306,8 @@ func (s *runnerServer) handleCursorRun(w http.ResponseWriter, r *http.Request) {
 			redact: heldSecretRedactor(s.cfg.policy, surface.held()),
 		}
 		_ = c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"})
+		stopCalls := surface.watchCalls(runCtx, c)
+		defer stopCalls()
 
 		spawnCtx := runCtx
 		if prepared.timeout > 0 {
@@ -318,6 +320,7 @@ func (s *runnerServer) handleCursorRun(w http.ResponseWriter, r *http.Request) {
 		if callErr == nil && runCtx.Err() != nil {
 			callErr = failure(codeCancelled, "the call was cancelled")
 		}
+		stopCalls()
 		c.finish(result, callErr)
 	})
 }

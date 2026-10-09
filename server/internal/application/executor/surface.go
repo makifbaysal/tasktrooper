@@ -66,6 +66,7 @@ type openSurface struct {
 	cancel context.CancelFunc
 	scope  string
 	once   sync.Once
+	calls  callLog
 
 	mu          sync.Mutex
 	served      port.ServedToolSurface
@@ -174,7 +175,8 @@ func (s *Service) OpenMCP(ctx context.Context, req MCPOpen) (*MCPSurface, *Failu
 	}
 
 	att := s.surfaceIndex(life, runID, workDir, index)
-	tools, _ := s.toolRegistry(remote, workDir, att, servedToCLI)
+	built, sources := s.toolRegistry(remote, workDir, att, servedToCLI)
+	tools := port.ToolRegistry(&recordingRegistry{ToolRegistry: built, sources: sources, log: &surface.calls})
 
 	callCtx := registry.ContextWithWorkspaceDir(life, workDir)
 	callCtx = withRunEnv(callCtx, workDir, env)

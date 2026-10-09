@@ -33,6 +33,7 @@ const (
 	PathCommitPush  = "/exec/commit_push"
 	PathMCPOpen     = "/exec/mcp.open"
 	PathMCPClose    = "/exec/mcp.close"
+	PathMCPCalls    = "/exec/mcp.calls"
 )
 
 const (
@@ -97,6 +98,7 @@ func NewHandler(svc *executor.Service, opts Options) *Handler {
 		PathCommitPush:  {http.MethodPost, h.commitPush},
 		PathMCPOpen:     {http.MethodPost, h.mcpOpen},
 		PathMCPClose:    {http.MethodPost, h.mcpClose},
+		PathMCPCalls:    {http.MethodPost, h.mcpCalls},
 	}
 	return h
 }
@@ -177,6 +179,24 @@ func (h *Handler) mcpClose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, h.svc.CloseMCP(req.RunID))
+}
+
+type mcpCallsRequest struct {
+	RunID string `json:"run_id"`
+	After int    `json:"after"`
+}
+
+func (h *Handler) mcpCalls(w http.ResponseWriter, r *http.Request) {
+	var req mcpCallsRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	if strings.TrimSpace(req.RunID) == "" {
+		h.writeError(w, &executor.Failure{Code: executor.CodeBadRequest, Message: "run_id is required: a read names the surface it asks about"})
+		return
+	}
+	h.writeJSON(w, http.StatusOK, h.svc.MCPCallsSince(req.RunID, req.After))
 }
 
 // agentRunRequest carries the runner's own call id beside the run: when the

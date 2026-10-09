@@ -443,6 +443,23 @@ are scrubbed** from everything forwarded (`MCP_TOKEN`, `MCP_LOCAL_TOKEN`),
 and neither is logged; a refusal from the executor is scrubbed of the cloud
 token before it is logged.
 
+**The surface's tool calls are frames of the run.** The cloud never sees what a
+CLI calls on the surface, and its QA and PM-UAT evidence gates need to know
+whether `browser_*` or `mobile_*` were used. The executor records each call to
+a tool it serves itself (name, error or not, duration; the cloud's own tools
+are the cloud's to count), and `watchCalls` reads that record by cursor
+(`POST /exec/mcp.calls {run_id, after}`) every second while the run lives and
+once more after the CLI has exited, before the `done`. Each call becomes one
+frame of the run's stream, with a `seq` like any other:
+
+```json
+{"v":1,"id":"c-91","event":"event","payload":{"kind":"tool_call","source":"local","name":"browser_click","is_error":false,"duration_ms":412},"seq":17}
+```
+
+The cursor makes a call appear exactly once, however often the executor is
+asked. An executor without `mcp.calls`, or one that cannot be reached, leaves
+the run without these frames and nothing else changes.
+
 **`preflight.report` carries `"local_tools":[…]`**, the executor's own
 `local_tools` from its health answer: what a surface here serves of its own,
 so the cloud can stop withholding those tools from runs on this computer.
