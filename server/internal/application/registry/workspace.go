@@ -47,6 +47,7 @@ func EffectiveWorkspaceDir(ctx context.Context) string {
 
 const taskEnvKey contextKey = "task_env"
 const branchKey contextKey = "task_branch"
+const sessionEnvKey contextKey = "session_env"
 
 // ContextWithBranch records which git branch the run's workspace has checked
 // out, so retrieval can prefer that branch's index.
@@ -79,6 +80,26 @@ func ContextWithTaskEnv(ctx context.Context, env []string) context.Context {
 func TaskEnvFromContext(ctx context.Context) []string {
 	if v := ctx.Value(taskEnvKey); v != nil {
 		if env, ok := v.([]string); ok {
+			return env
+		}
+	}
+	return nil
+}
+
+// ContextWithSessionEnv carries the session environment the run was resolved
+// with (the repository's own version pins), so a follow-up turn built from the
+// same context — a criteria or verdict sweep — hands the executor the same
+// environment the run started with instead of an empty one.
+func ContextWithSessionEnv(ctx context.Context, env map[string]string) context.Context {
+	if len(env) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, sessionEnvKey, env)
+}
+
+func SessionEnvFromContext(ctx context.Context) map[string]string {
+	if v := ctx.Value(sessionEnvKey); v != nil {
+		if env, ok := v.(map[string]string); ok {
 			return env
 		}
 	}

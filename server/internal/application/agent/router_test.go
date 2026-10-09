@@ -233,6 +233,44 @@ func TestRouterResumesTheCLISessionOnAFollowUpStep(t *testing.T) {
 	require.Equal(t, followUp, secondReq.History, "History travels unchanged even though the executor ignores it on a resume")
 }
 
+func TestRouterCarriesTheRunEnvironmentIntoFollowUpTurns(t *testing.T) {
+	ex := &cliExecutor{
+		supports: domain.LLMProviderClaudeCode,
+		resp:     domain.AgentResponse{Message: domain.Message{Content: "ticked"}, CLISessionID: "sess-main"},
+	}
+	router, _, _ := newRouter(t, ex)
+	env := map[string]string{"NODE_VERSION": "20.11.0", "GOTOOLCHAIN": "go1.24.0"}
+	ctx := agent.ContextWithCLISession(
+		registry.ContextWithSessionEnv(
+			registry.ContextWithWorkspaceDir(context.Background(), t.TempDir()), env),
+		&agent.CLISession{},
+	)
+	policy := domain.ToolPolicy{}
+
+	main := []domain.Message{{Role: domain.RoleUser, Content: "implement the gate"}}
+	_, err := router.RunTask(ctx, main, "opus", domain.LLMProviderClaudeCode, policy,
+		agent.WithCLILabel("tt-42", "wire the gate"))
+	require.NoError(t, err)
+	_, firstReq := ex.snapshot()
+
+	followUp := []domain.Message{
+		{Role: domain.RoleUser, Content: "implement the gate"},
+		{Role: domain.RoleAssistant, Content: "done, the gate is wired"},
+		{Role: domain.RoleUser, Content: "these criteria are still open: the gate refuses a red build"},
+	}
+	_, err = router.RunTask(ctx, followUp, "opus", domain.LLMProviderClaudeCode, policy,
+		agent.WithCLILabel("tt-42 criteria-sweep 1", "wire the gate"))
+	require.NoError(t, err)
+	calls, secondReq := ex.snapshot()
+
+	require.Equal(t, 2, calls)
+	require.Equal(t, env, secondReq.Env,
+		"a follow-up turn must hand the executor the environment the run was resolved with")
+	require.Equal(t, firstReq.Env, secondReq.Env,
+		"a follow-up turn must hand the executor the same environment as the original run")
+	require.Equal(t, env, firstReq.Env)
+}
+
 func TestRouterFallsBackToFullHistoryWhenThereIsNoTrailingUserInstruction(t *testing.T) {
 	ex := &cliExecutor{
 		supports: domain.LLMProviderClaudeCode,
