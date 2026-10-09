@@ -1,9 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { KEYS_BRIDGE_KEY, KEYS_CHANNELS, type KeySetRequest, type KeysBridge } from "../ipc/channels.js";
+import {
+  KEYS_BRIDGE_KEY,
+  KEYS_CHANNELS,
+  KEYS_EVENTS,
+  type KeySetRequest,
+  type KeysBridge,
+  type KeysPrefill,
+} from "../ipc/channels.js";
 import type { ProviderKeysState } from "../ipc/types.js";
 
 /**
- * The API-key window's preload: three named calls and nothing else. The main
+ * The API-key window's preload: a few named calls and nothing else. The main
  * process answers them for this window's own page only, and none of them
  * hands a key back — `set` takes one in, every answer says `hasKey`.
  */
@@ -22,6 +29,14 @@ const bridge: KeysBridge = {
   list: () => call<ProviderKeysState>(KEYS_CHANNELS.list),
   set: (request: KeySetRequest) => call<ProviderKeysState>(KEYS_CHANNELS.set, request),
   remove: (id: string) => call<ProviderKeysState>(KEYS_CHANNELS.remove, { id }),
+  prefill: () => call<KeysPrefill | null>(KEYS_CHANNELS.prefill),
+  onPrefill: (cb) => {
+    const listener = (_event: unknown, prefill: KeysPrefill | null): void => cb(prefill);
+    ipcRenderer.on(KEYS_EVENTS.prefill, listener);
+    return () => {
+      ipcRenderer.removeListener(KEYS_EVENTS.prefill, listener);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld(KEYS_BRIDGE_KEY, Object.freeze(bridge));

@@ -3,7 +3,7 @@ import { CheckCircle2, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 import { KEYS_BRIDGE_KEY, type KeysBridge } from "@ipc/channels.js";
 import type { ProviderKeySummary, ProviderKeysState, ProviderKeyType } from "@ipc/types.js";
 import { Button } from "@shared/ui/button.js";
-import { emptyForm, formFor, PROVIDER_TYPES, toRequest, typeLabel, wantsAddress, type KeyForm } from "./form";
+import { emptyForm, formFor, formForPrefill, PROVIDER_TYPES, toRequest, typeLabel, wantsAddress, type KeyForm } from "./form";
 
 declare global {
   interface Window {
@@ -39,10 +39,23 @@ export default function KeysApp() {
 
   useEffect(() => {
     if (!keys) return;
+    const focus = (prefill: Parameters<typeof formForPrefill>[0] | null): void => {
+      setError(null);
+      setNotice(null);
+      setForm(prefill ? formForPrefill(prefill) : emptyForm());
+    };
+    keys.prefill().then(
+      (prefill) => {
+        if (prefill) focus(prefill);
+      },
+      (err: unknown) => setError(message(err)),
+    );
+    const stop = keys.onPrefill(focus);
     keys.list().then(
       (state) => setProviders(state.providers),
       (err: unknown) => setError(message(err)),
     );
+    return stop;
   }, []);
 
   const save = useCallback(
@@ -153,7 +166,7 @@ export default function KeysApp() {
 
       <form className="mt-6 space-y-3" onSubmit={save} autoComplete="off">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          {editing ? `Change ${form.id}` : (
+          {form.locked ? `Token for ${form.name ?? form.id}` : editing ? `Change ${form.id}` : (
             <>
               <Plus className="size-4" /> Add a provider
             </>
@@ -165,7 +178,7 @@ export default function KeysApp() {
           <select
             className={FIELD}
             value={form.type}
-            disabled={busy || editing}
+            disabled={busy || editing || form.locked === true}
             onChange={(e) => setForm({ ...emptyForm(e.target.value as ProviderKeyType) })}
           >
             {PROVIDER_TYPES.map((type) => (
@@ -185,6 +198,7 @@ export default function KeysApp() {
               className={FIELD}
               value={form.baseUrl}
               disabled={busy}
+              readOnly={form.locked === true}
               placeholder={form.type === "local" ? "http://127.0.0.1:1234/v1" : "https://openrouter.ai/api/v1"}
               spellCheck={false}
               onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
@@ -198,6 +212,7 @@ export default function KeysApp() {
             className={FIELD}
             value={form.models}
             disabled={busy}
+            readOnly={form.locked === true}
             spellCheck={false}
             onChange={(e) => setForm({ ...form, models: e.target.value })}
           />
@@ -222,7 +237,7 @@ export default function KeysApp() {
             {busy ? <Loader2 className="animate-spin" /> : null}
             Save
           </Button>
-          {editing ? (
+          {editing || form.locked ? (
             <Button type="button" variant="ghost" disabled={busy} onClick={() => setForm(emptyForm())}>
               Cancel
             </Button>

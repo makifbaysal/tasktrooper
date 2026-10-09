@@ -537,11 +537,12 @@ const services: IpcServices = {
   accountSignIn: (origin?: string) => modeController.signIn(origin),
   accountSignOut: () => modeController.signOut(),
   accountUseLocalForNow: () => modeController.useLocalForNow(),
-  openKeys: () => keysWindow.open(),
+  openKeys: (prefill) => keysWindow.open(prefill),
 
   keysList: () => keyService.list(),
   keysSet: (request: KeySetRequest) => keyService.set(request),
   keysRemove: (id: string) => keyService.remove(id),
+  keysPrefill: () => keysWindow.prefill,
 
   hostInfo: () => ({ app: "tasktrooper-desktop", version: app.getVersion(), platform: process.platform }),
 

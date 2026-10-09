@@ -39,7 +39,7 @@ import type {
   UpdateStatus,
   WorkspaceCheck,
 } from "./types.js";
-import type { ChooseDirectoryRequest } from "./channels.js";
+import type { ChooseDirectoryRequest, KeysPrefill } from "./channels.js";
 
 /**
  * One child process, as the page renders it.
@@ -232,15 +232,16 @@ export interface DesktopUpdatesHost {
  * one call that forgets it.
  *
  * `openKeys` brings up the API-key window, which is this app's own — the keys
- * are typed there, never into the page that asked. It takes nothing and
- * answers nothing, so the account's page can offer the button without ever
- * holding a key.
+ * are typed there, never into the page that asked. It answers nothing and its
+ * optional `prefill` names a provider (id, type, address, models, name) but
+ * never carries a key, so the account's page can offer the button without ever
+ * holding one.
  */
 export interface DesktopAccountHost {
   signIn(origin?: string): Promise<void>;
   signOut(): Promise<void>;
   state(): Promise<AccountState>;
-  openKeys(): Promise<void>;
+  openKeys(prefill?: KeysPrefill): Promise<void>;
 }
 
 /**
@@ -269,8 +270,9 @@ export interface DesktopHost {
    * Bumped when the bridge gains something a page may need to feature-test.
    * 1: `account`, `mode` and the runner's pairing calls.
    * 2: `account.openKeys()` and `account.state().temporaryLocal`.
+   * 3: `account.openKeys(prefill)` focuses the key window on one provider.
    */
-  bridgeVersion: 2;
+  bridgeVersion: 3;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS, type ChooseDirectoryRequest } from "../ipc/channels.js";
+import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS, type ChooseDirectoryRequest, type KeysPrefill } from "../ipc/channels.js";
 import type {
   DesktopAccountHost,
   DesktopHost,
@@ -150,8 +150,8 @@ const account: DesktopAccountHost = {
     await call<AccountState>(CLOUD_CHANNELS.accountSignOut);
   },
   state: () => call<AccountState>(CLOUD_CHANNELS.accountState),
-  openKeys: async () => {
-    await call<void>(CLOUD_CHANNELS.accountOpenKeys);
+  openKeys: async (prefill?: KeysPrefill) => {
+    await call<void>(CLOUD_CHANNELS.accountOpenKeys, prefill);
   },
 };
 
@@ -187,7 +187,7 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 2,
+  bridgeVersion: 3,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,

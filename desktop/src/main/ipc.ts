@@ -5,6 +5,7 @@ import {
   SHELL_CHANNELS,
   type ChooseDirectoryRequest,
   type KeySetRequest,
+  type KeysPrefill,
 } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -34,6 +35,7 @@ import {
   validateDiagnosticsRequest,
   validateKeyRemove,
   validateKeySet,
+  validateKeysPrefill,
   validateLogsRequest,
   validateLogsStream,
   validateOpenExternal,
@@ -92,12 +94,13 @@ export interface IpcServices {
   /** Run locally for now, still signed in — the chrome's failure screen. */
   accountUseLocalForNow(): Promise<AccountState>;
   /** Bring up the API-key window. */
-  openKeys(): void;
+  openKeys(prefill?: KeysPrefill): void;
 
   // --- the API-key window ---
   keysList(): ProviderKeysState;
   keysSet(request: KeySetRequest): ProviderKeysState;
   keysRemove(id: string): ProviderKeysState;
+  keysPrefill(): KeysPrefill | null;
 
   // --- the web app's local half ---
   hostInfo(): { app: string; version: string; platform: string };
@@ -245,6 +248,7 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   };
   keys(KEYS_CHANNELS.list, () => services.keysList());
   keys(KEYS_CHANNELS.set, (payload) => services.keysSet(validateKeySet(payload)));
+  keys(KEYS_CHANNELS.prefill, () => services.keysPrefill());
   keys(KEYS_CHANNELS.remove, (payload) => services.keysRemove(validateKeyRemove(payload).id));
 
   // --- the web app ---
@@ -275,8 +279,8 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.accountState, () => services.accountState());
   cloud(CLOUD_CHANNELS.accountSignIn, (payload) => services.accountSignIn(validateSignIn(payload).origin));
   cloud(CLOUD_CHANNELS.accountSignOut, () => services.accountSignOut());
-  cloud(CLOUD_CHANNELS.accountOpenKeys, () => {
-    services.openKeys();
+  cloud(CLOUD_CHANNELS.accountOpenKeys, (payload) => {
+    services.openKeys(payload === undefined || payload === null ? undefined : validateKeysPrefill(payload));
   });
 
   cloud(CLOUD_CHANNELS.runnerSnapshot, () => services.runnerSnapshot());
