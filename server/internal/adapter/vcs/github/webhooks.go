@@ -16,8 +16,9 @@ type repoHook struct {
 	} `json:"config"`
 }
 
-
-var WebhookEvents = []string{"push", "workflow_run", "check_suite"}
+// "issues" lets a labelled issue become a task the moment it is labelled; the
+// issue-sync poller covers installs whose webhooks cannot reach this server.
+var WebhookEvents = []string{"push", "workflow_run", "check_suite", "issues"}
 
 func EnsureRepoWebhook(ctx context.Context, token, owner, repo, targetURL, secret string) (int64, error) {
 	return ensureRepoWebhookAt(ctx, "", token, owner, repo, targetURL, secret)

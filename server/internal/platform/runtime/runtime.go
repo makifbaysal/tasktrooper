@@ -85,6 +85,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/githubauth"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/indexer"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/initiative"
+	issuesyncapp "github.com/makifbaysal/tasktrooper/server/internal/application/issuesync"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/job"
 	kpiapp "github.com/makifbaysal/tasktrooper/server/internal/application/kpi"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/llmprovider"
@@ -909,6 +910,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var settingsStore port.SettingsStore
 	var githubTokens port.GitHubTokenStore
 	var githubAuth *githubauth.Service
+	var issueSyncSettingsStore *pgstore.SettingsStore
 	var llmProviderStore port.LLMProviderStore
 	var llmEndpointStore port.LLMEndpointStore
 
@@ -981,6 +983,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// no longer carries MCP_SECRETS_KEY.
 			pgSettings.SetCipher(e.secretsCipher, e.secretsCipherErr)
 			settingsStore = pgSettings
+			issueSyncSettingsStore = pgSettings
 			// Every GitHub caller reads its token through this, so a GitHub
 			// App connection renews itself without any of them knowing.
 			githubAuth = githubauth.New(pgSettings, pgSettings, githubapi.DeviceClient{}, githubauth.App)
@@ -1131,6 +1134,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var indexSvc *indexer.Service
 	var indexInjector *indexer.Injector
 	var repositorySvc *repository.Service
+	var issueSyncSvc *issuesyncapp.Service
 	var modelSvc *projectmodel.Service
 	var initiativeSvc *initiative.Service
 	var workspaceSvc *workspace.Service
@@ -1672,6 +1676,41 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			boardRunner.SetTaskUpdater(repositorySvc)
 		}
 		repositorySvc.SetRequireCriteriaComplete(cfg.Board.RequireCriteriaComplete)
+
+		// Issue sync: GitHub/Jira issues imported as board tasks, turned into our
+		// own tasks by the product manager (StartConversions, once the session
+		// service exists below), and written back to as those tasks move. The
+		// poller is what imports on a local install, where GitHub's webhooks
+		// rarely reach this server.
+		if e.pgDB != nil && issueSyncSettingsStore != nil {
+			issueSyncDeps := issuesyncapp.Deps{
+				Tasks:        repositorySvc,
+				Repositories: repositoryStore,
+				Columns:      boardConfigStore,
+				Links:        pgstore.NewIssueLinkStore(e.pgDB),
+				Imports:      pgstore.NewIssueImportStore(e.pgDB),
+				GitHubIssues: githubapi.NewIssuesAPI(),
+				JiraSettings: issueSyncSettingsStore,
+				SyncSettings: issueSyncSettingsStore,
+				JiraFactory:  newJiraClientFactory(),
+			}
+			// Guarded: a typed-nil value in these interfaces would pass the
+			// service's nil checks.
+			if githubTokens != nil {
+				issueSyncDeps.GitHubTokens = githubTokens
+			}
+			if workflowSvc != nil {
+				issueSyncDeps.TaskTypes = workflowSvc
+			}
+			issueSyncSvc = issuesyncapp.NewService(issueSyncDeps)
+			repositorySvc.SetTaskCreatedObserver(issueSyncSvc)
+			if boardDispatcher != nil {
+				boardDispatcher.SetNotifier(issueSyncSvc)
+			}
+			activateBoard = append(activateBoard, func() {
+				issueSyncSvc.Start(ctx, issuesyncapp.PollInterval)
+			})
+		}
 
 		// Work order — the `blocks` relation, enforced where a run starts (the
 		// dispatcher) and a park's only exit (the sweeper). Registered on the
@@ -2885,6 +2924,19 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// chat cannot park on its quota in the first place.
 			session.NewSessionQuotaSweeper(sessionStore, sessionSvc).Start(ctx, session.QuotaSweeperInterval)
 		}
+		// The conversion is an ordinary chat turn with the product manager, so
+		// an agent CLI provider runs it through the chat executor wired above.
+		if issueSyncSvc != nil && workflowSvc != nil {
+			conversion := issuesyncapp.ConversionDeps{
+				Sessions: sessionSvc,
+				Roles:    workflowSvc,
+				Policy:   cfg.Tools.DefaultPolicy,
+			}
+			if catalogStore != nil {
+				conversion.Agents = catalogStore
+			}
+			issueSyncSvc.StartConversions(ctx, conversion)
+		}
 	}
 
 	var apiKeySvc *apikey.Service
@@ -2955,6 +3007,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		DeploySvc:         e.deploySvc,
 		RepoDocsSvc:       e.repoDocsSvc,
 		ProdOpsSvc:        e.prodOpsSvc,
+		IssueSyncSvc:      issueSyncSvc,
 		StoreOpsSvc:       e.storeOpsSvc,
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,
