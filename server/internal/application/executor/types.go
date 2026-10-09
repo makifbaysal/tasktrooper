@@ -77,6 +77,10 @@ type AgentRun struct {
 	// indexed first, its context is injected before the first turn, and the
 	// index-backed code tools are served here.
 	Index *IndexRef `json:"index,omitempty"`
+	// Env is the repository's toolchain environment (GOTOOLCHAIN,
+	// NODE_VERSION, …), added for this run only to the processes its tools
+	// start, after the toolchain this computer resolves from the checkout.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 type IndexRef struct {

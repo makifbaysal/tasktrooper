@@ -98,6 +98,7 @@ type PreparedRun struct {
 	spec     AgentRun
 	model    string
 	workDir  string
+	env      []string
 	messages []domain.Message
 	ctx      context.Context
 	cancel   context.CancelCauseFunc
@@ -153,10 +154,14 @@ func (s *Service) Prepare(ctx context.Context, run AgentRun) (*PreparedRun, *Fai
 			return nil, badRequest("index.wait_ms cannot be negative")
 		}
 	}
+	env, failure := runEnv(run.Env)
+	if failure != nil {
+		return nil, failure
+	}
 
 	runCtx, cancel := context.WithCancelCause(ctx)
 	prepared := &PreparedRun{
-		svc: s, spec: run, model: model, workDir: workDir,
+		svc: s, spec: run, model: model, workDir: workDir, env: env,
 		messages: messages, ctx: runCtx, cancel: cancel,
 	}
 	s.mu.Lock()
@@ -326,6 +331,7 @@ func (r *PreparedRun) Execute(sink Sink) (*RunResult, *Failure) {
 	llm := &meteredClient{inner: r.svc.deps.LLM, meter: meter, em: em}
 
 	ctx = registry.ContextWithWorkspaceDir(ctx, r.workDir)
+	ctx = r.withRunEnv(ctx)
 	scope := "exec:" + r.spec.RunID
 	ctx = proctree.WithScope(ctx, scope)
 	defer proctree.Default.KillScope(scope, processGrace)
