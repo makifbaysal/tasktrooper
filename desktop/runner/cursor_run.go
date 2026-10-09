@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -265,92 +266,60 @@ func (s *runnerServer) handleCursorRun(w http.ResponseWriter, r *http.Request) {
 		id = newCallID()
 	}
 
-	runCtx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	if !s.register(id, cancel) {
-		writeError(w, failure(codeBadRequest, "a call with id %q is already running on this machine", id))
-		return
-	}
-	defer s.unregister(id)
-
 	if !s.enterRun() {
 		writeError(w, failure(codeCancelled, "this machine's tunnel session is shutting down and is not taking new runs"))
 		return
 	}
 	defer s.leaveRun()
 
-	// Same race-avoidance as claude.run and opencode.run: check cancellation
-	// before AND after taking the shared session semaphore.
-	if runCtx.Err() != nil {
-		writeError(w, failure(codeCancelled, "the call was cancelled before it started"))
-		return
-	}
-	select {
-	case s.sem <- struct{}{}:
-		if runCtx.Err() != nil {
-			<-s.sem
-			writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
-			return
-		}
-		defer func() { <-s.sem }()
-	case <-runCtx.Done():
-		writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
+	run, releaseSlot, queued := s.queueDurable(w, r, id, "cursor.run")
+	if !queued {
 		return
 	}
 
-	// Written only once a slot is free, matching claude.run's mcpArgs — a call
-	// queued behind fifteen others has no business holding a bearer token
-	// merged into the workspace's own config file while it waits.
-	restoreMCP, mcpErr := writeCursorMCP(prepared.dir, prepared.mcp)
-	defer restoreMCP()
+	// Written only once a slot is free, matching claude.run's — a call queued
+	// behind fifteen others has no business holding a bearer token merged
+	// into the workspace's own config file while it waits — and restored when
+	// the run ends, which may be long after this request does.
+	surface := s.openCLISurface(run.ctx, id, req.Workspace, prepared.mcp, surfaceToolPolicy(prepared.mcp, nil), req.Env, prepared.timeout)
+	restoreMCP, mcpErr := writeCursorMCP(prepared.dir, surface.mcp)
 	if mcpErr != nil {
+		restoreMCP()
+		surface.close()
+		releaseSlot()
+		run.abandon()
 		writeError(w, mcpErr)
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, failure(codeInternal, "this response cannot be streamed"))
-		return
-	}
+	s.serveDurable(w, r, run, []func(){releaseSlot, surface.close, restoreMCP}, func(runCtx context.Context, frames io.Writer) {
+		c := &call{
+			ctx:    runCtx,
+			id:     id,
+			cfg:    s.cfg,
+			state:  s.state,
+			params: body,
+			w:      frames,
+			// cursor-agent inherits this process's environment unmodified too
+			// — see spawnCursor — so the same transcript-side scrubbing
+			// claude.run and opencode.run get applies here. See redact.go.
+			redact: heldSecretRedactor(s.cfg.policy, surface.held()),
+		}
+		_ = c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"})
 
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
+		spawnCtx := runCtx
+		if prepared.timeout > 0 {
+			var stopTimeout context.CancelFunc
+			spawnCtx, stopTimeout = context.WithTimeout(runCtx, prepared.timeout)
+			defer stopTimeout()
+		}
 
-	c := &call{
-		ctx:    runCtx,
-		id:     id,
-		cfg:    s.cfg,
-		state:  s.state,
-		params: body,
-		w:      w,
-		flush:  flusher.Flush,
-		// cursor-agent inherits this process's environment unmodified too —
-		// see spawnCursor — so the same transcript-side scrubbing claude.run
-		// and opencode.run get applies here. See redact.go.
-		redact: credentialRedactor(s.cfg.policy, mcpTokenOf(prepared.mcp)),
-	}
-
-	if err := c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"}); err != nil {
-		log.Debug().Str("call", id).Err(err).Msg("caller went away before the session started")
-		return
-	}
-
-	spawnCtx := runCtx
-	if prepared.timeout > 0 {
-		var stopTimeout context.CancelFunc
-		spawnCtx, stopTimeout = context.WithTimeout(runCtx, prepared.timeout)
-		defer stopTimeout()
-	}
-
-	result, callErr := spawnCursor(spawnCtx, c, prepared.dir, prepared.args, prepared.prompt, prepared.env)
-
-	if callErr == nil && runCtx.Err() != nil {
-		callErr = failure(codeCancelled, "the call was cancelled")
-	}
-	c.finish(result, callErr)
+		result, callErr := spawnCursor(spawnCtx, c, prepared.dir, prepared.args, prepared.prompt, prepared.env)
+		if callErr == nil && runCtx.Err() != nil {
+			callErr = failure(codeCancelled, "the call was cancelled")
+		}
+		c.finish(result, callErr)
+	})
 }
 
 // spawnCursor runs one cursor-agent session to completion, streaming its

@@ -68,8 +68,14 @@ type Deps struct {
 	Embeddings port.EmbeddingsEndpoint
 	// Git answers the post-run routes (git.*, commit_push); nil answers
 	// not_ready.
-	Git    port.CheckoutGit
-	Limits Limits
+	Git port.CheckoutGit
+	// IndexToolNames are the tools Index attaches, for LocalToolNames to
+	// advertise before any index is attached.
+	IndexToolNames []string
+	// Surfaces serves a CLI run's tools on loopback; nil answers mcp.open
+	// not_ready.
+	Surfaces port.ToolSurfaceServer
+	Limits   Limits
 }
 
 type Service struct {
@@ -84,6 +90,7 @@ type Service struct {
 	runs     map[string]*PreparedRun
 	ensures  map[string]*PreparedEnsure
 	verifies map[string]*PreparedVerify
+	surfaces map[string]*openSurface
 	closing  bool
 }
 
@@ -93,6 +100,7 @@ func NewService(deps Deps) *Service {
 		deps: deps, life: life, endLife: endLife,
 		runs: make(map[string]*PreparedRun), ensures: make(map[string]*PreparedEnsure),
 		verifies: make(map[string]*PreparedVerify),
+		surfaces: make(map[string]*openSurface),
 	}
 }
 
@@ -149,15 +157,8 @@ func (s *Service) Prepare(ctx context.Context, run AgentRun) (*PreparedRun, *Fai
 	if run.MCP != nil && strings.TrimSpace(run.MCP.URL) == "" {
 		run.MCP = nil
 	}
-	if run.Index != nil {
-		run.Index.RepoKey = strings.TrimSpace(run.Index.RepoKey)
-		run.Index.Branch = strings.TrimSpace(run.Index.Branch)
-		if run.Index.RepoKey == "" {
-			return nil, badRequest("index.repo_key is required when a run names an index")
-		}
-		if run.Index.WaitMS < 0 {
-			return nil, badRequest("index.wait_ms cannot be negative")
-		}
+	if run.Index, failure = validIndex(run.Index); failure != nil {
+		return nil, failure
 	}
 	env, failure := runEnv(run.Env)
 	if failure != nil {
@@ -286,6 +287,7 @@ func (s *Service) Shutdown() {
 		verify.cancel(errShuttingDown)
 	}
 	s.endLife(errShuttingDown)
+	s.closeAllSurfaces()
 }
 
 func (s *Service) ActiveRuns() int {
@@ -343,7 +345,7 @@ func (r *PreparedRun) Execute(sink Sink) (*RunResult, *Failure) {
 	llm := &meteredClient{inner: r.svc.deps.LLM, meter: meter, em: em}
 
 	ctx = registry.ContextWithWorkspaceDir(ctx, r.workDir)
-	ctx = r.withRunEnv(ctx)
+	ctx = withRunEnv(ctx, r.workDir, r.env)
 	scope := "exec:" + r.spec.RunID
 	ctx = proctree.WithScope(ctx, scope)
 	defer proctree.Default.KillScope(scope, processGrace)
@@ -403,27 +405,7 @@ func (s *Service) limitsFor(ref domain.LLMProviderType, model string) appcontext
 }
 
 func (r *PreparedRun) registry(remote []port.ToolExecutor, index *port.LocalIndexAttachment, em *emitter) port.ToolRegistry {
-	inner := registry.New()
-	sources := make(map[string]string)
-	for _, tool := range remote {
-		if remoteWithheld(tool.Name()) {
-			continue
-		}
-		inner.Register(tool)
-		sources[tool.Name()] = SourceRemote
-	}
-	local := append([]port.ToolExecutor(nil), r.svc.deps.HostTools...)
-	if r.workDir != "" {
-		local = append(local, r.svc.deps.WorkspaceTools...)
-	}
-	// Last, so the index-backed get_symbol_skeleton replaces the by-file one.
-	if index != nil {
-		local = append(local, index.Tools...)
-	}
-	for _, tool := range local {
-		inner.Register(tool)
-		sources[tool.Name()] = SourceLocal
-	}
+	inner, sources := r.svc.toolRegistry(remote, r.workDir, index, nil)
 	return &eventingRegistry{
 		ToolRegistry: registry.NewWorkspaceRegistry(inner, nil),
 		sources:      sources,

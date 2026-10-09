@@ -27,7 +27,11 @@ const (
 	fakeExecutorEnv     = "TT_FAKE_EXECUTOR"
 	fakeExecutorDumpEnv = "TT_FAKE_EXECUTOR_DUMP"
 	fakeProviderKey     = "sk-fake-provider-0123456789abcdef"
+	fakeSurfaceToken    = "surface-token-fedcba9876543210"
 )
+
+// fakeLocalTools is what the fake executor's health says its surfaces serve.
+var fakeLocalTools = []string{"browser_navigate", "codebase_search", "http_request"}
 
 // fakeExecutor is the stand-in executor. Modes: "ok" serves until stdin
 // closes; "exit" exits shortly after it is ready, so the runner restarts it;
@@ -84,7 +88,48 @@ func fakeExecutor(mode string) int {
 		if !authorized(w, r) {
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "version": "fake", "protocol": protocol})
+		health := map[string]any{"ok": true, "version": "fake", "protocol": protocol}
+		if mode != "nomcp" {
+			health["local_tools"] = fakeLocalTools
+		}
+		_ = json.NewEncoder(w).Encode(health)
+	})
+	mux.HandleFunc("POST /exec/mcp.open", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		record("surface-opens", string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		var req struct {
+			RunID    string `json:"run_id"`
+			CloudMCP struct {
+				Token      string `json:"token"`
+				ServerName string `json:"server_name"`
+			} `json:"cloud_mcp"`
+		}
+		_ = json.Unmarshal(raw, &req)
+		switch mode {
+		case "nomcp":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"v":1,"error":{"code":"unsupported_method","message":"no POST /exec/mcp.open here"}}`))
+		case "mcpfail":
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"v":1,"error":{"code":"upstream","message":"could not reach the cloud with ` + req.CloudMCP.Token + `"}}`))
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"v": 1, "run_id": req.RunID, "url": "http://" + r.Host + "/mcp", "token": fakeSurfaceToken,
+				"server_name": req.CloudMCP.ServerName, "tools": fakeLocalTools,
+			})
+		}
+	})
+	mux.HandleFunc("POST /exec/mcp.close", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		record("surface-closes", string(raw))
+		_, _ = w.Write([]byte(`{"v":1,"closed":true}`))
 	})
 	mux.HandleFunc("POST /exec/agent.run", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) {
@@ -221,6 +266,7 @@ func startFakeExecutor(t *testing.T, mode string, timings executorTimings) *exec
 	st.executor = newExecutorSupervisor(cfg, func() string { return "" }, timings)
 	st.executor.start()
 	t.Cleanup(st.executor.close)
+	t.Cleanup(st.runs.close)
 	return &executorHarness{cfg: cfg, st: st, sup: st.executor, dump: dump}
 }
 
@@ -334,6 +380,8 @@ func TestAnEmbedderMoveWithNoExecutorIsDropped(t *testing.T) {
 	}
 }
 
+// Unchanged but for the seq the runner numbers every frame of a run with,
+// added last so the executor's own bytes come first.
 func TestAgentRunIsForwardedAndStreamedUnchanged(t *testing.T) {
 	h := startFakeExecutor(t, "ok", fastExecutorTimings)
 	h.awaitReady(t)
@@ -343,9 +391,9 @@ func TestAgentRunIsForwardedAndStreamedUnchanged(t *testing.T) {
 	if res.status != http.StatusOK {
 		t.Fatalf("status = %d body=%s", res.status, res.body)
 	}
-	want := `{"v":1,"id":"c-91","event":"started"}` + "\n" +
-		`{"v":1,"id":"c-91","event":"event","payload":{"seq":1,"kind":"text","delta":"root=` + h.cfg.workspaceDir + `"}}` + "\n" +
-		`{"v":1,"id":"c-91","event":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1}}` + "\n"
+	want := `{"v":1,"id":"c-91","event":"started","seq":1}` + "\n" +
+		`{"v":1,"id":"c-91","event":"event","payload":{"seq":1,"kind":"text","delta":"root=` + h.cfg.workspaceDir + `"},"seq":2}` + "\n" +
+		`{"v":1,"id":"c-91","event":"done","ok":true,"result":{"final_text":"ok","usage":{},"tool_usage":[],"duration_ms":1},"seq":3}` + "\n"
 	if res.body != want {
 		t.Fatalf("body =\n%s\nwant\n%s", res.body, want)
 	}

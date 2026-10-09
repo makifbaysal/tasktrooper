@@ -218,6 +218,9 @@ type executorSupervisor struct {
 	changed chan struct{}
 	lastErr string
 	fatal   bool
+	// localTools is what the last healthy executor said its tool surfaces
+	// serve of their own; kept across a restart, which serves the same.
+	localTools []string
 }
 
 type executorProcess struct {
@@ -473,9 +476,10 @@ func (e *executorSupervisor) spawn() (*executorProcess, error) {
 }
 
 type executorHealth struct {
-	OK       bool   `json:"ok"`
-	Version  string `json:"version"`
-	Protocol int    `json:"protocol"`
+	OK         bool     `json:"ok"`
+	Version    string   `json:"version"`
+	Protocol   int      `json:"protocol"`
+	LocalTools []string `json:"local_tools"`
 }
 
 func (e *executorSupervisor) checkHealth(p *executorProcess) error {
@@ -501,7 +505,21 @@ func (e *executorSupervisor) checkHealth(p *executorProcess) error {
 	if resp.StatusCode != http.StatusOK || !h.OK {
 		return fmt.Errorf("the executor reports itself unhealthy (HTTP %d)", resp.StatusCode)
 	}
+	e.mu.Lock()
+	e.localTools = h.LocalTools
+	e.mu.Unlock()
 	return nil
+}
+
+// localToolNames is nil until an executor has answered, and for one that
+// serves no tool surfaces.
+func (e *executorSupervisor) localToolNames() []string {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.localTools...)
 }
 
 // stop asks first — stdin EOF is the executor's shutdown request, on every
@@ -687,38 +705,35 @@ func (s *runnerServer) handleAgentRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runCtx, cancel := context.WithCancel(r.Context())
-	defer cancel()
 	callID := head.callID()
-	if !s.register(callID, cancel) {
-		writeError(w, failure(codeBadRequest, "a call with id %q is already running on this machine", callID))
-		return
-	}
-	defer s.unregister(callID)
 	if !s.enterRun() {
 		writeError(w, failure(codeCancelled, "this machine's tunnel session is shutting down and is not taking new runs"))
 		return
 	}
 	defer s.leaveRun()
 
-	select {
-	case s.sem <- struct{}{}:
-		defer func() { <-s.sem }()
-	case <-runCtx.Done():
-		writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
+	run, releaseSlot, queued := s.queueDurable(w, r, callID, "agent.run")
+	if !queued {
 		return
 	}
+	refuse := func(e *rpcError) {
+		releaseSlot()
+		run.abandon()
+		writeError(w, e)
+	}
 
-	inst, rpcErr := ex.ready(runCtx)
+	inst, rpcErr := ex.ready(run.ctx)
 	if rpcErr != nil {
-		writeError(w, rpcErr)
+		refuse(rpcErr)
 		return
 	}
 	redact := s.executorRedactor(mcpTokenOf(mcpCfg))
 
-	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, inst.base+"/exec/agent.run", bytes.NewReader(body))
+	// On the run's context, not the request's: the executor's run is what
+	// outlives this stream, so the connection to it must too.
+	req, err := http.NewRequestWithContext(run.ctx, http.MethodPost, inst.base+"/exec/agent.run", bytes.NewReader(body))
 	if err != nil {
-		writeError(w, failure(codeInternal, "building the executor request: %v", err))
+		refuse(failure(codeInternal, "building the executor request: %v", err))
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+inst.token)
@@ -726,50 +741,38 @@ func (s *runnerServer) handleAgentRun(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Accept", "application/x-ndjson")
 	resp, err := ex.client.Do(req)
 	if err != nil {
-		if runCtx.Err() != nil {
-			writeError(w, failure(codeCancelled, "the call was cancelled"))
+		if run.ctx.Err() != nil {
+			refuse(failure(codeCancelled, "the call was cancelled"))
 			return
 		}
-		writeError(w, failure(codeUpstream, "could not reach the local executor: %v", err))
+		refuse(failure(codeUpstream, "could not reach the local executor: %v", err))
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
-	defer func() {
-		if runCtx.Err() != nil {
-			ex.cancelRun(head.RunID, inst)
-		}
-	}()
-
 	if resp.StatusCode != http.StatusOK {
 		relayDocument(w, resp, redact)
+		_ = resp.Body.Close()
+		releaseSlot()
+		run.abandon()
 		return
 	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, failure(codeInternal, "this response cannot be streamed"))
-		return
+	closeBody := func() { _ = resp.Body.Close() }
+	tellExecutor := func() {
+		if run.ctx.Err() != nil {
+			ex.cancelRun(head.RunID, inst)
+		}
 	}
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/x-ndjson"
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
 
-	sawDone, writeErr := relayNDJSON(w, flusher.Flush, resp.Body, redact)
-	if sawDone || writeErr != nil {
-		return
-	}
-	code, message := codeUpstream, "the local executor ended the run's stream without a done line"
-	if runCtx.Err() != nil {
-		code, message = codeCancelled, "the run was cancelled"
-	}
-	closing, _ := json.Marshal(doneEvent{V: protocolVersion, ID: callID, Event: "done", OK: false, Error: &rpcError{Code: code, Message: message}})
-	if _, err := w.Write(append(closing, '\n')); err == nil {
-		flusher.Flush()
-	}
+	s.serveDurable(w, r, run, []func(){releaseSlot, closeBody, tellExecutor}, func(runCtx context.Context, frames io.Writer) {
+		if relayFrames(frames, resp.Body, redact, callID) {
+			return
+		}
+		code, message := codeUpstream, "the local executor ended the run's stream without a done line"
+		if runCtx.Err() != nil {
+			code, message = codeCancelled, "the run was cancelled"
+		}
+		closing, _ := json.Marshal(doneEvent{V: protocolVersion, ID: callID, Event: "done", OK: false, Error: &rpcError{Code: code, Message: message}})
+		_, _ = frames.Write(closing)
+	})
 }
 
 // handleLLMComplete forwards POST /llm.complete to /exec/llm.complete: one
@@ -847,47 +850,30 @@ func relayDocument(w http.ResponseWriter, resp *http.Response, redact func([]byt
 	}
 }
 
-// relayNDJSON copies an NDJSON stream line by line, flushing each, and says
-// whether a `done` line went past. A line longer than outputLineLimit is
-// passed on in pieces rather than held whole: NDJSON cut mid-line is still
-// better than a reader that stops and leaves the executor blocked on a pipe.
-func relayNDJSON(w io.Writer, flush func(), body io.Reader, redact func([]byte) []byte) (sawDone bool, writeErr error) {
+// relayFrames copies the executor's NDJSON into a run one frame at a time,
+// scrubbed, and says whether a done went past. A line over outputLineLimit is
+// cut there: the executor caps what it puts in a frame far below it, and a
+// frame is the unit a run buffers.
+func relayFrames(frames io.Writer, body io.Reader, redact func([]byte) []byte, callID string) bool {
 	reader := bufio.NewReaderSize(body, outputReadBuffer)
-	var pending []byte
-	long := false
-	emit := func(chunk []byte) error {
-		if redact != nil {
-			chunk = redact(chunk)
-		}
-		if _, err := w.Write(chunk); err != nil {
-			return err
-		}
-		flush()
-		return nil
-	}
 	for {
-		chunk, err := reader.ReadSlice('\n')
-		pending = append(pending, chunk...)
-		if errors.Is(err, bufio.ErrBufferFull) {
-			if len(pending) > outputLineLimit {
-				if werr := emit(pending); werr != nil {
-					return sawDone, werr
-				}
-				pending, long = nil, true
-			}
-			continue
+		line, dropped, err := readLimitedLine(reader, outputLineLimit)
+		if dropped > 0 {
+			log.Warn().Str("call", callID).Int64("dropped", dropped).Msg("a frame from the executor was longer than the limit and was cut")
 		}
-		if len(pending) > 0 {
-			if !long && isDoneLine(pending) {
-				sawDone = true
+		if len(bytes.TrimSpace(line)) > 0 {
+			if redact != nil {
+				line = redact(line)
 			}
-			if werr := emit(pending); werr != nil {
-				return sawDone, werr
+			if _, werr := frames.Write(line); werr != nil {
+				return false
+			}
+			if dropped == 0 && isDoneLine(line) {
+				return true
 			}
 		}
-		pending, long = nil, false
 		if err != nil {
-			return sawDone, nil
+			return false
 		}
 	}
 }

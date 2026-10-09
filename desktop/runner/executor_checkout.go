@@ -70,37 +70,33 @@ func (s *runnerServer) handleVerify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, failure(codeBadRequest, "id is required: it is the handle POST /cancel stops this verification by"))
 		return
 	}
-
-	runCtx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	if !s.register(head.ID, cancel) {
-		writeError(w, failure(codeBadRequest, "a call with id %q is already running on this machine", head.ID))
-		return
-	}
-	defer s.unregister(head.ID)
 	if !s.enterRun() {
 		writeError(w, failure(codeCancelled, "this machine's tunnel session is shutting down and is not taking new runs"))
 		return
 	}
 	defer s.leaveRun()
 
-	select {
-	case s.sem <- struct{}{}:
-		defer func() { <-s.sem }()
-	case <-runCtx.Done():
-		writeError(w, failure(codeCancelled, "the call was cancelled while it was waiting for a free session slot"))
+	run, releaseSlot, queued := s.queueDurable(w, r, head.ID, "verify")
+	if !queued {
 		return
 	}
+	refuse := func(e *rpcError) {
+		releaseSlot()
+		run.abandon()
+		writeError(w, e)
+	}
 
-	inst, rpcErr := ex.ready(runCtx)
+	inst, rpcErr := ex.ready(run.ctx)
 	if rpcErr != nil {
-		writeError(w, rpcErr)
+		refuse(rpcErr)
 		return
 	}
 	redact := s.checkoutRedactor("")
-	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, inst.base+"/exec/verify", bytes.NewReader(body))
+	// On the run's context, not the request's: the verification is what
+	// outlives this stream, so the connection to the executor must too.
+	req, err := http.NewRequestWithContext(run.ctx, http.MethodPost, inst.base+"/exec/verify", bytes.NewReader(body))
 	if err != nil {
-		writeError(w, failure(codeInternal, "building the executor request: %v", err))
+		refuse(failure(codeInternal, "building the executor request: %v", err))
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+inst.token)
@@ -108,50 +104,38 @@ func (s *runnerServer) handleVerify(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Accept", "application/x-ndjson")
 	resp, err := ex.client.Do(req)
 	if err != nil {
-		if runCtx.Err() != nil {
-			writeError(w, failure(codeCancelled, "the call was cancelled"))
+		if run.ctx.Err() != nil {
+			refuse(failure(codeCancelled, "the call was cancelled"))
 			return
 		}
-		writeError(w, failure(codeUpstream, "could not reach the local executor: %v", err))
+		refuse(failure(codeUpstream, "could not reach the local executor: %v", err))
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
-	defer func() {
-		if runCtx.Err() != nil {
-			ex.cancelStream(head.ID, inst)
-		}
-	}()
-
 	if resp.StatusCode != http.StatusOK {
 		relayDocument(w, resp, redact)
+		_ = resp.Body.Close()
+		releaseSlot()
+		run.abandon()
 		return
 	}
-	flusher, canFlush := w.(http.Flusher)
-	if !canFlush {
-		writeError(w, failure(codeInternal, "this response cannot be streamed"))
-		return
+	closeBody := func() { _ = resp.Body.Close() }
+	tellExecutor := func() {
+		if run.ctx.Err() != nil {
+			ex.cancelStream(head.ID, inst)
+		}
 	}
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/x-ndjson"
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
 
-	sawDone, writeErr := relayNDJSON(w, flusher.Flush, resp.Body, redact)
-	if sawDone || writeErr != nil {
-		return
-	}
-	code, message := codeUpstream, "the local executor ended the verification's stream without a done line"
-	if runCtx.Err() != nil {
-		code, message = codeCancelled, "the verification was cancelled"
-	}
-	closing, _ := json.Marshal(doneEvent{V: protocolVersion, ID: head.ID, Event: "done", OK: false, Error: &rpcError{Code: code, Message: message}})
-	if _, err := w.Write(append(closing, '\n')); err == nil {
-		flusher.Flush()
-	}
+	s.serveDurable(w, r, run, []func(){releaseSlot, closeBody, tellExecutor}, func(runCtx context.Context, frames io.Writer) {
+		if relayFrames(frames, resp.Body, redact, head.ID) {
+			return
+		}
+		code, message := codeUpstream, "the local executor ended the verification's stream without a done line"
+		if runCtx.Err() != nil {
+			code, message = codeCancelled, "the verification was cancelled"
+		}
+		closing, _ := json.Marshal(doneEvent{V: protocolVersion, ID: head.ID, Event: "done", OK: false, Error: &rpcError{Code: code, Message: message}})
+		_, _ = frames.Write(closing)
+	})
 }
 
 func (s *runnerServer) handleGitStatus(w http.ResponseWriter, r *http.Request) {

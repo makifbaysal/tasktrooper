@@ -17,6 +17,7 @@ local edition (`cmd/agent-server`) does not use it and is unchanged.
 | HTTP | `adapter/executorapi` (net/http, NDJSON, bearer, redaction) |
 | runs | `application/executor` (validation, per-run registry and loop, events) |
 | coordination tools | `port.RemoteToolConnector` → `adapter/mcp.RemoteConnector` |
+| CLI tool surfaces | `port.ToolSurfaceServer` → `adapter/mcpsurface.Server` (go-sdk, streamable HTTP on loopback) |
 | code index | `port.LocalCodeIndex` → `application/localindex` (the server's indexer and injector over its own store); `platform/executor` wires the embedder (`embedder.go`) and the store (`indexstore.go`) |
 | post-run half | `application/executor/checkout.go`: the verification pass is `board.VerifyWorkspace` (the board's own verify step), git is `port.CheckoutGit` → `adapter/vcs/git.Checkout` |
 
@@ -85,7 +86,14 @@ response body and frame.
 
 ### `GET /exec/health`
 
-Returns `{"ok":true,"version":"…","protocol":1,"active_runs":0}`.
+Returns `{"ok":true,"version":"…","protocol":1,"active_runs":0,"local_tools":["browser_click",…]}`.
+
+`local_tools` is what a tool surface (`mcp.open`) on this computer serves of
+its own, before any coordination tool: the host and workspace tools minus the
+ones a CLI has natively, plus the index-backed three when the executor has a
+`data_dir`. The runner advertises it in its `preflight.report`, so the cloud
+can stop withholding those tools from runs on this computer. It is absent
+when the executor serves no surfaces.
 
 ### `POST /exec/agent.run`
 
@@ -141,6 +149,13 @@ the runner's `claude.run` envelope:
 - `id` is the request's `id` when given (so a stream the runner forwards
   unchanged matches the cloud's call id), otherwise the `run_id`.
 - `seq` is the order on the wire.
+- Behind a runner (`desktop/runner`), this stream is part of a **durable
+  run**: the runner keeps its own connection to this route open when the
+  cloud's stream or tunnel drops, so a dropped tunnel does not cancel the run
+  here; only `/exec/cancel`, `timeout_ms` and shutdown do. The runner adds
+  its own top-level `seq` to every frame (the payload's `seq` is untouched),
+  buffers the frames, and serves them again through its `run.attach`. See
+  "Durable runs" in `desktop/runner/CLAUDE.md`.
 - Event kinds:
   - `step` is every activity step the loop records, with the same type and
     payload a local run stores.
@@ -382,6 +397,65 @@ Failure codes: `bad_request`, `conflict`, `upstream` (the push failed; with
 `"reason":"workflow_scope"` when GitHub refused it because the token may not
 change `.github/workflows` — nothing but a better token helps), `timeout`
 (10 minutes by default), `cancelled`.
+### `POST /exec/mcp.open`
+
+A tool surface for one agent CLI run (Claude Code, OpenCode, Cursor) that the
+runner starts on this computer: a streamable-HTTP MCP server on loopback,
+behind a bearer of its own, serving this computer's tools rooted at the run's
+workspace and the coordination endpoint's tools proxied over one MCP session
+with the run's own cloud bearer. The runner writes the CLI's MCP config with
+this surface's URL and token in place of the cloud's.
+
+```json
+{"run_id":"cli-91","workspace":"repos/app/task-1",
+ "tool_policy":{"allow_tools":["codebase_search","browser_*","list_board_tasks"]},
+ "cloud_mcp":{"url":"https://app.tasktrooper.ai/api/mcp","token":"<per-run>","server_name":"tasktrooper"},
+ "index":{"repo_key":"<stable repository key>","branch":"tt/task-1","wait_ms":0},
+ "env":{"GOTOOLCHAIN":"go1.22.1+auto"},
+ "timeout_ms":3600000}
+```
+
+```json
+{"v":1,"run_id":"cli-91","url":"http://127.0.0.1:52817/mcp","token":"<fresh 64 hex>",
+ "server_name":"tasktrooper","tools":["browser_click","codebase_search","list_board_tasks"]}
+```
+
+- Only `run_id` is required. A second open of a live `run_id` is 409.
+- **The tools.** The coordination endpoint's first (minus the withheld list in
+  "Tools of a run"), this computer's on top — **local wins a name clash** —
+  and the index-backed three last. The tools a CLI has natively (`read_file`,
+  `write_file`, `edit_file`, `edit_lines`, `delete_file`, `move_file`,
+  `grep_code`, `get_repo_tree`, `run_terminal`) are not served, from either
+  side, as the server's own `/mcp` does not serve them to a CLI. Workspace
+  tools come only with a `workspace`. Descriptions are the catalog's, as for
+  a run.
+- **`tool_policy`** decides what `tools/list` offers and what `tools/call`
+  runs (`registry.DefinitionsForPolicy` / `ExecuteWithPolicy`), the same
+  rule a run's loop applies. The coordination endpoint still applies its own
+  token's policy to what it serves.
+- **`index`** (optional) starts the checkout's pass in the background and
+  attaches the index; `wait_ms` above 0 waits for the pass up to that long
+  (at most thirty minutes), otherwise the surface searches the base index
+  until the branch's own is complete. Without an index, or with one that
+  cannot be read, the surface opens without the index-backed tools.
+- **`env`** is the run's toolchain environment for the processes the
+  surface's tools start, under `agent.run`'s rules.
+- **Calls** run under the run's context — workspace, environment, process
+  scope `mcp:<run_id>`, index — and end early when their own request does.
+- **It lasts** until `mcp.close`, `timeout_ms`, or executor shutdown, whatever
+  happens to the request that opened it. Closing it closes the listener and
+  the coordination session and kills the process trees its tools left.
+- **Tokens.** The answer carries the surface's own bearer and never the
+  cloud's; neither is logged. A refusal is scrubbed of the cloud token.
+- Failure codes: `bad_request`, `conflict`, `not_ready` (no surface server),
+  `upstream` (the coordination endpoint could not be reached), `cancelled`
+  (shutdown), `internal`.
+
+### `POST /exec/mcp.close`
+
+Request: `{"run_id":"cli-91"}`. Response: `{"v":1,"run_id":"cli-91","closed":true|false}`.
+A surface that already closed (its timeout, say) answers `false` and is not an
+error.
 
 ## Runs that name an index
 

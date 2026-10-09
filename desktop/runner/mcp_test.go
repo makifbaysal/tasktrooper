@@ -90,11 +90,13 @@ func newMCPHarness(t *testing.T, claudeBin, workspace, mcpRoot string) *runHarne
 		embeddingsBaseURL: "http://127.0.0.1:1234/v1",
 		embeddingModel:    "nomic-embed-text-v1.5",
 	}
-	runner := newRunnerServer(cfg, newState())
+	st := testState(t)
+	runner := newRunnerServer(cfg, st)
 	runner.mcpRoot = mcpRoot
 	srv := httptest.NewServer(runner.handler())
 	t.Cleanup(srv.Close)
-	return &runHarness{srv: srv, client: srv.Client()}
+	t.Cleanup(st.runs.close)
+	return &runHarness{srv: srv, client: srv.Client(), st: st}
 }
 
 // awaitData reads frames until one arrives whose data line starts with prefix,
@@ -249,9 +251,10 @@ func TestAnMCPRunPutsTheTokenInTheFileAndTheFlagsInArgv(t *testing.T) {
 // The deletion guarantee, stated once for each way a run can end.
 //
 // Three of these four are the ones a refactor breaks silently: a cancelled run,
-// a failed run and a dropped tunnel all leave through a different path than the
-// happy one, and a file that is only removed on the happy path is a token left
-// on somebody's disk exactly when something has already gone wrong.
+// a failed run and a runner shutting down all leave through a different path
+// than the happy one, and a file that is only removed on the happy path is a
+// token left on somebody's disk exactly when something has already gone wrong.
+// A dropped stream is not an ending: the run, and its file, go on.
 func TestTheMCPConfigIsRemovedHoweverTheRunEnds(t *testing.T) {
 	body := `{"id":"c-end","workspace":"repo","prompt":"go","mcp":{` +
 		`"url":"` + testMCPURL + `","token":"` + testMCPToken + `","server_name":"tasktrooper"}}`
@@ -326,11 +329,10 @@ func TestTheMCPConfigIsRemovedHoweverTheRunEnds(t *testing.T) {
 		assertRootIsEmpty(t, mcpRoot)
 	})
 
-	// The tunnel dropping, which from this side is a caller that stopped
-	// reading. There is no `done` to wait for here — nobody is listening for
-	// one — so the only evidence that the run ended is the process tree dying
-	// and the token file disappearing.
-	t.Run("the tunnel drops", func(t *testing.T) {
+	// The stream drops and the run goes on with its file; then the runner
+	// shuts down, which is an ending. Nobody is reading for a done, so the
+	// evidence is the process tree dying and the token file disappearing.
+	t.Run("the stream drops, then the runner shuts down", func(t *testing.T) {
 		mcpRoot := t.TempDir()
 		claudeBin := mcpEchoingClaude(t, "trap '' TERM\nsleep 300 &\necho grandchild:$!\nwait\n")
 		h := newMCPHarness(t, claudeBin, emptyWorkspace(t), mcpRoot)
@@ -344,8 +346,14 @@ func TestTheMCPConfigIsRemovedHoweverTheRunEnds(t *testing.T) {
 		if err := res.Body.Close(); err != nil {
 			t.Fatalf("closing the response body: %v", err)
 		}
+		time.Sleep(time.Second)
+		if !alive(child) {
+			t.Fatalf("the run's child (%d) died with its stream", child)
+		}
+		assertConfigIsPrivate(t, path)
 
-		awaitGone(t, child, claudeGrace+claudeReapTimeout+10*time.Second)
+		h.st.runs.close()
+		awaitGone(t, child, 5*time.Second)
 		awaitPathGone(t, filepath.Dir(path), 10*time.Second)
 		assertRootIsEmpty(t, mcpRoot)
 	})

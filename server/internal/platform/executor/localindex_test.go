@@ -21,8 +21,11 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/executorapi"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpserver"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -628,4 +631,40 @@ func (s *LocalIndexSuite) TestSearchBeforeAnyIndexAndEnsureOfAMissingCheckout() 
 	resp := s.post("/exec/index.ensure", map[string]any{"workspace": "repos/missing", "repo_key": "github.com/acme/missing"})
 	defer resp.Body.Close()
 	s.Equal(http.StatusBadRequest, resp.StatusCode)
+}
+
+// A CLI run's tool surface searches this computer's index of its own
+// checkout, never the coordination endpoint's, which the cloud served too.
+func (s *LocalIndexSuite) TestACLIRunsSurfaceSearchesThisComputersIndex() {
+	rel := s.checkout("repos/surface", fixtureRepo)
+	resp := s.post(executorapi.PathMCPOpen, map[string]any{
+		"run_id":    "cli-index-1",
+		"workspace": rel,
+		"index":     map[string]any{"repo_key": "surface-repo", "wait_ms": 120000},
+		"cloud_mcp": map[string]any{"url": s.cloud.URL + mcpserver.Path, "token": s.mcpToken, "server_name": "tasktrooper"},
+	})
+	raw, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	s.Require().NoError(err)
+	s.Require().Equal(http.StatusOK, resp.StatusCode, string(raw))
+	var opened openedSurface
+	s.Require().NoError(json.Unmarshal(raw, &opened))
+	defer func() { _ = s.post(executorapi.PathMCPClose, map[string]any{"run_id": "cli-index-1"}).Body.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	session, err := connect(ctx, opened.URL, opened.Token)
+	s.Require().NoError(err)
+	defer session.Close()
+	listed, err := session.ListTools(ctx, nil)
+	s.Require().NoError(err)
+	for _, want := range []string{"codebase_search", "expand_symbol_context", "get_symbol_skeleton", "list_board_tasks"} {
+		s.Contains(names(listed.Tools), want)
+	}
+
+	res, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: "codebase_search", Arguments: map[string]any{"query": "exchange a refresh token for an access token"}})
+	s.Require().NoError(err)
+	s.False(res.IsError, text(res))
+	s.Contains(text(res), "RefreshToken")
+	s.cloudSearch.AssertNotCalled(s.T(), "Execute", mock.Anything, mock.Anything)
 }

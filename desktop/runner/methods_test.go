@@ -352,6 +352,27 @@ func TestPreflightReportIsRelayedUnchanged(t *testing.T) {
 	}
 }
 
+// What the runner knows about itself rides on the report, after the app's own
+// fields, so the cloud can feature-detect durable runs.
+func TestPreflightAdvertisesTheRunCapabilities(t *testing.T) {
+	st := newState()
+	st.setPreflight(json.RawMessage(`{"generatedAt":17,"ready":true,"items":[]}`))
+	res := request(t, config{}, st, http.MethodGet, "/preflight.report", "")
+	var got struct {
+		GeneratedAt  int      `json:"generatedAt"`
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal([]byte(res.body), &got); err != nil {
+		t.Fatalf("the report is not JSON: %v (%s)", err, res.body)
+	}
+	if got.GeneratedAt != 17 || strings.Join(got.Capabilities, ",") != "run.attach,run.status" {
+		t.Fatalf("report = %s, want the app's fields and the runner's capabilities", res.body)
+	}
+	if got := string(withRunnerFields(json.RawMessage(`{}`), map[string]any{"a": 1})); got != `{"a":1}` {
+		t.Fatalf("an empty report became %s", got)
+	}
+}
+
 // The status mapping, which is the half of the contract a caller branches on
 // before it has read a body.
 //
@@ -683,5 +704,42 @@ func TestPrepareRefusesABranchTheRemoteDoesNotHave(t *testing.T) {
 	}
 	if err.Code != codeUpstream {
 		t.Fatalf("code = %q, want %q", err.Code, codeUpstream)
+	}
+}
+
+// The surface's tool policy is the cloud's own when it sent one, else the MCP
+// half of claude.run's tools under the names the surface serves them by.
+func TestSurfaceToolPolicy(t *testing.T) {
+	cloud := &mcpConfig{serverName: "tasktrooper"}
+	if got := surfaceToolPolicy(cloud, []string{"Read", "mcp__tasktrooper__codebase_search", "mcp__other__x"}); string(got) != `{"allow_tools":["codebase_search"]}` {
+		t.Fatalf("derived policy = %s", got)
+	}
+	if got := surfaceToolPolicy(cloud, []string{"Read", "Bash"}); got != nil {
+		t.Fatalf("a run naming no MCP tool sent policy %s", got)
+	}
+	cloud.toolPolicy = json.RawMessage(`{"allow_tools":["browser_*"]}`)
+	if got := surfaceToolPolicy(cloud, []string{"mcp__tasktrooper__codebase_search"}); string(got) != `{"allow_tools":["browser_*"]}` {
+		t.Fatalf("the cloud's own policy was replaced by %s", got)
+	}
+	if surfaceToolPolicy(nil, []string{"mcp__tasktrooper__x"}) != nil {
+		t.Fatal("a run with no mcp got a surface policy")
+	}
+}
+
+func TestCheckMCPForwardsTheSurfaceFieldsAsObjectsOnly(t *testing.T) {
+	base := mcpParams{URL: "https://tasktrooper.example/api/mcp", Token: "tok-0123456789", ServerName: "tasktrooper"}
+	ok := base
+	ok.ToolPolicy = json.RawMessage(` {"allow_tools":["x"]} `)
+	ok.Index = json.RawMessage(`null`)
+	cfg, rpcErr := checkMCP(&ok)
+	if rpcErr != nil || string(cfg.toolPolicy) != `{"allow_tools":["x"]}` || cfg.index != nil {
+		t.Fatalf("checkMCP = %+v, %v", cfg, rpcErr)
+	}
+	for _, bad := range []json.RawMessage{json.RawMessage(`["x"]`), json.RawMessage(`"x"`), json.RawMessage(`{"a":`)} {
+		p := base
+		p.Index = bad
+		if _, rpcErr := checkMCP(&p); rpcErr == nil || rpcErr.Code != codeBadRequest {
+			t.Fatalf("mcp.index %s was accepted", bad)
+		}
 	}
 }

@@ -41,7 +41,9 @@ internal/
   adapter/          http, llm, agentcli/*, tools/*, mcp, mcpserver, github,
                     postgres — anything external (agentcli = agent CLIs run as
                     a local process, e.g. Claude Code; mcp = MCP client,
-                    mcpserver = the /mcp endpoint those CLIs call back on)
+                    mcpserver = the /mcp endpoint those CLIs call back on,
+                    mcpsurface = the executor's per-run loopback MCP server
+                    for a CLI the runner starts)
   platform/         process plumbing: runtime wiring, embeddedpg, secrets
 migrations/         SQL migrations (embedded)
 resources/          config.yml, openapi.yaml (embedded into the binary)

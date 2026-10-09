@@ -17,6 +17,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/executorapi"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcp"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpsurface"
 	gitadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/git"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/config"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
@@ -112,6 +113,12 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		history.KeepRecentMessages = 10
 	}
 	index, indexStore, embedder := buildLocalIndex(cfg, appCfg)
+	var indexToolNames []string
+	if cfg.DataDir != "" {
+		for name := range indexBackedCodeTools {
+			indexToolNames = append(indexToolNames, name)
+		}
+	}
 	svc := execapp.NewService(execapp.Deps{
 		LLM:            llmClient,
 		Providers:      providers,
@@ -122,6 +129,8 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		Index:          index,
 		Embeddings:     embedder,
 		Git:            gitadapter.NewCheckout(),
+		IndexToolNames: indexToolNames,
+		Surfaces:       mcpsurface.Server{},
 		Limits: execapp.Limits{
 			MaxIterations:      appCfg.LLM.MaxIterations,
 			TaskMaxIterations:  appCfg.LLM.TaskMaxIterations,

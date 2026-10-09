@@ -54,7 +54,11 @@ executor.go      the local executor: start, readiness, restart with backoff,
 executor_checkout.go  the post-run half forwarded to it the same way: verify
                  (streamed), git.status / git.diff / git.log, commit_push
 rpc.go           the HTTP surface: routing, the streamed response, the status
-                 mapping, the run registry that POST /cancel looks in
+                 mapping, the session's registry for mobile.release's cancel
+runs.go          durable runs: the process-wide registry claude.run,
+                 opencode.run, cursor.run, agent.run and verify hand off to, the seq on
+                 every frame, the on-disk frame ring, run.attach, run.status,
+                 the 30-minute retention and the shutdown
 session.go       claude.run — spawn, stream, kill the process group
 opencode_run.go  opencode.run — the same shape as session.go, minus the MCP
                  file (an env var instead) and the provider refusal that keeps
@@ -69,6 +73,9 @@ redact.go        the scrubbing claude.run, opencode.run and cursor.run each
                  values, plus a run's own MCP token
 mcp.go           the per-run MCP config file: the grammars, the write, the
                  removal, and the sweep for what a killed process left behind
+mcp_surface.go   a CLI run's local tool surface: the executor's mcp.open before
+                 the run, the CLI handed its loopback URL and bearer, mcp.close
+                 after, and the fallback to the cloud's URL
 workspace.go     workspace.prepare and workspace.ensure — clone or fetch, and
                  the git argv gates
 toolchain.go     toolchain.detect — the pin files, and what they translate into
@@ -102,8 +109,21 @@ main_test.go     config, the control channel, logging, backoff arithmetic, and
 tunnel_test.go   the session and the reconnect loop, driven against an
                  in-process control plane (real HTTP, real WebSocket, real
                  yamux client — the transport is never mocked)
-session_test.go  streaming and both cancellation triggers, against real
-                 processes that ignore SIGTERM
+session_test.go  streaming, POST /cancel, and a closed stream that leaves the
+                 run going until shutdown, against real processes that ignore
+                 SIGTERM
+runs_test.go     the registry and the ring with synthetic runs (every OS): seq,
+                 the disk bound and the gap notice, status for unknown, running
+                 and done, replay then retention GC, one live id at a time,
+                 the bound on finished runs, shutdown, the capabilities
+mcp_surface_test.go  claude.run and cursor.run handed the surface (never the
+                 cloud's URL or token), what mcp.open is asked with, mcp.close at
+                 the end, both tokens scrubbed from frames and log, the fallback
+                 when the executor is absent, predates mcp.open or fails, and
+                 local_tools in the preflight
+runs_process_test.go  a dropped stream resumed with run.attach (every frame
+                 once, in order) and a dropped tunnel the CLI never notices,
+                 against real processes and the in-process control plane
 opencode_run_test.go  the provider refusal (anthropic and google, before the
                  stream) and the required provider/model form
 cursor_run_test.go  the argv shape (the `--` before the prompt, confirmed
@@ -113,6 +133,7 @@ redact_test.go   the redactor itself, and one child per streamed method that
                  prints a credential env value and gets it scrubbed back
 mcp_test.go      the config file as the CLI sees it — its flags, its contents,
                  its permissions, and that it is gone after all four endings
+                 (and still there while a run outlives its stream)
 policy_test.go   the tool policy, the effort level, the extra environment, and
                  the setting sources that are pinned rather than passed
 methods_test.go  containment, the git URL gate, the branch a prepare actually
@@ -179,6 +200,8 @@ POST /git.status          → the local executor's status and body
 POST /git.diff            → the local executor's status and body
 POST /git.log             → the local executor's status and body
 POST /commit_push         → the local executor's status and body
+POST /run.attach          → 200 application/x-ndjson, streamed (404 unknown_run)
+POST /run.status          → 200 application/json
 POST /cancel              → 200 application/json
 ```
 
@@ -210,6 +233,16 @@ POST /cancel              → 200 application/json
 when it was sent none), or a `verify` by its `id`. Every other
 method is cancelled by the caller closing the connection, which `http.Server`
 turns into a cancelled request context — the same trigger, without an id to
+| `POST /run.attach` | `{"id": "…", "after_seq": N}` (`after_seq` optional, 0) | NDJSON: the run's frames with `seq > after_seq` from its buffer, then live, until its `done`; a `gap` line first when the buffer no longer holds some of them; 404 `unknown_run` for an id this machine holds no run for |
+| `POST /run.status` | `{"id": "…"}` | `{"v":1,"id":"…","state":"running"|"done"|"unknown","last_seq":N}` |
+| `POST /cancel` | `{"id": "…"}` | `{"v":1,"id":"…","cancelled":true|false}` |
+
+`POST /cancel` names a streamed call: `claude.run`, `opencode.run`,
+`cursor.run`, `mobile.release`, a `verify`, or an `agent.run` by its `id` (its
+`run_id` when it was sent none). The five durable runs (below) stop on nothing else
+but their own timeout and this runner shutting down. Every other method is
+cancelled by the caller closing the connection, which `http.Server` turns
+into a cancelled request context — the same trigger, without an id to
 register. `mobile.boot` is the long one and is the reason this is worth stating:
 closing the request stops the WAIT and the polling; it does not un-boot a device
 that has already come up. `mobile.shutdown` is how a device goes back down.
@@ -222,11 +255,14 @@ blind for the length of the task, which is the experience this rework exists to
 end. One JSON object per line, **flushed as each is written**:
 
 ```
-{"v":1,"id":"c-91","event":"started"}
-{"v":1,"id":"c-91","event":"output","stream":"stdout","data":"…"}
-{"v":1,"id":"c-91","event":"done","ok":true,"result":{"exit_code":0}}
-{"v":1,"id":"c-91","event":"done","ok":false,"error":{"code":"…","message":"…"}}
+{"v":1,"id":"c-91","event":"started","seq":1}
+{"v":1,"id":"c-91","event":"output","stream":"stdout","data":"…","seq":2}
+{"v":1,"id":"c-91","event":"done","ok":true,"result":{"exit_code":0},"seq":3}
+{"v":1,"id":"c-91","event":"done","ok":false,"error":{"code":"…","message":"…"},"seq":3}
 ```
+
+`seq` is on every frame of a durable run (below) and on no other stream
+(`mobile.release` has none).
 
 - **The first line is always `started`, and it carries the call id.** When the
   caller chose one it is echoed; when it did not, this is the only way it ever
@@ -252,6 +288,67 @@ end. One JSON object per line, **flushed as each is written**:
   was decided before the work started, which is why callers switch on the
   `code` string and not on the number.
 
+### Durable runs — `run.attach` and `run.status`
+
+`claude.run`, `opencode.run`, `cursor.run` and `agent.run` **outlive the
+stream that started them and the tunnel session that carried it.** The cloud's
+load balancer cuts a WebSocket at an hour and tasks run longer than that; a
+reconnect used to kill every run in flight. (`verify` belongs on this list
+too, but neither this runner nor the executor has such a method yet; a new
+long method joins by going through `queueDurable`/`serveDurable`.)
+
+- **Two phases.** Until a run has its session slot it is the request's: the
+  id is reserved (a second live run under it is `bad_request`), and a caller
+  that goes away or cancels while it is queued takes it with it — it never
+  started, `run.status` says `unknown`, and the caller sends it again. Once it
+  has the slot and its MCP file (or, for `agent.run`, the executor's 200), it
+  is the registry's (`state.runs`, `runs.go`): its context descends from the
+  runner's, not the request's, and the request only streams it.
+- **A run stops on `POST /cancel`, its own `timeout_ms`, or this runner shutting
+  down, and on nothing else.** A caller that stops reading, a session that
+  ends, a tunnel that drops: the run goes on, and so does its MCP file, which
+  is removed when the run ends. Shutdown (stdin EOF or SIGTERM) cancels every
+  run beside the drain, and `main` waits for them — inside `drainBudget`, as
+  before — then removes every buffer. The session semaphore is the registry's
+  too, so a run that outlived its session still holds its slot.
+- **`seq` is the runner's, on every frame**: 1 for `started`, contiguous, the
+  `done` last. It is added as the last top-level field of the frame's own
+  bytes (`withSeq`), so an executor frame keeps its `payload.seq` and is
+  otherwise forwarded unchanged, and a `seq` a frame already carried is the
+  one a decoder drops.
+- **Every frame lands in a bounded ring on disk** before any caller sees it, so
+  a live stream and a replay read the same thing. Segment files of a quarter
+  of the cap (`run_buffer_max_bytes`, 16 MiB by default) under
+  `<runner_data_dir>/runs/<random>/`, 0700 and 0600; the oldest whole segment
+  goes when the total passes the cap, and the newest is never evicted, so the
+  `done` is always there. Frames are scrubbed before they are buffered: no
+  token reaches the disk this way. A disk that refuses moves that run's
+  buffer to memory, with a warning.
+- **`POST /run.attach {id, after_seq}`** streams the frames with
+  `seq > after_seq`, then live ones, until the `done`; any number of callers
+  may attach at once. When the buffer no longer holds some of them, the first
+  line says so and carries no seq of its own:
+  `{"v":1,"id":"c-91","event":"gap","from_seq":1,"to_seq":2047}`. An attach to
+  a finished run replays it and ends. A caller that closes an attach ends
+  that attach and nothing else. An id this machine holds no run for — never
+  started, forgotten, or from before a restart — is 404 `unknown_run`.
+- **`POST /run.status {id}`** is `{"v":1,"id":"c-91","state":"running","last_seq":214}`;
+  `state` is `running`, `done` or `unknown` (with `last_seq` 0).
+- **A finished run is kept 30 minutes**, then forgotten and its buffer
+  removed; at most 64 finished runs are kept, the oldest dropped first. A new
+  run under a finished run's id replaces it. A restarted runner knows no runs:
+  it sweeps what an earlier one left under `runs/` at startup.
+- **`preflight.report` says so**: `"capabilities":["run.attach","run.status"]`
+  is appended to the desktop app's report (the app's bytes are otherwise
+  untouched), so the cloud can feature-detect before it relies on either.
+  So is `"local_tools":[…]` (see the local tool surface below) once an
+  executor that serves surfaces has answered.
+
+The cloud's loop: read the stream, remember the last `seq`; on a broken stream
+or a new tunnel session, `run.status`; `running` or `done` → `run.attach` with
+that `seq`; `unknown` → the run is lost (or never started) and is the cloud's
+to send again.
+
 ### `mcp` — how a session gets TaskTrooper's own tools
 
 Optional, and it is what lets a run tick an acceptance criterion, record a
@@ -274,13 +371,13 @@ the token WITH the call.
   machine for the length of the run. Only the file's PATH is an argument. The
   test asserts it from inside the child — the fake CLI echoes its own `$*`.
 - **The file lives exactly as long as the run, however the run ends.** Success,
-  a non-zero exit, `POST /cancel`, and the tunnel dropping are four different
-  code paths out of `handleClaudeRun`, and the removal is a `defer` registered
-  before the response starts so all four pass through it. It is registered
-  *after* `defer s.leaveRun()`, so it runs first: by the time a session
-  teardown logs `tunnel detached`, the tokens of the runs it was serving are
-  off the disk. `mcp_test.go` asserts each of the four separately — a test that
-  covered only the happy path would miss the three endings that matter.
+  a non-zero exit, `POST /cancel`, and this runner shutting down are four
+  different code paths out of the run, and the removal is the cleanup
+  `serveDurable` runs after the run's body returns — or at once, when the run
+  never starts — so all four pass through it. A dropped stream or tunnel is
+  not an ending: the run goes on, and its file with it. `mcp_test.go` asserts
+  each of the four separately — a test that covered only the happy path would
+  miss the three endings that matter.
 - **A per-run directory in the user's temp dir**, named from `crypto/rand`,
   mode 0700, with the file inside it 0600. This is the one thing this program
   puts on disk outside the workspace root; see the hard rules for why.
@@ -306,6 +403,64 @@ the token WITH the call.
   config file and a failure minutes later.
 - **Absent is valid.** It means this run gets none of those tools. Nothing here
   invents a url or a token the cloud did not send.
+- **`tool_policy` and `index` are optional and forwarded, never read here**:
+  JSON objects of at most 64 KiB, for the local tool surface below.
+
+#### The local tool surface — `mcp.open` before a CLI run
+
+The cloud's MCP serves coordination tools (board, documents, criteria,
+memory, `ask_user`); tools that must act on THIS computer — `browser_*`,
+`codebase_search`, `get_symbol_skeleton` and `expand_symbol_context` (the
+executor's local code index), `download_file`, `http_request` to the member's
+own localhost — cannot come from there. So when a `claude.run`, `opencode.run`
+or `cursor.run` carries an `mcp` and this runner has an executor, once the run
+has its slot (`mcp_surface.go`):
+
+1. `POST /exec/mcp.open` with `{run_id: <call id>, workspace, tool_policy?,
+   cloud_mcp: {url, token, server_name}, index?, env?, timeout_ms?}`.
+   `tool_policy` is `mcp.tool_policy` when the cloud sent one, else the MCP
+   half of `claude.run`'s `tools` with the `mcp__<server>__` prefix removed
+   (none when that half is empty); `index` is `mcp.index`; `env` the run's;
+   `timeout_ms` the run's own plus `drainBudget`, so the surface cannot end
+   before the run's kill sequence has.
+2. The executor answers `{url: "http://127.0.0.1:<port>/mcp", token,
+   server_name}` — the same `server_name`, so `mcp__<server>__<tool>` names
+   and `--allowedTools` are unchanged. The CLI's MCP config (the file for
+   claude, the env for opencode, the workspace's `.cursor/mcp.json` for
+   cursor) gets that url and token **instead of the cloud's**: the cloud's
+   bearer never reaches the CLI; the executor holds it and proxies the
+   coordination tools with it.
+3. `POST /exec/mcp.close {run_id}` when the run ends, however it ends —
+   beside the MCP file's removal. The surface also ends at its own timeout
+   and with the executor.
+
+**Anything short of a surface falls back to today's behaviour** — the cloud's
+url and token in the CLI's config: no executor, an executor answering 404
+(`unsupported_method`, one that predates `mcp.open`), one not ready, one
+that cannot reach the cloud, or an answer that is not a loopback URL and a
+well-formed token. The run never fails for want of a surface. **Both tokens
+are scrubbed** from everything forwarded (`MCP_TOKEN`, `MCP_LOCAL_TOKEN`),
+and neither is logged; a refusal from the executor is scrubbed of the cloud
+token before it is logged.
+
+**`preflight.report` carries `"local_tools":[…]`**, the executor's own
+`local_tools` from its health answer: what a surface here serves of its own,
+so the cloud can stop withholding those tools from runs on this computer.
+Absent with no executor or one that serves no surfaces.
+
+**TODO — the member's own MCP servers.** A member's stdio or http MCP servers
+on this computer are not on the surface; `--strict-mcp-config` keeps them out
+of every run, deliberately. They would plug into the same surface rather than
+the CLI's config: the executor already speaks to MCP servers
+(`server/internal/adapter/mcp`, stdio and http clients) and registers their
+tools under `mcp_<server>_<tool>` names that a tool policy's
+`allow_mcp_servers` scopes. So: the desktop app sends the member's chosen
+servers (commands and env on the runner's stdin, never argv; OAuth tokens
+from the app's own store), the runner hands them to the executor on its
+stdin, the executor connects them per surface (or keeps one connection per
+server) and registers their tools on the surface's registry beside the local
+ones, and the cloud's `tool_policy.allow_mcp_servers` decides which a run
+gets. Nothing here would need a second config file or a second token.
 
 ### `tools`, `effort`, `env` — and the flag that is not a parameter
 
@@ -456,7 +611,8 @@ process's own environment, read for a fixed set of credential-bearing names
 (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `CURSOR_API_KEY`,
 `GITHUB_TOKEN`, `GH_TOKEN`), and the run's own MCP bearer token, when it has
-one. It generalises `mobile_release.go`'s `newSecretRedactor` — the same
+one — both of them, the cloud's and the local surface's, when the run has a
+surface (`heldSecretRedactor`). It generalises `mobile_release.go`'s `newSecretRedactor` — the same
 short-value floor (nothing under 8 characters is searched for, so a redactor is
 never the reason a legitimately short word disappears from a log), the same
 per-physical-line matching for a value a forwarder splits across frames, the
@@ -838,8 +994,11 @@ an agent itself.
   the caller is promised exactly one.
 - **Refused before it is forwarded:** a missing or malformed `run_id`, a
   `workspace` outside the workspace root, an `mcp` that fails `checkMCP`.
-- **Cancellation** is the same two triggers as `claude.run` (`POST /cancel`
-  names the `id`), and the executor is also told by name
+- **Durable, like `claude.run`.** The request to the executor is made on the
+  run's own context, so it outlives the caller's stream; a non-200 from the
+  executor is still relayed as the answer's status, before anything starts.
+- **Cancellation** is `POST /cancel` naming the `id`, the run's timeout or
+  shutdown, and the executor is also told by name
   (`POST /exec/cancel {run_id}`, best effort, 3 s).
 - **The executor has no concurrency cap of its own**, so `agent.run` takes a
   slot of the session semaphore like every CLI run.
@@ -869,20 +1028,22 @@ forwards `agent.run` and `llm.complete`, and adds nothing but:
 
 ### Cancellation
 
-Two triggers, and both must kill the process **group** — see the hard rules.
+Every trigger must kill the process **group** — see the hard rules.
 
-1. **`POST /cancel`** naming the call id. The run registers its id before it
+1. **`POST /cancel`** naming the call id. The run reserves its id before it
    writes a byte, so a caller that chose an id can cancel one it has not read
-   yet. A cancel for a call that already finished answers `cancelled:false` and
-   is **not** an error: that race is ordinary, and a 4xx would make callers
-   treat a successful stop as a fault.
-2. **The client closing the response body.** `http.Server` turns that into a
-   cancelled request context. A dropped tunnel mid-run is the case this exists
-   for: nobody can receive the output any more, and a `claude` left alive on
-   somebody's Mac would keep editing a repository nobody is watching.
-
-A session ending cancels everything it was serving, because every request
-context descends from the server's `BaseContext`.
+   yet, queued or running. A cancel for a call that already finished answers
+   `cancelled:false` and is **not** an error: that race is ordinary, and a 4xx
+   would make callers treat a successful stop as a fault.
+2. **The run's own `timeout_ms`.**
+3. **This runner shutting down** (`runRegistry.shutdown`, beside the drain).
+4. **For everything that is not a durable run** — and for a durable run still
+   queued for a slot — **the client closing the response body.** `http.Server`
+   turns that into a cancelled request context, and a session ending cancels
+   every request it was serving, because every request context descends from
+   the server's `BaseContext`. A started durable run is not a request any
+   more: a closed body ends its stream, and the run goes on for a later
+   `run.attach`.
 
 A session that is TEARING DOWN also refuses new runs. `drain` latches a flag
 under the same lock the run registry uses and waits for the runs in flight, so
@@ -910,6 +1071,7 @@ either and can never see them disagree.
 | `bad_request` | 400 | malformed, or naming something outside the workspace |
 | `unsupported_method` | 404 | no such path, or the wrong verb on one |
 | `not_ready` | 409 | the answer genuinely does not exist yet |
+| `unknown_run` | 404 | `run.attach` for an id this machine holds no run for |
 | `cancelled` | **499** | the caller asked, or the tunnel went away |
 | `upstream` | 502 | something this Mac depends on failed |
 | `internal` | 500 | a bug here |
@@ -1046,6 +1208,11 @@ configured — an ordinary case, not a misconfiguration.
   `appium-hub.json` (a pid, a start time, the hub URL) in a 0700 directory
   under the user's own cache directory, written whole by a rename and named by
   nobody but this program.
+
+  The durable runs' buffers are the third: scrubbed transcripts in
+  `<runner_data_dir>/runs/<random>/`, 0700 and 0600, named by nobody but this
+  program, bounded per run and in number, removed 30 minutes after a run
+  ends, at shutdown, and at the next startup.
 - **git's transports are not all fetches.** `ext::` takes a command;
   `--upload-pack` names one. `checkRepoURL` allows plain https and ssh and
   nothing else.
@@ -1117,13 +1284,17 @@ is one JSON document, and stdin then stays open as a control channel.
 
   "policy": {"opencode_refused_providers": ["anthropic", "google"], "redact_credentials": true},
 
+  "runner_data_dir": "/Users/you/Library/Application Support/TaskTrooper/runner",
+  "run_buffer_max_bytes": 16777216,
+
   "reconnect_max_backoff": "30s"
 }
 ```
 
 Every field is required except `reconnect_max_backoff`, the five mobile ones,
 the two embeddings ones, the three host-executed CLIs' binaries
-(`claude_bin` among them), the executor's three and `policy`, and a
+(`claude_bin` among them), the executor's three, `policy`,
+`runner_data_dir` and `run_buffer_max_bytes`, and a
 missing or malformed required field is a startup error on stderr with a
 non-zero exit — never a zero-value default silently wired in. **Unknown fields
 are refused too** (`DisallowUnknownFields`), which is why `main_test.go` reads
@@ -1178,6 +1349,11 @@ on purpose: this runner has no Antigravity flavor.
   executor's to say.
 - **`policy` is optional and every field in it is.** See `policy.go`: absent is
   strict, and a malformed provider name or an unknown field is a startup error.
+- **`runner_data_dir`** is where this runner keeps the durable runs' buffers
+  (`runs/` under it); absolute. The desktop app sends `userData/runner`;
+  absent, it is `os.UserCacheDir()/TaskTrooper/runner`, beside the Appium
+  record. **`run_buffer_max_bytes`** caps one run's buffer, 64 KiB…1 GiB,
+  16 MiB when absent.
 
 - **`member_uid`** is the field teams added. A paired Mac belongs to a MEMBER of
   a tenant, not to the tenant; several Macs may be paired to one tenant, and the
@@ -1265,7 +1441,7 @@ its fake appium is this test binary, which `TestMain` (main_test.go) hands to
 `fakeAppium` when it is started with `--address`, so it runs on Windows too.
 
 `session_test.go` spends about fifteen seconds waiting out real SIGTERM grace
-periods — one per cancellation trigger — and `mcp_test.go` spends fifteen more
+periods — POST /cancel and a shutdown — and `mcp_test.go` spends fifteen more
 on the same two endings, because "the token file is gone" is only worth
 asserting after the process group has actually been reaped. That is the cost of
 testing a signal escalation rather than asserting that a function was called.
