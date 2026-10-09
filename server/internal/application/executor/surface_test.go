@@ -207,3 +207,22 @@ func (s *ServiceSuite) TestLocalToolNamesAreWhatASurfaceCanServe() {
 	s.Equal([]string{"browser_navigate", "codebase_search", "download_file", "expand_symbol_context", "get_symbol_skeleton", "http_request"},
 		s.svc.LocalToolNames())
 }
+
+func (s *ServiceSuite) TestACallerThatGivesUpWhileItOpensLeavesNothingOpen() {
+	surfaces := s.withSurfaces(nil)
+	ctx, giveUp := context.WithCancel(context.Background())
+	s.remote.On("Connect", mock.Anything, mock.Anything).Run(func(mock.Arguments) { giveUp() }).
+		Return([]port.ToolExecutor{}, func() { s.closed = true }, nil).Once()
+	_, failure := s.svc.OpenMCP(ctx, s.openRequest())
+	s.Require().NotNil(failure)
+	s.Equal(CodeCancelled, failure.Code)
+	s.True(s.closed, "the coordination session opened for it was closed")
+	s.Equal(1, surfaces.closedCount())
+	s.False(s.svc.CloseMCP("cli-1").Closed)
+
+	s.expectRemote()
+	opened, failure := s.svc.OpenMCP(context.Background(), s.openRequest())
+	s.Require().Nil(failure)
+	s.NotEmpty(opened.URL)
+	s.svc.CloseMCP("cli-1")
+}

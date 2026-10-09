@@ -88,9 +88,10 @@ func (o *openSurface) close() {
 	})
 }
 
-// OpenMCP starts a run's tool surface. It lasts until CloseMCP, its timeout or
-// Shutdown, whatever happens to the request that opened it.
-func (s *Service) OpenMCP(_ context.Context, req MCPOpen) (*MCPSurface, *Failure) {
+// OpenMCP starts a run's tool surface. Once open it lasts until CloseMCP, its
+// timeout or Shutdown, whatever happens to the request that opened it; a
+// caller that gives up while it opens leaves nothing open.
+func (s *Service) OpenMCP(ctx context.Context, req MCPOpen) (*MCPSurface, *Failure) {
 	if s.deps.Surfaces == nil {
 		return nil, &Failure{Code: CodeNotReady, Message: "this executor serves no tool surfaces"}
 	}
@@ -150,7 +151,9 @@ func (s *Service) OpenMCP(_ context.Context, req MCPOpen) (*MCPSurface, *Failure
 	s.surfaces[runID] = surface
 	s.mu.Unlock()
 	opened := false
+	stopOpening := context.AfterFunc(ctx, cancel)
 	defer func() {
+		stopOpening()
 		if !opened {
 			s.closeSurface(surface)
 		}
@@ -185,7 +188,7 @@ func (s *Service) OpenMCP(_ context.Context, req MCPOpen) (*MCPSurface, *Failure
 	surface.mu.Lock()
 	surface.served = served
 	surface.mu.Unlock()
-	if life.Err() != nil {
+	if !stopOpening() || life.Err() != nil {
 		return nil, &Failure{Code: CodeCancelled, Message: "the tool surface was closed while it opened"}
 	}
 	context.AfterFunc(life, func() { s.closeSurface(surface) })
