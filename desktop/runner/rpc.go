@@ -41,6 +41,11 @@ import (
 //	POST /models.list         → 200 application/json
 //	POST /agent.run           → the local executor's NDJSON, streamed
 //	POST /llm.complete        → the local executor's status and body
+//	POST /verify              → the local executor's NDJSON, streamed
+//	POST /git.status          → the local executor's status and body
+//	POST /git.diff            → the local executor's status and body
+//	POST /git.log             → the local executor's status and body
+//	POST /commit_push         → the local executor's status and body
 //	POST /cancel              → 200 application/json
 //
 // Nothing here binds a socket. The only listener is the session, and the rule
@@ -320,6 +325,17 @@ func (s *runnerServer) handler() http.Handler {
 			route(http.MethodPost, s.handleAgentRun)
 		case "/llm.complete":
 			route(http.MethodPost, s.handleLLMComplete)
+		case "/verify":
+			// Streaming, forwarded to the local executor (executor_checkout.go).
+			route(http.MethodPost, s.handleVerify)
+		case "/git.status":
+			route(http.MethodPost, s.handleGitStatus)
+		case "/git.diff":
+			route(http.MethodPost, s.handleGitDiff)
+		case "/git.log":
+			route(http.MethodPost, s.handleGitLog)
+		case "/commit_push":
+			route(http.MethodPost, s.handleCommitPush)
 		case "/cancel":
 			route(http.MethodPost, s.handleCancel)
 		default:

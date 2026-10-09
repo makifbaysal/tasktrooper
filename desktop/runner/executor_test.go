@@ -79,6 +79,7 @@ func fakeExecutor(mode string) int {
 	}
 
 	mux := http.NewServeMux()
+	registerFakeCheckout(mux, authorized, record, key)
 	mux.HandleFunc("GET /exec/health", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) {
 			return

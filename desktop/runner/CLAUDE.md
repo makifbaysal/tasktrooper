@@ -51,6 +51,8 @@ policy.go        the rules a paired service may change: OpenCode's refused
                  providers, the environment-credential scrubbing
 executor.go      the local executor: start, readiness, restart with backoff,
                  the stop, and agent.run / llm.complete forwarded to it
+executor_checkout.go  the post-run half forwarded to it the same way: verify
+                 (streamed), git.status / git.diff / git.log, commit_push
 rpc.go           the HTTP surface: routing, the streamed response, the status
                  mapping, the run registry that POST /cancel looks in
 session.go       claude.run — spawn, stream, kill the process group
@@ -137,6 +139,9 @@ executor_test.go the executor against a real child process — this test binary
                  started with no arguments and TT_FAKE_EXECUTOR set: the stdin
                  config line, the listening line, the bearer, forwarding,
                  scrubbing, cancel by name, restart, the protocol check, stop
+executor_checkout_test.go  the post-run methods against the same fake: the body
+                 forwarded unchanged, the stream scrubbed, a verification
+                 cancelled by its id, the push token scrubbed from the answer
 runner_policy_test.go  the policy: strict when absent, replaceable, refused when
                  malformed
 ```
@@ -169,6 +174,11 @@ GET  /preflight.report    → 200 application/json
 POST /models.list         → 200 application/json
 POST /agent.run           → the local executor's NDJSON, streamed
 POST /llm.complete        → the local executor's status and body
+POST /verify              → the local executor's NDJSON, streamed
+POST /git.status          → the local executor's status and body
+POST /git.diff            → the local executor's status and body
+POST /git.log             → the local executor's status and body
+POST /commit_push         → the local executor's status and body
 POST /cancel              → 200 application/json
 ```
 
@@ -190,11 +200,14 @@ POST /cancel              → 200 application/json
 | `GET /preflight.report` | — | the desktop app's environment report, verbatim |
 | `POST /agent.run` | the executor contract's body (`server/.ai/executor.md`): optional `id` (the call id, as claude.run's), `run_id` (REQUIRED), `kind`, `agent`, `prompt` or `messages`, `workspace` (relative, must exist), `mcp`, `timeout_ms` | the executor's NDJSON unchanged, in claude.run's envelope (`{"v":1,"id":…,"event":"started"}`, `"event":"event"` with a `payload`, one `"event":"done"`), scrubbed of the keys this runner holds; 409 `not_ready` with no executor |
 | `POST /llm.complete` | `{provider_id, model, system, messages, max_tokens}` | the executor's status and body, verbatim but scrubbed |
+| `POST /verify` | `id` (REQUIRED, the call id), `workspace` (relative), optional `commands`, `verify_command`, `quality`, `env`, `timeout_ms` — `server/.ai/executor.md` | the executor's NDJSON unchanged (`verify_stage` / `verify_output` events, one `done` whose `result` is the verdict), scrubbed; 409 `not_ready` with no executor |
+| `POST /git.status`, `/git.diff`, `/git.log` | `workspace` (relative), and `base`, `name_only`, `max_bytes`, `limit` per route | the executor's status and body, verbatim but scrubbed |
+| `POST /commit_push` | `workspace` (relative), `message`, `branch`, optional `github_token` | the executor's status and body, verbatim, scrubbed of the keys and of `github_token` |
 | `POST /cancel` | `{"id": "…"}` | `{"v":1,"id":"…","cancelled":true|false}` |
 
 `POST /cancel` names a streamed call: `claude.run`, `opencode.run`,
-`cursor.run`, `mobile.release`, or an `agent.run` by its `id` (its `run_id`
-when it was sent none). Every other
+`cursor.run`, `mobile.release`, an `agent.run` by its `id` (its `run_id`
+when it was sent none), or a `verify` by its `id`. Every other
 method is cancelled by the caller closing the connection, which `http.Server`
 turns into a cancelled request context — the same trigger, without an id to
 register. `mobile.boot` is the long one and is the reason this is worth stating:
@@ -832,6 +845,27 @@ an agent itself.
   slot of the session semaphore like every CLI run.
 - `agent.run` shares the session semaphore and the drain accounting with the
   CLI runs; `llm.complete` shares the drain accounting.
+
+### `verify`, `git.*`, `commit_push` — the post-run half
+
+A board run's verify → fix → commit → push → pull request needs the checkout,
+which is on this computer, so the cloud drives that half through these five
+methods after `agent.run` or a CLI run (`server/.ai/executor.md`, "The
+post-run half"). This runner forwards them to the executor exactly as it
+forwards `agent.run` and `llm.complete`, and adds nothing but:
+
+- **The refusals it can make first:** a `workspace` outside the workspace
+  root, a malformed body or `id`, and, for `verify`, no `id` at all — it is
+  the handle `POST /cancel` stops the pass by.
+- **`verify` is a run:** it takes a session slot (it builds and tests), is
+  registered under its `id` for `POST /cancel`, tells the executor by that id
+  (`POST /exec/cancel {id}`) when its caller goes, and gets a `done` of this
+  side's when the executor's stream ends without one.
+- **`commit_push`'s `github_token` is a held secret for that call:** forwarded
+  to the executor, which hands it to git through the environment only, and
+  scrubbed out of whatever comes back, like the providers' keys.
+- An older runner answers these `unsupported_method` (404), and the cloud
+  falls back to the agent committing and pushing itself.
 
 ### Cancellation
 
