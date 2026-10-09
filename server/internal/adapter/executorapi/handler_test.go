@@ -130,6 +130,7 @@ func (s *HandlerSuite) TestEveryRouteRequiresTheToken() {
 		{http.MethodPost, PathEmbeddings},
 		{http.MethodPost, PathMCPOpen},
 		{http.MethodPost, PathMCPClose},
+		{http.MethodPost, PathMCPCalls},
 		{http.MethodGet, "/nowhere"},
 	}
 	for _, route := range routes {

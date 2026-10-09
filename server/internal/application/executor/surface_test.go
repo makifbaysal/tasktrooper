@@ -226,3 +226,35 @@ func (s *ServiceSuite) TestACallerThatGivesUpWhileItOpensLeavesNothingOpen() {
 	s.NotEmpty(opened.URL)
 	s.svc.CloseMCP("cli-1")
 }
+
+func (s *ServiceSuite) TestASurfaceRecordsEachLocalToolCallOnceAndNotTheCloudsOwn() {
+	surfaces := s.withSurfaces(nil)
+	cloudBoard := s.tool("list_board_tasks")
+	cloudBoard.On("Execute", mock.Anything, "{}").Return(domain.ToolResult{Content: "ok"}).Once()
+	s.expectRemote(cloudBoard)
+	browser := s.svc.deps.HostTools[1].(*mocks.ToolExecutor)
+	browser.On("Execute", mock.Anything, "{}").Return(domain.ToolResult{Content: "boom", IsError: true}).Once()
+	browser.On("Execute", mock.Anything, "{}").Return(domain.ToolResult{Content: "ok"}).Once()
+
+	_, failure := s.svc.OpenMCP(context.Background(), s.openRequest())
+	s.Require().Nil(failure)
+	surface := surfaces.last()
+	for _, name := range []string{"browser_navigate", "list_board_tasks", "browser_navigate"} {
+		surface.Registry.ExecuteWithPolicy(surface.Context, domain.ToolCall{Function: domain.FunctionCall{Name: name, Arguments: "{}"}}, surface.Policy)
+	}
+
+	first := s.svc.MCPCallsSince("cli-1", 0)
+	s.Require().Len(first.Calls, 2)
+	s.Equal("browser_navigate", first.Calls[0].Name)
+	s.True(first.Calls[0].IsError)
+	s.False(first.Calls[1].IsError)
+	s.Equal(2, first.Next)
+	s.False(first.Closed)
+
+	again := s.svc.MCPCallsSince("cli-1", first.Next)
+	s.Empty(again.Calls)
+	s.Equal(2, again.Next)
+
+	s.svc.CloseMCP("cli-1")
+	s.True(s.svc.MCPCallsSince("cli-1", 2).Closed)
+}

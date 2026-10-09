@@ -6,8 +6,9 @@ import {
   type KeySetRequest,
   type KeysBridge,
   type KeysPrefill,
+  type McpServerSetRequest,
 } from "../ipc/channels.js";
-import type { ProviderKeysState } from "../ipc/types.js";
+import type { McpServersState, ProviderKeysState } from "../ipc/types.js";
 
 /**
  * The API-key window's preload: a few named calls and nothing else. The main
@@ -30,6 +31,9 @@ const bridge: KeysBridge = {
   set: (request: KeySetRequest) => call<ProviderKeysState>(KEYS_CHANNELS.set, request),
   remove: (id: string) => call<ProviderKeysState>(KEYS_CHANNELS.remove, { id }),
   prefill: () => call<KeysPrefill | null>(KEYS_CHANNELS.prefill),
+  mcpList: () => call<McpServersState>(KEYS_CHANNELS.mcpList),
+  mcpSet: (request: McpServerSetRequest) => call<McpServersState>(KEYS_CHANNELS.mcpSet, request),
+  mcpRemove: (name: string) => call<McpServersState>(KEYS_CHANNELS.mcpRemove, { name }),
   onPrefill: (cb) => {
     const listener = (_event: unknown, prefill: KeysPrefill | null): void => cb(prefill);
     ipcRenderer.on(KEYS_EVENTS.prefill, listener);

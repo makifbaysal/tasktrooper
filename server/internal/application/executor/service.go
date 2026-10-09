@@ -75,7 +75,11 @@ type Deps struct {
 	// Surfaces serves a CLI run's tools on loopback; nil answers mcp.open
 	// not_ready.
 	Surfaces port.ToolSurfaceServer
-	Limits   Limits
+	// MemberTools are the tools of the member's own MCP servers on this
+	// computer (mcp_<server>_<tool>), connected once; every run's registry
+	// holds them beside the local tools.
+	MemberTools []port.ToolExecutor
+	Limits      Limits
 }
 
 type Service struct {

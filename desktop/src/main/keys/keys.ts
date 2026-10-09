@@ -1,9 +1,11 @@
-import type { KeySetRequest } from "../../ipc/channels.js";
+import type { KeySetRequest, McpServerSetRequest } from "../../ipc/channels.js";
 import {
   BUILT_IN_PROVIDER_TYPES,
   CUSTOM_PROVIDER_TYPE,
+  type McpServersState,
   type ProviderKeysState,
 } from "../../ipc/types.js";
+import { asMcpServers, summarizeMcpServers, type McpServerConfig } from "../config/mcp-servers.js";
 import { keyMayTravelTo, summarizeProviders, type ProviderConfig } from "../config/providers.js";
 
 /**
@@ -100,8 +102,45 @@ export function applyKeyRemove(list: readonly ProviderConfig[], id: string): Pro
   return list.filter((p) => p.id !== id);
 }
 
+/**
+ * The list after `request`. A server added or changed takes the request's
+ * transport; in `env` and `headers` an empty value keeps the stored one under
+ * that name (when the server had it) and a name the request leaves out is
+ * dropped, so no secret has to be typed again to change a command.
+ */
+export function applyMcpServerSet(list: readonly McpServerConfig[], request: McpServerSetRequest): McpServerConfig[] {
+  const existing = list.find((s) => s.name === request.name);
+  const merge = (sent: Record<string, string> | undefined, stored: Record<string, string> | undefined): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(sent ?? {})) {
+      const kept = value === "" ? stored?.[key] : value;
+      if (kept !== undefined && kept !== "") out[key] = kept;
+    }
+    return out;
+  };
+  const next: McpServerConfig = { name: request.name };
+  if (request.url !== undefined) {
+    next.url = request.url;
+    const headers = merge(request.headers, existing?.url !== undefined ? existing.headers : undefined);
+    if (Object.keys(headers).length > 0) next.headers = headers;
+  } else {
+    next.command = request.command ?? "";
+    if (request.args !== undefined && request.args.length > 0) next.args = [...request.args];
+    const env = merge(request.env, existing?.command !== undefined ? existing.env : undefined);
+    if (Object.keys(env).length > 0) next.env = env;
+  }
+  const out = existing ? list.map((s) => (s.name === request.name ? next : s)) : [...list, next];
+  return out;
+}
+
+export function applyMcpServerRemove(list: readonly McpServerConfig[], name: string): McpServerConfig[] {
+  if (!list.some((s) => s.name === name)) throw new Error(`There is no MCP server ${name} on this computer.`);
+  return list.filter((s) => s.name !== name);
+}
+
 export interface KeyServiceDeps {
   store: { read(): ProviderConfig[]; store(providers: ProviderConfig[]): void };
+  mcpStore: { read(): McpServerConfig[]; store(servers: McpServerConfig[]): void };
   /**
    * Told after every stored change. Restarts the runner when it is running —
    * it reads the list at spawn and hands it to the executor — without
@@ -131,6 +170,29 @@ export class KeyService {
 
   remove(id: string): ProviderKeysState {
     return this.#commit(applyKeyRemove(this.#deps.store.read(), id), `removed the provider ${id}`);
+  }
+
+  listMcp(): McpServersState {
+    return { servers: summarizeMcpServers(this.#deps.mcpStore.read()), runnerRestarting: false };
+  }
+
+  setMcp(request: McpServerSetRequest): McpServersState {
+    const list = applyMcpServerSet(this.#deps.mcpStore.read(), request);
+    if (!asMcpServers(list)) {
+      throw new Error("That is not an MCP server the runner can use: check its name, its command or address, and its variables.");
+    }
+    return this.#commitMcp(list, `stored the MCP server ${request.name}`);
+  }
+
+  removeMcp(name: string): McpServersState {
+    return this.#commitMcp(applyMcpServerRemove(this.#deps.mcpStore.read(), name), `removed the MCP server ${name}`);
+  }
+
+  #commitMcp(list: McpServerConfig[], line: string): McpServersState {
+    this.#deps.mcpStore.store(list);
+    const runnerRestarting = this.#deps.changed();
+    this.#deps.log(`[keys] ${line}${runnerRestarting ? "; restarting the runner" : ""}`);
+    return { servers: summarizeMcpServers(list), runnerRestarting };
   }
 
   #commit(list: ProviderConfig[], line: string): ProviderKeysState {

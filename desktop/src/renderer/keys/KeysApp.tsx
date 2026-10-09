@@ -3,6 +3,7 @@ import { CheckCircle2, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 import { KEYS_BRIDGE_KEY, type KeysBridge } from "@ipc/channels.js";
 import type { ProviderKeySummary, ProviderKeysState, ProviderKeyType } from "@ipc/types.js";
 import { Button } from "@shared/ui/button.js";
+import McpServers from "./McpServers";
 import { emptyForm, formFor, formForPrefill, PROVIDER_TYPES, toRequest, typeLabel, wantsAddress, type KeyForm } from "./form";
 
 declare global {
@@ -246,6 +247,8 @@ export default function KeysApp() {
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
         {notice ? <p className="text-xs text-muted-foreground">{notice}</p> : null}
       </form>
+
+      <McpServers keys={keys} />
     </main>
   );
 }

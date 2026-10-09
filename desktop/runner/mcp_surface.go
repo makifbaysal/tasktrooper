@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -28,6 +29,8 @@ const (
 	surfaceOpenTimeout  = 60 * time.Second
 	surfaceCloseTimeout = 3 * time.Second
 	mcpLocalTokenLabel  = "MCP_LOCAL_TOKEN"
+	callsPollEvery      = time.Second
+	callsReadTimeout    = 3 * time.Second
 	maxSurfaceExtra     = 64 * 1024
 )
 
@@ -61,6 +64,118 @@ type cliSurface struct {
 	cloudToken string
 	localToken string
 	close      func()
+	calls      *surfaceCalls
+}
+
+// watchCalls emits the run's surface tool calls into its stream as they
+// happen, and once more when the returned func is called — before the run's
+// done — so none is left behind. A run with no surface gets a func that does
+// nothing.
+func (c cliSurface) watchCalls(ctx context.Context, into *call) func() {
+	if c.calls == nil {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(callsPollEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				c.calls.drain(ctx, into)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			close(stop)
+			<-finished
+			c.calls.drain(context.Background(), into)
+		})
+	}
+}
+
+// surfaceCalls reads the executor's record of a surface's local tool calls by
+// cursor, so each call is emitted exactly once however often it is asked.
+type surfaceCalls struct {
+	ex    *executorSupervisor
+	inst  *executorProcess
+	runID string
+
+	mu    sync.Mutex
+	after int
+}
+
+type surfaceCallsAnswer struct {
+	Calls []struct {
+		N          int    `json:"n"`
+		Name       string `json:"name"`
+		IsError    bool   `json:"is_error"`
+		DurationMS int64  `json:"duration_ms"`
+	} `json:"calls"`
+	Next int `json:"next"`
+}
+
+type toolCallPayload struct {
+	Kind       string `json:"kind"`
+	Source     string `json:"source"`
+	Name       string `json:"name"`
+	IsError    bool   `json:"is_error"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+type toolCallEvent struct {
+	V       int             `json:"v"`
+	ID      string          `json:"id"`
+	Event   string          `json:"event"`
+	Payload toolCallPayload `json:"payload"`
+}
+
+func (s *surfaceCalls) drain(ctx context.Context, into *call) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), callsReadTimeout)
+	defer cancel()
+	body, _ := json.Marshal(map[string]any{"run_id": s.runID, "after": s.after})
+	req, err := http.NewRequestWithContext(readCtx, http.MethodPost, s.inst.base+"/exec/mcp.calls", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+s.inst.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.ex.client.Do(req)
+	if err != nil {
+		log.Debug().Err(err).Str("call", s.runID).Msg("could not read the run's surface tool calls")
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+		return
+	}
+	var answer surfaceCallsAnswer
+	if err := json.NewDecoder(io.LimitReader(resp.Body, executorResponseLimit)).Decode(&answer); err != nil {
+		return
+	}
+	for _, call := range answer.Calls {
+		if call.N <= s.after {
+			continue
+		}
+		s.after = call.N
+		_ = into.emit(toolCallEvent{V: protocolVersion, ID: into.id, Event: "event", Payload: toolCallPayload{
+			Kind: "tool_call", Source: "local", Name: call.Name, IsError: call.IsError, DurationMS: call.DurationMS,
+		}})
+	}
+	if answer.Next > s.after {
+		s.after = answer.Next
+	}
 }
 
 func (c cliSurface) held() map[string]string {
@@ -143,7 +258,10 @@ func (s *runnerServer) openCLISurface(ctx context.Context, callID, workspace str
 		return fallback
 	}
 	log.Info().Str("call", callID).Str("mcp_server", local.serverName).Str("surface", local.host).Msg("the run uses this computer's tool surface")
-	return cliSurface{mcp: local, cloudToken: cloud.token, localToken: local.token, close: closeSurface}
+	return cliSurface{
+		mcp: local, cloudToken: cloud.token, localToken: local.token, close: closeSurface,
+		calls: &surfaceCalls{ex: ex, inst: inst, runID: callID},
+	}
 }
 
 // closeSurface is best effort: the surface also ends at its own timeout and

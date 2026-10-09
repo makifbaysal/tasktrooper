@@ -32,6 +32,7 @@ import type {
   Diagnostics,
   LogLine,
   PreflightReport,
+  McpServersState,
   ProviderKeysState,
   ProviderKeyType,
   RunnerPairingBundle,
@@ -91,6 +92,10 @@ export const KEYS_CHANNELS = {
   remove: "shell:keys:remove",
   /** What the page that opened the window asked it to focus on; null when nothing. */
   prefill: "shell:keys:prefill",
+  /** The member's own MCP servers, the window's second section. Same guard. */
+  mcpList: "shell:keys:mcp-list",
+  mcpSet: "shell:keys:mcp-set",
+  mcpRemove: "shell:keys:mcp-remove",
 } as const;
 
 /** Main → the API-key window, one-way: the prefill changed while it was open. */
@@ -340,12 +345,34 @@ export interface KeyRemoveRequest {
   id: string;
 }
 
+/**
+ * Add an MCP server or change one: a stdio `command` (with `args` and `env`)
+ * or an http `url` (with `headers`). In `env` and `headers`, an empty value
+ * keeps the stored one under that name and a name left out is removed, so a
+ * server can be changed without typing its tokens again.
+ */
+export interface McpServerSetRequest {
+  name: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface McpServerRemoveRequest {
+  name: string;
+}
+
 /** What the API-key window finds on `window.tasktrooperKeys`. */
 export interface KeysBridge {
   list(): Promise<ProviderKeysState>;
   set(request: KeySetRequest): Promise<ProviderKeysState>;
   remove(id: string): Promise<ProviderKeysState>;
   prefill(): Promise<KeysPrefill | null>;
+  mcpList(): Promise<McpServersState>;
+  mcpSet(request: McpServerSetRequest): Promise<McpServersState>;
+  mcpRemove(name: string): Promise<McpServersState>;
   onPrefill(cb: (prefill: KeysPrefill | null) => void): () => void;
 }
 

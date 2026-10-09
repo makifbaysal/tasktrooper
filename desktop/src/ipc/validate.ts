@@ -32,6 +32,8 @@ import type {
   KeyRemoveRequest,
   KeysPrefill,
   KeySetRequest,
+  McpServerRemoveRequest,
+  McpServerSetRequest,
   LogsStreamRequest,
   OpenExternalRequest,
   PairRequest,
@@ -445,4 +447,78 @@ export function validateKeysPrefill(raw: unknown): KeysPrefill {
 export function validateKeyRemove(raw: unknown): KeyRemoveRequest {
   const o = asRecord(raw, "keys.remove");
   return { id: asProviderId(o.id, "keys.remove.id") };
+}
+
+const MCP_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,31}$/;
+const MCP_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const MCP_HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
+
+function asMcpName(value: unknown, what: string): string {
+  const name = asCleanNonEmpty(value, what, { max: 32 });
+  if (!MCP_NAME.test(name)) fail(`${what}: letters, digits and '-' only`);
+  return name;
+}
+
+/**
+ * A map of secrets (env variables, headers). Values may be empty — that keeps
+ * the stored one — and no refusal here quotes a value.
+ */
+function asSecretMap(value: unknown, what: string, keyPattern: RegExp, control: boolean): Record<string, string> {
+  const o = asRecord(value, what);
+  const entries = Object.entries(o);
+  if (entries.length > 64) fail(`${what}: at most 64`);
+  const out: Record<string, string> = {};
+  for (const [k, v] of entries) {
+    if (!keyPattern.test(k)) fail(`${what}: a name is not valid`);
+    if (typeof v !== "string") fail(`${what}: a value is not a string`);
+    if (v.length > 4096) fail(`${what}: a value is longer than 4096 characters`);
+    if (control ? CONTROL_CHARS.test(v) : v.includes("\u0000")) fail(`${what}: a value contains control characters`);
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * The key window's MCP server `set`. Shape only — merging the stored secrets
+ * and what the runner will accept are `main/keys/keys.ts`'s and the store's.
+ */
+export function validateMcpServerSet(raw: unknown): McpServerSetRequest {
+  const o = asRecord(raw, "keys.mcp-set");
+  const out: McpServerSetRequest = { name: asMcpName(o.name, "keys.mcp-set.name") };
+  const command = o.command === undefined ? "" : asClean(o.command, "keys.mcp-set.command", { max: 1024 }).trim();
+  const url = o.url === undefined ? "" : asClean(o.url, "keys.mcp-set.url", { max: 2048 }).trim();
+  if ((command === "") === (url === "")) fail("keys.mcp-set: a server has a command or a url, not both and not neither");
+  if (url !== "") {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return fail("keys.mcp-set.url: not an address");
+    }
+    if (!/^https?:$/.test(parsed.protocol) || parsed.username !== "" || parsed.password !== "") {
+      fail("keys.mcp-set.url: must be http(s) without credentials in it");
+    }
+    if (o.args !== undefined || o.env !== undefined) fail("keys.mcp-set: an http server takes headers, not args or env");
+    out.url = url;
+    if (o.headers !== undefined) out.headers = asSecretMap(o.headers, "keys.mcp-set.headers", MCP_HEADER_NAME, true);
+    return out;
+  }
+  if (o.headers !== undefined) fail("keys.mcp-set: a command server takes args and env, not headers");
+  out.command = command;
+  if (o.args !== undefined) {
+    if (!Array.isArray(o.args)) fail("keys.mcp-set.args: expected a list");
+    if (o.args.length > 64) fail("keys.mcp-set.args: at most 64");
+    out.args = o.args.map((a, i) => {
+      const arg = asString(a, `keys.mcp-set.args[${i}]`, { max: 4096 });
+      if (arg.includes("\u0000")) fail(`keys.mcp-set.args[${i}]: contains a NUL`);
+      return arg;
+    });
+  }
+  if (o.env !== undefined) out.env = asSecretMap(o.env, "keys.mcp-set.env", MCP_ENV_NAME, false);
+  return out;
+}
+
+export function validateMcpServerRemove(raw: unknown): McpServerRemoveRequest {
+  const o = asRecord(raw, "keys.mcp-remove");
+  return { name: asMcpName(o.name, "keys.mcp-remove.name") };
 }

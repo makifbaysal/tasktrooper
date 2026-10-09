@@ -85,7 +85,7 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
 - **API keys are typed into this app's own window, and only there.** The
   API-key window (`src/main/keys/`) is `src/renderer/keys.html` in a
   BrowserWindow of its own: in-memory session, no navigation, no popups, its
-  own preload with `shell:keys:list|set|remove` and nothing else. Those three
+  own preload with `shell:keys:list|set|remove` (and the three `mcp-*` ones below) and nothing else. Those
   answer only that window's top frame on that page (`sender-guard.ts#isOwnPage`)
   — never the web app's view, on either mode's origin. `set` takes a key in;
   every answer is `{id, type, base_url?, models?, hasKey}`, every log line an
@@ -94,8 +94,20 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   is what hands the new list to the executor. Ids: a built-in type's id is
   the type (`anthropic`, `openai`, `gemini`, `groq`, `local`); a custom
   OpenAI-compatible endpoint's is a UUID.
+  **The window's second section is the member's own MCP servers**
+  (`shell:keys:mcp-list|mcp-set|mcp-remove`, the same sender guard): a stdio
+  `{name, command, args, env}` or an http `{name, url, headers}`, stored in
+  `mcp-servers.bin` (`config/mcp-servers.ts`, `safeStorage`, 0600). Every answer
+  is `{name, transport, command?, args?, url?, secretNames, hasSecret}` — a
+  name and a flag, never an env or header value, and an address is shown
+  without its query. In `set`, an empty `env` or `headers` value keeps the
+  stored one under that name and a name left out is dropped. The list rides the
+  runner's stdin as `mcp_servers` and from there the executor's, which serves
+  the tools as `mcp_<name>_<tool>` to runs whose cloud tool policy names the
+  server; a change restarts the runner like a key does.
 - **Secrets for the runner go on its stdin, nowhere else.** The pairing token
-  (`pairing.bin`) and the member's provider keys (`providers.bin`), both
+  (`pairing.bin`), the member's provider keys (`providers.bin`) and their own
+  MCP servers' env and headers (`mcp-servers.bin`), all
   `safeStorage`-encrypted at 0600, are written into the runner's one-line
   config (`runner/env.ts`), which hands the keys to the executor on ITS stdin.
   Never argv, never an environment block, never the bridge, never the cloud.
@@ -124,7 +136,7 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
 | Account origin rules, default, partition name | `src/main/account/origin.ts` |
 | Who may call the cloud bridge | `src/main/sender-guard.ts` |
 | Account mode's supervisor, the runner child, its stdin config, its log | `src/main/runner/` |
-| Runner pairing (`pairing.bin`), provider keys (`providers.bin`) | `src/main/config/pairing.ts`, `providers.ts` |
+| Runner pairing (`pairing.bin`), provider keys (`providers.bin`), MCP servers (`mcp-servers.bin`) | `src/main/config/pairing.ts`, `providers.ts`, `mcp-servers.ts` |
 | The API-key window, its rules, its page | `src/main/keys/`, `src/preload/keys.ts`, `src/renderer/keys/` |
 | The Go runner and its executor supervision | `runner/` (its own `CLAUDE.md`) |
 | Channels, host contract, validators | `src/ipc/` |

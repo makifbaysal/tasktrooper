@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { McpServerConfig } from "../config/mcp-servers.js";
 import type { ProviderConfig } from "../config/providers.js";
 
 vi.mock("electron", () => ({ safeStorage: {}, app: { getPath: () => "/userData" } }));
@@ -80,6 +81,7 @@ describe("KeyService", () => {
     const lines: string[] = [];
     const svc = new KeyService({
       store: { read: () => list, store: (next) => (list = next) },
+      mcpStore: { read: () => [], store: () => undefined },
       changed: () => changed,
       log: (line) => lines.push(line),
       newId,
@@ -127,5 +129,67 @@ describe("KeyService", () => {
 
   it("says whether the change restarted the runner", () => {
     expect(service([], false).svc.set({ type: "groq", api_key: "g" }).runnerRestarting).toBe(false);
+  });
+});
+
+describe("MCP servers", () => {
+  const TOKEN = "env-NEVER-ECHOED-0123456789";
+  const HEADER = "Bearer hdr-NEVER-ECHOED-9876543210";
+
+  function service(stored: McpServerConfig[] = [], changed = false) {
+    let list = stored;
+    const lines: string[] = [];
+    const svc = new KeyService({
+      store: { read: () => [], store: () => undefined },
+      mcpStore: { read: () => list, store: (next) => (list = next) },
+      changed: () => changed,
+      log: (line) => lines.push(line),
+      newId,
+    });
+    return { svc, lines, stored: () => list };
+  }
+
+  it("stores a stdio server and an http one, and answers with names and hasSecret only", () => {
+    const { svc, lines, stored } = service([], true);
+    svc.setMcp({ name: "notes", command: "/bin/notes", args: ["--stdio"], env: { NOTES_TOKEN: TOKEN } });
+    const reply = svc.setMcp({ name: "wiki", url: "https://wiki.example/mcp", headers: { Authorization: HEADER } });
+
+    expect(stored()).toEqual([
+      { name: "notes", command: "/bin/notes", args: ["--stdio"], env: { NOTES_TOKEN: TOKEN } },
+      { name: "wiki", url: "https://wiki.example/mcp", headers: { Authorization: HEADER } },
+    ]);
+    expect(reply.runnerRestarting).toBe(true);
+    expect(reply.servers.map((s) => [s.name, s.hasSecret])).toEqual([
+      ["notes", true],
+      ["wiki", true],
+    ]);
+    for (const out of [reply, svc.listMcp(), svc.removeMcp("notes"), lines]) {
+      expect(JSON.stringify(out)).not.toMatch(/NEVER-ECHOED/);
+    }
+    expect(lines[0]).toBe("[keys] stored the MCP server notes; restarting the runner");
+  });
+
+  it("keeps a stored value that the change leaves empty, and drops a name it leaves out", () => {
+    const stored: McpServerConfig[] = [{ name: "notes", command: "/bin/notes", env: { A: "keep-a", B: "drop-b", C: "old-c" } }];
+    const { svc, stored: after } = service(stored);
+    svc.setMcp({ name: "notes", command: "/bin/notes2", env: { A: "", C: "new-c", D: "" } });
+    expect(after()).toEqual([{ name: "notes", command: "/bin/notes2", env: { A: "keep-a", C: "new-c" } }]);
+  });
+
+  it("stores nothing when the runner would refuse the list, and says so without the secret", () => {
+    const { svc, stored } = service();
+    let refusal = "";
+    try {
+      svc.setMcp({ name: "a", url: "ftp://a.example", headers: { Authorization: HEADER } });
+    } catch (err) {
+      refusal = err instanceof Error ? err.message : String(err);
+    }
+    expect(refusal).toMatch(/not an MCP server the runner can use/);
+    expect(refusal).not.toContain("NEVER-ECHOED");
+    expect(stored()).toEqual([]);
+  });
+
+  it("says there is no such server on a remove", () => {
+    expect(() => service().svc.removeMcp("ghost")).toThrow(/no MCP server ghost/);
   });
 });

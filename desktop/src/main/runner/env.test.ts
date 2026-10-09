@@ -169,6 +169,15 @@ describe("runnerConfig", () => {
     expect(config(report(), { providers }).providers).toEqual(providers);
   });
 
+  it("sends the member's own MCP servers, env and headers included, and omits the field when there are none", () => {
+    expect(config(report())).not.toHaveProperty("mcp_servers");
+    const mcpServers = [
+      { name: "notes", command: "/bin/notes", args: ["--stdio"], env: { NOTES_TOKEN: "t" } },
+      { name: "wiki", url: "https://wiki.example/mcp", headers: { Authorization: "Bearer x" } },
+    ];
+    expect(config(report(), { mcpServers }).mcp_servers).toEqual(mcpServers);
+  });
+
   it("sends no policy: the runner's defaults are the rules this app runs under", () => {
     expect(config(report())).not.toHaveProperty("policy");
   });

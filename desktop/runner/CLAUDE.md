@@ -22,7 +22,8 @@ backend is `../../server`, supervised by `../src/main/supervisor/`.
 - The member's own API keys arrive from the desktop app on stdin
   (`providers`), go to the local executor on ITS stdin, and live in memory in
   both. They never cross the tunnel, never reach argv, an environment block, a
-  file or a log line, and are scrubbed out of everything forwarded back.
+  file or a log line, and are scrubbed out of everything forwarded back. So are
+  the env and header values of the member's own MCP servers (`mcp_servers`).
 
 A single-binary daemon. It dials out to the control plane over WebSocket,
 holds that connection open as a reverse tunnel, and serves HTTP over the yamux
@@ -443,24 +444,40 @@ are scrubbed** from everything forwarded (`MCP_TOKEN`, `MCP_LOCAL_TOKEN`),
 and neither is logged; a refusal from the executor is scrubbed of the cloud
 token before it is logged.
 
+**The surface's tool calls are frames of the run.** The cloud never sees what a
+CLI calls on the surface, and its QA and PM-UAT evidence gates need to know
+whether `browser_*` or `mobile_*` were used. The executor records each call to
+a tool it serves itself (name, error or not, duration; the cloud's own tools
+are the cloud's to count), and `watchCalls` reads that record by cursor
+(`POST /exec/mcp.calls {run_id, after}`) every second while the run lives and
+once more after the CLI has exited, before the `done`. Each call becomes one
+frame of the run's stream, with a `seq` like any other:
+
+```json
+{"v":1,"id":"c-91","event":"event","payload":{"kind":"tool_call","source":"local","name":"browser_click","is_error":false,"duration_ms":412},"seq":17}
+```
+
+The cursor makes a call appear exactly once, however often the executor is
+asked. An executor without `mcp.calls`, or one that cannot be reached, leaves
+the run without these frames and nothing else changes.
+
 **`preflight.report` carries `"local_tools":[…]`**, the executor's own
 `local_tools` from its health answer: what a surface here serves of its own,
 so the cloud can stop withholding those tools from runs on this computer.
 Absent with no executor or one that serves no surfaces.
 
-**TODO — the member's own MCP servers.** A member's stdio or http MCP servers
-on this computer are not on the surface; `--strict-mcp-config` keeps them out
-of every run, deliberately. They would plug into the same surface rather than
-the CLI's config: the executor already speaks to MCP servers
-(`server/internal/adapter/mcp`, stdio and http clients) and registers their
-tools under `mcp_<server>_<tool>` names that a tool policy's
-`allow_mcp_servers` scopes. So: the desktop app sends the member's chosen
-servers (commands and env on the runner's stdin, never argv; OAuth tokens
-from the app's own store), the runner hands them to the executor on its
-stdin, the executor connects them per surface (or keeps one connection per
-server) and registers their tools on the surface's registry beside the local
-ones, and the cloud's `tool_policy.allow_mcp_servers` decides which a run
-gets. Nothing here would need a second config file or a second token.
+**The member's own MCP servers are served by the same surface.** A member's
+stdio or http MCP servers on this computer are not in the CLI's config
+(`--strict-mcp-config` keeps them out of every run, deliberately); the desktop
+app sends them as `mcp_servers` on this runner's stdin (secrets never in argv),
+the runner hands them to the executor on ITS stdin, and the executor connects
+each once (`server/internal/adapter/mcp`) and registers their tools on every
+surface and in `agent.run` as `mcp_<server>_<tool>`. A run gets one only when
+its `tool_policy.allow_mcp_servers` names the server: the cloud decides, and
+the executor treats these servers as `listed`, so a policy that names none
+never reaches them. Their names ride in `preflight.report`'s `local_tools`, and
+their calls are tool_call frames of the run like the other local tools'.
+Nothing here needs a second config file or a second token.
 
 ### `tools`, `effort`, `env` — and the flag that is not a parameter
 
@@ -1281,6 +1298,8 @@ is one JSON document, and stdin then stays open as a control channel.
   "executor_bin": "/Applications/TaskTrooper.app/Contents/Resources/bin/executor",
   "executor_data_dir": "/Users/you/Library/Application Support/TaskTrooper/executor",
   "providers": [{"id": "openai", "type": "openai", "api_key": "sk-…", "models": ["gpt-4.1"]}],
+  "mcp_servers": [{"name": "notes", "command": "/usr/local/bin/notes-mcp", "args": ["--stdio"], "env": {"NOTES_TOKEN": "…"}},
+                  {"name": "wiki", "url": "https://wiki.example/mcp", "headers": {"Authorization": "Bearer …"}}],
 
   "policy": {"opencode_refused_providers": ["anthropic", "google"], "redact_credentials": true},
 
@@ -1347,6 +1366,14 @@ on purpose: this runner has no Antigravity flavor.
   `base_url` is https or loopback http because the key travels to it, no
   duplicate ids, at most 64) and is never logged; which types exist is the
   executor's to say.
+- **`mcp_servers` is optional** (`{name, command, args, env}` for stdio or
+  `{name, url, headers}` for http, at most 32): the member's own MCP servers on
+  this computer, handed to the executor on its stdin beside `providers`. `name`
+  is letters, digits and hyphens; a server has a command or a url, never both
+  or neither; an http url is http(s) with no credentials in it; no value has a
+  control character. Env and header values are secrets: never logged, never
+  argv, scrubbed from everything forwarded. Without `executor_bin` they do
+  nothing.
 - **`policy` is optional and every field in it is.** See `policy.go`: absent is
   strict, and a malformed provider name or an unknown field is a startup error.
 - **`runner_data_dir`** is where this runner keeps the durable runs' buffers

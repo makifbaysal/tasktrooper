@@ -589,6 +589,8 @@ func (s *runnerServer) handleClaudeRun(w http.ResponseWriter, r *http.Request) {
 		// side generated, which is the only way a caller that did not choose
 		// one can ever cancel or attach.
 		_ = c.emit(startedEvent{V: protocolVersion, ID: id, Event: "started"})
+		stopCalls := surface.watchCalls(runCtx, c)
+		defer stopCalls()
 
 		// Kept OFF c.ctx: spawnClaude tells a timeout from a cancellation by
 		// comparing the two.
@@ -605,6 +607,7 @@ func (s *runnerServer) handleClaudeRun(w http.ResponseWriter, r *http.Request) {
 		if callErr == nil && runCtx.Err() != nil {
 			callErr = failure(codeCancelled, "the call was cancelled")
 		}
+		stopCalls()
 		c.finish(result, callErr)
 	})
 }
