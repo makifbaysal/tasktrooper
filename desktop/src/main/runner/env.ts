@@ -34,6 +34,12 @@ export interface RunnerConfigInputs {
   /** `executorDataDir()`, sent with the executor's path when there is one. */
   executorDataDir: string;
   /**
+   * `postgresCacheDir()`, the same cache the local server's embedded Postgres
+   * uses, sent with the executor so its code index does not download Postgres
+   * a second time.
+   */
+  executorPostgresCacheDir: string;
+  /**
    * The local embedder's URL, for the runner's `embeddings.create` and the
    * executor it starts. Absent when the embedder has not printed its port.
    */
@@ -172,6 +178,7 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
     // agent.run answers not_ready.
     ...(executorBin !== "" ? { executor_bin: executorBin } : {}),
     ...(executorBin !== "" ? { executor_data_dir: inputs.executorDataDir } : {}),
+    ...(executorBin !== "" ? { executor_postgres_cache_dir: inputs.executorPostgresCacheDir } : {}),
     ...(providerList.length > 0 ? { providers: providerList } : {}),
     ...(embeddings !== "" ? { embeddings_base_url: embeddings } : {}),
     ...(embeddings !== "" ? { embedding_model: EMBEDDING_MODEL } : {}),

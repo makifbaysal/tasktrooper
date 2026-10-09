@@ -14,7 +14,7 @@ import type {
 import { ensureWorkspace } from "../config/workspace.js";
 import { asPairingBundle, PairingStore, pairingSummary } from "../config/pairing.js";
 import { usableProviderIds, type ProviderStore } from "../config/providers.js";
-import { accountPreflight, emptyReport, executorDataDir, firstBlocker, itemById } from "../services/detect.js";
+import { accountPreflight, emptyReport, executorDataDir, firstBlocker, itemById, postgresCacheDir } from "../services/detect.js";
 import { LogStore } from "../supervisor/log-buffer.js";
 import { RunnerChild } from "./child.js";
 import { childEnv, embeddingsMessage, preflightMessage, runnerConfig } from "./env.js";
@@ -307,6 +307,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
       preflight: this.#preflight,
       providers: this.#providers.read(),
       executorDataDir: executorDataDir(),
+      executorPostgresCacheDir: postgresCacheDir(),
       ...(embeddings !== null ? { embeddingsBaseURL: embeddings } : {}),
     });
   }

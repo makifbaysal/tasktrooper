@@ -154,6 +154,15 @@ func fakeExecutor(mode string) int {
 		record("cancels", req.RunID+"|"+req.ID)
 		_, _ = w.Write([]byte(`{"v":1,"run_id":"` + req.RunID + `","cancelled":true}`))
 	})
+	mux.HandleFunc("POST /exec/embeddings.set", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		record("embeddings", string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"v":1,"embeddings_base_url":"moved","embeddings_source":"onnx-int8"}`))
+	})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -198,9 +207,10 @@ func startFakeExecutor(t *testing.T, mode string, timings executorTimings) *exec
 	t.Setenv(fakeExecutorDumpEnv, dump)
 
 	cfg := config{
-		workspaceDir:    t.TempDir(),
-		executorBin:     bin,
-		executorDataDir: filepath.Join(t.TempDir(), "executor"),
+		workspaceDir:             t.TempDir(),
+		executorBin:              bin,
+		executorDataDir:          filepath.Join(t.TempDir(), "executor"),
+		executorPostgresCacheDir: filepath.Join(t.TempDir(), "postgres-bin"),
 		providers: []providerConfig{
 			{ID: "openai-main", Type: "openai", APIKey: fakeProviderKey, Models: []string{"gpt-4.1"}},
 			{ID: "local", Type: "openai", BaseURL: "http://127.0.0.1:1234/v1"},
@@ -263,6 +273,63 @@ func TestTheExecutorIsHandedTheWorkspaceRootTheProvidersAndAFreshBearer(t *testi
 	}
 	if info, err := os.Stat(h.cfg.executorDataDir); err != nil || !info.IsDir() {
 		t.Errorf("the data directory was not created: %v", err)
+	}
+}
+
+func TestTheExecutorConfigLineCarriesDataDirAndTheSharedPostgresCache(t *testing.T) {
+	h := startFakeExecutor(t, "ok", fastExecutorTimings)
+	h.awaitReady(t)
+
+	starts := h.lines(t, "starts")
+	if len(starts) == 0 {
+		t.Fatal("the executor was never started")
+	}
+	if !strings.Contains(starts[0], `"data_dir"`) {
+		t.Fatalf("config line = %s, want data_dir set", starts[0])
+	}
+	var got executorConfig
+	if err := json.Unmarshal([]byte(starts[0]), &got); err != nil {
+		t.Fatalf("the config line is not JSON: %v", err)
+	}
+	if got.DataDir == "" {
+		t.Error("data_dir is empty; the executor has no index without it")
+	}
+	if got.PostgresCacheDir != h.cfg.executorPostgresCacheDir {
+		t.Errorf("postgres_cache_dir = %q, want the runner's own %q", got.PostgresCacheDir, h.cfg.executorPostgresCacheDir)
+	}
+}
+
+func TestAnEmbedderMoveIsPushedToARunningExecutor(t *testing.T) {
+	h := startFakeExecutor(t, "ok", fastExecutorTimings)
+	h.awaitReady(t)
+
+	line := `{"type":"embeddings-base-url","embeddings_base_url":"http://127.0.0.1:6001"}`
+	readControl(context.Background(), bufio.NewReader(strings.NewReader(line+"\n")), h.st)
+
+	if got := h.st.getEmbeddingsBaseURL(); got != "http://127.0.0.1:6001" {
+		t.Errorf("the runner's own URL = %q, want the update", got)
+	}
+	sets := h.lines(t, "embeddings")
+	if len(sets) != 1 {
+		t.Fatalf("embeddings.set calls = %d, want 1 (the bearer and the body reach a running executor)", len(sets))
+	}
+	var got struct {
+		EmbeddingsBaseURL string `json:"embeddings_base_url"`
+	}
+	if err := json.Unmarshal([]byte(sets[0]), &got); err != nil {
+		t.Fatalf("the pushed body is not JSON: %v", err)
+	}
+	if got.EmbeddingsBaseURL != "http://127.0.0.1:6001" {
+		t.Errorf("pushed body = %s, want the new URL", sets[0])
+	}
+}
+
+func TestAnEmbedderMoveWithNoExecutorIsDropped(t *testing.T) {
+	st := newState()
+	line := `{"type":"embeddings-base-url","embeddings_base_url":"http://127.0.0.1:6001"}`
+	readControl(context.Background(), bufio.NewReader(strings.NewReader(line+"\n")), st)
+	if got := st.getEmbeddingsBaseURL(); got != "http://127.0.0.1:6001" {
+		t.Errorf("the runner's own URL = %q, want the update even with no executor", got)
 	}
 }
 

@@ -54,6 +54,10 @@ const executorResponseLimit = 8 * 1024 * 1024
 // forwarded run's caller goes away. Short, because a drain is waiting on it.
 const executorCancelTimeout = 3 * time.Second
 
+// executorSetTimeout bounds the best-effort `POST /exec/embeddings.set` sent
+// when the embedder moves under a running executor.
+const executorSetTimeout = 3 * time.Second
+
 type executorTimings struct {
 	// listenTimeout bounds the wait for the EXECUTOR_LISTENING line.
 	listenTimeout time.Duration
@@ -100,6 +104,7 @@ type executorConfig struct {
 	DataDir           string           `json:"data_dir"`
 	WorkspaceRoot     string           `json:"workspace_root"`
 	EmbeddingsBaseURL string           `json:"embeddings_base_url,omitempty"`
+	PostgresCacheDir  string           `json:"postgres_cache_dir,omitempty"`
 	Providers         []providerConfig `json:"providers"`
 }
 
@@ -193,14 +198,15 @@ var errExecutorProtocol = errors.New("executor protocol mismatch")
 // restart on exit with a capped backoff, and the stop. It belongs to `state`,
 // not to a tunnel session, so a thirty-second reconnect does not restart it.
 type executorSupervisor struct {
-	bin        string
-	dataDir    string
-	workspace  string
-	providers  []providerConfig
-	embeddings func() string
-	t          executorTimings
-	client     *http.Client
-	scrub      func([]byte) []byte
+	bin              string
+	dataDir          string
+	postgresCacheDir string
+	workspace        string
+	providers        []providerConfig
+	embeddings       func() string
+	t                executorTimings
+	client           *http.Client
+	scrub            func([]byte) []byte
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -234,18 +240,19 @@ func newExecutorSupervisor(cfg config, embeddings func() string, t executorTimin
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &executorSupervisor{
-		bin:        cfg.executorBin,
-		dataDir:    cfg.executorDataDir,
-		workspace:  cfg.workspaceDir,
-		providers:  cfg.providers,
-		embeddings: embeddings,
-		t:          t,
-		client:     loopbackClient(),
-		scrub:      heldSecretRedactor(cfg.policy, providerSecrets(cfg.providers)),
-		ctx:        ctx,
-		cancel:     cancel,
-		done:       make(chan struct{}),
-		changed:    make(chan struct{}),
+		bin:              cfg.executorBin,
+		dataDir:          cfg.executorDataDir,
+		postgresCacheDir: cfg.executorPostgresCacheDir,
+		workspace:        cfg.workspaceDir,
+		providers:        cfg.providers,
+		embeddings:       embeddings,
+		t:                t,
+		client:           loopbackClient(),
+		scrub:            heldSecretRedactor(cfg.policy, providerSecrets(cfg.providers)),
+		ctx:              ctx,
+		cancel:           cancel,
+		done:             make(chan struct{}),
+		changed:          make(chan struct{}),
 	}
 }
 
@@ -399,6 +406,7 @@ func (e *executorSupervisor) spawn() (*executorProcess, error) {
 		DataDir:           e.dataDir,
 		WorkspaceRoot:     e.workspace,
 		EmbeddingsBaseURL: e.embeddings(),
+		PostgresCacheDir:  e.postgresCacheDir,
 		Providers:         providers,
 	})
 	if err != nil {
@@ -913,4 +921,40 @@ func (e *executorSupervisor) cancelRun(runID string, inst *executorProcess) {
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 	_ = resp.Body.Close()
+}
+
+// setEmbeddingsBaseURL tells a running executor that the embedder moved. It
+// never waits for or starts one: the config line and the restart path already
+// carry the live value, so a control message with no executor running has
+// nothing to update. A failure is logged and dropped — the executor keeps its
+// old address until its next start, and a restart is never warranted for this.
+func (e *executorSupervisor) setEmbeddingsBaseURL(rawURL string) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	inst := e.cur
+	e.mu.Unlock()
+	if inst == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(e.ctx, executorSetTimeout)
+	defer cancel()
+	payload, _ := json.Marshal(map[string]string{"embeddings_base_url": rawURL})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, inst.base+"/exec/embeddings.set", bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+inst.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		log.Warn().Err(err).Str("url", rawURL).Msg("could not tell the executor the embedder moved")
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+	if resp.StatusCode != http.StatusOK {
+		log.Warn().Int("status", resp.StatusCode).Str("url", rawURL).Msg("the executor did not accept the embedder's new address")
+	}
 }

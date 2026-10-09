@@ -26,7 +26,7 @@ const settings: UserSettings = {
 };
 
 const config = (preflight: PreflightReport, extra: Partial<Parameters<typeof runnerConfig>[0]> = {}): Record<string, unknown> =>
-  JSON.parse(runnerConfig({ bundle, settings, preflight, providers: [], executorDataDir: "/userData/executor", ...extra })) as Record<
+  JSON.parse(runnerConfig({ bundle, settings, preflight, providers: [], executorDataDir: "/userData/executor", executorPostgresCacheDir: "/userData/postgres-bin", ...extra })) as Record<
     string,
     unknown
   >;
@@ -63,7 +63,14 @@ describe("runnerConfig", () => {
   });
 
   it("ends with exactly one newline, which is what a line-oriented stdin reader needs", () => {
-    const raw = runnerConfig({ bundle, settings, preflight: report(), providers: [], executorDataDir: "/userData/executor" });
+    const raw = runnerConfig({
+      bundle,
+      settings,
+      preflight: report(),
+      providers: [],
+      executorDataDir: "/userData/executor",
+      executorPostgresCacheDir: "/userData/postgres-bin",
+    });
     expect(raw.endsWith("\n")).toBe(true);
     expect(raw.slice(0, -1).includes("\n")).toBe(false);
   });
@@ -134,6 +141,7 @@ describe("runnerConfig", () => {
   it("sends the executor and its data directory only when this build has one", () => {
     expect(config(report())).not.toHaveProperty("executor_bin");
     expect(config(report())).not.toHaveProperty("executor_data_dir");
+    expect(config(report())).not.toHaveProperty("executor_postgres_cache_dir");
     const missing = config(
       report([{ id: "executor", label: "TaskTrooper executor", required: false, status: "missing" }]),
     );
@@ -143,6 +151,7 @@ describe("runnerConfig", () => {
     );
     expect(parsed.executor_bin).toBe("/app/bin/executor");
     expect(parsed.executor_data_dir).toBe("/userData/executor");
+    expect(parsed.executor_postgres_cache_dir).toBe("/userData/postgres-bin");
   });
 
   /** The keys travel on this pipe and nowhere else: not argv, not the environment. */

@@ -186,6 +186,11 @@ type wireConfig struct {
 	// executor_bin. Separate from the local backend's, so nothing an account
 	// keeps on this machine mixes with local-mode data.
 	ExecutorDataDir string `json:"executor_data_dir,omitempty"`
+	// ExecutorPostgresCacheDir is where the index store's Postgres binaries
+	// live. Optional: the desktop app sends the local server's own cache so the
+	// executor does not download Postgres a second time, and its absence falls
+	// back to the executor's default under data_dir.
+	ExecutorPostgresCacheDir string `json:"executor_postgres_cache_dir,omitempty"`
 	// Providers are the member's own LLM providers, API keys included. Held in
 	// memory and handed to the executor on its stdin; they never cross the
 	// tunnel and never reach a log line (executor.go).
@@ -224,9 +229,10 @@ type config struct {
 	policy         runnerPolicy
 	// The local executor. Empty executorBin means this machine runs no
 	// executor, which agent.run and llm.complete report as not_ready.
-	executorBin     string
-	executorDataDir string
-	providers       []providerConfig
+	executorBin              string
+	executorDataDir          string
+	executorPostgresCacheDir string
+	providers                []providerConfig
 }
 
 // loadConfig reads one JSON document — the FIRST LINE of stdin — and validates
@@ -402,33 +408,41 @@ func loadConfig(line []byte) (config, error) {
 	if executorBin != "" && executorData == "" {
 		return config{}, errors.New("executor_data_dir is required with executor_bin")
 	}
+	executorPostgres := strings.TrimSpace(wire.ExecutorPostgresCacheDir)
+	if executorPostgres != "" {
+		if !filepath.IsAbs(executorPostgres) {
+			return config{}, fmt.Errorf("executor_postgres_cache_dir %q must be an absolute path", executorPostgres)
+		}
+		executorPostgres = filepath.Clean(executorPostgres)
+	}
 	providers, err := checkProviders(wire.Providers)
 	if err != nil {
 		return config{}, err
 	}
 
 	return config{
-		tunnelURL:         tunnelURL,
-		runnerToken:       wire.RunnerToken,
-		tenantID:          tenant,
-		memberUID:         member,
-		workspaceDir:      filepath.Clean(workspace),
-		claudeBin:         claudeBin,
-		gitBin:            gitBin,
-		embeddingsBaseURL: embeddingsBase,
-		embeddingModel:    model,
-		xcrunBin:          xcrun,
-		adbBin:            adb,
-		emulatorBin:       emulator,
-		appiumBaseURL:     appium,
-		appiumBin:         appiumBin,
-		cursorAgentBin:    cursorAgent,
-		opencodeBin:       opencodeBin,
-		maxBackoff:        maxBackoff,
-		policy:            policy,
-		executorBin:       executorBin,
-		executorDataDir:   executorData,
-		providers:         providers,
+		tunnelURL:                tunnelURL,
+		runnerToken:              wire.RunnerToken,
+		tenantID:                 tenant,
+		memberUID:                member,
+		workspaceDir:             filepath.Clean(workspace),
+		claudeBin:                claudeBin,
+		gitBin:                   gitBin,
+		embeddingsBaseURL:        embeddingsBase,
+		embeddingModel:           model,
+		xcrunBin:                 xcrun,
+		adbBin:                   adb,
+		emulatorBin:              emulator,
+		appiumBaseURL:            appium,
+		appiumBin:                appiumBin,
+		cursorAgentBin:           cursorAgent,
+		opencodeBin:              opencodeBin,
+		maxBackoff:               maxBackoff,
+		policy:                   policy,
+		executorBin:              executorBin,
+		executorDataDir:          executorData,
+		executorPostgresCacheDir: executorPostgres,
+		providers:                providers,
 	}, nil
 }
 
@@ -679,6 +693,9 @@ func readControl(ctx context.Context, r *bufio.Reader, state *state) {
 				continue
 			}
 			state.setEmbeddingsBaseURL(trimmed)
+			if ex := state.executorSupervisor(); ex != nil {
+				ex.setEmbeddingsBaseURL(trimmed)
+			}
 			log.Debug().Str("url", trimmed).Msg("embeddings base url updated")
 		default:
 			log.Warn().Str("type", msg.Type).Msg("ignoring an unknown control message")
