@@ -140,6 +140,13 @@ the runner's `claude.run` envelope:
 - `id` is the request's `id` when given (so a stream the runner forwards
   unchanged matches the cloud's call id), otherwise the `run_id`.
 - `seq` is the order on the wire.
+- Behind a runner (`desktop/runner`), this stream is part of a **durable
+  run**: the runner keeps its own connection to this route open when the
+  cloud's stream or tunnel drops, so a dropped tunnel does not cancel the run
+  here; only `/exec/cancel`, `timeout_ms` and shutdown do. The runner adds
+  its own top-level `seq` to every frame (the payload's `seq` is untouched),
+  buffers the frames, and serves them again through its `run.attach`. See
+  "Durable runs" in `desktop/runner/CLAUDE.md`.
 - Event kinds:
   - `step` is every activity step the loop records, with the same type and
     payload a local run stores.
