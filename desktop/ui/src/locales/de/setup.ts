@@ -62,6 +62,39 @@ export const setup = {
     doneBody: "Es ist mit dem Projekt verknüpft und wird im Hintergrund indiziert. Fügen Sie jederzeit weitere hinzu.",
     loadFailed: "Ihre Projekte konnten nicht geladen werden",
   },
+  firstRun: {
+    title: "Wie möchten Sie TaskTrooper nutzen?",
+    description: "Jetzt wählen; später in den Einstellungen änderbar.",
+    local: {
+      title: "Auf diesem Computer, ohne Konto",
+      body: "Server, Datenbank und Ihre Agenten laufen alle auf diesem Rechner. Kein Login, und nichts verlässt ihn.",
+      action: "Ohne Konto fortfahren",
+    },
+    account: {
+      title: "Mit einem Konto",
+      body: "Melden Sie sich an, um Ihr Board und Team von jedem Gerät aus zu erreichen.",
+      action: "Anmelden",
+      signingIn: "Anmeldung…",
+      failed: "Anmeldung fehlgeschlagen",
+    },
+  },
+  team: {
+    title: "Was für ein Team?",
+    description:
+      "Wählen Sie einen Ausgangspunkt. Die aktivierten Agenten sind vorausgewählt; Sie können sie hier und später in den Einstellungen ändern.",
+    agentsLabel: "Agenten",
+    pmLocked: "Der Produktmanager ist immer aktiv.",
+    confirm: "Dieses Team erstellen",
+    loadFailed: "Ihre Agenten konnten nicht geladen werden",
+    saveFailed: "Ihr Team konnte nicht gespeichert werden",
+    templates: {
+      web: { name: "Webanwendung", description: "Frontend, Backend und die, die sie ausliefern." },
+      mobile: { name: "Mobile App", description: "Ein Mobile-Entwickler neben Backend und Design." },
+      game: { name: "Spiel", description: "Ein Spielentwickler, Design und QA." },
+      data: { name: "Daten & Analyse", description: "Ein Data Scientist mit Backend und QA." },
+      custom: { name: "Individuell", description: "Nur mit dem Produktmanager beginnen." },
+    },
+  },
   nav: {
     finishSetup: "Einrichtung abschließen",
   },

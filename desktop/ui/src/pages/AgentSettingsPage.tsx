@@ -220,6 +220,8 @@ export function AgentSettingsPage() {
         tool_policy: agent.tool_policy ?? {},
         enabled: agent.enabled,
         self_evolution_enabled: agent.self_evolution_enabled ?? false,
+        max_turns: agent.max_turns,
+        effort: agent.effort,
         // Born connected to the catalog is the server's own default; a load
         // from an older server that predates these fields reads as "on".
         auto_pull_agent_updates: agent.auto_pull_agent_updates ?? true,

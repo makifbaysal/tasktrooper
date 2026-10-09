@@ -1804,6 +1804,10 @@ export interface Agent {
   skill_ids: string[];
   enabled: boolean;
   self_evolution_enabled: boolean;
+  // Optional: the UI does not edit them, but every PUT must carry them back or
+  // the server resets the agent's CLI turn cap and effort to their defaults.
+  max_turns?: number;
+  effort?: string;
   catalog_slug?: string;
   catalog_etag?: string;
   // Optional because a server older than this feature omits them; absent reads

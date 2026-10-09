@@ -62,6 +62,39 @@ export const setup = {
     doneBody: "Il est lié au projet et en cours d'indexation en arrière-plan. Ajoutez-en d'autres quand vous le souhaitez.",
     loadFailed: "Impossible de charger vos projets",
   },
+  firstRun: {
+    title: "Comment voulez-vous utiliser TaskTrooper ?",
+    description: "Choisissez maintenant ; modifiable plus tard dans les Réglages.",
+    local: {
+      title: "Sur cet ordinateur, sans compte",
+      body: "Le serveur, la base de données et vos agents tournent sur cette machine. Aucune connexion, et rien n'en sort.",
+      action: "Continuer sans compte",
+    },
+    account: {
+      title: "Avec un compte",
+      body: "Connectez-vous pour accéder à votre tableau et à votre équipe depuis n'importe quel appareil.",
+      action: "Se connecter",
+      signingIn: "Connexion…",
+      failed: "Échec de la connexion",
+    },
+  },
+  team: {
+    title: "Quel type d'équipe ?",
+    description:
+      "Choisissez un point de départ. Les agents activés sont présélectionnés ; vous pouvez les modifier ici puis dans les Réglages.",
+    agentsLabel: "Agents",
+    pmLocked: "Le chef de produit est toujours activé.",
+    confirm: "Créer cette équipe",
+    loadFailed: "Impossible de charger vos agents",
+    saveFailed: "Impossible d'enregistrer votre équipe",
+    templates: {
+      web: { name: "Application web", description: "Front-end, back-end et ceux qui les livrent." },
+      mobile: { name: "Application mobile", description: "Un développeur mobile aux côtés du back-end et du design." },
+      game: { name: "Jeu", description: "Un développeur de jeu, le design et le QA." },
+      data: { name: "Données et analytique", description: "Un data scientist avec le back-end et le QA." },
+      custom: { name: "Personnalisé", description: "Commencer avec le chef de produit uniquement." },
+    },
+  },
   nav: {
     finishSetup: "Terminer la configuration",
   },

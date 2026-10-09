@@ -62,6 +62,39 @@ export const setup = {
     doneBody: "Ele está vinculado ao projeto e sendo indexado em segundo plano. Adicione outros quando quiser.",
     loadFailed: "Não foi possível carregar seus projetos",
   },
+  firstRun: {
+    title: "Como você quer usar o TaskTrooper?",
+    description: "Escolha agora; você pode mudar depois em Configurações.",
+    local: {
+      title: "Neste computador, sem conta",
+      body: "O servidor, o banco de dados e seus agentes rodam nesta máquina. Sem login, e nada sai dela.",
+      action: "Continuar sem conta",
+    },
+    account: {
+      title: "Com uma conta",
+      body: "Entre para acessar seu quadro e equipe de qualquer dispositivo.",
+      action: "Entrar",
+      signingIn: "Entrando…",
+      failed: "Falha ao entrar",
+    },
+  },
+  team: {
+    title: "Que tipo de equipe?",
+    description:
+      "Escolha um ponto de partida. Os agentes ativados já vêm selecionados; você pode alterá-los aqui e depois em Configurações.",
+    agentsLabel: "Agentes",
+    pmLocked: "O gerente de produto está sempre ativo.",
+    confirm: "Criar esta equipe",
+    loadFailed: "Não foi possível carregar seus agentes",
+    saveFailed: "Não foi possível salvar sua equipe",
+    templates: {
+      web: { name: "Aplicação web", description: "Front-end, back-end e quem os entrega." },
+      mobile: { name: "Aplicativo móvel", description: "Um desenvolvedor móvel ao lado do back-end e do design." },
+      game: { name: "Jogo", description: "Um desenvolvedor de jogos, design e QA." },
+      data: { name: "Dados e análise", description: "Um cientista de dados com o back-end e o QA." },
+      custom: { name: "Personalizado", description: "Começar apenas com o gerente de produto." },
+    },
+  },
   nav: {
     finishSetup: "Concluir configuração",
   },

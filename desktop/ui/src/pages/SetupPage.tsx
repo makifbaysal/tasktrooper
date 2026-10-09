@@ -4,12 +4,15 @@ import { SetupShell } from "@/components/setup/SetupShell";
 import { AgentRuntimeStep } from "@/components/setup/AgentRuntimeStep";
 import { EnvironmentStep } from "@/components/setup/EnvironmentStep";
 import { FirstProjectStep } from "@/components/setup/FirstProjectStep";
+import { FirstRunChoice } from "@/components/setup/FirstRunChoice";
 import { GitHubStep } from "@/components/setup/GitHubStep";
+import { TeamTemplateStep } from "@/components/setup/TeamTemplateStep";
 import { SETUP_STEP_TITLE_KEY, SetupStepList } from "@/components/setup/SetupStepList";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
+import { readFirstRunMode, readFirstRunTeamDone, type FirstRunMode } from "@/lib/firstRun";
 import { SETUP_STEP_IDS, setupStepUnlocked, type SetupStepId } from "@/lib/setup";
 
 /**
@@ -31,6 +34,13 @@ export function SetupPage() {
   const navigate = useNavigate();
   const { steps, activeId, complete, dismiss } = useSetup();
 
+  // The two first-run choices, remembered in localStorage and only asked while
+  // they are unanswered. They sit in front of the sequence, which means an
+  // install that never made them sees them once; an existing install whose
+  // steps are already done is redirected home below before either renders.
+  const [mode, setMode] = useState<FirstRunMode | null>(() => readFirstRunMode());
+  const [teamDone, setTeamDone] = useState(() => readFirstRunTeamDone());
+
   // What the user is LOOKING at, which is not always where they are: a
   // finished step stays openable so someone can re-run the preflight or swap
   // the GitHub account without leaving the sequence.
@@ -49,6 +59,22 @@ export function SetupPage() {
     // Nothing left to ask. Someone who typed the URL gets home, which is
     // where the "all set" state of this screen would have sent them anyway.
     return <Navigate to="/home" replace />;
+  }
+
+  if (mode === null) {
+    return (
+      <SetupShell title={t("setup.firstRun.title")} description={t("setup.firstRun.description")}>
+        <FirstRunChoice onChosen={setMode} />
+      </SetupShell>
+    );
+  }
+
+  if (!teamDone) {
+    return (
+      <SetupShell title={t("setup.team.title")} description={t("setup.team.description")}>
+        <TeamTemplateStep onDone={() => setTeamDone(true)} />
+      </SetupShell>
+    );
   }
 
   const index = SETUP_STEP_IDS.indexOf(shown);

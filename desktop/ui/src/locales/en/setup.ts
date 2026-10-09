@@ -68,6 +68,39 @@ export const setup = {
     doneBody: "It's linked to the project and indexing in the background. Add more whenever you like.",
     loadFailed: "Couldn't load your projects",
   },
+  firstRun: {
+    title: "How do you want to use TaskTrooper?",
+    description: "Choose now; you can change it later in Settings.",
+    local: {
+      title: "On this computer, without an account",
+      body: "The server, the database and your agents all run on this machine. No sign-in, and nothing leaves it.",
+      action: "Continue without an account",
+    },
+    account: {
+      title: "With an account",
+      body: "Sign in to reach your board and team from any device.",
+      action: "Sign in",
+      signingIn: "Signing in…",
+      failed: "Signing in failed",
+    },
+  },
+  team: {
+    title: "What kind of team?",
+    description:
+      "Pick a starting point. The agents it turns on are preselected; you can change them here and later in Settings.",
+    agentsLabel: "Agents",
+    pmLocked: "The product manager is always on.",
+    confirm: "Create this team",
+    loadFailed: "Couldn't load your agents",
+    saveFailed: "Couldn't save your team",
+    templates: {
+      web: { name: "Web application", description: "Front end, back end, and the people who ship them." },
+      mobile: { name: "Mobile application", description: "A mobile developer alongside the back end and design." },
+      game: { name: "Game", description: "A game developer, design and QA." },
+      data: { name: "Data & analytics", description: "A data scientist with the back end and QA." },
+      custom: { name: "Custom", description: "Start with just the product manager." },
+    },
+  },
   nav: {
     finishSetup: "Finish setup",
   },

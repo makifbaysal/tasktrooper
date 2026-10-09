@@ -62,6 +62,38 @@ export const setup = {
     doneBody: "它已关联到项目，并正在后台建立索引。随时可以添加更多。",
     loadFailed: "无法加载你的项目",
   },
+  firstRun: {
+    title: "你想如何使用 TaskTrooper？",
+    description: "现在选择；之后可在设置中更改。",
+    local: {
+      title: "在这台电脑上，无需账户",
+      body: "服务器、数据库和你的智能体都在本机运行。无需登录，数据不会离开本机。",
+      action: "无需账户继续",
+    },
+    account: {
+      title: "使用账户",
+      body: "登录后可在任何设备上访问你的看板和团队。",
+      action: "登录",
+      signingIn: "正在登录…",
+      failed: "登录失败",
+    },
+  },
+  team: {
+    title: "什么样的团队？",
+    description: "选择一个起点。它会启用的智能体已预先选中；你可以在这里以及之后的设置中更改。",
+    agentsLabel: "智能体",
+    pmLocked: "产品经理始终启用。",
+    confirm: "创建此团队",
+    loadFailed: "无法加载你的智能体",
+    saveFailed: "无法保存你的团队",
+    templates: {
+      web: { name: "Web 应用", description: "前端、后端以及交付它们的人。" },
+      mobile: { name: "移动应用", description: "移动开发者，配合后端与设计。" },
+      game: { name: "游戏", description: "游戏开发者、设计和 QA。" },
+      data: { name: "数据与分析", description: "数据科学家，配合后端与 QA。" },
+      custom: { name: "自定义", description: "仅从产品经理开始。" },
+    },
+  },
   nav: {
     finishSetup: "完成设置",
   },

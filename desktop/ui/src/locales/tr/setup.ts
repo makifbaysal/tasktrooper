@@ -69,6 +69,39 @@ export const setup = {
     doneBody: "Projeye bağlandı ve arka planda indeksleniyor. İstediğiniz zaman yenilerini ekleyin.",
     loadFailed: "Projeleriniz yüklenemedi",
   },
+  firstRun: {
+    title: "TaskTrooper'ı nasıl kullanmak istiyorsunuz?",
+    description: "Şimdi seçin; sonradan Ayarlar'dan değiştirebilirsiniz.",
+    local: {
+      title: "Bu bilgisayarda, hesapsız",
+      body: "Sunucu, veritabanı ve ajanlarınız bu makinede çalışır. Giriş yok, hiçbir şey buradan çıkmaz.",
+      action: "Hesapsız devam et",
+    },
+    account: {
+      title: "Hesapla",
+      body: "Panonuza ve ekibinize her cihazdan erişmek için giriş yapın.",
+      action: "Giriş yap",
+      signingIn: "Giriş yapılıyor…",
+      failed: "Giriş yapılamadı",
+    },
+  },
+  team: {
+    title: "Nasıl bir ekip?",
+    description:
+      "Bir başlangıç noktası seçin. Açtığı ajanlar önceden seçilir; burada ve sonradan Ayarlar'dan değiştirebilirsiniz.",
+    agentsLabel: "Ajanlar",
+    pmLocked: "Ürün yöneticisi her zaman açıktır.",
+    confirm: "Bu ekibi oluştur",
+    loadFailed: "Ajanlarınız yüklenemedi",
+    saveFailed: "Ekip kaydedilemedi",
+    templates: {
+      web: { name: "Web uygulaması", description: "Ön uç, arka uç ve bunları yayınlayanlar." },
+      mobile: { name: "Mobil uygulama", description: "Arka uç ve tasarımın yanında bir mobil geliştirici." },
+      game: { name: "Oyun", description: "Bir oyun geliştirici, tasarım ve QA." },
+      data: { name: "Veri ve analitik", description: "Arka uç ve QA ile birlikte bir veri bilimci." },
+      custom: { name: "Özel", description: "Yalnızca ürün yöneticisiyle başla." },
+    },
+  },
   nav: {
     finishSetup: "Kurulumu tamamla",
   },

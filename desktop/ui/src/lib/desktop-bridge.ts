@@ -337,6 +337,15 @@ export interface TaskTrooperDesktopHost {
   info?: () => Promise<{ app: string; version: string; platform: string }>;
   /** The local half. Absent in a browser. */
   runner?: DesktopRunnerHost;
+  /**
+   * Account mode. Absent in a browser and in a shell that predates it — the
+   * first-run screen only offers "Hesapla" when `signIn` is here.
+   */
+  account?: {
+    signIn(origin?: string): Promise<void>;
+    signOut(): Promise<void>;
+    state(): Promise<{ mode: "local" | "account"; origin?: string }>;
+  };
   /** Absent in a browser, and in a shell older than the Settings update card. */
   updates?: DesktopUpdatesHost;
   /**
