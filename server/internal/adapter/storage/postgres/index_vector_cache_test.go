@@ -91,9 +91,6 @@ func (s *IndexVectorCacheSuite) newIndex(store *postgres.IndexStore) domain.Work
 	return idx
 }
 
-// newBranchIndex gives the branch index a repository of its own:
-// idx_workspace_indexes_repository is still UNIQUE (repository_id) (migration
-// 060 dropped it under its pre-022 name), so a repository holds one index row.
 func (s *IndexVectorCacheSuite) newBranchIndex(store *postgres.IndexStore, branch string) domain.WorkspaceIndex {
 	repo := s.newRepository()
 	idx, err := store.CreateProjectBranchIndex(s.ctx, repo.ID, branch, repo.RootPath, "")
