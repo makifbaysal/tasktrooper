@@ -1,4 +1,4 @@
-import { Loader2, LogIn, LogOut, UserRound } from "lucide-react";
+import { KeyRound, Loader2, LogIn, LogOut, UserRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/api";
@@ -7,9 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
-import { desktopAccount } from "@/lib/desktop-bridge";
-
-type AccountView = { mode: "local" | "account"; origin?: string };
+import { desktopAccount, type DesktopAccountState } from "@/lib/desktop-bridge";
 
 /**
  * What stands between the button and the switch: nothing when no run is in
@@ -24,12 +22,16 @@ type Confirm = { kind: "runs"; count: number } | { kind: "plain" };
  * Connecting stops this computer's local server and loads the account's
  * sign-in page in this window, so this page is gone once it works; a run the
  * local server is in the middle of stops with it, which is why the switch asks
- * first when the backend says one is active.
+ * first when the backend says one is active. Going back from running locally
+ * for now stops the local server the same way, so it asks the same question.
+ *
+ * API keys… opens the shell's own key window; nothing here reads or writes a
+ * key.
  */
 export function AccountCard() {
   const { t } = useI18n();
   const account = desktopAccount();
-  const [state, setState] = useState<AccountView | null>(null);
+  const [state, setState] = useState<DesktopAccountState | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -97,13 +99,26 @@ export function AccountCard() {
   }
 
   const signedIn = state?.mode === "account";
+  const localForNow = state?.temporaryLocal === true;
+  const canOpenKeys = typeof account.openKeys === "function";
+
+  const signOutButton = (
+    <Button variant="outline" onClick={() => void signOut()} disabled={busy || state === null}>
+      {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+      {busy ? t("settings.account.signingOut") : t("settings.account.signOut")}
+    </Button>
+  );
 
   return (
     <Card className="w-full space-y-4 p-6">
       <div className="space-y-1">
         {title}
         <p className="text-sm text-muted-foreground">
-          {signedIn ? t("settings.account.signedIn", { origin: state.origin ?? "" }) : t("settings.account.localHelp")}
+          {localForNow
+            ? t("settings.account.temporaryLocal", { origin: state.origin ?? "" })
+            : signedIn
+              ? t("settings.account.signedIn", { origin: state.origin ?? "" })
+              : t("settings.account.localHelp")}
         </p>
       </div>
 
@@ -122,17 +137,32 @@ export function AccountCard() {
             </Button>
           </div>
         </Notice>
+      ) : localForNow ? (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void askThenConnect()} disabled={busy}>
+            <LogIn className="mr-2 h-4 w-4" />
+            {t("settings.account.backToAccount")}
+          </Button>
+          {signOutButton}
+        </div>
       ) : signedIn ? (
-        <Button variant="outline" onClick={() => void signOut()} disabled={busy || state === null}>
-          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
-          {busy ? t("settings.account.signingOut") : t("settings.account.signOut")}
-        </Button>
+        signOutButton
       ) : (
         <Button onClick={() => void askThenConnect()} disabled={busy || state === null}>
           {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
           {busy ? t("settings.account.connecting") : t("settings.account.connect")}
         </Button>
       )}
+
+      {canOpenKeys ? (
+        <div className="space-y-2 border-t border-border pt-4">
+          <p className="text-sm text-muted-foreground">{t("settings.account.apiKeysHelp")}</p>
+          <Button variant="outline" onClick={() => void account.openKeys?.().catch(() => undefined)}>
+            <KeyRound className="mr-2 h-4 w-4" />
+            {t("settings.account.apiKeys")}
+          </Button>
+        </div>
+      ) : null}
     </Card>
   );
 }

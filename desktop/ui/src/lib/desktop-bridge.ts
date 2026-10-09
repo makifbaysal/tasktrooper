@@ -394,6 +394,17 @@ export interface DesktopUpdatesHost {
   restart(): Promise<void>;
 }
 
+/**
+ * What `account.state()` answers, as far as this page reads it — the shell's
+ * own answer is a superset. `temporaryLocal`: signed in, but running locally
+ * for now because the account's page could not be reached (bridge 2).
+ */
+export interface DesktopAccountState {
+  mode: "local" | "account";
+  origin?: string;
+  temporaryLocal?: boolean;
+}
+
 /** The hook the desktop preload installs on `window`. Absent in a browser. */
 export interface TaskTrooperDesktopHost {
   info?: () => Promise<{ app: string; version: string; platform: string }>;
@@ -404,9 +415,17 @@ export interface TaskTrooperDesktopHost {
    * first-run screen only offers "Hesapla" when `signIn` is here.
    */
   account?: {
+    /** While `temporaryLocal`, goes back to the account still signed in to. */
     signIn(origin?: string): Promise<void>;
+    /** The one call that forgets the account, `temporaryLocal` or not. */
     signOut(): Promise<void>;
-    state(): Promise<{ mode: "local" | "account"; origin?: string }>;
+    state(): Promise<DesktopAccountState>;
+    /**
+     * Bridge 2: bring up the shell's own API-key window. Takes nothing and
+     * returns nothing — the keys are typed into that window, never into a
+     * page. Absent in older shells.
+     */
+    openKeys?(): Promise<void>;
   };
   /** Absent in a browser, and in a shell older than the Settings update card. */
   updates?: DesktopUpdatesHost;
@@ -423,6 +442,7 @@ export interface TaskTrooperDesktopHost {
   /**
    * Bumped when the bridge gains something a page may need to feature-test.
    * 1: `account`, `mode` and the runner's pairing calls. Absent before that.
+   * 2: `account.openKeys()` and `account.state().temporaryLocal`.
    */
   bridgeVersion?: number;
   /**

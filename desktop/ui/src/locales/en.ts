@@ -123,6 +123,12 @@ export const en = {
       cancel: "Cancel",
       failed: "The switch didn't complete",
       unavailable: "Accounts are only available in the TaskTrooper desktop app.",
+      temporaryLocal: "Signed in to {origin}, but using TaskTrooper on this computer without it for now. Tasks assigned to you there wait until you go back, and the next launch tries the account again.",
+      backToAccount: "Back to the account",
+      apiKeys: "API keys…",
+      apiKeysHelp: "The keys agents use on this computer with your own provider accounts. They stay here, encrypted; TaskTrooper's servers never see them.",
+      bannerTitle: "Using TaskTrooper without your account for now",
+      bannerBody: "You are still signed in to {origin}. Tasks assigned to you there wait until you go back.",
     },
     updates: {
       title: "Updates",
