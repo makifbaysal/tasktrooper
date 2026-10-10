@@ -64,8 +64,9 @@ type Deps struct {
 	Runner     AgentRunner
 	Smoke      SmokeTester
 	Brief      BriefFunc
-	// Background is the process-lifetime context runs hang off: a run
-	// outlives the POST that started it, and must still stop on shutdown.
+	// Background is the process lifetime: a run outlives the POST that
+	// started it and keeps that request's context values, but still stops
+	// when Background ends.
 	Background context.Context
 	Now        func() time.Time
 	RunTimeout time.Duration
@@ -136,7 +137,12 @@ func (s *Service) Generate(ctx context.Context, componentID uuid.UUID, existing 
 		normalized = append(normalized, c.Normalized())
 	}
 
-	runCtx, cancel := context.WithTimeout(s.deps.Background, s.deps.RunTimeout)
+	runCtx, cancelRun := context.WithTimeout(context.WithoutCancel(ctx), s.deps.RunTimeout)
+	stopFollowingBackground := context.AfterFunc(s.deps.Background, cancelRun)
+	cancel := func() {
+		stopFollowingBackground()
+		cancelRun()
+	}
 	job := Job{
 		JobID:       uuid.New(),
 		ComponentID: componentID,

@@ -59,7 +59,7 @@ func (s *Service) StartScan(ctx context.Context, repositoryID uuid.UUID, trigger
 	s.inflight[repositoryID] = scan.ID
 	s.mu.Unlock()
 
-	go s.runScanGuarded(repo, scan)
+	go s.runScanGuarded(context.WithoutCancel(ctx), repo, scan)
 
 	return scan, true, nil
 }
@@ -72,12 +72,13 @@ func (s *Service) clearInflight(repositoryID, scanID uuid.UUID) {
 	s.mu.Unlock()
 }
 
-// runScanGuarded is the goroutine StartScan launches: it bounds the scan to
-// scanTimeout under the process-lifetime background context (so a request's
-// cancellation never kills a scan it started) and turns a panic into a
-// failed scan instead of a crashed process.
-func (s *Service) runScanGuarded(repo domain.Repository, scan domain.ProjectScan) {
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.bgCtx), scanTimeout)
+// runScanGuarded is the goroutine StartScan launches, on its caller's context
+// without the cancellation: whatever the caller's work carries on its context
+// stays with every write the scan makes, and a request that ends never kills
+// the scan it started. It bounds the scan to scanTimeout and turns a panic
+// into a failed scan instead of a crashed process.
+func (s *Service) runScanGuarded(ctx context.Context, repo domain.Repository, scan domain.ProjectScan) {
+	runCtx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
 	defer func() {
 		if r := recover(); r != nil {
@@ -109,7 +110,7 @@ func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan doma
 		}
 	}
 
-	result, err := s.scanner.Scan(ctx, repo.RootPath, emit)
+	result, err := s.scanner.Scan(domain.WithScanRepository(ctx, repo), repo.RootPath, emit)
 	if err != nil {
 		s.failScan(ctx, scan, err.Error())
 		s.clearInflight(repo.ID, scan.ID)

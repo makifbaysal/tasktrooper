@@ -123,20 +123,22 @@ func (s *Service) MatchScan(ctx context.Context, repoID uuid.UUID, result domain
 	if err := s.project(ctx, repoID); err != nil {
 		log.Warn().Err(err).Str("repository_id", repoID.String()).Msg("cloud: match: projection failed")
 	}
-	s.triggerRelink()
+	s.triggerRelink(ctx)
 	return nil
 }
 
-// triggerRelink runs Relink in the background under the service's own
-// lifetime context, so a BindEnvironment/PatchEnvironment request or a scan's
-// MatchScan call never waits on a re-scan of every other repository's
-// dangling link targets.
-func (s *Service) triggerRelink() {
+// triggerRelink runs Relink in the background, so a BindEnvironment/
+// PatchEnvironment request or a scan's MatchScan call never waits on a
+// re-scan of every other repository's dangling link targets. It runs on the
+// caller's context without the cancellation: the relink writes what the
+// caller's own writes would, under the same context values.
+func (s *Service) triggerRelink(ctx context.Context) {
 	if s.relinker == nil {
 		return
 	}
+	relinkCtx := context.WithoutCancel(ctx)
 	go func() {
-		if err := s.relinker.Relink(s.bgCtx); err != nil {
+		if err := s.relinker.Relink(relinkCtx); err != nil {
 			log.Warn().Err(err).Msg("cloud: relink after environment change failed")
 		}
 	}()

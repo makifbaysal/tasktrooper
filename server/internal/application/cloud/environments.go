@@ -113,7 +113,7 @@ func (s *Service) BindEnvironment(ctx context.Context, componentID uuid.UUID, en
 		s.alignDeliveryToProduction(ctx, componentID, domain.CloudVercel)
 	}
 	s.refreshDelivery(ctx, comp.RepositoryID)
-	s.triggerRelink()
+	s.triggerRelink(ctx)
 	return saved, nil
 }
 
@@ -181,7 +181,7 @@ func (s *Service) PatchEnvironment(ctx context.Context, id uuid.UUID, patch Envi
 	}
 	s.refreshDelivery(ctx, saved.RepositoryID)
 	if saved.Status == domain.LinkConfirmed {
-		s.triggerRelink()
+		s.triggerRelink(ctx)
 	}
 	return saved, nil
 }

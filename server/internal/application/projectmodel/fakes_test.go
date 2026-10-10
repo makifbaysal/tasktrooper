@@ -715,6 +715,7 @@ type fakeScanner struct {
 	block   chan struct{}
 	started chan struct{}
 	calls   int
+	lastCtx context.Context
 }
 
 var _ Scanner = (*fakeScanner)(nil)
@@ -722,6 +723,7 @@ var _ Scanner = (*fakeScanner)(nil)
 func (f *fakeScanner) Scan(ctx context.Context, root string, emit func(domain.ScanEvent)) (domain.ScanResult, error) {
 	f.mu.Lock()
 	f.calls++
+	f.lastCtx = ctx
 	started := f.started
 	block := f.block
 	events := f.events
@@ -748,6 +750,12 @@ func (f *fakeScanner) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
+}
+
+func (f *fakeScanner) scanContext() context.Context {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastCtx
 }
 
 // --- fakeEnvironmentStore: port.EnvironmentStore ---

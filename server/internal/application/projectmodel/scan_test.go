@@ -2,6 +2,7 @@ package projectmodel
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -304,4 +305,60 @@ func (s *ScanSuite) TestRefreshAfterPushRunsARepositorysFirstScanAsItsImport() {
 	s.Require().NoError(err)
 	s.Equal(domain.ScanTriggerPush, second.Trigger)
 	s.awaitScan(second.ID)
+}
+
+type scanCallerKey struct{}
+
+// callerValueStore counts the scan writes whose context lost the caller's
+// value: on an edition that scopes its stores by a context value, each of
+// those writes would fail.
+type callerValueStore struct {
+	*fakeStore
+	mu      sync.Mutex
+	writes  int
+	missing int
+}
+
+func (c *callerValueStore) UpdateScan(ctx context.Context, sc domain.ProjectScan) error {
+	c.mu.Lock()
+	c.writes++
+	if ctx.Value(scanCallerKey{}) == nil {
+		c.missing++
+	}
+	c.mu.Unlock()
+	return c.fakeStore.UpdateScan(ctx, sc)
+}
+
+func (s *ScanSuite) TestScanKeepsTheCallersContextValuesAndOutlivesItsCancellation() {
+	store := &callerValueStore{fakeStore: s.store}
+	s.svc.store = store
+	s.scanner.block = make(chan struct{})
+	s.scanner.started = make(chan struct{})
+
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), scanCallerKey{}, "tenant-a"))
+	scan, started, err := s.svc.StartScan(ctx, s.repo.ID, domain.ScanTriggerManual)
+	s.Require().NoError(err)
+	s.Require().True(started)
+	select {
+	case <-s.scanner.started:
+	case <-time.After(2 * time.Second):
+		s.FailNow("scan never started")
+	}
+	cancel()
+	close(s.scanner.block)
+
+	finished := s.awaitScan(scan.ID)
+	s.Equal(domain.ScanSucceeded, finished.Status, "the request ending does not stop the scan it started")
+
+	scanCtx := s.scanner.scanContext()
+	s.Require().NotNil(scanCtx)
+	s.Equal("tenant-a", scanCtx.Value(scanCallerKey{}))
+	repo, ok := domain.ScanRepositoryFrom(scanCtx)
+	s.Require().True(ok, "the scanner is told which repository it reads")
+	s.Equal(s.repo.ID, repo.ID)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	s.Positive(store.writes)
+	s.Zero(store.missing, "every scan write carries the caller's context values")
 }
