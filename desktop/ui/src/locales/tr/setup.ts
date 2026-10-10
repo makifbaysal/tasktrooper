@@ -90,6 +90,11 @@ export const setup = {
     description:
       "Bir başlangıç noktası seçin. Açtığı ajanlar önceden seçilir; burada ve sonradan Ayarlar'dan değiştirebilirsiniz.",
     agentsLabel: "Ajanlar",
+    editTeam: "Ekibi düzenle",
+    editTitle: "Ekipteki ajanlar",
+    editDescription:
+      "Ajanları açıp kapatın. Açtığınız ajanlar ekibe katılır; kapalı ajanlara yeni iş verilmez.",
+    save: "Kaydet",
     coreLocked: "Ürün yöneticisi, sistem mimarı, QA, güvenlik ve sürüm mühendisi her zaman açıktır.",
     confirm: "Bu ekibi oluştur",
     loadFailed: "Ajanlarınız yüklenemedi",

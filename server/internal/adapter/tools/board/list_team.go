@@ -50,8 +50,23 @@ func (t *listTeamTool) Execute(ctx context.Context, _ string) domain.ToolResult 
 		return toolError(listTeamToolName, err.Error())
 	}
 	roleLister, _ := t.kit.Roles.(agentRoleLister)
-	out := make([]map[string]any, 0, len(agents))
+	team := make([]map[string]any, 0, len(agents))
+	available := make([]map[string]any, 0)
 	for _, a := range agents {
+		if !a.Enabled {
+			entry := map[string]any{
+				"name":         a.Name,
+				"catalog_slug": a.CatalogSlug,
+				"role":         a.Description,
+			}
+			if roleLister != nil {
+				if roles, rerr := roleLister.ListAssignmentsByAgent(ctx, a.ID); rerr == nil {
+					entry["roles"] = roleSummaries(roles)
+				}
+			}
+			available = append(available, entry)
+			continue
+		}
 		entry := map[string]any{
 			"name":          a.Name,
 			"role":          a.Description,
@@ -68,9 +83,13 @@ func (t *listTeamTool) Execute(ctx context.Context, _ string) domain.ToolResult 
 				entry["subscribed_columns"] = cols
 			}
 		}
-		out = append(out, entry)
+		team = append(team, entry)
 	}
-	return toolJSON(listTeamToolName, map[string]any{"count": len(out), "team": out})
+	return toolJSON(listTeamToolName, map[string]any{
+		"count":            len(team),
+		"team":             team,
+		"available_to_add": available,
+	})
 }
 
 func roleSummaries(roles []domain.AgentRole) []map[string]any {

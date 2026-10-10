@@ -89,6 +89,11 @@ export const setup = {
     description:
       "Pick a starting point. The agents it turns on are preselected; you can change them here and later in Settings.",
     agentsLabel: "Agents",
+    editTeam: "Edit team",
+    editTitle: "Agents in the team",
+    editDescription:
+      "Switch agents on or off. The agents you turn on join the team; switched-off agents get no new work.",
+    save: "Save",
     coreLocked: "The product manager, system architect, QA, security and release engineer are always on.",
     confirm: "Create this team",
     loadFailed: "Couldn't load your agents",

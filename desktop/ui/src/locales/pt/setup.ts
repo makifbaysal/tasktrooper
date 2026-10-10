@@ -83,6 +83,11 @@ export const setup = {
     description:
       "Escolha um ponto de partida. Os agentes ativados já vêm selecionados; você pode alterá-los aqui e depois em Configurações.",
     agentsLabel: "Agentes",
+    editTeam: "Editar equipe",
+    editTitle: "Agentes da equipe",
+    editDescription:
+      "Ative ou desative agentes. Os ativados entram na equipe; os desativados não recebem trabalho novo.",
+    save: "Salvar",
     coreLocked: "O gerente de produto, o arquiteto de sistemas, o QA, a segurança e o engenheiro de release estão sempre ativos.",
     confirm: "Criar esta equipe",
     loadFailed: "Não foi possível carregar seus agentes",
