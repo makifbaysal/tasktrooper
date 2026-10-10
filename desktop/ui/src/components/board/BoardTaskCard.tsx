@@ -1,4 +1,4 @@
-import { Bot, Clock, GitMerge, GripVertical, HelpCircle, PackageCheck, Trash2 } from "lucide-react";
+import { Bot, Clock, GitMerge, GripVertical, HelpCircle, PackageCheck, Trash2, User } from "lucide-react";
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import type { BoardTask, Release } from "@/api";
@@ -33,6 +33,8 @@ interface BoardTaskCardProps {
   repositoryName: string;
   /** The assigned agent's name, if it has one. */
   assignee?: string;
+  /** The person the task is assigned to, if any. */
+  person?: string;
   /** The task's project; left out under a project scope, where it would repeat the picker. */
   initiative?: string;
   agentRunning: boolean;
@@ -52,12 +54,18 @@ interface BoardTaskCardProps {
   onDelete: (task: BoardTask) => void;
 }
 
+const HUMAN_CREATORS = new Set(["user", "human"]);
+
+const isHumanCreator = (createdBy: string | undefined): boolean =>
+  !createdBy || HUMAN_CREATORS.has(createdBy.trim().toLowerCase());
+
 // Memoized with plain props: the board re-renders on every poll that changed
 // anything, and only the cards whose own data changed need to follow.
 export const BoardTaskCard = memo(function BoardTaskCard({
   task,
   repositoryName,
   assignee,
+  person,
   initiative,
   agentRunning,
   release,
@@ -257,13 +265,19 @@ export const BoardTaskCard = memo(function BoardTaskCard({
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {person && (
+                <Badge variant="outline" className="gap-1 text-micro" title={person}>
+                  <User className="h-3 w-3" />
+                  <span className="max-w-[6rem] truncate">{person}</span>
+                </Badge>
+              )}
               {assignee && (
                 <Badge variant="outline" className="gap-1 text-micro">
                   <Bot className="h-3 w-3" />
                   <span className="max-w-[6rem] truncate">{assignee}</span>
                 </Badge>
               )}
-              {!assignee && (
+              {!assignee && !person && !isHumanCreator(task.created_by) && (
                 <span className="text-micro text-muted-foreground">{task.created_by}</span>
               )}
             </div>
