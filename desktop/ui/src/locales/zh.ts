@@ -124,8 +124,6 @@ export const zh: Dict = {
       unavailable: "账户仅在 TaskTrooper 桌面应用中可用。",
       temporaryLocal: "已登录 {origin}，但目前在这台电脑上暂时不使用该账户运行 TaskTrooper。分配给你的任务会等你回来，下次启动时会再次尝试连接账户。",
       backToAccount: "返回账户",
-      apiKeys: "API 密钥…",
-      apiKeysHelp: "代理在这台电脑上使用你自己的服务商账户时所用的密钥。它们加密保存在这里，TaskTrooper 的服务器永远看不到。",
       bannerTitle: "暂时在没有账户的情况下使用 TaskTrooper",
       bannerBody: "你仍然登录在 {origin}。分配给你的任务会等你回来。",
     },

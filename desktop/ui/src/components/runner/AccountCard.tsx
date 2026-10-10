@@ -1,4 +1,4 @@
-import { KeyRound, Loader2, LogIn, LogOut, UserRound } from "lucide-react";
+import { Loader2, LogIn, LogOut, UserRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/api";
@@ -25,8 +25,8 @@ type Confirm = { kind: "runs"; count: number } | { kind: "plain" };
  * first when the backend says one is active. Going back from running locally
  * for now stops the local server the same way, so it asks the same question.
  *
- * API keys… opens the shell's own key window; nothing here reads or writes a
- * key.
+ * No API keys here: local mode keeps them on Settings → LLM Connection, and
+ * the account's own LLM Connection page opens the shell's key window.
  */
 export function AccountCard() {
   const { t } = useI18n();
@@ -100,7 +100,6 @@ export function AccountCard() {
 
   const signedIn = state?.mode === "account";
   const localForNow = state?.temporaryLocal === true;
-  const canOpenKeys = typeof account.openKeys === "function";
 
   const signOutButton = (
     <Button variant="outline" onClick={() => void signOut()} disabled={busy || state === null}>
@@ -153,16 +152,6 @@ export function AccountCard() {
           {busy ? t("settings.account.connecting") : t("settings.account.connect")}
         </Button>
       )}
-
-      {canOpenKeys ? (
-        <div className="space-y-2 border-t border-border pt-4">
-          <p className="text-sm text-muted-foreground">{t("settings.account.apiKeysHelp")}</p>
-          <Button variant="outline" onClick={() => void account.openKeys?.().catch(() => undefined)}>
-            <KeyRound className="mr-2 h-4 w-4" />
-            {t("settings.account.apiKeys")}
-          </Button>
-        </div>
-      ) : null}
     </Card>
   );
 }

@@ -69,13 +69,11 @@ describe("AppTray", () => {
   });
 });
 
-describe("AppTray: API keys and running locally for now", () => {
-  it("offers the API-key window", () => {
-    let opened = 0;
-    const tray = new AppTray({ ...deps, openKeys: () => (opened += 1) });
+describe("AppTray: running locally for now", () => {
+  it("has no API keys item: the account's LLM Connection page opens the key window", () => {
+    const tray = new AppTray(deps);
     tray.create();
-    native.menu.find((item) => item.label === "API keys…")?.click?.();
-    expect(opened).toBe(1);
+    expect(native.menu.some((item) => item.label?.includes("API keys"))).toBe(false);
   });
 
   it("says so at the top while running locally for now, with the way back, and drops it after", () => {

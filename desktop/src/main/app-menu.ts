@@ -10,15 +10,11 @@ import type { MenuItemConstructorOptions } from "electron";
  * regardless of how a renderer handles its keys. The window hides the bar
  * (`autoHideMenuBar`), so Alt shows it and nothing else does.
  *
- * macOS keeps the platform's own menu, rebuilt only so the app menu can carry
- * API keys… after About; Edit, View and Window stay Electron's roles.
+ * macOS keeps the platform's own menu: Electron's roles throughout. API keys
+ * are not in any menu; the account's Settings → LLM Connection opens their
+ * window.
  */
-export function applicationMenuTemplate(
-  platform: NodeJS.Platform,
-  devTools: boolean,
-  actions: { openKeys?: () => void } = {},
-): MenuItemConstructorOptions[] {
-  const { openKeys } = actions;
+export function applicationMenuTemplate(platform: NodeJS.Platform, devTools: boolean): MenuItemConstructorOptions[] {
   if (platform === "darwin") {
     return [
       {
@@ -26,7 +22,6 @@ export function applicationMenuTemplate(
         submenu: [
           { role: "about" },
           { type: "separator" },
-          ...(openKeys ? [{ label: "API keys…", click: () => openKeys() }, { type: "separator" as const }] : []),
           { role: "services" },
           { type: "separator" },
           { role: "hide" },
@@ -46,7 +41,6 @@ export function applicationMenuTemplate(
     {
       label: "&File",
       submenu: [
-        ...(openKeys ? [{ label: "API &keys…", click: () => openKeys() }, { type: "separator" as const }] : []),
         // The role's quit is `app.quit()`, which `before-quit` turns into the
         // draining quit — the same path as the tray's Quit.
         { role: "quit", label: platform === "win32" ? "E&xit" : "&Quit", accelerator: "Ctrl+Q" },

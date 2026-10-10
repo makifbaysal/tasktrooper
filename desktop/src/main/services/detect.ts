@@ -1596,14 +1596,12 @@ export function agentAccessItem(input: {
   claude: PreflightItem | undefined;
   claudeAccount: PreflightItem | undefined;
   clis: readonly PreflightItem[];
-  platform?: NodeJS.Platform;
 }): PreflightItem {
   const ok = (item: PreflightItem | undefined): boolean => item?.status === "ok";
   const cliReady =
     (ok(input.claude) && ok(input.claudeAccount)) ||
     input.clis.some((cli) => (cli.id === "opencode" || cli.id === "cursor-agent") && ok(cli));
-  const menu = (input.platform ?? process.platform) === "darwin" ? "menu bar" : "system tray";
-  const where = `API keys… in the TaskTrooper ${menu} menu`;
+  const where = "Settings → LLM Connection → API keys on this computer";
   const base = { id: "api-keys" as const, label: "API keys", required: !cliReady };
   const count = input.providerIds.length;
 

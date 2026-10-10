@@ -836,7 +836,7 @@ app.whenReady().then(
 
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
-        applicationMenuTemplate(process.platform, !app.isPackaged, { openKeys: () => keysWindow.open() }),
+        applicationMenuTemplate(process.platform, !app.isPackaged),
       ),
     );
 
@@ -862,7 +862,6 @@ app.whenReady().then(
       checkForUpdate: () => void updates?.check(),
       restartToUpdate,
       subject: () => (accountMode() ? "the runner" : "the local server"),
-      openKeys: () => keysWindow.open(),
       banner: () =>
         modeController.temporaryLocal
           ? {

@@ -125,8 +125,6 @@ export const tr: Dict = {
       unavailable: "Hesaplar yalnızca TaskTrooper masaüstü uygulamasında kullanılabilir.",
       temporaryLocal: "{origin} hesabında oturumun açık, ama TaskTrooper'ı şimdilik bu bilgisayarda hesapsız kullanıyorsun. Sana atanan görevler sen dönene kadar bekler; bir sonraki açılışta hesap yeniden denenir.",
       backToAccount: "Hesaba dön",
-      apiKeys: "API anahtarları…",
-      apiKeysHelp: "Agent'ların bu bilgisayarda kendi sağlayıcı hesaplarınla kullandığı anahtarlar. Burada şifreli kalırlar; TaskTrooper sunucuları onları hiç görmez.",
       bannerTitle: "TaskTrooper şimdilik hesabın olmadan kullanılıyor",
       bannerBody: "{origin} hesabında oturumun hâlâ açık. Sana orada atanan görevler sen dönene kadar bekler.",
     },

@@ -731,9 +731,9 @@ describe("account preflight: a way to run an agent", () => {
   });
 
   it("blocks Connect with neither a key nor a usable CLI, and says both ways out", () => {
-    const item = agentAccessItem({ ...none, providerIds: [], platform: "darwin" });
+    const item = agentAccessItem({ ...none, providerIds: [] });
     expect(item).toMatchObject({ status: "missing", required: true });
-    expect(item.remediation).toMatch(/API keys… in the TaskTrooper menu bar menu/);
+    expect(item.remediation).toMatch(/Settings → LLM Connection → API keys on this computer/);
     expect(item.remediation).toMatch(/Claude Code \(signed in\), OpenCode or Cursor/);
     expect(firstBlocker({ generatedAt: 1, ready: false, items: [item] })?.id).toBe("api-keys");
   });

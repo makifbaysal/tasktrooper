@@ -124,8 +124,6 @@ export const fr: Dict = {
       unavailable: "Les comptes ne sont disponibles que dans l'application de bureau TaskTrooper.",
       temporaryLocal: "Connecté à {origin}, mais TaskTrooper fonctionne pour l'instant sur cet ordinateur sans le compte. Les tâches qui vous y sont assignées attendent votre retour, et le prochain lancement réessaie le compte.",
       backToAccount: "Revenir au compte",
-      apiKeys: "Clés d'API…",
-      apiKeysHelp: "Les clés qu'utilisent les agents sur cet ordinateur avec vos propres comptes de fournisseur. Elles restent ici, chiffrées ; les serveurs de TaskTrooper ne les voient jamais.",
       bannerTitle: "TaskTrooper fonctionne sans votre compte pour l'instant",
       bannerBody: "Vous êtes toujours connecté à {origin}. Les tâches qui vous y sont assignées attendent votre retour.",
     },

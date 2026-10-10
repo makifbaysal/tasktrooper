@@ -4,34 +4,18 @@ import { applicationMenuTemplate } from "./app-menu.js";
 describe("applicationMenuTemplate", () => {
   it("binds Ctrl+Q to the draining quit on Windows and Linux", () => {
     for (const platform of ["win32", "linux"] as const) {
-      const file = applicationMenuTemplate(platform, false, { openKeys: () => undefined })[0];
+      const file = applicationMenuTemplate(platform, false)[0];
       const quit = (file?.submenu as { role?: string; accelerator?: string }[]).find((item) => item.role === "quit");
       expect(quit).toMatchObject({ role: "quit", accelerator: "Ctrl+Q" });
     }
   });
 
-  it("opens the API-key window from File, when it is given one", () => {
-    let opened = 0;
-    const file = applicationMenuTemplate("linux", false, { openKeys: () => (opened += 1) })[0];
-    const item = (file?.submenu as { label?: string; click?: () => void }[]).find((i) => i.label === "API &keys…");
-    item?.click?.();
-    expect(opened).toBe(1);
-    const bare = applicationMenuTemplate("linux", false)[0];
-    expect(JSON.stringify(bare)).not.toContain("API");
-  });
-
-  it("puts API keys… in the macOS app menu and keeps the default roles", () => {
-    let opened = 0;
-    const menu = applicationMenuTemplate("darwin", false, { openKeys: () => (opened += 1) });
-    const app = menu[0]?.submenu as { label?: string; role?: string; click?: () => void }[];
-    const at = app.findIndex((i) => i.label === "API keys…");
-    expect(at).toBeGreaterThan(app.findIndex((i) => i.role === "about"));
-    expect(at).toBeLessThan(app.findIndex((i) => i.role === "quit"));
-    app[at]?.click?.();
-    expect(opened).toBe(1);
-    const roles = menu.map((item) => item.role);
+  it("has no API keys item on any platform, and keeps the macOS default roles", () => {
+    for (const platform of ["darwin", "win32", "linux"] as const) {
+      expect(JSON.stringify(applicationMenuTemplate(platform, false))).not.toContain("API");
+    }
+    const roles = applicationMenuTemplate("darwin", false).map((item) => item.role);
     expect(roles).toEqual(expect.arrayContaining(["editMenu", "windowMenu"]));
-    expect(JSON.stringify(applicationMenuTemplate("darwin", false))).not.toContain("API");
   });
 
   it("keeps the Edit roles that bind copy and paste in text fields", () => {

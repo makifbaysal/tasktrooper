@@ -12,7 +12,9 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   executor it starts are what run here, with the embedder beside them. Sign-in
   happens on that web page with its cookie; this process holds no session.
   The member's API keys are entered in this app's own API-key window
-  (`src/main/keys/`), never in that page.
+  (`src/main/keys/`), never in that page. Its only way in is the account's
+  Settings → LLM Connection (`account.openKeys`); no tray or menu item, and
+  local mode keeps keys on its own LLM Connection page.
 
 ## Invariants
 

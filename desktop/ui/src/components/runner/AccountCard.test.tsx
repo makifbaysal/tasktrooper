@@ -82,16 +82,8 @@ describe("AccountCard", () => {
     await waitFor(() => expect(account.signOut).toHaveBeenCalledTimes(1));
   });
 
-  it("opens the shell's own API-key window, and offers it only when the shell has one", async () => {
-    const account = stubShell("local", { keys: true });
-    renderCard();
-    fireEvent.click(await screen.findByRole("button", { name: /api keys/i }));
-    await waitFor(() => expect(account.openKeys).toHaveBeenCalledTimes(1));
-    expect(account.openKeys).toHaveBeenCalledWith();
-  });
-
-  it("has no API-key button in a shell that predates it", async () => {
-    stubShell("local");
+  it("has no API-key button, even in a shell with the key window", async () => {
+    stubShell("local", { keys: true });
     renderCard();
     await screen.findByRole("button", { name: /connect an account/i });
     expect(screen.queryByRole("button", { name: /api keys/i })).toBeNull();

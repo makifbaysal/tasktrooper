@@ -76,7 +76,8 @@ account mode's, used by the account's web app, not by this bundle.
 `account`, `bridgeVersion` and `mode` are optional on this side: a browser and
 an older shell have none. Bridge 2 adds `account.openKeys()` — it opens the
 shell's own API-key window and takes and returns nothing; this bundle never
-sees a key — and `state().temporaryLocal`, true while the shell runs this
+sees a key, and does not call it (local mode keeps keys on Settings → LLM
+Connection; the account's own LLM page calls it) — and `state().temporaryLocal`, true while the shell runs this
 bundle locally for now with an account still signed in
 (`TemporaryLocalBanner`, the Account card's "Back to the account").
 
