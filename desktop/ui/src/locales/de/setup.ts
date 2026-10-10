@@ -89,6 +89,7 @@ export const setup = {
     editDescription:
       "Agenten ein- oder ausschalten. Eingeschaltete Agenten gehören zum Team; ausgeschaltete erhalten keine neue Arbeit.",
     save: "Speichern",
+    preparing: "Agenten werden vorbereitet…",
     coreLocked: "Produktmanager, Systemarchitekt, QA, Sicherheit und Release-Engineer sind immer aktiv.",
     confirm: "Dieses Team erstellen",
     loadFailed: "Ihre Agenten konnten nicht geladen werden",

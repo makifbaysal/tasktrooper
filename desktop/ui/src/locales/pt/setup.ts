@@ -89,6 +89,7 @@ export const setup = {
     editDescription:
       "Ative ou desative agentes. Os ativados entram na equipe; os desativados não recebem trabalho novo.",
     save: "Salvar",
+    preparing: "Preparando os agentes…",
     coreLocked: "O gerente de produto, o arquiteto de sistemas, o QA, a segurança e o engenheiro de release estão sempre ativos.",
     confirm: "Criar esta equipe",
     loadFailed: "Não foi possível carregar seus agentes",

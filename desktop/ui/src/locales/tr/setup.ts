@@ -96,6 +96,7 @@ export const setup = {
     editDescription:
       "Ajanları açıp kapatın. Açtığınız ajanlar ekibe katılır; kapalı ajanlara yeni iş verilmez.",
     save: "Kaydet",
+    preparing: "Ajanlar hazırlanıyor…",
     coreLocked: "Ürün yöneticisi, sistem mimarı, QA, güvenlik ve sürüm mühendisi her zaman açıktır.",
     confirm: "Bu ekibi oluştur",
     loadFailed: "Ajanlarınız yüklenemedi",

@@ -95,6 +95,7 @@ export const setup = {
     editDescription:
       "Switch agents on or off. The agents you turn on join the team; switched-off agents get no new work.",
     save: "Save",
+    preparing: "Preparing the agents…",
     coreLocked: "The product manager, system architect, QA, security and release engineer are always on.",
     confirm: "Create this team",
     loadFailed: "Couldn't load your agents",

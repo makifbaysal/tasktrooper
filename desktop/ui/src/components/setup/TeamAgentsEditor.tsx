@@ -14,6 +14,9 @@ import {
   type TeamTemplateId,
 } from "@/lib/teamTemplates";
 
+const EMPTY_RETRY_MS = 2000;
+const EMPTY_RETRIES = 15;
+
 interface TeamAgentsEditorProps {
   /** First run starts from nothing and needs a template pick; editing starts from the current enabled set. */
   startFrom: "template" | "current";
@@ -41,6 +44,7 @@ export function TeamAgentsEditor({
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [emptyRetries, setEmptyRetries] = useState(0);
 
   const load = useCallback(async () => {
     setLoadError("");
@@ -64,6 +68,19 @@ export function TeamAgentsEditor({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A workspace created a moment ago gets its catalog agents a few seconds
+  // later (the pod's first-sight sync), so an empty roster is asked again.
+  useEffect(() => {
+    if (!agents || agents.length > 0 || emptyRetries >= EMPTY_RETRIES) return;
+    const timer = setTimeout(() => {
+      setEmptyRetries((n) => n + 1);
+      void load();
+    }, EMPTY_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [agents, emptyRetries, load]);
+
+  const preparing = agents !== null && agents.length === 0 && emptyRetries < EMPTY_RETRIES;
 
   const coreIds = useMemo(
     () => (agents ? new Set(coreAgentIds(agents)) : new Set<string>()),
@@ -176,6 +193,9 @@ export function TeamAgentsEditor({
                     {t("setup.team.coreLocked")}
                   </p>
                 </div>
+                {preparing && (
+                  <p className="px-4 py-3 text-sm text-muted-foreground">{t("setup.team.preparing")}</p>
+                )}
                 {agents.map((agent) => {
                   const locked = coreIds.has(agent.id);
                   const checked = locked || selected.has(agent.id);

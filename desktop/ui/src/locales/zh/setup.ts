@@ -88,6 +88,7 @@ export const setup = {
     editDescription:
       "开启或关闭智能体。开启的智能体加入团队；关闭的智能体不会收到新任务。",
     save: "保存",
+    preparing: "正在准备智能体…",
     coreLocked: "产品经理、系统架构师、QA、安全和发布工程师始终启用。",
     confirm: "创建此团队",
     loadFailed: "无法加载你的智能体",
