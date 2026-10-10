@@ -69,6 +69,7 @@ export const setup = {
     loadFailed: "Couldn't load your projects",
   },
   firstRun: {
+    analyticsNote: "TaskTrooper sends an anonymous count of active installs; you can turn it off in Settings.",
     title: "How do you want to use TaskTrooper?",
     description: "Choose now; you can change it later in Settings.",
     local: {

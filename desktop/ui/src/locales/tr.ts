@@ -128,6 +128,12 @@ export const tr: Dict = {
       bannerTitle: "TaskTrooper şimdilik hesabın olmadan kullanılıyor",
       bannerBody: "{origin} hesabında oturumun hâlâ açık. Sana orada atanan görevler sen dönene kadar bekler.",
     },
+    analytics: {
+      label: "Anonim kullanım istatistikleri",
+      help: "Aktif kurulum sayısı için anonim bir sayım gönderir: uygulama sürümü, sistem ve hesap kullanıp kullanmadığınız. Görevleriniz, kodunuz, dosya yollarınız veya e-postanız asla gönderilmez. Kapatınca gönderim hemen durur ve bu kurulumun rastgele kimliği silinir.",
+      forcedOff: "TASKTROOPER_TELEMETRY veya DO_NOT_TRACK ortam değişkeni tarafından kapatıldı.",
+      saveFailed: "Bu ayar kaydedilemedi",
+    },
     updates: {
       title: "Güncellemeler",
       help: "TaskTrooper birkaç saatte bir güncellemeleri kontrol eder ve arka planda indirir.",

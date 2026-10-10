@@ -127,6 +127,12 @@ export const pt: Dict = {
       bannerTitle: "Usando o TaskTrooper sem a sua conta por enquanto",
       bannerBody: "Você continua conectado a {origin}. As tarefas atribuídas a você lá esperam até você voltar.",
     },
+    analytics: {
+      label: "Estatísticas de uso anônimas",
+      help: "Envia uma contagem anônima de instalações ativas: versão do app, sistema e se você usa uma conta. Nunca suas tarefas, seu código, caminhos ou e-mail. Ao desativar, o envio para na hora e o ID aleatório desta instalação é apagado.",
+      forcedOff: "Desativado pela variável de ambiente TASKTROOPER_TELEMETRY ou DO_NOT_TRACK.",
+      saveFailed: "Não foi possível salvar esta configuração",
+    },
     updates: {
       title: "Atualizações",
       help: "O TaskTrooper procura atualizações a cada poucas horas e as baixa em segundo plano.",

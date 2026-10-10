@@ -63,6 +63,7 @@ export const setup = {
     loadFailed: "Não foi possível carregar seus projetos",
   },
   firstRun: {
+    analyticsNote: "O TaskTrooper envia uma contagem anônima de instalações ativas; você pode desativar em Configurações.",
     title: "Como você quer usar o TaskTrooper?",
     description: "Escolha agora; você pode mudar depois em Configurações.",
     local: {

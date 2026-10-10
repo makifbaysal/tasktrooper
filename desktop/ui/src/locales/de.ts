@@ -127,6 +127,12 @@ export const de: Dict = {
       bannerTitle: "TaskTrooper läuft vorerst ohne dein Konto",
       bannerBody: "Du bist weiterhin bei {origin} angemeldet. Dir dort zugewiesene Aufgaben warten, bis du zurückkehrst.",
     },
+    analytics: {
+      label: "Anonyme Nutzungsstatistik",
+      help: "Sendet eine anonyme Zählung aktiver Installationen: App-Version, System und ob ein Konto genutzt wird. Niemals Ihre Aufgaben, Ihren Code, Pfade oder Ihre E-Mail. Beim Ausschalten wird das Senden sofort gestoppt und die zufällige ID dieser Installation gelöscht.",
+      forcedOff: "Durch die Umgebungsvariable TASKTROOPER_TELEMETRY oder DO_NOT_TRACK ausgeschaltet.",
+      saveFailed: "Diese Einstellung konnte nicht gespeichert werden",
+    },
     updates: {
       title: "Updates",
       help: "TaskTrooper sucht alle paar Stunden nach Updates und lädt sie im Hintergrund herunter.",

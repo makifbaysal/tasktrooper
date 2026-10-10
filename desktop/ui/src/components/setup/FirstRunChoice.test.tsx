@@ -70,3 +70,31 @@ describe("FirstRunChoice", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 });
+
+describe("FirstRunChoice: anonymous usage line", () => {
+  const LINE = "TaskTrooper sends an anonymous count of active installs; you can turn it off in Settings.";
+
+  const withAnalytics = (state: { available: boolean; enabled: boolean; forcedOff: boolean }) => {
+    window.__tasktrooperDesktop = {
+      analytics: { get: vi.fn().mockResolvedValue(state), set: vi.fn() },
+    };
+  };
+
+  it("says so when the count is on", async () => {
+    withAnalytics({ available: true, enabled: true, forcedOff: false });
+    renderChoice();
+    expect(await screen.findByText(LINE)).toBeInTheDocument();
+  });
+
+  it("says nothing when it is off, unavailable, or there is no shell", async () => {
+    renderChoice();
+    expect(screen.queryByText(LINE)).toBeNull();
+
+    withAnalytics({ available: true, enabled: false, forcedOff: true });
+    renderChoice();
+    withAnalytics({ available: false, enabled: false, forcedOff: false });
+    renderChoice();
+    await waitFor(() => expect(window.__tasktrooperDesktop?.analytics?.get).toHaveBeenCalled());
+    expect(screen.queryByText(LINE)).toBeNull();
+  });
+});

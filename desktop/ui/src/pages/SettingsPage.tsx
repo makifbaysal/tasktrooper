@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, setStoredLocale, type AppSettings } from "@/api";
 import { AccountCard } from "@/components/runner/AccountCard";
+import { AnalyticsCard } from "@/components/runner/AnalyticsCard";
 import { AppUpdatesCard } from "@/components/runner/AppUpdatesCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -392,6 +393,7 @@ export function SettingsPage() {
       <div className="min-w-0 space-y-4">
         <AccountCard />
         <AppUpdatesCard />
+        <AnalyticsCard />
         <BoilerplateCatalogCard />
         <NotificationsCard />
       </div>

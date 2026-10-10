@@ -127,6 +127,12 @@ export const zh: Dict = {
       bannerTitle: "暂时在没有账户的情况下使用 TaskTrooper",
       bannerBody: "你仍然登录在 {origin}。分配给你的任务会等你回来。",
     },
+    analytics: {
+      label: "匿名使用统计",
+      help: "发送活跃安装数量的匿名统计：应用版本、系统，以及是否使用账号。绝不包含你的任务、代码、路径或邮箱。关闭后会立即停止发送，并删除此安装的随机 ID。",
+      forcedOff: "已被环境变量 TASKTROOPER_TELEMETRY 或 DO_NOT_TRACK 关闭。",
+      saveFailed: "无法保存此设置",
+    },
     updates: {
       title: "更新",
       help: "TaskTrooper 每隔几小时检查一次更新，并在后台下载。",

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
+import { desktopAnalytics } from "@/lib/desktop-bridge";
 import { clearFirstRunMode, writeFirstRunMode, type FirstRunMode } from "@/lib/firstRun";
 
 /**
@@ -18,6 +19,13 @@ export function FirstRunChoice({ onChosen }: { onChosen: (mode: FirstRunMode) =>
   const [accountError, setAccountError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const account = window.__tasktrooperDesktop?.account;
+  const [counted, setCounted] = useState(false);
+
+  useEffect(() => {
+    void desktopAnalytics()
+      ?.get()
+      .then((state) => setCounted(state.available && state.enabled), () => undefined);
+  }, []);
 
   const choose = (mode: FirstRunMode) => {
     writeFirstRunMode(mode);
@@ -69,6 +77,8 @@ export function FirstRunChoice({ onChosen }: { onChosen: (mode: FirstRunMode) =>
           </Card>
         )}
       </div>
+
+      {counted && <p className="text-xs text-muted-foreground">{t("setup.firstRun.analyticsNote")}</p>}
 
       {accountError && (
         <Notice variant="error" title={t("setup.firstRun.account.failed")}>

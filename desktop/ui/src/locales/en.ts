@@ -129,6 +129,12 @@ export const en = {
       bannerTitle: "Using TaskTrooper without your account for now",
       bannerBody: "You are still signed in to {origin}. Tasks assigned to you there wait until you go back.",
     },
+    analytics: {
+      label: "Anonymous usage statistics",
+      help: "Sends an anonymous count of active installs: app version, system, and whether you use an account. Never your tasks, code, paths or email. Turning it off stops sending at once and deletes this install's random ID.",
+      forcedOff: "Turned off by the TASKTROOPER_TELEMETRY or DO_NOT_TRACK environment variable.",
+      saveFailed: "Couldn't save this setting",
+    },
     updates: {
       title: "Updates",
       help: "TaskTrooper checks for updates every few hours and downloads them in the background.",

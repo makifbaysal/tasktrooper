@@ -419,6 +419,22 @@ export interface DesktopAccountState {
   temporaryLocal?: boolean;
 }
 
+/**
+ * The anonymous active-install count (bridge 4). `available` is false in a
+ * build that carries no analytics configuration, where there is nothing to
+ * switch; `forcedOff` is the environment overriding the stored choice.
+ */
+export interface DesktopAnalyticsState {
+  available: boolean;
+  enabled: boolean;
+  forcedOff: boolean;
+}
+
+export interface DesktopAnalyticsHost {
+  get(): Promise<DesktopAnalyticsState>;
+  set(on: boolean): Promise<DesktopAnalyticsState>;
+}
+
 /** The hook the desktop preload installs on `window`. Absent in a browser. */
 export interface TaskTrooperDesktopHost {
   info?: () => Promise<{ app: string; version: string; platform: string }>;
@@ -444,6 +460,8 @@ export interface TaskTrooperDesktopHost {
   };
   /** Absent in a browser, and in a shell older than the Settings update card. */
   updates?: DesktopUpdatesHost;
+  /** Bridge 4. Absent in a browser, in older shells, and for the account's page. */
+  analytics?: DesktopAnalyticsHost;
   /**
    * Where this app's API calls go: "http://127.0.0.1:<port>", no path suffix.
    *
@@ -459,6 +477,7 @@ export interface TaskTrooperDesktopHost {
    * 1: `account`, `mode` and the runner's pairing calls. Absent before that.
    * 2: `account.openKeys()` and `account.state().temporaryLocal`.
    * 3: `account.openKeys(prefill)` focuses the key window on one provider.
+   * 4: `analytics.get()` / `analytics.set(on)`.
    */
   bridgeVersion?: number;
   /**
@@ -490,6 +509,10 @@ export function desktopRunner(): DesktopRunnerHost | null {
 
 export function desktopUpdates(): DesktopUpdatesHost | null {
   return window.__tasktrooperDesktop?.updates ?? null;
+}
+
+export function desktopAnalytics(): DesktopAnalyticsHost | null {
+  return window.__tasktrooperDesktop?.analytics ?? null;
 }
 
 export function desktopAccount(): NonNullable<TaskTrooperDesktopHost["account"]> | null {
