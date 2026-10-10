@@ -53,11 +53,12 @@ policy.go        the rules a paired service may change: OpenCode's refused
 executor.go      the local executor: start, readiness, restart with backoff,
                  the stop, and agent.run / llm.complete forwarded to it
 executor_checkout.go  the post-run half forwarded to it the same way: verify
-                 (streamed), git.status / git.diff / git.log, commit_push
+                 (streamed), git.status / git.diff / git.log, commit_push; and
+                 scan, the project model's scan of a checkout (streamed)
 rpc.go           the HTTP surface: routing, the streamed response, the status
                  mapping, the session's registry for mobile.release's cancel
 runs.go          durable runs: the process-wide registry claude.run,
-                 opencode.run, cursor.run, agent.run and verify hand off to, the seq on
+                 opencode.run, cursor.run, agent.run, verify and scan hand off to, the seq on
                  every frame, the on-disk frame ring, run.attach, run.status,
                  the 30-minute retention and the shutdown
 session.go       claude.run — spawn, stream, kill the process group
@@ -161,9 +162,10 @@ executor_test.go the executor against a real child process — this test binary
                  started with no arguments and TT_FAKE_EXECUTOR set: the stdin
                  config line, the listening line, the bearer, forwarding,
                  scrubbing, cancel by name, restart, the protocol check, stop
-executor_checkout_test.go  the post-run methods against the same fake: the body
-                 forwarded unchanged, the stream scrubbed, a verification
-                 cancelled by its id, the push token scrubbed from the answer
+executor_checkout_test.go  the post-run methods and scan against the same fake:
+                 the body forwarded unchanged, the stream scrubbed (and seq'd,
+                 a durable run), a verification and a scan cancelled by
+                 their id, the push token scrubbed from the answer
 runner_policy_test.go  the policy: strict when absent, replaceable, refused when
                  malformed
 ```
@@ -197,6 +199,7 @@ POST /models.list         → 200 application/json
 POST /agent.run           → the local executor's NDJSON, streamed
 POST /llm.complete        → the local executor's status and body
 POST /verify              → the local executor's NDJSON, streamed
+POST /scan                → the local executor's NDJSON, streamed
 POST /git.status          → the local executor's status and body
 POST /git.diff            → the local executor's status and body
 POST /git.log             → the local executor's status and body
@@ -225,13 +228,14 @@ POST /cancel              → 200 application/json
 | `POST /agent.run` | the executor contract's body (`server/.ai/executor.md`): optional `id` (the call id, as claude.run's), `run_id` (REQUIRED), `kind`, `agent`, `prompt` or `messages`, `workspace` (relative, must exist), `mcp`, `timeout_ms` | the executor's NDJSON unchanged, in claude.run's envelope (`{"v":1,"id":…,"event":"started"}`, `"event":"event"` with a `payload`, one `"event":"done"`), scrubbed of the keys this runner holds; 409 `not_ready` with no executor |
 | `POST /llm.complete` | `{provider_id, model, system, messages, max_tokens}` | the executor's status and body, verbatim but scrubbed |
 | `POST /verify` | `id` (REQUIRED, the call id), `workspace` (relative), optional `commands`, `verify_command`, `quality`, `env`, `timeout_ms` — `server/.ai/executor.md` | the executor's NDJSON unchanged (`verify_stage` / `verify_output` events, one `done` whose `result` is the verdict), scrubbed; 409 `not_ready` with no executor |
+| `POST /scan` | `id` (REQUIRED, the call id), `workspace` (relative), optional `timeout_ms` — `server/.ai/executor.md` | the executor's NDJSON unchanged (`scan_stage` events, one `done` whose `result` is the `domain.ScanResult`), scrubbed; 409 `not_ready` with no executor |
 | `POST /git.status`, `/git.diff`, `/git.log` | `workspace` (relative), and `base`, `name_only`, `max_bytes`, `limit` per route | the executor's status and body, verbatim but scrubbed |
 | `POST /commit_push` | `workspace` (relative), `message`, `branch`, optional `github_token` | the executor's status and body, verbatim, scrubbed of the keys and of `github_token` |
 | `POST /cancel` | `{"id": "…"}` | `{"v":1,"id":"…","cancelled":true|false}` |
 
 `POST /cancel` names a streamed call: `claude.run`, `opencode.run`,
 `cursor.run`, `mobile.release`, an `agent.run` by its `id` (its `run_id`
-when it was sent none), or a `verify` by its `id`. Every other
+when it was sent none), or a `verify` or `scan` by its `id`. Every other
 method is cancelled by the caller closing the connection, which `http.Server`
 turns into a cancelled request context — the same trigger, without an id to
 | `POST /run.attach` | `{"id": "…", "after_seq": N}` (`after_seq` optional, 0) | NDJSON: the run's frames with `seq > after_seq` from its buffer, then live, until its `done`; a `gap` line first when the buffer no longer holds some of them; 404 `unknown_run` for an id this machine holds no run for |
@@ -239,8 +243,8 @@ turns into a cancelled request context — the same trigger, without an id to
 | `POST /cancel` | `{"id": "…"}` | `{"v":1,"id":"…","cancelled":true|false}` |
 
 `POST /cancel` names a streamed call: `claude.run`, `opencode.run`,
-`cursor.run`, `mobile.release`, a `verify`, or an `agent.run` by its `id` (its
-`run_id` when it was sent none). The five durable runs (below) stop on nothing else
+`cursor.run`, `mobile.release`, a `verify`, a `scan`, or an `agent.run` by its `id` (its
+`run_id` when it was sent none). The six durable runs (below) stop on nothing else
 but their own timeout and this runner shutting down. Every other method is
 cancelled by the caller closing the connection, which `http.Server` turns
 into a cancelled request context — the same trigger, without an id to
@@ -291,12 +295,11 @@ end. One JSON object per line, **flushed as each is written**:
 
 ### Durable runs — `run.attach` and `run.status`
 
-`claude.run`, `opencode.run`, `cursor.run` and `agent.run` **outlive the
-stream that started them and the tunnel session that carried it.** The cloud's
-load balancer cuts a WebSocket at an hour and tasks run longer than that; a
-reconnect used to kill every run in flight. (`verify` belongs on this list
-too, but neither this runner nor the executor has such a method yet; a new
-long method joins by going through `queueDurable`/`serveDurable`.)
+`claude.run`, `opencode.run`, `cursor.run`, `agent.run`, `verify` and `scan`
+**outlive the stream that started them and the tunnel session that carried
+it.** The cloud's load balancer cuts a WebSocket at an hour and tasks run
+longer than that; a reconnect used to kill every run in flight. A new long
+method joins by going through `queueDurable`/`serveDurable`.
 
 - **Two phases.** Until a run has its session slot it is the request's: the
   id is reserved (a second live run under it is `bad_request`), and a caller
@@ -1042,6 +1045,27 @@ forwards `agent.run` and `llm.complete`, and adds nothing but:
   scrubbed out of whatever comes back, like the providers' keys.
 - An older runner answers these `unsupported_method` (404), and the cloud
   falls back to the agent committing and pushing itself.
+
+### `scan` — the project model's scan of a checkout here
+
+The cloud keeps each repository's project model (components, the checks that
+verify them, links, deploy signals), and builds it from a scan of a checkout.
+When the checkout is on this computer, the cloud asks for the scan here
+(`server/.ai/executor.md`, "The repository scan"): the executor reads the
+code, and only the scan's result crosses the tunnel.
+
+- **Forwarded exactly as `verify` is** (`forwardCheckoutStream`): `id` is
+  REQUIRED (it is the handle `POST /cancel` stops the scan by), a `workspace`
+  outside the workspace root is refused before anything is forwarded, the
+  stream is scrubbed, and a stream that ends without a `done` gets one of
+  this side's.
+- **A durable run, in a session slot.** A scan only reads the tree and git,
+  but a large repository takes a while, and a scan that outlives a dropped
+  tunnel is one the cloud attaches to again rather than starts afresh.
+- **No capability advertises it.** An older runner answers
+  `unsupported_method` (404), as for the post-run half, and the cloud tells
+  the member to update the desktop app; a runner with no executor answers
+  `not_ready`.
 
 ### Cancellation
 

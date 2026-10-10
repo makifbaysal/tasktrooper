@@ -42,6 +42,7 @@ import (
 //	POST /agent.run           → the local executor's NDJSON, streamed
 //	POST /llm.complete        → the local executor's status and body
 //	POST /verify              → the local executor's NDJSON, streamed
+//	POST /scan                → the local executor's NDJSON, streamed
 //	POST /git.status          → the local executor's status and body
 //	POST /git.diff            → the local executor's status and body
 //	POST /git.log             → the local executor's status and body
@@ -332,6 +333,8 @@ func (s *runnerServer) handler() http.Handler {
 		case "/verify":
 			// Streaming, forwarded to the local executor (executor_checkout.go).
 			route(http.MethodPost, s.handleVerify)
+		case "/scan":
+			route(http.MethodPost, s.handleScan)
 		case "/git.status":
 			route(http.MethodPost, s.handleGitStatus)
 		case "/git.diff":
