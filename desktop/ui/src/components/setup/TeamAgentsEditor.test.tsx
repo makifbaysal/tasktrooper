@@ -91,3 +91,17 @@ describe("TeamAgentsEditor from the current team", () => {
     expect(updateAgent).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("TeamAgentsEditor dialog layout", () => {
+  it("scrolls its body and keeps the switches and save button rendered", async () => {
+    render(
+      <I18nProvider>
+        <TeamAgentsEditor startFrom="current" layout="dialog" confirmLabel="Save" onSaved={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findAllByRole("switch")).toHaveLength(AGENTS.length);
+    expect(screen.getByTestId("team-editor-body").className).toContain("overflow-y-auto");
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+});
