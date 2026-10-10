@@ -347,7 +347,9 @@ func (s *Service) UpdateAgent(ctx context.Context, id uuid.UUID, req domain.Upda
 	if err != nil {
 		return domain.Agent{}, err
 	}
-	if domain.IsCoreAgentSlug(existing.CatalogSlug) && !req.Enabled {
+	// Only the switch off is refused: a core agent left disabled by an older
+	// build stays editable until someone turns it back on.
+	if domain.IsCoreAgentSlug(existing.CatalogSlug) && existing.Enabled && !req.Enabled {
 		return domain.Agent{}, invalidInput("%s is a core agent and cannot be disabled", existing.Name)
 	}
 	req = dropStaleModels(existing, req)

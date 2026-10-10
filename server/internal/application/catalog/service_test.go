@@ -124,6 +124,17 @@ func TestUpdateAgent_CoreAgentCannotBeDisabled(t *testing.T) {
 	}
 }
 
+func TestUpdateAgent_ADisabledCoreAgentStaysEditable(t *testing.T) {
+	id := uuid.New()
+	store := &agentStore{existing: domain.Agent{ID: id, Name: "qa-agent", CatalogSlug: "qa-agent", Enabled: false}}
+	svc := catalog.NewService(store, nil, "")
+
+	_, err := svc.UpdateAgent(context.Background(), id, updateReq("qa-agent", false))
+
+	require.NoError(t, err)
+	assert.Equal(t, "qa-agent", store.saved.Name)
+}
+
 func TestUpdateAgent_CoreAgentCanBeEnabledAgain(t *testing.T) {
 	id := uuid.New()
 	store := &agentStore{existing: domain.Agent{ID: id, Name: "qa-agent", CatalogSlug: "qa-agent", Enabled: false}}
