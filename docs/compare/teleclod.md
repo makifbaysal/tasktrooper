@@ -16,7 +16,7 @@ Teleclod runs one agent session per task across your projects. You describe the 
 | **QA** | The review against your rules. A Chrome extension lets agents check pages in your open tabs. | A QA agent that cannot pass a task without executing: real requests, headless browser, iOS/Android simulators. |
 | **After merge** | Not part of the product. | The release engineer merges, deploys through the component's delivery profile (Cloud Run, GKE, ECS/Lambda, Vercel, Fly), verifies production and rolls back. Incidents from Alertmanager, Sentry or webhooks; App Store and Play releases. |
 | **Agent runtimes** | Claude Code, Codex, Gemini and Kimi CLIs plus API providers, with your own keys. | Claude Code, Cursor, Antigravity and OpenCode as local processes; Anthropic, OpenAI, Gemini, Groq or any OpenAI-compatible API, including Ollama and LM Studio. |
-| **Data** | Project data in a local encrypted SQLite. Remote access goes through Teleclod's relay and needs an account; usage analytics, opt-out. | Stays on the machine. No account, no relay, no usage analytics. |
+| **Data** | Project data in a local encrypted SQLite. Remote access goes through Teleclod's relay and needs an account; usage analytics, opt-out. | Stays on the machine. No account, no relay. Official builds send one anonymous active-install count, opt-out ([details](../data-and-security.md#anonymous-usage-statistics)). |
 | **Price** | Free tier, Pro €49/month, Studio €99/month; 14-day trial. | Free, Apache-2.0. You pay your own model or CLI subscription. |
 
 ## Choose Teleclod if

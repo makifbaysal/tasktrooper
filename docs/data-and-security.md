@@ -101,8 +101,33 @@ Everything else stays local. The things that do reach the network are:
   Servers reaches whatever host you pointed it at, on your authority. See
   [MCP servers](mcp-servers.md).
 
-Nothing else calls out on its own. There is no telemetry endpoint, no
-license check, and no home-phoning of any kind built into the product.
+- **An anonymous active-install count** — official desktop builds only. See
+  [Anonymous usage statistics](#anonymous-usage-statistics) below.
+
+Nothing else calls out on its own. There is no license check and no other
+home-phoning built into the product.
+
+## Anonymous usage statistics
+
+Official TaskTrooper desktop builds send a small, anonymous count so the
+project can see how many installs are in use. It is on by default and you can
+turn it off.
+
+- **What is sent:** a random ID made on this computer (not tied to you, your
+  account or your hardware), the app version, the operating system, the CPU
+  architecture, and whether you are using TaskTrooper locally or with an
+  account. One event when the app opens and one at most every 30 minutes while
+  its window is in use. Google Analytics also sees the connection's IP address,
+  as any web request does, and derives a rough region from it.
+- **What is never sent:** tasks, prompts, code, file paths, repository or
+  project names, API keys, your email, or anything from your account.
+- **Turn it off:** Settings → General → "Anonymous usage statistics", or on the
+  menu-bar/tray icon (the only place in account mode). Turning it off stops
+  sending at once and deletes the random ID. Setting the environment variable
+  `TASKTROOPER_TELEMETRY=0` or `DO_NOT_TRACK=1` keeps it off regardless.
+- **Builds from source and forks send nothing.** The measurement settings are
+  compiled in by the official release build only; without them there is no
+  network call and no ID file.
 
 ## The outbound URL guard
 

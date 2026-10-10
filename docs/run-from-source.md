@@ -141,5 +141,5 @@ repeat here:
   environment or a file, never a command-line argument that would be visible
   in `ps`.
 - **Nothing multi-tenant, no cloud, no control plane comes back.** No
-  Firebase, no tunnel, no `X-Internal-*` headers, no team/invite/billing-plan
+  Firebase SDK, no tunnel, no `X-Internal-*` headers, no team/invite/billing-plan
   UI — this is a local, single-user app and stays one.

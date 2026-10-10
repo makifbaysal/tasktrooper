@@ -37,7 +37,7 @@ Three parts, one product: the desktop app (macOS, Windows, Linux). Read the dire
 - No code comments that explain WHAT. Only a non-obvious invariant, a
   workaround, or a WHY.
 - `domain`/`application` never import `adapter` in `server/`.
-- The local edition stays single-user and cloud-free: no Firebase and no
+- The local edition stays single-user and cloud-free: no Firebase SDK and no
   team/invite/billing-plan UI in `desktop/ui`; no tenants, no control plane and
   no `X-Internal-*` headers in `server/`. Outside it, and only there: the
   desktop shell's optional account mode (the account's web app on its own

@@ -17,7 +17,7 @@ Modula is the closest in spirit. Tickets move through a pipeline of agents (proj
 | **QA** | No test role; the worker runs what it runs. | A QA agent that cannot pass a task without executing: real requests, headless browser, iOS/Android simulators. |
 | **After merge** | None. A human merges and marks the task accepted. | The release engineer merges, deploys through the component's delivery profile (Cloud Run, GKE, ECS/Lambda, Vercel, Fly), verifies production and rolls back. Incidents from Alertmanager, Sentry or webhooks; App Store and Play releases. |
 | **Agent runtimes** | Claude Code, Codex, OpenCode and Gemini CLI, each started with its permission-bypass flag. | Claude Code, Cursor, Antigravity and OpenCode as local processes; Anthropic, OpenAI, Gemini, Groq or any OpenAI-compatible API, including Ollama and LM Studio. |
-| **Data** | Local, no telemetry. Remote access is a closed-source plugin. | Stays on the machine. No account, no relay, no usage analytics. |
+| **Data** | Local, no telemetry. Remote access is a closed-source plugin. | Stays on the machine. No account, no relay. Official builds send one anonymous active-install count, opt-out ([details](../data-and-security.md#anonymous-usage-statistics)). |
 | **Price** | Free to use and self-host under the Elastic License 2.0, which does not allow offering it as a hosted service. | Free, Apache-2.0. You pay your own model or CLI subscription. |
 
 ## Choose Modula if

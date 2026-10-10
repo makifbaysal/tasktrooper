@@ -18,7 +18,7 @@ bb runs agents in threads you can follow live, steer at any turn or hand to anot
 | **After merge** | None. | The release engineer merges, deploys through the component's delivery profile (Cloud Run, GKE, ECS/Lambda, Vercel, Fly), verifies production and rolls back. Incidents from Alertmanager, Sentry or webhooks; App Store and Play releases. |
 | **Agent runtimes** | Claude Code through its Agent SDK, Codex through its app server, Cursor, OpenCode, Grok and others over ACP, and Pi. | Claude Code, Cursor, Antigravity and OpenCode as local processes; Anthropic, OpenAI, Gemini, Groq or any OpenAI-compatible API, including Ollama and LM Studio. |
 | **Usage limits** | Plugins retry a turn at the provider's reset time and can rotate between several accounts. | A task that hits a usage limit parks on Blocked with its resume time, other runs on that CLI are held, and the task continues at the reset (Claude Code sessions resume with --resume). Unattended, across the whole board. |
-| **Data** | Local server. Anonymous usage counts, opt-out; bb connect is a hosted pairing relay. | Stays on the machine. No account, no relay, no usage analytics. |
+| **Data** | Local server. Anonymous usage counts, opt-out; bb connect is a hosted pairing relay. | Stays on the machine. No account, no relay. Official builds send one anonymous active-install count, opt-out ([details](../data-and-security.md#anonymous-usage-statistics)). |
 | **Price** | Free, MIT. | Free, Apache-2.0. You pay your own model or CLI subscription. |
 
 ## Choose bb if

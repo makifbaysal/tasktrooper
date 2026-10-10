@@ -17,7 +17,7 @@ Orca is a desktop IDE built around the git worktree. Every task gets its own che
 | **QA** | Whatever the agent runs. An embedded browser lets you or the agent check the UI. | A QA agent that cannot pass a task without executing: real requests, headless browser, iOS/Android simulators. |
 | **After merge** | None. The workflow ends with the pull request and its checks. | The release engineer merges, deploys through the component's delivery profile (Cloud Run, GKE, ECS/Lambda, Vercel, Fly), verifies production and rolls back. Incidents from Alertmanager, Sentry or webhooks; App Store and Play releases. |
 | **Agent runtimes** | 30+ agent CLIs, including Claude Code, Codex, Gemini, Cursor, Copilot, OpenCode and Pi. Agents start with their permission-bypass flag unless you switch them to manual. | Claude Code, Cursor, Antigravity and OpenCode as local processes; Anthropic, OpenAI, Gemini, Groq or any OpenAI-compatible API, including Ollama and LM Studio. |
-| **Data** | Local. Mobile pairing goes through Orca's relay; anonymous usage analytics, opt-out. | Stays on the machine. No account, no relay, no usage analytics. |
+| **Data** | Local. Mobile pairing goes through Orca's relay; anonymous usage analytics, opt-out. | Stays on the machine. No account, no relay. Official builds send one anonymous active-install count, opt-out ([details](../data-and-security.md#anonymous-usage-statistics)). |
 | **Price** | Free, MIT. | Free, Apache-2.0. You pay your own model or CLI subscription. |
 
 ## Choose Orca if

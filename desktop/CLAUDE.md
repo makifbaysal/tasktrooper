@@ -121,6 +121,37 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   sent only when detected; the runner answers `claude.run` with `not_ready`
   without it.
 
+## Anonymous usage statistics
+
+The main process sends GA4 Measurement Protocol events so the owner can count
+active installs, local-mode ones included (`src/main/analytics/`). No SDK, no
+renderer involvement.
+
+- **Sent:** `POST https://www.google-analytics.com/mp/collect` with a random
+  client id and `app_open` (once per launch) and `app_active` (a heartbeat at
+  most every 30 minutes while a window is focused, with `engagement_time_msec`),
+  batched. Params: `session_id`, `app_version`, `platform`, `arch`, `mode`
+  (`local` | `account` | `temporary_local`). Nothing else: no origin, email,
+  path or task content. Network errors are swallowed; the one logged line has the
+  secret scrubbed.
+- **Config is build-time only.** `TT_GA_MEASUREMENT_ID` and `TT_GA_API_SECRET`
+  are inlined by `scripts/build-main.mjs` (esbuild `define`); the release
+  workflow takes them from the `GA_MEASUREMENT_ID` and `GA_API_SECRET` secrets.
+  Either empty (dev builds, forks, tests, a hand-started workflow run) means no
+  network and no id file; the switch is then not shown. Neither value is read from the
+  environment or a file at run time. The inlined secret is visible to anyone who
+  unpacks the app, which is all a Measurement Protocol secret protects.
+- **Consent.** `analytics` in `settings.json`; `ANALYTICS_DEFAULT_ON`
+  (`analytics/config.ts`) is the one place the default lives.
+  `TASKTROOPER_TELEMETRY=0` or `DO_NOT_TRACK=1` forces it off. Turning it off
+  stops sending and deletes `analytics-id` (a UUID, 0600, in userData, created
+  only while enabled).
+- **Where the switch is.** Local mode: Settings → General and a line on the
+  first-run screen, through `analytics.get()/set()` (`cloud:analytics:*`,
+  refused unless the mode is local, so the account's remote page cannot change
+  it). Every mode: the tray menu's "Anonymous usage statistics" checkbox, which
+  is how an account-mode user reaches it.
+
 ## Where things are
 
 | Concern | File |
@@ -136,6 +167,7 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
 | Generated secrets in `local.bin` | `src/main/config/secrets.ts` |
 | Local ↔ account switch, pairing origin check | `src/main/account/mode.ts` |
 | Account origin rules, default, partition name | `src/main/account/origin.ts` |
+| Anonymous active-install count (GA4 Measurement Protocol) | `src/main/analytics/` |
 | Who may call the cloud bridge | `src/main/sender-guard.ts` |
 | Account mode's supervisor, the runner child, its stdin config, its log | `src/main/runner/` |
 | Runner pairing (`pairing.bin`), provider keys (`providers.bin`), MCP servers (`mcp-servers.bin`) | `src/main/config/pairing.ts`, `providers.ts`, `mcp-servers.ts` |
@@ -151,10 +183,11 @@ are separate declarations and must be changed together.
 
 ```ts
 window.__tasktrooperDesktop = {
-  info(), apiBase?, apiToken?, bridgeVersion: 2, mode: "local" | "account",
+  info(), apiBase?, apiToken?, bridgeVersion: 4, mode: "local" | "account",
   account: { signIn(origin?), signOut(), state(), openKeys() },
   runner: { snapshot, subscribe, connect, ..., pair, unpair, pairing, restart },
-  updates: { status, subscribe, check, restart }
+  updates: { status, subscribe, check, restart },
+  analytics: { get(), set(on) }
 }
 ```
 
@@ -165,7 +198,7 @@ local two). `HostRunnerSnapshot.tunnel` is set in account mode only.
 exactly. `account.state()` answers
 `{mode, origin, switching, paired, temporaryLocal, error?}`, a superset of
 the page half's `{mode, origin?, temporaryLocal?}`. `bridgeVersion` 2 added
-`account.openKeys()` and `temporaryLocal`.
+`account.openKeys()` and `temporaryLocal`, 3 `openKeys(prefill)`, 4 `analytics`.
 
 ## Boot order (`whenReady`)
 

@@ -208,6 +208,15 @@ run it) or install the `.deb`. Neither is code-signed yet, so Windows SmartScree
 asks you to confirm the first time. The install script and Homebrew are
 macOS-only.
 
+### Privacy
+
+TaskTrooper runs on your machine and has no account requirement. Official
+desktop builds send one anonymous active-install count (a random ID, app
+version, OS and whether you use an account; never tasks, code, paths or email),
+on by default. Turn it off in Settings → General → "Anonymous usage statistics",
+or set `TASKTROOPER_TELEMETRY=0` / `DO_NOT_TRACK=1`. Builds from source and
+forks send nothing. Details: [Data and security](docs/data-and-security.md#anonymous-usage-statistics).
+
 ## Run from source
 
 ```sh
