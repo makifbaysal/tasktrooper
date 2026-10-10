@@ -257,9 +257,11 @@ export function WorkspaceSidebar({
                 description={t("chatArea.workspace.noAgents.description")}
                 className="py-6"
                 action={
-                  <Button size="sm" onClick={() => setNewAgentOpen(true)}>
-                    {t("chatArea.workspace.noAgents.cta")}
-                  </Button>
+                  ADVANCED_TEAM_CONFIG ? (
+                    <Button size="sm" onClick={() => setNewAgentOpen(true)}>
+                      {t("chatArea.workspace.noAgents.cta")}
+                    </Button>
+                  ) : undefined
                 }
               />
             )}
