@@ -95,3 +95,35 @@ describe("AppTray: running locally for now", () => {
     expect(native.menu.some((item) => item.label?.includes("for now"))).toBe(false);
   });
 });
+
+describe("AppTray: anonymous usage statistics", () => {
+  const item = () => native.menu.find((i) => i.label === "Anonymous usage statistics") as { checked?: boolean; enabled?: boolean; click?: (i: { checked: boolean }) => void } | undefined;
+
+  it("has no item when the build carries no analytics", () => {
+    new AppTray(deps).create();
+    expect(item()).toBeUndefined();
+  });
+
+  it("shows a checkbox that follows the state, passes the new value on, and is locked when forced off", () => {
+    let on = true;
+    let locked = false;
+    const toggled: boolean[] = [];
+    const tray = new AppTray({
+      ...deps,
+      analytics: { available: () => true, checked: () => on, forcedOff: () => locked, toggle: (v) => toggled.push(v) },
+    });
+    tray.create();
+    expect(item()).toMatchObject({ checked: true, enabled: true });
+
+    item()?.click?.({ checked: false });
+    expect(toggled).toEqual([false]);
+
+    on = false;
+    tray.update(snapshot({ state: "running" }));
+    expect(item()).toMatchObject({ checked: false });
+
+    locked = true;
+    tray.update(snapshot({ state: "running", since: 9 }));
+    expect(item()).toMatchObject({ enabled: false });
+  });
+});

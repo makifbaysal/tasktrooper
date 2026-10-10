@@ -1,6 +1,7 @@
 import { build } from "esbuild";
 import { rmSync } from "node:fs";
 import path from "node:path";
+import process from "node:process";
 
 /**
  * Bundles the main process and the three preloads.
@@ -19,7 +20,13 @@ const outdir = path.join(root, "dist");
 rmSync(path.join(outdir, "main"), { recursive: true, force: true });
 rmSync(path.join(outdir, "preload"), { recursive: true, force: true });
 
+const gaDefine = {
+  __TT_GA_MEASUREMENT_ID__: JSON.stringify((process.env.TT_GA_MEASUREMENT_ID ?? "").trim()),
+  __TT_GA_API_SECRET__: JSON.stringify((process.env.TT_GA_API_SECRET ?? "").trim()),
+};
+
 const common = {
+  define: gaDefine,
   bundle: true,
   platform: "node",
   format: "cjs",

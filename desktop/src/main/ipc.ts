@@ -18,6 +18,7 @@ import type {
 import type {
   AccountMode,
   AccountState,
+  AnalyticsState,
   AppInfo,
   CloudStatus,
   Diagnostics,
@@ -32,6 +33,7 @@ import type {
 } from "../ipc/types.js";
 import {
   ValidationError,
+  validateAnalyticsSet,
   validateChatFocus,
   validateChooseDirectory,
   validateDiagnosticsRequest,
@@ -99,6 +101,9 @@ export interface IpcServices {
   accountUseLocalForNow(): Promise<AccountState>;
   /** Bring up the API-key window. */
   openKeys(prefill?: KeysPrefill): void;
+
+  analyticsState(): AnalyticsState;
+  setAnalytics(on: boolean): AnalyticsState;
 
   // --- the API-key window ---
   keysList(): ProviderKeysState;
@@ -327,6 +332,18 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.preflight, (payload) => services.preflight(validatePreflightRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.diagnostics, (payload) => services.diagnostics(validateDiagnosticsRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.overridesSet, (payload) => services.setOverrides(validateOverrides(payload)));
+
+  // Local mode only: the account's remote page does not get to change what
+  // this computer reports about itself. The tray owns the switch there.
+  const localOnly = <T>(fn: () => T): T => {
+    if (services.accountMode() !== "local") throw new Error("refused: this setting belongs to the local app.");
+    return fn();
+  };
+  cloud(CLOUD_CHANNELS.analyticsGet, () => localOnly(() => services.analyticsState()));
+  cloud(CLOUD_CHANNELS.analyticsSet, (payload) => {
+    const { on } = validateAnalyticsSet(payload);
+    return localOnly(() => services.setAnalytics(on));
+  });
 
   cloud(CLOUD_CHANNELS.updateGet, () => services.updateStatus());
   cloud(CLOUD_CHANNELS.updateCheck, () => services.checkForUpdate());

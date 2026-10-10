@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS, type ChooseDirectoryRequest, type KeysPrefill } from "../ipc/channels.js";
 import type {
   DesktopAccountHost,
+  DesktopAnalyticsHost,
   DesktopHost,
   DesktopRunnerHost,
   DesktopUpdatesHost,
@@ -14,6 +15,7 @@ import type {
 } from "../ipc/host.js";
 import type {
   AccountState,
+  AnalyticsState,
   ChildId,
   Diagnostics,
   LogLine,
@@ -162,6 +164,11 @@ const updates: DesktopUpdatesHost = {
   restart: () => call<void>(CLOUD_CHANNELS.updateRestart),
 };
 
+const analytics: DesktopAnalyticsHost = {
+  get: () => call<AnalyticsState>(CLOUD_CHANNELS.analyticsGet),
+  set: (on: boolean) => call<AnalyticsState>(CLOUD_CHANNELS.analyticsSet, { on }),
+};
+
 /**
  * The synchronous reads, made once while the preload runs.
  *
@@ -187,12 +194,13 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 3,
+  bridgeVersion: 4,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,
   runner,
   updates,
+  analytics,
 };
 
 contextBridge.exposeInMainWorld(
@@ -202,5 +210,6 @@ contextBridge.exposeInMainWorld(
     account: Object.freeze(account),
     runner: Object.freeze(runner),
     updates: Object.freeze(updates),
+    analytics: Object.freeze(analytics),
   }),
 );

@@ -40,7 +40,7 @@ function from(sender: ReturnType<typeof contents>, url: string) {
  * The real guards, over the three WebContents a running app has: the key
  * window, the web app's view (here on the account's origin), and the chrome.
  */
-function wire() {
+function wire(mode: "local" | "account" = "account") {
   ipc.handlers.clear();
   const calls: string[] = [];
   const state = (): ProviderKeysState => ({
@@ -57,7 +57,9 @@ function wire() {
       keysMcpList: () => (calls.push("mcp-list"), { servers: [], runnerRestarting: false }),
       keysMcpSet: (_request: unknown) => (calls.push("mcp-set"), { servers: [], runnerRestarting: false }),
       keysMcpRemove: (name: string) => (calls.push(`mcp-remove ${name}`), { servers: [], runnerRestarting: false }),
-      accountMode: () => "account",
+      accountMode: () => mode,
+      analyticsState: () => (calls.push("analytics-get"), { available: true, enabled: true, forcedOff: false }),
+      setAnalytics: (on: boolean) => (calls.push(`analytics-set ${on}`), { available: true, enabled: on, forcedOff: false }),
     },
     {
       get: (target, key: string) =>
@@ -122,6 +124,27 @@ describe("shell:keys:*", () => {
     );
     expect(refusal).toMatch(/invalid request: keys.set.api_key/);
     expect(refusal).not.toContain(SECRET);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("cloud:analytics:*", () => {
+
+  it("answers the local app's page and validates the payload", async () => {
+    const { calls, invoke } = wire("local");
+    const ok = from(accountView, ACCOUNT);
+    await expect(invoke(CLOUD_CHANNELS.analyticsGet, ok)).resolves.toMatchObject({ enabled: true });
+    await expect(invoke(CLOUD_CHANNELS.analyticsSet, ok, { on: false })).resolves.toMatchObject({ enabled: false });
+    await expect(invoke(CLOUD_CHANNELS.analyticsSet, ok, { on: "no" })).rejects.toThrow(/invalid request/);
+    expect(calls).toEqual(["analytics-get", "analytics-set false"]);
+  });
+
+  it("refuses the account mode's remote page, and any other sender", async () => {
+    const { calls, invoke } = wire("account");
+    const page = from(accountView, `${ACCOUNT}/settings`);
+    await expect(invoke(CLOUD_CHANNELS.analyticsGet, page)).rejects.toThrow(/refused/);
+    await expect(invoke(CLOUD_CHANNELS.analyticsSet, page, { on: false })).rejects.toThrow(/refused/);
+    await expect(invoke(CLOUD_CHANNELS.analyticsSet, from(chrome, "file:///x.html"), { on: false })).rejects.toThrow(/refused/);
     expect(calls).toEqual([]);
   });
 });

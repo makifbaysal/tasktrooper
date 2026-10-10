@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { BrowserWindow, Menu, app, powerMonitor, session, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, Menu, app, net, powerMonitor, session, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { CLOUD_EVENTS, SHELL_EVENTS, type KeySetRequest, type McpServerSetRequest } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -12,6 +12,7 @@ import type {
 } from "../ipc/host.js";
 import type {
   AccountState,
+  AnalyticsState,
   AppInfo,
   CloudStatus,
   Diagnostics,
@@ -23,6 +24,8 @@ import type {
   UpdateStatus,
 } from "../ipc/types.js";
 import { ACCOUNT_MODE_RUNS_EMBEDDER, ModeController } from "./account/mode.js";
+import { Analytics } from "./analytics/analytics.js";
+import { buildConfig } from "./analytics/config.js";
 import { ACCOUNT_HOME_ROUTE, accountPartition, defaultAccountOrigin } from "./account/origin.js";
 import { PairingStore } from "./config/pairing.js";
 import { McpServerStore } from "./config/mcp-servers.js";
@@ -81,6 +84,32 @@ if (!gotInstanceLock) app.quit();
 if (process.platform === "win32") app.setAppUserModelId("ai.tasktrooper.desktop");
 
 const settingsStore = new SettingsStore();
+const analytics = new Analytics({
+  config: buildConfig(),
+  dir: app.getPath("userData"),
+  env: process.env,
+  appVersion: app.getVersion(),
+  platform: process.platform,
+  arch: process.arch,
+  mode: () => (modeController.temporaryLocal ? "temporary_local" : modeController.mode),
+  preference: () => settingsStore.get().analytics,
+  storePreference: (on) => void settingsStore.set({ analytics: on }),
+  post: (url, body) =>
+    net.fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    }),
+  log: (line) => console.warn(line),
+});
+
+function setAnalytics(on: boolean): AnalyticsState {
+  const state = analytics.set(on);
+  tray?.update(activeSnapshot());
+  return state;
+}
+
 const secretStore = new SecretStore();
 const supervisor = new Supervisor();
 const providerStore = new ProviderStore(app.getPath("userData"));
@@ -536,6 +565,9 @@ const services: IpcServices = {
     (await updates?.check()) ?? { phase: "unsupported", detail: "The updater has not started yet." },
   restartToUpdate,
 
+  analyticsState: () => analytics.state(),
+  setAnalytics,
+
   accountMode: () => modeController.mode,
   accountState: (): AccountState => modeController.state(),
   accountSignIn: (origin?: string) => modeController.signIn(origin),
@@ -861,6 +893,12 @@ app.whenReady().then(
       quit: () => void quit.run(),
       checkForUpdate: () => void updates?.check(),
       restartToUpdate,
+      analytics: {
+        available: () => analytics.state().available,
+        checked: () => analytics.state().enabled,
+        forcedOff: () => analytics.state().forcedOff,
+        toggle: (on) => void setAnalytics(on),
+      },
       subject: () => (accountMode() ? "the runner" : "the local server"),
       banner: () =>
         modeController.temporaryLocal
@@ -873,6 +911,10 @@ app.whenReady().then(
     });
     tray.create();
     tray.update(activeSnapshot());
+
+    app.on("browser-window-focus", () => analytics.focus());
+    app.on("browser-window-blur", () => analytics.blur());
+    analytics.start(BrowserWindow.getFocusedWindow() !== null);
 
     // After the tray, which renders the update state; `startUpdates` hands it
     // the real one as soon as there is one.
@@ -1008,6 +1050,7 @@ app.on("before-quit", (event) => {
   // would cancel the very quit the drain is finishing — including the one
   // Squirrel raises when it takes over to install an update.
   if (quit.started) return;
+  void analytics.stop();
   event.preventDefault();
   void quit.run();
 });

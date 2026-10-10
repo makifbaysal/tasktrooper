@@ -26,6 +26,7 @@
 import type {
   AccountMode,
   AccountState,
+  AnalyticsState,
   Blocker,
   ChildId,
   ChildState,
@@ -216,6 +217,15 @@ export interface DesktopUpdatesHost {
 }
 
 /**
+ * The anonymous usage count. `set(false)` stops sending at once and deletes
+ * the install's random id. Refused for the account's remote page.
+ */
+export interface DesktopAnalyticsHost {
+  get(): Promise<AnalyticsState>;
+  set(on: boolean): Promise<AnalyticsState>;
+}
+
+/**
  * Local or account, switched at runtime.
  *
  * `signIn` stops the local backend and loads the account's sign-in page in
@@ -271,13 +281,15 @@ export interface DesktopHost {
    * 1: `account`, `mode` and the runner's pairing calls.
    * 2: `account.openKeys()` and `account.state().temporaryLocal`.
    * 3: `account.openKeys(prefill)` focuses the key window on one provider.
+   * 4: `analytics.get()` / `analytics.set(on)`.
    */
-  bridgeVersion: 3;
+  bridgeVersion: 4;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;
   runner: DesktopRunnerHost;
   updates: DesktopUpdatesHost;
+  analytics: DesktopAnalyticsHost;
 }
 
 export type { AccountMode, AccountState, ChooseDirectoryRequest, RunnerPairingBundle, RunnerPairingSummary, UpdateStatus };

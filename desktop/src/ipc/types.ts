@@ -226,6 +226,19 @@ export interface UserSettings {
   mode: AccountMode;
   /** The account origin last signed in to; absent means the default. */
   accountOrigin?: string;
+  /** The anonymous usage count. Absent means the build's default. */
+  analytics?: boolean;
+}
+
+/**
+ * What the Settings switch needs to know. `available` is false in a build that
+ * carries no analytics configuration (a dev build, a fork), where there is
+ * nothing to switch; `forcedOff` is the environment overriding the choice.
+ */
+export interface AnalyticsState {
+  available: boolean;
+  enabled: boolean;
+  forcedOff: boolean;
 }
 
 /**

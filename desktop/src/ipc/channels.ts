@@ -242,6 +242,14 @@ export const CLOUD_CHANNELS = {
   updateGet: "cloud:update:get",
   updateCheck: "cloud:update:check",
   updateRestart: "cloud:update:restart",
+
+  /**
+   * The anonymous usage count's switch, for Settings → General. Answered only
+   * while this app's own bundle is the page (local mode): the account's remote
+   * page is refused, and the tray owns the switch there.
+   */
+  analyticsGet: "cloud:analytics:get",
+  analyticsSet: "cloud:analytics:set",
 } as const;
 
 /** Main → the web app. Push, so the page never polls the supervisor. */

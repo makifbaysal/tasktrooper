@@ -238,6 +238,7 @@ export function validateSettingsPatch(raw: unknown): Partial<UserSettings> {
     out.mode = o.mode;
   }
   if (o.accountOrigin !== undefined) out.accountOrigin = asOriginShaped(o.accountOrigin, "settings.accountOrigin");
+  if (o.analytics !== undefined) out.analytics = asBoolean(o.analytics, "settings.analytics");
   return out;
 }
 
@@ -270,6 +271,11 @@ export function validateSignIn(raw: unknown): AccountSignInRequest {
   if (raw === undefined || raw === null) return {};
   const o = asRecord(raw, "signIn");
   return o.origin === undefined ? {} : { origin: asOriginShaped(o.origin, "signIn.origin") };
+}
+
+export function validateAnalyticsSet(raw: unknown): { on: boolean } {
+  const o = asRecord(raw, "analytics");
+  return { on: asBoolean(o.on, "analytics.on") };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -55,5 +55,20 @@ describe("SettingsStore notifications", () => {
 
     expect(after.launchAtLogin).toBe(true);
     expect(after.autoConnect).toBe(false);
+  });
+});
+
+describe("SettingsStore analytics", () => {
+  it("is unset until chosen, then survives a relaunch, and a hand-edited non-boolean is ignored", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "tasktrooper-settings-"));
+    try {
+      expect(new SettingsStore(dir).get().analytics).toBeUndefined();
+      new SettingsStore(dir).set({ analytics: false });
+      expect(new SettingsStore(dir).get().analytics).toBe(false);
+      writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ settings: { analytics: "yes" } }));
+      expect(new SettingsStore(dir).get().analytics).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
