@@ -83,16 +83,16 @@ export const setup = {
     description:
       "Choisissez un point de départ. Les agents activés sont présélectionnés ; vous pouvez les modifier ici puis dans les Réglages.",
     agentsLabel: "Agents",
-    pmLocked: "Le chef de produit est toujours activé.",
+    coreLocked: "Le chef de produit, l’architecte système, le QA, la sécurité et l’ingénieur de release sont toujours activés.",
     confirm: "Créer cette équipe",
     loadFailed: "Impossible de charger vos agents",
     saveFailed: "Impossible d'enregistrer votre équipe",
     templates: {
       web: { name: "Application web", description: "Front-end, back-end et ceux qui les livrent." },
       mobile: { name: "Application mobile", description: "Un développeur mobile aux côtés du back-end et du design." },
-      game: { name: "Jeu", description: "Un développeur de jeu, le design et le QA." },
-      data: { name: "Données et analytique", description: "Un data scientist avec le back-end et le QA." },
-      custom: { name: "Personnalisé", description: "Commencer avec le chef de produit uniquement." },
+      game: { name: "Jeu", description: "Un développeur de jeu et le design en plus de l’équipe centrale." },
+      data: { name: "Données et analytique", description: "Un data scientist avec le back-end en plus de l’équipe centrale." },
+      custom: { name: "Personnalisé", description: "Commencer avec l’équipe centrale uniquement." },
     },
   },
   nav: {

@@ -83,16 +83,16 @@ export const setup = {
     description:
       "Escolha um ponto de partida. Os agentes ativados já vêm selecionados; você pode alterá-los aqui e depois em Configurações.",
     agentsLabel: "Agentes",
-    pmLocked: "O gerente de produto está sempre ativo.",
+    coreLocked: "O gerente de produto, o arquiteto de sistemas, o QA, a segurança e o engenheiro de release estão sempre ativos.",
     confirm: "Criar esta equipe",
     loadFailed: "Não foi possível carregar seus agentes",
     saveFailed: "Não foi possível salvar sua equipe",
     templates: {
       web: { name: "Aplicação web", description: "Front-end, back-end e quem os entrega." },
       mobile: { name: "Aplicativo móvel", description: "Um desenvolvedor móvel ao lado do back-end e do design." },
-      game: { name: "Jogo", description: "Um desenvolvedor de jogos, design e QA." },
-      data: { name: "Dados e análise", description: "Um cientista de dados com o back-end e o QA." },
-      custom: { name: "Personalizado", description: "Começar apenas com o gerente de produto." },
+      game: { name: "Jogo", description: "Um desenvolvedor de jogos e design além da equipe principal." },
+      data: { name: "Dados e análise", description: "Um cientista de dados com o back-end além da equipe principal." },
+      custom: { name: "Personalizado", description: "Começar apenas com a equipe principal." },
     },
   },
   nav: {

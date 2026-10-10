@@ -347,6 +347,11 @@ func (s *Service) UpdateAgent(ctx context.Context, id uuid.UUID, req domain.Upda
 	if err != nil {
 		return domain.Agent{}, err
 	}
+	// Only the switch off is refused: a core agent left disabled by an older
+	// build stays editable until someone turns it back on.
+	if domain.IsCoreAgentSlug(existing.CatalogSlug) && existing.Enabled && !req.Enabled {
+		return domain.Agent{}, invalidInput("%s is a core agent and cannot be disabled", existing.Name)
+	}
 	req = dropStaleModels(existing, req)
 	autoPull := existing.AutoPullAgentUpdates
 	if req.AutoPullAgentUpdates != nil {
@@ -382,6 +387,13 @@ func dropStaleModels(existing domain.Agent, req domain.UpdateAgentRequest) domai
 }
 
 func (s *Service) DeleteAgent(ctx context.Context, id uuid.UUID) error {
+	existing, err := s.store.GetAgent(ctx, id)
+	if err != nil {
+		return err
+	}
+	if domain.IsCoreAgentSlug(existing.CatalogSlug) {
+		return invalidInput("%s is a core agent and cannot be deleted", existing.Name)
+	}
 	return s.store.DeleteAgent(ctx, id)
 }
 

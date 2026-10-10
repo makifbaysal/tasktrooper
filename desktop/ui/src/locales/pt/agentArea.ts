@@ -232,6 +232,7 @@ export const agentArea = {
     subagentType: "Tipo de subagente",
     systemPrompt: "Prompt de sistema",
     enabled: "Ativado",
+    coreHint: "Agente principal; não pode ser desativado.",
     catalog: {
       autoPull: {
         label: "Buscar atualizações da definição no catálogo",

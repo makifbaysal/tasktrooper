@@ -166,6 +166,8 @@ Nested under agents:
 
 Global `/admin/skills` and `/admin/orchestrator-rules` are removed.
 
+**Core agents.** `product-manager`, `system-architect`, `qa-agent`, `security-agent` and `release-engineer` (`domain.CoreAgentSlugs`) are always on: `PUT /admin/agents/:id` with `enabled: false` and `DELETE /admin/agents/:id` answer 400 `invalid_catalog_input` for them (`catalog.Service.UpdateAgent`/`DeleteAgent`); enabling a disabled one is allowed. No migration; catalog sync and the tool-grant paths go through the same service and always send `enabled: true`/the stored flag.
+
 ## Tech stacks
 
 `agent_tech_stacks` (migration 124) is one agent's list of technologies, and

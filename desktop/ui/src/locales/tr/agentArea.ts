@@ -240,6 +240,7 @@ export const agentArea: AgentAreaDict = {
     subagentType: "Alt ajan tipi",
     systemPrompt: "Sistem istemi",
     enabled: "Etkin",
+    coreHint: "Çekirdek ajan; kapatılamaz.",
     catalog: {
       autoPull: {
         label: "Tanım güncellemelerini katalogdan çek",

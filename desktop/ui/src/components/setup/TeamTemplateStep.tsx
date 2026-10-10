@@ -8,10 +8,9 @@ import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/hooks/useI18n";
 import { writeFirstRunTeamDone } from "@/lib/firstRun";
 import {
-  PRODUCT_MANAGER_SLUG,
   TEAM_TEMPLATES,
   agentUpdate,
-  findAgentBySlug,
+  coreAgentIds,
   templateAgentIds,
   type TeamTemplateId,
 } from "@/lib/teamTemplates";
@@ -20,8 +19,8 @@ import {
  * The team step: a template preselects the catalog agents the user starts with,
  * and every agent can be toggled before the choice is written.
  *
- * Toggling writes `enabled` through the agents API; the product manager is
- * pinned on because the board has no lead without one. The list stays editable
+ * Toggling writes `enabled` through the agents API; the core agents are
+ * pinned on and every template includes them. The list stays editable
  * afterwards on each agent's settings page.
  */
 export function TeamTemplateStep({ onDone }: { onDone: () => void }) {
@@ -48,24 +47,21 @@ export function TeamTemplateStep({ onDone }: { onDone: () => void }) {
     void load();
   }, [load]);
 
-  const pmId = useMemo(
-    () => (agents ? (findAgentBySlug(agents, PRODUCT_MANAGER_SLUG)?.id ?? null) : null),
-    [agents],
-  );
+  const coreIds = useMemo(() => (agents ? new Set(coreAgentIds(agents)) : new Set<string>()), [agents]);
 
   const pickTemplate = (id: TeamTemplateId) => {
     if (!agents) return;
     const template = TEAM_TEMPLATES.find((entry) => entry.id === id);
     if (!template) return;
     const ids = new Set(templateAgentIds(agents, template));
-    if (pmId) ids.add(pmId);
+    for (const id of coreIds) ids.add(id);
     setTemplateId(id);
     setSelected(ids);
     setSaveError("");
   };
 
   const toggle = (id: string, on: boolean) => {
-    if (id === pmId && !on) return;
+    if (coreIds.has(id) && !on) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (on) next.add(id);
@@ -122,10 +118,10 @@ export function TeamTemplateStep({ onDone }: { onDone: () => void }) {
             <Card className="divide-y divide-border">
               <div className="flex items-center justify-between gap-3 px-4 py-3">
                 <p className="text-body font-medium">{t("setup.team.agentsLabel")}</p>
-                <p className="text-xs text-muted-foreground">{t("setup.team.pmLocked")}</p>
+                <p className="text-xs text-muted-foreground">{t("setup.team.coreLocked")}</p>
               </div>
               {agents.map((agent) => {
-                const locked = agent.id === pmId;
+                const locked = coreIds.has(agent.id);
                 const checked = locked || selected.has(agent.id);
                 return (
                   <div key={agent.id} className="flex items-center justify-between gap-3 px-4 py-3">

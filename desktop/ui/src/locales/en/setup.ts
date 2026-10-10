@@ -89,16 +89,16 @@ export const setup = {
     description:
       "Pick a starting point. The agents it turns on are preselected; you can change them here and later in Settings.",
     agentsLabel: "Agents",
-    pmLocked: "The product manager is always on.",
+    coreLocked: "The product manager, system architect, QA, security and release engineer are always on.",
     confirm: "Create this team",
     loadFailed: "Couldn't load your agents",
     saveFailed: "Couldn't save your team",
     templates: {
       web: { name: "Web application", description: "Front end, back end, and the people who ship them." },
       mobile: { name: "Mobile application", description: "A mobile developer alongside the back end and design." },
-      game: { name: "Game", description: "A game developer, design and QA." },
-      data: { name: "Data & analytics", description: "A data scientist with the back end and QA." },
-      custom: { name: "Custom", description: "Start with just the product manager." },
+      game: { name: "Game", description: "A game developer and design on top of the core team." },
+      data: { name: "Data & analytics", description: "A data scientist with the back end, on top of the core team." },
+      custom: { name: "Custom", description: "Start with just the core team." },
     },
   },
   nav: {

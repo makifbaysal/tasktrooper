@@ -232,6 +232,7 @@ export const agentArea = {
     subagentType: "子智能体类型",
     systemPrompt: "系统提示词",
     enabled: "已启用",
+    coreHint: "核心智能体；无法关闭。",
     catalog: {
       autoPull: {
         label: "从目录拉取定义更新",

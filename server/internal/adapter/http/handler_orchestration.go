@@ -436,6 +436,9 @@ func (h *Handler) DeleteAgent(c *fiber.Ctx) error {
 		return badRequest(c, "invalid agent id")
 	}
 	if err := h.catalogSvc.DeleteAgent(h.enrichContext(c), id); err != nil {
+		if errors.Is(err, catalog.ErrInvalidInput) {
+			return catalogError(c, err)
+		}
 		return c.Status(fiber.StatusNotFound).JSON(errorResponse{
 			Error: errorDetail{Message: err.Error(), Type: "not_found"},
 		})

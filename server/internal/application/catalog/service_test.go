@@ -96,3 +96,83 @@ func TestUpdateAgent_SameProviderKeepsTheModels(t *testing.T) {
 	assert.Equal(t, "mistral-small-latest", store.saved.Model)
 	assert.Equal(t, "mistral-large-latest", store.saved.ModelHeavy)
 }
+
+type deleteStore struct {
+	agentStore
+	deleted []uuid.UUID
+}
+
+func (s *deleteStore) DeleteAgent(_ context.Context, id uuid.UUID) error {
+	s.deleted = append(s.deleted, id)
+	return nil
+}
+
+func updateReq(name string, enabled bool) domain.UpdateAgentRequest {
+	return domain.UpdateAgentRequest{Name: name, Enabled: enabled}
+}
+
+func TestUpdateAgent_CoreAgentCannotBeDisabled(t *testing.T) {
+	for _, slug := range domain.CoreAgentSlugs {
+		id := uuid.New()
+		store := &agentStore{existing: domain.Agent{ID: id, Name: slug, CatalogSlug: slug, Enabled: true}}
+		svc := catalog.NewService(store, nil, "")
+
+		_, err := svc.UpdateAgent(context.Background(), id, updateReq(slug, false))
+
+		require.ErrorIs(t, err, catalog.ErrInvalidInput, slug)
+		assert.Empty(t, store.saved.Name, "nothing may be persisted")
+	}
+}
+
+func TestUpdateAgent_ADisabledCoreAgentStaysEditable(t *testing.T) {
+	id := uuid.New()
+	store := &agentStore{existing: domain.Agent{ID: id, Name: "qa-agent", CatalogSlug: "qa-agent", Enabled: false}}
+	svc := catalog.NewService(store, nil, "")
+
+	_, err := svc.UpdateAgent(context.Background(), id, updateReq("qa-agent", false))
+
+	require.NoError(t, err)
+	assert.Equal(t, "qa-agent", store.saved.Name)
+}
+
+func TestUpdateAgent_CoreAgentCanBeEnabledAgain(t *testing.T) {
+	id := uuid.New()
+	store := &agentStore{existing: domain.Agent{ID: id, Name: "qa-agent", CatalogSlug: "qa-agent", Enabled: false}}
+	svc := catalog.NewService(store, nil, "")
+
+	_, err := svc.UpdateAgent(context.Background(), id, updateReq("qa-agent", true))
+
+	require.NoError(t, err)
+	assert.True(t, store.saved.Enabled)
+}
+
+func TestUpdateAgent_NonCoreAgentStillToggles(t *testing.T) {
+	id := uuid.New()
+	store := &agentStore{existing: domain.Agent{ID: id, Name: "ui-designer", CatalogSlug: "ui-designer", Enabled: true}}
+	svc := catalog.NewService(store, nil, "")
+
+	_, err := svc.UpdateAgent(context.Background(), id, updateReq("ui-designer", false))
+
+	require.NoError(t, err)
+	assert.False(t, store.saved.Enabled)
+}
+
+func TestDeleteAgent_CoreAgentRefused(t *testing.T) {
+	id := uuid.New()
+	store := &deleteStore{agentStore: agentStore{existing: domain.Agent{ID: id, Name: "security-agent", CatalogSlug: "security-agent"}}}
+	svc := catalog.NewService(store, nil, "")
+
+	err := svc.DeleteAgent(context.Background(), id)
+
+	require.ErrorIs(t, err, catalog.ErrInvalidInput)
+	assert.Empty(t, store.deleted)
+}
+
+func TestDeleteAgent_NonCoreAgentStillDeletes(t *testing.T) {
+	id := uuid.New()
+	store := &deleteStore{agentStore: agentStore{existing: domain.Agent{ID: id, Name: "custom", CatalogSlug: ""}}}
+	svc := catalog.NewService(store, nil, "")
+
+	require.NoError(t, svc.DeleteAgent(context.Background(), id))
+	assert.Equal(t, []uuid.UUID{id}, store.deleted)
+}

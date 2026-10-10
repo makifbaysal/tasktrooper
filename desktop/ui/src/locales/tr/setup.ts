@@ -90,16 +90,16 @@ export const setup = {
     description:
       "Bir başlangıç noktası seçin. Açtığı ajanlar önceden seçilir; burada ve sonradan Ayarlar'dan değiştirebilirsiniz.",
     agentsLabel: "Ajanlar",
-    pmLocked: "Ürün yöneticisi her zaman açıktır.",
+    coreLocked: "Ürün yöneticisi, sistem mimarı, QA, güvenlik ve sürüm mühendisi her zaman açıktır.",
     confirm: "Bu ekibi oluştur",
     loadFailed: "Ajanlarınız yüklenemedi",
     saveFailed: "Ekip kaydedilemedi",
     templates: {
       web: { name: "Web uygulaması", description: "Ön uç, arka uç ve bunları yayınlayanlar." },
       mobile: { name: "Mobil uygulama", description: "Arka uç ve tasarımın yanında bir mobil geliştirici." },
-      game: { name: "Oyun", description: "Bir oyun geliştirici, tasarım ve QA." },
-      data: { name: "Veri ve analitik", description: "Arka uç ve QA ile birlikte bir veri bilimci." },
-      custom: { name: "Özel", description: "Yalnızca ürün yöneticisiyle başla." },
+      game: { name: "Oyun", description: "Çekirdek ekibin yanında bir oyun geliştirici ve tasarım." },
+      data: { name: "Veri ve analitik", description: "Çekirdek ekibin yanında arka uçla birlikte bir veri bilimci." },
+      custom: { name: "Özel", description: "Yalnızca çekirdek ekiple başla." },
     },
   },
   nav: {
