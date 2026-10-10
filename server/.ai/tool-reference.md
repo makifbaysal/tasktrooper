@@ -93,7 +93,7 @@ Board tools (`internal/adapter/tools/board`) are registered when the board/repos
 
 ### `list_team` and the assignee guard
 
-`list_team` returns `{count, team, available_to_add}`. `team` is the enabled agents (`name`, `role`, `subagent_type`, `enabled`, `roles`, `subscribed_columns`); `count` is its length. `available_to_add` is the disabled agents (`name`, `catalog_slug`, `role`, `roles`), which the user switches on from the agents page ("Edit team"). The product manager assigns only to `team` and suggests an `available_to_add` agent when none fits (rule `suggest-missing-agent`).
+`list_team` returns `{count, team, available_to_add}`. `team` is the enabled agents (`name`, `role`, `subagent_type`, `enabled`, `roles`, `subscribed_columns`); `count` is its length. `available_to_add` is the disabled agents (`name`, `catalog_slug`, `role`, `roles`), which the user switches on from the pencil ("Edit team") next to "Team" in the sidebar. The product manager assigns only to `team` and suggests an `available_to_add` agent when none fits (rule `suggest-missing-agent`).
 
 `create_board_task` refuses a disabled assignee, given by name, UUID or resolved from `assignee_role`, with the `guard.board_assignee_disabled` text: the agent (or every disabled holder of the role) is named, the task is not created, and the model is told to keep it in backlog unassigned until the user adds the agent. `claim_board_task` is the running agent claiming for itself and is not affected.
 
