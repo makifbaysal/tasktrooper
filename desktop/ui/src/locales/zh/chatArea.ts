@@ -140,6 +140,7 @@ export const chatArea = {
     noAgents: {
       title: "暂无智能体",
       description: "你的角色团队会在启动时从目录创建。你也可以从已保存的模板或从零开始添加智能体。",
+      descriptionCatalogOnly: "你的团队来自智能体目录。点击“团队”旁的铅笔图标启用智能体。",
       cta: "添加智能体",
     },
     wizard: {

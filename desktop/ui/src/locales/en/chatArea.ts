@@ -147,6 +147,7 @@ export const chatArea = {
       title: "No agents yet",
       description:
         "Your role team is created from the catalog during boot. You can also add an agent from a saved template or from scratch.",
+      descriptionCatalogOnly: "Your team comes from the agent catalog. Switch agents on with the pencil next to Team.",
       cta: "Add an agent",
     },
     wizard: {

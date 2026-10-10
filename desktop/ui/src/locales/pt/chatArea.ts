@@ -140,6 +140,7 @@ export const chatArea = {
     noAgents: {
       title: "Nenhum agente ainda",
       description: "Sua equipe de funções é criada a partir do catálogo durante a inicialização. Você também pode adicionar um agente a partir de um modelo salvo ou do zero.",
+      descriptionCatalogOnly: "Sua equipe vem do catálogo de agentes. Ative agentes com o lápis ao lado de “Equipe”.",
       cta: "Adicionar um agente",
     },
     wizard: {

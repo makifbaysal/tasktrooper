@@ -146,6 +146,7 @@ export const chatArea: ChatAreaDict = {
       title: "Henüz ajan yok",
       description:
         "Rol ekibiniz açılışta katalogdan oluşturulur. Ayrıca kayıtlı bir şablondan ya da sıfırdan ajan ekleyebilirsiniz.",
+      descriptionCatalogOnly: "Ekibiniz ajan kataloğundan gelir. Ajanları Ekip başlığının yanındaki kalemle açın.",
       cta: "Ajan ekle",
     },
     wizard: {

@@ -254,7 +254,7 @@ export function WorkspaceSidebar({
               <EmptyState
                 icon={Users}
                 title={t("chatArea.workspace.noAgents.title")}
-                description={t("chatArea.workspace.noAgents.description")}
+                description={t(ADVANCED_TEAM_CONFIG ? "chatArea.workspace.noAgents.description" : "chatArea.workspace.noAgents.descriptionCatalogOnly")}
                 className="py-6"
                 action={
                   ADVANCED_TEAM_CONFIG ? (
