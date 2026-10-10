@@ -262,6 +262,10 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
       await this.#stop("failed");
       return this.#fail(`The tunnel failed to start: ${describe(err)}`);
     }
+    // The config line carries tool paths, not the report: the runner answers
+    // preflight.report only from this control line, so without it a fresh
+    // connect said "not reported yet" until something re-detected.
+    this.#child.send(preflightMessage(this.#preflight));
 
     const attached = await this.#waitForTunnel(abort.signal, () => this.#child.running);
     if (!attached.ok) {
