@@ -21,6 +21,7 @@ import (
 	gitadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/git"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/config"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery"
 	execapp "github.com/makifbaysal/tasktrooper/server/internal/application/executor"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/localindex"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
@@ -131,6 +132,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		Index:          index,
 		Embeddings:     embedder,
 		Git:            gitadapter.NewCheckout(),
+		Scanner:        discovery.New(),
 		IndexToolNames: indexToolNames,
 		Surfaces:       mcpsurface.Server{},
 		MemberTools:    members.Tools(),

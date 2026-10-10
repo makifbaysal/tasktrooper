@@ -20,6 +20,7 @@ local edition (`cmd/agent-server`) does not use it and is unchanged.
 | CLI tool surfaces | `port.ToolSurfaceServer` → `adapter/mcpsurface.Server` (go-sdk, streamable HTTP on loopback) |
 | code index | `port.LocalCodeIndex` → `application/localindex` (the server's indexer and injector over its own store); `platform/executor` wires the embedder (`embedder.go`) and the store (`indexstore.go`) |
 | post-run half | `application/executor/checkout.go`: the verification pass is `board.VerifyWorkspace` (the board's own verify step), git is `port.CheckoutGit` → `adapter/vcs/git.Checkout` |
+| repository scan | `application/executor/scan.go`: `port.RepoScanner` → `application/discovery.Scanner`, the scanner the local edition's project model runs |
 
 ## Process contract
 
@@ -216,7 +217,7 @@ domain JSON / JSON-schema format).
 ### `POST /exec/cancel`
 
 Request: `{"run_id":"r-1"}`, or `{"id":"<stream id>"}` so a runner can forward
-its own cancel body. An index pass or a verification is cancelled by
+its own cancel body. An index pass, a verification or a scan is cancelled by
 `{"id":"<its stream id>"}`.
 
 Response: `{"v":1,"run_id":"r-1","cancelled":true|false}`. A run that already
@@ -413,6 +414,51 @@ Failure codes: `bad_request`, `conflict`, `upstream` (the push failed; with
 `"reason":"workflow_scope"` when GitHub refused it because the token may not
 change `.github/workflows` — nothing but a better token helps), `timeout`
 (10 minutes by default), `cancelled`.
+
+## The repository scan
+
+The project model (components, the checks that verify them, links, deploy
+signals, git facts) is built from a scan of a checkout. For a checkout on
+this computer the caller asks for the scan here and keeps the model itself:
+the code is read on this computer, and only the scan's result leaves it.
+
+### `POST /exec/scan`
+
+```json
+{"id":"<optional stream id>","workspace":"repos/app/default","timeout_ms":0}
+```
+
+- `workspace` is the checkout, relative to `workspace_root`, under the same
+  rules as the post-run routes': it must exist, and a path that leaves the
+  root is `bad_request`.
+- It runs the scanner the local edition's project model runs
+  (`application/discovery`), over the working tree as it is: nothing is
+  fetched, checked out or written.
+- `id` defaults to `scan:<workspace>`. One scan per checkout at a time: a
+  second one, or a second one under the same id, is 409.
+- `timeout_ms` bounds the scan; 0 is ten minutes.
+
+The answer is the `agent.run` envelope: `started`, a `scan_stage` event each
+time the scanner reports a stage (`stage`, `done`, `summary` — a
+`domain.ScanEvent`, with `at` in the header), and one `done` whose `result`
+is the `domain.ScanResult`:
+
+```
+{"v":1,"id":"c-9","event":"started"}
+{"v":1,"id":"c-9","event":"event","payload":{"seq":1,"at":"…","kind":"scan_stage","stage":"inventory","done":false}}
+{"v":1,"id":"c-9","event":"event","payload":{"seq":2,"at":"…","kind":"scan_stage","stage":"inventory","done":true,"summary":"212 files listed via git"}}
+{"v":1,"id":"c-9","event":"event","payload":{"seq":3,"at":"…","kind":"scan_stage","stage":"shape","done":false}}
+…
+{"v":1,"id":"c-9","event":"done","ok":true,"result":{"shape":"single","file_count":212,"languages":[…],"components":[…],"checks":[…],"links":[…],"deploy_signals":[…],"git":{"default_branch":"main","head_sha":"…","remote_slug":"…"},"warnings":[…]}}
+```
+
+- The stages are the scanner's own (`inventory`, `shape`, `components`,
+  `stack`, `checks`, `links`, `deploy`); `match` is the caller's, after it
+  has the result.
+- Failure codes: `bad_request`, `conflict`, `not_ready` (an executor built
+  without a scanner), `cancelled`, `timeout`, `internal` (the checkout could
+  not be read).
+
 ### `POST /exec/mcp.open`
 
 A tool surface for one agent CLI run (Claude Code, OpenCode, Cursor) that the

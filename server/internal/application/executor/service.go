@@ -69,6 +69,9 @@ type Deps struct {
 	// Git answers the post-run routes (git.*, commit_push); nil answers
 	// not_ready.
 	Git port.CheckoutGit
+	// Scanner reads a checkout into the project model's scan result, the
+	// same scanner the local edition runs; nil answers scan not_ready.
+	Scanner port.RepoScanner
 	// IndexToolNames are the tools Index attaches, for LocalToolNames to
 	// advertise before any index is attached.
 	IndexToolNames []string
@@ -94,6 +97,7 @@ type Service struct {
 	runs     map[string]*PreparedRun
 	ensures  map[string]*PreparedEnsure
 	verifies map[string]*PreparedVerify
+	scans    map[string]*PreparedScan
 	surfaces map[string]*openSurface
 	closing  bool
 }
@@ -104,6 +108,7 @@ func NewService(deps Deps) *Service {
 		deps: deps, life: life, endLife: endLife,
 		runs: make(map[string]*PreparedRun), ensures: make(map[string]*PreparedEnsure),
 		verifies: make(map[string]*PreparedVerify),
+		scans:    make(map[string]*PreparedScan),
 		surfaces: make(map[string]*openSurface),
 	}
 }
@@ -280,6 +285,10 @@ func (s *Service) Shutdown() {
 	for _, verify := range s.verifies {
 		verifies = append(verifies, verify)
 	}
+	scans := make([]*PreparedScan, 0, len(s.scans))
+	for _, scan := range s.scans {
+		scans = append(scans, scan)
+	}
 	s.mu.Unlock()
 	for _, run := range runs {
 		run.cancel(errShuttingDown)
@@ -289,6 +298,9 @@ func (s *Service) Shutdown() {
 	}
 	for _, verify := range verifies {
 		verify.cancel(errShuttingDown)
+	}
+	for _, scan := range scans {
+		scan.cancel(errShuttingDown)
 	}
 	s.endLife(errShuttingDown)
 	s.closeAllSurfaces()
