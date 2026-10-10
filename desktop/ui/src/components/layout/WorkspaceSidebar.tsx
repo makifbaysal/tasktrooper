@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, Brain, FileText, House, Inbox, Kanban, Layers, ListChecks, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Rocket, Settings, Users } from "lucide-react";
+import { Bot, Brain, FileText, House, Inbox, Kanban, Layers, ListChecks, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Rocket, Settings, Users } from "lucide-react";
 import type { Agent, WorkspaceConfig } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { Spinner } from "@/components/ui/spinner";
 import { NewAgentDialog } from "@/components/workspace/NewAgentDialog";
+import { TeamEditDialog } from "@/components/workspace/TeamEditDialog";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
 import { SETUP_PATH } from "@/lib/setup";
@@ -38,6 +39,7 @@ export function WorkspaceSidebar({
 }: WorkspaceSidebarProps) {
   const { t } = useI18n();
   const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const [editTeamOpen, setEditTeamOpen] = useState(false);
   // The way back into the guided sequence for anyone who skipped ahead — and
   // the only way in at all from a browser, where the route gate deliberately
   // does not redirect. Shown on `needsWork` and not on `!complete`: a step
@@ -56,6 +58,7 @@ export function WorkspaceSidebar({
     ) : null;
 
   const newAgentButton = collapsed ? (
+    <>
     <button
       type="button"
       className="mt-2 flex w-full items-center justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -64,19 +67,40 @@ export function WorkspaceSidebar({
     >
       <Plus className="h-4 w-4" />
     </button>
+    <button
+      type="button"
+      className="mt-1 flex w-full items-center justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+      title={t("setup.team.editTeam")}
+      aria-label={t("setup.team.editTeam")}
+      onClick={() => setEditTeamOpen(true)}
+    >
+      <Pencil className="h-4 w-4" />
+    </button>
+    </>
   ) : null;
 
   const newAgentHeader = (label: string, className: string) => (
     <div className={cn("flex items-center justify-between px-3 pb-1", className)}>
       <span className="text-micro font-medium tracking-wide text-muted-foreground uppercase">{label}</span>
-      <button
-        type="button"
-        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        title={t("frame.layout.sidebar.newAgent")}
-        onClick={() => setNewAgentOpen(true)}
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          title={t("setup.team.editTeam")}
+          aria-label={t("setup.team.editTeam")}
+          onClick={() => setEditTeamOpen(true)}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          title={t("frame.layout.sidebar.newAgent")}
+          onClick={() => setNewAgentOpen(true)}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 
@@ -288,6 +312,7 @@ export function WorkspaceSidebar({
       </aside>
 
       <NewAgentDialog open={newAgentOpen} onOpenChange={setNewAgentOpen} onCreated={onRefresh} />
+      <TeamEditDialog open={editTeamOpen} onOpenChange={setEditTeamOpen} onSaved={onRefresh} />
     </>
   );
 }

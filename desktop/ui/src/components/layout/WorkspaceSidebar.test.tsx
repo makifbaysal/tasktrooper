@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { Agent } from "@/api";
@@ -7,6 +7,9 @@ import { I18nProvider } from "@/hooks/useI18n";
 
 vi.mock("@/hooks/useSetup", () => ({ useSetup: () => ({ needsWork: false }) }));
 vi.mock("@/components/workspace/NewAgentDialog", () => ({ NewAgentDialog: () => null }));
+vi.mock("@/components/workspace/TeamEditDialog", () => ({
+  TeamEditDialog: ({ open }: { open: boolean }) => (open ? <div>team editor open</div> : null),
+}));
 
 const AGENTS_HEADER = /agent chats|ajan sohbetleri/i;
 
@@ -53,6 +56,13 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByRole("link", { name: /Product Manager/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Developer/ })).toBeTruthy();
     expect(screen.queryByText(AGENTS_HEADER)).toBeNull();
+  });
+
+  it("opens the team editor from Edit team", () => {
+    renderSidebar(pm);
+    expect(screen.queryByText("team editor open")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /edit team|ekibi düzenle/i }));
+    expect(screen.getByText("team editor open")).toBeTruthy();
   });
 
   it("shows an unread dot on a team member", () => {

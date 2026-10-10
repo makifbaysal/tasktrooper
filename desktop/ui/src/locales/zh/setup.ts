@@ -82,6 +82,11 @@ export const setup = {
     title: "什么样的团队？",
     description: "选择一个起点。它会启用的智能体已预先选中；你可以在这里以及之后的设置中更改。",
     agentsLabel: "智能体",
+    editTeam: "编辑团队",
+    editTitle: "团队中的智能体",
+    editDescription:
+      "开启或关闭智能体。开启的智能体加入团队；关闭的智能体不会收到新任务。",
+    save: "保存",
     coreLocked: "产品经理、系统架构师、QA、安全和发布工程师始终启用。",
     confirm: "创建此团队",
     loadFailed: "无法加载你的智能体",
