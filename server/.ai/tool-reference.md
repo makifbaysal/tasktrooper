@@ -91,6 +91,12 @@ Which repo it searches is the admin-editable `boilerplate_catalog_repo` setting 
 
 Board tools (`internal/adapter/tools/board`) are registered when the board/repository services are wired; they operate on tasks, criteria, projects, and pipelines rather than the shell/web.
 
+### `list_team` and the assignee guard
+
+`list_team` returns `{count, team, available_to_add}`. `team` is the enabled agents (`name`, `role`, `subagent_type`, `enabled`, `roles`, `subscribed_columns`); `count` is its length. `available_to_add` is the disabled agents (`name`, `catalog_slug`, `role`, `roles`), which the user switches on from the agents page ("Edit team"). The product manager assigns only to `team` and suggests an `available_to_add` agent when none fits (rule `suggest-missing-agent`).
+
+`create_board_task` refuses a disabled assignee, given by name, UUID or resolved from `assignee_role`, with the `guard.board_assignee_disabled` text: the agent (or every disabled holder of the role) is named, the task is not created, and the model is told to keep it in backlog unassigned until the user adds the agent. `claim_board_task` is the running agent claiming for itself and is not affected.
+
 ### `list_ready_tasks`
 
 The unblocked queue — the `bd ready` of Beads: `backlog` and `todo` tasks with no unfinished `blocks` blocker, sorted critical → high → medium → low, then by `task_number` (oldest first). Optional `column` (`backlog`|`todo`) and `assigned_to_me` (the run's agent from `registry.AgentIDFromContext`; an error outside a run). Repository-scoped like `list_board_tasks`; no `repository_id` argument. Returns `{tasks: [...], count}` with `tasks` never null.
