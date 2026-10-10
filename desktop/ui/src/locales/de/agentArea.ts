@@ -232,6 +232,7 @@ export const agentArea = {
     subagentType: "Subagent-Typ",
     systemPrompt: "System-Prompt",
     enabled: "Aktiviert",
+    coreHint: "Kernagent; kann nicht deaktiviert werden.",
     catalog: {
       autoPull: {
         label: "Definitionsupdates aus dem Katalog übernehmen",

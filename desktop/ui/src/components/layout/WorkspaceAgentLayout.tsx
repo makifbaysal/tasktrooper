@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { PageContent } from "@/components/layout/PageContent";
 import { PageSuspense } from "@/components/layout/PageSuspense";
 import { useI18n } from "@/hooks/useI18n";
+import { isCoreAgent } from "@/lib/teamTemplates";
 import { cn } from "@/lib/utils";
 
 export function WorkspaceAgentLayout() {
@@ -97,7 +98,7 @@ export function WorkspaceAgentLayout() {
                 </NavLink>
               </Button>
             )}
-            {!isNew && (
+            {!isNew && agent && !isCoreAgent(agent) && (
               <Button
                 variant="outline"
                 size="sm"

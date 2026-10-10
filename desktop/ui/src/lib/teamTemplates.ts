@@ -7,8 +7,13 @@
 
 import type { Agent, AgentInput } from "@/api";
 
-export const PRODUCT_MANAGER_SLUG = "product-manager";
-export const SECURITY_AGENT_SLUG = "security-agent";
+export const CORE_AGENT_SLUGS = [
+  "product-manager",
+  "system-architect",
+  "qa-agent",
+  "security-agent",
+  "release-engineer",
+] as const;
 
 export type TeamTemplateId = "web" | "mobile" | "game" | "data" | "custom";
 
@@ -26,47 +31,31 @@ export const TEAM_TEMPLATES: readonly TeamTemplate[] = [
     id: "web",
     nameKey: "setup.team.templates.web.name",
     descriptionKey: "setup.team.templates.web.description",
-    agents: [
-      "product-manager",
-      "system-architect",
-      "backend-developer",
-      "frontend-developer",
-      "ui-designer",
-      "qa-agent",
-      "release-engineer",
-    ],
+    agents: [...CORE_AGENT_SLUGS, "backend-developer", "frontend-developer", "ui-designer"],
   },
   {
     id: "mobile",
     nameKey: "setup.team.templates.mobile.name",
     descriptionKey: "setup.team.templates.mobile.description",
-    agents: [
-      "product-manager",
-      "system-architect",
-      "mobile-developer",
-      "backend-developer",
-      "ui-designer",
-      "qa-agent",
-      "release-engineer",
-    ],
+    agents: [...CORE_AGENT_SLUGS, "mobile-developer", "backend-developer", "ui-designer"],
   },
   {
     id: "game",
     nameKey: "setup.team.templates.game.name",
     descriptionKey: "setup.team.templates.game.description",
-    agents: ["product-manager", "game-developer", "ui-designer", "qa-agent"],
+    agents: [...CORE_AGENT_SLUGS, "game-developer", "ui-designer"],
   },
   {
     id: "data",
     nameKey: "setup.team.templates.data.name",
     descriptionKey: "setup.team.templates.data.description",
-    agents: ["product-manager", "data-scientist", "backend-developer", "qa-agent"],
+    agents: [...CORE_AGENT_SLUGS, "data-scientist", "backend-developer"],
   },
   {
     id: "custom",
     nameKey: "setup.team.templates.custom.name",
     descriptionKey: "setup.team.templates.custom.description",
-    agents: ["product-manager"],
+    agents: [...CORE_AGENT_SLUGS],
   },
 ];
 
@@ -125,4 +114,14 @@ export function agentUpdate(agent: Agent, enabled: boolean): AgentInput {
     max_turns: agent.max_turns,
     effort: agent.effort,
   };
+}
+
+/** The ids of the core agents this install has; they are always on. */
+export function coreAgentIds(agents: readonly Agent[]): string[] {
+  return CORE_AGENT_SLUGS.map((slug) => findAgentBySlug(agents, slug)?.id).filter((id): id is string => Boolean(id));
+}
+
+/** Core by catalog slug where the agent has one, by name otherwise. */
+export function isCoreAgent(agent: Agent): boolean {
+  return coreAgentIds([agent]).length > 0;
 }

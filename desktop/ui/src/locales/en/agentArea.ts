@@ -240,6 +240,7 @@ export const agentArea = {
     subagentType: "Subagent type",
     systemPrompt: "System prompt",
     enabled: "Enabled",
+    coreHint: "Core agent; it cannot be turned off.",
     catalog: {
       autoPull: {
         label: "Pull definition updates from the catalog",

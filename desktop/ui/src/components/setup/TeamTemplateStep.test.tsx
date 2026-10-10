@@ -70,16 +70,31 @@ describe("TeamTemplateStep", () => {
     expect(await screen.findByRole("switch", { name: "product-manager" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "frontend-developer" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "backend-developer" })).toBeChecked();
-    expect(screen.getByRole("switch", { name: "security-agent" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "security-agent" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "mobile-developer" })).not.toBeChecked();
   });
 
-  it("cannot turn the product manager off", async () => {
+  it("locks every core agent on", async () => {
     (await renderWithTemplates()).click();
 
-    const pm = await screen.findByRole("switch", { name: "product-manager" });
-    expect(pm).toBeDisabled();
-    expect(pm).toBeChecked();
+    for (const slug of ["product-manager", "system-architect", "qa-agent", "security-agent", "release-engineer"]) {
+      const row = await screen.findByRole("switch", { name: slug });
+      expect(row).toBeDisabled();
+      expect(row).toBeChecked();
+    }
+    expect(screen.getByRole("switch", { name: "ui-designer" })).not.toBeDisabled();
+  });
+
+  it("keeps the core agents on whichever template is picked", async () => {
+    await renderWithTemplates();
+    for (const name of [/Mobile/, /Game/, /Data/, /Custom/]) {
+      screen.getByRole("button", { name }).click();
+      for (const slug of ["product-manager", "system-architect", "qa-agent", "security-agent", "release-engineer"]) {
+        const row = await screen.findByRole("switch", { name: slug });
+        expect(row).toBeChecked();
+        expect(row).toBeDisabled();
+      }
+    }
   });
 
   it("writes enabled for every agent the template changed", async () => {
@@ -104,10 +119,10 @@ describe("TeamTemplateStep", () => {
         ["design", true],
         ["qa", true],
         ["release", true],
+        ["security", true],
       ]),
     );
     expect(changed.map(([id]) => id)).not.toContain("pm");
-    expect(changed.map(([id]) => id)).not.toContain("security");
-    expect(updateAgent).toHaveBeenCalledTimes(6);
+    expect(updateAgent).toHaveBeenCalledTimes(7);
   });
 });
