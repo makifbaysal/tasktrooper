@@ -82,4 +82,10 @@ describe("WorkspaceSidebar", () => {
       "/agents/qa/chat",
     ]);
   });
+
+  it("offers Edit team but no hand-made agent button while advanced team config is off", () => {
+    renderSidebar(pm);
+    expect(screen.queryByTitle(/new agent|yeni ajan/i)).toBeNull();
+    expect(screen.getByLabelText(/edit team|ekibi düzenle/i)).toBeTruthy();
+  });
 });

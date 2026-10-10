@@ -28,6 +28,7 @@ const RulesPage = lazy(() => import("@/pages/RulesPage").then((m) => ({ default:
 const IntegrationsSettingsPage = lazy(() => import("@/pages/IntegrationsSettingsPage").then((m) => ({ default: m.IntegrationsSettingsPage })));
 const MCPServersPage = lazy(() => import("@/pages/MCPServersPage").then((m) => ({ default: m.MCPServersPage })));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+import { AdvancedConfigRoute } from "@/components/layout/AdvancedConfigRoute";
 const BoardSettingsPage = lazy(() => import("@/pages/BoardSettingsPage").then((m) => ({ default: m.BoardSettingsPage })));
 const RolesSettingsPage = lazy(() => import("@/pages/RolesSettingsPage").then((m) => ({ default: m.RolesSettingsPage })));
 const WorkflowSettingsPage = lazy(() => import("@/pages/WorkflowSettingsPage").then((m) => ({ default: m.WorkflowSettingsPage })));
@@ -77,7 +78,7 @@ export default function App() {
                 <Route path="projects/:projectId" element={<ProjectPage />} />
                 <Route path="agents/:agentId/chat" element={<AgentChatPage />} />
                 <Route path="agents/:agentId/chat/:sessionId" element={<AgentChatPage />} />
-                <Route path="agents/new" element={<WorkspaceAgentLayout />}>
+                <Route path="agents/new" element={<AdvancedConfigRoute redirectTo="/board"><WorkspaceAgentLayout /></AdvancedConfigRoute>}>
                   <Route index element={<Navigate to="settings" replace />} />
                   <Route path="settings" element={<AgentSettingsPage />} />
                 </Route>
@@ -109,9 +110,9 @@ export default function App() {
                 <Route path="memory" element={<SharedMemoryPage />} />
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route index element={<SettingsPage />} />
-                  <Route path="board" element={<BoardSettingsPage />} />
-                  <Route path="roles" element={<RolesSettingsPage />} />
-                  <Route path="workflows" element={<WorkflowSettingsPage />} />
+                  <Route path="board" element={<AdvancedConfigRoute><BoardSettingsPage /></AdvancedConfigRoute>} />
+                  <Route path="roles" element={<AdvancedConfigRoute><RolesSettingsPage /></AdvancedConfigRoute>} />
+                  <Route path="workflows" element={<AdvancedConfigRoute><WorkflowSettingsPage /></AdvancedConfigRoute>} />
                   {/* Roles replace the single analiz-assignment picker (any role may now
                       carry that duty, not just an analyst) — old bookmarks/links land here. */}
                   <Route path="analiz-assignment" element={<Navigate to="/settings/roles" replace />} />

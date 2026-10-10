@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { Spinner } from "@/components/ui/spinner";
+import { ADVANCED_TEAM_CONFIG } from "@/lib/features";
 import { NewAgentDialog } from "@/components/workspace/NewAgentDialog";
 import { TeamEditDialog } from "@/components/workspace/TeamEditDialog";
 import { useI18n } from "@/hooks/useI18n";
@@ -59,6 +60,7 @@ export function WorkspaceSidebar({
 
   const newAgentButton = collapsed ? (
     <>
+    {ADVANCED_TEAM_CONFIG && (
     <button
       type="button"
       className="mt-2 flex w-full items-center justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -67,6 +69,7 @@ export function WorkspaceSidebar({
     >
       <Plus className="h-4 w-4" />
     </button>
+    )}
     <button
       type="button"
       className="mt-1 flex w-full items-center justify-center rounded-lg px-2 py-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -92,14 +95,16 @@ export function WorkspaceSidebar({
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          title={t("frame.layout.sidebar.newAgent")}
-          onClick={() => setNewAgentOpen(true)}
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+        {ADVANCED_TEAM_CONFIG && (
+          <button
+            type="button"
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            title={t("frame.layout.sidebar.newAgent")}
+            onClick={() => setNewAgentOpen(true)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -311,7 +316,7 @@ export function WorkspaceSidebar({
         </div>
       </aside>
 
-      <NewAgentDialog open={newAgentOpen} onOpenChange={setNewAgentOpen} onCreated={onRefresh} />
+      {ADVANCED_TEAM_CONFIG && <NewAgentDialog open={newAgentOpen} onOpenChange={setNewAgentOpen} onCreated={onRefresh} />}
       <TeamEditDialog open={editTeamOpen} onOpenChange={setEditTeamOpen} onSaved={onRefresh} />
     </>
   );

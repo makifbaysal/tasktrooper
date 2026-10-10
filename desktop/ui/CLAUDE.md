@@ -16,6 +16,10 @@ Do not add code comments unless truly necessary — a non-obvious invariant, a
 workaround, or a WHY that isn't clear from the code itself. Never explain WHAT
 the code does; well-named identifiers already do that.
 
+## Feature switch
+
+`src/lib/features.ts` exports `ADVANCED_TEAM_CONFIG` (false): Board/Roles/Workflows settings and hand-made agent creation are hidden and their routes redirect; the code stays.
+
 ## Frontend UI rule (mandatory)
 
 All UI in `src/` follows **Atomic Design**: atom → molecule → organism →

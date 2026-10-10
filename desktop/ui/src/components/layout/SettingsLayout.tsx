@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { PageContent } from "@/components/layout/PageContent";
 import { PageSuspense } from "@/components/layout/PageSuspense";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { ADVANCED_TEAM_CONFIG } from "@/lib/features";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 
@@ -10,14 +11,18 @@ export function SettingsLayout() {
   const { t } = useI18n();
   const tabs = [
     { to: "/settings", label: t("frame.layout.settingsTabs.general"), icon: Globe, end: true },
-    { to: "/settings/board", label: "Board", icon: Kanban, end: true },
-    { to: "/settings/roles", label: t("frame.layout.settingsTabs.roles"), icon: Users, end: true },
-    {
-      to: "/settings/workflows",
-      label: t("frame.layout.settingsTabs.workflows"),
-      icon: GitBranch,
-      end: true,
-    },
+    ...(ADVANCED_TEAM_CONFIG
+      ? [
+          { to: "/settings/board", label: "Board", icon: Kanban, end: true },
+          { to: "/settings/roles", label: t("frame.layout.settingsTabs.roles"), icon: Users, end: true },
+          {
+            to: "/settings/workflows",
+            label: t("frame.layout.settingsTabs.workflows"),
+            icon: GitBranch,
+            end: true,
+          },
+        ]
+      : []),
     { to: "/settings/llm", label: t("frame.layout.settingsTabs.llm"), icon: Bot, end: true },
     { to: "/settings/mcp", label: t("frame.layout.settingsTabs.mcp"), icon: Server, end: true },
     {
