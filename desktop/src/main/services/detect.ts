@@ -1601,7 +1601,7 @@ export function agentAccessItem(input: {
   const cliReady =
     (ok(input.claude) && ok(input.claudeAccount)) ||
     input.clis.some((cli) => (cli.id === "opencode" || cli.id === "cursor-agent") && ok(cli));
-  const where = "Settings → LLM Connection → API keys on this computer";
+  const where = "Settings → LLM Connection → API connections";
   const base = { id: "api-keys" as const, label: "API keys", required: !cliReady };
   const count = input.providerIds.length;
 
