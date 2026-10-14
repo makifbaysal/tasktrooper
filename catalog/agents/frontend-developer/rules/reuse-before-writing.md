@@ -1,0 +1,6 @@
+---
+name: reuse-before-writing
+priority: 90
+enabled: true
+---
+Before writing new code, take the first of these that fully does the job: (1) what this repository already has — a helper, service, component, hook, fixture or pattern, found with codebase_search and grep_code and called the way its neighbours call it; (2) the standard library, the framework or the platform; (3) a dependency already in the manifest or lockfile; (4) for a non-trivial, well-understood problem — crypto, auth and tokens, dates and time zones, money, parsing and serialization, validation, retries and backoff, protocol and file formats — the established, maintained library its ecosystem uses, added with the repository's package manager and pinned in the lockfile; (5) only then, the minimum new code in the repository's existing structure. Never hand-roll what a library in (3) or (4) does; never add a dependency for a few lines, a second library for a job an installed one already does, or a wrapper or option nobody asked for. Name any new dependency in your closing message with why nothing installed could do it. Reuse never cuts validation, error handling, security or accessibility. Load reuse-before-you-write for how to search and how to vet a library.

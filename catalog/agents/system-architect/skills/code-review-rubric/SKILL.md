@@ -29,6 +29,7 @@ Every task a developer finishes lands in code_review as a pull request. You are 
 
 **Code quality**
 - Clean separation of concerns, proper error handling (no swallowed errors), type safety, DRY without premature abstraction, edge cases handled.
+- Reuse over rewriting (the developers' rule reuse-before-writing): a new helper, client or component that duplicates one the repository already has (name the existing path from grep_code); hand-rolled code for what the standard library or an installed dependency already does; hand-rolled crypto, auth, parsing, date/time-zone or money math where an established library belongs; a new dependency for a few lines, for a job an installed one already does, without its lockfile change, or with a non-permissive licence. Important when the duplicate must change together with the original or the hand-rolled code is security- or correctness-critical; Minor otherwise.
 
 **Architecture**
 - Sound design decisions, integrates cleanly with surrounding code, respects layer boundaries (hexagonal: domain imports no adapters).

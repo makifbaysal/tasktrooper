@@ -47,6 +47,7 @@ The full license text is in [`LICENSE`](LICENSE).
 | [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) | Copyright (c) 2025 VoltAgent | product-manager: `stakeholder-intake` |
 | [Fiber docs](https://github.com/gofiber/docs) | Copyright (c) 2019-present Fenny and Contributors | backend-developer: `fiber-rest-api` |
 | [sbdchd/squawk](https://github.com/sbdchd/squawk) (MIT or Apache-2.0, used under MIT) | squawk contributors | backend-developer: `postgres-migrations`; system-architect: `migration-and-contract-review` |
+| [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | Copyright (c) 2026 DietrichGebert | backend-developer, data-scientist, frontend-developer, game-developer, mobile-developer: `reuse-before-you-write` |
 
 Permission notice for the MIT-licensed projects above:
 
