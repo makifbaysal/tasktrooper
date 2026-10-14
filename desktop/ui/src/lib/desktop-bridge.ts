@@ -435,6 +435,137 @@ export interface DesktopAnalyticsHost {
   set(on: boolean): Promise<DesktopAnalyticsState>;
 }
 
+/**
+ * The developer tools the shell can install for the team's agents, by id —
+ * mirrors `TOOLCHAIN_IDS` in `desktop/src/ipc/types.ts`, in the same order.
+ * The page only ever sends these ids: every command, URL and package name
+ * lives in the shell's own table.
+ */
+export const DESKTOP_TOOLCHAIN_IDS = [
+  "homebrew",
+  "git",
+  "claude-code",
+  "node",
+  "python",
+  "uv",
+  "chrome",
+  "xcode",
+  "xcode-clt",
+  "cocoapods",
+  "jdk",
+  "android-sdk",
+  "appium",
+  "appium-xcuitest",
+  "appium-uiautomator2",
+  "flutter",
+  "docker",
+  "go",
+  "osv-scanner",
+  "duckdb",
+  "godot",
+  "unity-hub",
+] as const;
+export type ToolchainId = (typeof DESKTOP_TOOLCHAIN_IDS)[number];
+
+/**
+ * auto: runs unattended in the background (the OS may still show its own password/UAC prompt).
+ * interactive: starts a system installer or a Terminal window the person finishes; the shell
+ *   polls detection until the tool appears (or a 30-minute timeout).
+ * manual: nothing to run here; `url` is where the person installs it from.
+ */
+export type ToolchainInstallKind = "auto" | "interactive" | "manual";
+
+export interface ToolchainItem {
+  id: ToolchainId;
+  /** Product name, never translated: "Node.js", "Android SDK". */
+  label: string;
+  status: "installed" | "missing" | "unusable";
+  version?: string;
+  path?: string;
+  /** English, what was observed when it explains the status. */
+  detail?: string;
+  /** How it is installed ON THIS OS. */
+  installKind: ToolchainInstallKind;
+  /** Short channel name for a person: "Homebrew", "winget", "npm", "App Store". */
+  method?: string;
+  /** Display-only form of what will run ("brew install node"). Never sent back. */
+  command?: string;
+  /** Present for `manual` (and as docs for the others). */
+  url?: string;
+  /** Other ids that must be installed first ON THIS OS. */
+  dependsOn: ToolchainId[];
+}
+
+export interface ToolchainReport {
+  generatedAt: number;
+  platform: "darwin" | "win32" | "linux";
+  /** Only the ids that apply on this OS (no `xcode` on Windows), in `DESKTOP_TOOLCHAIN_IDS` order. */
+  items: ToolchainItem[];
+}
+
+/**
+ * `waiting`: an interactive step's system installer or Terminal window is
+ * open, and the shell is polling for the result. `skipped`: already installed
+ * when its turn came, or a dependency failed (`error` says which).
+ */
+export type ToolchainStepState = "queued" | "running" | "waiting" | "done" | "failed" | "skipped" | "cancelled";
+
+export interface ToolchainJobStep {
+  id: ToolchainId;
+  label: string;
+  state: ToolchainStepState;
+  installKind: ToolchainInstallKind;
+  startedAt?: number;
+  finishedAt?: number;
+  /** 0..100 within this step when known (downloads); absent otherwise. */
+  percent?: number;
+  /** English, one line, what is happening now. */
+  detail?: string;
+  /** English, one line, why it failed / was skipped. */
+  error?: string;
+  /** Last ≤ 40 output lines, each ≤ 300 chars. */
+  log?: string[];
+}
+
+export interface ToolchainJobState {
+  /** idle: nothing has run (or the last result was dismissed). done: finished, see each step. */
+  phase: "idle" | "running" | "done";
+  jobId?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  /** Install order (dependencies first). */
+  steps: ToolchainJobStep[];
+  /** 0..100 over the steps; done, failed, skipped and cancelled count as finished. */
+  percent: number;
+  /** Something installed only reaches running agents after the backend/runner restarts. */
+  restartRecommended?: boolean;
+}
+
+/**
+ * Installs the developer tools the team's agents use (bridge 5). One job at a
+ * time, run by the shell's main process, so it outlives this page.
+ */
+export interface DesktopToolchainHost {
+  /** Detection for this OS. Joins an in-flight sweep; `force` starts a fresh one. */
+  report(force?: boolean): Promise<ToolchainReport>;
+  /** What `install(ids)` would run: ids + their missing dependencies, dependencies first, installed ones dropped. */
+  plan(ids: ToolchainId[]): Promise<ToolchainId[]>;
+  state(): Promise<ToolchainJobState>;
+  subscribe(cb: (state: ToolchainJobState) => void): () => void;
+  /**
+   * Starts a job, or appends to the running one. Resolves with the new state
+   * right away — never waits for the installs. In account mode the shell asks
+   * first and rejects with "declined" when the person cancels.
+   */
+  install(ids: ToolchainId[]): Promise<ToolchainJobState>;
+  /** Stops the running step and cancels the queued ones. */
+  cancel(): Promise<ToolchainJobState>;
+  /** Clears a finished job back to `idle`. No-op while running. */
+  dismiss(): Promise<ToolchainJobState>;
+  /** Opens the item's own `url` (from the shell's table, never from the page) in the real browser. */
+  openPage(id: ToolchainId): Promise<void>;
+}
+
 /** The hook the desktop preload installs on `window`. Absent in a browser. */
 export interface TaskTrooperDesktopHost {
   info?: () => Promise<{ app: string; version: string; platform: string }>;
@@ -462,6 +593,8 @@ export interface TaskTrooperDesktopHost {
   updates?: DesktopUpdatesHost;
   /** Bridge 4. Absent in a browser, in older shells, and for the account's page. */
   analytics?: DesktopAnalyticsHost;
+  /** Bridge 5. Absent in a browser and in older shells. */
+  toolchain?: DesktopToolchainHost;
   /**
    * Where this app's API calls go: "http://127.0.0.1:<port>", no path suffix.
    *
@@ -478,6 +611,7 @@ export interface TaskTrooperDesktopHost {
    * 2: `account.openKeys()` and `account.state().temporaryLocal`.
    * 3: `account.openKeys(prefill)` focuses the key window on one provider.
    * 4: `analytics.get()` / `analytics.set(on)`.
+   * 5: `toolchain` — detect and install the developer tools the agents use.
    */
   bridgeVersion?: number;
   /**
@@ -517,4 +651,8 @@ export function desktopAnalytics(): DesktopAnalyticsHost | null {
 
 export function desktopAccount(): NonNullable<TaskTrooperDesktopHost["account"]> | null {
   return window.__tasktrooperDesktop?.account ?? null;
+}
+
+export function desktopToolchain(): DesktopToolchainHost | null {
+  return window.__tasktrooperDesktop?.toolchain ?? null;
 }

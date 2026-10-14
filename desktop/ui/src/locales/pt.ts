@@ -19,6 +19,7 @@ import { release } from "@/locales/pt/release";
 import { repositoryPage } from "@/locales/pt/repositoryPage";
 import { settingsPages } from "@/locales/pt/settingsPages";
 import { setup } from "@/locales/pt/setup";
+import { toolchain } from "@/locales/pt/toolchain";
 
 // Brazilian Portuguese dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const pt: Dict = {
@@ -186,4 +187,5 @@ export const pt: Dict = {
   repositoryPage,
   settingsPages,
   setup,
+  toolchain,
 };

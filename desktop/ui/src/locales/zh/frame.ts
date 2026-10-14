@@ -45,6 +45,9 @@ export const frame = {
         unreadBadge: "{count} 条未读",
         unreadBadgeOverflow: "9+",
       },
+      toolchain: {
+        title: "电脑配置",
+      },
     },
     health: {
       providerLocal: "本地",
@@ -73,6 +76,7 @@ export const frame = {
       roles: "角色",
       workflows: "工作流",
       catalog: "目录",
+      environment: "开发环境",
     },
     home: {
       preparing: {

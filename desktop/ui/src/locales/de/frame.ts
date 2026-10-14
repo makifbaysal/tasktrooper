@@ -45,6 +45,9 @@ export const frame = {
         unreadBadge: "{count} ungelesen",
         unreadBadgeOverflow: "9+",
       },
+      toolchain: {
+        title: "Computer-Einrichtung",
+      },
     },
     health: {
       providerLocal: "Lokal",
@@ -73,6 +76,7 @@ export const frame = {
       roles: "Rollen",
       workflows: "Workflows",
       catalog: "Katalog",
+      environment: "Entwicklungsumgebung",
     },
     home: {
       preparing: {

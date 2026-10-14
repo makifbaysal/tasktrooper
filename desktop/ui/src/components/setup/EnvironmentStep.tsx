@@ -2,8 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { DesktopOnlyNotice } from "@/components/setup/DesktopOnlyNotice";
 import { EnvironmentPreflight } from "@/components/runner/EnvironmentPreflight";
+import { ToolchainRunningNotice } from "@/components/toolchain/ToolchainRunningNotice";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
+import { useToolchain } from "@/hooks/useToolchain";
 import type { SetupStepId } from "@/lib/setup";
 
 /**
@@ -23,6 +25,7 @@ import type { SetupStepId } from "@/lib/setup";
 export function EnvironmentStep({ onContinue }: { onContinue: (next: SetupStepId) => void }) {
   const { t } = useI18n();
   const { steps, host, reportEnvironment } = useSetup();
+  const { state: toolchainJob } = useToolchain({ report: false });
   const step = steps.environment;
 
   if (!step.actionable) return <DesktopOnlyNotice />;
@@ -30,6 +33,8 @@ export function EnvironmentStep({ onContinue }: { onContinue: (next: SetupStepId
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">{t("setup.environment.description")}</p>
+
+      <ToolchainRunningNotice state={toolchainJob} />
 
       <EnvironmentPreflight host={host} onReport={reportEnvironment} />
 

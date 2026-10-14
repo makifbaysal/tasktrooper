@@ -19,6 +19,7 @@ import { release } from "@/locales/es/release";
 import { repositoryPage } from "@/locales/es/repositoryPage";
 import { settingsPages } from "@/locales/es/settingsPages";
 import { setup } from "@/locales/es/setup";
+import { toolchain } from "@/locales/es/toolchain";
 
 // Spanish dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const es: Dict = {
@@ -186,4 +187,5 @@ export const es: Dict = {
   repositoryPage,
   settingsPages,
   setup,
+  toolchain,
 };

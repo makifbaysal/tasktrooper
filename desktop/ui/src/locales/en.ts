@@ -21,6 +21,7 @@ import { release } from "@/locales/en/release";
 import { repositoryPage } from "@/locales/en/repositoryPage";
 import { settingsPages } from "@/locales/en/settingsPages";
 import { setup } from "@/locales/en/setup";
+import { toolchain } from "@/locales/en/toolchain";
 
 export const en = {
   common: {
@@ -188,6 +189,7 @@ export const en = {
   repositoryPage,
   settingsPages,
   setup,
+  toolchain,
 };
 
 // No `as const`: property strings widen to `string`, so tr.ts (typed `Dict`)

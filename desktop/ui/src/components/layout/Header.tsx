@@ -8,6 +8,7 @@ import { HealthStatus } from "@/components/layout/HealthStatus";
 import { LeadQuickAsk } from "@/components/layout/LeadQuickAsk";
 import { NotificationCenter } from "@/components/layout/NotificationCenter";
 import { SidebarBrand } from "@/components/layout/SidebarBrand";
+import { ToolchainIndicator } from "@/components/layout/ToolchainIndicator";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -67,6 +68,7 @@ export function Header({
 
       <div className="flex items-center gap-2">
         <CatalogSyncIndicator progress={catalogSync} />
+        <ToolchainIndicator />
         {onAgentSeen && <NotificationCenter onAgentSeen={onAgentSeen} />}
         <HealthStatus />
         <FeedbackButton />

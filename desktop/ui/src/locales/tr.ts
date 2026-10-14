@@ -19,6 +19,7 @@ import { release } from "@/locales/tr/release";
 import { repositoryPage } from "@/locales/tr/repositoryPage";
 import { settingsPages } from "@/locales/tr/settingsPages";
 import { setup } from "@/locales/tr/setup";
+import { toolchain } from "@/locales/tr/toolchain";
 
 // Turkish dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const tr: Dict = {
@@ -187,4 +188,5 @@ export const tr: Dict = {
   repositoryPage,
   settingsPages,
   setup,
+  toolchain,
 };

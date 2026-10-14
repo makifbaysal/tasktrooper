@@ -48,6 +48,9 @@ export const frame: FrameDict = {
         unreadBadge: "{count} okunmamış",
         unreadBadgeOverflow: "9+",
       },
+      toolchain: {
+        title: "Bilgisayar kurulumu",
+      },
     },
     health: {
       providerLocal: "Yerel",
@@ -76,6 +79,7 @@ export const frame: FrameDict = {
       roles: "Roller",
       workflows: "İş Akışları",
       catalog: "Katalog",
+      environment: "Geliştirme ortamı",
     },
     home: {
       preparing: {

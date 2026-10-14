@@ -19,6 +19,7 @@ import { release } from "@/locales/fr/release";
 import { repositoryPage } from "@/locales/fr/repositoryPage";
 import { settingsPages } from "@/locales/fr/settingsPages";
 import { setup } from "@/locales/fr/setup";
+import { toolchain } from "@/locales/fr/toolchain";
 
 // French dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const fr: Dict = {
@@ -186,4 +187,5 @@ export const fr: Dict = {
   repositoryPage,
   settingsPages,
   setup,
+  toolchain,
 };

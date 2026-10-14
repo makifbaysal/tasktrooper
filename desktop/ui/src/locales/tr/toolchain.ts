@@ -1,0 +1,103 @@
+// Turkish dictionary for the developer-tool installer. Must mirror
+// en/toolchain.ts keys exactly.
+export const toolchain = {
+  stepState: {
+    queued: "Sırada",
+    running: "Kuruluyor",
+    waiting: "Sizi bekliyor",
+    done: "Kuruldu",
+    failed: "Başarısız",
+    skipped: "Atlandı",
+    cancelled: "İptal edildi",
+  },
+  itemStatus: {
+    installed: "Kurulu",
+    installedVersion: "Kurulu · {version}",
+    missing: "Eksik",
+    unusable: "Kullanılamıyor",
+  },
+  badge: {
+    running: "Kuruluyor · %{percent}",
+    done: "Kurulum tamamlandı",
+    failed: "Kurulum: {count} başarısız",
+    stopped: "Kurulum durduruldu",
+    incomplete: "Kurulum eksik kaldı",
+  },
+  waitingHint: "Bu bilgisayarda bir kurulum ya da Terminal penceresi açık. Orada tamamlayın; gerisi kendiliğinden devam eder.",
+  method: "{method} ile",
+  needsManual: "Önce {label} gerekiyor. Onu kendi sayfasından kurun.",
+  queuedAfterCurrent: "Sıradaki adımların arkasına eklendi",
+  kind: {
+    interactive: "Bir kurulum penceresi açar",
+    manual: "Kendi sayfasından kurulur",
+  },
+  reasons: {
+    everyone: "Tüm ajanlar kullanır",
+    agents: "Kullanan: {agents}",
+  },
+  progress: {
+    percent: "%{percent}",
+    summary: "{total} adımın {done} tanesi bitti",
+    failed: "{count} başarısız",
+  },
+  actions: {
+    install: "Kur",
+    openPage: "Sayfayı aç",
+    openPageFor: "{label} sayfasını aç",
+    stop: "Durdur",
+    dismiss: "Kapat",
+    details: "Ayrıntılar",
+    restartAgents: "Ajanları yeniden başlat",
+    checkAgain: "Tekrar kontrol et",
+    installRecommended: "Önerilenleri kur",
+  },
+  restart: {
+    hint: "Kurulanların bir kısmı ajanlara ancak yeniden başlatıldıklarında ulaşır.",
+    title: "Ajanlar yeniden başlatılsın mı?",
+    description:
+      "TaskTrooper, ajanlarınızın çalıştığı servisi yeniden başlatır; böylece yeni araçları görürler. O sırada bir ajanın yaptığı iş yarıda kalır ve bu pencere yeniden yüklenir.",
+    confirm: "Yeniden başlat",
+    failed: "Ajanlar yeniden başlatılamadı",
+  },
+  errors: {
+    installFailed: "Kurulum başlatılamadı",
+    declined: "Hiçbir şey kurulmadı",
+    stopFailed: "Kurulum durdurulamadı",
+    dismissFailed: "Biten kurulum kapatılamadı",
+    openPageFailed: "Sayfa açılamadı",
+    reportFailed: "Bu bilgisayar kontrol edilemedi",
+  },
+  job: {
+    title: {
+      running: "Bu bilgisayar hazırlanıyor",
+      complete: "Kurulum bitti",
+      failed: "Kurulum hatalarla bitti",
+      stopped: "Kurulum durduruldu",
+      incomplete: "Kurulum bitti ama her şey kurulamadı",
+    },
+  },
+  running: {
+    title: "Geliştirici araçları hâlâ kuruluyor",
+    body: "git ya da Claude Code henüz yolda olabilir. Kurulduklarında Tekrar kontrol et'e basın.",
+  },
+  settings: {
+    desktopOnlyTitle: "Bu sayfa TaskTrooper masaüstü uygulamasında çalışır",
+    desktopOnlyBody: "Geliştirici araçlarını kendi bilgisayarınızda kontrol edip kurar; bir tarayıcı sekmesi buna erişemez.",
+    recommendedTitle: "Ekibiniz için önerilenler",
+    recommendedDescription: "Açık ajanlarınızın en iyi birlikte çalıştığı, ama bu bilgisayarda henüz olmayan araçlar.",
+    recommendedNone: "Ekibinizin ihtiyaç duyduğu her şey bu bilgisayarda var.",
+    recommendedManual: "Kendi sayfasından kurulan araçlar tek tıkla kuruluma dahil değil; aşağıdaki Sayfayı aç düğmesini kullanın.",
+    allTitle: "Tüm geliştirici araçları",
+    allDescription: "TaskTrooper'ın bu bilgisayarda kontrol edip kurabildiği araçlar.",
+    lastChecked: "Son kontrol: {when}.",
+    checking: "Bu bilgisayar kontrol ediliyor…",
+    groups: {
+      basics: "Temel",
+      web: "Web",
+      mobile: "Mobil",
+      data: "Veri",
+      games: "Oyun",
+      infra: "Altyapı ve güvenlik",
+    },
+  },
+};

@@ -1,9 +1,11 @@
-import { BarChart3, Bot, Boxes, GitBranch, Globe, Kanban, Plug, Server, Users } from "lucide-react";
+import { BarChart3, Bot, Boxes, GitBranch, Globe, Kanban, Plug, Server, Users, Wrench } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { PageContent } from "@/components/layout/PageContent";
 import { PageSuspense } from "@/components/layout/PageSuspense";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { desktopToolchain } from "@/lib/desktop-bridge";
 import { ADVANCED_TEAM_CONFIG } from "@/lib/features";
+import { TOOLCHAIN_SETTINGS_PATH } from "@/lib/toolchainJob";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +35,10 @@ export function SettingsLayout() {
     },
     { to: "/settings/usage", label: t("frame.layout.settingsTabs.usage"), icon: BarChart3, end: true },
     { to: "/settings/catalog", label: t("frame.layout.settingsTabs.catalog"), icon: Boxes, end: true },
+    // Only the desktop shell can probe and install on this computer.
+    ...(desktopToolchain()
+      ? [{ to: TOOLCHAIN_SETTINGS_PATH, label: t("frame.layout.settingsTabs.environment"), icon: Wrench, end: true }]
+      : []),
   ];
 
   return (

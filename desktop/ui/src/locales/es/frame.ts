@@ -45,6 +45,9 @@ export const frame = {
         unreadBadge: "{count} sin leer",
         unreadBadgeOverflow: "9+",
       },
+      toolchain: {
+        title: "Configuración del ordenador",
+      },
     },
     health: {
       providerLocal: "Local",
@@ -73,6 +76,7 @@ export const frame = {
       roles: "Roles",
       workflows: "Flujos de trabajo",
       catalog: "Catálogo",
+      environment: "Entorno de desarrollo",
     },
     home: {
       preparing: {

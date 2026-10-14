@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { SetupShell } from "@/components/setup/SetupShell";
 import { AgentRuntimeStep } from "@/components/setup/AgentRuntimeStep";
@@ -10,10 +10,24 @@ import { TeamTemplateStep } from "@/components/setup/TeamTemplateStep";
 import { SETUP_STEP_TITLE_KEY, SetupStepList } from "@/components/setup/SetupStepList";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
 import { useSetup } from "@/hooks/useSetup";
-import { readFirstRunMode, readFirstRunTeamDone, type FirstRunMode } from "@/lib/firstRun";
+import { desktopToolchain } from "@/lib/desktop-bridge";
+import {
+  readFirstRunMode,
+  readFirstRunTeamDone,
+  readFirstRunIntegrationsDone,
+  readFirstRunToolchainDone,
+  type FirstRunMode,
+} from "@/lib/firstRun";
 import { SETUP_STEP_IDS, setupStepUnlocked, type SetupStepId } from "@/lib/setup";
+
+// Asked once, on a first run: not worth the entry chunk.
+const ToolchainStep = lazy(() => import("@/components/setup/ToolchainStep").then((m) => ({ default: m.ToolchainStep })));
+const IntegrationsStep = lazy(() =>
+  import("@/components/setup/IntegrationsStep").then((m) => ({ default: m.IntegrationsStep })),
+);
 
 /**
  * `/setup` — the guided first-run sequence, in order and resumable.
@@ -34,12 +48,15 @@ export function SetupPage() {
   const navigate = useNavigate();
   const { steps, activeId, complete, dismiss } = useSetup();
 
-  // The two first-run choices, remembered in localStorage and only asked while
+  // The first-run choices, remembered in localStorage and only asked while
   // they are unanswered. They sit in front of the sequence, which means an
   // install that never made them sees them once; an existing install whose
-  // steps are already done is redirected home below before either renders.
+  // steps are already done is redirected home below before any renders.
   const [mode, setMode] = useState<FirstRunMode | null>(() => readFirstRunMode());
   const [teamDone, setTeamDone] = useState(() => readFirstRunTeamDone());
+  // Without the installer (a browser, a shell older than bridge 5) there is nothing to ask.
+  const [toolchainDone, setToolchainDone] = useState(() => readFirstRunToolchainDone() || desktopToolchain() === null);
+  const [integrationsDone, setIntegrationsDone] = useState(() => readFirstRunIntegrationsDone());
 
   // What the user is LOOKING at, which is not always where they are: a
   // finished step stays openable so someone can re-run the preflight or swap
@@ -73,6 +90,26 @@ export function SetupPage() {
     return (
       <SetupShell title={t("setup.team.title")} description={t("setup.team.description")}>
         <TeamTemplateStep onDone={() => setTeamDone(true)} />
+      </SetupShell>
+    );
+  }
+
+  if (!toolchainDone) {
+    return (
+      <SetupShell title={t("setup.toolchain.title")} description={t("setup.toolchain.description")}>
+        <Suspense fallback={<Skeleton className="h-40 rounded-xl" />}>
+          <ToolchainStep onDone={() => setToolchainDone(true)} />
+        </Suspense>
+      </SetupShell>
+    );
+  }
+
+  if (!integrationsDone) {
+    return (
+      <SetupShell title={t("setup.integrations.title")} description={t("setup.integrations.description")}>
+        <Suspense fallback={<Skeleton className="h-40 rounded-xl" />}>
+          <IntegrationsStep onDone={() => setIntegrationsDone(true)} />
+        </Suspense>
       </SetupShell>
     );
   }

@@ -19,6 +19,7 @@ import { release } from "@/locales/zh/release";
 import { repositoryPage } from "@/locales/zh/repositoryPage";
 import { settingsPages } from "@/locales/zh/settingsPages";
 import { setup } from "@/locales/zh/setup";
+import { toolchain } from "@/locales/zh/toolchain";
 
 // Simplified Chinese dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const zh: Dict = {
@@ -186,4 +187,5 @@ export const zh: Dict = {
   repositoryPage,
   settingsPages,
   setup,
+  toolchain,
 };

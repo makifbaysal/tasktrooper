@@ -35,6 +35,7 @@ const WorkflowSettingsPage = lazy(() => import("@/pages/WorkflowSettingsPage").t
 const LLMSettingsPage = lazy(() => import("@/pages/LLMSettingsPage").then((m) => ({ default: m.LLMSettingsPage })));
 const UsageSettingsPage = lazy(() => import("@/pages/UsageSettingsPage").then((m) => ({ default: m.UsageSettingsPage })));
 const CatalogPage = lazy(() => import("@/pages/CatalogPage").then((m) => ({ default: m.CatalogPage })));
+const EnvironmentSettingsPage = lazy(() => import("@/pages/EnvironmentSettingsPage").then((m) => ({ default: m.EnvironmentSettingsPage })));
 const SkillsPage = lazy(() => import("@/pages/SkillsPage").then((m) => ({ default: m.SkillsPage })));
 const ProjectsPage = lazy(() => import("@/pages/ProjectsPage").then((m) => ({ default: m.ProjectsPage })));
 const BacklogPage = lazy(() => import("@/pages/BacklogPage").then((m) => ({ default: m.BacklogPage })));
@@ -129,6 +130,7 @@ export default function App() {
                   <Route path="team" element={<Navigate to="/settings" replace />} />
                   <Route path="usage" element={<UsageSettingsPage />} />
                   <Route path="catalog" element={<CatalogPage />} />
+                  <Route path="environment" element={<EnvironmentSettingsPage />} />
                 </Route>
                 <Route path="workspace-settings" element={<Navigate to="/settings/board" replace />} />
               </Route>
