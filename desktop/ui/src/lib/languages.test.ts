@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { htmlLang, intlLocale, LANGS, LANGUAGE_OPTIONS, normalizeLang } from "@/lib/languages";
+import { describe, expect, it, vi } from "vitest";
+import { deviceLang, htmlLang, intlLocale, LANGS, LANGUAGE_OPTIONS, normalizeLang } from "@/lib/languages";
 import { formatDuration, formatRelativeTime } from "@/lib/utils";
 import { formatInteger, formatPercent } from "@/lib/usage";
 
@@ -19,6 +19,29 @@ describe("normalizeLang", () => {
 
   it("falls back to English for anything it does not know", () => {
     for (const value of [null, undefined, "", "xx", "ja-JP", "english"]) expect(normalizeLang(value)).toBe("en");
+  });
+});
+
+describe("deviceLang", () => {
+  it("takes the first preferred language the UI has", () => {
+    expect(deviceLang(["tr-TR", "en-US"])).toBe("tr");
+    expect(deviceLang(["ja-JP", "de-DE", "fr"])).toBe("de");
+    expect(deviceLang(["pt-BR"])).toBe("pt");
+    expect(deviceLang(["zh-Hans-CN"])).toBe("zh");
+  });
+
+  it("is English when the device prefers none of the UI's languages", () => {
+    expect(deviceLang(["ja-JP", "ko-KR"])).toBe("en");
+    expect(deviceLang([])).toBe("en");
+  });
+
+  it("reads navigator.languages by default", () => {
+    const spy = vi.spyOn(navigator, "languages", "get").mockReturnValue(["it-IT", "es-MX"]);
+    try {
+      expect(deviceLang()).toBe("es");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

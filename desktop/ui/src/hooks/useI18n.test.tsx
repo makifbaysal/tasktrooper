@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider, loadLocale, tStatic, useI18n } from "@/hooks/useI18n";
 import { LANGS, type Lang } from "@/lib/languages";
 import { de } from "@/locales/de";
@@ -102,6 +102,22 @@ describe("I18nProvider", () => {
     );
     expect(screen.getByTestId("lang")).toHaveTextContent("de");
     expect(screen.getByTestId("text")).toHaveTextContent(DICTS.de.common.save);
+  });
+
+  it("starts in the device's language until one is picked, without storing it", async () => {
+    const spy = vi.spyOn(navigator, "languages", "get").mockReturnValue(["ja-JP", "fr-FR"]);
+    try {
+      render(
+        <I18nProvider>
+          <Probe />
+        </I18nProvider>,
+      );
+      await waitFor(() => expect(screen.getByTestId("lang")).toHaveTextContent("fr"));
+      expect(screen.getByTestId("text")).toHaveTextContent(DICTS.fr.common.save);
+      expect(localStorage.getItem("bridge_locale")).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("reads a stored region tag and falls back to English for an unknown code", async () => {

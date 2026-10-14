@@ -1,5 +1,6 @@
 import { apiUrl } from "@/lib/apiBase";
 import { getApiToken } from "@/lib/auth";
+import { deviceLang } from "@/lib/languages";
 import { createChatStreamDecoder, type ChatStreamEvent } from "@/lib/sse";
 
 export interface ToolPolicy {
@@ -2236,8 +2237,9 @@ export type MCPServerInput = MCPServerCreateInput;
 const ORCHESTRATE_STORAGE = "bridge_orchestrate";
 const LOCALE_STORAGE = "bridge_locale";
 
+/** The language picked in Settings; until one is picked, the device's own. */
 export function getStoredLocale(): string {
-  return localStorage.getItem(LOCALE_STORAGE) ?? "en";
+  return localStorage.getItem(LOCALE_STORAGE) ?? deviceLang();
 }
 
 export function setStoredLocale(value: string) {

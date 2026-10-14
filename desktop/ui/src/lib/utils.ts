@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
-import { intlLocale, normalizeLang, type Lang } from "@/lib/languages";
+import { deviceLang, intlLocale, normalizeLang, type Lang } from "@/lib/languages";
 
 // tailwind-merge only knows Tailwind's default text-size scale (xs/sm/base/…).
 // Our own scale (globals.css `--text-*`) doesn't match any of those names, so
@@ -23,7 +23,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(intlLocale(localStorage.getItem("bridge_locale")), {
+  return new Date(iso).toLocaleString(intlLocale(localStorage.getItem("bridge_locale") ?? deviceLang()), {
     day: "2-digit",
     month: "short",
     year: "numeric",

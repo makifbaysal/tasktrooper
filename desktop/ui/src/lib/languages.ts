@@ -27,13 +27,38 @@ export function isLang(value: unknown): value is Lang {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(REGISTRY, value);
 }
 
-/** Also takes a BCP 47 tag ("pt-BR", "zh_CN", "de-AT"); anything unknown is English. */
-export function normalizeLang(value: string | null | undefined): Lang {
-  if (!value) return DEFAULT_LANG;
+/** The UI language a code or BCP 47 tag ("pt-BR", "zh_CN", "de-AT") names, if the UI has it. */
+function matchLang(value: string | null | undefined): Lang | undefined {
+  if (!value) return undefined;
   const lower = value.trim().toLowerCase();
   if (isLang(lower)) return lower;
   const primary = lower.split(/[-_]/)[0];
-  return isLang(primary) ? primary : DEFAULT_LANG;
+  return isLang(primary) ? primary : undefined;
+}
+
+/** Also takes a BCP 47 tag ("pt-BR", "zh_CN", "de-AT"); anything unknown is English. */
+export function normalizeLang(value: string | null | undefined): Lang {
+  return matchLang(value) ?? DEFAULT_LANG;
+}
+
+/**
+ * The first of the device's preferred languages the UI has, else English. In
+ * the desktop app `navigator.languages` is the OS's own preference list, so a
+ * fresh install opens in the system language; in a browser it is the
+ * browser's.
+ */
+export function deviceLang(preferred: readonly string[] = browserLanguages()): Lang {
+  for (const tag of preferred) {
+    const lang = matchLang(tag);
+    if (lang) return lang;
+  }
+  return DEFAULT_LANG;
+}
+
+function browserLanguages(): readonly string[] {
+  if (typeof navigator === "undefined") return [];
+  if (navigator.languages?.length) return navigator.languages;
+  return navigator.language ? [navigator.language] : [];
 }
 
 export function intlLocale(lang: string | null | undefined): string {
