@@ -48,10 +48,29 @@ export const zh: Dict = {
   settings: {
     language: {
       label: "语言",
-      help: "用于助手回复和系统指令。",
+      help: "应用界面的语言，也用于智能体回复和系统指令。",
     },
     loadFailed: "加载设置失败",
     savedToast: "设置已保存",
+    sections: {
+      account: {
+        title: "账户",
+        description: "你的看板在哪里，以及工作在哪里运行。",
+      },
+      preferences: {
+        title: "偏好设置",
+        description: "语言，以及此应用向你显示的通知。",
+      },
+      agents: {
+        title: "智能体",
+        description: "适用于每次智能体运行的限制和来源。",
+      },
+      app: {
+        title: "桌面应用",
+        description: "此电脑上 TaskTrooper 的更新与隐私。",
+      },
+      desktopOnly: "更新、桌面通知和匿名使用统计需在 TaskTrooper 桌面应用中设置。",
+    },
     github: {
       statusUnavailable: "状态不可用。",
       connected: "✓ 已连接：{login} — 智能体可以创建私有仓库、推送并创建草稿 PR。",
@@ -97,7 +116,6 @@ export const zh: Dict = {
     notifications: {
       title: "桌面通知",
       help: "看板上需要你关注的事件会以系统原生通知提醒。关闭窗口后仍会继续推送。",
-      unavailable: "桌面通知仅在 TaskTrooper 应用中可用，浏览器中不可用。",
       enabled: "已启用",
       analizReview: "分析已就绪，等待你审查",
       humanUat: "等待你进行 UAT",
@@ -108,7 +126,6 @@ export const zh: Dict = {
       saveFailed: "保存失败",
     },
     account: {
-      title: "账户",
       localHelp: "TaskTrooper 正在这台电脑上运行，未使用账户。连接账户即可与团队协作：看板保存在账户中，工作仍在这里使用你自己的密钥运行。",
       signedIn: "已登录 {origin}。分配给你的任务在这台电脑上运行。",
       connect: "连接账户",

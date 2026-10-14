@@ -48,10 +48,29 @@ export const tr: Dict = {
   settings: {
     language: {
       label: "Dil",
-      help: "Asistan yanıtları ve sistem talimatları için kullanılır.",
+      help: "Uygulamanın dili; ajan yanıtları ve sistem talimatları da bu dilde olur.",
     },
     loadFailed: "Ayarlar yüklenemedi",
     savedToast: "Ayarlar kaydedildi",
+    sections: {
+      account: {
+        title: "Hesap",
+        description: "Panonun nerede durduğu ve işin nerede çalıştığı.",
+      },
+      preferences: {
+        title: "Tercihler",
+        description: "Dil ve bu uygulamanın sana gösterdiği bildirimler.",
+      },
+      agents: {
+        title: "Ajanlar",
+        description: "Her ajan çalışmasına uygulanan sınırlar ve kaynaklar.",
+      },
+      app: {
+        title: "Masaüstü uygulaması",
+        description: "Bu bilgisayardaki TaskTrooper için güncellemeler ve gizlilik.",
+      },
+      desktopOnly: "Güncellemeler, masaüstü bildirimleri ve anonim kullanım istatistikleri TaskTrooper masaüstü uygulamasından ayarlanır.",
+    },
     github: {
       statusUnavailable: "Durum alınamadı.",
       connected: "✓ Bağlı: {login} — ajanlar private repo oluşturabilir, push edebilir ve taslak PR açabilir.",
@@ -98,7 +117,6 @@ export const tr: Dict = {
     notifications: {
       title: "Masaüstü bildirimleri",
       help: "Dikkatini gerektiren pano olayları için yerel bildirimler. Pencereyi kapatsan bile çalışmaya devam eder.",
-      unavailable: "Masaüstü bildirimleri yalnızca TaskTrooper uygulamasında kullanılabilir, tarayıcıda değil.",
       enabled: "Etkin",
       analizReview: "İncelemen için hazır analiz",
       humanUat: "UAT'ını bekliyor",
@@ -109,7 +127,6 @@ export const tr: Dict = {
       saveFailed: "Kaydetme başarısız",
     },
     account: {
-      title: "Hesap",
       localHelp: "TaskTrooper bu bilgisayarda, hesapsız çalışıyor. Bir ekiple çalışmak için hesaba bağlan: board hesapta durur, iş yine burada, kendi anahtarlarınla çalışır.",
       signedIn: "{origin} hesabına bağlısın. Sana atanan görevler bu bilgisayarda çalışır.",
       connect: "Hesaba bağlan",

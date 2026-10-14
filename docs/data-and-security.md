@@ -121,10 +121,10 @@ turn it off.
   as any web request does, and derives a rough region from it.
 - **What is never sent:** tasks, prompts, code, file paths, repository or
   project names, API keys, your email, or anything from your account.
-- **Turn it off:** Settings → General → "Anonymous usage statistics", or on the
-  menu-bar/tray icon (the only place in account mode). Turning it off stops
-  sending at once and deletes the random ID. Setting the environment variable
-  `TASKTROOPER_TELEMETRY=0` or `DO_NOT_TRACK=1` keeps it off regardless.
+- **Turn it off:** Settings → General → "Anonymous usage statistics", locally
+  or signed in to an account. Turning it off stops sending at once and deletes
+  the random ID. Setting the environment variable `TASKTROOPER_TELEMETRY=0` or
+  `DO_NOT_TRACK=1` keeps it off regardless.
 - **Builds from source and forks send nothing.** The measurement settings are
   compiled in by the official release build only; without them there is no
   network call and no ID file.

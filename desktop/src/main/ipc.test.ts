@@ -139,22 +139,20 @@ describe("shell:keys:*", () => {
 });
 
 describe("cloud:analytics:*", () => {
-
-  it("answers the local app's page and validates the payload", async () => {
-    const { calls, invoke } = wire("local");
-    const ok = from(accountView, ACCOUNT);
-    await expect(invoke(CLOUD_CHANNELS.analyticsGet, ok)).resolves.toMatchObject({ enabled: true });
-    await expect(invoke(CLOUD_CHANNELS.analyticsSet, ok, { on: false })).resolves.toMatchObject({ enabled: false });
-    await expect(invoke(CLOUD_CHANNELS.analyticsSet, ok, { on: "no" })).rejects.toThrow(/invalid request/);
+  it.each(["local", "account"] as const)("answers the web app's page in %s mode and validates the payload", async (mode) => {
+    const { calls, invoke } = wire(mode);
+    const page = from(accountView, `${ACCOUNT}/settings`);
+    await expect(invoke(CLOUD_CHANNELS.analyticsGet, page)).resolves.toMatchObject({ enabled: true });
+    await expect(invoke(CLOUD_CHANNELS.analyticsSet, page, { on: false })).resolves.toMatchObject({ enabled: false });
+    await expect(invoke(CLOUD_CHANNELS.analyticsSet, page, { on: "no" })).rejects.toThrow(/invalid request/);
     expect(calls).toEqual(["analytics-get", "analytics-set false"]);
   });
 
-  it("refuses the account mode's remote page, and any other sender", async () => {
+  it("refuses any other sender", async () => {
     const { calls, invoke } = wire("account");
-    const page = from(accountView, `${ACCOUNT}/settings`);
-    await expect(invoke(CLOUD_CHANNELS.analyticsGet, page)).rejects.toThrow(/refused/);
-    await expect(invoke(CLOUD_CHANNELS.analyticsSet, page, { on: false })).rejects.toThrow(/refused/);
+    await expect(invoke(CLOUD_CHANNELS.analyticsGet, from(chrome, "file:///x.html"))).rejects.toThrow(/refused/);
     await expect(invoke(CLOUD_CHANNELS.analyticsSet, from(chrome, "file:///x.html"), { on: false })).rejects.toThrow(/refused/);
+    await expect(invoke(CLOUD_CHANNELS.analyticsSet, from(contents(99), ACCOUNT), { on: false })).rejects.toThrow(/refused/);
     expect(calls).toEqual([]);
   });
 });

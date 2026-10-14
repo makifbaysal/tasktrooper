@@ -1,19 +1,21 @@
 import { Activity, Bell, Globe, Package, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api, setStoredLocale, type AppSettings } from "@/api";
+import { api } from "@/api";
 import { AccountCard } from "@/components/runner/AccountCard";
 import { AnalyticsCard } from "@/components/runner/AnalyticsCard";
 import { AppUpdatesCard } from "@/components/runner/AppUpdatesCard";
+import { SettingsSection } from "@/components/layout/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Notice } from "@/components/ui/notice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { tStatic, useI18n } from "@/hooks/useI18n";
-import { desktopRunner, type DesktopNotificationPreferences } from "@/lib/desktop-bridge";
+import { desktopRunner, desktopUpdates, type DesktopNotificationPreferences } from "@/lib/desktop-bridge";
 import { LANGUAGE_OPTIONS, normalizeLang, type Lang } from "@/lib/languages";
 
 const NOTIFICATION_CATEGORY_FIELDS = [
@@ -153,7 +155,7 @@ function ConcurrencyCard() {
       {loading ? (
         <Skeleton className="h-10 w-full" />
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="max-concurrent-agents">{t("settings.concurrency.agentsLabel")}</Label>
             <Input
@@ -184,7 +186,7 @@ function ConcurrencyCard() {
               <span className="italic">{t("settings.concurrency.zeroHint")}</span>
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
             <Button onClick={() => void save()} disabled={saving}>
               <Save className="mr-2 h-4 w-4" />
               {saving ? t("common.saving") : t("common.save")}
@@ -240,18 +242,6 @@ function NotificationsCard() {
     }
   };
 
-  if (!runner) {
-    return (
-      <Card className="w-full space-y-2 p-6">
-        <Label className="flex items-center gap-2">
-          <Bell className="h-4 w-4" />
-          {t("settings.notifications.title")}
-        </Label>
-        <p className="text-sm text-muted-foreground">{t("settings.notifications.unavailable")}</p>
-      </Card>
-    );
-  }
-
   return (
     <Card className="w-full space-y-4 p-6">
       <div className="space-y-1">
@@ -293,23 +283,58 @@ function NotificationsCard() {
   );
 }
 
+function LanguageCard({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: Lang;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <Card className="flex w-full flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <div className="min-w-0 space-y-1">
+        <Label htmlFor="language" className="flex items-center gap-2">
+          <Globe className="h-4 w-4" />
+          {t("settings.language.label")}
+        </Label>
+        <p className="text-sm text-muted-foreground">{t("settings.language.help")}</p>
+      </div>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id="language" className="w-full sm:w-48 sm:shrink-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {LANGUAGE_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const { t, setLang } = useI18n();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [language, setLanguage] = useState<Lang>("en");
+  const inDesktopApp = desktopUpdates() !== null;
+  const hasNotifications = desktopRunner() !== null;
 
   // Deliberately not depending on `t`: switching the language changes `t`'s
   // identity, which would refire this loader and overwrite the just-picked
-  // language with the (still unsaved) server value — making the switcher
-  // impossible to use. tStatic reads the active language at call time.
+  // language with the server value it is still saving.
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await api.getSettings();
-      // Only seed the form. Applying the server value to the live UI here made
-      // merely opening Settings switch the app's language (and persist it) to
-      // whatever the server last stored.
+      // Only seed the picker. Applying the server value to the live UI here
+      // made merely opening Settings switch the app's language.
       setLanguage(normalizeLang(data.default_language));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : tStatic("settings.loadFailed"));
@@ -323,80 +348,62 @@ export function SettingsPage() {
     load();
   }, [load]);
 
-  // Applied only after an explicit Save: the user just chose this language, so
-  // the live UI and the persisted locale follow the server's echo of it.
-  const applySettings = (data: AppSettings) => {
-    const next = normalizeLang(data.default_language);
-    setLanguage(next);
-    setStoredLocale(next);
-    setLang(next);
-  };
-
-  // Switch the UI language instantly; the backend default_language is persisted on Save.
-  const handleLanguageChange = (value: string) => {
+  // A pick is shown and saved at once; a refused save puts the previous
+  // language back, so the UI never shows one the server did not keep.
+  const handleLanguageChange = async (value: string) => {
     const next = normalizeLang(value);
+    const previous = language;
     setLanguage(next);
     setLang(next);
-  };
-
-  const handleSave = async () => {
     setSaving(true);
     try {
-      const data = await api.updateSettings({ default_language: language });
-      applySettings(data);
-      toast.success(t("settings.savedToast"));
+      const data = await api.updateSettings({ default_language: next });
+      const saved = normalizeLang(data.default_language);
+      setLanguage(saved);
+      setLang(saved);
+      toast.success(tStatic("settings.savedToast"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("common.saveFailed"));
+      setLanguage(previous);
+      setLang(previous);
+      toast.error(e instanceof Error ? e.message : tStatic("common.saveFailed"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-2">
-      <div className="min-w-0 space-y-4">
+    <div className="max-w-3xl space-y-10">
+      <SettingsSection title={t("settings.sections.account.title")} description={t("settings.sections.account.description")}>
+        <AccountCard />
+      </SettingsSection>
+
+      <SettingsSection
+        title={t("settings.sections.preferences.title")}
+        description={t("settings.sections.preferences.description")}
+      >
         {loading ? (
           <Card className="w-full p-6">
-            <Skeleton className="mb-4 h-10 w-full" />
-            <Skeleton className="h-10 w-32" />
+            <Skeleton className="h-10 w-full" />
           </Card>
         ) : (
-          <Card className="w-full space-y-6 p-6">
-            <div className="space-y-2">
-              <Label htmlFor="language" className="flex items-center gap-2">
-                <Globe className="h-4 w-4" />
-                {t("settings.language.label")}
-              </Label>
-              <Select value={language} onValueChange={handleLanguageChange}>
-                <SelectTrigger id="language">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LANGUAGE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">{t("settings.language.help")}</p>
-            </div>
-
-            <Button onClick={handleSave} disabled={saving}>
-              <Save className="mr-2 h-4 w-4" />
-              {saving ? t("common.saving") : t("common.save")}
-            </Button>
-          </Card>
+          <LanguageCard value={language} disabled={saving} onChange={(value) => void handleLanguageChange(value)} />
         )}
+        {hasNotifications && <NotificationsCard />}
+      </SettingsSection>
+
+      <SettingsSection title={t("settings.sections.agents.title")} description={t("settings.sections.agents.description")}>
         <ConcurrencyCard />
-      </div>
-      <div className="min-w-0 space-y-4">
-        <AccountCard />
-        <AppUpdatesCard />
-        <AnalyticsCard />
         <BoilerplateCatalogCard />
-        <NotificationsCard />
-      </div>
+      </SettingsSection>
+
+      {inDesktopApp ? (
+        <SettingsSection title={t("settings.sections.app.title")} description={t("settings.sections.app.description")}>
+          <AppUpdatesCard />
+          <AnalyticsCard />
+        </SettingsSection>
+      ) : (
+        <Notice variant="info" title={t("settings.sections.desktopOnly")} />
+      )}
     </div>
   );
 }

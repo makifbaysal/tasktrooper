@@ -65,7 +65,7 @@ export const frame = {
     },
     settings: {
       title: "设置",
-      description: "应用和 LLM 连接配置",
+      description: "你的偏好、AI 连接和工作区集成",
     },
     settingsTabs: {
       general: "通用",
@@ -75,8 +75,13 @@ export const frame = {
       usage: "用量",
       roles: "角色",
       workflows: "工作流",
-      catalog: "目录",
+      catalog: "智能体目录",
       environment: "开发环境",
+      board: "看板",
+    },
+    settingsGroups: {
+      ai: "AI 与智能体",
+      workspace: "工作区",
     },
     home: {
       preparing: {

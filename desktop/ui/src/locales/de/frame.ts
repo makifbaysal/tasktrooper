@@ -65,7 +65,7 @@ export const frame = {
     },
     settings: {
       title: "Einstellungen",
-      description: "Konfiguration der Anwendung und der LLM-Verbindung",
+      description: "Ihre Präferenzen, KI-Verbindungen und Integrationen des Arbeitsbereichs",
     },
     settingsTabs: {
       general: "Allgemein",
@@ -75,8 +75,13 @@ export const frame = {
       usage: "Nutzung",
       roles: "Rollen",
       workflows: "Workflows",
-      catalog: "Katalog",
+      catalog: "Agentenkatalog",
       environment: "Entwicklungsumgebung",
+      board: "Board",
+    },
+    settingsGroups: {
+      ai: "KI & Agenten",
+      workspace: "Arbeitsbereich",
     },
     home: {
       preparing: {

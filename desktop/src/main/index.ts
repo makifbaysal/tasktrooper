@@ -120,12 +120,6 @@ const analytics = new Analytics({
   log: (line) => console.warn(line),
 });
 
-function setAnalytics(on: boolean): AnalyticsState {
-  const state = analytics.set(on);
-  tray?.update(activeSnapshot());
-  return state;
-}
-
 const secretStore = new SecretStore();
 // `toolchain` is declared below; these run at spawn time, long after it is.
 const supervisor = new Supervisor({ toolchainRuntime: () => toolchain.runtime() });
@@ -610,7 +604,7 @@ const services: IpcServices = {
   restartToUpdate,
 
   analyticsState: () => analytics.state(),
-  setAnalytics,
+  setAnalytics: (on: boolean): AnalyticsState => analytics.set(on),
 
   accountMode: () => modeController.mode,
   accountState: (): AccountState => modeController.state(),
@@ -951,12 +945,6 @@ app.whenReady().then(
       quit: () => void quit.run(),
       checkForUpdate: () => void updates?.check(),
       restartToUpdate,
-      analytics: {
-        available: () => analytics.state().available,
-        checked: () => analytics.state().enabled,
-        forcedOff: () => analytics.state().forcedOff,
-        toggle: (on) => void setAnalytics(on),
-      },
       subject: () => (accountMode() ? "the runner" : "the local server"),
       banner: () =>
         modeController.temporaryLocal

@@ -68,7 +68,7 @@ export const frame: FrameDict = {
     },
     settings: {
       title: "Ayarlar",
-      description: "Uygulama ve LLM bağlantı yapılandırması",
+      description: "Tercihlerin, yapay zekâ bağlantıları ve çalışma alanı entegrasyonları",
     },
     settingsTabs: {
       general: "Genel",
@@ -78,8 +78,13 @@ export const frame: FrameDict = {
       usage: "Kullanım",
       roles: "Roller",
       workflows: "İş Akışları",
-      catalog: "Katalog",
+      catalog: "Ajan kataloğu",
       environment: "Geliştirme ortamı",
+      board: "Pano",
+    },
+    settingsGroups: {
+      ai: "Yapay zekâ ve ajanlar",
+      workspace: "Çalışma alanı",
     },
     home: {
       preparing: {

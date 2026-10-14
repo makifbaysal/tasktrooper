@@ -48,10 +48,29 @@ export const pt: Dict = {
   settings: {
     language: {
       label: "Idioma",
-      help: "Usado nas respostas do assistente e nas instruções do sistema.",
+      help: "O idioma do app e também das respostas dos agentes e das instruções do sistema.",
     },
     loadFailed: "Falha ao carregar as configurações",
     savedToast: "Configurações salvas",
+    sections: {
+      account: {
+        title: "Conta",
+        description: "Onde seu quadro fica e onde o trabalho roda.",
+      },
+      preferences: {
+        title: "Preferências",
+        description: "O idioma e as notificações que este app mostra para você.",
+      },
+      agents: {
+        title: "Agentes",
+        description: "Limites e fontes que valem para toda execução de agente.",
+      },
+      app: {
+        title: "App para desktop",
+        description: "Atualizações e privacidade do TaskTrooper neste computador.",
+      },
+      desktopOnly: "Atualizações, notificações na área de trabalho e estatísticas de uso anônimas são configuradas no app para desktop do TaskTrooper.",
+    },
     github: {
       statusUnavailable: "Status indisponível.",
       connected: "✓ Conectado: {login} — os agentes podem criar repositórios privados, fazer push e abrir PRs de rascunho.",
@@ -97,7 +116,6 @@ export const pt: Dict = {
     notifications: {
       title: "Notificações na área de trabalho",
       help: "Notificações nativas para eventos do quadro que precisam da sua atenção. Elas continuam funcionando depois que você fecha a janela.",
-      unavailable: "As notificações na área de trabalho só estão disponíveis no app TaskTrooper, não no navegador.",
       enabled: "Ativadas",
       analizReview: "Análise pronta para sua revisão",
       humanUat: "Aguardando seu UAT",
@@ -108,7 +126,6 @@ export const pt: Dict = {
       saveFailed: "Falha ao salvar",
     },
     account: {
-      title: "Conta",
       localHelp: "O TaskTrooper roda neste computador, sem conta. Conecte uma para trabalhar em equipe: o quadro fica na conta e o trabalho continua rodando aqui, com suas próprias chaves.",
       signedIn: "Conectado a {origin}. As tarefas atribuídas a você rodam neste computador.",
       connect: "Conectar uma conta",

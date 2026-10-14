@@ -48,10 +48,29 @@ export const de: Dict = {
   settings: {
     language: {
       label: "Sprache",
-      help: "Wird für Antworten des Assistenten und Systemanweisungen verwendet.",
+      help: "Die Sprache der App sowie der Antworten von Agenten und der Systemanweisungen.",
     },
     loadFailed: "Einstellungen konnten nicht geladen werden",
     savedToast: "Einstellungen gespeichert",
+    sections: {
+      account: {
+        title: "Konto",
+        description: "Wo Ihr Board liegt und wo die Arbeit läuft.",
+      },
+      preferences: {
+        title: "Präferenzen",
+        description: "Sprache und die Benachrichtigungen, die diese App Ihnen zeigt.",
+      },
+      agents: {
+        title: "Agenten",
+        description: "Limits und Quellen, die für jeden Agentenlauf gelten.",
+      },
+      app: {
+        title: "Desktop-App",
+        description: "Updates und Datenschutz für TaskTrooper auf diesem Computer.",
+      },
+      desktopOnly: "Updates, Desktop-Benachrichtigungen und die anonyme Nutzungsstatistik werden in der TaskTrooper-Desktop-App eingestellt.",
+    },
     github: {
       statusUnavailable: "Status nicht verfügbar.",
       connected: "✓ Verbunden: {login} — Agenten können private Repositorys erstellen, pushen und PR-Entwürfe öffnen.",
@@ -97,7 +116,6 @@ export const de: Dict = {
     notifications: {
       title: "Desktop-Benachrichtigungen",
       help: "Native Benachrichtigungen für Board-Ereignisse, die Ihre Aufmerksamkeit erfordern. Sie funktionieren auch nach dem Schließen des Fensters weiter.",
-      unavailable: "Desktop-Benachrichtigungen sind nur in der TaskTrooper-App verfügbar, nicht im Browser.",
       enabled: "Aktiviert",
       analizReview: "Analyse bereit für Ihr Review",
       humanUat: "Wartet auf Ihren UAT",
@@ -108,7 +126,6 @@ export const de: Dict = {
       saveFailed: "Speichern fehlgeschlagen",
     },
     account: {
-      title: "Konto",
       localHelp: "TaskTrooper läuft auf diesem Computer, ohne Konto. Verbinde ein Konto, um im Team zu arbeiten: Das Board liegt im Konto, die Arbeit läuft weiter hier, mit deinen eigenen Schlüsseln.",
       signedIn: "Angemeldet bei {origin}. Dir zugewiesene Aufgaben laufen auf diesem Computer.",
       connect: "Konto verbinden",

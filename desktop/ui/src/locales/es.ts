@@ -48,10 +48,29 @@ export const es: Dict = {
   settings: {
     language: {
       label: "Idioma",
-      help: "Se usa para las respuestas del asistente y las instrucciones del sistema.",
+      help: "El idioma de la app, y también de las respuestas de los agentes y las instrucciones del sistema.",
     },
     loadFailed: "No se pudo cargar la configuración",
     savedToast: "Configuración guardada",
+    sections: {
+      account: {
+        title: "Cuenta",
+        description: "Dónde vive tu tablero y dónde se ejecuta el trabajo.",
+      },
+      preferences: {
+        title: "Preferencias",
+        description: "El idioma y las notificaciones que te muestra esta app.",
+      },
+      agents: {
+        title: "Agentes",
+        description: "Límites y fuentes que se aplican a cada ejecución de un agente.",
+      },
+      app: {
+        title: "App de escritorio",
+        description: "Actualizaciones y privacidad de TaskTrooper en este equipo.",
+      },
+      desktopOnly: "Las actualizaciones, las notificaciones de escritorio y las estadísticas de uso anónimas se configuran en la app de escritorio de TaskTrooper.",
+    },
     github: {
       statusUnavailable: "Estado no disponible.",
       connected: "✓ Conectado: {login} — los agentes pueden crear repositorios privados, hacer push y abrir PR en borrador.",
@@ -97,7 +116,6 @@ export const es: Dict = {
     notifications: {
       title: "Notificaciones de escritorio",
       help: "Notificaciones nativas para los eventos del tablero que requieren tu atención. Siguen funcionando después de cerrar la ventana.",
-      unavailable: "Las notificaciones de escritorio solo están disponibles en la app de TaskTrooper, no en un navegador.",
       enabled: "Activadas",
       analizReview: "Análisis listo para tu revisión",
       humanUat: "Esperando tu UAT",
@@ -108,7 +126,6 @@ export const es: Dict = {
       saveFailed: "No se pudo guardar",
     },
     account: {
-      title: "Cuenta",
       localHelp: "TaskTrooper se ejecuta en este equipo, sin cuenta. Conecta una para trabajar en equipo: el tablero vive en la cuenta y el trabajo sigue ejecutándose aquí, con tus propias claves.",
       signedIn: "Sesión iniciada en {origin}. Las tareas asignadas a ti se ejecutan en este equipo.",
       connect: "Conectar una cuenta",

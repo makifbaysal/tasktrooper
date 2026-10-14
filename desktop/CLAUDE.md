@@ -206,11 +206,10 @@ renderer involvement.
   `TASKTROOPER_TELEMETRY=0` or `DO_NOT_TRACK=1` forces it off. Turning it off
   stops sending and deletes `analytics-id` (a UUID, 0600, in userData, created
   only while enabled).
-- **Where the switch is.** Local mode: Settings → General and a line on the
-  first-run screen, through `analytics.get()/set()` (`cloud:analytics:*`,
-  refused unless the mode is local, so the account's remote page cannot change
-  it). Every mode: the tray menu's "Anonymous usage statistics" checkbox, which
-  is how an account-mode user reaches it.
+- **Where the switch is.** Settings → General only, in both modes: the local
+  bundle's, or in account mode the account's own page, through
+  `analytics.get()/set()` (`cloud:analytics:*`, the usual trusted-origin
+  guard); plus a line on the first-run screen. The tray carries no switch.
 
 ## Where things are
 

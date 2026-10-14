@@ -36,12 +36,6 @@ export interface TrayDeps {
    * render.
    */
   banner?: () => TrayBanner | null;
-  /**
-   * The anonymous-usage checkbox. Omitted when the build has no analytics
-   * configuration, so a fork's tray carries no switch for nothing. The tray is
-   * where an account-mode user reaches it: the account's page cannot show it.
-   */
-  analytics?: { available: () => boolean; checked: () => boolean; forcedOff: () => boolean; toggle: (on: boolean) => void };
 }
 
 export interface TrayBanner {
@@ -128,9 +122,6 @@ export class AppTray {
     const update = this.#update;
     const subject = this.#deps.subject?.() ?? "the local server";
     const banner = this.#deps.banner?.() ?? null;
-    const analytics = this.#deps.analytics?.available() ? this.#deps.analytics : null;
-    const analyticsChecked = analytics?.checked() ?? false;
-    const analyticsLocked = analytics?.forcedOff() ?? false;
     const shown = JSON.stringify([
       glyph,
       tone,
@@ -140,9 +131,6 @@ export class AppTray {
       subject,
       banner?.label,
       banner?.action,
-      analytics !== null,
-      analyticsChecked,
-      analyticsLocked,
       update.phase,
       update.version,
       update.percent,
@@ -174,18 +162,6 @@ export class AppTray {
         { label: "Board…", click: () => this.#deps.showWindow("/board") },
         ...this.#updateItems(up, subject),
         { type: "separator" },
-        ...(analytics
-          ? [
-              {
-                label: "Anonymous usage statistics",
-                type: "checkbox" as const,
-                checked: analyticsChecked,
-                enabled: !analyticsLocked,
-                click: (item: Electron.MenuItem) => analytics.toggle(item.checked),
-              },
-              { type: "separator" as const },
-            ]
-          : []),
         {
           // The label says what it does, because "Quit" next to a running
           // backend is a promise about how it ends. The accelerator is only a

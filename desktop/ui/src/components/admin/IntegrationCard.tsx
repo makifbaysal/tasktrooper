@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { SettingsSection } from "@/components/layout/SettingsSection";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -67,10 +68,5 @@ export function IntegrationCard({ icon, name, description, status, actions, chil
 
 /** A titled group of integrations — code hosting, cloud, stores. */
 export function IntegrationSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <h2 className="text-caption font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
-      <div className="space-y-4">{children}</div>
-    </section>
-  );
+  return <SettingsSection title={title}>{children}</SettingsSection>;
 }

@@ -11,6 +11,7 @@ import {
   type SaveLLMEndpointRequest,
 } from "@/api";
 import { IntegrationCard } from "@/components/admin/IntegrationCard";
+import { SettingsSection } from "@/components/layout/SettingsSection";
 import { LLMEndpointIcon, LLMProviderIcon } from "@/components/admin/LLMProviderIcon";
 import { EnvironmentPreflight, type EnvironmentBlocker } from "@/components/runner/EnvironmentPreflight";
 import { LocalCliCard } from "@/components/runner/LocalCliCard";
@@ -94,18 +95,6 @@ function endpointSummary(ep: LLMEndpoint): string {
     // Not a parseable URL; show it as typed.
   }
   return [host, ep.default_model].filter(Boolean).join(" · ");
-}
-
-function ProviderGroup({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div className="flex min-h-8 items-center justify-between gap-2">
-        <h2 className="text-body font-semibold">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
 }
 
 function RowMenu({ label, items }: { label: string; items: { label: string; icon: ReactNode; onSelect: () => void; destructive?: boolean }[] }) {
@@ -466,7 +455,7 @@ export function LLMSettingsPage() {
         </div>
       ) : (
         <div className="space-y-8">
-          <ProviderGroup title={t("settingsPages.llm.cliTitle")}>
+          <SettingsSection title={t("settingsPages.llm.cliTitle")}>
             <EnvironmentPreflight host={host} onBlockingChange={setEnvBlocker} blockersOnly />
             <div className="grid items-start gap-4 lg:grid-cols-2">
               {cliCards.map((view) => {
@@ -492,9 +481,9 @@ export function LLMSettingsPage() {
                 );
               })}
             </div>
-          </ProviderGroup>
+          </SettingsSection>
 
-          <ProviderGroup
+          <SettingsSection
             title={t("settingsPages.llm.apiTitle")}
             action={
               <Button size="sm" variant="outline" onClick={openCreateEndpoint}>
@@ -574,7 +563,7 @@ export function LLMSettingsPage() {
                 );
               })}
             </div>
-          </ProviderGroup>
+          </SettingsSection>
         </div>
       )}
 

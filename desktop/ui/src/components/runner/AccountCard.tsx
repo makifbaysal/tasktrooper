@@ -1,10 +1,9 @@
-import { Loader2, LogIn, LogOut, UserRound } from "lucide-react";
+import { Loader2, LogIn, LogOut } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
 import { desktopAccount, type DesktopAccountState } from "@/lib/desktop-bridge";
@@ -17,7 +16,7 @@ import { desktopAccount, type DesktopAccountState } from "@/lib/desktop-bridge";
 type Confirm = { kind: "runs"; count: number } | { kind: "plain" };
 
 /**
- * Settings → General's account switch.
+ * Settings → General's account switch. Its section supplies the heading.
  *
  * Connecting stops this computer's local server and loads the account's
  * sign-in page in this window, so this page is gone once it works; a run the
@@ -82,17 +81,9 @@ export function AccountCard() {
     }
   }, [account, t]);
 
-  const title = (
-    <Label className="flex items-center gap-2">
-      <UserRound className="h-4 w-4" />
-      {t("settings.account.title")}
-    </Label>
-  );
-
   if (!account) {
     return (
-      <Card className="w-full space-y-2 p-6">
-        {title}
+      <Card className="w-full p-6">
         <p className="text-sm text-muted-foreground">{t("settings.account.unavailable")}</p>
       </Card>
     );
@@ -110,16 +101,13 @@ export function AccountCard() {
 
   return (
     <Card className="w-full space-y-4 p-6">
-      <div className="space-y-1">
-        {title}
-        <p className="text-sm text-muted-foreground">
-          {localForNow
-            ? t("settings.account.temporaryLocal", { origin: state.origin ?? "" })
-            : signedIn
-              ? t("settings.account.signedIn", { origin: state.origin ?? "" })
-              : t("settings.account.localHelp")}
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        {localForNow
+          ? t("settings.account.temporaryLocal", { origin: state.origin ?? "" })
+          : signedIn
+            ? t("settings.account.signedIn", { origin: state.origin ?? "" })
+            : t("settings.account.localHelp")}
+      </p>
 
       {confirm ? (
         <Notice

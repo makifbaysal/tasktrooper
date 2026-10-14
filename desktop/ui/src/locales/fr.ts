@@ -48,10 +48,29 @@ export const fr: Dict = {
   settings: {
     language: {
       label: "Langue",
-      help: "Utilisée pour les réponses de l'assistant et les instructions système.",
+      help: "La langue de l'application, ainsi que des réponses des agents et des instructions système.",
     },
     loadFailed: "Impossible de charger les paramètres",
     savedToast: "Paramètres enregistrés",
+    sections: {
+      account: {
+        title: "Compte",
+        description: "Où se trouve votre tableau et où le travail s'exécute.",
+      },
+      preferences: {
+        title: "Préférences",
+        description: "La langue et les notifications que cette application vous affiche.",
+      },
+      agents: {
+        title: "Agents",
+        description: "Limites et sources appliquées à chaque exécution d'agent.",
+      },
+      app: {
+        title: "Application de bureau",
+        description: "Mises à jour et confidentialité de TaskTrooper sur cet ordinateur.",
+      },
+      desktopOnly: "Les mises à jour, les notifications de bureau et les statistiques d'utilisation anonymes se règlent dans l'application de bureau TaskTrooper.",
+    },
     github: {
       statusUnavailable: "Statut indisponible.",
       connected: "✓ Connecté : {login} — les agents peuvent créer des dépôts privés, pousser et ouvrir des PR brouillons.",
@@ -97,7 +116,6 @@ export const fr: Dict = {
     notifications: {
       title: "Notifications de bureau",
       help: "Notifications natives pour les événements du tableau qui requièrent votre attention. Elles continuent de fonctionner après la fermeture de la fenêtre.",
-      unavailable: "Les notifications de bureau ne sont disponibles que dans l'app TaskTrooper, pas dans un navigateur.",
       enabled: "Activées",
       analizReview: "Analyse prête pour votre revue",
       humanUat: "En attente de votre UAT",
@@ -108,7 +126,6 @@ export const fr: Dict = {
       saveFailed: "Échec de l'enregistrement",
     },
     account: {
-      title: "Compte",
       localHelp: "TaskTrooper fonctionne sur cet ordinateur, sans compte. Connectez-en un pour travailler en équipe : le tableau vit dans le compte, et le travail s'exécute toujours ici, avec vos propres clés.",
       signedIn: "Connecté à {origin}. Les tâches qui vous sont assignées s'exécutent sur cet ordinateur.",
       connect: "Connecter un compte",

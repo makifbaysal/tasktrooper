@@ -67,7 +67,7 @@ export const frame = {
     },
     settings: {
       title: "Settings",
-      description: "Application and LLM connection configuration",
+      description: "Your preferences, AI connections and workspace integrations",
     },
     settingsTabs: {
       general: "General",
@@ -77,8 +77,13 @@ export const frame = {
       usage: "Usage",
       roles: "Roles",
       workflows: "Workflows",
-      catalog: "Catalog",
+      catalog: "Agent catalog",
       environment: "Development environment",
+      board: "Board",
+    },
+    settingsGroups: {
+      ai: "AI & agents",
+      workspace: "Workspace",
     },
     home: {
       preparing: {

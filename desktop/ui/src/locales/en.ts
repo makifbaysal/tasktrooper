@@ -49,10 +49,29 @@ export const en = {
   settings: {
     language: {
       label: "Language",
-      help: "Used for assistant responses and system instructions.",
+      help: "The language of the app, and of agents' replies and system instructions.",
     },
     loadFailed: "Failed to load settings",
     savedToast: "Settings saved",
+    sections: {
+      account: {
+        title: "Account",
+        description: "Where your board lives and where the work runs.",
+      },
+      preferences: {
+        title: "Preferences",
+        description: "Language and the notifications this app shows you.",
+      },
+      agents: {
+        title: "Agents",
+        description: "Limits and sources that apply to every agent run.",
+      },
+      app: {
+        title: "Desktop app",
+        description: "Updates and privacy for TaskTrooper on this computer.",
+      },
+      desktopOnly: "Updates, desktop notifications and anonymous usage statistics are set in the TaskTrooper desktop app.",
+    },
     github: {
       statusUnavailable: "Status unavailable.",
       connected: "✓ Connected: {login} — agents can create private repos, push, and open draft PRs.",
@@ -99,7 +118,6 @@ export const en = {
     notifications: {
       title: "Desktop notifications",
       help: "Native notifications for board events that need your attention. They keep working after you close the window.",
-      unavailable: "Desktop notifications are only available in the TaskTrooper app, not in a browser.",
       enabled: "Enabled",
       analizReview: "Analysis ready for your review",
       humanUat: "Awaiting your UAT",
@@ -110,7 +128,6 @@ export const en = {
       saveFailed: "Failed to save",
     },
     account: {
-      title: "Account",
       localHelp: "TaskTrooper runs on this computer, with no account. Connect one to work with a team: the board lives in the account, and the work still runs here, with your own keys.",
       signedIn: "Signed in to {origin}. Tasks assigned to you run on this computer.",
       connect: "Connect an account",

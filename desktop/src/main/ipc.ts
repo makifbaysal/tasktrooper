@@ -358,17 +358,10 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.diagnostics, (payload) => services.diagnostics(validateDiagnosticsRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.overridesSet, (payload) => services.setOverrides(validateOverrides(payload)));
 
-  // Local mode only: the account's remote page does not get to change what
-  // this computer reports about itself. The tray owns the switch there.
-  const localOnly = <T>(fn: () => T): T => {
-    if (services.accountMode() !== "local") throw new Error("refused: this setting belongs to the local app.");
-    return fn();
-  };
-  cloud(CLOUD_CHANNELS.analyticsGet, () => localOnly(() => services.analyticsState()));
-  cloud(CLOUD_CHANNELS.analyticsSet, (payload) => {
-    const { on } = validateAnalyticsSet(payload);
-    return localOnly(() => services.setAnalytics(on));
-  });
+  // Both modes: Settings → General is the one place this switch lives — the
+  // local bundle's, or in account mode the account's own page.
+  cloud(CLOUD_CHANNELS.analyticsGet, () => services.analyticsState());
+  cloud(CLOUD_CHANNELS.analyticsSet, (payload) => services.setAnalytics(validateAnalyticsSet(payload).on));
 
   /**
    * Toolchain setup, in both modes. What runs is decided by the id and main's
