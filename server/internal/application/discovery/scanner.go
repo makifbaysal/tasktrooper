@@ -16,6 +16,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery/ci"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery/components"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery/findings"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery/inventory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery/links"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -86,20 +87,28 @@ func ScanTree(_ context.Context, tree *inventory.Tree, emit func(domain.ScanEven
 	stage(emit, domain.ScanStageDeploy, false, "")
 	stage(emit, domain.ScanStageDeploy, true, fmt.Sprintf("%d deploy signals", len(linksResult.DeploySignals)))
 
+	stage(emit, domain.ScanStageFindings, false, "")
+	findingsResult := findings.Detect(tree, comps.Components)
+	stage(emit, domain.ScanStageFindings, true, findingsSummary(findingsResult.Findings))
+
 	result := domain.ScanResult{
-		Shape:         comps.Shape,
-		ShapeEvidence: comps.ShapeEvidence,
-		FileCount:     len(tree.Files),
-		Truncated:     tree.Truncated,
-		Languages:     comps.Languages,
-		Components:    comps.Components,
-		Checks:        ciResult.Checks,
-		Links:         linksResult.Links,
-		DeploySignals: linksResult.DeploySignals,
+		Shape:           comps.Shape,
+		ShapeEvidence:   comps.ShapeEvidence,
+		FileCount:       len(tree.Files),
+		Truncated:       tree.Truncated,
+		Languages:       comps.Languages,
+		Components:      comps.Components,
+		Checks:          ciResult.Checks,
+		Links:           linksResult.Links,
+		DeploySignals:   linksResult.DeploySignals,
+		Findings:        findingsResult.Findings,
+		FindingsScanned: true,
+		FindingsPartial: findingsResult.Partial || tree.Truncated,
 	}
 	result.Warnings = append(result.Warnings, comps.Warnings...)
 	result.Warnings = append(result.Warnings, ciResult.Warnings...)
 	result.Warnings = append(result.Warnings, linksResult.Warnings...)
+	result.Warnings = append(result.Warnings, findingsResult.Warnings...)
 	return result
 }
 
@@ -174,6 +183,22 @@ func stackSummary(comps []domain.DetectedComponent) string {
 		parts = parts[:8]
 	}
 	return strings.Join(parts, ", ")
+}
+
+func findingsSummary(found []domain.DetectedFinding) string {
+	if len(found) == 0 {
+		return "no code health findings"
+	}
+	high := 0
+	for _, f := range found {
+		if f.Severity == domain.FindingSeverityHigh {
+			high++
+		}
+	}
+	if high == 0 {
+		return fmt.Sprintf("%d code health findings", len(found))
+	}
+	return fmt.Sprintf("%d code health findings, %d high severity", len(found), high)
 }
 
 func checksSummary(checks []domain.DetectedCheck) string {

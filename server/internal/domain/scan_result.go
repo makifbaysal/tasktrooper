@@ -13,8 +13,16 @@ type ScanResult struct {
 	Checks        []DetectedCheck     `json:"checks,omitempty"`
 	Links         []DetectedLink      `json:"links,omitempty"`
 	DeploySignals []DeploySignal      `json:"deploy_signals,omitempty"`
-	Git           ScanGit             `json:"git"`
-	Warnings      []string            `json:"warnings,omitempty"`
+	Findings      []DetectedFinding   `json:"findings,omitempty"`
+	// FindingsScanned is false on a result from a scanner that predates
+	// code-health findings (an older executor on a member's computer); such a
+	// result must not resolve every open finding.
+	FindingsScanned bool `json:"findings_scanned,omitempty"`
+	// FindingsPartial: the scan stopped reading before the end of the tree,
+	// so a finding missing from this result may still be in the code.
+	FindingsPartial bool     `json:"findings_partial,omitempty"`
+	Git             ScanGit  `json:"git"`
+	Warnings        []string `json:"warnings,omitempty"`
 }
 
 type LanguageShare struct {

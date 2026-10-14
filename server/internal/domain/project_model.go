@@ -630,6 +630,7 @@ const (
 	ScanStageChecks     ScanStage = "checks"
 	ScanStageLinks      ScanStage = "links"
 	ScanStageDeploy     ScanStage = "deploy"
+	ScanStageFindings   ScanStage = "findings"
 	ScanStageMatch      ScanStage = "match"
 )
 
