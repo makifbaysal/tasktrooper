@@ -21,6 +21,7 @@ everything below this section is the component layer.
 | `component_links` | One outgoing edge: to another component or to a `system_resources` row, `status`/`confidence`, `target_host`/`target_port` (migration 156) |
 | `system_resources` | A workspace-wide node (database, queue, SaaS API…), deduped by `identity_key` |
 | `project_scans` | One scan's progress/events/result, `review_count` |
+| `component_findings` | Code-health findings, one per (component, rule): `status` (`open`/`accepted`/`false_positive`/`resolved`), `status_reason`, `task_id`, `occurrences`, `evidence` (migration 185) |
 | `cloud_accounts` / `component_environments` | Where a component runs — see [Cloud accounts & environments](#cloud-accounts--environments-phase-2) |
 
 ## Board Columns
@@ -55,6 +56,7 @@ Column slugs are global in `board_columns`. Default template: `backlog`, `todo`,
 | POST `/v1/repositories/:id/components` · PATCH `/v1/components/:componentId` |
 | POST `/v1/components/:componentId/checks` · PATCH `/v1/checks/:checkId` · DELETE (manual only) |
 | POST `/v1/links` · PATCH `/v1/links/:linkId` (`to_component_id`/`to_resource`/`to_resource_id`, at most one) · DELETE (user-created only) |
+| PATCH `/v1/findings/:findingId` (`status`, `reason`) · POST `/v1/repositories/:id/findings/task` — see [Code-health findings](#code-health-findings-migration-185) |
 | GET `/v1/resources` — `domain.WorkspaceResource[]`: every resource with ≥1 non-dismissed link, its users and projects, `link_count` |
 | PATCH `/v1/resources/:resourceId` (`{"name"}`) · POST `/v1/resources/:resourceId/merge` (`{"into_resource_id"}`) · POST `/v1/resources/:resourceId/split` (`{"link_ids"}`) |
 
@@ -93,6 +95,43 @@ clears it too. `RepositoryModel.review` / `ProjectDetail.review` carry every ope
 After reconcile: the legacy fields project (below), a finished scan's deploy signals are
 matched into `component_environments` (`cloud.Service.MatchScan`), and `projectmodel.Relink`
 re-resolves any link still waiting on a target.
+
+## Code-health findings (migration 185)
+
+Every scan also reads the code for problems a person would want a task for
+(`internal/application/discovery/findings`, still no network and no LLM): debug
+logging or debug mode that reaches production, logging that is missing (no logger,
+no request logging, errors caught and dropped), secrets in the tree, insecure
+configuration (TLS checks off, cleartext traffic, debuggable releases, permissive
+CORS), crash reporting and error boundaries a client app lacks, and general
+quality signals (no tests, no linter, oversized files, `any` overuse). Rules,
+their ids, category and default severity are `findings.Rules()`; the wording a
+person reads is the UI's per locale, the wording an agent reads is
+`catalog/system/partials/findings/<rule>.md`.
+
+One `DetectedFinding` per (component, rule) aggregates every occurrence: a count
+and up to `domain.MaxFindingEvidence` locations, each `path:line` with the line
+itself as the note — except secrets, whose note names the kind of secret, never the
+value. Test files are counted (for `no_automated_tests`) but no rule reads them;
+generated files, scripts and examples are skipped by the rules about what ships.
+A file no component owns lands in a repository-wide finding (`component_path: ""`,
+`component_id` NULL). The scan reads at most 15k files / 96 MiB; a scan that runs
+out sets `findings_partial`.
+
+`component_findings` keeps them across scans, keyed by (component, rule), and
+`projectmodel.planFindings` is the pure diff:
+
+- reported again → counts, severity and locations refresh; the id, the task link
+  and the status stay. `accepted` (a person keeps the risk) and `false_positive`
+  (the scan is wrong) **never reopen** on a later scan.
+- no longer reported → an `open` finding becomes `resolved`; a `resolved` one with
+  no task is deleted after 30 days. A partial scan resolves nothing, and a result
+  without `findings_scanned` (an older executor) is not applied at all.
+- `resolved` that comes back → `open` again.
+
+`POST /v1/repositories/:id/findings/task` turns open findings into one board task
+(type `technical` by default) and links them; the next scan after the fix merges
+resolves them.
 
 ## Checks
 

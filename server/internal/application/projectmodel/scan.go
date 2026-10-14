@@ -130,6 +130,10 @@ func (s *Service) runScan(ctx context.Context, repo domain.Repository, scan doma
 		log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: legacy projection failed")
 	}
 
+	if err := s.reconcileFindings(ctx, repo.ID, scan.ID, result); err != nil {
+		log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: saving code health findings failed")
+	}
+
 	if s.deployMatcher != nil {
 		if err := s.deployMatcher.MatchScan(ctx, repo.ID, result); err != nil {
 			log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("scan: deploy match failed")

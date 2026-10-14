@@ -98,6 +98,10 @@ func (s *Service) RepositoryModel(ctx context.Context, repositoryID uuid.UUID) (
 	if err != nil {
 		return domain.RepositoryModel{}, err
 	}
+	findings, err := s.listFindings(ctx, repositoryID)
+	if err != nil {
+		return domain.RepositoryModel{}, err
+	}
 
 	return domain.RepositoryModel{
 		Repository:       repo,
@@ -111,6 +115,7 @@ func (s *Service) RepositoryModel(ctx context.Context, repositoryID uuid.UUID) (
 		Environments:     nonNil(environments),
 		Review:           nonNil(reviewItems(components, checks, links, environments)),
 		LatestScan:       latestScan,
+		Findings:         nonNil(findings),
 	}, nil
 }
 

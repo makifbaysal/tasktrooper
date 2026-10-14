@@ -185,6 +185,9 @@ type RepositoryModel struct {
 	Environments     []ComponentEnvironment `json:"environments"`
 	Review           []ReviewItem           `json:"review"`
 	LatestScan       *ProjectScan           `json:"latest_scan,omitempty"`
+	// Findings are the code-health findings of every status; the UI groups
+	// them by component and filters by status.
+	Findings []ComponentFinding `json:"findings"`
 }
 
 type ComponentSummary struct {

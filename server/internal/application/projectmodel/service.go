@@ -69,6 +69,9 @@ type Service struct {
 	deployMatcher DeployMatcher
 	environments  port.EnvironmentStore
 
+	findings port.FindingStore
+	tasks    TaskCreator
+
 	// deliveryConfirmedHook wakes the release service when a human confirms a
 	// component's delivery profile, so tasks already merged and waiting in
 	// done get their release opened without a second scan or merge.

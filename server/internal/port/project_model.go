@@ -102,3 +102,17 @@ type ProjectModelStore interface {
 type LegacyModelSource interface {
 	ListLegacyDependencies(ctx context.Context, repositoryID uuid.UUID) ([]domain.LegacyDependency, error)
 }
+
+// FindingStore persists code-health findings (migration 185). It sits beside
+// ProjectModelStore rather than inside it: findings are optional to the
+// model, and a build without the store simply reports none.
+type FindingStore interface {
+	// Ordered by component, then severity (high first), then rule; each row
+	// carries its linked task as it stands now.
+	ListFindings(ctx context.Context, repositoryID uuid.UUID) ([]domain.ComponentFinding, error)
+	GetFinding(ctx context.Context, id uuid.UUID) (domain.ComponentFinding, error)
+	SaveFinding(ctx context.Context, f domain.ComponentFinding) (domain.ComponentFinding, error)
+	// ApplyFindings is one scan's worth of writes, in one transaction.
+	ApplyFindings(ctx context.Context, repositoryID uuid.UUID, save []domain.ComponentFinding, del []uuid.UUID) error
+	LinkFindingsToTask(ctx context.Context, ids []uuid.UUID, taskID uuid.UUID) error
+}

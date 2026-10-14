@@ -866,6 +866,17 @@ fetched on demand through the `get_project_brief` tool.
 PATCH bodies distinguish an absent field (leave), `null` (revert to detected) and a
 value (set the override). Errors are flat `{"error": "…"}`.
 
+### Code-health findings (migration 185)
+
+`GET /v1/repositories/{id}/model` carries `findings`: every `domain.ComponentFinding`
+of the repository, any status, never `null`. Details in
+[projects.md](projects.md#code-health-findings-migration-185).
+
+| Route | Body / response |
+|---|---|
+| `PATCH /v1/findings/{id}` | `{status?, reason?}` — `status` is `open`, `accepted` or `false_positive`; `reason` (≤500 chars) is kept only on the two closed statuses, and reopening clears it. 400 on `resolved` (only a scan resolves or reopens) and on a finding that is already resolved. 200 the finding |
+| `POST /v1/repositories/{id}/findings/task` | `{finding_ids, title, task_type?, priority?, notes?}` — one board task for up to 50 **open** findings of the repository. `task_type` defaults to `technical`, `priority` to the worst finding's severity (`high`/`medium`/`low`); the task is tied to the findings' component when they share one. The description is `catalog/system/prompts/findings/task.md` with each rule's `partials/findings/<rule>.md`; `notes` goes above it. 201 `{task, findings}` with every finding now carrying `task_id` and `task` |
+
 ## Design systems (migration 178)
 
 One base design system per project (`scope: "project"`) and an optional layer per

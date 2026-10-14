@@ -1774,6 +1774,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				Legacy:    pgstore.NewLegacyModelSource(e.pgDB),
 			})
 			modelSvc.SetBackgroundContext(ctx)
+			modelSvc.SetFindingStore(pgstore.NewFindingStore(e.pgDB))
+			modelSvc.SetTaskCreator(repositorySvc)
 			modelSvc.Boot(ctx)
 			for _, tool := range projectmodeltools.NewExecutors(&projectmodeltools.ToolKit{Model: modelSvc}) {
 				e.reg.Register(tool)
