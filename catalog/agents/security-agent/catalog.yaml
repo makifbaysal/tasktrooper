@@ -52,10 +52,10 @@ subscriptions:
     - code_review
 tech_stacks:
     - name: Secure review method
-      description: 'Differential, risk-first review of a diff mapped to OWASP Top 10:2025, ASVS 5.0 and CWE; false-positive gate, verdict policy, read-only scanners'
+      description: 'Differential, risk-first review of a diff mapped to OWASP Top 10:2025, ASVS 5.0 and CWE; invariant-first tracing, coverage and variant pass, false-positive gate, needs-validation notes, verdict policy, read-only scanners'
       position: 1
     - name: Web & API
-      description: 'Server and browser vulnerability classes: access control, injection, files, SSRF, authentication, secrets and crypto, XSS/CSRF'
+      description: 'Server and browser vulnerability classes: access control, data isolation and lifecycle, business logic, injection, files, SSRF, authentication and identity protocols, proxy and cache trust, secrets and crypto, XSS/CSRF/WebSockets'
       position: 2
     - name: Go
       description: 'Go services: net/http and Fiber handlers, os/exec, filepath and os.Root, crypto/rand, html/template, database/sql'
@@ -73,14 +73,23 @@ tech_stacks:
       description: 'iOS, Android and Flutter apps against OWASP MASVS: storage, network/ATS, exported components, deep links, WebViews'
       position: 7
     - name: Supply chain & CI/IaC
-      description: 'New or changed dependencies, GitHub Actions, Dockerfiles, Terraform and Kubernetes manifests'
+      description: 'New or changed dependencies, build context, signing and updates, GitHub Actions caches and artifacts, Dockerfiles, Terraform, Kubernetes, workload identity and environment overlays'
       position: 8
     - name: LLM & agent systems
-      description: 'Prompt injection with tools, excessive agency, model output to sinks, MCP and agent configs (OWASP LLM 2025, Agentic 2026)'
+      description: 'Prompt injection with tools, excessive agency, action binding, tool-schema and MCP identity, memory and context bleed, model output to sinks, MCP and agent configs (OWASP LLM 2025, Agentic 2026)'
       position: 9
     - name: Game code
       description: 'C#, GDScript and C++ game code: authoritative server, network message validation, save tampering, mod and script loading'
       position: 10
+    - name: Protocols & messaging
+      description: 'gRPC and GraphQL authorization, queue and pub/sub consumers, inbound webhooks: peer identity, untrusted producers, enum defaults, replay and ordering'
+      position: 11
+    - name: Desktop & local IPC
+      description: 'Loopback servers, bind addresses, Unix sockets and named pipes, Electron/Tauri main-process IPC, URL schemes, privileged helpers, tools spawned in supplied directories'
+      position: 12
+    - name: Native code & FFI
+      description: 'C/C++, unsafe Rust, cgo, JNI and ctypes on untrusted bytes: bounds, integer overflow before allocation, lifetimes, format strings, FFI ownership, library search order'
+      position: 13
 kpis:
     - metric_key: clean_time_code_review
       name: Clean review time

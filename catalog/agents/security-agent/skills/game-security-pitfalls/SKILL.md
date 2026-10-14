@@ -55,7 +55,7 @@ Also: Mirror `[Command(requiresAuthority = false)]` acting on objects the caller
 
 Every field in a packet is attacker-chosen.
 
-- **Sizes and indices:** a length or count read from the packet used to allocate, copy or index. In C/C++ this is memory corruption (CWE-120, CWE-787) — in scope, since these are not memory-safe languages.
+- **Sizes and indices:** a length or count read from the packet used to allocate, copy or index. In C/C++ this is memory corruption (CWE-120, CWE-787) — in scope, since these are not memory-safe languages (native-memory-safety-and-ffi for bounds, integer overflow and lifetimes).
 - **Ranges:** item slots, entity ids, enum values, positions; `NaN` and `Infinity` floats passing `<`/`>` checks.
 - **Ownership:** the entity id in the message belongs to the sender.
 - **Versioning:** an unknown message type or version is rejected, not interpreted with the newest layout.

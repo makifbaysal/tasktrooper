@@ -1,9 +1,9 @@
 ---
 name: ci-cd-and-iac-security
 category: security
-description: Use when the diff changes a GitHub Actions workflow, a reusable action, a Dockerfile or compose file, Terraform/HCL, Kubernetes manifests or Helm values, or a cloud OIDC trust policy - judged only where concretely exploitable
+description: Use when the diff changes a GitHub Actions workflow, a reusable action, a CI cache or artifact handoff, a Dockerfile or compose file, Terraform/HCL, Kubernetes manifests or Helm values, an environment overlay, a workload identity binding or a cloud OIDC trust policy - judged only where concretely exploitable
 tech_stack: Supply chain & CI/IaC
-source: original; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); GitHub Actions security hardening docs, zizmor audit names and OWASP Top 10:2025 A02/A03 cited by name only
+source: original; cloudflare/security-audit-skill (MIT) CI, cloud and deployment attack classes (cache and artifact trust mixing, workload identity, config precedence drift, label trust), adapted; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); GitHub Actions security hardening docs, zizmor audit names and OWASP Top 10:2025 A02/A03 cited by name only
 ---
 # CI/CD and Infrastructure-as-Code Security
 
@@ -35,7 +35,9 @@ jobs:
 on: pull_request
 ```
 
-Same shape: `workflow_run` downloading an artifact built from a fork and executing or trusting it (artifact poisoning).
+Same shape: `workflow_run` downloading an artifact built from a fork and executing or trusting it (artifact poisoning) — including extracting it over the workspace, where it replaces scripts the job then runs, or reading a PR number, branch or path from it into a shell.
+
+**Cache poisoning:** a job that runs untrusted code (a `pull_request_target` job that executes PR code, a job on a self-hosted runner shared with releases) can write an `actions/cache` entry under the base branch's scope; a privileged release or deploy workflow that later restores that key executes what was planted. Caches restored into release builds should come from jobs that never run untrusted code, or not be used there at all.
 
 ## 2. GitHub Actions — Expression Injection
 
@@ -94,6 +96,17 @@ Same for GCP Workload Identity (a missing `attribute_condition`) and Azure feder
 | ClusterRoleBinding to `cluster-admin`, RBAC `verbs: ["*"]` on `secrets` for an app service account | the pod is reachable from outside the cluster |
 | Plain-text secrets in Helm values, ConfigMaps or `.tfvars` committed | live values (secrets-and-crypto-review) |
 
+## 8. Workload Identity and Runtime Configuration
+
+- **Identity reach:** a pod, function or worker identity bound to a broad cloud role, while request or job input selects the target (a bucket, a project, a queue name) — the service becomes a deputy for every resource the role can touch. Broad policy alone is hardening; the finding is input choosing the resource.
+- **Federation trust:** workload identity or role-assumption conditions that accept any namespace, service account or repository (`…svc.id.goog[*/*]`, a missing `sub`/`aud` condition, an external id that is not checked).
+- **Labels and namespaces as trust:** a NetworkPolicy, admission rule or secret access granted by a label or namespace that a less-trusted deployer can set on their own workload.
+- **Config precedence drift:** the base file is safe but an overlay, values file, environment variable or flag disables authentication, TLS verification or tenant scoping in an environment that is actually deployed (`AUTH_DISABLED=true` in `values-prod.yaml`, `--insecure` in a production Kustomize patch). Read the final rendered value for each environment the repository deploys.
+- **Bypass of the front door:** a `Service` of type `LoadBalancer`/`NodePort`, an extra port or a health route that reaches a backend which trusts identity headers set by an ingress or auth proxy (http-cache-and-proxy-trust §5).
+- **Secrets in the wrong place:** credentials in container `args`, in a ConfigMap rather than a Secret, or in environment variables shared with sidecars that run untrusted code.
+
+Whether the deployed environment uses a manifest — or a cloud default overrides it — is often outside the repository; when that one fact decides a HIGH, write a needs-validation note (source-visibility-needs-validation).
+
 ## Common Mistakes
 
 - Reporting every Checkov/Trivy/zizmor hardening rule as a finding.
@@ -108,6 +121,9 @@ Same for GCP Workload Identity (a missing `attribute_condition`) and Azure feder
 - `>> $GITHUB_ENV` with event data.
 - An LLM step with tool permissions in a workflow triggered by `issues` or `issue_comment`.
 - `StringLike` with `:*` on a `token.actions.githubusercontent.com:sub` condition.
+- `actions/cache` restore in a release or deploy workflow whose key a PR-triggered job can also save.
+- `download-artifact` followed by `unzip` into the workspace or by `run:` steps that read files from the artifact.
+- A production overlay or values file that sets an auth, TLS or debug switch the base file keeps safe.
 
 ## References (names and links only)
 

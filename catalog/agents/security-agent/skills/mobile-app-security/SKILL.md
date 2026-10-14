@@ -3,7 +3,7 @@ name: mobile-app-security
 category: security
 description: Use when reviewing iOS (Swift), Android (Kotlin) or Flutter changes - token storage, ATS and cleartext config, TLS trust, exported components, deep links, WebView JavaScript bridges, certificate pinning claims, secrets bundled in the app, Firebase rules
 tech_stack: Mobile
-source: original; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP MASVS v2 and MASTG cited by name only; Android and Apple platform security documentation cited, not reproduced
+source: original; cloudflare/security-audit-skill (MIT) deep-link handoff and device-lifecycle classes, adapted; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP MASVS v2 and MASTG cited by name only; Android and Apple platform security documentation cited, not reproduced
 ---
 # Mobile App Security (MASVS)
 
@@ -76,6 +76,8 @@ Also: a custom `X509TrustManager` or `HostnameVerifier` that accepts all; `URLSe
 
 Android `BROWSABLE` intent filters and App Links, iOS universal links and custom URL schemes (`application(_:open:options:)`, `onOpenURL`), Flutter `go_router`/`app_links` handlers: any web page can fire them. A finding when a link's parameters trigger a privileged action without confirmation (auto-login with a token from the link, changing account settings, initiating payments), or load an arbitrary URL into a privileged WebView.
 
+**Handoffs through links.** Any app can register the same custom scheme, so an OAuth, SSO, magic-link or payment callback delivered over a custom scheme can reach the wrong app. The callback must carry the `state` this app stored for a flow it started, and the code must be useless without this app's PKCE verifier; verified App Links/universal links are the stronger channel. A callback accepted with no pending flow, or applied to whichever account is signed in now, is a finding.
+
 ## 6. WebViews and JavaScript Bridges
 
 ```kotlin
@@ -97,6 +99,12 @@ if (Uri.parse(url).host == "app.example.com") webView.loadUrl(url) else openInBr
 - Biometric unlock implemented as a boolean set in `onAuthenticationSucceeded`/`evaluatePolicy` callback without a Keystore/Keychain key bound to it — bypassable on a compromised device; a MEDIUM note when it gates sensitive data.
 - Dynamic code loading: `DexClassLoader` from external storage or downloaded files; JavaScript bundles or Dart code pushed over the air without signature verification.
 
+## 8. Account Switch, Logout and Pending Actions
+
+- Cached API responses, local databases, WebView cookies and storage, widgets or notifications that survive logout and show the previous account's data to the next one.
+- A notification action, widget, shortcut or share extension that performs an action for an account other than the one displayed, or after the session that created it ended.
+- A biometric or "confirm" prompt that approves one action while a different, queued action executes.
+
 ## Not Findings
 
 Missing root/jailbreak detection, missing obfuscation, missing anti-tamper, screenshots in the app switcher, missing pinning, missing authorization checks in client code (judge the server).
@@ -114,6 +122,7 @@ Missing root/jailbreak detection, missing obfuscation, missing anti-tamper, scre
 - `addJavascriptInterface`, `JavaScriptChannel` or a `WKScriptMessageHandler` next to a URL taken from an intent, a deep link or a server response.
 - `NSAllowsArbitraryLoads`, `usesCleartextTraffic="true"`, `src="user"` outside debug configs.
 - `badCertificateCallback`, trust-all managers, `allow read, write: if true`.
+- An auth redirect URI on a custom scheme with no PKCE or no `state` comparison.
 - A secret-looking constant in `BuildConfig` or `Info.plist`.
 
 ## References (names and links only)

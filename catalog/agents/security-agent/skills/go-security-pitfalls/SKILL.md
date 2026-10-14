@@ -102,7 +102,7 @@ json.NewDecoder(r.Body).Decode(&req)
 
 ## 8. unsafe and cgo
 
-`unsafe.Pointer` arithmetic, `unsafe.Slice`/`unsafe.String` over attacker-sized buffers, and C code reached through cgo are memory-unsafe again — trace sizes and lengths from input.
+`unsafe.Pointer` arithmetic, `unsafe.Slice`/`unsafe.String` over attacker-sized buffers, and C code reached through cgo are memory-unsafe again — trace sizes and lengths from input (native-memory-safety-and-ffi has the bounds, integer and cgo pointer rules).
 
 ## Common Mistakes
 

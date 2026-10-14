@@ -3,7 +3,7 @@ name: security-hard-exclusions-and-precedents
 category: security
 description: Use when a candidate finding falls into a noisy category - the do-not-report list, the precedents that settle recurring edge cases, and the narrow exceptions where an excluded category still counts
 tech_stack: Secure review method
-source: anthropics/claude-code-security-review (MIT) hard exclusions and precedents, adapted (the prompt-injection exclusion is replaced, not kept); OWASP and CWE cited by name only
+source: anthropics/claude-code-security-review (MIT) hard exclusions and precedents, adapted (the prompt-injection exclusion is replaced, not kept); cloudflare/security-audit-skill (MIT) domain core disciplines and availability criteria, adapted; OWASP and CWE cited by name only
 ---
 # Hard Exclusions and Precedents
 
@@ -16,7 +16,7 @@ Some categories produce far more noise than signal in a diff review, or are hand
 ## 1. Never Report
 
 **Availability and load**
-- Denial of service, resource exhaustion, memory or CPU blow-up, missing rate limiting, unbounded loops.
+- Denial of service, resource exhaustion, memory or CPU blow-up, missing rate limiting, unbounded loops — except the narrow single-input cases in §4.
 - Regex injection and ReDoS.
 
 **Hardening without a vulnerability**
@@ -26,9 +26,9 @@ Some categories produce far more noise than signal in a diff review, or are hand
 
 **Out of this review's scope**
 - Outdated libraries in general — dependency risk is judged by supply-chain-and-dependency-review, version by version.
-- Memory-safety issues in memory-safe languages (Go, Java, Kotlin, C#, Rust safe code, Python, JS).
+- Memory-safety issues in memory-safe languages (Go, Java, Kotlin, C#, Rust safe code, Python, JS). Native code, `unsafe` blocks, cgo and FFI are in scope (native-memory-safety-and-ffi).
 - Anything only in test files, fixtures, examples or documentation (Markdown, comments).
-- Theoretical race conditions and timing issues without a demonstrated window and impact.
+- Theoretical race conditions and timing issues without a demonstrated window and impact. A check-then-act race the attacker drives with two concurrent requests, for money, quota, a unique claim or a privilege, is not theoretical (business-logic-and-state-abuse §2).
 - Secrets stored on disk with otherwise appropriate protection (a mounted secret file, an OS keychain).
 - Pre-existing issues the diff did not introduce or enable.
 
@@ -56,6 +56,16 @@ Some categories produce far more noise than signal in a diff review, or are hand
 | Dev fallback such as `os.environ.get("SECRET_KEY", "dev")` | Fine — unless production demonstrably runs without the variable set |
 | Publishable keys (Stripe `pk_`, Firebase web config, analytics write keys) | Fine by design |
 | Secret in a test fixture | Excluded when it is a dummy or a documented test key; a real production credential pasted into a test is still a live secret |
+| "Internal" service, private network, "only other services call it" | Not authentication. Judge by who can reach it; if that is decided outside the repository, it is a needs-validation note |
+| JSON Schema, protobuf, zod, Pydantic or a typed DTO on the input | Proves shape, not authority, provenance or safe values |
+| A `tenant_id` / `owner_id` column on the record | Not isolation until a query, policy or key on this path enforces it |
+| A secret reference (vault path, env var name, secret ARN, key id) | Not a disclosed secret |
+| Missing cookie flags, missing MFA prompt, missing least privilege, missing pinning | Hardening, unless a concrete path uses the gap |
+| A user installing a plugin, extension or script into their own app | Not a boundary |
+| A file, token or config readable only by the same OS user | Not a finding — the attacker is the victim |
+| Different responses that reveal whether a public account exists | Not a finding; an oracle on a protected predicate (another tenant's record, a hidden field's value) is |
+| `Access-Control-Allow-Origin: *` together with credentials | Browsers refuse it — the finding shape is a reflected or loosely matched origin with credentials |
+| A system prompt or guardrail instruction | Not a control; tool permissions, scoping and approval are |
 
 ## 3. The Rule That Was Replaced
 
@@ -63,10 +73,16 @@ The upstream list excluded "user content in an AI system prompt". This agent doe
 
 ## 4. Where an Exclusion Stops
 
-- **DoS excluded — but** an algorithmic flaw that lets one unauthenticated request take a service down permanently (a poisoned cache entry, a persisted bad record that crashes every reader) is integrity loss, judge it as such.
 - **Test files excluded — but** a diff that changes production behaviour behind a test-only flag reachable in production (`if os.getenv("TEST_MODE")` disabling auth) is production code.
 - **Documentation excluded — but** an agent instruction file (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, a prompt template) is configuration an LLM executes; a hidden instruction or a permission change there is in scope.
 - **Hardening excluded — but** removing an existing control (deleting CSRF middleware, setting `verify=False`, dropping `HttpOnly`) is a removed guard, judged by its concrete impact.
+- **Availability excluded — but** one bounded input (not sustained volume) is in scope when the effect is persistent, amplified onto everyone, or spends operator money without limit:
+  - a poisoned cache entry, or a persisted record or message that crashes every reader or blocks a shared queue partition until someone removes it by hand — integrity loss as much as availability;
+  - a decompression, archive or image bomb expanded before any size check, on a shared worker, by an unauthenticated or low-trust sender;
+  - a panic outside the request goroutine (Go's `net/http` recovers only the handler's own) or an unhandled rejection that kills the shared process, reachable from one request;
+  - an untrusted trigger — an issue, an inbound email, a webhook, a public form — that starts work looping or fanning out paid API or model calls with no per-request budget, cap or cancellation.
+
+  Write the input-to-cost path: the input, the work it triggers, the missing bound, who else is affected, and how the system recovers. MEDIUM by default; HIGH when unauthenticated and persistent. A missing rate limit, a slow endpoint or "many requests could…" stays excluded.
 
 ## Common Mistakes
 
@@ -75,6 +91,7 @@ The upstream list excluded "user content in an AI system prompt". This agent doe
 - Reporting a stack trace on a 500 as data exposure when it contains no secret, path or query.
 - Flagging `{userInput}` in JSX as XSS.
 - Dropping a prompt-injection finding because "user content in prompts is excluded" while the model can call `run_shell`.
+- Using the availability exception for anything that needs sustained volume to hurt.
 
 ## Red Flags
 

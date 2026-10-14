@@ -3,7 +3,7 @@ name: access-control-and-idor
 category: security
 description: Use when the diff adds or changes an endpoint, resolver, RPC, job or query that takes an object id, a role check, a request binding or a tenant filter - BOLA/IDOR, function-level authorization, mass assignment and tenant scoping
 tech_stack: Web & API
-source: original; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP API Security Top 10 2023, OWASP Top 10:2025 and ASVS 5.0 cited by name only
+source: original; cloudflare/security-audit-skill (MIT) access-control questions (parallel paths, per-item bulk checks, body overrides), adapted; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP API Security Top 10 2023, OWASP Top 10:2025 and ASVS 5.0 cited by name only
 ---
 # Access Control and IDOR
 
@@ -106,6 +106,10 @@ if err != nil || !perms.CanDelete { return ErrForbidden }
 ```
 
 Also: a `switch` on role with a permissive `default`; a feature flag that disables the check when unset; an inverted comparison.
+
+## 6. Parallel Paths to the Same Effect
+
+The check on the route the diff adds may be right while the same state change stays reachable another way with a weaker one. For each protected effect the diff touches, list every door: the REST route and its GraphQL mutation, the v1 and v2 handlers, the single-item and the bulk endpoint, the import file, the admin tool, the background job, the WebSocket message, the agent tool. Each needs the same permission on the same resource — not authentication alone, and not a permission on a different object. Also ask whether a field in the body can override what the permission system restricts (`"orgId"`, `"ownerId"`, `"role"` in an update body) and whether bulk, export and import enforce the check per item. Tenant scoping across copies and lifecycle — caches, search, exports, soft-delete, revocation — is data-isolation-and-lifecycle.
 
 ## Severity Guide
 

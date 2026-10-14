@@ -1,9 +1,9 @@
 ---
 name: security-verdict-and-report
 category: security
-description: Use when deciding the verdict of a security review - severity and confidence scales, when to block, approve with notes, drop or reject as unreviewable, and the exact comment templates
+description: Use when deciding the verdict of a security review - severity anchors and confidence scale, when to block, approve with notes, add a needs-validation note, drop or reject as unreviewable, the smallest-fix rule and the exact comment templates
 tech_stack: Secure review method
-source: anthropics/claude-code-security-review (MIT) severity and confidence scales, adapted; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP and CWE cited by name only
+source: anthropics/claude-code-security-review (MIT) severity and confidence scales, adapted; cloudflare/security-audit-skill (MIT) severity anchors, needs-validation verdict and smallest-fix rule, adapted; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP and CWE cited by name only
 ---
 # Security Verdict and Report
 
@@ -24,6 +24,15 @@ A security reviewer that blocks on noise gets ignored; one that passes on a hunc
 
 Exposure moves severity, not existence: "only reachable from the internal network" can still be HIGH when internal callers are not trusted. Use the deployment shape from `get_project_brief`.
 
+Anchors that keep two reviews of the same bug at the same level:
+
+- **CRITICAL** — an unauthenticated actor gains code execution, full data-store access, or takeover of arbitrary accounts.
+- **HIGH** — an actor fully defeats an explicit security control with real consequences: authentication bypass, cross-tenant read or write, stored script execution against other users, authenticated code execution, an unauthenticated remote stop of a shared service.
+- **MEDIUM** — a real boundary violation with a limited blast radius, uncommon preconditions, or consequences confined to a narrow set of resources.
+- **LOW** — disclosure of non-secret internals, or an effect that needs sustained effort for minimal gain. Dropped.
+
+The HIGH/MEDIUM line: does the traced result **fully defeat** an explicit control for an action with real consequences, or only weaken it? Likelihood — preconditions, attacker position — moves severity down; nothing moves it above the impact the trace shows. If you cannot state the concrete damage, the severity is lower than it feels.
+
 ## 2. Confidence
 
 Confidence is about exploitability **in this code**, not about whether the pattern looks bad:
@@ -43,7 +52,7 @@ Evaluate every surviving finding, then apply the strongest outcome:
    - a live secret in non-test code;
    - a new or changed dependency that is malicious, a likely typosquat, or carries a critical/high advisory with a fixed version available;
    - CI or agent escalation: `pull_request_target` with a PR-head checkout and secrets in reach, an agent permission-bypass flag, untrusted input reaching an LLM that holds tools.
-3. **Approve with notes** → `ready_for_qa` plus one comment: MEDIUM findings at ≥ 0.8, at most three, highest first.
+3. **Approve with notes** → `ready_for_qa` plus one comment: MEDIUM findings at ≥ 0.8, at most three, highest first; and `Needs validation` notes, at most two (§6).
 4. **Clean** → `ready_for_qa`, no comment.
 
 LOW and < 0.8 findings are dropped: not "for awareness", not "minor", not mentioned.
@@ -70,6 +79,10 @@ Reviewed: all 14 changed files; scanners: gitleaks (diff), semgrep p/default on 
 
 Per finding: severity · category (CWE-x, OWASP A0x:2025) · `file:line`; the exploit sentence ("an attacker with [capability] can [action] → [impact]"); the evidence trace with `file:line`; the fix. Redact secrets to a recognisable prefix — never paste the full value into a comment.
 
+**The fix is the smallest source change that enforces the invariant at the last trusted decision point** — the repository method, check or parameter by name, plus the regression test that would fail if the hole reopened. "Sanitise input", "add validation" or "harden this" is not a fix. When one root cause appears at several locations, the fix names every location (coverage-and-variant-pass §4).
+
+`Needs validation` notes, if any, follow the last SEC-n in the same comment (§6).
+
 ## 5. Approve-with-Notes Template
 
 ```
@@ -80,7 +93,20 @@ Security review — approved with notes
 
 No praise, no list of what was fine, no LOW items, no more than three notes.
 
-## 6. Move and Stop
+## 6. Needs-Validation Notes
+
+For a lead whose source trace is complete, that would be HIGH or CRITICAL, and that exactly one fact outside the repository decides (source-visibility-needs-validation). It has no severity and never blocks on its own; at most two per review.
+
+```
+NV-1 · Identity header trusted behind the auth proxy · internal/api/middleware.go:31
+Trace: X-Forwarded-User (middleware.go:31) → auth.SetUser (middleware.go:38) → every /api route; deploy/k8s/api-service.yaml:9 publishes the pod as type LoadBalancer.
+Unresolved: whether the cluster's network policy or cloud firewall lets traffic reach that LoadBalancer without passing oauth2-proxy.
+Owner check: confirm the LoadBalancer's source ranges or the firewall rule in the cloud console; if it is reachable, drop the header trust or make the Service ClusterIP.
+```
+
+On an otherwise clean review, the comment is headed `Security review — approved with notes` and carries only the NV items. Never phrase a needs-validation note as a confirmed vulnerability, and never ask anyone to test it against a live system.
+
+## 7. Move and Stop
 
 - Comment first, then `move_board_task`. A move without its comment hands the developer a rejection with no reason, and the one-word fallback verdict cannot add one.
 - When the move tool says your verdict is recorded — the card waits for the other reviewer(s), or went to need_revision because another reviewer asked for changes — the run is over. Never move it again.
@@ -100,6 +126,7 @@ No praise, no list of what was fine, no LOW items, no more than three notes.
 - A rejection whose fix is "sanitise input" with no named function, parameter or check.
 - An approval while a file in the diff was never opened.
 - A notes comment on a clean approval that only says "looks good".
+- A needs-validation note with a severity, with no exact unresolved fact, or used for a lead whose trace is incomplete.
 
 ## References (names and links only)
 

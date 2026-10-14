@@ -3,7 +3,7 @@ name: security-diff-review-method
 category: security
 description: Use when starting any security review in code_review - risk-tier each changed file, read the repo's own security patterns, compare, then trace source to sink, including removed guards and blast radius
 tech_stack: Secure review method
-source: anthropics/claude-code-security-review (MIT) three-phase method, adapted; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP and CWE cited by name only
+source: anthropics/claude-code-security-review (MIT) three-phase method, adapted; cloudflare/security-audit-skill (MIT) invariant-first hunting method, sad-path and handoff checks, adapted; informed by trailofbits/skills (CC BY-SA 4.0, ideas only, own wording); OWASP and CWE cited by name only
 ---
 # Security Diff Review Method
 
@@ -33,6 +33,8 @@ Tier every file before reading any of them closely:
 
 A refactor is HIGH until you have shown it is LOW: moved code is where a guard silently stays behind.
 
+Then pick the attack-class skills each HIGH and MEDIUM file needs (coverage-and-variant-pass §1) and load them before tracing.
+
 ## 2. Phase 1 — Repository Context
 
 Before judging new code, learn how this repository already defends itself. A finding is strongest when it says "every neighbour does X, this one does not".
@@ -41,6 +43,7 @@ Before judging new code, learn how this repository already defends itself. A fin
 - Input handling: the validator, the query builder, the HTML escaper, the path helper, the URL fetcher with an allowlist.
 - Secrets: how config is loaded (env, secret manager), what the logger redacts.
 - Deployment shape: `get_project_brief` — a public multi-tenant service, an internal tool and a local desktop app have different attackers. It changes severity, never whether you trace.
+- Facts already verified: `search_memory` (scope=project) for this repository's security facts — which proxy strips which header, how tenants are scoped, which IMDS version runs. Save a new one with `save_memory` only when you read it in the base branch's source or config; never save a claim the change under review makes about itself.
 
 ```sh
 grep_code "RequireAuth|authMiddleware|@PreAuthorize|@RolesAllowed|ownerID|tenant_id"
@@ -71,7 +74,26 @@ List the sources the diff touches, then follow each one to where it is used.
 - Follow the value across files with `expand_symbol_context` and `grep_code` — a sanitiser in a helper you did not open is the most common false positive; a sanitiser applied on one branch only is the most common miss.
 - Write the trace down as you go: `source (file:line) → transform (file:line) → sink (file:line)`. It becomes the evidence line of the finding, or it shows you there is no finding.
 
-## 5. Removed Code Is a Change Too
+## 5. Work From an Invariant
+
+A sink that looks dangerous is where you start reading, not what you report. Every candidate is a broken invariant, and writing it as one keeps the trace honest:
+
+1. **Who** — the lower-trust principal and what they can already do (anonymous visitor, any tenant member, another local app, a fork PR).
+2. **What** — the value, action, state transition or resource selector they control.
+3. **Which control** — the line that should reject, bind, scope, limit or revoke it.
+4. **After the decision** — trace what actually happens to that value after the control ran, or where it was skipped.
+5. **Smallest effect** — the first wrong thing the trace reaches: another tenant's row returned, a command run, a token accepted, a state skipped. Stop there; do not extend the story.
+6. **Fix** — the source change that enforces the invariant at the last trusted decision point, and the regression test that would fail if it reopened.
+
+If you cannot fill in 1–3, there is no finding yet; if 4 shows the control holds, mark the surface covered and move on.
+
+## 6. Sad Paths and Handoffs
+
+Happy-path code is the most reviewed. For each value the diff accepts, check only the cases its interface really admits: absent, empty, zero, negative, maximum, over the limit, duplicated, mixed encoding or case, stale, revoked, reordered, concurrent, half-migrated, after a dependency failed, during rollback.
+
+At every handoff between components — parser to validator, validator to handler, API to queue to worker, service to cache — compare what the first side **guarantees** with what the second side **assumes**: truncation, normalization, Unicode case-folding, type coercion, units, tenant scope. Most real findings are one disagreement in that table.
+
+## 7. Removed Code Is a Change Too
 
 The `-` lines can be the vulnerability: a removed check, a dropped middleware, a loosened regex, a `private` that became `public`, a default flipped from deny to allow, `verify=True` deleted.
 
@@ -85,17 +107,22 @@ git show <sha> --stat                                      # read the commit tha
 
 A removed line that came from a commit mentioning a CVE, a security fix or an incident is a red flag; removal without a replacement guard is a finding when the input is still reachable.
 
-## 6. Blast Radius
+## 8. Blast Radius
 
 A changed shared function changes every caller. When the diff touches a validator, an auth helper, a sanitiser, a default value or a base class, count the callers (`grep_code` the symbol) and check whether any of them now passes attacker input through a weaker path. Name the caller's `file:line` in the finding — "might affect callers" is not evidence.
 
-## 7. Rules That Keep the Review Honest
+## 9. Rules That Keep the Review Honest
 
 - A comment or docstring that says "safe", "sanitised" or "trusted" is not evidence; the code on the path is.
 - Look for **missing** controls, not only for added sinks: a new endpoint with no ownership check has no dangerous-looking line.
 - Keep reading after the first finding; a diff with one hole often has its sibling.
 - A new data flow into a pre-existing dangerous sink IS a finding of this diff, even though the sink line is old.
 - Stop where the evidence stops: an area you could not verify is a coverage limit in the summary line, not a finding.
+- A decisive fact that lives outside the repository is neither assumed present nor assumed absent (source-visibility-needs-validation).
+
+## 10. Before the Verdict
+
+Run the coverage and variant pass once (coverage-and-variant-pass): every risky surface has a disposition, the critic questions are asked, every HIGH/CRITICAL root cause has had its variants searched, and the obvious-things sweep is done. Then put each survivor through the false-positive gate.
 
 ## Common Mistakes
 

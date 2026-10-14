@@ -1,9 +1,9 @@
 ---
 name: web-frontend-security
 category: security
-description: Use when the diff renders user-controlled content as HTML, builds links or redirects, changes CSP or CORS, adds a cookie-authenticated state change, a postMessage handler, a markdown renderer or an Electron/Tauri window
+description: Use when the diff renders user-controlled content as HTML, builds links or redirects, changes CSP or CORS, adds a cookie-authenticated state change or WebSocket, a postMessage handler, a markdown renderer, a service worker, browser storage of tokens or private data, a frameable sensitive action, or an Electron/Tauri window
 tech_stack: Web & API
-source: anthropics/claude-code-security-review (MIT) framework precedents, adapted; informed by anthropics/claude-code security-guidance plugin (ideas only); OWASP Top 10:2025 A05/A01 and CWE cited by name only
+source: anthropics/claude-code-security-review (MIT) framework precedents, adapted; cloudflare/security-audit-skill (MIT) client-side attack classes (cross-site WebSockets, service workers, browser storage, DOM clobbering, UI redress), adapted; informed by anthropics/claude-code security-guidance plugin (ideas only); OWASP Top 10:2025 A05/A01 and CWE cited by name only
 ---
 # Web Frontend Security
 
@@ -91,10 +91,42 @@ Report only with a concrete chain: a post-login `?next=` that can point off-site
 
 ## 7. Desktop Shells (Electron, Tauri)
 
-In a desktop shell, renderer XSS can become code execution.
+In a desktop shell, renderer XSS can become code execution. This section covers the window and renderer settings; the main-process IPC handlers, URL schemes and loopback servers are desktop-and-local-ipc-security.
 
 - Electron: `nodeIntegration: true`, `contextIsolation: false`, `sandbox: false`, `webSecurity: false`; a preload exposing `ipcRenderer` or `require` wholesale through `contextBridge`; `shell.openExternal(url)` with an unvalidated scheme; IPC handlers that run commands or read paths from renderer arguments without validation; remote content loaded into a privileged window.
 - Tauri: broad `allowlist`/capabilities (shell `open`, `fs` scopes of `**`), `dangerousRemoteDomainIpcAccess`.
+
+## 8. Cross-Site WebSocket Hijacking (CWE-1385)
+
+A WebSocket upgrade carries the browser's cookies and no CORS check. A handshake authenticated by cookie that does not verify `Origin` against an exact allowlist (or require a token the page must fetch first) lets any site open the socket as the victim and read or send messages.
+
+```ts
+// ❌ cookie session, any origin
+wss.on("connection", (ws, req) => { const user = sessionFrom(req.headers.cookie); … });
+// ✅
+const ok = ALLOWED_ORIGINS.has(req.headers.origin ?? "");
+if (!ok) { ws.close(1008); return; }
+```
+
+Not a finding when the socket authenticates with a token sent in the first message or a header the page cannot be made to send.
+
+## 9. Service Workers
+
+- The script URL passed to `navigator.serviceWorker.register` built from input, or served from a path user content can occupy; a `Service-Worker-Allowed` header that widens the scope beyond what the worker needs.
+- A fetch handler that caches personalized or authenticated responses without the user in the cache name or key, and serves them after logout or an account switch — or as the offline fallback for another user.
+- `importScripts` of a third-party URL without integrity control.
+
+## 10. Browser Storage and Account Switching
+
+A token in `localStorage` is not a finding by itself (authn-sessions-and-tokens §3). It is when a realistic lower-authority reader exists, or when the data outlives the session: private responses, drafts or auth decisions left in `localStorage`, IndexedDB or Cache Storage after logout and shown to the next account on a shared machine; a `storage` event or `BroadcastChannel` message that carries a token or an auth command between tabs without binding it to the current session.
+
+## 11. DOM Clobbering and Prototype-Pollution Gadgets
+
+Both need two halves in the trace. DOM clobbering: markup the attacker controls that keeps an `id` or `name` attribute (a sanitizer that allows them) **and** code that reads the clobbered global as configuration (`window.config || defaults`, `document.getElementById("cdn").href` for a script URL). Prototype pollution: an attacker-chosen key reaching a recursive merge or path setter **and** a gadget that reads the polluted property in a security decision, a script URL or an HTML sink (node-typescript-security-pitfalls §5).
+
+## 12. Clickjacking
+
+A frameable page with a one-click state change — confirming a payment, granting an OAuth scope, deleting an account, changing an email — and no `frame-ancestors` or `X-Frame-Options`. Missing frame headers on read-only or multi-step pages are hardening, not reported.
 
 ## Common Mistakes
 
@@ -110,7 +142,10 @@ In a desktop shell, renderer XSS can become code execution.
 - `Access-Control-Allow-Credentials: true` next to a reflected origin.
 - `addEventListener("message"` with no `origin` comparison.
 - An Electron `BrowserWindow` created with `nodeIntegration: true` or loading remote URLs.
+- A WebSocket server that reads the session cookie and never reads `Origin`.
+- A service worker that `cache.put`s responses from authenticated API routes.
+- A sanitizer configured to keep `id`/`name` next to code that reads `window.<name>`.
 
 ## References (names and links only)
 
-[OWASP Top 10:2025](https://owasp.org/Top10/2025/) A05 Injection, A01 Broken Access Control · [ASVS 5.0 V3 Web Frontend Security](https://github.com/OWASP/ASVS/tree/master/5.0/en) · CWE-79, 346, 352, 601, 942 · [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security)
+[OWASP Top 10:2025](https://owasp.org/Top10/2025/) A05 Injection, A01 Broken Access Control · [ASVS 5.0 V3 Web Frontend Security](https://github.com/OWASP/ASVS/tree/master/5.0/en) · CWE-79, 346, 352, 601, 942, 1021, 1321, 1385 · [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security)

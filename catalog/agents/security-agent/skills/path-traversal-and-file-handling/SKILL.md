@@ -80,7 +80,7 @@ if (!out.startsWith(destDir)) throw new IOException("bad entry: " + entry.getNam
 - Go `archive/zip` and `archive/tar`: check `filepath.IsLocal(hdr.Name)` and skip or reject symlink entries.
 - Node: hand-rolled extraction with `adm-zip`/`unzipper`/`yauzl` joining `entry.path`.
 
-Decompression bombs are a resource issue — excluded.
+Decompression bombs are a resource issue — excluded, except a bomb expanded before any size check on a shared worker by an unauthenticated or low-trust sender (security-hard-exclusions-and-precedents §4).
 
 ## 4. Uploads (CWE-434)
 
