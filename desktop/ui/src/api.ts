@@ -2862,6 +2862,7 @@ export type ScanStage =
   | "checks"
   | "links"
   | "deploy"
+  | "findings"
   | "match";
 
 /** One progress line the add-repository flow streams; summary is a finished
@@ -2931,6 +2932,79 @@ export interface RepositoryModel {
   environments: ComponentEnvironment[];
   review: ReviewItem[];
   latest_scan?: ProjectScan;
+  /** Code-health findings of every status; absent from a server that predates them. */
+  findings?: ComponentFinding[];
+}
+
+// Code-health findings (migration 185). Mirrors server/internal/domain/code_finding.go.
+export type FindingCategory =
+  | "security"
+  | "configuration"
+  | "logging"
+  | "error_handling"
+  | "observability"
+  | "reliability"
+  | "quality";
+
+export const FINDING_CATEGORIES: FindingCategory[] = [
+  "security",
+  "configuration",
+  "logging",
+  "error_handling",
+  "observability",
+  "reliability",
+  "quality",
+];
+
+export type FindingSeverity = "high" | "medium" | "low";
+
+/** accepted and false_positive are a person's verdict and never reopen on a
+ * rescan; resolved is set by a scan that no longer finds the problem. */
+export type FindingStatus = "open" | "accepted" | "false_positive" | "resolved";
+
+export interface FindingTask {
+  id: string;
+  key: string;
+  title: string;
+  column: string;
+}
+
+export interface ComponentFinding {
+  id: string;
+  repository_id: string;
+  /** Absent for a repository-wide finding no component owns. */
+  component_id?: string;
+  rule: string;
+  category: FindingCategory;
+  severity: FindingSeverity;
+  occurrences: number;
+  evidence: SourceEvidence[];
+  status: FindingStatus;
+  status_reason?: string;
+  task_id?: string;
+  task?: FindingTask;
+  last_scan_id?: string;
+  resolved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FindingPatch {
+  status?: Exclude<FindingStatus, "resolved">;
+  reason?: string;
+}
+
+export interface FindingTaskRequest {
+  finding_ids: string[];
+  title: string;
+  notes?: string;
+  task_type?: string;
+  priority?: string;
+}
+
+export interface FindingTaskResult {
+  task: BoardTask;
+  findings: ComponentFinding[];
 }
 
 export interface ComponentSummary {
@@ -5641,6 +5715,18 @@ export const api = {
     }),
 
   deleteCheck: (checkId: string) => request<void>(`/v1/checks/${checkId}`, { method: "DELETE" }),
+
+  updateFinding: (findingId: string, patch: FindingPatch) =>
+    request<ComponentFinding>(`/v1/findings/${findingId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  createFindingTask: (repositoryId: string, body: FindingTaskRequest) =>
+    request<FindingTaskResult>(`/v1/repositories/${repositoryId}/findings/task`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   createLink: (body: NewLinkRequest) =>
     request<ComponentLink>("/v1/links", { method: "POST", body: JSON.stringify(body) }),

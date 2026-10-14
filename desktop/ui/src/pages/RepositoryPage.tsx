@@ -7,6 +7,7 @@ import { ChecksTab } from "@/components/projects/repository/ChecksTab";
 import { ComponentsTab } from "@/components/projects/repository/ComponentsTab";
 import { RepositoryDesignSystemTab } from "@/components/projects/designsystem/RepositoryDesignSystemTab";
 import { DeployRuntimeTab } from "@/components/projects/repository/deploy/DeployRuntimeTab";
+import { FindingsTab } from "@/components/projects/repository/findings/FindingsTab";
 import { LinksTab } from "@/components/projects/repository/LinksTab";
 import { OverviewTab } from "@/components/projects/repository/OverviewTab";
 import { RepositoryHeader } from "@/components/projects/repository/RepositoryHeader";
@@ -19,9 +20,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/hooks/useI18n";
 import { useRepositoryModel } from "@/hooks/useRepositoryModel";
 import { useScanProgress } from "@/hooks/useScanProgress";
+import { hasHighOpen, openFindings } from "@/lib/findings";
 import { reviewCount } from "@/lib/project-model";
 
-const TABS = ["overview", "components", "checks", "links", "deploy", "design", "settings"] as const;
+const TABS = ["overview", "components", "checks", "links", "findings", "deploy", "design", "settings"] as const;
 type RepositoryTab = (typeof TABS)[number];
 
 function tabFromParam(raw: string | null): RepositoryTab {
@@ -57,6 +59,18 @@ export function RepositoryPage() {
       },
       { replace: true },
     );
+
+  const openComponentFindings = (componentId: string) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("tab", "findings");
+        params.set("component", componentId);
+        return params;
+      },
+      { replace: true },
+    );
+  };
 
   const openComponent = (componentId: string) => {
     setSearchParams(
@@ -138,6 +152,7 @@ export function RepositoryPage() {
   const activeComponentCount = model.components.filter((c) => c.status === "active").length;
   const activeCheckCount = model.checks.filter((c) => c.status === "active").length;
   const review = reviewCount(model.review);
+  const openFindingCount = openFindings(model.findings ?? []).length;
 
   return (
     <PageContent className="space-y-4">
@@ -182,6 +197,14 @@ export function RepositoryPage() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="findings">
+            {t("repositoryPage.tabs.findings")}
+            {openFindingCount > 0 && (
+              <Badge variant={hasHighOpen(model.findings ?? []) ? "destructive" : "secondary"} className="ml-1.5">
+                {openFindingCount}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="deploy">{t("repositoryPage.tabs.deployRuntime")}</TabsTrigger>
           <TabsTrigger value="design">{t("repositoryPage.tabs.designSystem")}</TabsTrigger>
           <TabsTrigger value="settings">{t("repositoryPage.tabs.settings")}</TabsTrigger>
@@ -197,6 +220,7 @@ export function RepositoryPage() {
             selectedComponentId={selectedComponentParam}
             onSelectComponent={setSelectedComponentId}
             onReload={reload}
+            onOpenFindings={openComponentFindings}
           />
         </TabsContent>
         <TabsContent value="checks">
@@ -204,6 +228,15 @@ export function RepositoryPage() {
         </TabsContent>
         <TabsContent value="links">
           <LinksTab model={model} selectedComponentId={selectedComponentParam} onSelectComponent={setSelectedComponentId} onReload={reload} />
+        </TabsContent>
+        <TabsContent value="findings">
+          <FindingsTab
+            model={model}
+            repositoryId={model.repository.id}
+            selectedComponentId={selectedComponentParam}
+            onSelectComponent={setSelectedComponentId}
+            onReload={reload}
+          />
         </TabsContent>
         <TabsContent value="deploy">
           <DeployRuntimeTab

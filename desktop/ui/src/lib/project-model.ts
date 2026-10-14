@@ -33,6 +33,7 @@ const SCAN_STAGES: ScanStage[] = [
   "checks",
   "links",
   "deploy",
+  "findings",
   "match",
 ];
 

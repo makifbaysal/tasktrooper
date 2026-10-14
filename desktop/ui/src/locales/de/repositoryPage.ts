@@ -8,6 +8,7 @@ export const repositoryPage = {
     links: "Verknüpfungen",
     deployRuntime: "Deployment & Laufzeit",
     designSystem: "Designsystem",
+    findings: "Befunde",
     settings: "Einstellungen",
   },
   header: {

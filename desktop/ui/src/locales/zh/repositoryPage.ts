@@ -8,6 +8,7 @@ export const repositoryPage = {
     links: "关联",
     deployRuntime: "部署与运行时",
     designSystem: "设计系统",
+    findings: "发现",
     settings: "设置",
   },
   header: {

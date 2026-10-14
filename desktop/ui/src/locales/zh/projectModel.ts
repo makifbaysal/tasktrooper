@@ -79,6 +79,7 @@ export const projectModel = {
     checks: "检查",
     links: "关联",
     deploy: "部署",
+    findings: "代码健康",
     match: "匹配",
   },
   confidence: {

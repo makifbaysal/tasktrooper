@@ -8,6 +8,7 @@ import { chatArea } from "@/locales/zh/chatArea";
 import { cloud } from "@/locales/zh/cloud";
 import { content } from "@/locales/zh/content";
 import { designSystem } from "@/locales/zh/designSystem";
+import { findings } from "@/locales/zh/findings";
 import { frame } from "@/locales/zh/frame";
 import { issues } from "@/locales/zh/issues";
 import { lib } from "@/locales/zh/lib";
@@ -193,6 +194,7 @@ export const zh: Dict = {
   cloud,
   content,
   designSystem,
+  findings,
   frame,
   issues,
   lib,

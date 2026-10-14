@@ -789,13 +789,15 @@ Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
 - `GET /v1/repositories/{id}/model` → `RepositoryModel`: `{ repository,
   shape: "single"|"monorepo", components, checks, links (outgoing),
   incoming_links, resources, linked_components (display info for other
-  repositories' components a link points at), review, latest_scan? }`.
+  repositories' components a link points at), review, latest_scan?,
+  findings? }`. `findings` is every code-health finding of the repository, any
+  status (absent from a server that predates them).
 - `POST /v1/repositories/{id}/scans` → 202 `{ scan }` (409 while one is
   already running). `GET /v1/repositories/{id}/scans/latest` → `{ scan:
   ProjectScan | null }` and `GET /v1/scans/{scanId}` → `{ scan }` (neither
   carries `result`). `ProjectScan.events[]`: `{stage, done, summary?, at}`;
   stages in order: clone, inventory, shape, components, stack, checks, links,
-  deploy, match. Import (`POST /v1/repositories/import|open`, `POST
+  deploy, findings, match. Import (`POST /v1/repositories/import|open`, `POST
   /v1/repositories`) now starts a scan instead of the old profile refresh —
   poll `GET /v1/repositories/{id}/scans/latest` every 1s until `status` is
   `succeeded`/`failed`. The add flow gives up client-side (the scan keeps
@@ -819,6 +821,18 @@ Errors: `{ "error": "message" }` with 400 (bad input), 404 (unknown id), 409
   point a link at an existing `SystemResource` instead of typing a new one).
   The "add component" folder picker reuses
   the existing `GET /v1/repositories/{id}/directories?path=`.
+- **Code-health findings** (migration 185): `ComponentFinding {id,
+  component_id? (absent = repository-wide), rule, category, severity:
+  "high"|"medium"|"low", occurrences, evidence: SourceEvidence[], status:
+  "open"|"accepted"|"false_positive"|"resolved", status_reason?, task_id?,
+  task?: {id, key, title, column}, resolved_at?}`. `rule` keys
+  `findings.rules.<rule>.title|description` in every locale. `PATCH
+  /v1/findings/{id}` (`{status?: "open"|"accepted"|"false_positive",
+  reason?}`) → the finding; accepted and false-positive findings stay closed
+  on every later scan, resolved is the scan's to set (400). `POST
+  /v1/repositories/{id}/findings/task` (`{finding_ids, title, notes?,
+  task_type?, priority?}`, open findings only, ≤50) → 201 `{task: BoardTask,
+  findings}`; the server writes the task's description for the agent.
 - **Resource unification** (merging duplicate `SystemResource`s a scan split,
   e.g. "Database" + "PostgreSQL" from the same connection string):
   `SystemResource` gains `name_locked: boolean` (true once a person renames

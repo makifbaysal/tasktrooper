@@ -82,6 +82,7 @@ export const projectModel: ProjectModelDict = {
     checks: "Kontroller",
     links: "Bağlantılar",
     deploy: "Dağıtım",
+    findings: "Kod sağlığı",
     match: "Eşleştirme",
   },
   confidence: {

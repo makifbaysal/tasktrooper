@@ -454,7 +454,7 @@ describe("scanStagesInOrder", () => {
     expect(stages[0]).toBe("clone");
     expect(stages[stages.length - 1]).toBe("match");
     expect(stages).toEqual([
-      "clone", "inventory", "shape", "components", "stack", "checks", "links", "deploy", "match",
+      "clone", "inventory", "shape", "components", "stack", "checks", "links", "deploy", "findings", "match",
     ]);
   });
 });

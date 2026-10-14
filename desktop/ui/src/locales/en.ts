@@ -10,6 +10,7 @@ import { chatArea } from "@/locales/en/chatArea";
 import { cloud } from "@/locales/en/cloud";
 import { content } from "@/locales/en/content";
 import { designSystem } from "@/locales/en/designSystem";
+import { findings } from "@/locales/en/findings";
 import { frame } from "@/locales/en/frame";
 import { issues } from "@/locales/en/issues";
 import { lib } from "@/locales/en/lib";
@@ -195,6 +196,7 @@ export const en = {
   cloud,
   content,
   designSystem,
+  findings,
   frame,
   issues,
   lib,

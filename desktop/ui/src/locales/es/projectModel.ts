@@ -79,6 +79,7 @@ export const projectModel = {
     checks: "Comprobaciones",
     links: "Vínculos",
     deploy: "Despliegue",
+    findings: "Salud del código",
     match: "Coincidencias",
   },
   confidence: {

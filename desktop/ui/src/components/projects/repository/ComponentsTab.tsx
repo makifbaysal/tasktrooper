@@ -14,6 +14,7 @@ import {
 } from "@/api";
 import { AddComponentDialog } from "@/components/projects/repository/AddComponentDialog";
 import { ComponentDocsCard } from "@/components/projects/repository/ComponentDocsCard";
+import { ComponentFindingsSummary } from "@/components/projects/repository/findings/ComponentFindingsSummary";
 import { ComponentRail } from "@/components/projects/repository/ComponentRail";
 import { RepositoryReviewSettings } from "@/components/projects/repository/RepositoryReviewSettings";
 import { evidenceLabel } from "@/components/projects/model/EvidenceList";
@@ -37,9 +38,11 @@ interface ComponentsTabProps {
   selectedComponentId: string | null;
   onSelectComponent: (id: string) => void;
   onReload: () => void;
+  /** Opens the Findings tab on this component; without it the summary card is not shown. */
+  onOpenFindings?: (componentId: string) => void;
 }
 
-export function ComponentsTab({ model, repositoryId, selectedComponentId, onSelectComponent, onReload }: ComponentsTabProps) {
+export function ComponentsTab({ model, repositoryId, selectedComponentId, onSelectComponent, onReload, onOpenFindings }: ComponentsTabProps) {
   const { t } = useI18n();
   const [addOpen, setAddOpen] = useState(false);
 
@@ -92,7 +95,14 @@ export function ComponentsTab({ model, repositoryId, selectedComponentId, onSele
           }
         />
         <div className="min-w-0 flex-1 space-y-4">
-          <ComponentDetail key={selected.id} component={selected} model={model} repositoryId={repositoryId} onReload={onReload} />
+          <ComponentDetail
+            key={selected.id}
+            component={selected}
+            model={model}
+            repositoryId={repositoryId}
+            onReload={onReload}
+            onOpenFindings={onOpenFindings}
+          />
         </div>
         <AddComponentDialog
           open={addOpen}
@@ -114,11 +124,13 @@ function ComponentDetail({
   model,
   repositoryId,
   onReload,
+  onOpenFindings,
 }: {
   component: Component;
   model: RepositoryModel;
   repositoryId: string;
   onReload: () => void;
+  onOpenFindings?: (componentId: string) => void;
 }) {
   const { t } = useI18n();
   const [dismissOpen, setDismissOpen] = useState(false);
@@ -155,6 +167,13 @@ function ComponentDetail({
         )}
       </div>
 
+      {onOpenFindings && model.latest_scan && (
+        <ComponentFindingsSummary
+          findings={model.findings ?? []}
+          componentId={component.id}
+          onOpen={() => onOpenFindings(component.id)}
+        />
+      )}
       <IdentityCard component={component} patch={patch} />
       <StackCard component={component} />
       <CommandsCard component={component} patch={patch} />

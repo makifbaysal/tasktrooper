@@ -35,7 +35,7 @@ describe("ScanProgressList", () => {
     const { container } = renderScan(null, { state: "running" });
     const labels = Array.from(container.querySelectorAll("li")).map((li) => li.textContent);
     expect(labels).toEqual([
-      "Clone", "Inventory", "Shape", "Components", "Stack", "Checks", "Links", "Deploy", "Match",
+      "Clone", "Inventory", "Shape", "Components", "Stack", "Checks", "Links", "Deploy", "Code health", "Match",
     ]);
   });
 

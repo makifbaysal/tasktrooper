@@ -8,6 +8,7 @@ import { chatArea } from "@/locales/tr/chatArea";
 import { cloud } from "@/locales/tr/cloud";
 import { content } from "@/locales/tr/content";
 import { designSystem } from "@/locales/tr/designSystem";
+import { findings } from "@/locales/tr/findings";
 import { frame } from "@/locales/tr/frame";
 import { issues } from "@/locales/tr/issues";
 import { lib } from "@/locales/tr/lib";
@@ -194,6 +195,7 @@ export const tr: Dict = {
   cloud,
   content,
   designSystem,
+  findings,
   frame,
   issues,
   lib,

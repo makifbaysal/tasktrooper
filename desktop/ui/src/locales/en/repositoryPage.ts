@@ -12,6 +12,7 @@ export const repositoryPage = {
     links: "Links",
     deployRuntime: "Deploy & Runtime",
     designSystem: "Design System",
+    findings: "Findings",
     settings: "Settings",
   },
   header: {

@@ -11,6 +11,7 @@ export const repositoryPage: RepositoryPageDict = {
     links: "Bağlantılar",
     deployRuntime: "Deploy ve Çalışma",
     designSystem: "Tasarım Sistemi",
+    findings: "Bulgular",
     settings: "Ayarlar",
   },
   header: {

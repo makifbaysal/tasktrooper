@@ -166,6 +166,20 @@ link's resource panel, and behind the duplicate-resource notice's merge flow),
 `SettingsTab`, `LocalCommandsDialog`, and the
 Deploy & Runtime tab — `components/projects/repository/deploy/` — below.
 
+`components/projects/repository/findings/`: the Findings tab (code health).
+`FindingsTab` is the organism: the shared `ComponentRail` with an "All
+components" entry and each component's open count, a status pill row
+(open / accepted / false positive / resolved, each with its count), a category
+`Select`, and one `Card` per finding grouped by component (repository-wide
+findings under their own heading in the "All" view) — severity `Badge`
+(`lib/findings.ts#severityVariant`), the rule's localized title and one-liner,
+its locations behind a toggle, the linked task, and Create task / Accept /
+False positive / Reopen. `FindingDialogs` holds `FindingTaskDialog` (one task
+for the selected open findings, title prefilled, optional notes) and
+`FindingVerdictDialog` (accept or false positive with an optional reason).
+`ComponentFindingsSummary` is the Components tab's line per component (open
+count by severity, "View findings" opens the tab on that component).
+
 `components/projects/repository/deploy/`: the Deploy & Runtime tab, built on
 the Phase 2 cloud accounts/environments model.
 
