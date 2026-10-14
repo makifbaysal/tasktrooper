@@ -7,6 +7,7 @@ import {
   readFirstRunIntegrationsDone,
   readFirstRunToolchainDone,
   writeFirstRunMode,
+  writeFirstRunTeamDone,
 } from "@/lib/firstRun";
 
 beforeEach(() => {
@@ -39,5 +40,20 @@ describe("first-run version marker", () => {
 
     writeFirstRunMode("account");
     expect(readFirstRunToolchainDone()).toBe(false);
+  });
+
+  it("treats a page that only ever stored the team answer before this version as past the new screens", () => {
+    window.localStorage.setItem(FIRST_RUN_TEAM_DONE_KEY, "1");
+
+    expect(readFirstRunToolchainDone()).toBe(true);
+    expect(readFirstRunIntegrationsDone()).toBe(true);
+  });
+
+  it("still asks a page that answered only the team with this version", () => {
+    writeFirstRunTeamDone();
+
+    expect(window.localStorage.getItem(FIRST_RUN_VERSION_KEY)).toBe(FIRST_RUN_VERSION);
+    expect(readFirstRunToolchainDone()).toBe(false);
+    expect(readFirstRunIntegrationsDone()).toBe(false);
   });
 });

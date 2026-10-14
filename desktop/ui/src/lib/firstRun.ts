@@ -9,7 +9,11 @@ export const FIRST_RUN_MODE_KEY = "tt.firstRun.mode";
 export const FIRST_RUN_TEAM_DONE_KEY = "tt.firstRun.teamDone";
 export const FIRST_RUN_TOOLCHAIN_DONE_KEY = "tt.firstRun.toolchainDone";
 export const FIRST_RUN_INTEGRATIONS_DONE_KEY = "tt.firstRun.integrationsDone";
-/** Written with the mode by the flow that has the toolchain and integrations screens. */
+/**
+ * Written with every first-run answer by the flow that has the toolchain and
+ * integrations screens — the team one too, because a page that never asks the
+ * mode (the account's web app answers it for itself) writes only that.
+ */
 export const FIRST_RUN_VERSION_KEY = "tt.firstRun.version";
 export const FIRST_RUN_VERSION = "2";
 
@@ -52,6 +56,7 @@ export function readFirstRunTeamDone(): boolean {
 export function writeFirstRunTeamDone(): void {
   try {
     window.localStorage.setItem(FIRST_RUN_TEAM_DONE_KEY, "1");
+    window.localStorage.setItem(FIRST_RUN_VERSION_KEY, FIRST_RUN_VERSION);
   } catch {
     /* private-mode storage or a quota error — the sequence simply asks again */
   }
@@ -59,14 +64,15 @@ export function writeFirstRunTeamDone(): void {
 
 /**
  * An install that answered the first run before the toolchain and integrations
- * screens existed has a mode but no version marker. Its setup regressing later
+ * screens existed has a mode or a team but no version marker. Its setup regressing later
  * (GitHub disconnected, a project removed) reopens /setup, and that must not
  * walk it through screens it was never part of: they count as answered.
  */
 export function migrateLegacyFirstRun(): void {
   try {
     const store = window.localStorage;
-    if (readFirstRunMode() === null || store.getItem(FIRST_RUN_VERSION_KEY) !== null) return;
+    const answered = readFirstRunMode() !== null || readFirstRunTeamDone();
+    if (!answered || store.getItem(FIRST_RUN_VERSION_KEY) !== null) return;
     store.setItem(FIRST_RUN_TOOLCHAIN_DONE_KEY, "1");
     store.setItem(FIRST_RUN_INTEGRATIONS_DONE_KEY, "1");
     store.setItem(FIRST_RUN_VERSION_KEY, FIRST_RUN_VERSION);
