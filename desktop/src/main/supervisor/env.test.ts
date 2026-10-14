@@ -301,3 +301,26 @@ describe("spawnFingerprint", () => {
     );
   });
 });
+
+describe("the backend's environment with what the toolchain installed", () => {
+  it("reaches a keg-only JDK and a per-user tool directory, after the PATH it already had", () => {
+    const keg = "/opt/homebrew/opt/openjdk@17";
+    const e = agentServerEnv({
+      preflight: report(),
+      dataDir: "/userData/data",
+      postgresCacheDir: "/userData/postgres-bin",
+      apiToken: "token-1",
+      mcpSecretsKey: "key-1",
+      toolchainRuntime: { pathDirs: ["/Users/me/.local/bin", `${keg}/bin`], javaHome: `${keg}/libexec/openjdk.jdk/Contents/Home` },
+    });
+    const before = (childEnv(report()).PATH ?? "").split(":");
+    const parts = (e.PATH ?? "").split(":");
+    expect(parts.slice(0, before.length)).toEqual(before);
+    expect(parts.slice(before.length)).toEqual(["/Users/me/.local/bin", `${keg}/bin`].filter((d) => !before.includes(d)));
+    expect(e.JAVA_HOME).toBe(process.env.JAVA_HOME ? process.env.JAVA_HOME : `${keg}/libexec/openjdk.jdk/Contents/Home`);
+  });
+
+  it("is unchanged without one", () => {
+    expect(childEnv(report()).PATH).toBe(childEnv(report(), {}).PATH);
+  });
+});

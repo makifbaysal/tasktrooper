@@ -494,6 +494,116 @@ export interface AppInfo {
   origin: string;
 }
 
+// --- toolchain setup --------------------------------------------------------
+
+/**
+ * The developer tools this app can install for its agents, in display order.
+ * The page names tools by these ids and nothing else: every command, URL and
+ * package name is main's (`main/toolchain/registry.ts`). The SPA's own list
+ * must match exactly.
+ */
+export const TOOLCHAIN_IDS = [
+  "homebrew",
+  "git",
+  "claude-code",
+  "node",
+  "python",
+  "uv",
+  "chrome",
+  "xcode",
+  "xcode-clt",
+  "cocoapods",
+  "jdk",
+  "android-sdk",
+  "appium",
+  "appium-xcuitest",
+  "appium-uiautomator2",
+  "flutter",
+  "docker",
+  "go",
+  "osv-scanner",
+  "duckdb",
+  "godot",
+  "unity-hub",
+] as const;
+export type ToolchainId = (typeof TOOLCHAIN_IDS)[number];
+
+/**
+ * auto: runs unattended in the background (the OS may still show its own password/UAC prompt).
+ * interactive: starts a system installer or a Terminal window the person finishes; the app
+ *   polls detection until the tool appears (or a 30-minute timeout).
+ * manual: nothing to run here; `url` is where the person installs it from.
+ */
+export type ToolchainInstallKind = "auto" | "interactive" | "manual";
+
+export interface ToolchainItem {
+  id: ToolchainId;
+  /** Product name, never translated: "Node.js", "Android SDK". */
+  label: string;
+  status: "installed" | "missing" | "unusable";
+  version?: string;
+  path?: string;
+  /** English, what was observed when it explains the status. */
+  detail?: string;
+  /** How it is installed ON THIS OS. */
+  installKind: ToolchainInstallKind;
+  /** Short channel name for a person: "Homebrew", "winget", "npm", "Android sdkmanager", "App Store", "apt (pkexec)". */
+  method?: string;
+  /** Display-only form of what will run ("brew install node"). Never sent back. */
+  command?: string;
+  /** Present for `manual` (and as docs for the others). */
+  url?: string;
+  /** Other ids that must be installed first ON THIS OS. */
+  dependsOn: ToolchainId[];
+}
+
+export interface ToolchainReport {
+  generatedAt: number;
+  platform: "darwin" | "win32" | "linux";
+  /** Only the ids that apply on this OS (no `xcode` on Windows). Order = TOOLCHAIN_IDS order. */
+  items: ToolchainItem[];
+}
+
+export type ToolchainStepState =
+  | "queued"
+  | "running"
+  | "waiting" // interactive: the system installer/Terminal is open, polling for the result
+  | "done"
+  | "failed"
+  | "skipped" // already installed when its turn came, or a dependency failed (error says which)
+  | "cancelled";
+
+export interface ToolchainJobStep {
+  id: ToolchainId;
+  label: string;
+  state: ToolchainStepState;
+  installKind: ToolchainInstallKind;
+  startedAt?: number;
+  finishedAt?: number;
+  /** 0..100 within this step when known (downloads); absent otherwise. */
+  percent?: number;
+  /** English, one line, what is happening now ("Downloading command line tools…"). */
+  detail?: string;
+  /** English, one line, why it failed / was skipped. */
+  error?: string;
+  /** Last ≤ 40 output lines, each ≤ 300 chars. */
+  log?: string[];
+}
+
+export interface ToolchainJobState {
+  /** idle: nothing has run (or the last result was dismissed). done: finished, see each step. */
+  phase: "idle" | "running" | "done";
+  jobId?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  /** Install order (dependencies first). */
+  steps: ToolchainJobStep[];
+  /** 0..100: (finished steps + running step's percent/100) / steps.length. finished = done|failed|skipped|cancelled. */
+  percent: number;
+  /** Something installed only reaches running agents after the backend/runner restarts. */
+  restartRecommended?: boolean;
+}
+
 // --- updates ----------------------------------------------------------------
 
 /**

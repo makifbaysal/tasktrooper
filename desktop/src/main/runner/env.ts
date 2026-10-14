@@ -3,6 +3,7 @@ import type { PreflightReport, RunnerPairingBundle, UserSettings } from "../../i
 import type { McpServerConfig } from "../config/mcp-servers.js";
 import type { ProviderConfig } from "../config/providers.js";
 import { emulatorPathFor, itemById } from "../services/detect.js";
+import { withRuntime, type ToolchainRuntime } from "../toolchain/runtime-env.js";
 
 /**
  * What the runner is started with, account mode's one child process.
@@ -86,11 +87,16 @@ const RUNNER_CLIS = ["claude", "git", "opencode", "cursor-agent", "appium"] as c
  * which a plain copy of the environment is not: the existing key is found
  * whatever its case, written back under that one name, and any other spelling
  * dropped so the child never sees two PATHs.
+ *
+ * The executor inherits this environment from the runner, so `runtime` —
+ * what the toolchain installed outside every PATH, and JAVA_HOME — reaches
+ * the agents in account mode the way it does the backend's in local mode.
  */
 export function childEnv(
   preflight?: PreflightReport,
   base: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  runtime?: ToolchainRuntime,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
 
@@ -125,7 +131,7 @@ export function childEnv(
 
   for (const k of pathKeys) delete env[k];
   env[key] = [...front, ...parts].join(paths.delimiter);
-  return env;
+  return runtime ? withRuntime(env, runtime, platform) : env;
 }
 
 /**

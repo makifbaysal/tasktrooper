@@ -23,6 +23,7 @@ function recorder(overrides: Partial<QuitSteps> = {}) {
     stopUpdates: () => order.push("stop-updates"),
     stopNotifications: () => order.push("stop-notifications"),
     destroyTray: () => order.push("destroy-tray"),
+    stopToolchain: () => order.push("stop-toolchain"),
     drain: async () => {
       order.push("drain:start");
       // A real drain is four sequential stops with health waits between them.
@@ -48,7 +49,7 @@ describe("quitSequence", () => {
     const { order, quit } = recorder();
     await quit.run();
 
-    expect(order).toEqual(["stop-updates", "stop-notifications", "destroy-tray", "drain:start", "drain:done", "exit:0"]);
+    expect(order).toEqual(["stop-updates", "stop-notifications", "destroy-tray", "stop-toolchain", "drain:start", "drain:done", "exit:0"]);
     // Squirrel's ShipIt applies a staged update when this process exits, which
     // is what makes "applies on quit" true. What must NOT happen is
     // quitAndInstall(), because that is the call that brings the app back —
@@ -64,6 +65,7 @@ describe("quitSequence", () => {
       "stop-updates",
       "stop-notifications",
       "destroy-tray",
+      "stop-toolchain",
       "drain:start",
       "drain:done",
       "install",
@@ -124,7 +126,18 @@ describe("quitSequence", () => {
 
     // A child that refuses to die must not turn Quit into a hang.
     await expect(quit.run()).resolves.toBeUndefined();
-    expect(order).toEqual(["stop-updates", "stop-notifications", "destroy-tray", "drain:start", "exit:0"]);
+    expect(order).toEqual(["stop-updates", "stop-notifications", "destroy-tray", "stop-toolchain", "drain:start", "exit:0"]);
+  });
+
+  it("stops a toolchain install before the drain, and still drains and exits when that throws", async () => {
+    const { order, quit } = recorder({
+      stopToolchain: () => {
+        order.push("stop-toolchain");
+        throw new Error("could not write the job");
+      },
+    });
+    await quit.run();
+    expect(order).toEqual(["stop-updates", "stop-notifications", "destroy-tray", "stop-toolchain", "drain:start", "drain:done", "exit:0"]);
   });
 
   it("does not drain twice when quit is pressed twice", async () => {

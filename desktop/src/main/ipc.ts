@@ -29,6 +29,9 @@ import type {
   RunnerPairingBundle,
   RunnerPairingSummary,
   SupervisorSnapshot,
+  ToolchainId,
+  ToolchainJobState,
+  ToolchainReport,
   UpdateStatus,
 } from "../ipc/types.js";
 import {
@@ -52,6 +55,9 @@ import {
   validateRestartChild,
   validateReveal,
   validateSignIn,
+  validateToolchainId,
+  validateToolchainIds,
+  validateToolchainReportRequest,
 } from "../ipc/validate.js";
 
 /**
@@ -150,6 +156,25 @@ export interface IpcServices {
   preflight(force: boolean): Promise<PreflightReport>;
   diagnostics(force: boolean): Promise<Diagnostics>;
   setOverrides(patch: HostOverrides): Promise<Diagnostics>;
+
+  // --- toolchain setup ---
+  toolchainReport(force: boolean): Promise<ToolchainReport>;
+  /**
+   * The install order for `ids`: their missing dependencies first, nothing
+   * installed, nothing manual, nothing the running job already has queued.
+   */
+  toolchainPlan(ids: ToolchainId[]): Promise<ToolchainId[]>;
+  toolchainState(): ToolchainJobState;
+  /** Plans `ids` and starts (or appends to) the job. */
+  toolchainInstall(ids: ToolchainId[]): Promise<ToolchainJobState>;
+  /** Starts (or appends to) the job with exactly `planned`, which is already a plan — no planning again. */
+  toolchainEnqueue(planned: ToolchainId[]): ToolchainJobState;
+  /** The native "Install developer tools?" dialog for a plan; true when the person said Install. */
+  confirmToolchainInstall(planned: ToolchainId[]): Promise<boolean>;
+  toolchainCancel(): ToolchainJobState;
+  toolchainDismiss(): ToolchainJobState;
+  /** Opens the tool's page from the table in the real browser. */
+  toolchainOpenPage(id: ToolchainId): Promise<void>;
 }
 
 /** Answers "is this call really from the web app, right now?". */
@@ -344,6 +369,42 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
     const { on } = validateAnalyticsSet(payload);
     return localOnly(() => services.setAnalytics(on));
   });
+
+  /**
+   * Toolchain setup, in both modes. What runs is decided by the id and main's
+   * table, never by the page; the page can only choose which tools.
+   *
+   * An install asked for by the account's page — a remote origin — needs the
+   * person's own yes in a native dialog listing exactly what will be
+   * installed, and then installs exactly that list: a plan made again after
+   * the dialog could add a dependency nobody agreed to. One dialog at a time —
+   * a page cannot stack a second request behind the first one's answer.
+   * Local mode's page is this app's own bundle, the same code as this
+   * dialog, so it does not ask twice.
+   */
+  cloud(CLOUD_CHANNELS.toolchainReport, (payload) =>
+    services.toolchainReport(validateToolchainReportRequest(payload).force ?? false),
+  );
+  cloud(CLOUD_CHANNELS.toolchainPlan, (payload) => services.toolchainPlan(validateToolchainIds(payload).ids));
+  cloud(CLOUD_CHANNELS.toolchainState, () => services.toolchainState());
+  let confirming = false;
+  cloud(CLOUD_CHANNELS.toolchainInstall, async (payload) => {
+    const { ids } = validateToolchainIds(payload);
+    if (services.accountMode() !== "account") return services.toolchainInstall(ids);
+    if (confirming) throw new Error("busy");
+    confirming = true;
+    try {
+      const planned = await services.toolchainPlan(ids);
+      if (planned.length === 0) return services.toolchainState();
+      if (!(await services.confirmToolchainInstall(planned))) throw new Error("declined");
+      return services.toolchainEnqueue(planned);
+    } finally {
+      confirming = false;
+    }
+  });
+  cloud(CLOUD_CHANNELS.toolchainCancel, () => services.toolchainCancel());
+  cloud(CLOUD_CHANNELS.toolchainDismiss, () => services.toolchainDismiss());
+  cloud(CLOUD_CHANNELS.toolchainOpenPage, (payload) => services.toolchainOpenPage(validateToolchainId(payload).id));
 
   cloud(CLOUD_CHANNELS.updateGet, () => services.updateStatus());
   cloud(CLOUD_CHANNELS.updateCheck, () => services.checkForUpdate());

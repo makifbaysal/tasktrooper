@@ -5,6 +5,7 @@ import type {
   DesktopAnalyticsHost,
   DesktopHost,
   DesktopRunnerHost,
+  DesktopToolchainHost,
   DesktopUpdatesHost,
   HostLogsRequest,
   HostOverrides,
@@ -22,6 +23,9 @@ import type {
   PreflightReport,
   RunnerPairingBundle,
   RunnerPairingSummary,
+  ToolchainId,
+  ToolchainJobState,
+  ToolchainReport,
   UpdateStatus,
 } from "../ipc/types.js";
 
@@ -169,6 +173,17 @@ const analytics: DesktopAnalyticsHost = {
   set: (on: boolean) => call<AnalyticsState>(CLOUD_CHANNELS.analyticsSet, { on }),
 };
 
+const toolchain: DesktopToolchainHost = {
+  report: (force?: boolean) => call<ToolchainReport>(CLOUD_CHANNELS.toolchainReport, { force }),
+  plan: (ids: ToolchainId[]) => call<ToolchainId[]>(CLOUD_CHANNELS.toolchainPlan, { ids }),
+  state: () => call<ToolchainJobState>(CLOUD_CHANNELS.toolchainState),
+  subscribe: (cb) => subscribe<ToolchainJobState>(CLOUD_EVENTS.toolchainState, cb),
+  install: (ids: ToolchainId[]) => call<ToolchainJobState>(CLOUD_CHANNELS.toolchainInstall, { ids }),
+  cancel: () => call<ToolchainJobState>(CLOUD_CHANNELS.toolchainCancel),
+  dismiss: () => call<ToolchainJobState>(CLOUD_CHANNELS.toolchainDismiss),
+  openPage: (id: ToolchainId) => call<void>(CLOUD_CHANNELS.toolchainOpenPage, { id }),
+};
+
 /**
  * The synchronous reads, made once while the preload runs.
  *
@@ -194,13 +209,14 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 4,
+  bridgeVersion: 5,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,
   runner,
   updates,
   analytics,
+  toolchain,
 };
 
 contextBridge.exposeInMainWorld(
@@ -211,5 +227,6 @@ contextBridge.exposeInMainWorld(
     runner: Object.freeze(runner),
     updates: Object.freeze(updates),
     analytics: Object.freeze(analytics),
+    toolchain: Object.freeze(toolchain),
   }),
 );

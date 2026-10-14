@@ -34,6 +34,7 @@ import { parseEmbedderListening } from "./embedder-log.js";
 import { LogStore } from "./log-buffer.js";
 import { agentServerEnv, childEnv, spawnFingerprint } from "./env.js";
 import { parseServerListening, renderServerLine, serverLineLevel } from "./server-log.js";
+import type { ToolchainRuntime } from "../toolchain/runtime-env.js";
 
 /**
  * The supervisor: one start, one process that matters, and a state machine the
@@ -120,6 +121,10 @@ const REAP_CAP_MS = 5_000;
  */
 const EXIT_DRAIN_MS = 100;
 
+function optionalRuntime(runtime: ToolchainRuntime | undefined): { toolchainRuntime?: ToolchainRuntime } {
+  return runtime ? { toolchainRuntime: runtime } : {};
+}
+
 export class Supervisor extends EventEmitter<SupervisorEvents> {
   readonly #children = new Map<ChildId, SupervisedChild>();
   // The backend's zerolog lines are stored raw and rendered when read: far
@@ -188,8 +193,12 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   /** The sweep in flight, which a second caller joins rather than racing. */
   #reaping: Promise<void> | null = null;
 
-  constructor() {
+  /** Read at every backend spawn: what the toolchain installed since the last one counts. */
+  readonly #toolchainRuntime: () => ToolchainRuntime | undefined;
+
+  constructor(options: { toolchainRuntime?: () => ToolchainRuntime } = {}) {
     super();
+    this.#toolchainRuntime = options.toolchainRuntime ?? (() => undefined);
     for (const id of CHILD_IDS) {
       const child = new SupervisedChild(
         { id, command: "", args: [], env: {}, restart: true },
@@ -568,6 +577,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         stdinPipe: true,
         env: agentServerEnv({
           preflight: report,
+          ...optionalRuntime(this.#toolchainRuntime()),
           dataDir: dataDir(),
           postgresCacheDir: postgresCacheDir(),
           apiToken: secrets.api_token,

@@ -37,6 +37,12 @@ export interface QuitSteps {
   /** Stop the notification poll, so it does not fire against a draining backend. */
   stopNotifications: () => void;
   destroyTray: () => void;
+  /**
+   * Kill a running toolchain install and write its job down. Before the drain:
+   * an installer holds brew's, winget's or apt's lock, and one left running
+   * past the app keeps holding it with nobody to report what it did.
+   */
+  stopToolchain: () => void;
   /** The supervisor's drain: SIGTERM to every child, and time to use it. */
   drain: () => Promise<unknown>;
   /**
@@ -76,6 +82,11 @@ export function quitSequence(steps: QuitSteps): QuitSequence {
       steps.stopUpdates();
       steps.stopNotifications();
       steps.destroyTray();
+      try {
+        steps.stopToolchain();
+      } catch {
+        // Best-effort, like the drain: it must not keep the app from quitting.
+      }
 
       try {
         await steps.drain();

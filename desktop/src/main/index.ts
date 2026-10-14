@@ -1,7 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { accessSync, appendFileSync, constants, mkdirSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { BrowserWindow, Menu, app, net, powerMonitor, session, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  net,
+  powerMonitor,
+  session,
+  shell,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from "electron";
 import { CLOUD_EVENTS, SHELL_EVENTS, type KeySetRequest, type McpServerSetRequest } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -21,6 +32,8 @@ import type {
   RunnerPairingBundle,
   RunnerPairingSummary,
   SupervisorSnapshot,
+  ToolchainJobState,
+  ToolchainReport,
   UpdateStatus,
 } from "../ipc/types.js";
 import { ACCOUNT_MODE_RUNS_EMBEDDER, ModeController } from "./account/mode.js";
@@ -53,6 +66,9 @@ import {
 } from "./services/updater.js";
 import { RunnerSupervisor } from "./runner/supervisor.js";
 import { Supervisor } from "./supervisor/supervisor.js";
+import { confirmInstall } from "./toolchain/consent.js";
+import { jobForRemote, reportForRemote } from "./toolchain/remote.js";
+import { createToolchainService } from "./toolchain/service.js";
 import { AppTray } from "./tray.js";
 import { openExternally, Shell } from "./window.js";
 
@@ -111,7 +127,8 @@ function setAnalytics(on: boolean): AnalyticsState {
 }
 
 const secretStore = new SecretStore();
-const supervisor = new Supervisor();
+// `toolchain` is declared below; these run at spawn time, long after it is.
+const supervisor = new Supervisor({ toolchainRuntime: () => toolchain.runtime() });
 const providerStore = new ProviderStore(app.getPath("userData"));
 const mcpServerStore = new McpServerStore(app.getPath("userData"));
 const runnerSupervisor = new RunnerSupervisor(new PairingStore(app.getPath("userData")), providerStore, {
@@ -119,10 +136,36 @@ const runnerSupervisor = new RunnerSupervisor(new PairingStore(app.getPath("user
   // The embedder is the local supervisor's and runs in both modes; the runner
   // only needs to know where it is.
   embeddings: () => (ACCOUNT_MODE_RUNS_EMBEDDER ? supervisor.embedderUrl() : Promise.resolve(null)),
+  toolchainRuntime: () => toolchain.runtime(),
 });
 
 /** The API-key window: this app's own page, the only one that may hand over a key. */
 const keysWindow = new KeysWindow();
+
+/**
+ * Toolchain setup: the developer tools agents use, detected and installed in
+ * the background. Built here like the stores — it reads its last job from
+ * userData and starts nothing. Its pushes go to whichever page is current, in
+ * either mode; when a job ends, a fresh preflight is what makes the setup
+ * screen, the caches and account mode's runner see what was installed.
+ */
+const toolchain = createToolchainService(
+  app.getPath("userData"),
+  {
+    publish: (state) => toCloud(CLOUD_EVENTS.toolchainState, jobForPage(state)),
+    onJobFinished: () => void runPreflight(true).catch(() => undefined),
+  },
+  { fetch: (url, init) => net.fetch(url, init) },
+);
+
+/** The account's page is another origin: it is told what is installed, not where under this person's home. */
+function jobForPage(state: ToolchainJobState): ToolchainJobState {
+  return accountMode() ? jobForRemote(state, os.homedir()) : state;
+}
+
+function reportForPage(report: ToolchainReport): ToolchainReport {
+  return accountMode() ? reportForRemote(report, os.homedir()) : report;
+}
 
 /**
  * Local or account. Built before the window, which asks it which origin to
@@ -475,6 +518,7 @@ const quit = quitSequence({
     tray?.destroy();
     tray = null;
   },
+  stopToolchain: () => toolchain.shutdown(),
   // Both, whichever mode is current: a session that switched modes can have
   // an embedder from local mode and a runner from account mode, and draining
   // an idle supervisor costs nothing.
@@ -692,6 +736,20 @@ const services: IpcServices = {
     settingsStore.setOverrides(checkedOverrides(patch));
     reconfigure();
     return buildDiagnostics(true);
+  },
+
+  toolchainReport: async (force) => reportForPage(await toolchain.report(force)),
+  toolchainPlan: (ids) => toolchain.plan(ids),
+  toolchainState: () => jobForPage(toolchain.state()),
+  toolchainInstall: async (ids) => jobForPage(await toolchain.install(ids)),
+  toolchainEnqueue: (planned) => jobForPage(toolchain.enqueue(planned)),
+  confirmToolchainInstall: (planned) => confirmInstall(shellWindow.window, toolchain.describe(planned)),
+  toolchainCancel: () => jobForPage(toolchain.cancel()),
+  toolchainDismiss: () => jobForPage(toolchain.dismiss()),
+  toolchainOpenPage: async (id) => {
+    const url = toolchain.pageUrl(id);
+    if (url === null) throw new Error("There is no page to open for that tool on this computer.");
+    await shell.openExternal(url);
   },
 };
 

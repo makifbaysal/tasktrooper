@@ -16,7 +16,11 @@ import {
   validateReveal,
   validateSettingsPatch,
   validateSignIn,
+  validateToolchainId,
+  validateToolchainIds,
+  validateToolchainReportRequest,
 } from "./validate.js";
+import { TOOLCHAIN_IDS } from "./types.js";
 
 const NOTIFICATIONS = {
   enabled: true,
@@ -369,5 +373,60 @@ describe("validateMcpServerSet", () => {
     for (const name of ["tasktrooper", "TaskTrooper", "TASKTROOPER"]) {
       expect(() => validateMcpServerSet({ name, command: "/bin/notes" })).toThrow(ValidationError);
     }
+  });
+});
+
+/**
+ * Toolchain payloads are ids from a fixed list and nothing else: every
+ * command, package and URL lives in the main process, so a page that names one
+ * is refused rather than ignored.
+ */
+describe("validateToolchainIds", () => {
+  it("accepts known ids, folding repeats in first-seen order", () => {
+    expect(validateToolchainIds({ ids: ["node", "appium", "node"] })).toEqual({ ids: ["node", "appium"] });
+    expect(validateToolchainIds({ ids: [] })).toEqual({ ids: [] });
+    expect(validateToolchainIds({ ids: [...TOOLCHAIN_IDS] }).ids).toEqual([...TOOLCHAIN_IDS]);
+  });
+
+  it("refuses an unknown id, a command, a non-list and a missing list", () => {
+    const refused: unknown[] = [
+      undefined,
+      null,
+      ["node"],
+      {},
+      { ids: "node" },
+      { ids: ["node", "rm -rf /"] },
+      { ids: ["brew install wget"] },
+      { ids: ["https://evil.example/install.sh"] },
+      { ids: [3] },
+      { ids: [null] },
+      { ids: ["Node"] },
+    ];
+    for (const payload of refused) {
+      expect(() => validateToolchainIds(payload), JSON.stringify(payload) ?? "undefined").toThrow(ValidationError);
+    }
+  });
+
+  it("refuses more entries than there are tools, even when they are repeats", () => {
+    const ids = Array.from({ length: TOOLCHAIN_IDS.length + 1 }, () => "git");
+    expect(() => validateToolchainIds({ ids })).toThrow(ValidationError);
+  });
+});
+
+describe("validateToolchainId", () => {
+  it("takes one known id", () => {
+    expect(validateToolchainId({ id: "xcode" })).toEqual({ id: "xcode" });
+    for (const bad of [undefined, {}, { id: "" }, { id: "xcode\n" }, { id: "https://apps.apple.com" }, { id: ["xcode"] }]) {
+      expect(() => validateToolchainId(bad), JSON.stringify(bad) ?? "undefined").toThrow(ValidationError);
+    }
+  });
+});
+
+describe("validateToolchainReportRequest", () => {
+  it("takes an optional boolean force, and refuses a truthy string", () => {
+    expect(validateToolchainReportRequest(undefined)).toEqual({});
+    expect(validateToolchainReportRequest({})).toEqual({});
+    expect(validateToolchainReportRequest({ force: true })).toEqual({ force: true });
+    expect(() => validateToolchainReportRequest({ force: "yes" })).toThrow(ValidationError);
   });
 });

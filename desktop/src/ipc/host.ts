@@ -36,6 +36,11 @@ import type {
   PreflightReport,
   RunnerPairingBundle,
   RunnerPairingSummary,
+  ToolchainId,
+  ToolchainItem,
+  ToolchainJobState,
+  ToolchainJobStep,
+  ToolchainReport,
   TunnelStatus,
   UpdateStatus,
   WorkspaceCheck,
@@ -226,6 +231,31 @@ export interface DesktopAnalyticsHost {
 }
 
 /**
+ * Toolchain setup: what this computer has of the developer tools agents use,
+ * and installing the missing ones in the background.
+ *
+ * Ids in, never a command: what runs for an id on this OS is main's table.
+ * `install` from the account's remote page is confirmed by the person in a
+ * native dialog first and rejects with "declined" when they say no.
+ */
+export interface DesktopToolchainHost {
+  /** Detection for this OS. Joins an in-flight sweep; `force` starts a fresh one. */
+  report(force?: boolean): Promise<ToolchainReport>;
+  /** What `install(ids)` would run: ids + their missing dependencies, dependencies first, installed ones dropped. */
+  plan(ids: ToolchainId[]): Promise<ToolchainId[]>;
+  state(): Promise<ToolchainJobState>;
+  subscribe(cb: (state: ToolchainJobState) => void): () => void;
+  /** Starts a job, or appends to the running one (deduped). Resolves with the new state right away — never waits for the installs. */
+  install(ids: ToolchainId[]): Promise<ToolchainJobState>;
+  /** Stops the running step (kills its process tree) and cancels the queued ones. */
+  cancel(): Promise<ToolchainJobState>;
+  /** Clears a finished job back to `idle` (the header chip goes away). No-op while running. */
+  dismiss(): Promise<ToolchainJobState>;
+  /** Opens the item's own `url` (from main's table, never from the page) in the real browser. */
+  openPage(id: ToolchainId): Promise<void>;
+}
+
+/**
  * Local or account, switched at runtime.
  *
  * `signIn` stops the local backend and loads the account's sign-in page in
@@ -282,14 +312,28 @@ export interface DesktopHost {
    * 2: `account.openKeys()` and `account.state().temporaryLocal`.
    * 3: `account.openKeys(prefill)` focuses the key window on one provider.
    * 4: `analytics.get()` / `analytics.set(on)`.
+   * 5: `toolchain` — detecting and installing the developer tools agents use.
    */
-  bridgeVersion: 4;
+  bridgeVersion: 5;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;
   runner: DesktopRunnerHost;
   updates: DesktopUpdatesHost;
   analytics: DesktopAnalyticsHost;
+  toolchain: DesktopToolchainHost;
 }
 
-export type { AccountMode, AccountState, ChooseDirectoryRequest, RunnerPairingBundle, RunnerPairingSummary, UpdateStatus };
+export type {
+  AccountMode,
+  AccountState,
+  ChooseDirectoryRequest,
+  RunnerPairingBundle,
+  RunnerPairingSummary,
+  ToolchainId,
+  ToolchainItem,
+  ToolchainJobState,
+  ToolchainJobStep,
+  ToolchainReport,
+  UpdateStatus,
+};

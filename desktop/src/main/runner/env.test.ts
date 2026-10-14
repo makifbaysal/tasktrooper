@@ -264,3 +264,26 @@ describe("childEnv", () => {
     expect(e.SystemRoot).toBe("C:\\Windows");
   });
 });
+
+describe("childEnv with what the toolchain installed", () => {
+  it("appends the tool directories after everything else and sets JAVA_HOME — the executor inherits both", () => {
+    const keg = "/opt/homebrew/opt/openjdk@17";
+    const e = childEnv(report(), { PATH: "/usr/bin:/bin" }, "linux", {
+      pathDirs: ["/home/me/.duckdb/cli/latest", `${keg}/bin`, "/usr/bin"],
+      javaHome: `${keg}/libexec/openjdk.jdk/Contents/Home`,
+    });
+    expect(e.PATH?.split(":").slice(-2)).toEqual(["/home/me/.duckdb/cli/latest", `${keg}/bin`]);
+    expect(e.PATH?.split(":").filter((p) => p === "/usr/bin")).toHaveLength(1);
+    expect(e.JAVA_HOME).toBe(`${keg}/libexec/openjdk.jdk/Contents/Home`);
+  });
+
+  it("keeps a JAVA_HOME the person set, and Windows' own spelling of Path", () => {
+    const e = childEnv(undefined, { Path: "C:\\Windows", JAVA_HOME: "C:\\jdk-21" }, "win32", {
+      pathDirs: ["C:\\Users\\me\\AppData\\Local\\Programs\\osv-scanner"],
+      javaHome: "C:\\Program Files\\Eclipse Adoptium\\jdk-17",
+    });
+    expect(e.Path).toBe("C:\\Windows;C:\\Users\\me\\AppData\\Local\\Programs\\osv-scanner");
+    expect(e.PATH).toBeUndefined();
+    expect(e.JAVA_HOME).toBe("C:\\jdk-21");
+  });
+});

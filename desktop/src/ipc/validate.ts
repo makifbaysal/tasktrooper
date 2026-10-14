@@ -19,7 +19,9 @@ import {
   BUILT_IN_PROVIDER_TYPES,
   CHILD_IDS,
   CUSTOM_PROVIDER_TYPE,
+  TOOLCHAIN_IDS,
   type ChildId,
+  type ToolchainId,
   type ProviderKeyType,
   type NotificationPreferences,
   type RunnerPairingBundle,
@@ -41,6 +43,9 @@ import type {
   PreflightRequest,
   RestartChildRequest,
   RevealRequest,
+  ToolchainIdRequest,
+  ToolchainIdsRequest,
+  ToolchainReportRequest,
 } from "./channels.js";
 import type { HostLogsRequest, HostOverrides, HostPreferences } from "./host.js";
 
@@ -170,6 +175,40 @@ export function validatePreflightRequest(raw: unknown): PreflightRequest {
   if (raw === undefined || raw === null) return {};
   const o = asRecord(raw, "preflight");
   return o.force === undefined ? {} : { force: asBoolean(o.force, "preflight.force") };
+}
+
+export function validateToolchainReportRequest(raw: unknown): ToolchainReportRequest {
+  if (raw === undefined || raw === null) return {};
+  const o = asRecord(raw, "toolchain.report");
+  return o.force === undefined ? {} : { force: asBoolean(o.force, "toolchain.report.force") };
+}
+
+function asToolchainId(value: unknown, what: string): ToolchainId {
+  const id = asString(value, what, { max: 64 });
+  if (!(TOOLCHAIN_IDS as readonly string[]).includes(id)) fail(`${what}: not a tool this app installs`);
+  return id as ToolchainId;
+}
+
+/**
+ * Ids only, from the fixed list — the page never names a command, a package or
+ * a URL. More entries than there are tools is a malformed request rather than
+ * a long one; repeats are allowed and folded.
+ */
+export function validateToolchainIds(raw: unknown): ToolchainIdsRequest {
+  const o = asRecord(raw, "toolchain");
+  if (!Array.isArray(o.ids)) fail("toolchain.ids: expected a list");
+  if (o.ids.length > TOOLCHAIN_IDS.length) fail(`toolchain.ids: at most ${TOOLCHAIN_IDS.length}`);
+  const ids: ToolchainId[] = [];
+  o.ids.forEach((value: unknown, i) => {
+    const id = asToolchainId(value, `toolchain.ids[${i}]`);
+    if (!ids.includes(id)) ids.push(id);
+  });
+  return { ids };
+}
+
+export function validateToolchainId(raw: unknown): ToolchainIdRequest {
+  const o = asRecord(raw, "toolchain");
+  return { id: asToolchainId(o.id, "toolchain.id") };
 }
 
 export function validateLogsStream(raw: unknown): LogsStreamRequest {

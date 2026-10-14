@@ -23,6 +23,7 @@ const { CLOUD_CHANNELS, KEYS_CHANNELS } = await import("../ipc/channels.js");
 const ACCOUNT = "https://app.tasktrooper.ai";
 const KEYS_PAGE = "file:///app/dist/renderer/keys.html";
 const SECRET = "sk-ant-NEVER-CROSSES-BACK-42";
+const IDLE = { phase: "idle", steps: [], percent: 0 };
 
 function contents(processId: number) {
   return { isDestroyed: () => false, mainFrame: { processId, routingId: 1 } };
@@ -40,7 +41,7 @@ function from(sender: ReturnType<typeof contents>, url: string) {
  * The real guards, over the three WebContents a running app has: the key
  * window, the web app's view (here on the account's origin), and the chrome.
  */
-function wire(mode: "local" | "account" = "account") {
+function wire(mode: "local" | "account" = "account", consent: boolean | Promise<boolean> = true, plan: string[] | null = null) {
   ipc.handlers.clear();
   const calls: string[] = [];
   const state = (): ProviderKeysState => ({
@@ -60,6 +61,15 @@ function wire(mode: "local" | "account" = "account") {
       accountMode: () => mode,
       analyticsState: () => (calls.push("analytics-get"), { available: true, enabled: true, forcedOff: false }),
       setAnalytics: (on: boolean) => (calls.push(`analytics-set ${on}`), { available: true, enabled: on, forcedOff: false }),
+      toolchainReport: (force: boolean) => (calls.push(`toolchain-report ${force}`), Promise.resolve({ items: [] })),
+      toolchainPlan: (ids: string[]) => (calls.push(`toolchain-plan ${ids.join(",")}`), Promise.resolve(plan ?? ["homebrew", ...ids])),
+      toolchainState: () => (calls.push("toolchain-state"), IDLE),
+      toolchainInstall: (ids: string[]) => (calls.push(`toolchain-install ${ids.join(",")}`), Promise.resolve(IDLE)),
+      toolchainEnqueue: (ids: string[]) => (calls.push(`toolchain-enqueue ${ids.join(",")}`), IDLE),
+      confirmToolchainInstall: (ids: string[]) => (calls.push(`toolchain-confirm ${ids.join(",")}`), Promise.resolve(consent)),
+      toolchainCancel: () => (calls.push("toolchain-cancel"), IDLE),
+      toolchainDismiss: () => (calls.push("toolchain-dismiss"), IDLE),
+      toolchainOpenPage: (id: string) => (calls.push(`toolchain-open ${id}`), Promise.resolve()),
     },
     {
       get: (target, key: string) =>
@@ -244,5 +254,105 @@ describe("cloud:account:open-keys", () => {
     wire();
     const cloudKeyChannels = [...ipc.handlers.keys()].filter((c) => c.startsWith("cloud:") && c.includes("key"));
     expect(cloudKeyChannels).toEqual([CLOUD_CHANNELS.accountOpenKeys]);
+  });
+});
+
+describe("cloud:toolchain:*", () => {
+  const TOOLCHAIN = [
+    [CLOUD_CHANNELS.toolchainReport, { force: true }],
+    [CLOUD_CHANNELS.toolchainPlan, { ids: ["node"] }],
+    [CLOUD_CHANNELS.toolchainState, undefined],
+    [CLOUD_CHANNELS.toolchainInstall, { ids: ["node"] }],
+    [CLOUD_CHANNELS.toolchainCancel, undefined],
+    [CLOUD_CHANNELS.toolchainDismiss, undefined],
+    [CLOUD_CHANNELS.toolchainOpenPage, { id: "xcode" }],
+  ] as const;
+
+  it("registers all seven channels", () => {
+    wire();
+    for (const [channel] of TOOLCHAIN) expect(ipc.handlers.has(channel), channel).toBe(true);
+  });
+
+  it("answers the local app's page in local mode, installing without a dialog", async () => {
+    const { calls, invoke } = wire("local");
+    const page = from(accountView, ACCOUNT);
+    for (const [channel, payload] of TOOLCHAIN) await invoke(channel, page, payload);
+    expect(calls).toEqual([
+      "toolchain-report true",
+      "toolchain-plan node",
+      "toolchain-state",
+      "toolchain-install node",
+      "toolchain-cancel",
+      "toolchain-dismiss",
+      "toolchain-open xcode",
+    ]);
+  });
+
+  it("asks the person natively before the account's page installs anything, and enqueues exactly what they saw", async () => {
+    const { calls, invoke } = wire("account", true);
+    await invoke(CLOUD_CHANNELS.toolchainInstall, from(accountView, `${ACCOUNT}/home`), { ids: ["node"] });
+    expect(calls).toEqual(["toolchain-plan node", "toolchain-confirm homebrew,node", "toolchain-enqueue homebrew,node"]);
+  });
+
+  it("shows no dialog when there is nothing left to install", async () => {
+    const { calls, invoke } = wire("account", true, []);
+    await invoke(CLOUD_CHANNELS.toolchainInstall, from(accountView, `${ACCOUNT}/home`), { ids: ["node"] });
+    expect(calls).toEqual(["toolchain-plan node", "toolchain-state"]);
+  });
+
+  it("answers \"busy\" to a second install while the first one's dialog is open", async () => {
+    let answer: (yes: boolean) => void = () => undefined;
+    const pending = new Promise<boolean>((resolve) => {
+      answer = resolve;
+    });
+    const { calls, invoke } = wire("account", pending);
+    const page = from(accountView, `${ACCOUNT}/home`);
+    const first = invoke(CLOUD_CHANNELS.toolchainInstall, page, { ids: ["node"] });
+    await new Promise((r) => setTimeout(r, 0));
+    await expect(invoke(CLOUD_CHANNELS.toolchainInstall, page, { ids: ["go"] })).rejects.toThrow(/^busy$/);
+    answer(true);
+    await first;
+    expect(calls).toEqual(["toolchain-plan node", "toolchain-confirm homebrew,node", "toolchain-enqueue homebrew,node"]);
+    await invoke(CLOUD_CHANNELS.toolchainInstall, page, { ids: ["go"] });
+    expect(calls.at(-1)).toBe("toolchain-enqueue homebrew,go");
+  });
+
+  it("rejects with \"declined\" when the person cancels the dialog, and installs nothing", async () => {
+    const { calls, invoke } = wire("account", false);
+    await expect(invoke(CLOUD_CHANNELS.toolchainInstall, from(accountView, `${ACCOUNT}/home`), { ids: ["node"] })).rejects.toThrow(
+      /^declined$/,
+    );
+    expect(calls).toEqual(["toolchain-plan node", "toolchain-confirm homebrew,node"]);
+  });
+
+  it("lets the account's page read, plan, cancel and open pages without a dialog", async () => {
+    const { calls, invoke } = wire("account", false);
+    const page = from(accountView, `${ACCOUNT}/settings`);
+    for (const [channel, payload] of TOOLCHAIN.filter(([c]) => c !== CLOUD_CHANNELS.toolchainInstall)) {
+      await invoke(channel, page, payload);
+    }
+    expect(calls.some((c) => c.startsWith("toolchain-confirm"))).toBe(false);
+    expect(calls).toHaveLength(6);
+  });
+
+  it("refuses the chrome, a stranger and a page that left its origin, before reading the payload", async () => {
+    const { calls, invoke } = wire("account");
+    for (const event of [from(chrome, "file:///app/dist/renderer/index.html"), from(contents(99), ACCOUNT), from(accountView, "https://evil.example/")]) {
+      for (const [channel, payload] of TOOLCHAIN) {
+        await expect(invoke(channel, event, payload), channel).rejects.toThrow(/refused/);
+      }
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("takes ids only: a command, a URL or an unknown id is an invalid request", async () => {
+    const { calls, invoke } = wire("local");
+    const page = from(accountView, ACCOUNT);
+    for (const payload of [{ ids: ["brew install wget"] }, { ids: "node" }, { ids: ["https://evil.example/x.sh"] }]) {
+      await expect(invoke(CLOUD_CHANNELS.toolchainInstall, page, payload)).rejects.toThrow(/invalid request/);
+    }
+    await expect(invoke(CLOUD_CHANNELS.toolchainOpenPage, page, { id: "https://evil.example" })).rejects.toThrow(/invalid request/);
+    await expect(invoke(CLOUD_CHANNELS.toolchainReport, page, { force: "yes" })).rejects.toThrow(/invalid request/);
+    expect(calls).toEqual([]);
   });
 });

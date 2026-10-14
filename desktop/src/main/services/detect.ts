@@ -90,7 +90,7 @@ export const APPIUM_BASE_URL = "http://127.0.0.1:4723";
  */
 const APPIUM_STATUS_TIMEOUT_MS = 1_500;
 
-function isExecutable(candidate: string): boolean {
+export function isExecutable(candidate: string): boolean {
   try {
     // Windows has no execute bit; X_OK there only says the file exists.
     if (process.platform === "win32") return statSync(candidate).isFile();
@@ -116,7 +116,7 @@ function isExecutable(candidate: string): boolean {
  * then the version managers' and package managers' default directories as a
  * last guess. A binary found before is still the one found.
  */
-function searchDirs(): { dir: string; source: PreflightSource }[] {
+export function searchDirs(): { dir: string; source: PreflightSource }[] {
   const home = os.homedir();
   const out: { dir: string; source: PreflightSource }[] = [];
   const add = (dir: string, source: PreflightSource): void => {
@@ -238,11 +238,7 @@ export interface Located {
  */
 export function which(name: string, dirs: { dir: string; source: PreflightSource }[] = searchDirs()): Located | null {
   if (name.includes("/") || name.includes("\\")) return isExecutable(name) ? { path: name, source: "override" } : null;
-  // On Windows a command is found by its extension: PATHEXT, .exe before .cmd.
-  const names =
-    process.platform === "win32"
-      ? [...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").filter(Boolean).map((ext) => name + ext.toLowerCase()), name]
-      : [name];
+  const names = commandNames(name);
   for (const { dir, source } of dirs) {
     for (const candidateName of names) {
       const candidate = path.join(dir, candidateName);
@@ -250,6 +246,30 @@ export function which(name: string, dirs: { dir: string; source: PreflightSource
     }
   }
   return null;
+}
+
+/** On Windows a command is found by its extension: PATHEXT, .exe before .cmd. */
+function commandNames(name: string): string[] {
+  return process.platform === "win32"
+    ? [...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").filter(Boolean).map((ext) => name + ext.toLowerCase()), name]
+    : [name];
+}
+
+/**
+ * Every match, in `which`'s order. For a tool whose first match can be a
+ * version manager's shim that has no version selected (asdf, pyenv) while a
+ * working copy sits further down the search.
+ */
+export function whichAll(name: string, dirs: { dir: string; source: PreflightSource }[] = searchDirs()): Located[] {
+  if (name.includes("/") || name.includes("\\")) return isExecutable(name) ? [{ path: name, source: "override" }] : [];
+  const out: Located[] = [];
+  for (const { dir, source } of dirs) {
+    for (const candidateName of commandNames(name)) {
+      const candidate = path.join(dir, candidateName);
+      if (!out.some((found) => found.path === candidate) && isExecutable(candidate)) out.push({ path: candidate, source });
+    }
+  }
+  return out;
 }
 
 /** PATH under whatever spelling this platform's environment uses, without an AppImage's own entries. */
@@ -282,14 +302,14 @@ export function probeEnv(): NodeJS.ProcessEnv {
 }
 
 /** `probeEnv()` with the probed binary's directory first, so `env node` finds the node it was installed beside. */
-function probeEnvFor(command: string): NodeJS.ProcessEnv {
+export function probeEnvFor(command: string): NodeJS.ProcessEnv {
   const env = probeEnv();
   const key = pathKeyOf(env);
   env[key] = prependDirs(splitPath(env[key]), binaryDirs([command])).join(path.delimiter);
   return env;
 }
 
-interface RunResult {
+export interface RunResult {
   code: number;
   stdout: string;
   stderr: string;
@@ -360,6 +380,8 @@ function run(command: string, args: string[], timeoutMs = PROBE_TIMEOUT_MS): Pro
     }
   });
 }
+
+export { run as runProbe };
 
 const firstLine = (text: string): string => text.split("\n")[0]?.trim() ?? "";
 
@@ -1058,7 +1080,7 @@ const CHROME_CANDIDATES =
           "/usr/bin/microsoft-edge",
         ];
 
-function probeChrome(override?: string): PreflightItem {
+export function probeChrome(override?: string): PreflightItem {
   const candidates = override && override !== "" ? [override] : CHROME_CANDIDATES;
   const home = os.homedir();
   const all = [
@@ -1245,7 +1267,7 @@ export async function appiumHubIsAnswering(): Promise<boolean> {
  * `git`: a second search on the Go side with slightly different rules is how a
  * Mac drives one adb and reports another.
  */
-function probeAndroidSdk(dirs: { dir: string; source: PreflightSource }[]): PreflightItem {
+export function probeAndroidSdk(dirs: { dir: string; source: PreflightSource }[] = searchDirs()): PreflightItem {
   const adb = which("adb", dirs) ?? androidSdkTool("platform-tools", "adb");
   const emulator = which("emulator", dirs) ?? androidSdkTool("emulator", "emulator");
 

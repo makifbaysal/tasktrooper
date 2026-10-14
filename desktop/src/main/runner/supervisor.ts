@@ -20,6 +20,7 @@ import { LogStore } from "../supervisor/log-buffer.js";
 import { RunnerChild } from "./child.js";
 import { childEnv, embeddingsMessage, preflightMessage, runnerConfig } from "./env.js";
 import { isAuthRejection, parseRunnerLine } from "./runner-log.js";
+import type { ToolchainRuntime } from "../toolchain/runtime-env.js";
 
 /**
  * Account mode's supervisor: one Connect, one child — the runner — and the
@@ -50,6 +51,8 @@ export interface RunnerSupervisorOptions {
   embeddings?: () => Promise<string | null>;
   /** The member's own MCP servers, read at every spawn like the providers. */
   mcpServers?: { read(): McpServerConfig[] };
+  /** What the toolchain installed outside every PATH, read at every spawn (`runner/env.ts#childEnv`). */
+  toolchainRuntime?: () => ToolchainRuntime;
 }
 
 /** How long the runner gets to attach before Connect gives up. */
@@ -63,6 +66,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
   readonly #providers: ProviderStore;
   readonly #embeddings: () => Promise<string | null>;
   readonly #mcpServers: { read(): McpServerConfig[] };
+  readonly #toolchainRuntime: () => ToolchainRuntime | undefined;
   readonly #child = new RunnerChild();
   readonly #logs = new LogStore();
 
@@ -88,6 +92,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
     this.#providers = providers;
     this.#embeddings = options.embeddings ?? (() => Promise.resolve(null));
     this.#mcpServers = options.mcpServers ?? { read: () => [] };
+    this.#toolchainRuntime = options.toolchainRuntime ?? (() => undefined);
     this.#child.on("log", (stream, text) => this.#onChildLog(stream, text));
     this.#child.on("state", () => this.#emitState());
     this.#child.on("crashed", () => this.#onChildCrashed());
@@ -255,7 +260,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
       await this.#child.start({
         command: runnerBin.path,
         args: [],
-        env: childEnv(this.#preflight),
+        env: childEnv(this.#preflight, process.env, process.platform, this.#toolchainRuntime()),
         stdin: this.#config(bundle, settings, embeddings),
       });
     } catch (err) {
@@ -401,7 +406,7 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
       await this.#child.start({
         command: runnerBin.path,
         args: [],
-        env: childEnv(this.#preflight),
+        env: childEnv(this.#preflight, process.env, process.platform, this.#toolchainRuntime()),
         stdin: this.#config(bundle, settings, embeddings),
       });
     } catch (err) {

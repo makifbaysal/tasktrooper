@@ -5,6 +5,7 @@ import { catalogRoot } from "../services/app-scheme.js";
 import { androidRootFrom, APPIUM_BASE_URL, itemById } from "../services/detect.js";
 import { knownLoginShellPath } from "../services/login-env.js";
 import { binaryDirs, mergePath, pathKeyOf, splitPath, withoutAppImage } from "../services/process-env.js";
+import { withRuntime, type ToolchainRuntime } from "../toolchain/runtime-env.js";
 
 /**
  * What the children are started with.
@@ -47,8 +48,15 @@ const CLI_IDS: PreflightId[] = ["claude", "opencode", "cursor-agent", "agy", "ap
  * `ownBinary` is for a child that is this app's own executable (the embedder):
  * inside an AppImage it needs the bundled libraries AppRun pointed it at, which
  * every other program must not see.
+ *
+ * `runtime` is what the toolchain installed where no PATH looks — a keg-only
+ * JDK, a per-user OSV-Scanner — appended after everything above, with
+ * JAVA_HOME when none was set (`toolchain/runtime-env.ts`).
  */
-export function childEnv(preflight: PreflightReport, opts: { ownBinary?: boolean } = {}): NodeJS.ProcessEnv {
+export function childEnv(
+  preflight: PreflightReport,
+  opts: { ownBinary?: boolean; runtime?: ToolchainRuntime } = {},
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = opts.ownBinary ? { ...process.env } : withoutAppImage({ ...process.env });
 
   // Electron sets these for its own child processes. ELECTRON_RUN_AS_NODE in
@@ -75,7 +83,7 @@ export function childEnv(preflight: PreflightReport, opts: { ownBinary?: boolean
   }
 
   env[pathKey] = parts.join(path.delimiter);
-  return env;
+  return opts.runtime ? withRuntime(env, opts.runtime) : env;
 }
 
 export const SERVER_CONTRACT_KEYS = [
@@ -113,6 +121,8 @@ export interface AgentServerEnvInputs {
   mcpSecretsKey: string;
   /** The embedder child's resolved loopback URL, when it has bound one. */
   embeddingsBaseURL?: string;
+  /** What the toolchain installed outside every PATH; see `childEnv`. */
+  toolchainRuntime?: ToolchainRuntime;
 }
 
 /**
@@ -140,7 +150,7 @@ export function agentServerEnv(inputs: AgentServerEnvInputs): NodeJS.ProcessEnv 
   // exported DATABASE_URL would silently point the backend at someone else's
   // database instead of its embedded one, so every key the backend reads is
   // this function's to set or to leave absent — never the parent shell's.
-  const inherited = childEnv(preflight);
+  const inherited = childEnv(preflight, inputs.toolchainRuntime ? { runtime: inputs.toolchainRuntime } : {});
   for (const key of SERVER_CONTRACT_KEYS) delete inherited[key];
 
   const toEnvPath = (p?: string): string | undefined =>

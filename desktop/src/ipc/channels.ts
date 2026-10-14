@@ -38,6 +38,7 @@ import type {
   RunnerPairingBundle,
   RunnerPairingSummary,
   SupervisorSnapshot,
+  ToolchainId,
   UpdateStatus,
 } from "./types.js";
 import type {
@@ -250,6 +251,21 @@ export const CLOUD_CHANNELS = {
    */
   analyticsGet: "cloud:analytics:get",
   analyticsSet: "cloud:analytics:set",
+
+  /**
+   * Toolchain setup: detecting and installing the developer tools agents use
+   * on this computer. Answered in both modes — onboarding, the header chip and
+   * Settings run in each. The page names tools by id and nothing else; an
+   * install from the account's remote page is confirmed by the person in a
+   * native dialog first (see `main/ipc.ts`).
+   */
+  toolchainReport: "cloud:toolchain:report",
+  toolchainPlan: "cloud:toolchain:plan",
+  toolchainState: "cloud:toolchain:state",
+  toolchainInstall: "cloud:toolchain:install",
+  toolchainCancel: "cloud:toolchain:cancel",
+  toolchainDismiss: "cloud:toolchain:dismiss",
+  toolchainOpenPage: "cloud:toolchain:open-page",
 } as const;
 
 /** Main → the web app. Push, so the page never polls the supervisor. */
@@ -257,6 +273,7 @@ export const CLOUD_EVENTS = {
   runnerState: "cloud:event:runner-state",
   runnerLogs: "cloud:event:runner-logs",
   updateStatus: "cloud:event:update-status",
+  toolchainState: "cloud:toolchain:state-changed",
 } as const;
 
 export type ShellChannel = (typeof SHELL_CHANNELS)[keyof typeof SHELL_CHANNELS];
@@ -310,6 +327,20 @@ export interface DiagnosticsRequest {
  * would tell them their fix did not work.
  */
 export interface PreflightRequest {
+  force?: boolean;
+}
+
+/** Toolchain ids, deduplicated by the validator; never a command, a package or a URL. */
+export interface ToolchainIdsRequest {
+  ids: ToolchainId[];
+}
+
+export interface ToolchainIdRequest {
+  id: ToolchainId;
+}
+
+/** Same rule as `PreflightRequest`: `force` re-probes, and only a real boolean says so. */
+export interface ToolchainReportRequest {
   force?: boolean;
 }
 

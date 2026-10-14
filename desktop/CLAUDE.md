@@ -121,6 +121,66 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   sent only when detected; the runner answers `claude.run` with `not_ready`
   without it.
 
+## Toolchain setup
+
+Detecting and installing the developer tools agents use on this computer
+(Git, Node.js, the JDK and Android SDK, Appium and its drivers, Docker, …),
+in the background, for onboarding, the header's progress chip and Settings
+(`src/main/toolchain/`, bridge `toolchain.*`, both modes).
+
+- **The page sends ids, never commands.** `TOOLCHAIN_IDS` is the whole
+  vocabulary; every formula, winget id, package list, script URL and pinned
+  download lives in `toolchain/registry.ts`, per OS. An OS missing from a
+  tool's `recipes` is one it does not apply to; a recipe whose channel is not
+  on the machine (no winget, no pkexec, an arch with no build) degrades to
+  `manual` and links its page. `openPage` opens only the table's own https
+  (or `macappstore:`) URL.
+- **Account mode asks first, natively.** `install` from the account's remote
+  page plans (leaving out what the running job already has), shows "Install
+  developer tools?" (`dialog.showMessageBox` on the shell window, labels +
+  methods, Cancel the default) and enqueues exactly that list — no second
+  plan. Cancel rejects with `declined`; a second install while the dialog is
+  open rejects with `busy`. Local mode's page is our own bundle and is not
+  asked twice (`main/ipc.ts`). The remote page also gets no paths: report
+  items lose `path`, and the home directory reads `~` in every detail, error
+  and log line (`toolchain/remote.ts`).
+- **Detection decides, not exit codes.** One job at a time, steps in order
+  (brew/winget/apt hold locks). A step already installed is `skipped`; one
+  whose dependency did not install is `skipped` naming it; an install that
+  exited 0 and is still not found is `failed` ("Installed, but not found
+  afterwards"). A step that ended without installing can be queued again in
+  the same job (a new step at the end). Detection takes the first copy of a
+  tool that answers, so a version manager's shim with no version selected
+  does not hide a working one.
+- **How things are installed.** Strategies per method in
+  `toolchain/recipes/`; all spawn with `shell: false` in their own process
+  group, nothing secret on argv. Root only through the OS's own prompt:
+  `pkexec apt-get|dnf|snap …` (so polkit names the package manager),
+  `SUDO_ASKPASS` for Homebrew casks only (a native dialog naming the cask;
+  Cancel stops sudo), UAC for winget. Never a downloaded package file
+  installed as root (Linux Chrome is the Chromium snap). Downloads go through
+  `net.fetch` (the system proxy), give up after 60 s without bytes, and are
+  pinned by digest where the vendor publishes one (Android command-line
+  tools, OSV-Scanner, uv and DuckDB on Linux). The rest are TLS-trusted
+  vendor installers from fixed https URLs — Claude Code's
+  `install.sh`/`install.ps1` and Homebrew's `install.sh` — always saved to a
+  file and then run (Homebrew's in a Terminal window), never piped.
+- **Installed means reachable.** The backend (`supervisor/env.ts`) and the
+  runner with its executor (`runner/env.ts`) get `toolchain.runtime()`
+  appended to PATH — the directories of the tools the last report found plus
+  the install locations that exist (`toolchain/locations.ts`: a keg-only
+  JDK, `%LOCALAPPDATA%\Programs\osv-scanner`, `~/.duckdb/cli/latest`, …) —
+  and JAVA_HOME when none is set.
+- **State** is `userData/toolchain-state.json` (atomic, pushed to the page at
+  most 4/s on `cloud:toolchain:state-changed`). Cancel kills the running
+  step's tree; one running as administrator cannot be killed, so after a
+  grace period the step reads "Still finishing in the background" and the
+  job moves on. Quit kills the running step (`QuitSteps.stopToolchain`,
+  before the drain) and waits for nothing; a job found `running` at launch
+  becomes `done` with its unfinished steps failed as "Interrupted when the
+  app quit." When a job ends, a fresh report and then `runPreflight(true)`
+  run so the setup screen, the caches and the runner see the new tools.
+
 ## Anonymous usage statistics
 
 The main process sends GA4 Measurement Protocol events so the owner can count
@@ -168,6 +228,7 @@ renderer involvement.
 | Local ↔ account switch, pairing origin check | `src/main/account/mode.ts` |
 | Account origin rules, default, partition name | `src/main/account/origin.ts` |
 | Anonymous active-install count (GA4 Measurement Protocol) | `src/main/analytics/` |
+| Toolchain setup: the install table, detectors, recipe strategies, the job | `src/main/toolchain/` |
 | Who may call the cloud bridge | `src/main/sender-guard.ts` |
 | Account mode's supervisor, the runner child, its stdin config, its log | `src/main/runner/` |
 | Runner pairing (`pairing.bin`), provider keys (`providers.bin`), MCP servers (`mcp-servers.bin`) | `src/main/config/pairing.ts`, `providers.ts`, `mcp-servers.ts` |
@@ -183,11 +244,12 @@ are separate declarations and must be changed together.
 
 ```ts
 window.__tasktrooperDesktop = {
-  info(), apiBase?, apiToken?, bridgeVersion: 4, mode: "local" | "account",
+  info(), apiBase?, apiToken?, bridgeVersion: 5, mode: "local" | "account",
   account: { signIn(origin?), signOut(), state(), openKeys() },
   runner: { snapshot, subscribe, connect, ..., pair, unpair, pairing, restart },
   updates: { status, subscribe, check, restart },
-  analytics: { get(), set(on) }
+  analytics: { get(), set(on) },
+  toolchain: { report(force?), plan(ids), state(), subscribe, install(ids), cancel(), dismiss(), openPage(id) }
 }
 ```
 
@@ -198,7 +260,10 @@ local two). `HostRunnerSnapshot.tunnel` is set in account mode only.
 exactly. `account.state()` answers
 `{mode, origin, switching, paired, temporaryLocal, error?}`, a superset of
 the page half's `{mode, origin?, temporaryLocal?}`. `bridgeVersion` 2 added
-`account.openKeys()` and `temporaryLocal`, 3 `openKeys(prefill)`, 4 `analytics`.
+`account.openKeys()` and `temporaryLocal`, 3 `openKeys(prefill)`, 4 `analytics`,
+5 `toolchain` (required here, optional `toolchain?` on the page's half).
+`ToolchainId` is the twenty-two ids in `TOOLCHAIN_IDS`, in the same order on
+both halves.
 
 ## Boot order (`whenReady`)
 
