@@ -15,7 +15,8 @@ On first launch, the desktop shell:
 
 - generates `SERVER_API_KEY` (the bearer token) and `MCP_SECRETS_KEY` (the
   encryption key for stored provider secrets) and keeps them in `local.bin`
-  under the data directory
+  in the app's `userData` folder, next to the data directory rather than
+  inside it
 - picks a data directory (see below) and passes it as `DATA_DIR`
 - spawns the backend with `PORT=0` and reads back the port it actually bound
 - points `EMBEDDINGS_BASE_URL` at its own bundled embedder, so code search
@@ -28,9 +29,11 @@ for changing a default.
 ## The data directory
 
 Where it lives, and what's in it, is covered in full in [Data directory and
-security](data-and-security.md). In short: one Postgres cluster, the local
-embedding model, every repository's clones and per-task checkouts under
-`workspaces/`, and `local.bin` holding the generated secrets.
+security](data-and-security.md). In short: one Postgres cluster, the
+downloaded Postgres binaries, every repository's clones and per-task checkouts
+under `workspaces/`, and uploaded files when RAG is on. The generated secrets
+live in `local.bin` in the app's `userData` folder, next to this directory
+and not inside it.
 
 ## Where overrides go
 
@@ -84,6 +87,10 @@ default.
 | `CHROME_BIN` | — | Chromium binary for the `browser_*` tools |
 | `CONFIG_PATH` | `resources/config.yml` | Config file path; falls back to the copy embedded in the binary if absent |
 | `SHUTDOWN_GRACE` | `9m` | How long the server keeps working after SIGTERM before in-flight runs are cancelled |
+| `SHUTDOWN_ON_STDIN_CLOSE` | — | `1` makes an stdin EOF start the same drain as SIGTERM; the desktop app sets it so the server never outlives the app (notably on Windows) |
+| `EMBEDDINGS_SOURCE` | `onnx-int8` | The engine behind `EMBEDDINGS_BASE_URL` (`onnx-int8`, the desktop's embedder, or `tei`); the catalog's shipped skill vectors stand in only while embeddings go to that URL |
+| `AGENT_CATALOG_REPO` | — | Where the role agents sync from, at boot and on a schedule. A local directory is read in place, a git URL is fetched; unset, no role agents are created. The desktop ships its own copy; `make dev` points at the checkout's `catalog/` |
+| `MOBILE_APPIUM_HUB_URL` / `APPIUM_BIN` | — | The Appium hub the `mobile_*` tools drive, and the `appium` executable. The desktop sets both when Appium is installed, and the backend then runs the hub on demand itself |
 
 `DATABASE_URL`, `SERVER_API_KEY` and `MCP_SECRETS_KEY` are scrubbed from the
 process's own environment once read, so no child process (an agent CLI, a
@@ -113,7 +120,7 @@ knowing about even if you never open the file:
 | `tools.web.enabled` | `false` | Enables `fetch_url` |
 | `tools.search.enabled` | — | Enables `web_search` (DuckDuckGo, falling back to Bing; no API key needed) |
 | `embedding.requests_per_minute` | `0` (unthrottled) | Caps embedding calls per minute; the shipped config tunes this for Mistral's free tier (`55`) |
-| `prod_ops.probe_interval` | `1m` | How often the health monitor probes a deploy target; two consecutive failures open an incident, one success closes it |
+| `prod_ops.probe_interval` | `3m` | How often the health monitor probes a deploy target; two consecutive failures open an incident, one success closes it |
 
 Full reference, every key: `server/.ai/config-reference.md` in the
 repository (not published on this site, since it documents server internals

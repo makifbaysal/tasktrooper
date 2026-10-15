@@ -25,7 +25,7 @@ TaskTrooper.app (Electron main)
 | load or create `local.bin` (`api_token`, `mcp_secrets_key`) | shell | Keychain via `safeStorage` |
 | spawn embedder | shell | stdout `EMBEDDER_LISTENING <port>` |
 | spawn agent-server with `PORT=0 DATA_DIR SERVER_API_KEY MCP_SECRETS_KEY EMBEDDINGS_BASE_URL CLAUDE_CODE_BIN …` | shell | stdout `LISTENING http://127.0.0.1:<port>` |
-| start embedded Postgres, run migrations, seed the local tenant | agent-server | `GET /health` → 200 |
+| start embedded Postgres, run migrations, seed the default board | agent-server | `GET /health` → 200 |
 | attach the web view, hand the page `apiBase` + `apiToken` | shell | `window.__tasktrooperDesktop` |
 
 Stop order is the reverse of start: agent-server drains its Claude sessions on
@@ -48,10 +48,13 @@ scope a request to beyond the token.
 
 ```
 postgres/       cluster (pgdata)
-postgres-bin/   zonky download + extracted runtime
-workspaces/     git checkouts, one per task
+workspaces/     git checkouts — one repository mirror, one per-task checkout
 files/          RAG uploads
 ```
+
+`postgres-bin/` (the zonky download + extracted runtime) sits beside `data/`
+under `userData`, not inside `DATA_DIR`: it is a cache that can be deleted and
+re-fetched without touching your data.
 
 Delete `DATA_DIR` to start over.
 

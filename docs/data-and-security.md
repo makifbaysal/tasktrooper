@@ -7,8 +7,8 @@ description: Everything TaskTrooper keeps runs on this machine — what is in th
 
 TaskTrooper is local-first in the literal sense: one machine, one user, no
 login, no control plane. The desktop app, the Go backend and the embedded
-Postgres are three processes on your Mac, and nothing about how they talk to
-each other assumes a second machine exists.
+Postgres are three processes on your computer, and nothing about how they talk
+to each other assumes a second machine exists.
 
 ## What is in the data directory
 
@@ -16,7 +16,13 @@ The backend keeps everything that has to survive a restart under one
 directory (`DATA_DIR`):
 
 - **macOS app**: `~/Library/Application Support/TaskTrooper/data`
+- **Windows app**: `%APPDATA%\TaskTrooper\data`
+  (`C:\Users\<you>\AppData\Roaming\TaskTrooper\data`)
+- **Linux app**: `~/.config/TaskTrooper/data`
 - **`make dev`**: `server/data`, or wherever `DATA_DIR` points
+
+On every platform the data directory is `data/` inside the app's `userData`
+folder; the paths above are just where that folder lives on each OS.
 
 ```
 postgres/       the embedded Postgres cluster (pgdata)

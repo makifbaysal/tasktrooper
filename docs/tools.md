@@ -8,8 +8,9 @@ set of named tools. A [tool policy](tool-policies.md) decides which of these
 a given agent may call; this page describes what each tool does. "Typically
 held by" reflects the default role policies TaskTrooper ships with
 (`backend-developer`, `frontend-developer`, `mobile-developer`,
-`system-architect`, `qa-agent`, `product-manager`) — your own agents and
-[custom agents](custom-agents.md) can be granted any subset.
+`data-scientist`, `game-developer`, `product-manager`, `system-architect`,
+`qa-agent`, `release-engineer`, `security-agent`, `ui-designer`) — your own
+agents and [custom agents](custom-agents.md) can be granted any subset.
 
 ## Shell and files
 
@@ -30,13 +31,18 @@ held by" reflects the default role policies TaskTrooper ships with
 | Tool | What it does | Typically held by |
 |---|---|---|
 | `fetch_url` | HTTP GET, HTML responses stripped to visible text | Every role that holds `roleWebTools` — developers, `product-manager`, `system-architect`, `qa-agent` |
+| `http_request` | A full HTTP request (any method, headers, body) against a running build — how PM UAT tests a backend- or API-only acceptance criterion headless | `product-manager` |
 | `download_file` | Downloads a binary asset (image, font, icon) into the workspace | Rides with the workspace write tools; lost in review/QA verdict columns |
 | `web_search` | Keyless web search (DuckDuckGo, falling back to Bing) | Same roles as `fetch_url` |
 | `search_boilerplate_catalog` | Searches the shared boilerplate repository for a starter stack to copy instead of writing one from scratch | Developer roles |
 
 ## Code exploration
 
-Read-only, and available even on a repository with no semantic index yet.
+Read-only. Only `read_file` (above), `grep_code` and `get_repo_tree` work on
+a repository with no semantic index yet — they read the files directly.
+`codebase_search`, `expand_symbol_context` and `get_symbol_skeleton` need the
+index and refuse until one is built, and refuse again on a stale one until it
+has been re-indexed.
 
 | Tool | What it does | Typically held by |
 |---|---|---|
@@ -55,6 +61,7 @@ Read-only, and available even on a repository with no semantic index yet.
 | `create_board_task` | Creates a task | `product-manager` (and any agent granted `roleBoardCreateTools`) |
 | `move_board_task` | Moves a task to another column | Every role |
 | `update_board_task` | Updates a task's fields (including `before_deploy`/`after_deploy`/`rollback_plan`) | Every role |
+| `declare_env_vars` | Declares an environment variable the change makes the deployed app read, so the merge waits until it is set | Developer roles |
 | `claim_board_task` | Claims an unassigned task | Every role |
 | `delete_board_task` | Permanently deletes a task and everything on it | `product-manager` only |
 | `add_task_comment` | Comments on a task | Every role |
@@ -62,6 +69,9 @@ Read-only, and available even on a repository with no semantic index yet.
 | `add_task_document` | Attaches a document (spec, plan) to a task | `product-manager`, `system-architect` (create roles) |
 | `update_task_document` | Edits an attached document | Same as `add_task_document` |
 | `list_task_documents` | Reads a task's attached documents in full | Every role |
+| `record_open_questions` | Records the open questions an analysis raises, answered by the human on the report page | `system-architect` (on an `analiz` task) |
+| `list_open_questions` | Reads those questions and the human's answers back | `system-architect` (on an `analiz` task) |
+| `ask_user` | Asks the human numbered clarifying questions and blocks the run until they answer | Every role, while the run is allowed to ask |
 | `attach_task_file` | Links an already-uploaded file to a task | `product-manager`, `system-architect` |
 | `list_acceptance_criteria` | Reads a task's acceptance criteria | Every role |
 | `set_criterion_completed` | Marks a criterion done | Developer roles (whichever role implements it) |
@@ -98,7 +108,8 @@ tab" otherwise.
 | `query_runtime_logs` | Reads an environment's live application logs (not a CI job's output — that is `get_deploy_logs`), newest first | Developer roles, `qa-agent` |
 | `list_runtime_errors` | Lists an environment's runtime errors, grouped and deduplicated, with a `new` flag for errors that started in the window | `system-architect`, developer roles, `qa-agent` |
 | `list_deployments` | Lists an environment's recent deployments as the provider reports them | Developer roles, `qa-agent` |
-| `get_task_preview` | Finds the task branch's own Vercel preview deployment: status, branch URL, the commit it was built from, and how to get past Deployment Protection | `qa-agent` |
+| `get_task_preview` | Finds the task branch's own Vercel preview deployment: status, branch URL, the commit it was built from, and how to get past Deployment Protection | `qa-agent`, `product-manager` |
+| `start_task_preview` | Builds and starts the task's own checkout locally and returns its URL — the fallback when there is no hosted preview to find | `qa-agent`, `product-manager` |
 
 ## Pull requests
 
@@ -126,7 +137,7 @@ See [Deploy targets and recipes](deploy.md) → "Releases" for the full flow.
 | `finish_release` | Confirms a release as shipped; the only way a task reaches Released | `release-engineer` only, and only Done/Released |
 | `rollback_release` | Rolls a release back off production: reverts the merge, redeploys or lets the provider's own push-to-deploy redeploy (instant provider rollback only for an `on_merge` component); refused while a newer release of the component is open or has already shipped | `release-engineer` only, and only Done/Released |
 | `get_deploy_logs` | Reads the log behind a deploy (a release's failed job by default), summarized | `release-engineer` only |
-| `list_deploy_templates` | Lists the deploy recipe catalog | `release-engineer`, `product-manager` (via `get_deploy_target`) |
+| `list_deploy_templates` | Lists the deploy recipe catalog | Developer roles (they get the "set up `<env>` deploy" tasks) — not the release engineer or the PM |
 | `load_deploy_template` | Reads one recipe in full | Same as above |
 | `get_deploy_target` | How a repository ships to an environment (the legacy per-env address record, unrelated to a component's delivery profile) | `release-engineer`, `product-manager` |
 | `update_deploy_target` | Records the address an environment actually answers at (`base_url`/`health_url`/`logs_url`/`app_url` only) | `release-engineer`, `product-manager` |

@@ -27,9 +27,23 @@ preselected with the agents that are on right now; saving writes only the
 changed `enabled` flags and the core agents stay locked on. The product manager
 sees the switched-off agents too (`list_team` → `available_to_add`) and suggests
 which one to add when no enabled agent can do a piece of work. You can also open
-**Settings → Agents** to toggle any agent on or off, or edit an agent's role, runtime and
-tools, and add your own agents — see [Role agents](role-agents.md) and
-[Your own agents](custom-agents.md).
+**Settings → Agents** to toggle any agent on or off — see
+[Role agents](role-agents.md) and [Your own agents](custom-agents.md).
+
+Editing an agent's role, runtime and tools, creating your own hand-made
+agents, and the Board/Roles/Workflows editors are hidden in the current
+shipping build and turned on only for advanced setups; the pages they live on
+describe them for when they return.
+
+## The two setup screens before the sequence
+
+After the two choices, and before the four-step sequence, two more screens run
+— both skippable, both available afterwards from Settings:
+
+| Screen | What it does |
+|---|---|
+| Get this computer ready | Offers the developer tools your team's agents use (git, Node.js, a JDK, Android SDK, Appium, Docker, …), installing the ones you pick in the background. Skip it, or come back from **Settings → Development environment**. |
+| Connect the services your team uses | Sets up the integrations your team is likely to need (GitHub, Vercel, cloud accounts, the mobile app stores). Nothing here is required; everything is also under **Settings → Integrations** later. |
 
 | Step | What it does |
 |---|---|

@@ -51,9 +51,9 @@ make desktop    # the Electron app itself, in dev mode
 **`make dev`** runs `scripts/dev.sh`, which starts the Go backend with
 `go run ./cmd/agent-server` and the UI's Vite dev server side by side, and
 stops both on Ctrl-C. On first run it writes `server/.env.local` (gitignored)
-with a generated `SERVER_API_KEY` and `MCP_SECRETS_KEY`, `PORT=8085` and a
-`DATA_DIR` under `server/`; edit that file directly for anything you want to
-change, it won't be regenerated once it exists. The UI dev server comes up at
+with a fixed `SERVER_API_KEY=local-dev-key`, a generated `MCP_SECRETS_KEY`,
+`PORT=8085` and a `DATA_DIR` under `server/`; edit that file directly for
+anything you want to change, it won't be regenerated once it exists. The UI dev server comes up at
 **http://localhost:3200**, proxying `/v1`, `/admin` and `/health` to the
 backend and passing it `VITE_API_KEY` (the same key the backend was started
 with) so the page authenticates without you typing anything in.
@@ -83,24 +83,31 @@ variables are set — see `desktop/README.md` for what those are.
 ## Tests and verification
 
 ```sh
-make test       # all three suites
+make test       # every suite
 make build      # compile everything without running
-make lint        # vet + typecheck only, no tests
+make lint       # vet + typecheck + eslint, no tests
 ```
 
-`make test` runs the same three checks each directory's own `CLAUDE.md`
-names as that directory's verify step:
+`make test` runs four suites in turn:
 
 | Directory | Verify |
 |---|---|
-| `server/` | `go build ./... && go vet ./... && go test ./...` |
+| `server/` | `go vet ./... && go test ./... && go run ./cmd/skillvectors -catalog ../catalog -check` |
+| `desktop/runner/` | `go vet ./... && go test ./...` |
+| `desktop/ui/` | `npm run typecheck && npm run build` |
 | `desktop/` | `npm run typecheck && npm run lint && npm test` |
-| `desktop/ui/` | `npx tsc --noEmit && npm run build && npm run check:locales` |
+
+`make lint` runs the vet/typecheck half of that without the tests: `go vet`
+in both `server/` and `desktop/runner/`, the UI's `typecheck`, and
+`desktop/`'s `typecheck` and `lint` (eslint).
 
 Backend tests that need Postgres start their own embedded instance
 (`platform/database.StartEmbedded`) — nothing external has to be running
-first. `check:locales` compares the flattened key sets of `desktop/ui/src/locales/en`
-and `tr`; a key present in one and not the other fails it.
+first. `check:locales` is the UI's own extra check (its `CLAUDE.md` verify,
+not part of `make test`): it compares every other language's flattened key
+set and `{placeholder}` names against `en`, the source of truth — seven
+languages in all (`en`, `tr`, `es`, `de`, `fr`, `pt`, `zh`), and a key or
+placeholder present in one but missing in another fails it.
 
 ## Release process
 
