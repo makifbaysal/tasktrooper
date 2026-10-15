@@ -17,18 +17,22 @@ export const CANCEL_BUTTON = 1;
 const HIDDEN = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
 const PLAIN_ARG = /^[A-Za-z0-9@%+=:,./_-]+$/;
 
+function hiddenWrittenOut(s: string): string {
+  return s.replace(HIDDEN, (c) => `\\u{${c.codePointAt(0)?.toString(16) ?? ""}}`);
+}
+
 /**
  * `s` with every hidden or control character written out as `\u{…}`. A
  * backslash is doubled first, so a value that spells `\u{a}` reads apart
  * from one that holds a newline.
  */
 export function visible(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(HIDDEN, (c) => `\\u{${c.codePointAt(0)?.toString(16) ?? ""}}`);
+  return hiddenWrittenOut(s.replace(/\\/g, "\\\\"));
 }
 
 /** One argument as the person should read it: quoted when it has a space, is empty or needs escaping. */
 export function shownArg(arg: string): string {
-  return PLAIN_ARG.test(arg) ? arg : `"${visible(arg).replace(/"/g, '\\"')}"`;
+  return PLAIN_ARG.test(arg) ? arg : `"${hiddenWrittenOut(arg.replace(/[\\"]/g, "\\$&"))}"`;
 }
 
 export function mcpConsentDialog(consent: McpServerConsent): MessageBoxOptions {
