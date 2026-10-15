@@ -37,6 +37,9 @@ describe("the MCP server consent dialog", () => {
 
   it("writes out what would hide or reorder text, and quotes an argument that is not plain", () => {
     expect(visible("a\nb\u202Ec")).toBe("a\\u{a}b\\u{202e}c");
+    expect(visible("a\\u{a}b")).toBe("a\\\\u{a}b");
+    expect(visible("a\\u{a}b")).not.toBe(visible("a\nb"));
+    expect(shownArg('C:\\dir\\"x"')).toBe('"C:\\\\dir\\\\\\"x\\""');
     expect(shownArg("--stdio")).toBe("--stdio");
     expect(shownArg("two words")).toBe('"two words"');
     expect(shownArg("")).toBe('""');
