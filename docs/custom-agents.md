@@ -3,17 +3,23 @@ title: Your own agents
 description: Creating an agent from a template or from scratch, every field on it, and what happens to its tasks when you delete it.
 ---
 
-Besides the six seeded [role agents](role-agents.md), you can create as many
+Besides the eleven seeded [role agents](role-agents.md), you can create as many
 of your own agents as you like — a second QA agent for a different
 repository, a technical writer, an agent that runs on a different CLI or a
 different model entirely.
+
+> **Currently hidden in the shipping build.** Creating hand-made agents — along
+> with editing the board, roles and workflows — is turned off in the current
+> release and re-enabled only for advanced setups; the feature is planned to
+> return, and the pages and dialogs described below stay in place for when it
+> does. The seeded role agents are unaffected.
 
 ## Creating an agent
 
 Click the **+** next to **Agent Chats** in the sidebar. The dialog offers:
 
 - **From scratch** — an empty agent; you fill in everything below.
-- **From template** — a list of templates, built-in ones (the six roles) and
+- **From template** — a list of templates, built-in ones (the eleven roles) and
   any you have saved yourself, each showing its name, description, and how
   many skills and rules it carries. Picking one copies those fields, skills
   and rules onto a new agent; editing the new agent never changes the
@@ -122,7 +128,7 @@ lighter, cheaper API model on an agent that only triages incoming bugs.
 ## Deleting an agent
 
 The delete button lives on the agent's own layout, next to its name (not on
-the seeded six alone — any agent can be deleted). Deleting it:
+the seeded role agents alone — any agent can be deleted). Deleting it:
 
 - Removes the agent's skills, rules, memories, reflections and chat sessions
   with it — they belong to the agent and do not outlive it.
@@ -146,8 +152,9 @@ on a cheaper API model instead of your Claude Code subscription:
 2. Rename it (e.g. "mobile-qa") and switch Provider to an API endpoint you
    have already connected on the LLM Connection settings page; pick a model
    that supports vision, since QA relies on screenshots.
-3. On **Columns**, subscribe it to Ready for QA, In QA and Done for the
-   mobile repository's board, and leave the original `qa-agent` subscribed
+3. On **Columns**, subscribe it to Ready for QA for the mobile repository's
+   board (it moves a task into In QA itself once it claims it; Done belongs to
+   the release engineer), and leave the original `qa-agent` subscribed
    only to the repositories it should still cover — subscriptions are
    per-agent, not per-repository, so this only works cleanly when each
    repository's board is otherwise handled by a different agent for that

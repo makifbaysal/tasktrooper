@@ -42,8 +42,8 @@ that two agents can define a rule with the same name and completely different
 content — a `manual-only-testing` rule means something specific to QA and
 nothing to a backend developer — without either colliding with the other.
 
-The [seeded role agents](role-agents.md) each ship with a curated set (13 to
-27 skills, 7 to 20 rules depending on the role) built for that role's job;
+The [seeded role agents](role-agents.md) each ship with a curated set (15 to
+33 skills, 11 to 22 rules depending on the role) built for that role's job;
 custom agents start with whatever a template gave them, or nothing at all
 from scratch.
 
@@ -70,7 +70,7 @@ from growing without bound:
 
 | | Default budget | What happens at the cap |
 |---|---|---|
-| Skills | 25 per agent | A `create` is rejected; the reflection is nudged to merge/update an existing skill instead, and a `create` naming an existing skill's name is silently converted into an `update` of it |
+| Skills | 100 per agent | A `create` is rejected; the reflection is nudged to merge/update an existing skill instead, and a `create` naming an existing skill's name is silently converted into an `update` of it |
 | Rules | 15 per agent | Same behavior |
 
 The cap applies equally to an agent's own `create_skill` tool call, not just
@@ -150,10 +150,10 @@ Because a rule is always in the prompt, the bar is higher than for a skill:
 
 ## Where the content actually comes from
 
-For the six seeded role agents, skill and rule content is authored as
-markdown files in the server's source tree and loaded into the database on
-first boot; upgrading TaskTrooper reconciles that content into your existing
-installation the same way (see
+For the seeded role agents, skill and rule content is authored as
+markdown files in the server's source tree and synced into the database from
+the agent catalog; upgrading TaskTrooper reconciles that content into your
+existing installation the same way (see
 [Seeding and what survives an upgrade](role-agents.md#seeding-and-what-survives-an-upgrade)).
 For any agent you create yourself, everything is authored directly through
 the Skills and Rules tabs — there is no file to edit.

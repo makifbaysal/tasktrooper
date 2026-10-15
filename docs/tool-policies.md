@@ -51,12 +51,19 @@ judging and can comment on it, but cannot push a fix into the branch under
 review.
 
 **`qa-agent`** gets the shell, the browser and mobile tools, and a
-deliberately narrow slice of the code tools — see below — plus the one
-merge tool (`merge_task_pull_request`) and the release-watch tools
-(deploy status, deploy logs, rollback), both of which only actually work in
-the `done`/`released` columns (see [Column narrowing](#how-a-column-narrows-a-policy) below). QA is
-the only role with the merge tool: the developer must not merge its own
-branch, and the reviewer and PM judge the change rather than land it.
+deliberately narrow slice of the code tools — see below. It does **not** get
+the merge tool or any release tool: QA's work ends at its own verdict in
+`in_qa`, and everything after sign-off belongs to the release engineer.
+
+**`release-engineer`** owns everything after sign-off. It holds the one merge
+tool (`merge_task_pull_request`), the release tools (`get_release`,
+`deploy_release`, `watch_release`, `run_smoke_checks`, `finish_release`,
+`release_rollback`) and `get_deploy_logs`, plus the shell, read-only lookup
+and browser-read tools, and board read/move tools — but **no file writers and
+no `commit_task_changes`**: it ships and rolls back through the release tools,
+never by editing the branch. The developer must not merge its own branch, the
+reviewer and PM judge the change rather than land it, and QA tests it rather
+than ship it.
 
 ## The QA black-box rule
 
@@ -68,10 +75,10 @@ narrower lookup set instead:
 - `grep_code`
 - `get_task_pull_request`
 
-`read_file` is also in QA's base policy, but `RestrictCodeToolsForVerification`
-(below) strips it back out in `in_qa`/`ready_for_qa` — the two columns QA
-actually tests in. That leaves QA with tree- and diff-level lookups there,
-never a full file body.
+`read_file` is also in QA's base policy, but the column narrowing (below)
+strips it back out in `in_qa`/`ready_for_qa` — the two columns QA actually
+tests in. That leaves QA with tree- and diff-level lookups there, never a full
+file body.
 
 This is deliberate: QA's evidence is a running product, not a read of the
 diff. Early on, QA held the full code-reading set and used it exactly as
@@ -108,10 +115,10 @@ three named exceptions exist, none of which substitutes for execution:
 PM's policy carries the full read-only code-reading set
 (`codebase_search`, `grep_code`, `get_repo_tree`, `get_symbol_skeleton`,
 `expand_symbol_context`, `read_file`) for backlog grooming — verifying a real
-file or endpoint name before writing a `technical_description`. But
-`RestrictCodeToolsForVerification` strips every one of those names in
-`pm_uat`/`human_uat`, the only two columns PM actually signs a criterion off
-in. In those columns PM has no way to look at the implementation at all; its
+file or endpoint name before writing a `technical_description`. But the column
+narrowing strips every one of those names in `pm_uat`/`human_uat`, the only two
+columns PM actually signs a criterion off in. In those columns PM has no way to
+look at the implementation at all; its
 verdict can only come from an executed browser/mobile session against the
 running product, or from a QA case that was itself executed and passed.
 
@@ -136,32 +143,36 @@ Two gates back this up at the run level, mirroring QA's:
 
 ## How a column narrows a policy
 
-Two functions apply after the agent's own policy has already decided what it
-may do at all:
+A single function, `RestrictToolsForStage(policy, stage, taskType)`, applies
+after the agent's own policy has already decided what it may do at all. It
+reads three **behaviours** off the task's type and the column (stage) it sits
+in and strips tools accordingly — type-first, then the stage's own. An empty
+(unrestricted) policy is left untouched; narrowing only ever removes names
+from a non-empty allow-list.
 
-**`RestrictToolsForVerdictColumn`** strips the workspace writers, the commit
-tool, and (outside the one column each survives in) the merge and rollback
-tools from a run in a column whose job is to *judge*, not to *change*: Code
-Review, Analysis Review, Ready for QA, In QA, PM UAT, Human UAT, and Done. The
-terminal stays — QA still has to boot and run the product — but a reviewer or
-QA run that finds a bug cannot go fix it itself; the finding has to go back
-to the developer instead. The one write these columns allow is the merge,
-and only in `done`, which is the column the whole sequence (merge, watch the
-deploy, roll back if it fails) actually happens in.
+**`BehaviourNoWorkspaceWrites`** comes from the task **type** and strips the
+workspace writers from any run on that type, regardless of column. It is set
+on `analiz` (analysis) tasks: the deliverable is a spec and a plan document
+attached to the task, never a code change — there is nothing for a file writer
+to do, and without it an architect dispatched on an analysis task has, in
+practice, gone ahead and edited files that then died with the run's workspace,
+having never been committed or reviewed.
 
-**`RestrictToolsForTaskType`** strips the workspace writers from any run on
-an `analiz` (analysis) task, regardless of column. An analysis task's
-deliverable is a spec and a plan document attached to the task, never a code
-change — there is nothing in that workflow for a file writer to do, and
-without this restriction an architect dispatched on an analysis task has, in
-practice, gone ahead and edited files that then died with the run's
-workspace, having never been committed or reviewed.
+**`BehaviourStripWriters`** comes from the **column** and strips the workspace
+writers and `commit_task_changes` — plus the merge tool and the release tools,
+unless that column keeps them with an `allow` list — from a run in a column
+whose job is to *judge*, not to *change*: Code Review, Analysis Review, Ready
+for QA, In QA, PM UAT, Human UAT. The terminal stays — QA still has to boot and
+run the product — but a reviewer or QA run that finds a bug cannot go fix it
+itself; the finding has to go back to the developer. The merge and the release
+tools are kept only in `done`/`released`, the two columns the release engineer
+works, where landing the change and watching the deploy is the whole point.
 
-**`RestrictCodeToolsForVerification`** strips read-only code-reading tools —
-on top of what `RestrictToolsForVerdictColumn` already removes — from a run
-whose job is to exercise the running product, not to read the diff and
-decide it looks right. It applies to the same two roles differently, because
-each has legitimate reasons to look at code that the other does not:
+**`BehaviourNoCodeReading`** comes from the **column** and strips the read-only
+code-reading tools (`CodeExplorationTools`) on top of what
+`BehaviourStripWriters` already removes, from a run whose job is to exercise
+the running product, not to read the diff and decide it looks right. It applies
+to the two roles that sign a criterion off, each differently:
 
 - **PM** loses every `CodeExplorationTools` name (`codebase_search`,
   `grep_code`, `get_repo_tree`, `get_symbol_skeleton`, `expand_symbol_context`,
@@ -174,7 +185,7 @@ each has legitimate reasons to look at code that the other does not:
   above) are tree-level and diff-level, never "read this file's full body and
   decide from it".
 
-**`RestrictToPlannedTools`** applies only inside chat orchestration, when a
+**`RestrictToPlannedTools`** is separate, and applies only inside chat orchestration, when a
 request is broken into subtasks. A subtask's declared tool names decide
 **only** the board-write tools (`create_board_task`, `move_board_task`,
 `update_board_task`) — that declaration exists purely to stop two concurrent
@@ -185,9 +196,10 @@ subtask declared, because narrowing them by declaration once left a subtask
 holding only board tools unable to answer even "where are the files" and
 asking a human instead.
 
-The columns `RestrictToolsForVerdictColumn` treats as judging, not changing:
+The columns `BehaviourStripWriters` treats as judging, not changing (and where
+`BehaviourNoCodeReading` strips code reading on top):
 
-| Column | Writers/commit removed | Merge/rollback removed | Code-exploration tools also removed (`RestrictCodeToolsForVerification`) |
+| Column | Writers/commit removed | Merge/release removed | Code-exploration tools also removed |
 |---|---|---|---|
 | Code Review | Yes | Yes | No — the reviewer's job is to read the diff |
 | Analysis Review | Yes | Yes | No |
@@ -195,7 +207,8 @@ The columns `RestrictToolsForVerdictColumn` treats as judging, not changing:
 | In QA | Yes | Yes | Only `read_file` (QA keeps `get_repo_tree`/`grep_code`/`get_task_pull_request`) |
 | PM UAT | Yes | Yes | Yes — all of `CodeExplorationTools` |
 | Human UAT | Yes | Yes | Yes — all of `CodeExplorationTools` |
-| Done | Yes | No — this is where the merge and the deploy watch/rollback happen | No |
+| Done | Yes | No — the merge and the deploy watch/rollback happen here | No |
+| Released | Yes | No — the deploy watch and rollback happen here | No |
 
 ## Editing a policy
 
@@ -209,12 +222,12 @@ from the allow-list. Two things to know before narrowing one:
   set to *Only agents that list it* reaches an agent only once you pick it
   there (see [MCP servers](mcp-servers.md#who-can-use-a-server)). Picking any
   server makes the list exact.
-- **Tool policy is set only when an agent is created**, and never
-  reconciled afterward (see [Role agents](role-agents.md#seeding-and-what-survives-an-upgrade)).
-  Any change you make here on a seeded agent is permanent across restarts and
-  upgrades; the one exception is a handful of paired grants (a tool that
-  completes a capability you already hold) that reach existing installs
-  automatically without touching anything you deliberately left out.
+- **Your tool-policy edits survive every sync.** The catalog sync applies a
+  role's tool policy from the catalog, but the moment you hand-edit a seeded
+  agent it is parked (see
+  [Role agents](role-agents.md#seeding-and-what-survives-an-upgrade)), so any
+  change you make here is permanent across restarts and upgrades rather than
+  being reconciled back to the catalog's version.
 
 ## The terminal and outbound URL guards
 

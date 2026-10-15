@@ -85,7 +85,7 @@ pre-change version and recording that as a `revert` event too).
 
 ## Budgets and version history
 
-Skills and rules are capped per agent — 25 skills, 15 rules by default — so a
+Skills and rules are capped per agent — 100 skills, 15 rules by default — so a
 reflection cannot pile up indefinitely; once at budget, a `create` is
 rejected in favor of merging into or updating something that already exists.
 See [Skills and rules](skills-and-rules.md#budgets) for the full mechanics,
@@ -110,15 +110,22 @@ value at or past the full target scores 1.0 attainment; at or past half,
 
 Only metrics in a fixed registry can be attached to a KPI (`GET
 /v1/kpi-metrics` lists them): `tasks_completed`, `revisions_received`,
-`uat_failures`, `failed_runs`, `bugs_assigned`, `first_pass_rate`, plus a
-family of column-time metrics (median hours spent in a particular column —
-In Progress, Code Review, In QA, PM UAT — and a review-escape count). The
-seeded role agents each get a starting set matched to their job: the three
-developer roles get tasks completed, revisions received, bugs assigned and
-cycle time in In Progress; QA gets tasks completed, UAT escapes and cycle
-time in QA; the product manager gets tasks completed and cycle time in PM
-UAT; the architect gets tasks completed, revisions, review time, analysis
-time and review escapes.
+`uat_failures`, `failed_runs`, `gate_rejected_runs`, `bugs_assigned`,
+`first_pass_rate`, `tool_error_rate`, plus a family of column-time metrics
+(median hours spent in a particular column — In Progress, Code Review, In QA,
+PM UAT — and a review-escape count). `gate_rejected_runs` counts runs the host
+rejected for skipping required grounding — reading the repo, or running and
+checking the product — and `tool_error_rate` is the share of an agent's tool
+calls that came back as errors.
+
+The seeded role agents each get a starting set matched to their job: the
+developer roles get tasks completed, revisions received, first-pass rate, UAT
+rejections, bugs assigned, clean cycle time in In Progress, and tool error
+rate; QA gets tasks completed, UAT escapes, clean time in QA, gate-rejected
+runs and tool error rate; the product manager gets tasks completed, clean time
+in PM UAT, gate-rejected runs and tool error rate; the architect gets tasks
+completed, revisions, first-pass rate, review time, analysis time, review
+escapes, gate-rejected runs and tool error rate.
 
 Two rules keep a KPI from being gamed by rushing: only tasks that reached
 Done or Released **without ever bouncing through Need Revision** count
