@@ -87,7 +87,7 @@ func (s *Service) PrepareIndexEnsure(ctx context.Context, id string, req IndexEn
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		id = "index:" + req.RepoKey + "@" + req.Branch
+		id = ensureID(req.RepoKey, req.Branch)
 	}
 	ensureCtx, cancel := context.WithCancelCause(ctx)
 	prepared := &PreparedEnsure{
@@ -177,6 +177,103 @@ func (s *Service) CancelIndexEnsure(id string) bool {
 		prepared.cancel(errCancelRequested)
 	}
 	return ok
+}
+
+func ensureID(repoKey, branch string) string {
+	return "index:" + repoKey + "@" + branch
+}
+
+type discardSink struct{}
+
+func (discardSink) Send(Event) error { return nil }
+
+// StartIndex starts one checkout's pass and answers before it runs. The pass
+// is this process's, not the call's: whoever only wants the index built (a
+// person pressing Reindex, far away) holds nothing open for its length, and
+// going away does not end it. index.status reads it; index.cancel or
+// /exec/cancel under its id stops it. A pass already running under that id is
+// not started twice.
+func (s *Service) StartIndex(req IndexEnsureRequest) (*IndexStartResult, *Failure) {
+	if s.deps.Index == nil {
+		return nil, &Failure{Code: CodeNotReady, Message: errIndexMissing.Error()}
+	}
+	if err := s.deps.Index.Available(); err != nil {
+		return nil, indexFailure(s.life, err)
+	}
+	prepared, failure := s.PrepareIndexEnsure(s.life, "", req)
+	if failure != nil {
+		if failure.Code == CodeConflict {
+			return &IndexStartResult{V: ProtocolVersion, ID: ensureID(strings.TrimSpace(req.RepoKey), strings.TrimSpace(req.Branch))}, nil
+		}
+		return nil, failure
+	}
+	go func() {
+		if _, failure := prepared.Execute(discardSink{}); failure != nil && failure.Code != CodeCancelled {
+			log.Warn().Str("repo_key", prepared.req.RepoKey).Str("branch", prepared.req.Branch).
+				Str("code", failure.Code).Str("error", failure.Message).Msg("executor: a started index pass failed")
+		}
+	}()
+	return &IndexStartResult{V: ProtocolVersion, ID: prepared.ID(), Started: true}, nil
+}
+
+func indexRef(req IndexRefRequest) (port.LocalIndexRef, *Failure) {
+	ref := port.LocalIndexRef{RepoKey: strings.TrimSpace(req.RepoKey), Branch: strings.TrimSpace(req.Branch)}
+	if ref.RepoKey == "" {
+		return ref, badRequest("repo_key is required")
+	}
+	return ref, nil
+}
+
+// IndexStatus reads one index without a pass. A pass index.start registered
+// a moment ago reads as running before it reaches the index.
+func (s *Service) IndexStatus(ctx context.Context, req IndexRefRequest) (*IndexStatusResult, *Failure) {
+	if s.deps.Index == nil {
+		return nil, &Failure{Code: CodeNotReady, Message: errIndexMissing.Error()}
+	}
+	ref, failure := indexRef(req)
+	if failure != nil {
+		return nil, failure
+	}
+	st, err := s.deps.Index.Status(ctx, ref)
+	if err != nil {
+		return nil, indexFailure(ctx, err)
+	}
+	out := &IndexStatusResult{
+		V:              ProtocolVersion,
+		IndexState:     indexState(st.LocalIndexState),
+		Found:          st.Found,
+		Running:        st.Running,
+		Phase:          st.Phase,
+		FilesProcessed: st.FilesProcessed,
+		FilesTotal:     st.FilesTotal,
+		IndexedAt:      st.IndexedAt,
+		EmbeddingStale: st.EmbeddingStale,
+		Error:          st.Error,
+	}
+	if !out.Running && s.ensureRunning(ensureID(ref.RepoKey, ref.Branch)) {
+		out.Running = true
+		out.Status = string(domain.IndexStatusRunning)
+		out.Error = ""
+	}
+	return out, nil
+}
+
+func (s *Service) ensureRunning(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.ensures[id]
+	return ok
+}
+
+// CancelIndex stops the pass index.start or index.ensure runs over one index
+// under its default id. A run's own pass is not stopped: the run waits on it.
+func (s *Service) CancelIndex(req IndexRefRequest) (*IndexCancelResult, *Failure) {
+	ref, failure := indexRef(req)
+	if failure != nil {
+		return nil, failure
+	}
+	id := ensureID(ref.RepoKey, ref.Branch)
+	return &IndexCancelResult{V: ProtocolVersion, ID: id, Cancelled: s.CancelIndexEnsure(id)}, nil
 }
 
 func (s *Service) SearchIndex(ctx context.Context, req IndexSearchRequest) (*IndexSearchResult, *Failure) {

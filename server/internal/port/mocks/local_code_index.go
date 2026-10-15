@@ -42,6 +42,24 @@ func (_m *LocalCodeIndex) Attach(ctx context.Context, ref port.LocalIndexRef, ch
 	return r0, r1
 }
 
+// Available provides a mock function with no fields
+func (_m *LocalCodeIndex) Available() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Available")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Ensure provides a mock function with given fields: ctx, req, progress
 func (_m *LocalCodeIndex) Ensure(ctx context.Context, req port.LocalIndexEnsure, progress func(port.LocalIndexProgress)) (port.LocalIndexState, error) {
 	ret := _m.Called(ctx, req, progress)
@@ -91,6 +109,34 @@ func (_m *LocalCodeIndex) Search(ctx context.Context, query port.LocalIndexQuery
 
 	if rf, ok := ret.Get(1).(func(context.Context, port.LocalIndexQuery) error); ok {
 		r1 = rf(ctx, query)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Status provides a mock function with given fields: ctx, ref
+func (_m *LocalCodeIndex) Status(ctx context.Context, ref port.LocalIndexRef) (port.LocalIndexStatus, error) {
+	ret := _m.Called(ctx, ref)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Status")
+	}
+
+	var r0 port.LocalIndexStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, port.LocalIndexRef) (port.LocalIndexStatus, error)); ok {
+		return rf(ctx, ref)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, port.LocalIndexRef) port.LocalIndexStatus); ok {
+		r0 = rf(ctx, ref)
+	} else {
+		r0 = ret.Get(0).(port.LocalIndexStatus)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, port.LocalIndexRef) error); ok {
+		r1 = rf(ctx, ref)
 	} else {
 		r1 = ret.Error(1)
 	}

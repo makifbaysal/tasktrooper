@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -87,6 +88,7 @@ type Service struct {
 	mapper   *mapper.Service
 	chunkers *chunker.Registry
 	keys     keyLocks
+	passes   passes
 
 	openMu sync.Mutex
 	opened *opened
@@ -136,14 +138,20 @@ type configurable interface {
 	Configured() bool
 }
 
+var errNoStore = fmt.Errorf("%w: no place for the index store is configured on this computer (data_dir)", port.ErrLocalIndexUnavailable)
+
 func (s *Service) available() error {
 	if c, ok := s.deps.Embedder.(configurable); s.deps.Embedder == nil || (ok && !c.Configured()) {
 		return fmt.Errorf("%w: no embedding engine is configured on this computer (embeddings_base_url)", port.ErrLocalIndexUnavailable)
 	}
 	if s.deps.Opener == nil {
-		return fmt.Errorf("%w: no place for the index store is configured on this computer (data_dir)", port.ErrLocalIndexUnavailable)
+		return errNoStore
 	}
 	return nil
+}
+
+func (s *Service) Available() error {
+	return s.available()
 }
 
 func (s *Service) isOpen() bool {
@@ -182,12 +190,21 @@ func (s *Service) open(ctx context.Context) (*opened, error) {
 // changed since the last pass are embedded again, and a branch seen for the
 // first time starts from the rows of an index of the same repository.
 func (s *Service) Ensure(ctx context.Context, req port.LocalIndexEnsure, progress func(port.LocalIndexProgress)) (port.LocalIndexState, error) {
-	if progress == nil {
-		progress = func(port.LocalIndexProgress) {}
-	}
 	if err := validRef(req.LocalIndexRef); err != nil {
 		return port.LocalIndexState{}, err
 	}
+	pass := s.passes.begin(passKey(req.LocalIndexRef))
+	state, err := s.ensure(ctx, req, func(p port.LocalIndexProgress) {
+		pass.report(p)
+		if progress != nil {
+			progress(p)
+		}
+	})
+	pass.end(err)
+	return state, err
+}
+
+func (s *Service) ensure(ctx context.Context, req port.LocalIndexEnsure, progress func(port.LocalIndexProgress)) (port.LocalIndexState, error) {
 	if info, err := os.Stat(req.Dir); err != nil || !info.IsDir() {
 		return port.LocalIndexState{}, invalid("the checkout %s is not a directory on this computer", req.Dir)
 	}
@@ -211,7 +228,7 @@ func (s *Service) Ensure(ctx context.Context, req port.LocalIndexEnsure, progres
 		return port.LocalIndexState{}, err
 	}
 
-	unlock, err := s.keys.lock(ctx, req.RepoKey+"\x00"+req.Branch, func() {
+	unlock, err := s.keys.lock(ctx, passKey(req.LocalIndexRef), func() {
 		progress(port.LocalIndexProgress{Phase: port.LocalIndexPhaseWaiting})
 	})
 	if err != nil {
@@ -282,6 +299,85 @@ func resolve(ctx context.Context, store port.IndexStore, repoID uuid.UUID, branc
 		return domain.WorkspaceIndex{}, false
 	}
 	return idx, true
+}
+
+// interruptedPass is a row left "running" by a pass this process is not
+// running: the executor stopped mid-pass. The files it finished keep their
+// rows and hashes, so the next pass picks up from there.
+const interruptedPass = "the last pass stopped before it finished; index again to complete it"
+
+// staleCheckTimeout bounds asking the embedding engine which model it serves,
+// which a status read does only to flag an index built with another one.
+const staleCheckTimeout = 3 * time.Second
+
+// Status reads one index as it is now, with any pass over it in progress. It
+// needs the store but not the embedding engine: a computer whose engine is
+// away can still say what it has.
+func (s *Service) Status(ctx context.Context, ref port.LocalIndexRef) (port.LocalIndexStatus, error) {
+	if err := validRef(ref); err != nil {
+		return port.LocalIndexStatus{}, err
+	}
+	if s.deps.Opener == nil {
+		return port.LocalIndexStatus{}, errNoStore
+	}
+	live := s.passes.state(passKey(ref))
+	o, err := s.open(ctx)
+	if err != nil {
+		return port.LocalIndexStatus{}, err
+	}
+	status := port.LocalIndexStatus{LocalIndexState: port.LocalIndexState{RepoKey: ref.RepoKey, Branch: ref.Branch}}
+	if idx, found := find(ctx, o.store, RepositoryID(ref.RepoKey), ref.Branch); found {
+		status.Found = true
+		status.LocalIndexState = stateOf(ref.RepoKey, idx)
+		status.FilesProcessed, status.FilesTotal = idx.FilesProcessed, idx.FilesTotal
+		status.IndexedAt = idx.IndexedAt
+		status.Error = idx.Error
+		status.EmbeddingStale = s.builtWithAnotherEngine(ctx, idx)
+		if idx.Status == domain.IndexStatusRunning && !live.running {
+			status.Status = domain.IndexStatusFailed
+			status.Error = interruptedPass
+		}
+	}
+	if live.running {
+		status.Running = true
+		status.Status = domain.IndexStatusRunning
+		status.Phase = live.progress.Phase
+		status.Error = ""
+		if live.progress.FilesTotal > 0 {
+			status.FilesProcessed, status.FilesTotal = live.progress.FilesProcessed, live.progress.FilesTotal
+		}
+		return status, nil
+	}
+	if status.Error == "" {
+		status.Error = live.failure
+	}
+	return status, nil
+}
+
+// find reads the index a ref names, finished or not; resolve, by contrast,
+// finds the one a search may read.
+func find(ctx context.Context, store port.IndexStore, repoID uuid.UUID, branch string) (domain.WorkspaceIndex, bool) {
+	var idx domain.WorkspaceIndex
+	var err error
+	if branch == "" {
+		idx, err = store.GetIndexByProject(ctx, repoID)
+	} else {
+		idx, err = store.GetIndexByProjectBranch(ctx, repoID, branch)
+	}
+	return idx, err == nil
+}
+
+func (s *Service) builtWithAnotherEngine(ctx context.Context, idx domain.WorkspaceIndex) bool {
+	if idx.Status != domain.IndexStatusCompleted || s.available() != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, staleCheckTimeout)
+	defer cancel()
+	model, dims, err := s.deps.Embedder.ResolvedEmbedding(ctx)
+	if err != nil {
+		return false
+	}
+	return domain.EmbeddingProvenanceStale(idx.EmbeddingModel, idx.EmbeddingDims, model, dims)
 }
 
 func (s *Service) Search(ctx context.Context, query port.LocalIndexQuery) (port.LocalIndexSearchResult, error) {

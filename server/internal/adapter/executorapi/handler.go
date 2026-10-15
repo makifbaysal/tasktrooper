@@ -25,6 +25,9 @@ const (
 	PathCancel      = "/exec/cancel"
 	PathIndexEnsure = "/exec/index.ensure"
 	PathIndexSearch = "/exec/index.search"
+	PathIndexStart  = "/exec/index.start"
+	PathIndexStatus = "/exec/index.status"
+	PathIndexCancel = "/exec/index.cancel"
 	PathEmbeddings  = "/exec/embeddings.set"
 	PathVerify      = "/exec/verify"
 	PathScan        = "/exec/scan"
@@ -91,6 +94,9 @@ func NewHandler(svc *executor.Service, opts Options) *Handler {
 		PathCancel:      {http.MethodPost, h.cancel},
 		PathIndexEnsure: {http.MethodPost, h.indexEnsure},
 		PathIndexSearch: {http.MethodPost, h.indexSearch},
+		PathIndexStart:  {http.MethodPost, h.indexStart},
+		PathIndexStatus: {http.MethodPost, h.indexStatus},
+		PathIndexCancel: {http.MethodPost, h.indexCancel},
 		PathEmbeddings:  {http.MethodPost, h.setEmbeddings},
 		PathVerify:      {http.MethodPost, h.verify},
 		PathScan:        {http.MethodPost, h.scan},
@@ -310,6 +316,48 @@ func (h *Handler) indexSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, found)
+}
+
+func (h *Handler) indexStart(w http.ResponseWriter, r *http.Request) {
+	var req executor.IndexEnsureRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	started, failure := h.svc.StartIndex(req)
+	if failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, started)
+}
+
+func (h *Handler) indexStatus(w http.ResponseWriter, r *http.Request) {
+	var req executor.IndexRefRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	status, failure := h.svc.IndexStatus(r.Context(), req)
+	if failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, status)
+}
+
+func (h *Handler) indexCancel(w http.ResponseWriter, r *http.Request) {
+	var req executor.IndexRefRequest
+	if failure := decode(r, unaryBodyLimit, &req); failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	cancelled, failure := h.svc.CancelIndex(req)
+	if failure != nil {
+		h.writeError(w, failure)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, cancelled)
 }
 
 func (h *Handler) setEmbeddings(w http.ResponseWriter, r *http.Request) {

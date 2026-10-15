@@ -140,6 +140,116 @@ func (s *HandlerSuite) TestIndexSearchAnswersRankedChunks() {
 	}, body.Results[0])
 }
 
+func (s *HandlerSuite) decodeInto(resp *http.Response, into any) {
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+	s.Require().NoError(json.NewDecoder(resp.Body).Decode(into))
+}
+
+// A started pass belongs to the executor: the call that started it answers at
+// once, status reads it while it runs, a second start finds it running, and
+// a cancel by its index stops it.
+func (s *HandlerSuite) TestIndexStartRunsThePassInTheBackgroundUntilCancelled() {
+	index := s.withIndex()
+	index.On("Available").Return(nil)
+	running := make(chan struct{})
+	index.On("Ensure", mock.Anything, mock.MatchedBy(func(req port.LocalIndexEnsure) bool {
+		return req.RepoKey == "repo-1" && req.Branch == "" && filepath.IsAbs(req.Dir)
+	}), mock.Anything).
+		Run(func(args mock.Arguments) {
+			close(running)
+			<-args.Get(0).(context.Context).Done()
+		}).
+		Return(port.LocalIndexState{}, context.Canceled).Once()
+	index.On("Status", mock.Anything, port.LocalIndexRef{RepoKey: "repo-1"}).
+		Return(port.LocalIndexStatus{LocalIndexState: port.LocalIndexState{RepoKey: "repo-1"}}, nil)
+
+	var started executor.IndexStartResult
+	s.decodeInto(s.request(context.Background(), http.MethodPost, PathIndexStart, testToken, map[string]any{
+		"id": "transport-call-7", "workspace": indexWorkspace, "repo_key": "repo-1",
+	}), &started)
+	s.Equal(executor.IndexStartResult{V: 1, ID: "index:repo-1@", Started: true}, started)
+	<-running
+
+	var status executor.IndexStatusResult
+	s.decodeInto(s.request(context.Background(), http.MethodPost, PathIndexStatus, testToken, map[string]any{"repo_key": "repo-1"}), &status)
+	s.True(status.Running, "a pass that has not reached the index yet still reads as running")
+	s.Equal("running", status.Status)
+	s.False(status.Found)
+
+	var again executor.IndexStartResult
+	s.decodeInto(s.request(context.Background(), http.MethodPost, PathIndexStart, testToken, map[string]any{
+		"workspace": indexWorkspace, "repo_key": "repo-1",
+	}), &again)
+	s.Equal(executor.IndexStartResult{V: 1, ID: "index:repo-1@", Started: false}, again)
+
+	var cancelled executor.IndexCancelResult
+	s.decodeInto(s.request(context.Background(), http.MethodPost, PathIndexCancel, testToken, map[string]any{"repo_key": "repo-1"}), &cancelled)
+	s.Equal(executor.IndexCancelResult{V: 1, ID: "index:repo-1@", Cancelled: true}, cancelled)
+
+	s.Eventually(func() bool {
+		var after executor.IndexStatusResult
+		s.decodeInto(s.request(context.Background(), http.MethodPost, PathIndexStatus, testToken, map[string]any{"repo_key": "repo-1"}), &after)
+		return !after.Running
+	}, 5*time.Second, 20*time.Millisecond)
+}
+
+func (s *HandlerSuite) TestIndexStartRefusesAComputerThatCannotIndex() {
+	index := s.withIndex()
+	index.On("Available").Return(fmt.Errorf("%w: no embedding engine is configured on this computer (embeddings_base_url)", port.ErrLocalIndexUnavailable)).Once()
+
+	resp := s.request(context.Background(), http.MethodPost, PathIndexStart, testToken, map[string]any{
+		"workspace": indexWorkspace, "repo_key": "repo-1",
+	})
+
+	s.Equal(http.StatusServiceUnavailable, resp.StatusCode)
+	failure := s.errorOf(resp)
+	s.Equal(executor.CodeNotReady, failure.Code)
+	s.Contains(failure.Message, "embeddings_base_url")
+	index.AssertNotCalled(s.T(), "Ensure", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func (s *HandlerSuite) TestIndexStatusAnswersWhatThisComputerHas() {
+	index := s.withIndex()
+	indexedAt := time.Date(2026, 10, 15, 9, 30, 0, 0, time.UTC)
+	index.On("Status", mock.Anything, port.LocalIndexRef{RepoKey: "repo-1", Branch: "tt/task-1"}).
+		Return(port.LocalIndexStatus{
+			LocalIndexState: port.LocalIndexState{
+				RepoKey: "repo-1", Branch: "tt/task-1", Status: domain.IndexStatusCompleted,
+				Files: 212, Chunks: 980, Symbols: 450, CommitSHA: "abc123",
+				EmbeddingModel: "nomic-embed-text-v1.5@onnx-int8", EmbeddingDims: 768,
+			},
+			Found: true, FilesProcessed: 212, FilesTotal: 212, IndexedAt: &indexedAt, EmbeddingStale: true,
+		}, nil).Once()
+
+	var status executor.IndexStatusResult
+	s.decodeInto(s.request(context.Background(), http.MethodPost, PathIndexStatus, testToken, map[string]any{
+		"repo_key": " repo-1 ", "branch": "tt/task-1",
+	}), &status)
+
+	s.Equal(executor.IndexStatusResult{
+		V: 1,
+		IndexState: executor.IndexState{
+			RepoKey: "repo-1", Branch: "tt/task-1", Status: "completed", Files: 212, Chunks: 980, Symbols: 450,
+			CommitSHA: "abc123", EmbeddingModel: "nomic-embed-text-v1.5@onnx-int8", EmbeddingDims: 768,
+		},
+		Found: true, FilesProcessed: 212, FilesTotal: 212, IndexedAt: &indexedAt, EmbeddingStale: true,
+	}, status)
+
+	missing := s.request(context.Background(), http.MethodPost, PathIndexStatus, testToken, map[string]any{"branch": "main"})
+	s.Equal(http.StatusBadRequest, missing.StatusCode)
+	s.Equal(executor.CodeBadRequest, s.errorOf(missing).Code)
+}
+
+func (s *HandlerSuite) TestIndexCancelOfNoPassIsNotAnError() {
+	s.withIndex()
+
+	var cancelled executor.IndexCancelResult
+	s.decodeInto(s.request(context.Background(), http.MethodPost, PathIndexCancel, testToken, map[string]any{"repo_key": "repo-1", "branch": "tt/task-1"}), &cancelled)
+
+	s.Equal(executor.IndexCancelResult{V: 1, ID: "index:repo-1@tt/task-1"}, cancelled)
+}
+
 type fakeEndpoint struct {
 	baseURL, source string
 }

@@ -67,6 +67,22 @@ func registerFakeCheckout(mux *http.ServeMux, authorized func(http.ResponseWrite
 		}
 		send(`{"v":1,"id":"` + req.ID + `","event":"done","ok":true,"result":{"shape":"single","file_count":3,"components":[{"path":"."}],"git":{"default_branch":"main","head_sha":"abc"}}}`)
 	})
+	for _, route := range []string{"index.start", "index.status", "index.search", "index.cancel"} {
+		mux.HandleFunc("POST /exec/"+route, func(w http.ResponseWriter, r *http.Request) {
+			if !authorized(w, r) {
+				return
+			}
+			raw, _ := io.ReadAll(r.Body)
+			record(route, string(raw))
+			w.Header().Set("Content-Type", "application/json")
+			if strings.Contains(string(raw), "not-ready") {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"v":1,"error":{"code":"not_ready","message":"no embedding engine is configured on this computer (embeddings_base_url)"}}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"route": route, "snippet": "client := openai.New(" + key + ")"})
+		})
+	}
 	for _, route := range []string{"git.status", "git.diff", "git.log", "commit_push"} {
 		mux.HandleFunc("POST /exec/"+route, func(w http.ResponseWriter, r *http.Request) {
 			if !authorized(w, r) {
@@ -219,10 +235,52 @@ func TestGitAndCommitPushAreForwardedAndTheTokenComesBackScrubbed(t *testing.T) 
 	}
 }
 
+func TestIndexMethodsAreForwardedAsDocumentsScrubbed(t *testing.T) {
+	h := startFakeExecutor(t, "ok", fastExecutorTimings)
+	h.awaitReady(t)
+
+	for method, body := range map[string]string{
+		"index.start":  `{"id":"c-i","workspace":"repos/a/default","repo_key":"repo-1"}`,
+		"index.status": `{"id":"c-s","repo_key":"repo-1"}`,
+		"index.search": `{"id":"c-q","repo_key":"repo-1","query":"refresh token","k":5}`,
+		"index.cancel": `{"id":"c-c","repo_key":"repo-1"}`,
+	} {
+		res := request(t, h.cfg, h.st, http.MethodPost, "/"+method, body)
+		if res.status != http.StatusOK || !strings.Contains(res.body, `"route":"`+method+`"`) {
+			t.Errorf("%s: status = %d body=%s, want the executor's own answer", method, res.status, res.body)
+		}
+		if strings.Contains(res.body, fakeProviderKey) {
+			t.Errorf("%s answered %s, want the provider key scrubbed", method, res.body)
+		}
+		if got := h.lines(t, method); len(got) != 1 || got[0] != body {
+			t.Errorf("%s: the executor got %v, want the body unchanged", method, got)
+		}
+	}
+
+	refused := request(t, h.cfg, h.st, http.MethodPost, "/index.status", `{"repo_key":"not-ready"}`)
+	if refused.status != http.StatusServiceUnavailable || refused.code() != "not_ready" {
+		t.Errorf("the executor's refusal came back as %d %s, want its 503 verbatim", refused.status, refused.body)
+	}
+}
+
+func TestIndexStartIsRefusedBeforeItIsForwarded(t *testing.T) {
+	h := startFakeExecutor(t, "ok", fastExecutorTimings)
+	h.awaitReady(t)
+
+	res := request(t, h.cfg, h.st, http.MethodPost, "/index.start", `{"workspace":"../outside","repo_key":"repo-1"}`)
+
+	if res.status != http.StatusBadRequest || res.code() != codeBadRequest {
+		t.Errorf("status = %d body=%s, want 400 bad_request for a workspace outside the root", res.status, res.body)
+	}
+	if got := h.lines(t, "index.start"); len(got) != 0 {
+		t.Errorf("the executor got %v, want nothing forwarded", got)
+	}
+}
+
 func TestPostRunMethodsWithoutAnExecutorAreNotReady(t *testing.T) {
 	cfg := config{workspaceDir: t.TempDir()}
-	for _, method := range []string{"verify", "scan", "git.status", "git.diff", "git.log", "commit_push"} {
-		res := request(t, cfg, newState(), http.MethodPost, "/"+method, `{"id":"c-n","workspace":"repos/a/task-1"}`)
+	for _, method := range []string{"verify", "scan", "git.status", "git.diff", "git.log", "commit_push", "index.start", "index.status", "index.search", "index.cancel"} {
+		res := request(t, cfg, newState(), http.MethodPost, "/"+method, `{"id":"c-n","workspace":"repos/a/task-1","repo_key":"repo-1"}`)
 		if res.status != http.StatusConflict || res.code() != codeNotReady {
 			t.Errorf("%s: status = %d body=%s, want 409 not_ready", method, res.status, res.body)
 		}

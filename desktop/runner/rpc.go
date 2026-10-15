@@ -47,6 +47,10 @@ import (
 //	POST /git.diff            → the local executor's status and body
 //	POST /git.log             → the local executor's status and body
 //	POST /commit_push         → the local executor's status and body
+//	POST /index.start         → the local executor's status and body
+//	POST /index.status        → the local executor's status and body
+//	POST /index.search        → the local executor's status and body
+//	POST /index.cancel        → the local executor's status and body
 //	POST /run.attach          → a durable run's frames after a seq, then live
 //	POST /run.status          → 200 application/json
 //	POST /cancel              → 200 application/json
@@ -343,6 +347,16 @@ func (s *runnerServer) handler() http.Handler {
 			route(http.MethodPost, s.handleGitLog)
 		case "/commit_push":
 			route(http.MethodPost, s.handleCommitPush)
+		case "/index.start":
+			// The pass runs in the executor; this answers once it has started
+			// (executor_index.go).
+			route(http.MethodPost, s.handleIndexStart)
+		case "/index.status":
+			route(http.MethodPost, s.handleIndexStatus)
+		case "/index.search":
+			route(http.MethodPost, s.handleIndexSearch)
+		case "/index.cancel":
+			route(http.MethodPost, s.handleIndexCancel)
 		case "/run.attach":
 			route(http.MethodPost, s.handleRunAttach)
 		case "/run.status":

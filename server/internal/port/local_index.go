@@ -3,6 +3,7 @@ package port
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -104,14 +105,38 @@ type LocalIndexAttachment struct {
 	ContextMessage func(ctx context.Context, messages []domain.Message, rewriteQuery bool) (msg domain.Message, ok bool, err error)
 }
 
+// LocalIndexStatus is one index as this computer holds it now, read without
+// a pass. Found is false when it was never built here. Running is a pass over
+// it in progress, whoever started it (a person's reindex or a run's own pass),
+// and Phase and the file counts are its last report. Error is why the last
+// pass ended without finishing, whether it got as far as the index or not.
+type LocalIndexStatus struct {
+	LocalIndexState
+	Found          bool
+	Running        bool
+	Phase          string
+	FilesProcessed int
+	FilesTotal     int
+	IndexedAt      *time.Time
+	Error          string
+	// EmbeddingStale is an index built with another embedding model or
+	// engine than this computer's now: searches refuse it until the next
+	// pass re-embeds it whole.
+	EmbeddingStale bool
+}
+
 // LocalCodeIndex is the code index, embeddings and code search that run on
 // this computer: code and vectors never leave it. chat, when given, is the
 // model a chat turn's query rewrite may use (the run's own provider); nil
 // leaves the query as written.
 type LocalCodeIndex interface {
 	Ensure(ctx context.Context, req LocalIndexEnsure, progress func(LocalIndexProgress)) (LocalIndexState, error)
+	Status(ctx context.Context, ref LocalIndexRef) (LocalIndexStatus, error)
 	Search(ctx context.Context, query LocalIndexQuery) (LocalIndexSearchResult, error)
 	Attach(ctx context.Context, ref LocalIndexRef, chat LLMClient) (LocalIndexAttachment, error)
+	// Available is nil when this computer can build an index, and otherwise
+	// an ErrLocalIndexUnavailable naming what it lacks.
+	Available() error
 }
 
 // EmbeddingsEndpoint is where this computer's embedding engine answers. The

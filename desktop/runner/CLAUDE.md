@@ -55,6 +55,8 @@ executor.go      the local executor: start, readiness, restart with backoff,
 executor_checkout.go  the post-run half forwarded to it the same way: verify
                  (streamed), git.status / git.diff / git.log, commit_push; and
                  scan, the project model's scan of a checkout (streamed)
+executor_index.go  the code index of this computer's checkouts, forwarded as
+                 documents: index.start, index.status, index.search, index.cancel
 rpc.go           the HTTP surface: routing, the streamed response, the status
                  mapping, the session's registry for mobile.release's cancel
 runs.go          durable runs: the process-wide registry claude.run,
@@ -162,10 +164,11 @@ executor_test.go the executor against a real child process — this test binary
                  started with no arguments and TT_FAKE_EXECUTOR set: the stdin
                  config line, the listening line, the bearer, forwarding,
                  scrubbing, cancel by name, restart, the protocol check, stop
-executor_checkout_test.go  the post-run methods and scan against the same fake:
-                 the body forwarded unchanged, the stream scrubbed (and seq'd,
-                 a durable run), a verification and a scan cancelled by
-                 their id, the push token scrubbed from the answer
+executor_checkout_test.go  the post-run methods, scan and the index methods
+                 against the same fake: the body forwarded unchanged, the
+                 stream scrubbed (and seq'd, a durable run), a verification
+                 and a scan cancelled by their id, the push token scrubbed
+                 from the answer
 runner_policy_test.go  the policy: strict when absent, replaceable, refused when
                  malformed
 ```
@@ -204,6 +207,10 @@ POST /git.status          → the local executor's status and body
 POST /git.diff            → the local executor's status and body
 POST /git.log             → the local executor's status and body
 POST /commit_push         → the local executor's status and body
+POST /index.start         → the local executor's status and body
+POST /index.status        → the local executor's status and body
+POST /index.search        → the local executor's status and body
+POST /index.cancel        → the local executor's status and body
 POST /run.attach          → 200 application/x-ndjson, streamed (404 unknown_run)
 POST /run.status          → 200 application/json
 POST /cancel              → 200 application/json
@@ -231,6 +238,8 @@ POST /cancel              → 200 application/json
 | `POST /scan` | `id` (REQUIRED, the call id), `workspace` (relative), optional `timeout_ms` — `server/.ai/executor.md` | the executor's NDJSON unchanged (`scan_stage` events, one `done` whose `result` is the `domain.ScanResult`), scrubbed; 409 `not_ready` with no executor |
 | `POST /git.status`, `/git.diff`, `/git.log` | `workspace` (relative), and `base`, `name_only`, `max_bytes`, `limit` per route | the executor's status and body, verbatim but scrubbed |
 | `POST /commit_push` | `workspace` (relative), `message`, `branch`, optional `github_token` | the executor's status and body, verbatim, scrubbed of the keys and of `github_token` |
+| `POST /index.start` | `workspace` (relative), `repo_key`, optional `branch` — `server/.ai/executor.md` | the executor's status and body, verbatim but scrubbed: `{v, id, started}` once the pass has started; 409 `not_ready` with no executor |
+| `POST /index.status`, `/index.search`, `/index.cancel` | `repo_key`, optional `branch`; `query` and `k` for a search | the executor's status and body, verbatim but scrubbed |
 | `POST /cancel` | `{"id": "…"}` | `{"v":1,"id":"…","cancelled":true|false}` |
 
 `POST /cancel` names a streamed call: `claude.run`, `opencode.run`,
@@ -1066,6 +1075,26 @@ code, and only the scan's result crosses the tunnel.
   `unsupported_method` (404), as for the post-run half, and the cloud tells
   the member to update the desktop app; a runner with no executor answers
   `not_ready`.
+
+### `index.*` — the code index of this computer's checkouts
+
+The cloud keeps no code index of its own: each member's computer indexes its
+checkouts with its own embedding engine (`server/.ai/executor.md`, "Local
+code index"), and a person's Code index card reads and drives the index on
+their own computer through these four.
+
+- **Documents, not streams** (`forwardCheckoutDocument` for `index.start`,
+  so a `workspace` outside the root is refused before anything is forwarded;
+  `forwardExecutorDocument` for the rest). `index.start` answers once the
+  executor has started the pass, which then runs under the executor's own
+  life: it takes no session slot, is no durable run, and a dropped tunnel
+  does not stop it. `index.cancel` stops it; `index.status` reads it.
+- **Only counts, states and search hits cross the tunnel.** The code, its
+  chunks and their vectors stay here; a search hit carries the snippet the
+  member asked to see. Every answer is scrubbed like `llm.complete`'s.
+- **No capability advertises them.** An older runner answers
+  `unsupported_method` (404) and the cloud tells the member to update the
+  desktop app; a runner with no executor answers `not_ready`.
 
 ### Cancellation
 

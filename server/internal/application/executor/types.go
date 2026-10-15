@@ -271,6 +271,37 @@ type IndexSearchResult struct {
 	Results []IndexHit `json:"results"`
 }
 
+// IndexRefRequest names one index for index.status and index.cancel.
+type IndexRefRequest struct {
+	RepoKey string `json:"repo_key"`
+	Branch  string `json:"branch,omitempty"`
+}
+
+type IndexStartResult struct {
+	V       int    `json:"v"`
+	ID      string `json:"id"`
+	Started bool   `json:"started"`
+}
+
+type IndexStatusResult struct {
+	V int `json:"v"`
+	IndexState
+	Found          bool       `json:"found"`
+	Running        bool       `json:"running"`
+	Phase          string     `json:"phase,omitempty"`
+	FilesProcessed int        `json:"files_processed"`
+	FilesTotal     int        `json:"files_total"`
+	IndexedAt      *time.Time `json:"indexed_at,omitempty"`
+	EmbeddingStale bool       `json:"embedding_stale,omitempty"`
+	Error          string     `json:"error,omitempty"`
+}
+
+type IndexCancelResult struct {
+	V         int    `json:"v"`
+	ID        string `json:"id"`
+	Cancelled bool   `json:"cancelled"`
+}
+
 type IndexProgressEvent struct {
 	EventHeader
 	Phase          string `json:"phase"`

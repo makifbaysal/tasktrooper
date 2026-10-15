@@ -279,6 +279,61 @@ Response (hybrid search: vector similarity fused with trigram text matches):
   another embedding model or engine (run `index.ensure` again), or no embedder.
 - `score` is the fused rank score, comparable within one answer only.
 
+### `POST /exec/index.start`
+
+Starts one checkout's pass and answers as soon as it has started. The request
+is `index.ensure`'s (`workspace`, `repo_key`, `branch`), validated the same
+way; an `id` in it is ignored.
+
+```json
+{"v":1,"id":"index:<repo_key>@<branch>","started":true}
+```
+
+- The pass is this process's, not the call's: it runs under the executor's
+  life, so the caller holds nothing open for its length and going away does
+  not end it. Only `index.cancel`, `/exec/cancel` under its `id`, and shutdown
+  stop it. It is what a person's Reindex starts, far away, through the runner.
+- A pass already running under that `id` is not started again: the answer is
+  `started: false` with the same `id`, not an error.
+- A computer that cannot index at all (no embedder, no `data_dir`) answers
+  `not_ready` before anything starts. Anything the pass meets later (the
+  embedder failing, say) is `index.status`'s `error`.
+
+### `POST /exec/index.status`
+
+Request: `{"repo_key","branch"?}`. Reads one index without a pass; it needs
+the store (`data_dir`), not the embedder.
+
+```json
+{"v":1,"repo_key":"…","branch":"","status":"running","files":212,"chunks":980,"symbols":450,
+ "commit_sha":"…","embedding_model":"nomic-embed-text-v1.5@onnx-int8","embedding_dims":768,
+ "found":true,"running":true,"phase":"indexing","files_processed":40,"files_total":212,
+ "indexed_at":"…","embedding_stale":false,"error":""}
+```
+
+- `found` is false when this computer never built that index; the counts are
+  then zero.
+- `running` is a pass over it in progress, whoever started it: `index.start`,
+  `index.ensure`, or a run's own pass. `status` is then `running`, and
+  `phase` and the file counts are the pass's last report (`waiting` for
+  another pass, `seeded`, `indexing`).
+- A row a pass left `running` when the executor stopped reads `failed`, with
+  an `error` saying the next pass continues where it stopped.
+- `error` is why the last pass ended without finishing, including one that
+  failed before it reached the index (the embedder refused, say); a pass that
+  succeeds clears it.
+- `embedding_stale` is a completed index built with another embedding model
+  or engine than this computer's now: searches refuse it until the next pass
+  re-embeds it whole.
+
+### `POST /exec/index.cancel`
+
+Request: `{"repo_key","branch"?}`. Stops the pass `index.start` or
+`index.ensure` runs over that index under its default id. Answer:
+`{"v":1,"id":"index:<repo_key>@<branch>","cancelled":true|false}`; no pass is
+`false`, not an error. A run's own pass is not stopped this way: the run is
+waiting on it. The files a stopped pass finished keep their rows and hashes.
+
 ### `POST /exec/embeddings.set`
 
 Moves the index to the embedding engine's new address. The desktop restarts

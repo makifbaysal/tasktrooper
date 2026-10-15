@@ -623,6 +623,49 @@ func (s *LocalIndexSuite) TestTheEmbedderMovesWithoutARestart() {
 	s.Contains(errBody["error"].(map[string]any)["message"], "embeddings_base_url")
 }
 
+func (s *LocalIndexSuite) document(path string, body any) map[string]any {
+	resp := s.post(path, body)
+	defer resp.Body.Close()
+	s.Require().Equal(http.StatusOK, resp.StatusCode)
+	var out map[string]any
+	s.Require().NoError(json.NewDecoder(resp.Body).Decode(&out))
+	return out
+}
+
+// A person's Reindex: the pass starts and the call answers at once; status
+// follows it to the end and then says what the index holds.
+func (s *LocalIndexSuite) TestIndexStartBuildsTheIndexInTheBackgroundAndStatusFollowsIt() {
+	rel := s.checkout("repos/started/default", fixtureRepo)
+	ref := map[string]any{"repo_key": "github.com/acme/started"}
+
+	never := s.document(executorapi.PathIndexStatus, ref)
+	s.Equal(false, never["found"])
+	s.Equal(false, never["running"])
+
+	started := s.document(executorapi.PathIndexStart, map[string]any{"workspace": rel, "repo_key": "github.com/acme/started"})
+	s.Equal(true, started["started"])
+	s.Equal("index:github.com/acme/started@", started["id"])
+
+	var status map[string]any
+	s.Require().Eventually(func() bool {
+		status = s.document(executorapi.PathIndexStatus, ref)
+		return status["running"] == false && status["status"] == "completed"
+	}, time.Minute, 50*time.Millisecond)
+	s.Equal(true, status["found"])
+	s.InDelta(3, status["files"], 0)
+	s.InDelta(3, status["files_processed"], 0)
+	s.InDelta(3, status["files_total"], 0)
+	s.Equal("nomic-embed-text-v1.5@onnx-int8", status["embedding_model"])
+	s.NotEmpty(status["indexed_at"])
+	s.Nil(status["error"])
+	s.Nil(status["embedding_stale"])
+
+	code, answer, _ := s.search(map[string]any{"repo_key": "github.com/acme/started", "query": "refresh the access token"})
+	s.Require().Equal(http.StatusOK, code)
+	s.Require().NotEmpty(answer.Results)
+	s.Equal("auth.go", answer.Results[0].Path)
+}
+
 func (s *LocalIndexSuite) TestSearchBeforeAnyIndexAndEnsureOfAMissingCheckout() {
 	status, _, errBody := s.search(map[string]any{"repo_key": "github.com/acme/never", "query": "anything"})
 	s.Equal(http.StatusServiceUnavailable, status)

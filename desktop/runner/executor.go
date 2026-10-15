@@ -869,6 +869,13 @@ func (s *runnerServer) handleAgentRun(w http.ResponseWriter, r *http.Request) {
 // handleLLMComplete forwards POST /llm.complete to /exec/llm.complete: one
 // document each way, status and body passed back as the executor answered.
 func (s *runnerServer) handleLLMComplete(w http.ResponseWriter, r *http.Request) {
+	s.forwardExecutorDocument(w, r, "/exec/llm.complete")
+}
+
+// forwardExecutorDocument forwards a call that names no checkout: one
+// document each way, the executor's status and body passed back scrubbed.
+// Closing the request is how a caller abandons one.
+func (s *runnerServer) forwardExecutorDocument(w http.ResponseWriter, r *http.Request, path string) {
 	body, readErr := readBody(r)
 	if readErr != nil {
 		writeError(w, readErr)
@@ -895,7 +902,7 @@ func (s *runnerServer) handleLLMComplete(w http.ResponseWriter, r *http.Request)
 		writeError(w, rpcErr)
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, inst.base+"/exec/llm.complete", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, inst.base+path, bytes.NewReader(body))
 	if err != nil {
 		writeError(w, failure(codeInternal, "building the executor request: %v", err))
 		return
