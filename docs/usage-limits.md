@@ -67,8 +67,8 @@ never queue on this cap — only board CLI sessions do.
 An agent on an HTTP provider (OpenAI, Anthropic, Gemini, Groq, or a custom
 endpoint) hits a different kind of limit — a `429` (rate limited) or `529`
 (Anthropic's "overloaded", not billing-related) response — and that is paced
-rather than parked: retried with backoff starting around half a second and
-doubling up to an 8-second cap, honoring the provider's `Retry-After` header
+rather than parked: retried with backoff starting around two seconds and
+doubling up to a 60-second cap, honoring the provider's `Retry-After` header
 when it sends one. `529` is treated exactly like `429` for pacing purposes,
 but is never reported as the account having run out — an overloaded API
 says nothing about how much of your quota is left.
@@ -76,8 +76,10 @@ says nothing about how much of your quota is left.
 ## How it shows on the board
 
 A parked task shows its blocking reason directly on the card and in its
-detail view. For a Claude Code usage limit, that reads **"Claude usage limit
-reached"**; the same mechanism is what shows a mobile device wait ("Waiting
+detail view. For a Claude Code usage limit, the card's badge reads **"LLM
+Provider limit reached"**, and the detail view shows the driver's own line
+underneath it (**"Claude Code usage limit reached"**); the same mechanism is
+what shows a mobile device wait ("Waiting
 for a test device"), a pending deploy ("Waiting for the deploy"), or a task
 waiting on another task it depends on ("Waiting for blocking tasks") — a
 usage-limit park is one instance of a more general "this task is blocked on

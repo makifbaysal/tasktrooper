@@ -23,8 +23,8 @@ smoke check and its rollback command.
 | Provider | Recipe | Kinds | Variables |
 |---|---|---|---|
 | GCP Cloud Run | `gcp-cloud-run` | backend, worker, monorepo | `gcp_project_id`, `gcp_region`, `artifact_repo`, `service_name`, `health_url` |
-| GCP GKE | `gcp-gke` | backend, worker, monorepo | `gcp_project_id`, `gcp_region`, `cluster_name`, `namespace`, `deployment_name` |
-| AWS ECS Fargate | `aws-ecs-fargate` | backend, worker, monorepo | `aws_region`, `ecr_repository`, `ecs_cluster`, `ecs_service`, `task_family` |
+| GCP GKE | `gcp-gke` | backend, worker, monorepo | `gcp_project_id`, `gcp_region`, `cluster_name`, `namespace`, `deployment_name`, `container_name`, `artifact_repo`, `health_url` |
+| AWS ECS Fargate | `aws-ecs-fargate` | backend, worker, monorepo | `aws_region`, `ecr_repository`, `ecs_cluster`, `ecs_service`, `task_family`, `container_name`, `health_url` |
 | AWS Lambda | `aws-lambda` | backend, worker | `aws_region`, `function_name`, `alias_name`, `artifact_path`, `health_url` |
 | Vercel | `vercel` | frontend | `vercel_scope`, `vercel_project`, `health_url` |
 | Fly.io | `fly-io` | backend, worker | `fly_app`, `health_url` |

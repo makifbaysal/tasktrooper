@@ -111,9 +111,11 @@ un-drafted. `committed: false` is a normal, non-error result: either the
 branch already matches the workspace, or the task has no working copy on this
 machine yet, and either way retrying would not help.
 
-When a task moves to PM UAT or Done, TaskTrooper also opens a PR via `gh pr
-create --fill --draft` if the earlier commit step has not already opened one,
-and appends the PR link as a system comment on the card.
+When a task reaches Code Review — and again at PM UAT or Done, if nothing
+opened one earlier — TaskTrooper also opens a PR via `gh pr create --fill`
+(no `--draft`; the direct API path sends `"draft": false`) if the earlier
+commit step has not already opened one, and appends the PR link as a system
+comment on the card.
 
 ## Review comments
 
@@ -133,12 +135,13 @@ reviewer and answers the threads it opens on a PR it is judging.
 ## Merging on Done
 
 Nothing in TaskTrooper merges a pull request except one tool call, made by one
-role, in one column: **`merge_task_pull_request`, held only by the QA agent,
-callable only once the task sits in Done.** The developer must not merge its
-own branch, the architect reviews it rather than lands it, and the product
-manager signs off on the product rather than on the git history — QA is the
-role that most recently exercised the built thing, and Done is the column
-that wakes it for exactly this reason.
+role, in one column: **`merge_task_pull_request`, held only by the release
+engineer, callable only once the task sits in Done.** The developer must not
+merge its own branch, the architect reviews it rather than lands it, and QA's
+job ends at its test verdict rather than at the git history. Done is the
+column that wakes the release engineer, which owns merging, shipping, watching
+production and rolling back (see [Deploy targets and recipes](deploy.md) →
+"Releases").
 
 The merge is a **squash merge**, and the task's branch is deleted afterward.
 Before it runs, every one of these has to hold:

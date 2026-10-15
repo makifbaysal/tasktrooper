@@ -23,7 +23,7 @@ Every incident lands in one deduplicated table regardless of source:
   `resolved`, for instance) closes the matching incident instead of opening
   one.
 - **The health monitor.** TaskTrooper polls every deploy target's `health_url`
-  on its own schedule (`prod_ops.probe_interval`, one minute by default).
+  on its own schedule (`prod_ops.probe_interval`, three minutes by default).
   **Two consecutive failed probes open an incident; one successful probe
   closes it.** This asymmetry is deliberate — a single blip should not page
   anyone, but recovery should not wait for a second confirmation once the
