@@ -185,14 +185,13 @@ tools:
 # this binary instead of by the HTTP agent loop; an installation where it is not
 # on PATH registers no executor and those agents' runs fail with one clear
 # sentence saying so. max_turns / run_timeout / max_concurrent_sessions are left
-# unset: the executor owns those defaults (100 turns, 1h per session, 3
-# concurrent sessions).
+# unset: the executor owns those defaults (100 turns, 1h per session, no
+# session cap of its own).
 claude_code:
   binary: "${CLAUDE_CODE_BIN}"
-  # How many CLI sessions run at once. Unset means 3: the Claude subscription's
-  # usage limit is shared by every session on this account, so parallel
-  # sessions that all hit it mid-work all park together and a burst on resume
-  # re-hits it. Set -1 for unlimited.
+  # A host-wide cap on CLI sessions running at once, on top of the Settings
+  # concurrency limits. Unset (or 0) means none: the limits set in Settings
+  # are the only ones, and 0 there is unlimited.
   # max_concurrent_sessions: 3
   # Which of the CLI's settings files a session loads. Unset means
   # "project,local": the operator's own ~/.claude hooks and plugins stay out of

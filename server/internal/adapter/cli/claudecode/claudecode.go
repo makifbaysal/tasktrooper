@@ -33,8 +33,6 @@ const DefaultMaxTurns = 100
 
 const DefaultRunTimeout = time.Hour
 
-const DefaultMaxConcurrentSessions = 3
-
 const DefaultSettingSources = "project,local"
 
 var knownSettingSources = map[string]bool{"user": true, "project": true, "local": true}
@@ -120,12 +118,9 @@ func New(cfg Config) (*Executor, error) {
 	if runTimeout <= 0 {
 		runTimeout = DefaultRunTimeout
 	}
-	slotCap := cfg.MaxConcurrentSessions
-	if slotCap == 0 {
-		slotCap = DefaultMaxConcurrentSessions
-	} else if slotCap < 0 {
-		slotCap = -1
-	}
+	// The board runner's own limits (Settings) decide how many runs start;
+	// a host cap here is only for an operator who wants one on top.
+	slotCap := max(cfg.MaxConcurrentSessions, 0)
 	var sem chan struct{}
 	if slotCap > 0 {
 		sem = make(chan struct{}, slotCap)

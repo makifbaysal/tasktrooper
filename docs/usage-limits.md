@@ -49,18 +49,21 @@ hour.
 
 ## Concurrency caps
 
-Two independent caps limit how much work runs at once, at different levels:
+How many board runs start at once is set in **Settings → Concurrency
+limits**: the most agent runs and the most distinct tasks running at the same
+time. `0` in either field means unlimited, and that is the default.
 
 | Setting | Default | What it limits |
 |---|---|---|
-| `claude_code.max_concurrent_sessions` | 3 | How many board CLI sessions on Claude Code run at the same time. `-1` removes the cap |
+| Settings → max concurrent agents / tasks | 0 (unlimited) | How many board runs, and how many different tasks, run at the same time |
+| `claude_code.max_concurrent_sessions` | unset (no cap) | An optional host-wide cap on Claude Code sessions, on top of the Settings limits |
 | `orchestration.max_parallel_tasks` | 3 | How many subtasks inside one chat orchestration plan run in parallel |
 
-`max_concurrent_sessions` exists because the subscription's usage limit is
-shared across every session on the account: letting an unbounded number of
-sessions run in parallel just means they all hit the same wall together, in
-less wall-clock time, without getting any more work done for it. Chat turns
-never queue on this cap — only board CLI sessions do.
+Every session on one Claude subscription shares its usage limit, so many
+sessions in parallel reach that limit together, sooner, without getting more
+work done. If that happens often, lower the agent limit in Settings. A task
+still runs one agent at a time whatever the limits say: its runs share one
+workspace, so a second reviewer on the same task waits for the first.
 
 ## 429 and 529 pacing for API providers
 

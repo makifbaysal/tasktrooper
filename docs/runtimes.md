@@ -127,9 +127,9 @@ configuration) covering things like the binary path, the run timeout, and —
 for Claude Code specifically — the maximum turns per session (100 by
 default), which CLI settings sources are loaded (`project,local` by default —
 your own user-level `~/.claude` is deliberately excluded, for the same
-reason a repository's `.mcp.json` is), and how many board sessions may run
-concurrently on that CLI at once (see
-[Usage limits and concurrency](usage-limits.md) for what that cap is for).
+reason a repository's `.mcp.json` is), and an optional cap on how many
+board sessions may run concurrently on that CLI at once, on top of the
+limits in Settings (see [Usage limits and concurrency](usage-limits.md)).
 These are host-level settings, not per-agent ones — every agent on a given
 CLI shares them.
 

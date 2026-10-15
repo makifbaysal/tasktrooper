@@ -96,7 +96,7 @@ knowing about even if you never open the file:
 
 | Key | Default | What it controls |
 |---|---|---|
-| `claude_code.max_concurrent_sessions` | `3` | How many Claude Code board sessions run at once. `-1` is unlimited. Keep this low enough that your subscription's usage limit isn't hit by several sessions at the same moment — they'd all park together. |
+| `claude_code.max_concurrent_sessions` | unset (no cap) | An optional host-wide cap on Claude Code sessions running at once, on top of the concurrency limits in **Settings**. Unset or `0` adds no cap of its own. |
 | `claude_code.max_turns` | `100` | Turn budget for one Claude Code session before it returns what it has |
 | `orchestration.max_parallel_tasks` | `3` | How many subtasks an orchestrated run executes in parallel |
 | `orchestration.max_plan_tasks` | `10` | Max tasks in one orchestration plan |

@@ -1253,10 +1253,11 @@ resume) rather than spawning a CLI that would just report the same 429 again. Th
 per-process, in memory, and lost on a restart — it is a fast-path short-circuit, not the
 durable park; migration 101's board-row park above is what actually survives one.
 
-**The concurrency cap.** With no cap, every board task whose column is free spawns its own
-`claude` session at once, and a burst that all hit the shared usage limit mid-work all park
-together — the opposite of a gate meant to slow the burn down. `Config.MaxConcurrentSessions`
-(0 → `DefaultMaxConcurrentSessions` = 3, negative → unlimited) backs a buffered-channel
+**The concurrency cap.** How many board runs start at once is the Settings limits'
+business (`max_concurrent_agents` / `max_concurrent_tasks`, 0 = unlimited, enforced by the
+board runner); the executor adds no default of its own, because a hidden cap made "0 =
+unlimited" in Settings untrue. An operator who wants a host-wide ceiling on top sets
+`Config.MaxConcurrentSessions` (0 or less → none), which backs a buffered-channel
 semaphore on the executor; `Execute` acquires a slot after the quota-gate check and before
 `resolveMCP` (so a queued run never mints and holds a per-run token while it waits), honouring
 context cancellation, and logs plus records a `claude_code_slot_wait` activity step when the

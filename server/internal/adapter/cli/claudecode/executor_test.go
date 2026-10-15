@@ -889,6 +889,24 @@ func TestConcurrencyCapOfTwoLetsSessionsOverlap(t *testing.T) {
 		"cap 2 must run both one-second sessions concurrently")
 }
 
+// No configured cap means none: the Settings limits are the only ones, so the
+// executor must not hold a session back on a default of its own.
+func TestNoConfiguredCapLetsSessionsOverlap(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("testdata", "fake-claude.sh"))
+	require.NoError(t, err)
+	ex, err := New(Config{Binary: script})
+	require.NoError(t, err)
+
+	elapsed := runTwoConcurrently(t, ex,
+		newWorkspaceWithSleep(t, "success.jsonl", 1),
+		newWorkspaceWithSleep(t, "success.jsonl", 1))
+
+	assert.Less(t, elapsed, 1800*time.Millisecond,
+		"an unset cap must run both one-second sessions concurrently")
+	_, cap := ex.SlotsInUse()
+	assert.Zero(t, cap, "an unset cap reports no cap")
+}
+
 // A follow-up step (a criteria sweep, a fix round) resuming a session sends
 // its own instruction verbatim instead of the generic "the wait is over"
 // prompt — the session already knows it was parked.

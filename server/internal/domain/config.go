@@ -81,9 +81,9 @@ type ClaudeCodeConfig struct {
 	// SettingSources is a subset of user, project, local; empty means
 	// "project,local" — the operator's own ~/.claude settings are excluded.
 	SettingSources string `koanf:"setting_sources"`
-	// MaxConcurrentSessions bounds parallel CLI sessions; 0 means default (3),
-	// negative unlimited. The cap keeps the shared subscription limit from
-	// cutting every session off at once.
+	// MaxConcurrentSessions bounds parallel CLI sessions on this host; 0 or
+	// less means no cap of its own, leaving the Settings concurrency limits
+	// as the only ones.
 	MaxConcurrentSessions int `koanf:"max_concurrent_sessions"`
 }
 

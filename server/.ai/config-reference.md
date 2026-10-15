@@ -386,7 +386,7 @@ grounding, verify gate, commit/PR, column advance).
 | `max_turns` | — | `100` | Turn budget for one session; a session that hits it returns what it has |
 | `setting_sources` | — | `project,local` | Which CLI settings files a session loads. The operator's own `~/.claude` (hooks, plugins, permission rules) is out: none of it was chosen for TaskTrooper and all of it would otherwise run inside board tasks. Set `user,project,local` only if this host authenticates through a user-level apiKeyHelper |
 | `run_timeout` | — | `1h` | Deadline for one session — the only thing that ever gives up on a wedged CLI, since a subprocess has no provider timeout and the run's heartbeat keeps the row fresh. A plain run failure, never a quota park |
-| `max_concurrent_sessions` | — | `3` | How many board CLI sessions run at once. `-1` is unlimited. The subscription's usage limit is shared by every session on the account, so N sessions hitting it in parallel all park together; the cap keeps the burn sequential enough that the sessions that started actually finish. Chat turns never queue on it |
+| `max_concurrent_sessions` | — | unset (none) | An optional host-wide cap on board CLI sessions, on top of the Settings concurrency limits (which are the only ones by default; 0 there is unlimited). Unset, `0` or negative adds no cap. Chat turns never queue on it |
 
 - **No `enabled` flag**: the switch is whether the binary is on PATH. Absent, no
   executor is registered and a `claude_code` run — board or chat — fails with one
