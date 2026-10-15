@@ -34,6 +34,7 @@ import type {
   DiagnosticsRequest,
   KeyRemoveRequest,
   KeysPrefill,
+  KeysWindowPrefill,
   KeySetRequest,
   McpServerRemoveRequest,
   McpServerSetRequest,
@@ -490,6 +491,28 @@ export function validateKeysPrefill(raw: unknown): KeysPrefill {
   return out;
 }
 
+/**
+ * Either focus the account's page may hand the key window. `{mcp}` names one
+ * of this computer's MCP servers and the variables or headers it still needs;
+ * a value is refused outright, like a key in the provider form.
+ */
+export function validateKeysWindowPrefill(raw: unknown): KeysWindowPrefill {
+  const o = asRecord(raw, "keys.prefill");
+  if (!("mcp" in o)) return validateKeysPrefill(o);
+  if ("env" in o || "headers" in o || "value" in o) fail("keys.prefill: takes no value");
+  const out: KeysWindowPrefill = { mcp: asMcpName(o.mcp, "keys.prefill.mcp") };
+  if (o.secretNames !== undefined) {
+    if (!Array.isArray(o.secretNames)) fail("keys.prefill.secretNames: expected a list");
+    if (o.secretNames.length > 64) fail("keys.prefill.secretNames: at most 64");
+    out.secretNames = o.secretNames.map((n, i) => {
+      const name = asCleanNonEmpty(n, `keys.prefill.secretNames[${i}]`, { max: 128 });
+      if (!MCP_ENV_NAME.test(name) && !MCP_HEADER_NAME.test(name)) fail(`keys.prefill.secretNames[${i}]: not a variable or header name`);
+      return name;
+    });
+  }
+  return out;
+}
+
 export function validateKeyRemove(raw: unknown): KeyRemoveRequest {
   const o = asRecord(raw, "keys.remove");
   return { id: asProviderId(o.id, "keys.remove.id") };
@@ -548,7 +571,7 @@ export function validateMcpServerSet(raw: unknown): McpServerSetRequest {
     if (o.args !== undefined || o.env !== undefined) fail("keys.mcp-set: an http server takes headers, not args or env");
     out.url = url;
     if (o.headers !== undefined) out.headers = asSecretMap(o.headers, "keys.mcp-set.headers", MCP_HEADER_NAME, true);
-    return out;
+    return withDisabled(out, o.disabled);
   }
   if (o.headers !== undefined) fail("keys.mcp-set: a command server takes args and env, not headers");
   out.command = command;
@@ -562,7 +585,13 @@ export function validateMcpServerSet(raw: unknown): McpServerSetRequest {
     });
   }
   if (o.env !== undefined) out.env = asSecretMap(o.env, "keys.mcp-set.env", MCP_ENV_NAME, false);
-  return out;
+  return withDisabled(out, o.disabled);
+}
+
+function withDisabled(out: McpServerSetRequest, disabled: unknown): McpServerSetRequest {
+  if (disabled === undefined) return out;
+  if (typeof disabled !== "boolean") fail("keys.mcp-set.disabled: expected true or false");
+  return { ...out, disabled };
 }
 
 export function validateMcpServerRemove(raw: unknown): McpServerRemoveRequest {

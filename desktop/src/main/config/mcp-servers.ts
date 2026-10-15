@@ -26,6 +26,8 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** Kept on this computer but not handed to the runner. Never sent to it. */
+  disabled?: boolean;
 }
 
 export class McpServerStoreUnavailableError extends Error {
@@ -101,13 +103,17 @@ export function asMcpServers(raw: unknown): McpServerConfig[] | null {
         if (Object.keys(o.env).length > 0) server.env = { ...o.env };
       }
     }
+    if (o.disabled !== undefined) {
+      if (typeof o.disabled !== "boolean") return null;
+      if (o.disabled) server.disabled = true;
+    }
     out.push(server);
   }
   return out;
 }
 
 /** An address with its query and fragment dropped: a token is sometimes put there. */
-function displayUrl(raw: string): string {
+export function displayUrl(raw: string): string {
   try {
     const url = new URL(raw);
     return `${url.origin}${url.pathname}`;
@@ -116,9 +122,21 @@ function displayUrl(raw: string): string {
   }
 }
 
+const ARG_PASSWORD = /^([A-Za-z][A-Za-z0-9+.-]*:\/\/[^:/?#@\s]*):([^@/?#\s]+)@/;
+
 /**
- * The list as the key screen may show it: names, where it runs and which
- * variables hold a value — never a value.
+ * An argument with the password of a URL in it masked (`postgres://me:***@db`).
+ * Secrets belong in a variable, but a connection URL is often an argument,
+ * and the list goes to the account's page.
+ */
+export function redactArg(arg: string): string {
+  return arg.replace(ARG_PASSWORD, "$1:***@");
+}
+
+/**
+ * The list as the key screen and the account's page may show it: names,
+ * where it runs (an argument's URL password masked) and which variables hold
+ * a value — never a value.
  */
 export function summarizeMcpServers(list: readonly McpServerConfig[]): McpServerSummary[] {
   return list.map((s) => {
@@ -127,10 +145,11 @@ export function summarizeMcpServers(list: readonly McpServerConfig[]): McpServer
       name: s.name,
       transport: s.url !== undefined ? "http" : "stdio",
       ...(s.command !== undefined ? { command: s.command } : {}),
-      ...(s.args !== undefined ? { args: [...s.args] } : {}),
+      ...(s.args !== undefined ? { args: s.args.map(redactArg) } : {}),
       ...(s.url !== undefined ? { url: displayUrl(s.url) } : {}),
       secretNames,
       hasSecret: secretNames.length > 0,
+      ...(s.disabled ? { disabled: true } : {}),
     };
   });
 }

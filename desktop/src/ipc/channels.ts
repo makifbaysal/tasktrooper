@@ -165,11 +165,26 @@ export const CLOUD_CHANNELS = {
   accountSignOut: "cloud:account:sign-out",
   /**
    * Open the API-key window, optionally focused on one provider (`KeysPrefill`:
-   * identity and address, never a key). Nothing comes back: the page — the
+   * identity and address, never a key) or on one of this computer's MCP
+   * servers (`McpKeysPrefill`: names only). Nothing comes back: the page — the
    * account's, from a remote origin — may bring the window up, and that is
    * all. The keys are typed into the window, which is this app's own.
    */
   accountOpenKeys: "cloud:account:open-keys",
+  /**
+   * This computer's own MCP servers, for the account's MCP Servers page:
+   * `mcp-list` answers what the key window's list does (names, commands,
+   * addresses without their query, which variables or headers hold a value —
+   * never a value). `mcp-set` takes a server in with the key window's rules;
+   * one that would make this computer run something it does not run already
+   * (a new server, another command, arguments, address, or a variable or
+   * header value) waits for the person's yes in a native dialog first. A
+   * secret is never sent here: the page opens the key window for it
+   * (`open-keys` with `{mcp}`). Account mode only.
+   */
+  accountMcpList: "cloud:account:mcp-list",
+  accountMcpSet: "cloud:account:mcp-set",
+  accountMcpRemove: "cloud:account:mcp-remove",
 
   runnerSnapshot: "cloud:runner:snapshot",
   runnerConnect: "cloud:runner:connect",
@@ -380,6 +395,23 @@ export interface KeysPrefill {
   name?: string;
 }
 
+/**
+ * What the account's page may hand the key window to focus its MCP section
+ * on: a stored server, and the variables (stdio) or headers (http) it still
+ * needs a value for. Names only.
+ */
+export interface McpKeysPrefill {
+  mcp: string;
+  secretNames?: string[];
+}
+
+/** Either focus the key window takes: one provider, or one MCP server. */
+export type KeysWindowPrefill = KeysPrefill | McpKeysPrefill;
+
+export function isMcpKeysPrefill(prefill: KeysWindowPrefill): prefill is McpKeysPrefill {
+  return "mcp" in prefill;
+}
+
 export interface KeyRemoveRequest {
   id: string;
 }
@@ -397,6 +429,8 @@ export interface McpServerSetRequest {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** True switches the server off, false back on; absent keeps what is stored. */
+  disabled?: boolean;
 }
 
 export interface McpServerRemoveRequest {
@@ -408,11 +442,11 @@ export interface KeysBridge {
   list(): Promise<ProviderKeysState>;
   set(request: KeySetRequest): Promise<ProviderKeysState>;
   remove(id: string): Promise<ProviderKeysState>;
-  prefill(): Promise<KeysPrefill | null>;
+  prefill(): Promise<KeysWindowPrefill | null>;
   mcpList(): Promise<McpServersState>;
   mcpSet(request: McpServerSetRequest): Promise<McpServersState>;
   mcpRemove(name: string): Promise<McpServersState>;
-  onPrefill(cb: (prefill: KeysPrefill | null) => void): () => void;
+  onPrefill(cb: (prefill: KeysWindowPrefill | null) => void): () => void;
 }
 
 /**

@@ -18,7 +18,7 @@ vi.mock("electron", () => ({
   app: { getPath: () => "/userData" },
 }));
 
-const { asMcpServers, McpServerStore, summarizeMcpServers } = await import("./mcp-servers.js");
+const { asMcpServers, McpServerStore, redactArg, summarizeMcpServers } = await import("./mcp-servers.js");
 
 const list = [
   { name: "notes", command: "/usr/local/bin/notes-mcp", args: ["--stdio"], env: { NOTES_TOKEN: "env-ROUNDTRIP-1" } },
@@ -79,6 +79,24 @@ describe("McpServerStore", () => {
     } finally {
       keychain.available = true;
     }
+  });
+
+  it("masks a URL's password in the arguments it lists, and nothing else", () => {
+    expect(redactArg("postgres://me:PASS-SECRET@db.example:5432/app?sslmode=require")).toBe(
+      "postgres://me:***@db.example:5432/app?sslmode=require",
+    );
+    for (const arg of ["--stdio", "https://example.com/mcp", "postgres://db.example/app", "me:pass@host"]) {
+      expect(redactArg(arg)).toBe(arg);
+    }
+    const [db] = summarizeMcpServers([{ name: "db", command: "npx", args: ["pg-mcp", "postgres://me:PASS-SECRET@db/app"] }]);
+    expect(JSON.stringify(db)).not.toContain("PASS-SECRET");
+  });
+
+  it("keeps a switched-off server switched off, and says so in the summary", () => {
+    const off = [{ name: "notes", command: "/bin/notes", disabled: true }, { name: "on", command: "node", disabled: false }];
+    expect(asMcpServers(off)).toEqual([{ name: "notes", command: "/bin/notes", disabled: true }, { name: "on", command: "node" }]);
+    expect(asMcpServers([{ name: "notes", command: "/bin/notes", disabled: "yes" }])).toBeNull();
+    expect(summarizeMcpServers(asMcpServers(off) ?? []).map((s) => s.disabled)).toEqual([true, undefined]);
   });
 
   it("summarizes names and whether there is a secret, never a value or a query string", () => {

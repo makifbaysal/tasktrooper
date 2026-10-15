@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { CheckCircle2, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
-import { KEYS_BRIDGE_KEY, type KeysBridge } from "@ipc/channels.js";
+import { isMcpKeysPrefill, KEYS_BRIDGE_KEY, type KeysBridge, type KeysWindowPrefill, type McpKeysPrefill } from "@ipc/channels.js";
 import type { ProviderKeySummary, ProviderKeysState, ProviderKeyType } from "@ipc/types.js";
 import { Button } from "@shared/ui/button.js";
 import McpServers from "./McpServers";
@@ -28,6 +28,7 @@ function message(err: unknown): string {
  */
 export default function KeysApp() {
   const [providers, setProviders] = useState<ProviderKeySummary[] | null>(null);
+  const [mcpFocus, setMcpFocus] = useState<McpKeysPrefill | null>(null);
   const [form, setForm] = useState<KeyForm>(emptyForm());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,9 +41,15 @@ export default function KeysApp() {
 
   useEffect(() => {
     if (!keys) return;
-    const focus = (prefill: Parameters<typeof formForPrefill>[0] | null): void => {
+    const focus = (prefill: KeysWindowPrefill | null): void => {
       setError(null);
       setNotice(null);
+      if (prefill && isMcpKeysPrefill(prefill)) {
+        setForm(emptyForm());
+        setMcpFocus(prefill);
+        return;
+      }
+      setMcpFocus(null);
       setForm(prefill ? formForPrefill(prefill) : emptyForm());
     };
     keys.prefill().then(
@@ -248,7 +255,7 @@ export default function KeysApp() {
         {notice ? <p className="text-xs text-muted-foreground">{notice}</p> : null}
       </form>
 
-      <McpServers keys={keys} />
+      <McpServers keys={keys} focus={mcpFocus} />
     </main>
   );
 }

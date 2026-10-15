@@ -178,6 +178,14 @@ describe("runnerConfig", () => {
     expect(config(report(), { mcpServers }).mcp_servers).toEqual(mcpServers);
   });
 
+  it("leaves a switched-off MCP server out, and never sends the switch", () => {
+    const mcpServers = [
+      { name: "notes", command: "/bin/notes" },
+      { name: "off", command: "/bin/off", disabled: true },
+    ];
+    expect(config(report(), { mcpServers }).mcp_servers).toEqual([{ name: "notes", command: "/bin/notes" }]);
+  });
+
   it("sends no policy: the runner's defaults are the rules this app runs under", () => {
     expect(config(report())).not.toHaveProperty("policy");
   });

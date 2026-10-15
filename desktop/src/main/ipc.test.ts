@@ -58,6 +58,14 @@ function wire(mode: "local" | "account" = "account", consent: boolean | Promise<
       keysMcpList: () => (calls.push("mcp-list"), { servers: [], runnerRestarting: false }),
       keysMcpSet: (_request: unknown) => (calls.push("mcp-set"), { servers: [], runnerRestarting: false }),
       keysMcpRemove: (name: string) => (calls.push(`mcp-remove ${name}`), { servers: [], runnerRestarting: false }),
+      accountMcpList: () => (calls.push("account-mcp-list"), { servers: [], runnerRestarting: false }),
+      accountMcpSet: (request: { name: string }) => (calls.push(`account-mcp-set ${request.name}`), { servers: [], runnerRestarting: true }),
+      accountMcpRemove: (name: string) => (calls.push(`account-mcp-remove ${name}`), { servers: [], runnerRestarting: false }),
+      accountMcpConsent: (request: { name: string; disabled?: boolean }) =>
+        request.disabled === undefined
+          ? { name: request.name, added: true, command: "uvx", args: ["mcp-for-blender"], values: [], kept: [] }
+          : null,
+      confirmMcpServer: (asked: { name: string }) => (calls.push(`mcp-confirm ${asked.name}`), Promise.resolve(consent)),
       accountMode: () => mode,
       analyticsState: () => (calls.push("analytics-get"), { available: true, enabled: true, forcedOff: false }),
       setAnalytics: (on: boolean) => (calls.push(`analytics-set ${on}`), { available: true, enabled: on, forcedOff: false }),
@@ -252,6 +260,64 @@ describe("cloud:account:open-keys", () => {
     wire();
     const cloudKeyChannels = [...ipc.handlers.keys()].filter((c) => c.startsWith("cloud:") && c.includes("key"));
     expect(cloudKeyChannels).toEqual([CLOUD_CHANNELS.accountOpenKeys]);
+  });
+});
+
+describe("cloud:account:mcp-*", () => {
+  const page = from(accountView, `${ACCOUNT}/mcp-servers`);
+  const blender = { name: "blender", command: "uvx", args: ["mcp-for-blender"] };
+
+  it("lets the account's page list, add and remove this computer's servers, asking the person before it runs anything new", async () => {
+    const { calls, invoke } = wire();
+    await invoke(CLOUD_CHANNELS.accountMcpList, page);
+    await expect(invoke(CLOUD_CHANNELS.accountMcpSet, page, blender)).resolves.toEqual({ servers: [], runnerRestarting: true });
+    await invoke(CLOUD_CHANNELS.accountMcpSet, page, { ...blender, disabled: true });
+    await invoke(CLOUD_CHANNELS.accountMcpRemove, page, { name: "blender" });
+    expect(calls).toEqual([
+      "account-mcp-list",
+      "mcp-confirm blender",
+      "account-mcp-set blender",
+      "account-mcp-set blender",
+      "account-mcp-remove blender",
+    ]);
+  });
+
+  it("stores nothing when the person declines", async () => {
+    const { calls, invoke } = wire("account", false);
+    await expect(invoke(CLOUD_CHANNELS.accountMcpSet, page, blender)).rejects.toThrow(/declined/);
+    expect(calls).toEqual(["mcp-confirm blender"]);
+  });
+
+  it("answers busy while a dialog is already open", async () => {
+    let agree: (yes: boolean) => void = () => undefined;
+    const { calls, invoke } = wire("account", new Promise<boolean>((resolve) => (agree = resolve)));
+    const first = invoke(CLOUD_CHANNELS.accountMcpSet, page, blender);
+    await expect(invoke(CLOUD_CHANNELS.accountMcpSet, page, { ...blender, name: "other" })).rejects.toThrow(/busy/);
+    agree(true);
+    await first;
+    expect(calls).toEqual(["mcp-confirm blender", "account-mcp-set blender"]);
+  });
+
+  it("is account mode's only", async () => {
+    const { calls, invoke } = wire("local");
+    const local = from(accountView, ACCOUNT);
+    await expect(invoke(CLOUD_CHANNELS.accountMcpList, local)).rejects.toThrow(/account mode only/);
+    await expect(invoke(CLOUD_CHANNELS.accountMcpSet, local, blender)).rejects.toThrow(/account mode only/);
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses the key window, the chrome and a stranger before reading the payload", async () => {
+    const { calls, invoke } = wire();
+    for (const sender of [from(keysWindow, KEYS_PAGE), from(chrome, "file:///app/dist/renderer/index.html"), from(contents(99), ACCOUNT)]) {
+      for (const [channel, payload] of [
+        [CLOUD_CHANNELS.accountMcpList, undefined],
+        [CLOUD_CHANNELS.accountMcpSet, blender],
+        [CLOUD_CHANNELS.accountMcpRemove, { name: "blender" }],
+      ] as const) {
+        await expect(invoke(channel, sender, payload), channel).rejects.toThrow(/refused/);
+      }
+    }
+    expect(calls).toEqual([]);
   });
 });
 

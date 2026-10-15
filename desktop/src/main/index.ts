@@ -48,6 +48,7 @@ import { SettingsStore } from "./config/settings.js";
 import { checkWorkspace, pickDirectory, pickWorkspace, reveal } from "./config/workspace.js";
 import { applicationMenuTemplate } from "./app-menu.js";
 import { registerIpc, type IpcServices } from "./ipc.js";
+import { confirmMcpServer } from "./keys/consent.js";
 import { KeyService } from "./keys/keys.js";
 import { KeysWindow } from "./keys/window.js";
 import { launchedHidden, setLaunchAtLogin } from "./login-item.js";
@@ -612,6 +613,11 @@ const services: IpcServices = {
   accountSignOut: () => modeController.signOut(),
   accountUseLocalForNow: () => modeController.useLocalForNow(),
   openKeys: (prefill) => keysWindow.open(prefill),
+  accountMcpList: () => keyService.listMcp(),
+  accountMcpSet: (request: McpServerSetRequest) => keyService.setMcp(request, { keepUnsent: true }),
+  accountMcpRemove: (name: string) => keyService.removeMcp(name),
+  accountMcpConsent: (request: McpServerSetRequest) => keyService.mcpConsent(request, { keepUnsent: true }),
+  confirmMcpServer: (consent) => confirmMcpServer(shellWindow.window, consent),
 
   keysList: () => keyService.list(),
   keysSet: (request: KeySetRequest) => keyService.set(request),

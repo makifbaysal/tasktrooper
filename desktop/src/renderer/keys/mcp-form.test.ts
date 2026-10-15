@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyMcpForm, mcpFormFor, mcpFormProblem, toMcpRequest } from "./mcp-form";
+import { emptyMcpForm, mcpFormFor, mcpFormForFocus, mcpFormProblem, toMcpRequest } from "./mcp-form";
 
 describe("toMcpRequest", () => {
   it("builds a stdio request with arguments one per line and the variables typed", () => {
@@ -41,5 +41,19 @@ describe("mcpFormProblem", () => {
 
   it("accepts any other name", () => {
     expect(mcpFormProblem({ ...emptyMcpForm(), name: "notes", command: "x" })).toBeNull();
+  });
+});
+
+describe("mcpFormForFocus", () => {
+  it("adds an empty row for each name the page says the server still needs, after the stored ones", () => {
+    const form = mcpFormForFocus(
+      { name: "gitlab", transport: "stdio", command: "npx", secretNames: ["GITLAB_API_URL"], hasSecret: true },
+      ["GITLAB_API_URL", "GITLAB_PERSONAL_ACCESS_TOKEN"],
+    );
+    expect(form.editing).toBe("gitlab");
+    expect(form.secrets).toEqual([
+      { name: "GITLAB_API_URL", value: "" },
+      { name: "GITLAB_PERSONAL_ACCESS_TOKEN", value: "" },
+    ]);
   });
 });

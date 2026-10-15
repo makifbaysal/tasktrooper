@@ -12,9 +12,9 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   executor it starts are what run here, with the embedder beside them. Sign-in
   happens on that web page with its cookie; this process holds no session.
   The member's API keys are entered in this app's own API-key window
-  (`src/main/keys/`), never in that page. Its only way in is the account's
-  Settings → LLM Connection (`account.openKeys`); no tray or menu item, and
-  local mode keeps keys on its own LLM Connection page.
+  (`src/main/keys/`), never in that page. Its only ways in are the account's
+  Settings → LLM Connection and MCP Servers pages (`account.openKeys`); no
+  tray or menu item, and local mode keeps keys on its own LLM Connection page.
 
 ## Invariants
 
@@ -91,7 +91,8 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   answer only that window's top frame on that page (`sender-guard.ts#isOwnPage`)
   — never the web app's view, on either mode's origin. `set` takes a key in;
   every answer is `{id, type, base_url?, models?, hasKey}`, every log line an
-  id. The bridge has `account.openKeys()` only: no argument, no answer. A
+  id. The bridge has `account.openKeys(prefill?)` for it: a provider's or an
+  MCP server's name to focus on, never a key or a value, and no answer. A
   change restarts a running runner (stop + connect, the pairing kept), which
   is what hands the new list to the executor. Ids: a built-in type's id is
   the type (`anthropic`, `openai`, `gemini`, `groq`, `local`); a custom
@@ -106,7 +107,27 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   stored one under that name and a name left out is dropped. The list rides the
   runner's stdin as `mcp_servers` and from there the executor's, which serves
   the tools as `mcp_<name>_<tool>` to runs whose cloud tool policy names the
-  server; a change restarts the runner like a key does.
+  server; a change restarts the runner like a key does. A stored
+  `disabled: true` keeps a server here but out of the runner's list.
+- **The account's MCP Servers page manages the same list, without a secret.**
+  `account.mcp.list|set|remove` (`cloud:account:mcp-*`, bridge 6, account
+  mode only, the usual trusted-origin guard) answers the key window's
+  summaries and takes the key window's `set`, plus `disabled`, with one
+  difference: a variable or header the page's request does not name is kept,
+  not dropped (`keepUnsent`; the page only knows the names from its last
+  read). A server is a program the runner starts as this user, so a `set` that
+  would run something new — a new server, another command, arguments or
+  address, or a new variable or header value (`keys.ts#mcpServerConsent`) —
+  waits for the person's yes in a native dialog (`keys/consent.ts`, Cancel the
+  default and the escape), exactly as the toolchain's installs do; the page
+  gets `declined` or `busy`. The dialog shows the command line with each
+  argument quoted, a changed address in full and every new value in full,
+  with control and bidi characters written out, and names the saved values
+  that would go with a changed command or address. Keeping, dropping or
+  switching what is stored asks nothing. The page never sends a secret: it
+  opens the key window with `{mcp, secretNames}` for the values. Listed
+  arguments have a URL's password masked (`redactArg`); an argument sent back
+  masked keeps the stored one.
 - **Secrets for the runner go on its stdin, nowhere else.** The pairing token
   (`pairing.bin`), the member's provider keys (`providers.bin`) and their own
   MCP servers' env and headers (`mcp-servers.bin`), all
@@ -243,8 +264,8 @@ are separate declarations and must be changed together.
 
 ```ts
 window.__tasktrooperDesktop = {
-  info(), apiBase?, apiToken?, bridgeVersion: 5, mode: "local" | "account",
-  account: { signIn(origin?), signOut(), state(), openKeys() },
+  info(), apiBase?, apiToken?, bridgeVersion: 6, mode: "local" | "account",
+  account: { signIn(origin?), signOut(), state(), openKeys(prefill?), mcp: { list(), set(server), remove(name) } },
   runner: { snapshot, subscribe, connect, ..., pair, unpair, pairing, restart },
   updates: { status, subscribe, check, restart },
   analytics: { get(), set(on) },
@@ -260,7 +281,8 @@ exactly. `account.state()` answers
 `{mode, origin, switching, paired, temporaryLocal, error?}`, a superset of
 the page half's `{mode, origin?, temporaryLocal?}`. `bridgeVersion` 2 added
 `account.openKeys()` and `temporaryLocal`, 3 `openKeys(prefill)`, 4 `analytics`,
-5 `toolchain` (required here, optional `toolchain?` on the page's half).
+5 `toolchain` (required here, optional `toolchain?` on the page's half), 6
+`account.mcp` and `openKeys({mcp})` (optional `mcp?` on the page's half).
 `ToolchainId` is the twenty-two ids in `TOOLCHAIN_IDS`, in the same order on
 both halves.
 

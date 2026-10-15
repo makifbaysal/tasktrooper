@@ -1,7 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { BrowserWindow, app } from "electron";
-import { KEYS_EVENTS, type KeysPrefill } from "../../ipc/channels.js";
+import { KEYS_EVENTS, type KeysWindowPrefill } from "../../ipc/channels.js";
 
 /**
  * The API-key window: this app's own page, in a window of its own.
@@ -22,10 +22,10 @@ const KEYS_PARTITION = "tasktrooper-keys";
 export class KeysWindow {
   #window: BrowserWindow | null = null;
   #pageUrl = "";
-  #prefill: KeysPrefill | null = null;
+  #prefill: KeysWindowPrefill | null = null;
 
   /** What the opener asked the window to focus on; null when it was opened plain. */
-  get prefill(): KeysPrefill | null {
+  get prefill(): KeysWindowPrefill | null {
     return this.#prefill;
   }
 
@@ -41,7 +41,7 @@ export class KeysWindow {
   }
 
   /** Bring the window up, creating it the first time, focused on `prefill` when given. */
-  open(prefill?: KeysPrefill): void {
+  open(prefill?: KeysWindowPrefill): void {
     this.#prefill = prefill ?? null;
     const existing = this.#window;
     if (existing && !existing.isDestroyed()) {

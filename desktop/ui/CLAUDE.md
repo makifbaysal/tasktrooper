@@ -74,7 +74,7 @@ Settings); in local mode `runner.connect()`/`disconnect()` start and stop the
 **backend**. `account` (`signIn(origin?)`, `signOut()`, `state()`) switches
 the shell between local and account mode — Settings' Account card and the
 first-run screen call it; the page it is called from is replaced when it
-succeeds. `analytics` (`get()`, `set(on)`; bridge 4) is the anonymous usage switch Settings → General and the first-run line read; `toolchain` (bridge 5: `report`, `plan`, `state`/`subscribe`, `install`, `cancel`, `dismiss`, `openPage` — ids only, never a command or URL) installs the developer tools the agents use, for the first-run toolchain step, the header chip and Settings → Development environment (`.ai/frontend-components.md` "Toolchain setup"); `bridgeVersion` (5) and `mode` are synchronous values;
+succeeds. `analytics` (`get()`, `set(on)`; bridge 4) is the anonymous usage switch Settings → General and the first-run line read; `toolchain` (bridge 5: `report`, `plan`, `state`/`subscribe`, `install`, `cancel`, `dismiss`, `openPage` — ids only, never a command or URL) installs the developer tools the agents use, for the first-run toolchain step, the header chip and Settings → Development environment (`.ai/frontend-components.md` "Toolchain setup"); `bridgeVersion` (6) and `mode` are synchronous values;
 `runner.pair`/`unpair`/`pairing`/`restart` and the snapshot's `tunnel` are
 account mode's, used by the account's web app, not by this bundle.
 `account`, `toolchain`, `bridgeVersion` and `mode` are optional on this side: a browser and
@@ -83,7 +83,10 @@ shell's own API-key window and takes and returns nothing; this bundle never
 sees a key, and does not call it (local mode keeps keys on Settings → LLM
 Connection; the account's own LLM page calls it) — and `state().temporaryLocal`, true while the shell runs this
 bundle locally for now with an account still signed in
-(`TemporaryLocalBanner`, the Account card's "Back to the account").
+(`TemporaryLocalBanner`, the Account card's "Back to the account"). Bridge 6
+adds `account.mcp` (`list`, `set`, `remove`) and `openKeys({mcp, secretNames})`:
+this computer's own MCP servers, for the account's MCP Servers page; this
+bundle does not call them.
 
 ## Locales
 

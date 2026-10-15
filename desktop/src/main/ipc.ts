@@ -5,7 +5,7 @@ import {
   SHELL_CHANNELS,
   type ChooseDirectoryRequest,
   type KeySetRequest,
-  type KeysPrefill,
+  type KeysWindowPrefill,
   type McpServerSetRequest,
 } from "../ipc/channels.js";
 import type {
@@ -34,6 +34,7 @@ import type {
   ToolchainReport,
   UpdateStatus,
 } from "../ipc/types.js";
+import type { McpServerConsent } from "./keys/keys.js";
 import {
   ValidationError,
   validateAnalyticsSet,
@@ -42,7 +43,7 @@ import {
   validateDiagnosticsRequest,
   validateKeyRemove,
   validateKeySet,
-  validateKeysPrefill,
+  validateKeysWindowPrefill,
   validateMcpServerRemove,
   validateMcpServerSet,
   validateLogsRequest,
@@ -106,7 +107,15 @@ export interface IpcServices {
   /** Run locally for now, still signed in — the chrome's failure screen. */
   accountUseLocalForNow(): Promise<AccountState>;
   /** Bring up the API-key window. */
-  openKeys(prefill?: KeysPrefill): void;
+  openKeys(prefill?: KeysWindowPrefill): void;
+  /** The account's MCP Servers page: this computer's own servers, the same list the key window keeps. */
+  accountMcpList(): McpServersState;
+  accountMcpSet(request: McpServerSetRequest): McpServersState;
+  accountMcpRemove(name: string): McpServersState;
+  /** What `accountMcpSet(request)` would run that is not running already; null when nothing. */
+  accountMcpConsent(request: McpServerSetRequest): McpServerConsent | null;
+  /** The native "Add the MCP server …?" dialog; true when the person agreed. */
+  confirmMcpServer(consent: McpServerConsent): Promise<boolean>;
 
   analyticsState(): AnalyticsState;
   setAnalytics(on: boolean): AnalyticsState;
@@ -115,7 +124,7 @@ export interface IpcServices {
   keysList(): ProviderKeysState;
   keysSet(request: KeySetRequest): ProviderKeysState;
   keysRemove(id: string): ProviderKeysState;
-  keysPrefill(): KeysPrefill | null;
+  keysPrefill(): KeysWindowPrefill | null;
   keysMcpList(): McpServersState;
   keysMcpSet(request: McpServerSetRequest): McpServersState;
   keysMcpRemove(name: string): McpServersState;
@@ -320,7 +329,42 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.accountSignIn, (payload) => services.accountSignIn(validateSignIn(payload).origin));
   cloud(CLOUD_CHANNELS.accountSignOut, () => services.accountSignOut());
   cloud(CLOUD_CHANNELS.accountOpenKeys, (payload) => {
-    services.openKeys(payload === undefined || payload === null ? undefined : validateKeysPrefill(payload));
+    services.openKeys(payload === undefined || payload === null ? undefined : validateKeysWindowPrefill(payload));
+  });
+
+  /**
+   * This computer's own MCP servers, from the account's page. A server is a
+   * command the runner starts here, so a change that runs something new waits
+   * for the person's yes in a native dialog, exactly as the toolchain's
+   * installs do; a remote page can ask, never agree.
+   */
+  const accountOnly = (): void => {
+    if (services.accountMode() !== "account") throw new Error("This computer's own MCP servers are kept in account mode only.");
+  };
+  cloud(CLOUD_CHANNELS.accountMcpList, () => {
+    accountOnly();
+    return services.accountMcpList();
+  });
+  let confirmingMcp = false;
+  cloud(CLOUD_CHANNELS.accountMcpSet, async (payload) => {
+    const request = validateMcpServerSet(payload);
+    accountOnly();
+    const consent = services.accountMcpConsent(request);
+    if (consent) {
+      if (confirmingMcp) throw new Error("busy");
+      confirmingMcp = true;
+      try {
+        if (!(await services.confirmMcpServer(consent))) throw new Error("declined");
+      } finally {
+        confirmingMcp = false;
+      }
+    }
+    return services.accountMcpSet(request);
+  });
+  cloud(CLOUD_CHANNELS.accountMcpRemove, (payload) => {
+    const { name } = validateMcpServerRemove(payload);
+    accountOnly();
+    return services.accountMcpRemove(name);
   });
 
   cloud(CLOUD_CHANNELS.runnerSnapshot, () => services.runnerSnapshot());

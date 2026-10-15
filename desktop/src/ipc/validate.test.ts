@@ -5,6 +5,7 @@ import {
   validateChooseDirectory,
   validateKeyRemove,
   validateKeysPrefill,
+  validateKeysWindowPrefill,
   validateKeySet,
   validateLogsStream,
   validateMcpServerSet,
@@ -372,6 +373,36 @@ describe("validateMcpServerSet", () => {
   it("refuses the name TaskTrooper's own server holds, in any case", () => {
     for (const name of ["tasktrooper", "TaskTrooper", "TASKTROOPER"]) {
       expect(() => validateMcpServerSet({ name, command: "/bin/notes" })).toThrow(ValidationError);
+    }
+  });
+
+  it("takes a switch as true or false only", () => {
+    expect(validateMcpServerSet({ name: "notes", command: "/bin/notes", disabled: true }).disabled).toBe(true);
+    expect(validateMcpServerSet({ name: "wiki", url: "https://wiki.example/mcp", disabled: false }).disabled).toBe(false);
+    expect(validateMcpServerSet({ name: "notes", command: "/bin/notes" })).not.toHaveProperty("disabled");
+    expect(() => validateMcpServerSet({ name: "notes", command: "/bin/notes", disabled: "yes" })).toThrow(ValidationError);
+  });
+});
+
+describe("validateKeysWindowPrefill", () => {
+  it("takes a provider as validateKeysPrefill does", () => {
+    expect(validateKeysWindowPrefill({ id: "anthropic", type: "anthropic" })).toEqual({ id: "anthropic", type: "anthropic" });
+    expect(() => validateKeysWindowPrefill({ id: "openai", type: "openai", api_key: "sk" })).toThrow(ValidationError);
+  });
+
+  it("takes an MCP server's name and the variable or header names it needs, never a value", () => {
+    expect(validateKeysWindowPrefill({ mcp: "github", secretNames: ["Authorization", "GITHUB_TOKEN"] })).toEqual({
+      mcp: "github",
+      secretNames: ["Authorization", "GITHUB_TOKEN"],
+    });
+    for (const bad of [
+      { mcp: "bad name" },
+      { mcp: "github", env: { GITHUB_TOKEN: "x" } },
+      { mcp: "github", headers: { Authorization: "x" } },
+      { mcp: "github", secretNames: "GITHUB_TOKEN" },
+      { mcp: "github", secretNames: ["NAME WITH SPACES"] },
+    ]) {
+      expect(() => validateKeysWindowPrefill(bad), JSON.stringify(bad)).toThrow(ValidationError);
     }
   });
 });

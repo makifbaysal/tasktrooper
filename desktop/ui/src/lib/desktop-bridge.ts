@@ -409,6 +409,66 @@ export interface DesktopKeysPrefill {
 }
 
 /**
+ * Which of this computer's own MCP servers the shell's API-key window should
+ * open on, and the variables (stdio) or headers (http) it still needs a value
+ * for (bridge 6). Names only: the shell refuses a value.
+ */
+export interface DesktopMcpKeysPrefill {
+  mcp: string;
+  secretNames?: string[];
+}
+
+/**
+ * One of this computer's own MCP servers as the shell lists it (bridge 6):
+ * a name, its command or address (without the query), and which variables or
+ * headers hold a value — never a value.
+ */
+export interface DesktopMcpServer {
+  name: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  url?: string;
+  secretNames: string[];
+  hasSecret: boolean;
+  disabled?: boolean;
+}
+
+export interface DesktopMcpServersState {
+  servers: DesktopMcpServer[];
+  /** True when the change restarted this computer's runner to take effect. */
+  runnerRestarting: boolean;
+}
+
+/**
+ * A server to add or change. In `env` and `headers` an empty value keeps the
+ * stored one and a name left out is dropped; `disabled` left out keeps it on
+ * or off. Never put a secret here: open the key window for it.
+ */
+export interface DesktopMcpServerSetRequest {
+  name: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  disabled?: boolean;
+}
+
+/**
+ * This computer's own MCP servers (bridge 6, account mode only) — the list
+ * the key window keeps and the runner serves. `set` rejects with "declined"
+ * when the person says no to the shell's native "Add the MCP server …?"
+ * dialog, which a change that runs something new waits for, and with "busy"
+ * while that dialog is open.
+ */
+export interface DesktopAccountMcpHost {
+  list(): Promise<DesktopMcpServersState>;
+  set(request: DesktopMcpServerSetRequest): Promise<DesktopMcpServersState>;
+  remove(name: string): Promise<DesktopMcpServersState>;
+}
+
+/**
  * What `account.state()` answers, as far as this page reads it — the shell's
  * own answer is a superset. `temporaryLocal`: signed in, but running locally
  * for now because the account's page could not be reached (bridge 2).
@@ -585,9 +645,13 @@ export interface TaskTrooperDesktopHost {
      * Bridge 2: bring up the shell's own API-key window. Returns nothing —
      * the keys are typed into that window, never into a page. Bridge 3: the
      * optional `prefill` focuses it on one provider, which it then asks only
-     * for a token; an older shell ignores the argument. Absent in older shells.
+     * for a token; an older shell ignores the argument. Bridge 6: a
+     * `DesktopMcpKeysPrefill` opens it on one of this computer's MCP servers.
+     * Absent in older shells.
      */
-    openKeys?(prefill?: DesktopKeysPrefill): Promise<void>;
+    openKeys?(prefill?: DesktopKeysPrefill | DesktopMcpKeysPrefill): Promise<void>;
+    /** Bridge 6. Absent in a browser and in older shells. */
+    mcp?: DesktopAccountMcpHost;
   };
   /** Absent in a browser, and in a shell older than the Settings update card. */
   updates?: DesktopUpdatesHost;
@@ -612,6 +676,7 @@ export interface TaskTrooperDesktopHost {
    * 3: `account.openKeys(prefill)` focuses the key window on one provider.
    * 4: `analytics.get()` / `analytics.set(on)`.
    * 5: `toolchain` — detect and install the developer tools the agents use.
+   * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
    */
   bridgeVersion?: number;
   /**

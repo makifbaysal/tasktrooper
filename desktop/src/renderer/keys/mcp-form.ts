@@ -40,6 +40,16 @@ export function mcpFormFor(server: McpServerSummary): McpForm {
   };
 }
 
+/**
+ * The form for a stored server the account's page sent here, with an empty
+ * row for each variable or header it still needs a value for.
+ */
+export function mcpFormForFocus(server: McpServerSummary, secretNames: readonly string[] = []): McpForm {
+  const form = mcpFormFor(server);
+  const missing = secretNames.filter((name) => !server.secretNames.includes(name));
+  return { ...form, secrets: [...form.secrets, ...missing.map((name) => ({ name, value: "" }))] };
+}
+
 export function mcpFormProblem(form: McpForm): string | null {
   if (isReservedMcpName(form.name)) return "TaskTrooper's own MCP server is always on for every agent. Pick another name.";
   return null;

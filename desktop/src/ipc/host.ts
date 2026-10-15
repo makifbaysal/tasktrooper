@@ -32,6 +32,7 @@ import type {
   ChildState,
   Diagnostics,
   LogLine,
+  McpServersState,
   NotificationPreferences,
   PreflightReport,
   RunnerPairingBundle,
@@ -45,7 +46,7 @@ import type {
   UpdateStatus,
   WorkspaceCheck,
 } from "./types.js";
-import type { ChooseDirectoryRequest, KeysPrefill } from "./channels.js";
+import type { ChooseDirectoryRequest, KeysWindowPrefill, McpServerSetRequest } from "./channels.js";
 
 /**
  * One child process, as the page renders it.
@@ -273,15 +274,32 @@ export interface DesktopToolchainHost {
  *
  * `openKeys` brings up the API-key window, which is this app's own — the keys
  * are typed there, never into the page that asked. It answers nothing and its
- * optional `prefill` names a provider (id, type, address, models, name) but
- * never carries a key, so the account's page can offer the button without ever
- * holding one.
+ * optional `prefill` names a provider (id, type, address, models, name) or an
+ * MCP server and the variables it still needs (`{mcp, secretNames}`), but
+ * never carries a key or a value, so the account's page can offer the button
+ * without ever holding one.
+ *
+ * `mcp` (bridge 6) is this computer's own MCP servers, the list the key
+ * window keeps and the runner serves: `list()` answers names, commands and
+ * addresses (without their query) and which variables or headers hold a value,
+ * never a value. `set()` changes one with the key window's rules (an empty
+ * value keeps the stored one, a name left out is dropped, `disabled` switches
+ * it off); one that would run something new rejects with "declined" unless
+ * the person agrees in a native dialog, and with "busy" while that dialog is
+ * open. Account mode only.
  */
+export interface DesktopAccountMcpHost {
+  list(): Promise<McpServersState>;
+  set(request: McpServerSetRequest): Promise<McpServersState>;
+  remove(name: string): Promise<McpServersState>;
+}
+
 export interface DesktopAccountHost {
   signIn(origin?: string): Promise<void>;
   signOut(): Promise<void>;
   state(): Promise<AccountState>;
-  openKeys(prefill?: KeysPrefill): Promise<void>;
+  openKeys(prefill?: KeysWindowPrefill): Promise<void>;
+  mcp: DesktopAccountMcpHost;
 }
 
 /**
@@ -313,8 +331,9 @@ export interface DesktopHost {
    * 3: `account.openKeys(prefill)` focuses the key window on one provider.
    * 4: `analytics.get()` / `analytics.set(on)`.
    * 5: `toolchain` — detecting and installing the developer tools agents use.
+   * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
    */
-  bridgeVersion: 5;
+  bridgeVersion: 6;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;
@@ -328,6 +347,8 @@ export type {
   AccountMode,
   AccountState,
   ChooseDirectoryRequest,
+  McpServersState,
+  McpServerSetRequest,
   RunnerPairingBundle,
   RunnerPairingSummary,
   ToolchainId,

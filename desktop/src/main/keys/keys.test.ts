@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { McpServerSetRequest } from "../../ipc/channels.js";
 import type { McpServerConfig } from "../config/mcp-servers.js";
 import type { ProviderConfig } from "../config/providers.js";
 
 vi.mock("electron", () => ({ safeStorage: {}, app: { getPath: () => "/userData" } }));
 
-const { applyKeyRemove, applyKeySet, KeyService } = await import("./keys.js");
+const { applyKeyRemove, applyKeySet, applyMcpServerSet, KeyService, mcpServerConsent } = await import("./keys.js");
 
 const UUID = "8f0e7c0a-1b2c-4d5e-9f00-0123456789ab";
 const newId = (): string => UUID;
@@ -191,5 +192,106 @@ describe("MCP servers", () => {
 
   it("says there is no such server on a remove", () => {
     expect(() => service().svc.removeMcp("ghost")).toThrow(/no MCP server ghost/);
+  });
+
+  it("switches a server off and on, and keeps the switch when a change leaves it out", () => {
+    const stored: McpServerConfig[] = [{ name: "notes", command: "/bin/notes" }];
+    const off = applyMcpServerSet(stored, { name: "notes", command: "/bin/notes", disabled: true });
+    expect(off).toEqual([{ name: "notes", command: "/bin/notes", disabled: true }]);
+    expect(applyMcpServerSet(off, { name: "notes", command: "/bin/notes2" })).toEqual([
+      { name: "notes", command: "/bin/notes2", disabled: true },
+    ]);
+    expect(applyMcpServerSet(off, { name: "notes", command: "/bin/notes", disabled: false })).toEqual(stored);
+  });
+
+  it("keeps an address's query when the change sends back the address as the list showed it", () => {
+    const stored: McpServerConfig[] = [{ name: "wiki", url: "https://wiki.example/mcp?key=QUERY-SECRET" }];
+    expect(applyMcpServerSet(stored, { name: "wiki", url: "https://wiki.example/mcp" })).toEqual(stored);
+    expect(applyMcpServerSet(stored, { name: "wiki", url: "https://other.example/mcp" })).toEqual([
+      { name: "wiki", url: "https://other.example/mcp" },
+    ]);
+  });
+});
+
+describe("mcpServerConsent: what a change from the account's page must be agreed to", () => {
+  const stored: McpServerConfig[] = [
+    { name: "notes", command: "npx", args: ["-y", "notes-mcp"], env: { NOTES_TOKEN: "TOKEN-STORED" } },
+    { name: "wiki", url: "https://wiki.example/mcp?key=Q", headers: { Authorization: "Bearer H" } },
+  ];
+  const page = { keepUnsent: true };
+
+  it("asks for a new server, with its command line and every value it brings in full", () => {
+    const long = `--max-old-space-size=4096 ${"x".repeat(200)} --require /tmp/evil.js`;
+    expect(
+      mcpServerConsent(stored, { name: "blender", command: "uvx", args: ["mcp-for-blender"], env: { SAFE: "1", NODE_OPTIONS: long, TOKEN: "" } }, page),
+    ).toEqual({
+      name: "blender",
+      added: true,
+      command: "uvx",
+      args: ["mcp-for-blender"],
+      values: [
+        ["SAFE", "1"],
+        ["NODE_OPTIONS", long],
+      ],
+      kept: [],
+    });
+  });
+
+  it("asks for another command, other arguments, another address or a new value", () => {
+    const requests: McpServerSetRequest[] = [
+      { name: "notes", command: "/bin/sh", args: ["-y", "notes-mcp"], env: { NOTES_TOKEN: "" } },
+      { name: "notes", command: "npx", args: ["-y", "evil-mcp"], env: { NOTES_TOKEN: "" } },
+      { name: "notes", command: "npx", args: ["-y", "notes-mcp"], env: { NOTES_TOKEN: "", NODE_OPTIONS: "--require /tmp/x.js" } },
+      { name: "wiki", url: "https://evil.example/mcp", headers: { Authorization: "" } },
+      { name: "wiki", url: "https://wiki.example/mcp?key=OTHER" },
+    ];
+    for (const request of requests) {
+      expect(mcpServerConsent(stored, request, page), JSON.stringify(request)).not.toBeNull();
+    }
+  });
+
+  it("names the stored values that would go with a changed target, without their values", () => {
+    const toEvil = mcpServerConsent(stored, { name: "wiki", url: "https://evil.example/mcp", headers: { Authorization: "" } }, page);
+    expect(toEvil).toMatchObject({ url: "https://evil.example/mcp", values: [], kept: ["Authorization"] });
+    const unsent = mcpServerConsent(stored, { name: "notes", command: "/bin/notes" }, page);
+    expect(unsent).toMatchObject({ command: "/bin/notes", kept: ["NOTES_TOKEN"] });
+    expect(JSON.stringify([toEvil, unsent])).not.toMatch(/TOKEN-STORED|Bearer H/);
+  });
+
+  it("shows a changed address in full, and a kept one without the stored query", () => {
+    expect(mcpServerConsent(stored, { name: "wiki", url: "https://wiki.example/mcp?key=OTHER" }, page)?.url).toBe(
+      "https://wiki.example/mcp?key=OTHER",
+    );
+    expect(mcpServerConsent(stored, { name: "wiki", url: "https://wiki.example/mcp", headers: { "X-New": "1" } }, page)?.url).toBe(
+      "https://wiki.example/mcp",
+    );
+  });
+
+  it("does not ask to keep, drop or switch what is stored", () => {
+    const requests: McpServerSetRequest[] = [
+      { name: "notes", command: "npx", args: ["-y", "notes-mcp"], env: { NOTES_TOKEN: "" } },
+      { name: "notes", command: "npx", args: ["-y", "notes-mcp"] },
+      { name: "notes", command: "npx", args: ["-y", "notes-mcp"], env: { NOTES_TOKEN: "" }, disabled: true },
+      { name: "wiki", url: "https://wiki.example/mcp", headers: { Authorization: "" } },
+    ];
+    for (const request of requests) {
+      expect(mcpServerConsent(stored, request, page), JSON.stringify(request)).toBeNull();
+    }
+  });
+});
+
+describe("the account's page keeps what it does not name", () => {
+  it("keeps a stored variable the request leaves out, where the key window's set drops it", () => {
+    const stored: McpServerConfig[] = [{ name: "notes", command: "npx", env: { NOTES_TOKEN: "t", ADDED_LATER: "a" } }];
+    const request = { name: "notes", command: "npx", env: { NOTES_TOKEN: "" } };
+    expect(applyMcpServerSet(stored, request, { keepUnsent: true })[0].env).toEqual({ NOTES_TOKEN: "t", ADDED_LATER: "a" });
+    expect(applyMcpServerSet(stored, request)[0].env).toEqual({ NOTES_TOKEN: "t" });
+  });
+
+  it("keeps an argument whose URL password the list masked", () => {
+    const stored: McpServerConfig[] = [{ name: "db", command: "npx", args: ["-y", "pg-mcp", "postgres://me:PASS-SECRET@db.example/app"] }];
+    const masked = ["-y", "pg-mcp", "postgres://me:***@db.example/app"];
+    expect(applyMcpServerSet(stored, { name: "db", command: "npx", args: masked })[0].args).toEqual(stored[0].args);
+    expect(mcpServerConsent(stored, { name: "db", command: "npx", args: masked }, { keepUnsent: true })).toBeNull();
   });
 });

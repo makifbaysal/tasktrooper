@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, Loader2, Plus, Server, Trash2 } from "lucide-react";
-import type { KeysBridge } from "@ipc/channels.js";
+import type { KeysBridge, McpKeysPrefill } from "@ipc/channels.js";
 import type { McpServersState, McpServerSummary } from "@ipc/types.js";
 import { Button } from "@shared/ui/button.js";
-import { emptyMcpForm, mcpFormFor, mcpFormProblem, secretLabel, toMcpRequest, type McpForm, type McpTransport } from "./mcp-form";
+import {
+  emptyMcpForm,
+  mcpFormFor,
+  mcpFormForFocus,
+  mcpFormProblem,
+  secretLabel,
+  toMcpRequest,
+  type McpForm,
+  type McpTransport,
+} from "./mcp-form";
 
 const FIELD =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
@@ -15,10 +24,12 @@ function message(err: unknown): string {
 /**
  * The window's second section: the member's own MCP servers on this computer.
  * A secret (an environment variable of a command, a header of an address) is
- * typed here and never shown again — no call returns one.
+ * typed here and never shown again — no call returns one. The account's MCP
+ * Servers page adds the rest and sends a server here (`focus`) for its values.
  */
-export default function McpServers({ keys }: { keys: KeysBridge }) {
+export default function McpServers({ keys, focus }: { keys: KeysBridge; focus?: McpKeysPrefill | null }) {
   const [servers, setServers] = useState<McpServerSummary[] | null>(null);
+  const section = useRef<HTMLElement>(null);
   const [form, setForm] = useState<McpForm>(emptyMcpForm());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,10 +42,18 @@ export default function McpServers({ keys }: { keys: KeysBridge }) {
 
   useEffect(() => {
     keys.mcpList().then(
-      (state) => setServers(state.servers),
+      (state) => {
+        setServers(state.servers);
+        if (!focus) return;
+        const server = state.servers.find((s) => s.name === focus.mcp);
+        setError(server ? null : `There is no MCP server ${focus.mcp} on this computer.`);
+        setNotice(null);
+        if (server) setForm(mcpFormForFocus(server, focus.secretNames));
+        section.current?.scrollIntoView({ block: "start" });
+      },
       (err: unknown) => setError(message(err)),
     );
-  }, [keys]);
+  }, [keys, focus]);
 
   const save = useCallback(
     (event: FormEvent) => {
@@ -89,7 +108,7 @@ export default function McpServers({ keys }: { keys: KeysBridge }) {
   const label = secretLabel(form.transport);
 
   return (
-    <section className="mt-10 border-t border-border pt-6">
+    <section ref={section} className="mt-10 border-t border-border pt-6">
       <header className="flex items-center gap-2">
         <Server className="size-5 text-muted-foreground" />
         <h2 className="text-base font-semibold">MCP servers on this computer</h2>
@@ -113,6 +132,7 @@ export default function McpServers({ keys }: { keys: KeysBridge }) {
               <div className="min-w-0 flex-1">
                 <p className="selectable truncate font-mono text-sm font-medium">{s.name}</p>
                 <p className="selectable truncate text-xs text-muted-foreground">
+                  {s.disabled ? "Off — " : ""}
                   {s.transport === "http" ? s.url : [s.command, ...(s.args ?? [])].join(" ")}
                 </p>
               </div>

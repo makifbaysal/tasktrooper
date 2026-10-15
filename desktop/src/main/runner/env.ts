@@ -159,7 +159,9 @@ export function runnerConfig(inputs: RunnerConfigInputs): string {
   const claude = itemById(preflight, "claude");
   const executorBin = executor?.status === "ok" && executor.path ? executor.path : "";
   const providerList = inputs.providers.map((p) => ({ ...p }));
-  const mcpServerList = (inputs.mcpServers ?? []).map((s) => ({ ...s }));
+  const mcpServerList = (inputs.mcpServers ?? [])
+    .filter((s) => s.disabled !== true)
+    .map(({ disabled: _off, ...s }) => ({ ...s }));
   const embeddings = inputs.embeddingsBaseURL ?? "";
   const runnerData = inputs.runnerDataDir ?? "";
 

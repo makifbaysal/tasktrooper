@@ -5,7 +5,7 @@ import {
   KEYS_EVENTS,
   type KeySetRequest,
   type KeysBridge,
-  type KeysPrefill,
+  type KeysWindowPrefill,
   type McpServerSetRequest,
 } from "../ipc/channels.js";
 import type { McpServersState, ProviderKeysState } from "../ipc/types.js";
@@ -30,12 +30,12 @@ const bridge: KeysBridge = {
   list: () => call<ProviderKeysState>(KEYS_CHANNELS.list),
   set: (request: KeySetRequest) => call<ProviderKeysState>(KEYS_CHANNELS.set, request),
   remove: (id: string) => call<ProviderKeysState>(KEYS_CHANNELS.remove, { id }),
-  prefill: () => call<KeysPrefill | null>(KEYS_CHANNELS.prefill),
+  prefill: () => call<KeysWindowPrefill | null>(KEYS_CHANNELS.prefill),
   mcpList: () => call<McpServersState>(KEYS_CHANNELS.mcpList),
   mcpSet: (request: McpServerSetRequest) => call<McpServersState>(KEYS_CHANNELS.mcpSet, request),
   mcpRemove: (name: string) => call<McpServersState>(KEYS_CHANNELS.mcpRemove, { name }),
   onPrefill: (cb) => {
-    const listener = (_event: unknown, prefill: KeysPrefill | null): void => cb(prefill);
+    const listener = (_event: unknown, prefill: KeysWindowPrefill | null): void => cb(prefill);
     ipcRenderer.on(KEYS_EVENTS.prefill, listener);
     return () => {
       ipcRenderer.removeListener(KEYS_EVENTS.prefill, listener);

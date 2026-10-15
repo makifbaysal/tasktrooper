@@ -454,6 +454,8 @@ export interface McpServerSummary {
   /** Env variable names (stdio) or header names (http) that hold a value. */
   secretNames: string[];
   hasSecret: boolean;
+  /** Switched off: stored here, not handed to the runner. */
+  disabled?: boolean;
 }
 
 /** Every answer of the key screen's MCP server channels. */

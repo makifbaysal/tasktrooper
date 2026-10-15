@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import { CLOUD_BRIDGE_KEY, CLOUD_CHANNELS, CLOUD_EVENTS, type ChooseDirectoryRequest, type KeysPrefill } from "../ipc/channels.js";
+import {
+  CLOUD_BRIDGE_KEY,
+  CLOUD_CHANNELS,
+  CLOUD_EVENTS,
+  type ChooseDirectoryRequest,
+  type KeysWindowPrefill,
+  type McpServerSetRequest,
+} from "../ipc/channels.js";
 import type {
   DesktopAccountHost,
   DesktopAnalyticsHost,
@@ -20,6 +27,7 @@ import type {
   ChildId,
   Diagnostics,
   LogLine,
+  McpServersState,
   PreflightReport,
   RunnerPairingBundle,
   RunnerPairingSummary,
@@ -156,8 +164,13 @@ const account: DesktopAccountHost = {
     await call<AccountState>(CLOUD_CHANNELS.accountSignOut);
   },
   state: () => call<AccountState>(CLOUD_CHANNELS.accountState),
-  openKeys: async (prefill?: KeysPrefill) => {
+  openKeys: async (prefill?: KeysWindowPrefill) => {
     await call<void>(CLOUD_CHANNELS.accountOpenKeys, prefill);
+  },
+  mcp: {
+    list: () => call<McpServersState>(CLOUD_CHANNELS.accountMcpList),
+    set: (request: McpServerSetRequest) => call<McpServersState>(CLOUD_CHANNELS.accountMcpSet, request),
+    remove: (name: string) => call<McpServersState>(CLOUD_CHANNELS.accountMcpRemove, { name }),
   },
 };
 
@@ -209,7 +222,7 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 5,
+  bridgeVersion: 6,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,
