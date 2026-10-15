@@ -24,8 +24,11 @@ func (s *EmbeddedSuite) TestStartEmbeddedAndMigrate() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	dataDir := filepath.Join(s.T().TempDir(), "postgres")
-	pg, err := database.StartEmbedded(ctx, database.EmbeddedConfig{DataDir: dataDir})
+	tmp := s.T().TempDir()
+	pg, err := database.StartEmbedded(ctx, database.EmbeddedConfig{
+		DataDir:     filepath.Join(tmp, "postgres"),
+		RuntimePath: filepath.Join(tmp, "runtime"),
+	})
 	s.Require().NoError(err)
 	defer func() { _ = pg.Stop() }()
 

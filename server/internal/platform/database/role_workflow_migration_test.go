@@ -44,7 +44,10 @@ func TestRoleWorkflowMigrationSuite(t *testing.T) {
 func (s *RoleWorkflowMigrationSuite) SetupSuite() {
 	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
 	tmp := s.T().TempDir()
-	pg, err := database.StartEmbedded(s.ctx, database.EmbeddedConfig{DataDir: filepath.Join(tmp, "postgres")})
+	pg, err := database.StartEmbedded(s.ctx, database.EmbeddedConfig{
+		DataDir:     filepath.Join(tmp, "postgres"),
+		RuntimePath: filepath.Join(tmp, "runtime"),
+	})
 	s.Require().NoError(err)
 	s.pg = pg
 	boot, err := pgxpool.New(s.ctx, pg.DSN())

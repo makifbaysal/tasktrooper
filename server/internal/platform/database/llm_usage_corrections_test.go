@@ -40,7 +40,11 @@ func TestLLMUsageCorrectionsSuite(t *testing.T) {
 
 func (s *LLMUsageCorrectionsSuite) SetupSuite() {
 	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
-	pg, err := database.StartEmbedded(s.ctx, database.EmbeddedConfig{DataDir: filepath.Join(s.T().TempDir(), "postgres")})
+	tmp := s.T().TempDir()
+	pg, err := database.StartEmbedded(s.ctx, database.EmbeddedConfig{
+		DataDir:     filepath.Join(tmp, "postgres"),
+		RuntimePath: filepath.Join(tmp, "runtime"),
+	})
 	s.Require().NoError(err)
 	s.pg = pg
 	s.boot, err = pgxpool.New(s.ctx, pg.DSN())
