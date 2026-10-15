@@ -172,6 +172,15 @@ export class McpServerStore {
 
   /** The stored list; empty when there is none or it will not decrypt. */
   read(): McpServerConfig[] {
+    return this.readKnown() ?? [];
+  }
+
+  /**
+   * The stored list, `[]` when there is no file, and null when there is one
+   * this computer cannot read (no key store, or it will not decrypt) — a
+   * caller about to write must not take that for an empty list.
+   */
+  readKnown(): McpServerConfig[] | null {
     let ciphertext: Buffer;
     try {
       ciphertext = readFileSync(this.#path());
@@ -179,11 +188,11 @@ export class McpServerStore {
       return [];
     }
     allowLinuxFallback();
-    if (!safeStorage.isEncryptionAvailable()) return [];
+    if (!safeStorage.isEncryptionAvailable()) return null;
     try {
-      return asMcpServers(JSON.parse(safeStorage.decryptString(ciphertext))) ?? [];
+      return asMcpServers(JSON.parse(safeStorage.decryptString(ciphertext)));
     } catch {
-      return [];
+      return null;
     }
   }
 

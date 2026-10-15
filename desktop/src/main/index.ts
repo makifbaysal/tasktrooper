@@ -41,6 +41,7 @@ import { Analytics } from "./analytics/analytics.js";
 import { buildConfig } from "./analytics/config.js";
 import { ACCOUNT_HOME_ROUTE, accountPartition, defaultAccountOrigin } from "./account/origin.js";
 import { PairingStore } from "./config/pairing.js";
+import { SeededMcpServerStore } from "./config/mcp-defaults.js";
 import { McpServerStore } from "./config/mcp-servers.js";
 import { ProviderStore } from "./config/providers.js";
 import { SecretStore, type LocalSecrets } from "./config/secrets.js";
@@ -125,7 +126,11 @@ const secretStore = new SecretStore();
 // `toolchain` is declared below; these run at spawn time, long after it is.
 const supervisor = new Supervisor({ toolchainRuntime: () => toolchain.runtime() });
 const providerStore = new ProviderStore(app.getPath("userData"));
-const mcpServerStore = new McpServerStore(app.getPath("userData"));
+// The defaults are added the first time the list is read: by the runner at
+// spawn, the key window or the account's page — all account mode.
+const mcpServerStore = new SeededMcpServerStore(new McpServerStore(app.getPath("userData")), app.getPath("userData"), (line) =>
+  console.warn(line),
+);
 const runnerSupervisor = new RunnerSupervisor(new PairingStore(app.getPath("userData")), providerStore, {
   mcpServers: mcpServerStore,
   // The embedder is the local supervisor's and runs in both modes; the runner

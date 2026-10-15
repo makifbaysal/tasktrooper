@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -79,6 +79,23 @@ describe("McpServerStore", () => {
     } finally {
       keychain.available = true;
     }
+  });
+
+  it("tells a missing list from one it cannot read, so a writer does not take the second for empty", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "tt-mcp-"));
+    const store = new McpServerStore(dir);
+    expect(store.readKnown()).toEqual([]);
+    store.store(list);
+    expect(store.readKnown()).toHaveLength(list.length);
+    keychain.available = false;
+    try {
+      expect(store.readKnown()).toBeNull();
+      expect(store.read()).toEqual([]);
+    } finally {
+      keychain.available = true;
+    }
+    writeFileSync(path.join(dir, "mcp-servers.bin"), "not ciphertext");
+    expect(store.readKnown()).toBeNull();
   });
 
   it("masks a URL's password in the arguments it lists, and nothing else", () => {

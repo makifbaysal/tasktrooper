@@ -109,6 +109,14 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
   the tools as `mcp_<name>_<tool>` to runs whose cloud tool policy names the
   server; a change restarts the runner like a key does. A stored
   `disabled: true` keeps a server here but out of the runner's list.
+  **No cloud keeps MCP servers: this app adds the defaults itself**
+  (`config/mcp-defaults.ts`, the backend's templates less `postgres`, no
+  secret or placeholder, only `browser` switched on). `SeededMcpServerStore`
+  adds them on the first read of the list in a process — the runner's spawn,
+  the key window or the account's page — and records the version in
+  `mcp-defaults.json`; a computer gets only defaults newer than its version,
+  so one the member removed stays removed, and a list the key store cannot
+  read is never written over.
 - **The account's MCP Servers page manages the same list, without a secret.**
   `account.mcp.list|set|remove` (`cloud:account:mcp-*`, bridge 6, account
   mode only, the usual trusted-origin guard) answers the key window's
