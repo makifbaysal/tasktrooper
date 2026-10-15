@@ -6,7 +6,7 @@ description: Task types, fields, acceptance criteria, documents, comments, attac
 ## Task types
 
 Every task belongs to a repository and, optionally, a project (an initiative
-that groups the repositories shipping together). It is also one of three
+that groups the repositories shipping together). It is also one of five
 types:
 
 | Type | Key prefix | What it is |
@@ -15,6 +15,7 @@ types:
 | `bug` | `B-` | A defect |
 | `analiz` | `A-` | An analysis |
 | `design` | `D-` | A design: a design system or a screen, designed before it is built |
+| `technical` | `TC-` | A code-health finding — the default type for a task opened from a repository scan |
 
 `task` and `bug` follow the same review chain (Code Review → QA → PM UAT).
 An **`analiz`** task is different in kind, not just in name: its deliverable

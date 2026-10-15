@@ -20,8 +20,8 @@ A new board comes with thirteen columns, in this order:
 | 8 | PM UAT | `pm_uat` | `product-manager` |
 | 9 | Human UAT | `human_uat` | none — a human approval gate |
 | 10 | Blocked | `blocked` | none — never dispatches |
-| 11 | Done | `done` | `qa-agent` (merges the PR) |
-| 12 | Released | `released` | `qa-agent` (watches the deploy) |
+| 11 | Done | `done` | `release-engineer` (merges the PR) |
+| 12 | Released | `released` | `release-engineer` (watches the deploy) |
 
 Backlog is fixed and always first; everything else is yours to reorder,
 rename or remove. `analiz_review` and `human_uat` are deliberately unowned —
@@ -29,17 +29,25 @@ they're where a human, not an agent, is expected to act.
 
 ## Which agent owns which column
 
-The six seeded role agents map onto the columns like this by default:
+The eleven seeded role agents map onto the columns like this by default. Five
+of them are the core set — `product-manager`, `system-architect`, `qa-agent`,
+`security-agent` and `release-engineer` — always present; the rest (the
+developers, `ui-designer`, `data-scientist` and `game-developer`) are optional.
 
 | Agent | Columns |
 |---|---|
-| `product-manager` | Backlog (requirements), PM UAT |
-| `system-architect` | Analysis (`analiz`) tasks in In Progress, Code Review |
-| `backend-developer` / `frontend-developer` / `mobile-developer` | In Progress, Need Revision (for their own tasks) |
-| `qa-agent` | Ready for QA, In QA, Done (merges the pull request), Released (watches the deploy and can roll it back) |
+| `product-manager` | PM UAT |
+| `system-architect` | Code Review (and the `analiz` tasks it is assigned, which it works in In Progress) |
+| `security-agent` | Code Review |
+| `backend-developer` / `frontend-developer` / `mobile-developer` | Todo, Need Revision (for their own tasks) |
+| `ui-designer` | Todo, Need Revision |
+| `qa-agent` | Ready for QA |
+| `release-engineer` | Done (merges the pull request), Released (watches the deploy and can roll it back) |
 
 A column can have several subscribers — every one of them is dispatched when
-a card lands there. A task moving into a column with no subscriber and no
+a card lands there. A developer picks a card up in Todo and carries it into
+In Progress itself, so In Progress is the only working column with no
+subscriber of its own; a task moving into a column with no subscriber and no
 assignee (Analiz Review, Human UAT) simply waits for a person.
 
 ## How dispatch works
@@ -66,9 +74,8 @@ presses a run button. The rule, precisely:
 
 ## The review chain, by task type
 
-Two of a repository's optional settings check that a task actually passed
-through the stages its type requires before it can be called Done or
-Released:
+A task has to actually pass through the stages its type requires before it
+can be called Done:
 
 | Task type | Required stages |
 |---|---|
@@ -78,11 +85,10 @@ Released:
 Evidence is whether the task's history ever shows it visiting that column —
 not the column it happens to be in right now — so a task that bounced
 through Need Revision and came back is never punished for the rework; it
-just re-earns the stage. This check (**require review chain**) and its
-sibling (**require release deploy**, which blocks Released without a
-recorded successful production deploy) are both off by default and armed
-per repository, because each is only honest on a board actually wired for
-it — see [Quality gates](quality-gates.md) for the rest of what gates a
+just re-earns the stage. This check is always on — there is no per-repository
+switch for it. Release is no longer a column-transition gate at all: a task
+reaches Released through a release's own verdict, not by clearing a gate on
+the move. See [Quality gates](quality-gates.md) for the rest of what gates a
 task's move through review.
 
 ## Human review

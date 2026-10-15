@@ -73,10 +73,9 @@ it can never leave a card stuck indefinitely with a spinner and no agent:
 
 Whenever the gate opens without a real green result, the card records why
 (no CI configured, CI unavailable, or timeout) so a warning shows instead of
-a pipeline badge that looks like it passed. Each repository has its own
-setting — **require pipeline for review**, on by default — to turn this wait
-off entirely if its CI can't reliably answer; with it off, Code Review
-dispatches immediately.
+a pipeline badge that looks like it passed. The wait is unconditional — there
+is no per-repository setting to turn it off; the four outcomes above are what
+keep it from ever leaving a card stuck.
 
 ## Why the code-review wait can't hang forever
 
@@ -120,24 +119,20 @@ If a clarification comes up during a board run rather than a chat, TaskTrooper
 also opens the task's chat thread for you and sends a desktop notification, so
 you don't have to go looking for which task is waiting on you.
 
-## The review chain and release-deploy gates
+## The review chain gate
 
-Two further, opt-in checks live on each repository:
+Moving a task into Done (or into Released when that would skip Done) is
+blocked unless the task actually visited every stage its type requires —
+Code Review, In QA and PM UAT for a `task` or `bug`, Analiz Review for an
+`analiz` — with none of those stages' latest visit rejected. See [Board and
+columns](board-and-columns.md#the-review-chain-by-task-type) for exactly
+which stages, by type. Evidence is the task's history, not the column it is
+in right now, so rework through Need Revision is never punished.
 
-- **Require review chain** blocks a move into Done (or into Released when
-  that would skip Done) unless the task actually visited every stage its
-  type requires — see [Board and columns](board-and-columns.md#the-review-chain-by-task-type)
-  for exactly which stages, by type.
-- **Require release deploy** blocks a move into Released unless a
-  successful production deploy (or a successful staging deploy, on a
-  repository with no production workflow mapped) is recorded for the task.
-  `analiz` tasks are exempt — they ship no code.
-
-Both default off, because each is only honest on a board actually wired for
-it: a repository with no QA agent subscribed anywhere, or no deploy workflow
-mapped, could never satisfy either one. Turn them on from a repository's
-settings once its board is actually set up to clear them — see [Board and
-columns](board-and-columns.md#the-review-chain-by-task-type).
+This gate is always on — there is no per-repository switch for it. Release is
+not a column-transition gate at all: a task reaches Released only through a
+release's own verdict, never by clearing a gate on the move, so there is no
+deploy-recorded check to turn on or off for it.
 
 ## A note on what's enforced versus what's advisory
 
