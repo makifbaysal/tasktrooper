@@ -273,6 +273,7 @@ export const repositoryPage = {
     reindex: "Reindexar",
     stopIndex: "Parar",
     noIndexYet: "Ainda não indexado",
+    indexOnComputer: "Criado e mantido no seu computador, com o próprio modelo de embeddings dele.",
     files: "Arquivos",
     chunks: "Fragmentos",
     symbols: "Símbolos",

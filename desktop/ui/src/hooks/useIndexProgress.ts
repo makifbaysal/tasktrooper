@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type WorkspaceIndex } from "@/api";
+import { api, ApiError, type WorkspaceIndex } from "@/api";
 import { usePolling } from "@/hooks/usePolling";
 import { keepEqual } from "@/lib/stableState";
 
@@ -28,19 +28,27 @@ type UseIndexProgressOptions = {
 export function useIndexProgress(repositoryId: string | undefined, options: UseIndexProgressOptions = {}) {
   const { pollMs = 1500, forcePoll = false, onIndexingFinished } = options;
   const [index, setIndex] = useState<WorkspaceIndex | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
   const sawActiveIndexingRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!repositoryId) return null;
-    const data = await api.getRepositoryIndexStatus(repositoryId);
-    setIndex((prev) => keepEqual(prev, data));
-    return data;
+    try {
+      const data = await api.getRepositoryIndexStatus(repositoryId);
+      setIndex((prev) => keepEqual(prev, data));
+      setError(null);
+      return data;
+    } catch (e) {
+      setError(e instanceof ApiError ? e : null);
+      throw e;
+    }
   }, [repositoryId]);
 
   useEffect(() => {
     if (!repositoryId) {
       setIndex(null);
+      setError(null);
       return;
     }
     setLoading(true);
@@ -75,6 +83,7 @@ export function useIndexProgress(repositoryId: string | undefined, options: UseI
 
   return {
     index,
+    error,
     loading,
     percent: progressPercent(index),
     refresh,

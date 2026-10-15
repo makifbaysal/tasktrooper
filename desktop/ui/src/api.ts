@@ -1302,6 +1302,8 @@ export interface WorkspaceIndex {
   files_processed: number;
   indexed_at?: string;
   error?: string;
+  /** "computer": the index is on the viewer's own computer, built with its embedding model. */
+  location?: "computer";
 }
 
 /** Which embedding corpus the map projects. */

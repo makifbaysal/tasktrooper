@@ -273,6 +273,7 @@ export const repositoryPage = {
     reindex: "重建索引",
     stopIndex: "停止",
     noIndexYet: "尚未建立索引",
+    indexOnComputer: "在你的电脑上用它自带的嵌入模型构建并保存在本机。",
     files: "文件",
     chunks: "分块",
     symbols: "符号",

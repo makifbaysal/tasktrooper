@@ -15,6 +15,10 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIndexProgress } from "@/hooks/useIndexProgress";
 import { indexProgressPercent } from "@/lib/project-board";
 
+// The error type a server whose code index lives on members' computers
+// answers when the caller's computer has not built this one yet.
+const INDEX_NOT_ON_COMPUTER = "index_not_on_computer";
+
 interface SettingsTabProps {
   model: RepositoryModel;
   repositoryId: string;
@@ -34,7 +38,7 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const { index, percent, refresh: refreshIndex } = useIndexProgress(repositoryId, {
+  const { index, error: indexError, percent, refresh: refreshIndex } = useIndexProgress(repositoryId, {
     forcePoll: watchingIndex,
     onIndexingFinished: () => setWatchingIndex(false),
   });
@@ -64,11 +68,12 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
     setWatchingIndex(true);
     try {
       await api.reindexRepository(repositoryId);
-      await refreshIndex();
     } catch (e) {
       setWatchingIndex(false);
       toast.error(e instanceof Error ? e.message : t("common.actionFailed"));
+      return;
     }
+    await refreshIndex().catch(() => undefined);
   };
 
   const handleStopIndex = async () => {
@@ -93,6 +98,8 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
   };
 
   const displayPercent = index ? indexProgressPercent(index.files_processed, index.files_total, index.status) : percent;
+  const indexOnComputer = index?.location === "computer" || indexError?.type === INDEX_NOT_ON_COMPUTER;
+  const indexUnavailable = !index && indexError && indexError.status !== 404 ? indexError.message : null;
 
   return (
     <>
@@ -143,6 +150,9 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
                 </Button>
               </div>
             </div>
+            {indexOnComputer && (
+              <p className="text-caption text-muted-foreground">{t("repositoryPage.settings.indexOnComputer")}</p>
+            )}
             {index ? (
               <div className="grid grid-cols-3 gap-3 text-center text-body">
                 <div>
@@ -158,9 +168,14 @@ export function SettingsTab({ model, repositoryId, onReload }: SettingsTabProps)
                   <p className="font-semibold">{index.symbol_count}</p>
                 </div>
                 <div className="col-span-3 text-caption text-muted-foreground">{displayPercent}%</div>
+                {index.status === "failed" && index.error && (
+                  <p className="col-span-3 text-caption text-destructive">{index.error}</p>
+                )}
               </div>
             ) : (
-              <p className="text-body text-muted-foreground">{t("repositoryPage.settings.noIndexYet")}</p>
+              <p className="text-body text-muted-foreground">
+                {indexUnavailable ?? t("repositoryPage.settings.noIndexYet")}
+              </p>
             )}
           </Card>
         </div>

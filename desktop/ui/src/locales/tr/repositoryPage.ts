@@ -276,6 +276,7 @@ export const repositoryPage: RepositoryPageDict = {
     reindex: "Yeniden indeksle",
     stopIndex: "Durdur",
     noIndexYet: "Henüz indekslenmedi",
+    indexOnComputer: "Bilgisayarında, onun kendi embedding modeliyle oluşturulur ve orada kalır.",
     files: "Dosya",
     chunks: "Parça",
     symbols: "Sembol",

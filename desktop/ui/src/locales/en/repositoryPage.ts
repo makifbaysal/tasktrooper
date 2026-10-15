@@ -277,6 +277,7 @@ export const repositoryPage = {
     reindex: "Reindex",
     stopIndex: "Stop",
     noIndexYet: "Not indexed yet",
+    indexOnComputer: "Built and kept on your computer, with its own embedding model.",
     files: "Files",
     chunks: "Chunks",
     symbols: "Symbols",
