@@ -73,8 +73,9 @@ type Policy struct {
 
 	AllowLoopback bool
 
-	// AllowPrivate permits RFC1918, IPv6 ULA and CGNAT; nothing sets it today,
-	// it exists so a future internal caller states the exception.
+	// AllowPrivate permits RFC1918, IPv6 ULA and CGNAT, for a destination a
+	// person configured (HumanConfigured). Cloud metadata addresses inside
+	// those ranges stay refused.
 	AllowPrivate bool
 
 	// RequireLoopback inverts the whole policy: only 127.0.0.0/8 and ::1 dial,
@@ -82,6 +83,10 @@ type Policy struct {
 	// that must stay on this machine (http_request) — not an environment
 	// switch like AllowLoopback, so ALLOW_LOOPBACK_TOOL_URLS has no effect on it.
 	RequireLoopback bool
+
+	// DenyHosts are names refused before any lookup, whatever they resolve
+	// to (lowercase, no trailing dot).
+	DenyHosts []string
 
 	MaxRedirects int
 
@@ -125,6 +130,27 @@ func LoopbackOnly() Policy {
 	}
 }
 
+// MetadataHosts are the cloud metadata service names. They resolve to
+// link-local addresses, which every policy refuses anyway; naming them refuses
+// them even behind a resolver that answers otherwise.
+var MetadataHosts = []string{"metadata.google.internal", "metadata.goog", "metadata"}
+
+// HumanConfigured is the policy for a destination a person typed into a
+// settings form rather than one an agent or a request body can steer (a data
+// source URL): a self-hosted Prometheus usually lives on this machine or the
+// local network, so loopback and private ranges dial. Cloud metadata never
+// does — link-local is refused by every policy, and so are MetadataHosts and
+// the AWS IPv6 metadata address inside the ULA range AllowPrivate opens.
+func HumanConfigured() Policy {
+	return Policy{
+		Schemes:       []string{"http", "https"},
+		AllowLoopback: true,
+		AllowPrivate:  true,
+		DenyHosts:     MetadataHosts,
+		MaxRedirects:  defaultMaxRedirects,
+	}
+}
+
 // loopbackAllowed takes getenv so tests do not mutate the process environment.
 func loopbackAllowed(getenv func(string) string) bool {
 	v, err := strconv.ParseBool(strings.TrimSpace(getenv(AllowLoopbackEnv)))
@@ -152,12 +178,25 @@ func (p Policy) Precheck(raw string) (*url.URL, error) {
 	if host == "" {
 		return nil, &Error{Reason: "URL has no host"}
 	}
+	if p.hostDenied(host) {
+		return nil, &Error{Host: host, Reason: "denied host name"}
+	}
 	if ip := net.ParseIP(host); ip != nil {
 		if reason := p.blockedReason(ip); reason != "" {
 			return nil, &Error{Host: host, IP: ip, Reason: reason}
 		}
 	}
 	return u, nil
+}
+
+func (p Policy) hostDenied(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	for _, d := range p.DenyHosts {
+		if host == d {
+			return true
+		}
+	}
+	return false
 }
 
 func (p Policy) Validate(ctx context.Context, raw string) (*Target, error) {
@@ -206,6 +245,9 @@ func (p Policy) resolver() Resolver {
 // resolve refuses the whole destination if any answer is blocked, since the
 // transport is free to pick any of them.
 func (p Policy) resolve(ctx context.Context, host string) ([]net.IP, error) {
+	if p.hostDenied(host) {
+		return nil, &Error{Host: host, Reason: "denied host name"}
+	}
 	if ip := net.ParseIP(host); ip != nil {
 		if reason := p.blockedReason(ip); reason != "" {
 			return nil, &Error{Host: host, IP: ip, Reason: reason}
@@ -271,19 +313,27 @@ func (p Policy) CheckRedirect(req *http.Request, via []*http.Request) error {
 	return err
 }
 
-// SameHostRedirect is CheckRedirect plus a refusal to leave endpoint's host.
-// Credentials survive a host change when a RoundTripper or a rename sets them,
-// so the cross-host hop itself must be refused.
+// SameHostRedirect is CheckRedirect plus a refusal to leave endpoint's host or
+// scheme. Credentials survive a host change when a RoundTripper or a rename
+// sets them, so the cross-host hop itself must be refused; and an https
+// endpoint redirecting to http would send them in the clear.
 func (p Policy) SameHostRedirect(endpoint *url.URL) func(*http.Request, []*http.Request) error {
-	var want string
+	var want, wantScheme string
 	if endpoint != nil {
 		want = strings.ToLower(endpoint.Host)
+		wantScheme = strings.ToLower(endpoint.Scheme)
 	}
 	return func(req *http.Request, via []*http.Request) error {
 		if want != "" && !strings.EqualFold(req.URL.Host, want) {
 			return &Error{
 				Host:   req.URL.Hostname(),
 				Reason: fmt.Sprintf("redirect leaves the configured host %q", want),
+			}
+		}
+		if wantScheme != "" && !strings.EqualFold(req.URL.Scheme, wantScheme) {
+			return &Error{
+				Host:   req.URL.Hostname(),
+				Reason: fmt.Sprintf("redirect changes the scheme from %s to %s", wantScheme, strings.ToLower(req.URL.Scheme)),
 			}
 		}
 		return p.CheckRedirect(req, via)

@@ -1,0 +1,429 @@
+package datasource
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
+)
+
+const (
+	verifyTimeout      = 20 * time.Second
+	maxNameLen         = 200
+	maxValueLen        = 4096
+	maxHeadersLen      = 16384
+	maxStatusDetailLen = 500
+	redactedMarker     = "[redacted]"
+)
+
+func (s *Service) List(ctx context.Context) ([]domain.DataSource, error) {
+	list, err := s.store.ListDataSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.DataSource, 0, len(list))
+	for _, ds := range list {
+		out = append(out, s.present(ds))
+	}
+	return out, nil
+}
+
+func (s *Service) Get(ctx context.Context, id uuid.UUID) (domain.DataSource, error) {
+	ds, err := s.store.GetDataSource(ctx, id)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	return s.present(ds), nil
+}
+
+// Create stores the source first and verifies it after, so a source that
+// cannot be reached yet is kept (status "error") rather than refused; only a
+// request that does not fit the kind's schema is.
+func (s *Service) Create(ctx context.Context, req domain.SaveDataSourceRequest) (domain.DataSource, error) {
+	adapter, ok := s.kinds[req.Kind]
+	if !ok {
+		return domain.DataSource{}, FieldErrors{"kind": FieldUnknown}
+	}
+	schema := adapter.Schema()
+	config, secrets, fe := s.merge(schema, nil, nil, req.Config, req.Secrets)
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = defaultName(schema, config)
+	}
+	if len(name) > maxNameLen {
+		fe = fe.with("name", FieldTooLong)
+	}
+	if len(fe) > 0 {
+		return domain.DataSource{}, fe
+	}
+	created, err := s.store.CreateDataSource(ctx, domain.DataSource{
+		Kind:   req.Kind,
+		Name:   name,
+		Config: config,
+		Status: domain.DataSourceUnverified,
+	}, secrets)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	return s.verifyAndRecord(ctx, adapter, created, secrets)
+}
+
+// Update merges the patch into the stored source, re-validates the whole
+// result against the schema, saves, and verifies again.
+func (s *Service) Update(ctx context.Context, id uuid.UUID, req domain.PatchDataSourceRequest) (domain.DataSource, error) {
+	ds, err := s.store.GetDataSource(ctx, id)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	adapter, ok := s.kinds[ds.Kind]
+	if !ok {
+		return domain.DataSource{}, fmt.Errorf("kind %q: %w", ds.Kind, ErrUnsupported)
+	}
+	stored, err := s.store.DataSourceSecrets(ctx, id)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	schema := adapter.Schema()
+	config, secrets, fe := s.merge(schema, ds.Config, stored, req.Config, req.Secrets)
+	if carriesSecretsToANewOrigin(schema, ds.Config, config, stored, secrets, req) {
+		fe = fe.with("secrets", FieldSecretsRequired)
+	}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		switch {
+		case name == "":
+			fe = fe.with("name", FieldRequired)
+		case len(name) > maxNameLen:
+			fe = fe.with("name", FieldTooLong)
+		default:
+			ds.Name = name
+		}
+	}
+	if len(fe) > 0 {
+		return domain.DataSource{}, fe
+	}
+	ds.Config = config
+	ds.Status = domain.DataSourceUnverified
+	ds.StatusDetail = ""
+	saved, err := s.store.UpdateDataSource(ctx, ds, secrets)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	return s.verifyAndRecord(ctx, adapter, saved, secrets)
+}
+
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	return s.store.DeleteDataSource(ctx, id)
+}
+
+// Verify re-checks a stored source. A failure is recorded in Status and
+// StatusDetail, not returned, so a caller reads it like any other source.
+func (s *Service) Verify(ctx context.Context, id uuid.UUID) (domain.DataSource, error) {
+	ds, adapter, secrets, err := s.load(ctx, id)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	return s.verifyAndRecord(ctx, adapter, ds, secrets)
+}
+
+func (s *Service) load(ctx context.Context, id uuid.UUID) (domain.DataSource, port.DataSourceKindAdapter, map[string]string, error) {
+	ds, err := s.store.GetDataSource(ctx, id)
+	if err != nil {
+		return domain.DataSource{}, nil, nil, err
+	}
+	adapter, ok := s.kinds[ds.Kind]
+	if !ok {
+		return domain.DataSource{}, nil, nil, fmt.Errorf("kind %q: %w", ds.Kind, ErrUnsupported)
+	}
+	secrets, err := s.store.DataSourceSecrets(ctx, id)
+	if err != nil {
+		return domain.DataSource{}, nil, nil, err
+	}
+	return ds, adapter, secrets, nil
+}
+
+// verifyAndRecord writes only the outcome, guarded by the snapshot's
+// updated_at: a verify that finishes after a newer PATCH must not put the
+// config it ran against back, nor stamp its status on the new one. When the
+// source moved on, the caller gets what is stored now.
+func (s *Service) verifyAndRecord(ctx context.Context, adapter port.DataSourceKindAdapter, ds domain.DataSource, secrets map[string]string) (domain.DataSource, error) {
+	vctx, cancel := context.WithTimeout(ctx, verifyTimeout)
+	info, verr := adapter.Verify(vctx, ds, secrets)
+	cancel()
+	v := domain.DataSourceVerification{Status: domain.DataSourceOK, Info: info}
+	if verr != nil {
+		v = domain.DataSourceVerification{
+			Status:       domain.DataSourceError,
+			StatusDetail: truncate(redact(verr.Error(), secrets), maxStatusDetailLen),
+		}
+	} else {
+		now := s.now()
+		v.VerifiedAt = &now
+	}
+	// Recorded even when the request that asked for it was cancelled
+	// meanwhile: the source was saved, so its status must not stay at
+	// whatever it said before.
+	wctx := context.WithoutCancel(ctx)
+	saved, err := s.store.RecordVerification(wctx, ds.ID, v, ds.UpdatedAt)
+	if errors.Is(err, port.ErrStaleDataSource) {
+		saved, err = s.store.GetDataSource(wctx, ds.ID)
+	}
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	return s.present(saved), nil
+}
+
+// carriesSecretsToANewOrigin: a PATCH that points a url field at another
+// scheme, host or port would otherwise send the stored token, password or
+// headers there without the person typing them again. Every stored secret the
+// merged result still holds must have come in with the request (a new value;
+// "" removes it and so never reaches this check).
+func carriesSecretsToANewOrigin(schema domain.DataSourceSchema, oldConfig, newConfig, stored, merged map[string]string, req domain.PatchDataSourceRequest) bool {
+	moved := false
+	for _, f := range schema.Fields {
+		if f.Type == domain.FieldURL && oldConfig[f.Key] != "" && origin(oldConfig[f.Key]) != origin(newConfig[f.Key]) {
+			moved = true
+		}
+	}
+	if !moved {
+		return false
+	}
+	for key := range stored {
+		if _, kept := merged[key]; !kept {
+			continue
+		}
+		_, inSecrets := req.Secrets[key]
+		_, inConfig := req.Config[key]
+		if !inSecrets && !inConfig {
+			return true
+		}
+	}
+	return false
+}
+
+func origin(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return raw
+	}
+	scheme := strings.ToLower(u.Scheme)
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	}
+	return scheme + "://" + strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") + ":" + port
+}
+
+func (s *Service) present(ds domain.DataSource) domain.DataSource {
+	if ds.Config == nil {
+		ds.Config = map[string]string{}
+	}
+	ds.SecretsSet = nonNilSlice(ds.SecretsSet)
+	ds.Capabilities = []domain.Capability{}
+	if adapter, ok := s.kinds[ds.Kind]; ok {
+		ds.Capabilities = nonNilSlice(adapter.Capabilities())
+	}
+	return ds
+}
+
+// merge applies an incoming config/secrets patch onto stored values and
+// validates the result. Every key is routed by the schema rather than by
+// which map it arrived in, so a secret sent as config is still never stored
+// in plain text. A field hidden by its ShowWhen loses any value it had.
+func (s *Service) merge(schema domain.DataSourceSchema, storedConfig, storedSecrets, inConfig, inSecrets map[string]string) (map[string]string, map[string]string, FieldErrors) {
+	config := maps.Clone(storedConfig)
+	if config == nil {
+		config = map[string]string{}
+	}
+	secrets := maps.Clone(storedSecrets)
+	if secrets == nil {
+		secrets = map[string]string{}
+	}
+	var fe FieldErrors
+	apply := func(in map[string]string) {
+		for _, key := range sortedKeys(in) {
+			field, ok := schema.Field(key)
+			if !ok {
+				fe = fe.with(key, FieldUnknown)
+				continue
+			}
+			target := config
+			if field.IsSecret() {
+				target = secrets
+			}
+			v := normalizeValue(field, in[key])
+			if v == "" {
+				delete(target, key)
+				continue
+			}
+			target[key] = v
+		}
+	}
+	apply(inConfig)
+	apply(inSecrets)
+	for _, m := range []map[string]string{config, secrets} {
+		for key := range m {
+			if _, ok := schema.Field(key); !ok {
+				delete(m, key)
+			}
+		}
+	}
+
+	values := maps.Clone(config)
+	maps.Copy(values, secrets)
+	for _, field := range schema.Fields {
+		if !field.Shown(values) {
+			delete(config, field.Key)
+			delete(secrets, field.Key)
+			continue
+		}
+		v := values[field.Key]
+		if code := s.checkField(field, v); code != "" {
+			fe = fe.with(field.Key, code)
+		}
+	}
+	return config, secrets, fe
+}
+
+func normalizeValue(field domain.DataSourceField, v string) string {
+	v = strings.TrimSpace(v)
+	if field.Type == domain.FieldURL {
+		v = strings.TrimRight(v, "/")
+	}
+	return v
+}
+
+func (s *Service) checkField(field domain.DataSourceField, v string) string {
+	if v == "" {
+		if field.Required {
+			return FieldRequired
+		}
+		return ""
+	}
+	limit := maxValueLen
+	if field.Type == domain.FieldHeaders {
+		limit = maxHeadersLen
+	}
+	if len(v) > limit {
+		return FieldTooLong
+	}
+	switch field.Type {
+	case domain.FieldSelect:
+		for _, o := range field.Options {
+			if v == o {
+				return ""
+			}
+		}
+		return FieldInvalidOption
+	case domain.FieldURL:
+		return s.checkURL(v)
+	case domain.FieldHeaders:
+		if _, err := domain.ParseHeaderLines(v); err != nil {
+			return FieldInvalid
+		}
+	}
+	return ""
+}
+
+// checkURL refuses credentials in the URL itself: config is stored and
+// returned in plain text, so a user:password@ would leak where a secret field
+// would not.
+func (s *Service) checkURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
+		u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return FieldInvalid
+	}
+	if _, err := s.policy.Precheck(raw); err != nil {
+		return FieldNotPermitted
+	}
+	return ""
+}
+
+func defaultName(schema domain.DataSourceSchema, config map[string]string) string {
+	for _, f := range schema.Fields {
+		if f.Type != domain.FieldURL {
+			continue
+		}
+		if u, err := url.Parse(config[f.Key]); err == nil && u.Host != "" {
+			return u.Host
+		}
+	}
+	return schema.Label
+}
+
+func (f FieldErrors) with(key, code string) FieldErrors {
+	if f == nil {
+		f = FieldErrors{}
+	}
+	if _, ok := f[key]; !ok {
+		f[key] = code
+	}
+	return f
+}
+
+// redact is a second line behind the adapters' own rule of never echoing a
+// secret: a value seen in an upstream message is masked before it is stored
+// or returned.
+func redact(msg string, secrets map[string]string) string {
+	for _, v := range secretValues(secrets) {
+		if len(v) >= 4 {
+			msg = strings.ReplaceAll(msg, v, redactedMarker)
+		}
+	}
+	return msg
+}
+
+func secretValues(secrets map[string]string) []string {
+	var out []string
+	for _, v := range secrets {
+		out = append(out, v)
+		if lines, err := domain.ParseHeaderLines(v); err == nil {
+			for _, l := range lines {
+				out = append(out, l.Value)
+			}
+		}
+	}
+	return out
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+// upstreamError keeps the adapter's message, redacted, while answering
+// errors.Is for the one class the HTTP layer maps: a query the source
+// refused (the caller's mistake) or anything else the source failed at.
+type upstreamError struct {
+	class error
+	msg   string
+}
+
+func (e *upstreamError) Error() string        { return e.msg }
+func (e *upstreamError) Is(target error) bool { return target == e.class }
+
+func upstream(err error, secrets map[string]string) error {
+	class := ErrUpstream
+	if errors.Is(err, port.ErrDataSourceQuery) {
+		class = port.ErrDataSourceQuery
+	}
+	return &upstreamError{class: class, msg: truncate(redact(err.Error(), secrets), maxStatusDetailLen)}
+}

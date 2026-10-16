@@ -1,0 +1,18 @@
+# redpanda-data/kminion.
+id: kminion
+source_kind: prometheus
+applies_to:
+  technology: kafka
+  messaging_system: kafka
+detect:
+  metric: kminion_kafka_consumer_group_topic_lag
+params: [group, topic]
+signals:
+  queue.backlog: >-
+    sum(kminion_kafka_consumer_group_topic_lag{group_id="$group", topic_name="$topic"})
+  queue.consume_rate: >-
+    sum(rate(kminion_kafka_consumer_group_topic_offset_sum{group_id="$group", topic_name="$topic"}[$__rate]))
+  queue.publish_rate: >-
+    sum(rate(kminion_kafka_topic_high_water_mark_sum{topic_name="$topic"}[$__rate]))
+  queue.consumers: >-
+    sum(kminion_kafka_consumer_group_members{group_id="$group"})

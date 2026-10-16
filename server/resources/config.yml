@@ -50,6 +50,14 @@ prod_ops:
   # two intervals (six minutes), inside deploy_ops.health_window. Shorter costs
   # an HTTP probe per target, and a query, on an otherwise idle machine.
   probe_interval: "3m"
+  # Per alert ingest token (POST /v1/alerts/ingest/:token), so a leaked token
+  # cannot open incidents, tasks and agent runs without bound. Over either
+  # limit the request gets 429; an alert that folds into an incident already
+  # open, and a recovery, are never refused by the hourly cap. 0 = default.
+  alert_ingest:
+    requests_per_minute: 60
+    burst: 10
+    new_incidents_per_hour: 20
 
 # The deploy monitor mirrors GitHub Actions deploy runs into deployment_runs,
 # attributes console-triggered dispatches, and opens an incident for a failed

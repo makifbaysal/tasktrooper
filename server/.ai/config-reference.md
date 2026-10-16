@@ -358,6 +358,11 @@ Periodic reflections, KPI evaluation, impact tracking.
 |---|---|---|
 | `monitor_enabled` | `true` | Probes deploy targets' `health_url` |
 | `probe_interval` | `3m` | Two consecutive failed probes open an incident; the first successful probe closes it |
+| `alert_ingest.requests_per_minute` | `60` | Per alert ingest token: the refill rate of its request bucket on `POST /v1/alerts/ingest/:token`. Over it: 429 `{"error":"rate_limited"}` |
+| `alert_ingest.burst` | `10` | Per token: requests allowed back to back before the rate applies |
+| `alert_ingest.new_incidents_per_hour` | `20` | Per token, rolling hour: how many NEW incidents it may open. Past it a new alert gets 429; an alert that folds into an incident already open still counts its occurrence, and a recovery still resolves |
+
+The three `alert_ingest` limits are in memory (one process; a restart resets them), and `0` or less means the default above — never unlimited.
 
 ## Deploy ops (`deploy_ops`)
 

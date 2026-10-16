@@ -530,6 +530,98 @@ unreachable.
   `query_runtime_logs` / `list_runtime_errors` / `list_deployments`
   (`.ai/tool-reference.md`).
 
+## Observability data sources, signals and recipes (migration 186)
+
+`internal/application/datasource`. Three concepts: a **data source kind** is a connection type
+in a registry (`port.DataSourceKindAdapter`: a config schema and capabilities `metrics`, `logs`,
+`traces`, `errors`, `crashes`, `rum`, `queues`; what it can do beyond `Verify` is the optional
+`port.MetricsQuerier` / `port.Discoverer`, detected by type assertion). A **signal** is a fixed,
+vendor-neutral measure (`catalog/observability/signals.yaml`). A **recipe** is data mapping
+signals to one kind's native queries (`catalog/observability/recipes/<id>.yaml`): supporting a new
+exporter is one YAML file, no Go. Routes are mounted only when Postgres is connected. JSON shapes
+are the Go tags in `internal/domain/datasource.go` and `observability.go`. Errors are flat
+`{"error"}`, plus `fields` (400, the request does not fit the kind's schema) or `code`.
+
+Kinds: `prometheus` (`internal/adapter/datasource/prometheus`) — Prometheus, Mimir, Cortex,
+Thanos, VictoriaMetrics, Grafana Cloud, AMP behind a SigV4 proxy. Config `url` (the API base,
+without `/api/v1`), `auth` `none|bearer|basic`; secrets `token` (bearer), `password` (basic, with
+config `username`), `headers` (one `Name: value` per line, e.g. `X-Scope-OrgID`; `Host`,
+`Content-Length` and other framing headers, and the metadata-service ones `Metadata-Flavor` and
+`X-aws-ec2-metadata-token(-ttl-seconds)`, refused in any case). Verify reads `/api/v1/status/buildinfo`,
+falling back to `/api/v1/query?query=1` on anything but success or 401/403. Query is
+`POST /api/v1/query_range` (form); discover is `/api/v1/label/__name__/values` over the last hour,
+at most 20 000 names.
+
+- `GET /v1/data-source-kinds` → `{kinds: [{kind, label, description, capabilities, fields}]}`.
+  A field is `{key, label, help, type: text|url|secret|select|headers, required, options,
+  placeholder, show_when, secret}`; `show_when` `{auth: "bearer"}` shows the field only while
+  `auth` is `bearer`, and `required` applies only while it is shown. `secret: true` fields go in
+  `secrets`.
+- `GET /v1/data-sources` → `{data_sources: [DataSource]}`; `GET /v1/data-sources/{id}` → one.
+  `DataSource` = `{id, kind, name, config, secrets_set, status: ok|error|unverified,
+  status_detail, info: {version, detail}, verified_at (last success, null before), created_at,
+  updated_at, capabilities}`. A secret value is never returned — only its key in `secrets_set`.
+- `POST /v1/data-sources {kind, name?, config, secrets}` → 201 `DataSource`. Saved, THEN
+  verified: a source that cannot be reached is kept with `status: "error"` and `status_detail`.
+  Keys are routed by the schema, so a secret field sent in `config` is still stored encrypted.
+  Empty `name` → the URL's host. 400 `{error, fields: {key: code}}` with code `required`,
+  `invalid`, `not_permitted`, `unknown_field`, `invalid_option`, `too_long` or
+  `secrets_required` (`kind` → `unknown_field` for an unregistered kind).
+- `PATCH /v1/data-sources/{id} {name?, config?, secrets?}` → `DataSource`. A key given replaces
+  its value, `""` removes it, keys left out are kept; a field hidden by its `show_when` loses its
+  value (switching `auth` to `none` drops the token). Saved as `unverified`, then verified again.
+  **Moving a `url` to another origin** (scheme, host or port; the path may change freely) must
+  not carry stored secrets there: every key of `secrets_set` the result would keep has to come in
+  `secrets`, with a new value or `""` to remove it — otherwise 400 `{error, fields: {secrets:
+  "secrets_required"}}` and nothing is saved. A secret the same PATCH hides (via `show_when`) is
+  dropped, so it needs no value. `DELETE /v1/data-sources/{id}` → 204.
+  `POST …/{id}/verify` → `DataSource`, 200 either way. A verify writes only the outcome, and only
+  if the source was not saved again meanwhile; one that lost that race answers the stored source
+  unchanged.
+- `GET /v1/data-sources/{id}/discover?match=&limit=` → `{metrics, truncated, recipes:
+  [{recipe_id, matched_metric}]}`. `match` is a case-insensitive substring filter, `limit`
+  defaults to 1000 (max 5000); `recipes` are the kind's recipes whose `detect.metric` the source
+  holds, judged over the whole inventory, not the filtered page.
+- `POST /v1/data-sources/{id}/query {query, from, to, step_seconds}` (RFC3339; `step_seconds`
+  0 → about 600 points, at least 15 s) → `{series: [{name, labels, points: [[unix_ms,
+  value|null]]}], warnings}`. `NaN`/`±Inf` are `null`. Capped at 90 days, 11 000 points per
+  series and 500 series (a warning says so). 400 `fields` for a bad range/step, 400
+  `code: "bad_query"` for a query the source refused, 422 `code: "unsupported"` for a kind
+  without metrics, 502 `code: "upstream"` when the source fails.
+- `GET /v1/signals` → `{signals: [{id, kind: metric|log|trace|error, unit, roles,
+  aggregation: rate|ratio|quantile|gauge}]}`.
+- `GET /v1/recipes` → `{recipes: [{id, source_kind, applies_to: {technology,
+  messaging_system}, detect: {metric}, params, signals: {signal_id: query}, origin:
+  catalog|user}]}`. Rows of `observability_recipes` (no write API yet) join the catalog; one with
+  a catalog recipe's id replaces it, one that no longer validates is left out.
+
+**Recipe file.** `id` (must equal the file name), `source_kind` (a registered kind),
+`applies_to`, `detect.metric`, `params`, `signals` (every key a catalog signal). A query
+references `$param` for a declared param and the built-ins `$__interval` (the step) and
+`$__rate` (`max(2 × step, 2m)`: two samples at a 60 s scrape). Values are escaped for a
+double-quoted string literal, so a param may sit only inside a double-quoted label value matched
+with `=` or `!=` (not `=~`/`!~`, not bare in `by (...)` or a range), and the built-ins only
+inside `[...]`; a recipe that breaks this does not validate. A test loads and renders every embedded recipe; the server refuses
+to mount the routes if the catalog does not validate.
+
+**Where a source URL may point.** `datasource.Deps.URLPolicy` is required — no default. Local
+mode passes `urlguard.HumanConfigured()` (`platform/runtime/datasources.go`): a person typed the
+URL, and a local Prometheus is on this machine or its network, so loopback and private ranges
+dial. Never, under any policy: link-local (169.254.0.0/16, fe80::/10), the cloud metadata
+addresses 169.254.169.254, 100.100.100.200, `fd00:ec2::254` and `fd20:ce::254` (refused before
+`AllowPrivate` is consulted); `HumanConfigured` also refuses the names `metadata.google.internal`,
+`metadata.goog` and `metadata` before any lookup. A literal is refused at save (`url: not_permitted`); every request re-checks the address it dials
+and pins it (no second lookup), and a redirect may change neither host nor scheme. The service
+hands its policy to every kind adapter (`URLPolicySetter`); an adapter has none of its own and
+refuses everything until it gets one. A shared host passes `urlguard.PublicOnly()`. Errors in
+`status_detail` and 502 bodies name the host as typed, never the address it resolved to, and mask
+every secret (the encoded basic-auth value included).
+
+**Tables.** `data_sources` — `config` JSONB (non-secret fields only), `secret_enc` (the secret
+fields as one AES-GCM JSON blob, the `cloud_accounts` cipher; NULL when there are none),
+`secrets_set` (their names), `status`, `status_detail`, `info`, `verified_at`.
+`observability_recipes` — `id` and `body` (a `domain.Recipe` as JSON).
+
 ## Task documents and analysis review (migration 164)
 
 **Documents.** `domain.TaskDocument` carries `format: "markdown" | "html"` (column
@@ -658,6 +750,12 @@ carries the same text with the markers stripped.
 | `POST /v1/incidents/{incidentId}/remedy` | `{kind, summary, steps, evidence, confidence, rollback}` |
 | `POST /v1/incidents/{incidentId}/resolve` · `POST /v1/incidents/{incidentId}/ignore` | — |
 | `PUT /v1/repositories/{id}/incident-policy` | `{incident_policy: off\|suggest\|auto_fix}` |
+| `POST /v1/repositories/{id}/alert-tokens` | `{label, default_env?}` (label ≤100 chars; `default_env` one of `local`/`stage`/`preprod`/`prod`, `prod` when omitted) → 201 `{id, label, default_env, created_at, token, ingest_path}`. The plaintext `token` is in this response only; the server keeps its sha256. 400 bad label/env, 404 no such repository, 503 when the server has no token store |
+| `GET /v1/repositories/{id}/alert-tokens` | `{tokens: [{id, label, default_env, created_at, last_used_at}]}`, newest first — never the token. 503 as above |
+| `DELETE /v1/repositories/{id}/alert-tokens/{tokenId}` | 204; 404 when the token is unknown OR belongs to another repository (the delete matches both ids); 503 as above |
+| `POST /v1/alerts/ingest/{token}` | **No API key** — the token is the credential (`isPublicPath` lets exactly one segment under `/v1/alerts/ingest/` through). Same normalize + ingest as the incident webhook above, for the token's repository; environment is the payload's, else `?env=`, else the token's `default_env`. 413 when `Content-Length` (or, for a chunked body, the read length) is over 256 KiB, before the lookup; bare 404 for an unknown or malformed token; 400 non-JSON body; 201 `{incident_id}`; 202 for an unmatched recovery. **Limits per token** (`prod_ops.alert_ingest`, in memory): a request bucket keyed by the token hash (60/min, burst 10) and at most 20 NEW incidents per rolling hour (keyed by token id); over either, 429 `{"error":"rate_limited"}`. The hourly cap never refuses an alert that folds into an incident already open (its occurrences still count) or a recovery. `last_used_at` is stamped only when an alert is accepted. Logged paths go through `RedactPath`, so the token never reaches a log line. Migration 187 (`alert_ingest_tokens`) |
+
+Notifications: `prodops` decides when (a new or critical-recurring incident at `high` or above, at most once per 30 minutes per (repository, env, fingerprint), so a flapping alert that re-fires as a new incident each cycle does not notify each cycle; its recovery, cooled the same way under its own key; a fix proposed by anyone but a human) and hands a `domain.Notification` (title, body, severity, app link `/operations/incidents?id=…`, source `incident`, source id) to `application/notify`, which fans it out to every registered and enabled `port.NotificationChannel` with a 5-second bound and logs, never returns, a channel's failure. Local mode registers `desktop` (the macOS banner); `in_app`, `ios_push`, `slack`, `email` and `webhook` are reserved kinds with no adapter yet.
 
 ## Store operations
 

@@ -30,6 +30,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/billing"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/designsystem"
@@ -149,6 +150,7 @@ type Handler struct {
 	releaseWaker    ReleaseWaker
 	smokeGenSvc     SmokeGenService
 	cloudSvc        *cloud.Service
+	dataSourceSvc   *datasource.Service
 	envRequirements EnvRequirementService
 	localPreviewSvc *localpreview.Service
 	simRunSvc       *simrun.Service
@@ -218,6 +220,7 @@ type Config struct {
 	ReleaseWaker      ReleaseWaker
 	SmokeGenSvc       SmokeGenService
 	CloudSvc          *cloud.Service
+	DataSourceSvc     *datasource.Service
 	EnvRequirements   EnvRequirementService
 	LocalPreviewSvc   *localpreview.Service
 	SimRunSvc         *simrun.Service
@@ -286,6 +289,7 @@ func NewHandler(cfg Config) *Handler {
 		releaseWaker:      cfg.ReleaseWaker,
 		smokeGenSvc:       cfg.SmokeGenSvc,
 		cloudSvc:          cfg.CloudSvc,
+		dataSourceSvc:     cfg.DataSourceSvc,
 		envRequirements:   cfg.EnvRequirements,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		simRunSvc:         cfg.SimRunSvc,
@@ -334,6 +338,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerReleaseRoutes(app)
 	h.registerSmokeGenRoutes(app)
 	h.registerCloudRoutes(app)
+	h.registerDataSourceRoutes(app)
 	h.registerEnvRequirementRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)

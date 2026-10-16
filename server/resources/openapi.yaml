@@ -170,6 +170,168 @@ paths:
       security:
         - bearerAuth: []
 
+  /v1/repositories/{id}/alert-tokens:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Create an alert ingest token for the repository
+      description: >-
+        The plaintext token is in this response only; the server keeps its
+        sha256. default_env (local, stage, preprod or prod; prod when omitted)
+        is the incident environment when neither the payload nor ?env= names one.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label:
+                  type: string
+                  maxLength: 100
+                default_env:
+                  type: string
+                  enum: [local, stage, preprod, prod]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AlertIngestToken'
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+                      ingest_path:
+                        type: string
+                        example: /v1/alerts/ingest/tt_alert_…
+        '400':
+          description: Missing or over-long label, or an unknown default_env
+        '404':
+          description: No such repository
+        '503':
+          description: Alert tokens are not available on this server
+    get:
+      summary: List the repository's alert ingest tokens (never the token itself)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tokens, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertIngestToken'
+        '503':
+          description: Alert tokens are not available on this server
+
+  /v1/repositories/{id}/alert-tokens/{tokenId}:
+    delete:
+      summary: Revoke one of the repository's alert ingest tokens
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Revoked
+        '404':
+          description: No such token on this repository
+        '503':
+          description: Alert tokens are not available on this server
+
+  /v1/alerts/ingest/{token}:
+    post:
+      summary: Ingest an alert with an alert ingest token instead of the API key
+      description: >-
+        The same normalization and ingest as POST /v1/repositories/{id}/incidents
+        (Alertmanager, Sentry, GCP Cloud Monitoring, generic JSON), for the
+        token's repository. A Content-Length (or a chunked body) over 256 KiB is
+        refused. An unknown token is a bare 404. Each token has a request rate
+        (prod_ops.alert_ingest.requests_per_minute, burst) and a cap on NEW
+        incidents per rolling hour (new_incidents_per_hour); an alert that folds
+        into an incident already open, and a recovery, are not refused by the
+        cap.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: env
+          in: query
+          required: false
+          description: Environment when the payload names none; overrides the token's default_env.
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Ingested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incident_id:
+                    type: string
+                    format: uuid
+        '202':
+          description: A recovery for an incident that is not open; nothing changed
+        '400':
+          description: The body is not JSON
+        '404':
+          description: Unknown token
+        '413':
+          description: Body over 256 KiB
+        '429':
+          description: The token is over its request rate, or over its hourly cap on new incidents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [rate_limited]
+
   /v1/store/credentials/{provider}/apps:
     get:
       summary: List apps a saved store credential can see
@@ -649,6 +811,338 @@ paths:
         '204':
           description: Saved
 
+  /v1/data-source-kinds:
+    get:
+      summary: Registered observability data source kinds and their config forms
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The kind registry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kinds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DataSourceKind'
+
+  /v1/data-sources:
+    get:
+      summary: Configured data sources (never a secret value)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every data source
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data_sources:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DataSource'
+    post:
+      summary: Add a data source, then verify it
+      description: >-
+        Saved first and verified after: 201 even when the source cannot be
+        reached, with status error and status_detail saying why. A secret field
+        sent in config is stored as a secret. An empty name defaults to the
+        URL's host.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind:
+                  type: string
+                name:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties:
+                    type: string
+                secrets:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        '201':
+          description: Created; status reflects the verify run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+        '400':
+          description: The request does not fit the kind's schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceFieldErrors'
+
+  /v1/data-sources/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: One data source
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The data source
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+        '404':
+          description: No such data source
+    patch:
+      summary: Change a data source, then verify it again
+      description: >-
+        A key given in config or secrets replaces its value and an empty string
+        removes it; keys left out are kept. A field hidden by its show_when
+        loses its value. Moving a url to another scheme, host or port needs
+        every stored secret the result keeps re-sent in secrets (a new value,
+        or "" to remove), else 400 with fields.secrets = secrets_required.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties:
+                    type: string
+                secrets:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        '200':
+          description: Saved; status reflects the verify run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+        '400':
+          description: The result does not fit the kind's schema, or moves the URL without the secrets (secrets_required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceFieldErrors'
+        '404':
+          description: No such data source
+    delete:
+      summary: Remove a data source
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Removed
+        '404':
+          description: No such data source
+
+  /v1/data-sources/{id}/verify:
+    post:
+      summary: Verify a data source again
+      description: Always 200 for a known source; a failure is reported through status and status_detail.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The data source with the new status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+
+  /v1/data-sources/{id}/discover:
+    get:
+      summary: Metric names the source holds, and the recipes they suggest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: match
+          in: query
+          required: false
+          description: Case-insensitive substring filter on metric names. Recipe detection ignores it.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1000
+            maximum: 5000
+      responses:
+        '200':
+          description: The inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      type: string
+                  truncated:
+                    type: boolean
+                  recipes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        recipe_id:
+                          type: string
+                        matched_metric:
+                          type: string
+        '422':
+          description: The kind cannot list metrics (code unsupported)
+        '502':
+          description: The source failed (code upstream)
+
+  /v1/data-sources/{id}/query:
+    post:
+      summary: Range query against a metrics data source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query, from, to]
+              properties:
+                query:
+                  type: string
+                from:
+                  type: string
+                  format: date-time
+                to:
+                  type: string
+                  format: date-time
+                step_seconds:
+                  type: number
+                  description: 0 or omitted picks a step giving about 600 points (at least 15 s).
+      responses:
+        '200':
+          description: The series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        labels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                        points:
+                          type: array
+                          description: '[unix_ms, value] pairs; value is null where the source answered NaN or ±Inf.'
+                          items:
+                            type: array
+                            minItems: 2
+                            maxItems: 2
+                            items:
+                              type: number
+                              nullable: true
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Bad range or step (fields), or a query the source refused (code bad_query)
+        '422':
+          description: The kind cannot query metrics (code unsupported)
+        '502':
+          description: The source failed (code upstream)
+
+  /v1/signals:
+    get:
+      summary: The vendor-neutral signal catalog
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every signal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Signal'
+
+  /v1/recipes:
+    get:
+      summary: Recipes mapping signals to native queries (catalog plus user-added)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every recipe
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recipe'
+
   /health:
     get:
       summary: Server and LLM provider health
@@ -727,6 +1221,24 @@ components:
       type: http
       scheme: bearer
   schemas:
+    AlertIngestToken:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        default_env:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When an alert was last accepted with this token
     ToolPolicy:
       type: object
       properties:
@@ -767,3 +1279,159 @@ components:
           description: >-
             True while one of the task's agent runs is in status running, so a
             board can poll a task's activity only while it is moving.
+    DataSourceField:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        help:
+          type: string
+        type:
+          type: string
+          enum: [text, url, secret, select, headers]
+        required:
+          type: boolean
+          description: Applies only while the field is shown.
+        options:
+          type: array
+          items:
+            type: string
+        placeholder:
+          type: string
+        show_when:
+          type: object
+          description: The field is shown only while every named field holds the given value.
+          additionalProperties:
+            type: string
+        secret:
+          type: boolean
+          description: Send it in secrets; it never comes back, only its key in secrets_set.
+    DataSourceKind:
+      type: object
+      properties:
+        kind:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [metrics, logs, traces, errors, crashes, rum, queues]
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataSourceField'
+    DataSource:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        name:
+          type: string
+        config:
+          type: object
+          additionalProperties:
+            type: string
+        secrets_set:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [ok, error, unverified]
+        status_detail:
+          type: string
+        info:
+          type: object
+          properties:
+            version:
+              type: string
+            detail:
+              type: string
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: The last successful verify.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        capabilities:
+          type: array
+          items:
+            type: string
+    DataSourceFieldErrors:
+      type: object
+      properties:
+        error:
+          type: string
+        fields:
+          type: object
+          description: >-
+            Key (a config or secret field, kind, name, secrets, query, from,
+            to, step_seconds, limit) to one of required, invalid,
+            not_permitted, unknown_field, invalid_option, too_long,
+            secrets_required. secrets_required (key secrets) is a PATCH
+            moving a url to another scheme, host or port without re-sending
+            every stored secret it keeps (a new value, or "" to remove).
+          additionalProperties:
+            type: string
+    Signal:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [metric, log, trace, error]
+        unit:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        aggregation:
+          type: string
+          enum: [rate, ratio, quantile, gauge]
+    Recipe:
+      type: object
+      properties:
+        id:
+          type: string
+        source_kind:
+          type: string
+        applies_to:
+          type: object
+          properties:
+            technology:
+              type: string
+            messaging_system:
+              type: string
+        detect:
+          type: object
+          properties:
+            metric:
+              type: string
+        params:
+          type: array
+          items:
+            type: string
+        signals:
+          type: object
+          description: Signal id to native query; $param, $__rate and $__interval are placeholders.
+          additionalProperties:
+            type: string
+        origin:
+          type: string
+          enum: [catalog, user]

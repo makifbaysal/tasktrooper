@@ -90,8 +90,18 @@ type ClaudeCodeConfig struct {
 // ProdOpsConfig drives production monitoring: the health probe that watches
 // deploy targets and turns a dead environment into an incident.
 type ProdOpsConfig struct {
-	MonitorEnabled bool          `koanf:"monitor_enabled"`
-	ProbeInterval  time.Duration `koanf:"probe_interval"`
+	MonitorEnabled bool              `koanf:"monitor_enabled"`
+	ProbeInterval  time.Duration     `koanf:"probe_interval"`
+	AlertIngest    AlertIngestLimits `koanf:"alert_ingest"`
+}
+
+// AlertIngestLimits bounds what one alert ingest token can make this server
+// do, since a leaked token is otherwise unbounded incidents, tasks and agent
+// runs. Zero or less means the built-in default, never unlimited.
+type AlertIngestLimits struct {
+	RequestsPerMinute   int `koanf:"requests_per_minute"`
+	Burst               int `koanf:"burst"`
+	NewIncidentsPerHour int `koanf:"new_incidents_per_hour"`
 }
 
 // StoreopsConfig drives the mobile store monitor.

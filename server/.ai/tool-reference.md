@@ -583,8 +583,9 @@ The destination is re-validated through `urlguard` on **every** fetch, not only
 when it was written, because the field is agent-writable and a name that resolved
 to a public address at save time is free to answer `127.0.0.1` later.
 
-There is no cluster and no cloud log API anywhere in this — no `kubectl`, no
-`gcloud`, no provider SDK ([CLAUDE.md](../CLAUDE.md)). An HTTP endpoint the
+`get_deploy_logs` itself reads no cluster and no cloud log API — no `kubectl`,
+no `gcloud`; a bound environment's provider logs (Cloud Logging, CloudWatch,
+Vercel) are read by `query_runtime_logs` through the `cloud` package. An HTTP endpoint the
 application serves is a fact about the application, not about where it is hosted.
 An agent running on a **local runner** may additionally use its own shell to
 inspect whatever tooling that host happens to provide; that capability comes from
@@ -661,9 +662,8 @@ to — and tags it `local`.
 that is *read* rather than polled: `get_deploy_logs` fetches it after a deploy.
 It gets the same treatment as `health_url` in every respect that matters —
 agent-writable, offline `urlguard` check on write, and re-validated on **every**
-fetch. It must point at an endpoint the application itself serves; there is no
-cluster or cloud-provider log source anywhere in this repository and there must
-never be one.
+fetch. It must point at an endpoint the application itself serves; a cloud
+provider's logs are read by `query_runtime_logs`, never through `logs_url`.
 
 ## `mobile_*` — this machine's devices
 

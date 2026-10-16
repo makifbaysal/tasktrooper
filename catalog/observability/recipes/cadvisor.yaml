@@ -1,0 +1,15 @@
+# cAdvisor container metrics (standalone, or the kubelet's /metrics/cadvisor).
+id: cadvisor
+source_kind: prometheus
+applies_to:
+  technology: container
+detect:
+  metric: container_cpu_usage_seconds_total
+params: [container]
+signals:
+  infra.cpu: >-
+    sum(rate(container_cpu_usage_seconds_total{container="$container"}[$__rate]))
+  infra.memory: >-
+    sum(container_memory_working_set_bytes{container="$container"})
+  infra.instances: >-
+    count(container_memory_working_set_bytes{container="$container"})

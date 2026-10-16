@@ -75,6 +75,7 @@ import (
 	cloudapp "github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
 	appconfig "github.com/makifbaysal/tasktrooper/server/internal/application/config"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
+	datasourceapp "github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploywatch"
@@ -96,6 +97,7 @@ import (
 	memoryapp "github.com/makifbaysal/tasktrooper/server/internal/application/memory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mobiledevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/newrepo"
+	notifyapp "github.com/makifbaysal/tasktrooper/server/internal/application/notify"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/orchestrator"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
@@ -532,7 +534,7 @@ func Run(ctx context.Context, opts Options) (*Server, error) {
 				errType = "request_error"
 			}
 			if code >= fiber.StatusInternalServerError {
-				log.Error().Err(err).Str("path", c.Path()).Int("status", code).Msg("unhandled error")
+				log.Error().Err(err).Str("path", httpadapter.RedactPath(c.Path())).Int("status", code).Msg("unhandled error")
 			}
 			return c.Status(code).JSON(fiber.Map{
 				"error": fiber.Map{"message": err.Error(), "type": errType},
@@ -2251,12 +2253,19 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			}
 
 			incidentStore := pgstore.NewIncidentStore(e.pgDB)
+			// No in_app channel yet: the UI has no feed for notifications
+			// that are not about a board task.
+			incidentNotifier := notifyapp.NewService()
+			incidentNotifier.Register(desktopadapter.NewChannel(desktopadapter.NewNotifier("local-llm")))
 			prodOpsDeps := prodops.Deps{
-				Incidents: incidentStore,
-				Targets:   deployTargetStore,
-				Repos:     repositoryStore,
-				Tasks:     repositorySvc,
-				Deploys:   pipelineStore,
+				Incidents:   incidentStore,
+				Targets:     deployTargetStore,
+				Repos:       repositoryStore,
+				Tasks:       repositorySvc,
+				Deploys:     pipelineStore,
+				Notifier:    incidentNotifier,
+				AlertTokens: pgstore.NewAlertIngestTokenStore(e.pgDB),
+				AlertLimits: cfg.ProdOps.AlertIngest,
 			}
 			prodOpsSvc := prodops.NewService(prodOpsDeps)
 			if workflowSvc != nil {
@@ -3011,6 +3020,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		e.githubRunner = newGitHubRunner(opts.DataDir, githubTokens, issueSyncSettingsStore, repositoryStore)
 		go e.githubRunner.Start(context.Background())
 	}
+	var dataSourceSvc *datasourceapp.Service
+	if e.pgDB != nil {
+		dataSourceSvc = newDataSourceService(e.pgDB, e.secretsCipher, e.secretsCipherErr)
+	}
 
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
@@ -3051,6 +3064,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,
 		CloudSvc:          e.cloudSvc,
+		DataSourceSvc:     dataSourceSvc,
 		EnvRequirements:   envRequirementsOrNil(e.envReqSvc),
 		ReleaseSvc:        releaseHTTP,
 		SmokeGenSvc:       smokeGenHTTP,

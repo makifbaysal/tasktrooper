@@ -30,8 +30,10 @@ type DeployHistory interface {
 	RecentDeploys(ctx context.Context, repositoryID uuid.UUID, limit int) ([]domain.TaskPipeline, error)
 }
 
+// Notifier is satisfied by notify.Service. Whether and how often to notify is
+// decided here (severity floor, re-notify cooldown); the notifier only delivers.
 type Notifier interface {
-	Alert(ctx context.Context, title, body string)
+	Notify(ctx context.Context, n domain.Notification)
 }
 
 type Deps struct {
@@ -41,6 +43,9 @@ type Deps struct {
 	Tasks     TaskBoard
 	Deploys   DeployHistory
 	Notifier  Notifier
+	// AlertTokens backs the token-authenticated ingest; nil disables it.
+	AlertTokens port.AlertIngestTokenStore
+	AlertLimits domain.AlertIngestLimits
 }
 
 type Service struct {
@@ -51,11 +56,15 @@ type Service struct {
 	deploys   DeployHistory
 	notifier  Notifier
 
+	alertTokens port.AlertIngestTokenStore
+	alertGuard  *alertIngestGuard
+
 	attributor ReleaseAttributor
 	rollbacks  ReleaseRollbackDispatcher
 
+	now        func() time.Time
 	notifyMu   sync.Mutex
-	lastNotify map[uuid.UUID]time.Time
+	lastNotify map[string]time.Time
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
@@ -84,15 +93,16 @@ func NewService(deps Deps) *Service {
 		tasks:     deps.Tasks,
 		deploys:   deps.Deploys,
 		notifier:  deps.Notifier,
+
+		alertTokens: deps.AlertTokens,
+		alertGuard:  newAlertIngestGuard(deps.AlertLimits),
+		now:         time.Now,
 	}
 }
 
 const taskSeverityFloor = domain.IncidentSeverityHigh
 
-func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
-	if in.RepositoryID == uuid.Nil {
-		return domain.Incident{}, errors.New("incident needs a repository")
-	}
+func withInputDefaults(in domain.IncidentInput) domain.IncidentInput {
 	if in.Env == "" {
 		in.Env = domain.DeployEnvProd
 	}
@@ -108,14 +118,28 @@ func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.I
 	if in.Severity == "" {
 		in.Severity = domain.IncidentSeverityMedium
 	}
+	return in
+}
+
+func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
+	incident, _, err := s.ingest(ctx, in)
+	return incident, err
+}
+
+func (s *Service) ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, bool, error) {
+	if in.RepositoryID == uuid.Nil {
+		return domain.Incident{}, false, errors.New("incident needs a repository")
+	}
+	in = withInputDefaults(in)
 
 	if in.Resolved {
-		return s.recover(ctx, in)
+		incident, err := s.recover(ctx, in)
+		return incident, false, err
 	}
 
 	incident, created, err := s.incidents.Upsert(ctx, in)
 	if err != nil {
-		return domain.Incident{}, err
+		return domain.Incident{}, false, err
 	}
 	if created {
 		s.event(ctx, incident.ID, domain.IncidentEventDetected,
@@ -153,10 +177,11 @@ func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.I
 		}
 	}
 
-	if (created || incident.Severity == domain.IncidentSeverityCritical) && s.shouldRenotify(incident.ID) {
+	if (created || incident.Severity == domain.IncidentSeverityCritical) && s.notifiable(incident) &&
+		s.shouldRenotify(cooldownKey("opened", incident)) {
 		s.notify(ctx, incident, remedy)
 	}
-	return incident, nil
+	return incident, created, nil
 }
 
 func machineMayOverwriteRemedy(incident domain.Incident) bool {
@@ -172,23 +197,32 @@ func machineMayOverwriteRemedy(incident domain.Incident) bool {
 
 const renotifyCooldown = 30 * time.Minute
 
-func (s *Service) shouldRenotify(incidentID uuid.UUID) bool {
+// cooldownKey is the alert's identity, not the incident's: a flapping alert
+// resolves and re-fires as a NEW incident every cycle, so an incident-id key
+// let it notify on every flap. Opening and recovery are cooled apart, so the
+// first recovery after an outage is never swallowed by that outage's alert.
+func cooldownKey(kind string, incident domain.Incident) string {
+	return kind + "\x00" + incident.RepositoryID.String() + "\x00" + incident.Env + "\x00" + incident.Fingerprint
+}
+
+func (s *Service) shouldRenotify(key string) bool {
 	s.notifyMu.Lock()
 	defer s.notifyMu.Unlock()
+	now := s.now()
 	if s.lastNotify == nil {
-		s.lastNotify = make(map[uuid.UUID]time.Time)
+		s.lastNotify = make(map[string]time.Time)
 	}
-	if last, ok := s.lastNotify[incidentID]; ok && time.Since(last) < renotifyCooldown {
+	if last, ok := s.lastNotify[key]; ok && now.Sub(last) < renotifyCooldown {
 		return false
 	}
 	if len(s.lastNotify) > 256 {
-		for id, last := range s.lastNotify {
-			if time.Since(last) >= renotifyCooldown {
-				delete(s.lastNotify, id)
+		for k, last := range s.lastNotify {
+			if now.Sub(last) >= renotifyCooldown {
+				delete(s.lastNotify, k)
 			}
 		}
 	}
-	s.lastNotify[incidentID] = time.Now()
+	s.lastNotify[key] = now
 	return true
 }
 
@@ -213,8 +247,8 @@ func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.
 			log.Warn().Err(err).Msg("incident recovery comment failed")
 		}
 	}
-	if s.notifier != nil {
-		s.notifier.Alert(ctx, "Recovered · "+resolved.Env, resolved.Title)
+	if s.notifiable(resolved) && s.shouldRenotify(cooldownKey("recovered", resolved)) {
+		s.notifier.Notify(ctx, incidentNotification(resolved, "Recovered · "+resolved.Env, resolved.Title))
 	}
 	return resolved, nil
 }
@@ -341,8 +375,9 @@ func (s *Service) ProposeRemedy(ctx context.Context, incidentID uuid.UUID, remed
 		incident = updated
 	}
 	s.event(ctx, incidentID, domain.IncidentEventProposed, author+" proposed a "+remedy.Kind+" remedy")
-	if s.notifier != nil {
-		s.notifier.Alert(ctx, "Fix proposed · "+incident.Env, truncate(remedy.Summary, 200))
+	// Whoever typed the proposal by hand does not need telling about it.
+	if author != domain.RemedyAuthorHuman && s.notifiable(incident) {
+		s.notifier.Notify(ctx, incidentNotification(incident, "Fix proposed · "+incident.Env, truncate(remedy.Summary, 200)))
 	}
 	return incident, nil
 }
@@ -393,12 +428,29 @@ func (s *Service) ByTask(ctx context.Context, taskID uuid.UUID) (domain.Incident
 }
 
 func (s *Service) notify(ctx context.Context, incident domain.Incident, remedy domain.Remedy) {
-	if s.notifier == nil || incident.Severity.Rank() < taskSeverityFloor.Rank() {
+	if !s.notifiable(incident) {
 		return
 	}
 	title := fmt.Sprintf("%s · %s", strings.ToUpper(incident.Env), truncate(incident.Title, 80))
-	s.notifier.Alert(ctx, title, truncate(remedy.Summary, 200))
+	s.notifier.Notify(ctx, incidentNotification(incident, title, truncate(remedy.Summary, 200)))
 	s.event(ctx, incident.ID, domain.IncidentEventNotified, "pushed to devices")
+}
+
+// notifiable keeps the follow-ups (recovered, fix proposed) to the incidents
+// whose opening was loud enough to notify in the first place.
+func (s *Service) notifiable(incident domain.Incident) bool {
+	return s.notifier != nil && incident.Severity.Rank() >= taskSeverityFloor.Rank()
+}
+
+func incidentNotification(incident domain.Incident, title, body string) domain.Notification {
+	return domain.Notification{
+		Title:    title,
+		Body:     body,
+		Severity: incident.Severity,
+		Link:     domain.IncidentLink(incident.ID),
+		Source:   domain.NotificationSourceIncident,
+		SourceID: incident.ID.String(),
+	}
 }
 
 func (s *Service) policy(ctx context.Context, repositoryID uuid.UUID) domain.IncidentPolicy {

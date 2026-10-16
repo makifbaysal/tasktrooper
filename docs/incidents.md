@@ -31,6 +31,44 @@ Every incident lands in one deduplicated table regardless of source:
 - **A failed deploy.** A pipeline run's own stage, preprod or prod deploy
   failing is reported the same way as an external alert.
 
+## Alert tokens
+
+The alert webhook above needs the app's own API key, which an alerting system
+does not have. Give it an **alert token** instead: create one per alerter with
+`POST /v1/repositories/{id}/alert-tokens` (`{"label": "Alertmanager",
+"default_env": "prod"}`) and point the alerter at the `ingest_path` it returns,
+`/v1/alerts/ingest/<token>`. That URL takes exactly the same payloads as the
+webhook, `?env=` and `?source=` included; `default_env` is used when neither
+the payload nor `?env=` names an environment. The token is shown once — only
+a hash of it is kept — and listing tokens shows each one's label and when it
+last delivered an alert. Delete a token
+(`DELETE /v1/repositories/{id}/alert-tokens/{tokenId}`) to revoke it. Treat
+the URL as a secret: anyone holding it can open incidents on that repository.
+
+Each token is rate limited, so a leaked one cannot flood the board: by
+default 60 requests a minute (with a burst of 10) and at most 20 **new**
+incidents an hour (`prod_ops.alert_ingest` in the configuration). Past either
+limit the alerter gets `429 {"error":"rate_limited"}`. The hourly cap only
+stops new incidents — an alert that repeats an incident already open still
+counts as an occurrence, and a recovery still closes its incident.
+
+In the desktop app the server listens on `127.0.0.1` only, so an alerter on
+another machine cannot reach this URL directly; put a tunnel of your own in
+front of it (for example `cloudflared` or `ngrok` forwarding to the local
+port) and give the alerter the tunnel's address with the same path. The
+desktop app picks a new local port each time it starts, so the tunnel has to
+follow it.
+
+## Notifications
+
+A new incident at `high` or `critical` — and a `critical` one that keeps
+recurring — shows a desktop notification on macOS, as do its recovery and a
+fix proposed by an agent. The same alert notifies at most once every 30
+minutes, and so does its recovery, even when it flaps: an alert that keeps
+resolving and firing again opens a new incident each time, but you hear about
+the first outage and the first recovery, not every cycle. Medium and low
+incidents stay on the Incidents page without interrupting you.
+
 ## Severity
 
 Every alert normalizes onto four levels — `critical`, `high`, `medium`,
