@@ -115,6 +115,8 @@ func TestInstallRefusesEntriesThatEscape(t *testing.T) {
 		"absolute":      {name: "/tmp/evil", body: "x"},
 		"link outside":  {name: "bin/out", typeflag: tar.TypeSymlink, link: "../../outside"},
 		"link absolute": {name: "bin/abs", typeflag: tar.TypeSymlink, link: "/etc/passwd"},
+		"dotdot inside": {name: "a/../../evil", body: "x"},
+		"hard link":     {name: "bin/h", typeflag: tar.TypeLink, link: "run.sh"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -128,6 +130,26 @@ func TestInstallRefusesEntriesThatEscape(t *testing.T) {
 				t.Fatal("a refused archive left an install directory")
 			}
 		})
+	}
+}
+
+// A link through a link: d -> . makes d/l land in the root, where its
+// ../evil leaves the install. Checked against each name alone it looks fine.
+func TestInstallRefusesALinkUnderAnotherLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks")
+	}
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "runner.tar.gz")
+	writeTarGz(t, archive, []tarEntry{
+		{name: "d", typeflag: tar.TypeSymlink, link: "."},
+		{name: "d/l", typeflag: tar.TypeSymlink, link: "../evil"},
+	})
+	if err := os.WriteFile(filepath.Join(dir, "evil"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := install(archive, false, filepath.Join(dir, "install")); err == nil {
+		t.Fatal("a link placed through another link was accepted")
 	}
 }
 

@@ -185,16 +185,26 @@ func install(archive string, isZip bool, dir string) error {
 	return err
 }
 
-// within resolves name under root and refuses anything that would land
-// outside it: an absolute name, or one that climbs with "..".
+// within resolves an archive entry's name under root. A name that is not
+// local to the archive (absolute, a volume, any ".." component) is refused;
+// the runner's packages have none.
 func within(root, name string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(name))
-	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.VolumeName(clean) != "" {
+	rel := filepath.FromSlash(strings.TrimSuffix(name, "/"))
+	rel = strings.TrimPrefix(rel, "."+string(filepath.Separator))
+	if strings.Contains(name, "..") || !filepath.IsLocal(rel) {
 		return "", fmt.Errorf("archive entry %q escapes the install directory", name)
 	}
-	return filepath.Join(root, clean), nil
+	return filepath.Join(root, rel), nil
 }
 
+type pendingLink struct {
+	name, target, link string
+}
+
+// untar writes directories and files first and the symlinks last, so nothing
+// is ever written through a link. A link must sit under real directories,
+// and once made it must resolve to something inside dest; the runner's
+// packages carry six, node's bin/npm -> ../lib/... and their kind.
 func untar(archive, dest string) error {
 	f, err := os.Open(archive)
 	if err != nil {
@@ -207,13 +217,17 @@ func untar(archive, dest string) error {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+	var links []pendingLink
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return nil
+			break
 		}
 		if err != nil {
 			return err
+		}
+		if hdr.Name == "./" || hdr.Name == "." {
+			continue
 		}
 		target, err := within(dest, hdr.Name)
 		if err != nil {
@@ -229,30 +243,62 @@ func untar(archive, dest string) error {
 				return err
 			}
 		case tar.TypeSymlink:
-			if filepath.IsAbs(hdr.Linkname) {
+			if filepath.IsAbs(hdr.Linkname) || filepath.VolumeName(hdr.Linkname) != "" {
 				return fmt.Errorf("archive symlink %q points outside the install directory", hdr.Name)
 			}
-			if _, err := within(dest, filepath.Join(filepath.Dir(filepath.FromSlash(hdr.Name)), filepath.FromSlash(hdr.Linkname))); err != nil {
-				return fmt.Errorf("archive symlink %q points outside the install directory", hdr.Name)
-			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			links = append(links, pendingLink{name: hdr.Name, target: target, link: hdr.Linkname})
+		default:
+			return fmt.Errorf("archive entry %q is of a kind the runner package does not ship (%c)", hdr.Name, hdr.Typeflag)
+		}
+	}
+	return makeLinks(dest, links)
+}
+
+func makeLinks(dest string, links []pendingLink) error {
+	root, err := filepath.EvalSymlinks(dest)
+	if err != nil {
+		return err
+	}
+	for _, l := range links {
+		parent, err := filepath.EvalSymlinks(filepath.Dir(l.target))
+		if err != nil {
+			if err := os.MkdirAll(filepath.Dir(l.target), 0o755); err != nil {
 				return err
 			}
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return err
-			}
-		case tar.TypeLink:
-			source, err := within(dest, hdr.Linkname)
-			if err != nil {
-				return err
-			}
-			if err := os.Link(source, target); err != nil {
+			if parent, err = filepath.EvalSymlinks(filepath.Dir(l.target)); err != nil {
 				return err
 			}
 		}
+		if parent != filepath.Join(root, mustRel(dest, filepath.Dir(l.target))) {
+			return fmt.Errorf("archive symlink %q sits under another symlink", l.name)
+		}
+		if err := os.Symlink(filepath.FromSlash(l.link), l.target); err != nil {
+			return err
+		}
 	}
+	for _, l := range links {
+		resolved, err := filepath.EvalSymlinks(l.target)
+		if err != nil || !isUnder(root, resolved) {
+			return fmt.Errorf("archive symlink %q points outside the install directory", l.name)
+		}
+	}
+	return nil
 }
 
+func mustRel(base, p string) string {
+	rel, err := filepath.Rel(base, p)
+	if err != nil {
+		return p
+	}
+	return rel
+}
+
+func isUnder(root, p string) bool {
+	rel, err := filepath.Rel(root, p)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
+}
+
+// unzip is the Windows package, which carries files and directories only.
 func unzip(archive, dest string) error {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
@@ -271,7 +317,7 @@ func unzip(archive, dest string) error {
 			continue
 		}
 		if !zf.Mode().IsRegular() {
-			continue
+			return fmt.Errorf("archive entry %q is of a kind the runner package does not ship", zf.Name)
 		}
 		rc, err := zf.Open()
 		if err != nil {
