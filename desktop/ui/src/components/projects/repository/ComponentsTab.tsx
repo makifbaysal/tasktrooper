@@ -1,5 +1,6 @@
 import { Box, Pencil, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
@@ -10,6 +11,7 @@ import {
   type ComponentGates,
   type CommandPurpose,
   type ComponentRole,
+  type GateCITask,
   type RepositoryModel,
 } from "@/api";
 import { AddComponentDialog } from "@/components/projects/repository/AddComponentDialog";
@@ -133,13 +135,25 @@ function ComponentDetail({
   onOpenFindings?: (componentId: string) => void;
 }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [dismissOpen, setDismissOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const announceGateTask = (task: GateCITask) => {
+    const gate = task.gate === "mutation" ? "Mutation" : "Coverage";
+    const action = { label: task.task_key, onClick: () => navigate(`/board?task=${encodeURIComponent(task.task_id)}`) };
+    if (task.created) {
+      toast.success(t(`repositoryPage.components.gateCITask.created${gate}`, { languages: (task.languages ?? []).join(", ") }), { action });
+    } else {
+      toast.info(t(`repositoryPage.components.gateCITask.open${gate}`), { action });
+    }
+  };
 
   const patch = async (body: Parameters<typeof api.updateComponent>[1], quiet = false) => {
     setBusy(true);
     try {
-      await api.updateComponent(component.id, body);
+      const updated = await api.updateComponent(component.id, body);
+      updated.gate_ci_tasks?.forEach(announceGateTask);
       onReload();
     } catch (e) {
       if (!quiet) toast.error(e instanceof Error ? e.message : t("repositoryPage.components.saveFailed"));
@@ -407,7 +421,10 @@ function GatesCard({ component, patch }: CardProps) {
 
   return (
     <Card className="space-y-4 p-6">
-      <h3 className="font-semibold">{t("repositoryPage.components.gatesTitle")}</h3>
+      <div className="space-y-1">
+        <h3 className="font-semibold">{t("repositoryPage.components.gatesTitle")}</h3>
+        <p className="text-micro text-muted-foreground">{t("repositoryPage.components.gatesHint")}</p>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
           <div>

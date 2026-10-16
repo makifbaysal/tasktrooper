@@ -1776,6 +1776,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			modelSvc.SetBackgroundContext(ctx)
 			modelSvc.SetFindingStore(pgstore.NewFindingStore(e.pgDB))
 			modelSvc.SetTaskCreator(repositorySvc)
+			if workflowSvc != nil {
+				modelSvc.SetRoleResolver(workflowSvc)
+			}
 			modelSvc.Boot(ctx)
 			for _, tool := range projectmodeltools.NewExecutors(&projectmodeltools.ToolKit{Model: modelSvc}) {
 				e.reg.Register(tool)

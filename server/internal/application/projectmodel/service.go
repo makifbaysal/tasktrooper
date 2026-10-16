@@ -71,6 +71,11 @@ type Service struct {
 
 	findings port.FindingStore
 	tasks    TaskCreator
+	roles    port.RoleResolver
+
+	// gateTaskMu serializes opening gate CI tasks, so two edits switching
+	// the same gate on cannot both find no open task and open two.
+	gateTaskMu sync.Mutex
 
 	// deliveryConfirmedHook wakes the release service when a human confirms a
 	// component's delivery profile, so tasks already merged and waiting in

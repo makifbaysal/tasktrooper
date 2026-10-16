@@ -2,6 +2,7 @@ package projectmodel
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -82,12 +83,33 @@ func (f *fakeFindingStore) LinkFindingsToTask(_ context.Context, ids []uuid.UUID
 }
 
 type fakeTaskCreator struct {
-	got []domain.CreateBoardTaskRequest
+	got   []domain.CreateBoardTaskRequest
+	tasks map[uuid.UUID]domain.BoardTask
 }
 
 func (f *fakeTaskCreator) CreateTask(_ context.Context, repositoryID uuid.UUID, req domain.CreateBoardTaskRequest) (domain.BoardTask, error) {
 	f.got = append(f.got, req)
-	return domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Title: req.Title, TaskType: req.TaskType}, nil
+	column := req.Column
+	if column == "" {
+		column = domain.TaskColumnBacklog
+	}
+	task := domain.BoardTask{
+		ID: uuid.New(), RepositoryID: repositoryID, Key: fmt.Sprintf("T-%d", len(f.got)),
+		Title: req.Title, TaskType: req.TaskType, Column: column,
+	}
+	if f.tasks == nil {
+		f.tasks = map[uuid.UUID]domain.BoardTask{}
+	}
+	f.tasks[task.ID] = task
+	return task, nil
+}
+
+func (f *fakeTaskCreator) GetTask(_ context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error) {
+	task, ok := f.tasks[taskID]
+	if !ok || task.RepositoryID != repositoryID {
+		return domain.BoardTask{}, domain.ErrBoardTaskNotFound
+	}
+	return task, nil
 }
 
 func detected(path, rule string, sev domain.FindingSeverity, n int) domain.DetectedFinding {

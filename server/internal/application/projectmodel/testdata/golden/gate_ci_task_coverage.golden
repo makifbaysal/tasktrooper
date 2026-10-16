@@ -1,0 +1,27 @@
+The coverage gate was switched on for api (services/api) in acme, but no GitHub Actions step for this component measures line coverage for TypeScript/JavaScript. Add the step for each language below, so every pull request reports the number.
+
+CI jobs mapped to this component today:
+- .github/workflows/ci.yml › test
+
+Already measured in CI, leave as is: Go.
+
+Use the test runner and build tool the component already uses; the notes below name the usual tool for each, not a required one. If CI already does this through a script the check did not recognise (an `npm test` script, a `make` target), say so in your hand-off and change nothing for that language.
+
+---
+
+### TypeScript/JavaScript
+
+- Vitest: add `@vitest/coverage-v8` as a dev dependency and run `vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov`.
+- Jest: run `jest --coverage --coverageReporters=text-summary --coverageReporters=lcov`. Node's own runner or Mocha: wrap the run in `c8`.
+- Put the reporter settings in the runner's config file and upload `coverage/lcov.info`. TaskTrooper's own hand-off runs Vitest or Jest the same way.
+
+---
+
+## Done when
+
+- Each language above has a CI step that measures line coverage, in the job that already runs that language's tests: a flag on the existing test run, not a second full run.
+- The step uploads the report as a workflow artifact and writes the total percentage to the job summary (`$GITHUB_STEP_SUMMARY`).
+- TaskTrooper's bar for this component is 85%. It is advisory: do not make CI fail below it unless the repository already enforces a minimum.
+- The tool's configuration lives in the repository (its config file or the build file), so a developer runs the same command locally.
+- A language above with no tests in this component is skipped and named in your hand-off; writing its first tests is a separate task.
+- The existing CI jobs still pass.

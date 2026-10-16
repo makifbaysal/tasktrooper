@@ -62,6 +62,10 @@ func (fakeHTTPTasks) CreateTask(_ context.Context, repositoryID uuid.UUID, req d
 	return domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Title: req.Title, TaskType: req.TaskType, Priority: req.Priority}, nil
 }
 
+func (fakeHTTPTasks) GetTask(context.Context, uuid.UUID, uuid.UUID) (domain.BoardTask, error) {
+	return domain.BoardTask{}, domain.ErrBoardTaskNotFound
+}
+
 func newFindingsTestApp(t *testing.T) (*fiber.App, domain.Component, domain.ComponentFinding) {
 	t.Helper()
 	comp := domain.Component{ID: uuid.New(), RepositoryID: uuid.New(), Path: "api", Status: domain.ComponentStatusActive}

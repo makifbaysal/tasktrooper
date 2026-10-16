@@ -83,23 +83,33 @@ func (s *Service) AddComponent(ctx context.Context, repoID uuid.UUID, req domain
 }
 
 func (s *Service) UpdateComponent(ctx context.Context, componentID uuid.UUID, patch domain.ComponentPatch) (domain.Component, error) {
+	comp, _, err := s.UpdateComponentWithGateTasks(ctx, componentID, patch)
+	return comp, err
+}
+
+// UpdateComponentWithGateTasks is UpdateComponent that also reports the CI
+// tasks it opened: switching coverage or mutation on for a component whose CI
+// does not measure it opens one task per gate, naming each language without a
+// step.
+func (s *Service) UpdateComponentWithGateTasks(ctx context.Context, componentID uuid.UUID, patch domain.ComponentPatch) (domain.Component, []domain.GateCITask, error) {
 	comp, err := s.store.GetComponent(ctx, componentID)
 	if err != nil {
-		return domain.Component{}, fmt.Errorf("update component: %w", err)
+		return domain.Component{}, nil, fmt.Errorf("update component: %w", err)
 	}
+	gatesBefore := comp.Gates
 
 	comp.Name = patch.Name.ApplyTo(comp.Name)
 
 	if patch.Role.Set {
 		if patch.Role.Value != nil && !domain.ValidComponentRole(*patch.Role.Value) {
-			return domain.Component{}, fmt.Errorf("%w: invalid role %q", ErrInvalidInput, *patch.Role.Value)
+			return domain.Component{}, nil, fmt.Errorf("%w: invalid role %q", ErrInvalidInput, *patch.Role.Value)
 		}
 		comp.Role = patch.Role.ApplyTo(comp.Role)
 	}
 
 	for purpose, p := range patch.Commands {
 		if !domain.ValidCommandPurpose(purpose) {
-			return domain.Component{}, fmt.Errorf("%w: invalid command purpose %q", ErrInvalidInput, purpose)
+			return domain.Component{}, nil, fmt.Errorf("%w: invalid command purpose %q", ErrInvalidInput, purpose)
 		}
 		idx := -1
 		for i, cmd := range comp.Commands {
@@ -127,14 +137,16 @@ func (s *Service) UpdateComponent(ctx context.Context, componentID uuid.UUID, pa
 	}
 
 	if patch.Gates != nil {
-		comp.Gates = *patch.Gates
+		next := *patch.Gates
+		next.CoverageCITaskID, next.MutationCITaskID = comp.Gates.CoverageCITaskID, comp.Gates.MutationCITaskID
+		comp.Gates = next
 	}
 	if patch.Docs != nil {
 		comp.Docs = *patch.Docs
 	}
 	if patch.Status != nil {
 		if *patch.Status != domain.ComponentStatusActive && *patch.Status != domain.ComponentStatusDismissed {
-			return domain.Component{}, fmt.Errorf("%w: invalid status %q", ErrInvalidInput, *patch.Status)
+			return domain.Component{}, nil, fmt.Errorf("%w: invalid status %q", ErrInvalidInput, *patch.Status)
 		}
 		comp.Status = *patch.Status
 		if comp.Status == domain.ComponentStatusDismissed {
@@ -149,7 +161,7 @@ func (s *Service) UpdateComponent(ctx context.Context, componentID uuid.UUID, pa
 		if patch.Delivery.Value != nil {
 			normalized := patch.Delivery.Value.Normalized()
 			if err := normalized.Validate(); err != nil {
-				return domain.Component{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+				return domain.Component{}, nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 			}
 			comp.Delivery.Override = &normalized
 			deliveryConfirmed = true
@@ -164,13 +176,22 @@ func (s *Service) UpdateComponent(ctx context.Context, componentID uuid.UUID, pa
 
 	saved, err := s.store.SaveComponent(ctx, comp)
 	if err != nil {
-		return domain.Component{}, fmt.Errorf("update component: %w", err)
+		return domain.Component{}, nil, fmt.Errorf("update component: %w", err)
 	}
 	s.logProjection(ctx, saved.RepositoryID)
 	if deliveryConfirmed && s.deliveryConfirmedHook != nil {
 		s.deliveryConfirmedHook(ctx, saved.RepositoryID, saved.ID)
 	}
-	return saved, nil
+	if saved.Status != domain.ComponentStatusActive {
+		return saved, nil, nil
+	}
+	gateTasks := s.openGateCITasks(ctx, saved.ID, gatesSwitchedOn(gatesBefore, saved.Gates))
+	if len(gateTasks) > 0 {
+		if latest, err := s.store.GetComponent(ctx, saved.ID); err == nil {
+			saved = latest
+		}
+	}
+	return saved, gateTasks, nil
 }
 
 // hasShellMetacharacters is deliberately generous: LocalCommand.Argv is run

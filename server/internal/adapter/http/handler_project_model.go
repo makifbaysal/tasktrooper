@@ -209,11 +209,18 @@ func (h *Handler) UpdateProjectComponent(c *fiber.Ctx) error {
 	if err := c.BodyParser(&patch); err != nil {
 		return pmErrMsg(c, fiber.StatusBadRequest, "invalid request body")
 	}
-	comp, err := h.projectModelSvc.UpdateComponent(h.enrichContext(c), id, patch)
+	comp, gateTasks, err := h.projectModelSvc.UpdateComponentWithGateTasks(h.enrichContext(c), id, patch)
 	if err != nil {
 		return projectModelErr(c, err)
 	}
-	return c.JSON(comp)
+	return c.JSON(componentPatchResponse{Component: comp, GateCITasks: gateTasks})
+}
+
+// componentPatchResponse is the component plus the CI tasks switching a gate
+// on opened, so the page can say so; every other field reads as before.
+type componentPatchResponse struct {
+	domain.Component
+	GateCITasks []domain.GateCITask `json:"gate_ci_tasks,omitempty"`
 }
 
 // AddComponentCheck — POST /v1/components/:componentId/checks

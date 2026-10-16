@@ -223,6 +223,63 @@ type ComponentGates struct {
 	CoverageThreshold *float64 `json:"coverage_threshold,omitempty"`
 	MutationEnabled   *bool    `json:"mutation_enabled,omitempty"`
 	MutationThreshold *float64 `json:"mutation_threshold,omitempty"`
+	// CoverageCITaskID and MutationCITaskID are the board tasks opened when
+	// the gate was switched on while the component's CI did not measure it;
+	// one still open stops a second. Server-owned: a patch never sets them.
+	CoverageCITaskID *uuid.UUID `json:"coverage_ci_task_id,omitempty"`
+	MutationCITaskID *uuid.UUID `json:"mutation_ci_task_id,omitempty"`
+}
+
+type QualityGateKind string
+
+const (
+	QualityGateCoverage QualityGateKind = "coverage"
+	QualityGateMutation QualityGateKind = "mutation"
+)
+
+func (g ComponentGates) Enabled(kind QualityGateKind) bool {
+	flag := g.CoverageEnabled
+	if kind == QualityGateMutation {
+		flag = g.MutationEnabled
+	}
+	return flag != nil && *flag
+}
+
+func (g ComponentGates) Threshold(kind QualityGateKind) float64 {
+	value := g.CoverageThreshold
+	if kind == QualityGateMutation {
+		value = g.MutationThreshold
+	}
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func (g ComponentGates) CITask(kind QualityGateKind) *uuid.UUID {
+	if kind == QualityGateMutation {
+		return g.MutationCITaskID
+	}
+	return g.CoverageCITaskID
+}
+
+func (g *ComponentGates) SetCITask(kind QualityGateKind, id *uuid.UUID) {
+	if kind == QualityGateMutation {
+		g.MutationCITaskID = id
+		return
+	}
+	g.CoverageCITaskID = id
+}
+
+// GateCITask is what switching a gate on did about CI that does not measure
+// it: Created is false when an earlier task for the same gate is still open.
+type GateCITask struct {
+	Gate      QualityGateKind `json:"gate"`
+	Created   bool            `json:"created"`
+	Languages []string        `json:"languages,omitempty"`
+	TaskID    uuid.UUID       `json:"task_id"`
+	TaskKey   string          `json:"task_key"`
+	TaskTitle string          `json:"task_title"`
 }
 
 // Component is one buildable/deployable unit of a repository: the whole repo

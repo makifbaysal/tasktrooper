@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Component, ComponentCheck, RepositoryModel } from "@/api";
 import { ComponentsTab } from "@/components/projects/repository/ComponentsTab";
@@ -12,12 +13,16 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
-const { updateComponent, updateRepository, createWorkflowSetupTask, getWorkflowSetupTask } = vi.hoisted(() => ({
+const { updateComponent, updateRepository, createWorkflowSetupTask, getWorkflowSetupTask, toastSuccess, toastInfo } = vi.hoisted(() => ({
   updateComponent: vi.fn(),
   updateRepository: vi.fn(),
   createWorkflowSetupTask: vi.fn(),
   getWorkflowSetupTask: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastInfo: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: { success: toastSuccess, info: toastInfo, error: vi.fn() } }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
@@ -102,15 +107,17 @@ const model = buildModel();
 
 function renderTab(selectedComponentId: string | null, modelOverride: RepositoryModel = model) {
   return render(
-    <I18nProvider>
-      <ComponentsTab
-        model={modelOverride}
-        repositoryId="repo-1"
-        selectedComponentId={selectedComponentId}
-        onSelectComponent={vi.fn()}
-        onReload={vi.fn()}
-      />
-    </I18nProvider>,
+    <MemoryRouter>
+      <I18nProvider>
+        <ComponentsTab
+          model={modelOverride}
+          repositoryId="repo-1"
+          selectedComponentId={selectedComponentId}
+          onSelectComponent={vi.fn()}
+          onReload={vi.fn()}
+        />
+      </I18nProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -120,6 +127,8 @@ describe("ComponentsTab", () => {
     updateRepository.mockReset().mockResolvedValue(model.repository);
     createWorkflowSetupTask.mockReset().mockResolvedValue({ key: "CI-1" });
     getWorkflowSetupTask.mockReset().mockResolvedValue({ task: null });
+    toastSuccess.mockReset();
+    toastInfo.mockReset();
   });
 
   it("changing the role select calls updateComponent with the new role", async () => {
@@ -191,6 +200,48 @@ describe("ComponentsTab", () => {
     await waitFor(() => expect(screen.getByText("Identity")).toBeInTheDocument());
 
     expect(screen.queryByText("No CI workflows")).not.toBeInTheDocument();
+  });
+
+  it("says which languages CI does not measure when switching coverage on opens a task", async () => {
+    updateComponent.mockResolvedValue({
+      ...component,
+      gates: { coverage_enabled: true, coverage_ci_task_id: "task-9" },
+      gate_ci_tasks: [
+        { gate: "coverage", created: true, languages: ["Go", "TypeScript/JavaScript"], task_id: "task-9", task_key: "T-9", task_title: "Add coverage" },
+      ],
+    });
+    renderTab("comp-api");
+    await screen.findByText("Quality gates");
+    expect(screen.getByText(/opens a task to add the CI step/)).toBeInTheDocument();
+
+    // [0] is the review card's switch; the gates card's coverage switch follows it.
+    fireEvent.click(screen.getAllByRole("switch")[1]);
+
+    await waitFor(() => expect(updateComponent).toHaveBeenCalledWith("comp-api", { gates: { coverage_enabled: true } }));
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith(
+        "CI doesn't measure coverage for Go, TypeScript/JavaScript. Opened a task to add the steps.",
+        { action: expect.objectContaining({ label: "T-9" }) },
+      ),
+    );
+  });
+
+  it("points at the task still open instead of announcing a new one", async () => {
+    updateComponent.mockResolvedValue({
+      ...component,
+      gate_ci_tasks: [{ gate: "mutation", created: false, task_id: "task-4", task_key: "T-4", task_title: "Add mutation testing" }],
+    });
+    renderTab("comp-api");
+    await screen.findByText("Quality gates");
+
+    fireEvent.click(screen.getAllByRole("switch")[2]);
+
+    await waitFor(() =>
+      expect(toastInfo).toHaveBeenCalledWith("The task adding mutation testing to CI is still open.", {
+        action: expect.objectContaining({ label: "T-4" }),
+      }),
+    );
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 
   it("renders the review card in the empty-components branch too", async () => {

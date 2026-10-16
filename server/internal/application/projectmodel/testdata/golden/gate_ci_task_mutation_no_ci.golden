@@ -1,0 +1,23 @@
+The mutation gate was switched on for api (services/api) in acme, but no GitHub Actions step for this component runs mutation testing for Python. Add the step for each language below, so every pull request reports a mutation score.
+
+No GitHub Actions job is mapped to this component yet. Add a workflow under .github/workflows that runs its tests on pull requests and on pushes to the default branch, then add the steps below to it.
+
+Use the test runner and build tool the component already uses; the notes below name the usual tool for each, not a required one. If CI already does this through a script the check did not recognise (an `npm test` script, a `make` target), say so in your hand-off and change nothing for that language.
+
+---
+
+### Python
+
+- Run mutmut (`mutmut run`, then `mutmut results`) with its settings in `pyproject.toml` (`[tool.mutmut]`) or `setup.cfg`; Cosmic Ray is the alternative when the project already uses it.
+- Point it at the source package and the existing test command, and upload its results.
+
+---
+
+## Done when
+
+- Each language above has a CI step that runs mutation testing and uploads the report as a workflow artifact, with the mutation score in the job summary (`$GITHUB_STEP_SUMMARY`).
+- Mutation testing is slow: on pull requests, limit the run to the changed code where the tool supports it, and run the full suite on a schedule or on pushes to the default branch.
+- Do not make CI fail on a minimum score unless the repository already enforces one.
+- The tool's configuration lives in the repository (its config file or the build file), so a developer runs the same command locally.
+- A language above with no tests in this component is skipped and named in your hand-off; writing its first tests is a separate task.
+- The existing CI jobs still pass.

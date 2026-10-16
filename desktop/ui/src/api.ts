@@ -2603,6 +2603,24 @@ export interface ComponentGates {
   coverage_threshold?: number;
   mutation_enabled?: boolean;
   mutation_threshold?: number;
+  /** Server-owned: the task switching the gate on opened because CI did not
+   * measure it. A patch carrying them changes nothing. */
+  coverage_ci_task_id?: string;
+  mutation_ci_task_id?: string;
+}
+
+export type QualityGateKind = "coverage" | "mutation";
+
+/** What switching a gate on did about CI that does not measure it; created
+ * is false when an earlier task for the same gate is still open. */
+export interface GateCITask {
+  gate: QualityGateKind;
+  created: boolean;
+  /** The languages without a CI step; absent when the task was already open. */
+  languages?: string[];
+  task_id: string;
+  task_key: string;
+  task_title: string;
 }
 
 export type ComponentStatus = "active" | "dismissed";
@@ -5705,7 +5723,7 @@ export const api = {
     }),
 
   updateComponent: (componentId: string, patch: ComponentPatch) =>
-    request<Component>(`/v1/components/${componentId}`, {
+    request<Component & { gate_ci_tasks?: GateCITask[] }>(`/v1/components/${componentId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),

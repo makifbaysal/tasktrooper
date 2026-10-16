@@ -19,6 +19,7 @@ import (
 // from importing one another.
 type TaskCreator interface {
 	CreateTask(ctx context.Context, repositoryID uuid.UUID, req domain.CreateBoardTaskRequest) (domain.BoardTask, error)
+	GetTask(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.BoardTask, error)
 }
 
 const (
@@ -33,7 +34,8 @@ const (
 // scan's findings unsaved and every model without them.
 func (s *Service) SetFindingStore(f port.FindingStore) { s.findings = f }
 
-// SetTaskCreator wires the board for "open a task from these findings".
+// SetTaskCreator wires the board for "open a task from these findings" and
+// for the CI task a quality gate opens when it is switched on.
 func (s *Service) SetTaskCreator(c TaskCreator) { s.tasks = c }
 
 func (s *Service) listFindings(ctx context.Context, repositoryID uuid.UUID) ([]domain.ComponentFinding, error) {

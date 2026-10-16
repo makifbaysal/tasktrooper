@@ -134,6 +134,46 @@ not a column-transition gate at all: a task reaches Released only through a
 release's own verdict, never by clearing a gate on the move, so there is no
 deploy-recorded check to turn on or off for it.
 
+## Coverage and mutation gates
+
+These two are advisory: they measure and report, and never hold a task. Each
+component has them on its **Quality gates** card (the repository page →
+**Components** → the component): a **Coverage gate** and a **Mutation gate**
+switch, each with an optional threshold in percent.
+
+With a gate on, TaskTrooper measures before the agent hands the task off and
+states the figure against the threshold in the hand-off. With it off, the
+same measurement runs in the background after the hand-off and is posted to
+the task as a comment. It looks at the repository root:
+
+| Language | Coverage | Mutation |
+|---|---|---|
+| Go | `go test -coverprofile` | Gremlins (`gremlins unleash`) |
+| TypeScript / JavaScript | Vitest or Jest with `--coverage` | StrykerJS, when a `stryker.config.*` file exists |
+| Dart / Flutter | `flutter test --coverage` | — |
+| Rust | `cargo llvm-cov` (needs cargo-llvm-cov) | `cargo mutants`, when `.cargo/mutants.toml` exists |
+| C# / .NET | `dotnet test --collect:"XPlat Code Coverage"` (needs coverlet.collector in the test projects) | Stryker.NET, when `stryker-config.json` exists |
+
+A tool that is not installed is reported only while its gate is on.
+
+### Switching a gate on opens a CI task
+
+When you switch a gate on, TaskTrooper reads the component's GitHub Actions
+jobs (the **Checks** tab). If no step measures that gate for one of the
+component's languages, it opens a task in **Todo**, assigned to the agent
+that takes system-opened work for the component's area, to add the steps. The
+task carries notes for each language that lacks one, and a toast links to it. One task per
+gate: switching the gate off and on again while that task is still open
+points you to it instead of opening a second. Once it is done or deleted, the
+next switch opens a fresh one.
+
+The CI check knows the usual tools for Go, TypeScript/JavaScript, Python,
+Java/Kotlin, Scala, C#, Rust, Ruby, PHP, Swift/Objective-C, Dart/Flutter,
+Elixir and C/C++. A step that names no language, such as a Codecov upload or
+`make coverage`, counts only when the component has a single language. A
+language with no coverage or mutation tools (Shell, SQL, …) never opens a
+task.
+
 ## A note on what's enforced versus what's advisory
 
 Every gate on this page blocks something concrete: a move, a release, a

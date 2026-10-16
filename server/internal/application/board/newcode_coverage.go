@@ -227,7 +227,11 @@ func goModulePath(dir string) string {
 }
 
 func lcovLines(dir string) (lineHits, bool) {
-	f, err := os.Open(filepath.Join(dir, "coverage", "lcov.info"))
+	return lcovFileLines(dir, filepath.Join("coverage", "lcov.info"))
+}
+
+func lcovFileLines(dir, report string) (lineHits, bool) {
+	f, err := os.Open(filepath.Join(dir, report))
 	if err != nil {
 		return nil, false
 	}
