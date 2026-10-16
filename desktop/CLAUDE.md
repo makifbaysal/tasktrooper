@@ -153,9 +153,9 @@ runtime (`src/main/account/mode.ts`, persisted as `mode` in `settings.json`):
 ## Toolchain setup
 
 Detecting and installing the developer tools agents use on this computer
-(Git, Node.js, the JDK and Android SDK, Appium and its drivers, Docker, …),
-in the background, for onboarding, the header's progress chip and Settings
-(`src/main/toolchain/`, bridge `toolchain.*`, both modes).
+(Git, Node.js, the JDK and Android SDK, Appium and its drivers, Docker, the
+.NET SDK, Rust, …), in the background, for onboarding, the header's progress
+chip and Settings (`src/main/toolchain/`, bridge `toolchain.*`, both modes).
 
 - **The page sends ids, never commands.** `TOOLCHAIN_IDS` is the whole
   vocabulary; every formula, winget id, package list, script URL and pinned
@@ -192,14 +192,17 @@ in the background, for onboarding, the header's progress chip and Settings
   pinned by digest where the vendor publishes one (Android command-line
   tools, OSV-Scanner, uv and DuckDB on Linux). The rest are TLS-trusted
   vendor installers from fixed https URLs — Claude Code's
-  `install.sh`/`install.ps1` and Homebrew's `install.sh` — always saved to a
-  file and then run (Homebrew's in a Terminal window), never piped.
+  `install.sh`/`install.ps1`, rustup's `sh.rustup.rs` (`-y`), Microsoft's
+  `dotnet-install.sh` on Linux and Homebrew's `install.sh` — always saved to
+  a file and then run with the table's fixed flags (Homebrew's in a Terminal
+  window), never piped.
 - **Installed means reachable.** The backend (`supervisor/env.ts`) and the
   runner with its executor (`runner/env.ts`) get `toolchain.runtime()`
   appended to PATH — the directories of the tools the last report found plus
   the install locations that exist (`toolchain/locations.ts`: a keg-only
-  JDK, `%LOCALAPPDATA%\Programs\osv-scanner`, `~/.duckdb/cli/latest`, …) —
-  and JAVA_HOME when none is set.
+  JDK, `%LOCALAPPDATA%\Programs\osv-scanner`, `~/.duckdb/cli/latest`,
+  `~/.cargo/bin`, `~/.dotnet/tools`, …) — and JAVA_HOME when none is set, and
+  on Linux DOTNET_ROOT for an SDK in `~/.dotnet` when none is set.
 - **State** is `userData/toolchain-state.json` (atomic, pushed to the page at
   most 4/s on `cloud:toolchain:state-changed`). Cancel kills the running
   step's tree; one running as administrator cannot be killed, so after a
@@ -291,7 +294,7 @@ the page half's `{mode, origin?, temporaryLocal?}`. `bridgeVersion` 2 added
 `account.openKeys()` and `temporaryLocal`, 3 `openKeys(prefill)`, 4 `analytics`,
 5 `toolchain` (required here, optional `toolchain?` on the page's half), 6
 `account.mcp` and `openKeys({mcp})` (optional `mcp?` on the page's half).
-`ToolchainId` is the twenty-two ids in `TOOLCHAIN_IDS`, in the same order on
+`ToolchainId` is the twenty-four ids in `TOOLCHAIN_IDS`, in the same order on
 both halves.
 
 ## Boot order (`whenReady`)

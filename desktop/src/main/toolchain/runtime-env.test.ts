@@ -81,11 +81,35 @@ describe("installedRuntime", () => {
   });
 });
 
+describe("installedRuntime and a per-user .NET SDK", () => {
+  it("puts ~/.dotnet on PATH and in DOTNET_ROOT on Linux once it holds an SDK", () => {
+    const place = { platform: "linux" as const, home: "/home/me", env: {} };
+    expect(installedRuntime(place, disk(["/home/me/.dotnet", "/home/me/.dotnet/sdk", "/home/me/.cargo/bin"]))).toEqual({
+      pathDirs: ["/home/me/.cargo/bin", "/home/me/.dotnet"],
+      dotnetRoot: "/home/me/.dotnet",
+    });
+  });
+
+  it("leaves DOTNET_ROOT alone when ~/.dotnet only holds global tools", () => {
+    const place = { platform: "linux" as const, home: "/home/me", env: {} };
+    expect(installedRuntime(place, disk(["/home/me/.dotnet", "/home/me/.dotnet/tools"]))).toEqual({
+      pathDirs: ["/home/me/.dotnet/tools"],
+    });
+  });
+});
+
 describe("withRuntime", () => {
   it("appends without duplicating and prefers the report's JAVA_HOME when merged", () => {
     const merged = mergeRuntime({ pathDirs: ["/a"], javaHome: "/jdk-report" }, { pathDirs: ["/a", "/b"], javaHome: "/jdk-disk" });
     expect(merged).toEqual({ pathDirs: ["/a", "/b"], javaHome: "/jdk-report" });
     expect(withRuntime({ PATH: "/usr/bin:/a" }, merged, "linux")).toEqual({ PATH: "/usr/bin:/a:/b", JAVA_HOME: "/jdk-report" });
     expect(withRuntime({ PATH: "/usr/bin", JAVA_HOME: "/mine" }, merged, "linux").JAVA_HOME).toBe("/mine");
+  });
+
+  it("sets DOTNET_ROOT only where the person has not", () => {
+    const runtime = { pathDirs: ["/home/me/.dotnet"], dotnetRoot: "/home/me/.dotnet" };
+    expect(withRuntime({ PATH: "/usr/bin" }, runtime, "linux")).toEqual({ PATH: "/usr/bin:/home/me/.dotnet", DOTNET_ROOT: "/home/me/.dotnet" });
+    expect(withRuntime({ PATH: "/usr/bin", DOTNET_ROOT: "/opt/dotnet" }, runtime, "linux").DOTNET_ROOT).toBe("/opt/dotnet");
+    expect(mergeRuntime({ pathDirs: [] }, runtime).dotnetRoot).toBe("/home/me/.dotnet");
   });
 });

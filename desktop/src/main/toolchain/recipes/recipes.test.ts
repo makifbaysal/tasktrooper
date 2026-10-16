@@ -169,6 +169,20 @@ describe("the vendor's own installer script", () => {
     expect(c.calls).toEqual([{ command: "/bin/bash", args: [file] }]);
   });
 
+  it("passes the table's fixed flags after the file, so rustup and dotnet-install run unattended", async () => {
+    const rust = context("rust", { platform: "linux" });
+    await run("rust", rust);
+    const rustup = path.join(rust.workDir, "rust-install.sh");
+    expect(rust.downloads).toEqual([{ url: "https://sh.rustup.rs", dest: rustup }]);
+    expect(rust.calls).toEqual([{ command: "/bin/sh", args: [rustup, "-y"] }]);
+
+    const dotnet = context("dotnet", { platform: "linux" });
+    await run("dotnet", dotnet);
+    const script = path.join(dotnet.workDir, "dotnet-install.sh");
+    expect(dotnet.downloads).toEqual([{ url: "https://builds.dotnet.microsoft.com/dotnet/scripts/v1/dotnet-install.sh", dest: script }]);
+    expect(dotnet.calls).toEqual([{ command: "/bin/bash", args: [script, "--channel", "LTS"] }]);
+  });
+
   it("runs PowerShell with a file on Windows", async () => {
     const c = context("claude-code", { platform: "win32" });
     await run("claude-code", c);

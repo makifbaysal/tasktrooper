@@ -63,9 +63,10 @@ describe("toolchainNeeds", () => {
 
   it("maps a web team's agents to their tools, with the agents as reasons", () => {
     const needs = toolchainNeeds(["frontend-developer", "ui-designer", "backend-developer"]);
-    expect(needs.get("node")).toEqual({ level: "recommended", reasons: ["frontend-developer", "ui-designer"] });
+    expect(needs.get("node")).toEqual({ level: "recommended", reasons: ["frontend-developer", "ui-designer", "backend-developer"] });
     expect(needs.get("chrome")?.level).toBe("recommended");
     expect(needs.get("go")).toEqual({ level: "optional", reasons: ["backend-developer"] });
+    for (const id of ["dotnet", "rust"] as const) expect(needs.get(id)).toEqual({ level: "optional", reasons: ["backend-developer"] });
     expect(needs.get("docker")?.level).toBe("optional");
     expect(needs.has("android-sdk")).toBe(false);
   });
@@ -197,6 +198,12 @@ describe("groupReport", () => {
     const groups = groupReport(report([item("git"), item("chrome"), item("docker"), item("homebrew")]));
     expect(groups.map((group) => group.id)).toEqual(["basics", "web", "infra"]);
     expect(groups[0].items.map((entry) => entry.id)).toEqual(["homebrew", "git"]);
+  });
+
+  it("gives the backend languages a group of their own", () => {
+    const groups = groupReport(report([item("node"), item("go"), item("rust"), item("dotnet"), item("jdk"), item("docker")]));
+    expect(groups.map((group) => group.id)).toEqual(["basics", "backend", "infra"]);
+    expect(groups[1].items.map((entry) => entry.id)).toEqual(["go", "jdk", "dotnet", "rust"]);
   });
 });
 

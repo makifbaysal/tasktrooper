@@ -1,10 +1,11 @@
 import path from "node:path";
 import type { ToolchainId, ToolchainReport } from "../../ipc/types.js";
-import { OPENJDK_KEGS, jdkParents, kegJavaHome, toolDirs, type Place } from "./locations.js";
+import { OPENJDK_KEGS, jdkParents, kegJavaHome, toolDirs, userDotnetRoot, type Place } from "./locations.js";
 
 /**
  * What the agents' processes need so that a tool reported Installed is one
- * they can run: the directories those tools live in, and JAVA_HOME.
+ * they can run: the directories those tools live in, JAVA_HOME, and
+ * DOTNET_ROOT for a per-user .NET SDK.
  *
  * The backend (local mode) and the runner with its executor (account mode)
  * are started with PATH built from the preflight, which knows a handful of
@@ -22,6 +23,12 @@ export interface ToolchainRuntime {
   /** Appended to PATH in this order. */
   pathDirs: string[];
   javaHome?: string;
+  /**
+   * `~/.dotnet` when the SDK lives there: `dotnet` itself finds its SDKs from
+   * its own path, but a tool it installs (`dotnet-ef`) is an apphost that
+   * looks only in the global locations unless this is set.
+   */
+  dotnetRoot?: string;
 }
 
 export const NO_RUNTIME: ToolchainRuntime = { pathDirs: [] };
@@ -67,6 +74,13 @@ export function installedRuntime(place: Place, disk: Disk): ToolchainRuntime {
     return out;
   }
   const p = place.platform === "win32" ? path.win32 : path.posix;
+  if (place.platform === "linux") {
+    const root = userDotnetRoot(place);
+    if (disk.isDir(p.join(root, "sdk"))) {
+      out.pathDirs.push(root);
+      out.dotnetRoot = root;
+    }
+  }
   for (const parent of jdkParents(place)) {
     const jdk17 = disk
       .list(parent)
@@ -83,16 +97,18 @@ export function installedRuntime(place: Place, disk: Disk): ToolchainRuntime {
 
 export function mergeRuntime(first: ToolchainRuntime, second: ToolchainRuntime): ToolchainRuntime {
   const javaHome = first.javaHome ?? second.javaHome;
+  const dotnetRoot = first.dotnetRoot ?? second.dotnetRoot;
   return {
     pathDirs: [...new Set([...first.pathDirs, ...second.pathDirs])],
     ...(javaHome !== undefined ? { javaHome } : {}),
+    ...(dotnetRoot !== undefined ? { dotnetRoot } : {}),
   };
 }
 
 /**
  * `env` with the runtime applied: PATH gains the directories it does not
- * already have, at the end; JAVA_HOME is set only where none was — one the
- * person exported is theirs to keep.
+ * already have, at the end; JAVA_HOME and DOTNET_ROOT are set only where
+ * none was — one the person exported is theirs to keep.
  */
 export function withRuntime(
   env: NodeJS.ProcessEnv,
@@ -107,7 +123,11 @@ export function withRuntime(
   const same = (a: string, b: string): boolean => (win ? a.toLowerCase() === b.toLowerCase() : a === b);
   for (const dir of runtime.pathDirs) if (!parts.some((part) => same(part, dir))) parts.push(dir);
   out[key] = parts.join(delimiter);
-  const javaKey = Object.keys(out).find((k) => (win ? k.toUpperCase() === "JAVA_HOME" : k === "JAVA_HOME"));
-  if (runtime.javaHome !== undefined && (javaKey === undefined || (out[javaKey] ?? "").trim() === "")) out.JAVA_HOME = runtime.javaHome;
+  const unset = (name: string): boolean => {
+    const found = Object.keys(out).find((k) => (win ? k.toUpperCase() === name : k === name));
+    return found === undefined || (out[found] ?? "").trim() === "";
+  };
+  if (runtime.javaHome !== undefined && unset("JAVA_HOME")) out.JAVA_HOME = runtime.javaHome;
+  if (runtime.dotnetRoot !== undefined && unset("DOTNET_ROOT")) out.DOTNET_ROOT = runtime.dotnetRoot;
   return out;
 }

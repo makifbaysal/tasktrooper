@@ -162,6 +162,20 @@ describe("the toolchain table", () => {
     expect(linux.get("duckdb")?.method).toBe("GitHub release");
   });
 
+  it("installs the backend languages from each vendor's own channel", () => {
+    const mac = new Map(installers(everything("darwin")));
+    expect(mac.get("dotnet")).toMatchObject({ command: "brew install --cask dotnet-sdk", dependsOn: ["homebrew"] });
+    expect(mac.get("rust")).toMatchObject({ method: "Official installer", dependsOn: ["xcode-clt"] });
+    expect(mac.get("rust")?.command).toBe("sh install.sh -y (downloaded from https://sh.rustup.rs)");
+    const win = new Map(installers(everything("win32")));
+    expect(win.get("dotnet")?.command).toBe("winget install --id Microsoft.DotNet.SDK.10 -e");
+    expect(win.get("rust")?.command).toBe("winget install --id Rustlang.Rustup -e");
+    const linux = new Map(installers(everything("linux")));
+    expect(linux.get("dotnet")).toMatchObject({ installKind: "auto", dependsOn: [] });
+    expect(linux.get("dotnet")?.command).toContain("bash install.sh --channel LTS");
+    expect(linux.get("rust")?.command).toBe("sh install.sh -y (downloaded from https://sh.rustup.rs)");
+  });
+
   it("takes git on a Mac from Apple's command line tools, with nothing of its own to run", () => {
     const git = new Map(installers(everything("darwin"))).get("git");
     expect(git).toMatchObject({ installKind: "interactive", method: "Xcode Command Line Tools", dependsOn: ["xcode-clt"] });

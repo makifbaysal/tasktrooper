@@ -75,7 +75,13 @@ export type InstallSpec =
   | { readonly kind: "bundled"; readonly with: ToolchainId }
   | { readonly kind: "npm-global"; readonly pkg: string }
   | { readonly kind: "appium-driver"; readonly driver: string }
-  | { readonly kind: "script"; readonly url: string; readonly interpreter: "bash" | "sh" | "powershell" }
+  | {
+      readonly kind: "script";
+      readonly url: string;
+      readonly interpreter: "bash" | "sh" | "powershell";
+      /** Fixed flags after the file — what makes an installer that would ask on a terminal run unattended (rustup's `-y`). */
+      readonly args?: readonly string[];
+    }
   | {
       readonly kind: "binary-download";
       readonly name: string;

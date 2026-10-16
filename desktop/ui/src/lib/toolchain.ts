@@ -24,7 +24,7 @@ export const BASE_TOOLCHAIN: readonly ToolchainId[] = ["git", "claude-code"];
 export const AGENT_TOOLCHAIN: Readonly<Record<string, AgentToolNeeds>> = {
   "frontend-developer": { recommended: ["node", "chrome"], optional: [] },
   "ui-designer": { recommended: ["chrome", "node"], optional: [] },
-  "backend-developer": { recommended: [], optional: ["go", "jdk", "docker"] },
+  "backend-developer": { recommended: [], optional: ["go", "jdk", "node", "dotnet", "rust", "docker"] },
   "mobile-developer": {
     recommended: [
       "xcode-clt",
@@ -155,18 +155,19 @@ export function preselectedIds(recommendations: readonly ToolchainRecommendation
   return recommendations.filter((entry) => entry.preselected).map((entry) => entry.id);
 }
 
-export type ToolchainGroupId = "basics" | "web" | "mobile" | "data" | "games" | "infra";
+export type ToolchainGroupId = "basics" | "web" | "backend" | "mobile" | "data" | "games" | "infra";
 
 export const TOOLCHAIN_GROUPS: readonly { id: ToolchainGroupId; ids: readonly ToolchainId[] }[] = [
   { id: "basics", ids: ["homebrew", "git", "claude-code", "node", "python", "uv"] },
   { id: "web", ids: ["chrome"] },
+  // Node.js is under basics: the frontend and the tooling need it as much as a TypeScript service does.
+  { id: "backend", ids: ["go", "jdk", "dotnet", "rust"] },
   {
     id: "mobile",
     ids: [
       "xcode",
       "xcode-clt",
       "cocoapods",
-      "jdk",
       "android-sdk",
       "appium",
       "appium-xcuitest",
@@ -176,7 +177,7 @@ export const TOOLCHAIN_GROUPS: readonly { id: ToolchainGroupId; ids: readonly To
   },
   { id: "data", ids: ["duckdb"] },
   { id: "games", ids: ["godot", "unity-hub"] },
-  { id: "infra", ids: ["docker", "go", "osv-scanner"] },
+  { id: "infra", ids: ["docker", "osv-scanner"] },
 ];
 
 export interface ToolchainGroup {

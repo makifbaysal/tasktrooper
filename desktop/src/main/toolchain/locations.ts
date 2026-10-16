@@ -50,6 +50,28 @@ export function duckdbDirs(place: Place): string[] {
   return place.platform === "win32" ? [wingetLinksDir(place)] : [join(place, place.home, ".duckdb", "cli", "latest")];
 }
 
+/** rustup's proxies (`cargo`, `rustc`): only the person's shell profile puts them on PATH. */
+export function cargoBinDir(place: Place): string {
+  return join(place, place.home, ".cargo", "bin");
+}
+
+/** Where `dotnet tool install -g` links a tool (`dotnet-ef`). */
+export function dotnetToolsDir(place: Place): string {
+  return join(place, place.home, ".dotnet", "tools");
+}
+
+/** Microsoft's `dotnet-install.sh` puts the SDK here, outside every global location the muxer's apphosts search. */
+export function userDotnetRoot(place: Place): string {
+  return join(place, place.home, ".dotnet");
+}
+
+/** The .NET SDK's own install directories, where the installer did not link `dotnet` onto PATH. */
+export function dotnetDirs(place: Place): string[] {
+  if (place.platform === "win32") return [join(place, programFiles(place), "dotnet")];
+  if (place.platform === "darwin") return ["/usr/local/share/dotnet", userDotnetRoot(place)];
+  return [userDotnetRoot(place), "/usr/share/dotnet", "/usr/lib/dotnet"];
+}
+
 /** Homebrew's openjdk@17 is keg-only: nothing links it onto PATH or registers it with java_home. */
 export const OPENJDK_KEGS = ["/opt/homebrew/opt/openjdk@17", "/usr/local/opt/openjdk@17"];
 
@@ -73,6 +95,8 @@ export function toolDirs(place: Place): string[] {
     ...duckdbDirs(place),
     ...goBinDirs(place),
     ...dockerBinDirs(place),
+    cargoBinDir(place),
+    dotnetToolsDir(place),
   ];
   if (place.platform === "win32") dirs.push(wingetLinksDir(place), join(place, place.home, ".local", "bin"));
   return [...new Set(dirs)];

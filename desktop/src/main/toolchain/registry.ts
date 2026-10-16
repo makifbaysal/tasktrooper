@@ -15,7 +15,7 @@ import {
   xcode,
   xcodeCommandLineTools,
 } from "./detectors.js";
-import { dockerBinDirs, duckdbDirs, goBinDirs, programFiles, userBinDir } from "./locations.js";
+import { cargoBinDir, dockerBinDirs, dotnetDirs, duckdbDirs, goBinDirs, programFiles, userBinDir } from "./locations.js";
 import { BREW_CANDIDATES } from "./recipes/brew.js";
 import type { PinnedAsset, ProbeKit, ToolDefinition, ToolchainPlatform } from "./types.js";
 
@@ -34,6 +34,9 @@ import type { PinnedAsset, ProbeKit, ToolDefinition, ToolchainPlatform } from ".
  */
 
 const HOMEBREW_INSTALLER = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh";
+/** Where https://dot.net/v1/dotnet-install.sh redirects. */
+const DOTNET_INSTALL_SH = "https://builds.dotnet.microsoft.com/dotnet/scripts/v1/dotnet-install.sh";
+const RUSTUP_INIT_SH = "https://sh.rustup.rs";
 const XCODE_APP_STORE = "https://apps.apple.com/app/xcode/id497799835";
 
 /** Command-line tools 23.0 (build 16111833), the stable `cmdline-tools;latest` in Google's repository2-3.xml. */
@@ -341,6 +344,45 @@ const DEFINITIONS: { readonly [K in ToolchainId]: ToolDefinition & { readonly id
       versionArgs: ["version"],
       extraDirs: goBinDirs,
     }),
+  },
+  dotnet: {
+    id: "dotnet",
+    runtime: "bin-dir",
+    label: ".NET SDK",
+    docsUrl: "https://dotnet.microsoft.com/en-us/download",
+    affectsRuntime: true,
+    recipes: {
+      darwin: { install: { kind: "brew-cask", cask: "dotnet-sdk" } },
+      win32: { install: { kind: "winget", id: "Microsoft.DotNet.SDK.10" } },
+      // Each distribution packages a different set of SDK versions, or none
+      // (Debian needs Microsoft's own feed); Microsoft's script installs the
+      // current LTS into ~/.dotnet on any of them, without root.
+      linux: {
+        install: { kind: "script", url: DOTNET_INSTALL_SH, interpreter: "bash", args: ["--channel", "LTS"] },
+        docsUrl: "https://learn.microsoft.com/en-us/dotnet/core/install/linux-scripted-manual",
+      },
+    },
+    // A host with no SDK answers `--version` with "No .NET SDKs were found" and a non-zero exit: unusable, not installed.
+    detect: binary({ names: ["dotnet"], versionArgs: ["--version"], extraDirs: dotnetDirs }),
+  },
+  rust: {
+    id: "rust",
+    runtime: "bin-dir",
+    label: "Rust",
+    docsUrl: "https://rust-lang.org/tools/install",
+    affectsRuntime: true,
+    recipes: {
+      // rustup, as rust-lang.org documents it; `-y` because it otherwise asks on a terminal there is none of.
+      // Linking needs a C toolchain's `cc`, which on a Mac is the command line tools'.
+      darwin: { install: { kind: "script", url: RUSTUP_INIT_SH, interpreter: "sh", args: ["-y"] }, dependsOn: ["xcode-clt"] },
+      linux: { install: { kind: "script", url: RUSTUP_INIT_SH, interpreter: "sh", args: ["-y"] } },
+      win32: {
+        install: { kind: "winget", id: "Rustlang.Rustup" },
+        docsUrl: "https://rust-lang.github.io/rustup/installation/windows-msvc.html",
+      },
+    },
+    // `cargo` is rustup's proxy: with no default toolchain it fails, which is what makes it unusable rather than installed.
+    detect: binary({ names: ["cargo"], versionArgs: ["--version"], extraDirs: (kit) => [cargoBinDir(kit)] }),
   },
   "osv-scanner": {
     id: "osv-scanner",

@@ -97,6 +97,7 @@ export const toolchain = {
     groups: {
       basics: "Básico",
       web: "Web",
+      backend: "Linguagens de backend",
       mobile: "Mobile",
       data: "Dados",
       games: "Jogos",

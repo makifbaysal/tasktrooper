@@ -520,6 +520,8 @@ export const DESKTOP_TOOLCHAIN_IDS = [
   "flutter",
   "docker",
   "go",
+  "dotnet",
+  "rust",
   "osv-scanner",
   "duckdb",
   "godot",

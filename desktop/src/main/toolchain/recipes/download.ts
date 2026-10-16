@@ -25,10 +25,12 @@ import { execOrFail, manualInstaller, workFile, type InstallerFactory } from "./
 const SCRIPT_EXT = { bash: "sh", sh: "sh", powershell: "ps1" } as const;
 
 export const script: InstallerFactory<"script"> = (spec, tool) => {
+  const args = spec.args ?? [];
+  const flags = args.map((arg) => ` ${arg}`).join("");
   const shown =
     spec.interpreter === "powershell"
-      ? `powershell -File install.ps1 (downloaded from ${spec.url})`
-      : `${spec.interpreter} install.sh (downloaded from ${spec.url})`;
+      ? `powershell -File install.ps1${flags} (downloaded from ${spec.url})`
+      : `${spec.interpreter} install.sh${flags} (downloaded from ${spec.url})`;
   return {
     installKind: "auto",
     method: "Official installer",
@@ -42,10 +44,10 @@ export const script: InstallerFactory<"script"> = (spec, tool) => {
       ctx.progress({ detail: "Running the official installer…" });
       if (spec.interpreter === "powershell") {
         const powershell = ctx.host.which("powershell") ?? "powershell.exe";
-        await execOrFail(ctx, powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file], "The installer");
+        await execOrFail(ctx, powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file, ...args], "The installer");
         return;
       }
-      await execOrFail(ctx, spec.interpreter === "bash" ? "/bin/bash" : "/bin/sh", [file], "The installer");
+      await execOrFail(ctx, spec.interpreter === "bash" ? "/bin/bash" : "/bin/sh", [file, ...args], "The installer");
     },
   };
 };

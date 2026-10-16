@@ -42,7 +42,7 @@ After the two choices, and before the four-step sequence, two more screens run
 
 | Screen | What it does |
 |---|---|
-| Get this computer ready | Offers the developer tools your team's agents use (git, Node.js, a JDK, Android SDK, Appium, Docker, …), installing the ones you pick in the background. Skip it, or come back from **Settings → Development environment**. |
+| Get this computer ready | Offers the developer tools your team's agents use (git, Node.js, a JDK, the .NET SDK, Rust, Android SDK, Appium, Docker, …), installing the ones you pick in the background. Skip it, or come back from **Settings → Development environment**. |
 | Connect the services your team uses | Sets up the integrations your team is likely to need (GitHub, Vercel, cloud accounts, the mobile app stores). Nothing here is required; everything is also under **Settings → Integrations** later. |
 
 | Step | What it does |
