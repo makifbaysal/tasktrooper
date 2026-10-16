@@ -160,7 +160,7 @@ alongside `documents`.
 | `POST /admin/reload` | Reloads config, reconnects MCP servers; no HTTP restart |
 | `GET /health` | No auth; bridge + provider status. Provider probes are reused for 10 min (2 min after a failure) and dropped when a provider or endpoint changes; `?fresh=1` probes now |
 | `GET /v1/tasks` | The board. Strong `ETag` + `Cache-Control: no-cache`; a matching `If-None-Match` gets `304`, answered without reading the board while this process has written nothing it shows, for at most 10 s (another host on the same database is seen within that). Each task carries `agent_running` |
-| `GET /v1/releases` | Every repository's releases newest first (Operations → Deployments). Filters `repository_id`, `component_id`, `status` (comma list), `before` (RFC3339 `created_at` cursor), `limit` ≤ 100 |
+| `GET /v1/releases` | Every repository's releases newest first (Operations → Changes). Filters `repository_id`, `component_id`, `status` (comma list), `before` (RFC3339 `created_at` cursor), `limit` ≤ 100 |
 | `GET /v1/usage?days=30&tz=Europe/Istanbul` | Token usage aggregates from `llm_usage`, split into `generation` (kind api+cli) and `embedding` totals, plus `by_model` (grouped by kind/provider/model) and `daily` (generation only, bucketed by local day in `tz`). `days` 1-365, `tz` an IANA name (empty/invalid → UTC) |
 
 ## Board run control
@@ -493,8 +493,8 @@ unreachable.
 - `GET /v1/environments/{envId}/overview` — `{environment, detail?, deployments[],
   errors[], unavailable?, errors_supported, preview_access?}`; never errors for "not
   connected" or a provider auth refusal, both go through `unavailable` instead.
-  `errors_supported` is false when the provider has no error surface for the environment
-  (Vercel, any `per_branch` row) — `errors` is then `[]` and not a verdict.
+  `errors_supported` is false when the environment has no error surface (a `per_branch` row — a
+  Vercel preview; other Vercel rows group their error-level logs) — `errors` is then `[]` and not a verdict.
   `preview_access` (`per_branch` rows only) is `{protected, mode:
   "none"|"vercel_authentication"|"password"|"vercel_authentication_and_password",
   bypass_configured}` — whether a "Protection Bypass for Automation" exists, never the
@@ -546,7 +546,9 @@ the read to those components (an unknown one matches nothing, a malformed one is
   repository_id, environment_id, provider, fingerprint, message, count, first_seen, last_seen,
   sample?, source?, new, external_url?}], unavailable, truncated}`. `since` RFC3339, default 24 h
   ago, clamped to 30 days back. An environment with no error surface (`errors_supported: false` —
-  Vercel, every `per_branch` row) is skipped silently, not reported. At most 50 environments are
+  a `per_branch` row, i.e. a Vercel preview) is skipped silently, not reported; every other bound
+  one is read (GCP Error Reporting, else its error-level logs grouped by message — Vercel production
+  and AWS included), and an unbound one (a custom URL, no account) is never selected. At most 50 environments are
   read; `truncated: true` says more matched. Sorted `new` first, then `last_seen` newest first, then
   `count`.
 - `GET /v1/operations/logs?env=&since=&until=&component_id=…&min_severity=&text=&limit=` →
@@ -792,7 +794,7 @@ carries the same text with the markers stripped.
 | `DELETE /v1/repositories/{id}/alert-tokens/{tokenId}` | 204; 404 when the token is unknown OR belongs to another repository (the delete matches both ids); 503 as above |
 | `POST /v1/alerts/ingest/{token}` | **No API key** — the token is the credential (`isPublicPath` lets exactly one segment under `/v1/alerts/ingest/` through). Same normalize + ingest as the incident webhook above, for the token's repository; environment is the payload's, else `?env=`, else the token's `default_env`. 413 when `Content-Length` (or, for a chunked body, the read length) is over 256 KiB, before the lookup; bare 404 for an unknown or malformed token; 400 non-JSON body; 201 `{incident_id}`; 202 for an unmatched recovery. **Limits per token** (`prod_ops.alert_ingest`, in memory): a request bucket keyed by the token hash (60/min, burst 10) and at most 20 NEW incidents per rolling hour (keyed by token id); over either, 429 `{"error":"rate_limited"}`. The hourly cap never refuses an alert that folds into an incident already open (its occurrences still count) or a recovery. `last_used_at` is stamped only when an alert is accepted. Logged paths go through `RedactPath`, so the token never reaches a log line. Migration 187 (`alert_ingest_tokens`) |
 
-Notifications: `prodops` decides when (a new or critical-recurring incident at `high` or above, at most once per 30 minutes per (repository, env, fingerprint), so a flapping alert that re-fires as a new incident each cycle does not notify each cycle; its recovery, cooled the same way under its own key; a fix proposed by anyone but a human) and hands a `domain.Notification` (title, body, severity, app link `/operations/incidents?id=…`, source `incident`, source id) to `application/notify`, which fans it out to every registered and enabled `port.NotificationChannel` with a 5-second bound and logs, never returns, a channel's failure. Local mode registers `desktop` (the macOS banner); `in_app`, `ios_push`, `slack`, `email` and `webhook` are reserved kinds with no adapter yet.
+Notifications: `prodops` decides when (a new or critical-recurring incident at `high` or above, at most once per 30 minutes per (repository, env, fingerprint), so a flapping alert that re-fires as a new incident each cycle does not notify each cycle; its recovery, cooled the same way under its own key; a fix proposed by anyone but a human) and hands a `domain.Notification` (title, body, severity, app link `/operations/issues?id=…`, source `incident`, source id) to `application/notify`, which fans it out to every registered and enabled `port.NotificationChannel` with a 5-second bound and logs, never returns, a channel's failure. Local mode registers `desktop` (the macOS banner); `in_app`, `ios_push`, `slack`, `email` and `webhook` are reserved kinds with no adapter yet.
 
 ## Store operations
 
@@ -806,7 +808,9 @@ Notifications: `prodops` decides when (a new or critical-recurring incident at `
 | `GET /v1/store/credentials/{provider}/apps` | Picker source: `{listing_available, apps: []port.StoreAppRef}`. 200 with `listing_available:false` (never 5xx) when the store cannot enumerate — the Play Developer API has no listing endpoint at all and a service account may not reach the separate Reporting API that does |
 | `PUT /v1/repositories/{id}/store/apps/{platform}/link` | Body `{identifier, store_app_id, name}` — binds the repo/platform to one app from the picker; returns the updated `MobileStoreApp` |
 | `GET /v1/repositories/{id}/store/apps/{platform}/tracks` | Reads the three channels (internal/external/production) live from the console and refreshes the row's `tracks` cache; returns `domain.StoreTracks` |
-| `POST /v1/repositories/{id}/store/apps/{platform}/promote` | Body `{from, to, confirm}` — one channel forward at a time (`domain.NextChannel`: internal→external→production); `to=production` requires `confirm`; 409 `ErrAppNotReady` |
+| `POST /v1/repositories/{id}/store/apps/{platform}/promote` | Body `{from, to, confirm, user_fraction?}` — one channel forward at a time (`domain.NextChannel`: internal→external→production); `to=production` requires `confirm`; Android into production starts a staged rollout at `user_fraction` ∈ (0, 1] (left out: 1, everyone; 400 `ErrInvalidRolloutFraction` outside it), ignored for iOS and the testing channels; 409 `ErrAppNotReady`. An iOS promote into production (App Review) sets `review_state` to waiting, as `ios/submit` does, so the store monitor follows the review |
+| `POST /v1/repositories/{id}/store/apps/ios/submit` · `…/ios/release` | Body `{confirm}` (the repository's name, trimmed). Submit sends the newest App Store version to App Review and sets `review_state` to `waiting_for_review` (`MarkSubmitted`), so the monitor follows it and turns a rejection into an incident; release releases the version in `PENDING_DEVELOPER_RELEASE` — the production track's `approved` status. 409 before the app is live, 424 without the App Store Connect credential |
+| `POST /v1/repositories/{id}/store/apps/android/rollout` | Body `{user_fraction, confirm?}`: production's staged share, (0, 1] — Play reads 0 as completed, so 0 is a 400 like anything outside the range; 1 completes the rollout and requires `confirm` (400 `ErrConfirmMismatch`); 409 before the app is live |
 | `POST /v1/repositories/{id}/store/apps/{platform}/build` | Body `{engine?}` (`auto`\|`github_actions`\|`local`, default the repo's `release_engine`); 409 `domain.ErrNoReleaseEngine` when neither engine can run — the card is parked on `human_decision`, not retried; 409 `storeops.ErrBuildTargetUnknown` when the working copy named no Xcode scheme / Gradle module (migration 127) |
 
 Linking (`.../link`) reads the console back: an unregistered row takes the
@@ -816,7 +820,9 @@ and the monitor does the same for linked rows it finds unregistered. Go-live is
 "a version is on sale", never "the newest version is" — a newer draft does not
 hide the live one. `tracks.production` shows the version customers have and
 queues a newer drafted/in-review/approved one in `pending_version` /
-`pending_status`.
+`pending_status`. Track statuses: `none`, `draft`, `in_review`, `approved`
+(App Store's `PENDING_DEVELOPER_RELEASE` — cleared review, waiting for
+`ios/release`; never from Play), `rolling_out`, `halted`, `live`, `unknown`.
 
 ### Store test builds
 

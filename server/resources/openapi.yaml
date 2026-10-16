@@ -439,7 +439,10 @@ paths:
       description: >-
         internal -> external -> production only, one step at a time.
         to=production requires a matching confirm phrase. 409 when the app
-        is not yet ready for the move.
+        is not yet ready for the move. Android into production takes
+        user_fraction, the staged rollout's share in (0, 1] (left out: 1,
+        everyone; 400 outside the range); App Store and the testing channels
+        ignore it.
       security:
         - bearerAuth: []
       parameters:
@@ -467,6 +470,46 @@ paths:
                   type: string
                 confirm:
                   type: string
+                user_fraction:
+                  type: number
+                  minimum: 0
+                  exclusiveMinimum: true
+                  maximum: 1
+
+  /v1/repositories/{id}/store/apps/android/rollout:
+    post:
+      summary: Change a Google Play production staged rollout
+      description: >-
+        user_fraction must be in (0, 1] — Play reads 0 as a completed
+        release, so 0 is refused like anything outside the range (400).
+        1 completes the rollout and requires confirm to match the
+        repository's name (400 otherwise). 409 before the app is live.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_fraction]
+              properties:
+                user_fraction:
+                  type: number
+                  minimum: 0
+                  exclusiveMinimum: true
+                  maximum: 1
+                confirm:
+                  type: string
+      responses:
+        '204':
+          description: The rollout share was changed
 
   /v1/repositories/{id}/store/apps/{platform}/build:
     post:

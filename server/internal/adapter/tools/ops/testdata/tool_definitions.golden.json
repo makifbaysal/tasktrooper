@@ -165,7 +165,7 @@
     "type": "function",
     "function": {
       "name": "record_local_deploy",
-      "description": "Record a deploy you ran from this machine (the repo's scripts/release-local.sh or scripts/deploy-local.sh) so it appears in Operations \u003e Deployments next to the GitHub Actions ones. Call it TWICE per deploy: once before the script with status=in_progress, then once after it with status=completed and the conclusion, passing back the run_id the first call returned. This records only — it never deploys anything.",
+      "description": "Record a deploy you ran from this machine (the repo's scripts/release-local.sh or scripts/deploy-local.sh) so it appears in Operations → Changes next to the GitHub Actions ones. Call it TWICE per deploy: once before the script with status=in_progress, then once after it with status=completed and the conclusion, passing back the run_id the first call returned. This records only — it never deploys anything.",
       "parameters": {
         "additionalProperties": false,
         "properties": {

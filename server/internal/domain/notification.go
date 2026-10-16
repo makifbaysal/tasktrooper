@@ -42,5 +42,5 @@ type Notification struct {
 }
 
 func IncidentLink(id uuid.UUID) string {
-	return "/operations/incidents?id=" + id.String()
+	return "/operations/issues?id=" + id.String()
 }

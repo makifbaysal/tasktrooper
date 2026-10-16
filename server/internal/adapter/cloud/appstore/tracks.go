@@ -435,7 +435,11 @@ func normalizeAppStoreState(state string) string {
 		return domain.TrackStatusLive
 	case "WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_APPLE_RELEASE":
 		return domain.TrackStatusInReview
-	case "PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "PENDING_DEVELOPER_RELEASE":
+	case "PENDING_DEVELOPER_RELEASE":
+		// The one state ReleaseVersion acts on; read as a draft, a console
+		// could not tell "release it" from "submit it".
+		return domain.TrackStatusApproved
+	case "PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED":
 		return domain.TrackStatusDraft
 	}
 	return domain.TrackStatusDraft

@@ -31,7 +31,7 @@ func (s *NotifySuite) SetupTest() {
 		Title:    "PROD · api down",
 		Body:     "roll back the last deploy",
 		Severity: domain.IncidentSeverityCritical,
-		Link:     "/operations/incidents?id=abc",
+		Link:     "/operations/issues?id=abc",
 		Source:   domain.NotificationSourceIncident,
 		SourceID: "abc",
 	}

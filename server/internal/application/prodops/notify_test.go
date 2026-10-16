@@ -76,7 +76,7 @@ func (s *IncidentNotifySuite) TestANewHighIncidentNotifiesWithALinkToIt() {
 	s.Equal(domain.IncidentSeverityHigh, sent[0].Severity)
 	s.Equal(domain.NotificationSourceIncident, sent[0].Source)
 	s.Equal(incident.ID.String(), sent[0].SourceID)
-	s.Equal("/operations/incidents?id="+incident.ID.String(), sent[0].Link)
+	s.Equal("/operations/issues?id="+incident.ID.String(), sent[0].Link)
 
 	stored, err := s.incidents.Get(s.ctx, incident.ID)
 	s.Require().NoError(err)

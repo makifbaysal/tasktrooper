@@ -432,7 +432,7 @@ func TestNormalizeAppStoreState(t *testing.T) {
 		"PENDING_APPLE_RELEASE":     domain.TrackStatusInReview,
 		"PREPARE_FOR_SUBMISSION":    domain.TrackStatusDraft,
 		"DEVELOPER_REJECTED":        domain.TrackStatusDraft,
-		"PENDING_DEVELOPER_RELEASE": domain.TrackStatusDraft,
+		"PENDING_DEVELOPER_RELEASE": domain.TrackStatusApproved,
 	}
 	for raw, want := range cases {
 		if got := normalizeAppStoreState(raw); got != want {

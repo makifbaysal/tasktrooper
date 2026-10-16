@@ -606,14 +606,56 @@ func TestSetAndroidRolloutRejectsOutOfRangeFractionWith400(t *testing.T) {
 	app := fiber.New()
 	h.registerStoreOpsRoutes(app)
 
-	req := httptest.NewRequest("POST", "/v1/repositories/"+repoID.String()+"/store/apps/android/rollout", strings.NewReader(`{"user_fraction":2}`))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := app.Test(req)
-	if err != nil {
+	// 0 as much as 2: Play reads a zero fraction as a completed release.
+	for _, body := range []string{`{"user_fraction":2}`, `{"user_fraction":0}`, `{}`, `{"user_fraction":-0.5}`} {
+		req := httptest.NewRequest("POST", "/v1/repositories/"+repoID.String()+"/store/apps/android/rollout", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != fiber.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400", body, resp.StatusCode)
+		}
+	}
+}
+
+// TestPromoteAndroidToProductionTakesAStagedShare proves the channel promote's
+// user_fraction reaches the service through the literal Android route: an
+// explicit 0 is refused with 400 before anything else, while leaving it out
+// means everyone and the request goes on (here to the missing credential).
+func TestPromoteAndroidToProductionTakesAStagedShare(t *testing.T) {
+	repoID := uuid.New()
+	repos := newFakeHTTPRepositoryResolver()
+	repos.set(domain.Repository{ID: repoID, Name: "tasktrooper"})
+	apps := newFakeHTTPMobileStoreAppStore()
+	if _, err := apps.Upsert(context.Background(), domain.MobileStoreApp{
+		RepositoryID: repoID,
+		Platform:     domain.MobileStorePlatformAndroid,
+		Identifier:   "com.example.android",
+		State:        domain.MobileStoreStateLive,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != fiber.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	h := &Handler{storeOpsSvc: storeops.NewService(storeops.Deps{Apps: apps, Repos: repos})}
+	app := fiber.New()
+	h.registerStoreOpsRoutes(app)
+
+	for body, want := range map[string]int{
+		`{"from":"external","to":"production","confirm":"tasktrooper","user_fraction":0}`:   fiber.StatusBadRequest,
+		`{"from":"external","to":"production","confirm":"tasktrooper","user_fraction":1.5}`: fiber.StatusBadRequest,
+		`{"from":"external","to":"production","confirm":"tasktrooper","user_fraction":0.1}`: fiber.StatusFailedDependency,
+		`{"from":"external","to":"production","confirm":"tasktrooper"}`:                     fiber.StatusFailedDependency,
+	} {
+		req := httptest.NewRequest("POST", "/v1/repositories/"+repoID.String()+"/store/apps/android/promote", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("%s: status = %d, want %d", body, resp.StatusCode, want)
+		}
 	}
 }
 

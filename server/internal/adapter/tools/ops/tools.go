@@ -596,7 +596,7 @@ func (t *recordLocalDeployTool) Execute(ctx context.Context, arguments string) d
 		"status":     run.Status,
 		"conclusion": run.Conclusion,
 		"head_sha":   run.HeadSHA,
-		"recorded":   "visible in Operations > Deployments as a local deploy",
+		"recorded":   "visible in Operations → Changes as a local deploy",
 	})
 }
 
