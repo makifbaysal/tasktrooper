@@ -3,6 +3,7 @@ import {
   CLOUD_BRIDGE_KEY,
   CLOUD_CHANNELS,
   CLOUD_EVENTS,
+  type AnalyticsTrackRequest,
   type ChooseDirectoryRequest,
   type KeysWindowPrefill,
   type McpServerSetRequest,
@@ -184,6 +185,8 @@ const updates: DesktopUpdatesHost = {
 const analytics: DesktopAnalyticsHost = {
   get: () => call<AnalyticsState>(CLOUD_CHANNELS.analyticsGet),
   set: (on: boolean) => call<AnalyticsState>(CLOUD_CHANNELS.analyticsSet, { on }),
+  track: (event: AnalyticsTrackRequest) => call<void>(CLOUD_CHANNELS.analyticsTrack, event),
+  identify: (userId: string | null) => call<void>(CLOUD_CHANNELS.analyticsIdentify, { userId }),
 };
 
 const toolchain: DesktopToolchainHost = {
@@ -222,7 +225,7 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 6,
+  bridgeVersion: 7,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,

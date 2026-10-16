@@ -69,6 +69,9 @@ function wire(mode: "local" | "account" = "account", consent: boolean | Promise<
       accountMode: () => mode,
       analyticsState: () => (calls.push("analytics-get"), { available: true, enabled: true, forcedOff: false }),
       setAnalytics: (on: boolean) => (calls.push(`analytics-set ${on}`), { available: true, enabled: on, forcedOff: false }),
+      trackAnalytics: (name: string, params: Record<string, string | number>) =>
+        void calls.push(`analytics-track ${name} ${JSON.stringify(params)}`),
+      identifyAnalytics: (userId: string | null) => void calls.push(`analytics-identify ${userId}`),
       toolchainReport: (force: boolean) => (calls.push(`toolchain-report ${force}`), Promise.resolve({ items: [] })),
       toolchainPlan: (ids: string[]) => (calls.push(`toolchain-plan ${ids.join(",")}`), Promise.resolve(plan ?? ["homebrew", ...ids])),
       toolchainState: () => (calls.push("toolchain-state"), IDLE),
@@ -156,8 +159,38 @@ describe("cloud:analytics:*", () => {
     expect(calls).toEqual(["analytics-get", "analytics-set false"]);
   });
 
+  it("passes a screen view through and refuses free text, reserved names and unhashed ids", async () => {
+    const { calls, invoke } = wire("account");
+    const page = from(accountView, `${ACCOUNT}/board`);
+    const hashed = "a".repeat(64);
+    await invoke(CLOUD_CHANNELS.analyticsTrack, page, {
+      name: "page_view",
+      params: { screen_name: "board", page_location: `${ACCOUNT}/projects/:projectId` },
+    });
+    await invoke(CLOUD_CHANNELS.analyticsIdentify, page, { userId: hashed });
+    await invoke(CLOUD_CHANNELS.analyticsIdentify, page, { userId: null });
+    for (const bad of [
+      { name: "task_create", params: { title: "Fix the login page" } },
+      { name: "member_invite", params: { email: "someone@example.com" } },
+      { name: "app_open" },
+      { name: "firebase_campaign" },
+      { name: "Task Create" },
+      { name: "task_create", params: { app_version: "9.9.9" } },
+      { name: "task_create", params: { nested: { a: 1 } } },
+    ]) {
+      await expect(invoke(CLOUD_CHANNELS.analyticsTrack, page, bad)).rejects.toThrow(/invalid request/);
+    }
+    await expect(invoke(CLOUD_CHANNELS.analyticsIdentify, page, { userId: "uid-123" })).rejects.toThrow(/invalid request/);
+    expect(calls).toEqual([
+      `analytics-track page_view {"screen_name":"board","page_location":"${ACCOUNT}/projects/:projectId"}`,
+      `analytics-identify ${hashed}`,
+      "analytics-identify null",
+    ]);
+  });
+
   it("refuses any other sender", async () => {
     const { calls, invoke } = wire("account");
+    await expect(invoke(CLOUD_CHANNELS.analyticsTrack, from(chrome, "file:///x.html"), { name: "page_view" })).rejects.toThrow(/refused/);
     await expect(invoke(CLOUD_CHANNELS.analyticsGet, from(chrome, "file:///x.html"))).rejects.toThrow(/refused/);
     await expect(invoke(CLOUD_CHANNELS.analyticsSet, from(chrome, "file:///x.html"), { on: false })).rejects.toThrow(/refused/);
     await expect(invoke(CLOUD_CHANNELS.analyticsSet, from(contents(99), ACCOUNT), { on: false })).rejects.toThrow(/refused/);

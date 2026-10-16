@@ -63,7 +63,7 @@ export const setup = {
     loadFailed: "Impossible de charger vos projets",
   },
   firstRun: {
-    analyticsNote: "TaskTrooper envoie un comptage anonyme des installations actives ; vous pouvez le désactiver dans les Réglages.",
+    analyticsNote: "TaskTrooper envoie des statistiques d'utilisation (écrans et fonctions utilisés, jamais votre contenu) ; vous pouvez les désactiver dans les Réglages.",
     title: "Comment voulez-vous utiliser TaskTrooper ?",
     description: "Choisissez maintenant ; modifiable plus tard dans les Réglages.",
     local: {

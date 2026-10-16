@@ -37,7 +37,9 @@ import type {
 import type { McpServerConsent } from "./keys/keys.js";
 import {
   ValidationError,
+  validateAnalyticsIdentify,
   validateAnalyticsSet,
+  validateAnalyticsTrack,
   validateChatFocus,
   validateChooseDirectory,
   validateDiagnosticsRequest,
@@ -119,6 +121,8 @@ export interface IpcServices {
 
   analyticsState(): AnalyticsState;
   setAnalytics(on: boolean): AnalyticsState;
+  trackAnalytics(name: string, params: Record<string, string | number>): void;
+  identifyAnalytics(userId: string | null): void;
 
   // --- the API-key window ---
   keysList(): ProviderKeysState;
@@ -406,6 +410,13 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   // local bundle's, or in account mode the account's own page.
   cloud(CLOUD_CHANNELS.analyticsGet, () => services.analyticsState());
   cloud(CLOUD_CHANNELS.analyticsSet, (payload) => services.setAnalytics(validateAnalyticsSet(payload).on));
+  cloud(CLOUD_CHANNELS.analyticsTrack, (payload) => {
+    const { name, params } = validateAnalyticsTrack(payload);
+    services.trackAnalytics(name, params);
+  });
+  cloud(CLOUD_CHANNELS.analyticsIdentify, (payload) => {
+    services.identifyAnalytics(validateAnalyticsIdentify(payload).userId);
+  });
 
   /**
    * Toolchain setup, in both modes. What runs is decided by the id and main's

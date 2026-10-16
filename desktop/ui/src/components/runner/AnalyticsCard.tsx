@@ -8,7 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { desktopAnalytics, type DesktopAnalyticsState } from "@/lib/desktop-bridge";
 
 /**
- * Settings → General's switch for the anonymous active-install count.
+ * Settings → General's switch for the usage statistics.
  *
  * Nothing renders when the shell has no analytics bridge or this build carries
  * no analytics configuration: there is then nothing to switch.

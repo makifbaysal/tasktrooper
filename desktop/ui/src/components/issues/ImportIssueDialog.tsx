@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/hooks/useI18n";
 import { desktopRunner } from "@/lib/desktop-bridge";
+import { logEvent } from "@/lib/analytics";
 
 interface ImportIssueDialogProps {
   open: boolean;
@@ -149,6 +150,7 @@ export function ImportIssueDialog({
     setImportingKey(issue.key);
     try {
       const { task, import: imported } = await api.importIssue(issue.provider, issue.key, targetRepositoryId);
+      logEvent("issue_import", { provider: issue.provider });
       // A pending conversion replaces this task with the product manager's own,
       // so naming its key as the result would point at a card about to go.
       toast.success(

@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { tStatic, useI18n } from "@/hooks/useI18n";
 import { desktopRunner, desktopUpdates, type DesktopNotificationPreferences } from "@/lib/desktop-bridge";
 import { LANGUAGE_OPTIONS, normalizeLang, type Lang } from "@/lib/languages";
+import { logEvent } from "@/lib/analytics";
 
 const NOTIFICATION_CATEGORY_FIELDS = [
   "analizReview",
@@ -361,6 +362,7 @@ export function SettingsPage() {
       const saved = normalizeLang(data.default_language);
       setLanguage(saved);
       setLang(saved);
+      if (saved !== previous) logEvent("language_change", { language: saved });
       toast.success(tStatic("settings.savedToast"));
     } catch (e) {
       setLanguage(previous);

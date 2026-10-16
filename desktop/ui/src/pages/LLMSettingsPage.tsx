@@ -51,6 +51,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
 import { isHostExecutedProvider, isProviderAvailable } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { logEvent } from "@/lib/analytics";
 
 // The API providers drawn as fixed cards. local/openai/groq are not: they are
 // endpoint presets. The host-executed providers are absent on purpose — they
@@ -232,6 +233,7 @@ export function LLMSettingsPage() {
     setCliStep(null);
     try {
       await connectAgentCli({ flavor, api, onStep: setCliStep });
+      logEvent("llm_connect", { provider: flavor });
       toast.success(t("settingsPages.llm.cliConnectedToast"));
     } catch (e) {
       cliFailure(flavor, e);
@@ -301,6 +303,7 @@ export function LLMSettingsPage() {
     setConnecting(true);
     try {
       const data = await api.connectLLMProvider(connectTarget.definition.type, buildPayload());
+      logEvent("llm_connect", { provider: connectTarget.definition.type });
       applyResponse(data);
       toast.success(t("settingsPages.llm.connectedToast", { provider: connectTarget.definition.label }));
       closeConnect();

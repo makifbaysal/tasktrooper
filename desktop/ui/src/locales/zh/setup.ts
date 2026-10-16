@@ -63,7 +63,7 @@ export const setup = {
     loadFailed: "无法加载你的项目",
   },
   firstRun: {
-    analyticsNote: "TaskTrooper 会发送活跃安装数量的匿名统计；你可以在设置中关闭。",
+    analyticsNote: "TaskTrooper 会发送使用统计（使用的页面和功能，绝不包含你的内容）；你可以在设置中关闭。",
     title: "你想如何使用 TaskTrooper？",
     description: "现在选择；之后可在设置中更改。",
     local: {

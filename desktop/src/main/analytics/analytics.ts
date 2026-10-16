@@ -8,14 +8,42 @@ export const COLLECT_URL = "https://www.google-analytics.com/mp/collect";
 export const HEARTBEAT_MS = 30 * 60 * 1000;
 export const FLUSH_DELAY_MS = 2000;
 const MAX_BATCH = 25;
+// A page that loops on track() must not grow main's memory without bound; past
+// this the newest events are dropped until a flush drains the queue.
+const MAX_QUEUE = 200;
 const ID_FILE = "analytics-id";
+const USER_FILE = "analytics-user";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const HASHED_USER = /^[0-9a-f]{64}$/;
+
+/** What every event says about where it came from, so GA can split desktop from web and iOS. */
+export const APP_PLATFORM = "desktop";
+
+/** GA's own names for these operating systems, so desktop rows line up with browser traffic. */
+export const GA_OS_NAMES: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: "Macintosh",
+  win32: "Windows",
+  linux: "Linux",
+};
 
 export type AnalyticsMode = AccountMode | "temporary_local";
 
 export interface AnalyticsEvent {
-  name: "app_open" | "app_active";
+  name: string;
   params: Record<string, string | number>;
+}
+
+/**
+ * Measurement Protocol's `device` block: what fills GA's own operating system,
+ * device category and language dimensions, which a request with no browser
+ * behind it otherwise leaves "(not set)".
+ */
+export interface AnalyticsDevice {
+  category: "desktop";
+  operating_system: string;
+  operating_system_version: string;
+  language: string;
+  screen_resolution?: string;
 }
 
 export interface AnalyticsDeps {
@@ -26,6 +54,7 @@ export interface AnalyticsDeps {
   platform: string;
   arch: string;
   mode: () => AnalyticsMode;
+  device: () => AnalyticsDevice;
   preference: () => boolean | undefined;
   storePreference: (on: boolean) => void;
   post: (url: string, body: string) => Promise<unknown>;
@@ -43,6 +72,7 @@ export class Analytics {
   #focusedSince: number | null = null;
   #engagedMs = 0;
   #clientId: string | null = null;
+  #userId: string | null = null;
   #started = false;
   #warned = false;
   readonly #sessionId: string;
@@ -89,6 +119,41 @@ export class Analytics {
     this.#focusedSince = null;
   }
 
+  /**
+   * One product event or screen view from the page. Dropped while the count is
+   * off; the name and params were checked by `validateAnalyticsTrack` before
+   * they got here, and the base params are laid over them so a page cannot
+   * claim another version, platform or session.
+   */
+  track(name: string, params: Record<string, string | number>): void {
+    if (!this.#started || !this.enabled || this.#clientId === null) return;
+    if (this.#queue.length >= MAX_QUEUE) return;
+    this.#enqueue(name, { engagement_time_msec: 1, ...params });
+  }
+
+  /**
+   * The signed-in member's hashed id (or null on sign-out), so the same person
+   * on the desktop, the web and iOS is one user in GA. Kept on disk next to the
+   * install id so the next launch's app_open carries it too, and sent only
+   * while the app is signed in to an account.
+   */
+  identify(userId: string | null): void {
+    const next = userId !== null && HASHED_USER.test(userId) ? userId : null;
+    if (next === this.#userId) return;
+    this.#userId = next;
+    if (!this.enabled) return;
+    const file = path.join(this.#deps.dir, USER_FILE);
+    try {
+      if (next === null) rmSync(file, { force: true });
+      else {
+        mkdirSync(this.#deps.dir, { recursive: true });
+        writeFileSync(file, `${next}\n`, { mode: 0o600 });
+      }
+    } catch (err) {
+      this.#warn(err);
+    }
+  }
+
   stop(): Promise<void> {
     if (this.#beat) clearInterval(this.#beat);
     this.#beat = null;
@@ -106,9 +171,13 @@ export class Analytics {
     if (!config || !clientId || this.#queue.length === 0) return Promise.resolve();
     const events = this.#queue.splice(0, MAX_BATCH);
     const url = `${COLLECT_URL}?measurement_id=${encodeURIComponent(config.measurementId)}&api_secret=${encodeURIComponent(config.apiSecret)}`;
+    const userId = this.#deps.mode() === "local" ? null : this.#userId;
     const body = JSON.stringify({
       client_id: clientId,
+      ...(userId ? { user_id: userId } : {}),
       non_personalized_ads: true,
+      user_properties: { app_platform: { value: APP_PLATFORM } },
+      ...this.#device(),
       events: events.map((e) => ({ name: e.name, params: e.params })),
     });
     return this.#deps.post(url, body).then(
@@ -126,6 +195,7 @@ export class Analytics {
   #begin(focused: boolean): void {
     this.#clientId = this.#ensureId();
     if (this.#clientId === null) return;
+    this.#userId ??= this.#storedUser();
     if (focused && this.#focusedSince === null) this.#focusedSince = this.#now();
     this.#enqueue("app_open", {});
     this.#beat ??= setInterval(() => {
@@ -142,10 +212,12 @@ export class Analytics {
     this.#flushTimer = null;
     this.#queue = [];
     this.#clientId = null;
+    this.#userId = null;
     this.#lastHeartbeat = Number.NEGATIVE_INFINITY;
     this.#engagedMs = 0;
     try {
       rmSync(path.join(this.#deps.dir, ID_FILE), { force: true });
+      rmSync(path.join(this.#deps.dir, USER_FILE), { force: true });
     } catch {
       return;
     }
@@ -168,16 +240,17 @@ export class Analytics {
     this.#enqueue("app_active", { engagement_time_msec: engagement });
   }
 
-  #enqueue(name: AnalyticsEvent["name"], extra: Record<string, number>): void {
+  #enqueue(name: string, extra: Record<string, string | number>): void {
     this.#queue.push({
       name,
       params: {
+        ...extra,
         session_id: this.#sessionId,
+        app_platform: APP_PLATFORM,
         app_version: this.#deps.appVersion,
         platform: this.#deps.platform,
         arch: this.#deps.arch,
         mode: this.#deps.mode(),
-        ...extra,
       },
     });
     this.#schedule();
@@ -187,6 +260,23 @@ export class Analytics {
     if (this.#flushTimer) return;
     this.#flushTimer = setTimeout(() => void this.flush(), FLUSH_DELAY_MS);
     this.#flushTimer.unref?.();
+  }
+
+  #storedUser(): string | null {
+    try {
+      const existing = readFileSync(path.join(this.#deps.dir, USER_FILE), "utf8").trim();
+      return HASHED_USER.test(existing) ? existing : null;
+    } catch {
+      return null;
+    }
+  }
+
+  #device(): { device?: AnalyticsDevice } {
+    try {
+      return { device: this.#deps.device() };
+    } catch {
+      return {};
+    }
   }
 
   #ensureId(): string | null {

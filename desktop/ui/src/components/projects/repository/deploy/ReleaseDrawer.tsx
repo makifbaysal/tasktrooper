@@ -16,6 +16,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
 import { keepEqual } from "@/lib/stableState";
 import { formatDate, formatRelativeDate } from "@/lib/utils";
+import { logEvent } from "@/lib/analytics";
 
 export const RELEASE_STATUS_VARIANT: Record<ReleaseStatus, NonNullable<BadgeProps["variant"]>> = {
   draft: "secondary",
@@ -113,6 +114,7 @@ export function ReleaseDrawer({ releaseId, repositoryName, open, onOpenChange, o
             ? await api.finishRelease(release.id, repositoryName, note.trim())
             : await api.rollbackRelease(release.id, repositoryName, note.trim());
       setRelease(updated);
+      logEvent("release_action", { action: pending });
       toast.success(t(`release.drawer.actions.${pending}Succeeded`));
       setPending(null);
       onChanged?.();

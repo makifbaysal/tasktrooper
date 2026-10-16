@@ -184,8 +184,8 @@ export const de: Dict = {
       bannerBody: "Du bist weiterhin bei {origin} angemeldet. Dir dort zugewiesene Aufgaben warten, bis du zurückkehrst.",
     },
     analytics: {
-      label: "Anonyme Nutzungsstatistik",
-      help: "Sendet eine anonyme Zählung aktiver Installationen: App-Version, System und ob ein Konto genutzt wird. Niemals Ihre Aufgaben, Ihren Code, Pfade oder Ihre E-Mail. Beim Ausschalten wird das Senden sofort gestoppt und die zufällige ID dieser Installation gelöscht.",
+      label: "Nutzungsstatistik",
+      help: "Sendet, welche Bildschirme Sie öffnen und welche Funktionen Sie nutzen, mit App-Version und System – niemals Ihre Aufgaben, Chats, Ihren Code, Pfade oder Ihre E-Mail. Sind Sie mit einem Konto angemeldet, wird ein Einweg-Hash Ihrer Konto-ID mitgesendet, damit Sie in Desktop-, Web- und Mobil-App als eine Person zählen. Beim Ausschalten wird das Senden sofort gestoppt und die zufällige ID dieser Installation gelöscht.",
       forcedOff: "Durch die Umgebungsvariable TASKTROOPER_TELEMETRY oder DO_NOT_TRACK ausgeschaltet.",
       saveFailed: "Diese Einstellung konnte nicht gespeichert werden",
     },

@@ -184,8 +184,8 @@ export const fr: Dict = {
       bannerBody: "Vous êtes toujours connecté à {origin}. Les tâches qui vous y sont assignées attendent votre retour.",
     },
     analytics: {
-      label: "Statistiques d'utilisation anonymes",
-      help: "Envoie un comptage anonyme des installations actives : version de l'application, système et utilisation ou non d'un compte. Jamais vos tâches, votre code, vos chemins ni votre e-mail. La désactivation arrête l'envoi immédiatement et supprime l'identifiant aléatoire de cette installation.",
+      label: "Statistiques d'utilisation",
+      help: "Envoie les écrans que vous ouvrez et les fonctions que vous utilisez, avec la version de l'application et le système — jamais vos tâches, conversations, code, chemins ni votre e-mail. Connecté à un compte, un hachage à sens unique de votre identifiant de compte est ajouté, pour vous compter comme une seule personne sur les applications de bureau, web et mobile. La désactivation arrête l'envoi immédiatement et supprime l'identifiant aléatoire de cette installation.",
       forcedOff: "Désactivé par la variable d'environnement TASKTROOPER_TELEMETRY ou DO_NOT_TRACK.",
       saveFailed: "Impossible d'enregistrer ce réglage",
     },

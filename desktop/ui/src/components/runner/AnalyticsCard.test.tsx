@@ -42,7 +42,7 @@ describe("AnalyticsCard", () => {
     const analytics = stubShell({ available: true, enabled: true, forcedOff: false });
     renderCard();
 
-    const toggle = await screen.findByRole("switch", { name: "Anonymous usage statistics" });
+    const toggle = await screen.findByRole("switch", { name: "Usage statistics" });
     expect(toggle).toBeChecked();
 
     fireEvent.click(toggle);
@@ -55,7 +55,7 @@ describe("AnalyticsCard", () => {
     stubShell({ available: true, enabled: false, forcedOff: true });
     renderCard();
 
-    const toggle = await screen.findByRole("switch", { name: "Anonymous usage statistics" });
+    const toggle = await screen.findByRole("switch", { name: "Usage statistics" });
     expect(toggle).toBeDisabled();
     expect(toggle).not.toBeChecked();
   });

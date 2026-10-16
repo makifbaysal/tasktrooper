@@ -5,6 +5,7 @@ import { api, type GitHubDeviceFlow } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
+import { logEvent } from "@/lib/analytics";
 
 const MIN_POLL_MS = 2000;
 
@@ -42,6 +43,7 @@ export function GitHubDeviceConnect({ onConnected }: GitHubDeviceConnectProps) {
           const next = await api.pollGitHubDeviceFlow(flow.id);
           setFlow(next);
           if (next.state === "authorized") {
+            logEvent("integration_connect", { provider: "github", method: "device" });
             toast.success(t("settings.github.connectedToast"));
             onConnected();
           }

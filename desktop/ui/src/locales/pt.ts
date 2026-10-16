@@ -184,8 +184,8 @@ export const pt: Dict = {
       bannerBody: "Você continua conectado a {origin}. As tarefas atribuídas a você lá esperam até você voltar.",
     },
     analytics: {
-      label: "Estatísticas de uso anônimas",
-      help: "Envia uma contagem anônima de instalações ativas: versão do app, sistema e se você usa uma conta. Nunca suas tarefas, seu código, caminhos ou e-mail. Ao desativar, o envio para na hora e o ID aleatório desta instalação é apagado.",
+      label: "Estatísticas de uso",
+      help: "Envia quais telas você abre e quais recursos usa, com a versão do app e o sistema — nunca suas tarefas, conversas, código, caminhos ou e-mail. Com uma conta conectada, vai junto um hash unidirecional do ID da sua conta, para você contar como uma só pessoa nos apps desktop, web e mobile. Ao desativar, o envio para na hora e o ID aleatório desta instalação é apagado.",
       forcedOff: "Desativado pela variável de ambiente TASKTROOPER_TELEMETRY ou DO_NOT_TRACK.",
       saveFailed: "Não foi possível salvar esta configuração",
     },

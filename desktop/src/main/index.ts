@@ -8,6 +8,7 @@ import {
   app,
   net,
   powerMonitor,
+  screen,
   session,
   shell,
   type IpcMainEvent,
@@ -37,7 +38,7 @@ import type {
   UpdateStatus,
 } from "../ipc/types.js";
 import { ACCOUNT_MODE_RUNS_EMBEDDER, ModeController } from "./account/mode.js";
-import { Analytics } from "./analytics/analytics.js";
+import { Analytics, GA_OS_NAMES } from "./analytics/analytics.js";
 import { buildConfig } from "./analytics/config.js";
 import { ACCOUNT_HOME_ROUTE, accountPartition, defaultAccountOrigin } from "./account/origin.js";
 import { PairingStore } from "./config/pairing.js";
@@ -110,6 +111,16 @@ const analytics = new Analytics({
   platform: process.platform,
   arch: process.arch,
   mode: () => (modeController.temporaryLocal ? "temporary_local" : modeController.mode),
+  device: () => {
+    const { width, height } = screen.getPrimaryDisplay().size;
+    return {
+      category: "desktop",
+      operating_system: GA_OS_NAMES[process.platform] ?? process.platform,
+      operating_system_version: process.getSystemVersion(),
+      language: app.getLocale(),
+      screen_resolution: `${width}x${height}`,
+    };
+  },
   preference: () => settingsStore.get().analytics,
   storePreference: (on) => void settingsStore.set({ analytics: on }),
   post: (url, body) =>
@@ -611,6 +622,8 @@ const services: IpcServices = {
 
   analyticsState: () => analytics.state(),
   setAnalytics: (on: boolean): AnalyticsState => analytics.set(on),
+  trackAnalytics: (name: string, params: Record<string, string | number>) => analytics.track(name, params),
+  identifyAnalytics: (userId: string | null) => analytics.identify(userId),
 
   accountMode: () => modeController.mode,
   accountState: (): AccountState => modeController.state(),

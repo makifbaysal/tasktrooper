@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/hooks/useI18n";
+import { logEvent } from "@/lib/analytics";
 
 interface HumanUatDecisionProps {
   task: BoardTask;
@@ -48,6 +49,7 @@ export function HumanUatDecision({ task, repositoryId, onUpdated }: HumanUatDeci
     setSaving(true);
     try {
       await api.updateRepositoryTask(repositoryId, task.id, { column: "done" });
+      logEvent("task_review", { decision: "approve", gate: "uat" });
       onUpdated();
       toast.success(t("boardArea.components.taskDetail.humanUatApproved"));
     } catch (e) {
@@ -75,6 +77,7 @@ export function HumanUatDecision({ task, repositoryId, onUpdated }: HumanUatDeci
       await api.updateRepositoryTask(repositoryId, task.id, { column: "need_revision" });
       setDeclining(false);
       setReason("");
+      logEvent("task_review", { decision: "send_back", gate: "uat" });
       onUpdated();
       toast.success(t("boardArea.components.taskDetail.humanUatDeclined"));
     } catch (e) {

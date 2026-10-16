@@ -25,6 +25,7 @@ import {
 } from "@/lib/mcpForm";
 import { agentsListingServer, openAuthorizationPage } from "@/lib/mcpAccess";
 import { MCP_TEMPLATES } from "@/lib/mcpTemplates";
+import { logEvent } from "@/lib/analytics";
 
 const SIGN_IN_POLL_MS = 2000;
 const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -191,6 +192,7 @@ export function MCPServersPage() {
         toast.success(t("content.mcp.updatedToast"));
       } else {
         await api.createMCPServer(buildCreatePayload(form));
+        logEvent("mcp_server_add", { transport: form.transport });
         toast.success(t("content.mcp.createdToast"));
       }
       closeForm();

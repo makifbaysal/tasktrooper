@@ -9,6 +9,7 @@ import type {
   ScanOutcome,
   SourceSelection,
 } from "@/components/projects/add/flow-types";
+import { logEvent } from "@/lib/analytics";
 
 interface FlowState {
   step: number;
@@ -150,13 +151,17 @@ export function useAddRepositoryFlow() {
     const reused = createdProjectRef.current;
     if (reused && reused.name === choice.name) return { projectId: reused.id, projectName: choice.name };
     const project = await api.createInitiativeProject({ name: choice.name });
+    logEvent("project_create", {});
     createdProjectRef.current = { name: choice.name, id: project.id };
     return { projectId: project.id, projectName: choice.name };
   }, []);
 
   const runOne = useCallback((repo: PendingRepo, projectId: string) => {
     return runRecipe(repo.recipe, projectId)
-      .then((created) => dispatch({ type: "IMPORT_SUCCEEDED", localId: repo.localId, repositoryId: created.id }))
+      .then((created) => {
+        logEvent("repo_add", { provider: repo.recipe.method });
+        dispatch({ type: "IMPORT_SUCCEEDED", localId: repo.localId, repositoryId: created.id });
+      })
       .catch((e) =>
         dispatch({ type: "IMPORT_FAILED", localId: repo.localId, error: e instanceof Error ? e.message : String(e) }),
       );
@@ -190,6 +195,7 @@ export function useAddRepositoryFlow() {
     async (choice: ProjectChoice, input: NewRepositoryInput) => {
       const { projectId, projectName } = await resolveProject(choice);
       const result = await api.createNewRepository({ ...input, project_ids: [projectId] });
+      logEvent("repo_add", { provider: "new" });
       dispatch({ type: "CREATED", projectId, projectName, result });
     },
     [resolveProject],

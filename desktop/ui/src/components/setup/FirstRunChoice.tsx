@@ -5,6 +5,7 @@ import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
 import { desktopAnalytics } from "@/lib/desktop-bridge";
 import { clearFirstRunMode, writeFirstRunMode, type FirstRunMode } from "@/lib/firstRun";
+import { logEvent } from "@/lib/analytics";
 
 /**
  * The first screen: local, or an account.
@@ -29,6 +30,7 @@ export function FirstRunChoice({ onChosen }: { onChosen: (mode: FirstRunMode) =>
 
   const choose = (mode: FirstRunMode) => {
     writeFirstRunMode(mode);
+    logEvent("first_run_choice", { choice: mode });
     onChosen(mode);
   };
 
@@ -39,6 +41,7 @@ export function FirstRunChoice({ onChosen }: { onChosen: (mode: FirstRunMode) =>
     writeFirstRunMode("account");
     try {
       await account.signIn();
+      logEvent("first_run_choice", { choice: "account" });
       onChosen("account");
     } catch (e) {
       clearFirstRunMode();

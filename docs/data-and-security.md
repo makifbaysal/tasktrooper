@@ -107,29 +107,40 @@ Everything else stays local. The things that do reach the network are:
   Servers reaches whatever host you pointed it at, on your authority. See
   [MCP servers](mcp-servers.md).
 
-- **An anonymous active-install count** — official desktop builds only. See
-  [Anonymous usage statistics](#anonymous-usage-statistics) below.
+- **Usage statistics** — official desktop builds only. See
+  [Usage statistics](#usage-statistics) below.
 
 Nothing else calls out on its own. There is no license check and no other
 home-phoning built into the product.
 
-## Anonymous usage statistics
+## Usage statistics
 
-Official TaskTrooper desktop builds send a small, anonymous count so the
-project can see how many installs are in use. It is on by default and you can
-turn it off.
+Official TaskTrooper desktop builds send usage statistics to Google Analytics
+so the project can see how many installs are in use and which parts of the app
+people use. It is on by default and you can turn it off.
 
-- **What is sent:** a random ID made on this computer (not tied to you, your
-  account or your hardware), the app version, the operating system, the CPU
-  architecture, and whether you are using TaskTrooper locally or with an
-  account. One event when the app opens and one at most every 30 minutes while
-  its window is in use. Google Analytics also sees the connection's IP address,
-  as any web request does, and derives a rough region from it.
-- **What is never sent:** tasks, prompts, code, file paths, repository or
-  project names, API keys, your email, or anything from your account.
-- **Turn it off:** Settings → General → "Anonymous usage statistics", locally
+- **What is sent:** a random ID made on this computer (not tied to your
+  hardware), the app version, the operating system and its version, the CPU
+  architecture, the system language, the screen resolution, and whether you are
+  using TaskTrooper locally or with an account. One event when the app opens,
+  one at most every 30 minutes while its window is in use, one each time you
+  open a screen (named by the screen, such as `board` or `project_detail` —
+  never an ID from the address), and one when you use a feature such as
+  creating a task, moving a card or connecting an integration, with only fixed
+  values attached (a column, an agent's catalog role, a provider name). Google
+  Analytics also sees the connection's IP address, as any web request does, and
+  derives a rough region from it.
+- **Signed in to an account:** a one-way hash (SHA-256) of your account ID is
+  sent as well, so the same person using the desktop app, the web app and the
+  mobile app counts once. The hash cannot be turned back into your account ID
+  or your email; it stops being sent when you sign out.
+- **What is never sent:** tasks, prompts, chat messages, code, file paths,
+  repository or project names, issue titles, API keys, your email, or your
+  account ID itself. The desktop app checks every event before it leaves:
+  anything that is not an ID, a fixed value or a number is refused.
+- **Turn it off:** Settings → General → "Usage statistics", locally
   or signed in to an account. Turning it off stops sending at once and deletes
-  the random ID. Setting the environment variable `TASKTROOPER_TELEMETRY=0` or
+  the random ID and the stored account hash. Setting the environment variable `TASKTROOPER_TELEMETRY=0` or
   `DO_NOT_TRACK=1` keeps it off regardless.
 - **Builds from source and forks send nothing.** The measurement settings are
   compiled in by the official release build only; without them there is no

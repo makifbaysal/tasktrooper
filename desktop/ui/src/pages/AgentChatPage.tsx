@@ -42,6 +42,7 @@ import {
   type StreamProgress,
 } from "@/lib/sessionSend";
 import { keepEqual, keepRows } from "@/lib/stableState";
+import { agentRole, logEvent } from "@/lib/analytics";
 
 // Idle, a run can only start from elsewhere (a board task); the focus and
 // visibility refresh below already covers coming back to the window.
@@ -331,6 +332,7 @@ export function AgentChatPage() {
     try {
       const title = agent ? t("agentArea.chat.newSessionTitle", { name: agent.name }) : t("agentArea.chat.newSession");
       const session = await createSession(title);
+      logEvent("chat_start", { agent_role: agentRole(agent), source: "chat" });
       selectSession(session.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("agentArea.chat.toast.sessionCreateFailed"));
@@ -445,6 +447,7 @@ export function AgentChatPage() {
       // would paint the partial answer back over it.
       cancelFrame(progressFrameRef);
       setStreamingContent(null);
+      logEvent("chat_message_send", { agent_role: agentRole(agent), outcome: "ok" });
       if (result.status === "recovered") {
         toast.info(t("agentArea.chat.toast.recovered"));
       }

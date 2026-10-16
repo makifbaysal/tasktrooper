@@ -71,8 +71,8 @@ describe("FirstRunChoice", () => {
   });
 });
 
-describe("FirstRunChoice: anonymous usage line", () => {
-  const LINE = "TaskTrooper sends an anonymous count of active installs; you can turn it off in Settings.";
+describe("FirstRunChoice: usage statistics line", () => {
+  const LINE = "TaskTrooper sends usage statistics (screens and features used, never your content); you can turn them off in Settings.";
 
   const withAnalytics = (state: { available: boolean; enabled: boolean; forcedOff: boolean }) => {
     window.__tasktrooperDesktop = {

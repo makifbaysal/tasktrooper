@@ -11,6 +11,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { useMentionOptions } from "@/hooks/useMentionOptions";
 import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 import { startLeadConversation } from "@/lib/leadAgent";
+import { agentRole, logEvent } from "@/lib/analytics";
 
 export function HomePage() {
   const { t } = useI18n();
@@ -32,6 +33,7 @@ export function HomePage() {
           t("agentArea.chat.newSessionTitle", { name: lead.name }),
           mentions,
         );
+        logEvent("chat_start", { agent_role: agentRole(lead), source: "home_quick_ask" });
       } catch {
         toast.error(t("agentArea.chat.lead.welcome.failed"));
         setStarting(false);

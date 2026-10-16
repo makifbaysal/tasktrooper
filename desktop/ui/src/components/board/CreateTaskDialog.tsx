@@ -39,6 +39,7 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { useTaskTypes } from "@/hooks/useTaskTypes";
 import { TASK_PRIORITY_OPTIONS, taskTypeOptions } from "@/lib/project-board";
+import { logEvent } from "@/lib/analytics";
 
 interface CriterionDraft {
   id: string;
@@ -217,6 +218,7 @@ export function CreateTaskDialog({
         }
       }
       toast.success(t("boardArea.components.createTask.created"));
+      logEvent("task_create", { source: "manual", task_type: taskType });
       onOpenChange(false);
       onCreated();
     } catch (e) {

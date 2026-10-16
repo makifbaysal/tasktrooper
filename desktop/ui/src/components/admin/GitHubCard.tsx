@@ -11,6 +11,7 @@ import { GitHubRunnerSection } from "@/components/admin/GitHubRunnerSection";
 import { IntegrationCard, type IntegrationStatusTone } from "@/components/admin/IntegrationCard";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
+import { logEvent } from "@/lib/analytics";
 
 interface GitHubCardProps {
   /**
@@ -80,6 +81,7 @@ export function GitHubCard({ onStatusChange, showRunner = false, className }: Gi
     try {
       apply(await api.setGitHubToken(value), "");
       setToken("");
+      logEvent("integration_connect", { provider: "github", method: "token" });
       toast.success(t("settings.github.connectedToast"));
     } catch (e) {
       // The server's own sentence: it names what GitHub refused, which a

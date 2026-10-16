@@ -42,6 +42,7 @@ import {
   designVariantGroups,
   isDesignTask,
 } from "@/lib/design-system";
+import { logEvent } from "@/lib/analytics";
 
 const REVISION_POLL_MS = 3000;
 
@@ -296,6 +297,7 @@ export function AnalysisReviewPage() {
     setApproving(true);
     try {
       await api.updateRepositoryTask(repositoryId, taskId, { column: "done" });
+      logEvent("task_review", { decision: "approve", gate: "analysis" });
       toast.success(t("boardArea.components.taskDetail.analizReviewApproved"));
       navigate(boardPath);
     } catch (e) {

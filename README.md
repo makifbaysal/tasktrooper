@@ -211,11 +211,11 @@ macOS-only.
 ### Privacy
 
 TaskTrooper runs on your machine and has no account requirement. Official
-desktop builds send one anonymous active-install count (a random ID, app
-version, OS and whether you use an account; never tasks, code, paths or email),
-on by default. Turn it off in Settings → General → "Anonymous usage statistics",
+desktop builds send usage statistics (a random ID, app version, OS, which
+screens you open and which features you use; never tasks, chats, code, paths or
+email), on by default. Turn it off in Settings → General → "Usage statistics",
 or set `TASKTROOPER_TELEMETRY=0` / `DO_NOT_TRACK=1`. Builds from source and
-forks send nothing. Details: [Data and security](docs/data-and-security.md#anonymous-usage-statistics).
+forks send nothing. Details: [Data and security](docs/data-and-security.md#usage-statistics).
 
 ## Run from source
 

@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
 import type { EmbeddingMapSearch } from "@/lib/embeddingMapSearch";
+import { logEvent } from "@/lib/analytics";
 
 type CodeIndexSearchPanelProps = {
   repositories: Repository[];
@@ -104,6 +105,7 @@ export function CodeIndexSearchPanel({
     try {
       const data = await api.searchRepositoryIndex(selectedId, trimmed);
       const found = data.results ?? [];
+      logEvent("code_search", { results: found.length });
       setResults(found);
       onSearchResults?.(
         found.length === 0

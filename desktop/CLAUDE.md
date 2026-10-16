@@ -213,19 +213,34 @@ chip and Settings (`src/main/toolchain/`, bridge `toolchain.*`, both modes).
   app quit." When a job ends, a fresh report and then `runPreflight(true)`
   run so the setup screen, the caches and the runner see the new tools.
 
-## Anonymous usage statistics
+## Usage statistics
 
 The main process sends GA4 Measurement Protocol events so the owner can count
-active installs, local-mode ones included (`src/main/analytics/`). No SDK, no
-renderer involvement.
+active installs (local-mode ones included) and see which screens and features
+are used (`src/main/analytics/`). No SDK; the page only hands events over.
 
 - **Sent:** `POST https://www.google-analytics.com/mp/collect` with a random
-  client id and `app_open` (once per launch) and `app_active` (a heartbeat at
-  most every 30 minutes while a window is focused, with `engagement_time_msec`),
-  batched. Params: `session_id`, `app_version`, `platform`, `arch`, `mode`
-  (`local` | `account` | `temporary_local`). Nothing else: no origin, email,
-  path or task content. Network errors are swallowed; the one logged line has the
-  secret scrubbed.
+  client id, batched (25 per request, at most 200 queued). Main's own events:
+  `app_open` (once per launch) and `app_active` (a heartbeat at most every 30
+  minutes while a window is focused, with `engagement_time_msec`). The page's:
+  `page_view` per screen and the product events of `ui/src/lib/analytics.ts`,
+  through `analytics.track()` (bridge 7, `cloud:analytics:track`). Every event
+  carries `session_id`, `app_platform` (`desktop`), `app_version`, `platform`,
+  `arch`, `mode` (`local` | `account` | `temporary_local`), laid over the
+  page's params so a page cannot claim another. Each request carries the
+  `device` block (OS as GA names it, OS version, locale, screen size) and the
+  `app_platform` user property, which is what fills GA's OS/device/language
+  dimensions and splits desktop from web and iOS.
+- **The gate is `validateAnalyticsTrack`.** Event and param names follow GA's
+  rules, main's own and GA's reserved names are refused, at most 10 params, and
+  a value is a finite number or matches `[A-Za-z0-9_.:/-]{0,100}` — no
+  whitespace, no `@`, so a title, a sentence or an email cannot get through.
+- **One person across platforms.** In account mode the page calls
+  `analytics.identify(sha256("tasktrooper:" + uid))` (64 hex, checked); main
+  keeps it in `analytics-user` (0600) and sends it as `user_id` only while
+  `mode` is not `local`. iOS and the web send the same hash. `identify(null)`
+  and opting out delete the file. Never the raw uid.
+- Network errors are swallowed; the one logged line has the secret scrubbed.
 - **Config is build-time only.** `TT_GA_MEASUREMENT_ID` and `TT_GA_API_SECRET`
   are inlined by `scripts/build-main.mjs` (esbuild `define`); the release
   workflow takes them from the `GA_MEASUREMENT_ID` and `GA_API_SECRET` secrets.
@@ -237,7 +252,7 @@ renderer involvement.
   (`analytics/config.ts`) is the one place the default lives.
   `TASKTROOPER_TELEMETRY=0` or `DO_NOT_TRACK=1` forces it off. Turning it off
   stops sending and deletes `analytics-id` (a UUID, 0600, in userData, created
-  only while enabled).
+  only while enabled) and `analytics-user`.
 - **Where the switch is.** Settings → General only, in both modes: the local
   bundle's, or in account mode the account's own page, through
   `analytics.get()/set()` (`cloud:analytics:*`, the usual trusted-origin
@@ -258,7 +273,7 @@ renderer involvement.
 | Generated secrets in `local.bin` | `src/main/config/secrets.ts` |
 | Local ↔ account switch, pairing origin check | `src/main/account/mode.ts` |
 | Account origin rules, default, partition name | `src/main/account/origin.ts` |
-| Anonymous active-install count (GA4 Measurement Protocol) | `src/main/analytics/` |
+| Usage statistics (GA4 Measurement Protocol) | `src/main/analytics/` |
 | Toolchain setup: the install table, detectors, recipe strategies, the job | `src/main/toolchain/` |
 | Who may call the cloud bridge | `src/main/sender-guard.ts` |
 | Account mode's supervisor, the runner child, its stdin config, its log | `src/main/runner/` |
@@ -275,11 +290,11 @@ are separate declarations and must be changed together.
 
 ```ts
 window.__tasktrooperDesktop = {
-  info(), apiBase?, apiToken?, bridgeVersion: 6, mode: "local" | "account",
+  info(), apiBase?, apiToken?, bridgeVersion: 7, mode: "local" | "account",
   account: { signIn(origin?), signOut(), state(), openKeys(prefill?), mcp: { list(), set(server), remove(name) } },
   runner: { snapshot, subscribe, connect, ..., pair, unpair, pairing, restart },
   updates: { status, subscribe, check, restart },
-  analytics: { get(), set(on) },
+  analytics: { get(), set(on), track({name, params}), identify(userId) },
   toolchain: { report(force?), plan(ids), state(), subscribe, install(ids), cancel(), dismiss(), openPage(id) }
 }
 ```
@@ -293,7 +308,8 @@ exactly. `account.state()` answers
 the page half's `{mode, origin?, temporaryLocal?}`. `bridgeVersion` 2 added
 `account.openKeys()` and `temporaryLocal`, 3 `openKeys(prefill)`, 4 `analytics`,
 5 `toolchain` (required here, optional `toolchain?` on the page's half), 6
-`account.mcp` and `openKeys({mcp})` (optional `mcp?` on the page's half).
+`account.mcp` and `openKeys({mcp})` (optional `mcp?` on the page's half), 7
+`analytics.track()`/`identify()` (optional on the page's half).
 `ToolchainId` is the twenty-four ids in `TOOLCHAIN_IDS`, in the same order on
 both halves.
 

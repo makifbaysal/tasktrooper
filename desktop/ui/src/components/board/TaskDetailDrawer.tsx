@@ -88,6 +88,7 @@ import { componentLabel } from "@/lib/project-model";
 import { keepEqual } from "@/lib/stableState";
 import { formatDate, formatRelativeDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { logEvent } from "@/lib/analytics";
 
 // While an agent works on the task it writes comments, documents and criteria,
 // so the drawer follows closely; otherwise it only has to notice someone
@@ -293,7 +294,10 @@ export function TaskDetailDrawer({
     if (!task) return;
     setSaving(true);
     try {
-      await api.updateRepositoryTask(repositoryId, task.id, data);
+      const updated = await api.updateRepositoryTask(repositoryId, task.id, data);
+      if (data.column !== undefined && updated.column !== task.column) {
+        logEvent("task_move", { from_column: task.column, to_column: updated.column });
+      }
       onUpdated();
       toast.success(t("boardArea.components.taskDetail.updated"));
     } catch (e) {

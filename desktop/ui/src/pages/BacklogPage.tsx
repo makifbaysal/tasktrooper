@@ -43,6 +43,7 @@ import {
   taskTypeLabel,
 } from "@/lib/project-board";
 import { cn, formatRelativeDate } from "@/lib/utils";
+import { logEvent } from "@/lib/analytics";
 
 // Slower than the board's own poll: the backlog changes when a human puts
 // something in it, not while an agent works.
@@ -217,6 +218,7 @@ export function BacklogPage() {
         ),
       );
       toast.success(t("boardArea.backlog.movedToBoard", { key: task.key }));
+      logEvent("task_move", { from_column: previousColumn, to_column: updated.column });
       void load();
     } catch (e) {
       localChange();

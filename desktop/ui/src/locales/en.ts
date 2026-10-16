@@ -186,8 +186,8 @@ export const en = {
       bannerBody: "You are still signed in to {origin}. Tasks assigned to you there wait until you go back.",
     },
     analytics: {
-      label: "Anonymous usage statistics",
-      help: "Sends an anonymous count of active installs: app version, system, and whether you use an account. Never your tasks, code, paths or email. Turning it off stops sending at once and deletes this install's random ID.",
+      label: "Usage statistics",
+      help: "Sends which screens you open and which features you use, with the app version and system — never your tasks, chats, code, paths or email. Signed in to an account, a one-way hash of your account ID goes with it, so you count as one person across the desktop, web and mobile apps. Turning it off stops sending at once and deletes this install's random ID.",
       forcedOff: "Turned off by the TASKTROOPER_TELEMETRY or DO_NOT_TRACK environment variable.",
       saveFailed: "Couldn't save this setting",
     },

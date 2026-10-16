@@ -10,7 +10,25 @@ const CONFIG = { measurementId: "G-TEST123", apiSecret: "s3cr3t-VALUE_xyz" };
 let dir: string;
 let clock: number;
 let pref: boolean | undefined;
-let sent: { url: string; body: { client_id: string; events: { name: string; params: Record<string, unknown> }[] } }[];
+interface SentBody {
+  client_id: string;
+  user_id?: string;
+  user_properties?: Record<string, { value: string }>;
+  device?: Record<string, string>;
+  events: { name: string; params: Record<string, unknown> }[];
+}
+
+const DEVICE = {
+  category: "desktop" as const,
+  operating_system: "Macintosh",
+  operating_system_version: "15.6.1",
+  language: "tr-TR",
+  screen_resolution: "1728x1117",
+};
+const HASHED = "b".repeat(64);
+
+let mode: "local" | "account" | "temporary_local";
+let sent: { url: string; body: SentBody }[];
 let logs: string[];
 
 function make(patch: Partial<AnalyticsDeps> = {}): Analytics {
@@ -21,7 +39,8 @@ function make(patch: Partial<AnalyticsDeps> = {}): Analytics {
     appVersion: "1.2.3",
     platform: "darwin",
     arch: "arm64",
-    mode: () => "local",
+    mode: () => mode,
+    device: () => DEVICE,
     preference: () => pref,
     storePreference: (on) => {
       pref = on;
@@ -37,12 +56,15 @@ function make(patch: Partial<AnalyticsDeps> = {}): Analytics {
 }
 
 const idFile = () => path.join(dir, "analytics-id");
+const userFile = () => path.join(dir, "analytics-user");
+const names = () => sent.flatMap((s) => s.body.events.map((e) => e.name));
 
 beforeEach(() => {
   vi.useFakeTimers();
   dir = mkdtempSync(path.join(tmpdir(), "tt-analytics-"));
   clock = 1_800_000_000_000;
   pref = undefined;
+  mode = "local";
   sent = [];
   logs = [];
 });
@@ -97,11 +119,19 @@ describe("Analytics", () => {
     expect(sent).toHaveLength(1);
     const [{ url, body }] = sent;
     expect(url).toMatch(/^https:\/\/www\.google-analytics\.com\/mp\/collect\?measurement_id=G-TEST123&api_secret=/);
-    expect(Object.keys(body).sort()).toEqual(["client_id", "events", "non_personalized_ads"]);
+    expect(Object.keys(body).sort()).toEqual(["client_id", "device", "events", "non_personalized_ads", "user_properties"]);
+    expect(body.device).toEqual(DEVICE);
+    expect(body.user_properties).toEqual({ app_platform: { value: "desktop" } });
     expect(body.client_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(body.events.map((e) => e.name)).toEqual(["app_open", "app_active"]);
     for (const event of body.events) {
-      expect(event.params).toMatchObject({ app_version: "1.2.3", platform: "darwin", arch: "arm64", mode: "local" });
+      expect(event.params).toMatchObject({
+        app_platform: "desktop",
+        app_version: "1.2.3",
+        platform: "darwin",
+        arch: "arm64",
+        mode: "local",
+      });
       expect(event.params.session_id).toEqual(expect.any(String));
       expect(Object.keys(event.params).sort()).not.toEqual(expect.arrayContaining(["email", "path", "origin"]));
     }
@@ -206,6 +236,94 @@ describe("Analytics", () => {
     expect(logs[0]).not.toContain(CONFIG.apiSecret);
     expect(logs[0]).not.toContain(encoded);
     expect(logs[0]).toContain("[redacted]");
+  });
+
+  it("sends a page's event with the base params laid over its own", async () => {
+    const a = make();
+    a.start(false);
+    a.track("page_view", { screen_name: "board", page_location: "app://tasktrooper/board" });
+    await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    const view = sent[0]?.body.events.find((e) => e.name === "page_view");
+    expect(view?.params).toMatchObject({
+      screen_name: "board",
+      page_location: "app://tasktrooper/board",
+      engagement_time_msec: 1,
+      app_platform: "desktop",
+      app_version: "1.2.3",
+    });
+  });
+
+  it("drops a page's events while the count is off or before it started", async () => {
+    const a = make();
+    a.track("task_create", { source: "manual" });
+    a.start(false);
+    a.set(false);
+    a.track("task_create", { source: "manual" });
+    await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    expect(sent).toEqual([]);
+  });
+
+  it("caps what a looping page can queue", async () => {
+    const a = make();
+    a.start(false);
+    for (let i = 0; i < 1000; i += 1) a.track("task_move", { to_column: "done" });
+    for (let i = 0; i < 20; i += 1) await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    expect(names().length).toBeLessThanOrEqual(200);
+  });
+
+  it("sends the member's hashed id only while signed in to an account, and keeps it across launches", async () => {
+    mode = "account";
+    const a = make();
+    a.start(false);
+    a.identify(HASHED);
+    await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    expect(sent[0]?.body.user_id).toBe(HASHED);
+    expect(statSync(userFile()).mode & 0o777).toBe(0o600);
+
+    const next = make();
+    next.start(false);
+    await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    expect(sent[1]?.body.user_id).toBe(HASHED);
+
+    mode = "local";
+    next.track("page_view", { screen_name: "home" });
+    await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    expect(sent[2]?.body.user_id).toBeUndefined();
+  });
+
+  it("forgets the member on sign-out and on opt-out", async () => {
+    mode = "account";
+    const a = make();
+    a.start(false);
+    a.identify(HASHED);
+    a.identify(null);
+    expect(existsSync(userFile())).toBe(false);
+    a.identify(HASHED);
+    expect(existsSync(userFile())).toBe(true);
+    a.set(false);
+    expect(existsSync(userFile())).toBe(false);
+  });
+
+  it("ignores an id that is not a hash", async () => {
+    mode = "account";
+    const a = make();
+    a.start(false);
+    a.identify("firebase-uid-123");
+    await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    expect(sent[0]?.body.user_id).toBeUndefined();
+    expect(existsSync(userFile())).toBe(false);
+  });
+
+  it("still sends when the device cannot be read", async () => {
+    const a = make({
+      device: () => {
+        throw new Error("screen is not ready");
+      },
+    });
+    a.start(false);
+    await vi.advanceTimersByTimeAsync(FLUSH_DELAY_MS);
+    expect(sent[0]?.body.device).toBeUndefined();
+    expect(names()).toEqual(["app_open"]);
   });
 
   it("fails silently on a network error and keeps running", async () => {

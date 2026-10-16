@@ -46,7 +46,12 @@ import type {
   UpdateStatus,
   WorkspaceCheck,
 } from "./types.js";
-import type { ChooseDirectoryRequest, KeysWindowPrefill, McpServerSetRequest } from "./channels.js";
+import type {
+  AnalyticsTrackRequest,
+  ChooseDirectoryRequest,
+  KeysWindowPrefill,
+  McpServerSetRequest,
+} from "./channels.js";
 
 /**
  * One child process, as the page renders it.
@@ -223,12 +228,16 @@ export interface DesktopUpdatesHost {
 }
 
 /**
- * The anonymous usage count. `set(false)` stops sending at once and deletes
- * the install's random id. Refused for the account's remote page.
+ * The usage count. `set(false)` stops sending at once and deletes the
+ * install's random id and the stored member id.
  */
 export interface DesktopAnalyticsHost {
   get(): Promise<AnalyticsState>;
   set(on: boolean): Promise<AnalyticsState>;
+  /** One screen view or product event; ids, enums and counts only. Dropped while the count is off. */
+  track(event: AnalyticsTrackRequest): Promise<void>;
+  /** The signed-in member's one-way hashed id, or null on sign-out. Sent only in account mode. */
+  identify(userId: string | null): Promise<void>;
 }
 
 /**
@@ -332,8 +341,9 @@ export interface DesktopHost {
    * 4: `analytics.get()` / `analytics.set(on)`.
    * 5: `toolchain` — detecting and installing the developer tools agents use.
    * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
+   * 7: `analytics.track(event)` / `analytics.identify(userId)`.
    */
-  bridgeVersion: 6;
+  bridgeVersion: 7;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;

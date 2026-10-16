@@ -260,12 +260,15 @@ export const CLOUD_CHANNELS = {
   updateRestart: "cloud:update:restart",
 
   /**
-   * The anonymous usage count's switch, for Settings → General. Answered only
-   * while this app's own bundle is the page (local mode): the account's remote
-   * page is refused, and the tray owns the switch there.
+   * The usage count: its switch for Settings → General, and the page's screen
+   * views and product events (`track`) plus the signed-in member's hashed id
+   * (`identify`). Answered in both modes — the local bundle's page, or the
+   * account's own page. Main sends nothing while the switch is off.
    */
   analyticsGet: "cloud:analytics:get",
   analyticsSet: "cloud:analytics:set",
+  analyticsTrack: "cloud:analytics:track",
+  analyticsIdentify: "cloud:analytics:identify",
 
   /**
    * Toolchain setup: detecting and installing the developer tools agents use
@@ -310,6 +313,17 @@ export interface RevealRequest {
 
 export interface OpenExternalRequest {
   url: string;
+}
+
+/** One screen view or product event. Ids, enums and counts only; see `validateAnalyticsTrack`. */
+export interface AnalyticsTrackRequest {
+  name: string;
+  params?: Record<string, string | number>;
+}
+
+/** The member's id, already one-way hashed by the page (64 hex), or null on sign-out. */
+export interface AnalyticsIdentifyRequest {
+  userId: string | null;
 }
 
 export interface LogsStreamRequest {

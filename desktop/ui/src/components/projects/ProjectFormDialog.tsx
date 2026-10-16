@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
+import { logEvent } from "@/lib/analytics";
 
 interface ProjectFormDialogProps {
   open: boolean;
@@ -55,6 +56,7 @@ export function ProjectFormDialog({ open, onOpenChange, project = null, onSaved 
           })
         : await api.createInitiativeProject({ name: name.trim(), description: description.trim() });
       toast.success(project ? t("projectAdmin.projects.updated") : t("projectAdmin.projects.created"));
+      if (!project) logEvent("project_create", {});
       onOpenChange(false);
       onSaved(saved);
     } catch (e) {

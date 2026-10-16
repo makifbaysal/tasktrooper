@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
+import { logEvent } from "@/lib/analytics";
 
 interface JiraCardProps {
   className?: string;
@@ -53,6 +54,7 @@ export function JiraCard({ className }: JiraCardProps) {
         api_token: token.trim(),
       });
       setStatus(connected);
+      logEvent("integration_connect", { provider: "jira" });
       toast.success(
         t("issues.jira.connected", { name: connected.display_name || connected.email }),
       );

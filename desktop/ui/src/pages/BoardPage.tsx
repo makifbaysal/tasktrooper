@@ -55,6 +55,7 @@ import {
 } from "@/lib/project-board";
 import { BOARD_RELEASE_STATUSES, openReleaseByTask, verifyMinutesLeft } from "@/lib/release-board";
 import { keepMap } from "@/lib/stableState";
+import { logEvent } from "@/lib/analytics";
 
 // The board's own view of a card carries two fields the single-task endpoints
 // never return (they are filled in by the list query). Keep them when a
@@ -387,6 +388,9 @@ export function BoardPage() {
     try {
       const updated = await api.updateRepositoryTask(task.repository_id, task.id, { column });
       localChange();
+      if (updated.column !== previousColumn) {
+        logEvent("task_move", { from_column: previousColumn, to_column: updated.column });
+      }
       // The PATCH answers with the task itself; the pipeline digest is added by
       // the list endpoint only, so carry the card's own over rather than
       // blanking its build icon until the next poll.

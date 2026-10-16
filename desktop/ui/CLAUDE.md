@@ -74,7 +74,7 @@ Settings); in local mode `runner.connect()`/`disconnect()` start and stop the
 **backend**. `account` (`signIn(origin?)`, `signOut()`, `state()`) switches
 the shell between local and account mode — Settings' Account card and the
 first-run screen call it; the page it is called from is replaced when it
-succeeds. `analytics` (`get()`, `set(on)`; bridge 4) is the anonymous usage switch Settings → General and the first-run line read; `toolchain` (bridge 5: `report`, `plan`, `state`/`subscribe`, `install`, `cancel`, `dismiss`, `openPage` — ids only, never a command or URL) installs the developer tools the agents use, for the first-run toolchain step, the header chip and Settings → Development environment (`.ai/frontend-components.md` "Toolchain setup"); `bridgeVersion` (6) and `mode` are synchronous values;
+succeeds. `analytics` (`get()`, `set(on)`; bridge 4) is the usage statistics switch Settings → General and the first-run line read, and `track()`/`identify()` (bridge 7) are what `lib/analytics.ts` sends screen views, product events and the hashed member id through; `toolchain` (bridge 5: `report`, `plan`, `state`/`subscribe`, `install`, `cancel`, `dismiss`, `openPage` — ids only, never a command or URL) installs the developer tools the agents use, for the first-run toolchain step, the header chip and Settings → Development environment (`.ai/frontend-components.md` "Toolchain setup"); `bridgeVersion` (7) and `mode` are synchronous values;
 `runner.pair`/`unpair`/`pairing`/`restart` and the snapshot's `tunnel` are
 account mode's, used by the account's web app, not by this bundle.
 `account`, `toolchain`, `bridgeVersion` and `mode` are optional on this side: a browser and

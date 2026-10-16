@@ -185,8 +185,8 @@ export const tr: Dict = {
       bannerBody: "{origin} hesabında oturumun hâlâ açık. Sana orada atanan görevler sen dönene kadar bekler.",
     },
     analytics: {
-      label: "Anonim kullanım istatistikleri",
-      help: "Aktif kurulum sayısı için anonim bir sayım gönderir: uygulama sürümü, sistem ve hesap kullanıp kullanmadığınız. Görevleriniz, kodunuz, dosya yollarınız veya e-postanız asla gönderilmez. Kapatınca gönderim hemen durur ve bu kurulumun rastgele kimliği silinir.",
+      label: "Kullanım istatistikleri",
+      help: "Hangi ekranları açtığınızı ve hangi özellikleri kullandığınızı, uygulama sürümü ve sistemle birlikte gönderir — görevleriniz, sohbetleriniz, kodunuz, dosya yollarınız veya e-postanız asla gönderilmez. Bir hesapla giriş yaptıysanız hesap kimliğinizin tek yönlü bir özeti de eklenir; böylece masaüstü, web ve mobil uygulamada tek kişi sayılırsınız. Kapatınca gönderim hemen durur ve bu kurulumun rastgele kimliği silinir.",
       forcedOff: "TASKTROOPER_TELEMETRY veya DO_NOT_TRACK ortam değişkeni tarafından kapatıldı.",
       saveFailed: "Bu ayar kaydedilemedi",
     },

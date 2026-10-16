@@ -480,7 +480,7 @@ export interface DesktopAccountState {
 }
 
 /**
- * The anonymous active-install count (bridge 4). `available` is false in a
+ * The usage count (bridge 4). `available` is false in a
  * build that carries no analytics configuration, where there is nothing to
  * switch; `forcedOff` is the environment overriding the stored choice.
  */
@@ -493,6 +493,10 @@ export interface DesktopAnalyticsState {
 export interface DesktopAnalyticsHost {
   get(): Promise<DesktopAnalyticsState>;
   set(on: boolean): Promise<DesktopAnalyticsState>;
+  /** Bridge 7: one screen view or product event; main drops it while the count is off. */
+  track?(event: { name: string; params?: Record<string, string | number> }): Promise<void>;
+  /** Bridge 7: the member's one-way hashed id, or null on sign-out. */
+  identify?(userId: string | null): Promise<void>;
 }
 
 /**
@@ -657,7 +661,7 @@ export interface TaskTrooperDesktopHost {
   };
   /** Absent in a browser, and in a shell older than the Settings update card. */
   updates?: DesktopUpdatesHost;
-  /** Bridge 4. Absent in a browser, in older shells, and for the account's page. */
+  /** Bridge 4. Absent in a browser and in older shells. */
   analytics?: DesktopAnalyticsHost;
   /** Bridge 5. Absent in a browser and in older shells. */
   toolchain?: DesktopToolchainHost;
@@ -679,6 +683,7 @@ export interface TaskTrooperDesktopHost {
    * 4: `analytics.get()` / `analytics.set(on)`.
    * 5: `toolchain` — detect and install the developer tools the agents use.
    * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
+   * 7: `analytics.track(event)` / `analytics.identify(userId)`.
    */
   bridgeVersion?: number;
   /**

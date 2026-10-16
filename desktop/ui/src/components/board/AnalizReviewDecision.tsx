@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useI18n } from "@/hooks/useI18n";
 import { analysisReviewPath } from "@/lib/analysis-review";
 import { isDesignTask } from "@/lib/design-system";
+import { logEvent } from "@/lib/analytics";
 
 interface AnalizReviewDecisionProps {
   task: BoardTask;
@@ -57,6 +58,7 @@ export function AnalizReviewDecision({ task, repositoryId, onUpdated, documents 
     setSaving(true);
     try {
       await api.updateRepositoryTask(repositoryId, task.id, { column: "done" });
+      logEvent("task_review", { decision: "approve", gate: "analysis" });
       onUpdated();
       toast.success(t("boardArea.components.taskDetail.analizReviewApproved"));
     } catch (e) {
@@ -81,6 +83,7 @@ export function AnalizReviewDecision({ task, repositoryId, onUpdated, documents 
       await api.updateRepositoryTask(repositoryId, task.id, { column: "need_revision" });
       setDeclining(false);
       setReason("");
+      logEvent("task_review", { decision: "send_back", gate: "analysis" });
       onUpdated();
       toast.success(t("boardArea.components.taskDetail.analizReviewDeclined"));
     } catch (e) {

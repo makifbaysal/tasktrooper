@@ -70,7 +70,7 @@ export const setup = {
     loadFailed: "Projeleriniz yüklenemedi",
   },
   firstRun: {
-    analyticsNote: "TaskTrooper, aktif kurulumların anonim bir sayısını gönderir; Ayarlar'dan kapatabilirsiniz.",
+    analyticsNote: "TaskTrooper kullanım istatistikleri gönderir (kullanılan ekranlar ve özellikler, içeriğiniz asla); Ayarlar'dan kapatabilirsiniz.",
     title: "TaskTrooper'ı nasıl kullanmak istiyorsunuz?",
     description: "Şimdi seçin; sonradan Ayarlar'dan değiştirebilirsiniz.",
     local: {

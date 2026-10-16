@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useI18n } from "@/hooks/useI18n";
 import { startLeadConversation } from "@/lib/leadAgent";
 import { shortcutModifier } from "@/lib/platform";
+import { agentRole, logEvent } from "@/lib/analytics";
 
 interface LeadQuickAskProps {
   agent: Agent;
@@ -45,6 +46,7 @@ export function LeadQuickAsk({ agent }: LeadQuickAskProps) {
         message,
         t("agentArea.chat.newSessionTitle", { name: agent.name }),
       );
+      logEvent("chat_start", { agent_role: agentRole(agent), source: "home_quick_ask" });
       setText("");
       inputRef.current?.blur();
     } catch {

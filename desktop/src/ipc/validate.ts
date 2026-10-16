@@ -29,6 +29,8 @@ import {
 } from "./types.js";
 import type {
   AccountSignInRequest,
+  AnalyticsIdentifyRequest,
+  AnalyticsTrackRequest,
   ChatFocusRequest,
   ChooseDirectoryRequest,
   DiagnosticsRequest,
@@ -316,6 +318,71 @@ export function validateSignIn(raw: unknown): AccountSignInRequest {
 export function validateAnalyticsSet(raw: unknown): { on: boolean } {
   const o = asRecord(raw, "analytics");
   return { on: asBoolean(o.on, "analytics.on") };
+}
+
+// GA's own name rules (40 chars, letter first), applied to event and param names.
+const ANALYTICS_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+// A param value is an id, an enum or a templated route — never free text. No
+// whitespace and no "@" keeps a title, a sentence or an email address out.
+const ANALYTICS_VALUE = /^[A-Za-z0-9_.:/-]{0,100}$/;
+const ANALYTICS_MAX_PARAMS = 10;
+const ANALYTICS_HASHED_USER = /^[0-9a-f]{64}$/;
+// Main's own events, and the names GA reserves for itself.
+const ANALYTICS_RESERVED_EVENTS = new Set([
+  "app_open",
+  "app_active",
+  "app_remove",
+  "app_update",
+  "error",
+  "first_open",
+  "first_visit",
+  "session_start",
+  "user_engagement",
+]);
+const ANALYTICS_RESERVED_PARAMS = new Set([
+  "session_id",
+  "engagement_time_msec",
+  "app_platform",
+  "app_version",
+  "platform",
+  "arch",
+  "mode",
+]);
+const ANALYTICS_RESERVED_PREFIX = /^(firebase_|ga_|google_)/;
+
+/**
+ * `analytics.track({ name, params })`. Anything that is not an id, an enum, a
+ * count or a templated route is refused: this is the gate that keeps a page's
+ * text out of what the desktop sends.
+ */
+export function validateAnalyticsTrack(raw: unknown): Required<AnalyticsTrackRequest> {
+  const o = asRecord(raw, "analytics.track");
+  const name = asString(o.name, "analytics.track.name", { max: 40 });
+  if (!ANALYTICS_NAME.test(name) || ANALYTICS_RESERVED_PREFIX.test(name) || ANALYTICS_RESERVED_EVENTS.has(name)) {
+    fail("analytics.track.name: not an allowed event name");
+  }
+  const params: Record<string, string | number> = {};
+  if (o.params !== undefined) {
+    const entries = Object.entries(asRecord(o.params, "analytics.track.params"));
+    if (entries.length > ANALYTICS_MAX_PARAMS) fail(`analytics.track.params: at most ${ANALYTICS_MAX_PARAMS}`);
+    for (const [key, value] of entries) {
+      if (!ANALYTICS_NAME.test(key) || ANALYTICS_RESERVED_PREFIX.test(key) || ANALYTICS_RESERVED_PARAMS.has(key)) {
+        fail(`analytics.track.params.${key}: not an allowed param name`);
+      }
+      if (typeof value === "number" && Number.isFinite(value)) params[key] = value;
+      else if (typeof value === "string" && ANALYTICS_VALUE.test(value)) params[key] = value;
+      else fail(`analytics.track.params.${key}: expected an id, an enum or a number`);
+    }
+  }
+  return { name, params };
+}
+
+export function validateAnalyticsIdentify(raw: unknown): AnalyticsIdentifyRequest {
+  const o = asRecord(raw, "analytics.identify");
+  if (o.userId === null) return { userId: null };
+  const userId = asString(o.userId, "analytics.identify.userId", { max: 64 });
+  if (!ANALYTICS_HASHED_USER.test(userId)) fail("analytics.identify.userId: expected a 64-character hex hash");
+  return { userId };
 }
 
 /**

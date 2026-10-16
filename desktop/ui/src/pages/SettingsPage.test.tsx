@@ -71,13 +71,13 @@ describe("SettingsPage", () => {
     renderPage();
     expect(await screen.findByText(/are set in the TaskTrooper desktop app/)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Desktop app" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Anonymous usage statistics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Usage statistics" })).not.toBeInTheDocument();
   });
 
-  it("in the desktop app, offers the anonymous usage switch under Desktop app", async () => {
+  it("in the desktop app, offers the usage statistics switch under Desktop app", async () => {
     stubShell();
     renderPage();
-    expect(await screen.findByRole("switch", { name: "Anonymous usage statistics" })).toBeChecked();
+    expect(await screen.findByRole("switch", { name: "Usage statistics" })).toBeChecked();
     expect(screen.getByRole("heading", { name: "Desktop app" })).toBeInTheDocument();
     expect(screen.queryByText(/are set in the TaskTrooper desktop app/)).not.toBeInTheDocument();
   });
