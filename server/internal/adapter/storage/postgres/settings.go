@@ -280,3 +280,34 @@ func (s *SettingsStore) SetGitHubAppAuth(ctx context.Context, auth domain.GitHub
 func (s *SettingsStore) DeleteGitHubAppAuth(ctx context.Context) error {
 	return s.forgetKeys(ctx, githubAppAuthKey)
 }
+
+const githubRunnerKey = "github_runner"
+
+// GitHubRunnerConfig is plain JSON: it names repositories and holds no
+// credential — each runner's registration is fetched per job.
+func (s *SettingsStore) GitHubRunnerConfig(ctx context.Context) (domain.GitHubRunnerConfig, error) {
+	var value string
+	err := s.pool.QueryRow(ctx, `SELECT value FROM app_settings WHERE key = $1`, githubRunnerKey).Scan(&value)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && value == "") {
+		return domain.GitHubRunnerConfig{Repos: []string{}}, nil
+	}
+	if err != nil {
+		return domain.GitHubRunnerConfig{}, fmt.Errorf("get %s: %w", githubRunnerKey, err)
+	}
+	var cfg domain.GitHubRunnerConfig
+	if err := json.Unmarshal([]byte(value), &cfg); err != nil {
+		return domain.GitHubRunnerConfig{}, fmt.Errorf("decode %s: %w", githubRunnerKey, err)
+	}
+	if cfg.Repos == nil {
+		cfg.Repos = []string{}
+	}
+	return cfg, nil
+}
+
+func (s *SettingsStore) SetGitHubRunnerConfig(ctx context.Context, cfg domain.GitHubRunnerConfig) error {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return s.setPlain(ctx, githubRunnerKey, string(raw))
+}

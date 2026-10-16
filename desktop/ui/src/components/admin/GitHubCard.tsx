@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { GitHubDeviceConnect } from "@/components/admin/GitHubDeviceConnect";
+import { GitHubRunnerSection } from "@/components/admin/GitHubRunnerSection";
 import { IntegrationCard, type IntegrationStatusTone } from "@/components/admin/IntegrationCard";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,8 @@ interface GitHubCardProps {
    * differently.
    */
   onStatusChange?: (result: { status: GitHubConnectionStatus | null; error: string }) => void;
+  /** Settings → Integrations shows "use this computer as a runner" under a connected account; the guided setup does not. */
+  showRunner?: boolean;
   className?: string;
 }
 
@@ -34,7 +37,7 @@ interface GitHubCardProps {
  * guided setup — because it is one connection, and a second affordance for it
  * would be a second place to read a different answer from.
  */
-export function GitHubCard({ onStatusChange, className }: GitHubCardProps) {
+export function GitHubCard({ onStatusChange, showRunner = false, className }: GitHubCardProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<GitHubConnectionStatus | null>(null);
   const [checking, setChecking] = useState(false);
@@ -167,6 +170,7 @@ export function GitHubCard({ onStatusChange, className }: GitHubCardProps) {
             </Notice>
           )}
           {status.fine_grained && <Notice variant="info" title={t("settings.github.fineGrainedHint")} />}
+          {showRunner && <GitHubRunnerSection />}
         </>
       ) : (
         <>

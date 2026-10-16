@@ -38,6 +38,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/llm"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/appiumhub"
 	desktopadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/desktop"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/ghrunner"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localdevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/localtoolchain"
 	simrunhost "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/simrun"
@@ -272,6 +273,7 @@ type engine struct {
 	browserSession  *browsertools.Session
 	mobilePool      *mobiletools.Pool
 	appiumHub       *appiumhub.Manager
+	githubRunner    *ghrunner.Manager
 	mobileDeviceSvc *mobiledevice.Service
 	llmClient       port.LLMClient
 	multiLLM        *llm.MultiProviderClient
@@ -661,6 +663,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// After the leases: releasing one is a DELETE to this hub.
 	if s.engine.appiumHub != nil {
 		s.engine.appiumHub.Close()
+	}
+	if s.engine.githubRunner != nil {
+		s.engine.githubRunner.Close()
 	}
 	return err
 }
@@ -3002,6 +3007,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	if e.smokeGenSvc != nil {
 		smokeGenHTTP = e.smokeGenSvc
 	}
+	if e.githubRunner == nil && issueSyncSettingsStore != nil && opts.DataDir != "" {
+		e.githubRunner = newGitHubRunner(opts.DataDir, githubTokens, issueSyncSettingsStore, repositoryStore)
+		go e.githubRunner.Start(context.Background())
+	}
+
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
 		LLMClient:         llmClient,
@@ -3014,6 +3024,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		SettingsSvc:       settingsSvc,
 		GitHubTokens:      githubTokens,
 		GitHubApp:         githubAppOrNil(githubAuth),
+		GitHubRunner:      githubRunnerOrNil(e.githubRunner),
 		LLMProviderSvc:    llmProviderSvc,
 		AgentCLISvc:       agentCLISvc,
 		JobSvc:            e.jobSvc,

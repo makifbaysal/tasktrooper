@@ -95,6 +95,7 @@ type Handler struct {
 	mobileDeviceSvc *mobiledevice.Service
 	githubTokens    port.GitHubTokenStore
 	githubApp       GitHubAppService
+	githubRunner    GitHubRunnerService
 	llmProviderSvc  *llmprovider.Service
 	agentCLISvc     *agentcliapp.Service
 	jobSvc          *job.Service
@@ -172,6 +173,7 @@ type Config struct {
 	MobileDeviceSvc   *mobiledevice.Service
 	GitHubTokens      port.GitHubTokenStore
 	GitHubApp         GitHubAppService
+	GitHubRunner      GitHubRunnerService
 	LLMProviderSvc    *llmprovider.Service
 	AgentCLISvc       *agentcliapp.Service
 	JobSvc            *job.Service
@@ -238,6 +240,7 @@ func NewHandler(cfg Config) *Handler {
 		mobileDeviceSvc:   cfg.MobileDeviceSvc,
 		githubTokens:      cfg.GitHubTokens,
 		githubApp:         cfg.GitHubApp,
+		githubRunner:      cfg.GitHubRunner,
 		llmProviderSvc:    cfg.LLMProviderSvc,
 		agentCLISvc:       cfg.AgentCLISvc,
 		jobSvc:            cfg.JobSvc,

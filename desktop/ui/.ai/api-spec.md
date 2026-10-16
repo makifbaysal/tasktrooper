@@ -481,6 +481,23 @@ Settings → Integrations (`admin/GitHubCard`). `GET /v1/settings/github` → `{
 it encrypted (scopes: `repo`, `admin:repo_hook`, `read:org`); `DELETE` removes it. There is no OAuth
 hop — nothing here can hold an OAuth app's client secret or receive GitHub's callback.
 
+### This computer as a GitHub Actions runner
+
+The same card's runner section (`admin/GitHubRunnerSection`, shown with `showRunner` on Settings →
+Integrations only, not in the guided setup).
+
+- `GET /v1/settings/github/runner` → `GitHubRunnerStatus` `{supported, enabled, labels, version,
+  repos: [{repo, state, job?, last_job?, last_result?, last_finished_at?, error_code?, error_detail?}],
+  candidates}`. `state` is `stopped | installing | starting | idle | busy | error`; `candidates` are
+  the GitHub repositories of the install's projects plus the saved ones. Polled every 4 s while
+  `enabled`.
+- `PUT /v1/settings/github/runner {"enabled", "repos": ["owner/name"]}` saves and applies at once
+  and answers the new status. A repository not already on the list is checked first; a refusal is a
+  400 whose `type` is `github_runner_<code>` (`public_repo`, `needs_admin`, `not_found`,
+  `forbidden`, `invalid_repo`, `too_many_repos`, `github_not_connected`, `github_error`), worded by
+  `settings.github.runner.errors.<code>`. 503 `github_runner_unsupported_platform` where the server
+  runs none.
+
 ## Issue sync (GitHub and Jira issues)
 
 Settings → Integrations → Issue tracking (`admin/JiraCard`, `admin/IssueSyncCard`); the import

@@ -19,7 +19,7 @@ export function IntegrationsSettingsPage() {
     <div className="grid items-start gap-x-6 gap-y-8 lg:grid-cols-2">
       <div className="min-w-0 space-y-8">
         <IntegrationSection title={t("settingsPages.integrations.sections.code")}>
-          <GitHubCard />
+          <GitHubCard showRunner />
         </IntegrationSection>
         <IntegrationSection title={t("settingsPages.integrations.sections.stores")}>
           {loading ? (

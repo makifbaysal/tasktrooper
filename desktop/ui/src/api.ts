@@ -1466,6 +1466,36 @@ export interface GitHubConnectionStatus {
   expired?: boolean;
 }
 
+export type GitHubRunnerState = "stopped" | "installing" | "starting" | "idle" | "busy" | "error";
+
+export interface GitHubRunnerRepoStatus {
+  repo: string;
+  state: GitHubRunnerState;
+  /** The job running now (state "busy"). */
+  job?: string;
+  last_job?: string;
+  /** GitHub's own result word: Succeeded, Failed, Canceled. */
+  last_result?: string;
+  last_finished_at?: string;
+  /** Why it stopped (state "error"); words it from settings.github.runner.errors. */
+  error_code?: string;
+  /** GitHub's or the runner's own sentence for it. */
+  error_detail?: string;
+}
+
+/** This computer as a self-hosted GitHub Actions runner. */
+export interface GitHubRunnerStatus {
+  /** False where this install cannot run one: no data directory, or no runner package for this platform. */
+  supported: boolean;
+  enabled: boolean;
+  /** The labels a workflow's runs-on names to send a job here. */
+  labels: string[];
+  version: string;
+  repos: GitHubRunnerRepoStatus[];
+  /** The GitHub repositories of this install's projects. */
+  candidates: string[];
+}
+
 /** The device-flow sign-in in progress: the code to type and where. */
 export interface GitHubDeviceFlow {
   id: string;
@@ -4239,6 +4269,15 @@ export const api = {
 
   /** Safe to call often: the server asks GitHub no faster than GitHub allows. */
   pollGitHubDeviceFlow: (id: string) => request<GitHubDeviceFlow>(`/v1/settings/github/device/${id}`),
+
+  githubRunnerStatus: () => request<GitHubRunnerStatus>("/v1/settings/github/runner"),
+
+  /** A repository not already on the list must be private and administered by this connection; a refusal is a 400 typed "github_runner_<code>". */
+  setGitHubRunner: (data: { enabled: boolean; repos: string[] }) =>
+    request<GitHubRunnerStatus>("/v1/settings/github/runner", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
 
   githubOwners: () => request<{ owners: GitHubOwner[] }>("/v1/settings/github/owners"),
 

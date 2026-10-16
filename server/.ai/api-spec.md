@@ -792,6 +792,32 @@ repository's own `local_run` doc (`scripts/dev.sh`).
   Existing hooks are also repaired at boot, without this call and without rotating any
   secret.
 
+## This computer as a GitHub Actions runner
+
+`internal/adapter/local/ghrunner`; wired only for the install the desktop app supervises (a
+`DATA_DIR`) with Postgres connected. Config is `app_settings.github_runner`, plain JSON
+`{enabled, repos}` — no credential.
+
+- `GET /v1/settings/github/runner` → `domain.GitHubRunnerStatus` `{supported, enabled, labels,
+  version, repos[], candidates[]}`. Without the manager it answers `supported: false`.
+- `PUT /v1/settings/github/runner {"enabled", "repos": ["owner/name"]}` → the new status. At most
+  `domain.GitHubRunnerMaxRepos` (5). A repository not already saved is checked through GitHub
+  first (`GET /repos/{o}/{r}`): it must exist, be private, and the connection must have admin on
+  it. A refusal is 400 with `type: "github_runner_<code>"` (`domain.GitHubRunnerErr*`); 503
+  `github_runner_unsupported_platform` without a manager.
+
+Per repository: one install under `$DATA_DIR/github-runner/repos/<hash>` (a just-in-time runner
+writes `.runner`/`.credentials` into its root, so two cannot share one; ~450 MB each), unpacked from
+the pinned `actions/runner` package in `github-runner/dist`, verified against the digest in GitHub's
+release notes. A loop asks `POST /repos/{o}/{r}/actions/runners/generate-jitconfig` for a one-job
+runner labelled `self-hosted, <OS>, <arch>, tasktrooper`, starts `run.sh` (`run.cmd` on Windows)
+with the config in `ACTIONS_RUNNER_INPUT_JITCONFIG` (the runner deletes it from its own
+environment; never argv) and the `childenv` allowlist environment, and registers again once a job
+ran. A registration that ran no job is deleted (`DELETE …/actions/runners/{id}`); the job's
+`_work` folder is removed after every run. A failure backs off from 15 s to 5 min. Turning a
+repository off stops its runner and deletes its install; server shutdown stops every runner, a job
+in progress included.
+
 ## Issue sync (migration 183)
 
 GitHub and Jira issues imported as board tasks (`internal/application/issuesync`). Routes are
