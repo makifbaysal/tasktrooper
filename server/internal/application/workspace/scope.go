@@ -69,6 +69,13 @@ func ResolveWithinRoot(root, rel string) (string, error) {
 		return "", fmt.Errorf("path %q resolves outside the workspace root through a symlink", rel)
 	}
 
+	// Always true once the checks above pass (joined is absRoot plus cleaned
+	// segments). It is restated as a prefix test because that is the
+	// containment check CodeQL's go/path-injection query recognises: without
+	// it every path built from this result is reported as user-controlled.
+	if !strings.HasPrefix(joined, absRoot) {
+		return "", fmt.Errorf("path %q is outside the workspace root", rel)
+	}
 	return joined, nil
 }
 
