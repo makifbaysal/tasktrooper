@@ -7,16 +7,17 @@ import { I18nProvider } from "@/hooks/useI18n";
 import { writeCache } from "@/lib/uiCache";
 import { incident, opsIncidents, opsOverview, opsReleases } from "@/test/opsConsoleFixtures";
 
-const { getProjectsOverview, listIncidents, listAllReleases, listAllStoreApps } = vi.hoisted(() => ({
+const { getProjectsOverview, listIncidents, listAllReleases, listAllStoreApps, getOpsGolden } = vi.hoisted(() => ({
   getProjectsOverview: vi.fn(),
   listIncidents: vi.fn(),
   listAllReleases: vi.fn(),
   listAllStoreApps: vi.fn(),
+  getOpsGolden: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases, listAllStoreApps } };
+  return { ...actual, api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases, listAllStoreApps, getOpsGolden } };
 });
 
 import { OpsShell } from "@/components/operations/shell/OpsShell";
@@ -56,6 +57,7 @@ beforeEach(() => {
   listIncidents.mockReset().mockResolvedValue({ incidents: open(opsIncidents), count: 4 });
   listAllReleases.mockReset().mockResolvedValue({ releases: opsReleases });
   listAllStoreApps.mockReset().mockResolvedValue([]);
+  getOpsGolden.mockReset().mockResolvedValue({ generated_at: "", components: [] });
 });
 
 async function rows() {
@@ -168,6 +170,35 @@ describe("OpsExplorerPage — type lists", () => {
     expect(within(table).getByRole("columnheader", { name: /Error rate/ })).toBeInTheDocument();
     expect(within(table).getAllByText("No data source bound")).toHaveLength(3);
     expect(screen.queryByRole("group", { name: "Filter by type" })).not.toBeInTheDocument();
+  });
+
+  it("fills the golden columns from one golden read for the environment and range, with a sparkline each", async () => {
+    getOpsGolden.mockResolvedValue({
+      generated_at: "2026-10-16T10:00:00Z",
+      components: [
+        {
+          component_id: "c-api",
+          signals: [
+            { signal: "http.requests", unit: "req/s", value: 35, previous: 30, spark: [[1, 30], [2, 35]] },
+            { signal: "http.error_ratio", unit: "%", value: null, previous: null, spark: [] },
+            { signal: "http.latency", unit: "ms", value: 1500, previous: 1200, spark: [[1, 1200], [2, 1500]] },
+          ],
+        },
+      ],
+    });
+    renderAt("/operations/services?env=staging&range=6h");
+    await waitFor(async () => expect(await rowNames()).toEqual(["api"]));
+    const table = screen.getByRole("table", { name: "Entities" });
+    const row = within(table).getAllByRole("row")[1];
+    await waitFor(() => expect(within(row).getByText("1.5 s")).toBeInTheDocument());
+    expect(within(row).getByText("35 req/s")).toBeInTheDocument();
+    expect(within(row).getByTitle("No value in this range, or no data source bound")).toBeInTheDocument();
+    expect(row.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(2);
+    expect(getOpsGolden).toHaveBeenCalledTimes(1);
+    const query = getOpsGolden.mock.calls[0][0];
+    expect(query).toMatchObject({ env: "staging", componentIds: ["c-api"] });
+    expect(query.to - query.from).toBe(6 * 3_600_000);
+    expect(screen.getByRole("button", { name: /^Time range/ })).toBeInTheDocument();
   });
 
   it("has its own empty state", async () => {

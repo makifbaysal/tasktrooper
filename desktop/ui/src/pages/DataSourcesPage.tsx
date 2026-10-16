@@ -1,5 +1,5 @@
-import { Plus } from "lucide-react";
-import { useState } from "react";
+import { Cloud, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, ApiError, type DataSource } from "@/api";
@@ -7,17 +7,19 @@ import { DataSourceDetailDrawer } from "@/components/operations/sources/DataSour
 import { DataSourceForm } from "@/components/operations/sources/DataSourceForm";
 import { DataSourceList } from "@/components/operations/sources/DataSourceList";
 import { RecipeCatalog } from "@/components/operations/sources/RecipeCatalog";
+import { kindLabel, unusedCloudAccounts } from "@/components/operations/sources/dataSourceSchema";
 import { useOpsPageScope } from "@/components/operations/shell/OpsContext";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Notice } from "@/components/ui/notice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useDataSources, useRecipeCatalog } from "@/hooks/useDataSources";
+import { useCloudAccounts, useDataSources, useRecipeCatalog } from "@/hooks/useDataSources";
 import { useI18n } from "@/hooks/useI18n";
 
 type SourcesTab = "sources" | "recipes";
 
-type FormTarget = { mode: "create" } | { mode: "edit"; id: string };
+type FormTarget = { mode: "create"; initial?: { kind: string; values: Record<string, string> } } | { mode: "edit"; id: string };
 
 function isNotFound(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404;
@@ -31,6 +33,8 @@ export function DataSourcesPage() {
   const openId = params.get("source");
   const { kinds, sources, loading, upsert, remove } = useDataSources();
   const catalog = useRecipeCatalog();
+  const { accounts } = useCloudAccounts();
+  const offers = useMemo(() => unusedCloudAccounts(accounts, kinds, sources), [accounts, kinds, sources]);
   const [form, setForm] = useState<FormTarget | null>(null);
   const [verifying, setVerifying] = useState<ReadonlySet<string>>(() => new Set());
   const [deleteTarget, setDeleteTarget] = useState<DataSource | null>(null);
@@ -118,6 +122,36 @@ export function DataSourcesPage() {
         {tab === "sources" && sources.length > 0 && addButton}
       </div>
 
+      {tab === "sources" && !loading && offers.length > 0 && (
+        <div className="space-y-2">
+          {offers.map((offer) => (
+            <Notice
+              key={offer.account.id}
+              variant="info"
+              title={s("cloudOffer.title", { provider: t(`cloud.providers.${offer.account.provider}`) })}
+            >
+              <p>
+                {s("cloudOffer.body", {
+                  account: offer.account.label || offer.account.id,
+                  kind: kindLabel(t, offer.kind),
+                })}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() =>
+                  setForm({ mode: "create", initial: { kind: offer.kind.kind, values: { [offer.field.key]: offer.account.id } } })
+                }
+              >
+                <Cloud aria-hidden />
+                {s("cloudOffer.action", { kind: kindLabel(t, offer.kind) })}
+              </Button>
+            </Notice>
+          ))}
+        </div>
+      )}
+
       {tab === "recipes" ? (
         <RecipeCatalog recipes={catalog.recipes} signals={catalog.signals} kinds={kinds} loading={catalog.loading} />
       ) : loading && sources.length === 0 ? (
@@ -126,6 +160,7 @@ export function DataSourcesPage() {
         <DataSourceList
           sources={sources}
           kinds={kinds}
+          cloudAccounts={accounts}
           verifying={verifying}
           onAdd={kinds.length > 0 ? () => setForm({ mode: "create" }) : undefined}
           onOpen={(source) => setParam("source", source.id)}
@@ -138,6 +173,7 @@ export function DataSourcesPage() {
       <DataSourceDetailDrawer
         source={opened}
         kind={opened ? kinds.find((k) => k.kind === opened.kind) : undefined}
+        cloudAccounts={accounts}
         verifying={opened !== null && verifying.has(opened.id)}
         onOpenChange={(open) => !open && setParam("source", null)}
         onVerify={(source) => void verify(source)}
@@ -152,6 +188,8 @@ export function DataSourcesPage() {
           source={editing}
           onSaved={upsert}
           onGone={dropGone}
+          cloudAccounts={accounts}
+          initial={form.mode === "create" ? form.initial : undefined}
         />
       )}
 

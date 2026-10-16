@@ -166,6 +166,7 @@ export const SCREENS: ReadonlyArray<readonly [pattern: string, name: string]> = 
   ["/operations/entity/:componentId/issues", "ops_entity_issues"],
   ["/operations/entity/:componentId/queues", "ops_entity_queues"],
   ["/operations/entity/:componentId/releases", "ops_entity_releases"],
+  ["/operations/entity/:componentId/signals", "ops_entity_signals"],
   ["/files", "files"],
   ["/memory", "shared_memory"],
   ["/settings", "settings_general"],

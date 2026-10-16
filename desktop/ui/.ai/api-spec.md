@@ -763,10 +763,16 @@ code: `required`, `invalid`, `not_permitted`, `unknown_field`, `invalid_option`,
 carries `fields`; read them with `dataSourceFieldErrors(e)`.
 
 - `GET /v1/data-source-kinds` → `{kinds: DataSourceKindInfo[]}` (`api.listDataSourceKinds`). A
-  kind's `fields` (`{key, label, help, type: text|url|secret|select|headers, required, options,
-  placeholder, show_when, secret}`) are the whole add/edit form; `show_when {auth: "bearer"}`
-  shows a field only while `auth` is `bearer`, and `required` applies only then. `options` and
-  `show_when` are never null.
+  kind's `fields` (`{key, label, help, type: text|url|secret|select|headers|cloud_account,
+  required, options, placeholder, show_when, secret, provider?}`) are the whole add/edit form;
+  `show_when {auth: "bearer"}` shows a field only while `auth` is `bearer`, and `required` applies
+  only then. `options` and `show_when` are never null. A `cloud_account` field (`provider`
+  `gcp|aws`) holds the id of a connected cloud account of that provider, picked from
+  `listCloudAccounts()` (`DataSourceFieldInput`); the save checks it (`not_found`,
+  `wrong_provider`). Kinds today: `prometheus`, `gcp_monitoring` (`cloud_account_id`,
+  `project_id`), `aws_cloudwatch` (`cloud_account_id`, `region`; its query language is JSON,
+  `{namespace, metric, stat, dimensions?, period?}` or `{expression, metrics?, period?}`). A cloud
+  kind's empty `name` becomes `<kind label> · <account label>`.
 - `GET /v1/data-sources` → `{data_sources: DataSource[]}`; `GET /v1/data-sources/{id}` → one
   (`listDataSources`, `getDataSource`). `DataSource` = `{id, kind, name, config, secrets_set,
   status: ok|error|unverified, status_detail, info: {version, detail}, verified_at (null until
@@ -797,7 +803,54 @@ carries `fields`; read them with `dataSourceFieldErrors(e)`.
 - `GET /v1/signals` → `{signals: [{id, kind, unit, roles, aggregation}]}` (`listSignals`);
   `GET /v1/recipes` → `{recipes: [{id, source_kind, applies_to: {technology,
   messaging_system}, detect: {metric}, params, signals: {signal_id: query}, origin}]}`
-  (`listRecipes`). Read-only: there is no recipe write API.
+  (`listRecipes`). Read-only: there is no recipe write API. `applies_to` also carries
+  `resource_kind` and `resource_params` (which bound cloud resource a recipe fits, and which of its
+  ref's fields fill which param).
+
+## Signal bindings, series and golden metrics
+
+Which data source feeds one signal of one component in one environment, and the reads built on
+that (`pages/ops/entity/EntitySignals`, `EntitySummary`, the explorer's golden columns; hooks in
+`hooks/useOpsSignals`). Shapes mirror `server/internal/domain/signal_binding.go`; the server's
+`.ai/api-spec.md` ("Signal bindings and series") is the contract. `env` absent → `production`.
+Errors as the data source routes (`fields` 400, `bad_query`, `unsupported`, `upstream`); times
+are RFC3339.
+
+- `SignalBinding` = `{id, component_id, environment, signal, data_source_id, data_source_name,
+  data_source_kind, recipe_id, params, query, status: confirmed|suggested|dismissed, source:
+  detected|human|ai, rendered_query, needs_params, created_at, updated_at}`. A raw `query` wins
+  over a recipe; `needs_params` lists recipe params with no value (then `rendered_query` is "").
+- `GET /v1/components/{id}/signals?env=` → `ComponentSignals {component_id, role, environment,
+  signals: [{signal, kind, unit, golden, status: bound|suggested|unbound, binding, suggestions}]}`
+  (`api.getComponentSignals`): the role's signals in catalog order, then any other with a binding.
+  `POST …/signals/suggest?env=` runs the detector and answers the same (`suggestComponentSignals`).
+- `PUT /v1/components/{id}/signals/{signal}?env= {data_source_id, recipe_id?, params?, query?}` →
+  the confirmed binding (`bindComponentSignal`), replacing the slot's in place and dropping its
+  pending suggestions. 400 `fields`: `data_source_id`, `recipe_id` (`required` | `invalid` |
+  `invalid_option`), `params.<name>` (`required` | `unknown_field` | `too_long`), `query`. The
+  editor sends exactly the recipe's declared params, or `{data_source_id, query}`.
+- `POST /v1/signal-bindings/{id}/confirm` → binding (`confirmSignalBinding`); 400 `fields
+  {"params.<name>": "required"}` for a suggestion still missing one (the page opens the editor).
+  `POST …/dismiss` → 204 (409 `confirmed` for the confirmed one); `DELETE /v1/signal-bindings/{id}`
+  → 204 (`dismissSignalBinding`, `deleteSignalBinding`).
+- `POST /v1/components/{id}/signals/preview {signal, data_source_id, recipe_id?, params?, query?,
+  from, to, step_seconds?}` → `{rendered_query, series, warnings}` (`previewComponentSignal`),
+  validated as PUT; the editor sends the console's range and `charts/signalChart#autoStepSeconds`.
+- `GET /v1/components/{id}/series?env=&signals=a,b&from=&to=&step_seconds=&compare=1` →
+  `{from, to, step_seconds, signals: [{signal, unit, bound, series, previous, error}]}`
+  (`getComponentSeries(id, {env, signals, from, to, stepSeconds, compare})`, one request per page).
+  A quantile signal whose query takes `$__quantile` answers series `p50`, `p95`, `p99` (or
+  `p95 <name>` for several); `previous` is the window before, already shifted onto this one.
+  `error.code` ∈ `unknown_signal`, `needs_params`, `unsupported`, `bad_query`, `upstream`,
+  `timeout`, `not_found`, `error`; unbound = `bound: false`, no error. 90 days / 11 000 points max.
+- `GET /v1/operations/golden?env=&from=&to=&component_id=a,b` → `{generated_at, components:
+  [{component_id, signals: [{signal, unit, value, previous, spark}]}]}` (`getOpsGolden`). Only
+  components with at least one confirmed binding are listed, each with **all** its role's golden
+  signals (`catalog/observability/golden.yaml`, mirrored by `ROLE_VIEWS[role].golden`): an unbound
+  or failing one answers `null`s and an empty spark, so the answer alone cannot tell unbound from
+  no data — the Summary reads `bound` from the series answer; the explorer says "no value, or no
+  data source bound". `value` is the window's last non-null point (p95 for a quantile signal),
+  `previous` the one a span earlier. Window ≤ 30 days, rounded to the minute, cached 60 s.
 
 ## Operations: Errors inbox and Logs explorer
 

@@ -1,13 +1,17 @@
 import { Plug } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Release } from "@/api";
+import { signalChartSeries } from "@/components/operations/charts/signalChart";
 import type { DeployMarker } from "@/components/operations/charts/TimeSeriesChart";
-import { ChartSlot, DATA_SOURCES_PATH } from "@/components/operations/console/ChartSlot";
+import { ChartSlot, DATA_SOURCES_PATH, type ChartSlotStatus } from "@/components/operations/console/ChartSlot";
+import { goldenValue, indexGolden } from "@/components/operations/console/goldenMetrics";
 import { entityPath, releaseLabel, releaseTime, repositoryDeployPath } from "@/components/operations/console/opsEntities";
 import { isSevereIncident } from "@/components/operations/console/opsStatus";
-import { BUILTIN_SIGNALS, BUILTIN_TILES, viewFor, type SignalSpec } from "@/components/operations/console/roleViews";
+import { BUILTIN_SIGNALS, BUILTIN_TILES, hasTab, viewFor, type SignalSpec } from "@/components/operations/console/roleViews";
+import { signalDelta, signalFormatter, signalValueParts } from "@/components/operations/console/signalFormat";
 import { SignalTile, type SignalDelta } from "@/components/operations/console/SignalTile";
+import { SignalBindingEditor } from "@/components/operations/signals/SignalBindingEditor";
 import { DeployTimeline } from "@/components/operations/entity/DeployTimeline";
 import { EntityActivity, buildActivity } from "@/components/operations/entity/EntityActivity";
 import { inRange, previousPeriod, useOpsContext, useOpsHref, useOpsPageScope } from "@/components/operations/shell/OpsContext";
@@ -15,11 +19,18 @@ import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
 import { useEntityHealth, useEntityIncidents, useEntityReleases } from "@/hooks/useOpsEntityData";
+import { useComponentSeries, useOpsGolden } from "@/hooks/useOpsSignals";
+import { intlLocale } from "@/lib/languages";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 import type { EntitySubPageProps } from "@/pages/ops/entity/types";
 
 function at(release: Release): number {
   return Date.parse(releaseTime(release));
+}
+
+interface BindTarget {
+  signal: string;
+  unit?: string;
 }
 
 /** An entity's Summary: golden metrics, the role's golden-signal charts with
@@ -33,6 +44,42 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
 
   const view = viewFor(entity.role);
   const envLabel = t(`cloud.environments.${env}`);
+  const locale = intlLocale(lang);
+  const formatCtx = useMemo(() => ({ locale, t }), [locale, t]);
+  const [binding, setBinding] = useState<BindTarget | null>(null);
+  const chartIds = useMemo(() => view.charts.map((c) => c.id), [view]);
+  const series = useComponentSeries(entity.id, env, chartIds, range, { compare });
+  const golden = useOpsGolden(env, range, [entity.id], view.golden.length > 0);
+  const goldenIndex = useMemo(() => indexGolden(golden.data), [golden.data]);
+  const signalsHref = hasTab(entity.role, "signals") ? href(entityPath(entity.id, "signals")) : undefined;
+  const formatterFor = useMemo(() => {
+    const made = new Map<string, (v: number) => string>();
+    return (unit: string) => {
+      let format = made.get(unit);
+      if (!format) {
+        format = signalFormatter(unit, formatCtx);
+        made.set(unit, format);
+      }
+      return format;
+    };
+  }, [formatCtx]);
+  const chartLines = useMemo(
+    () =>
+      new Map(
+        view.charts.map((spec) => {
+          const sig = series.data?.signals?.find((x) => x.signal === spec.id);
+          const lines =
+            sig?.bound && !sig.error
+              ? signalChartSeries(sig, compare, {
+                  signal: t(`operations.signals.${spec.label}`),
+                  previous: (label) => t("operations.entity.summary.previousSeries", { label }),
+                })
+              : undefined;
+          return [spec.id, lines] as const;
+        }),
+      ),
+    [view, series.data, compare, t],
+  );
   const { releases, loading: releasesLoading } = useEntityReleases(entity, env);
   const { incidents, loading: incidentsLoading } = useEntityIncidents(entity, env);
   const { openIncidents } = useEntityHealth(entity, env, environment);
@@ -53,21 +100,82 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
   const syncKey = `ops:${entity.id}`;
   const lastRelease = releases[0];
 
-  const golden = (spec: SignalSpec) => (
-    <SignalTile
-      key={spec.id}
-      compact
-      label={t(`operations.signals.${spec.label}`)}
-      unit={spec.unit ? t(`operations.units.${spec.unit}`) : undefined}
-      title={t("operations.console.noMetricsSource")}
-      value={<span className="font-mono text-muted-foreground">—</span>}
-      foot={
-        <Link to={href(DATA_SOURCES_PATH)} className="text-info hover:underline">
-          {t("operations.console.connectSource")}
-        </Link>
-      }
-    />
-  );
+  const goldenTile = (spec: SignalSpec) => {
+    const label = t(`operations.signals.${spec.label}`);
+    const found = goldenValue(goldenIndex, entity.id, spec.id);
+    // The golden answer lists every golden signal of a component with any
+    // binding, bound or not; the series read is what says which are bound.
+    const sig = series.data?.signals?.find((x) => x.signal === spec.id);
+    const unbound = sig ? !sig.bound : !found && !golden.loading && !series.loading;
+    if (unbound) {
+      return (
+        <SignalTile
+          key={spec.id}
+          compact
+          label={label}
+          unit={spec.unit ? t(`operations.units.${spec.unit}`) : undefined}
+          title={t("operations.console.noMetricsSource")}
+          value={<span className="font-mono text-muted-foreground">—</span>}
+          foot={
+            <Link to={signalsHref ?? href(DATA_SOURCES_PATH)} className="text-info hover:underline">
+              {signalsHref ? s("tileFoot.bind") : t("operations.console.connectSource")}
+            </Link>
+          }
+        />
+      );
+    }
+    if (!found || found.value == null) {
+      const waiting = golden.loading || series.loading;
+      return (
+        <SignalTile
+          key={spec.id}
+          compact
+          label={label}
+          value={<span className="font-mono text-muted-foreground">—</span>}
+          foot={waiting ? null : sig?.error ? (sig.error.message || sig.error.code) : s("tileFoot.noData")}
+        />
+      );
+    }
+    const parts = signalValueParts(found.value, found.unit, formatCtx);
+    const previous = found.previous == null ? undefined : formatterFor(found.unit)(found.previous);
+    return (
+      <SignalTile
+        key={spec.id}
+        compact
+        label={label}
+        unit={parts.unit || undefined}
+        value={<span className="font-mono tabular-nums">{parts.value}</span>}
+        delta={signalDelta(spec.id, found.value, found.previous, found.unit, formatCtx)}
+        title={previous ? s("tileFoot.previousValue", { value: previous }) : undefined}
+        sparkline={found.spark?.length ? found.spark : undefined}
+        sparklineColorIndex={1}
+      />
+    );
+  };
+
+  const chartSlot = (spec: SignalSpec) => {
+    const title = t(`operations.signals.${spec.label}`);
+    const sig = series.data?.signals?.find((x) => x.signal === spec.id);
+    const failed = series.error && !series.data ? series.error : sig?.error ? sig.error.message || sig.error.code : undefined;
+    const status: ChartSlotStatus | undefined = series.loading ? undefined : failed ? "error" : sig?.bound ? "bound" : "unbound";
+    return (
+      <ChartSlot
+        key={spec.id}
+        title={title}
+        formatValue={sig ? formatterFor(sig.unit) : undefined}
+        series={chartLines.get(spec.id)}
+        status={status}
+        error={failed}
+        loading={series.loading}
+        onRetry={() => void series.reload()}
+        onBind={() => setBinding({ signal: spec.id, unit: sig?.unit })}
+        manageHref={signalsHref}
+        syncKey={syncKey}
+        deployMarkers={markers}
+        xRange={xRange}
+      />
+    );
+  };
 
   const builtin = (spec: SignalSpec) => {
     let value: ReactNode = <span className="font-mono text-muted-foreground">—</span>;
@@ -170,7 +278,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
               {s("golden")}
             </h2>
             <div className="grid grid-cols-2 gap-2 @xl:grid-cols-3 @3xl:grid-cols-4">
-              {view.golden.map(golden)}
+              {view.golden.map(goldenTile)}
               {BUILTIN_TILES.map(builtin)}
             </div>
           </section>
@@ -185,16 +293,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
             </Card>
             {view.charts.length > 0 ? (
               <div className="grid gap-3 @2xl:grid-cols-2">
-                {view.charts.map((spec) => (
-                  <ChartSlot
-                    key={spec.id}
-                    title={t(`operations.signals.${spec.label}`)}
-                    unit={spec.unit ? t(`operations.units.${spec.unit}`) : undefined}
-                    syncKey={syncKey}
-                    deployMarkers={markers}
-                    xRange={xRange}
-                  />
-                ))}
+                {view.charts.map(chartSlot)}
               </div>
             ) : (
               <Card className="px-4 py-6 text-center text-caption text-muted-foreground">{s("noCharts")}</Card>
@@ -212,6 +311,22 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
           issuesHref={href(issuesSubPath)}
         />
       </div>
+
+      {binding && (
+        <SignalBindingEditor
+          open
+          onOpenChange={(open) => !open && setBinding(null)}
+          componentId={entity.id}
+          env={env}
+          signal={binding.signal}
+          unit={binding.unit}
+          previewWindow={range}
+          onSaved={() => {
+            void series.reload();
+            void golden.reload();
+          }}
+        />
+      )}
     </div>
   );
 }

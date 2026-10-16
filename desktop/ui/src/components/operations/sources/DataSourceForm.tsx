@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, dataSourceFieldErrors, type DataSource, type DataSourceKindInfo } from "@/api";
+import { api, ApiError, dataSourceFieldErrors, type CloudAccount, type DataSource, type DataSourceKindInfo } from "@/api";
 import { FormDialog } from "@/components/admin/FormDialog";
 import {
   buildCreateRequest,
@@ -40,10 +40,21 @@ interface DataSourceFormProps {
   onSaved: (source: DataSource) => void;
   /** The edited source no longer exists (404): the caller drops it and closes the form. */
   onGone?: (source: DataSource) => void;
+  /** Connected cloud accounts, for a kind that reads through one. */
+  cloudAccounts?: CloudAccount[];
+  /** A new source's kind and settings to start from (a connected cloud
+   * account offered for metrics): the form opens on them, past the kind step. */
+  initial?: { kind: string; values: Record<string, string> };
 }
 
 function blankDraft(source?: DataSource | null): DataSourceDraft {
   return { name: source?.name ?? "", values: {}, headers: {}, removed: [] };
+}
+
+function startingDraft(kind: DataSourceKindInfo | undefined, source: DataSource | null, initial?: { values: Record<string, string> }): DataSourceDraft {
+  if (!kind) return blankDraft(source);
+  const draft = emptyDraft(kind, source);
+  return initial && !source ? { ...draft, values: { ...draft.values, ...initial.values } } : draft;
 }
 
 /**
@@ -54,16 +65,28 @@ function blankDraft(source?: DataSource | null): DataSourceDraft {
  * saved, with an error status. Mount it only while open — its state starts
  * from the props.
  */
-export function DataSourceForm({ open, onOpenChange, kinds, source = null, onSaved, onGone }: DataSourceFormProps) {
+export function DataSourceForm({
+  open,
+  onOpenChange,
+  kinds,
+  source = null,
+  onSaved,
+  onGone,
+  cloudAccounts,
+  initial,
+}: DataSourceFormProps) {
   const { t } = useI18n();
   const f = (key: string, params?: Record<string, string | number>) => t(`operations.sources.form.${key}`, params);
   const [target, setTarget] = useState<DataSource | null>(source);
-  const [phase, setPhase] = useState<Phase>(source ? "form" : "kind");
-  const [kindKey, setKindKey] = useState(source?.kind ?? "");
+  const prefilled = !source && initial ? initial : undefined;
+  const [phase, setPhase] = useState<Phase>(source || prefilled ? "form" : "kind");
+  const [kindKey, setKindKey] = useState(source?.kind ?? prefilled?.kind ?? "");
   const effectiveKindKey = kindKey || (kinds.length === 1 ? kinds[0].kind : "");
   const kind = kinds.find((k) => k.kind === effectiveKindKey);
-  const [draftKind, setDraftKind] = useState(source && kind ? kind.kind : "");
-  const [draft, setDraft] = useState<DataSourceDraft>(() => (source && kind ? emptyDraft(kind, source) : blankDraft(source)));
+  const [draftKind, setDraftKind] = useState((source || prefilled) && kind ? kind.kind : "");
+  const [draft, setDraft] = useState<DataSourceDraft>(() =>
+    (source || prefilled) && kind ? startingDraft(kind, source, prefilled) : blankDraft(source),
+  );
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -96,9 +119,9 @@ export function DataSourceForm({ open, onOpenChange, kinds, source = null, onSav
   // hidden field. Build the real draft the moment the kind is known.
   useEffect(() => {
     if (!kind || draftKind || phase !== "form") return;
-    setDraft((d) => ({ ...emptyDraft(kind, target), name: d.name || target?.name || "" }));
+    setDraft((d) => ({ ...startingDraft(kind, target, prefilled), name: d.name || target?.name || "" }));
     setDraftKind(kind.kind);
-  }, [kind, draftKind, phase, target]);
+  }, [kind, draftKind, phase, target, prefilled]);
 
   const clearError = (key: string) =>
     setErrors((prev) => {
@@ -310,7 +333,9 @@ export function DataSourceForm({ open, onOpenChange, kinds, source = null, onSav
               setDraft((d) => ({ ...d, name }));
               clearError("name");
             }}
-            placeholder={target ? undefined : f("namePlaceholder")}
+            placeholder={
+              target ? undefined : kind.fields.some((x) => x.type === "url") ? f("namePlaceholder") : f("namePlaceholderCloud")
+            }
             aria-invalid={errors.name ? true : undefined}
             aria-describedby={errors.name ? "ds-name-error" : undefined}
             autoComplete="off"
@@ -337,6 +362,7 @@ export function DataSourceForm({ open, onOpenChange, kinds, source = null, onSav
             mustResupply={resupply.includes(field.key)}
             error={errors[field.key]}
             disabled={saving}
+            cloudAccounts={cloudAccounts}
           />
         ))}
       </div>

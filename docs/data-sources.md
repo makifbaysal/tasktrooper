@@ -1,6 +1,6 @@
 ---
 title: Data sources
-description: Connecting the system that already collects your metrics, what signals and recipes are, and checking a source by hand with verify, discovery and a test query.
+description: Connecting the system that already collects your metrics (Prometheus-compatible servers, Google Cloud Monitoring, Amazon CloudWatch), what signals and recipes are, binding them to components, and checking a source by hand with verify, discovery and a test query.
 ---
 
 # Data sources
@@ -15,17 +15,21 @@ needs an answer and keeps no copy.
 Data sources live on **Operations → Settings → Data sources**
 (`/operations/sources`), the last item in the console's own column. The
 console's environment and time range do not apply on this page; **Try a
-query** has a range of its own. Today one kind exists, **Prometheus
-compatible**; other kinds (logs, error trackers, cloud monitoring) are
-planned but not built yet.
+query** has a range of its own. Three kinds exist today:
 
-Nothing else on the console reads from a data source yet. A source is not
-bound to a component, so the golden metrics and metric charts on an
-entity's Summary, the golden metric columns on Services, Web, Mobile and
-Workers, a worker's Queues and a mobile app's Crash & launch tiles stay
-empty; the tiles, charts and Queues link to this page. Binding sources to
-components comes in a later phase; for now a source is connected, checked,
-browsed and queried from here.
+| Kind | Reads | Query language |
+|---|---|---|
+| **Prometheus compatible** | Prometheus, Grafana Mimir, Cortex, Thanos, VictoriaMetrics, Grafana Cloud, … | PromQL |
+| **Google Cloud Monitoring** | Every Google Cloud metric, through a connected Google Cloud account | PromQL |
+| **Amazon CloudWatch** | Every CloudWatch metric, through a connected AWS account | CloudWatch JSON |
+
+Logs, error trackers and other kinds are planned but not built yet.
+
+A source feeds the console once its signals are **bound** to a component on
+the entity's [Signals](operations-console.md#signals) page: from then on
+the entity's Summary charts and golden metrics, and the golden metric
+columns on Services, Web, Mobile and Workers, are read from it. A worker's
+Queues and a mobile app's Crash & launch tiles do not read bindings yet.
 
 ## Signals and recipes
 
@@ -53,6 +57,20 @@ the signals it provides and the metric it is detected by. It is read-only.
 These observability recipes are unrelated to the deploy recipes on
 [Deploy targets and recipes](deploy.md).
 
+## Binding signals to components
+
+A binding says where one signal of one component is read from in one
+environment: a data source plus a recipe and its parameters, or a query of
+your own in the source's language. Bindings are made on each entity's
+**Signals** page, where **Find suggestions** offers the recipes your sources
+fit, **Accept** binds one, and the editor lets you pick a source, a recipe
+(only those written for that kind of source that provide the signal) or a
+custom query, and **Preview** it over the console's range before saving. See
+[Signals](operations-console.md#signals).
+
+A latency signal whose query uses `$__quantile` is read three times, at
+p50, p95 and p99, and drawn as three lines; its golden metric is the p95.
+
 ## Adding a Prometheus-compatible source
 
 **Add data source** opens a two-step dialog: pick the kind, then fill in its
@@ -72,6 +90,58 @@ Extra headers are where a multi-tenant Mimir or Cortex gets its tenant
 goes. Connection headers (`Host`, `Content-Length`, `Transfer-Encoding` and
 the like) and cloud metadata headers (`Metadata-Flavor`,
 `X-aws-ec2-metadata-token`) are refused.
+
+## Google Cloud Monitoring and Amazon CloudWatch
+
+These two kinds read through a cloud account you already connected under
+**Settings → Integrations**; they store no credential of their own and need
+nothing installed. When such an account is connected but no source reads
+through it yet, the Data sources page offers **Use your connected Google
+Cloud account for metrics** (or AWS): it opens the add dialog on the right
+kind with the account already picked. Left empty, a source's name becomes
+the kind and the account's name, such as `Google Cloud Monitoring · Acme
+production`.
+
+| Kind | Setting | What to enter |
+|---|---|---|
+| Google Cloud Monitoring | Google Cloud account | One of your connected Google Cloud accounts. With none, the field links to Settings → Integrations. |
+| | Project | Optional. Left empty, the account's own project. A scoping project also reads the projects in its metrics scope. |
+| Amazon CloudWatch | AWS account | One of your connected AWS accounts. |
+| | Region | Optional. Left empty, the account's own region. |
+
+**Permissions.** The Google Cloud account's service account needs the
+**Monitoring Viewer** role (`roles/monitoring.viewer`) on the project; the
+token TaskTrooper mints from its key asks only for the `monitoring.read`
+scope. The AWS account's access key needs `cloudwatch:GetMetricData` and
+`cloudwatch:ListMetrics`.
+
+**Google Cloud Monitoring** is read through its Prometheus-compatible API,
+so its queries are PromQL. A metric type such as
+`run.googleapis.com/request_count` is `run_googleapis_com:request_count`, its
+metric and resource labels are labels (`service_name`, `location`,
+`response_code_class`), the resource type is the `monitored_resource` label,
+and a distribution is a histogram (`_bucket`, `_count`, `_sum`).
+
+**Amazon CloudWatch** queries are JSON, either one metric:
+
+```json
+{"namespace": "AWS/SQS", "metric": "ApproximateNumberOfMessagesVisible",
+ "stat": "Maximum", "dimensions": {"QueueName": "orders"}}
+```
+
+or an expression over named metrics, for metric math, `SEARCH(...)` or a
+Metrics Insights `SELECT`:
+
+```json
+{"expression": "100 * errors / invocations",
+ "metrics": {"errors": {"namespace": "AWS/Lambda", "metric": "Errors", "stat": "Sum", "dimensions": {"FunctionName": "api"}},
+             "invocations": {"namespace": "AWS/Lambda", "metric": "Invocations", "stat": "Sum", "dimensions": {"FunctionName": "api"}}}}
+```
+
+`stat` is any statistic (`Sum`, `Average`, `Maximum`, `p95`, …). `period`
+(seconds: 1, 5, 10, 30 or a multiple of 60) is optional and follows the
+chart's step when left out. **Discovered metrics** lists CloudWatch metrics
+active in the last three hours as `<namespace>/<metric>`.
 
 ### Credentials stay write-only
 
@@ -109,8 +179,8 @@ that do not serve it.
 
 Click a source to open its details:
 
-- **Try a query** runs a query (PromQL for this kind) over the time range you
-  pick, from 15 minutes to 7 days, and draws the result, one line per series,
+- **Try a query** runs a query (PromQL for Prometheus and Google Cloud
+  Monitoring, JSON for CloudWatch) over the time range you pick, from 15 minutes to 7 days, and draws the result, one line per series,
   with a table view. Warnings the source returns are shown above the chart; a
   query the source refuses shows its error. At most 500 series are drawn; past
   that a warning says how many there were.
@@ -141,8 +211,29 @@ signals:
 ```
 
 Every key under `signals` must be a signal from `signals.yaml`. A query may
-use its declared `params` as `$name`, plus `$__interval` (the query step) and
-`$__rate` (a rate window of twice the step, at least two minutes). The server
+use its declared `params` as `$name`, plus `$__interval` (the query step),
+`$__rate` (a rate window of twice the step, at least two minutes) and
+`$__quantile` (the quantile a latency signal is read at: 0.5, 0.95 and 0.99
+for the three chart lines). In PromQL a param may sit only inside a
+double-quoted label value and `$__quantile` where a number goes; in
+CloudWatch JSON a param may sit only in a dimension value and `$__quantile`
+only as a whole `stat` (it becomes `p95`), and `$__rate`/`$__interval` are
+refused (the period follows the step).
+
+A cloud recipe can also say which cloud resource it fits and where its
+params come from, so a component whose environment runs on that resource is
+offered it already filled in:
+
+```yaml
+applies_to:
+  technology: cloud_run
+  resource_kind: cloud_run_service
+  resource_params: {service: name, location: region}
+```
+
+The catalog ships `gcp-cloud-run`, `gcp-gke-workload`,
+`gcp-https-loadbalancer` and `gcp-pubsub` for Google Cloud Monitoring, and
+`aws-alb`, `aws-ecs`, `aws-lambda`, `aws-sqs` and `aws-msk` for CloudWatch. The server
 checks every recipe when it starts, and its tests render each one, so a
 recipe that does not fit the rules is caught before it ships. Contributions
 of recipes for exporters you run are welcome.

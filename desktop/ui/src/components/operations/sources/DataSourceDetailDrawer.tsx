@@ -1,6 +1,6 @@
 import { Pencil, RefreshCw } from "lucide-react";
 import { useState } from "react";
-import type { DataSource, DataSourceKindInfo } from "@/api";
+import type { CloudAccount, DataSource, DataSourceKindInfo } from "@/api";
 import { kindLabel, sourceAddress } from "@/components/operations/sources/dataSourceSchema";
 import { CapabilityChips, DataSourceStatusBadge } from "@/components/operations/sources/DataSourceStatusBadge";
 import { DiscoveredMetrics } from "@/components/operations/sources/DiscoveredMetrics";
@@ -21,9 +21,20 @@ interface DataSourceDetailDrawerProps {
   onOpenChange: (open: boolean) => void;
   onVerify: (source: DataSource) => void;
   onEdit: (source: DataSource) => void;
+  cloudAccounts?: CloudAccount[];
 }
 
-export function DataSourceDetailDrawer({ source, kind, verifying, onOpenChange, onVerify, onEdit }: DataSourceDetailDrawerProps) {
+const NO_ACCOUNTS: CloudAccount[] = [];
+
+export function DataSourceDetailDrawer({
+  source,
+  kind,
+  verifying,
+  onOpenChange,
+  onVerify,
+  onEdit,
+  cloudAccounts = NO_ACCOUNTS,
+}: DataSourceDetailDrawerProps) {
   return (
     <Dialog open={source !== null} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[85vh] max-w-3xl flex-col gap-0 overflow-hidden p-0">
@@ -32,6 +43,7 @@ export function DataSourceDetailDrawer({ source, kind, verifying, onOpenChange, 
             key={source.id}
             source={source}
             kind={kind}
+            cloudAccounts={cloudAccounts}
             verifying={verifying}
             onVerify={() => onVerify(source)}
             onEdit={() => onEdit(source)}
@@ -45,16 +57,17 @@ export function DataSourceDetailDrawer({ source, kind, verifying, onOpenChange, 
 interface DrawerBodyProps {
   source: DataSource;
   kind?: DataSourceKindInfo;
+  cloudAccounts: CloudAccount[];
   verifying: boolean;
   onVerify: () => void;
   onEdit: () => void;
 }
 
-function DrawerBody({ source, kind, verifying, onVerify, onEdit }: DrawerBodyProps) {
+function DrawerBody({ source, kind, cloudAccounts, verifying, onVerify, onEdit }: DrawerBodyProps) {
   const { t, lang } = useI18n();
   const s = (key: string, params?: Record<string, string | number>) => t(`operations.sources.${key}`, params);
   const [query, setQuery] = useState("");
-  const address = sourceAddress(source, kind);
+  const address = sourceAddress(source, kind, cloudAccounts);
   const metrics = (source.capabilities ?? []).includes("metrics");
   const kindName = kind ? kindLabel(t, kind) : s("unknownKind", { kind: source.kind });
   const version = source.info?.version;

@@ -1,5 +1,5 @@
 import { Database, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import type { DataSource, DataSourceKindInfo } from "@/api";
+import type { CloudAccount, DataSource, DataSourceKindInfo } from "@/api";
 import { kindLabel, sourceAddress } from "@/components/operations/sources/dataSourceSchema";
 import { CapabilityChips, DataSourceStatusBadge } from "@/components/operations/sources/DataSourceStatusBadge";
 import { Button } from "@/components/ui/button";
@@ -18,11 +18,16 @@ interface DataSourceListProps {
   onVerify: (source: DataSource) => void;
   onEdit: (source: DataSource) => void;
   onDelete: (source: DataSource) => void;
+  /** Labels the account a cloud kind reads through. */
+  cloudAccounts?: CloudAccount[];
 }
+
+const NO_ACCOUNTS: CloudAccount[] = [];
 
 export function DataSourceList({
   sources,
   kinds,
+  cloudAccounts = NO_ACCOUNTS,
   verifying,
   onAdd,
   onOpen,
@@ -74,6 +79,7 @@ export function DataSourceList({
                 key={source.id}
                 source={source}
                 kind={kinds.find((k) => k.kind === source.kind)}
+                cloudAccounts={cloudAccounts}
                 verifying={verifying.has(source.id)}
                 onOpen={() => onOpen(source)}
                 onVerify={() => onVerify(source)}
@@ -91,6 +97,7 @@ export function DataSourceList({
 interface DataSourceRowProps {
   source: DataSource;
   kind?: DataSourceKindInfo;
+  cloudAccounts: CloudAccount[];
   verifying: boolean;
   onOpen: () => void;
   onVerify: () => void;
@@ -98,10 +105,10 @@ interface DataSourceRowProps {
   onDelete: () => void;
 }
 
-function DataSourceRow({ source, kind, verifying, onOpen, onVerify, onEdit, onDelete }: DataSourceRowProps) {
+function DataSourceRow({ source, kind, cloudAccounts, verifying, onOpen, onVerify, onEdit, onDelete }: DataSourceRowProps) {
   const { t, lang } = useI18n();
   const s = (key: string, params?: Record<string, string | number>) => t(`operations.sources.${key}`, params);
-  const address = sourceAddress(source, kind);
+  const address = sourceAddress(source, kind, cloudAccounts);
   const version = source.info?.version;
 
   return (

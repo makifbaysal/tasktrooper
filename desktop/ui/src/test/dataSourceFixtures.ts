@@ -1,4 +1,11 @@
-import type { DataSource, DataSourceField, DataSourceKindInfo, ObservabilityRecipe, ObservabilitySignal } from "@/api";
+import type {
+  CloudAccount,
+  DataSource,
+  DataSourceField,
+  DataSourceKindInfo,
+  ObservabilityRecipe,
+  ObservabilitySignal,
+} from "@/api";
 
 function field(partial: Partial<DataSourceField> & Pick<DataSourceField, "key" | "label" | "type">): DataSourceField {
   return {
@@ -57,6 +64,38 @@ export const prometheusKind: DataSourceKindInfo = {
   ],
 };
 
+/** Google Cloud Monitoring as the server lists it: it reads through a connected account. */
+export const gcpMonitoringKind: DataSourceKindInfo = {
+  kind: "gcp_monitoring",
+  label: "Google Cloud Monitoring",
+  description: "Server description of Cloud Monitoring.",
+  capabilities: ["metrics"],
+  fields: [
+    field({
+      key: "cloud_account_id",
+      label: "Google Cloud account",
+      type: "cloud_account",
+      provider: "gcp",
+      required: true,
+      help: "Its service account needs the Monitoring Viewer role (roles/monitoring.viewer) on the project.",
+    }),
+    field({ key: "project_id", label: "Project", type: "text", placeholder: "the account's project" }),
+  ],
+};
+
+export function cloudAccount(overrides: Partial<CloudAccount> = {}): CloudAccount {
+  return {
+    id: "acc-gcp",
+    provider: "gcp",
+    label: "Acme production",
+    meta: { project_id: "acme-prod" },
+    status: "ok",
+    created_at: "2026-10-15T09:00:00Z",
+    updated_at: "2026-10-15T09:00:00Z",
+    ...overrides,
+  };
+}
+
 /** A kind the locale files know nothing about: everything must come from the server. */
 export const lokiKind: DataSourceKindInfo = {
   kind: "loki",
@@ -92,7 +131,7 @@ export const recipes: ObservabilityRecipe[] = [
   {
     id: "rabbitmq-prometheus",
     source_kind: "prometheus",
-    applies_to: { technology: "rabbitmq", messaging_system: "rabbitmq" },
+    applies_to: { technology: "rabbitmq", messaging_system: "rabbitmq", resource_kind: "", resource_params: {} },
     detect: { metric: "rabbitmq_queue_messages_ready" },
     params: ["queue", "vhost"],
     signals: { "queue.backlog": "sum(...)", "queue.consumers": "sum(...)" },
@@ -101,7 +140,7 @@ export const recipes: ObservabilityRecipe[] = [
   {
     id: "otel-http",
     source_kind: "prometheus",
-    applies_to: { technology: "", messaging_system: "" },
+    applies_to: { technology: "", messaging_system: "", resource_kind: "", resource_params: {} },
     detect: { metric: "http_server_request_duration_seconds_count" },
     params: null,
     signals: { "http.requests": "sum(...)" },

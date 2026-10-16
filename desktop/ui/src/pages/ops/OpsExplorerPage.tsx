@@ -33,8 +33,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/hooks/useI18n";
+import { indexGolden } from "@/components/operations/console/goldenMetrics";
 import { useAllStoreApps } from "@/hooks/useMobileReleases";
 import { useOpsConsole } from "@/hooks/useOpsConsole";
+import { useOpsGolden } from "@/hooks/useOpsSignals";
 
 function isStatus(value: string | null): value is OpsStatus {
   return OPS_STATUSES.some((s) => s === value);
@@ -49,11 +51,13 @@ interface OpsExplorerPageProps {
 export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
   const { t } = useI18n();
   const x = (key: string, params?: Record<string, string | number>) => t(`operations.explorer.${key}`, params);
-  const { env } = useOpsContext();
+  const { env, range } = useOpsContext();
   const href = useOpsHref();
   const [params, setParams] = useSearchParams();
   const groupId = useId();
-  useOpsPageScope({ time: false, note: x("timeNote") });
+  const golden = type ? goldenColumnsFor(type) : [];
+  // The golden columns read the window; the rest of the list never does.
+  useOpsPageScope(golden.length > 0 ? { time: true, compare: false } : { time: false, note: x("timeNote") });
 
   const { entities, loading: entitiesLoading, error: entitiesError } = useOpsEntities();
   const { repositories, projects } = useOpsDirectory();
@@ -84,6 +88,9 @@ export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
     );
 
   const scoped = useMemo(() => (type ? entities.filter((e) => entityTypeOf(e.role) === type) : entities), [entities, type]);
+  const scopedIds = useMemo(() => scoped.map((e) => e.id), [scoped]);
+  const goldenRead = useOpsGolden(env, range, scopedIds, golden.length > 0);
+  const goldenValues = useMemo(() => indexGolden(goldenRead.data), [goldenRead.data]);
   const rows = useMemo(() => {
     const built = buildExplorerRows({ entities: scoped, repositories, incidents, releases, environment: env });
     const own = type ? built.filter((r) => r.kind === "entity") : built;
@@ -102,7 +109,6 @@ export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
   const openIssues = uniqueIncidents(rows.filter((r) => rowMatches(r, filter, "health"))).length;
   const hasUnassigned = rows.some((r) => r.projectIds.length === 0);
   const envLabel = t(`cloud.environments.${env}`);
-  const golden = type ? goldenColumnsFor(type) : [];
   const entityRows = rows.filter((r) => r.kind === "entity");
   const nothingReports = entityRows.length > 0 && entityRows.every((r) => !r.environment);
   const filtered = filter.health !== ALL || filter.query.trim() !== "" || filter.projectId !== ALL || (!type && filter.type !== ALL);
@@ -244,7 +250,13 @@ export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
           />
         </Card>
       ) : (
-        <EntityTable rows={visible} golden={golden} groupByType={groupByType} showType={!type || type === "mobile"} />
+        <EntityTable
+          rows={visible}
+          golden={golden}
+          goldenValues={goldenValues}
+          groupByType={groupByType}
+          showType={!type || type === "mobile"}
+        />
       )}
     </div>
   );

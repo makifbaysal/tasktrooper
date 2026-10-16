@@ -1,7 +1,8 @@
 import { Plug } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Sparkline } from "@/components/operations/charts/Sparkline";
+import { goldenValue, type GoldenIndex } from "@/components/operations/console/goldenMetrics";
 import { HealthSquare, healthReasonText } from "@/components/operations/console/HealthSquare";
 import {
   entityPath,
@@ -13,10 +14,12 @@ import {
   type ExplorerRowType,
 } from "@/components/operations/console/opsEntities";
 import type { SignalSpec } from "@/components/operations/console/roleViews";
+import { formatSignalValue, type SignalFormatContext } from "@/components/operations/console/signalFormat";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
 import { storePlatformLabelKey } from "@/components/operations/storeTestBuilds";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
+import { intlLocale } from "@/lib/languages";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 
 const GROUP_ORDER: ExplorerRowType[] = ["services", "web", "mobile", "workers", "other", "repository"];
@@ -29,6 +32,8 @@ interface EntityTableProps {
   groupByType?: boolean;
   showType?: boolean;
   series?: RowSeries;
+  /** The golden metrics read for the rows' environment and range. */
+  goldenValues?: GoldenIndex;
 }
 
 const TH = "px-3 py-2 text-left text-micro font-medium tracking-wide text-muted-foreground uppercase whitespace-nowrap";
@@ -36,8 +41,10 @@ const TD = "px-3 py-2 align-middle";
 
 /** The explorer's dense list: health, name, type, the type's golden metrics
  * (blank until a data source is bound), errors, open issues and last deploy. */
-export function EntityTable({ rows, golden = [], groupByType = false, showType = true, series }: EntityTableProps) {
-  const { t } = useI18n();
+export function EntityTable({ rows, golden = [], groupByType = false, showType = true, series, goldenValues }: EntityTableProps) {
+  const { t, lang } = useI18n();
+  const locale = intlLocale(lang);
+  const formatCtx = useMemo<SignalFormatContext>(() => ({ locale, t }), [locale, t]);
   const withTrend = series !== undefined && rows.some((r) => (series.get(r.key)?.length ?? 0) > 0);
   const columnCount = 5 + (showType ? 1 : 0) + golden.length + (withTrend ? 1 : 0);
 
@@ -59,7 +66,6 @@ export function EntityTable({ rows, golden = [], groupByType = false, showType =
               {golden.map((spec) => (
                 <th key={spec.id} scope="col" className={cn(TH, "text-right")} title={t(`operations.signals.${spec.label}`)}>
                   {t(`operations.signals.${spec.short ?? spec.label}`)}
-                  {spec.unit && <span className="ml-1 normal-case tracking-normal">({t(`operations.units.${spec.unit}`)})</span>}
                 </th>
               ))}
               {withTrend && <th scope="col" className={TH}>{t("operations.explorer.columns.trend")}</th>}
@@ -79,7 +85,15 @@ export function EntityTable({ rows, golden = [], groupByType = false, showType =
                 </tr>
               )}
               {group.rows.map((row) => (
-                <EntityTableRow key={row.key} row={row} golden={golden} showType={showType} trend={withTrend ? (series?.get(row.key) ?? []) : undefined} />
+                <EntityTableRow
+                  key={row.key}
+                  row={row}
+                  golden={golden}
+                  showType={showType}
+                  trend={withTrend ? (series?.get(row.key) ?? []) : undefined}
+                  goldenValues={goldenValues}
+                  formatCtx={formatCtx}
+                />
               ))}
             </tbody>
           ))}
@@ -103,9 +117,24 @@ interface RowProps {
   golden: SignalSpec[];
   showType: boolean;
   trend?: Array<[number, number | null]>;
+  goldenValues?: GoldenIndex;
+  formatCtx: SignalFormatContext;
 }
 
-function EntityTableRow({ row, golden, showType, trend }: RowProps) {
+function GoldenCell({ spec, componentId, values, formatCtx }: { spec: SignalSpec; componentId?: string; values?: GoldenIndex; formatCtx: SignalFormatContext }) {
+  const { t } = useI18n();
+  const found = values ? goldenValue(values, componentId, spec.id) : undefined;
+  if (!found) return <Blank label={t("operations.explorer.noSource")} />;
+  if (found.value == null) return <Blank label={t("operations.explorer.noValue")} />;
+  return (
+    <span className="inline-flex items-center justify-end gap-2">
+      {found.spark?.length > 0 && <Sparkline points={found.spark} width={48} height={16} />}
+      <span className="text-foreground">{formatSignalValue(found.value, found.unit, formatCtx)}</span>
+    </span>
+  );
+}
+
+function EntityTableRow({ row, golden, showType, trend, goldenValues, formatCtx }: RowProps) {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const href = useOpsHref();
@@ -167,8 +196,8 @@ function EntityTableRow({ row, golden, showType, trend }: RowProps) {
         </td>
       )}
       {golden.map((spec) => (
-        <td key={spec.id} className={cn(TD, "text-right font-mono tabular-nums")}>
-          <Blank label={t("operations.explorer.noSource")} />
+        <td key={spec.id} className={cn(TD, "whitespace-nowrap text-right font-mono tabular-nums")}>
+          <GoldenCell spec={spec} componentId={isEntity ? row.entityId : undefined} values={goldenValues} formatCtx={formatCtx} />
         </td>
       ))}
       {trend !== undefined && (

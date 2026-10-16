@@ -1,8 +1,11 @@
-import type { DataSourceField } from "@/api";
+import { Link } from "react-router-dom";
+import type { CloudAccount, DataSourceField } from "@/api";
 import {
+  cloudAccountsFor,
   fieldErrorText,
   fieldHelp,
   fieldLabel,
+  fieldPlaceholder,
   isSecretField,
   optionLabel,
   type HeaderRow,
@@ -30,6 +33,15 @@ interface DataSourceFieldInputProps {
   /** A field error code (required, invalid, …). */
   error?: string;
   disabled?: boolean;
+  /** Every connected cloud account; a `cloud_account` field lists its provider's. */
+  cloudAccounts?: CloudAccount[];
+}
+
+export const INTEGRATIONS_PATH = "/settings/integrations";
+
+function accountDetail(account: CloudAccount): string {
+  const meta = account.meta ?? {};
+  return meta.project_id || meta.account_id || meta.client_email || meta.region || "";
 }
 
 /** One field of a kind's schema, drawn from its type alone — no per-kind UI. */
@@ -46,6 +58,7 @@ export function DataSourceFieldInput({
   mustResupply = false,
   error,
   disabled = false,
+  cloudAccounts = [],
 }: DataSourceFieldInputProps) {
   const { t } = useI18n();
   const f = (key: string, params?: Record<string, string | number>) => t(`operations.sources.form.${key}`, params);
@@ -65,7 +78,37 @@ export function DataSourceFieldInput({
   const invalid = error ? true : undefined;
 
   let control;
-  if (headers) {
+  const accounts = field.type === "cloud_account" ? cloudAccountsFor(cloudAccounts, field) : [];
+  const providerName = field.provider ? t(`cloud.providers.${field.provider}`) : t("operations.sources.form.cloudAccountAny");
+  if (field.type === "cloud_account" && accounts.length === 0) {
+    control = (
+      <div id={id} className="rounded-md border border-dashed border-border px-3 py-2.5 text-caption" aria-describedby={describedBy}>
+        <p className="text-muted-foreground">{f("noCloudAccount", { provider: providerName })}</p>
+        <Link to={INTEGRATIONS_PATH} className="font-medium text-info hover:underline">
+          {f("connectCloudAccount")}
+        </Link>
+      </div>
+    );
+  } else if (field.type === "cloud_account") {
+    control = (
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id={id} aria-invalid={invalid} aria-describedby={describedBy}>
+          <SelectValue placeholder={f("cloudAccountPlaceholder", { provider: providerName })} />
+        </SelectTrigger>
+        <SelectContent>
+          {accounts.map((account) => {
+            const detail = accountDetail(account);
+            return (
+              <SelectItem key={account.id} value={account.id}>
+                {account.label || account.id}
+                {detail && detail !== account.label && <span className="ml-2 font-mono text-muted-foreground">{detail}</span>}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    );
+  } else if (headers) {
     control = (
       <HeadersEditor
         rows={headerRows}
@@ -99,7 +142,7 @@ export function DataSourceFieldInput({
         type={secret ? "password" : field.type === "url" ? "url" : "text"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={secret && stored && !mustResupply ? f("secretSavedPlaceholder") : field.placeholder}
+        placeholder={secret && stored && !mustResupply ? f("secretSavedPlaceholder") : fieldPlaceholder(t, kind, field)}
         aria-invalid={invalid}
         aria-describedby={describedBy}
         autoComplete={secret ? "new-password" : "off"}
@@ -112,7 +155,7 @@ export function DataSourceFieldInput({
 
   return (
     <div className="space-y-1.5" data-ds-field={field.key}>
-      <Label id={ids.label} htmlFor={headers ? undefined : id}>
+      <Label id={ids.label} htmlFor={headers || (field.type === "cloud_account" && accounts.length === 0) ? undefined : id}>
         {label}
         {!field.required && <span className="ml-1 font-normal text-muted-foreground">({f("optional")})</span>}
       </Label>

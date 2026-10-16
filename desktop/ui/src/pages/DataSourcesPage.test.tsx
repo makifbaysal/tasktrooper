@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { writeCache } from "@/lib/uiCache";
-import { dataSource, prometheusKind, recipes, signals } from "@/test/dataSourceFixtures";
+import { cloudAccount, dataSource, gcpMonitoringKind, prometheusKind, recipes, signals } from "@/test/dataSourceFixtures";
 
 const { plots, FakePlot } = vi.hoisted(() => {
   const plots: { opts: { series: { label?: string }[] }; data: unknown[] }[] = [];
@@ -40,6 +40,7 @@ const apiMock = vi.hoisted(() => ({
   deleteDataSource: vi.fn(),
   discoverDataSource: vi.fn(),
   queryDataSource: vi.fn(),
+  listCloudAccounts: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -74,12 +75,13 @@ function renderPage(path = "/operations/sources") {
 
 beforeEach(() => {
   sessionStorage.clear();
-  for (const key of ["kinds", "list", "recipes", "signals"]) writeCache(`operations.sources.${key}`, undefined);
+  for (const key of ["kinds", "list", "recipes", "signals", "cloudAccounts"]) writeCache(`operations.sources.${key}`, undefined);
   plots.length = 0;
   Object.values(apiMock).forEach((fn) => fn.mockReset());
   apiMock.listDataSourceKinds.mockResolvedValue({ kinds: [prometheusKind] });
   apiMock.listDataSources.mockResolvedValue({ data_sources: [healthy, broken, fresh] });
   apiMock.listRecipes.mockResolvedValue({ recipes });
+  apiMock.listCloudAccounts.mockResolvedValue({ accounts: [] });
   apiMock.listSignals.mockResolvedValue({ signals });
   apiMock.discoverDataSource.mockResolvedValue({
     metrics: ["rabbitmq_queue_messages_ready", "up"],
@@ -93,8 +95,32 @@ describe("DataSourcesPage", () => {
     apiMock.listDataSources.mockResolvedValue({ data_sources: [] });
     renderPage();
     expect(await screen.findByText("Connect where your metrics already live")).toBeInTheDocument();
-    expect(screen.getByText(/Anything Prometheus-compatible can be connected today/)).toBeInTheDocument();
+    expect(screen.getByText(/Google Cloud Monitoring and Amazon CloudWatch can be connected today/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Add data source" })).toBeEnabled());
+  });
+
+  it("offers a connected Google Cloud account no source reads yet, opening the add dialog filled in", async () => {
+    apiMock.listDataSourceKinds.mockResolvedValue({ kinds: [prometheusKind, gcpMonitoringKind] });
+    apiMock.listCloudAccounts.mockResolvedValue({ accounts: [cloudAccount()] });
+    renderPage();
+    expect(await screen.findByText("Use your connected Google Cloud account for metrics")).toBeInTheDocument();
+    expect(screen.getByText(/Acme production is connected, but no data source reads its metrics yet/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add Google Cloud Monitoring" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a data source" });
+    expect(within(dialog).getByText("Kind: Google Cloud Monitoring")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Google Cloud account")).toHaveTextContent("Acme production");
+  });
+
+  it("offers nothing once a source reads through the account", async () => {
+    apiMock.listDataSourceKinds.mockResolvedValue({ kinds: [prometheusKind, gcpMonitoringKind] });
+    apiMock.listCloudAccounts.mockResolvedValue({ accounts: [cloudAccount()] });
+    apiMock.listDataSources.mockResolvedValue({
+      data_sources: [healthy, dataSource({ id: "ds-gcp", kind: "gcp_monitoring", name: "Cloud Monitoring", config: { cloud_account_id: "acc-gcp" } })],
+    });
+    renderPage();
+    const table = await screen.findByRole("table", { name: "Data sources" });
+    await waitFor(() => expect(within(table).getByText("Acme production")).toBeInTheDocument());
+    expect(screen.queryByText("Use your connected Google Cloud account for metrics")).not.toBeInTheDocument();
   });
 
   it("lists each source with its address, kind, capabilities and status", async () => {

@@ -1,6 +1,6 @@
 ---
 title: Operations console
-description: The cross-repository console for what your components do once they run: entities and their health, the Errors inbox, Logs, Changes, Issues, mobile releases and data sources, and how the top bar's environment and time range apply.
+description: The cross-repository console for what your components do once they run: entities and their health, metric charts and golden metrics from bound signals, the Errors inbox, Logs, Changes, Issues, mobile releases and data sources, and how the top bar's environment and time range apply.
 ---
 
 # Operations console
@@ -15,9 +15,11 @@ Each component that runs is an **entity** with a page of its own. The
 console reads what TaskTrooper already stores (connected environments,
 releases, incidents) and what the providers you connected answer: Vercel,
 Google Cloud, AWS, App Store Connect and Google Play. Metric charts and
-golden metrics are the exception: they stay empty until data sources are
-bound to components, which is a later phase. Until then they show an empty
-slot, and the tiles and charts link to [Data sources](data-sources.md).
+golden metrics come from [data sources](data-sources.md): each of a
+component's **signals** (request rate, latency, queue backlog, …) is
+**bound** to a source on the entity's [Signals](#signals) page, and from
+then on its chart and golden metric are drawn from that source. A signal
+that is not bound yet shows an empty slot with a way to bind it.
 
 ## Navigation
 
@@ -62,9 +64,10 @@ Beside the page title, the top bar holds the controls every page shares:
   3 or 7 days) or **Custom range…**, a start and an end. The default is the
   last hour. A preset window slides with the clock, its end moving to now
   every minute; a custom range stays where you put it.
-- **Compare with previous period**, shown on an entity's Summary. Today it
-  adds to the **Deploys** tile how many deploys the period of the same
-  length just before had.
+- **Compare with previous period**, shown on an entity's Summary. It draws
+  the period of the same length just before as dashed lines on every chart,
+  labelled "previous period", and adds to the **Deploys** tile how many
+  deploys that period had.
 - **Refresh** reads the page again now and moves a preset window to now.
   "Updated …" says how long ago that was. Most pages also read again on
   their own, every 15 seconds to a minute; Logs reads only when asked, or
@@ -81,7 +84,7 @@ most of them put a note in its place saying what the page shows instead.
 
 | Page | What it shows |
 |---|---|
-| All entities and the four type lists | Errors over the last 24 hours and the issues open now, whatever the range |
+| All entities | Errors over the last 24 hours and the issues open now, whatever the range |
 | Issues, and an entity's Issues | Every issue open now. With **Include resolved and ignored** on, the picker comes back and closed issues are listed when they were happening at some point in the range |
 | A mobile entity's Releases | Read live from App Store Connect and Google Play; neither the range nor the environment applies |
 | A worker's Queues, and Data sources | Neither the range nor the environment applies |
@@ -97,6 +100,9 @@ Elsewhere the range applies, with three exceptions:
   whatever the range.
 - On an entity's Summary, the **Errors (24 h)** tile is the last 24 hours
   whatever the range.
+- On Services, Web, Mobile and Workers the range drives only the golden
+  metric columns; **Errors (24 h)** and **Open issues** stay as on All
+  entities.
 
 ## Entities and health
 
@@ -159,10 +165,17 @@ number of open issues in the environment, which opens Issues. Then:
   environment.
 
 On Services, Web, Mobile and Workers the list adds that type's golden
-metric columns: response time, throughput and error rate for services; LCP
-and page views for web; crash-free users and rollout for mobile; backlog
-and consume rate for workers. They read "—" until a data source is bound to
-the component.
+metric columns: response time, throughput and error rate for services; LCP,
+page views and INP for web; crash-free users, cold start and ANR rate for
+mobile; backlog, consume rate and processing errors for workers. Each cell
+is the signal's latest value in the range, with its unit (`120 ms`,
+`1.5 s`, `35 req/s`, `0.4%`), and a small sparkline of the range. These
+pages offer the time picker for that reason. The whole list is read at
+once, for the environment and range picked, so the values of every row
+arrive together. A cell reads "—" while the signal has no data source bound;
+hover it to see why. A component with some signals bound but no value for
+this one in the range also reads "—", with "No value in this range, or no
+data source bound".
 
 An entity that is not connected in the environment picked has a
 **Connect** link. It opens its repository's **Deploy & Runtime** tab, where
@@ -180,9 +193,9 @@ The sections depend on the role:
 
 | Role | Sections |
 |---|---|
-| Backend, Frontend, Desktop | Summary, Errors, Logs, Changes, Issues |
-| Worker | Summary, Queues, Errors, Logs, Changes, Issues |
-| Mobile | Summary, Releases, Errors, Logs, Changes, Issues |
+| Backend, Frontend, Desktop | Summary, Errors, Logs, Changes, Issues, Signals |
+| Worker | Summary, Queues, Errors, Logs, Changes, Issues, Signals |
+| Mobile | Summary, Releases, Errors, Logs, Changes, Issues, Signals |
 | Library, CLI, Infra, Data, Game, Other | Summary, Changes, Issues |
 
 Errors, Logs, Changes and Issues are the console pages described below,
@@ -192,8 +205,14 @@ say so. A link to a section the role does not have opens Summary.
 
 **Summary** has three parts:
 
-- **Golden metrics**: the role's golden signals, empty until a data source
-  is bound, then the tiles TaskTrooper fills itself. **Errors (24 h)**,
+- **Golden metrics**: the role's golden signals, each its latest value in
+  the range with its unit, the change against the period just before (for
+  example `+20% vs previous period`) and a sparkline. The change is coloured
+  by what the signal means: up is bad for latency, error rate, backlog and
+  errors, good for throughput, page views and crash-free users; under 1%
+  reads "No change". A signal that is
+  not bound reads "—" with **Bind a data source**, which opens Signals.
+  Then come the tiles TaskTrooper fills itself. **Errors (24 h)**,
   **Open issues** in this environment, **Deploys** in the range (with the
   previous period's count when compare is on), **Last deploy** (version,
   status and when) and **Runs on** (the provider, or Custom URL, and the
@@ -203,15 +222,63 @@ say so. A link to a section the role does not have opens Summary.
   throughput, error rate and CPU for a service; backlog, consume rate,
   oldest message and processing errors for a worker; LCP, page views, INP
   and JavaScript errors for a web app; crash-free users, cold start, ANR rate
-  and rollout for a mobile app. The charts stay empty, with **Connect a data
-  source**, until a data source is bound to the component. Other roles have
-  no standard signals yet.
+  and rollout for a mobile app; crash-free users, crash rate and cold start
+  for a desktop app. Other roles have no standard signals yet. Once a signal
+  is bound its chart draws the range from that source, with the deploy
+  markers and a crosshair shared by every chart. Response time draws its
+  p50, p95 and p99 as three lines with a legend when the binding reads
+  quantiles; with **Compare with previous period** on, each line gets a
+  dashed twin for the period before. Values carry their unit, and the y axis
+  switches to seconds, minutes or KB…GB when the numbers get large. A chart
+  that is not bound reads "No data source bound" with **Bind**, which opens
+  the binding editor right there, and **Manage signals**; a chart whose read
+  failed says why, with **Retry**; one that is bound but has nothing in the
+  range says so.
 - **Activity**: the deploys and issues in the range, newest first, each
   opening its change or issue, with links to all changes and all issues. An
   issue that started before the range shows where it was last seen.
 
 A worker's **Queues** waits on the broker's metrics the same way: until a
 data source sends them, it shows only the way to connect one.
+
+### Signals
+
+**Signals**, the last section of a service, web app, worker, mobile or
+desktop app, says where each of the component's signals is read from in the
+environment picked. A binding belongs to one component in one environment,
+so production and staging can read from different sources. The list holds
+the role's signals (the golden ones marked **Golden**) and any other signal
+that has a binding. For each: its status (**Bound**, **Suggested** or **Not
+bound**), the data source and who set it (detected, by hand or by an
+agent), the recipe or **Custom query**, the recipe's parameters, and a
+sparkline of the range for a bound one.
+
+- **Find suggestions** looks through your data sources for what fits. It
+  lists the metric names of every metrics source and offers each recipe
+  whose telltale metric is there, with its parameters filled from the label
+  values that best name the component (its name, directory, package or cloud
+  resource). When the environment runs on a connected cloud resource (a Cloud
+  Run service, an ECS service, a Lambda function, …), the matching cloud
+  recipe on a source that reads through the same cloud account is offered
+  with its parameters taken from the resource. Suggestions appear under their
+  signal.
+- **Accept** binds a suggestion in one click. A suggestion that could not
+  fill every parameter shows what it needs and offers **Review** instead,
+  which opens the editor with what it has. **Dismiss** hides a suggestion for
+  good: it is not offered again.
+- **Bind** or **Edit** opens the editor: pick a metrics data source, then
+  either a **Recipe** (only the recipes written for that kind of source that
+  provide the signal are listed, with the recipe's query and one field per
+  parameter) or a **Custom query** in the source's own language (PromQL for
+  Prometheus and Google Cloud Monitoring, JSON for CloudWatch). **Preview**
+  runs it over the console's range before anything is saved and draws it,
+  with the query as it was sent and any warnings. **Save** makes it the
+  signal's binding, replacing the one before and any waiting suggestions.
+- **Remove** drops the binding after asking; the chart and golden metric go
+  back to empty. The data source is not touched.
+
+With no metrics data source connected yet, the page says so and links to
+Data sources.
 
 ## Errors inbox
 
@@ -518,8 +585,10 @@ Connecting the stores, the app lifecycle and which machine builds are on
 ## Data sources
 
 **Settings → Data sources**, the last item in the console's column, is
-where you connect the system that already collects your metrics, check it,
-browse what it holds and try a query. See [Data sources](data-sources.md).
+where you connect the system that already collects your metrics (a
+Prometheus-compatible server, Google Cloud Monitoring or Amazon CloudWatch
+through a connected cloud account), check it, browse what it holds and try
+a query. See [Data sources](data-sources.md).
 
 ## See also
 
@@ -528,5 +597,5 @@ browse what it holds and try a query. See [Data sources](data-sources.md).
 - [Deploy targets and recipes](deploy.md): the release flow behind Changes
 - [Mobile devices and store releases](mobile-releases.md): store
   credentials, onboarding and release engines
-- [Data sources](data-sources.md): connecting Prometheus-compatible sources,
-  signals and recipes
+- [Data sources](data-sources.md): connecting Prometheus-compatible
+  sources, Google Cloud Monitoring and Amazon CloudWatch, signals and recipes

@@ -1,8 +1,8 @@
 import type { ComponentRole } from "@/api";
 
-export type EntityTab = "summary" | "queues" | "releases" | "errors" | "logs" | "changes" | "issues";
+export type EntityTab = "summary" | "queues" | "releases" | "errors" | "logs" | "changes" | "issues" | "signals";
 
-export const ENTITY_TABS: EntityTab[] = ["summary", "queues", "releases", "errors", "logs", "changes", "issues"];
+export const ENTITY_TABS: EntityTab[] = ["summary", "queues", "releases", "errors", "logs", "changes", "issues", "signals"];
 
 export type SignalUnit = "percent" | "ms" | "perSecond" | "seconds" | "cores";
 
@@ -61,32 +61,54 @@ const CRASH_FREE: SignalSpec = { id: "mobile.crash_free_users", label: "mobileCr
 const COLD_START: SignalSpec = { id: "mobile.cold_start", label: "mobileColdStart", unit: "ms" };
 const ANR_RATE: SignalSpec = { id: "mobile.anr_rate", label: "mobileAnrRate", unit: "percent" };
 const ROLLOUT: SignalSpec = { id: "mobile.rollout_fraction", label: "mobileRollout", unit: "percent" };
+const CRASH_RATE: SignalSpec = { id: "mobile.crash_rate", label: "mobileCrashRate", unit: "percent" };
+
+// The rest of the signal catalog: never a chart slot, but a component can
+// still bind them on its Signals page.
+const OTHER_SIGNALS: SignalSpec[] = [
+  { id: "infra.memory", label: "infraMemory" },
+  { id: "infra.instances", label: "infraInstances" },
+  { id: "infra.restarts", label: "infraRestarts" },
+  { id: "infra.throttles", label: "infraThrottles", unit: "perSecond" },
+  { id: "queue.publish_rate", label: "queuePublishRate", unit: "perSecond" },
+  { id: "queue.dead_letter", label: "queueDeadLetter" },
+  { id: "queue.consumers", label: "queueConsumers" },
+  { id: "web.sessions", label: "webSessions" },
+  { id: "web.cls", label: "webCls", short: "webClsShort" },
+  { id: "web.ttfb", label: "webTtfb", short: "webTtfbShort", unit: "ms" },
+];
 
 const BASE_TABS: EntityTab[] = ["summary", "errors", "logs", "changes", "issues"];
 const NO_RUNTIME: ViewSpec = { tabs: ["summary", "changes", "issues"], golden: [], charts: [] };
 
+// `golden` is the server's list for the role (catalog/observability/golden.yaml),
+// the signals GET /v1/operations/golden answers.
 export const ROLE_VIEWS: Record<ComponentRole, ViewSpec> = {
   backend: {
-    tabs: BASE_TABS,
+    tabs: [...BASE_TABS, "signals"],
     golden: [RESPONSE_TIME, THROUGHPUT, ERROR_RATE],
     charts: [RESPONSE_TIME, THROUGHPUT, ERROR_RATE, CPU],
   },
   worker: {
-    tabs: ["summary", "queues", "errors", "logs", "changes", "issues"],
-    golden: [BACKLOG, CONSUME_RATE],
+    tabs: ["summary", "queues", "errors", "logs", "changes", "issues", "signals"],
+    golden: [BACKLOG, CONSUME_RATE, PROCESS_ERRORS],
     charts: [BACKLOG, CONSUME_RATE, BACKLOG_AGE, PROCESS_ERRORS],
   },
   frontend: {
-    tabs: BASE_TABS,
-    golden: [LCP, PAGE_VIEWS],
+    tabs: [...BASE_TABS, "signals"],
+    golden: [LCP, PAGE_VIEWS, INP],
     charts: [LCP, PAGE_VIEWS, INP, JS_ERRORS],
   },
   mobile: {
-    tabs: ["summary", "releases", "errors", "logs", "changes", "issues"],
-    golden: [CRASH_FREE, ROLLOUT],
+    tabs: ["summary", "releases", "errors", "logs", "changes", "issues", "signals"],
+    golden: [CRASH_FREE, COLD_START, ANR_RATE],
     charts: [CRASH_FREE, COLD_START, ANR_RATE, ROLLOUT],
   },
-  desktop: { tabs: BASE_TABS, golden: [], charts: [] },
+  desktop: {
+    tabs: [...BASE_TABS, "signals"],
+    golden: [CRASH_FREE, CRASH_RATE, COLD_START],
+    charts: [CRASH_FREE, CRASH_RATE, COLD_START],
+  },
   library: NO_RUNTIME,
   cli: NO_RUNTIME,
   infra: NO_RUNTIME,
@@ -97,6 +119,18 @@ export const ROLE_VIEWS: Record<ComponentRole, ViewSpec> = {
 
 export function viewFor(role: ComponentRole | undefined): ViewSpec {
   return (role && ROLE_VIEWS[role]) || NO_RUNTIME;
+}
+
+const SIGNAL_SPECS = new Map<string, SignalSpec>(
+  [...Object.values(ROLE_VIEWS).flatMap((v) => v.charts), ...OTHER_SIGNALS].map((spec) => [spec.id, spec]),
+);
+
+export const CATALOG_SIGNALS: SignalSpec[] = [...SIGNAL_SPECS.values()];
+
+/** The console's spec for a catalog signal id; one the console does not know
+ * yet is labelled by its id. */
+export function signalSpec(id: string): SignalSpec | undefined {
+  return SIGNAL_SPECS.get(id);
 }
 
 export function isEntityTab(value: string | null | undefined): value is EntityTab {

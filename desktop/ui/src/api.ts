@@ -3299,11 +3299,13 @@ export interface NewLinkRequest {
 
 export type DataSourceCapability = "metrics" | "logs" | "traces" | "errors" | "crashes" | "rum" | "queues";
 
-export type DataSourceFieldType = "text" | "url" | "secret" | "select" | "headers";
+export type DataSourceFieldType = "text" | "url" | "secret" | "select" | "headers" | "cloud_account";
 
 /** One entry of a kind's config form. `show_when` shows the field only while
  * every named field holds the given value; `required` applies only then. A
- * `secret` field (and every `secret`/`headers` type) goes in `secrets`. */
+ * `secret` field (and every `secret`/`headers` type) goes in `secrets`. A
+ * `cloud_account` field holds the id of a connected cloud account of
+ * `provider`. */
 export interface DataSourceField {
   key: string;
   label: string;
@@ -3314,6 +3316,7 @@ export interface DataSourceField {
   placeholder: string;
   show_when: Record<string, string>;
   secret: boolean;
+  provider?: CloudProviderKind;
 }
 
 export interface DataSourceKindInfo {
@@ -3403,11 +3406,148 @@ export interface ObservabilitySignal {
 export interface ObservabilityRecipe {
   id: string;
   source_kind: string;
-  applies_to: { technology: string; messaging_system: string };
+  /** `resource_kind`: the cloud resource an environment must run on for the
+   * recipe to fit; `resource_params`: param → the resource ref field filling it. */
+  applies_to: {
+    technology: string;
+    messaging_system: string;
+    resource_kind: string;
+    resource_params: Record<string, string>;
+  };
   detect: { metric: string };
   params: string[] | null;
   signals: Record<string, string>;
   origin: "catalog" | "user";
+}
+
+// Signal bindings: which data source (and recipe, or query of its own) feeds
+// one signal of one component in one environment.
+
+export type SignalBindingStatus = "confirmed" | "suggested" | "dismissed";
+
+export type SignalBindingSource = "detected" | "human" | "ai";
+
+export interface SignalBinding {
+  id: string;
+  component_id: string;
+  environment: DeployEnvironment;
+  signal: string;
+  data_source_id: string;
+  data_source_name: string;
+  data_source_kind: string;
+  recipe_id: string;
+  params: Record<string, string>;
+  query: string;
+  status: SignalBindingStatus;
+  source: SignalBindingSource;
+  rendered_query: string;
+  /** Recipe params a suggestion could not fill on its own. */
+  needs_params: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type ComponentSignalStatus = "bound" | "suggested" | "unbound";
+
+export interface ComponentSignal {
+  signal: string;
+  kind: SignalKind;
+  unit: string;
+  golden: boolean;
+  status: ComponentSignalStatus;
+  binding: SignalBinding | null;
+  suggestions: SignalBinding[];
+}
+
+export interface ComponentSignals {
+  component_id: string;
+  role: ComponentRole;
+  environment: DeployEnvironment;
+  signals: ComponentSignal[];
+}
+
+/** A recipe with its params, or a query of the source's own language. */
+export interface SaveSignalBindingRequest {
+  data_source_id: string;
+  recipe_id?: string;
+  params?: Record<string, string>;
+  query?: string;
+}
+
+/** from/to are RFC3339. */
+export interface SignalPreviewRequest extends SaveSignalBindingRequest {
+  signal: string;
+  from: string;
+  to: string;
+  step_seconds?: number;
+}
+
+export interface SignalPreview {
+  rendered_query: string;
+  series: MetricSeries[];
+  warnings: string[];
+}
+
+export interface SignalSeriesError {
+  code: string;
+  message: string;
+}
+
+/** One signal's window. `previous` is the period before, already shifted onto
+ * this window's time axis; `http.latency` answers one series per quantile
+ * (`p50`, `p95`, `p99`). */
+export interface SignalSeries {
+  signal: string;
+  unit: string;
+  bound: boolean;
+  series: MetricSeries[];
+  previous: MetricSeries[];
+  error: SignalSeriesError | null;
+}
+
+export interface ComponentSeries {
+  from: string;
+  to: string;
+  step_seconds: number;
+  signals: SignalSeries[];
+}
+
+export interface ComponentSeriesQuery {
+  env: DeployEnvironment;
+  signals: string[];
+  from: number;
+  to: number;
+  stepSeconds?: number;
+  compare?: boolean;
+}
+
+export interface GoldenSignalValue {
+  signal: string;
+  unit: string;
+  value: number | null;
+  previous: number | null;
+  spark: MetricPoint[];
+}
+
+export interface GoldenComponent {
+  component_id: string;
+  signals: GoldenSignalValue[];
+}
+
+export interface OpsGolden {
+  generated_at: string;
+  components: GoldenComponent[];
+}
+
+export interface OpsGoldenQuery {
+  env: DeployEnvironment;
+  from: number;
+  to: number;
+  componentIds?: string[];
+}
+
+function envQuery(env: DeployEnvironment): string {
+  return `?env=${encodeURIComponent(env)}`;
 }
 
 // The server gives a source up to 45s to answer a discover or a query; the
@@ -6281,6 +6421,68 @@ export const api = {
   listSignals: () => request<{ signals: ObservabilitySignal[] }>("/v1/signals"),
 
   listRecipes: () => request<{ recipes: ObservabilityRecipe[] }>("/v1/recipes"),
+
+  // ---- Signal bindings, series and golden metrics ----------------------
+
+  getComponentSignals: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentSignals>(`/v1/components/${encodeURIComponent(componentId)}/signals${envQuery(env)}`),
+
+  suggestComponentSignals: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentSignals>(
+      `/v1/components/${encodeURIComponent(componentId)}/signals/suggest${envQuery(env)}`,
+      { method: "POST" },
+    ),
+
+  bindComponentSignal: (componentId: string, signal: string, env: DeployEnvironment, body: SaveSignalBindingRequest) =>
+    request<SignalBinding>(
+      `/v1/components/${encodeURIComponent(componentId)}/signals/${encodeURIComponent(signal)}${envQuery(env)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
+
+  confirmSignalBinding: (id: string) =>
+    request<SignalBinding>(`/v1/signal-bindings/${encodeURIComponent(id)}/confirm`, { method: "POST" }),
+
+  dismissSignalBinding: (id: string) =>
+    request<void>(`/v1/signal-bindings/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
+
+  deleteSignalBinding: (id: string) => request<void>(`/v1/signal-bindings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  // Errors as queryDataSource: 400 "bad_query" or `fields`, 422 "unsupported", 502 "upstream".
+  previewComponentSignal: (componentId: string, body: SignalPreviewRequest) =>
+    request<SignalPreview>(
+      `/v1/components/${encodeURIComponent(componentId)}/signals/preview`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  getComponentSeries: (componentId: string, query: ComponentSeriesQuery) => {
+    const qs = new URLSearchParams({
+      env: query.env,
+      signals: query.signals.join(","),
+      from: new Date(query.from).toISOString(),
+      to: new Date(query.to).toISOString(),
+    });
+    if (query.stepSeconds) qs.set("step_seconds", String(query.stepSeconds));
+    if (query.compare) qs.set("compare", "1");
+    return request<ComponentSeries>(
+      `/v1/components/${encodeURIComponent(componentId)}/series?${qs.toString()}`,
+      {},
+      DATA_SOURCE_UPSTREAM_TIMEOUT_MS,
+    );
+  },
+
+  getOpsGolden: (query: OpsGoldenQuery) =>
+    request<OpsGolden>(
+      `/v1/operations/golden${opsQueryString(
+        [
+          ["env", query.env],
+          ["from", new Date(query.from).toISOString()],
+          ["to", new Date(query.to).toISOString()],
+        ],
+        query.componentIds,
+      )}`,
+      {},
+      DATA_SOURCE_UPSTREAM_TIMEOUT_MS,
+    ),
 
   // ---- Releases & delivery --------------------------------------
 

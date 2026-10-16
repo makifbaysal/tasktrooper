@@ -18,15 +18,20 @@ vi.mock("uplot", () => ({
   },
 }));
 
-const { getProjectsOverview, listIncidents, listAllReleases } = vi.hoisted(() => ({
+const { getProjectsOverview, listIncidents, listAllReleases, getComponentSeries, getOpsGolden } = vi.hoisted(() => ({
   getProjectsOverview: vi.fn(),
   listIncidents: vi.fn(),
   listAllReleases: vi.fn(),
+  getComponentSeries: vi.fn(),
+  getOpsGolden: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases } };
+  return {
+    ...actual,
+    api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases, getComponentSeries, getOpsGolden },
+  };
 });
 
 import { OpsShell } from "@/components/operations/shell/OpsShell";
@@ -100,6 +105,15 @@ beforeEach(() => {
     return Promise.resolve({ incidents: list, count: list.length });
   });
   listAllReleases.mockReset().mockResolvedValue({ releases: opsReleases });
+  getComponentSeries.mockReset().mockImplementation((_id: string, q: { signals: string[] }) =>
+    Promise.resolve({
+      from: "",
+      to: "",
+      step_seconds: 60,
+      signals: q.signals.map((signal) => ({ signal, unit: "ms", bound: false, series: [], previous: [], error: null })),
+    }),
+  );
+  getOpsGolden.mockReset().mockResolvedValue({ generated_at: "", components: [] });
 });
 
 async function sections(name: string) {
@@ -121,15 +135,15 @@ describe("OpsEntityPage", () => {
 
   it("gives each role its own sections", async () => {
     renderAt("/operations/entity/c-api/summary");
-    expect(await sections("api")).toEqual(["Summary", "Errors", "Logs", "Changes", "Issues"]);
+    expect(await sections("api")).toEqual(["Summary", "Errors", "Logs", "Changes", "Issues", "Signals"]);
   });
 
   it("adds Queues for a worker and Releases for a mobile app", async () => {
     const worker = renderAt("/operations/entity/c-queue/summary");
-    expect(await sections("mailer")).toEqual(["Summary", "Queues", "Errors", "Logs", "Changes", "Issues"]);
+    expect(await sections("mailer")).toEqual(["Summary", "Queues", "Errors", "Logs", "Changes", "Issues", "Signals"]);
     worker.unmount();
     const mobile = renderAt("/operations/entity/c-ios/summary");
-    expect(await sections("ios")).toEqual(["Summary", "Releases", "Errors", "Logs", "Changes", "Issues"]);
+    expect(await sections("ios")).toEqual(["Summary", "Releases", "Errors", "Logs", "Changes", "Issues", "Signals"]);
     mobile.unmount();
     renderAt("/operations/entity/c-lib/summary");
     expect(await sections("ui-kit")).toEqual(["Summary", "Changes", "Issues"]);
@@ -158,7 +172,12 @@ describe("OpsEntityPage", () => {
   it("shows golden metrics blank until bound, the window's deploys and its activity", async () => {
     renderAt(`/operations/entity/c-api/summary?${ON_THE_15TH}`);
     expect(await screen.findByRole("heading", { level: 3, name: /^Response time/ })).toBeInTheDocument();
-    expect(screen.getAllByTitle("No data source bound").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByTitle("No data source bound").length).toBeGreaterThan(0));
+    expect(screen.getAllByRole("button", { name: /^Bind a data source to / }).length).toBe(4);
+    expect(getComponentSeries).toHaveBeenCalledWith(
+      "c-api",
+      expect.objectContaining({ env: "production", signals: ["http.latency", "http.requests", "http.error_ratio", "infra.cpu"] }),
+    );
     expect(screen.getByRole("button", { name: /^Time range/ })).toBeInTheDocument();
     expect(screen.getByText("Compare with previous period")).toBeInTheDocument();
 
@@ -172,6 +191,73 @@ describe("OpsEntityPage", () => {
     expect(within(activity).getByText("1.4.0")).toBeInTheDocument();
     expect(within(activity).queryByText("Incident i-pre")).not.toBeInTheDocument();
     expect(listAllReleases).toHaveBeenCalledWith(expect.objectContaining({ componentId: "c-api", limit: 100 }));
+  });
+
+  it("draws bound signals live: quantiles, the previous period dashed with compare on, a failed read with Retry", async () => {
+    const pts = (v: number): Array<[number, number | null]> => [[DAY + 3_600_000, v], [DAY + 7_200_000, v + 10]];
+    getComponentSeries.mockResolvedValue({
+      from: "",
+      to: "",
+      step_seconds: 600,
+      signals: [
+        {
+          signal: "http.latency",
+          unit: "ms",
+          bound: true,
+          series: [{ name: "p95", labels: {}, points: pts(120) }, { name: "p50", labels: {}, points: pts(40) }, { name: "p99", labels: {}, points: pts(300) }],
+          previous: [{ name: "p95", labels: {}, points: pts(100) }],
+          error: null,
+        },
+        { signal: "http.requests", unit: "req/s", bound: true, series: [], previous: [], error: { code: "upstream", message: "prometheus: 502 Bad Gateway" } },
+        { signal: "http.error_ratio", unit: "%", bound: false, series: [], previous: [], error: null },
+        { signal: "infra.cpu", unit: "cores", bound: true, series: [], previous: [], error: null },
+      ],
+    });
+    getOpsGolden.mockResolvedValue({
+      generated_at: "",
+      components: [
+        {
+          component_id: "c-api",
+          signals: [
+            { signal: "http.latency", unit: "ms", value: 120, previous: 100, spark: pts(110) },
+            { signal: "http.requests", unit: "req/s", value: null, previous: null, spark: [] },
+            { signal: "http.error_ratio", unit: "%", value: null, previous: null, spark: [] },
+          ],
+        },
+      ],
+    });
+    renderAt(`/operations/entity/c-api/summary?${ON_THE_15TH}&compare=1`);
+
+    const latency = (await screen.findByRole("heading", { level: 3, name: "Response time" })).parentElement!.parentElement!;
+    const legend = await within(latency).findByRole("list", { name: "Series" });
+    expect(within(legend).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["p50", "p95", "p99", "p95 · previous period"]);
+    await waitFor(() =>
+      expect(getComponentSeries).toHaveBeenCalledWith("c-api", expect.objectContaining({ compare: true, stepSeconds: 600 })),
+    );
+
+    const throughput = screen.getByRole("heading", { level: 3, name: "Throughput" }).parentElement!.parentElement!;
+    expect(within(throughput).getByText("Couldn't read this signal")).toBeInTheDocument();
+    expect(within(throughput).getByText("prometheus: 502 Bad Gateway")).toBeInTheDocument();
+    const calls = getComponentSeries.mock.calls.length;
+    fireEvent.click(within(throughput).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(getComponentSeries.mock.calls.length).toBe(calls + 1));
+
+    const errorRate = screen.getByRole("heading", { level: 3, name: "Error rate" }).parentElement!.parentElement!;
+    expect(within(errorRate).getByText("No data source bound")).toBeInTheDocument();
+    expect(within(errorRate).getByRole("link", { name: "Manage signals" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/operations/entity/c-api/signals"),
+    );
+    const cpu = screen.getByRole("heading", { level: 3, name: "CPU" }).parentElement!.parentElement!;
+    expect(within(cpu).getByText("No data in this range")).toBeInTheDocument();
+
+    const tile = screen.getByText("Response time", { selector: "p" }).closest("div") as HTMLElement;
+    expect(within(tile).getByText("120")).toBeInTheDocument();
+    expect(within(tile).getByText("ms")).toBeInTheDocument();
+    expect(within(tile).getByText("+20%")).toHaveClass("text-destructive");
+    expect(within(tile).getByText("vs previous period")).toBeInTheDocument();
+    const rateTile = screen.getByText("Error rate", { selector: "p" }).closest("div") as HTMLElement;
+    expect(within(rateTile).getByRole("link", { name: "Bind a data source" })).toBeInTheDocument();
   });
 
   it("reads a sole component's releases by repository", async () => {

@@ -15,12 +15,14 @@ import {
   optionLabel,
   secretsToResupply,
   seriesLabel,
+  sourceAddress,
   toChartSeries,
+  unusedCloudAccounts,
   validateDraft,
   visibleFields,
   type DataSourceDraft,
 } from "@/components/operations/sources/dataSourceSchema";
-import { prometheusKind, savedSource } from "@/test/dataSourceFixtures";
+import { cloudAccount, dataSource, gcpMonitoringKind, prometheusKind, savedSource } from "@/test/dataSourceFixtures";
 
 function draftWith(patch: Partial<DataSourceDraft> & { values?: Record<string, string> }, source?: DataSource) {
   const base = emptyDraft(prometheusKind, source);
@@ -216,5 +218,30 @@ describe("query results", () => {
 
   it("joins header rows into Name: value lines", () => {
     expect(headersToText([newHeaderRow(" A ", " 1 "), newHeaderRow("", "x"), newHeaderRow("B", "")])).toBe("A: 1\nB: ");
+  });
+});
+
+describe("cloud accounts", () => {
+  const gcp = cloudAccount();
+  const gcp2 = cloudAccount({ id: "acc-gcp-2", label: "Acme staging" });
+  const aws = cloudAccount({ id: "acc-aws", provider: "aws", label: "Acme AWS" });
+  const vercel = cloudAccount({ id: "acc-vercel", provider: "vercel", label: "Acme Vercel" });
+
+  it("offers, per provider, the first account no source reads through, with the kind that can", () => {
+    const offers = unusedCloudAccounts([gcp, gcp2, aws, vercel], [prometheusKind, gcpMonitoringKind], []);
+    expect(offers.map((o) => [o.account.id, o.kind.kind, o.field.key])).toEqual([["acc-gcp", "gcp_monitoring", "cloud_account_id"]]);
+  });
+
+  it("skips an account a source already reads through", () => {
+    const used = dataSource({ id: "ds-gcp", kind: "gcp_monitoring", config: { cloud_account_id: "acc-gcp" } });
+    expect(unusedCloudAccounts([gcp, gcp2], [gcpMonitoringKind], [used]).map((o) => o.account.id)).toEqual(["acc-gcp-2"]);
+    expect(unusedCloudAccounts([gcp], [gcpMonitoringKind], [used])).toEqual([]);
+  });
+
+  it("shows a cloud kind's source by its account, not an address", () => {
+    const source = dataSource({ kind: "gcp_monitoring", config: { cloud_account_id: "acc-gcp" } });
+    expect(sourceAddress(source, gcpMonitoringKind, [gcp])).toBe("Acme production");
+    expect(sourceAddress(source, gcpMonitoringKind, [])).toBe("acc-gcp");
+    expect(sourceAddress(savedSource, prometheusKind, [gcp])).toBe("https://prom.example.com");
   });
 });

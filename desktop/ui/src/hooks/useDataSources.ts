@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { api, type DataSource, type DataSourceKindInfo, type ObservabilityRecipe, type ObservabilitySignal } from "@/api";
+import {
+  api,
+  type CloudAccount,
+  type DataSource,
+  type DataSourceKindInfo,
+  type ObservabilityRecipe,
+  type ObservabilitySignal,
+} from "@/api";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
@@ -12,6 +19,7 @@ const CACHE_KINDS = "operations.sources.kinds";
 const CACHE_SOURCES = "operations.sources.list";
 const CACHE_RECIPES = "operations.sources.recipes";
 const CACHE_SIGNALS = "operations.sources.signals";
+const CACHE_CLOUD_ACCOUNTS = "operations.sources.cloudAccounts";
 
 /** The configured data sources and the kinds they can be, cached and
  * re-read every minute so a check run from elsewhere (another window, an
@@ -91,4 +99,28 @@ export function useRecipeCatalog() {
   }, [t, setRecipes, setSignals, setLoading]);
 
   return { recipes, signals, loading };
+}
+
+/** The connected cloud accounts a `cloud_account` field picks from, re-read
+ * with the data sources so one connected in Settings meanwhile shows up. A
+ * failed read keeps the last list: it only fills a picker and an offer. */
+export function useCloudAccounts() {
+  const [accounts, setAccounts] = useCachedState<CloudAccount[]>(CACHE_CLOUD_ACCOUNTS, []);
+  const [loading, setLoading] = useFirstLoad(CACHE_CLOUD_ACCOUNTS);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.listCloudAccounts();
+      const next = res?.accounts ?? [];
+      setAccounts((prev) => keepEqual(prev, next));
+    } catch {
+      // The picker says how to connect one; nothing else depends on this read.
+    } finally {
+      setLoading(false);
+    }
+  }, [setAccounts, setLoading]);
+
+  usePolling(load, DATA_SOURCES_POLL_MS, true);
+
+  return { accounts, loading, reload: load };
 }

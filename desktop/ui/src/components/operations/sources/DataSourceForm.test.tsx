@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type DataSource, type DataSourceKindInfo } from "@/api";
 import { DataSourceForm } from "@/components/operations/sources/DataSourceForm";
 import { I18nProvider } from "@/hooks/useI18n";
-import { dataSource, lokiKind, prometheusKind } from "@/test/dataSourceFixtures";
+import { cloudAccount, dataSource, gcpMonitoringKind, lokiKind, prometheusKind } from "@/test/dataSourceFixtures";
+import { MemoryRouter } from "react-router-dom";
 
 // jsdom has no layout engine; Radix Select scrolls the open item into view.
 if (!Element.prototype.scrollIntoView) {
@@ -257,5 +258,80 @@ describe("DataSourceForm — refused saves", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Save and check" }));
     await waitFor(() => expect(onGone).toHaveBeenCalledWith(source));
+  });
+});
+
+describe("DataSourceForm — a kind that reads through a cloud account", () => {
+  const gcpAccount = cloudAccount();
+  const awsAccount = cloudAccount({ id: "acc-aws", provider: "aws", label: "Acme AWS", meta: { account_id: "1234" } });
+
+  function renderCloud(props: Partial<React.ComponentProps<typeof DataSourceForm>> = {}) {
+    const onSaved = vi.fn();
+    render(
+      <MemoryRouter>
+        <I18nProvider>
+          <DataSourceForm
+            open
+            onOpenChange={() => {}}
+            kinds={[prometheusKind, gcpMonitoringKind]}
+            onSaved={onSaved}
+            cloudAccounts={[gcpAccount, awsAccount]}
+            {...props}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+    return { onSaved };
+  }
+
+  it("picks the account from the connected ones of the field's provider only, and saves its id", async () => {
+    createDataSource.mockResolvedValue(dataSource({ id: "ds-gcp", kind: "gcp_monitoring", config: { cloud_account_id: "acc-gcp" } }));
+    renderCloud();
+    fireEvent.click(screen.getByRole("radio", { name: /Google Cloud Monitoring/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByText(/Monitoring Viewer role \(roles\/monitoring.viewer\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Project/)).toHaveAttribute("placeholder", "The account's project");
+
+    fireEvent.click(screen.getByLabelText("Google Cloud account"));
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Acme productionacme-prod"]);
+    fireEvent.click(options[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Save and check" }));
+    await waitFor(() =>
+      expect(createDataSource).toHaveBeenCalledWith({ kind: "gcp_monitoring", config: { cloud_account_id: "acc-gcp" }, secrets: {} }),
+    );
+  });
+
+  it("says how to connect an account when the provider has none, and asks for one before saving", () => {
+    renderCloud({ cloudAccounts: [awsAccount] });
+    fireEvent.click(screen.getByRole("radio", { name: /Google Cloud Monitoring/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByText("No Google Cloud account is connected yet.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connect one in Settings → Integrations" })).toHaveAttribute("href", "/settings/integrations");
+    fireEvent.click(screen.getByRole("button", { name: "Save and check" }));
+    expect(screen.getByText("Required.")).toBeInTheDocument();
+    expect(createDataSource).not.toHaveBeenCalled();
+  });
+
+  it("words the server's refusals of an account", async () => {
+    createDataSource
+      .mockRejectedValueOnce(new ApiError("invalid", 400, "", { cloud_account_id: "wrong_provider" }))
+      .mockRejectedValueOnce(new ApiError("invalid", 400, "", { cloud_account_id: "not_found" }))
+      .mockRejectedValueOnce(new ApiError("invalid", 400, "", { cloud_account_id: "not_permitted" }));
+    renderCloud({ initial: { kind: "gcp_monitoring", values: { cloud_account_id: "acc-gcp" } } });
+    const save = () => fireEvent.click(screen.getByRole("button", { name: "Save and check" }));
+    save();
+    expect(await screen.findByText("That account belongs to another cloud provider.")).toBeInTheDocument();
+    save();
+    expect(await screen.findByText("That account is no longer connected.")).toBeInTheDocument();
+    save();
+    expect(await screen.findByText("Cloud accounts can't be used for data sources in this setup.")).toBeInTheDocument();
+  });
+
+  it("opens past the kind step with the offered kind and account filled in", () => {
+    renderCloud({ initial: { kind: "gcp_monitoring", values: { cloud_account_id: "acc-gcp" } } });
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.getByText("Kind: Google Cloud Monitoring")).toBeInTheDocument();
+    expect(screen.getByLabelText("Google Cloud account")).toHaveTextContent("Acme production");
   });
 });

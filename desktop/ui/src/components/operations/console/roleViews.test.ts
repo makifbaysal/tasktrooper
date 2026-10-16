@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { COMPONENT_ROLES } from "@/api";
-import { BUILTIN_TILES, ROLE_VIEWS, entitySectionPath, hasTab, isBuiltinSignal, tabOrDefault, viewFor } from "@/components/operations/console/roleViews";
+import {
+  BUILTIN_TILES,
+  CATALOG_SIGNALS,
+  ROLE_VIEWS,
+  entitySectionPath,
+  hasTab,
+  isBuiltinSignal,
+  signalSpec,
+  tabOrDefault,
+  viewFor,
+} from "@/components/operations/console/roleViews";
 import { en } from "@/locales/en";
 
 describe("ROLE_VIEWS", () => {
@@ -13,13 +23,39 @@ describe("ROLE_VIEWS", () => {
   });
 
   it("gives every running role the base sections and its own extra", () => {
-    expect(ROLE_VIEWS.backend.tabs).toEqual(["summary", "errors", "logs", "changes", "issues"]);
-    expect(ROLE_VIEWS.frontend.tabs).toEqual(["summary", "errors", "logs", "changes", "issues"]);
-    expect(ROLE_VIEWS.worker.tabs).toEqual(["summary", "queues", "errors", "logs", "changes", "issues"]);
-    expect(ROLE_VIEWS.mobile.tabs).toEqual(["summary", "releases", "errors", "logs", "changes", "issues"]);
+    expect(ROLE_VIEWS.backend.tabs).toEqual(["summary", "errors", "logs", "changes", "issues", "signals"]);
+    expect(ROLE_VIEWS.frontend.tabs).toEqual(["summary", "errors", "logs", "changes", "issues", "signals"]);
+    expect(ROLE_VIEWS.desktop.tabs).toEqual(["summary", "errors", "logs", "changes", "issues", "signals"]);
+    expect(ROLE_VIEWS.worker.tabs).toEqual(["summary", "queues", "errors", "logs", "changes", "issues", "signals"]);
+    expect(ROLE_VIEWS.mobile.tabs).toEqual(["summary", "releases", "errors", "logs", "changes", "issues", "signals"]);
     expect(hasTab("backend", "queues")).toBe(false);
     expect(hasTab("worker", "queues")).toBe(true);
     expect(hasTab("mobile", "releases")).toBe(true);
+  });
+
+  it("gives Signals, last, to exactly the roles with golden signals", () => {
+    for (const role of COMPONENT_ROLES) {
+      const view = ROLE_VIEWS[role];
+      expect(view.tabs.includes("signals"), role).toBe(view.golden.length > 0);
+      if (view.golden.length > 0) expect(view.tabs.at(-1), role).toBe("signals");
+    }
+  });
+
+  it("matches the server's golden lists (catalog/observability/golden.yaml)", () => {
+    const ids = (role: keyof typeof ROLE_VIEWS) => ROLE_VIEWS[role].golden.map((g) => g.id).sort();
+    expect(ids("backend")).toEqual(["http.error_ratio", "http.latency", "http.requests"]);
+    expect(ids("worker")).toEqual(["process.errors", "queue.backlog", "queue.consume_rate"]);
+    expect(ids("frontend")).toEqual(["web.inp", "web.lcp", "web.page_views"]);
+    expect(ids("mobile")).toEqual(["mobile.anr_rate", "mobile.cold_start", "mobile.crash_free_users"]);
+    expect(ids("desktop")).toEqual(["mobile.cold_start", "mobile.crash_free_users", "mobile.crash_rate"]);
+  });
+
+  it("labels every catalog signal", () => {
+    for (const spec of CATALOG_SIGNALS) {
+      expect(en.operations.signals, spec.id).toHaveProperty(spec.label);
+      expect(signalSpec(spec.id)).toBe(spec);
+    }
+    expect(signalSpec("nope.signal")).toBeUndefined();
   });
 
   it("keeps only changes and issues for roles with no runtime to watch", () => {

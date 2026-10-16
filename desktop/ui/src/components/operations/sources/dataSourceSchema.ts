@@ -1,4 +1,6 @@
 import type {
+  CloudAccount,
+  CloudProviderKind,
   DataSource,
   DataSourceCapability,
   DataSourceField,
@@ -283,6 +285,10 @@ export function fieldHelp(t: Translate, kind: string, field: DataSourceField): s
   );
 }
 
+export function fieldPlaceholder(t: Translate, kind: string, field: DataSourceField): string {
+  return firstTranslated(t, [`${NS}.kinds.${kind}.fields.${field.key}.placeholder`], field.placeholder ?? "");
+}
+
 export function optionLabel(t: Translate, kind: string, field: DataSourceField, option: string): string {
   return firstTranslated(
     t,
@@ -303,10 +309,56 @@ export function fieldErrorText(t: Translate, key: string, code: string): string 
   return firstTranslated(t, [`${NS}.errors.byField.${key}.${code}`, `${NS}.errors.${code}`], code);
 }
 
-/** The address a source points at, for the list: its first URL-typed field. */
-export function sourceAddress(source: DataSource, kind?: DataSourceKindInfo): string {
-  const urlKey = kind?.fields.find((f) => f.type === "url")?.key ?? "url";
-  return source.config?.[urlKey] ?? "";
+/** The address a source points at, for the list: its first URL-typed field,
+ * or for a kind that reads through a cloud account, that account's label. */
+export function sourceAddress(source: DataSource, kind?: DataSourceKindInfo, accounts: CloudAccount[] = []): string {
+  const urlField = kind?.fields.find((f) => f.type === "url");
+  const accountField = kind?.fields.find((f) => f.type === "cloud_account");
+  if (!urlField && accountField) {
+    const id = source.config?.[accountField.key] ?? "";
+    return accounts.find((a) => a.id === id)?.label ?? id;
+  }
+  return source.config?.[urlField?.key ?? "url"] ?? "";
+}
+
+export function cloudAccountsFor(accounts: CloudAccount[], field: DataSourceField): CloudAccount[] {
+  return field.provider ? accounts.filter((a) => a.provider === field.provider) : accounts;
+}
+
+export interface CloudAccountOffer {
+  account: CloudAccount;
+  kind: DataSourceKindInfo;
+  field: DataSourceField;
+}
+
+/** For each provider, the first connected account no data source reads
+ * through yet, with the kind that can: what the Data sources page offers to
+ * set up in one step. */
+export function unusedCloudAccounts(
+  accounts: CloudAccount[],
+  kinds: DataSourceKindInfo[],
+  sources: DataSource[],
+): CloudAccountOffer[] {
+  const used = new Set<string>();
+  for (const source of sources) {
+    const kind = kinds.find((k) => k.kind === source.kind);
+    for (const field of kind?.fields ?? []) {
+      if (field.type === "cloud_account" && source.config?.[field.key]) used.add(source.config[field.key]);
+    }
+  }
+  const offers: CloudAccountOffer[] = [];
+  const offered = new Set<CloudProviderKind>();
+  for (const account of accounts) {
+    if (used.has(account.id) || offered.has(account.provider)) continue;
+    for (const kind of kinds) {
+      const field = kind.fields.find((f) => f.type === "cloud_account" && f.provider === account.provider);
+      if (!field) continue;
+      offers.push({ account, kind, field });
+      offered.add(account.provider);
+      break;
+    }
+  }
+  return offers;
 }
 
 // A series without a metric name arrives already named after its label set

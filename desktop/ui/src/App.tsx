@@ -35,6 +35,7 @@ const EntityChanges = lazy(() => import("@/pages/ops/entity/EntityChanges"));
 const EntityIssues = lazy(() => import("@/pages/ops/entity/EntityIssues"));
 const EntityReleases = lazy(() => import("@/pages/ops/entity/EntityReleases"));
 const EntityQueues = lazy(() => import("@/pages/ops/entity/EntityQueues"));
+const EntitySignals = lazy(() => import("@/pages/ops/entity/EntitySignals"));
 const DataSourcesPage = lazy(() => import("@/pages/DataSourcesPage").then((m) => ({ default: m.DataSourcesPage })));
 const OpsAlertConnectionsPage = lazy(() => import("@/pages/ops/OpsAlertConnectionsPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage").then((m) => ({ default: m.FilesPage })));
@@ -146,6 +147,7 @@ export default function App() {
                     <Route path="logs" element={<EntitySubRoute tab="logs" page={EntityLogs} />} />
                     <Route path="changes" element={<EntitySubRoute tab="changes" page={EntityChanges} />} />
                     <Route path="issues" element={<EntitySubRoute tab="issues" page={EntityIssues} />} />
+                    <Route path="signals" element={<EntitySubRoute tab="signals" page={EntitySignals} />} />
                     <Route path="*" element={<EntityIndexRedirect />} />
                   </Route>
                   {/* The screens the console replaced; old links land on their successors. */}
