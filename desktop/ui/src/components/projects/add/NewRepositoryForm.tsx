@@ -45,6 +45,8 @@ export const STACK_SUGGESTIONS = [
   "Django",
   "Java + Spring Boot",
   "Java + Quarkus",
+  "ASP.NET Core (C#)",
+  "Rust + Axum",
   "Flutter",
   "SwiftUI (iOS)",
   "Kotlin + Jetpack Compose (Android)",

@@ -38,7 +38,7 @@ Always: new features, bug fixes, refactoring, behavior changes. Thinking "skip T
 - Bad: a test whose assertions only exercise the mock, not the code under test.
 
 ### Verify RED — watch it fail (MANDATORY, never skip)
-- Run it with the stack's focused command, not the whole suite: `go test ./pkg/... -run TestName`, `npx vitest run path/to.test.tsx`, `flutter test test/x_test.dart`, `./mvnw -q test -Dtest=ClassName`.
+- Run it with the stack's focused command, not the whole suite: `go test ./pkg/... -run TestName`, `npx vitest run path/to.test.tsx`, `flutter test test/x_test.dart`, `./mvnw -q test -Dtest=ClassName`, `dotnet test --filter "FullyQualifiedName~ClassName"`, `cargo test test_name`.
 - Confirm it FAILS (not errors) and fails because the feature is missing — not a typo or compile error.
 - Test passes immediately? It tests existing behavior — fix the test.
 - Test errors? Fix the error and re-run until it fails correctly.

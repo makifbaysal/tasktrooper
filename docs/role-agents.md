@@ -23,7 +23,7 @@ repository.
 |---|---|---|---|
 | `product-manager` | `generalPurpose` | medium | Backlog, requirements, stakeholder questions, board organization |
 | `system-architect` | `system-architect` | high | Analysis tasks, task decomposition, code review |
-| `backend-developer` | `backend-engineer` | high | Go/Fiber and Java/Quarkus APIs, database migrations, backend tests |
+| `backend-developer` | `backend-engineer` | high | Go/Fiber, Java/Quarkus, C#/ASP.NET Core, TypeScript/Node.js and Rust/axum APIs, database migrations, backend tests |
 | `frontend-developer` | `frontend-engineer` | high | React/Vite/Tailwind UI |
 | `mobile-developer` | `mobile-dev-engineer` | high | Flutter, SwiftUI, Jetpack Compose apps; store deploys |
 | `data-scientist` | `data-scientist` | high | Data pipelines, SQL/dbt analytics, model training and evaluation, notebooks turned into tested modules |

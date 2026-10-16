@@ -32,7 +32,7 @@ arrive through the sync.
 
 | Name | Subagent type | Effort | Purpose |
 |------|---------------|--------|---------|
-| `backend-developer` | `backend-engineer` | high | Go/Fiber/hexagonal and Java/Quarkus APIs, DB, tests |
+| `backend-developer` | `backend-engineer` | high | Go/Fiber/hexagonal, Java/Quarkus, C#/.NET, TypeScript/Node.js and Rust APIs, DB, tests |
 | `frontend-developer` | `frontend-engineer` | high | React/Vite/Tailwind UI |
 | `mobile-developer` | `mobile-dev-engineer` | high | Flutter, SwiftUI, Compose; store deploy |
 | `product-manager` | `generalPurpose` | medium | Backlog, requirements, board tools |

@@ -8,7 +8,7 @@ tech_stack: Java
 
 ## Overview
 
-Java is chosen precisely when the domain is rich (see java-vs-go-decision). That value is only realized if you model it with real objects that protect their invariants — not anemic data bags with a pile of setters and logic scattered in services.
+Java is chosen precisely when the domain is rich (see backend-language-decision). That value is only realized if you model it with real objects that protect their invariants — not anemic data bags with a pile of setters and logic scattered in services.
 
 **Core principle:** Objects own their invariants. If a rule about an entity can be violated from outside the entity, the model is broken.
 

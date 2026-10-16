@@ -29,7 +29,7 @@ Whatever rung you land on, keep the validation at trust boundaries, the error ha
 - `grep_code` for the usual names: `retry`, `backoff`, `slug`, `debounce`, `paginate`, `validate`, `format`, `parse`, `pool`, and the usual homes: `util`, `helpers`, `common`, `shared`, `lib`, `pkg`, `core`, `platform`.
 - `get_symbol_skeleton` / `expand_symbol_context` on a candidate: confirm it does what you need and see how its callers use it.
 - `search_memory` (scope=project) for this repository's earlier choices ("http client", "date library").
-- The manifest: `go.mod`, `pom.xml` / `build.gradle(.kts)`, `package.json`, `pubspec.yaml`, `pyproject.toml` / `requirements*.txt`, `Packages/manifest.json` (Unity), `addons/` (Godot), `.uproject` / `.uplugin` (Unreal), `Cargo.toml`.
+- The manifest: `go.mod`, `pom.xml` / `build.gradle(.kts)`, `package.json`, `pubspec.yaml`, `pyproject.toml` / `requirements*.txt`, `Packages/manifest.json` (Unity), `addons/` (Godot), `.uproject` / `.uplugin` (Unreal), `Cargo.toml`, `*.csproj` / `Directory.Packages.props`.
 
 Two or three searches per concept is enough. Nothing found → go down the ladder; don't spend the run searching.
 
@@ -61,7 +61,7 @@ Every point must hold, or go back down the ladder:
 - **Fits:** works with the repository's language, framework or engine version and its targets (browser bundle size, iOS/Android support, Python version, Unity version).
 - **Real:** the exact name and current stable version from the registry or the official docs (`fetch_url`, `web_search`), never from memory. A name one letter off a popular package is a typosquat.
 - **Proportionate:** it does something worth a dependency. A big package for one ten-line function → write the function.
-- **Added properly:** with the repository's own package manager (`go get`, `npm`/`pnpm`/`yarn add`, `flutter pub add`, `uv add`/`poetry add`, Gradle/Maven, the engine's package manager), version pinned like its neighbours, and the lockfile change in the same commit.
+- **Added properly:** with the repository's own package manager (`go get`, `npm`/`pnpm`/`yarn add`, `flutter pub add`, `uv add`/`poetry add`, Gradle/Maven, `dotnet add package`, `cargo add`, the engine's package manager), version pinned like its neighbours, and the lockfile change in the same commit.
 
 Call the library directly, the way its documentation does. No wrapper or interface around it unless the repository already wraps its neighbours that way (a hexagonal adapter behind a port is the repository's structure, not an extra layer).
 
@@ -75,6 +75,9 @@ The repository's existing choice always wins. These are where to look first, and
 |-------|------------|---------------------------|
 | **Go** | `internal/platform`, `pkg/`, the stdlib (`net/http`, `encoding/*`, `time`, `slices`, `maps`, `errors`, `context`, `crypto/*`) | `github.com/google/uuid`, `golang-jwt/jwt/v5`, `shopspring/decimal`, `go-playground/validator/v10`, `golang.org/x/*` |
 | **Java** | the service's shared packages, the JDK (`java.time`, `java.net.http`, `BigDecimal`), Quarkus/Spring built-ins | Jakarta Validation, Jackson, SmallRye Fault Tolerance (Quarkus) / Resilience4j (Spring) |
+| **C#/.NET** | the solution's shared projects, the BCL (`System.Text.Json`, `TimeProvider`, `System.Threading.Channels`, `IHttpClientFactory`), ASP.NET Core and `Microsoft.Extensions.*` built-ins | EF Core / Npgsql, Dapper, FluentValidation, Microsoft.Extensions.Http.Resilience (Polly) |
+| **TypeScript (Node.js)** | the service's `src/lib`, Node's built-ins (`fetch` + `AbortSignal.timeout`, `node:crypto`, `node:test`, `URL`, `structuredClone`), the framework's plugins | zod, pino, the repository's ORM (Prisma / Drizzle / Kysely), undici, date-fns |
+| **Rust** | the workspace's shared crates, std (`std::time`, `std::collections`), what tokio, tower and tower-http already provide | serde, thiserror / anyhow, tracing, reqwest, sqlx, uuid, chrono / time |
 | **Web (TS/React)** | `src/lib`, `src/hooks`, `components/ui`, the platform (`fetch` + `AbortController`, `URL`, `Intl`, `crypto.randomUUID`, `<input type="date">`, `<dialog>`) | Radix/shadcn primitives, zod, react-hook-form, TanStack Query, date-fns, DOMPurify |
 | **Flutter** | `lib/core`, `lib/shared`, the component library, the Flutter/Dart SDK | the repository's state library (Riverpod/Bloc), dio, go_router, intl, flutter_secure_storage, freezed/json_serializable |
 | **Native mobile** | Foundation/SwiftUI, Jetpack, the Kotlin stdlib | URLSession + Codable; Retrofit/OkHttp, kotlinx.serialization, Room |

@@ -76,7 +76,7 @@ agent is given its own.
 | `product-manager` | backlog, requirements, PM UAT |
 | `system-architect` | analysis tasks, task breakdown, code review |
 | `security-agent` | a second, security-only code review of every pull request; its rejection sends the task back |
-| `backend-developer` | APIs, databases and tests (Go, Java/Quarkus) |
+| `backend-developer` | APIs, databases and tests (Go, Java/Quarkus, C#/.NET, TypeScript on Node.js, Rust) |
 | `frontend-developer` | React, Vite and Tailwind UIs |
 | `mobile-developer` | Flutter, SwiftUI, Compose, store releases |
 | `data-scientist` | data pipelines, SQL/dbt analytics, model training and evaluation, notebooks turned into tested modules |

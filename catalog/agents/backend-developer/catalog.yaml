@@ -1,5 +1,5 @@
 name: backend-developer
-description: Go and Java backend development (Quarkus/Spring or Fiber/hexagonal), migrations, and test coverage
+description: Backend development in Go, Java, C#/.NET, TypeScript on Node.js and Rust - APIs, migrations, and test coverage
 subagent_type: backend-engineer
 effort: high
 max_turns: 0
@@ -85,9 +85,18 @@ tech_stacks:
     - name: Java
       description: 'Java services: Quarkus first, Spring Boot fallback, JPA/Panache persistence'
       position: 2
+    - name: .NET
+      description: 'C# services on ASP.NET Core: Minimal APIs or controllers, EF Core with Npgsql, xUnit'
+      position: 3
+    - name: TypeScript (Node.js)
+      description: 'TypeScript services on Node.js: Fastify or NestJS (or the repo''s Express/Hono), runtime validation, Vitest'
+      position: 4
+    - name: Rust
+      description: 'Rust services: axum on tokio, sqlx, typed errors, cargo test and clippy'
+      position: 5
     - name: PostgreSQL
       description: Schema migrations and query patterns for PostgreSQL
-      position: 3
+      position: 6
 kpis:
     - metric_key: tasks_completed
       name: Weekly tasks completed
