@@ -7,19 +7,9 @@ import { RepositoryGitNotice } from "@/components/projects/RepositoryGitNotice";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
+import { githubWebUrl } from "@/lib/githubUrl";
 import { isScanFinished } from "@/lib/project-model";
 import { formatRelativeDate } from "@/lib/utils";
-
-/** github.com URLs only, in either the https or the git@ form — the only
- * remotes "Open on GitHub" makes sense for. */
-function githubWebUrl(remoteUrl: string | undefined): string | null {
-  if (!remoteUrl) return null;
-  const ssh = remoteUrl.match(/^git@github\.com:(.+?)(\.git)?$/);
-  if (ssh) return `https://github.com/${ssh[1]}`;
-  const https = remoteUrl.match(/^https?:\/\/github\.com\/(.+?)(\.git)?$/);
-  if (https) return `https://github.com/${https[1]}`;
-  return null;
-}
 
 interface RepositoryHeaderProps {
   repository: Repository;

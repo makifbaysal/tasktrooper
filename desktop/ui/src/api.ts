@@ -603,7 +603,8 @@ export interface StoreAppListing {
 
 export type StoreChannel = "internal" | "external" | "production";
 
-export type TrackStatus = "none" | "draft" | "in_review" | "rolling_out" | "halted" | "live";
+// "approved" is App Store only: cleared review, waiting for someone to release it.
+export type TrackStatus = "none" | "draft" | "in_review" | "approved" | "rolling_out" | "halted" | "live";
 
 // has_release false means the channel is empty and every other field is
 // meaningless — which is why it is stated, not inferred from a blank version.
@@ -765,6 +766,9 @@ export interface Incident {
   payload?: Record<string, unknown>;
   remedy?: string;
   remedy_kind?: string;
+  /** Who wrote the current proposal: "auto_triage" (the rules engine's
+   * first pass), "agent" or "human"; absent when unknown. */
+  remedy_author?: string;
   confidence: number;
   occurrences: number;
   task_id?: string;
@@ -774,7 +778,51 @@ export interface Incident {
   events?: IncidentEvent[];
 }
 
-export type RepoKind = "backend" | "frontend" | "mobile" | "worker" | "data" | "game" | "monorepo";
+export type IncidentRemedyKind = "rollback" | "code_fix" | "config" | "dependency" | "capacity" | "unknown";
+
+export const INCIDENT_REMEDY_KINDS: IncidentRemedyKind[] = ["rollback", "code_fix", "config", "dependency", "capacity", "unknown"];
+
+/** POST /v1/incidents/{id}/remedy's body: a proposal written by hand. The
+ * server records its author as "human" when none is sent, which keeps the
+ * next recurrence's machine triage from overwriting it. */
+export interface IncidentRemedyInput {
+  kind: IncidentRemedyKind;
+  summary: string;
+  steps?: string[];
+  evidence?: string[];
+  /** 0–100. */
+  confidence: number;
+  rollback?: boolean;
+}
+
+/** An alert connection as listed: the server keeps only the token's hash, so
+ * no read ever carries the token. `last_used_at` is null until an alert lands. */
+export interface AlertToken {
+  id: string;
+  label: string;
+  default_env: DeployEnv;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface AlertTokenInput {
+  label: string;
+  /** The server uses `prod` when it is left out. */
+  default_env?: DeployEnv;
+}
+
+/** POST /v1/repositories/{id}/alert-tokens's answer — the only one that holds
+ * the plaintext `token`; `ingest_path` is `/v1/alerts/ingest/<token>`. */
+export interface CreatedAlertToken {
+  id: string;
+  label: string;
+  default_env: DeployEnv;
+  created_at: string;
+  token: string;
+  ingest_path: string;
+}
+
+export type RepoKind ="backend" | "frontend" | "mobile" | "worker" | "data" | "game" | "monorepo";
 export type SubRepoKind = "backend" | "frontend" | "mobile" | "worker" | "data" | "game";
 export type MobilePlatform = "" | "ios" | "android" | "cross_platform";
 /** One sub-project inside a monorepo: where it lives and what it is. See
@@ -2351,13 +2399,28 @@ function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 0): Promis
 export class ApiError extends Error {
   readonly status: number;
   readonly type: string;
+  readonly fields?: Record<string, string>;
+  /** The whole JSON error body, for a coded error that carries more than a
+   * message (too_many_environments' `matched` / `max_environments`). */
+  readonly details?: Record<string, unknown>;
 
-  constructor(message: string, status: number, type = "") {
+  constructor(message: string, status: number, type = "", fields?: Record<string, string>, details?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.type = type;
+    this.fields = fields;
+    this.details = details;
   }
+}
+
+function stringMap(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 // Every non-2xx carries a JSON error body: {"error": {"message": "...", "type": "..."}}.
@@ -2367,11 +2430,16 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   const text = await res.text();
   let message = text;
   let type = "";
+  let fields: Record<string, string> | undefined;
+  let details: Record<string, unknown> | undefined;
   try {
     const parsed = JSON.parse(text) as {
       error?: string | { message?: string; type?: string };
       code?: string;
+      fields?: unknown;
     };
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) details = parsed as Record<string, unknown>;
+    fields = stringMap(parsed.fields);
     if (typeof parsed.error === "string") {
       message = parsed.error;
     } else {
@@ -2384,7 +2452,7 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   } catch {
     /* keep text */
   }
-  return new ApiError(message || `HTTP ${res.status}`, res.status, type);
+  return new ApiError(message || `HTTP ${res.status}`, res.status, type, fields, details);
 }
 
 /** A cloud account's provider rejected the stored credential — the UI says
@@ -2398,7 +2466,7 @@ export function isOAuthClientRequiredError(e: unknown): boolean {
   return e instanceof ApiError && e.status === 400 && e.type === "oauth_client_required";
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, deadlineMs?: number): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
   };
@@ -2406,7 +2474,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
   const method = (init.method ?? "GET").toUpperCase();
-  const timeoutMs = method === "GET" || method === "HEAD" ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS;
+  const timeoutMs = deadlineMs ?? (method === "GET" || method === "HEAD" ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetchWithTimeout(apiUrl(path), { ...init, headers: authHeaders(headers) }, timeoutMs);
@@ -3225,6 +3293,135 @@ export interface NewLinkRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Observability data sources, signals and recipes. Mirrors
+// server/internal/domain/datasource.go and observability.go's JSON tags.
+// ---------------------------------------------------------------------------
+
+export type DataSourceCapability = "metrics" | "logs" | "traces" | "errors" | "crashes" | "rum" | "queues";
+
+export type DataSourceFieldType = "text" | "url" | "secret" | "select" | "headers";
+
+/** One entry of a kind's config form. `show_when` shows the field only while
+ * every named field holds the given value; `required` applies only then. A
+ * `secret` field (and every `secret`/`headers` type) goes in `secrets`. */
+export interface DataSourceField {
+  key: string;
+  label: string;
+  help: string;
+  type: DataSourceFieldType;
+  required: boolean;
+  options: string[];
+  placeholder: string;
+  show_when: Record<string, string>;
+  secret: boolean;
+}
+
+export interface DataSourceKindInfo {
+  kind: string;
+  label: string;
+  description: string;
+  capabilities: DataSourceCapability[];
+  fields: DataSourceField[];
+}
+
+export type DataSourceStatus = "ok" | "error" | "unverified";
+
+/** A secret value never round-trips: only its key, in `secrets_set`. */
+export interface DataSource {
+  id: string;
+  kind: string;
+  name: string;
+  config: Record<string, string>;
+  secrets_set: string[];
+  status: DataSourceStatus;
+  status_detail: string;
+  info: { version: string; detail: string };
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+  capabilities: DataSourceCapability[];
+}
+
+export interface SaveDataSourceRequest {
+  kind: string;
+  name?: string;
+  config: Record<string, string>;
+  secrets: Record<string, string>;
+}
+
+/** A key given replaces its value, "" removes it, a key left out is kept. */
+export interface PatchDataSourceRequest {
+  name?: string;
+  config?: Record<string, string>;
+  secrets?: Record<string, string>;
+}
+
+export interface DataSourceRecipeMatch {
+  recipe_id: string;
+  matched_metric: string;
+}
+
+export interface DataSourceDiscovery {
+  metrics: string[];
+  truncated: boolean;
+  recipes: DataSourceRecipeMatch[];
+}
+
+export type MetricPoint = [number, number | null];
+
+export interface MetricSeries {
+  name: string;
+  labels: Record<string, string>;
+  points: MetricPoint[];
+}
+
+export interface MetricQueryResult {
+  series: MetricSeries[];
+  warnings: string[];
+}
+
+/** from/to are RFC3339; step_seconds 0 lets the server pick (~600 points). */
+export interface MetricQueryRequest {
+  query: string;
+  from: string;
+  to: string;
+  step_seconds?: number;
+}
+
+export type SignalKind = "metric" | "log" | "trace" | "error";
+
+export type SignalAggregation = "rate" | "ratio" | "quantile" | "gauge";
+
+export interface ObservabilitySignal {
+  id: string;
+  kind: SignalKind;
+  unit: string;
+  roles: ComponentRole[];
+  aggregation: SignalAggregation;
+}
+
+export interface ObservabilityRecipe {
+  id: string;
+  source_kind: string;
+  applies_to: { technology: string; messaging_system: string };
+  detect: { metric: string };
+  params: string[] | null;
+  signals: Record<string, string>;
+  origin: "catalog" | "user";
+}
+
+// The server gives a source up to 45s to answer a discover or a query; the
+// 20s read deadline would cut a slow but working source off first. Writes
+// (verify, query) already get WRITE_TIMEOUT_MS.
+const DATA_SOURCE_UPSTREAM_TIMEOUT_MS = 60_000;
+
+/** The data source endpoints' 400: which request key failed, and why
+ * (required, invalid, not_permitted, unknown_field, invalid_option, too_long). */
+export function dataSourceFieldErrors(e: unknown): Record<string, string> | null {
+  return e instanceof ApiError && e.status === 400 && e.fields ? e.fields : null;
+}
+
+// ---------------------------------------------------------------------------
 // Cloud & runtime (Phase 2): connected provider accounts, the resources they
 // can see, and per-component-environment deployments/logs/errors read
 // through them. Mirrors server/internal/domain/cloud.go's JSON tags exactly.
@@ -3427,6 +3624,101 @@ export interface RuntimeErrorGroup {
    * with this deploy". */
   new: boolean;
   external_url?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Operations console: the Errors inbox and the Logs explorer, one fan-out over
+// every confirmed, bound environment of one kind. Mirrors
+// server/internal/domain/opsquery.go's JSON tags.
+// ---------------------------------------------------------------------------
+
+export type OpsUnavailableCode = "not_connected" | "cloud_auth" | "provider_error" | "timeout";
+
+/** One environment the fan-out could not read; the rest of the answer stands. */
+export interface OpsUnavailable {
+  component_id: string;
+  environment_id: string;
+  code: OpsUnavailableCode;
+  message: string;
+}
+
+export interface OpsErrorGroup extends RuntimeErrorGroup {
+  component_id: string;
+  repository_id: string;
+  environment_id: string;
+  provider: CloudProviderKind;
+}
+
+/** `truncated`: more environments matched than one call reads (50). */
+export interface OpsErrors {
+  groups: OpsErrorGroup[];
+  unavailable: OpsUnavailable[];
+  truncated: boolean;
+}
+
+export interface OpsLogEntry extends RuntimeLogEntry {
+  component_id: string;
+  environment_id: string;
+}
+
+/** `truncated`: the window holds more than was returned. */
+export interface OpsLogs {
+  entries: OpsLogEntry[];
+  unavailable: OpsUnavailable[];
+  truncated: boolean;
+}
+
+export interface OpsErrorsQuery {
+  env?: DeployEnvironment;
+  /** RFC3339; the server defaults to 24 h ago and clamps to 30 days back. */
+  since?: string;
+  componentIds?: string[];
+}
+
+export interface OpsLogsQuery {
+  env?: DeployEnvironment;
+  since?: string;
+  /** Inclusive and kept at full precision: pass a returned `timestamp` as is. */
+  until?: string;
+  componentIds?: string[];
+  minSeverity?: LogSeverity;
+  text?: string;
+  limit?: number;
+}
+
+export const OPS_ERRORS_MAX_WINDOW_MS = 30 * 24 * 3_600_000;
+
+export const OPS_LOGS_MAX_ENVIRONMENTS = 10;
+
+// The server reads at most 4 environments at once and gives each 20 s, so a
+// wide fan-out outlives the 20 s read deadline.
+const OPS_ERRORS_TIMEOUT_MS = 120_000;
+const OPS_LOGS_TIMEOUT_MS = 75_000;
+
+function opsQueryString(params: Array<[string, string | undefined]>, componentIds?: string[]): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of params) if (value) qs.set(key, value);
+  const ids = [...new Set((componentIds ?? []).map((id) => id.trim()).filter(Boolean))];
+  if (ids.length > 0) qs.set("component_id", ids.join(","));
+  const out = qs.toString();
+  return out ? `?${out}` : "";
+}
+
+export interface OpsTooManyEnvironments {
+  matched: number;
+  max: number;
+}
+
+/** The Logs explorer matched more environments than it reads at once with no
+ * component picked; the UI asks for entities. */
+export function opsTooManyEnvironments(e: unknown): OpsTooManyEnvironments | null {
+  if (!(e instanceof ApiError) || e.status !== 400 || e.type !== "too_many_environments") return null;
+  const matched = Number(e.details?.matched);
+  const max = Number(e.details?.max_environments);
+  return {
+    matched: Number.isFinite(matched) ? matched : 0,
+    max: Number.isFinite(max) && max > 0 ? max : OPS_LOGS_MAX_ENVIRONMENTS,
+  };
 }
 
 /**
@@ -3665,8 +3957,10 @@ export type RollbackReason = "deploy_failed" | "verify_failed" | "health_inciden
 export const ROLLBACK_REASONS: RollbackReason[] = ["deploy_failed", "verify_failed", "health_incident", "manual"];
 
 /** HOW a release was undone: redeploying the previous good release
- * (dispatch) or a pushed revert that redeploys on merge (on_merge). */
-export type RollbackMechanism = "workflow_dispatch" | "revert_push";
+ * (dispatch), a pushed revert that redeploys on merge (on_merge), or the
+ * provider itself serving the earlier deployment again (on_merge on Vercel /
+ * Cloud Run, before the revert lands). */
+export type RollbackMechanism = "workflow_dispatch" | "revert_push" | "provider_rollback";
 
 export interface ReleaseRollback {
   reason: RollbackReason;
@@ -3678,11 +3972,17 @@ export interface ReleaseRollback {
   /** What was redeployed: the previous release's tag or the revert commit. */
   restored_ref?: string;
   run_url?: string;
+  /** The earlier deployment the provider was told to serve, and the revert's
+   * deployment promoted afterwards (provider_rollback only). */
+  provider_deployment_id?: string;
+  promoted_deployment_id?: string;
   /** What no mechanism can undo (migrations, flags, CDN) — from the tasks'
    * own rollback plans; the agent performs or reports each. */
   manual_steps?: string[];
   actor?: string;
   started_at: string;
+  /** Stamped after every side effect the rollback completed. */
+  progress_at?: string;
   detail?: string;
 }
 
@@ -4949,10 +5249,12 @@ export const api = {
     from: StoreChannel,
     to: StoreChannel,
     confirm?: string,
+    /** Android into production only: the staged rollout's share, (0, 1]. Left out, everyone. */
+    userFraction?: number,
   ) =>
     request<void>(`/v1/repositories/${id}/store/apps/${platform}/promote`, {
       method: "POST",
-      body: JSON.stringify({ from, to, confirm: confirm ?? "" }),
+      body: JSON.stringify({ from, to, confirm: confirm ?? "", ...(userFraction !== undefined ? { user_fraction: userFraction } : {}) }),
     }),
 
   startStoreBuild: (id: string, platform: MobileStorePlatform, engine?: ReleaseEngine) =>
@@ -5111,9 +5413,10 @@ export const api = {
       method: "POST", body: JSON.stringify(body),
     }),
 
-  setAndroidRollout: (id: string, userFraction: number) =>
+  /** userFraction in (0, 1]; 1 completes the rollout and needs `confirm`. */
+  setAndroidRollout: (id: string, userFraction: number, confirm?: string) =>
     request<void>(`/v1/repositories/${id}/store/apps/android/rollout`, {
-      method: "POST", body: JSON.stringify({ user_fraction: userFraction }),
+      method: "POST", body: JSON.stringify({ user_fraction: userFraction, ...(confirm !== undefined ? { confirm } : {}) }),
     }),
 
   haltAndroid: (id: string, confirm: string) =>
@@ -5124,11 +5427,14 @@ export const api = {
   resumeAndroid: (id: string) =>
     request<void>(`/v1/repositories/${id}/store/apps/android/resume`, { method: "POST" }),
 
-  listIncidents: (params?: { repositoryId?: string; env?: string; status?: string }) => {
+  // Newest last_seen first; `limit` defaults to 100 and the server reads
+  // anything above 500 as 100.
+  listIncidents: (params?: { repositoryId?: string; env?: string; status?: string; limit?: number }) => {
     const query = new URLSearchParams();
     if (params?.repositoryId) query.set("repository_id", params.repositoryId);
     if (params?.env) query.set("env", params.env);
     if (params?.status) query.set("status", params.status);
+    if (params?.limit) query.set("limit", String(params.limit));
     const qs = query.toString();
     return request<{ incidents: Incident[] | null; count: number }>(
       `/v1/incidents${qs ? `?${qs}` : ""}`);
@@ -5150,6 +5456,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ note: note ?? "" }),
     }),
+
+  // 400 with the server's reason (an empty summary, an unknown incident).
+  proposeIncidentRemedy: (incidentId: string, remedy: IncidentRemedyInput) =>
+    request<Incident>(`/v1/incidents/${incidentId}/remedy`, {
+      method: "POST",
+      body: JSON.stringify(remedy),
+    }),
+
+  listAlertTokens: (repositoryId: string) =>
+    request<{ tokens: AlertToken[] | null }>(`/v1/repositories/${repositoryId}/alert-tokens`),
+
+  // The answer holds the plaintext token: show it once, never cache it.
+  createAlertToken: (repositoryId: string, input: AlertTokenInput) =>
+    request<CreatedAlertToken>(`/v1/repositories/${repositoryId}/alert-tokens`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteAlertToken: (repositoryId: string, tokenId: string) =>
+    request<void>(`/v1/repositories/${repositoryId}/alert-tokens/${tokenId}`, { method: "DELETE" }),
 
   deleteRepository: (id: string) =>
     request<void>(`/v1/repositories/${id}`, { method: "DELETE" }),
@@ -5887,8 +6213,74 @@ export const api = {
       body: JSON.stringify(group),
     }),
 
+  listOpsErrors: (query: OpsErrorsQuery = {}) =>
+    request<OpsErrors>(
+      `/v1/operations/errors${opsQueryString([["env", query.env], ["since", query.since]], query.componentIds)}`,
+      {},
+      OPS_ERRORS_TIMEOUT_MS,
+    ),
+
+  listOpsLogs: (query: OpsLogsQuery = {}) =>
+    request<OpsLogs>(
+      `/v1/operations/logs${opsQueryString(
+        [
+          ["env", query.env],
+          ["since", query.since],
+          ["until", query.until],
+          ["min_severity", query.minSeverity],
+          ["text", query.text?.trim() || undefined],
+          ["limit", query.limit ? String(query.limit) : undefined],
+        ],
+        query.componentIds,
+      )}`,
+      {},
+      OPS_LOGS_TIMEOUT_MS,
+    ),
+
   getTaskPreviews: (repositoryId: string, taskId: string) =>
     request<{ previews: TaskPreview[] }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/previews`),
+
+  // ---- Observability data sources -------------------------------------
+
+  listDataSourceKinds: () => request<{ kinds: DataSourceKindInfo[] }>("/v1/data-source-kinds"),
+
+  listDataSources: () => request<{ data_sources: DataSource[] }>("/v1/data-sources"),
+
+  getDataSource: (id: string) => request<DataSource>(`/v1/data-sources/${id}`),
+
+  // 201 even when the source cannot be reached: status/status_detail carry
+  // the verify that ran after saving. A 400 carries `fields` — see
+  // dataSourceFieldErrors.
+  createDataSource: (body: SaveDataSourceRequest) =>
+    request<DataSource>("/v1/data-sources", { method: "POST", body: JSON.stringify(body) }),
+
+  updateDataSource: (id: string, patch: PatchDataSourceRequest) =>
+    request<DataSource>(`/v1/data-sources/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  deleteDataSource: (id: string) => request<void>(`/v1/data-sources/${id}`, { method: "DELETE" }),
+
+  verifyDataSource: (id: string) => request<DataSource>(`/v1/data-sources/${id}/verify`, { method: "POST" }),
+
+  discoverDataSource: (id: string, opts: { match?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.match) qs.set("match", opts.match);
+    if (opts.limit) qs.set("limit", String(opts.limit));
+    const suffix = qs.toString();
+    return request<DataSourceDiscovery>(
+      `/v1/data-sources/${id}/discover${suffix ? `?${suffix}` : ""}`,
+      {},
+      DATA_SOURCE_UPSTREAM_TIMEOUT_MS,
+    );
+  },
+
+  // 400 code "bad_query" when the source refused the query, 422 "unsupported"
+  // for a kind without metrics, 502 "upstream" when the source failed.
+  queryDataSource: (id: string, body: MetricQueryRequest) =>
+    request<MetricQueryResult>(`/v1/data-sources/${id}/query`, { method: "POST", body: JSON.stringify(body) }),
+
+  listSignals: () => request<{ signals: ObservabilitySignal[] }>("/v1/signals"),
+
+  listRecipes: () => request<{ recipes: ObservabilityRecipe[] }>("/v1/recipes"),
 
   // ---- Releases & delivery --------------------------------------
 

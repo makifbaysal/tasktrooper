@@ -67,7 +67,7 @@ fix proposed by an agent. The same alert notifies at most once every 30
 minutes, and so does its recovery, even when it flaps: an alert that keeps
 resolving and firing again opens a new incident each time, but you hear about
 the first outage and the first recovery, not every cycle. Medium and low
-incidents stay on the Incidents page without interrupting you.
+incidents stay on **Operations → Issues** without interrupting you.
 
 ## Severity
 
@@ -123,16 +123,31 @@ allowed to go on its own:
 | **Suggest** (default) | A diagnosis task is opened and must stop at a written proposal — a human decides whether to act on it |
 | **Auto fix** | The diagnosis task may carry the fix all the way through the board — tests, review and deploy still gate it exactly as any other task would |
 
-## The Incidents page
+## The Issues page
 
-Operations → Production incidents lists every live incident (open, triaging,
-proposed or fixing) by default, with a filter to include resolved and ignored
-ones. Selecting an incident shows its severity, environment, source,
-first-seen and last-seen times, occurrence count, the current remedy and its
-confidence, the raw alert payload, and its full timeline. From there you can
-**Triage** (re-run the remedy engine), **Resolve**, or **Ignore** it — an
-ignored incident stays terminal and a later recurrence of the same
-fingerprint opens a fresh one rather than reopening it.
+Incidents are listed as **issues** on **Operations → Issues** in the
+[Operations console](operations-console.md), one environment at a time (the
+one picked in the console's top bar), and on each entity's own Issues
+section. By default it lists every live incident (open, triaging, fix
+proposed or fixing); **Include resolved and ignored** adds the closed ones
+from the time range. Selecting an incident opens its panel: severity,
+environment, source, first-seen and last-seen times, occurrence count, the
+task carrying it, the current remedy with its confidence and author, the raw
+alert payload, and its full timeline. From there you can **Triage again**
+(re-run the remedy engine), **Write a remedy** by hand, **Resolve**, or
+**Ignore** it. An ignored incident stays terminal and a later recurrence of
+the same fingerprint opens a fresh one rather than reopening it.
+
+An open incident also counts against the health of the components it is
+about: a critical or high one makes them **Critical** on the console, any
+other **Warning**. An incident names a repository and an environment, so it
+is shown on that repository's components that run in the environment, or on
+all of the repository's components when none does. See
+[Operations console](operations-console.md#entities-and-health).
+
+The panel's address is `/operations/issues?id=<incident id>`, and that is
+the link an incident notification carries. The older address,
+`/operations/incidents?id=<id>`, still opens the same panel.
 
 ## How an incident becomes a task
 
@@ -163,6 +178,8 @@ above, gated by the deploy target's own `auto_rollback` field instead.
 
 ## See also
 
+- [Operations console](operations-console.md) — the Issues page, and how
+  open incidents drive each component's health
 - [Deploy targets and recipes](deploy.md) — health URLs, rollback mechanisms
   and the release flow an incident's remedy plugs into
 - [Agent tools](tools.md) — `list_incidents`, `get_incident`,

@@ -9,8 +9,9 @@ A **deploy target** is one row per (repository, environment): which provider
 it ships through, the values that provider's workflow needs, a health URL,
 and whether a failed release rolls back automatically. Deploy targets live on
 the repository's **Deploy targets** page (**Settings → Deploy targets**,
-reached from a repository), and the cross-repository view of what is live
-where is the **Deployments** page under Operations.
+reached from a repository), and the cross-repository view of what shipped
+where is **Operations → Changes** in the
+[Operations console](operations-console.md).
 
 ## Providers and the recipe catalog
 
@@ -63,20 +64,34 @@ that covers every agent-writable address (see
 and re-validated on every fetch afterward — a name that resolved to a public
 address when it was saved is free to answer `127.0.0.1` later.
 
-## The Deployments page
+## Changes in the Operations console
 
-Operations → Deployments shows a matrix of every repository against every
-environment it deploys to, refreshed roughly every 15 seconds. Selecting a
-cell opens the run's detail — the same GitHub Actions run, commit status or
-GitHub Deployment the release engine reads (see **Releases**, below) — with
-rollback where the target allows it.
+**Operations → Changes** lists every release of every component in one
+environment (the one picked in the console's top bar), newest first and
+grouped by day, over the time range picked; a release still deploying,
+verifying, waiting for a verdict or rolling back, or waiting to deploy, is
+always listed. It reads again every 15 seconds while a release is moving
+and every minute otherwise. Each row shows the release's status, version,
+commit, tasks, what triggered it (merge, dispatch, a cut, batch) and its
+**Impact**, which for now is what the release's own verification recorded
+(health samples, smoke checks, new error groups) rather than a
+before-and-after metric comparison.
+
+Selecting a release opens its panel: the timeline, the deploy watch, what
+verification recorded, the rollback and the release notes, with **Roll
+back**, **Deploy** and **Mark as released** where its state allows (see
+**Releases**, below). Each action's confirmation asks you to type the
+repository's name, whatever the environment. Each component's own page in the console has the
+same feed, narrowed to it, under **Changes**. See
+[Operations console](operations-console.md#changes).
 
 ## Hosting links
 
 A repository ships to exactly one place, and which place that is lives under
 **Repository settings → Deploy**, next to that repository's addresses — the
-same section the operations matrix opens at `/repositories/{id}/deploy`. One
-scope at a time, with the provider picked rather than stacked.
+same place `/repositories/{id}/deploy` and the Operations console's
+**Connect** links open. One scope at a time, with the provider picked rather
+than stacked.
 
 A monorepo picks the scope once, at the top of the section: the repository
 itself or one of its sub-projects. The hosting link, the per-environment
@@ -243,7 +258,8 @@ that one back (or resolve it) first.
 
 If the profile's `auto_rollback` is off, nothing is executed automatically:
 the release engineer writes up the proposal as a comment on the task, and a
-human confirms it from the release's detail drawer instead.
+human confirms it from the release's detail drawer, or from its panel on
+Operations → Changes, instead.
 
 Every rollback names its **manual steps** — the part no mechanism can
 perform on its own: undoing a database migration, flipping a feature flag,
@@ -319,6 +335,8 @@ before, just slower.
 
 ## See also
 
+- [Operations console](operations-console.md) — Changes, and what each
+  release's panel offers
 - [Production incidents](incidents.md) — how a failed deploy or a failing
   health check turns into an incident, and how it gets attributed back to
   the release that caused it

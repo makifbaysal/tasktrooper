@@ -10,6 +10,7 @@ import {
   type TrackRelease,
   type TrackStatus,
 } from "@/api";
+import { iosProductionState } from "@/components/operations/releases/mobileReleases";
 import type { BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -19,12 +20,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useI18n } from "@/hooks/useI18n";
 
 type AndroidTrack = "internal" | "production";
-type ConfirmKind = "submit" | "release" | "promote" | "halt";
+type ConfirmKind = "submit" | "release" | "promote" | "halt" | "complete";
 
 /**
  * The channel vocabulary, in flow order. Everything that renders a channel or a
  * track status reads its label and colour from here — `MobileStorePanel`
- * (project settings) and `MobileAppDetailDrawer` (Operations) must not grow
+ * (project settings) and `operations/releases/*` (Operations) must not grow
  * their own copies of these switches.
  */
 export const STORE_CHANNELS: StoreChannel[] = ["internal", "external", "production"];
@@ -52,6 +53,7 @@ const KNOWN_TRACK_STATUSES = new Set<string>([
   "none",
   "draft",
   "in_review",
+  "approved",
   "rolling_out",
   "halted",
   "live",
@@ -79,6 +81,8 @@ export function trackStatusBadgeVariant(status?: TrackStatus): BadgeProps["varia
     case "rolling_out":
     case "in_review":
       return "warning";
+    case "approved":
+      return "info";
     case "halted":
       return "destructive";
     default:
@@ -147,9 +151,8 @@ interface ChannelPromoteButtonProps {
   /** The app's own lifecycle state — production is closed unless it is `live`. */
   appState: MobileStoreState;
   /**
-   * What the user must retype to promote into production. The server rejects a
-   * production promote whose `confirm` does not match, so this is the value we
-   * both display and send — not merely a UI brake.
+   * What the user must retype to promote into production. What they typed is
+   * what is sent; the server rejects a `confirm` that does not match.
    */
   confirmPhrase: string;
   identifier: string;
@@ -195,14 +198,16 @@ export function ChannelPromoteButton({
       : null;
   const blocked = blockedKey !== null;
 
-  const promote = async () => {
+  const promote = async (typed: string) => {
     setBusy(true);
     try {
-      await api.promoteStoreChannel(repositoryId, platform, from, to, toProduction ? confirmPhrase : undefined);
+      await api.promoteStoreChannel(repositoryId, platform, from, to, toProduction ? typed : undefined);
       toast.success(t("projectAdmin.mobileStore.promoteSucceeded", { channel: toLabel }));
       onPromoted();
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.actionFailed"));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -247,6 +252,8 @@ export function ChannelPromoteButton({
 
 interface StoreReleaseControlsProps {
   app: StoreAppView;
+  /** The production channel as last read from the store; iOS submit and release are gated on it. */
+  production?: TrackRelease;
   onActed: () => void;
 }
 
@@ -260,7 +267,7 @@ interface StoreReleaseControlsProps {
  * goes through ui/confirm-dialog with a typed confirmPhrase; the reversible
  * ones (rollout dial, resume) call straight through.
  */
-export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps) {
+export function StoreReleaseControls({ app, production, onActed }: StoreReleaseControlsProps) {
   const { t } = useI18n();
   // One base per instance, suffixed per action: a disabled button takes no
   // focus, so each "why is this off" sentence has to be visible text the
@@ -273,14 +280,16 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
   const [rolloutFraction, setRolloutFraction] = useState(1);
 
   const run = useCallback(
-    async (action: () => Promise<void>, successKey: string) => {
+    async (action: () => Promise<void>, successKey: string): Promise<boolean> => {
       setBusy(true);
       try {
         await action();
         toast.success(t(successKey));
         onActed();
+        return true;
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("common.actionFailed"));
+        return false;
       } finally {
         setBusy(false);
       }
@@ -296,8 +305,11 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
     // submitting a `live` app — half-onboarded apps have no confirmed store
     // app id to submit a version against. Mirror that here so the button
     // isn't enabled in a state the server rejects with a 409.
-    const canSubmit = app.state === "live";
-    const canRelease = app.review_state === "approved";
+    // And gate both on the channel the store reported, never the row's
+    // review_state: a submit made from here does not move that one.
+    const ios = iosProductionState(app, production);
+    const canSubmit = ios.submit === null;
+    const canRelease = ios.release === null;
 
     return (
       <div className="space-y-3">
@@ -313,7 +325,7 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
             </Button>
             {!canSubmit && (
               <p id={`${reasonId}-submit`} className="mt-1.5 max-w-56 text-xs text-muted-foreground">
-                {t("operations.apps.submitDisabled")}
+                {t(`operations.mobileReleases.production.ios.submitBlocked.${ios.submit}`, { version: ios.queued?.version || "—" })}
               </p>
             )}
           </div>
@@ -329,7 +341,7 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
             </Button>
             {!canRelease && (
               <p id={`${reasonId}-release`} className="mt-1.5 max-w-56 text-xs text-muted-foreground">
-                {t("operations.apps.releaseDisabled")}
+                {t(`operations.mobileReleases.production.ios.releaseBlocked.${ios.release}`, { version: ios.queued?.version || "—" })}
               </p>
             )}
           </div>
@@ -343,9 +355,9 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
           confirmLabel={t("operations.apps.submit")}
           confirmPhrase={app.repository_name}
           loading={busy}
-          onConfirm={() =>
+          onConfirm={(typed) =>
             run(
-              () => api.submitIOS(app.repository_id, app.repository_name),
+              () => api.submitIOS(app.repository_id, typed),
               "operations.apps.submitSucceeded",
             )
           }
@@ -358,9 +370,9 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
           confirmLabel={t("operations.apps.release")}
           confirmPhrase={app.repository_name}
           loading={busy}
-          onConfirm={() =>
+          onConfirm={(typed) =>
             run(
-              () => api.releaseIOS(app.repository_id, app.repository_name),
+              () => api.releaseIOS(app.repository_id, typed),
               "operations.apps.releaseSucceeded",
             )
           }
@@ -371,7 +383,11 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
 
   // Android.
   const isLive = app.state === "live";
-  const promoteReady = app.state === "live" || (track === "internal" && app.state === "test_ready");
+  // Play reads a zero share as a completed release, so only (0, 1] is sent.
+  const fractionOK = (f: number) => Number.isFinite(f) && f > 0 && f <= 1;
+  const promoteOpen = app.state === "live" || (track === "internal" && app.state === "test_ready");
+  const promoteReady = promoteOpen && fractionOK(promoteFraction);
+  const rolloutReady = isLive && fractionOK(rolloutFraction);
 
   return (
     <div className="space-y-4">
@@ -403,6 +419,7 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
               max={1}
               step={0.05}
               value={promoteFraction}
+              aria-invalid={!fractionOK(promoteFraction)}
               onChange={(e) => setPromoteFraction(Number(e.target.value))}
               className="w-24"
             />
@@ -410,13 +427,13 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
           <Button
             size="sm"
             disabled={!promoteReady || busy}
-            aria-describedby={!promoteReady ? `${reasonId}-promote` : undefined}
+            aria-describedby={!promoteOpen ? `${reasonId}-promote` : undefined}
             onClick={() => setConfirmKind("promote")}
           >
             {t("operations.apps.promote")}
           </Button>
         </div>
-        {!promoteReady && (
+        {!promoteOpen && (
           <p id={`${reasonId}-promote`} className="text-xs text-muted-foreground">
             {t("operations.apps.promoteDisabled")}
           </p>
@@ -436,19 +453,22 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
             step={0.05}
             value={rolloutFraction}
             disabled={!isLive}
+            aria-invalid={!fractionOK(rolloutFraction)}
             onChange={(e) => setRolloutFraction(Number(e.target.value))}
             className="w-24"
           />
           <Button
             size="sm"
             variant="outline"
-            disabled={!isLive || busy}
+            disabled={!rolloutReady || busy}
             aria-describedby={!isLive ? `${reasonId}-rollout` : undefined}
             onClick={() =>
-              void run(
-                () => api.setAndroidRollout(app.repository_id, rolloutFraction),
-                "operations.apps.rolloutSucceeded",
-              )
+              rolloutFraction === 1
+                ? setConfirmKind("complete")
+                : void run(
+                    () => api.setAndroidRollout(app.repository_id, rolloutFraction),
+                    "operations.apps.rolloutSucceeded",
+                  )
             }
           >
             {t("operations.apps.apply")}
@@ -509,17 +529,27 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
         confirmPhrase={track === "production" ? app.repository_name : undefined}
         variant={track === "production" ? "destructive" : "default"}
         loading={busy}
-        onConfirm={() =>
+        onConfirm={(typed) =>
           run(
             () =>
               api.promoteAndroid(app.repository_id, {
                 to_track: track,
                 user_fraction: promoteFraction,
-                confirm: track === "production" ? app.repository_name : undefined,
+                confirm: track === "production" ? typed : undefined,
               }),
             "operations.apps.promoteSucceeded",
           )
         }
+      />
+      <ConfirmDialog
+        open={confirmKind === "complete"}
+        onOpenChange={(open) => !open && setConfirmKind(null)}
+        title={t("operations.apps.completeTitle")}
+        description={t("operations.apps.completeDescription", { identifier: app.identifier })}
+        confirmLabel={t("operations.apps.apply")}
+        confirmPhrase={app.repository_name}
+        loading={busy}
+        onConfirm={(typed) => run(() => api.setAndroidRollout(app.repository_id, 1, typed), "operations.apps.rolloutSucceeded")}
       />
       <ConfirmDialog
         open={confirmKind === "halt"}
@@ -529,9 +559,7 @@ export function StoreReleaseControls({ app, onActed }: StoreReleaseControlsProps
         confirmLabel={t("operations.apps.halt")}
         confirmPhrase={app.repository_name}
         loading={busy}
-        onConfirm={() =>
-          run(() => api.haltAndroid(app.repository_id, app.repository_name), "operations.apps.haltSucceeded")
-        }
+        onConfirm={(typed) => run(() => api.haltAndroid(app.repository_id, typed), "operations.apps.haltSucceeded")}
       />
     </div>
   );

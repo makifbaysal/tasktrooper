@@ -195,8 +195,9 @@ No auth. Returns bridge and LM Studio status.
 
 ## GET /v1/releases
 
-Every repository's releases, newest first — the Operations → Deployments
-history. Query: `repository_id`, `component_id`, `status` (comma list of
+Every repository's releases, newest first — the Operations console's
+"last deploy", deploy markers and Changes (it asks with `status=` for shipped
+releases only, so drafts and pending cuts never use up a page). Query: `repository_id`, `component_id`, `status` (comma list of
 release statuses), `before` (RFC3339 `created_at` of the last row already
 shown, for paging) and `limit` (≤ 100, default 20). Answers
 `{"releases": [...]}`, never `null`; a bad id, status or timestamp is 400.
@@ -446,7 +447,10 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
 - `POST /v1/releases/{releaseId}/finish` — `{confirm, note}` → `Release`, every task moved
   to `released`.
 - `POST /v1/releases/{releaseId}/rollback` — `{confirm, note}` → `Release`, always a manual
-  (human) reason.
+  (human) reason. Allowed on `failed`, `awaiting_verdict`, or `released` within 24 h of the
+  verdict and still the newest; 409 with the reason otherwise (a newer release shipped or open).
+  `rollback.mechanism` is `workflow_dispatch`, `revert_push` or `provider_rollback` (then
+  `provider_deployment_id` / `promoted_deployment_id`); `progress_at` follows each side effect.
 - `POST /v1/repositories/{id}/tasks/{taskId}/before-deploy/confirm` — no body. Stamps
   `before_deploy_confirmed_at` and, when the task sits in `done`, wakes the release engineer
   immediately. Driven by `TaskDetailDrawer`'s before-deploy Confirm button
@@ -714,12 +718,126 @@ shipping order.
   GCP Cloud Monitoring and generic `{title, severity, env, detail, fingerprint, resolved}`;
   `?env=` and `?source=` fill what the payload omits. A recovery payload resolves the
   matching incident (202 when nothing matched).
-- `GET /v1/incidents?repository_id=&env=&status=open,triaging` — list.
-- `GET /v1/incidents/{incidentId}` — incident with its timeline.
-- `POST /v1/incidents/{incidentId}/triage` — re-run the remedy engine.
-- `POST /v1/incidents/{incidentId}/remedy` — record a proposal `{kind, summary, steps, evidence, confidence, rollback}`.
+- `GET /v1/incidents?repository_id=&env=&status=open,triaging&limit=` — list, newest `last_seen`
+  first (default limit 100, max 500 — anything above is read as 100). The console always asks for
+  500 and says so when a full page comes back. `env` is matched as stored, so the console filters
+  environments itself through `lib/environmentLabel`, and lists a label it does not know on its own.
+- `GET /v1/incidents/{incidentId}` — incident with its timeline. `remedy_author` says who wrote
+  the current proposal (`auto_triage`, `agent`, `human`).
+- `POST /v1/incidents/{incidentId}/triage` — re-run the remedy engine; it always writes an
+  `auto_triage` proposal, so the console asks first when a person or an agent wrote the current one.
+- `POST /v1/incidents/{incidentId}/remedy` — record a proposal `{kind, summary, steps, evidence, confidence, rollback}`
+  (`api.proposeIncidentRemedy`; author defaults to `human`, which later machine triage leaves alone;
+  400 without a summary). Moves the incident to `proposed`, or `fixing` under the auto-fix policy.
 - `POST /v1/incidents/{incidentId}/resolve` · `POST /v1/incidents/{incidentId}/ignore`.
 - `PUT /v1/repositories/{id}/incident-policy` — `{incident_policy: off|suggest|auto_fix}`.
+
+### Alert connections (alert ingest tokens)
+
+Operations → Alert connections (`pages/ops/OpsAlertConnectionsPage`). Types `AlertToken`, `AlertTokenInput`,
+`CreatedAlertToken` in `src/api.ts`.
+
+- `GET /v1/repositories/{id}/alert-tokens` — `api.listAlertTokens(repositoryId)` →
+  `{tokens: [{id, label, default_env, created_at, last_used_at}] | null}`, newest first; never the token.
+  `last_used_at` is null until an alert is accepted.
+- `POST /v1/repositories/{id}/alert-tokens` — `api.createAlertToken(repositoryId, {label, default_env?})`
+  (label 1–100 characters; `default_env` one of `prod`·`preprod`·`stage`·`local`, `prod` when left out) →
+  201 `{id, label, default_env, created_at, token, ingest_path}`. The **only** answer that carries the
+  plaintext `token`: the UI shows `<api base><ingest_path>` in the creating dialog and keeps it nowhere else
+  (no cache, URL or storage; the listed row is rebuilt without it, `alertConnections#listedToken`).
+  400 bad label/env (shown as worded), 404 no repository, 503 no token store on this server.
+- `DELETE /v1/repositories/{id}/alert-tokens/{tokenId}` — `api.deleteAlertToken(repositoryId, tokenId)` → 204;
+  404 when unknown or another repository's (the UI drops the row either way).
+- `POST /v1/alerts/ingest/{token}` — called by the alerting tool, never by this app. No API key; same payloads
+  as the incident webhook above, `?env=`/`?source=` honoured (each snippet adds `?source=<tool>`). Per token:
+  60 requests/min (burst 10) and 20 new incidents/hour, then 429 `{"error":"rate_limited"}`. Local mode
+  listens on `127.0.0.1` on a port picked at each launch, so an external tool needs a tunnel that follows it.
+
+## Observability data sources, signals and recipes
+
+Operations → Data sources (`pages/DataSourcesPage`, `components/operations/sources/*`).
+Shapes mirror `server/internal/domain/datasource.go` / `observability.go`; the server's
+`.ai/api-spec.md` is the contract. Errors are flat `{error}`, plus `fields` (400, per key a
+code: `required`, `invalid`, `not_permitted`, `unknown_field`, `invalid_option`, `too_long`,
+`secrets_required`) or `code` (`unsupported` 422, `bad_query` 400, `upstream` 502). `ApiError`
+carries `fields`; read them with `dataSourceFieldErrors(e)`.
+
+- `GET /v1/data-source-kinds` → `{kinds: DataSourceKindInfo[]}` (`api.listDataSourceKinds`). A
+  kind's `fields` (`{key, label, help, type: text|url|secret|select|headers, required, options,
+  placeholder, show_when, secret}`) are the whole add/edit form; `show_when {auth: "bearer"}`
+  shows a field only while `auth` is `bearer`, and `required` applies only then. `options` and
+  `show_when` are never null.
+- `GET /v1/data-sources` → `{data_sources: DataSource[]}`; `GET /v1/data-sources/{id}` → one
+  (`listDataSources`, `getDataSource`). `DataSource` = `{id, kind, name, config, secrets_set,
+  status: ok|error|unverified, status_detail, info: {version, detail}, verified_at (null until
+  the first success), created_at, updated_at, capabilities}`. A secret value never comes back,
+  only its key in `secrets_set`.
+- `POST /v1/data-sources {kind, name?, config, secrets}` → 201 `DataSource`
+  (`createDataSource`). Always saved, then verified: an unreachable source comes back with
+  `status: "error"` and `status_detail`. Secret fields (`secret: true`, and every `secret` or
+  `headers` type) go in `secrets`. `headers` is one string, one `Name: value` per line
+  (framing headers and `Metadata-Flavor` / `X-aws-ec2-metadata-token(-ttl-seconds)` refused).
+  Empty `name` → the URL's host.
+- `PATCH /v1/data-sources/{id} {name?, config?, secrets?}` → `DataSource`
+  (`updateDataSource`), saved `unverified` and verified again. A key given replaces it, `""`
+  removes it, a key left out is kept; a field hidden by `show_when` loses its value. Moving a
+  `url` to another origin (scheme, host case-insensitive, port with 80/443 implied) requires
+  every stored secret the result keeps to be in `secrets` (a new value or `""`), else 400
+  `fields: {secrets: "secrets_required"}`. The UI sends a secret only when typed or removed.
+- `DELETE /v1/data-sources/{id}` → 204 (`deleteDataSource`). `POST /v1/data-sources/{id}/verify`
+  → `DataSource`, 200 either way (`verifyDataSource`).
+- `GET /v1/data-sources/{id}/discover?match=&limit=` → `{metrics, truncated, recipes:
+  [{recipe_id, matched_metric}]}` (`discoverDataSource`). `match` is a case-insensitive
+  substring filter, `limit` defaults to 1000 (max 5000; the drawer asks for 200); recipe
+  detection runs over the whole inventory.
+- `POST /v1/data-sources/{id}/query {query, from, to, step_seconds}` → `{series: [{name,
+  labels, points: [[unix_ms, value|null]]}], warnings}` (`queryDataSource`). RFC3339 range,
+  `step_seconds` 0 = about 600 points; at most 90 days, 11 000 points per series, 500 series
+  (a warning says so).
+- `GET /v1/signals` → `{signals: [{id, kind, unit, roles, aggregation}]}` (`listSignals`);
+  `GET /v1/recipes` → `{recipes: [{id, source_kind, applies_to: {technology,
+  messaging_system}, detect: {metric}, params, signals: {signal_id: query}, origin}]}`
+  (`listRecipes`). Read-only: there is no recipe write API.
+
+## Operations: Errors inbox and Logs explorer
+
+The console's two cross-component reads (`pages/ops/OpsErrorsInboxPage`, `OpsLogsPage` and the
+entity Errors / Logs sub-pages). Shapes mirror `server/internal/domain/opsquery.go`
+(`OpsErrors`, `OpsLogs`, `OpsUnavailable`); the server's `.ai/api-spec.md` is the contract. One
+fan-out over every confirmed, bound environment of one kind; an environment that fails is listed
+in `unavailable` and never fails the answer. `env` absent → `production`. `componentIds` goes out
+as one comma list in `component_id` (`opsQueryString`). Both calls carry a longer deadline than
+the 20 s read default (errors 120 s, logs 75 s): the server reads 4 environments at a time and
+gives each 20 s.
+
+- `GET /v1/operations/errors?env=&since=&component_id=` → `{groups: OpsErrorGroup[], unavailable,
+  truncated}` (`api.listOpsErrors({env, since, componentIds})`). `OpsErrorGroup` = the
+  per-environment `RuntimeErrorGroup` plus `component_id`, `repository_id`, `environment_id`,
+  `provider`. `since` RFC3339, default 24 h ago, clamped server-side to 30 days back
+  (`OPS_ERRORS_MAX_WINDOW_MS`; the inbox clamps too and says so). There is no `until`: a custom
+  range that ends in the past still counts to now, and the inbox says that. Vercel and `per_branch`
+  environments have no error surface and are skipped silently. Sorted `new` first, then
+  `last_seen`, then `count`. `truncated`: more than 50 environments matched.
+- `GET /v1/operations/logs?env=&since=&until=&component_id=&min_severity=&text=&limit=` →
+  `{entries: OpsLogEntry[], unavailable, truncated}` (`api.listOpsLogs({env, since, until,
+  componentIds, minSeverity, text, limit})`; `text` trimmed, empty left out). `OpsLogEntry` =
+  `RuntimeLogEntry` plus `component_id`, `environment_id`. `until` defaults to now, `since` to an
+  hour before; limit default 200, max 500. Newest first. **Older page:** the same query with
+  `until` = the oldest `timestamp` shown, passed as returned (full precision). `until` is
+  inclusive, so the entries at that instant come back: `query/opsQuery#appendOlder` drops them as
+  a multiset (identity = environment, timestamp, severity, message, request, trace, fields); the
+  live tail does the same at the newest instant with `since` (`prependNewer`). `truncated`: the
+  window holds more than was returned.
+- More than 10 environments match with no `component_id` → 400 `{error: "too_many_environments",
+  code, matched, max_environments}`. `ApiError.details` carries the whole JSON body;
+  `opsTooManyEnvironments(e)` → `{matched, max}` or null. The explorer then asks for entities
+  (none preselected).
+- `unavailable[]` = `{component_id, environment_id, code, message}`, `code` ∈ `not_connected`
+  (link: the repository's Deploy & Runtime tab), `cloud_auth` (link: Settings → Integrations),
+  `provider_error` (the server's message is shown), `timeout` (Refresh retries; never cached).
+- A group becomes a board task through the per-environment `POST
+  /v1/environments/{environment_id}/errors/task` (`api.createErrorTask`), with the group's
+  `RuntimeErrorGroup` fields only (`errors/errorGroups#runtimeGroup`).
 
 ## Store operations
 
@@ -749,8 +867,17 @@ shipping order.
 - `GET /v1/repositories/{id}/store/apps/{platform}/tracks` (`api.storeAppTracks`) — reads the
   three channels live and refreshes the row's cache; returns `StoreTracks`.
 - `POST /v1/repositories/{id}/store/apps/{platform}/promote` (`api.promoteStoreChannel`) — body
-  `{from, to, confirm}`, one channel forward at a time (internal→external→production);
-  `to=production` needs `confirm`; 409 when the app isn't ready for the move.
+  `{from, to, confirm, user_fraction?}`, one channel forward at a time (internal→external→production);
+  `to=production` needs `confirm`; Android into production starts a staged rollout at
+  `user_fraction` ∈ (0, 1] (left out: everyone; 400 outside it); 409 when the app isn't ready
+  for the move.
+- `POST /v1/repositories/{id}/store/apps/ios/submit` · `…/ios/release` (`api.submitIOS` /
+  `api.releaseIOS`) — `{confirm}`. Submit also sets `review_state` waiting so the monitor
+  follows the review. The console gates both on the production track just read: submit a
+  `draft` pending version, release an `approved` one (App Store's `PENDING_DEVELOPER_RELEASE`).
+- `POST /v1/repositories/{id}/store/apps/android/rollout` (`api.setAndroidRollout`) —
+  `{user_fraction, confirm?}`, (0, 1]; 0 is refused (Play reads it as completed); 1
+  completes the rollout and needs `confirm`.
 - `POST /v1/repositories/{id}/store/apps/{platform}/build` (`api.startStoreBuild`) — body
   `{engine?}` (`auto|github_actions|local`, defaults to the repo's `release_engine`); 409 when
   neither engine can run it (`domain.ErrNoReleaseEngine`) — the task card is parked on

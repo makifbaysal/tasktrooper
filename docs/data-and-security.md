@@ -72,7 +72,9 @@ A second secret, `mcp_secrets_key`, is generated alongside the bearer token
 and handed to the backend as `MCP_SECRETS_KEY`. It encrypts everything the
 backend stores that should not sit in the database in the clear: connected
 provider API keys, MCP server credentials and OAuth sign-in tokens, the GitHub
-token, Vercel and store credentials, and mobile signing assets.
+token, Vercel and store credentials, mobile signing assets, and the
+credentials of [data sources](data-sources.md) (bearer tokens, passwords and
+extra headers, which are never shown again once saved).
 
 **`mcp_secrets_key` must never be regenerated on an install that already has
 encrypted rows.** It is meant to stay stable for the life of the install —
@@ -106,6 +108,10 @@ Everything else stays local. The things that do reach the network are:
 - **Any MCP server you add** — a server you configure under Settings → MCP
   Servers reaches whatever host you pointed it at, on your authority. See
   [MCP servers](mcp-servers.md).
+- **Any data source you add** — the URL you enter on Operations → Settings
+  → Data sources, with its saved credentials: when you save the source or press
+  Verify, and when you list its metrics or run a query from its details. See
+  [Data sources](data-sources.md).
 
 - **Usage statistics** — official desktop builds only. See
   [Usage statistics](#usage-statistics) below.
@@ -173,6 +179,14 @@ points a tool at another service on the same machine. Browser tools are the
 one exception with the opposite default: loopback is allowed for them out of
 the box, because a developer role routinely boots its own dev server on
 `127.0.0.1` and opens it to look at what it just built.
+
+A [data source](data-sources.md) URL is the other exception: a person types
+it on Operations → Settings → Data sources, and a self-hosted Prometheus
+usually runs on this machine or the local network, so in local mode it may
+point at loopback and private addresses. Link-local and cloud metadata addresses
+(`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, `metadata.google.internal`)
+are always refused for it, both when the source is saved and when each
+request dials.
 
 ## The pre-upgrade Postgres backup
 

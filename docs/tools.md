@@ -141,7 +141,7 @@ See [Deploy targets and recipes](deploy.md) → "Releases" for the full flow.
 | `load_deploy_template` | Reads one recipe in full | Same as above |
 | `get_deploy_target` | How a repository ships to an environment (the legacy per-env address record, unrelated to a component's delivery profile) | `release-engineer`, `product-manager` |
 | `update_deploy_target` | Records the address an environment actually answers at (`base_url`/`health_url`/`logs_url`/`app_url` only) | `release-engineer`, `product-manager` |
-| `record_local_deploy` | Records a break-glass deploy run made from a machine directly, so the Deployments page still reflects it | Ops-facing agents with board/deploy write access |
+| `record_local_deploy` | Records a break-glass deploy run made from a machine directly, in the same deploy-run history as the GitHub Actions runs | Ops-facing agents with board/deploy write access |
 
 `get_deploy_logs` reads a CI/Actions job's output; a bound environment's own live logs and grouped errors come from `query_runtime_logs`/`list_runtime_errors` in [Cloud runtime](#cloud-runtime) instead.
 

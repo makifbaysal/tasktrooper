@@ -34,7 +34,9 @@ The same pages are rendered at [tasktrooper.ai/docs](https://tasktrooper.ai/docs
 
 - [Git and pull requests](git-and-pull-requests.md)
 - [Deploy targets and recipes](deploy.md)
+- [Operations console](operations-console.md)
 - [Production incidents](incidents.md)
+- [Data sources](data-sources.md)
 - [Mobile devices and store releases](mobile-releases.md)
 
 ## Reference
