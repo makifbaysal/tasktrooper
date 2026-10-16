@@ -2,6 +2,7 @@ package cloud_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -140,6 +141,49 @@ func (s *RuntimeSuite) TestErrorsPropagatesNonUnsupportedProviderError() {
 	s.provider.errorsErr = context.DeadlineExceeded
 	_, err := s.svc.Errors(s.ctx, s.env.ID, time.Now().Add(-time.Hour))
 	s.Require().Error(err)
+}
+
+func (s *RuntimeSuite) TestErrorsCachesAProviderFailureButNotARunOutDeadline() {
+	tests := []struct {
+		name        string
+		firstErr    error
+		secondFails bool
+	}{
+		{name: "deadline", firstErr: context.DeadlineExceeded, secondFails: false},
+		{name: "cancelled", firstErr: context.Canceled, secondFails: false},
+		{name: "provider failure", firstErr: errors.New("upstream 503"), secondFails: true},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			env := s.envs.seed(domain.ComponentEnvironment{
+				RepositoryID: s.repoID, ComponentID: uuid.New(), Environment: domain.EnvironmentProduction,
+				Status: domain.LinkConfirmed, Provider: domain.CloudVercel, AccountID: s.env.AccountID, Resource: s.env.Resource,
+			})
+			since := time.Now().Add(-time.Hour)
+			s.provider.errorsErr = tt.firstErr
+			_, err := s.svc.Errors(s.ctx, env.ID, since)
+			s.Require().ErrorIs(err, tt.firstErr)
+
+			s.provider.errorsErr = nil
+			s.provider.errorGroups = []domain.RuntimeErrorGroup{{Fingerprint: "f1"}}
+			groups, err := s.svc.Errors(s.ctx, env.ID, since)
+			if tt.secondFails {
+				s.Error(err)
+				return
+			}
+			s.Require().NoError(err)
+			s.Len(groups, 1)
+		})
+	}
+}
+
+func (s *RuntimeSuite) TestErrorsSupportedIsFalseForAPerBranchPreview() {
+	preview := s.envs.seed(domain.ComponentEnvironment{
+		RepositoryID: s.repoID, ComponentID: uuid.New(), Environment: domain.EnvironmentPreview,
+		Status: domain.LinkConfirmed, Provider: domain.CloudVercel, AccountID: s.env.AccountID, Resource: s.env.Resource,
+	})
+	s.False(s.svc.ErrorsSupported(preview))
+	s.True(s.svc.ErrorsSupported(s.env))
 }
 
 func (s *RuntimeSuite) TestDeploymentsDefaultsLimit() {

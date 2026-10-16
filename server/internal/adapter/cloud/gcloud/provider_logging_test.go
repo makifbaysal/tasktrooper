@@ -43,7 +43,7 @@ func TestLogsBuildsTheServiceFilterAndMapsEntries(t *testing.T) {
 
 	q := domain.RuntimeLogQuery{
 		Since:       time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
-		Until:       time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC),
+		Until:       time.Date(2026, 9, 20, 12, 0, 0, 500_000_000, time.UTC),
 		MinSeverity: domain.LogError,
 		Text:        `disk "full"`,
 		Limit:       50,
@@ -58,7 +58,7 @@ func TestLogsBuildsTheServiceFilterAndMapsEntries(t *testing.T) {
 		t.Fatalf("path = %q", gotPath)
 	}
 	filter, _ := gotBody["filter"].(string)
-	wantFilter := `resource.type="cloud_run_revision" AND resource.labels.service_name="api" AND resource.labels.location="us-central1" AND timestamp>="2026-09-20T00:00:00Z" AND timestamp<="2026-09-20T12:00:00Z" AND severity>=ERROR AND SEARCH("disk \"full\"")`
+	wantFilter := `resource.type="cloud_run_revision" AND resource.labels.service_name="api" AND resource.labels.location="us-central1" AND timestamp>="2026-09-20T00:00:00Z" AND timestamp<="2026-09-20T12:00:00.5Z" AND severity>=ERROR AND SEARCH("disk \"full\"")`
 	if filter != wantFilter {
 		t.Fatalf("filter = %q, want %q", filter, wantFilter)
 	}

@@ -530,6 +530,43 @@ unreachable.
   `query_runtime_logs` / `list_runtime_errors` / `list_deployments`
   (`.ai/tool-reference.md`).
 
+## Operations: Errors inbox and Logs explorer
+
+`internal/application/opsquery` fans one query out over every component environment of one
+deploy environment kind that is `confirmed` and bound (account + resource), leaving out those of a
+dismissed component, through the same `cloud.Service.Errors`/`Logs` the per-environment routes
+above use (and their 30 s cache). At most 4 environments are read at once and each is cut off after
+20 s; one that fails is listed in `unavailable` and never fails the answer. Mounted with the cloud
+routes. JSON shapes are `domain.OpsErrors` / `OpsLogs` (`internal/domain/opsquery.go`); errors are
+the flat `{"error"}` shape. Common parameters: `env` ∈ `production|staging|preview|development`
+(absent → `production`, anything else → 400); `component_id`, repeated or comma-separated, limits
+the read to those components (an unknown one matches nothing, a malformed one is 400).
+
+- `GET /v1/operations/errors?env=&since=&component_id=…` → `{groups: [{component_id,
+  repository_id, environment_id, provider, fingerprint, message, count, first_seen, last_seen,
+  sample?, source?, new, external_url?}], unavailable, truncated}`. `since` RFC3339, default 24 h
+  ago, clamped to 30 days back. An environment with no error surface (`errors_supported: false` —
+  Vercel, every `per_branch` row) is skipped silently, not reported. At most 50 environments are
+  read; `truncated: true` says more matched. Sorted `new` first, then `last_seen` newest first, then
+  `count`.
+- `GET /v1/operations/logs?env=&since=&until=&component_id=…&min_severity=&text=&limit=` →
+  `{entries: [{timestamp, severity, message, source?, method?, path?, status_code?, trace_id?,
+  fields?, component_id, environment_id}], unavailable, truncated}`. `until` defaults to now,
+  `since` to an hour before `until`; `since` not before `until` → 400. `min_severity` as for one
+  environment; `text` is passed to each provider's search. `limit` default 200, max 500, bounds
+  every environment's page and the merge. At most 10 environments: more with no `component_id` →
+  400 `{error: "too_many_environments", code: "too_many_environments", matched,
+  max_environments}` (the UI asks the user to pick components); more with one → the first 10 and
+  `truncated: true`. Entries merge newest first; `truncated` is also set when an environment had
+  more (a cursor, a provider cap, or a full page) or the merge was cut. There is no cursor across
+  providers: the next older page is the same query with `until` = the oldest `timestamp`
+  returned. `until` is inclusive and kept at full precision, so the entries at exactly that
+  instant come back again — de-duplicate them on the client.
+- `unavailable[]` = `{component_id, environment_id, code, message}`; `code` ∈ `not_connected` (no
+  provider adapter or account for it any more), `cloud_auth` (reconnect the account, which is
+  marked `error`), `provider_error`, `timeout` (no answer within 20 s). A timeout or cancellation
+  is never cached, so the next read tries the environment again.
+
 ## Observability data sources, signals and recipes (migration 186)
 
 `internal/application/datasource`. Three concepts: a **data source kind** is a connection type

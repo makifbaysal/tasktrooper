@@ -98,6 +98,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mobiledevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/newrepo"
 	notifyapp "github.com/makifbaysal/tasktrooper/server/internal/application/notify"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/opsquery"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/orchestrator"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
@@ -295,6 +296,7 @@ type engine struct {
 	projectModelSvc *projectmodel.Service
 	newRepoSvc      *newrepo.Service
 	cloudSvc        *cloudapp.Service
+	opsQuerySvc     *opsquery.Service
 	prodOpsSvc      *prodops.Service
 	healthMonitor   *prodops.Monitor
 	storeOpsSvc     *storeops.Service
@@ -2101,6 +2103,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			cloudSvc.Start(ctx)
 			cloudSvc.Boot(ctx)
 			e.cloudSvc = cloudSvc
+			e.opsQuerySvc = opsquery.NewService(opsquery.Deps{
+				Environments: environmentStore,
+				Components:   cloudComponents,
+				Runtime:      cloudSvc,
+			})
 			if modelSvc != nil {
 				// A finished scan turns its deploy signals into environment rows
 				// through the same service the runtime routes read, and the model
@@ -3064,6 +3071,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,
 		CloudSvc:          e.cloudSvc,
+		OpsQuerySvc:       e.opsQuerySvc,
 		DataSourceSvc:     dataSourceSvc,
 		EnvRequirements:   envRequirementsOrNil(e.envReqSvc),
 		ReleaseSvc:        releaseHTTP,

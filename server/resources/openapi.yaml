@@ -1143,6 +1143,126 @@ paths:
                     items:
                       $ref: '#/components/schemas/Recipe'
 
+  /v1/operations/errors:
+    get:
+      summary: Error groups across every component of one deploy environment
+      description: >-
+        Reads every confirmed, bound environment of the kind (at most 50; truncated
+        says more matched), 4 at a time, each cut off after 20s. An environment whose
+        provider has no error surface is skipped silently; one that fails is listed
+        in unavailable and never fails the answer. Sorted new first, then last_seen
+        newest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - $ref: '#/components/parameters/OpsComponentID'
+        - name: since
+          in: query
+          required: false
+          description: RFC3339; default 24 hours ago, clamped to 30 days back.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: The merged error groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsErrorGroup'
+                  unavailable:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsUnavailable'
+                  truncated:
+                    type: boolean
+        '400':
+          description: Unknown env, malformed since or component_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatError'
+
+  /v1/operations/logs:
+    get:
+      summary: Log entries across every component of one deploy environment
+      description: >-
+        Reads at most 10 confirmed, bound environments of the kind, 4 at a time,
+        each cut off after 20s, with the same window and limit, and merges them
+        newest first. More than 10 with no component_id is 400
+        too_many_environments; with one, the first 10 are read and truncated is
+        set. truncated is also set when an environment had more or the merge was
+        cut. The next older page is the same query with until = the oldest
+        timestamp returned (inclusive; de-duplicate entries at that instant).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - $ref: '#/components/parameters/OpsComponentID'
+        - name: since
+          in: query
+          required: false
+          description: RFC3339; default an hour before until.
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          required: false
+          description: RFC3339; default now.
+          schema:
+            type: string
+            format: date-time
+        - name: min_severity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [debug, info, warning, error, critical]
+        - name: text
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Per environment and for the merge; default 200, max 500.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: The merged entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsLogEntry'
+                  unavailable:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsUnavailable'
+                  truncated:
+                    type: boolean
+        '400':
+          description: >-
+            Bad input, or too_many_environments (code too_many_environments, with
+            matched and max_environments): pick components.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatError'
+
   /health:
     get:
       summary: Server and LLM provider health
@@ -1220,7 +1340,122 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+  parameters:
+    OpsEnvironment:
+      name: env
+      in: query
+      required: false
+      description: The deploy environment kind; default production.
+      schema:
+        type: string
+        enum: [production, staging, preview, development]
+    OpsComponentID:
+      name: component_id
+      in: query
+      required: false
+      description: Repeated or comma-separated; limits the read to these components.
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
+          format: uuid
   schemas:
+    FlatError:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        matched:
+          type: integer
+          description: too_many_environments only
+        max_environments:
+          type: integer
+          description: too_many_environments only
+    OpsUnavailable:
+      type: object
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        environment_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          enum: [not_connected, cloud_auth, provider_error, timeout]
+        message:
+          type: string
+    OpsErrorGroup:
+      type: object
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        environment_id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+          enum: [vercel, gcp, aws]
+        fingerprint:
+          type: string
+        message:
+          type: string
+        count:
+          type: integer
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+        sample:
+          type: string
+        source:
+          type: string
+        new:
+          type: boolean
+          description: The group's first occurrence falls inside the window.
+        external_url:
+          type: string
+    OpsLogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        severity:
+          type: string
+          enum: [debug, info, warning, error, critical]
+        message:
+          type: string
+        source:
+          type: string
+        method:
+          type: string
+        path:
+          type: string
+        status_code:
+          type: integer
+        trace_id:
+          type: string
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+        component_id:
+          type: string
+          format: uuid
+        environment_id:
+          type: string
+          format: uuid
     AlertIngestToken:
       type: object
       properties:
