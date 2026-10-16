@@ -11,7 +11,10 @@ import {
   type ChangeOwner,
 } from "@/components/operations/changes/changeFeed";
 import { ReleaseChecksSection } from "@/components/operations/changes/ReleaseChecksSection";
+import { ReleaseImpactSection } from "@/components/operations/changes/ReleaseImpactSection";
 import { ReleaseStatusPill } from "@/components/operations/changes/ReleaseStatusPill";
+import { rollbackSuggestion } from "@/components/operations/changes/rollbackSuggestion";
+import { RollbackSuggestionBanner } from "@/components/operations/changes/RollbackSuggestionBanner";
 import { DetailFacts, DetailPanel, DetailSection, type DetailFact } from "@/components/operations/console/DetailPanel";
 import { entityPath, releaseLabel } from "@/components/operations/console/opsEntities";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
@@ -26,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
 import { useReleaseDetail } from "@/hooks/useOpsChanges";
+import { useOpsConsole } from "@/hooks/useOpsConsole";
 import { releaseEnvironment } from "@/lib/deployFeed";
 import { githubCommitUrl } from "@/lib/githubUrl";
 import { formatDate, formatDuration, formatRelativeTime } from "@/lib/utils";
@@ -96,7 +100,16 @@ export function ReleaseDetailPanel({ releaseId, listed, ownerOf, onOpenChange, o
           <p className="break-words text-caption">{error}</p>
         </Notice>
       )}
-      {release && owner && <ReleaseBody release={release} owner={owner} />}
+      {release && owner && (
+        <ReleaseBody
+          release={release}
+          owner={owner}
+          onChanged={(updated) => {
+            apply(updated);
+            onChanged(updated);
+          }}
+        />
+      )}
     </DetailPanel>
   );
 }
@@ -255,9 +268,10 @@ function timelineOf(r: Release, d: (key: string) => string, now: number): Timeli
   return entries.sort((x, y) => Date.parse(x.at) - Date.parse(y.at));
 }
 
-function ReleaseBody({ release: r, owner }: { release: Release; owner: ChangeOwner }) {
+function ReleaseBody({ release: r, owner, onChanged }: { release: Release; owner: ChangeOwner; onChanged: (release: Release) => void }) {
   const { t, lang } = useI18n();
   const href = useOpsHref();
+  const { incidents } = useOpsConsole();
   const d = (key: string, params?: Record<string, string | number>) => t(`operations.changes.detail.${key}`, params);
   const now = Date.now();
   const env = releaseEnvironment(r);
@@ -349,12 +363,15 @@ function ReleaseBody({ release: r, owner }: { release: Release; owner: ChangeOwn
   ];
 
   const timeline = timelineOf(r, d, now);
+  const suggestion = rollbackSuggestion(r, incidents, now);
   const watch = r.deploy;
   const rollback = r.rollback;
 
   return (
     <>
-      {r.status === "failed" && r.failure_reason && (
+      {suggestion && <RollbackSuggestionBanner release={r} suggestion={suggestion} repositoryName={owner.repositoryName} onDone={onChanged} />}
+
+      {r.status === "failed" && r.failure_reason && !suggestion && (
         <Notice variant="error" title={d("failure")}>
           <p className="break-words text-caption">{r.failure_reason}</p>
         </Notice>
@@ -363,6 +380,8 @@ function ReleaseBody({ release: r, owner }: { release: Release; owner: ChangeOwn
       <DetailSection title={d("facts")}>
         <DetailFacts items={facts} />
       </DetailSection>
+
+      <ReleaseImpactSection release={r} role={owner.entity?.role} entityId={owner.entity?.id ?? r.component_id} />
 
       <DetailSection title={d("timeline.title")}>
         <ol className="relative space-y-2 border-l border-border pl-4">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MetricSeries, SignalSeries } from "@/api";
-import { autoStepSeconds, headlinePoints, signalChartSeries } from "@/components/operations/charts/signalChart";
+import { autoStepSeconds, headlinePoints, signalChartSeries, signalErrorView } from "@/components/operations/charts/signalChart";
+import { en } from "@/locales/en";
 
 const labels = { signal: "Response time", previous: (label: string) => `${label} · previous period` };
 
@@ -85,5 +86,28 @@ describe("headlinePoints / autoStepSeconds", () => {
     expect(autoStepSeconds(60 * 60_000)).toBe(15);
     expect(autoStepSeconds(24 * 3_600_000)).toBe(600);
     expect(autoStepSeconds(7 * 24 * 3_600_000)).toBe(3600);
+  });
+});
+
+describe("signalErrorView", () => {
+  it("offers what helps per code: the editor for a missing param or a gone source, Retry for a slow one, nothing for what cannot be read", () => {
+    expect(signalErrorView("needs_params")).toMatchObject({ key: "needsParams", action: "edit", actionKey: "fillParams", body: true });
+    expect(signalErrorView("not_found")).toMatchObject({ action: "edit", actionKey: "rebind" });
+    expect(signalErrorView("timeout")).toMatchObject({ key: "timeout", action: "retry", body: true });
+    expect(signalErrorView("unsupported").action).toBe("none");
+    expect(signalErrorView("unknown_signal").action).toBe("none");
+    expect(signalErrorView("upstream")).toMatchObject({ action: "retry", body: false });
+    expect(signalErrorView("something_new")).toMatchObject({ key: "failed", action: "retry" });
+    expect(signalErrorView(undefined).key).toBe("failed");
+  });
+
+  it("has words for every view it can name", () => {
+    const errors = en.operations.chart.errors as Record<string, string>;
+    for (const code of ["needs_params", "unsupported", "unknown_signal", "timeout", "not_found", "bad_query", "upstream", "error"]) {
+      const view = signalErrorView(code);
+      expect(errors, code).toHaveProperty(view.key);
+      if (view.body) expect(errors, code).toHaveProperty(`${view.key}Body`);
+      if (view.actionKey) expect(errors, code).toHaveProperty(view.actionKey);
+    }
   });
 });

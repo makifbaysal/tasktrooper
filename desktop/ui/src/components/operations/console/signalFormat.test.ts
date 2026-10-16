@@ -33,7 +33,8 @@ describe("signal values", () => {
     expect(formatSignalValue(12, "messages", ctx)).toBe("12 messages");
     expect(formatSignalValue(3, "count", ctx)).toBe("3");
     expect(formatSignalValue(1.5, "cores", ctx)).toBe("1.5 cores");
-    expect(formatSignalValue(3 * 1024 * 1024, "bytes", ctx)).toBe("3 MB");
+    expect(formatSignalValue(3 * 1024 * 1024, "bytes", ctx)).toBe("3 MiB");
+    expect(formatSignalValue(512, "bytes", ctx)).toBe("512 B");
     expect(formatSignalValue(7, "widgets", ctx)).toBe("7 widgets");
   });
 
@@ -46,10 +47,10 @@ describe("signal values", () => {
 describe("signalDelta", () => {
   it("colours a rise by what the signal means: worse for latency, errors and backlog, better for throughput and crash-free users", () => {
     expect(signalDelta("http.latency", 150, 100, "ms", ctx)).toMatchObject({ text: "+50%", direction: "up", tone: "bad" });
-    expect(signalDelta("http.error_ratio", 2, 1, "%", ctx)).toMatchObject({ direction: "up", tone: "bad" });
+    expect(signalDelta("http.error_ratio", 2, 1, "%", ctx)).toMatchObject({ text: "+1 pp", direction: "up", tone: "bad" });
     expect(signalDelta("queue.backlog", 30, 10, "messages", ctx)).toMatchObject({ direction: "up", tone: "bad" });
     expect(signalDelta("http.requests", 120, 100, "req/s", ctx)).toMatchObject({ text: "+20%", direction: "up", tone: "good" });
-    expect(signalDelta("mobile.crash_free_users", 99.5, 98, "%", ctx)).toMatchObject({ direction: "up", tone: "good" });
+    expect(signalDelta("mobile.crash_free_users", 99.5, 98, "%", ctx)).toMatchObject({ text: "+1.5 pp", direction: "up", tone: "good" });
   });
 
   it("colours a fall the other way round", () => {
@@ -63,8 +64,18 @@ describe("signalDelta", () => {
     expect(signalDelta("http.latency", 100.4, 100, "ms", ctx)).toMatchObject({ text: "No change", direction: "flat", tone: "flat" });
   });
 
+  it("says a percentage's change in percentage points, never as a relative percent", () => {
+    expect(signalDelta("http.error_ratio", 3, 2, "%", ctx)).toMatchObject({ text: "+1 pp", tone: "bad" });
+    expect(signalDelta("mobile.crash_free_users", 98.25, 99.5, "%", ctx)).toMatchObject({ text: "−1.25 pp", direction: "down", tone: "bad" });
+    expect(signalDelta("http.error_ratio", 0.2, 0.1, "%", ctx)).toMatchObject({ text: "+0.1 pp" });
+    expect(signalDelta("http.error_ratio", 1.001, 1, "%", ctx)).toMatchObject({ text: "No change", tone: "flat" });
+    const tr = { locale: "tr-TR", t: (key: string) => (key === "operations.units.percentPoints" ? "puan" : lookup(key)) };
+    expect(signalDelta("http.error_ratio", 3.5, 2, "%", tr)?.text).toBe("+1,5 puan");
+  });
+
   it("says the difference itself when the previous period was zero, and nothing without both values", () => {
-    expect(signalDelta("http.error_ratio", 2.5, 0, "%", ctx)).toMatchObject({ text: "+2.5%", tone: "bad" });
+    expect(signalDelta("http.error_ratio", 2.5, 0, "%", ctx)).toMatchObject({ text: "+2.5 pp", tone: "bad" });
+    expect(signalDelta("queue.backlog", 4, 0, "messages", ctx)).toMatchObject({ text: "+4 messages", tone: "bad" });
     expect(signalDelta("http.latency", 0, 0, "ms", ctx)).toMatchObject({ text: "No change", tone: "flat" });
     expect(signalDelta("http.latency", null, 10, "ms", ctx)).toBeUndefined();
     expect(signalDelta("http.latency", 10, null, "ms", ctx)).toBeUndefined();

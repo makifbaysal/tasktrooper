@@ -1,4 +1,4 @@
-import { Bug, Gauge, GitCommitHorizontal, Inbox, LayoutDashboard, Package, ScrollText, Siren, type LucideIcon } from "lucide-react";
+import { BellRing, Bug, Gauge, GitCommitHorizontal, Inbox, LayoutDashboard, Package, ScrollText, Siren, type LucideIcon } from "lucide-react";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { viewFor, type EntityTab } from "@/components/operations/console/roleViews";
@@ -15,6 +15,7 @@ export const ENTITY_TAB_ICONS: Record<EntityTab, LucideIcon> = {
   logs: ScrollText,
   changes: GitCommitHorizontal,
   issues: Siren,
+  alerts: BellRing,
   signals: Gauge,
 };
 

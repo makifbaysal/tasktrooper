@@ -1,6 +1,6 @@
 ---
 title: Operations console
-description: The cross-repository console for what your components do once they run: entities and their health, metric charts and golden metrics from bound signals, the Errors inbox, Logs, Changes, Issues, mobile releases and data sources, and how the top bar's environment and time range apply.
+description: The cross-repository console for what your components do once they run: entities and their health, metric charts and golden metrics from bound signals, the Errors inbox, Logs, Changes with deploy impact and rollback approval, Issues, alert rules, mobile releases and data sources, and how the top bar's environment and time range apply.
 ---
 
 # Operations console
@@ -36,6 +36,7 @@ The console has its own column next to the app sidebar, in three groups:
 | | **Logs** | `/operations/logs` | Log entries across components |
 | | **Changes** | `/operations/changes` | Every release, grouped by day |
 | | **Issues** | `/operations/issues` | Production incidents |
+| | **Alerts** | `/operations/alerts` | Alert rules and their state |
 | Settings | **Data sources** | `/operations/sources` | Systems that already collect your metrics |
 
 **Collapse** folds the column to icons. It starts folded on an entity page,
@@ -193,13 +194,13 @@ The sections depend on the role:
 
 | Role | Sections |
 |---|---|
-| Backend, Frontend, Desktop | Summary, Errors, Logs, Changes, Issues, Signals |
-| Worker | Summary, Queues, Errors, Logs, Changes, Issues, Signals |
-| Mobile | Summary, Releases, Errors, Logs, Changes, Issues, Signals |
+| Backend, Frontend, Desktop | Summary, Errors, Logs, Changes, Issues, Alerts, Signals |
+| Worker | Summary, Queues, Errors, Logs, Changes, Issues, Alerts, Signals |
+| Mobile | Summary, Releases, Errors, Logs, Changes, Issues, Alerts, Signals |
 | Library, CLI, Infra, Data, Game, Other | Summary, Changes, Issues |
 
-Errors, Logs, Changes and Issues are the console pages described below,
-narrowed to this entity. An entity with no environment connected in the
+Errors, Logs, Changes, Issues and Alerts are the console pages described
+below, narrowed to this entity. An entity with no environment connected in the
 environment picked has no errors or logs to read there, and those sections
 say so. A link to a section the role does not have opens Summary.
 
@@ -396,20 +397,45 @@ The columns are status, entity, version, commit (opens it on GitHub),
 tasks, **Trigger** (Merge, Dispatch, Cut by hand, Batch, No deploy step),
 started, duration and **Impact**.
 
-**Impact** is, for now, what the release's own verification recorded:
-health samples ("Health 5/5"), smoke checks ("Smoke 3/3"), new error groups
-since the deploy, whether verification stopped early, and what it could not
-check. Before-and-after metric comparisons come once data sources feed them.
-A release not checked yet reads "Not checked yet".
+**Impact** leads with the release's [deploy impact](deploy.md#deploy-impact)
+verdict — worse, pending, neutral, improved or unknown — and the signal that
+moved most ("Error rate +3.2 pt"), when its soak read one: that is, when its
+delivery profile sets `max_error_rate_delta` or `max_p95_delta_pct`. Beside
+it is what the release's own verification recorded: health samples
+("Health 5/5"), smoke checks ("Smoke 3/3"), new error groups since the
+deploy, whether verification stopped early, and what it could not check. A
+release not checked yet reads "Not checked yet".
 
-Click a release to open its panel: why it failed, if it did; its facts
-(entity, repository, environment, commit, tag, trigger and executor,
-started, finished, duration, tasks); its timeline (opened, cut, deploy
-started, deployed, end of the verification window, rollback started,
-finished); the deploy watch; what verification recorded; the rollback, if
-there was one, with its reason, who decided, how, the revert commit, what
-was restored and the steps nothing can undo on its own; the verdict; a
-build run on this computer; store builds; and the release notes.
+Click a release to open its panel: a **Rollback suggested** banner when a
+rollback is waiting on you (see [Rollback approval](#rollback-approval)); why
+it failed, if it did; its facts (entity, repository, environment, commit,
+tag, trigger and executor, started, finished, duration, tasks); its
+**Impact**; its timeline (opened, cut, deploy started, deployed, end of the
+verification window, rollback started, finished); the deploy watch; what
+verification recorded; the rollback, if there was one, with its reason, who decided, how, the
+revert commit, what was restored and the steps nothing can undo on its own;
+the verdict; a build run on this computer; store builds; and the release
+notes.
+
+The **Impact** section compares each golden signal of the entity's role
+that has a confirmed binding in the environment: its average over the hour
+before the deploy, the hour after it and that same hour a day earlier, how
+far it moved (in percentage points for a rate such as errors, in percent
+otherwise) and its verdict, with the threshold the soak held it to and
+whether it was breached. Below the table, a chart per signal spans the two
+hours around the deploy, with the deploy marked. While the hour after the
+deploy is still running it says so, and the numbers cover what has passed.
+With no signal bound it offers a link to the entity's **Signals**, where they
+are bound. It reads `GET /v1/releases/{id}/impact` (again every minute while
+the hour after the deploy is running); see
+[Deploy targets and recipes](deploy.md#deploy-impact) for how the verdict is
+reached.
+
+The two thresholds the soak holds a deploy to, **Max error rate rise
+(percentage points)** and **Max p95 latency rise (%)**, are set with the rest
+of the component's delivery profile: **Edit** on the delivery card of the
+repository's **Deploy & Runtime** tab. Left empty, a signal is compared but
+not held to anything; the card lists the ones that are set.
 
 ### Actions on a change
 
@@ -428,6 +454,31 @@ every environment: a staging rollback reverts merges on the default branch,
 which can redeploy production too. When the server refuses, the dialog stays
 open with what you typed and says why. A released change whose verdict is
 more than 24 hours old says rollback is no longer offered.
+
+### Rollback approval
+
+With auto rollback off for a component, the release engineer only proposes a
+rollback; a person approves it. The proposal is not stored on the release
+(the server writes it as a comment on the release's newest task and sends a
+`rollback_suggested` notification that links to
+`/operations/changes?release=<id>`), so the panel reads it back from the
+release itself. **Rollback suggested** shows at the top of a release's panel
+when its delivery profile has auto rollback off, it can still be rolled back
+(as in the table above), and one of these holds:
+
+- it failed;
+- it is awaiting a verdict and its verification failed: it stopped early
+  (an impact threshold breached, for one), a smoke check failed, or more new
+  error groups appeared than the profile allows;
+- an open production issue began at most 15 minutes after it finished, the
+  same rule the server uses to put an incident down to a release.
+
+**Approve rollback** is the same rollback as **Roll back**: it asks you to
+type the repository's name, with the reason filled in from what triggered the
+suggestion, and the server's refusal stays in the dialog. The same banner
+shows on that issue's panel under [Issues](#issues), with a link to the
+change. The notification's address opens the panel straight away, in
+whatever environment the release ran.
 
 ### Workflow deploys
 
@@ -467,8 +518,12 @@ environment, source, first and last seen, when it closed, duration,
 occurrences and the task carrying it), the details, the **Suggested
 remedy** with its kind, confidence and author, the timeline and the raw
 alert payload as received. The source is one of alert webhook, health
-probe, failed deploy or opened by hand; the author is the rules engine's
-first pass, an agent or a person.
+probe, failed deploy, alert rule or opened by hand; the author is the rules
+engine's first pass, an agent or a person. An issue an alert rule opened
+links back to the rule. When the issue began within 15 minutes of a
+production release that waits on a person to be rolled back, the panel
+starts with **Rollback suggested** and **Approve rollback** (see
+[Rollback approval](#rollback-approval)).
 
 While an issue is live, the panel offers:
 
@@ -489,6 +544,70 @@ The open panel is part of the address: `/operations/issues?id=<incident
 id>` opens that issue, whatever the filters, and switches the environment to
 the issue's own. Incident notifications carry this address; the older
 `/operations/incidents?id=<id>` still opens the same panel.
+
+## Alerts
+
+**Alerts** (`/operations/alerts`) lists the alert rules of the environment
+picked, across every entity; an entity's own **Alerts** section lists only
+its rules. A rule watches one of an entity's bound [signals](#signals) (or a
+query of a data source's own) and fires when its condition holds. The server
+evaluates every enabled rule about once a minute.
+
+Above the list, four filters with their counts: **Firing**, **Pending** (the
+condition holds but not yet for as long as the rule asks), **No data** and
+**OK**. Then **Entity** (on the console page), a search over name, signal
+and entity, **Suggest rules** (on an entity) and **New rule**.
+
+The columns are state, name, entity, environment, the condition in words
+("Response time (p95) > 800 ms for 10 min", "Error rate change over 10 min
+> +50%"), severity, the last value judged (in percent for a change rule),
+when it was last evaluated, and a switch that turns the rule off without
+deleting it. Firing rules come first, then pending, no data and OK; rules
+switched off come last.
+
+Click a rule to open its panel (`?rule=<id>` in the address): the
+condition, signal or query, since when it is in its state, its last value,
+channels and whether it opens an issue; the signal over the time range with
+the threshold drawn and the spans the rule was firing shaded; and every state
+change, newest first, with a link to the issue a firing opened or a recovery
+resolved. **Edit** opens the editor; **Delete** asks first (a firing rule's
+issue is resolved before it goes). Notifications link to
+`/operations/entity/<entity id>/alerts?rule=<rule id>`, which opens the
+panel and switches to the rule's environment.
+
+### Writing a rule
+
+The editor asks for:
+
+- **Entity** and **Environment**.
+- What to watch: a **Signal** bound on the entity in that environment (only
+  bound ones are offered; with none, a link to its Signals), or a **Custom
+  query** on a metrics data source.
+- The **Condition**: above or below a threshold in the signal's unit; a
+  change against one window earlier, in percent (negative for a drop); above
+  a threshold and still rising, that is higher than one window earlier (0
+  for any rise; it reads "Backlog above 1,000 messages and rising over 10
+  min"); or no data. **For at least** is
+  how long it must hold before the rule fires (0 fires at once, up to 7
+  days); **Window** is what one value summarizes and how far back a change
+  is measured (1 minute to 24 hours). Latency signals are judged at p95, web
+  vitals at p75, and a query answering several series is judged by its worst
+  one. A line under the fields reads the condition back in words.
+- **Backtest** (1 to 14 days): replays the condition on past data exactly as
+  the evaluator would, and shows the series with the threshold (a change
+  rule's percent change) and the times it would have fired shaded and
+  listed, with each one's peak. Change the rule and it says to run it again.
+- **Name** (the condition itself when left empty), **Severity**,
+  **Channels** and **Open an issue**. Only **Desktop notification** delivers
+  for now; the other channels are listed as coming later. With no channel, a
+  rule that opens no issue notifies nobody. While **Open an issue** is on the
+  channel choice is locked: you hear about the issue the way you hear about
+  any production issue.
+
+**Suggest** (and **Suggest rules** on an entity) asks for the starting rules
+of the entity's role, built from its bound signals and their last 14 days,
+leaving out what a rule already tests. Each suggestion fills the form; review
+it, backtest it and save it, and the next one loads. **Skip** drops one.
 
 ## Mobile releases
 
@@ -593,7 +712,8 @@ a query. See [Data sources](data-sources.md).
 ## See also
 
 - [Production incidents](incidents.md): where issues come from, how they
-  are deduplicated and what the remedy engine suggests
+  are deduplicated and what the remedy engine suggests, including the ones
+  alert rules open
 - [Deploy targets and recipes](deploy.md): the release flow behind Changes
 - [Mobile devices and store releases](mobile-releases.md): store
   credentials, onboarding and release engines

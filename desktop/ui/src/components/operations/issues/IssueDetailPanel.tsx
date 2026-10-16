@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, type Incident, type IncidentRemedyInput } from "@/api";
+import { incidentRollbackRelease } from "@/components/operations/changes/rollbackSuggestion";
+import { RollbackSuggestionBanner } from "@/components/operations/changes/RollbackSuggestionBanner";
 import { DetailFacts, DetailPanel, DetailSection, type DetailFact } from "@/components/operations/console/DetailPanel";
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { isOpenIncident } from "@/components/operations/console/opsStatus";
@@ -22,10 +24,11 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
+import { useOpsConsole } from "@/hooks/useOpsConsole";
 import { useIncidentDetail } from "@/hooks/useOpsIssues";
 import { formatDate, formatDuration, formatRelativeTime } from "@/lib/utils";
 
-const SOURCES = ["webhook", "probe", "deploy", "manual"];
+const SOURCES = ["webhook", "probe", "deploy", "manual", "alert_rule"];
 const REMEDY_KINDS = ["rollback", "code_fix", "config", "dependency", "capacity", "unknown"];
 const REMEDY_AUTHORS = ["auto_triage", "agent", "human"];
 const EVENT_KINDS = ["detected", "recurred", "triaged", "proposed", "task_created", "notified", "resolved", "ignored", "note"];
@@ -35,6 +38,17 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 function known(t: Translate, list: string[], prefix: string, value: string | undefined): string {
   if (!value) return "—";
   return list.includes(value) ? t(`${prefix}.${value}`) : value;
+}
+
+// An alert rule writes its id and component into the issue it opens
+// (alerting/evaluate.go#incidentInput).
+function alertRuleOf(i: Incident): { ruleId: string; componentId: string; name?: string } | undefined {
+  if (i.source !== "alert_rule") return undefined;
+  const ruleId = i.payload?.rule_id;
+  const componentId = i.payload?.component_id;
+  if (typeof ruleId !== "string" || typeof componentId !== "string") return undefined;
+  const name = i.payload?.rule_name;
+  return { ruleId, componentId, name: typeof name === "string" ? name : undefined };
 }
 
 interface IssueDetailPanelProps {
@@ -110,7 +124,7 @@ export function IssueDetailPanel({ incidentId, listed, ownerOf, onOpenChange, on
           <p className="break-words text-caption">{error}</p>
         </Notice>
       )}
-      {incident && <IssueBody incident={incident} owner={ownerOf(incident)} />}
+      {incident && <IssueBody incident={incident} owner={ownerOf(incident)} onChanged={onChanged} />}
     </DetailPanel>
   );
 }
@@ -249,9 +263,10 @@ function IssueActions({ incident, onDone }: { incident: Incident; onDone: (incid
   );
 }
 
-function IssueBody({ incident: i, owner }: { incident: Incident; owner: IssueOwner }) {
+function IssueBody({ incident: i, owner, onChanged }: { incident: Incident; owner: IssueOwner; onChanged: () => void }) {
   const { t, lang } = useI18n();
   const href = useOpsHref();
+  const { releases, reload: reloadConsole } = useOpsConsole();
   const d = (key: string, params?: Record<string, string | number>) => t(`operations.issues.detail.${key}`, params);
   const now = Date.now();
   const when = (iso?: string) =>
@@ -264,6 +279,7 @@ function IssueBody({ incident: i, owner }: { incident: Incident; owner: IssueOwn
       <span className="text-muted-foreground">—</span>
     );
 
+  const alertRule = alertRuleOf(i);
   const facts: DetailFact[] = [
     {
       label: d("entity"),
@@ -291,6 +307,18 @@ function IssueBody({ incident: i, owner }: { incident: Incident; owner: IssueOwn
       ),
     },
     { label: d("source"), value: known(t, SOURCES, "operations.issues.detail.sources", i.source) },
+    ...(alertRule
+      ? [
+          {
+            label: d("alertRule"),
+            value: (
+              <Link to={href(`${entityPath(alertRule.componentId, "alerts")}?rule=${encodeURIComponent(alertRule.ruleId)}`)} className="text-info hover:underline">
+                {alertRule.name || d("openAlertRule")}
+              </Link>
+            ),
+          },
+        ]
+      : []),
     { label: d("firstSeen"), value: when(i.first_seen_at) },
     { label: d("lastSeen"), value: when(i.last_seen_at) },
     ...(i.resolved_at ? [{ label: d("resolved"), value: when(i.resolved_at) }] : []),
@@ -311,9 +339,23 @@ function IssueBody({ incident: i, owner }: { incident: Incident; owner: IssueOwn
   const events = [...(i.events ?? [])].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   const payload = i.payload && Object.keys(i.payload).length > 0 ? JSON.stringify(i.payload, null, 2) : null;
   const confidence = Math.max(0, Math.min(100, i.confidence ?? 0));
+  const suspect = incidentRollbackRelease(i, releases, now);
 
   return (
     <>
+      {suspect && (
+        <RollbackSuggestionBanner
+          release={suspect}
+          suggestion={{ reason: "incident", incident: i }}
+          repositoryName={owner.repositoryName}
+          releaseHref={href(`/operations/changes?release=${encodeURIComponent(suspect.id)}`)}
+          onDone={() => {
+            reloadConsole();
+            onChanged();
+          }}
+        />
+      )}
+
       <DetailSection title={d("facts")}>
         <DetailFacts items={facts} />
       </DetailSection>

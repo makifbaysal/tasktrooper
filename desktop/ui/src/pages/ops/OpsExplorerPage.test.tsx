@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Incident, ProjectsOverview, StoreAppView } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { writeCache } from "@/lib/uiCache";
-import { incident, opsIncidents, opsOverview, opsReleases } from "@/test/opsConsoleFixtures";
+import { component, env, incident, opsIncidents, opsOverview, opsReleases, repo } from "@/test/opsConsoleFixtures";
 
 const { getProjectsOverview, listIncidents, listAllReleases, listAllStoreApps, getOpsGolden } = vi.hoisted(() => ({
   getProjectsOverview: vi.fn(),
@@ -53,6 +53,8 @@ beforeEach(() => {
   for (const key of ["operations.entities.overview", "operations.console.openIncidents", "operations.console.shippedReleases", "operations.mobileReleases.apps"]) {
     writeCache(key, undefined);
   }
+  writeCache("operations.golden.production.1h.*", undefined);
+  writeCache("operations.golden.staging.6h.*", undefined);
   getProjectsOverview.mockReset().mockResolvedValue(opsOverview);
   listIncidents.mockReset().mockResolvedValue({ incidents: open(opsIncidents), count: 4 });
   listAllReleases.mockReset().mockResolvedValue({ releases: opsReleases });
@@ -168,8 +170,58 @@ describe("OpsExplorerPage — type lists", () => {
     expect(within(table).getByRole("columnheader", { name: /Response time/ })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: /Throughput/ })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: /Error rate/ })).toBeInTheDocument();
-    expect(within(table).getAllByText("No data source bound")).toHaveLength(3);
+    await waitFor(() => expect(within(table).getAllByText("No data source bound")).toHaveLength(3));
     expect(screen.queryByRole("group", { name: "Filter by type" })).not.toBeInTheDocument();
+  });
+
+  it("shows a golden read in flight as loading and a failed one as failed, never as unbound", async () => {
+    let fail: (e: Error) => void = () => {};
+    getOpsGolden.mockImplementation(() => new Promise((_, reject) => (fail = reject)));
+    renderAt("/operations/services");
+    await waitFor(async () => expect(await rowNames()).toEqual(["api"]));
+    const table = screen.getByRole("table", { name: "Entities" });
+    expect(within(table).getAllByText("Loading…")).toHaveLength(3);
+    expect(within(table).queryByText("No data source bound")).not.toBeInTheDocument();
+    fail(new Error("The server did not answer in time. Please try again."));
+    await waitFor(() => expect(within(table).getAllByText("Couldn't read golden metrics")).toHaveLength(3));
+    expect(within(table).queryByText("No data source bound")).not.toBeInTheDocument();
+    expect(screen.getByText("The server did not answer in time. Please try again.")).toBeInTheDocument();
+    getOpsGolden.mockResolvedValue({ generated_at: "", components: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(within(table).getAllByText("No data source bound")).toHaveLength(3));
+  });
+
+  it("gives a desktop app its own golden cells: crash rate, not ANR", async () => {
+    const apps = repo("r-apps", "apps", [component("c-ios", "ios", "mobile", "ios"), component("c-mac", "mac", "desktop", "mac")], [
+      env("e-ios", "c-ios"),
+      env("e-mac", "c-mac"),
+    ]);
+    getProjectsOverview.mockResolvedValue({ projects: [], unassigned: [apps] });
+    getOpsGolden.mockResolvedValue({
+      generated_at: "",
+      components: [
+        {
+          component_id: "c-mac",
+          signals: [
+            { signal: "mobile.crash_free_users", unit: "%", bound: true, value: 99.5, previous: 99, spark: [] },
+            { signal: "mobile.crash_rate", unit: "%", bound: true, value: 0.5, previous: 1, spark: [] },
+            { signal: "mobile.cold_start", unit: "ms", bound: false, value: null, previous: null, spark: [] },
+          ],
+        },
+      ],
+    });
+    renderAt("/operations/mobile");
+    await waitFor(async () => expect(await rowNames()).toEqual(["ios", "mac"]));
+    const table = screen.getByRole("table", { name: "Entities" });
+    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(expect.arrayContaining(["Crash-free users", "Cold start", "ANR rate", "Crash rate"]));
+    const [ios, mac] = await rows();
+    await waitFor(() => expect(within(mac).getByText("0.5%")).toBeInTheDocument());
+    expect(within(mac).getByText("99.5%")).toBeInTheDocument();
+    expect(within(mac).getAllByText("Not one of this kind's golden metrics")).toHaveLength(1);
+    expect(within(mac).getAllByText("No data source bound")).toHaveLength(1);
+    expect(within(ios).getAllByText("Not one of this kind's golden metrics")).toHaveLength(1);
+    expect(within(ios).getAllByText("No data source bound")).toHaveLength(3);
   });
 
   it("fills the golden columns from one golden read for the environment and range, with a sparkline each", async () => {
@@ -196,7 +248,8 @@ describe("OpsExplorerPage — type lists", () => {
     expect(row.querySelectorAll("svg path").length).toBeGreaterThanOrEqual(2);
     expect(getOpsGolden).toHaveBeenCalledTimes(1);
     const query = getOpsGolden.mock.calls[0][0];
-    expect(query).toMatchObject({ env: "staging", componentIds: ["c-api"] });
+    expect(query).toMatchObject({ env: "staging" });
+    expect(query.componentIds).toBeUndefined();
     expect(query.to - query.from).toBe(6 * 3_600_000);
     expect(screen.getByRole("button", { name: /^Time range/ })).toBeInTheDocument();
   });

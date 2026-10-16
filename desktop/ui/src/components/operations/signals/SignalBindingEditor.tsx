@@ -4,17 +4,28 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDataSources, useRecipeCatalog } from "@/hooks/useDataSources";
 import { useI18n } from "@/hooks/useI18n";
+import { useComponentSignals } from "@/hooks/useOpsSignals";
 import { signalLabel } from "@/components/operations/console/signalFormat";
 
-type EditorProps = Omit<SignalBindingDialogProps, "sources" | "kinds" | "recipes">;
+type EditorProps = Omit<SignalBindingDialogProps, "sources" | "kinds" | "recipes"> & {
+  /** Start from the signal's binding as it is now (read while the editor
+   * opens), e.g. to fill in the params a bound recipe is missing. */
+  prefillCurrent?: boolean;
+};
 
 /** The binding editor for a page that holds no data sources of its own (an
- * entity's Summary): it reads them, and the recipes, while it is open. */
-export function SignalBindingEditor(props: EditorProps) {
+ * entity's Summary): it reads them, and the recipes, while it is open. The
+ * unit, when the caller has none yet, is the signal catalog's. */
+export function SignalBindingEditor({ prefillCurrent = false, ...props }: EditorProps) {
   const { t } = useI18n();
   const { kinds, sources, loading } = useDataSources();
   const catalog = useRecipeCatalog();
-  if ((loading && sources.length === 0) || (catalog.loading && catalog.recipes.length === 0)) {
+  const current = useComponentSignals(props.componentId, props.env, prefillCurrent);
+  if (
+    (loading && sources.length === 0) ||
+    (catalog.loading && catalog.recipes.length === 0) ||
+    (prefillCurrent && current.loading)
+  ) {
     return (
       <FormDialog
         open={props.open}
@@ -33,5 +44,8 @@ export function SignalBindingEditor(props: EditorProps) {
       </FormDialog>
     );
   }
-  return <SignalBindingDialog {...props} sources={sources} kinds={kinds} recipes={catalog.recipes} />;
+  const unit = props.unit ?? catalog.signals.find((s) => s.id === props.signal)?.unit;
+  const prefill =
+    props.prefill ?? (prefillCurrent ? (current.data?.signals?.find((s) => s.signal === props.signal)?.binding ?? null) : null);
+  return <SignalBindingDialog {...props} unit={unit} prefill={prefill} sources={sources} kinds={kinds} recipes={catalog.recipes} />;
 }

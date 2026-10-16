@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ComponentSignals, ObservabilityRecipe, SignalBinding } from "@/api";
+import { ApiError, type ComponentSignals, type ObservabilityRecipe, type SignalBinding } from "@/api";
 import {
   applyBinding,
   applyDismiss,
@@ -7,6 +7,8 @@ import {
   bindingRequest,
   compatibleRecipes,
   initialBindingDraft,
+  placeFieldErrors,
+  signalWriteError,
   validateBindingDraft,
   withSource,
 } from "@/components/operations/signals/signalBinding";
@@ -82,6 +84,44 @@ describe("recipes for a binding", () => {
     });
     expect(validateBindingDraft({ ...draft, mode: "custom" }, otel)).toEqual({ query: "required" });
     expect(validateBindingDraft({ ...draft, sourceId: "", recipeId: "" }, undefined)).toEqual({ source: "required", recipe: "required" });
+  });
+
+  it("opens a binding with a query on the query, recipe or not, since the server reads the query", () => {
+    const both = initialBindingDraft("http.requests", [prom], recipes, { data_source_id: "ds-1", recipe_id: "nginx", query: "sum(rate(x[$__rate]))", params: { job: "api" } });
+    expect(both).toMatchObject({ mode: "custom", recipeId: "", query: "sum(rate(x[$__rate]))", params: { job: "api" } });
+    expect(initialBindingDraft("http.requests", [prom], recipes, { data_source_id: "ds-1", recipe_id: "nginx", query: "" })).toMatchObject({
+      mode: "recipe",
+      recipeId: "nginx",
+    });
+  });
+
+  it("keeps a custom query's params, trimmed, without the empty ones", () => {
+    const draft = { sourceId: "ds-1", mode: "custom" as const, recipeId: "", params: { job: " api ", region: " " }, query: " q{job=\"$job\"} " };
+    expect(bindingRequest(draft, undefined)).toEqual({ data_source_id: "ds-1", query: 'q{job="$job"}', params: { job: "api" } });
+    expect(bindingRequest({ ...draft, params: {} }, undefined)).toEqual({ data_source_id: "ds-1", query: 'q{job="$job"}' });
+  });
+});
+
+describe("refusals", () => {
+  it("puts field errors on their inputs and keeps the rest apart", () => {
+    expect(placeFieldErrors({ data_source_id: "invalid", "params.job": "too_long", "params.other": "unknown_field", from: "too_long" }, ["job"])).toEqual({
+      inline: { source: "invalid", params: { job: "too_long" } },
+      rest: [
+        ["params.other", "unknown_field"],
+        ["from", "too_long"],
+      ],
+    });
+  });
+
+  it("words a write refused by a list that moved on, and asks for a fresh read", () => {
+    const w = "operations.signalsPage.writeErrors";
+    expect(signalWriteError(new ApiError("the binding is confirmed; delete it instead", 409, "confirmed"))).toEqual({ key: `${w}.confirmed`, reload: true });
+    expect(signalWriteError(new ApiError("conflict", 409, "conflict"))).toEqual({ key: `${w}.conflict`, reload: true });
+    expect(signalWriteError(new ApiError("not found", 404))).toEqual({ key: `${w}.notFound`, reload: true });
+    expect(signalWriteError(new ApiError("The server did not answer in time.", 408, "timeout"))).toEqual({ key: `${w}.timeout`, reload: false });
+    expect(signalWriteError(new ApiError("prometheus: 502", 502, "upstream"))).toEqual({ key: "operations.chart.errors.upstream", reload: false });
+    expect(signalWriteError(new ApiError("boom", 500))).toBeNull();
+    expect(signalWriteError(new Error("offline"))).toBeNull();
   });
 });
 

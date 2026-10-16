@@ -47,6 +47,8 @@ describe("screenFor", () => {
     ["/operations", "ops_explorer", "/operations"],
     ["/operations/entity/c-1/errors", "ops_entity_errors", "/operations/entity/:componentId/errors"],
     ["/operations/mobile/app/r-1", "ops_store_apps", "/operations/mobile/app/:repositoryId"],
+    ["/operations/alerts", "ops_alerts", "/operations/alerts"],
+    ["/operations/entity/c-1/alerts", "ops_entity_alerts", "/operations/entity/:componentId/alerts"],
   ])("names %s %s and sends only the template", (path, name, template) => {
     expect(screenFor(path)).toEqual({ name, template });
   });

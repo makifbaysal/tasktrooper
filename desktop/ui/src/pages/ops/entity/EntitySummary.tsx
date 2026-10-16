@@ -1,11 +1,11 @@
 import { Plug } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { Release } from "@/api";
-import { signalChartSeries } from "@/components/operations/charts/signalChart";
+import type { Release, SignalSeries, SignalSeriesError } from "@/api";
+import { signalChartSeries, signalErrorView } from "@/components/operations/charts/signalChart";
 import type { DeployMarker } from "@/components/operations/charts/TimeSeriesChart";
 import { ChartSlot, DATA_SOURCES_PATH, type ChartSlotStatus } from "@/components/operations/console/ChartSlot";
-import { goldenValue, indexGolden } from "@/components/operations/console/goldenMetrics";
+import { goldenValue, goldenWindow, indexGolden } from "@/components/operations/console/goldenMetrics";
 import { entityPath, releaseLabel, releaseTime, repositoryDeployPath } from "@/components/operations/console/opsEntities";
 import { isSevereIncident } from "@/components/operations/console/opsStatus";
 import { BUILTIN_SIGNALS, BUILTIN_TILES, hasTab, viewFor, type SignalSpec } from "@/components/operations/console/roleViews";
@@ -15,6 +15,7 @@ import { SignalBindingEditor } from "@/components/operations/signals/SignalBindi
 import { DeployTimeline } from "@/components/operations/entity/DeployTimeline";
 import { EntityActivity, buildActivity } from "@/components/operations/entity/EntityActivity";
 import { inRange, previousPeriod, useOpsContext, useOpsHref, useOpsPageScope } from "@/components/operations/shell/OpsContext";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
@@ -31,6 +32,8 @@ function at(release: Release): number {
 interface BindTarget {
   signal: string;
   unit?: string;
+  /** Open on the signal's binding as it is (a recipe missing a param). */
+  current?: boolean;
 }
 
 /** An entity's Summary: golden metrics, the role's golden-signal charts with
@@ -100,14 +103,39 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
   const syncKey = `ops:${entity.id}`;
   const lastRelease = releases[0];
 
+  const seriesFailed = Boolean(series.error) && !series.data;
+  const goldenFailed = Boolean(golden.error) && !golden.data;
+  const goldenClamped = view.golden.length > 0 && goldenWindow(range).clamped;
+  const signalOf = (id: string): SignalSeries | undefined => series.data?.signals?.find((x) => x.signal === id);
+  const retryReads = () => {
+    void series.reload();
+    void golden.reload();
+  };
+  const editCurrent = (spec: SignalSpec, sig: SignalSeries | undefined) =>
+    setBinding({ signal: spec.id, unit: sig?.unit, current: true });
+  const errorTitle = (error: SignalSeriesError) => t(`operations.chart.errors.${signalErrorView(error.code).key}`);
+
+  const readFailedFoot = (text: string, action?: ReactNode) => (
+    <span className="flex flex-wrap items-baseline gap-x-2">
+      <span>{text}</span>
+      {action}
+    </span>
+  );
+  const retryButton = (
+    <Button variant="link" size="sm" className="h-auto p-0 text-micro" onClick={retryReads}>
+      {t("operations.chart.retry")}
+    </Button>
+  );
+
   const goldenTile = (spec: SignalSpec) => {
     const label = t(`operations.signals.${spec.label}`);
     const found = goldenValue(goldenIndex, entity.id, spec.id);
-    // The golden answer lists every golden signal of a component with any
-    // binding, bound or not; the series read is what says which are bound.
-    const sig = series.data?.signals?.find((x) => x.signal === spec.id);
-    const unbound = sig ? !sig.bound : !found && !golden.loading && !series.loading;
-    if (unbound) {
+    // Bound or not: the series answer says, else the golden answer's flag,
+    // else a golden answer without this component (it lists every component
+    // with a confirmed binding). A read that failed says nothing either way.
+    const sig = signalOf(spec.id);
+    const bound = sig ? sig.bound : found?.bound !== undefined ? found.bound : golden.data && !found ? false : undefined;
+    if (bound === false) {
       return (
         <SignalTile
           key={spec.id}
@@ -125,14 +153,38 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
       );
     }
     if (!found || found.value == null) {
-      const waiting = golden.loading || series.loading;
+      const waiting = (!found && golden.loading) || (bound === undefined && series.loading);
+      let foot: ReactNode = null;
+      if (!waiting) {
+        if (sig?.error) {
+          const errView = signalErrorView(sig.error.code);
+          foot = readFailedFoot(
+            errorTitle(sig.error),
+            errView.action === "retry" ? (
+              retryButton
+            ) : errView.action === "edit" ? (
+              <Button variant="link" size="sm" className="h-auto p-0 text-micro" onClick={() => editCurrent(spec, sig)}>
+                {t(`operations.chart.errors.${errView.actionKey}`)}
+              </Button>
+            ) : undefined,
+          );
+        } else if ((seriesFailed && bound !== true) || (goldenFailed && !found)) {
+          foot = readFailedFoot(s("tileFoot.readFailed"), retryButton);
+        } else {
+          foot = s("tileFoot.noData");
+        }
+      }
       return (
         <SignalTile
           key={spec.id}
           compact
           label={label}
-          value={<span className="font-mono text-muted-foreground">—</span>}
-          foot={waiting ? null : sig?.error ? (sig.error.message || sig.error.code) : s("tileFoot.noData")}
+          value={
+            <span className="font-mono text-muted-foreground" aria-busy={waiting || undefined}>
+              —
+            </span>
+          }
+          foot={foot}
         />
       );
     }
@@ -146,7 +198,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
         unit={parts.unit || undefined}
         value={<span className="font-mono tabular-nums">{parts.value}</span>}
         delta={signalDelta(spec.id, found.value, found.previous, found.unit, formatCtx)}
-        title={previous ? s("tileFoot.previousValue", { value: previous }) : undefined}
+        foot={previous ? s("tileFoot.previousValue", { value: previous }) : undefined}
         sparkline={found.spark?.length ? found.spark : undefined}
         sparklineColorIndex={1}
       />
@@ -155,9 +207,31 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
 
   const chartSlot = (spec: SignalSpec) => {
     const title = t(`operations.signals.${spec.label}`);
-    const sig = series.data?.signals?.find((x) => x.signal === spec.id);
-    const failed = series.error && !series.data ? series.error : sig?.error ? sig.error.message || sig.error.code : undefined;
-    const status: ChartSlotStatus | undefined = series.loading ? undefined : failed ? "error" : sig?.bound ? "bound" : "unbound";
+    const sig = signalOf(spec.id);
+    let status: ChartSlotStatus | undefined;
+    let error: string | undefined;
+    let failedTitle: string | undefined;
+    let errorAction: ReactNode;
+    let retry: (() => void) | undefined = () => void series.reload();
+    if (series.loading) status = undefined;
+    else if (seriesFailed) {
+      status = "error";
+      error = series.error;
+    } else if (sig?.error) {
+      const errView = signalErrorView(sig.error.code);
+      status = "error";
+      failedTitle = errorTitle(sig.error);
+      error = errView.body ? t(`operations.chart.errors.${errView.key}Body`) : sig.error.message || undefined;
+      if (errView.action !== "retry") retry = undefined;
+      if (errView.action === "edit") {
+        errorAction = (
+          <Button size="sm" onClick={() => editCurrent(spec, sig)}>
+            {t(`operations.chart.errors.${errView.actionKey}`)}
+          </Button>
+        );
+      }
+    } else status = sig?.bound ? "bound" : "unbound";
+    const previousError = compare && status === "bound" ? sig?.previous_error : undefined;
     return (
       <ChartSlot
         key={spec.id}
@@ -165,9 +239,18 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
         formatValue={sig ? formatterFor(sig.unit) : undefined}
         series={chartLines.get(spec.id)}
         status={status}
-        error={failed}
+        error={error}
+        errorTitle={failedTitle}
+        errorAction={errorAction}
+        note={
+          previousError ? (
+            <span title={previousError.message || undefined}>
+              {t("operations.chart.errors.previousFailed", { reason: errorTitle(previousError) })}
+            </span>
+          ) : undefined
+        }
         loading={series.loading}
-        onRetry={() => void series.reload()}
+        onRetry={retry}
         onBind={() => setBinding({ signal: spec.id, unit: sig?.unit })}
         manageHref={signalsHref}
         syncKey={syncKey}
@@ -277,6 +360,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
             <h2 id={`${syncKey}-golden`} className="text-micro font-medium tracking-wide text-muted-foreground uppercase">
               {s("golden")}
             </h2>
+            {goldenClamped && <p className="text-caption text-muted-foreground">{t("operations.console.goldenClamped")}</p>}
             <div className="grid grid-cols-2 gap-2 @xl:grid-cols-3 @3xl:grid-cols-4">
               {view.golden.map(goldenTile)}
               {BUILTIN_TILES.map(builtin)}
@@ -320,6 +404,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
           env={env}
           signal={binding.signal}
           unit={binding.unit}
+          prefillCurrent={binding.current}
           previewWindow={range}
           onSaved={() => {
             void series.reload();

@@ -196,6 +196,18 @@ export function DeliveryCard({
                   <dt className="text-muted-foreground">{t("release.delivery.maxNewErrors")}</dt>
                   <dd>{effective.verify.max_new_errors ?? 0}</dd>
                 </div>
+                {(effective.verify.max_error_rate_delta ?? 0) > 0 && (
+                  <div>
+                    <dt className="text-muted-foreground">{t("release.delivery.maxErrorRateDelta")}</dt>
+                    <dd>{t("release.delivery.maxErrorRateDeltaValue", { value: effective.verify.max_error_rate_delta ?? 0 })}</dd>
+                  </div>
+                )}
+                {(effective.verify.max_p95_delta_pct ?? 0) > 0 && (
+                  <div>
+                    <dt className="text-muted-foreground">{t("release.delivery.maxP95DeltaPct")}</dt>
+                    <dd>{t("release.delivery.maxP95DeltaPctValue", { value: effective.verify.max_p95_delta_pct ?? 0 })}</dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-muted-foreground">{t("release.deliveryEdit.smoke.title")}</dt>
                   <dd>

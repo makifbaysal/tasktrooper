@@ -53,7 +53,8 @@ const WORD_UNITS: Record<string, string> = {
 
 const PLAIN_UNITS = new Set(["", "count", "score"]);
 
-const BYTE_STEPS = ["B", "KB", "MB", "GB", "TB"];
+// Binary multiples, so labelled as such.
+const BYTE_STEPS = ["B", "KiB", "MiB", "GiB", "TiB"];
 
 export interface SignalValueParts {
   value: string;
@@ -61,7 +62,7 @@ export interface SignalValueParts {
 }
 
 /** A value in the signal's catalog unit, scaled to read well: ms past a
- * second as seconds, seconds past two minutes as minutes, bytes in KB…TB. */
+ * second as seconds, seconds past two minutes as minutes, bytes in KiB…TiB. */
 export function signalValueParts(v: number, unit: string | undefined, ctx: SignalFormatContext): SignalValueParts {
   const num = defaultValueFormatter(ctx.locale);
   const u = (key: string) => ctx.t(`operations.units.${key}`);
@@ -104,8 +105,14 @@ export function signalFormatter(unit: string | undefined, ctx: SignalFormatConte
   return (v) => formatSignalValue(v, unit, ctx);
 }
 
-/** The change since the previous period, as the tile shows it: relative when
- * the previous value is not zero, else the difference itself. */
+// A percentage-point change smaller than this reads as flat (it rounds to 0
+// at the two decimals values are shown with).
+const FLAT_POINTS = 0.005;
+
+/** The change since the previous period, as the tile shows it: for a `%`
+ * signal always the difference in percentage points (2% → 3% is "+1 pp", not
+ * "+50%"); otherwise relative when the previous value is not zero, else the
+ * difference itself. */
 export function signalDelta(
   signal: string,
   value: number | null | undefined,
@@ -118,7 +125,11 @@ export function signalDelta(
   const label = ctx.t("operations.signalDelta.vsPrevious");
   let text: string;
   let flat: boolean;
-  if (previous !== 0) {
+  if (unit === "%") {
+    flat = Math.abs(diff) < FLAT_POINTS;
+    const points = defaultValueFormatter(ctx.locale)(Math.abs(diff));
+    text = flat ? ctx.t("operations.signalDelta.flat") : `${diff > 0 ? "+" : "−"}${points} ${ctx.t("operations.units.percentPoints")}`;
+  } else if (previous !== 0) {
     const relative = diff / Math.abs(previous);
     flat = Math.abs(relative) < FLAT_RELATIVE;
     const pct = new Intl.NumberFormat(ctx.locale, { maximumFractionDigits: Math.abs(relative) < 0.1 ? 1 : 0 }).format(

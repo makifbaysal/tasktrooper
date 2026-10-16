@@ -2,7 +2,8 @@ import { Plug } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Sparkline } from "@/components/operations/charts/Sparkline";
-import { goldenValue, type GoldenIndex } from "@/components/operations/console/goldenMetrics";
+import { roleHasGolden } from "@/components/operations/console/entityTypes";
+import { goldenCell, type GoldenIndex, type GoldenReadState } from "@/components/operations/console/goldenMetrics";
 import { HealthSquare, healthReasonText } from "@/components/operations/console/HealthSquare";
 import {
   entityPath,
@@ -18,6 +19,7 @@ import { formatSignalValue, type SignalFormatContext } from "@/components/operat
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
 import { storePlatformLabelKey } from "@/components/operations/storeTestBuilds";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
 import { intlLocale } from "@/lib/languages";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
@@ -34,14 +36,18 @@ interface EntityTableProps {
   series?: RowSeries;
   /** The golden metrics read for the rows' environment and range. */
   goldenValues?: GoldenIndex;
+  /** That read's state, so a cell in flight or failed is not read as unbound. */
+  goldenRead?: GoldenReadState;
 }
+
+const SETTLED: GoldenReadState = { data: null, loading: false };
 
 const TH = "px-3 py-2 text-left text-micro font-medium tracking-wide text-muted-foreground uppercase whitespace-nowrap";
 const TD = "px-3 py-2 align-middle";
 
 /** The explorer's dense list: health, name, type, the type's golden metrics
  * (blank until a data source is bound), errors, open issues and last deploy. */
-export function EntityTable({ rows, golden = [], groupByType = false, showType = true, series, goldenValues }: EntityTableProps) {
+export function EntityTable({ rows, golden = [], groupByType = false, showType = true, series, goldenValues, goldenRead = SETTLED }: EntityTableProps) {
   const { t, lang } = useI18n();
   const locale = intlLocale(lang);
   const formatCtx = useMemo<SignalFormatContext>(() => ({ locale, t }), [locale, t]);
@@ -92,6 +98,7 @@ export function EntityTable({ rows, golden = [], groupByType = false, showType =
                   showType={showType}
                   trend={withTrend ? (series?.get(row.key) ?? []) : undefined}
                   goldenValues={goldenValues}
+                  goldenRead={goldenRead}
                   formatCtx={formatCtx}
                 />
               ))}
@@ -118,14 +125,42 @@ interface RowProps {
   showType: boolean;
   trend?: Array<[number, number | null]>;
   goldenValues?: GoldenIndex;
+  goldenRead: GoldenReadState;
   formatCtx: SignalFormatContext;
 }
 
-function GoldenCell({ spec, componentId, values, formatCtx }: { spec: SignalSpec; componentId?: string; values?: GoldenIndex; formatCtx: SignalFormatContext }) {
+const NO_VALUES: GoldenIndex = new Map();
+
+interface GoldenCellProps {
+  spec: SignalSpec;
+  row: ExplorerRow;
+  values?: GoldenIndex;
+  read: GoldenReadState;
+  formatCtx: SignalFormatContext;
+}
+
+function GoldenCell({ spec, row, values, read, formatCtx }: GoldenCellProps) {
   const { t } = useI18n();
-  const found = values ? goldenValue(values, componentId, spec.id) : undefined;
-  if (!found) return <Blank label={t("operations.explorer.noSource")} />;
-  if (found.value == null) return <Blank label={t("operations.explorer.noValue")} />;
+  if (row.kind !== "entity" || !roleHasGolden(row.role, spec.id)) return <Blank label={t("operations.explorer.notApplicable")} />;
+  const cell = goldenCell(read, values ?? NO_VALUES, row.entityId, spec.id);
+  switch (cell.kind) {
+    case "loading":
+      return (
+        <span className="inline-flex justify-end">
+          <Skeleton className="h-3.5 w-12" aria-hidden />
+          <span className="sr-only">{t("operations.explorer.goldenLoading")}</span>
+        </span>
+      );
+    case "failed":
+      return <Blank label={t("operations.explorer.goldenFailed")} />;
+    case "unbound":
+      return <Blank label={t("operations.explorer.noSource")} />;
+    case "noData":
+      return <Blank label={t("operations.explorer.noData")} />;
+    case "unknown":
+      return <Blank label={t("operations.explorer.noValue")} />;
+  }
+  const found = cell.value;
   return (
     <span className="inline-flex items-center justify-end gap-2">
       {found.spark?.length > 0 && <Sparkline points={found.spark} width={48} height={16} />}
@@ -134,7 +169,7 @@ function GoldenCell({ spec, componentId, values, formatCtx }: { spec: SignalSpec
   );
 }
 
-function EntityTableRow({ row, golden, showType, trend, goldenValues, formatCtx }: RowProps) {
+function EntityTableRow({ row, golden, showType, trend, goldenValues, goldenRead, formatCtx }: RowProps) {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const href = useOpsHref();
@@ -197,7 +232,7 @@ function EntityTableRow({ row, golden, showType, trend, goldenValues, formatCtx 
       )}
       {golden.map((spec) => (
         <td key={spec.id} className={cn(TD, "whitespace-nowrap text-right font-mono tabular-nums")}>
-          <GoldenCell spec={spec} componentId={isEntity ? row.entityId : undefined} values={goldenValues} formatCtx={formatCtx} />
+          <GoldenCell spec={spec} row={row} values={goldenValues} read={goldenRead} formatCtx={formatCtx} />
         </td>
       ))}
       {trend !== undefined && (

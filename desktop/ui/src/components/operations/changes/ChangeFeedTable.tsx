@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Release } from "@/api";
 import {
@@ -10,6 +11,8 @@ import {
   type ChangeOwner,
 } from "@/components/operations/changes/changeFeed";
 import { ImpactChips } from "@/components/operations/changes/ImpactChips";
+import { ImpactVerdictPill } from "@/components/operations/changes/ImpactVerdictPill";
+import { impactSummary, listImpact } from "@/components/operations/changes/releaseImpact";
 import { ReleaseStatusPill } from "@/components/operations/changes/ReleaseStatusPill";
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
@@ -218,8 +221,22 @@ function ChangeRow({ release: r, owner, href, selected, showEntity }: ChangeRowP
         )}
       </td>
       <td className={TD}>
-        <ImpactChips checks={r.checks} status={r.status} />
+        <ImpactCell release={r} />
       </td>
     </tr>
+  );
+}
+
+/** The deploy's impact verdict when its soak checked one, then what the
+ * verification itself recorded. */
+function ImpactCell({ release }: { release: Release }) {
+  const { t, lang } = useI18n();
+  const ctx = useMemo(() => ({ locale: intlLocale(lang), t }), [lang, t]);
+  const impact = listImpact(release);
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {impact && <ImpactVerdictPill state={impact.state} detail={impact.worst ? impactSummary(impact.worst, ctx) : undefined} />}
+      <ImpactChips checks={release.checks} status={release.status} />
+    </div>
   );
 }

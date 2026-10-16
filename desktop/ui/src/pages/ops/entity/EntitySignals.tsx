@@ -12,6 +12,7 @@ import {
   applyDismiss,
   applyRemove,
   metricsSources,
+  signalWriteError,
   suggestionNeedsEditor,
   type BindingPrefill,
 } from "@/components/operations/signals/signalBinding";
@@ -33,9 +34,6 @@ interface EditorTarget {
   prefill: BindingPrefill | null;
 }
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback;
-}
 
 /** An entity's Signals: which data source feeds each of its role's signals in
  * this environment, the suggestions TaskTrooper found, and the editor. */
@@ -77,11 +75,22 @@ export default function EntitySignals({ entity, env }: EntitySubPageProps) {
     }
   };
 
+  // A coded refusal in the reader's language (and a fresh list when the
+  // write met a list that had moved on); the server's own sentence otherwise.
+  const refused = (err: unknown) => {
+    const coded = signalWriteError(err);
+    if (coded?.reload) void signals.reload();
+    toast.error(coded ? t(coded.key) : err instanceof Error ? err.message : t("common.actionFailed"));
+  };
+
   const saved = (binding: SignalBinding) => {
+    // A first binding adds the signal to the series read, whose new key reads
+    // on its own; only a rebound signal needs its window read again.
+    const rebound = bound.includes(binding.signal);
     signals.update((prev) => (prev ? applyBinding(prev, binding) : prev));
     toast.success(p("saved", { signal: signalLabel(t, binding.signal) }));
     void signals.reload();
-    void series.reload();
+    if (rebound) void series.reload();
   };
 
   const findSuggestions = async () => {
@@ -93,7 +102,7 @@ export default function EntitySignals({ entity, env }: EntitySubPageProps) {
       if (count === 0) toast.info(p("suggestNone"));
       else toast.success(p("suggestFound", { count }));
     } catch (err) {
-      toast.error(errorMessage(err, t("common.actionFailed")));
+      refused(err);
     } finally {
       setSuggesting(false);
     }
@@ -114,7 +123,7 @@ export default function EntitySignals({ entity, env }: EntitySubPageProps) {
           setEditor({ signal, prefill: suggestion });
           return;
         }
-        toast.error(errorMessage(err, t("common.actionFailed")));
+        refused(err);
       }
     });
   };
@@ -125,7 +134,7 @@ export default function EntitySignals({ entity, env }: EntitySubPageProps) {
         await api.dismissSignalBinding(suggestion.id);
         signals.update((prev) => (prev ? applyDismiss(prev, signal.signal, suggestion.id) : prev));
       } catch (err) {
-        toast.error(errorMessage(err, t("common.actionFailed")));
+        refused(err);
       }
     });
 
@@ -139,7 +148,7 @@ export default function EntitySignals({ entity, env }: EntitySubPageProps) {
         signals.update((prev) => (prev ? applyRemove(prev, target.signal) : prev));
         toast.success(p("removed", { signal: signalLabel(t, target.signal) }));
       } catch (err) {
-        toast.error(errorMessage(err, t("common.actionFailed")));
+        refused(err);
       }
     });
     setRemoving(null);

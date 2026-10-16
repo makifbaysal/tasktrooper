@@ -1,11 +1,12 @@
-import type {
-  ComponentSignal,
-  ComponentSignals,
-  DataSource,
-  ObservabilityRecipe,
-  SaveSignalBindingRequest,
-  SignalBinding,
-  SignalPreviewRequest,
+import {
+  ApiError,
+  type ComponentSignal,
+  type ComponentSignals,
+  type DataSource,
+  type ObservabilityRecipe,
+  type SaveSignalBindingRequest,
+  type SignalBinding,
+  type SignalPreviewRequest,
 } from "@/api";
 
 export type BindingMode = "recipe" | "custom";
@@ -40,7 +41,8 @@ export function recipeParams(recipe: ObservabilityRecipe | undefined): string[] 
 
 /** Where the editor starts: what it was opened with (a binding, a
  * suggestion), else the only metrics source and its only fitting recipe. A
- * source no recipe fits starts on a query of its own. */
+ * source no recipe fits starts on a query of its own, and so does a prefill
+ * with a query, recipe or not: the server reads the query when both are set. */
 export function initialBindingDraft(
   signal: string,
   sources: DataSource[],
@@ -51,7 +53,7 @@ export function initialBindingDraft(
   const sourceId = prefill?.data_source_id || (metrics.length === 1 ? metrics[0].id : "");
   const kind = metrics.find((s) => s.id === sourceId)?.kind;
   const fitting = compatibleRecipes(recipes, kind, signal);
-  const custom = prefill ? !prefill.recipe_id && Boolean(prefill.query) : sourceId !== "" && fitting.length === 0;
+  const custom = prefill ? Boolean(prefill.query?.trim()) : sourceId !== "" && fitting.length === 0;
   const recipeId = prefill?.recipe_id || (fitting.length === 1 ? fitting[0].id : "");
   return {
     sourceId,
@@ -92,9 +94,23 @@ export function bindingErrorCount(errors: BindingErrors): number {
   return (errors.source ? 1 : 0) + (errors.recipe ? 1 : 0) + (errors.query ? 1 : 0) + Object.keys(errors.params ?? {}).length;
 }
 
-/** What is sent: a recipe with exactly its declared params, or a query. */
+/** The params a custom query keeps: the ones it was opened with (a query may
+ * reference `$name`), trimmed, empty ones dropped. */
+export function customQueryParams(draft: BindingDraft): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(draft.params)
+      .map(([k, v]) => [k.trim(), (v ?? "").trim()] as const)
+      .filter(([k, v]) => k !== "" && v !== ""),
+  );
+}
+
+/** What is sent: a recipe with exactly its declared params, or a query with
+ * the params it carries. */
 export function bindingRequest(draft: BindingDraft, recipe: ObservabilityRecipe | undefined): SaveSignalBindingRequest {
-  if (draft.mode === "custom" || !recipe) return { data_source_id: draft.sourceId, query: draft.query.trim() };
+  if (draft.mode === "custom" || !recipe) {
+    const params = customQueryParams(draft);
+    return { data_source_id: draft.sourceId, query: draft.query.trim(), ...(Object.keys(params).length > 0 ? { params } : {}) };
+  }
   const params = Object.fromEntries(recipeParams(recipe).map((p) => [p, (draft.params[p] ?? "").trim()]));
   return { data_source_id: draft.sourceId, recipe_id: recipe.id, params };
 }
@@ -144,4 +160,49 @@ export function applyRemove(data: ComponentSignals, signal: string): ComponentSi
     binding: null,
     status: (s.suggestions ?? []).length > 0 ? "suggested" : "unbound",
   }));
+}
+
+const WRITE_ERRORS = "operations.signalsPage.writeErrors";
+
+// Codes the data source routes share (a suggest reads the sources).
+const SOURCE_ERRORS: Record<string, string> = {
+  upstream: "operations.chart.errors.upstream",
+  bad_query: "operations.chart.errors.badQuery",
+  unsupported: "operations.chart.errors.unsupported",
+};
+
+/** The message key for a refused suggest, accept, dismiss or remove, or null
+ * when only the server's own sentence fits. A write the list may no longer
+ * reflect (`confirmed`, `conflict`, a 404) also asks for a fresh read. */
+export function signalWriteError(err: unknown): { key: string; reload: boolean } | null {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status === 409 && err.type === "confirmed") return { key: `${WRITE_ERRORS}.confirmed`, reload: true };
+  if (err.status === 409) return { key: `${WRITE_ERRORS}.conflict`, reload: true };
+  if (err.status === 404) return { key: `${WRITE_ERRORS}.notFound`, reload: true };
+  if (err.status === 408 || err.type === "timeout") return { key: `${WRITE_ERRORS}.timeout`, reload: false };
+  if (SOURCE_ERRORS[err.type]) return { key: SOURCE_ERRORS[err.type], reload: false };
+  return null;
+}
+
+export type BindingField = keyof Omit<BindingErrors, "params">;
+
+const SERVER_FIELD: Record<string, BindingField> = {
+  data_source_id: "source",
+  recipe_id: "recipe",
+  query: "query",
+};
+
+/** A refused save or preview's `fields`, split into what is shown on the
+ * form's own inputs and the rest (signal, from, to, step_seconds, a param the
+ * recipe does not declare), as [field, code] pairs. */
+export function placeFieldErrors(fields: Record<string, string>, params: string[]): { inline: BindingErrors; rest: Array<[string, string]> } {
+  const inline: BindingErrors = {};
+  const rest: Array<[string, string]> = [];
+  for (const [key, code] of Object.entries(fields)) {
+    const at = SERVER_FIELD[key];
+    if (at) inline[at] = code;
+    else if (key.startsWith("params.") && params.includes(key.slice(7))) inline.params = { ...inline.params, [key.slice(7)]: code };
+    else rest.push([key, code]);
+  }
+  return { inline, rest };
 }

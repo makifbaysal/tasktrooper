@@ -1,8 +1,8 @@
 import type { ComponentRole } from "@/api";
 
-export type EntityTab = "summary" | "queues" | "releases" | "errors" | "logs" | "changes" | "issues" | "signals";
+export type EntityTab = "summary" | "queues" | "releases" | "errors" | "logs" | "changes" | "issues" | "alerts" | "signals";
 
-export const ENTITY_TABS: EntityTab[] = ["summary", "queues", "releases", "errors", "logs", "changes", "issues", "signals"];
+export const ENTITY_TABS: EntityTab[] = ["summary", "queues", "releases", "errors", "logs", "changes", "issues", "alerts", "signals"];
 
 export type SignalUnit = "percent" | "ms" | "perSecond" | "seconds" | "cores";
 
@@ -85,27 +85,27 @@ const NO_RUNTIME: ViewSpec = { tabs: ["summary", "changes", "issues"], golden: [
 // the signals GET /v1/operations/golden answers.
 export const ROLE_VIEWS: Record<ComponentRole, ViewSpec> = {
   backend: {
-    tabs: [...BASE_TABS, "signals"],
+    tabs: [...BASE_TABS, "alerts", "signals"],
     golden: [RESPONSE_TIME, THROUGHPUT, ERROR_RATE],
     charts: [RESPONSE_TIME, THROUGHPUT, ERROR_RATE, CPU],
   },
   worker: {
-    tabs: ["summary", "queues", "errors", "logs", "changes", "issues", "signals"],
+    tabs: ["summary", "queues", "errors", "logs", "changes", "issues", "alerts", "signals"],
     golden: [BACKLOG, CONSUME_RATE, PROCESS_ERRORS],
     charts: [BACKLOG, CONSUME_RATE, BACKLOG_AGE, PROCESS_ERRORS],
   },
   frontend: {
-    tabs: [...BASE_TABS, "signals"],
+    tabs: [...BASE_TABS, "alerts", "signals"],
     golden: [LCP, PAGE_VIEWS, INP],
     charts: [LCP, PAGE_VIEWS, INP, JS_ERRORS],
   },
   mobile: {
-    tabs: ["summary", "releases", "errors", "logs", "changes", "issues", "signals"],
+    tabs: ["summary", "releases", "errors", "logs", "changes", "issues", "alerts", "signals"],
     golden: [CRASH_FREE, COLD_START, ANR_RATE],
     charts: [CRASH_FREE, COLD_START, ANR_RATE, ROLLOUT],
   },
   desktop: {
-    tabs: [...BASE_TABS, "signals"],
+    tabs: [...BASE_TABS, "alerts", "signals"],
     golden: [CRASH_FREE, CRASH_RATE, COLD_START],
     charts: [CRASH_FREE, CRASH_RATE, COLD_START],
   },
@@ -150,6 +150,7 @@ const CONSOLE_PAGES: Partial<Record<EntityTab, string>> = {
   logs: "/operations/logs",
   changes: "/operations/changes",
   issues: "/operations/issues",
+  alerts: "/operations/alerts",
 };
 
 /** The entity's own section, or for a role without it (a data or CLI

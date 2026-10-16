@@ -28,6 +28,7 @@ const OpsLogsPage = lazy(() => import("@/pages/ops/OpsLogsPage"));
 const OpsChangesPage = lazy(() => import("@/pages/ops/OpsChangesPage"));
 const OpsStoreAppsPage = lazy(() => import("@/pages/ops/OpsStoreAppsPage"));
 const OpsIssuesPage = lazy(() => import("@/pages/ops/OpsIssuesPage"));
+const OpsAlertsPage = lazy(() => import("@/pages/ops/OpsAlertsPage"));
 const EntitySummary = lazy(() => import("@/pages/ops/entity/EntitySummary"));
 const EntityErrors = lazy(() => import("@/pages/ops/entity/EntityErrors"));
 const EntityLogs = lazy(() => import("@/pages/ops/entity/EntityLogs"));
@@ -36,6 +37,7 @@ const EntityIssues = lazy(() => import("@/pages/ops/entity/EntityIssues"));
 const EntityReleases = lazy(() => import("@/pages/ops/entity/EntityReleases"));
 const EntityQueues = lazy(() => import("@/pages/ops/entity/EntityQueues"));
 const EntitySignals = lazy(() => import("@/pages/ops/entity/EntitySignals"));
+const EntityAlerts = lazy(() => import("@/pages/ops/entity/EntityAlerts"));
 const DataSourcesPage = lazy(() => import("@/pages/DataSourcesPage").then((m) => ({ default: m.DataSourcesPage })));
 const OpsAlertConnectionsPage = lazy(() => import("@/pages/ops/OpsAlertConnectionsPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage").then((m) => ({ default: m.FilesPage })));
@@ -136,6 +138,7 @@ export default function App() {
                   <Route path="logs" element={<OpsLogsPage />} />
                   <Route path="changes" element={<OpsChangesPage />} />
                   <Route path="issues" element={<OpsIssuesPage />} />
+                  <Route path="alerts" element={<OpsAlertsPage />} />
                   <Route path="sources" element={<DataSourcesPage />} />
                   <Route path="alert-connections" element={<OpsAlertConnectionsPage />} />
                   <Route path="entity/:componentId" element={<OpsEntityPage />}>
@@ -147,6 +150,7 @@ export default function App() {
                     <Route path="logs" element={<EntitySubRoute tab="logs" page={EntityLogs} />} />
                     <Route path="changes" element={<EntitySubRoute tab="changes" page={EntityChanges} />} />
                     <Route path="issues" element={<EntitySubRoute tab="issues" page={EntityIssues} />} />
+                    <Route path="alerts" element={<EntitySubRoute tab="alerts" page={EntityAlerts} />} />
                     <Route path="signals" element={<EntitySubRoute tab="signals" page={EntitySignals} />} />
                     <Route path="*" element={<EntityIndexRedirect />} />
                   </Route>

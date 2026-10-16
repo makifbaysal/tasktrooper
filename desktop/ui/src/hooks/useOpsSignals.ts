@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type ComponentSeries, type ComponentSignals, type DeployEnvironment, type OpsGolden } from "@/api";
 import { autoStepSeconds } from "@/components/operations/charts/signalChart";
+import { goldenWindow } from "@/components/operations/console/goldenMetrics";
 import { useOptionalOpsContext, type OpsTimeRange } from "@/components/operations/shell/OpsContext";
 import { windowKey } from "@/components/operations/query/opsQuery";
 import { usePolling } from "@/hooks/usePolling";
@@ -30,7 +31,7 @@ export interface KeyedRead<T> {
 // forced read on the top bar's Refresh. `fetcher` is read at fetch time, so a
 // preset window that slides with the clock keeps one cache entry and still
 // asks for the window as it is now.
-function useKeyedRead<T>(key: string, fetcher: () => Promise<T>, enabled: boolean, pollMs = OPS_SIGNALS_POLL_MS): KeyedRead<T> {
+export function useKeyedRead<T>(key: string, fetcher: () => Promise<T>, enabled: boolean, pollMs = OPS_SIGNALS_POLL_MS): KeyedRead<T> {
   const [state, setState] = useState<KeyedState<T>>(() => ({ key, data: readCache<T>(key) ?? null, fetching: false }));
   if (state.key !== key) setState({ key, data: readCache<T>(key) ?? null, fetching: false });
   const latest = useRef(fetcher);
@@ -106,19 +107,29 @@ export function useComponentSeries(
   return useKeyedRead(key, fetcher, enabled && ids !== "");
 }
 
+// The explorer's golden columns change slowly and cost one query per bound
+// signal of every component, so they are read half as often as a page's own.
+export const OPS_EXPLORER_GOLDEN_POLL_MS = 120_000;
+
 /** The golden metrics of many components at once (the explorer's columns,
- * an entity's tiles): latest value, previous period and a sparkline each. */
+ * an entity's tiles): latest value, previous period and a sparkline each.
+ * `null` asks for every component with a binding (the explorer: a list of ids
+ * would outgrow the URL), and the caller picks its rows from the answer. The
+ * window is clamped to the last 30 days of the range (`goldenWindow`). */
 export function useOpsGolden(
   env: DeployEnvironment,
   range: OpsTimeRange,
-  componentIds: string[],
+  componentIds: string[] | null,
   enabled = true,
+  pollMs = OPS_SIGNALS_POLL_MS,
 ): KeyedRead<OpsGolden> {
-  const ids = [...new Set(componentIds)].sort().join(",");
-  const key = `operations.golden.${env}.${windowKey(range)}.${ids}`;
-  const fetcher = () =>
-    api.getOpsGolden({ env, from: range.from, to: range.to, componentIds: ids ? ids.split(",") : undefined });
-  return useKeyedRead(key, fetcher, enabled && ids !== "");
+  const ids = componentIds === null ? null : [...new Set(componentIds)].sort().join(",");
+  const key = `operations.golden.${env}.${windowKey(range)}.${ids ?? "*"}`;
+  const fetcher = () => {
+    const { from, to } = goldenWindow(range);
+    return api.getOpsGolden({ env, from, to, componentIds: ids ? ids.split(",") : undefined });
+  };
+  return useKeyedRead(key, fetcher, enabled && ids !== "", pollMs);
 }
 
 /** A component's signals in one environment: what feeds each, and the

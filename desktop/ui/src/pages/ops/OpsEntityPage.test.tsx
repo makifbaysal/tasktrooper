@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Incident, ProjectsOverview } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { writeCache } from "@/lib/uiCache";
+import { dataSource, prometheusKind } from "@/test/dataSourceFixtures";
 import { component, env, incident, opsIncidents, opsOverview, opsReleases, repo } from "@/test/opsConsoleFixtures";
 
 vi.mock("uplot", () => ({
@@ -18,19 +19,26 @@ vi.mock("uplot", () => ({
   },
 }));
 
-const { getProjectsOverview, listIncidents, listAllReleases, getComponentSeries, getOpsGolden } = vi.hoisted(() => ({
+const { getProjectsOverview, listIncidents, listAllReleases, getComponentSeries, getOpsGolden, editorApi } = vi.hoisted(() => ({
   getProjectsOverview: vi.fn(),
   listIncidents: vi.fn(),
   listAllReleases: vi.fn(),
   getComponentSeries: vi.fn(),
   getOpsGolden: vi.fn(),
+  editorApi: {
+    getComponentSignals: vi.fn(),
+    listDataSourceKinds: vi.fn(),
+    listDataSources: vi.fn(),
+    listRecipes: vi.fn(),
+    listSignals: vi.fn(),
+  },
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
   return {
     ...actual,
-    api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases, getComponentSeries, getOpsGolden },
+    api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases, getComponentSeries, getOpsGolden, ...editorApi },
   };
 });
 
@@ -114,6 +122,25 @@ beforeEach(() => {
     }),
   );
   getOpsGolden.mockReset().mockResolvedValue({ generated_at: "", components: [] });
+  for (const key of ["kinds", "list", "recipes", "signals"]) writeCache(`operations.sources.${key}`, undefined);
+  writeCache("operations.signals.c-api.production", undefined);
+  editorApi.listDataSourceKinds.mockReset().mockResolvedValue({ kinds: [prometheusKind] });
+  editorApi.listDataSources.mockReset().mockResolvedValue({ data_sources: [dataSource()] });
+  editorApi.listRecipes.mockReset().mockResolvedValue({
+    recipes: [
+      {
+        id: "otel-http",
+        source_kind: "prometheus",
+        applies_to: { technology: "", messaging_system: "", resource_kind: "", resource_params: {} },
+        detect: { metric: "" },
+        params: ["job"],
+        signals: { "http.latency": "q", "http.requests": "q" },
+        origin: "catalog",
+      },
+    ],
+  });
+  editorApi.listSignals.mockReset().mockResolvedValue({ signals: [{ id: "http.error_ratio", kind: "metric", unit: "%", roles: ["backend"], aggregation: "ratio" }] });
+  editorApi.getComponentSignals.mockReset().mockResolvedValue({ component_id: "c-api", role: "backend", environment: "production", signals: [] });
 });
 
 async function sections(name: string) {
@@ -125,6 +152,8 @@ async function sections(name: string) {
 
 const DAY = Date.parse("2026-10-15T00:00:00Z");
 const ON_THE_15TH = `range=custom&from=${DAY}&to=${DAY + 86_400_000}`;
+// A window of its own per test: answers are cached per window for the tab.
+const onDay = (n: number) => `range=custom&from=${DAY - n * 86_400_000}&to=${DAY - (n - 1) * 86_400_000}`;
 
 describe("OpsEntityPage", () => {
   it("opens on Summary, keeping the console's params", async () => {
@@ -135,15 +164,15 @@ describe("OpsEntityPage", () => {
 
   it("gives each role its own sections", async () => {
     renderAt("/operations/entity/c-api/summary");
-    expect(await sections("api")).toEqual(["Summary", "Errors", "Logs", "Changes", "Issues", "Signals"]);
+    expect(await sections("api")).toEqual(["Summary", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
   });
 
   it("adds Queues for a worker and Releases for a mobile app", async () => {
     const worker = renderAt("/operations/entity/c-queue/summary");
-    expect(await sections("mailer")).toEqual(["Summary", "Queues", "Errors", "Logs", "Changes", "Issues", "Signals"]);
+    expect(await sections("mailer")).toEqual(["Summary", "Queues", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
     worker.unmount();
     const mobile = renderAt("/operations/entity/c-ios/summary");
-    expect(await sections("ios")).toEqual(["Summary", "Releases", "Errors", "Logs", "Changes", "Issues", "Signals"]);
+    expect(await sections("ios")).toEqual(["Summary", "Releases", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
     mobile.unmount();
     renderAt("/operations/entity/c-lib/summary");
     expect(await sections("ui-kit")).toEqual(["Summary", "Changes", "Issues"]);
@@ -236,7 +265,7 @@ describe("OpsEntityPage", () => {
     );
 
     const throughput = screen.getByRole("heading", { level: 3, name: "Throughput" }).parentElement!.parentElement!;
-    expect(within(throughput).getByText("Couldn't read this signal")).toBeInTheDocument();
+    expect(within(throughput).getByText("The data source didn't answer")).toBeInTheDocument();
     expect(within(throughput).getByText("prometheus: 502 Bad Gateway")).toBeInTheDocument();
     const calls = getComponentSeries.mock.calls.length;
     fireEvent.click(within(throughput).getByRole("button", { name: "Retry" }));
@@ -255,9 +284,133 @@ describe("OpsEntityPage", () => {
     expect(within(tile).getByText("120")).toBeInTheDocument();
     expect(within(tile).getByText("ms")).toBeInTheDocument();
     expect(within(tile).getByText("+20%")).toHaveClass("text-destructive");
+    expect(within(tile).getByText("worse", { exact: false })).toHaveClass("sr-only");
     expect(within(tile).getByText("vs previous period")).toBeInTheDocument();
+    expect(within(tile).getByText("Previous period: 100 ms")).toBeInTheDocument();
     const rateTile = screen.getByText("Error rate", { selector: "p" }).closest("div") as HTMLElement;
     expect(within(rateTile).getByRole("link", { name: "Bind a data source" })).toBeInTheDocument();
+  });
+
+  it("never turns a bound signal into Bind when the series read fails: the failure with Retry instead", async () => {
+    getComponentSeries.mockRejectedValue(new Error("The server did not answer in time. Please try again."));
+    getOpsGolden.mockResolvedValue({
+      generated_at: "",
+      components: [
+        {
+          component_id: "c-api",
+          signals: [
+            { signal: "http.latency", unit: "ms", value: null, previous: null, spark: [] },
+            { signal: "http.requests", unit: "req/s", value: null, previous: null, spark: [] },
+            { signal: "http.error_ratio", unit: "%", value: null, previous: null, spark: [] },
+          ],
+        },
+      ],
+    });
+    renderAt(`/operations/entity/c-api/summary?${onDay(2)}`);
+    const tile = (await screen.findByText("Response time", { selector: "p" })).closest("div") as HTMLElement;
+    await waitFor(() => expect(within(tile).getByText("Couldn't read")).toBeInTheDocument());
+    expect(within(tile).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Bind a data source" })).not.toBeInTheDocument();
+    const latency = screen.getByRole("heading", { level: 3, name: "Response time" }).parentElement!.parentElement!;
+    expect(within(latency).getByText("Couldn't read this signal")).toBeInTheDocument();
+    expect(within(latency).queryByRole("button", { name: /^Bind a data source to / })).not.toBeInTheDocument();
+  });
+
+  it("keeps a tile in flight from reading as unbound or empty", async () => {
+    getComponentSeries.mockImplementation(() => new Promise(() => {}));
+    getOpsGolden.mockImplementation(() => new Promise(() => {}));
+    renderAt(`/operations/entity/c-api/summary?${onDay(3)}`);
+    const tile = (await screen.findByText("Response time", { selector: "p" })).closest("div") as HTMLElement;
+    expect(within(tile).queryByText("Bind a data source")).not.toBeInTheDocument();
+    expect(within(tile).queryByText("No data in this range")).not.toBeInTheDocument();
+  });
+
+  it("answers each series error code with what helps, and notes a previous period it could not read", async () => {
+    const pts: Array<[number, number | null]> = [[DAY + 3_600_000, 1], [DAY + 7_200_000, 2]];
+    getComponentSeries.mockResolvedValue({
+      from: "",
+      to: "",
+      step_seconds: 600,
+      signals: [
+        { signal: "http.latency", unit: "ms", bound: true, series: [], previous: [], error: { code: "needs_params", message: "no value for job" } },
+        { signal: "http.requests", unit: "req/s", bound: true, series: [], previous: [], error: { code: "unsupported", message: "x is a log signal" } },
+        { signal: "http.error_ratio", unit: "%", bound: true, series: [], previous: [], error: { code: "timeout", message: "no answer within 20s" } },
+        {
+          signal: "infra.cpu",
+          unit: "cores",
+          bound: true,
+          series: [{ name: "", labels: {}, points: pts }],
+          previous: [],
+          error: null,
+          previous_error: { code: "timeout", message: "no answer within 20s" },
+        },
+      ],
+    });
+    editorApi.getComponentSignals.mockResolvedValue({
+      component_id: "c-api",
+      role: "backend",
+      environment: "production",
+      signals: [
+        {
+          signal: "http.latency",
+          kind: "metric",
+          unit: "ms",
+          golden: true,
+          status: "bound",
+          binding: {
+            id: "b-lat",
+            component_id: "c-api",
+            environment: "production",
+            signal: "http.latency",
+            data_source_id: "ds-1",
+            data_source_name: "Prod Prometheus",
+            data_source_kind: "prometheus",
+            recipe_id: "otel-http",
+            params: {},
+            query: "",
+            status: "confirmed",
+            source: "human",
+            rendered_query: "",
+            needs_params: ["job"],
+            created_at: "",
+            updated_at: "",
+          },
+          suggestions: [],
+        },
+      ],
+    });
+    renderAt(`/operations/entity/c-api/summary?${onDay(4)}&compare=1`);
+    const slot = async (name: string) => (await screen.findByRole("heading", { level: 3, name })).parentElement!.parentElement!;
+
+    const latency = await slot("Response time");
+    await waitFor(() => expect(within(latency).getByText("The binding is missing a parameter")).toBeInTheDocument());
+    expect(within(latency).queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    const requests = await slot("Throughput");
+    expect(within(requests).getByText("This signal can't be charted")).toBeInTheDocument();
+    expect(within(requests).queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    const errorRate = await slot("Error rate");
+    expect(within(errorRate).getByText("The data source didn't answer in time")).toBeInTheDocument();
+    expect(within(errorRate).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    const cpu = await slot("CPU");
+    expect(within(cpu).getByText("Previous period not shown: The data source didn't answer in time")).toBeInTheDocument();
+    expect(within(cpu).queryByText("Couldn't read this signal")).not.toBeInTheDocument();
+
+    fireEvent.click(within(latency).getByRole("button", { name: "Fill in parameters" }));
+    const dialog = () => screen.getByRole("dialog", { name: "Bind Response time" });
+    await waitFor(() => expect(within(dialog()).getByLabelText("Recipe")).toHaveTextContent("otel-http"));
+    expect(within(dialog()).getByLabelText("Data source")).toHaveTextContent("Prod Prometheus");
+    expect(within(dialog()).getByLabelText("job")).toHaveValue("");
+    expect(editorApi.getComponentSignals).toHaveBeenCalledWith("c-api", "production");
+  });
+
+  it("asks for at most 30 days of golden metrics and says so", async () => {
+    const to = DAY + 86_400_000;
+    renderAt(`/operations/entity/c-api/summary?range=custom&from=${to - 45 * 86_400_000}&to=${to}`);
+    expect(await screen.findByText(/^Golden metrics cover the last 30 days of this range/)).toBeInTheDocument();
+    await waitFor(() => expect(getOpsGolden).toHaveBeenCalled());
+    const query = getOpsGolden.mock.calls[0][0];
+    expect(query.to - query.from).toBe(30 * 86_400_000);
+    expect(query.componentIds).toEqual(["c-api"]);
   });
 
   it("reads a sole component's releases by repository", async () => {

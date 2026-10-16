@@ -71,6 +71,24 @@ describe("DeliveryEditDialog", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
+  it("sends the impact thresholds only when they are set, within the server's limits", async () => {
+    renderDialog(onMergeProfile);
+    fireEvent.change(screen.getByLabelText("Max error rate rise (percentage points)"), { target: { value: "150" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Max error rate rise must be between 0 and 100 percentage points")).toBeInTheDocument();
+    expect(updateComponentDelivery).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Max error rate rise (percentage points)"), { target: { value: "2.5" } });
+    fireEvent.change(screen.getByLabelText("Max p95 latency rise (%)"), { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(updateComponentDelivery).toHaveBeenCalledWith("comp-1", {
+        ...onMergeProfile,
+        verify: { ...onMergeProfile.verify, max_error_rate_delta: 2.5, max_p95_delta_pct: 30 },
+      }),
+    );
+  });
+
   it("rejects dispatch mode with no workflow", async () => {
     renderDialog({ ...onMergeProfile, mode: "dispatch", workflow: "" });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

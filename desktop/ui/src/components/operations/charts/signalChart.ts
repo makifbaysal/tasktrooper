@@ -90,3 +90,35 @@ export function headlineSeries(series: MetricSeries[] | undefined): MetricSeries
 export function headlinePoints(series: MetricSeries[] | undefined): MetricPoint[] {
   return headlineSeries(series)?.points ?? [];
 }
+
+/** What a signal's read error offers: try again, open the binding editor on
+ * the binding as it is (a param to fill in, a source to replace), or nothing
+ * (retrying cannot help). */
+export type SignalErrorAction = "retry" | "edit" | "none";
+
+export interface SignalErrorView {
+  /** Under `operations.chart.errors`; `failed` is the generic one. */
+  key: string;
+  /** A sentence of its own under `${key}Body`, in place of the server's. */
+  body: boolean;
+  action: SignalErrorAction;
+  /** The edit action's label, under `operations.chart.errors`. */
+  actionKey?: string;
+}
+
+const SIGNAL_ERRORS: Record<string, SignalErrorView> = {
+  needs_params: { key: "needsParams", body: true, action: "edit", actionKey: "fillParams" },
+  unsupported: { key: "unsupported", body: true, action: "none" },
+  unknown_signal: { key: "unknownSignal", body: true, action: "none" },
+  timeout: { key: "timeout", body: true, action: "retry" },
+  not_found: { key: "notFound", body: true, action: "edit", actionKey: "rebind" },
+  bad_query: { key: "badQuery", body: false, action: "retry" },
+  upstream: { key: "upstream", body: false, action: "retry" },
+};
+
+const SIGNAL_ERROR_FALLBACK: SignalErrorView = { key: "failed", body: false, action: "retry" };
+
+/** How the console shows a series error code (the series route's `error.code`). */
+export function signalErrorView(code: string | undefined): SignalErrorView {
+  return (code && SIGNAL_ERRORS[code]) || SIGNAL_ERROR_FALLBACK;
+}

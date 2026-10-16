@@ -2733,6 +2733,9 @@ export const DELIVERY_EXECUTORS: DeliveryExecutor[] = ["github_actions", "vercel
 
 export const DEFAULT_SOAK_MINUTES = 10;
 export const MAX_SOAK_MINUTES = 120;
+/** domain.MaxErrorRateDeltaLimit (percentage points) and MaxP95DeltaPctLimit (percent). */
+export const MAX_ERROR_RATE_DELTA = 100;
+export const MAX_P95_DELTA_PCT = 1000;
 export const MAX_SMOKE_CHECKS = 20;
 export const MAX_SMOKE_LATENCY_MS = 10000;
 
@@ -2758,6 +2761,12 @@ export interface DeliveryVerify {
   soak_minutes?: number;
   /** How many new runtime error groups are tolerated before the soak stops early. */
   max_new_errors?: number;
+  /** How far http.error_ratio may rise across the deploy, in percentage
+   * points (≤ 100); absent or 0 leaves it unchecked. */
+  max_error_rate_delta?: number;
+  /** How far http.latency's p95 may rise across the deploy, in percent
+   * (≤ 1000); absent or 0 leaves it unchecked. */
+  max_p95_delta_pct?: number;
   smoke?: SmokeCheck[];
 }
 
@@ -3401,6 +3410,8 @@ export interface ObservabilitySignal {
   unit: string;
   roles: ComponentRole[];
   aggregation: SignalAggregation;
+  /** Which way the signal moves when things improve; absent, it is not judged. */
+  better?: "higher" | "lower";
 }
 
 export interface ObservabilityRecipe {
@@ -3503,6 +3514,9 @@ export interface SignalSeries {
   series: MetricSeries[];
   previous: MetricSeries[];
   error: SignalSeriesError | null;
+  /** Why `previous` is empty although compare was asked; the window's own
+   * series still stand. */
+  previous_error?: SignalSeriesError | null;
 }
 
 export interface ComponentSeries {
@@ -3524,6 +3538,9 @@ export interface ComponentSeriesQuery {
 export interface GoldenSignalValue {
   signal: string;
   unit: string;
+  /** False when the signal has no confirmed binding; nulls then mean
+   * "unbound", not "no data". Absent from a server older than the flag. */
+  bound?: boolean;
   value: number | null;
   previous: number | null;
   spark: MetricPoint[];
@@ -3546,6 +3563,100 @@ export interface OpsGoldenQuery {
   componentIds?: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Alert rules (migration 189): a condition over one of a component's signals,
+// or over a data source query of its own, that the server evaluates on a
+// schedule. Mirrors server/internal/domain/alert_rule.go's JSON tags.
+// ---------------------------------------------------------------------------
+
+/** `gt`/`lt` compare the value with the threshold in the signal's unit;
+ * `change_pct_*` the change against one window earlier, in percent;
+ * `rising` holds while the value is above the threshold and higher than one
+ * window earlier; `no_data` while the rule reads nothing (no threshold). */
+export type AlertRuleOp = "gt" | "lt" | "change_pct_gt" | "change_pct_lt" | "rising" | "no_data";
+
+export const ALERT_RULE_OPS: AlertRuleOp[] = ["gt", "lt", "change_pct_gt", "change_pct_lt", "rising", "no_data"];
+
+export type AlertRuleState = "ok" | "pending" | "firing" | "no_data";
+
+export const ALERT_RULE_STATES: AlertRuleState[] = ["firing", "pending", "no_data", "ok"];
+
+/** domain.NotificationChannelKind: only `desktop` delivers in v1; the rest are
+ * reserved names the server already accepts. */
+export type AlertChannelKind = "desktop" | "in_app" | "ios_push" | "slack" | "email" | "webhook";
+
+export const ALERT_CHANNEL_KINDS: AlertChannelKind[] = ["desktop", "in_app", "ios_push", "slack", "email", "webhook"];
+
+export const ALERT_CHANNELS_AVAILABLE: AlertChannelKind[] = ["desktop"];
+
+export interface AlertRuleCondition {
+  op: AlertRuleOp;
+  threshold: number;
+  /** How long the condition has to hold before the rule fires; 0 fires at once. */
+  for_seconds: number;
+  /** The span each evaluation reads (and a change is measured over). */
+  window_seconds: number;
+}
+
+export interface AlertRule {
+  id: string;
+  name: string;
+  component_id: string;
+  environment: DeployEnvironment;
+  /** A catalog signal read through the environment's confirmed binding;
+   * empty with a custom query on `data_source_id`. Never both. */
+  signal: string;
+  data_source_id?: string | null;
+  query?: string;
+  condition: AlertRuleCondition;
+  severity: IncidentSeverity;
+  channels: AlertChannelKind[];
+  open_incident: boolean;
+  enabled: boolean;
+  state: AlertRuleState;
+  state_since: string;
+  last_value?: number | null;
+  last_evaluated_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AlertRuleInput = Pick<
+  AlertRule,
+  "name" | "component_id" | "environment" | "signal" | "data_source_id" | "query" | "condition" | "severity" | "channels" | "open_incident" | "enabled"
+>;
+
+/** A rule POST /v1/alert-rules/suggest proposes: never saved, so no id or state yet. */
+export type AlertRuleSuggestion = AlertRuleInput & Partial<Pick<AlertRule, "state" | "created_at" | "updated_at">>;
+
+/** One state change; `incident_id` is the issue its firing opened or its
+ * recovery resolved. */
+export interface AlertRuleEvent {
+  at: string;
+  from_state: AlertRuleState;
+  to_state: AlertRuleState;
+  value?: number | null;
+  incident_id?: string | null;
+}
+
+export interface AlertBacktestRequest extends AlertRuleInput {
+  /** 1–14. */
+  days: number;
+}
+
+export interface AlertBacktestFire {
+  start: string;
+  /** Absent while the condition still held at the end of the span. */
+  end?: string | null;
+  peak?: number | null;
+}
+
+export interface AlertBacktest {
+  fires: AlertBacktestFire[];
+  series: Array<{ name: string; points: MetricPoint[] }>;
+  step_seconds: number;
+}
+
 function envQuery(env: DeployEnvironment): string {
   return `?env=${encodeURIComponent(env)}`;
 }
@@ -3554,6 +3665,12 @@ function envQuery(env: DeployEnvironment): string {
 // 20s read deadline would cut a slow but working source off first. Writes
 // (verify, query) already get WRITE_TIMEOUT_MS.
 const DATA_SOURCE_UPSTREAM_TIMEOUT_MS = 60_000;
+
+// A series read answers within the server's overall budget (about 30 s), a
+// golden read within about 25 s; signals it could not read by then come back
+// with an error or nulls. The client waits longer than that so a healthy
+// answer is never cut off on this side.
+const OPS_SIGNALS_TIMEOUT_MS = 45_000;
 
 /** The data source endpoints' 400: which request key failed, and why
  * (required, invalid, not_permitted, unknown_field, invalid_option, too_long). */
@@ -3828,6 +3945,9 @@ export interface OpsLogsQuery {
 
 export const OPS_ERRORS_MAX_WINDOW_MS = 30 * 24 * 3_600_000;
 
+/** The longest window GET /v1/operations/golden reads (signals.MaxGoldenWindow). */
+export const OPS_GOLDEN_MAX_WINDOW_MS = 30 * 24 * 3_600_000;
+
 export const OPS_LOGS_MAX_ENVIRONMENTS = 10;
 
 // The server reads at most 4 environments at once and gives each 20 s, so a
@@ -4090,6 +4210,66 @@ export interface ReleaseChecks {
   notes?: string[];
   /** Why the soak ended before its window did. */
   early_stop?: string;
+  /** What the soak read from the deploy impact against the profile's impact
+   * thresholds; present only when the profile sets one. */
+  impact?: ReleaseImpactCheck;
+}
+
+/** One signal the soak held to a threshold: `max_delta` (percentage points)
+ * or `max_delta_pct` (percent) when it had one, `breached` past it. */
+export interface ReleaseImpactCheckSignal {
+  signal: string;
+  before: number | null;
+  after: number | null;
+  delta?: number | null;
+  delta_pct?: number | null;
+  verdict: ImpactVerdict;
+  max_delta?: number | null;
+  max_delta_pct?: number | null;
+  breached?: boolean;
+}
+
+export interface ReleaseImpactCheck {
+  checked_at: string;
+  pending: boolean;
+  verdict: ImpactVerdict;
+  signals: ReleaseImpactCheckSignal[];
+  /** Thresholds whose signal was not bound or not readable. */
+  unchecked?: string[];
+}
+
+export type ImpactVerdict = "improved" | "neutral" | "worse" | "unknown";
+
+/** One bound golden signal across a deploy: window means (the p95 of a
+ * quantile signal). `delta` is in the signal's unit (percentage points for a
+ * ratio); `delta_pct` is null when `before` is 0. */
+export interface ReleaseImpactSignal {
+  signal: string;
+  unit: string;
+  before: number | null;
+  after: number | null;
+  /** The same after-window a day earlier. */
+  baseline: number | null;
+  delta: number | null;
+  delta_pct: number | null;
+  higher_is_better: boolean;
+  verdict: ImpactVerdict;
+}
+
+/** GET /v1/releases/{id}/impact: the window on each side of the deploy
+ * (`deployed_at`, else `finished_at` for a release that never deployed on
+ * its own; neither leaves it null and unknown). */
+export interface ReleaseImpact {
+  release_id: string;
+  component_id: string | null;
+  environment: DeployEnvironment;
+  deployed_at: string | null;
+  window_minutes: number;
+  /** The window after the deploy has not closed yet: the part that has passed. */
+  pending: boolean;
+  verdict: ImpactVerdict;
+  computed_at: string;
+  signals: ReleaseImpactSignal[];
 }
 
 export type RollbackReason = "deploy_failed" | "verify_failed" | "health_incident" | "manual";
@@ -6466,7 +6646,7 @@ export const api = {
     return request<ComponentSeries>(
       `/v1/components/${encodeURIComponent(componentId)}/series?${qs.toString()}`,
       {},
-      DATA_SOURCE_UPSTREAM_TIMEOUT_MS,
+      OPS_SIGNALS_TIMEOUT_MS,
     );
   },
 
@@ -6481,10 +6661,46 @@ export const api = {
         query.componentIds,
       )}`,
       {},
-      DATA_SOURCE_UPSTREAM_TIMEOUT_MS,
+      OPS_SIGNALS_TIMEOUT_MS,
     ),
 
+  // ---- Alert rules ---------------------------------------------
+  // A refused write answers 400 with `fields` (see dataSourceFieldErrors).
+
+  listAlertRules: (opts: { componentId?: string; env?: DeployEnvironment } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.componentId) qs.set("component_id", opts.componentId);
+    if (opts.env) qs.set("env", opts.env);
+    const suffix = qs.toString();
+    return request<{ rules: AlertRule[] | null }>(`/v1/alert-rules${suffix ? `?${suffix}` : ""}`);
+  },
+
+  getAlertRule: (id: string) => request<AlertRule>(`/v1/alert-rules/${encodeURIComponent(id)}`),
+
+  createAlertRule: (body: AlertRuleInput) =>
+    request<AlertRule>("/v1/alert-rules", { method: "POST", body: JSON.stringify(body) }),
+
+  updateAlertRule: (id: string, body: Partial<AlertRuleInput>) =>
+    request<AlertRule>(`/v1/alert-rules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteAlertRule: (id: string) => request<void>(`/v1/alert-rules/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  listAlertRuleEvents: (id: string, limit = 50) =>
+    request<{ events: AlertRuleEvent[] | null }>(`/v1/alert-rules/${encodeURIComponent(id)}/events?limit=${limit}`),
+
+  backtestAlertRule: (body: AlertBacktestRequest) =>
+    request<AlertBacktest>("/v1/alert-rules/backtest", { method: "POST", body: JSON.stringify(body) }, DATA_SOURCE_UPSTREAM_TIMEOUT_MS),
+
+  suggestAlertRules: (componentId: string, environment: DeployEnvironment) =>
+    request<{ rules: AlertRuleSuggestion[] | null }>("/v1/alert-rules/suggest", {
+      method: "POST",
+      body: JSON.stringify({ component_id: componentId, environment }),
+    }),
+
   // ---- Releases & delivery --------------------------------------
+
+  getReleaseImpact: (releaseId: string) =>
+    request<ReleaseImpact>(`/v1/releases/${encodeURIComponent(releaseId)}/impact`, {}, DATA_SOURCE_UPSTREAM_TIMEOUT_MS),
 
   listReleases: (repositoryId: string, opts: { componentId?: string; taskId?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams();

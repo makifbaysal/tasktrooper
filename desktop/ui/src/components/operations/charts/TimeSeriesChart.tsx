@@ -43,6 +43,12 @@ export interface Threshold {
   label?: string;
 }
 
+/** A span of the time axis to shade (unix ms), such as when a rule would have fired. */
+export interface ChartBand {
+  from: number;
+  to: number;
+}
+
 export interface TimeSeriesChartProps {
   series: ChartSeries[];
   ariaLabel: string;
@@ -50,6 +56,7 @@ export interface TimeSeriesChartProps {
   formatValue?: (v: number) => string;
   deployMarkers?: DeployMarker[];
   thresholds?: Threshold[];
+  bands?: ChartBand[];
   height?: number;
   syncKey?: string;
   area?: boolean;
@@ -75,6 +82,7 @@ interface Latest {
   unit?: string;
   markers: DeployMarker[];
   thresholds: Threshold[];
+  bands: ChartBand[];
   fullTime: (ms: number) => string;
   deployLabel: (label: string) => string;
   xRange?: [number, number];
@@ -82,6 +90,7 @@ interface Latest {
 
 const NO_MARKERS: DeployMarker[] = [];
 const NO_THRESHOLDS: Threshold[] = [];
+const NO_BANDS: ChartBand[] = [];
 
 function toPlotData(aligned: AlignedSeries): uPlot.AlignedData {
   return [aligned.xs, ...aligned.ys] as uPlot.AlignedData;
@@ -99,6 +108,7 @@ export function TimeSeriesChart({
   formatValue,
   deployMarkers,
   thresholds,
+  bands,
   height = 220,
   syncKey,
   area = false,
@@ -117,6 +127,7 @@ export function TimeSeriesChart({
 
   const markers = deployMarkers ?? NO_MARKERS;
   const lines = thresholds ?? NO_THRESHOLDS;
+  const shaded = bands ?? NO_BANDS;
   const aligned = useMemo(() => alignSeries(series), [series]);
   const filled = useMemo(() => hasChartData(series), [series]);
   const format = useMemo(() => formatValue ?? defaultValueFormatter(locale), [formatValue, locale]);
@@ -130,6 +141,7 @@ export function TimeSeriesChart({
     unit,
     markers,
     thresholds: lines,
+    bands: shaded,
     fullTime,
     deployLabel: (label) => t("operations.chart.deployAt", { label }),
     xRange,
@@ -208,6 +220,13 @@ export function TimeSeriesChart({
       const { left, top, width, height: plotHeight } = u.bbox;
       const next: MarkerSpot[] = [];
       ctx.save();
+      ctx.fillStyle = withAlpha(theme.destructive, 0.12);
+      for (const band of cur.bands) {
+        const x0 = Math.max(left, u.valToPos(band.from, "x", true));
+        const x1 = Math.min(left + width, u.valToPos(band.to, "x", true));
+        if (!Number.isFinite(x0) || !Number.isFinite(x1) || x1 < x0) continue;
+        ctx.fillRect(x0, top, Math.max(x1 - x0, dpr), plotHeight);
+      }
       for (const line of cur.thresholds) {
         const y = u.valToPos(line.value, "y", true);
         if (!Number.isFinite(y) || y < top || y > top + plotHeight) continue;
@@ -378,7 +397,7 @@ export function TimeSeriesChart({
 
   useEffect(() => {
     plotRef.current?.redraw(false, true);
-  }, [markers, lines, format, unit]);
+  }, [markers, lines, shaded, format, unit]);
 
   const legend = series.length >= 2 && (
     <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-muted-foreground" aria-label={t("operations.chart.legend")}>

@@ -429,6 +429,17 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
 - `GET /v1/releases/{releaseId}` — one release in full: status, mode/executor, commit/tag,
   `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new
   error groups), `verdict`, `rollback`, `tasks` (`api.getRelease`).
+- `GET /v1/releases/{releaseId}/impact` — `ReleaseImpact` `{release_id, component_id, environment,
+  deployed_at, window_minutes, pending, verdict, computed_at, signals: [{signal, unit, before,
+  after, baseline, delta, delta_pct, higher_is_better, verdict}]}` (`api.getReleaseImpact`): the
+  golden signals' means over the `window_minutes` before the deploy, after it and that
+  after-window a day earlier; `pending` while the after-window is open; `verdict` the worst
+  judged signal. The release panel's Impact section (re-read every minute while pending).
+  `checks.impact` on a release is the soak's own read of it when the profile sets an impact
+  threshold: `{checked_at, pending, verdict, signals: [{signal, before, after, delta?,
+  delta_pct?, verdict, max_delta?, max_delta_pct?, breached?}], unchecked?}` (`unchecked` names
+  the thresholds, `max_error_rate_delta` / `max_p95_delta_pct`, whose signal is unbound) — what
+  the Changes feed's Impact column reads.
 - `GET /v1/releases/{releaseId}/cut-preview` — `ReleaseCutPreview` for a `draft` release, or a
   `pending` one that has never deployed (a re-cut): suggested/previous version (highest semver
   among the last released version, the newest matching git tag, and any tag any of the
@@ -456,7 +467,8 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
   immediately. Driven by `TaskDetailDrawer`'s before-deploy Confirm button
   (`api.confirmBeforeDeploy`).
 - `PATCH /v1/components/{componentId}` — existing body plus
-  `"delivery": ComponentDelivery | null` (`api.updateComponentDelivery`); `null` clears the
+  `"delivery": ComponentDelivery | null` (`verify` also takes `max_error_rate_delta`, percentage
+  points ≤ 100, and `max_p95_delta_pct`, percent ≤ 1000; absent or 0 = not checked) (`api.updateComponentDelivery`); `null` clears the
   human override back to the detected profile. A save that newly CONFIRMS the profile opens
   releases for every task of that component already sitting in `done`, merged, with none yet.
 
@@ -828,11 +840,16 @@ are RFC3339.
   the confirmed binding (`bindComponentSignal`), replacing the slot's in place and dropping its
   pending suggestions. 400 `fields`: `data_source_id`, `recipe_id` (`required` | `invalid` |
   `invalid_option`), `params.<name>` (`required` | `unknown_field` | `too_long`), `query`. The
-  editor sends exactly the recipe's declared params, or `{data_source_id, query}`.
+  editor sends exactly the recipe's declared params, or `{data_source_id, query, params?}` (a
+  custom query keeps the non-empty params it was opened with; a binding with both a recipe and a
+  query opens on the query, which is what the server reads). Field errors land on their inputs;
+  the rest are worded from `operations.signalBinding.errors.<code>`, never the raw key.
 - `POST /v1/signal-bindings/{id}/confirm` → binding (`confirmSignalBinding`); 400 `fields
   {"params.<name>": "required"}` for a suggestion still missing one (the page opens the editor).
   `POST …/dismiss` → 204 (409 `confirmed` for the confirmed one); `DELETE /v1/signal-bindings/{id}`
-  → 204 (`dismissSignalBinding`, `deleteSignalBinding`).
+  → 204 (`dismissSignalBinding`, `deleteSignalBinding`). A 409 (`confirmed`, `conflict`) or 404
+  on any of them is toasted from `operations.signalsPage.writeErrors` and re-reads the list
+  (`signals/signalBinding#signalWriteError`).
 - `POST /v1/components/{id}/signals/preview {signal, data_source_id, recipe_id?, params?, query?,
   from, to, step_seconds?}` → `{rendered_query, series, warnings}` (`previewComponentSignal`),
   validated as PUT; the editor sends the console's range and `charts/signalChart#autoStepSeconds`.
@@ -843,14 +860,60 @@ are RFC3339.
   `p95 <name>` for several); `previous` is the window before, already shifted onto this one.
   `error.code` ∈ `unknown_signal`, `needs_params`, `unsupported`, `bad_query`, `upstream`,
   `timeout`, `not_found`, `error`; unbound = `bound: false`, no error. 90 days / 11 000 points max.
+  `previous_error` (optional): the previous period could not be read while the window's own
+  series stand — the Summary notes it under the chart. The server answers within its overall
+  budget (~30 s); the client waits 45 s (`OPS_SIGNALS_TIMEOUT_MS`), as for golden (~25 s).
 - `GET /v1/operations/golden?env=&from=&to=&component_id=a,b` → `{generated_at, components:
-  [{component_id, signals: [{signal, unit, value, previous, spark}]}]}` (`getOpsGolden`). Only
-  components with at least one confirmed binding are listed, each with **all** its role's golden
-  signals (`catalog/observability/golden.yaml`, mirrored by `ROLE_VIEWS[role].golden`): an unbound
-  or failing one answers `null`s and an empty spark, so the answer alone cannot tell unbound from
-  no data — the Summary reads `bound` from the series answer; the explorer says "no value, or no
-  data source bound". `value` is the window's last non-null point (p95 for a quantile signal),
-  `previous` the one a span earlier. Window ≤ 30 days, rounded to the minute, cached 60 s.
+  [{component_id, signals: [{signal, unit, bound?, value, previous, spark}]}]}` (`getOpsGolden`).
+  Only active components with at least one confirmed binding are listed (at most 200, by name),
+  each with **all** its role's golden signals (`catalog/observability/golden.yaml`, mirrored by
+  `ROLE_VIEWS[role].golden`): an unbound or failing one answers `null`s and an empty spark;
+  `bound: false` marks the unbound ones (a server without the flag leaves it out, and then the
+  Summary reads bound from the series answer and the explorer says "no value, or no data source
+  bound"). The explorer sends **no** `component_id` (a list of ids outgrows the URL) and picks its
+  rows from the answer, polled every 120 s; the Summary sends its one id, every 60 s. `value` is
+  the window's last non-null point (p95 for a quantile signal), `previous` the one a span
+  earlier. Window ≤ 30 days (`OPS_GOLDEN_MAX_WINDOW_MS`: the client asks for the last 30 days of
+  a longer range and says so), rounded to the minute, cached 60 s.
+
+## Alert rules (migration 189)
+
+A rule watches one catalog `signal` of a component environment (through its confirmed binding)
+or a raw `query` on `data_source_id` — never both. Refusals: 400 `{"error", "fields"}` (codes
+`required`, `invalid`, `invalid_option`, `too_long`; keys `name`, `component_id`,
+`environment`, `signal`, `query`, `data_source_id`, `condition.op`, `condition.window_seconds`,
+`condition.for_seconds`, `severity`, `channels`, `days`, `limit`), 404 an unknown rule, 422
+`code: "unbound"` where a rule must be read and its signal has no confirmed binding.
+
+- `AlertRule` = `{id, name, component_id, environment, signal, data_source_id, query, condition:
+  {op: gt|lt|change_pct_gt|change_pct_lt|rising|no_data, threshold, for_seconds, window_seconds},
+  severity, channels, open_incident, enabled, state: ok|pending|firing|no_data, state_since,
+  last_value, last_evaluated_at, created_at, updated_at}`. `threshold` is always a number: the
+  level for `gt`/`lt`, the floor for `rising` (above it and higher than one window earlier),
+  a percent for the change ops (`last_value` is then that percent), unused by `no_data`.
+  Quantile signals are read at p95, `web.*` at p75; several series → the worst. Defaults:
+  environment production, severity medium, channels `[]` (no notification), enabled, window 300 s
+  (60–86 400), for 0 (≤ 604 800). `channels` ⊆ `desktop, in_app, ios_push, slack, email,
+  webhook`; only `desktop` delivers in local mode, so the editor offers only it
+  (`ALERT_CHANNELS_AVAILABLE`). With `open_incident` a firing ingests an issue (source
+  `alert_rule`, payload `{rule_id, rule_name, component_id, …}`) and channels are unused.
+- `GET /v1/alert-rules?component_id=&env=` → `{rules}` (`api.listAlertRules`; the console sends
+  no `env` and filters itself, so a link to another environment's rule still finds it).
+- `GET /v1/alert-rules/{id}` → Rule (`api.getAlertRule`, a `?rule=` the list lacks).
+- `POST /v1/alert-rules` → 201 Rule; `PATCH /v1/alert-rules/{id}` → Rule (absent fields kept; the
+  enabled switch sends `{enabled}` only); `DELETE /v1/alert-rules/{id}` → 204 (a firing rule is
+  resolved first).
+- `GET /v1/alert-rules/{id}/events?limit=` → `{events: [{at, from_state, to_state, value,
+  incident_id}]}`, newest first (`api.listAlertRuleEvents`, limit 100).
+- `POST /v1/alert-rules/backtest` a rule's fields + `days` (1–14) → `{fires: [{start, end, peak}],
+  series: [{name, points}], step_seconds}` (`api.backtestAlertRule`, 60 s deadline): `end` null
+  while still firing; `series[0]` is named after the signal (or `query`), a change rule adds
+  `change_pct`.
+- `POST /v1/alert-rules/suggest {component_id, environment}` → `{rules: [Rule without id/state]}`,
+  nothing saved (`api.suggestAlertRules`).
+- Alert notifications link to `/operations/entity/<component id>/alerts?rule=<rule id>`; release
+  ones (`rollback_suggested`, `release_rolled_back`) to `/operations/changes?release=<id>`. The
+  server stores no rollback proposal on the release itself (see `changes/rollbackSuggestion`).
 
 ## Operations: Errors inbox and Logs explorer
 

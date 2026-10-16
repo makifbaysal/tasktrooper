@@ -21,17 +21,26 @@ vi.mock("uplot", () => ({
   },
 }));
 
-const { previewComponentSignal, bindComponentSignal } = vi.hoisted(() => ({
+const { previewComponentSignal, bindComponentSignal, catalogApi } = vi.hoisted(() => ({
   previewComponentSignal: vi.fn(),
   bindComponentSignal: vi.fn(),
+  catalogApi: {
+    listDataSourceKinds: vi.fn(),
+    listDataSources: vi.fn(),
+    listRecipes: vi.fn(),
+    listSignals: vi.fn(),
+    getComponentSignals: vi.fn(),
+  },
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, previewComponentSignal, bindComponentSignal } };
+  return { ...actual, api: { ...actual.api, previewComponentSignal, bindComponentSignal, ...catalogApi } };
 });
 
 import { SignalBindingDialog } from "@/components/operations/signals/SignalBindingDialog";
+import { SignalBindingEditor } from "@/components/operations/signals/SignalBindingEditor";
+import { writeCache } from "@/lib/uiCache";
 
 const gcpKind: DataSourceKindInfo = {
   kind: "gcp_monitoring",
@@ -232,9 +241,87 @@ describe("SignalBindingDialog", () => {
     expect(screen.getByLabelText("Query")).toBeInTheDocument();
   });
 
+  it("puts a refused preview's field errors on their inputs and words the rest by code", async () => {
+    previewComponentSignal.mockRejectedValueOnce(
+      new ApiError("invalid", 400, "", { "params.job": "too_long", from: "too_long", signal: "invalid" }),
+    );
+    renderDialog({ prefill: binding() });
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText("The preview request was refused")).toBeInTheDocument();
+    expect(screen.getByText("Start: Too long. Signal: This value isn't valid.")).toBeInTheDocument();
+    expect(screen.getByLabelText("job")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText(/params\.job/)).not.toBeInTheDocument();
+  });
+
+  it("offers the preview chart as a table", async () => {
+    previewComponentSignal.mockResolvedValue({ rendered_query: "q", series: [{ name: "p95", labels: {}, points: [[WINDOW.from, 120]] }], warnings: [] });
+    renderDialog({ prefill: binding() });
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show as table" }));
+    expect(await screen.findByText("120 ms")).toBeInTheDocument();
+  });
+
+  it("opens a binding with both a recipe and a query on its query, and keeps its params", async () => {
+    bindComponentSignal.mockResolvedValue(binding({ recipe_id: "", query: "rate(x{job=\"$job\"}[$__rate])" }));
+    renderDialog({ prefill: binding({ recipe_id: "otel-http", query: 'rate(x{job="$job"}[$__rate])', params: { job: "api" } }) });
+    expect(screen.getByRole("tab", { name: "Custom query" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Query")).toHaveValue('rate(x{job="$job"}[$__rate])');
+    expect(screen.getByLabelText("job")).toHaveValue("api");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(bindComponentSignal).toHaveBeenCalledWith("c-api", "http.latency", "production", {
+        data_source_id: "ds-1",
+        query: 'rate(x{job="$job"}[$__rate])',
+        params: { job: "api" },
+      }),
+    );
+  });
+
+  it("words a save the server could not find anything for", async () => {
+    bindComponentSignal.mockRejectedValueOnce(new ApiError("record not found", 404));
+    renderDialog({ prefill: binding() });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("The component or the data source is gone. Reload the page and try again.")).toBeInTheDocument();
+    expect(screen.queryByText("record not found")).not.toBeInTheDocument();
+  });
+
   it("points to Data sources when no metrics source exists", () => {
     renderDialog({ sources: [loki] });
     expect(screen.getByText("No metrics data source yet")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to Data sources" })).toHaveAttribute("href", "/operations/sources");
+  });
+});
+
+describe("SignalBindingEditor", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    for (const key of ["kinds", "list", "recipes", "signals"]) writeCache(`operations.sources.${key}`, undefined);
+    catalogApi.listDataSourceKinds.mockReset().mockResolvedValue({ kinds: [prometheusKind] });
+    catalogApi.listDataSources.mockReset().mockResolvedValue({ data_sources: [prom] });
+    catalogApi.listRecipes.mockReset().mockResolvedValue({ recipes });
+    catalogApi.listSignals.mockReset().mockResolvedValue({ signals: [{ id: "http.latency", kind: "metric", unit: "ms", roles: ["backend"], aggregation: "quantile" }] });
+  });
+
+  it("formats the preview in the catalog's unit when the caller has none yet", async () => {
+    previewComponentSignal.mockResolvedValue({ rendered_query: "q", series: [{ name: "p95", labels: {}, points: [[WINDOW.from, 1500]] }], warnings: [] });
+    render(
+      <MemoryRouter>
+        <I18nProvider>
+          <SignalBindingEditor
+            open
+            onOpenChange={() => {}}
+            componentId="c-api"
+            env="production"
+            signal="http.latency"
+            prefill={binding()}
+            previewWindow={WINDOW}
+            onSaved={() => {}}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Preview" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show as table" }));
+    expect(await screen.findByText("1.5 s")).toBeInTheDocument();
   });
 });

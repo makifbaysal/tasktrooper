@@ -1,4 +1,4 @@
-import { CloudOff, Database, Ellipsis, Link2, SlidersHorizontal } from "lucide-react";
+import { CloudOff, Database, Ellipsis, Info, Link2, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { TimeSeriesChart, type ChartSeries, type DeployMarker } from "@/components/operations/charts/TimeSeriesChart";
@@ -32,10 +32,16 @@ interface ChartSlotProps {
   formatValue?: (v: number) => string;
   status?: ChartSlotStatus;
   error?: string;
+  /** The failed state's heading; "Couldn't read this signal" by default. */
+  errorTitle?: string;
+  /** An action of the failed state's own (e.g. "Fill in parameters"), beside or instead of Retry. */
+  errorAction?: ReactNode;
   onRetry?: () => void;
   onBind?: () => void;
   /** The entity's Signals page. */
   manageHref?: string;
+  /** A small line under the chart that does not replace it (e.g. the previous period could not be read). */
+  note?: ReactNode;
 }
 
 /** One metric chart card: a title row with its "…" menu, then the chart.
@@ -54,9 +60,12 @@ export function ChartSlot({
   formatValue,
   status,
   error,
+  errorTitle,
+  errorAction,
   onRetry,
   onBind,
   manageHref,
+  note,
 }: ChartSlotProps) {
   const { t } = useI18n();
   const href = useOpsHref();
@@ -71,14 +80,19 @@ export function ChartSlot({
         <EmptyState
           icon={CloudOff}
           variant="critical"
-          title={t("operations.chart.loadFailed")}
+          title={errorTitle ?? t("operations.chart.loadFailed")}
           description={error}
           className="py-0"
           action={
-            onRetry && (
-              <Button variant="outline" size="sm" onClick={onRetry}>
-                {t("operations.chart.retry")}
-              </Button>
+            (onRetry || errorAction) && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {errorAction}
+                {onRetry && (
+                  <Button variant="outline" size="sm" onClick={onRetry}>
+                    {t("operations.chart.retry")}
+                  </Button>
+                )}
+              </div>
             )
           }
         />
@@ -135,6 +149,12 @@ export function ChartSlot({
         </DropdownMenu>
       </div>
       {body}
+      {note && (
+        <p className="flex items-start gap-1.5 text-micro text-muted-foreground">
+          <Info className="mt-px h-3 w-3 shrink-0" aria-hidden />
+          <span className="min-w-0">{note}</span>
+        </p>
+      )}
       {unbound && !loading && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {onBind ? (

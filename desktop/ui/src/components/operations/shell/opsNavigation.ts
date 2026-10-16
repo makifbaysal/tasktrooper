@@ -1,4 +1,5 @@
 import {
+  BellRing,
   Bug,
   Database,
   GitCommitHorizontal,
@@ -26,6 +27,7 @@ export type OpsNavId =
   | "logs"
   | "changes"
   | "issues"
+  | "alerts"
   | "sources"
   | "alertConnections";
 
@@ -60,6 +62,7 @@ export const OPS_NAV: OpsNavGroup[] = [
       { id: "logs", to: "/operations/logs", icon: ScrollText },
       { id: "changes", to: "/operations/changes", icon: GitCommitHorizontal },
       { id: "issues", to: "/operations/issues", icon: Siren },
+      { id: "alerts", to: "/operations/alerts", icon: BellRing },
     ],
   },
   {

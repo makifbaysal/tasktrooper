@@ -33,10 +33,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/hooks/useI18n";
-import { indexGolden } from "@/components/operations/console/goldenMetrics";
+import { goldenWindow, indexGolden } from "@/components/operations/console/goldenMetrics";
 import { useAllStoreApps } from "@/hooks/useMobileReleases";
 import { useOpsConsole } from "@/hooks/useOpsConsole";
-import { useOpsGolden } from "@/hooks/useOpsSignals";
+import { OPS_EXPLORER_GOLDEN_POLL_MS, useOpsGolden } from "@/hooks/useOpsSignals";
 
 function isStatus(value: string | null): value is OpsStatus {
   return OPS_STATUSES.some((s) => s === value);
@@ -55,9 +55,9 @@ export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
   const href = useOpsHref();
   const [params, setParams] = useSearchParams();
   const groupId = useId();
-  const golden = type ? goldenColumnsFor(type) : [];
+  const hasGolden = type ? goldenColumnsFor(type).length > 0 : false;
   // The golden columns read the window; the rest of the list never does.
-  useOpsPageScope(golden.length > 0 ? { time: true, compare: false } : { time: false, note: x("timeNote") });
+  useOpsPageScope(hasGolden ? { time: true, compare: false } : { time: false, note: x("timeNote") });
 
   const { entities, loading: entitiesLoading, error: entitiesError } = useOpsEntities();
   const { repositories, projects } = useOpsDirectory();
@@ -88,9 +88,10 @@ export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
     );
 
   const scoped = useMemo(() => (type ? entities.filter((e) => entityTypeOf(e.role) === type) : entities), [entities, type]);
-  const scopedIds = useMemo(() => scoped.map((e) => e.id), [scoped]);
-  const goldenRead = useOpsGolden(env, range, scopedIds, golden.length > 0);
+  const golden = useMemo(() => (type ? goldenColumnsFor(type, scoped.map((e) => e.role)) : []), [type, scoped]);
+  const goldenRead = useOpsGolden(env, range, null, hasGolden, OPS_EXPLORER_GOLDEN_POLL_MS);
   const goldenValues = useMemo(() => indexGolden(goldenRead.data), [goldenRead.data]);
+  const goldenClamped = hasGolden && goldenWindow(range).clamped;
   const rows = useMemo(() => {
     const built = buildExplorerRows({ entities: scoped, repositories, incidents, releases, environment: env });
     const own = type ? built.filter((r) => r.kind === "entity") : built;
@@ -198,6 +199,19 @@ export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
         </Notice>
       )}
 
+      {hasGolden && goldenRead.error && (
+        <Notice variant="warning" title={x(goldenRead.data ? "goldenRefreshFailed" : "goldenFailed")}>
+          <span className="break-words">{goldenRead.error} </span>
+          <Button variant="link" size="sm" className="h-auto p-0" onClick={() => void goldenRead.reload()}>
+            {t("operations.chart.retry")}
+          </Button>
+        </Notice>
+      )}
+
+      {goldenClamped && (
+        <Notice variant="info" title={t("operations.console.goldenClamped")} />
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -254,6 +268,7 @@ export default function OpsExplorerPage({ type }: OpsExplorerPageProps) {
           rows={visible}
           golden={golden}
           goldenValues={goldenValues}
+          goldenRead={goldenRead}
           groupByType={groupByType}
           showType={!type || type === "mobile"}
         />

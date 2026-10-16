@@ -24,6 +24,7 @@ import {
   compatibleRecipes,
   initialBindingDraft,
   metricsSources,
+  placeFieldErrors,
   previewRequest,
   recipeParams,
   validateBindingDraft,
@@ -74,10 +75,12 @@ const QUERY_LANGUAGE: Record<string, "promql" | "cloudwatch"> = {
   aws_cloudwatch: "cloudwatch",
 };
 
-const SERVER_FIELD: Record<string, keyof Omit<BindingErrors, "params">> = {
-  data_source_id: "source",
-  recipe_id: "recipe",
-  query: "query",
+// Request keys a refusal can name that have no input of their own here.
+const FIELD_NAMES: Record<string, string> = {
+  signal: "signal",
+  from: "from",
+  to: "to",
+  step_seconds: "step",
 };
 
 /** Binds one signal: a metrics source, then a recipe that fits it (with its
@@ -115,6 +118,7 @@ export function SignalBindingDialog({
   const fitting = compatibleRecipes(recipes, source?.kind, signal);
   const recipe = fitting.find((r) => r.id === draft.recipeId);
   const params = recipeParams(recipe);
+  const customParams = draft.mode === "custom" ? Object.keys(draft.params).sort() : [];
   const name = signalLabel(t, signal);
   const envLabel = t(`cloud.environments.${env}`);
   const format = useMemo(() => signalFormatter(unit, { locale: intlLocale(lang), t }), [unit, lang, t]);
@@ -127,16 +131,45 @@ export function SignalBindingDialog({
     setSaveError("");
   };
 
+  const errorText = (code: string) => {
+    const key = `operations.signalBinding.errors.${code}`;
+    const text = t(key);
+    return text === key ? code : text;
+  };
+
+  const fieldName = (key: string) => {
+    if (key.startsWith("params.")) return key.slice(7);
+    return FIELD_NAMES[key] ? b(`fieldNames.${FIELD_NAMES[key]}`) : key;
+  };
+
+  // Field errors on their inputs; the ones with no input here, worded, for a notice.
+  const showFieldErrors = (fields: Record<string, string>): string => {
+    const { inline, rest } = placeFieldErrors(fields, draft.mode === "custom" ? customParams : params);
+    setErrors(inline);
+    return rest.map(([key, code]) => `${fieldName(key)}: ${errorText(code)}`).join(" ");
+  };
+
   const describe = (err: unknown): Failure => {
     const message = err instanceof Error ? err.message : t("common.actionFailed");
     if (err instanceof ApiError) {
       if (err.type === "bad_query") return { title: b("preview.badQuery"), message };
       if (err.type === "upstream") return { title: b("preview.upstream"), message };
       if (err.type === "unsupported") return { title: b("preview.unsupported"), message: "" };
+      if (err.status === 408 || err.type === "timeout") return { title: b("preview.timeout"), message: "" };
     }
     const fields = dataSourceFieldErrors(err);
-    if (fields) return { title: b("preview.failed"), message: Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join(" ") };
+    if (fields) return { title: b("preview.invalid"), message: showFieldErrors(fields) };
     return { title: b("preview.failed"), message };
+  };
+
+  const saveFailure = (err: unknown): string => {
+    const fields = dataSourceFieldErrors(err);
+    if (fields) return showFieldErrors(fields);
+    if (err instanceof ApiError) {
+      if (err.status === 404) return b("saveErrors.notFound");
+      if (err.status === 408 || err.type === "timeout") return b("saveErrors.timeout");
+    }
+    return err instanceof Error ? err.message : t("common.actionFailed");
   };
 
   const runPreview = async () => {
@@ -173,31 +206,10 @@ export function SignalBindingDialog({
       onSaved(saved);
       onOpenChange(false);
     } catch (err) {
-      const fields = dataSourceFieldErrors(err);
-      if (fields) {
-        const inline: BindingErrors = {};
-        const rest: string[] = [];
-        for (const [key, code] of Object.entries(fields)) {
-          const at = SERVER_FIELD[key];
-          if (at) inline[at] = code;
-          else if (key.startsWith("params.") && params.includes(key.slice(7))) {
-            inline.params = { ...inline.params, [key.slice(7)]: code };
-          } else rest.push(`${key}: ${errorText(code)}`);
-        }
-        setErrors(inline);
-        setSaveError(rest.join(" "));
-      } else {
-        setSaveError(err instanceof Error ? err.message : t("common.actionFailed"));
-      }
+      setSaveError(saveFailure(err));
     } finally {
       setSaving(false);
     }
-  };
-
-  const errorText = (code: string) => {
-    const key = `operations.signalBinding.errors.${code}`;
-    const text = t(key);
-    return text === key ? code : text;
   };
 
   const close = () => onOpenChange(false);
@@ -377,6 +389,33 @@ export function SignalBindingDialog({
                 {QUERY_LANGUAGE[source.kind] ? b(`queryHints.${QUERY_LANGUAGE[source.kind]}`) : b("queryHint")}
               </p>
               {errors.query && <p className="text-caption text-destructive">{errorText(errors.query)}</p>}
+              {customParams.length > 0 && (
+                <fieldset className="space-y-3 pt-2">
+                  <legend className="mb-1 text-body font-medium">{b("params")}</legend>
+                  <p className="text-caption text-muted-foreground">{b("customParamsHint")}</p>
+                  {customParams.map((p) => {
+                    const error = errors.params?.[p];
+                    return (
+                      <div key={p} className="space-y-1.5">
+                        <Label htmlFor={`sb-param-${p}`} className="font-mono">
+                          {p}
+                        </Label>
+                        <Input
+                          id={`sb-param-${p}`}
+                          value={draft.params[p] ?? ""}
+                          onChange={(e) => change({ ...draft, params: { ...draft.params, [p]: e.target.value } })}
+                          aria-invalid={error ? true : undefined}
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="font-mono text-caption"
+                          disabled={saving}
+                        />
+                        {error && <p className="text-caption text-destructive">{errorText(error)}</p>}
+                      </div>
+                    );
+                  })}
+                </fieldset>
+              )}
             </div>
           )}
 
@@ -426,6 +465,7 @@ export function SignalBindingDialog({
                 loading={previewing && !preview}
                 xRange={[previewWindow.from, previewWindow.to]}
                 emptyLabel={b("preview.noSeries")}
+                showTableToggle
               />
             )}
           </section>

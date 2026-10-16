@@ -85,6 +85,9 @@ export function SignalTile({
             <span className={cn("inline-flex items-center gap-1 text-caption font-medium", DELTA_TONE[delta.tone])}>
               <DeltaIcon className="h-3.5 w-3.5" aria-hidden />
               {delta.text}
+              {delta.tone !== "flat" && (
+                <span className="sr-only">{` ${t(`operations.signalDelta.${delta.tone === "good" ? "better" : "worse"}`)} `}</span>
+              )}
               {delta.label && <span className="font-normal text-muted-foreground">{delta.label}</span>}
             </span>
           ) : (

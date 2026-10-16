@@ -34,14 +34,30 @@ export function isEntityType(value: string | null | undefined): value is OpsEnti
   return OPS_ENTITY_TYPES.some((t) => t === value);
 }
 
-const GOLDEN: Record<OpsEntityType, SignalSpec[]> = {
-  services: ROLE_VIEWS.backend.golden,
-  web: ROLE_VIEWS.frontend.golden,
-  mobile: ROLE_VIEWS.mobile.golden,
-  workers: ROLE_VIEWS.worker.golden,
+// The roles each type lists, the one whose golden signals lead first. Mobile
+// lists desktop apps too, whose golden list differs (crash rate, no ANR).
+const TYPE_ROLES: Record<OpsEntityType, ComponentRole[]> = {
+  services: ["backend"],
+  web: ["frontend"],
+  mobile: ["mobile", "desktop"],
+  workers: ["worker"],
   other: [],
 };
 
-export function goldenColumnsFor(type: OpsEntityType): SignalSpec[] {
-  return GOLDEN[type];
+/** A type list's golden columns: every golden signal of the roles it lists,
+ * the lead role's first. With `roles` (the rows' own), only the columns some
+ * row has; with none of the type's roles among them, all of them. */
+export function goldenColumnsFor(type: OpsEntityType, roles?: Iterable<ComponentRole | undefined>): SignalSpec[] {
+  const present = roles ? new Set(roles) : undefined;
+  const listed = TYPE_ROLES[type].filter((role) => present?.has(role) ?? true);
+  const out = new Map<string, SignalSpec>();
+  for (const role of listed.length > 0 ? listed : TYPE_ROLES[type]) {
+    for (const spec of ROLE_VIEWS[role].golden) if (!out.has(spec.id)) out.set(spec.id, spec);
+  }
+  return [...out.values()];
+}
+
+/** Whether a golden column is one of this row's role's own golden signals. */
+export function roleHasGolden(role: ComponentRole | undefined, signal: string): boolean {
+  return role ? ROLE_VIEWS[role].golden.some((spec) => spec.id === signal) : false;
 }

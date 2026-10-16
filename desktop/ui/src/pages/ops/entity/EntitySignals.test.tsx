@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ComponentSignal, ComponentSignals, SignalBinding } from "@/api";
+import { ApiError, type ComponentSignal, type ComponentSignals, type SignalBinding } from "@/api";
 import { OpsProvider } from "@/components/operations/shell/OpsContext";
 import type { OpsEntity } from "@/components/operations/shell/useOpsEntities";
 import { I18nProvider } from "@/hooks/useI18n";
@@ -23,6 +23,9 @@ vi.mock("uplot", () => ({
     destroy() {}
   },
 }));
+
+const toast = vi.hoisted(() => ({ success: vi.fn(), info: vi.fn(), error: vi.fn() }));
+vi.mock("sonner", () => ({ toast }));
 
 const apiMock = vi.hoisted(() => ({
   getComponentSignals: vi.fn(),
@@ -116,6 +119,7 @@ beforeEach(() => {
   for (const key of ["kinds", "list", "recipes", "signals"]) writeCache(`operations.sources.${key}`, undefined);
   writeCache("operations.signals.c-api.production", undefined);
   Object.values(apiMock).forEach((fn) => fn.mockReset());
+  Object.values(toast).forEach((fn) => fn.mockReset());
   apiMock.getComponentSignals.mockResolvedValue(answer([ready, partial, bound, cpu]));
   apiMock.getComponentSeries.mockResolvedValue({
     from: "",
@@ -207,6 +211,32 @@ describe("EntitySignals", () => {
     fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(apiMock.deleteSignalBinding).toHaveBeenCalledWith("b-1"));
     await waitFor(() => expect(within(row("Throughput")).getByText("Not bound")).toBeInTheDocument());
+  });
+
+  it("words a dismiss the server refused because the suggestion was accepted meanwhile, and reads the list again", async () => {
+    apiMock.dismissSignalBinding.mockRejectedValue(new ApiError("the binding is confirmed; delete it instead", 409, "confirmed"));
+    renderPage();
+    await screen.findByRole("table", { name: "Signals" });
+    const reads = apiMock.getComponentSignals.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Prod Prometheus for Error rate" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("This suggestion was accepted meanwhile. Remove its binding instead."));
+    await waitFor(() => expect(apiMock.getComponentSignals.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it("reads the window once for a first binding: the new series key does it", async () => {
+    const confirmed = binding({ id: "s-lat", signal: "http.latency", status: "confirmed", source: "detected" });
+    apiMock.confirmSignalBinding.mockResolvedValue(confirmed);
+    apiMock.getComponentSignals.mockImplementation(async () => answer([ready, partial, bound, cpu]));
+    renderPage();
+    await screen.findByRole("table", { name: "Signals" });
+    await waitFor(() => expect(apiMock.getComponentSeries).toHaveBeenCalledTimes(1));
+    apiMock.getComponentSignals.mockResolvedValue(answer([{ ...ready, status: "bound", binding: confirmed, suggestions: [] }, partial, bound, cpu]));
+    fireEvent.click(screen.getByRole("button", { name: "Accept Prod Prometheus for Response time" }));
+    await waitFor(() =>
+      expect(apiMock.getComponentSeries).toHaveBeenLastCalledWith("c-api", expect.objectContaining({ signals: ["http.latency", "http.requests"] })),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(apiMock.getComponentSeries).toHaveBeenCalledTimes(2);
   });
 
   it("points to Data sources when no metrics source exists yet", async () => {
