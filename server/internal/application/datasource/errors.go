@@ -24,6 +24,10 @@ const (
 	FieldUnknown       = "unknown_field"
 	FieldInvalidOption = "invalid_option"
 	FieldTooLong       = "too_long"
+	// FieldNotFound, on a cloud_account field: no connected account has that
+	// id. FieldWrongProvider: the account is another provider's.
+	FieldNotFound      = "not_found"
+	FieldWrongProvider = "wrong_provider"
 	// FieldSecretsRequired, on key "secrets": the PATCH moves the URL to
 	// another origin and must re-send every stored secret it keeps.
 	FieldSecretsRequired = "secrets_required"

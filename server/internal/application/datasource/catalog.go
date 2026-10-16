@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
@@ -25,7 +26,6 @@ var (
 	signalIDPattern  = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 	recipeIDPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	paramPattern     = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
-	metricPattern    = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 	placeholderRegex = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 )
 
@@ -51,8 +51,10 @@ type recipeDoc struct {
 	ID         string `yaml:"id"`
 	SourceKind string `yaml:"source_kind"`
 	AppliesTo  struct {
-		Technology      string `yaml:"technology"`
-		MessagingSystem string `yaml:"messaging_system"`
+		Technology      string            `yaml:"technology"`
+		MessagingSystem string            `yaml:"messaging_system"`
+		ResourceKind    string            `yaml:"resource_kind"`
+		ResourceParams  map[string]string `yaml:"resource_params"`
 	} `yaml:"applies_to"`
 	Detect struct {
 		Metric string `yaml:"metric"`
@@ -156,6 +158,8 @@ func decodeRecipe(raw []byte) (domain.Recipe, error) {
 		AppliesTo: domain.RecipeAppliesTo{
 			Technology:      doc.AppliesTo.Technology,
 			MessagingSystem: doc.AppliesTo.MessagingSystem,
+			ResourceKind:    domain.CloudResourceKind(doc.AppliesTo.ResourceKind),
+			ResourceParams:  doc.AppliesTo.ResourceParams,
 		},
 		Detect:  domain.RecipeDetect{Metric: doc.Detect.Metric},
 		Params:  doc.Params,
@@ -167,8 +171,10 @@ func (c *Catalog) Signals() []domain.Signal { return slices.Clone(c.signals) }
 
 func (c *Catalog) Recipes() []domain.Recipe { return slices.Clone(c.recipes) }
 
-// ValidateRecipe checks a recipe against the signal catalog and the
-// registered kinds; every problem is reported, not just the first.
+// ValidateRecipe checks a recipe against the signal catalog, the kinds (the
+// registered ones and the ones this build ships), and the placeholder rules
+// of its kind's query language; every problem is reported, not just the
+// first.
 func (c *Catalog) ValidateRecipe(r domain.Recipe) error {
 	var problems []string
 	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
@@ -176,10 +182,11 @@ func (c *Catalog) ValidateRecipe(r domain.Recipe) error {
 	if !recipeIDPattern.MatchString(r.ID) {
 		add("id %q must be lowercase letters, digits and dashes", r.ID)
 	}
-	if !slices.Contains(c.kinds, r.SourceKind) {
+	if !slices.Contains(c.kinds, r.SourceKind) && !slices.Contains(domain.BuiltinDataSourceKinds(), r.SourceKind) {
 		add("source_kind %q is not a registered data source kind", r.SourceKind)
 	}
-	if r.Detect.Metric != "" && !metricPattern.MatchString(r.Detect.Metric) {
+	lang := dialectFor(r.SourceKind)
+	if r.Detect.Metric != "" && !lang.validMetricName(r.Detect.Metric) {
 		add("detect.metric %q is not a metric name", r.Detect.Metric)
 	}
 	declared := map[string]bool{}
@@ -192,6 +199,7 @@ func (c *Catalog) ValidateRecipe(r domain.Recipe) error {
 		}
 		declared[p] = true
 	}
+	problems = append(problems, checkResource(r.AppliesTo, declared)...)
 	if len(r.Signals) == 0 {
 		add("no signals")
 	}
@@ -207,26 +215,9 @@ func (c *Catalog) ValidateRecipe(r domain.Recipe) error {
 		}
 		if strings.TrimSpace(query) == "" {
 			add("signal %q has an empty query", id)
+			continue
 		}
-		seen := map[string]bool{}
-		for _, use := range placeholderUses(query) {
-			if seen[use.name] {
-				continue
-			}
-			switch {
-			case builtinPlaceholders[use.name]:
-				if use.quote != 0 || !use.inBrackets {
-					seen[use.name] = true
-					add("signal %q: $%s may appear only inside [...]", id, use.name)
-				}
-			case !declared[use.name]:
-				seen[use.name] = true
-				add("signal %q uses $%s, which is neither a declared param nor a built-in", id, use.name)
-			case !use.inEqualityMatcher():
-				seen[use.name] = true
-				add("signal %q: $%s must sit inside a double-quoted label value matched with = or !=", id, use.name)
-			}
-		}
+		problems = append(problems, lang.check(id, query, declared)...)
 	}
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
@@ -234,95 +225,22 @@ func (c *Catalog) ValidateRecipe(r domain.Recipe) error {
 	return nil
 }
 
-// placeholderUse is one $name in a query and where it sits. RenderQuery
-// escapes a param for a double-quoted string, which is right only for an
-// equality matcher's value: inside a regex matcher the value would be a
-// pattern, and anywhere outside a string it would be raw PromQL.
-type placeholderUse struct {
-	name       string
-	quote      byte
-	op         string
-	inBraces   bool
-	inBrackets bool
-}
-
-func (u placeholderUse) inEqualityMatcher() bool {
-	return u.quote == '"' && u.inBraces && (u.op == "=" || u.op == "!=")
-}
-
-func placeholderUses(q string) []placeholderUse {
-	var uses []placeholderUse
-	braces, brackets := 0, 0
-	for i := 0; i < len(q); i++ {
-		switch c := q[i]; c {
-		case '"', '\'', '`':
-			op := matcherOpBefore(q, i)
-			j := i + 1
-			for ; j < len(q) && q[j] != c; j++ {
-				if q[j] == '\\' && c != '`' {
-					j++
-					continue
-				}
-				if q[j] == '$' {
-					if name := identAt(q, j+1); name != "" {
-						uses = append(uses, placeholderUse{name: name, quote: c, op: op, inBraces: braces > 0, inBrackets: brackets > 0})
-						j += len(name)
-					}
-				}
-			}
-			i = j
-		case '{':
-			braces++
-		case '}':
-			braces = max(braces-1, 0)
-		case '[':
-			brackets++
-		case ']':
-			brackets = max(brackets-1, 0)
-		case '$':
-			if name := identAt(q, i+1); name != "" {
-				uses = append(uses, placeholderUse{name: name, inBraces: braces > 0, inBrackets: brackets > 0})
-				i += len(name)
-			}
+func checkResource(a domain.RecipeAppliesTo, declared map[string]bool) []string {
+	var problems []string
+	if a.ResourceKind != "" && !domain.ValidCloudResourceKind(a.ResourceKind) {
+		problems = append(problems, fmt.Sprintf("applies_to.resource_kind %q is not a cloud resource kind", a.ResourceKind))
+	}
+	if len(a.ResourceParams) > 0 && a.ResourceKind == "" {
+		problems = append(problems, "applies_to.resource_params needs a resource_kind")
+	}
+	for _, param := range slices.Sorted(maps.Keys(a.ResourceParams)) {
+		refPath := a.ResourceParams[param]
+		if !declared[param] {
+			problems = append(problems, fmt.Sprintf("applies_to.resource_params names %q, which is not a declared param", param))
+		}
+		if !domain.ValidResourceRefPath(refPath) {
+			problems = append(problems, fmt.Sprintf("applies_to.resource_params.%s: %q is not id, name, region or extra.<key>", param, refPath))
 		}
 	}
-	return uses
-}
-
-// matcherOpBefore is the operator right before the string starting at i:
-// "=", "!=", "=~", "!~", or "" (a comparison like == or >=, or none).
-func matcherOpBefore(q string, i int) string {
-	k := i - 1
-	for k >= 0 && (q[k] == ' ' || q[k] == '\t' || q[k] == '\n') {
-		k--
-	}
-	if k < 0 {
-		return ""
-	}
-	prev := byte(0)
-	if k > 0 {
-		prev = q[k-1]
-	}
-	switch {
-	case q[k] == '~' && (prev == '=' || prev == '!'):
-		return string([]byte{prev, '~'})
-	case q[k] == '=' && prev == '!':
-		return "!="
-	case q[k] == '=' && prev != '=' && prev != '<' && prev != '>':
-		return "="
-	}
-	return ""
-}
-
-func identAt(q string, i int) string {
-	j := i
-	for j < len(q) {
-		c := q[j]
-		if c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (j > i && c >= '0' && c <= '9') {
-			j++
-			continue
-		}
-		break
-	}
-	return q[i:j]
+	return problems
 }

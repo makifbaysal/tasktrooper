@@ -1,0 +1,19 @@
+# A consumer group of an Amazon MSK (Kafka) cluster, from CloudWatch's
+# AWS/Kafka consumer-lag metrics, which MSK publishes at the default
+# monitoring level. cluster is the cluster's name, group the consumer group,
+# topic the topic it reads; none comes from a cloud resource ref.
+id: aws-msk
+source_kind: aws_cloudwatch
+applies_to:
+  technology: kafka
+  messaging_system: kafka
+detect:
+  metric: AWS/Kafka/SumOffsetLag
+params: [cluster, group, topic]
+signals:
+  queue.backlog: >-
+    {"namespace": "AWS/Kafka", "metric": "SumOffsetLag", "stat": "Maximum",
+     "dimensions": {"Cluster Name": "$cluster", "Consumer Group": "$group", "Topic": "$topic"}}
+  queue.backlog_age: >-
+    {"namespace": "AWS/Kafka", "metric": "EstimatedMaxTimeLag", "stat": "Maximum",
+     "dimensions": {"Cluster Name": "$cluster", "Consumer Group": "$group", "Topic": "$topic"}}

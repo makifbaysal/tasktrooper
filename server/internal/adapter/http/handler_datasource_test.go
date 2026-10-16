@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/cloudwatch"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/gcpmonitoring"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/prometheus"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -277,7 +279,7 @@ func (s *DataSourceHandlerSuite) TestSignalsAndRecipesListTheCatalog() {
 	}
 	s.Require().NotNil(otel)
 	s.ElementsMatch([]string{"id", "source_kind", "applies_to", "detect", "params", "signals", "origin"}, keysOf(otel))
-	s.Equal(map[string]any{"technology": "opentelemetry", "messaging_system": ""}, otel["applies_to"])
+	s.Equal(map[string]any{"technology": "opentelemetry", "messaging_system": "", "resource_kind": "", "resource_params": map[string]any{}}, otel["applies_to"])
 	s.Equal(map[string]any{"metric": "http_server_request_duration_seconds_count"}, otel["detect"])
 	s.Equal([]any{"job"}, otel["params"])
 	s.Equal("catalog", otel["origin"])
@@ -294,4 +296,42 @@ func (s *DataSourceHandlerSuite) TestMovingTheURLWithoutTheSecretsIs400() {
 	s.Equal(400, status)
 	s.NotEmpty(out["error"])
 	s.Equal(map[string]any{"secrets": "secrets_required"}, out["fields"])
+}
+
+func (s *DataSourceHandlerSuite) TestCloudKindsListAnAccountFieldOfTheirProvider() {
+	policy := urlguard.HumanConfigured()
+	svc, err := datasource.NewService(datasource.Deps{
+		Store:         s.store,
+		CloudAccounts: &mocks.CloudAccountReader{},
+		Kinds:         []port.DataSourceKindAdapter{gcpmonitoring.New(), cloudwatch.New()},
+		URLPolicy:     &policy,
+	})
+	s.Require().NoError(err)
+	s.app = fiber.New(fiber.Config{JSONEncoder: goccyjson.Marshal, JSONDecoder: goccyjson.Unmarshal})
+	(&Handler{dataSourceSvc: svc}).registerDataSourceRoutes(s.app)
+
+	status, out := s.do("GET", "/v1/data-source-kinds", "")
+
+	s.Equal(200, status)
+	kinds := out["kinds"].([]any)
+	s.Require().Len(kinds, 2)
+	for i, want := range []struct{ kind, provider, second string }{
+		{"gcp_monitoring", "gcp", "project_id"},
+		{"aws_cloudwatch", "aws", "region"},
+	} {
+		k := kinds[i].(map[string]any)
+		s.Equal(want.kind, k["kind"])
+		s.Equal([]any{"metrics"}, k["capabilities"])
+		fields := k["fields"].([]any)
+		s.Require().Len(fields, 2)
+		account := fields[0].(map[string]any)
+		s.Equal("cloud_account_id", account["key"])
+		s.Equal("cloud_account", account["type"])
+		s.Equal(want.provider, account["provider"])
+		s.Equal(true, account["required"])
+		s.Equal(false, account["secret"])
+		second := fields[1].(map[string]any)
+		s.Equal(want.second, second["key"])
+		s.NotContains(second, "provider")
+	}
 }

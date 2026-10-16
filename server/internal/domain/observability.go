@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // SignalKind is the shape of what a signal measures.
 type SignalKind string
 
@@ -54,9 +56,15 @@ const (
 	RecipeOriginUser    RecipeOrigin = "user"
 )
 
+// RecipeAppliesTo says what a recipe reads. ResourceKind is the cloud
+// resource an environment must be bound to for the recipe to fit it, and
+// ResourceParams says which field of that resource's ref fills which param
+// (see ResourceRefValue for the paths).
 type RecipeAppliesTo struct {
-	Technology      string `json:"technology"`
-	MessagingSystem string `json:"messaging_system"`
+	Technology      string            `json:"technology"`
+	MessagingSystem string            `json:"messaging_system"`
+	ResourceKind    CloudResourceKind `json:"resource_kind"`
+	ResourceParams  map[string]string `json:"resource_params"`
 }
 
 // RecipeDetect is how discovery suggests a recipe: Metric present in a
@@ -67,7 +75,9 @@ type RecipeDetect struct {
 
 // Recipe maps signal ids to native queries for one source kind. A query may
 // reference a declared param as $name, and the built-ins $__rate (a rate
-// window derived from the step) and $__interval (the step).
+// window derived from the step), $__interval (the step) and $__quantile (the
+// quantile a quantile signal is read at); where each may sit is the kind's
+// query language's rule.
 type Recipe struct {
 	ID         string            `json:"id"`
 	SourceKind DataSourceKind    `json:"source_kind"`
@@ -82,4 +92,41 @@ type Recipe struct {
 type RecipeMatch struct {
 	RecipeID      string `json:"recipe_id"`
 	MatchedMetric string `json:"matched_metric"`
+}
+
+const resourceRefExtraPrefix = "extra."
+
+// ResourceRefValue reads the field of ref a recipe's resource_params names:
+// "id", "name", "region", or "extra.<key>".
+func ResourceRefValue(ref CloudResourceRef, path string) (string, bool) {
+	switch path {
+	case "id":
+		return ref.ID, true
+	case "name":
+		return ref.Name, true
+	case "region":
+		return ref.Region, true
+	}
+	if key, ok := strings.CutPrefix(path, resourceRefExtraPrefix); ok && key != "" {
+		return ref.Extra[key], true
+	}
+	return "", false
+}
+
+func ValidResourceRefPath(path string) bool {
+	_, ok := ResourceRefValue(CloudResourceRef{}, path)
+	return ok
+}
+
+// ParamsFromResource fills the params ResourceParams maps from ref. A ref
+// field that is empty is left out, so the caller sees which params still
+// need a value.
+func (r Recipe) ParamsFromResource(ref CloudResourceRef) map[string]string {
+	out := map[string]string{}
+	for param, path := range r.AppliesTo.ResourceParams {
+		if v, ok := ResourceRefValue(ref, path); ok && v != "" {
+			out[param] = v
+		}
+	}
+	return out
 }

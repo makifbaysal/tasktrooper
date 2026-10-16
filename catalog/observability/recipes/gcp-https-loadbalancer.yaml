@@ -1,0 +1,20 @@
+# An external Application Load Balancer (global or classic) backend, from
+# Google Cloud Monitoring's built-in loadbalancing.googleapis.com metrics (the
+# https_lb_rule resource): the request side of a GKE workload or of any other
+# backend behind it. backend is the backend service or bucket name
+# (backend_target_name); no cloud resource ref names it, so it is set by hand.
+id: gcp-https-loadbalancer
+source_kind: gcp_monitoring
+applies_to:
+  technology: google_cloud_load_balancing
+detect:
+  metric: loadbalancing_googleapis_com:https_request_count
+params: [backend]
+signals:
+  http.requests: >-
+    sum(rate(loadbalancing_googleapis_com:https_request_count{monitored_resource="https_lb_rule", backend_target_name="$backend"}[$__rate]))
+  http.error_ratio: >-
+    100 * (sum(rate(loadbalancing_googleapis_com:https_request_count{monitored_resource="https_lb_rule", backend_target_name="$backend", response_code_class="500"}[$__rate])) or vector(0))
+    / sum(rate(loadbalancing_googleapis_com:https_request_count{monitored_resource="https_lb_rule", backend_target_name="$backend"}[$__rate]))
+  http.latency: >-
+    histogram_quantile($__quantile, sum by (le) (rate(loadbalancing_googleapis_com:https_backend_latencies_bucket{monitored_resource="https_lb_rule", backend_target_name="$backend"}[$__rate])))

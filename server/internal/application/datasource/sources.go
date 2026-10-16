@@ -53,10 +53,13 @@ func (s *Service) Create(ctx context.Context, req domain.SaveDataSourceRequest) 
 		return domain.DataSource{}, FieldErrors{"kind": FieldUnknown}
 	}
 	schema := adapter.Schema()
-	config, secrets, fe := s.merge(schema, nil, nil, req.Config, req.Secrets)
+	config, secrets, fe, err := s.merge(ctx, schema, nil, nil, req.Config, req.Secrets)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name = defaultName(schema, config)
+		name = s.defaultName(ctx, schema, config)
 	}
 	if len(name) > maxNameLen {
 		fe = fe.with("name", FieldTooLong)
@@ -92,7 +95,10 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req domain.PatchData
 		return domain.DataSource{}, err
 	}
 	schema := adapter.Schema()
-	config, secrets, fe := s.merge(schema, ds.Config, stored, req.Config, req.Secrets)
+	config, secrets, fe, err := s.merge(ctx, schema, ds.Config, stored, req.Config, req.Secrets)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
 	if carriesSecretsToANewOrigin(schema, ds.Config, config, stored, secrets, req) {
 		fe = fe.with("secrets", FieldSecretsRequired)
 	}
@@ -162,7 +168,7 @@ func (s *Service) verifyAndRecord(ctx context.Context, adapter port.DataSourceKi
 	if verr != nil {
 		v = domain.DataSourceVerification{
 			Status:       domain.DataSourceError,
-			StatusDetail: truncate(redact(verr.Error(), secrets), maxStatusDetailLen),
+			StatusDetail: truncate(redact(verr.Error(), s.masks(ctx, adapter.Schema(), ds.Config, secrets)), maxStatusDetailLen),
 		}
 	} else {
 		now := s.now()
@@ -244,7 +250,7 @@ func (s *Service) present(ds domain.DataSource) domain.DataSource {
 // validates the result. Every key is routed by the schema rather than by
 // which map it arrived in, so a secret sent as config is still never stored
 // in plain text. A field hidden by its ShowWhen loses any value it had.
-func (s *Service) merge(schema domain.DataSourceSchema, storedConfig, storedSecrets, inConfig, inSecrets map[string]string) (map[string]string, map[string]string, FieldErrors) {
+func (s *Service) merge(ctx context.Context, schema domain.DataSourceSchema, storedConfig, storedSecrets, inConfig, inSecrets map[string]string) (map[string]string, map[string]string, FieldErrors, error) {
 	config := maps.Clone(storedConfig)
 	if config == nil {
 		config = map[string]string{}
@@ -292,51 +298,124 @@ func (s *Service) merge(schema domain.DataSourceSchema, storedConfig, storedSecr
 			continue
 		}
 		v := values[field.Key]
-		if code := s.checkField(field, v); code != "" {
+		code, err := s.checkField(ctx, field, v)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if code != "" {
 			fe = fe.with(field.Key, code)
 		}
 	}
-	return config, secrets, fe
+	return config, secrets, fe, nil
 }
 
 func normalizeValue(field domain.DataSourceField, v string) string {
 	v = strings.TrimSpace(v)
-	if field.Type == domain.FieldURL {
+	switch field.Type {
+	case domain.FieldURL:
 		v = strings.TrimRight(v, "/")
+	case domain.FieldCloudAccount:
+		if id, err := uuid.Parse(v); err == nil {
+			v = id.String()
+		}
 	}
 	return v
 }
 
-func (s *Service) checkField(field domain.DataSourceField, v string) string {
+// checkField answers an error only when the check itself could not run (the
+// cloud account store failing); a value that does not fit is a code.
+func (s *Service) checkField(ctx context.Context, field domain.DataSourceField, v string) (string, error) {
 	if v == "" {
 		if field.Required {
-			return FieldRequired
+			return FieldRequired, nil
 		}
-		return ""
+		return "", nil
 	}
 	limit := maxValueLen
 	if field.Type == domain.FieldHeaders {
 		limit = maxHeadersLen
 	}
 	if len(v) > limit {
-		return FieldTooLong
+		return FieldTooLong, nil
 	}
 	switch field.Type {
 	case domain.FieldSelect:
 		for _, o := range field.Options {
 			if v == o {
-				return ""
+				return "", nil
 			}
 		}
-		return FieldInvalidOption
+		return FieldInvalidOption, nil
 	case domain.FieldURL:
-		return s.checkURL(v)
+		return s.checkURL(v), nil
 	case domain.FieldHeaders:
 		if _, err := domain.ParseHeaderLines(v); err != nil {
-			return FieldInvalid
+			return FieldInvalid, nil
+		}
+	case domain.FieldCloudAccount:
+		_, code, err := s.cloudAccount(ctx, field, v)
+		return code, err
+	}
+	return "", nil
+}
+
+func (s *Service) cloudAccount(ctx context.Context, field domain.DataSourceField, v string) (domain.CloudAccount, string, error) {
+	id, err := uuid.Parse(v)
+	if err != nil {
+		return domain.CloudAccount{}, FieldInvalid, nil
+	}
+	if s.clouds == nil {
+		return domain.CloudAccount{}, FieldNotPermitted, nil
+	}
+	acct, err := s.clouds.GetCloudAccount(ctx, id)
+	if errors.Is(err, port.ErrNotFound) {
+		return domain.CloudAccount{}, FieldNotFound, nil
+	}
+	if err != nil {
+		return domain.CloudAccount{}, "", err
+	}
+	if field.Provider != "" && acct.Provider != field.Provider {
+		return domain.CloudAccount{}, FieldWrongProvider, nil
+	}
+	return acct, "", nil
+}
+
+// masks is secrets plus the credential values of every cloud account the
+// config names, for masking only: a kind reads that credential itself and
+// must not echo it, and a message that does is masked like one of the
+// source's own secrets. A value the account also reports in its non-secret
+// Meta (an AWS region) is not one.
+func (s *Service) masks(ctx context.Context, schema domain.DataSourceSchema, config, secrets map[string]string) map[string]string {
+	if s.clouds == nil {
+		return secrets
+	}
+	out := maps.Clone(secrets)
+	if out == nil {
+		out = map[string]string{}
+	}
+	for _, f := range schema.Fields {
+		if f.Type != domain.FieldCloudAccount {
+			continue
+		}
+		id, err := uuid.Parse(config[f.Key])
+		if err != nil {
+			continue
+		}
+		cred, err := s.clouds.CloudCredential(ctx, id)
+		if err != nil {
+			continue
+		}
+		public := map[string]bool{}
+		for _, v := range cred.Meta {
+			public[v] = true
+		}
+		for k, v := range cred.Fields {
+			if !public[v] {
+				out["cloud_account:"+f.Key+":"+k] = v
+			}
 		}
 	}
-	return ""
+	return out
 }
 
 // checkURL refuses credentials in the URL itself: config is stored and
@@ -354,13 +433,19 @@ func (s *Service) checkURL(raw string) string {
 	return ""
 }
 
-func defaultName(schema domain.DataSourceSchema, config map[string]string) string {
+// defaultName is the URL's host, or for a kind reading a cloud account the
+// kind's label and the account's.
+func (s *Service) defaultName(ctx context.Context, schema domain.DataSourceSchema, config map[string]string) string {
 	for _, f := range schema.Fields {
-		if f.Type != domain.FieldURL {
-			continue
-		}
-		if u, err := url.Parse(config[f.Key]); err == nil && u.Host != "" {
-			return u.Host
+		switch f.Type {
+		case domain.FieldURL:
+			if u, err := url.Parse(config[f.Key]); err == nil && u.Host != "" {
+				return u.Host
+			}
+		case domain.FieldCloudAccount:
+			if acct, code, err := s.cloudAccount(ctx, f, config[f.Key]); err == nil && code == "" && acct.Label != "" {
+				return schema.Label + " · " + acct.Label
+			}
 		}
 	}
 	return schema.Label

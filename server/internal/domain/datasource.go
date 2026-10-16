@@ -16,7 +16,18 @@ import (
 // backend that speaks its API.
 type DataSourceKind string
 
-const DataSourceKindPrometheus DataSourceKind = "prometheus"
+const (
+	DataSourceKindPrometheus    DataSourceKind = "prometheus"
+	DataSourceKindGCPMonitoring DataSourceKind = "gcp_monitoring"
+	DataSourceKindCloudWatch    DataSourceKind = "aws_cloudwatch"
+)
+
+// BuiltinDataSourceKinds are the kinds this build ships an adapter for. A
+// catalog recipe may name one even where it is not registered, so a
+// deployment that leaves a kind out still loads the shared catalog.
+func BuiltinDataSourceKinds() []DataSourceKind {
+	return []DataSourceKind{DataSourceKindPrometheus, DataSourceKindGCPMonitoring, DataSourceKindCloudWatch}
+}
 
 type Capability string
 
@@ -90,6 +101,10 @@ const (
 	FieldSecret  DataSourceFieldType = "secret"
 	FieldSelect  DataSourceFieldType = "select"
 	FieldHeaders DataSourceFieldType = "headers"
+	// FieldCloudAccount holds the id of a connected cloud account of the
+	// field's Provider. The kind reads that account's credential when it
+	// calls, so the source stores no copy of it.
+	FieldCloudAccount DataSourceFieldType = "cloud_account"
 )
 
 // DataSourceField is one entry of a kind's config form. ShowWhen hides the
@@ -105,6 +120,7 @@ type DataSourceField struct {
 	Placeholder string              `json:"placeholder"`
 	ShowWhen    map[string]string   `json:"show_when"`
 	Secret      bool                `json:"secret"`
+	Provider    CloudProviderKind   `json:"provider,omitempty"`
 }
 
 // IsSecret: a headers field is always secret, since it is where an

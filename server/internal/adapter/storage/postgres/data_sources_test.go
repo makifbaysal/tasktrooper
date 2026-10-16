@@ -59,7 +59,7 @@ func (s *DataSourceStoreSuite) TearDownSuite() {
 }
 
 func (s *DataSourceStoreSuite) SetupTest() {
-	_, err := s.pool.Exec(s.ctx, `TRUNCATE data_sources, observability_recipes`)
+	_, err := s.pool.Exec(s.ctx, `TRUNCATE signal_bindings, data_sources, observability_recipes`)
 	s.Require().NoError(err)
 }
 

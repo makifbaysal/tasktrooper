@@ -7,6 +7,8 @@ signals:
   - {id: infra.cpu, kind: metric, unit: cores, roles: [backend, worker], aggregation: rate}
   - {id: infra.memory, kind: metric, unit: bytes, roles: [backend, worker], aggregation: gauge}
   - {id: infra.instances, kind: metric, unit: count, roles: [backend, worker], aggregation: gauge}
+  - {id: infra.restarts, kind: metric, unit: restarts, roles: [backend, worker], aggregation: gauge}
+  - {id: infra.throttles, kind: metric, unit: req/s, roles: [backend, worker], aggregation: rate}
 
   - {id: queue.backlog, kind: metric, unit: messages, roles: [worker], aggregation: gauge}
   - {id: queue.backlog_age, kind: metric, unit: s, roles: [worker], aggregation: gauge}

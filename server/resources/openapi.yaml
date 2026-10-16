@@ -1101,6 +1101,11 @@ paths:
               properties:
                 query:
                   type: string
+                  description: >-
+                    In the kind's query language: PromQL for prometheus and
+                    gcp_monitoring, CloudWatch query JSON for aws_cloudwatch
+                    ({namespace, metric, stat, dimensions?, period?} or
+                    {expression, metrics?: {id: metric}, period?}).
                 from:
                   type: string
                   format: date-time
@@ -1306,6 +1311,341 @@ paths:
               schema:
                 $ref: '#/components/schemas/FlatError'
 
+  /v1/operations/golden:
+    get:
+      summary: Golden signal values for every component with a confirmed binding
+      description: >-
+        At most 200 active components (by name), each with its role's golden signals
+        (catalog/observability/golden.yaml). from/to default to the last hour and are
+        rounded down to the minute; at most 30 days. value is the window's last non-null
+        sample (p95 for a quantile signal), previous the last non-null one a window
+        earlier, spark about 30 points of the window. An unbound or failing signal
+        answers nulls and an empty spark. Cached 60s per env, window and component set;
+        any binding change drops the cache.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - $ref: '#/components/parameters/OpsComponentID'
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: The golden values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at:
+                    type: string
+                    format: date-time
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        component_id:
+                          type: string
+                          format: uuid
+                        signals:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              signal:
+                                type: string
+                              unit:
+                                type: string
+                              value:
+                                type: number
+                                nullable: true
+                              previous:
+                                type: number
+                                nullable: true
+                              spark:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/SeriesPoint'
+        '400':
+          description: Unknown env, malformed from/to (fields) or component_id
+
+  /v1/components/{id}/signals:
+    get:
+      summary: The component's signals with their bindings and suggestions in one environment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The role's signals, then any other signal with a binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentSignals'
+        '400':
+          description: Unknown env or malformed id
+        '404':
+          description: Unknown component
+
+  /v1/components/{id}/signals/suggest:
+    post:
+      summary: Run the binding detector, then answer as GET signals
+      description: >-
+        Offers recipes whose detect metric a metrics source holds (params from the label
+        values naming the component), and, for an environment bound to a cloud resource,
+        the recipes for that resource kind on sources linked to the same cloud account.
+        Never touches a confirmed binding or re-offers a dismissed target.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The signals after detection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentSignals'
+
+  /v1/components/{id}/signals/preview:
+    post:
+      summary: Render and run a binding before it is saved
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/SignalBindingRequest'
+                - type: object
+                  required: [signal]
+                  properties:
+                    signal:
+                      type: string
+                    from:
+                      type: string
+                      format: date-time
+                    to:
+                      type: string
+                      format: date-time
+                    step_seconds:
+                      type: number
+      responses:
+        '200':
+          description: The rendered query and its series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rendered_query:
+                    type: string
+                  series:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MetricSeries'
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Field errors (fields), or a query the source refused (code bad_query)
+        '422':
+          description: The kind cannot query metrics (code unsupported)
+        '502':
+          description: The source failed (code upstream)
+
+  /v1/components/{id}/signals/{signal}:
+    put:
+      summary: Bind a signal by hand (confirmed, source human)
+      description: >-
+        Replaces the confirmed binding of (component, env, signal) in place and drops that
+        slot's pending suggestions. A raw query wins over a recipe when both are given.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - name: signal
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/OpsEnvironment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalBindingRequest'
+      responses:
+        '200':
+          description: The confirmed binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalBinding'
+        '400':
+          description: Field errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceFieldErrors'
+
+  /v1/components/{id}/series:
+    get:
+      summary: Time series of a component's bound signals
+      description: >-
+        to defaults to now, from to an hour before; step_seconds 0 or absent gives about
+        120 points (at least 15s). A quantile signal whose query takes $__quantile answers
+        p50, p95 and p99 series. compare=1 fills previous with the window before, shifted
+        onto this one. A signal that fails carries error and never fails the others. At
+        most 4 queries at once, 20s each.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - name: signals
+          in: query
+          required: false
+          description: Comma-separated signal ids; absent means every signal of the role.
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: step_seconds
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: compare
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['1', 'true']
+      responses:
+        '200':
+          description: One entry per signal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
+                  step_seconds:
+                    type: integer
+                  signals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        signal:
+                          type: string
+                        unit:
+                          type: string
+                        bound:
+                          type: boolean
+                        series:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/MetricSeries'
+                        previous:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/MetricSeries'
+                        error:
+                          type: object
+                          nullable: true
+                          properties:
+                            code:
+                              type: string
+                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                            message:
+                              type: string
+        '400':
+          description: Bad window or step (fields), or unknown env
+
+  /v1/signal-bindings/{bindingId}/confirm:
+    post:
+      summary: Promote a suggestion to the confirmed binding of its signal
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalBindingID'
+      responses:
+        '200':
+          description: The confirmed binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalBinding'
+        '400':
+          description: A recipe param still has no value (fields params.<name> required)
+        '404':
+          description: Unknown binding
+
+  /v1/signal-bindings/{bindingId}/dismiss:
+    post:
+      summary: Dismiss a suggestion so the detector never offers it again
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalBindingID'
+      responses:
+        '204':
+          description: Dismissed
+        '404':
+          description: Unknown binding
+        '409':
+          description: The binding is confirmed (code confirmed); delete it instead
+
+  /v1/signal-bindings/{bindingId}:
+    delete:
+      summary: Delete a binding or suggestion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalBindingID'
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Unknown binding
+
   /health:
     get:
       summary: Server and LLM provider health
@@ -1404,6 +1744,21 @@ components:
         items:
           type: string
           format: uuid
+    SignalComponentID:
+      name: id
+      in: path
+      required: true
+      description: The component id.
+      schema:
+        type: string
+        format: uuid
+    SignalBindingID:
+      name: bindingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   schemas:
     FlatError:
       type: object
@@ -1418,6 +1773,126 @@ components:
         max_environments:
           type: integer
           description: too_many_environments only
+    SeriesPoint:
+      type: array
+      description: '[unix_ms, value]; value is null where the source answered NaN or ±Inf.'
+      minItems: 2
+      maxItems: 2
+      items:
+        type: number
+        nullable: true
+    MetricSeries:
+      type: object
+      properties:
+        name:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeriesPoint'
+    SignalBindingRequest:
+      type: object
+      required: [data_source_id]
+      properties:
+        data_source_id:
+          type: string
+          format: uuid
+        recipe_id:
+          type: string
+        params:
+          type: object
+          additionalProperties:
+            type: string
+        query:
+          type: string
+          description: A raw query in the source's language; wins over recipe_id.
+    SignalBinding:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        component_id:
+          type: string
+          format: uuid
+        environment:
+          type: string
+          enum: [production, staging, preview, development]
+        signal:
+          type: string
+        data_source_id:
+          type: string
+          format: uuid
+        data_source_name:
+          type: string
+        data_source_kind:
+          type: string
+        recipe_id:
+          type: string
+        params:
+          type: object
+          additionalProperties:
+            type: string
+        query:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, suggested, dismissed]
+        source:
+          type: string
+          enum: [detected, human, ai]
+        rendered_query:
+          type: string
+          description: The query at a 60s step; empty while needs_params is not.
+        needs_params:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ComponentSignals:
+      type: object
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+        environment:
+          type: string
+        signals:
+          type: array
+          items:
+            type: object
+            properties:
+              signal:
+                type: string
+              kind:
+                type: string
+                enum: [metric, log, trace, error]
+              unit:
+                type: string
+              golden:
+                type: boolean
+              status:
+                type: string
+                enum: [bound, suggested, unbound]
+              binding:
+                allOf:
+                  - $ref: '#/components/schemas/SignalBinding'
+                nullable: true
+              suggestions:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SignalBinding'
     OpsUnavailable:
       type: object
       properties:
@@ -1568,7 +2043,15 @@ components:
           type: string
         type:
           type: string
-          enum: [text, url, secret, select, headers]
+          enum: [text, url, secret, select, headers, cloud_account]
+          description: >-
+            cloud_account takes the id of a connected cloud account of the
+            field's provider; the kind reads that account's credential, so
+            the source stores none.
+        provider:
+          type: string
+          enum: [gcp, aws, vercel]
+          description: Only on a cloud_account field — the provider its account must be.
         required:
           type: boolean
           description: Applies only while the field is shown.
@@ -1660,7 +2143,9 @@ components:
             Key (a config or secret field, kind, name, secrets, query, from,
             to, step_seconds, limit) to one of required, invalid,
             not_permitted, unknown_field, invalid_option, too_long,
-            secrets_required. secrets_required (key secrets) is a PATCH
+            secrets_required, not_found, wrong_provider. not_found and
+            wrong_provider are a cloud_account field naming no connected
+            account, or another provider's. secrets_required (key secrets) is a PATCH
             moving a url to another scheme, host or port without re-sending
             every stored secret it keeps (a new value, or "" to remove).
           additionalProperties:
@@ -1696,6 +2181,19 @@ components:
               type: string
             messaging_system:
               type: string
+            resource_kind:
+              type: string
+              description: >-
+                The cloud resource kind (cloud_run_service, gke_workload,
+                ecs_service, lambda_function, …) an environment must be bound
+                to for the recipe to fit it; empty when none.
+            resource_params:
+              type: object
+              description: >-
+                Param to the field of that resource's ref that fills it: id,
+                name, region or extra.<key>.
+              additionalProperties:
+                type: string
         detect:
           type: object
           properties:
@@ -1707,7 +2205,9 @@ components:
             type: string
         signals:
           type: object
-          description: Signal id to native query; $param, $__rate and $__interval are placeholders.
+          description: >-
+            Signal id to native query in the source kind's language; $param,
+            $__rate, $__interval and $__quantile are placeholders.
           additionalProperties:
             type: string
         origin:

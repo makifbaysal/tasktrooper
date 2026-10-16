@@ -1,0 +1,24 @@
+# An ECS service, from CloudWatch Container Insights (ECS/ContainerInsights),
+# which has to be turned on for the cluster: AWS/ECS alone has CPU and memory
+# only as a percentage of the reservation and no task count. A bound ECS
+# service fills both params: cluster is its ref's extra.cluster_name, service
+# its ref's name. CpuUtilized is in CPU units (1024 to a vCPU), MemoryUtilized
+# in MiB.
+id: aws-ecs
+source_kind: aws_cloudwatch
+applies_to:
+  technology: ecs
+  resource_kind: ecs_service
+  resource_params: {cluster: extra.cluster_name, service: name}
+detect:
+  metric: ECS/ContainerInsights/RunningTaskCount
+params: [cluster, service]
+signals:
+  infra.cpu: >-
+    {"expression": "c / 1024",
+     "metrics": {"c": {"namespace": "ECS/ContainerInsights", "metric": "CpuUtilized", "stat": "Average", "dimensions": {"ClusterName": "$cluster", "ServiceName": "$service"}}}}
+  infra.memory: >-
+    {"expression": "m * 1048576",
+     "metrics": {"m": {"namespace": "ECS/ContainerInsights", "metric": "MemoryUtilized", "stat": "Average", "dimensions": {"ClusterName": "$cluster", "ServiceName": "$service"}}}}
+  infra.instances: >-
+    {"namespace": "ECS/ContainerInsights", "metric": "RunningTaskCount", "stat": "Average", "dimensions": {"ClusterName": "$cluster", "ServiceName": "$service"}}

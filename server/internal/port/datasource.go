@@ -61,6 +61,15 @@ type DataSourceStore interface {
 	DataSourceSecrets(ctx context.Context, id uuid.UUID) (map[string]string, error)
 }
 
+// CloudAccountReader is how data sources reach a connected cloud account: a
+// source of a kind that reads one (gcp_monitoring, aws_cloudwatch) stores only
+// the account id, and the kind reads the credential when it calls. A missing
+// account is ErrNotFound.
+type CloudAccountReader interface {
+	GetCloudAccount(ctx context.Context, id uuid.UUID) (domain.CloudAccount, error)
+	CloudCredential(ctx context.Context, id uuid.UUID) (domain.CloudCredential, error)
+}
+
 // ObservabilityRecipeStore holds the recipes a person added beside the
 // embedded catalog.
 type ObservabilityRecipeStore interface {

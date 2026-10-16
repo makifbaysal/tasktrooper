@@ -589,11 +589,51 @@ config `username`), `headers` (one `Name: value` per line, e.g. `X-Scope-OrgID`;
 `X-aws-ec2-metadata-token(-ttl-seconds)`, refused in any case). Verify reads `/api/v1/status/buildinfo`,
 falling back to `/api/v1/query?query=1` on anything but success or 401/403. Query is
 `POST /api/v1/query_range` (form); discover is `/api/v1/label/__name__/values` over the last hour,
-at most 20 000 names.
+at most 20 000 names. Its `prometheus.API` (an `Endpoint`: base URL, headers, masks) is what the
+other Prometheus-family kind shares.
+
+`gcp_monitoring` (`internal/adapter/datasource/gcpmonitoring`) — Google Cloud Monitoring through
+its Prometheus-compatible API, `https://monitoring.googleapis.com/v1/projects/<project>/location/global/prometheus`
+plus the same `/api/v1/...` paths (verify is `/api/v1/query?query=1` alone). Config
+`cloud_account_id` (a connected `gcp` account) and `project_id` (empty → the account's
+`meta.project_id`, then the key file's `project_id`). No secrets of its own: an OAuth2 token
+for scope `monitoring.read` is minted from the account's service account key
+(`gcloud.MintAccessToken`, the key's `token_uri` dialled through the URL policy) and cached per
+key until a minute before it expires. The fixed API address still goes through the URL policy.
+PromQL names: `run.googleapis.com/request_count` → `run_googleapis_com:request_count`; metric
+and resource labels are labels (`service_name`, `location`, `response_code_class`; a metric
+label colliding with a resource label is `metric_<name>`); `monitored_resource` is the resource
+type; a distribution is a histogram (`_bucket`, `_count`, `_sum`).
+
+`aws_cloudwatch` (`internal/adapter/datasource/cloudwatch`) — CloudWatch `GetMetricData`
+(series) and `ListMetrics` (discover, metrics active in the last 3 h, listed as
+`<namespace>/<metric>`, at most 5 000), over the query protocol at
+`https://monitoring.<region>.amazonaws.com`, SigV4-signed with the account's keys
+(`aws.SigningCredentials`, the SDK's v4 signer). Config `cloud_account_id` (a connected `aws`
+account) and `region` (empty → the account's). Verify is one `ListMetrics` page. **Query
+format** — JSON, `domain.CloudWatchQuery`: one metric `{"namespace", "metric", "stat",
+"dimensions"?, "period"?}`, or `{"expression", "metrics"?: {"<id>": <one metric>},
+"period"?}` where the expression is metric math over the ids (`100 * FILL(e, 0) / i`,
+`r / PERIOD(r)`), a `SEARCH(...)` or a Metrics Insights `SELECT` (no metrics needed). `stat` is
+any statistic (`Sum`, `Average`, `Maximum`, `p95`, `tm99`, …); ids start lowercase. `period`
+(1, 5, 10, 30 or a multiple of 60) defaults to the step rounded up to a minute, raised to a
+multiple of 300 s for a range starting over 15 days ago and of 3600 s over 63 days (what
+CloudWatch still keeps). Pages follow `NextToken` (at most 20), a series stops at 11 000 points
+(a warning says so). A query that does not parse is 400 `bad_query`, as are CloudWatch's
+`InvalidParameterValue`/`ValidationError`; a rejected key reads "authentication failed".
+
+**Cloud account fields.** A field of type `cloud_account` (with `provider`) holds a cloud account
+id, never a credential: save checks the account exists (`not_found`) and is that provider's
+(`wrong_provider`); without `datasource.Deps.CloudAccounts` such a field takes no value
+(`not_permitted`). The kind reads the credential through `port.CloudAccountReader` (handed over
+by `CloudAccountsSetter`) on every call, and errors are masked with that credential's values
+too (not the ones the account reports in `meta`, like an AWS region).
 
 - `GET /v1/data-source-kinds` → `{kinds: [{kind, label, description, capabilities, fields}]}`.
-  A field is `{key, label, help, type: text|url|secret|select|headers, required, options,
-  placeholder, show_when, secret}`; `show_when` `{auth: "bearer"}` shows the field only while
+  A field is `{key, label, help, type: text|url|secret|select|headers|cloud_account, required,
+  options, placeholder, show_when, secret, provider?}` (`provider` `gcp|aws` only on a
+  `cloud_account` field: pick from that provider's connected accounts and send the account id);
+  `show_when` `{auth: "bearer"}` shows the field only while
   `auth` is `bearer`, and `required` applies only while it is shown. `secret: true` fields go in
   `secrets`.
 - `GET /v1/data-sources` → `{data_sources: [DataSource]}`; `GET /v1/data-sources/{id}` → one.
@@ -603,9 +643,10 @@ at most 20 000 names.
 - `POST /v1/data-sources {kind, name?, config, secrets}` → 201 `DataSource`. Saved, THEN
   verified: a source that cannot be reached is kept with `status: "error"` and `status_detail`.
   Keys are routed by the schema, so a secret field sent in `config` is still stored encrypted.
-  Empty `name` → the URL's host. 400 `{error, fields: {key: code}}` with code `required`,
-  `invalid`, `not_permitted`, `unknown_field`, `invalid_option`, `too_long` or
-  `secrets_required` (`kind` → `unknown_field` for an unregistered kind).
+  Empty `name` → the URL's host (a cloud kind: `<kind label> · <account label>`). 400 `{error,
+  fields: {key: code}}` with code `required`, `invalid`, `not_permitted`, `unknown_field`,
+  `invalid_option`, `too_long`, `secrets_required`, `not_found` or `wrong_provider` (`kind` →
+  `unknown_field` for an unregistered kind).
 - `PATCH /v1/data-sources/{id} {name?, config?, secrets?}` → `DataSource`. A key given replaces
   its value, `""` removes it, keys left out are kept; a field hidden by its `show_when` loses its
   value (switching `auth` to `none` drops the token). Saved as `unverified`, then verified again.
@@ -630,18 +671,48 @@ at most 20 000 names.
 - `GET /v1/signals` → `{signals: [{id, kind: metric|log|trace|error, unit, roles,
   aggregation: rate|ratio|quantile|gauge}]}`.
 - `GET /v1/recipes` → `{recipes: [{id, source_kind, applies_to: {technology,
-  messaging_system}, detect: {metric}, params, signals: {signal_id: query}, origin:
-  catalog|user}]}`. Rows of `observability_recipes` (no write API yet) join the catalog; one with
+  messaging_system, resource_kind, resource_params}, detect: {metric}, params, signals:
+  {signal_id: query}, origin: catalog|user}]}`. Rows of `observability_recipes` (no write API yet) join the catalog; one with
   a catalog recipe's id replaces it, one that no longer validates is left out.
 
-**Recipe file.** `id` (must equal the file name), `source_kind` (a registered kind),
-`applies_to`, `detect.metric`, `params`, `signals` (every key a catalog signal). A query
-references `$param` for a declared param and the built-ins `$__interval` (the step) and
-`$__rate` (`max(2 × step, 2m)`: two samples at a 60 s scrape). Values are escaped for a
-double-quoted string literal, so a param may sit only inside a double-quoted label value matched
-with `=` or `!=` (not `=~`/`!~`, not bare in `by (...)` or a range), and the built-ins only
-inside `[...]`; a recipe that breaks this does not validate. A test loads and renders every embedded recipe; the server refuses
-to mount the routes if the catalog does not validate.
+**Recipe file.** `id` (must equal the file name), `source_kind` (a registered kind, or one this
+build ships: `domain.BuiltinDataSourceKinds`), `applies_to`, `detect.metric`, `params`, `signals`
+(every key a catalog signal). A query references `$param` for a declared param and the built-ins
+`$__interval` (the step), `$__rate` (`max(2 × step, 2m)`: two samples at a 60 s scrape) and
+`$__quantile` (the quantile a quantile signal is read at, `0 < q < 1`, default 0.95;
+`RenderOptions.Quantile`). Where each may sit is the kind's language's rule
+(`datasource.RenderKindQuery`; `RenderQuery` is the PromQL one):
+
+- **PromQL** (`prometheus`, `gcp_monitoring`): values are escaped for a double-quoted string
+  literal, so a param may sit only inside a double-quoted label value matched with `=` or `!=`
+  (not `=~`/`!~`, not bare in `by (...)` or a range); `$__rate`/`$__interval` only inside
+  `[...]`; `$__quantile` only where a number goes, outside strings, `{...}` and `[...]`
+  (`histogram_quantile($__quantile, …)`), rendered as `0.95`.
+- **CloudWatch JSON** (`aws_cloudwatch`): values are escaped for a JSON string, so a param may
+  sit only inside a dimension value (`"dimensions": {"QueueName": "$queue"}`, also under
+  `metrics.<id>`), never in a key, a namespace, a stat or the expression; `$__quantile` only as
+  a whole `stat` value, rendered as the percentile statistic (`p95`, `p99.9`); `$__rate` and
+  `$__interval` are refused (the period follows the step). The rendered query must parse as a
+  `domain.CloudWatchQuery`.
+
+`applies_to.resource_kind` (a `domain.CloudResourceKind`) says which bound cloud resource the
+recipe fits, and `applies_to.resource_params` which field of that resource's ref fills which
+param (`id`, `name`, `region` or `extra.<key>`; `Recipe.ParamsFromResource(ref)`); a param it
+leaves out is set by hand. A recipe that breaks any of this does not validate. A test loads and
+renders every embedded recipe; the server refuses to mount the routes if the catalog does not
+validate.
+
+| recipe | kind | resource_kind → params from the ref | set by hand |
+|---|---|---|---|
+| `gcp-cloud-run` | gcp_monitoring | `cloud_run_service`: `service` ← name, `location` ← region | — |
+| `gcp-gke-workload` | gcp_monitoring | `gke_workload` (a cluster ref): `cluster` ← name, `location` ← region | `namespace`, `workload` (top-level controller); infra only |
+| `gcp-https-loadbalancer` | gcp_monitoring | — | `backend` (`backend_target_name`) |
+| `gcp-pubsub` | gcp_monitoring | — | `subscription` (id) |
+| `aws-alb` | aws_cloudwatch | — | `load_balancer` (`app/<name>/<id>`) |
+| `aws-ecs` | aws_cloudwatch | `ecs_service`: `cluster` ← extra.cluster_name, `service` ← name | — (needs Container Insights) |
+| `aws-lambda` | aws_cloudwatch | `lambda_function`: `function` ← name | — |
+| `aws-sqs` | aws_cloudwatch | — | `queue` (name) |
+| `aws-msk` | aws_cloudwatch | — | `cluster`, `group`, `topic` |
 
 **Where a source URL may point.** `datasource.Deps.URLPolicy` is required — no default. Local
 mode passes `urlguard.HumanConfigured()` (`platform/runtime/datasources.go`): a person typed the
@@ -660,6 +731,87 @@ every secret (the encoded basic-auth value included).
 fields as one AES-GCM JSON blob, the `cloud_accounts` cipher; NULL when there are none),
 `secrets_set` (their names), `status`, `status_detail`, `info`, `verified_at`.
 `observability_recipes` — `id` and `body` (a `domain.Recipe` as JSON).
+
+## Signal bindings and series (migration 188)
+
+`internal/application/signals`. A **signal binding** says where one signal of one component
+environment is read: a data source plus a recipe and its params, or a raw `query` in the source's
+own language, which wins when both are set. At most one binding per (component, environment,
+signal) is `confirmed`; `suggested` ones may be several; a `dismissed` one is kept so the detector
+never offers it again. `source` ∈ `detected|human|ai`. Deleting the component or the data source
+deletes its bindings. Mounted only when the data source routes are. `env` ∈
+`production|staging|preview|development` (absent → `production`, anything else → 400). Errors are
+the data source routes' shapes: flat `{"error"}`, plus `fields` (400) or `code`; 404 for an unknown
+component or binding id.
+
+- **Binding** = `{id, component_id, environment, signal, data_source_id, data_source_name,
+  data_source_kind, recipe_id, params, query, status, source, rendered_query, needs_params,
+  created_at, updated_at}`. `needs_params` lists the recipe's params without a value (a raw query
+  needs none); `rendered_query` is the query at a 60 s step (`$__quantile` at 0.95), empty while
+  `needs_params` is not.
+- `GET /v1/components/{id}/signals?env=` → `{component_id, role, environment, signals: [{signal,
+  kind, unit, golden, status: bound|suggested|unbound, binding: Binding|null, suggestions:
+  [Binding]}]}`. The signals are the role's (those listing it in `signals.yaml`, plus its golden
+  ones) in catalog order, then any other signal that has a binding or a suggestion.
+- `POST /v1/components/{id}/signals/suggest?env=` runs the detector, then answers as GET does.
+  **(a)** Every source with the `metrics` capability is discovered (cached 5 min per source and
+  `updated_at`); each recipe whose `detect.metric` it holds (and that names no `resource_kind`) is
+  offered for the role's signals it maps. Params come from a label probe, `count by (<labels>)
+  (<detect.metric>)` over the last hour, where the labels are those the recipe matches its params
+  with (`label="$param"`): the label sets whose values best name the component win (its name,
+  directory, package name or cloud resource name — equal, then equal ignoring case and
+  punctuation, then containing a name of at least 3 characters), at most 3. Nothing naming it, or a
+  language without such matchers → one suggestion with empty params and `needs_params` set.
+  **(b)** When the environment is `confirmed` and bound to a cloud resource, every recipe whose
+  `applies_to.resource_kind` is that resource's kind, on every source whose
+  `config.cloud_account_id` is the environment's account, params from
+  `applies_to.resource_params`. A signal with a confirmed binding gets no suggestion, a target
+  dismissed (or offered by a person) for a signal is never offered again, at most 6 per signal, and
+  only the detector's own pending suggestions are replaced.
+- `PUT /v1/components/{id}/signals/{signal}?env= {data_source_id, recipe_id?, params?, query?}` →
+  Binding (`confirmed`, `source: human`), replacing the slot's confirmed binding in place (same
+  `id`) and dropping its pending suggestions. 400 `fields`: `signal: invalid` (not a catalog
+  signal); `data_source_id: required|invalid` (malformed or unknown); `recipe_id: required` (neither
+  recipe nor query), `invalid` (unknown) or `invalid_option` (another kind's, or it does not map the
+  signal); `params.<name>: required|unknown_field|too_long` (while the recipe drives the query);
+  `query: too_long|invalid` (it references a param without a value).
+- `POST /v1/signal-bindings/{bindingId}/confirm` → Binding; the slot's other confirmed binding and
+  its pending suggestions are deleted. 400 `fields: {"params.<name>": "required"}` for a suggestion
+  still missing a param. `POST …/dismiss` → 204; 409 `code: "confirmed"` for the confirmed binding
+  (delete it instead). `DELETE /v1/signal-bindings/{bindingId}` → 204.
+- `POST /v1/components/{id}/signals/preview {signal, data_source_id, recipe_id?, params?, query?,
+  from?, to?, step_seconds?}` → `{rendered_query, series, warnings}`: validated as PUT, read as the
+  series route (`rendered_query` is the p95 one for a per-quantile read); errors as
+  `POST /v1/data-sources/{id}/query` (400 `bad_query`, 422 `unsupported`, 502 `upstream`).
+- `GET /v1/components/{id}/series?env=&signals=a,b&from=&to=&step_seconds=&compare=1` → `{from, to,
+  step_seconds, signals: [{signal, unit, bound, series, previous, error: {code, message}|null}]}`.
+  `to` defaults to now and `from` to an hour before it; `step_seconds` absent or 0 → about 120
+  points, at least 15 s; at most 90 days and 11 000 points (400 `fields`). No `signals` → every
+  signal of the role. A quantile signal whose query takes `$__quantile` answers one series per
+  quantile, named `p50`, `p95`, `p99` (label `quantile`). `compare=1` (or `true`) fills `previous`:
+  the window before, shifted onto this one's timestamps (else `[]`). Each signal stands alone:
+  `error.code` ∈ `unknown_signal`, `needs_params`, `unsupported` (not a metric, or a kind without
+  metrics), `bad_query`, `upstream`, `timeout`, `not_found`, `error`; an unbound one is `bound:
+  false` with no error. At most 4 queries at once, each cut off after 20 s.
+- `GET /v1/operations/golden?env=&from=&to=&component_id=…` → `{generated_at, components:
+  [{component_id, signals: [{signal, unit, value, previous, spark: [[unix_ms, value|null]]}]}]}`.
+  Every active component with a confirmed binding in `env` (at most 200, by name; `component_id`
+  as for the errors inbox), with its role's golden signals from
+  `catalog/observability/golden.yaml` (backend http.requests, http.error_ratio, http.latency;
+  worker queue.backlog, queue.consume_rate, process.errors; frontend web.page_views, web.lcp,
+  web.inp; mobile mobile.crash_free_users, mobile.cold_start, mobile.anr_rate; desktop
+  mobile.crash_free_users, mobile.crash_rate, mobile.cold_start). `from`/`to` default to the last
+  hour and are rounded down to the minute; at most 30 days. One query per bound signal covers [from
+  − span, to] at span/30: `spark` is the window's ~30 points, `value` its last non-null one (the p95
+  for a quantile signal), `previous` the last non-null one at or before that instant minus the
+  span. An unbound or failing signal answers `null`s and an empty spark. At most 8 queries at
+  once, each cut off after 20 s. Answers are kept 60 s per (env, window, component set) and
+  dropped whenever a binding changes.
+
+**Table.** `signal_bindings` — `component_id` (→ `project_components`, cascade), `environment`,
+`signal`, `data_source_id` (→ `data_sources`, cascade), `recipe_id` (`''` for a raw query),
+`params` JSONB, `query` (`''` for a recipe), `status`, `source`; a partial unique index keeps one
+`confirmed` row per (component, environment, signal).
 
 ## Task documents and analysis review (migration 164)
 

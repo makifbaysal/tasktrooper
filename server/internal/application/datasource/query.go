@@ -49,7 +49,7 @@ func (s *Service) Discover(ctx context.Context, id uuid.UUID, match string, limi
 	defer cancel()
 	inv, err := discoverer.Discover(uctx, ds, secrets)
 	if err != nil {
-		return domain.DataSourceDiscovery{}, upstream(err, secrets)
+		return domain.DataSourceDiscovery{}, upstream(err, s.masks(ctx, adapter.Schema(), ds.Config, secrets))
 	}
 	recipes, err := s.Recipes(ctx)
 	if err != nil {
@@ -101,7 +101,7 @@ func (s *Service) Query(ctx context.Context, id uuid.UUID, q domain.SeriesQuery)
 	defer cancel()
 	res, err := querier.Series(uctx, ds, secrets, q)
 	if err != nil {
-		return domain.SeriesResult{}, upstream(err, secrets)
+		return domain.SeriesResult{}, upstream(err, s.masks(ctx, adapter.Schema(), ds.Config, secrets))
 	}
 	res.Warnings = nonNilSlice(res.Warnings)
 	if len(res.Series) > maxSeries {
@@ -115,8 +115,11 @@ func (s *Service) Query(ctx context.Context, id uuid.UUID, q domain.SeriesQuery)
 		}
 		res.Series[i].Points = nonNilSlice(res.Series[i].Points)
 	}
-	for i, w := range res.Warnings {
-		res.Warnings[i] = redact(w, secrets)
+	if len(res.Warnings) > 0 {
+		masks := s.masks(ctx, adapter.Schema(), ds.Config, secrets)
+		for i, w := range res.Warnings {
+			res.Warnings[i] = redact(w, masks)
+		}
 	}
 	return res, nil
 }

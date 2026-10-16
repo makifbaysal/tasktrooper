@@ -3031,6 +3031,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	if e.pgDB != nil {
 		dataSourceSvc = newDataSourceService(e.pgDB, e.secretsCipher, e.secretsCipherErr)
 	}
+	signalsSvc := newSignalsService(e.pgDB, dataSourceSvc)
 
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
@@ -3073,6 +3074,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		CloudSvc:          e.cloudSvc,
 		OpsQuerySvc:       e.opsQuerySvc,
 		DataSourceSvc:     dataSourceSvc,
+		SignalsSvc:        signalsSvc,
 		EnvRequirements:   envRequirementsOrNil(e.envReqSvc),
 		ReleaseSvc:        releaseHTTP,
 		SmokeGenSvc:       smokeGenHTTP,

@@ -1,0 +1,33 @@
+# Cloud Run services, from Google Cloud Monitoring's built-in metrics (the
+# cloud_run_revision resource). A bound Cloud Run service fills both params:
+# service is its ref's name, location its ref's region.
+# infra.cpu is allocated cores times the mean utilization, and infra.memory
+# allocated GiB times the mean utilization, in bytes: Cloud Run reports usage
+# only as a fraction of what an instance was given.
+id: gcp-cloud-run
+source_kind: gcp_monitoring
+applies_to:
+  technology: cloud_run
+  resource_kind: cloud_run_service
+  resource_params: {service: name, location: region}
+detect:
+  metric: run_googleapis_com:request_count
+params: [service, location]
+signals:
+  http.requests: >-
+    sum(rate(run_googleapis_com:request_count{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))
+  http.error_ratio: >-
+    100 * (sum(rate(run_googleapis_com:request_count{monitored_resource="cloud_run_revision", service_name="$service", location="$location", response_code_class="5xx"}[$__rate])) or vector(0))
+    / sum(rate(run_googleapis_com:request_count{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))
+  http.latency: >-
+    histogram_quantile($__quantile, sum by (le) (rate(run_googleapis_com:request_latencies_bucket{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate])))
+  infra.instances: >-
+    sum(run_googleapis_com:container_instance_count{monitored_resource="cloud_run_revision", service_name="$service", location="$location"})
+  infra.cpu: >-
+    sum(rate(run_googleapis_com:container_cpu_allocation_time{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))
+    * sum(rate(run_googleapis_com:container_cpu_utilizations_sum{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))
+    / sum(rate(run_googleapis_com:container_cpu_utilizations_count{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))
+  infra.memory: >-
+    1073741824 * sum(rate(run_googleapis_com:container_memory_allocation_time{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))
+    * sum(rate(run_googleapis_com:container_memory_utilizations_sum{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))
+    / sum(rate(run_googleapis_com:container_memory_utilizations_count{monitored_resource="cloud_run_revision", service_name="$service", location="$location"}[$__rate]))

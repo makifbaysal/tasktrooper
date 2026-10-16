@@ -17,7 +17,7 @@ import (
 var prometheusOnly = []domain.DataSourceKind{domain.DataSourceKindPrometheus}
 
 func TestEveryEmbeddedRecipeValidatesAndRenders(t *testing.T) {
-	c, err := datasource.LoadCatalog(catalog.ObservabilityFS(), prometheusOnly)
+	c, err := datasource.LoadCatalog(catalog.ObservabilityFS(), domain.BuiltinDataSourceKinds())
 	require.NoError(t, err)
 
 	recipes := c.Recipes()
@@ -28,15 +28,60 @@ func TestEveryEmbeddedRecipeValidatesAndRenders(t *testing.T) {
 		assert.NotEmpty(t, r.Detect.Metric, r.ID)
 		params := map[string]string{}
 		for _, p := range r.Params {
-			params[p] = "sample"
+			params[p] = `sam"ple`
 		}
 		for signal, query := range r.Signals {
-			rendered, err := datasource.RenderQuery(query, params, time.Minute)
+			rendered, err := datasource.RenderKindQuery(r.SourceKind, query, params, datasource.RenderOptions{Step: time.Minute, Quantile: 0.99})
 			require.NoError(t, err, "%s/%s", r.ID, signal)
 			assert.NotContains(t, rendered, "$", "%s/%s", r.ID, signal)
+			if r.SourceKind == domain.DataSourceKindCloudWatch {
+				_, err := domain.ParseCloudWatchQuery(rendered)
+				assert.NoError(t, err, "%s/%s", r.ID, signal)
+			}
 		}
 	}
-	assert.Subset(t, ids, []string{"otel-http", "rabbitmq-prometheus", "kafka-exporter", "kminion", "cadvisor"})
+	assert.Subset(t, ids, []string{
+		"otel-http", "rabbitmq-prometheus", "kafka-exporter", "kminion", "cadvisor",
+		"gcp-cloud-run", "gcp-gke-workload", "gcp-https-loadbalancer", "gcp-pubsub",
+		"aws-alb", "aws-ecs", "aws-lambda", "aws-sqs", "aws-msk",
+	})
+}
+
+func TestCloudResourceRecipesFillEveryParamTheirRefCarries(t *testing.T) {
+	c, err := datasource.LoadCatalog(catalog.ObservabilityFS(), domain.BuiltinDataSourceKinds())
+	require.NoError(t, err)
+	byID := map[string]domain.Recipe{}
+	for _, r := range c.Recipes() {
+		byID[r.ID] = r
+	}
+
+	cases := []struct {
+		recipe string
+		ref    domain.CloudResourceRef
+		want   map[string]string
+	}{
+		{"gcp-cloud-run", domain.CloudResourceRef{
+			Kind: domain.CloudResourceCloudRunService, ID: "projects/p/locations/europe-west3/services/api", Name: "api", Region: "europe-west3",
+		}, map[string]string{"service": "api", "location": "europe-west3"}},
+		{"gcp-gke-workload", domain.CloudResourceRef{
+			Kind: domain.CloudResourceGKEWorkload, ID: "projects/p/locations/europe-west3/clusters/prod", Name: "prod", Region: "europe-west3",
+		}, map[string]string{"cluster": "prod", "location": "europe-west3"}},
+		{"aws-ecs", domain.CloudResourceRef{
+			Kind: domain.CloudResourceECSService, ID: "arn:aws:ecs:eu-central-1:1:service/prod/api", Name: "api", Region: "eu-central-1",
+			Extra: map[string]string{"cluster_name": "prod", "cluster_arn": "arn:aws:ecs:eu-central-1:1:cluster/prod"},
+		}, map[string]string{"cluster": "prod", "service": "api"}},
+		{"aws-lambda", domain.CloudResourceRef{
+			Kind: domain.CloudResourceLambdaFunction, ID: "arn:aws:lambda:eu-central-1:1:function:resize", Name: "resize", Region: "eu-central-1",
+		}, map[string]string{"function": "resize"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.recipe, func(t *testing.T) {
+			r, ok := byID[tc.recipe]
+			require.True(t, ok)
+			assert.Equal(t, tc.ref.Kind, r.AppliesTo.ResourceKind)
+			assert.Equal(t, tc.want, r.ParamsFromResource(tc.ref))
+		})
+	}
 }
 
 func TestTheSignalCatalogCoversEveryRole(t *testing.T) {
@@ -183,4 +228,111 @@ func TestValidateRecipeAdmitsPlaceholdersOnlyWhereTheyAreEscapedCorrectly(t *tes
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+func TestValidateRecipeAdmitsTheQuantileOnlyWhereANumberGoes(t *testing.T) {
+	c, err := datasource.LoadCatalog(fstest.MapFS{"signals.yaml": {Data: []byte(testSignals)}}, domain.BuiltinDataSourceKinds())
+	require.NoError(t, err)
+	for _, kind := range []domain.DataSourceKind{domain.DataSourceKindPrometheus, domain.DataSourceKindGCPMonitoring} {
+		recipe := func(query string) domain.Recipe {
+			return domain.Recipe{ID: "r", SourceKind: kind, Signals: map[string]string{"queue.backlog": query}}
+		}
+		assert.NoError(t, c.ValidateRecipe(recipe(`histogram_quantile($__quantile, sum by (le) (rate(x_bucket[$__rate])))`)), kind)
+		for _, bad := range []string{
+			`x{q="$__quantile"}`,
+			`rate(x[$__quantile])`,
+			`label_replace(x, "q", "$__quantile", "a", "b")`,
+		} {
+			err := c.ValidateRecipe(recipe(bad))
+			require.Error(t, err, "%s: %s", kind, bad)
+			assert.Contains(t, err.Error(), "$__quantile may appear only where a number goes", bad)
+		}
+	}
+}
+
+func TestValidateRecipeAdmitsCloudWatchPlaceholdersOnlyInDimensionValues(t *testing.T) {
+	c, err := datasource.LoadCatalog(fstest.MapFS{"signals.yaml": {Data: []byte(testSignals)}}, domain.BuiltinDataSourceKinds())
+	require.NoError(t, err)
+	recipe := func(query string) domain.Recipe {
+		return domain.Recipe{ID: "r", SourceKind: domain.DataSourceKindCloudWatch, Params: []string{"queue"},
+			Signals: map[string]string{"queue.backlog": query}}
+	}
+
+	for _, ok := range []string{
+		`{"namespace": "AWS/SQS", "metric": "ApproximateNumberOfMessagesVisible", "stat": "Maximum", "dimensions": {"QueueName": "$queue"}}`,
+		`{"namespace": "AWS/SQS", "metric": "M", "stat": "$__quantile", "dimensions": {"QueueName": "prod-$queue"}, "period": 300}`,
+		`{"expression": "100 * a / b", "metrics": {
+			"a": {"namespace": "N", "metric": "A", "stat": "Sum", "dimensions": {"QueueName": "$queue"}},
+			"b": {"namespace": "N", "metric": "B", "stat": "$__quantile", "dimensions": {"QueueName": "$queue"}}}}`,
+		`{"expression": "SELECT AVG(CPUUtilization) FROM SCHEMA(\"AWS/EC2\", InstanceId)", "period": 300}`,
+	} {
+		assert.NoError(t, c.ValidateRecipe(recipe(ok)), ok)
+	}
+
+	cases := []struct {
+		name, query, want string
+	}{
+		{"bare", `{"namespace": "N", "metric": "M", "stat": "Sum", "period": $queue}`, "$queue must sit inside a JSON string"},
+		{"in the namespace", `{"namespace": "$queue", "metric": "M", "stat": "Sum"}`, "$queue may appear only in a dimension value"},
+		{"in the expression", `{"expression": "a * $queue", "metrics": {"a": {"namespace": "N", "metric": "M", "stat": "Sum"}}}`, "$queue may appear only in a dimension value"},
+		{"as a dimension name", `{"namespace": "N", "metric": "M", "stat": "Sum", "dimensions": {"$queue": "x"}}`, "may not sit in a JSON key"},
+		{"quantile inside a stat", `{"namespace": "N", "metric": "M", "stat": "t$__quantile"}`, "$__quantile may appear only as a whole stat value"},
+		{"quantile in a dimension", `{"namespace": "N", "metric": "M", "stat": "Sum", "dimensions": {"Q": "$__quantile"}}`, "$__quantile may appear only as a whole stat value"},
+		{"rate window", `{"namespace": "N", "metric": "M", "stat": "Sum", "dimensions": {"Q": "$__rate"}}`, "the period follows the step"},
+		{"undeclared", `{"namespace": "N", "metric": "M", "stat": "Sum", "dimensions": {"Q": "$vhost"}}`, "uses $vhost"},
+		{"not JSON", `SELECT 1`, "is not JSON"},
+		{"unknown key", `{"namespace": "N", "metric": "M", "stat": "Sum", "unit": "Count"}`, "unknown field"},
+		{"no stat", `{"namespace": "N", "metric": "M"}`, "not a CloudWatch statistic"},
+		{"bad period", `{"namespace": "N", "metric": "M", "stat": "Sum", "period": 90}`, "multiple of 60"},
+		{"metrics without an expression", `{"namespace": "N", "metric": "M", "stat": "Sum", "metrics": {"a": {"namespace": "N", "metric": "M", "stat": "Sum"}}}`, "has none"},
+		{"bad metric id", `{"expression": "A", "metrics": {"A": {"namespace": "N", "metric": "M", "stat": "Sum"}}}`, "must start with a lowercase letter"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := c.ValidateRecipe(recipe(tc.query))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestValidateRecipeChecksTheCloudResourceItAppliesTo(t *testing.T) {
+	c, err := datasource.LoadCatalog(fstest.MapFS{"signals.yaml": {Data: []byte(testSignals)}}, domain.BuiltinDataSourceKinds())
+	require.NoError(t, err)
+	recipe := func(a domain.RecipeAppliesTo) domain.Recipe {
+		return domain.Recipe{ID: "r", SourceKind: domain.DataSourceKindPrometheus, Params: []string{"queue"}, AppliesTo: a,
+			Signals: map[string]string{"queue.backlog": `x{q="$queue"}`}}
+	}
+
+	assert.NoError(t, c.ValidateRecipe(recipe(domain.RecipeAppliesTo{
+		ResourceKind: domain.CloudResourceECSService, ResourceParams: map[string]string{"queue": "extra.cluster_name"},
+	})))
+	cases := []struct {
+		name string
+		a    domain.RecipeAppliesTo
+		want string
+	}{
+		{"unknown kind", domain.RecipeAppliesTo{ResourceKind: "ec2_instance"}, `resource_kind "ec2_instance"`},
+		{"params without a kind", domain.RecipeAppliesTo{ResourceParams: map[string]string{"queue": "name"}}, "needs a resource_kind"},
+		{"undeclared param", domain.RecipeAppliesTo{ResourceKind: domain.CloudResourceLambdaFunction, ResourceParams: map[string]string{"fn": "name"}}, `names "fn"`},
+		{"bad ref path", domain.RecipeAppliesTo{ResourceKind: domain.CloudResourceLambdaFunction, ResourceParams: map[string]string{"queue": "arn"}}, "is not id, name, region or extra.<key>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := c.ValidateRecipe(recipe(tc.a))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestACloudWatchDetectMetricIsNamespaceSlashName(t *testing.T) {
+	c, err := datasource.LoadCatalog(fstest.MapFS{"signals.yaml": {Data: []byte(testSignals)}}, domain.BuiltinDataSourceKinds())
+	require.NoError(t, err)
+	recipe := func(kind domain.DataSourceKind, metric string) domain.Recipe {
+		return domain.Recipe{ID: "r", SourceKind: kind, Detect: domain.RecipeDetect{Metric: metric},
+			Signals: map[string]string{"queue.backlog": `{"namespace": "AWS/SQS", "metric": "M", "stat": "Sum"}`}}
+	}
+	assert.NoError(t, c.ValidateRecipe(recipe(domain.DataSourceKindCloudWatch, "AWS/SQS/ApproximateNumberOfMessagesVisible")))
+	assert.ErrorContains(t, c.ValidateRecipe(recipe(domain.DataSourceKindCloudWatch, "ApproximateNumberOfMessagesVisible")), "detect.metric")
 }

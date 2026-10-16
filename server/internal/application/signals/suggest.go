@@ -1,0 +1,400 @@
+package signals
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"path"
+	"regexp"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
+
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+)
+
+const (
+	// cloudAccountKey is the config field linking a cloud monitoring source
+	// to the connected account whose environments it watches.
+	cloudAccountKey = "cloud_account_id"
+
+	discoveryTTL = 5 * time.Minute
+	// The label probe looks at the last hour only: what is scraped now, and
+	// cheap on Mimir and Thanos.
+	probeWindow = time.Hour
+	probeStep   = 30 * time.Minute
+
+	maxParamSetsPerRecipe   = 3
+	maxSuggestionsPerSignal = 6
+	minContainedNameLen     = 3
+)
+
+// equalityMatcher finds label="$param" in a recipe query: the label a param
+// selects on, which is what the probe groups by to list candidate values.
+var equalityMatcher = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"\$([A-Za-z_][A-Za-z0-9_]*)"`)
+
+// Suggest runs the detector for one component environment and answers what
+// List would afterwards. It offers (a) every recipe a metrics source holds
+// the detect metric of, with params taken from the label values that name
+// the component, and (b) when the environment is bound to a cloud resource,
+// every recipe for that resource kind on a source linked to the same cloud
+// account, with params from the resource. A signal with a confirmed binding
+// gets no suggestion, a dismissed one is never offered again, and only the
+// detector's own pending suggestions are replaced.
+func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment) (domain.ComponentSignals, error) {
+	if !env.Valid() {
+		return domain.ComponentSignals{}, fmt.Errorf("unknown environment %q: %w", env, ErrInvalidInput)
+	}
+	comp, err := s.components.GetComponent(ctx, componentID)
+	if err != nil {
+		return domain.ComponentSignals{}, err
+	}
+	existing, err := s.bindings.ListSignalBindings(ctx, componentID, env)
+	if err != nil {
+		return domain.ComponentSignals{}, err
+	}
+	l, err := s.lookup(ctx)
+	if err != nil {
+		return domain.ComponentSignals{}, err
+	}
+	envs, err := s.environments.ListEnvironments(ctx, comp.RepositoryID)
+	if err != nil {
+		return domain.ComponentSignals{}, err
+	}
+	var mine []domain.ComponentEnvironment
+	var bound *domain.ComponentEnvironment
+	for _, e := range envs {
+		if e.ComponentID != comp.ID {
+			continue
+		}
+		mine = append(mine, e)
+		if e.Environment == env && e.Status == domain.LinkConfirmed && e.Bound() {
+			bound = &e
+		}
+	}
+	relevant := s.relevant(comp.Role.Get())
+	names := componentNames(comp, mine)
+
+	var found []domain.SignalBinding
+	for _, ds := range l.order {
+		found = append(found, s.detectFromInventory(ctx, l, ds, relevant, names)...)
+	}
+	if bound != nil {
+		for _, ds := range l.order {
+			if ds.Config[cloudAccountKey] == bound.AccountID.String() {
+				found = append(found, detectFromResource(l, ds, relevant, *bound.Resource)...)
+			}
+		}
+	}
+	if _, err := s.bindings.ReplaceDetectedSuggestions(ctx, comp.ID, env, newSuggestions(found, existing)); err != nil {
+		return domain.ComponentSignals{}, err
+	}
+	after, err := s.bindings.ListSignalBindings(ctx, comp.ID, env)
+	if err != nil {
+		return domain.ComponentSignals{}, err
+	}
+	return s.assemble(ctx, l, comp, env, after), nil
+}
+
+// newSuggestions drops what must not be offered: a signal already bound, a
+// target dismissed (or offered by a person) for that signal, a repeat.
+func newSuggestions(found, existing []domain.SignalBinding) []domain.SignalBinding {
+	bound := map[string]bool{}
+	var kept []domain.SignalBinding
+	for _, b := range existing {
+		switch {
+		case b.Status == domain.SignalBindingConfirmed:
+			bound[b.Signal] = true
+		case b.Status == domain.SignalBindingDismissed, b.Source != domain.SignalBindingDetected:
+			kept = append(kept, b)
+		}
+	}
+	perSignal := map[string]int{}
+	out := []domain.SignalBinding{}
+	for _, b := range found {
+		if bound[b.Signal] || perSignal[b.Signal] >= maxSuggestionsPerSignal {
+			continue
+		}
+		if slices.ContainsFunc(kept, func(o domain.SignalBinding) bool { return o.Signal == b.Signal && o.SameTarget(b) }) ||
+			slices.ContainsFunc(out, func(o domain.SignalBinding) bool { return o.Signal == b.Signal && o.SameTarget(b) }) {
+			continue
+		}
+		perSignal[b.Signal]++
+		out = append(out, b)
+	}
+	return out
+}
+
+func (s *Service) detectFromInventory(ctx context.Context, l lookup, ds domain.DataSource, relevant map[string]bool, names []string) []domain.SignalBinding {
+	if !slices.Contains(ds.Capabilities, domain.CapabilityMetrics) {
+		return nil
+	}
+	matches, ok := s.discover(ctx, ds)
+	if !ok {
+		return nil
+	}
+	ids := make([]string, 0, len(matches))
+	for _, m := range matches {
+		ids = append(ids, m.RecipeID)
+	}
+	sort.Strings(ids)
+	var out []domain.SignalBinding
+	for _, id := range slices.Compact(ids) {
+		r, ok := l.recipes[id]
+		// A recipe for a cloud resource kind is offered from the environment's
+		// binding, with params from the resource, never from the inventory.
+		if !ok || r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind != "" {
+			continue
+		}
+		sigs := recipeSignals(r, relevant)
+		if len(sigs) == 0 {
+			continue
+		}
+		for _, params := range s.paramSets(ctx, ds, r, names) {
+			for _, sig := range sigs {
+				out = append(out, suggestion(sig, ds.ID, r.ID, params))
+			}
+		}
+	}
+	return out
+}
+
+func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool, ref domain.CloudResourceRef) []domain.SignalBinding {
+	ids := slices.Sorted(maps.Keys(l.recipes))
+	var out []domain.SignalBinding
+	for _, id := range ids {
+		r := l.recipes[id]
+		if r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind == "" || r.AppliesTo.ResourceKind != ref.Kind {
+			continue
+		}
+		params := r.ParamsFromResource(ref)
+		for _, sig := range recipeSignals(r, relevant) {
+			out = append(out, suggestion(sig, ds.ID, r.ID, params))
+		}
+	}
+	return out
+}
+
+func suggestion(signal string, dataSourceID uuid.UUID, recipeID string, params map[string]string) domain.SignalBinding {
+	return domain.SignalBinding{
+		Signal: signal, DataSourceID: dataSourceID, RecipeID: recipeID, Params: maps.Clone(params),
+		Status: domain.SignalBindingSuggested, Source: domain.SignalBindingDetected,
+	}
+}
+
+func recipeSignals(r domain.Recipe, relevant map[string]bool) []string {
+	var out []string
+	for _, id := range slices.Sorted(maps.Keys(r.Signals)) {
+		if relevant[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func (s *Service) discover(ctx context.Context, ds domain.DataSource) ([]domain.RecipeMatch, bool) {
+	if matches, ok := s.discovery.get(ds.ID, ds.UpdatedAt, s.now()); ok {
+		return matches, true
+	}
+	d, err := s.sources.Discover(ctx, ds.ID, "", 1)
+	if err != nil {
+		log.Debug().Err(err).Str("data_source", ds.ID.String()).Msg("signals: discovery failed; skipping the source")
+		return nil, false
+	}
+	s.discovery.put(ds.ID, ds.UpdatedAt, s.now(), d.Recipes)
+	return d.Recipes, true
+}
+
+// paramSets proposes values for a recipe's params: it groups the detect
+// metric by the labels the params select on and keeps the label sets that
+// best name the component. With nothing to go on it answers one empty set,
+// a suggestion that still needs its params.
+func (s *Service) paramSets(ctx context.Context, ds domain.DataSource, r domain.Recipe, names []string) []map[string]string {
+	none := []map[string]string{{}}
+	labels := paramLabels(r)
+	if len(labels) == 0 || r.Detect.Metric == "" || len(names) == 0 {
+		return none
+	}
+	labelNames := slices.Sorted(maps.Values(labels))
+	labelNames = slices.Compact(labelNames)
+	now := s.now()
+	res, err := s.sources.Query(ctx, ds.ID, domain.SeriesQuery{
+		Query: fmt.Sprintf("count by (%s) (%s)", strings.Join(labelNames, ", "), r.Detect.Metric),
+		From:  now.Add(-probeWindow),
+		To:    now,
+		Step:  probeStep,
+	})
+	if err != nil {
+		log.Debug().Err(err).Str("recipe", r.ID).Msg("signals: label probe failed; the suggestion needs its params")
+		return none
+	}
+	type candidate struct {
+		params map[string]string
+		key    string
+		score  int
+	}
+	var cands []candidate
+	seen := map[string]bool{}
+	for _, series := range res.Series {
+		set := map[string]string{}
+		score := 0
+		for param, label := range labels {
+			if v := series.Labels[label]; v != "" {
+				set[param] = v
+				score = max(score, matchScore(v, names))
+			}
+		}
+		key := canonicalParams(set)
+		if score == 0 || seen[key] {
+			continue
+		}
+		seen[key] = true
+		cands = append(cands, candidate{params: set, key: key, score: score})
+	}
+	if len(cands) == 0 {
+		return none
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].score != cands[j].score {
+			return cands[i].score > cands[j].score
+		}
+		return cands[i].key < cands[j].key
+	})
+	var out []map[string]string
+	for _, c := range cands {
+		if c.score < cands[0].score || len(out) == maxParamSetsPerRecipe {
+			break
+		}
+		out = append(out, c.params)
+	}
+	return out
+}
+
+// paramLabels maps each declared param to the label it is matched against
+// with = in the recipe's queries, the first one found in signal order.
+func paramLabels(r domain.Recipe) map[string]string {
+	out := map[string]string{}
+	for _, id := range slices.Sorted(maps.Keys(r.Signals)) {
+		for _, m := range equalityMatcher.FindAllStringSubmatch(r.Signals[id], -1) {
+			label, param := m[1], m[2]
+			if _, done := out[param]; !done && slices.Contains(r.Params, param) {
+				out[param] = label
+			}
+		}
+	}
+	return out
+}
+
+func canonicalParams(p map[string]string) string {
+	var b strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(p)) {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(p[k])
+		b.WriteByte(0)
+	}
+	return b.String()
+}
+
+// componentNames are what a label value naming the component would say: its
+// name, its directory, its package name, the cloud resources it runs as.
+func componentNames(c domain.Component, envs []domain.ComponentEnvironment) []string {
+	var out []string
+	add := func(n string) {
+		n = strings.ToLower(strings.TrimSpace(n))
+		if n != "" && !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	add(c.Name.Get())
+	if c.Path != "" && c.Path != "." {
+		add(path.Base(c.Path))
+	}
+	pkg := c.Stack.Get().PackageName
+	add(pkg)
+	if i := strings.LastIndex(pkg, "/"); i >= 0 {
+		add(pkg[i+1:])
+	}
+	for _, e := range envs {
+		if e.Resource != nil {
+			add(e.Resource.Name)
+		}
+	}
+	return out
+}
+
+// matchScore: 3 the value is a name (or ends in one after a "/" or ":"), 2
+// the same ignoring case and punctuation, 1 it contains a name of at least
+// three characters, 0 no relation.
+func matchScore(value string, names []string) int {
+	v := strings.ToLower(strings.TrimSpace(value))
+	if v == "" {
+		return 0
+	}
+	last := v
+	if i := strings.LastIndexAny(v, "/:"); i >= 0 {
+		last = v[i+1:]
+	}
+	nv, nl := squash(v), squash(last)
+	best := 0
+	for _, n := range names {
+		nn := squash(n)
+		switch {
+		case v == n || last == n:
+			return 3
+		case nn != "" && (nv == nn || nl == nn):
+			best = max(best, 2)
+		case len(nn) >= minContainedNameLen && strings.Contains(nv, nn):
+			best = max(best, 1)
+		}
+	}
+	return best
+}
+
+func squash(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// discoveryCache keeps each source's recipe matches for discoveryTTL, keyed
+// by its updated_at so an edited source is discovered again.
+type discoveryCache struct {
+	mu      sync.Mutex
+	entries map[uuid.UUID]discoveryEntry
+}
+
+type discoveryEntry struct {
+	version time.Time
+	at      time.Time
+	matches []domain.RecipeMatch
+}
+
+func newDiscoveryCache() *discoveryCache {
+	return &discoveryCache{entries: map[uuid.UUID]discoveryEntry{}}
+}
+
+func (c *discoveryCache) get(id uuid.UUID, version, now time.Time) ([]domain.RecipeMatch, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[id]
+	if !ok || !e.version.Equal(version) || now.Sub(e.at) > discoveryTTL {
+		return nil, false
+	}
+	return e.matches, true
+}
+
+func (c *discoveryCache) put(id uuid.UUID, version, now time.Time, matches []domain.RecipeMatch) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[id] = discoveryEntry{version: version, at: now, matches: slices.Clone(matches)}
+}

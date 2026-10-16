@@ -30,11 +30,21 @@ type URLPolicySetter interface {
 	SetURLPolicy(urlguard.Policy)
 }
 
+// CloudAccountsSetter must be implemented by every kind whose schema has a
+// cloud_account field: the service hands it the same reader it checks those
+// fields against.
+type CloudAccountsSetter interface {
+	SetCloudAccounts(port.CloudAccountReader)
+}
+
 type Deps struct {
 	Store port.DataSourceStore
 	// Recipes is optional; without it only the embedded catalog is listed.
 	Recipes port.ObservabilityRecipeStore
-	Kinds   []port.DataSourceKindAdapter
+	// CloudAccounts is optional; without it a cloud_account field accepts no
+	// value (not_permitted).
+	CloudAccounts port.CloudAccountReader
+	Kinds         []port.DataSourceKindAdapter
 	// URLPolicy is required: where a source URL may point is a deployment
 	// decision (urlguard.HumanConfigured on a person's own computer, a
 	// public-only policy on a shared host), never a default.
@@ -46,6 +56,7 @@ type Deps struct {
 type Service struct {
 	store       port.DataSourceStore
 	recipeStore port.ObservabilityRecipeStore
+	clouds      port.CloudAccountReader
 	kinds       map[domain.DataSourceKind]port.DataSourceKindAdapter
 	order       []domain.DataSourceKind
 	catalog     *Catalog
@@ -62,6 +73,7 @@ func NewService(d Deps) (*Service, error) {
 	s := &Service{
 		store:       d.Store,
 		recipeStore: d.Recipes,
+		clouds:      d.CloudAccounts,
 		kinds:       map[domain.DataSourceKind]port.DataSourceKindAdapter{},
 		now:         func() time.Time { return time.Now().UTC() },
 	}
@@ -71,6 +83,9 @@ func NewService(d Deps) (*Service, error) {
 		}
 		s.kinds[k.Kind()] = k
 		s.order = append(s.order, k.Kind())
+		if setter, ok := k.(CloudAccountsSetter); ok && d.CloudAccounts != nil {
+			setter.SetCloudAccounts(d.CloudAccounts)
+		}
 	}
 	fsys := d.Catalog
 	if fsys == nil {
@@ -158,6 +173,9 @@ func (s *Service) Recipes(ctx context.Context) ([]domain.Recipe, error) {
 	for _, id := range ids {
 		r := byID[id]
 		r.Params = nonNilSlice(r.Params)
+		if r.AppliesTo.ResourceParams == nil {
+			r.AppliesTo.ResourceParams = map[string]string{}
+		}
 		out = append(out, r)
 	}
 	return out, nil
