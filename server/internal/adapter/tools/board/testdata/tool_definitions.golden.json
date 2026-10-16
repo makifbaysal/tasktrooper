@@ -544,6 +544,23 @@
   {
     "type": "function",
     "function": {
+      "name": "get_deploy_impact",
+      "description": "Read what the release covering this task did to its component in production: for each golden signal with a confirmed binding (request rate, error rate, p95 latency for a backend; backlog, consume rate, errors for a worker; page views, LCP, INP for a frontend; crash-free users, cold start, ANR for mobile), its mean over the hour before the deploy (`before`), the hour after it (`after`) and that same hour a day earlier (`baseline`), with `delta`, `delta_pct`, `higher_is_better` and a per-signal `verdict` (`improved`, `neutral`, `worse`, `unknown`); the overall `verdict` is the worst of them. A move the baseline also shows is read as the time of day, not the deploy, and stays `neutral`. `pending: true` means the hour after the deploy is not over yet and `after` covers only what has passed. `verdict: \"unknown\"` with no signals means nothing is bound (or the release never deployed) — not that production is fine. The result also carries the release's own `auto_rollback`: with it on, `rollback_release` executes; with it off, `rollback_release` only writes a proposal and a human is asked to approve it. It changes nothing and never parks the run. Read it whenever an incident lands in a release's window, and before a verdict, beside the logs and errors — never as the only evidence.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "description": "Board task UUID or its board key (e.g. \"T-1\" for a task, \"B-1\" for a bug, \"A-1\" for an analysis). Optional in a chat that is already about one task — omit it there and the task in context is used.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "get_deploy_logs",
       "description": "Read the log behind a deploy. Two sources: `actions_job` (default) fetches the failing GitHub Actions deploy job's log — pass the `job_id` get_release reported under `release.deploy.failed_job`, or omit it and the failing job of this task's release is used (falling back to the legacy per-task deploy watch when the task has no release); `logs_url` fetches the environment's own log endpoint, if one is recorded on the deploy target. The result is a SUMMARY, not a dump: the error-looking lines are lifted out first and the tail follows them, so paste the relevant part into your comment rather than the whole thing. Use it on a failed deploy before rolling back, and on a successful one whose environment then went unhealthy.",
       "parameters": {

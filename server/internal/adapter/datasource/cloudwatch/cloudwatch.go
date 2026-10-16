@@ -82,6 +82,7 @@ var (
 	_ port.DataSourceKindAdapter = (*Adapter)(nil)
 	_ port.MetricsQuerier        = (*Adapter)(nil)
 	_ port.Discoverer            = (*Adapter)(nil)
+	_ port.MetricDiscoverer      = (*Adapter)(nil)
 )
 
 // New answers an adapter that refuses every destination until SetURLPolicy
@@ -262,7 +263,10 @@ func (a *Adapter) Series(ctx context.Context, ds domain.DataSource, _ map[string
 		warn(fmt.Sprintf("a series has more than %d points; showing the first", maxSeriesPoints))
 	}
 
-	res := domain.SeriesResult{Series: make([]domain.Series, 0, len(order)), Warnings: warnings}
+	res := domain.SeriesResult{
+		Series: make([]domain.Series, 0, len(order)), Warnings: warnings,
+		Step: time.Duration(period) * time.Second,
+	}
 	for _, key := range order {
 		pts := points[key]
 		sort.SliceStable(pts, func(i, j int) bool { return pts[i].Time.Before(pts[j].Time) })
@@ -421,6 +425,29 @@ func (a *Adapter) Discover(ctx context.Context, ds domain.DataSource, _ map[stri
 		truncated = true
 	}
 	return domain.Inventory{Metrics: names, Truncated: truncated}, nil
+}
+
+// DiscoverMetric asks ListMetrics about one "<namespace>/<metric>" with data
+// in the last three hours: on an account large enough that Discover stops at
+// its page cap, a recipe's detect metric may lie past where it stopped.
+func (a *Adapter) DiscoverMetric(ctx context.Context, ds domain.DataSource, _ map[string]string, metric string) (bool, error) {
+	i := strings.LastIndex(metric, "/")
+	if i <= 0 || i == len(metric)-1 {
+		return false, nil
+	}
+	c, err := a.open(ctx, ds, a.queryTimeout)
+	if err != nil {
+		return false, err
+	}
+	defer c.http.CloseIdleConnections()
+	var out listMetricsResponse
+	form := url.Values{
+		"Action": {"ListMetrics"}, "Namespace": {metric[:i]}, "MetricName": {metric[i+1:]}, "RecentlyActive": {recentlyActive},
+	}
+	if err := a.call(ctx, c, form, &out); err != nil {
+		return false, err
+	}
+	return len(out.Result.Metrics) > 0, nil
 }
 
 func (a *Adapter) open(ctx context.Context, ds domain.DataSource, timeout time.Duration) (*client, error) {

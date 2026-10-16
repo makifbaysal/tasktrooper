@@ -57,6 +57,7 @@ func init() {
 		runSmokeChecksToolName,
 		finishReleaseToolName,
 		rollbackReleaseToolName,
+		getDeployImpactToolName,
 	} {
 		prompt.Define[struct{}]("tool."+name, struct{}{})
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"testing"
@@ -179,7 +180,7 @@ func (s *SignalsHandlerSuite) TestSuggestAnswersTheListShape() {
 	s.bindings.On("ListSignalBindings", mock.Anything, s.component.ID, domain.EnvironmentProduction).Return([]domain.SignalBinding{}, nil).Twice()
 	s.envs.On("ListEnvironments", mock.Anything, s.component.RepositoryID).Return([]domain.ComponentEnvironment{}, nil).Once()
 	s.discoverer.On("Discover", mock.Anything, mock.Anything, mock.Anything).Return(domain.Inventory{Metrics: []string{"up"}}, nil).Once()
-	s.bindings.On("ReplaceDetectedSuggestions", mock.Anything, s.component.ID, domain.EnvironmentProduction, []domain.SignalBinding{}).
+	s.bindings.On("ReplaceDetectedSuggestions", mock.Anything, s.component.ID, domain.EnvironmentProduction, []uuid.UUID{s.source.ID}, []domain.SignalBinding{}).
 		Return([]domain.SignalBinding{}, nil).Once()
 
 	status, body := s.do("POST", s.componentPath("/signals/suggest"), "")
@@ -214,11 +215,15 @@ func (s *SignalsHandlerSuite) TestConfirmDismissAndDelete() {
 	pending := s.binding("http.requests", domain.SignalBindingSuggested)
 	confirmed := pending
 	confirmed.Status = domain.SignalBindingConfirmed
+	dismissed := pending
+	dismissed.Status = domain.SignalBindingDismissed
 	s.bindings.On("GetSignalBinding", mock.Anything, pending.ID).Return(pending, nil).Twice()
 	s.bindings.On("ConfirmSignalBinding", mock.Anything, pending.ID).Return(confirmed, nil).Once()
-	s.bindings.On("SetSignalBindingStatus", mock.Anything, pending.ID, domain.SignalBindingDismissed).Return(pending, nil).Once()
+	s.bindings.On("ConfirmSignalBinding", mock.Anything, pending.ID).
+		Return(domain.SignalBinding{}, fmt.Errorf("confirm signal binding: %w", port.ErrSignalBindingConflict)).Once()
+	s.bindings.On("DismissSignalBinding", mock.Anything, pending.ID).Return(dismissed, nil).Once()
 	other := s.binding("http.latency", domain.SignalBindingConfirmed)
-	s.bindings.On("GetSignalBinding", mock.Anything, other.ID).Return(other, nil).Once()
+	s.bindings.On("DismissSignalBinding", mock.Anything, other.ID).Return(other, nil).Once()
 	s.bindings.On("DeleteSignalBinding", mock.Anything, other.ID).Return(nil).Once()
 	unknown := uuid.New()
 	s.bindings.On("DeleteSignalBinding", mock.Anything, unknown).Return(port.ErrNotFound).Once()
@@ -227,6 +232,9 @@ func (s *SignalsHandlerSuite) TestConfirmDismissAndDelete() {
 	s.Require().Equal(fiber.StatusOK, status, body)
 	s.ElementsMatch(bindingKeys, keysOf(body))
 	s.Equal("confirmed", body["status"])
+	status, body = s.do("POST", "/v1/signal-bindings/"+pending.ID.String()+"/confirm", "")
+	s.Equal(fiber.StatusConflict, status)
+	s.Equal("conflict", body["code"])
 
 	status, _ = s.do("POST", "/v1/signal-bindings/"+pending.ID.String()+"/dismiss", "")
 	s.Equal(fiber.StatusNoContent, status)
@@ -276,9 +284,10 @@ func (s *SignalsHandlerSuite) TestSeriesAnswersPerSignalEntries() {
 	list := body["signals"].([]any)
 	s.Require().Len(list, 2)
 	req := list[0].(map[string]any)
-	s.ElementsMatch([]string{"signal", "unit", "bound", "series", "previous", "error"}, keysOf(req))
+	s.ElementsMatch([]string{"signal", "unit", "bound", "series", "previous", "error", "previous_error"}, keysOf(req))
 	s.Equal(true, req["bound"])
 	s.Nil(req["error"])
+	s.Nil(req["previous_error"])
 	s.Len(req["series"], 1)
 	s.Len(req["previous"], 1)
 	lat := list[1].(map[string]any)
@@ -307,10 +316,12 @@ func (s *SignalsHandlerSuite) TestGoldenAnswersTheExplorerShape() {
 	sigs := c["signals"].([]any)
 	s.Require().Len(sigs, 3)
 	req := sigs[0].(map[string]any)
-	s.ElementsMatch([]string{"signal", "unit", "value", "previous", "spark"}, keysOf(req))
+	s.ElementsMatch([]string{"signal", "unit", "bound", "value", "previous", "spark"}, keysOf(req))
+	s.Equal(true, req["bound"])
 	s.Equal(float64(4), req["value"])
 	s.Nil(req["previous"])
 	s.Equal([]any{[]any{float64(s.now.UnixMilli()), float64(4)}}, req["spark"])
+	s.Equal(false, sigs[1].(map[string]any)["bound"])
 	s.Nil(sigs[1].(map[string]any)["value"])
 
 	status, _ = s.do("GET", "/v1/operations/golden?component_id=nope", "")

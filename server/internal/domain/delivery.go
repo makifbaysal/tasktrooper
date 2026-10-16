@@ -63,6 +63,9 @@ const (
 	// (release.probeTimeout, also 10s) — a budget looser than the timeout
 	// would never trip.
 	MaxSmokeLatencyMS = 10000
+	// MaxErrorRateDeltaLimit is the whole range of a percentage.
+	MaxErrorRateDeltaLimit = 100
+	MaxP95DeltaPctLimit    = 1000
 )
 
 // SmokeCheck is one read-only request sent to production after a deploy. Only
@@ -112,6 +115,16 @@ type DeliveryVerify struct {
 	// the deploy are tolerated before the soak stops early.
 	MaxNewErrors int          `json:"max_new_errors,omitempty"`
 	Smoke        []SmokeCheck `json:"smoke,omitempty"`
+	// MaxErrorRateDelta (percentage points) and MaxP95DeltaPct (percent) hold
+	// the deploy impact of http.error_ratio and http.latency's p95 during the
+	// soak; 0 leaves that signal unchecked.
+	MaxErrorRateDelta float64 `json:"max_error_rate_delta,omitempty"`
+	MaxP95DeltaPct    float64 `json:"max_p95_delta_pct,omitempty"`
+}
+
+// ImpactThresholds reports whether the soak has any deploy impact to check.
+func (v DeliveryVerify) ImpactThresholds() bool {
+	return v.MaxErrorRateDelta > 0 || v.MaxP95DeltaPct > 0
 }
 
 // ComponentDelivery is a component's delivery profile.
@@ -185,6 +198,12 @@ func (d ComponentDelivery) Validate() error {
 	}
 	if d.Verify.SoakMinutes > MaxSoakMinutes {
 		return fmt.Errorf("%w: soak_minutes is at most %d", ErrInvalidDelivery, MaxSoakMinutes)
+	}
+	if v := d.Verify.MaxErrorRateDelta; v < 0 || v > MaxErrorRateDeltaLimit {
+		return fmt.Errorf("%w: max_error_rate_delta must be 0 (not checked) or up to %d percentage points", ErrInvalidDelivery, MaxErrorRateDeltaLimit)
+	}
+	if v := d.Verify.MaxP95DeltaPct; v < 0 || v > MaxP95DeltaPctLimit {
+		return fmt.Errorf("%w: max_p95_delta_pct must be 0 (not checked) or up to %d percent", ErrInvalidDelivery, MaxP95DeltaPctLimit)
 	}
 	return ValidateSmokeChecks(d.Verify.Smoke)
 }

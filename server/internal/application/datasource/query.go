@@ -2,14 +2,12 @@ package datasource
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
-	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 const (
@@ -31,37 +29,17 @@ const (
 // Discover lists the metric names a source holds, filtered by a
 // case-insensitive substring and capped at limit, plus every recipe of the
 // source's kind whose detect metric is among them. Detection runs over the
-// whole inventory, not the filtered page.
+// whole inventory, not the filtered page; where the source's own listing
+// stopped short (Truncated) and its kind can look one metric up
+// (port.MetricDiscoverer), each detect metric missing from it is looked up.
 func (s *Service) Discover(ctx context.Context, id uuid.UUID, match string, limit int) (domain.DataSourceDiscovery, error) {
-	if limit <= 0 {
-		limit = DefaultDiscoverLimit
-	}
-	limit = min(limit, MaxDiscoverLimit)
-	ds, adapter, secrets, err := s.load(ctx, id)
-	if err != nil {
-		return domain.DataSourceDiscovery{}, err
-	}
-	discoverer, ok := adapter.(port.Discoverer)
-	if !ok {
-		return domain.DataSourceDiscovery{}, fmt.Errorf("kind %q cannot list metrics: %w", ds.Kind, ErrUnsupported)
-	}
-	uctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
-	defer cancel()
-	inv, err := discoverer.Discover(uctx, ds, secrets)
-	if err != nil {
-		return domain.DataSourceDiscovery{}, upstream(err, s.masks(ctx, adapter.Schema(), ds.Config, secrets))
-	}
-	recipes, err := s.Recipes(ctx)
-	if err != nil {
-		return domain.DataSourceDiscovery{}, err
-	}
-	present := make(map[string]bool, len(inv.Metrics))
-	for _, m := range inv.Metrics {
-		present[m] = true
-	}
+	return s.Batch().Discover(ctx, id, match, limit)
+}
+
+func discovery(inv domain.Inventory, recipes []domain.Recipe, present map[string]bool, kind domain.DataSourceKind, match string, limit int) domain.DataSourceDiscovery {
 	matches := []domain.RecipeMatch{}
 	for _, r := range recipes {
-		if r.SourceKind == ds.Kind && r.Detect.Metric != "" && present[r.Detect.Metric] {
+		if r.SourceKind == kind && r.Detect.Metric != "" && present[r.Detect.Metric] {
 			matches = append(matches, domain.RecipeMatch{RecipeID: r.ID, MatchedMetric: r.Detect.Metric})
 		}
 	}
@@ -79,49 +57,14 @@ func (s *Service) Discover(ctx context.Context, id uuid.UUID, match string, limi
 		}
 		metrics = append(metrics, m)
 	}
-	return domain.DataSourceDiscovery{Metrics: metrics, Truncated: truncated, Recipes: matches}, nil
+	return domain.DataSourceDiscovery{Metrics: metrics, Truncated: truncated, Recipes: matches}
 }
 
 // Query runs a range query on a source whose kind implements MetricsQuerier.
-// A zero Step picks one giving about autoPoints points.
+// A zero Step picks one giving about autoPoints points. A caller running
+// several queries for one request uses a Batch instead.
 func (s *Service) Query(ctx context.Context, id uuid.UUID, q domain.SeriesQuery) (domain.SeriesResult, error) {
-	q, err := normalizeSeriesQuery(q)
-	if err != nil {
-		return domain.SeriesResult{}, err
-	}
-	ds, adapter, secrets, err := s.load(ctx, id)
-	if err != nil {
-		return domain.SeriesResult{}, err
-	}
-	querier, ok := adapter.(port.MetricsQuerier)
-	if !ok {
-		return domain.SeriesResult{}, fmt.Errorf("kind %q cannot query metrics: %w", ds.Kind, ErrUnsupported)
-	}
-	uctx, cancel := context.WithTimeout(ctx, upstreamTimeout)
-	defer cancel()
-	res, err := querier.Series(uctx, ds, secrets, q)
-	if err != nil {
-		return domain.SeriesResult{}, upstream(err, s.masks(ctx, adapter.Schema(), ds.Config, secrets))
-	}
-	res.Warnings = nonNilSlice(res.Warnings)
-	if len(res.Series) > maxSeries {
-		res.Warnings = append(res.Warnings, fmt.Sprintf("showing the first %d of %d series", maxSeries, len(res.Series)))
-		res.Series = res.Series[:maxSeries]
-	}
-	res.Series = nonNilSlice(res.Series)
-	for i := range res.Series {
-		if res.Series[i].Labels == nil {
-			res.Series[i].Labels = map[string]string{}
-		}
-		res.Series[i].Points = nonNilSlice(res.Series[i].Points)
-	}
-	if len(res.Warnings) > 0 {
-		masks := s.masks(ctx, adapter.Schema(), ds.Config, secrets)
-		for i, w := range res.Warnings {
-			res.Warnings[i] = redact(w, masks)
-		}
-	}
-	return res, nil
+	return s.Batch().Query(ctx, id, q)
 }
 
 func normalizeSeriesQuery(q domain.SeriesQuery) (domain.SeriesQuery, error) {

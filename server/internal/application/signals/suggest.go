@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,7 +22,6 @@ const (
 	// to the connected account whose environments it watches.
 	cloudAccountKey = "cloud_account_id"
 
-	discoveryTTL = 5 * time.Minute
 	// The label probe looks at the last hour only: what is scraped now, and
 	// cheap on Mimir and Thanos.
 	probeWindow = time.Hour
@@ -41,11 +39,13 @@ var equalityMatcher = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"\$([A-
 // Suggest runs the detector for one component environment and answers what
 // List would afterwards. It offers (a) every recipe a metrics source holds
 // the detect metric of, with params taken from the label values that name
-// the component, and (b) when the environment is bound to a cloud resource,
-// every recipe for that resource kind on a source linked to the same cloud
-// account, with params from the resource. A signal with a confirmed binding
-// gets no suggestion, a dismissed one is never offered again, and only the
-// detector's own pending suggestions are replaced.
+// the component in that environment, and (b) when the environment is bound
+// to a cloud resource, every recipe for that resource kind on a source
+// linked to the same cloud account, with params from the resource. A signal
+// with a confirmed binding gets no suggestion, a dismissed one is never
+// offered again, and only the detector's own pending suggestions are
+// replaced: those of a source whose discovery or label probe failed this
+// time are kept, and one offered again keeps its id.
 func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment) (domain.ComponentSignals, error) {
 	if !env.Valid() {
 		return domain.ComponentSignals{}, fmt.Errorf("unknown environment %q: %w", env, ErrInvalidInput)
@@ -66,23 +66,30 @@ func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain
 	if err != nil {
 		return domain.ComponentSignals{}, err
 	}
-	var mine []domain.ComponentEnvironment
+	var here []domain.ComponentEnvironment
 	var bound *domain.ComponentEnvironment
 	for _, e := range envs {
-		if e.ComponentID != comp.ID {
+		if e.ComponentID != comp.ID || e.Environment != env {
 			continue
 		}
-		mine = append(mine, e)
-		if e.Environment == env && e.Status == domain.LinkConfirmed && e.Bound() {
+		here = append(here, e)
+		if e.Status == domain.LinkConfirmed && e.Bound() {
 			bound = &e
 		}
 	}
 	relevant := s.relevant(comp.Role.Get())
-	names := componentNames(comp, mine)
+	names := componentNames(comp, here)
 
+	rd := s.reader(l)
+	scope := s.cacheScope(ctx)
 	var found []domain.SignalBinding
+	var answered []uuid.UUID
 	for _, ds := range l.order {
-		found = append(found, s.detectFromInventory(ctx, l, ds, relevant, names)...)
+		got, ok := s.detectFromInventory(ctx, rd, scope, ds, relevant, names)
+		found = append(found, got...)
+		if ok {
+			answered = append(answered, ds.ID)
+		}
 	}
 	if bound != nil {
 		for _, ds := range l.order {
@@ -91,7 +98,7 @@ func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain
 			}
 		}
 	}
-	if _, err := s.bindings.ReplaceDetectedSuggestions(ctx, comp.ID, env, newSuggestions(found, existing)); err != nil {
+	if _, err := s.bindings.ReplaceDetectedSuggestions(ctx, comp.ID, env, answered, newSuggestions(found, existing)); err != nil {
 		return domain.ComponentSignals{}, err
 	}
 	after, err := s.bindings.ListSignalBindings(ctx, comp.ID, env)
@@ -130,22 +137,25 @@ func newSuggestions(found, existing []domain.SignalBinding) []domain.SignalBindi
 	return out
 }
 
-func (s *Service) detectFromInventory(ctx context.Context, l lookup, ds domain.DataSource, relevant map[string]bool, names []string) []domain.SignalBinding {
+// detectFromInventory answers false when the source did not answer this
+// time: its discovery, or a label probe, failed.
+func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope string, ds domain.DataSource, relevant map[string]bool, names []string) ([]domain.SignalBinding, bool) {
 	if !slices.Contains(ds.Capabilities, domain.CapabilityMetrics) {
-		return nil
+		return nil, true
 	}
-	matches, ok := s.discover(ctx, ds)
+	matches, ok := s.discover(ctx, rd, scope, ds)
 	if !ok {
-		return nil
+		return nil, false
 	}
 	ids := make([]string, 0, len(matches))
 	for _, m := range matches {
 		ids = append(ids, m.RecipeID)
 	}
 	sort.Strings(ids)
+	answered := true
 	var out []domain.SignalBinding
 	for _, id := range slices.Compact(ids) {
-		r, ok := l.recipes[id]
+		r, ok := rd.l.recipes[id]
 		// A recipe for a cloud resource kind is offered from the environment's
 		// binding, with params from the resource, never from the inventory.
 		if !ok || r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind != "" {
@@ -155,13 +165,15 @@ func (s *Service) detectFromInventory(ctx context.Context, l lookup, ds domain.D
 		if len(sigs) == 0 {
 			continue
 		}
-		for _, params := range s.paramSets(ctx, ds, r, names) {
+		sets, probed := s.paramSets(ctx, rd, ds, r, names)
+		answered = answered && probed
+		for _, params := range sets {
 			for _, sig := range sigs {
 				out = append(out, suggestion(sig, ds.ID, r.ID, params))
 			}
 		}
 	}
-	return out
+	return out, answered
 }
 
 func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool, ref domain.CloudResourceRef) []domain.SignalBinding {
@@ -197,33 +209,35 @@ func recipeSignals(r domain.Recipe, relevant map[string]bool) []string {
 	return out
 }
 
-func (s *Service) discover(ctx context.Context, ds domain.DataSource) ([]domain.RecipeMatch, bool) {
-	if matches, ok := s.discovery.get(ds.ID, ds.UpdatedAt, s.now()); ok {
+func (s *Service) discover(ctx context.Context, rd *reader, scope string, ds domain.DataSource) ([]domain.RecipeMatch, bool) {
+	key := discoveryKey{scope: scope, id: ds.ID}
+	if matches, ok := s.discovery.get(key, ds.UpdatedAt, s.now()); ok {
 		return matches, true
 	}
-	d, err := s.sources.Discover(ctx, ds.ID, "", 1)
+	d, err := rd.batch.Discover(ctx, ds.ID, "", 1)
 	if err != nil {
 		log.Debug().Err(err).Str("data_source", ds.ID.String()).Msg("signals: discovery failed; skipping the source")
 		return nil, false
 	}
-	s.discovery.put(ds.ID, ds.UpdatedAt, s.now(), d.Recipes)
+	s.discovery.put(key, ds.UpdatedAt, s.now(), d.Recipes)
 	return d.Recipes, true
 }
 
 // paramSets proposes values for a recipe's params: it groups the detect
 // metric by the labels the params select on and keeps the label sets that
 // best name the component. With nothing to go on it answers one empty set,
-// a suggestion that still needs its params.
-func (s *Service) paramSets(ctx context.Context, ds domain.DataSource, r domain.Recipe, names []string) []map[string]string {
+// a suggestion that still needs its params; false only when the probe
+// failed.
+func (s *Service) paramSets(ctx context.Context, rd *reader, ds domain.DataSource, r domain.Recipe, names []string) ([]map[string]string, bool) {
 	none := []map[string]string{{}}
 	labels := paramLabels(r)
 	if len(labels) == 0 || r.Detect.Metric == "" || len(names) == 0 {
-		return none
+		return none, true
 	}
 	labelNames := slices.Sorted(maps.Values(labels))
 	labelNames = slices.Compact(labelNames)
 	now := s.now()
-	res, err := s.sources.Query(ctx, ds.ID, domain.SeriesQuery{
+	res, err := rd.batch.Query(ctx, ds.ID, domain.SeriesQuery{
 		Query: fmt.Sprintf("count by (%s) (%s)", strings.Join(labelNames, ", "), r.Detect.Metric),
 		From:  now.Add(-probeWindow),
 		To:    now,
@@ -231,7 +245,7 @@ func (s *Service) paramSets(ctx context.Context, ds domain.DataSource, r domain.
 	})
 	if err != nil {
 		log.Debug().Err(err).Str("recipe", r.ID).Msg("signals: label probe failed; the suggestion needs its params")
-		return none
+		return none, false
 	}
 	type candidate struct {
 		params map[string]string
@@ -257,7 +271,7 @@ func (s *Service) paramSets(ctx context.Context, ds domain.DataSource, r domain.
 		cands = append(cands, candidate{params: set, key: key, score: score})
 	}
 	if len(cands) == 0 {
-		return none
+		return none, true
 	}
 	sort.Slice(cands, func(i, j int) bool {
 		if cands[i].score != cands[j].score {
@@ -272,7 +286,7 @@ func (s *Service) paramSets(ctx context.Context, ds domain.DataSource, r domain.
 		}
 		out = append(out, c.params)
 	}
-	return out
+	return out, true
 }
 
 // paramLabels maps each declared param to the label it is matched against
@@ -364,37 +378,4 @@ func squash(s string) string {
 		}
 	}
 	return b.String()
-}
-
-// discoveryCache keeps each source's recipe matches for discoveryTTL, keyed
-// by its updated_at so an edited source is discovered again.
-type discoveryCache struct {
-	mu      sync.Mutex
-	entries map[uuid.UUID]discoveryEntry
-}
-
-type discoveryEntry struct {
-	version time.Time
-	at      time.Time
-	matches []domain.RecipeMatch
-}
-
-func newDiscoveryCache() *discoveryCache {
-	return &discoveryCache{entries: map[uuid.UUID]discoveryEntry{}}
-}
-
-func (c *discoveryCache) get(id uuid.UUID, version, now time.Time) ([]domain.RecipeMatch, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, ok := c.entries[id]
-	if !ok || !e.version.Equal(version) || now.Sub(e.at) > discoveryTTL {
-		return nil, false
-	}
-	return e.matches, true
-}
-
-func (c *discoveryCache) put(id uuid.UUID, version, now time.Time, matches []domain.RecipeMatch) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries[id] = discoveryEntry{version: version, at: now, matches: slices.Clone(matches)}
 }

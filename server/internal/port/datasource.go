@@ -41,6 +41,13 @@ type Discoverer interface {
 	Discover(ctx context.Context, ds domain.DataSource, secrets map[string]string) (domain.Inventory, error)
 }
 
+// MetricDiscoverer answers whether a source holds one metric, for a kind
+// whose Discover stops short on a large account: detection asks it about a
+// recipe's detect metric the truncated inventory lacks.
+type MetricDiscoverer interface {
+	DiscoverMetric(ctx context.Context, ds domain.DataSource, secrets map[string]string, metric string) (bool, error)
+}
+
 type DataSourceStore interface {
 	ListDataSources(ctx context.Context) ([]domain.DataSource, error)
 	GetDataSource(ctx context.Context, id uuid.UUID) (domain.DataSource, error)

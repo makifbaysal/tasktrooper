@@ -38,6 +38,19 @@ func ValidSignalAggregation(a SignalAggregation) bool {
 	return false
 }
 
+// SignalDirection is which way a signal moves when things get better. A
+// signal with none (an instance count, a rollout fraction) is not judged.
+type SignalDirection string
+
+const (
+	SignalHigherIsBetter SignalDirection = "higher"
+	SignalLowerIsBetter  SignalDirection = "lower"
+)
+
+func ValidSignalDirection(d SignalDirection) bool {
+	return d == "" || d == SignalHigherIsBetter || d == SignalLowerIsBetter
+}
+
 // Signal is a vendor-neutral measure ("http.requests", "queue.backlog"). The
 // catalog is fixed; a recipe maps signals onto one source kind's native
 // queries.
@@ -47,7 +60,14 @@ type Signal struct {
 	Unit        string            `json:"unit"`
 	Roles       []ComponentRole   `json:"roles"`
 	Aggregation SignalAggregation `json:"aggregation"`
+	Better      SignalDirection   `json:"better,omitempty"`
 }
+
+// The catalog signals a release's soak thresholds read.
+const (
+	SignalHTTPErrorRatio = "http.error_ratio"
+	SignalHTTPLatency    = "http.latency"
+)
 
 type RecipeOrigin string
 

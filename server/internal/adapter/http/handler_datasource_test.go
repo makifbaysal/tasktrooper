@@ -266,7 +266,7 @@ func (s *DataSourceHandlerSuite) TestSignalsAndRecipesListTheCatalog() {
 	status, out := s.do("GET", "/v1/signals", "")
 	s.Equal(200, status)
 	first := out["signals"].([]any)[0].(map[string]any)
-	s.ElementsMatch([]string{"id", "kind", "unit", "roles", "aggregation"}, keysOf(first))
+	s.ElementsMatch([]string{"id", "kind", "unit", "roles", "aggregation", "better"}, keysOf(first))
 
 	s.recipes.On("ListUserRecipes", mock.Anything).Return(nil, nil)
 	status, out = s.do("GET", "/v1/recipes", "")

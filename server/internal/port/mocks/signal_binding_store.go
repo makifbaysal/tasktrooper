@@ -62,6 +62,34 @@ func (_m *SignalBindingStore) DeleteSignalBinding(ctx context.Context, id uuid.U
 	return r0
 }
 
+// DismissSignalBinding provides a mock function with given fields: ctx, id
+func (_m *SignalBindingStore) DismissSignalBinding(ctx context.Context, id uuid.UUID) (domain.SignalBinding, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DismissSignalBinding")
+	}
+
+	var r0 domain.SignalBinding
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (domain.SignalBinding, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) domain.SignalBinding); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(domain.SignalBinding)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GetSignalBinding provides a mock function with given fields: ctx, id
 func (_m *SignalBindingStore) GetSignalBinding(ctx context.Context, id uuid.UUID) (domain.SignalBinding, error) {
 	ret := _m.Called(ctx, id)
@@ -178,9 +206,9 @@ func (_m *SignalBindingStore) PutConfirmedSignalBinding(ctx context.Context, b d
 	return r0, r1
 }
 
-// ReplaceDetectedSuggestions provides a mock function with given fields: ctx, componentID, env, suggestions
-func (_m *SignalBindingStore) ReplaceDetectedSuggestions(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, suggestions []domain.SignalBinding) ([]domain.SignalBinding, error) {
-	ret := _m.Called(ctx, componentID, env, suggestions)
+// ReplaceDetectedSuggestions provides a mock function with given fields: ctx, componentID, env, sources, suggestions
+func (_m *SignalBindingStore) ReplaceDetectedSuggestions(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, sources []uuid.UUID, suggestions []domain.SignalBinding) ([]domain.SignalBinding, error) {
+	ret := _m.Called(ctx, componentID, env, sources, suggestions)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplaceDetectedSuggestions")
@@ -188,47 +216,19 @@ func (_m *SignalBindingStore) ReplaceDetectedSuggestions(ctx context.Context, co
 
 	var r0 []domain.SignalBinding
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.DeployEnvironment, []domain.SignalBinding) ([]domain.SignalBinding, error)); ok {
-		return rf(ctx, componentID, env, suggestions)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.DeployEnvironment, []uuid.UUID, []domain.SignalBinding) ([]domain.SignalBinding, error)); ok {
+		return rf(ctx, componentID, env, sources, suggestions)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.DeployEnvironment, []domain.SignalBinding) []domain.SignalBinding); ok {
-		r0 = rf(ctx, componentID, env, suggestions)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.DeployEnvironment, []uuid.UUID, []domain.SignalBinding) []domain.SignalBinding); ok {
+		r0 = rf(ctx, componentID, env, sources, suggestions)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]domain.SignalBinding)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, domain.DeployEnvironment, []domain.SignalBinding) error); ok {
-		r1 = rf(ctx, componentID, env, suggestions)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// SetSignalBindingStatus provides a mock function with given fields: ctx, id, status
-func (_m *SignalBindingStore) SetSignalBindingStatus(ctx context.Context, id uuid.UUID, status domain.SignalBindingStatus) (domain.SignalBinding, error) {
-	ret := _m.Called(ctx, id, status)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetSignalBindingStatus")
-	}
-
-	var r0 domain.SignalBinding
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.SignalBindingStatus) (domain.SignalBinding, error)); ok {
-		return rf(ctx, id, status)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, domain.SignalBindingStatus) domain.SignalBinding); ok {
-		r0 = rf(ctx, id, status)
-	} else {
-		r0 = ret.Get(0).(domain.SignalBinding)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, domain.SignalBindingStatus) error); ok {
-		r1 = rf(ctx, id, status)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, domain.DeployEnvironment, []uuid.UUID, []domain.SignalBinding) error); ok {
+		r1 = rf(ctx, componentID, env, sources, suggestions)
 	} else {
 		r1 = ret.Error(1)
 	}

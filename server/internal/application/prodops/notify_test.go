@@ -73,6 +73,7 @@ func (s *IncidentNotifySuite) TestANewHighIncidentNotifiesWithALinkToIt() {
 	s.Require().Len(sent, 1)
 	s.Equal("PROD · api down", sent[0].Title)
 	s.NotEmpty(sent[0].Body)
+	s.Equal(domain.NotificationIncidentOpened, sent[0].Kind)
 	s.Equal(domain.IncidentSeverityHigh, sent[0].Severity)
 	s.Equal(domain.NotificationSourceIncident, sent[0].Source)
 	s.Equal(incident.ID.String(), sent[0].SourceID)
@@ -116,6 +117,8 @@ func (s *IncidentNotifySuite) TestRecoveryOfANotifiedIncidentNotifies() {
 	s.Require().Len(sent, 2)
 	s.Equal("Recovered · prod", sent[1].Title)
 	s.Equal(resolved.ID.String(), sent[1].SourceID)
+	s.Equal(domain.NotificationIncidentRecovered, sent[1].Kind)
+	s.Equal("/operations/issues?id="+resolved.ID.String(), sent[1].Link)
 }
 
 func (s *IncidentNotifySuite) TestAFlappingAlertNotifiesOnceAnOutageAndOnceARecoveryPerCooldown() {
@@ -160,5 +163,6 @@ func (s *IncidentNotifySuite) TestOnlyAProposalSomeoneElseWroteIsNotified() {
 	sent := s.notifications()
 	s.Require().Len(sent, 2)
 	s.Equal("Fix proposed · prod", sent[1].Title)
+	s.Equal(domain.NotificationRemedyProposed, sent[1].Kind)
 	s.Equal("raise max_conns to 200", sent[1].Body)
 }

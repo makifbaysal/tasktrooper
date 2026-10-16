@@ -18,7 +18,8 @@ type goldenDoc struct {
 }
 
 // loadGolden reads the per-role golden signal lists and checks each against
-// the signal catalog.
+// the signal catalog. A golden signal must say which way is better: deploy
+// impact judges a release by them.
 func loadGolden(fsys fs.FS, signals []domain.Signal) (map[domain.ComponentRole][]string, error) {
 	raw, err := fs.ReadFile(fsys, goldenFile)
 	if err != nil {
@@ -30,9 +31,9 @@ func loadGolden(fsys fs.FS, signals []domain.Signal) (map[domain.ComponentRole][
 	if err := dec.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("%s: %w", goldenFile, err)
 	}
-	known := make(map[string]bool, len(signals))
+	known := make(map[string]domain.Signal, len(signals))
 	for _, s := range signals {
-		known[s.ID] = true
+		known[s.ID] = s
 	}
 	out := make(map[domain.ComponentRole][]string, len(doc.Golden))
 	for role, ids := range doc.Golden {
@@ -41,8 +42,12 @@ func loadGolden(fsys fs.FS, signals []domain.Signal) (map[domain.ComponentRole][
 			return nil, fmt.Errorf("%s: unknown role %q", goldenFile, role)
 		}
 		for i, id := range ids {
-			if !known[id] {
+			sig, ok := known[id]
+			if !ok {
 				return nil, fmt.Errorf("%s: %s lists %q, which is not in the signal catalog", goldenFile, role, id)
+			}
+			if sig.Better == "" {
+				return nil, fmt.Errorf("%s: %s lists %q, which has no better direction in the signal catalog", goldenFile, role, id)
 			}
 			if slices.Contains(ids[:i], id) {
 				return nil, fmt.Errorf("%s: %s lists %q twice", goldenFile, role, id)

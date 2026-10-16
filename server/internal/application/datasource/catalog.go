@@ -44,6 +44,7 @@ type signalsDoc struct {
 		Unit        string   `yaml:"unit"`
 		Roles       []string `yaml:"roles"`
 		Aggregation string   `yaml:"aggregation"`
+		Better      string   `yaml:"better"`
 	} `yaml:"signals"`
 }
 
@@ -114,6 +115,7 @@ func (c *Catalog) loadSignals(fsys fs.FS) error {
 			Kind:        domain.SignalKind(s.Kind),
 			Unit:        s.Unit,
 			Aggregation: domain.SignalAggregation(s.Aggregation),
+			Better:      domain.SignalDirection(s.Better),
 		}
 		switch {
 		case !signalIDPattern.MatchString(s.ID):
@@ -124,6 +126,8 @@ func (c *Catalog) loadSignals(fsys fs.FS) error {
 			return fmt.Errorf("%s: signal %q has unknown kind %q", signalsFile, s.ID, s.Kind)
 		case !domain.ValidSignalAggregation(sig.Aggregation):
 			return fmt.Errorf("%s: signal %q has unknown aggregation %q", signalsFile, s.ID, s.Aggregation)
+		case !domain.ValidSignalDirection(sig.Better):
+			return fmt.Errorf("%s: signal %q has better %q, not higher or lower", signalsFile, s.ID, s.Better)
 		case strings.TrimSpace(s.Unit) == "":
 			return fmt.Errorf("%s: signal %q has no unit", signalsFile, s.ID)
 		case len(s.Roles) == 0:

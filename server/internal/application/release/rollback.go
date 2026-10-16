@@ -77,8 +77,20 @@ func (s *Service) newerOpenRelease(ctx context.Context, r domain.Release) (strin
 
 // Rollback undoes a release: it always reverts the release's merge commits
 // on the default branch, then (dispatch mode) redeploys the previous good
-// release or (on_merge mode) lets the revert push itself redeploy.
+// release or (on_merge mode) lets the revert push itself redeploy. A rollback
+// nobody typed (an agent's, with auto_rollback on) is told to a human once it
+// is under way; one only proposed (auto_rollback off) is told as a
+// suggestion they can approve.
 func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error) {
+	updated, err := s.rollback(ctx, releaseID, actor, reason, note)
+	if err == nil && actor != domain.ReleaseActorHuman &&
+		(updated.Status == domain.ReleaseRollingBack || updated.Status == domain.ReleaseRolledBack) {
+		s.notifyRelease(ctx, domain.NotificationReleaseRolledBack, updated, firstNonEmptyStr(note, string(reason)))
+	}
+	return updated, err
+}
+
+func (s *Service) rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error) {
 	r, err := s.store.Get(ctx, releaseID)
 	if err != nil {
 		return domain.Release{}, err
@@ -93,6 +105,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 
 	if !r.Profile.AutoRollback && actor == domain.ReleaseActorAgent {
 		s.writeRollbackProposal(ctx, r, reason, note)
+		s.notifyRelease(ctx, domain.NotificationRollbackSuggested, r, firstNonEmptyStr(note, string(reason)))
 		return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrRollbackNeedsHuman, prompt.Text(rollbackNeedsHumanKey))
 	}
 

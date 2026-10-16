@@ -403,6 +403,11 @@ func (s *Service) sweepVerifying(ctx context.Context, r domain.Release) {
 		s.markErrorChecked(r.ID, now)
 	}
 
+	if r.Profile.Verify.ImpactThresholds() && (windowOver || s.impactCheckDue(r.ID, now)) {
+		s.checkImpact(ctx, &r)
+		s.markImpactChecked(r.ID, now)
+	}
+
 	if windowOver {
 		final := s.runSmokeChecks(ctx, r.Profile.Verify.Smoke, r.Checks.BaseURL)
 		r.Checks.Smoke = appendSmokeCapped(r.Checks.Smoke, final, maxStoredSmoke)
@@ -500,6 +505,23 @@ func (s *Service) clearErrorCheck(releaseID uuid.UUID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.lastErrorCheck, releaseID)
+	delete(s.lastImpactCheck, releaseID)
+}
+
+// impactCheckDue / markImpactChecked pace deploy impact reads the way runtime
+// error reads are paced, for the same reason: each one queries the data
+// source.
+func (s *Service) impactCheckDue(releaseID uuid.UUID, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	last, ok := s.lastImpactCheck[releaseID]
+	return !ok || now.Sub(last) >= errorCheckInterval
+}
+
+func (s *Service) markImpactChecked(releaseID uuid.UUID, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastImpactCheck[releaseID] = now
 }
 
 func (s *Service) logSweepUpdate(err error, releaseID uuid.UUID) {

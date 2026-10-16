@@ -417,6 +417,7 @@ requires `confirm` to equal the repository's name, the same guardrail
 | `GET /v1/repositories/{id}/releases?component_id=&task_id=&limit=` | `{"releases": domain.Release[]}`, newest first; default limit 20, max 100 |
 | `GET /v1/releases/{releaseId}` | One release in full: status, mode/executor, commit/tag, `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new error groups), `verdict`, `rollback`, `tasks` |
 | `GET /v1/releases/{releaseId}/cut-preview` | `domain.ReleaseCutPreview` for a `draft` release, or a `pending` one `deploy_release` was never attempted on (a re-cut, e.g. after `ErrReleaseTagExists`): suggested/previous version (the HIGHEST semver among the component's last released version, its newest matching git tag, and any tag any of its releases ever carried), the tag it would carry, the commit it would cut at, generated notes, its tasks. 409 `ErrReleaseWrongStatus` off draft/re-cuttable-pending, 409 `ErrReleaseEmpty` with no tasks |
+| `GET /v1/releases/{releaseId}/impact` | `domain.DeployImpact` `{release_id, component_id, environment: "production", deployed_at, window_minutes: 60, pending, verdict, computed_at, signals: [{signal, unit, before, after, baseline, delta, delta_pct, higher_is_better, verdict}]}` (`application/deployimpact`). T is `deployed_at` (`finished_at` for a release that never deployed on its own); for each golden signal of the component's role (`catalog/observability/golden.yaml`) with a confirmed production binding: the mean over [T−60m, T) (`before`), [T, T+60m] (`after`) and that after-window 24h earlier (`baseline`), the p95 series for a quantile signal. A signal is `worse`/`improved` when it moved past `deploy_ops.impact` (`change_pct` of `before`, or `ratio_points` percentage points for a ratio signal) both from `before` and, when read, from `baseline` — else `neutral`; `unknown` when unreadable. `higher_is_better` is the catalog's `better` (`signals.yaml`). `verdict` is the worst judged signal, `unknown` when none was. `pending` while T+60m is in the future: `after`/`baseline` cover what has passed. Kept per (release, minute). 404 unknown release; 200 `verdict: "unknown"`, `signals: []` when nothing is bound, the release has no component or never deployed |
 | `POST /v1/releases/{releaseId}/cut` | `{confirm, version, notes}` → `Release`, `draft → pending` (or re-cutting a `pending` release that never deployed); re-reads and freezes the component's CURRENT confirmed delivery profile, stamps every carried task's before-deploy confirmation, wakes the release engineer. 400 invalid version (`domain.ValidReleaseVersion` — also enforces git ref rules: no `..`, no trailing `.`, no `.lock` suffix, no `@{`, no `//`); 409 `ErrDeployDependencyPending` while any carried task ships after an unreleased dependency |
 | `POST /v1/releases/{releaseId}/deploy` | `{confirm}` → `Release`. `pending` only; a `dispatch` release dispatches its workflow, a cut `batch` release runs its executor (tag+watch / local command / store build). Claims the release before the side effect; a side effect that started nothing at all (a transient dispatch/start error) returns it to `pending` with the error rather than `failed`, so the call may simply be retried — only a definitive refusal (CI unavailable, or the workflow/tag trigger itself invalid) becomes `failed` |
 | `POST /v1/releases/{releaseId}/finish` | `{confirm, note}` → `Release`, verdict recorded, every task moved to `released`. Same states `finish_release` accepts (`awaiting_verdict`, or `failed` — a human overriding it) |
@@ -433,6 +434,18 @@ absolute http(s) URL), `expect_status` (0 = any 2xx/3xx), `contains` (substring 
 must hold), `name` (optional label, ≤80 chars), `max_latency_ms` (0 = no limit, else
 1..10000 — a response slower than this fails the check with `error: "slower than <N> ms
 (<latency> ms)"`, checked after status/contains so the first real failure reason wins).
+
+`domain.DeliveryVerify` also takes `max_error_rate_delta` (percentage points, 0 = not
+checked, else up to 100) and `max_p95_delta_pct` (percent, 0 = not checked, else up to 1000);
+anything else is `ErrInvalidDelivery`. With either set, the soak reads the release's deploy
+impact (above) at most every 2 minutes and once more at the window's end, and records it in
+`checks.impact` `{checked_at, pending, verdict, signals: [{signal, before, after, delta,
+delta_pct, verdict, max_delta?, max_delta_pct?, breached?}], unchecked?}` — `unchecked` names a
+threshold whose signal (`http.error_ratio`, `http.latency`'s p95) is unbound or has no delta.
+`http.error_ratio`'s `delta` over `max_error_rate_delta`, or `http.latency`'s `delta_pct` over
+`max_p95_delta_pct`, sets `checks.early_stop` (when nothing set it first) and the release goes
+`awaiting_verdict` like any failed check; the release engineer decides, `auto_rollback`
+unchanged. The thresholds are frozen with the rest of the profile when a release opens.
 
 Errors: `ErrReleaseNotFound` → 404; `ErrReleaseWrongStatus`, `ErrReleaseNoDeploy`,
 `ErrDeliveryUnconfirmed`, `ErrReleaseEmpty`, `ErrReleaseTagExists`,
@@ -661,7 +674,11 @@ too (not the ones the account reports in `meta`, like an AWS region).
 - `GET /v1/data-sources/{id}/discover?match=&limit=` → `{metrics, truncated, recipes:
   [{recipe_id, matched_metric}]}`. `match` is a case-insensitive substring filter, `limit`
   defaults to 1000 (max 5000); `recipes` are the kind's recipes whose `detect.metric` the source
-  holds, judged over the whole inventory, not the filtered page.
+  holds, judged over the whole inventory, not the filtered page. Where the source's own listing
+  stopped short (`truncated`; CloudWatch stops after 20 ListMetrics pages) and its kind can look one
+  metric up (`port.MetricDiscoverer`; CloudWatch: ListMetrics by `Namespace` + `MetricName`), each
+  detect metric the listing lacks is looked up, at most 32; a lookup that fails only leaves that
+  recipe out.
 - `POST /v1/data-sources/{id}/query {query, from, to, step_seconds}` (RFC3339; `step_seconds`
   0 → about 600 points, at least 15 s) → `{series: [{name, labels, points: [[unix_ms,
   value|null]]}], warnings}`. `NaN`/`±Inf` are `null`. Capped at 90 days, 11 000 points per
@@ -669,7 +686,9 @@ too (not the ones the account reports in `meta`, like an AWS region).
   `code: "bad_query"` for a query the source refused, 422 `code: "unsupported"` for a kind
   without metrics, 502 `code: "upstream"` when the source fails.
 - `GET /v1/signals` → `{signals: [{id, kind: metric|log|trace|error, unit, roles,
-  aggregation: rate|ratio|quantile|gauge}]}`.
+  aggregation: rate|ratio|quantile|gauge, better?: higher|lower}]}`. `better` is which way the
+  signal moves when things improve; a signal without it is not judged across a deploy, and
+  every golden signal has one (the signals service refuses a golden list that names one without).
 - `GET /v1/recipes` → `{recipes: [{id, source_kind, applies_to: {technology,
   messaging_system, resource_kind, resource_params}, detect: {metric}, params, signals:
   {signal_id: query}, origin: catalog|user}]}`. Rows of `observability_recipes` (no write API yet) join the catalog; one with
@@ -727,6 +746,15 @@ refuses everything until it gets one. A shared host passes `urlguard.PublicOnly(
 `status_detail` and 502 bodies name the host as typed, never the address it resolved to, and mask
 every secret (the encoded basic-auth value included).
 
+**Google Cloud sign-in.** The `gcp_monitoring` kind mints its token with the account's key file
+(`gcloud.MintAccessToken`). The key's `token_uri` must be https on `oauth2.googleapis.com`,
+another `*.googleapis.com` host or the legacy `accounts.google.com`, default port, no userinfo;
+anything else is refused before any request (`token_uri is not Google's token endpoint`). A
+refusal names the HTTP status and, when it is one of RFC 6749's codes, the OAuth error
+(`invalid_grant`); the token endpoint's own text is only logged, never put in `status_detail`.
+Verify's probe (no build info endpoint there) is `POST …/api/v1/query` with a form body, which
+Prometheus also takes.
+
 **Tables.** `data_sources` — `config` JSONB (non-secret fields only), `secret_enc` (the secret
 fields as one AES-GCM JSON blob, the `cloud_accounts` cipher; NULL when there are none),
 `secrets_set` (their names), `status`, `status_detail`, `info`, `verified_at`.
@@ -759,15 +787,19 @@ component or binding id.
   offered for the role's signals it maps. Params come from a label probe, `count by (<labels>)
   (<detect.metric>)` over the last hour, where the labels are those the recipe matches its params
   with (`label="$param"`): the label sets whose values best name the component win (its name,
-  directory, package name or cloud resource name — equal, then equal ignoring case and
-  punctuation, then containing a name of at least 3 characters), at most 3. Nothing naming it, or a
-  language without such matchers → one suggestion with empty params and `needs_params` set.
+  directory, package name or the name of a cloud resource it runs as in that same `env` —
+  equal, then equal ignoring case and punctuation, then containing a name of at least 3
+  characters), at most 3. Nothing naming it, or a language without such matchers → one suggestion
+  with empty params and `needs_params` set.
   **(b)** When the environment is `confirmed` and bound to a cloud resource, every recipe whose
   `applies_to.resource_kind` is that resource's kind, on every source whose
   `config.cloud_account_id` is the environment's account, params from
   `applies_to.resource_params`. A signal with a confirmed binding gets no suggestion, a target
   dismissed (or offered by a person) for a signal is never offered again, at most 6 per signal, and
-  only the detector's own pending suggestions are replaced.
+  only the detector's own pending suggestions are replaced — and only those of sources that
+  answered: a source whose discovery or label probe failed keeps its pending suggestions. A
+  suggestion offered again (same signal, source, recipe, params and query) keeps its row and `id`,
+  so a confirm or dismiss sent from an older listing still finds it.
 - `PUT /v1/components/{id}/signals/{signal}?env= {data_source_id, recipe_id?, params?, query?}` →
   Binding (`confirmed`, `source: human`), replacing the slot's confirmed binding in place (same
   `id`) and dropping its pending suggestions. 400 `fields`: `signal: invalid` (not a catalog
@@ -777,24 +809,42 @@ component or binding id.
   `query: too_long|invalid` (it references a param without a value).
 - `POST /v1/signal-bindings/{bindingId}/confirm` → Binding; the slot's other confirmed binding and
   its pending suggestions are deleted. 400 `fields: {"params.<name>": "required"}` for a suggestion
-  still missing a param. `POST …/dismiss` → 204; 409 `code: "confirmed"` for the confirmed binding
-  (delete it instead). `DELETE /v1/signal-bindings/{bindingId}` → 204.
+  still missing a param; 404 for one another confirm of its slot already replaced. `POST …/dismiss`
+  → 204, and dismisses only a `suggested` row (one already dismissed is no change); 409 `code:
+  "confirmed"` for the confirmed binding, even one confirmed since it was listed (delete it
+  instead). `DELETE /v1/signal-bindings/{bindingId}` → 204.
+- **Concurrent writes.** Every write to one (component, environment, signal) — PUT, confirm, and
+  the detector's replace — holds that slot's transaction-scoped advisory lock
+  (`pg_advisory_xact_lock` on an FNV-1a hash of the slot), so two confirms or puts of a slot run one
+  after the other and never deadlock. A write that still trips the confirmed-row unique index
+  (23505) answers 409 `code: "conflict"` (PUT and confirm): read the slot again and retry.
 - `POST /v1/components/{id}/signals/preview {signal, data_source_id, recipe_id?, params?, query?,
   from?, to?, step_seconds?}` → `{rendered_query, series, warnings}`: validated as PUT, read as the
   series route (`rendered_query` is the p95 one for a per-quantile read); errors as
   `POST /v1/data-sources/{id}/query` (400 `bad_query`, 422 `unsupported`, 502 `upstream`).
 - `GET /v1/components/{id}/series?env=&signals=a,b&from=&to=&step_seconds=&compare=1` → `{from, to,
-  step_seconds, signals: [{signal, unit, bound, series, previous, error: {code, message}|null}]}`.
+  step_seconds, signals: [{signal, unit, bound, series, previous, error: {code, message}|null,
+  previous_error: {code, message}|null}]}`.
   `to` defaults to now and `from` to an hour before it; `step_seconds` absent or 0 → about 120
   points, at least 15 s; at most 90 days and 11 000 points (400 `fields`). No `signals` → every
   signal of the role. A quantile signal whose query takes `$__quantile` answers one series per
   quantile, named `p50`, `p95`, `p99` (label `quantile`). `compare=1` (or `true`) fills `previous`:
-  the window before, shifted onto this one's timestamps (else `[]`). Each signal stands alone:
-  `error.code` ∈ `unknown_signal`, `needs_params`, `unsupported` (not a metric, or a kind without
-  metrics), `bad_query`, `upstream`, `timeout`, `not_found`, `error`; an unbound one is `bound:
-  false` with no error. At most 4 queries at once, each cut off after 20 s.
+  the window before, shifted onto this one's timestamps (else `[]`); when only the previous window
+  fails, `previous` is `[]`, `previous_error` says why and `series` stands. Each signal stands
+  alone: `error.code` ∈ `unknown_signal`, `needs_params`, `unsupported` (not a metric, or a kind
+  without metrics), `bad_query`, `upstream`, `timeout`, `not_found`, `error`; an unbound one is
+  `bound: false` with no error. `error` (code `error`) is this server's own failure (a store or
+  decryption error): its message is a fixed "reading the signal failed", the detail only logged.
+  At most 4 queries at once, each cut off after 20 s, and 30 s for the whole read: a signal still
+  unread then answers `timeout`. Once a source times out, its remaining queries in the same read
+  are not made (`timeout`, "skipped: …"). `step_seconds` is the coarsest spacing any source
+  answered at, never finer than asked: CloudWatch reads at whole-minute periods (5 min past 15
+  days, 1 h past 63), so a 30 s step over CloudWatch answers 60. One read loads each data source's
+  row and secrets once, however many signals it answers.
 - `GET /v1/operations/golden?env=&from=&to=&component_id=…` → `{generated_at, components:
-  [{component_id, signals: [{signal, unit, value, previous, spark: [[unix_ms, value|null]]}]}]}`.
+  [{component_id, signals: [{signal, unit, bound, value, previous, spark: [[unix_ms,
+  value|null]]}]}]}`. `bound` is whether the component has a confirmed binding for the signal, so
+  an unbound signal reads apart from a bound one with no data.
   Every active component with a confirmed binding in `env` (at most 200, by name; `component_id`
   as for the errors inbox), with its role's golden signals from
   `catalog/observability/golden.yaml` (backend http.requests, http.error_ratio, http.latency;
@@ -805,13 +855,120 @@ component or binding id.
   − span, to] at span/30: `spark` is the window's ~30 points, `value` its last non-null one (the p95
   for a quantile signal), `previous` the last non-null one at or before that instant minus the
   span. An unbound or failing signal answers `null`s and an empty spark. At most 8 queries at
-  once, each cut off after 20 s. Answers are kept 60 s per (env, window, component set) and
-  dropped whenever a binding changes.
+  once, each cut off after 20 s, and 25 s for the whole read: a signal still unread then answers
+  `null`s; a source that timed out is not asked again within it. Answers are kept 60 s per (cache
+  scope, env, window, component set, version of the sources and recipes read through — each
+  source's `updated_at`, each recipe's content) and dropped whenever a binding changes or a source
+  is saved or deleted; polls asking the same at once share one read.
+- **Process-wide caches** (golden answers; discovered recipe matches, 5 min, at most 256 entries)
+  are keyed by `signals.Service.SetCacheScope(func(ctx) string)` as well; local mode leaves it
+  unset (scope `""`). A process serving several tenants must set it to the tenant on the context.
 
 **Table.** `signal_bindings` — `component_id` (→ `project_components`, cascade), `environment`,
 `signal`, `data_source_id` (→ `data_sources`, cascade), `recipe_id` (`''` for a raw query),
 `params` JSONB, `query` (`''` for a recipe), `status`, `source`; a partial unique index keeps one
 `confirmed` row per (component, environment, signal).
+
+**Company edition port.** The shared cloud runs one process for every tenant, so it must set
+`SetCacheScope` to the tenant, and re-key both the partial unique index
+`uq_signal_bindings_confirmed` and the `ON CONFLICT (…) WHERE status = 'confirmed'` target of
+`PutConfirmedSignalBinding` (`adapter/storage/postgres/signal_bindings.go`) to lead with
+`tenant_id` — `(tenant_id, component_id, environment, signal)`.
+
+## Alert rules (migration 189)
+
+`internal/application/alerting`. An **alert rule** is a condition on one catalog `signal` of one
+component environment, read through that environment's confirmed binding, or on a raw `query`
+against `data_source_id` (exactly one of the two). Mounted only when the signal routes are. Errors
+are the data source routes' shapes: 400 `{"error", "fields"}` (codes `required`, `invalid`,
+`invalid_option`, `too_long`), 404 for an unknown rule id, plus 422 `code: "unbound"` where a rule
+must be read and its signal has no confirmed binding.
+
+- **Rule** = `{id, name, component_id, environment, signal, data_source_id, query, condition: {op,
+  threshold, for_seconds, window_seconds}, severity, channels, open_incident, enabled, state,
+  state_since, last_value, last_evaluated_at, created_at, updated_at}`. `signal` is `''` for a raw
+  rule, `data_source_id` `null` and `query` `''` for a signal rule. `environment` ∈
+  `production|staging|preview|development` (default `production`); `severity` ∈
+  `critical|high|medium|low` (default `medium`); `channels` ⊆ `in_app, desktop, ios_push, slack,
+  email, webhook` (default `[]`); `enabled` defaults to `true`, `open_incident` to `false`;
+  `window_seconds` 60–86 400 (default 300), `for_seconds` 0–604 800 (default 0). `state` ∈
+  `ok|pending|firing|no_data` since `state_since`; `last_value` is the last judged value (`null`
+  with no data); `updated_at` moves only on an edit, never on an evaluation.
+- **Ops.** Every value is the latest sample of a read over `[now − 2·window, now]` at a step of one
+  window, at most 1.5 steps old (a source labelling a period by its start still counts); the
+  value a window earlier is the sample before it. A query answering several series is judged by
+  its worst at each instant (the highest; the lowest for `lt` and `change_pct_lt`). A quantile
+  signal is read at p95, a `web.*` one (Core Web Vitals) at p75. `gt`/`lt` compare the value with
+  `threshold`; `rising` holds while the value is above `threshold` **and** higher than a window
+  earlier (`threshold: 0` for a bare "is rising"); `change_pct_gt`/`change_pct_lt` compare the
+  percent change from a window earlier (`last_value` is then that percent; a zero or missing
+  earlier value is no data); `no_data` holds while there is no value (threshold unused). A read
+  that cannot work (signal unbound, query refused) is no data; a source that is down or slow
+  (`upstream`, timeout) leaves the rule where it is, so one failed query never resolves a firing
+  rule.
+- **State machine**, one step per evaluation: holding → `pending` until it has held `for_seconds`
+  (0: `firing` at once), then `firing`; not holding → `ok`; no value → `no_data`, except for a
+  `no_data` rule, where it is the condition. Leaving `firing` (for `ok` or `no_data`) resolves.
+  Every state change is an event. **Firing with `open_incident`** ingests an incident through
+  prodops — source `alert_rule`, fingerprint `alert:<rule id>`, the component's repository, env
+  `prod`/`stage`/`local`/`preview` for production/staging/development/preview, title `"<name>:
+  <value>"`, the rule's severity, payload `{rule_id, rule_name, component_id, environment, signal,
+  data_source_id?, query, condition, value}` — so its dedupe, remedy, policy and notifications
+  apply; resolving ingests the recovery of the same fingerprint. A firing or recovery prodops
+  refuses is tried again at the next evaluation (the rule stays pending or firing). **Without
+  `open_incident`** firing and resolving notify on the rule's `channels` (none: no notification)
+  with kind `alert_firing`/`alert_resolved`, source `alert`, source id the rule id, link
+  `/operations/entity/<component id>/alerts?rule=<rule id>`; at most one of each per rule every 30
+  minutes, so a flapping rule is heard about once.
+- **Evaluator.** `Sweep` takes the enabled rules last evaluated at least `alerting.interval` ago
+  (never-evaluated first, at most `alerting.max_rules_per_sweep`) and evaluates four at a time, each
+  read cut off after 20 s; it runs every quarter interval. An evaluation's write is dropped when
+  the rule was edited since it was read. Each sweep drops events older than 30 days.
+- `GET /v1/alert-rules?component_id=&env=` → `{"rules": [Rule]}` by name; both filters optional
+  (absent `env` = every environment).
+- `GET /v1/alert-rules/{id}` → Rule.
+- `POST /v1/alert-rules` → 201 Rule, `state: ok`. Fields: `name: required|too_long` (≤ 200);
+  `component_id: required|invalid` (malformed or unknown); `environment: invalid`; `signal:
+  required` (neither a signal nor a query), `invalid` (not a catalog signal), `invalid_option` (not
+  a metric); `query: required|too_long|invalid` (it names a param, which a raw rule has no value
+  for) or `invalid_option` (beside a signal); `data_source_id: required|invalid|invalid_option`
+  (beside a signal, or a source without metrics); `condition.op: required|invalid`;
+  `condition.window_seconds: invalid|too_long`; `condition.for_seconds: invalid|too_long`;
+  `severity: invalid`; `channels: invalid_option`.
+- `PATCH /v1/alert-rules/{id}` → Rule. Absent fields keep their value; naming a `signal` and neither
+  `query` nor `data_source_id` turns a raw rule into a signal rule (and a `query` or source without
+  `signal` the other way). Changing what the rule reads or tests (component, environment, signal,
+  source, query, condition), `open_incident` or `enabled` restarts it from `ok` — a firing rule is
+  resolved first; a new `name`, `severity` or `channels` keeps its state.
+- `DELETE /v1/alert-rules/{id}` → 204; a firing rule is resolved first.
+- `GET /v1/alert-rules/{id}/events?limit=` → `{"events": [{at, from_state, to_state, value,
+  incident_id}]}`, newest first; `limit` 1–500 (default 50; else 400 `fields.limit`).
+  `incident_id` is the incident a firing opened or a recovery resolved.
+- `POST /v1/alert-rules/backtest` a rule's fields (no `name` needed) + `"days"` (1–14, default 7)
+  → `{"fires": [{start, end, peak}], "series": [{name, points}], "step_seconds"}`. Replays the
+  state machine over the last `days` at a step of one window (wider, in whole minutes, past 2 000
+  steps), from `ok`: `end` is `null` for a firing still on at the end, `peak` the worst value while
+  firing. `series[0]` is what was read (named after the signal, or `query`), `[[unix_ms, value]]`;
+  a change rule adds `change_pct`, the percent it judged at each step. The read failing is the
+  answer (422 `unbound`, 400 `bad_query`, 502 `upstream`, …).
+- `POST /v1/alert-rules/suggest {component_id, environment?}` → `{"rules": [Rule without id and
+  state]}`, nothing saved: the role's templates for signals bound in the environment that no rule
+  of the component environment already tests with the same op. Thresholds from the last 14 days
+  of the signal at a 10-minute step (nearest-rank percentiles; under 12 samples the fallback):
+  backend `http.error_ratio` `gt` max(2, p99 × 1.3) for 5 m, high, incident; backend
+  `http.latency` `gt` 2 × the 14-day median of its p95 (fallback 1000 ms) for 10 m, medium;
+  worker `queue.backlog` `rising` above max(1000, p99 × 1.3) for 10 m over a 10-minute window,
+  high, incident (the "above and rising" pair is one rule, since `rising` has a floor); mobile and
+  desktop `mobile.crash_free_users` `lt` 99.5 for 30 m, high, incident; frontend `web.lcp` (p75)
+  `gt` 2500 ms for 15 m, medium. Thresholds keep 3 significant digits; `channels: ["desktop"]`.
+  400 `fields`: `component_id: invalid` (malformed or unknown), `environment: invalid`.
+
+**Tables.** `alert_rules` — `component_id` (→ `project_components`, cascade), `environment`,
+`signal` (`''` for a raw rule), `data_source_id` (→ `data_sources`, cascade; `NULL` for a signal
+rule), `query`, `condition` JSONB, `severity`, `channels` TEXT[], `open_incident`, `enabled`,
+`state`, `state_since`, `last_value`, `last_evaluated_at`; a CHECK keeps signal and raw query
+exclusive. `alert_events` — `rule_id` (cascade), `at`, `from_state`, `to_state`, `value`,
+`incident_id` (no foreign key).
 
 ## Task documents and analysis review (migration 164)
 
@@ -946,7 +1103,7 @@ carries the same text with the markers stripped.
 | `DELETE /v1/repositories/{id}/alert-tokens/{tokenId}` | 204; 404 when the token is unknown OR belongs to another repository (the delete matches both ids); 503 as above |
 | `POST /v1/alerts/ingest/{token}` | **No API key** — the token is the credential (`isPublicPath` lets exactly one segment under `/v1/alerts/ingest/` through). Same normalize + ingest as the incident webhook above, for the token's repository; environment is the payload's, else `?env=`, else the token's `default_env`. 413 when `Content-Length` (or, for a chunked body, the read length) is over 256 KiB, before the lookup; bare 404 for an unknown or malformed token; 400 non-JSON body; 201 `{incident_id}`; 202 for an unmatched recovery. **Limits per token** (`prod_ops.alert_ingest`, in memory): a request bucket keyed by the token hash (60/min, burst 10) and at most 20 NEW incidents per rolling hour (keyed by token id); over either, 429 `{"error":"rate_limited"}`. The hourly cap never refuses an alert that folds into an incident already open (its occurrences still count) or a recovery. `last_used_at` is stamped only when an alert is accepted. Logged paths go through `RedactPath`, so the token never reaches a log line. Migration 187 (`alert_ingest_tokens`) |
 
-Notifications: `prodops` decides when (a new or critical-recurring incident at `high` or above, at most once per 30 minutes per (repository, env, fingerprint), so a flapping alert that re-fires as a new incident each cycle does not notify each cycle; its recovery, cooled the same way under its own key; a fix proposed by anyone but a human) and hands a `domain.Notification` (title, body, severity, app link `/operations/issues?id=…`, source `incident`, source id) to `application/notify`, which fans it out to every registered and enabled `port.NotificationChannel` with a 5-second bound and logs, never returns, a channel's failure. Local mode registers `desktop` (the macOS banner); `in_app`, `ios_push`, `slack`, `email` and `webhook` are reserved kinds with no adapter yet.
+Notifications: `prodops` decides when (a new or critical-recurring incident at `high` or above, at most once per 30 minutes per (repository, env, fingerprint), so a flapping alert that re-fires as a new incident each cycle does not notify each cycle; its recovery, cooled the same way under its own key; a fix proposed by anyone but a human) and hands a `domain.Notification` (`kind`, title, body, severity, app link `/operations/issues?id=…`, source `incident`, source id) to `application/notify`, which fans it out to every registered and enabled `port.NotificationChannel` with a 5-second bound and logs, never returns, a channel's failure. `kind` is one of `incident_opened`, `incident_recovered`, `remedy_proposed`, `alert_firing`, `alert_resolved`, `rollback_suggested`, `release_rolled_back`. `application/release` notifies too, source `release`, link `/operations/changes?release=…`, at most once per 30 minutes per (kind, release) (`notify.Cooldown`, the same rule): `rollback_suggested` when the release engineer's `rollback_release` only writes a proposal (`auto_rollback` off), with `actions: [{id: "approve_rollback", label: "notifications.actions.approve_rollback"}]` — the label is a translation key — and `release_rolled_back` when a rollback nobody typed (an agent's, `auto_rollback` on) is under way; a human's own rollback is not told back. Local mode registers `desktop` (the macOS banner); `in_app`, `ios_push`, `slack`, `email` and `webhook` are reserved kinds with no adapter yet.
 
 ## Store operations
 

@@ -121,16 +121,20 @@ type SignalReadError struct {
 // SignalSeries is one signal of a component series read. Previous is the
 // window before, shifted onto this window's timestamps; empty unless asked
 // for. A signal that failed carries Error and no series; the others stand.
+// A previous window that failed carries PreviousError and leaves Series be.
 type SignalSeries struct {
-	Signal   string           `json:"signal"`
-	Unit     string           `json:"unit"`
-	Bound    bool             `json:"bound"`
-	Series   []Series         `json:"series"`
-	Previous []Series         `json:"previous"`
-	Error    *SignalReadError `json:"error"`
+	Signal        string           `json:"signal"`
+	Unit          string           `json:"unit"`
+	Bound         bool             `json:"bound"`
+	Series        []Series         `json:"series"`
+	Previous      []Series         `json:"previous"`
+	Error         *SignalReadError `json:"error"`
+	PreviousError *SignalReadError `json:"previous_error"`
 }
 
-// ComponentSeries is GET /v1/components/:id/series.
+// ComponentSeries is GET /v1/components/:id/series. StepSeconds is the
+// spacing the series were read at: the asked step, or coarser where a source
+// can only answer that (CloudWatch's whole-minute periods).
 type ComponentSeries struct {
 	From        time.Time      `json:"from"`
 	To          time.Time      `json:"to"`
@@ -140,10 +144,12 @@ type ComponentSeries struct {
 
 // GoldenSignal is one golden measure of a component: Value the last non-null
 // sample of the window (the p95 for a quantile signal), Previous the sample
-// one window earlier, Spark the window itself.
+// one window earlier, Spark the window itself. Bound tells a signal with no
+// confirmed binding from one that has one but answered no data.
 type GoldenSignal struct {
 	Signal   string        `json:"signal"`
 	Unit     string        `json:"unit"`
+	Bound    bool          `json:"bound"`
 	Value    *float64      `json:"value"`
 	Previous *float64      `json:"previous"`
 	Spark    []SeriesPoint `json:"spark"`

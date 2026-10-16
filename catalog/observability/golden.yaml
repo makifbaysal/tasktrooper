@@ -1,6 +1,8 @@
 # Golden signals: per component role, the few measures the Operations explorer
-# shows for every component, first the headline one. Every id must be in
-# signals.yaml. Loaded by server/internal/application/signals.
+# shows for every component, first the headline one, and what a release's
+# deploy impact compares before and after the deploy. Every id must be in
+# signals.yaml with a better direction. Loaded by
+# server/internal/application/signals.
 golden:
   backend: [http.requests, http.error_ratio, http.latency]
   worker: [queue.backlog, queue.consume_rate, process.errors]

@@ -101,6 +101,7 @@ type ReleaseService interface {
 	RunSmoke(ctx context.Context, releaseID uuid.UUID) ([]domain.SmokeResult, error)
 	Finish(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, note string) (domain.Release, error)
 	Rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error)
+	Impact(ctx context.Context, releaseID uuid.UUID) (domain.DeployImpact, error)
 }
 
 type ToolKit struct {
@@ -117,10 +118,10 @@ type ToolKit struct {
 	// PullRequests is nil — it needs GitHub.
 	DeployWatch DeployWatch
 	// Releases is the release-engineer's service: the release covering a
-	// task, and the actions that move it — deploy, watch, verify, finish,
-	// roll back. Nil on a build where it has not been wired yet (it is built
-	// later in the boot sequence than this registration runs, the same
-	// reason DeployWatch is read at call time), which is why the six release
+	// task, its deploy impact, and the actions that move it — deploy, watch,
+	// verify, finish, roll back. Nil on a build where it has not been wired yet
+	// (it is built later in the boot sequence than this registration runs, the
+	// same reason DeployWatch is read at call time), which is why the release
 	// tools answer "the release service is not configured on this
 	// deployment" instead of failing to register.
 	Releases ReleaseService
@@ -238,6 +239,7 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 			newRunSmokeChecksTool(kit),
 			newFinishReleaseTool(kit),
 			newRollbackReleaseTool(kit),
+			newGetDeployImpactTool(kit),
 		)
 	}
 	return execs

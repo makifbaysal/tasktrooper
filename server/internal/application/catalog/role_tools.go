@@ -150,6 +150,7 @@ var (
 		domain.RunSmokeChecksToolName,
 		domain.FinishReleaseToolName,
 		domain.ReleaseRollbackToolName,
+		domain.GetDeployImpactToolName,
 	}
 )
 

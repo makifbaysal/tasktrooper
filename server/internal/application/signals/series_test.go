@@ -2,6 +2,7 @@ package signals_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -237,4 +238,51 @@ func (s *SignalsSuite) TestSeriesReadsACloudWatchQuantileSignalOncePerPercentile
 		names = append(names, sr.Name)
 	}
 	s.Equal([]string{"p50", "p95", "p99"}, names)
+}
+
+func (s *SignalsSuite) TestSeriesKeepsThisWindowWhenThePreviousOneFails() {
+	api := s.component(domain.ComponentRoleBackend, "api")
+	s.stored(api.ID, domain.EnvironmentProduction, s.binding(api, "http.requests", domain.SignalBindingConfirmed, map[string]string{"job": "api"}))
+	from := s.now.Add(-time.Hour)
+	s.answers(mock.MatchedBy(func(q domain.SeriesQuery) bool { return q.From.Equal(from) }),
+		domain.Series{Name: "now", Points: points(from, time.Minute, value(5))}).Once()
+	s.querier.On("Series", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(q domain.SeriesQuery) bool { return q.To.Equal(from) })).
+		Return(domain.SeriesResult{}, errors.New("query: HTTP 503")).Once()
+
+	got, err := s.svc.Series(s.ctx, api.ID, signals.SeriesQuery{
+		Environment: domain.EnvironmentProduction, Signals: []string{"http.requests"}, Compare: true,
+	})
+
+	s.Require().NoError(err)
+	req := got.Signals[0]
+	s.Nil(req.Error)
+	s.Require().Len(req.Series, 1)
+	s.Equal("now", req.Series[0].Name)
+	s.Equal([]domain.Series{}, req.Previous)
+	s.Require().NotNil(req.PreviousError)
+	s.Equal(domain.SignalErrUpstream, req.PreviousError.Code)
+	s.Equal("query: HTTP 503", req.PreviousError.Message)
+}
+
+func (s *SignalsSuite) TestSeriesStepIsTheCoarsestSpacingASourceAnsweredAt() {
+	api := s.component(domain.ComponentRoleBackend, "api")
+	cw := s.addSource(domain.DataSource{Kind: domain.DataSourceKindCloudWatch, Name: "aws"})
+	backlog := s.binding(api, "queue.backlog", domain.SignalBindingConfirmed, nil)
+	backlog.DataSourceID, backlog.RecipeID = cw.ID, ""
+	backlog.Query = `{"namespace": "AWS/SQS", "metric": "ApproximateNumberOfMessagesVisible", "stat": "Maximum", "dimensions": {"QueueName": "orders"}}`
+	s.stored(api.ID, domain.EnvironmentProduction,
+		s.binding(api, "http.requests", domain.SignalBindingConfirmed, map[string]string{"job": "api"}), backlog)
+	s.answers(mock.Anything, domain.Series{Name: "requests"}).Once()
+	s.cwQuerier.On("Series", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(domain.SeriesResult{Series: []domain.Series{{Name: "backlog"}}, Step: time.Minute}, nil).Once()
+
+	got, err := s.svc.Series(s.ctx, api.ID, signals.SeriesQuery{
+		Environment: domain.EnvironmentProduction, Signals: []string{"http.requests", "queue.backlog"},
+	})
+
+	s.Require().NoError(err)
+	s.Equal(int64(60), got.StepSeconds)
+	for _, sig := range got.Signals {
+		s.Nil(sig.Error, sig.Signal)
+	}
 }

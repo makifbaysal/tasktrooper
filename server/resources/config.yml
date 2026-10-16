@@ -82,6 +82,22 @@ deploy_ops:
   # rolled back. Short on purpose: it authorises undoing a specific card's
   # release, so a coincidence must not reach it.
   health_window: "15m"
+  # Deploy impact: how far a golden signal must move across a deploy (the
+  # hour before against the hour after, and the same hour a day earlier) to
+  # read as improved or worse — percent of its value before, or percentage
+  # points for a ratio signal such as an error rate.
+  impact:
+    change_pct: 10
+    ratio_points: 0.5
+
+# The alert rule evaluator: each enabled rule is read and judged once per
+# interval (one query against its data source), at most max_rules_per_sweep a
+# sweep, four at a time. A sweep runs every quarter interval, so a rule is
+# judged at most a quarter interval late.
+alerting:
+  enabled: true
+  interval: "1m"
+  max_rules_per_sweep: 200
 
 storeops:
   poll_interval: "5m"

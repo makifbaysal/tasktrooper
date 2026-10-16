@@ -371,6 +371,16 @@ The three `alert_ingest` limits are in memory (one process; a restart resets the
 | `monitor_enabled` | `true` | Mirrors Actions deploy runs into `deployment_runs`, matches console dispatches, turns a failed deploy into an incident. When off, rollback cannot find the commit to return to and release attribution is impossible |
 | `poll_interval` | `2m` | At most one GitHub call per sweep, per (repository × environment) |
 | `health_window` | `15m` | How long after a successful deploy an incident is attributed to the releasing task; `auto_rollback` fires inside this window. Deliberately short — it authorizes rolling back a specific card's release. The 45-minute general correlation in `prodops/remedy.go` is independent of it and only writes advice |
+| `impact.change_pct` | `10` | Deploy impact (`GET /v1/releases/{id}/impact`, `get_deploy_impact`): how far a golden signal must move from the hour before the deploy, in percent of its value then, to read as improved or worse rather than neutral |
+| `impact.ratio_points` | `0.5` | The same for a ratio signal (`http.error_ratio`, `mobile.crash_free_users`, …), in percentage points. `0` or less means the default for both |
+
+## Alerting (`alerting`)
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Runs the alert rule evaluator (`internal/application/alerting`, migration 189). Off, rules can still be edited and backtested; none changes state |
+| `interval` | `1m` | How often each enabled rule is judged: one query against its data source per rule per interval. A sweep runs every quarter interval and takes the rules last judged at least an interval ago, never-judged first |
+| `max_rules_per_sweep` | `200` | At most this many rules per sweep, four at a time; the rest wait for the next sweep. `0` or less means the default |
 
 ## Store ops (`storeops`)
 

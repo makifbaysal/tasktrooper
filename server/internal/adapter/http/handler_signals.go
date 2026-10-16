@@ -10,6 +10,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/signals"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 // registerSignalRoutes mounts signal bindings, a component's series and the
@@ -37,6 +38,8 @@ func signalsErr(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, signals.ErrConfirmed):
 		return cErrCode(c, fiber.StatusConflict, err, "confirmed")
+	case errors.Is(err, port.ErrSignalBindingConflict):
+		return cErrCode(c, fiber.StatusConflict, err, "conflict")
 	case errors.Is(err, signals.ErrInvalidInput):
 		return cErr(c, fiber.StatusBadRequest, err)
 	default:

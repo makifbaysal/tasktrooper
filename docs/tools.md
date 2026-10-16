@@ -136,6 +136,7 @@ See [Deploy targets and recipes](deploy.md) → "Releases" for the full flow.
 | `run_smoke_checks` | Runs the release's frozen smoke checks against production right now, read-only | `release-engineer` only |
 | `finish_release` | Confirms a release as shipped; the only way a task reaches Released | `release-engineer` only, and only Done/Released |
 | `rollback_release` | Rolls a release back off production: reverts the merge, redeploys or lets the provider's own push-to-deploy redeploy (instant provider rollback only for an `on_merge` component); refused while a newer release of the component is open or has already shipped | `release-engineer` only, and only Done/Released |
+| `get_deploy_impact` | Reads what a release did to its component's golden signals: the hour before the deploy against the hour after and the same hour a day earlier, a verdict per signal and overall, and whether the release may roll back on its own | `release-engineer` only |
 | `get_deploy_logs` | Reads the log behind a deploy (a release's failed job by default), summarized | `release-engineer` only |
 | `list_deploy_templates` | Lists the deploy recipe catalog | Developer roles (they get the "set up `<env>` deploy" tasks) — not the release engineer or the PM |
 | `load_deploy_template` | Reads one recipe in full | Same as above |

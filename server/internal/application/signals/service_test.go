@@ -352,10 +352,12 @@ func (s *SignalsSuite) TestDismissMarksASuggestionAndRefusesTheConfirmedBinding(
 	api := s.component(domain.ComponentRoleBackend, "api")
 	pending := s.binding(api, "http.requests", domain.SignalBindingSuggested, nil)
 	confirmed := s.binding(api, "http.latency", domain.SignalBindingConfirmed, nil)
-	s.bindings.On("GetSignalBinding", mock.Anything, pending.ID).Return(pending, nil).Once()
-	s.bindings.On("GetSignalBinding", mock.Anything, confirmed.ID).Return(confirmed, nil).Once()
-	s.bindings.On("SetSignalBindingStatus", mock.Anything, pending.ID, domain.SignalBindingDismissed).Return(pending, nil).Once()
+	dismissed := pending
+	dismissed.Status = domain.SignalBindingDismissed
+	s.bindings.On("DismissSignalBinding", mock.Anything, pending.ID).Return(dismissed, nil).Twice()
+	s.bindings.On("DismissSignalBinding", mock.Anything, confirmed.ID).Return(confirmed, nil).Once()
 
+	s.NoError(s.svc.Dismiss(s.ctx, pending.ID))
 	s.NoError(s.svc.Dismiss(s.ctx, pending.ID))
 	s.ErrorIs(s.svc.Dismiss(s.ctx, confirmed.ID), signals.ErrConfirmed)
 }
@@ -375,6 +377,7 @@ func (s *SignalsSuite) TestNewServiceRefusesAGoldenListTheCatalogDoesNotBackUp()
 		{"unknown signal", "golden:\n  backend: [http.nope]\n", "not in the signal catalog"},
 		{"unknown role", "golden:\n  robot: [http.requests]\n", "unknown role"},
 		{"listed twice", "golden:\n  backend: [http.requests, http.requests]\n", "twice"},
+		{"no better direction", "golden:\n  backend: [infra.instances]\n", "no better direction"},
 		{"unknown key", "golden: {}\nextra: 1\n", "extra"},
 	}
 	policy := urlguard.HumanConfigured()

@@ -21,6 +21,7 @@ type Config struct {
 	ProdOps       ProdOpsConfig       `koanf:"prod_ops"`
 	Storeops      StoreopsConfig      `koanf:"storeops"`
 	DeployOps     DeployOpsConfig     `koanf:"deploy_ops"`
+	Alerting      AlertingConfig      `koanf:"alerting"`
 	ClaudeCode    ClaudeCodeConfig    `koanf:"claude_code"`
 	Antigravity   AntigravityConfig   `koanf:"antigravity"`
 	CursorAgent   CursorAgentConfig   `koanf:"cursor_agent"`
@@ -118,7 +119,30 @@ type DeployOpsConfig struct {
 	// attributed to the task that just released (the post-release watch and
 	// auto_rollback window); 0 means the package default (15m). Short on
 	// purpose: it authorises a rollback of a specific card.
-	HealthWindow time.Duration `koanf:"health_window"`
+	HealthWindow time.Duration      `koanf:"health_window"`
+	Impact       DeployImpactConfig `koanf:"impact"`
+}
+
+// DeployImpactConfig is how far a golden signal must move across a deploy to
+// count as improved or worse rather than neutral: ChangePct percent of its
+// value before the deploy, or RatioPoints percentage points for a ratio
+// signal (an error rate, crash-free users). 0 means the default (10, 0.5).
+type DeployImpactConfig struct {
+	ChangePct   float64 `koanf:"change_pct"`
+	RatioPoints float64 `koanf:"ratio_points"`
+}
+
+const (
+	DefaultImpactChangePct   = 10
+	DefaultImpactRatioPoints = 0.5
+)
+
+// AlertingConfig drives the alert rule evaluator. Zero or less means the
+// default (every minute, 200 rules per sweep).
+type AlertingConfig struct {
+	Enabled          bool          `koanf:"enabled"`
+	Interval         time.Duration `koanf:"interval"`
+	MaxRulesPerSweep int           `koanf:"max_rules_per_sweep"`
 }
 
 // EvolutionConfig drives agent self-evolution.

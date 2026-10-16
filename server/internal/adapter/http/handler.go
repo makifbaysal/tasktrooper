@@ -25,6 +25,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpserver"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	agentcliapp "github.com/makifbaysal/tasktrooper/server/internal/application/agentcli"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/alerting"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/apikey"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/attachment"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/billing"
@@ -155,6 +156,7 @@ type Handler struct {
 	dataSourceSvc   *datasource.Service
 	opsQuerySvc     *opsquery.Service
 	signalsSvc      *signals.Service
+	alertingSvc     *alerting.Service
 	envRequirements EnvRequirementService
 	localPreviewSvc *localpreview.Service
 	simRunSvc       *simrun.Service
@@ -227,6 +229,7 @@ type Config struct {
 	DataSourceSvc     *datasource.Service
 	OpsQuerySvc       *opsquery.Service
 	SignalsSvc        *signals.Service
+	AlertingSvc       *alerting.Service
 	EnvRequirements   EnvRequirementService
 	LocalPreviewSvc   *localpreview.Service
 	SimRunSvc         *simrun.Service
@@ -298,6 +301,7 @@ func NewHandler(cfg Config) *Handler {
 		dataSourceSvc:     cfg.DataSourceSvc,
 		opsQuerySvc:       cfg.OpsQuerySvc,
 		signalsSvc:        cfg.SignalsSvc,
+		alertingSvc:       cfg.AlertingSvc,
 		envRequirements:   cfg.EnvRequirements,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		simRunSvc:         cfg.SimRunSvc,
@@ -349,6 +353,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerOpsQueryRoutes(app)
 	h.registerDataSourceRoutes(app)
 	h.registerSignalRoutes(app)
+	h.registerAlertRuleRoutes(app)
 	h.registerEnvRequirementRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)

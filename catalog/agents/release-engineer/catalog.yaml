@@ -43,6 +43,7 @@ tool_policy:
         - run_smoke_checks
         - finish_release
         - rollback_release
+        - get_deploy_impact
         - get_deploy_logs
         - list_incidents
         - get_incident

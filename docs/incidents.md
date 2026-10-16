@@ -168,10 +168,13 @@ incident whose onset falls inside it is attributed to that specific release
 and its newest task, which is what wakes the **release engineer** on the
 task's card in Released — see [Deploy targets and recipes](deploy.md) →
 "Releases" — rather than only producing generic "roll back the last deploy"
-advice with no card to act on. The release engineer reads the logs and the
-incident, and either calls `rollback_release` (executed automatically when
-the component's delivery profile has `auto_rollback` on, or written up as a
-proposal for a human to confirm otherwise) or explains why the incident is
+advice with no card to act on. The release engineer reads the logs, the
+incident and the release's [deploy impact](deploy.md#deploy-impact) (its
+golden signals the hour before the deploy against the hour after), and
+either calls `rollback_release` (executed automatically when the
+component's delivery profile has `auto_rollback` on, or written up as a
+proposal for a human to confirm otherwise, with a "rollback suggested"
+notification) or explains why the incident is
 not this release's doing and leaves it alone. A component with no release
 history to attribute to falls back to the older, environment-keyed remedy
 above, gated by the deploy target's own `auto_rollback` field instead.

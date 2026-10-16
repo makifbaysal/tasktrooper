@@ -2,6 +2,7 @@ package signals_test
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -33,18 +34,28 @@ func (s *SignalsSuite) noEnvironments(c domain.Component) {
 // expectSuggestions captures what Suggest stores and answers it back on the
 // re-read that follows.
 func (s *SignalsSuite) expectSuggestions(c domain.Component, existing []domain.SignalBinding) *[]domain.SignalBinding {
+	saved, _ := s.expectSuggestionsFrom(c, existing)
+	return saved
+}
+
+// expectSuggestionsFrom also captures the sources Suggest heard back from.
+func (s *SignalsSuite) expectSuggestionsFrom(c domain.Component, existing []domain.SignalBinding) (*[]domain.SignalBinding, *[]uuid.UUID) {
 	var saved []domain.SignalBinding
+	var answered []uuid.UUID
 	s.bindings.On("ListSignalBindings", mock.Anything, c.ID, domain.EnvironmentProduction).Return(existing, nil).Once()
-	s.bindings.On("ReplaceDetectedSuggestions", mock.Anything, c.ID, domain.EnvironmentProduction, mock.Anything).
-		Run(func(args mock.Arguments) { saved = args.Get(3).([]domain.SignalBinding) }).
-		Return(func(_ context.Context, _ uuid.UUID, _ domain.DeployEnvironment, list []domain.SignalBinding) ([]domain.SignalBinding, error) {
+	s.bindings.On("ReplaceDetectedSuggestions", mock.Anything, c.ID, domain.EnvironmentProduction, mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			answered = args.Get(3).([]uuid.UUID)
+			saved = args.Get(4).([]domain.SignalBinding)
+		}).
+		Return(func(_ context.Context, _ uuid.UUID, _ domain.DeployEnvironment, _ []uuid.UUID, list []domain.SignalBinding) ([]domain.SignalBinding, error) {
 			return list, nil
 		}).Once()
 	s.bindings.On("ListSignalBindings", mock.Anything, c.ID, domain.EnvironmentProduction).
 		Return(func(context.Context, uuid.UUID, domain.DeployEnvironment) ([]domain.SignalBinding, error) {
 			return append(append([]domain.SignalBinding{}, existing...), saved...), nil
 		}).Once()
-	return &saved
+	return &saved, &answered
 }
 
 func summarizeBindings(list []domain.SignalBinding) []string {
@@ -200,4 +211,65 @@ func (s *SignalsSuite) TestSuggestLeavesTheResourceParamsNoRefNamesToFill() {
 	s.Equal("gcp-gke-workload", cpu.Suggestions[0].RecipeID)
 	s.Equal(map[string]string{"cluster": "prod-cluster", "location": "europe-west3"}, cpu.Suggestions[0].Params)
 	s.Equal([]string{"namespace", "workload"}, cpu.Suggestions[0].NeedsParams)
+}
+
+func (s *SignalsSuite) TestSuggestNamesTheComponentOnlyByTheResourcesOfThatEnvironment() {
+	tests := []struct {
+		name string
+		env  domain.DeployEnvironment
+		want []string
+	}{
+		{"another environment's resource", domain.EnvironmentStaging, []string{"http.error_ratio svc-http ", "http.latency svc-http ", "http.requests svc-http "}},
+		{"this environment's resource", domain.EnvironmentProduction, []string{"http.error_ratio svc-http job=pay-gateway", "http.latency svc-http job=pay-gateway", "http.requests svc-http job=pay-gateway"}},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.reset()
+			api := s.component(domain.ComponentRoleBackend, "checkout")
+			s.envs.On("ListEnvironments", mock.Anything, api.RepositoryID).Return([]domain.ComponentEnvironment{{
+				ID: uuid.New(), ComponentID: api.ID, Environment: tt.env, Status: domain.LinkConfirmed,
+				Resource: &domain.CloudResourceRef{Kind: domain.CloudResourceCloudRunService, Name: "pay-gateway"},
+			}}, nil).Once()
+			s.inventory(httpMetric)
+			s.labelProbe(`count by (job) (`+httpMetric+`)`, map[string]string{"job": "pay-gateway"})
+			saved := s.expectSuggestions(api, nil)
+
+			_, err := s.svc.Suggest(s.ctx, api.ID, domain.EnvironmentProduction)
+
+			s.Require().NoError(err)
+			s.Equal(tt.want, summarizeBindings(*saved))
+		})
+	}
+}
+
+func (s *SignalsSuite) TestSuggestReplacesOnlyTheSuggestionsOfSourcesThatAnswered() {
+	api := s.component(domain.ComponentRoleBackend, "api")
+	other := s.addSource(domain.DataSource{Kind: domain.DataSourceKindPrometheus, Name: "other prom"})
+	s.noEnvironments(api)
+	s.inventory(httpMetric)
+	s.discoverer.On("Discover", mock.Anything, onSource(other), mock.Anything).
+		Return(domain.Inventory{}, errors.New("label values: HTTP 503")).Once()
+	s.labelProbe(`count by (job) (`+httpMetric+`)`, map[string]string{"job": "api"})
+	saved, answered := s.expectSuggestionsFrom(api, nil)
+
+	_, err := s.svc.Suggest(s.ctx, api.ID, domain.EnvironmentProduction)
+
+	s.Require().NoError(err)
+	s.Equal([]uuid.UUID{s.promSource.ID}, *answered)
+	s.Len(*saved, 3)
+}
+
+func (s *SignalsSuite) TestSuggestCountsAFailedLabelProbeAsTheSourceNotAnswering() {
+	api := s.component(domain.ComponentRoleBackend, "api")
+	s.noEnvironments(api)
+	s.inventory(httpMetric)
+	s.querier.On("Series", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(domain.SeriesResult{}, errors.New("query: HTTP 502")).Once()
+	saved, answered := s.expectSuggestionsFrom(api, nil)
+
+	_, err := s.svc.Suggest(s.ctx, api.ID, domain.EnvironmentProduction)
+
+	s.Require().NoError(err)
+	s.Empty(*answered)
+	s.Equal([]string{"http.error_ratio svc-http ", "http.latency svc-http ", "http.requests svc-http "}, summarizeBindings(*saved))
 }

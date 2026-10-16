@@ -551,7 +551,28 @@ or explicitly report EVERY entry in `rollback.manual_steps`, then call
 nothing redeployed) when the release is not `failed`, `awaiting_verdict`, or
 `released` within 24h and still the component's newest released release, OR
 when a newer release of the component is already open or has since shipped
-(`ErrReleaseWrongStatus`, naming which).
+(`ErrReleaseWrongStatus`, naming which). With `auto_rollback` off the proposal
+also notifies a human (`rollback_suggested`, with an `approve_rollback`
+action); an executed agent rollback notifies `release_rolled_back`.
+
+### `get_deploy_impact`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | no | Board task UUID or board key. |
+
+Reads the deploy impact of the release covering this task — the same
+`domain.DeployImpact` `GET /v1/releases/{id}/impact` answers (see
+`.ai/api-spec.md` → "Releases"): each bound golden signal's mean over the hour
+before the deploy, the hour after it and that hour a day earlier, `delta`,
+`delta_pct`, `higher_is_better` and a verdict, the worst of them as the
+overall `verdict`, `pending` while the hour after is not over. The result is
+`{impact, auto_rollback, next}`: `auto_rollback` is the release's frozen
+profile flag, deciding whether a `rollback_release` the impact calls for
+executes or only proposes; `next` (`tool_results.board_deploy_impact_next`)
+says which per verdict. Changes nothing, never parks. Release engineer only;
+the `released` column reads it when an incident lands in a release's
+attribution window.
 
 See `.ai/architecture.md` → "Releases (migrations 159–161)" for the full state
 machine, the provider-rollback mechanism and the Vercel promote trap, and the

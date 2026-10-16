@@ -104,6 +104,7 @@ func TestTheSignalCatalogCoversEveryRole(t *testing.T) {
 	assert.Equal(t, domain.Signal{
 		ID: "http.requests", Kind: domain.SignalMetric, Unit: "req/s",
 		Roles: []domain.ComponentRole{domain.ComponentRoleBackend}, Aggregation: domain.AggregationRate,
+		Better: domain.SignalHigherIsBetter,
 	}, byID["http.requests"])
 }
 
@@ -167,6 +168,7 @@ func TestLoadCatalogRefusesABrokenSignal(t *testing.T) {
 		{"unknown aggregation", `signals: [{id: queue.backlog, kind: metric, unit: m, roles: [worker], aggregation: p99}]`, "unknown aggregation"},
 		{"listed twice", `signals: [{id: a.b, kind: metric, unit: m, roles: [worker], aggregation: gauge}, {id: a.b, kind: metric, unit: m, roles: [worker], aggregation: gauge}]`, "twice"},
 		{"undotted id", `signals: [{id: backlog, kind: metric, unit: m, roles: [worker], aggregation: gauge}]`, "dotted"},
+		{"unknown direction", `signals: [{id: queue.backlog, kind: metric, unit: m, roles: [worker], aggregation: gauge, better: sideways}]`, "not higher or lower"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -335,4 +337,20 @@ func TestACloudWatchDetectMetricIsNamespaceSlashName(t *testing.T) {
 	}
 	assert.NoError(t, c.ValidateRecipe(recipe(domain.DataSourceKindCloudWatch, "AWS/SQS/ApproximateNumberOfMessagesVisible")))
 	assert.ErrorContains(t, c.ValidateRecipe(recipe(domain.DataSourceKindCloudWatch, "ApproximateNumberOfMessagesVisible")), "detect.metric")
+}
+
+func TestTheShippedCatalogSaysWhichWayEachJudgedSignalIsBetter(t *testing.T) {
+	c, err := datasource.LoadCatalog(catalog.ObservabilityFS(), domain.BuiltinDataSourceKinds())
+	require.NoError(t, err)
+	better := map[string]domain.SignalDirection{}
+	for _, s := range c.Signals() {
+		better[s.ID] = s.Better
+	}
+	assert.Equal(t, domain.SignalLowerIsBetter, better[domain.SignalHTTPErrorRatio])
+	assert.Equal(t, domain.SignalLowerIsBetter, better[domain.SignalHTTPLatency])
+	assert.Equal(t, domain.SignalLowerIsBetter, better["queue.backlog"])
+	assert.Equal(t, domain.SignalLowerIsBetter, better["mobile.cold_start"])
+	assert.Equal(t, domain.SignalHigherIsBetter, better["http.requests"])
+	assert.Equal(t, domain.SignalHigherIsBetter, better["mobile.crash_free_users"])
+	assert.Equal(t, domain.SignalDirection(""), better["infra.instances"])
 }

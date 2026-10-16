@@ -335,3 +335,38 @@ func TestTheAccountMustBeAConnectedAWSOne(t *testing.T) {
 	assert.ErrorContains(t, err, "not an AWS account")
 	assert.Empty(t, f.calls)
 }
+
+func TestSeriesReportsThePeriodItReadAtAsTheStep(t *testing.T) {
+	f := newFixture(t, func(int, url.Values) (int, string) { return 200, dataPage("m", "x", nil, "") })
+
+	res, err := f.adapter.Series(context.Background(), f.source(nil), nil, query(backlog, 15*time.Second, f.now.Add(-time.Hour)))
+
+	require.NoError(t, err)
+	assert.Equal(t, time.Minute, res.Step)
+}
+
+func TestDiscoverMetricAsksListMetricsForThatNamespaceAndNameOnly(t *testing.T) {
+	answers := map[string]string{
+		"ECS/ContainerInsights RunningTaskCount":     `<ListMetricsResponse><ListMetricsResult><Metrics><member><Namespace>ECS/ContainerInsights</Namespace><MetricName>RunningTaskCount</MetricName><Dimensions/></member></Metrics></ListMetricsResult></ListMetricsResponse>`,
+		"AWS/SQS ApproximateNumberOfMessagesVisible": `<ListMetricsResponse><ListMetricsResult><Metrics/></ListMetricsResult></ListMetricsResponse>`,
+	}
+	f := newFixture(t, func(_ int, form url.Values) (int, string) {
+		return 200, answers[form.Get("Namespace")+" "+form.Get("MetricName")]
+	})
+	ds := f.source(nil)
+
+	found, err := f.adapter.DiscoverMetric(context.Background(), ds, nil, "ECS/ContainerInsights/RunningTaskCount")
+	require.NoError(t, err)
+	assert.True(t, found)
+	found, err = f.adapter.DiscoverMetric(context.Background(), ds, nil, "AWS/SQS/ApproximateNumberOfMessagesVisible")
+	require.NoError(t, err)
+	assert.False(t, found)
+	found, err = f.adapter.DiscoverMetric(context.Background(), ds, nil, "no-namespace")
+	require.NoError(t, err)
+	assert.False(t, found)
+
+	require.Len(t, f.calls, 2)
+	assert.Equal(t, "ListMetrics", f.calls[0].form.Get("Action"))
+	assert.Equal(t, "PT3H", f.calls[0].form.Get("RecentlyActive"))
+	assert.Empty(t, f.calls[0].form.Get("NextToken"))
+}

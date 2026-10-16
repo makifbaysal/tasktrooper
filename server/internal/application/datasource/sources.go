@@ -123,11 +123,16 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req domain.PatchData
 	if err != nil {
 		return domain.DataSource{}, err
 	}
+	s.changed(id)
 	return s.verifyAndRecord(ctx, adapter, saved, secrets)
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.store.DeleteDataSource(ctx, id)
+	if err := s.store.DeleteDataSource(ctx, id); err != nil {
+		return err
+	}
+	s.changed(id)
+	return nil
 }
 
 // Verify re-checks a stored source. A failure is recorded in Status and

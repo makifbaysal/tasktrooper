@@ -146,8 +146,10 @@ func (a *API) Probe(ctx context.Context, ep Endpoint) error {
 	return c.probe(ctx)
 }
 
+// probe POSTs the form: Prometheus takes GET or POST there, and Google's
+// Cloud Monitoring API documents prometheus.api.v1.query as POST only.
 func (c *conn) probe(ctx context.Context) error {
-	r, err := c.call(ctx, http.MethodGet, "/api/v1/query", url.Values{"query": {"1"}}, maxSmallBody)
+	r, err := c.call(ctx, http.MethodPost, "/api/v1/query", url.Values{"query": {"1"}}, maxSmallBody)
 	if err != nil {
 		return err
 	}

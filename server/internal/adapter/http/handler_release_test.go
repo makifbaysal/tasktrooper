@@ -36,6 +36,8 @@ type fakeReleaseService struct {
 	cutErr        error
 	testSmokeErr  error
 
+	impacts map[uuid.UUID]domain.DeployImpact
+
 	cutPreview        domain.ReleaseCutPreview
 	testSmokeBaseURL  string
 	testSmokeResults  []domain.SmokeResult
@@ -143,6 +145,17 @@ func (f *fakeReleaseService) TestSmoke(_ context.Context, componentID uuid.UUID,
 		return "", nil, f.testSmokeErr
 	}
 	return f.testSmokeBaseURL, f.testSmokeResults, nil
+}
+
+func (f *fakeReleaseService) Impact(_ context.Context, id uuid.UUID) (domain.DeployImpact, error) {
+	r, ok := f.releases[id]
+	if !ok {
+		return domain.DeployImpact{}, domain.ErrReleaseNotFound
+	}
+	if impact, ok := f.impacts[id]; ok {
+		return impact, nil
+	}
+	return domain.NewDeployImpact(r, time.Now()), nil
 }
 
 func (f *fakeReleaseService) Cut(_ context.Context, id uuid.UUID, actor domain.ReleaseActor, req domain.ReleaseCutRequest) (domain.Release, error) {
@@ -641,4 +654,70 @@ func TestListAllReleasesRejectsBadFilters(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode, query)
 	}
+}
+
+func TestGetReleaseImpactUnknownReleaseIs404(t *testing.T) {
+	app, _, _ := newReleaseTestApp(t)
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/"+uuid.New().String()+"/impact", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+}
+
+func TestGetReleaseImpactRejectsNonUUID(t *testing.T) {
+	app, _, _ := newReleaseTestApp(t)
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/nope/impact", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestGetReleaseImpactWithNothingBoundIsUnknownWithNoSignals(t *testing.T) {
+	deployed := time.Now().Add(-3 * time.Hour)
+	r := domain.Release{ID: uuid.New(), DeployedAt: &deployed}
+	app, _, _ := newReleaseTestApp(t, r)
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/"+r.ID.String()+"/impact", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, "unknown", body["verdict"])
+	assert.Equal(t, []any{}, body["signals"])
+	assert.Equal(t, false, body["pending"])
+	assert.Equal(t, "production", body["environment"])
+	assert.EqualValues(t, 60, body["window_minutes"])
+}
+
+func TestGetReleaseImpactAnswersTheContract(t *testing.T) {
+	componentID := uuid.New()
+	deployed := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	r := domain.Release{ID: uuid.New(), ComponentID: &componentID, DeployedAt: &deployed}
+	app, _, svc := newReleaseTestApp(t, r)
+	before, after, baseline, delta := 0.4, 2.5, 0.5, 2.1
+	pct := 525.0
+	svc.impacts = map[uuid.UUID]domain.DeployImpact{r.ID: {
+		ReleaseID: r.ID, ComponentID: &componentID, Environment: domain.EnvironmentProduction,
+		DeployedAt: &deployed, WindowMinutes: 60, Verdict: domain.ImpactWorse, ComputedAt: deployed.Add(time.Hour),
+		Signals: []domain.SignalImpact{{
+			Signal: domain.SignalHTTPErrorRatio, Unit: "%", Before: &before, After: &after, Baseline: &baseline,
+			Delta: &delta, DeltaPct: &pct, Verdict: domain.ImpactWorse,
+		}},
+	}}
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/"+r.ID.String()+"/impact", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	for _, key := range []string{"release_id", "component_id", "environment", "deployed_at", "window_minutes", "pending", "verdict", "computed_at", "signals"} {
+		assert.Contains(t, body, key)
+	}
+	signals := body["signals"].([]any)
+	require.Len(t, signals, 1)
+	sig := signals[0].(map[string]any)
+	for _, key := range []string{"signal", "unit", "before", "after", "baseline", "delta", "delta_pct", "higher_is_better", "verdict"} {
+		assert.Contains(t, sig, key)
+	}
+	assert.Equal(t, "worse", body["verdict"])
+	assert.Equal(t, "http.error_ratio", sig["signal"])
+	assert.Equal(t, false, sig["higher_is_better"])
 }

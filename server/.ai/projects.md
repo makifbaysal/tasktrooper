@@ -158,7 +158,8 @@ field: omitted leaves it, a value sets the `Override`, `null` clears it back to 
 `ComponentDelivery` itself: `mode` (`on_merge` | `dispatch` | `batch` | `none`), `executor`
 (`github_actions` | `vercel` | `local` | `store`), `workflow` (the deploy workflow's file
 basename), `tag_pattern` / `local_command` (batch only), `verify` (`soak_minutes`,
-`max_new_errors`, GET/HEAD-only `smoke` checks), `auto_rollback`.
+`max_new_errors`, GET/HEAD-only `smoke` checks, `max_error_rate_delta` / `max_p95_delta_pct`
+deploy impact thresholds — 0 off), `auto_rollback`.
 
 `projectmodel.detectDelivery` (`delivery_detect.go`) infers it from the component's own
 `ComponentCheck`s and `ComponentEnvironment`s, in the priority order a human would read

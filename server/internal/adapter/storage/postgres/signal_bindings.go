@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -86,6 +88,40 @@ func (s *SignalBindingStore) GetSignalBinding(ctx context.Context, id uuid.UUID)
 	return b, nil
 }
 
+// Every write to one (component, environment, signal) slot holds that
+// slot's transaction-scoped advisory lock: a confirm reads the slot, deletes
+// its other rows and promotes one, and two interleaving would trip the
+// confirmed-row unique index or delete each other's winner. The key is a hash
+// of the slot, the same in every process. Replacing a component
+// environment's suggestions takes that environment's own lock first, then
+// its slots' in sorted order, before touching a row; nothing else holds more
+// than one, so no two writers wait on each other in a cycle.
+const signalLockSQL = `SELECT pg_advisory_xact_lock($1)`
+
+func signalLockKey(parts ...string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("signal_bindings"))
+	for _, p := range parts {
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(p))
+	}
+	return int64(h.Sum64())
+}
+
+func lockSignalSlot(ctx context.Context, tx pgx.Tx, componentID uuid.UUID, env domain.DeployEnvironment, signal string) error {
+	if _, err := tx.Exec(ctx, signalLockSQL, signalLockKey("slot", componentID.String(), string(env), signal)); err != nil {
+		return fmt.Errorf("lock signal slot: %w", err)
+	}
+	return nil
+}
+
+func slotWriteError(op string, err error) error {
+	if isUniqueViolation(err) {
+		return fmt.Errorf("%s: %w", op, port.ErrSignalBindingConflict)
+	}
+	return fmt.Errorf("%s: %w", op, err)
+}
+
 const upsertConfirmedSignalBindingSQL = `
 INSERT INTO signal_bindings (id, component_id, environment, signal, data_source_id, recipe_id, params, query, status, source)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'confirmed',$9)
@@ -104,6 +140,9 @@ func (s *SignalBindingStore) PutConfirmedSignalBinding(ctx context.Context, b do
 	}
 	var out domain.SignalBinding
 	err = s.pool.InTx(ctx, func(tx pgx.Tx) error {
+		if err := lockSignalSlot(ctx, tx, b.ComponentID, b.Environment, b.Signal); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `DELETE FROM signal_bindings
 			WHERE component_id = $1 AND environment = $2 AND signal = $3 AND status = 'suggested'`,
 			b.ComponentID, b.Environment, b.Signal); err != nil {
@@ -115,7 +154,7 @@ func (s *SignalBindingStore) PutConfirmedSignalBinding(ctx context.Context, b do
 		return err
 	})
 	if err != nil {
-		return domain.SignalBinding{}, fmt.Errorf("put signal binding: %w", err)
+		return domain.SignalBinding{}, slotWriteError("put signal binding", err)
 	}
 	return out, nil
 }
@@ -123,6 +162,20 @@ func (s *SignalBindingStore) PutConfirmedSignalBinding(ctx context.Context, b do
 func (s *SignalBindingStore) ConfirmSignalBinding(ctx context.Context, id uuid.UUID) (domain.SignalBinding, error) {
 	var out domain.SignalBinding
 	err := s.pool.InTx(ctx, func(tx pgx.Tx) error {
+		var componentID uuid.UUID
+		var env domain.DeployEnvironment
+		var signal string
+		err := tx.QueryRow(ctx, `SELECT component_id, environment, signal FROM signal_bindings WHERE id = $1`, id).
+			Scan(&componentID, &env, &signal)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return port.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err := lockSignalSlot(ctx, tx, componentID, env, signal); err != nil {
+			return err
+		}
 		b, err := scanSignalBinding(tx.QueryRow(ctx, `SELECT `+signalBindingCols+` FROM signal_bindings WHERE id = $1 FOR UPDATE`, id))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return port.ErrNotFound
@@ -144,19 +197,19 @@ func (s *SignalBindingStore) ConfirmSignalBinding(ctx context.Context, id uuid.U
 		return err
 	})
 	if err != nil {
-		return domain.SignalBinding{}, fmt.Errorf("confirm signal binding: %w", err)
+		return domain.SignalBinding{}, slotWriteError("confirm signal binding", err)
 	}
 	return out, nil
 }
 
-func (s *SignalBindingStore) SetSignalBindingStatus(ctx context.Context, id uuid.UUID, status domain.SignalBindingStatus) (domain.SignalBinding, error) {
-	b, err := scanSignalBinding(s.pool.QueryRow(ctx, `UPDATE signal_bindings SET status = $2, updated_at = now()
-		WHERE id = $1 RETURNING `+signalBindingCols, id, status))
+func (s *SignalBindingStore) DismissSignalBinding(ctx context.Context, id uuid.UUID) (domain.SignalBinding, error) {
+	b, err := scanSignalBinding(s.pool.QueryRow(ctx, `UPDATE signal_bindings SET status = 'dismissed', updated_at = now()
+		WHERE id = $1 AND status = 'suggested' RETURNING `+signalBindingCols, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.SignalBinding{}, fmt.Errorf("set signal binding status: %w", port.ErrNotFound)
+		return s.GetSignalBinding(ctx, id)
 	}
 	if err != nil {
-		return domain.SignalBinding{}, fmt.Errorf("set signal binding status: %w", err)
+		return domain.SignalBinding{}, fmt.Errorf("dismiss signal binding: %w", err)
 	}
 	return b, nil
 }
@@ -166,15 +219,64 @@ INSERT INTO signal_bindings (id, component_id, environment, signal, data_source_
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'suggested','detected')
 RETURNING ` + signalBindingCols
 
-func (s *SignalBindingStore) ReplaceDetectedSuggestions(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, suggestions []domain.SignalBinding) ([]domain.SignalBinding, error) {
-	out := make([]domain.SignalBinding, 0, len(suggestions))
+func (s *SignalBindingStore) ReplaceDetectedSuggestions(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, sources []uuid.UUID, suggestions []domain.SignalBinding) ([]domain.SignalBinding, error) {
+	answered := make(map[uuid.UUID]bool, len(sources))
+	for _, id := range sources {
+		answered[id] = true
+	}
+	var out []domain.SignalBinding
 	err := s.pool.InTx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `DELETE FROM signal_bindings
-			WHERE component_id = $1 AND environment = $2 AND status = 'suggested' AND source = 'detected'`,
-			componentID, env); err != nil {
+		out = []domain.SignalBinding{}
+		if _, err := tx.Exec(ctx, signalLockSQL, signalLockKey("suggestions", componentID.String(), string(env))); err != nil {
+			return fmt.Errorf("lock suggestions: %w", err)
+		}
+		slots, err := pendingDetectedSlots(ctx, tx, componentID, env)
+		if err != nil {
 			return err
 		}
 		for _, b := range suggestions {
+			slots = append(slots, b.Signal)
+		}
+		slices.Sort(slots)
+		for _, signal := range slices.Compact(slots) {
+			if err := lockSignalSlot(ctx, tx, componentID, env, signal); err != nil {
+				return err
+			}
+		}
+		rows, err := tx.Query(ctx, `SELECT `+signalBindingCols+` FROM signal_bindings
+			WHERE component_id = $1 AND environment = $2 AND status = 'suggested' AND source = 'detected'
+			ORDER BY created_at, id`, componentID, env)
+		if err != nil {
+			return err
+		}
+		pending, err := collectSignalBindings(rows)
+		if err != nil {
+			return err
+		}
+		placed := make([]bool, len(suggestions))
+		var drop []uuid.UUID
+		for _, p := range pending {
+			i := slices.IndexFunc(suggestions, func(b domain.SignalBinding) bool { return b.Signal == p.Signal && b.SameTarget(p) })
+			switch {
+			case i >= 0 && !placed[i]:
+				placed[i] = true
+				out = append(out, p)
+			case answered[p.DataSourceID]:
+				drop = append(drop, p.ID)
+			default:
+				out = append(out, p)
+			}
+		}
+		if len(drop) > 0 {
+			if _, err := tx.Exec(ctx, `DELETE FROM signal_bindings
+				WHERE id = ANY($1) AND status = 'suggested' AND source = 'detected'`, drop); err != nil {
+				return err
+			}
+		}
+		for i, b := range suggestions {
+			if placed[i] {
+				continue
+			}
 			if b.ID == uuid.Nil {
 				b.ID = uuid.New()
 			}
@@ -195,6 +297,15 @@ func (s *SignalBindingStore) ReplaceDetectedSuggestions(ctx context.Context, com
 		return nil, fmt.Errorf("replace signal suggestions: %w", err)
 	}
 	return out, nil
+}
+
+func pendingDetectedSlots(ctx context.Context, tx pgx.Tx, componentID uuid.UUID, env domain.DeployEnvironment) ([]string, error) {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT signal FROM signal_bindings
+		WHERE component_id = $1 AND environment = $2 AND status = 'suggested' AND source = 'detected'`, componentID, env)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 func (s *SignalBindingStore) DeleteSignalBinding(ctx context.Context, id uuid.UUID) error {

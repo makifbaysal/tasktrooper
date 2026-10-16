@@ -161,7 +161,12 @@ func TestATokenIsMintedAgainShortlyBeforeItExpiresAndPerKey(t *testing.T) {
 }
 
 func TestTheProjectComesFromTheSourceThenTheAccountThenTheKeyFile(t *testing.T) {
-	answer := reply(200, `{"status":"success","data":{"resultType":"scalar","result":[1,"1"]}}`)
+	answer := func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		require.NoError(t, r.ParseForm())
+		assert.Equal(t, "1", r.PostForm.Get("query"))
+		reply(200, `{"status":"success","data":{"resultType":"scalar","result":[1,"1"]}}`)(w, r)
+	}
 	f := newFixture(t, map[string]http.HandlerFunc{
 		"/v1/projects/from-config/location/global/prometheus/api/v1/query":   answer,
 		"/v1/projects/from-meta/location/global/prometheus/api/v1/query":     answer,
@@ -261,11 +266,10 @@ func TestTheAccountMustBeAConnectedGoogleCloudOne(t *testing.T) {
 	assert.ErrorContains(t, err, "cloud accounts are not available")
 }
 
-func TestTheDefaultMinterSignsTheKeyAndAsksItsTokenURIThroughThePolicy(t *testing.T) {
+func TestTheDefaultMinterAsksNoTokenURIButGooglesOwn(t *testing.T) {
 	var grants []string
 	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, r.ParseForm())
-		grants = append(grants, r.PostForm.Get("grant_type"))
+		grants = append(grants, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"access_token":"ya29.real","expires_in":3600}`)
 	}))
@@ -275,19 +279,38 @@ func TestTheDefaultMinterSignsTheKeyAndAsksItsTokenURIThroughThePolicy(t *testin
 	f.adapter.SetURLPolicy(urlguard.HumanConfigured())
 	f.adapter.SetCloudAccounts(f.accounts)
 	f.adapter.SetBaseURL(f.srv.URL)
-	key := serviceAccountKey(t, tokenSrv.URL+"/token")
 
-	_, err := f.adapter.Series(context.Background(), f.account(map[string]string{"project_id": "acme-prod"}, key), nil, rangeQuery())
+	for _, uri := range []string{tokenSrv.URL + "/token", "https://tokens.example.com/token"} {
+		_, err := f.adapter.Series(context.Background(), f.account(map[string]string{"project_id": "acme-prod"}, serviceAccountKey(t, uri)), nil, rangeQuery())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "token_uri is not Google's token endpoint")
+	}
+	assert.Empty(t, grants)
+	assert.Empty(t, f.paths)
+}
 
-	require.NoError(t, err)
-	assert.Equal(t, []string{"urn:ietf:params:oauth:grant-type:jwt-bearer"}, grants)
-	assert.Equal(t, []string{"Bearer ya29.real"}, f.auth)
+func TestAMintFailureNamesTheCauseButNotTheTokenURL(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"refused by the URL policy", fmt.Errorf("dial: %w", urlguard.ErrBlocked), "token_uri is not an allowed destination"},
+		{"refused by Google", errors.New("gcloud: the token endpoint refused the key (HTTP 400, invalid_grant)"), "sign-in for the cloud account failed: gcloud: the token endpoint refused the key (HTTP 400, invalid_grant)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t, nil)
+			f.adapter.SetMinter(func(context.Context, *http.Client, string, string) (string, time.Time, error) {
+				return "", time.Time{}, tt.err
+			})
 
-	f.adapter.SetURLPolicy(urlguard.PublicOnly())
-	_, err = f.adapter.Series(context.Background(), f.account(map[string]string{"project_id": "acme-prod"}, serviceAccountKey(t, tokenSrv.URL+"/token")), nil, rangeQuery())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "token_uri is not an allowed destination")
-	assert.Len(t, grants, 1)
+			_, err := f.adapter.Verify(context.Background(), f.account(map[string]string{"project_id": "acme-prod"}, `{}`), nil)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
 }
 
 func serviceAccountKey(t *testing.T, tokenURI string) string {

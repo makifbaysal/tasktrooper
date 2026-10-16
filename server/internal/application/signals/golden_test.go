@@ -48,6 +48,7 @@ func (s *SignalsSuite) TestGoldenAnswersValuePreviousAndSparkPerGoldenSignal() {
 
 	req := gc.Signals[0]
 	s.Equal("req/s", req.Unit)
+	s.True(req.Bound)
 	s.Len(req.Spark, 31)
 	s.True(req.Spark[0].Time.Equal(from))
 	s.Require().NotNil(req.Value)
@@ -56,12 +57,29 @@ func (s *SignalsSuite) TestGoldenAnswersValuePreviousAndSparkPerGoldenSignal() {
 	s.Equal(29.0, *req.Previous)
 
 	ratio := gc.Signals[1]
+	s.False(ratio.Bound)
 	s.Nil(ratio.Value)
 	s.Nil(ratio.Previous)
 	s.Equal([]domain.SeriesPoint{}, ratio.Spark)
 
 	s.Equal(250.0, *gc.Signals[2].Value)
 	s.Nil(gc.Signals[2].Previous)
+}
+
+func (s *SignalsSuite) TestGoldenTellsABoundSignalWithNoDataFromAnUnboundOne() {
+	api := s.component(domain.ComponentRoleBackend, "api")
+	requests := s.binding(api, "http.requests", domain.SignalBindingConfirmed, map[string]string{"job": "api"})
+	s.goldenWorld([]domain.Component{api}, []domain.SignalBinding{requests})
+	s.answers(mock.Anything).Once()
+
+	got, err := s.svc.Golden(s.ctx, signals.GoldenQuery{Environment: domain.EnvironmentProduction})
+
+	s.Require().NoError(err)
+	bound, unbound := got.Components[0].Signals[0], got.Components[0].Signals[1]
+	s.True(bound.Bound)
+	s.Nil(bound.Value)
+	s.False(unbound.Bound)
+	s.Nil(unbound.Value)
 }
 
 func (s *SignalsSuite) TestGoldenKeepsAnAnswerForAMinuteUntilABindingChanges() {

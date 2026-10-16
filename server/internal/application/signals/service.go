@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/makifbaysal/tasktrooper/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
@@ -82,9 +83,13 @@ type Service struct {
 	concurrency       int
 	goldenConcurrency int
 	queryTimeout      time.Duration
+	seriesBudget      time.Duration
+	goldenBudget      time.Duration
 
-	discovery   *discoveryCache
-	goldenCache *goldenCache
+	scope        func(ctx context.Context) string
+	discovery    *discoveryCache
+	goldenCache  *goldenCache
+	goldenFlight singleflight.Group
 }
 
 type Option func(*Service)
@@ -133,6 +138,8 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 		concurrency:       defaultConcurrency,
 		goldenConcurrency: defaultGoldenConcurrency,
 		queryTimeout:      defaultQueryTimeout,
+		seriesBudget:      defaultSeriesBudget,
+		goldenBudget:      defaultGoldenBudget,
 		discovery:         newDiscoveryCache(),
 		goldenCache:       newGoldenCache(),
 	}
@@ -151,6 +158,7 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 	for _, opt := range opts {
 		opt(s)
 	}
+	d.Sources.OnChange(s.sourceChanged)
 	return s, nil
 }
 
@@ -273,19 +281,17 @@ func (s *Service) Confirm(ctx context.Context, id uuid.UUID) (domain.SignalBindi
 	return s.view(ctx, l, confirmed), nil
 }
 
+// Dismiss dismisses only a suggestion, in one guarded write: a binding
+// confirmed meanwhile is ErrConfirmed, one already dismissed is no change.
 func (s *Service) Dismiss(ctx context.Context, id uuid.UUID) error {
-	b, err := s.bindings.GetSignalBinding(ctx, id)
+	b, err := s.bindings.DismissSignalBinding(ctx, id)
 	if err != nil {
 		return err
 	}
-	switch b.Status {
-	case domain.SignalBindingConfirmed:
+	if b.Status == domain.SignalBindingConfirmed {
 		return ErrConfirmed
-	case domain.SignalBindingDismissed:
-		return nil
 	}
-	_, err = s.bindings.SetSignalBindingStatus(ctx, id, domain.SignalBindingDismissed)
-	return err
+	return nil
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
@@ -334,7 +340,7 @@ func (s *Service) view(ctx context.Context, l lookup, b domain.SignalBinding) do
 	if len(v.NeedsParams) > 0 {
 		return v
 	}
-	if q, err := s.render(ctx, b, displayStep, headlineQuantile); err == nil {
+	if q, err := renderIn(l, b, displayStep, headlineQuantile); err == nil {
 		v.RenderedQuery = q
 	}
 	return v
@@ -368,16 +374,6 @@ func template(l lookup, b domain.SignalBinding) string {
 
 func takesQuantile(query string) bool { return strings.Contains(query, quantilePlaceholder) }
 
-// render expands a binding at a step; quantile is what $__quantile becomes,
-// zero for the renderer's default.
-func (s *Service) render(ctx context.Context, b domain.SignalBinding, step time.Duration, quantile float64) (string, error) {
-	opts := datasource.RenderOptions{Step: step, Quantile: quantile}
-	if b.Query != "" {
-		return s.sources.RenderRawQuery(ctx, b.DataSourceID, b.Query, b.Params, opts)
-	}
-	return s.sources.RenderSignal(ctx, b.DataSourceID, b.RecipeID, b.Signal, b.Params, opts)
-}
-
 // relevant: a role's signals are those listing it, plus its golden ones.
 func (s *Service) relevant(role domain.ComponentRole) map[string]bool {
 	out := s.goldenSet(role)
@@ -387,6 +383,11 @@ func (s *Service) relevant(role domain.ComponentRole) map[string]bool {
 		}
 	}
 	return out
+}
+
+// GoldenSignals is the role's golden list, headline first.
+func (s *Service) GoldenSignals(role domain.ComponentRole) []string {
+	return slices.Clone(s.golden[role])
 }
 
 func (s *Service) goldenSet(role domain.ComponentRole) map[string]bool {
@@ -474,7 +475,7 @@ func (s *Service) validateTarget(ctx context.Context, l lookup, signal string, r
 	}
 	b := domain.SignalBinding{Signal: signal, DataSourceID: id, RecipeID: recipeID, Params: params, Query: query}
 	if query != "" {
-		if _, err := s.render(ctx, b, displayStep, headlineQuantile); err != nil {
+		if _, err := renderIn(l, b, displayStep, headlineQuantile); err != nil {
 			if errors.Is(err, datasource.ErrInvalidInput) {
 				return domain.SignalBinding{}, datasource.FieldErrors{"query": datasource.FieldInvalid}
 			}

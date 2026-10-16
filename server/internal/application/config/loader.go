@@ -165,6 +165,18 @@ func applyDefaults(cfg *domain.Config) {
 	if cfg.DeployOps.PollInterval <= 0 {
 		cfg.DeployOps.PollInterval = 2 * time.Minute
 	}
+	if cfg.Alerting.Interval <= 0 {
+		cfg.Alerting.Interval = time.Minute
+	}
+	if cfg.Alerting.MaxRulesPerSweep <= 0 {
+		cfg.Alerting.MaxRulesPerSweep = 200
+	}
+	if cfg.DeployOps.Impact.ChangePct <= 0 {
+		cfg.DeployOps.Impact.ChangePct = domain.DefaultImpactChangePct
+	}
+	if cfg.DeployOps.Impact.RatioPoints <= 0 {
+		cfg.DeployOps.Impact.RatioPoints = domain.DefaultImpactRatioPoints
+	}
 
 	if strings.TrimSpace(cfg.ClaudeCode.Binary) == "" {
 		cfg.ClaudeCode.Binary = "claude"

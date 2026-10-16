@@ -31,6 +31,7 @@ type ReleaseService interface {
 	// resolved production base URL right now, without a release or a saved
 	// delivery profile.
 	TestSmoke(ctx context.Context, componentID uuid.UUID, checks []domain.SmokeCheck) (baseURL string, results []domain.SmokeResult, err error)
+	Impact(ctx context.Context, releaseID uuid.UUID) (domain.DeployImpact, error)
 }
 
 // errReleaseConfirmMismatch matches the wording of deployops.ErrConfirmMismatch
@@ -55,6 +56,7 @@ func (h *Handler) registerReleaseRoutes(app fiber.Router) {
 	app.Get("/v1/releases", h.ListAllReleases)
 	app.Get("/v1/releases/:releaseId", h.GetRelease)
 	app.Get("/v1/releases/:releaseId/cut-preview", h.GetReleaseCutPreview)
+	app.Get("/v1/releases/:releaseId/impact", h.GetReleaseImpact)
 	app.Post("/v1/releases/:releaseId/cut", h.CutRelease)
 	app.Post("/v1/releases/:releaseId/deploy", h.DeployRelease)
 	app.Post("/v1/releases/:releaseId/finish", h.FinishRelease)
@@ -195,6 +197,19 @@ func (h *Handler) GetRelease(c *fiber.Ctx) error {
 		return releaseErr(c, err)
 	}
 	return c.JSON(release)
+}
+
+// GetReleaseImpact — GET /v1/releases/:releaseId/impact
+func (h *Handler) GetReleaseImpact(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "releaseId")
+	if err != nil {
+		return badRequest(c, "invalid release id")
+	}
+	impact, err := h.releaseSvc.Impact(h.enrichContext(c), id)
+	if err != nil {
+		return releaseErr(c, err)
+	}
+	return c.JSON(impact)
 }
 
 // GetReleaseCutPreview — GET /v1/releases/:releaseId/cut-preview

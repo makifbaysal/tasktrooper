@@ -232,9 +232,12 @@ type Series struct {
 	Points []SeriesPoint     `json:"points"`
 }
 
+// SeriesResult: Step is the spacing the source answered at where the kind
+// decides it (CloudWatch's period); zero means the step asked for.
 type SeriesResult struct {
-	Series   []Series `json:"series"`
-	Warnings []string `json:"warnings"`
+	Series   []Series      `json:"series"`
+	Warnings []string      `json:"warnings"`
+	Step     time.Duration `json:"-"`
 }
 
 type HeaderLine struct {

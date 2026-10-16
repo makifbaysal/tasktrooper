@@ -137,6 +137,8 @@ type ReleaseChecks struct {
 	Notes []string `json:"notes,omitempty"`
 	// EarlyStop names why the soak ended before its window did.
 	EarlyStop string `json:"early_stop,omitempty"`
+	// Impact is set only when the profile has an impact threshold.
+	Impact *ReleaseImpactCheck `json:"impact,omitempty"`
 }
 
 // Failing reports whether the evidence alone says the release is unhealthy.
@@ -312,4 +314,5 @@ const (
 	RunSmokeChecksToolName  = "run_smoke_checks"
 	FinishReleaseToolName   = "finish_release"
 	ReleaseRollbackToolName = "rollback_release"
+	GetDeployImpactToolName = "get_deploy_impact"
 )

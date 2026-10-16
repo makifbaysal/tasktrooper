@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,9 +18,7 @@ const (
 	MaxGoldenComponents = 200
 	MaxGoldenWindow     = 30 * 24 * time.Hour
 
-	sparkPoints     = 30
-	goldenCacheTTL  = time.Minute
-	goldenCacheSize = 64
+	sparkPoints = 30
 )
 
 // GoldenQuery: zero From/To default as in SeriesQuery; both are rounded down
@@ -37,8 +34,10 @@ type GoldenQuery struct {
 // binding in the environment (at most MaxGoldenComponents, by name), its
 // role's golden signals. One query per bound signal covers this window and
 // the one before, so Previous costs nothing extra. A signal that cannot be
-// read answers nulls; answers are kept for a minute per window and
-// component set, and dropped whenever a binding changes.
+// read, or is still unread when the read's budget runs out, answers nulls.
+// Answers are kept for a minute per cache scope, window, component set and
+// source/recipe version, dropped whenever a binding or a source changes, and
+// polls asking the same at once share one read.
 func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard, error) {
 	if !q.Environment.Valid() {
 		return domain.GoldenBoard{}, fmt.Errorf("unknown environment %q: %w", q.Environment, ErrInvalidInput)
@@ -57,12 +56,49 @@ func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard
 	if err != nil {
 		return domain.GoldenBoard{}, err
 	}
+	l, err := s.lookup(ctx)
+	if err != nil {
+		return domain.GoldenBoard{}, err
+	}
 
-	key := goldenKey(q.Environment, from, to, q.ComponentIDs)
+	key := s.cacheScope(ctx) + "\x00" + goldenKey(q.Environment, from, to, q.ComponentIDs) + "\x00" + l.version()
 	if board, ok := s.goldenCache.get(key, s.now()); ok {
 		return board, nil
 	}
+	gen := s.goldenCache.generation()
+	// The shared read outlives the request that started it (the others wait
+	// on it too), so it keeps that request's values but not its cancel; the
+	// budget bounds it.
+	shared := context.WithoutCancel(ctx)
+	ch := s.goldenFlight.DoChan(fmt.Sprintf("%s\x00%d", key, gen), func() (v any, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Msg("signals: a golden read panicked")
+				err = errPanicked
+			}
+		}()
+		board, err := s.readGolden(shared, l, q, from, to, step)
+		if err != nil {
+			return nil, err
+		}
+		s.goldenCache.put(key, board, s.now(), gen)
+		return board, nil
+	})
+	select {
+	case r := <-ch:
+		if r.Err != nil {
+			return domain.GoldenBoard{}, r.Err
+		}
+		return r.Val.(domain.GoldenBoard), nil
+	case <-ctx.Done():
+		return domain.GoldenBoard{}, ctx.Err()
+	}
+}
 
+func (s *Service) readGolden(ctx context.Context, l lookup, q GoldenQuery, from, to time.Time, step time.Duration) (domain.GoldenBoard, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.goldenBudget)
+	defer cancel()
+	span := to.Sub(from)
 	confirmed, err := s.bindings.ListConfirmedSignalBindings(ctx, q.Environment)
 	if err != nil {
 		return domain.GoldenBoard{}, err
@@ -98,10 +134,6 @@ func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard
 	if len(comps) > MaxGoldenComponents {
 		comps = comps[:MaxGoldenComponents]
 	}
-	l, err := s.lookup(ctx)
-	if err != nil {
-		return domain.GoldenBoard{}, err
-	}
 
 	board := domain.GoldenBoard{GeneratedAt: s.now(), Components: make([]domain.GoldenComponent, len(comps))}
 	type job struct {
@@ -115,8 +147,8 @@ func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard
 		gc := domain.GoldenComponent{ComponentID: c.ID, Signals: make([]domain.GoldenSignal, len(ids))}
 		for si, id := range ids {
 			sig := s.signalIndex[id]
-			gc.Signals[si] = domain.GoldenSignal{Signal: id, Unit: sig.Unit, Spark: []domain.SeriesPoint{}}
 			b, ok := bound[c.ID][id]
+			gc.Signals[si] = domain.GoldenSignal{Signal: id, Unit: sig.Unit, Bound: ok, Spark: []domain.SeriesPoint{}}
 			if !ok || sig.Kind != domain.SignalMetric || len(needsParams(l, b)) > 0 {
 				continue
 			}
@@ -129,11 +161,14 @@ func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard
 		board.Components[ci] = gc
 	}
 
-	results := fanOut(ctx, len(jobs), s.goldenConcurrency, s.queryTimeout, func(ctx context.Context, i int) ([]domain.Series, error) {
-		j := jobs[i]
-		series, _, err := s.read(ctx, j.binding, j.quantile, from.Add(-span), to, step)
-		return series, err
-	})
+	rd := s.reader(l)
+	results := fanOut(ctx, len(jobs), s.goldenConcurrency, s.queryTimeout,
+		func(i int) uuid.UUID { return jobs[i].binding.DataSourceID },
+		func(ctx context.Context, i int) ([]domain.Series, error) {
+			j := jobs[i]
+			res, _, err := rd.read(ctx, j.binding, j.quantile, from.Add(-span), to, step)
+			return res.Series, err
+		})
 	for i, r := range results {
 		j := jobs[i]
 		if r.err != nil {
@@ -146,7 +181,6 @@ func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard
 			g.Spark, g.Value, g.Previous = summarize(r.value[0].Points, from, to, span)
 		}
 	}
-	s.goldenCache.put(key, board, s.now())
 	return board, nil
 }
 
@@ -192,52 +226,4 @@ func goldenKey(env domain.DeployEnvironment, from, to time.Time, ids []uuid.UUID
 	slices.Sort(parts)
 	parts = slices.Compact(parts)
 	return fmt.Sprintf("%s|%d|%d|%s", env, from.Unix(), to.Unix(), strings.Join(parts, ","))
-}
-
-type goldenCache struct {
-	mu      sync.Mutex
-	entries map[string]goldenEntry
-}
-
-type goldenEntry struct {
-	at    time.Time
-	board domain.GoldenBoard
-}
-
-func newGoldenCache() *goldenCache { return &goldenCache{entries: map[string]goldenEntry{}} }
-
-func (c *goldenCache) get(key string, now time.Time) (domain.GoldenBoard, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	e, ok := c.entries[key]
-	if !ok || now.Sub(e.at) >= goldenCacheTTL {
-		return domain.GoldenBoard{}, false
-	}
-	return e.board, true
-}
-
-func (c *goldenCache) put(key string, board domain.GoldenBoard, now time.Time) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for k, e := range c.entries {
-		if now.Sub(e.at) >= goldenCacheTTL {
-			delete(c.entries, k)
-		}
-	}
-	if len(c.entries) >= goldenCacheSize {
-		oldest := ""
-		for k, e := range c.entries {
-			if oldest == "" || e.at.Before(c.entries[oldest].at) {
-				oldest = k
-			}
-		}
-		delete(c.entries, oldest)
-	}
-	c.entries[key] = goldenEntry{at: now, board: board}
-}
-
-func (c *goldenCache) clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	clear(c.entries)
 }

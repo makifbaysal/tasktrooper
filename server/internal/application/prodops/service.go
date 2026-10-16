@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/notify"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -62,9 +63,9 @@ type Service struct {
 	attributor ReleaseAttributor
 	rollbacks  ReleaseRollbackDispatcher
 
-	now        func() time.Time
-	notifyMu   sync.Mutex
-	lastNotify map[string]time.Time
+	now      func() time.Time
+	notifyMu sync.Mutex
+	cooldown *notify.Cooldown
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
@@ -195,8 +196,6 @@ func machineMayOverwriteRemedy(incident domain.Incident) bool {
 	}
 }
 
-const renotifyCooldown = 30 * time.Minute
-
 // cooldownKey is the alert's identity, not the incident's: a flapping alert
 // resolves and re-fires as a NEW incident every cycle, so an incident-id key
 // let it notify on every flap. Opening and recovery are cooled apart, so the
@@ -207,23 +206,12 @@ func cooldownKey(kind string, incident domain.Incident) string {
 
 func (s *Service) shouldRenotify(key string) bool {
 	s.notifyMu.Lock()
-	defer s.notifyMu.Unlock()
-	now := s.now()
-	if s.lastNotify == nil {
-		s.lastNotify = make(map[string]time.Time)
+	if s.cooldown == nil {
+		s.cooldown = notify.NewCooldown(notify.DefaultCooldown)
 	}
-	if last, ok := s.lastNotify[key]; ok && now.Sub(last) < renotifyCooldown {
-		return false
-	}
-	if len(s.lastNotify) > 256 {
-		for k, last := range s.lastNotify {
-			if now.Sub(last) >= renotifyCooldown {
-				delete(s.lastNotify, k)
-			}
-		}
-	}
-	s.lastNotify[key] = now
-	return true
+	cooldown := s.cooldown
+	s.notifyMu.Unlock()
+	return cooldown.Allow(key, s.now())
 }
 
 func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
@@ -248,7 +236,7 @@ func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.
 		}
 	}
 	if s.notifiable(resolved) && s.shouldRenotify(cooldownKey("recovered", resolved)) {
-		s.notifier.Notify(ctx, incidentNotification(resolved, "Recovered · "+resolved.Env, resolved.Title))
+		s.notifier.Notify(ctx, incidentNotification(domain.NotificationIncidentRecovered, resolved, "Recovered · "+resolved.Env, resolved.Title))
 	}
 	return resolved, nil
 }
@@ -377,7 +365,7 @@ func (s *Service) ProposeRemedy(ctx context.Context, incidentID uuid.UUID, remed
 	s.event(ctx, incidentID, domain.IncidentEventProposed, author+" proposed a "+remedy.Kind+" remedy")
 	// Whoever typed the proposal by hand does not need telling about it.
 	if author != domain.RemedyAuthorHuman && s.notifiable(incident) {
-		s.notifier.Notify(ctx, incidentNotification(incident, "Fix proposed · "+incident.Env, truncate(remedy.Summary, 200)))
+		s.notifier.Notify(ctx, incidentNotification(domain.NotificationRemedyProposed, incident, "Fix proposed · "+incident.Env, truncate(remedy.Summary, 200)))
 	}
 	return incident, nil
 }
@@ -432,7 +420,7 @@ func (s *Service) notify(ctx context.Context, incident domain.Incident, remedy d
 		return
 	}
 	title := fmt.Sprintf("%s · %s", strings.ToUpper(incident.Env), truncate(incident.Title, 80))
-	s.notifier.Notify(ctx, incidentNotification(incident, title, truncate(remedy.Summary, 200)))
+	s.notifier.Notify(ctx, incidentNotification(domain.NotificationIncidentOpened, incident, title, truncate(remedy.Summary, 200)))
 	s.event(ctx, incident.ID, domain.IncidentEventNotified, "pushed to devices")
 }
 
@@ -442,8 +430,9 @@ func (s *Service) notifiable(incident domain.Incident) bool {
 	return s.notifier != nil && incident.Severity.Rank() >= taskSeverityFloor.Rank()
 }
 
-func incidentNotification(incident domain.Incident, title, body string) domain.Notification {
+func incidentNotification(kind domain.NotificationKind, incident domain.Incident, title, body string) domain.Notification {
 	return domain.Notification{
+		Kind:     kind,
 		Title:    title,
 		Body:     body,
 		Severity: incident.Severity,

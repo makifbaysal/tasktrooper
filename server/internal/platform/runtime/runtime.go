@@ -65,6 +65,7 @@ import (
 	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agentcli"
+	alertingapp "github.com/makifbaysal/tasktrooper/server/internal/application/alerting"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/apikey"
 	attachmentapp "github.com/makifbaysal/tasktrooper/server/internal/application/attachment"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/billing"
@@ -299,6 +300,9 @@ type engine struct {
 	opsQuerySvc     *opsquery.Service
 	prodOpsSvc      *prodops.Service
 	healthMonitor   *prodops.Monitor
+	// notifier is the one notify service incidents and alert rules share.
+	notifier        *notifyapp.Service
+	alertEvaluator  *alertingapp.Service
 	storeOpsSvc     *storeops.Service
 	storeMonitor    *storeops.Monitor
 	simRunSvc       *simrunapp.Service
@@ -634,6 +638,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.engine.deployMonitor != nil {
 		s.engine.deployMonitor.Stop()
+	}
+	if s.engine.alertEvaluator != nil {
+		s.engine.alertEvaluator.Stop()
 	}
 	if s.engine.evolutionSvc != nil {
 		s.engine.evolutionSvc.Stop()
@@ -2264,6 +2271,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// that are not about a board task.
 			incidentNotifier := notifyapp.NewService()
 			incidentNotifier.Register(desktopadapter.NewChannel(desktopadapter.NewNotifier("local-llm")))
+			e.notifier = incidentNotifier
 			prodOpsDeps := prodops.Deps{
 				Incidents:   incidentStore,
 				Targets:     deployTargetStore,
@@ -2617,6 +2625,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					HealthWindow:        cfg.DeployOps.HealthWindow,
 					BeforeDeploy:        repository.BeforeDeployConfirmer{Service: repositorySvc},
 					Locator:             repositorySvc,
+					Notifier:            incidentNotifier,
 				}
 				if relations, ok := relationStore.(*pgstore.TaskRelationStore); ok {
 					releaseDeps.DeployOrder = relations
@@ -3032,6 +3041,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		dataSourceSvc = newDataSourceService(e.pgDB, e.secretsCipher, e.secretsCipherErr)
 	}
 	signalsSvc := newSignalsService(e.pgDB, dataSourceSvc)
+	wireDeployImpact(e.releaseSvc, e.pgDB, signalsSvc, cfg.DeployOps.Impact)
+	alertingSvc := e.newAlertingService(ctx, cfg.Alerting, signalsSvc, dataSourceSvc)
 
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
@@ -3075,6 +3086,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		OpsQuerySvc:       e.opsQuerySvc,
 		DataSourceSvc:     dataSourceSvc,
 		SignalsSvc:        signalsSvc,
+		AlertingSvc:       alertingSvc,
 		EnvRequirements:   envRequirementsOrNil(e.envReqSvc),
 		ReleaseSvc:        releaseHTTP,
 		SmokeGenSvc:       smokeGenHTTP,

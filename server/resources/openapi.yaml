@@ -1320,8 +1320,11 @@ paths:
         rounded down to the minute; at most 30 days. value is the window's last non-null
         sample (p95 for a quantile signal), previous the last non-null one a window
         earlier, spark about 30 points of the window. An unbound or failing signal
-        answers nulls and an empty spark. Cached 60s per env, window and component set;
-        any binding change drops the cache.
+        answers nulls and an empty spark; bound tells the two apart. The whole read is
+        bounded at 25s (a signal still unread answers nulls), and a source that timed
+        out is not asked again within it. Cached 60s per env, window, component set and
+        source/recipe version; any binding or source change drops the cache, and polls
+        asking the same at once share one read.
       security:
         - bearerAuth: []
       parameters:
@@ -1367,6 +1370,9 @@ paths:
                                 type: string
                               unit:
                                 type: string
+                              bound:
+                                type: boolean
+                                description: The component has a confirmed binding for the signal in env.
                               value:
                                 type: number
                                 nullable: true
@@ -1508,6 +1514,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DataSourceFieldErrors'
+        '409':
+          description: Another write to the same slot won (code conflict); read and retry
 
   /v1/components/{id}/series:
     get:
@@ -1516,8 +1524,11 @@ paths:
         to defaults to now, from to an hour before; step_seconds 0 or absent gives about
         120 points (at least 15s). A quantile signal whose query takes $__quantile answers
         p50, p95 and p99 series. compare=1 fills previous with the window before, shifted
-        onto this one. A signal that fails carries error and never fails the others. At
-        most 4 queries at once, 20s each.
+        onto this one; a previous window that fails carries previous_error and leaves
+        series be. A signal that fails carries error and never fails the others. At most
+        4 queries at once, 20s each, 30s for the whole read (a signal still unread answers
+        timeout); a source that timed out is not asked again within it. step_seconds is
+        the coarsest spacing a source answered at (CloudWatch rounds to whole minutes).
       security:
         - bearerAuth: []
       parameters:
@@ -1596,6 +1607,16 @@ paths:
                               enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
                             message:
                               type: string
+                        previous_error:
+                          type: object
+                          nullable: true
+                          description: The previous window's read failed (compare=1 only); same shape as error.
+                          properties:
+                            code:
+                              type: string
+                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                            message:
+                              type: string
         '400':
           description: Bad window or step (fields), or unknown env
 
@@ -1616,7 +1637,9 @@ paths:
         '400':
           description: A recipe param still has no value (fields params.<name> required)
         '404':
-          description: Unknown binding
+          description: Unknown binding, or one another confirm of its slot replaced
+        '409':
+          description: Another write to the same slot won (code conflict); read and retry
 
   /v1/signal-bindings/{bindingId}/dismiss:
     post:
@@ -1631,7 +1654,7 @@ paths:
         '404':
           description: Unknown binding
         '409':
-          description: The binding is confirmed (code confirmed); delete it instead
+          description: The binding is confirmed, even if only since it was listed (code confirmed); delete it instead
 
   /v1/signal-bindings/{bindingId}:
     delete:
@@ -1645,6 +1668,291 @@ paths:
           description: Deleted
         '404':
           description: Unknown binding
+
+  /v1/alert-rules:
+    get:
+      summary: Alert rules, by name
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: component_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: env
+          in: query
+          required: false
+          description: Absent means every environment.
+          schema:
+            type: string
+            enum: [production, staging, preview, development]
+      responses:
+        '200':
+          description: The rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertRule'
+        '400':
+          description: Malformed component_id or unknown env (fields)
+    post:
+      summary: Create an alert rule
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleRequest'
+      responses:
+        '201':
+          description: The rule, state ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '400':
+          description: Field errors (fields)
+
+  /v1/alert-rules/backtest:
+    post:
+      summary: Replay a rule's condition over the last days
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/AlertRuleRequest'
+                - type: object
+                  properties:
+                    days:
+                      type: integer
+                      minimum: 1
+                      maximum: 14
+                      default: 7
+      responses:
+        '200':
+          description: What would have fired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fires:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: string
+                          format: date-time
+                        end:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          description: Null while still firing at the end of the range
+                        peak:
+                          type: number
+                          nullable: true
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        points:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/SeriesPoint'
+                  step_seconds:
+                    type: integer
+        '400':
+          description: Field errors (fields), or a query the source refused (code bad_query)
+        '422':
+          description: The signal has no confirmed binding (code unbound)
+        '502':
+          description: The data source failed (code upstream)
+
+  /v1/alert-rules/suggest:
+    post:
+      summary: Starting rules for a component environment's bound signals (nothing is saved)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [component_id]
+              properties:
+                component_id:
+                  type: string
+                  format: uuid
+                environment:
+                  type: string
+                  enum: [production, staging, preview, development]
+      responses:
+        '200':
+          description: Suggested rules, without id or state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertRuleSpec'
+        '400':
+          description: Malformed or unknown component_id, unknown environment (fields)
+
+  /v1/alert-rules/{ruleId}:
+    get:
+      summary: One alert rule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+      responses:
+        '200':
+          description: The rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '404':
+          description: Unknown rule
+    patch:
+      summary: Edit an alert rule; absent fields keep their value
+      description: >-
+        Changing what the rule reads or tests, open_incident or enabled
+        restarts it from ok, resolving a firing rule first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleRequest'
+      responses:
+        '200':
+          description: The rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '400':
+          description: Field errors (fields)
+        '404':
+          description: Unknown rule
+    delete:
+      summary: Delete an alert rule, resolving it first when firing
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Unknown rule
+
+  /v1/alert-rules/{ruleId}/events:
+    get:
+      summary: A rule's state changes, newest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        '200':
+          description: The events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        at:
+                          type: string
+                          format: date-time
+                        from_state:
+                          $ref: '#/components/schemas/AlertState'
+                        to_state:
+                          $ref: '#/components/schemas/AlertState'
+                        value:
+                          type: number
+                          nullable: true
+                        incident_id:
+                          type: string
+                          format: uuid
+                          nullable: true
+        '400':
+          description: Bad limit (fields)
+        '404':
+          description: Unknown rule
+
+  /v1/releases/{releaseId}/impact:
+    get:
+      summary: What a release did to its component's golden signals in production
+      description: >-
+        For each golden signal of the component's role with a confirmed production binding:
+        the mean over [T-60m, T) (before), [T, T+60m] (after) and that after-window a day
+        earlier (baseline), T being the release's deployed_at (finished_at for a release
+        that never deployed on its own). A quantile signal is judged by its p95. A signal
+        is worse or improved when it moved past deploy_ops.impact (change_pct of its
+        before value, ratio_points for a ratio signal) both from before and from the
+        baseline, else neutral; unknown when it could not be read. verdict is the worst
+        judged signal, unknown when none was. pending while T+60m is in the future (after
+        and baseline cover what has passed). Answers are kept for the minute.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The impact; verdict unknown and no signals when nothing is bound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployImpact'
+        '400':
+          description: Invalid release id
+        '404':
+          description: Unknown release
 
   /health:
     get:
@@ -1759,7 +2067,107 @@ components:
       schema:
         type: string
         format: uuid
+    AlertRuleID:
+      name: ruleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   schemas:
+    AlertState:
+      type: string
+      enum: [ok, pending, firing, no_data]
+    AlertCondition:
+      type: object
+      properties:
+        op:
+          type: string
+          enum: [gt, lt, change_pct_gt, change_pct_lt, rising, no_data]
+          description: >-
+            rising holds while the value is above threshold and higher than a
+            window earlier; the change ops compare the percent change from a
+            window earlier; no_data holds while nothing is read.
+        threshold:
+          type: number
+        for_seconds:
+          type: integer
+          minimum: 0
+          maximum: 604800
+        window_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 300
+    AlertRuleSpec:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        component_id:
+          type: string
+          format: uuid
+        environment:
+          type: string
+          enum: [production, staging, preview, development]
+        signal:
+          type: string
+          description: A catalog signal, '' for a raw rule.
+        data_source_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: A raw rule's source; null for a signal rule.
+        query:
+          type: string
+          description: A raw rule's query; '' for a signal rule.
+        condition:
+          $ref: '#/components/schemas/AlertCondition'
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [in_app, desktop, ios_push, slack, email, webhook]
+        open_incident:
+          type: boolean
+        enabled:
+          type: boolean
+    AlertRuleRequest:
+      description: AlertRuleSpec's fields, each optional; absent keeps the rule's value (or the default on create).
+      allOf:
+        - $ref: '#/components/schemas/AlertRuleSpec'
+    AlertRule:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+        - $ref: '#/components/schemas/AlertRuleSpec'
+        - type: object
+          properties:
+            state:
+              $ref: '#/components/schemas/AlertState'
+            state_since:
+              type: string
+              format: date-time
+            last_value:
+              type: number
+              nullable: true
+            last_evaluated_at:
+              type: string
+              format: date-time
+              nullable: true
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
     FlatError:
       type: object
       properties:
@@ -2167,6 +2575,73 @@ components:
         aggregation:
           type: string
           enum: [rate, ratio, quantile, gauge]
+        better:
+          type: string
+          enum: [higher, lower]
+          description: Which way the signal moves when things improve; absent, it is not judged across a deploy.
+    DeployImpact:
+      type: object
+      required: [release_id, component_id, environment, deployed_at, window_minutes, pending, verdict, computed_at, signals]
+      properties:
+        release_id:
+          type: string
+          format: uuid
+        component_id:
+          type: string
+          format: uuid
+          nullable: true
+        environment:
+          type: string
+          enum: [production]
+        deployed_at:
+          type: string
+          format: date-time
+          nullable: true
+        window_minutes:
+          type: integer
+        pending:
+          type: boolean
+        verdict:
+          $ref: '#/components/schemas/ImpactVerdict'
+        computed_at:
+          type: string
+          format: date-time
+        signals:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignalImpact'
+    SignalImpact:
+      type: object
+      required: [signal, unit, before, after, baseline, delta, delta_pct, higher_is_better, verdict]
+      properties:
+        signal:
+          type: string
+        unit:
+          type: string
+        before:
+          type: number
+          nullable: true
+        after:
+          type: number
+          nullable: true
+        baseline:
+          type: number
+          nullable: true
+        delta:
+          type: number
+          nullable: true
+          description: after - before, in the signal's unit (percentage points for a ratio).
+        delta_pct:
+          type: number
+          nullable: true
+          description: delta as a percent of before; null when before is 0.
+        higher_is_better:
+          type: boolean
+        verdict:
+          $ref: '#/components/schemas/ImpactVerdict'
+    ImpactVerdict:
+      type: string
+      enum: [improved, neutral, worse, unknown]
     Recipe:
       type: object
       properties:

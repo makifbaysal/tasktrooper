@@ -277,6 +277,10 @@ enabled `port.NotificationChannel` (bounded wait, failures logged). A new channe
 iOS push) is a new adapter registered in runtime wiring — no incident code changes. Local mode
 registers only `desktop`; there is no `in_app` channel because the UI has no feed for
 notifications that are not about a board task (its bell is built from board events).
+`application/release` notifies the same way through the same service, under the shared
+`notify.Cooldown` keyed by (kind, release): `rollback_suggested` for a proposal written because
+`auto_rollback` is off (with an `approve_rollback` action) and `release_rolled_back` for a
+rollback an agent executed. Every notification carries a `domain.NotificationKind`.
 
 An alerter without the API key posts to `POST /v1/alerts/ingest/:token` (migration 187,
 `alert_ingest_tokens`, sha256 only); the handler resolves the token to its repository and runs the
@@ -464,7 +468,9 @@ work now ends at its verdict in `in_qa`/`pm_uat`.
 `project_components.delivery` is a `Fact[domain.ComponentDelivery]` like `name`/`role`/`stack`
 — `mode` (`on_merge` | `dispatch` | `batch` | `none`), `executor` (`github_actions` | `vercel`
 | `local` | `store`), `workflow`, `tag_pattern`, `local_command`, `verify` (`soak_minutes`,
-`max_new_errors`, GET/HEAD-only `smoke` checks), `auto_rollback`. `domain.DeliveryConfirmed`
+`max_new_errors`, GET/HEAD-only `smoke` checks, the deploy impact thresholds
+`max_error_rate_delta`/`max_p95_delta_pct` the soak holds `application/deployimpact` to),
+`auto_rollback`. `domain.DeliveryConfirmed`
 is what a release may act on without asking: an `Override` always confirms; a `Detected`
 guess confirms only at `exact`/`high` confidence — a medium guess must not start dispatching
 production deploys nobody asked for.

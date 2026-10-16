@@ -13,8 +13,10 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/catalog"
@@ -62,6 +64,9 @@ type Service struct {
 	catalog     *Catalog
 	policy      urlguard.Policy
 	now         func() time.Time
+
+	mu        sync.Mutex
+	observers []func(id uuid.UUID)
 }
 
 // NewService fails without a URL policy, on a duplicate kind, or on a catalog
@@ -114,6 +119,24 @@ func (s *Service) SetURLPolicy(p urlguard.Policy) {
 }
 
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+// OnChange registers fn to run, with the source's id, once a source is saved
+// again or deleted: whatever a caller derived from it (a cached read) is
+// stale from then on.
+func (s *Service) OnChange(fn func(id uuid.UUID)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.observers = append(s.observers, fn)
+}
+
+func (s *Service) changed(id uuid.UUID) {
+	s.mu.Lock()
+	observers := slices.Clone(s.observers)
+	s.mu.Unlock()
+	for _, fn := range observers {
+		fn(id)
+	}
+}
 
 func (s *Service) Kinds() []domain.DataSourceKindInfo {
 	out := make([]domain.DataSourceKindInfo, 0, len(s.order))

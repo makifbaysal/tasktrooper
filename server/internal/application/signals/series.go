@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -42,8 +43,10 @@ type SeriesQuery struct {
 // Series reads the confirmed binding of each signal over the window. A
 // quantile signal whose query takes $__quantile answers one series per
 // quantile (p50, p95, p99). With Compare, Previous is the window before,
-// shifted onto this one's timestamps. A signal that cannot be read carries
-// its error; it never fails the others.
+// shifted onto this one's timestamps; a previous window that cannot be read
+// carries PreviousError and leaves Series be. A signal that cannot be read
+// carries its error; it never fails the others. StepSeconds is the coarsest
+// spacing a source answered at, never finer than the step asked for.
 func (s *Service) Series(ctx context.Context, componentID uuid.UUID, q SeriesQuery) (domain.ComponentSeries, error) {
 	if !q.Environment.Valid() {
 		return domain.ComponentSeries{}, fmt.Errorf("unknown environment %q: %w", q.Environment, ErrInvalidInput)
@@ -72,7 +75,7 @@ func (s *Service) Series(ctx context.Context, componentID uuid.UUID, q SeriesQue
 	}
 
 	ids := s.requestedSignals(comp.Role.Get(), q.Signals)
-	out := domain.ComponentSeries{From: from, To: to, StepSeconds: int64(step / time.Second), Signals: make([]domain.SignalSeries, len(ids))}
+	out := domain.ComponentSeries{From: from, To: to, Signals: make([]domain.SignalSeries, len(ids))}
 	span := to.Sub(from)
 	type job struct {
 		signal   int
@@ -107,36 +110,70 @@ func (s *Service) Series(ctx context.Context, componentID uuid.UUID, q SeriesQue
 		out.Signals[i] = res
 	}
 
-	results := fanOut(ctx, len(jobs), s.concurrency, s.queryTimeout, func(ctx context.Context, i int) ([]domain.Series, error) {
-		j := jobs[i]
-		jf, jt, shift := from, to, time.Duration(0)
-		if j.previous {
-			jf, jt, shift = from.Add(-span), to.Add(-span), span
-		}
-		series, _, err := s.read(ctx, j.binding, j.variant.value, jf, jt, step)
-		if err != nil {
-			return nil, err
-		}
-		return labelQuantile(shifted(series, shift), j.variant), nil
-	})
+	type seriesRead struct {
+		series []domain.Series
+		step   time.Duration
+	}
+	rd := s.reader(l)
+	budget, cancel := context.WithTimeout(ctx, s.seriesBudget)
+	defer cancel()
+	results := fanOut(budget, len(jobs), s.concurrency, s.queryTimeout,
+		func(i int) uuid.UUID { return jobs[i].binding.DataSourceID },
+		func(ctx context.Context, i int) (seriesRead, error) {
+			j := jobs[i]
+			jf, jt, shift := from, to, time.Duration(0)
+			if j.previous {
+				jf, jt, shift = from.Add(-span), to.Add(-span), span
+			}
+			res, _, err := rd.read(ctx, j.binding, j.variant.value, jf, jt, step)
+			if err != nil {
+				return seriesRead{}, err
+			}
+			return seriesRead{series: labelQuantile(shifted(res.Series, shift), j.variant), step: res.Step}, nil
+		})
+	failed := make([]*domain.SignalReadError, len(ids))
+	previousFailed := make([]*domain.SignalReadError, len(ids))
+	effective := step
 	for i, r := range results {
 		j := jobs[i]
 		res := &out.Signals[j.signal]
-		if res.Error != nil {
-			continue
-		}
-		if r.err != nil {
-			res.Error = readError(r.err, s.queryTimeout)
-			res.Series, res.Previous = []domain.Series{}, []domain.Series{}
-			continue
-		}
-		if j.previous {
-			res.Previous = append(res.Previous, r.value...)
-		} else {
-			res.Series = append(res.Series, r.value...)
+		switch {
+		case r.err != nil && j.previous:
+			if previousFailed[j.signal] == nil {
+				previousFailed[j.signal] = s.jobError(r.err, r.late)
+			}
+		case r.err != nil:
+			if failed[j.signal] == nil {
+				failed[j.signal] = s.jobError(r.err, r.late)
+			}
+		case j.previous:
+			res.Previous = append(res.Previous, r.value.series...)
+		default:
+			res.Series = append(res.Series, r.value.series...)
+			effective = max(effective, r.value.step)
 		}
 	}
+	for i := range out.Signals {
+		res := &out.Signals[i]
+		switch {
+		case failed[i] != nil:
+			res.Error = failed[i]
+			res.Series, res.Previous = []domain.Series{}, []domain.Series{}
+		case previousFailed[i] != nil:
+			res.PreviousError = previousFailed[i]
+			res.Previous = []domain.Series{}
+		}
+	}
+	out.StepSeconds = int64(effective / time.Second)
 	return out, nil
+}
+
+// jobError: late is a read the series budget cut off or never started.
+func (s *Service) jobError(err error, late bool) *domain.SignalReadError {
+	if late && errors.Is(err, context.DeadlineExceeded) {
+		return &domain.SignalReadError{Code: domain.SignalErrTimeout, Message: fmt.Sprintf("not read within the %s a series read may take", s.seriesBudget)}
+	}
+	return readError(err, s.queryTimeout)
 }
 
 // PreviewRequest runs a binding request once for a signal before it is
@@ -172,16 +209,18 @@ func (s *Service) Preview(ctx context.Context, componentID uuid.UUID, req Previe
 	if err != nil {
 		return domain.SignalPreview{}, err
 	}
+	rd := s.reader(l)
 	out := domain.SignalPreview{Series: []domain.Series{}, Warnings: []string{}}
 	for _, v := range variants(s.signalIndex[signal], template(l, b)) {
-		series, rendered, err := s.readWithWarnings(ctx, b, v.value, from, to, step, &out.Warnings)
+		res, rendered, err := rd.read(ctx, b, v.value, from, to, step)
 		if err != nil {
 			return domain.SignalPreview{}, err
 		}
+		out.Warnings = append(out.Warnings, res.Warnings...)
 		if v.value == 0 || v.value == headlineQuantile {
 			out.RenderedQuery = rendered
 		}
-		out.Series = append(out.Series, labelQuantile(series, v)...)
+		out.Series = append(out.Series, labelQuantile(res.Series, v)...)
 	}
 	return out, nil
 }
@@ -193,24 +232,6 @@ func variants(sig domain.Signal, query string) []variant {
 		return []variant{{}}
 	}
 	return slices.Clone(quantiles)
-}
-
-func (s *Service) read(ctx context.Context, b domain.SignalBinding, quantile float64, from, to time.Time, step time.Duration) ([]domain.Series, string, error) {
-	var warnings []string
-	return s.readWithWarnings(ctx, b, quantile, from, to, step, &warnings)
-}
-
-func (s *Service) readWithWarnings(ctx context.Context, b domain.SignalBinding, quantile float64, from, to time.Time, step time.Duration, warnings *[]string) ([]domain.Series, string, error) {
-	query, err := s.render(ctx, b, step, quantile)
-	if err != nil {
-		return nil, "", err
-	}
-	res, err := s.sources.Query(ctx, b.DataSourceID, domain.SeriesQuery{Query: query, From: from, To: to, Step: step})
-	if err != nil {
-		return nil, query, err
-	}
-	*warnings = append(*warnings, res.Warnings...)
-	return res.Series, query, nil
 }
 
 func shifted(series []domain.Series, by time.Duration) []domain.Series {
@@ -303,20 +324,25 @@ func (s *Service) window(from, to time.Time, step time.Duration, points int, max
 	return from, to, step, nil
 }
 
+// readError says what the person can act on. An error of no class here (a
+// store or decryption failure, a panic) is this server's own: its detail is
+// logged, not answered.
 func readError(err error, timeout time.Duration) *domain.SignalReadError {
-	code := domain.SignalErrInternal
 	msg := err.Error()
 	switch {
+	case errors.Is(err, errSourceTimedOut):
+		return &domain.SignalReadError{Code: domain.SignalErrTimeout, Message: "skipped: the data source did not answer an earlier query of this read in time"}
 	case errors.Is(err, context.DeadlineExceeded):
-		code, msg = domain.SignalErrTimeout, fmt.Sprintf("no answer within %s", timeout)
+		return &domain.SignalReadError{Code: domain.SignalErrTimeout, Message: fmt.Sprintf("no answer within %s", timeout)}
 	case errors.Is(err, port.ErrDataSourceQuery), errors.Is(err, datasource.ErrInvalidInput):
-		code = domain.SignalErrBadQuery
+		return &domain.SignalReadError{Code: domain.SignalErrBadQuery, Message: msg}
 	case errors.Is(err, datasource.ErrUnsupported):
-		code = domain.SignalErrUnsupported
+		return &domain.SignalReadError{Code: domain.SignalErrUnsupported, Message: msg}
 	case errors.Is(err, datasource.ErrUpstream):
-		code = domain.SignalErrUpstream
+		return &domain.SignalReadError{Code: domain.SignalErrUpstream, Message: msg}
 	case errors.Is(err, port.ErrNotFound):
-		code, msg = domain.SignalErrNotFound, "the data source no longer exists"
+		return &domain.SignalReadError{Code: domain.SignalErrNotFound, Message: "the data source no longer exists"}
 	}
-	return &domain.SignalReadError{Code: code, Message: msg}
+	log.Warn().Err(err).Msg("signals: reading a signal failed")
+	return &domain.SignalReadError{Code: domain.SignalErrInternal, Message: errPanicked.Error()}
 }

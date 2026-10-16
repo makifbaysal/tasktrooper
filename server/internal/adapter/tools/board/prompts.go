@@ -120,6 +120,14 @@ var deployReleaseNextKey = prompt.Define("tool_results.board_deploy_release_next
 var finishReleaseDoneKey = prompt.Define("tool_results.board_finish_release_done", struct{}{})
 var rollbackReleaseNextKey = prompt.Define("tool_results.board_rollback_release_next", struct{}{})
 
+type deployImpactNextInput struct {
+	Verdict      string
+	Pending      bool
+	AutoRollback bool
+}
+
+var deployImpactNextKey = prompt.Define("tool_results.board_deploy_impact_next", deployImpactNextInput{Verdict: "worse", AutoRollback: true})
+
 var criterionRuleCardMoveKey = prompt.Define("guard.board_criterion_rule_card_move", struct{}{})
 var criterionRuleCardWaitingKey = prompt.Define("guard.board_criterion_rule_card_waiting", struct{}{})
 var criterionRuleNextTasksKey = prompt.Define("guard.board_criterion_rule_next_tasks", struct{}{})

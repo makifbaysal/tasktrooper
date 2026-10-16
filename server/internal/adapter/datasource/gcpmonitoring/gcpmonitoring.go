@@ -245,10 +245,14 @@ func (a *Adapter) token(ctx context.Context, serviceAccountJSON string) (string,
 	return tok, nil
 }
 
-// mintError keeps what Google answered (invalid_grant and its reason, which
-// carry no key material) and drops the token URL net/http adds.
+// mintError keeps the status and OAuth code the minter reports (never the
+// token endpoint's own text, which it only logs) and drops the token URL
+// net/http adds.
 func mintError(err error) error {
-	if errors.Is(err, urlguard.ErrBlocked) {
+	switch {
+	case errors.Is(err, gcloud.ErrTokenURINotGoogle):
+		return errors.New("google sign-in: the key's token_uri is not Google's token endpoint")
+	case errors.Is(err, urlguard.ErrBlocked):
 		return errors.New("google sign-in: the key's token_uri is not an allowed destination")
 	}
 	var ue *url.Error

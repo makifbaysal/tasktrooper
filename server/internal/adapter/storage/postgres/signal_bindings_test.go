@@ -2,6 +2,9 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,7 +88,7 @@ func (s *SignalBindingStoreSuite) suggestion(signal string, params map[string]st
 }
 
 func (s *SignalBindingStoreSuite) suggest(env domain.DeployEnvironment, list ...domain.SignalBinding) []domain.SignalBinding {
-	saved, err := s.store.ReplaceDetectedSuggestions(s.ctx, s.component.ID, env, list)
+	saved, err := s.store.ReplaceDetectedSuggestions(s.ctx, s.component.ID, env, []uuid.UUID{s.source.ID}, list)
 	s.Require().NoError(err)
 	return saved
 }
@@ -104,7 +107,7 @@ func (s *SignalBindingStoreSuite) TestSuggestionsRoundTripAndReplaceOnlyPendingD
 	s.Equal(domain.EnvironmentProduction, first[0].Environment)
 	s.Equal(s.component.ID, first[0].ComponentID)
 
-	_, err := s.store.SetSignalBindingStatus(s.ctx, first[1].ID, domain.SignalBindingDismissed)
+	_, err := s.store.DismissSignalBinding(s.ctx, first[1].ID)
 	s.Require().NoError(err)
 	confirmed, err := s.store.ConfirmSignalBinding(s.ctx, first[2].ID)
 	s.Require().NoError(err)
@@ -204,7 +207,7 @@ func (s *SignalBindingStoreSuite) TestUnknownIDsAnswerNotFound() {
 	s.ErrorIs(err, port.ErrNotFound)
 	_, err = s.store.ConfirmSignalBinding(s.ctx, uuid.New())
 	s.ErrorIs(err, port.ErrNotFound)
-	_, err = s.store.SetSignalBindingStatus(s.ctx, uuid.New(), domain.SignalBindingDismissed)
+	_, err = s.store.DismissSignalBinding(s.ctx, uuid.New())
 	s.ErrorIs(err, port.ErrNotFound)
 	s.ErrorIs(s.store.DeleteSignalBinding(s.ctx, uuid.New()), port.ErrNotFound)
 }
@@ -223,4 +226,123 @@ func (s *SignalBindingStoreSuite) TestDeleteRemovesOneBinding() {
 	s.Require().NoError(err)
 	s.Require().Len(left, 1)
 	s.Equal(saved[1].ID, left[0].ID)
+}
+
+func (s *SignalBindingStoreSuite) pendingIDs(env domain.DeployEnvironment) map[string]uuid.UUID {
+	all, err := s.store.ListSignalBindings(s.ctx, s.component.ID, env)
+	s.Require().NoError(err)
+	out := map[string]uuid.UUID{}
+	for _, b := range all {
+		if b.Status == domain.SignalBindingSuggested {
+			out[b.Signal+"/"+b.Params["job"]] = b.ID
+		}
+	}
+	return out
+}
+
+func (s *SignalBindingStoreSuite) TestReplaceKeepsUnchangedSuggestionsAndTheRowsOfSourcesThatDidNotAnswer() {
+	other := s.newSource()
+	fromOther := domain.SignalBinding{Signal: "http.requests", DataSourceID: other.ID, RecipeID: "otel-http", Params: map[string]string{"job": "edge"}}
+	_, err := s.store.ReplaceDetectedSuggestions(s.ctx, s.component.ID, domain.EnvironmentProduction, []uuid.UUID{s.source.ID, other.ID}, []domain.SignalBinding{
+		s.suggestion("http.requests", map[string]string{"job": "api"}),
+		fromOther,
+		s.suggestion("http.latency", map[string]string{"job": "api"}),
+	})
+	s.Require().NoError(err)
+	before := s.pendingIDs(domain.EnvironmentProduction)
+	s.Require().Len(before, 3)
+
+	saved, err := s.store.ReplaceDetectedSuggestions(s.ctx, s.component.ID, domain.EnvironmentProduction, []uuid.UUID{s.source.ID}, []domain.SignalBinding{
+		s.suggestion("http.requests", map[string]string{"job": "api"}),
+		s.suggestion("http.error_ratio", map[string]string{"job": "api"}),
+	})
+	s.Require().NoError(err)
+
+	after := s.pendingIDs(domain.EnvironmentProduction)
+	s.Equal(before["http.requests/api"], after["http.requests/api"])
+	s.Equal(before["http.requests/edge"], after["http.requests/edge"])
+	s.NotContains(after, "http.latency/api")
+	s.Contains(after, "http.error_ratio/api")
+	s.Len(after, 3)
+	s.Len(saved, 3)
+}
+
+func (s *SignalBindingStoreSuite) TestDismissTouchesOnlyASuggestion() {
+	saved := s.suggest(domain.EnvironmentProduction, s.suggestion("http.requests", nil))
+	confirmed, err := s.store.PutConfirmedSignalBinding(s.ctx, domain.SignalBinding{
+		ComponentID: s.component.ID, Environment: domain.EnvironmentProduction, Signal: "http.latency",
+		DataSourceID: s.source.ID, Query: "up", Source: domain.SignalBindingHuman,
+	})
+	s.Require().NoError(err)
+
+	got, err := s.store.DismissSignalBinding(s.ctx, confirmed.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.SignalBindingConfirmed, got.Status)
+	still, err := s.store.GetSignalBinding(s.ctx, confirmed.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.SignalBindingConfirmed, still.Status)
+
+	got, err = s.store.DismissSignalBinding(s.ctx, saved[0].ID)
+	s.Require().NoError(err)
+	s.Equal(domain.SignalBindingDismissed, got.Status)
+	got, err = s.store.DismissSignalBinding(s.ctx, saved[0].ID)
+	s.Require().NoError(err)
+	s.Equal(domain.SignalBindingDismissed, got.Status)
+}
+
+func (s *SignalBindingStoreSuite) TestConcurrentConfirmsAndPutsOfOneSlotLeaveOneConfirmedBinding() {
+	ctx, cancel := context.WithTimeout(s.ctx, time.Minute)
+	defer cancel()
+	put := domain.SignalBinding{
+		ComponentID: s.component.ID, Environment: domain.EnvironmentProduction, Signal: "http.requests",
+		DataSourceID: s.source.ID, Query: "up", Source: domain.SignalBindingHuman,
+	}
+	for round := range 8 {
+		var list []domain.SignalBinding
+		for job := range 6 {
+			list = append(list, s.suggestion("http.requests", map[string]string{"job": fmt.Sprintf("%d-%d", round, job)}))
+		}
+		saved := s.suggest(domain.EnvironmentProduction, list...)
+
+		start := make(chan struct{})
+		errs := make(chan error, len(saved)+2)
+		var wg sync.WaitGroup
+		for _, b := range saved {
+			wg.Add(1)
+			go func(id uuid.UUID) {
+				defer wg.Done()
+				<-start
+				if _, err := s.store.ConfirmSignalBinding(ctx, id); err != nil && !errors.Is(err, port.ErrNotFound) {
+					errs <- err
+				}
+			}(b.ID)
+		}
+		for range 2 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if _, err := s.store.PutConfirmedSignalBinding(ctx, put); err != nil {
+					errs <- err
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			s.NoError(err)
+		}
+	}
+
+	all, err := s.store.ListSignalBindings(s.ctx, s.component.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	confirmed := 0
+	for _, b := range all {
+		s.NotEqual(domain.SignalBindingSuggested, b.Status)
+		if b.Status == domain.SignalBindingConfirmed {
+			confirmed++
+		}
+	}
+	s.Equal(1, confirmed)
 }

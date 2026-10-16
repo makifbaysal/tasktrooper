@@ -84,7 +84,10 @@ func (s *Service) Enabled(kind domain.NotificationChannelKind) bool {
 // to fail or stall. The caller's cancellation is not inherited: an alert
 // arriving on a request that is about to end must still go out.
 func (s *Service) Notify(ctx context.Context, n domain.Notification) {
-	targets := s.enabledChannels()
+	s.deliver(ctx, n, s.enabledChannels())
+}
+
+func (s *Service) deliver(ctx context.Context, n domain.Notification, targets []port.NotificationChannel) {
 	if len(targets) == 0 {
 		return
 	}
