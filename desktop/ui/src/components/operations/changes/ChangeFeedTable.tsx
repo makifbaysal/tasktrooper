@@ -12,13 +12,14 @@ import {
 } from "@/components/operations/changes/changeFeed";
 import { ImpactChips } from "@/components/operations/changes/ImpactChips";
 import { ImpactVerdictPill } from "@/components/operations/changes/ImpactVerdictPill";
-import { impactSummary, listImpact } from "@/components/operations/changes/releaseImpact";
+import { impactSummary, listImpact, type SignalCatalog } from "@/components/operations/changes/releaseImpact";
 import { ReleaseStatusPill } from "@/components/operations/changes/ReleaseStatusPill";
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
 import { Card } from "@/components/ui/card";
 import { Elapsed } from "@/components/ui/elapsed";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { useSignalCatalog } from "@/hooks/useDataSources";
 import { useI18n } from "@/hooks/useI18n";
 import { githubCommitUrl } from "@/lib/githubUrl";
 import { intlLocale } from "@/lib/languages";
@@ -44,6 +45,7 @@ export function ChangeFeedTable({ days, ownerOf, detailHref, selectedId, showEnt
   const c = (key: string, params?: Record<string, string | number>) => t(`operations.changes.${key}`, params);
   const columnCount = showEntity ? 9 : 8;
   const dayFormat = new Intl.DateTimeFormat(intlLocale(lang), { weekday: "short", month: "short", day: "numeric" });
+  const catalog = useSignalCatalog();
 
   const dayTitle = (start: number) => {
     const ago = daysAgo(start, now);
@@ -93,6 +95,7 @@ export function ChangeFeedTable({ days, ownerOf, detailHref, selectedId, showEnt
                   href={detailHref(release)}
                   selected={release.id === selectedId}
                   showEntity={showEntity}
+                  catalog={catalog}
                 />
               ))}
             </tbody>
@@ -109,9 +112,10 @@ interface ChangeRowProps {
   href: string;
   selected: boolean;
   showEntity: boolean;
+  catalog: SignalCatalog;
 }
 
-function ChangeRow({ release: r, owner, href, selected, showEntity }: ChangeRowProps) {
+function ChangeRow({ release: r, owner, href, selected, showEntity, catalog }: ChangeRowProps) {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const opsHref = useOpsHref();
@@ -221,7 +225,7 @@ function ChangeRow({ release: r, owner, href, selected, showEntity }: ChangeRowP
         )}
       </td>
       <td className={TD}>
-        <ImpactCell release={r} />
+        <ImpactCell release={r} catalog={catalog} />
       </td>
     </tr>
   );
@@ -229,13 +233,13 @@ function ChangeRow({ release: r, owner, href, selected, showEntity }: ChangeRowP
 
 /** The deploy's impact verdict when its soak checked one, then what the
  * verification itself recorded. */
-function ImpactCell({ release }: { release: Release }) {
+function ImpactCell({ release, catalog }: { release: Release; catalog: SignalCatalog }) {
   const { t, lang } = useI18n();
   const ctx = useMemo(() => ({ locale: intlLocale(lang), t }), [lang, t]);
-  const impact = listImpact(release);
+  const impact = listImpact(release, catalog);
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {impact && <ImpactVerdictPill state={impact.state} detail={impact.worst ? impactSummary(impact.worst, ctx) : undefined} />}
+      {impact && <ImpactVerdictPill state={impact.state} detail={impact.worst ? impactSummary(impact.worst, ctx, catalog) : undefined} />}
       <ImpactChips checks={release.checks} status={release.status} />
     </div>
   );

@@ -2,7 +2,10 @@ import { Plug } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Release, SignalSeries, SignalSeriesError } from "@/api";
+import { hasTrend } from "@/components/operations/charts/chartData";
+import { LiveValueList, liveValueItems } from "@/components/operations/charts/LiveValueList";
 import { signalChartSeries, signalErrorView } from "@/components/operations/charts/signalChart";
+import { isLiveSignal, seriesWindowEnd } from "@/components/operations/queues/queueSignals";
 import type { DeployMarker } from "@/components/operations/charts/TimeSeriesChart";
 import { ChartSlot, DATA_SOURCES_PATH, type ChartSlotStatus } from "@/components/operations/console/ChartSlot";
 import { goldenValue, goldenWindow, indexGolden } from "@/components/operations/console/goldenMetrics";
@@ -198,8 +201,8 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
         unit={parts.unit || undefined}
         value={<span className="font-mono tabular-nums">{parts.value}</span>}
         delta={signalDelta(spec.id, found.value, found.previous, found.unit, formatCtx)}
-        foot={previous ? s("tileFoot.previousValue", { value: previous }) : undefined}
-        sparkline={found.spark?.length ? found.spark : undefined}
+        foot={previous ? s("tileFoot.previousValue", { value: previous }) : hasTrend(found.spark) ? undefined : s("tileFoot.live")}
+        sparkline={hasTrend(found.spark) ? found.spark : undefined}
         sparklineColorIndex={1}
       />
     );
@@ -230,7 +233,8 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
           </Button>
         );
       }
-    } else status = sig?.bound ? "bound" : "unbound";
+    } else if (isLiveSignal(sig, seriesWindowEnd(series.data))) status = "live";
+    else status = sig?.bound ? "bound" : "unbound";
     const previousError = compare && status === "bound" ? sig?.previous_error : undefined;
     return (
       <ChartSlot
@@ -247,6 +251,18 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
             <span title={previousError.message || undefined}>
               {t("operations.chart.errors.previousFailed", { reason: errorTitle(previousError) })}
             </span>
+          ) : status === "live" ? (
+            t("operations.queues.chart.liveNote")
+          ) : undefined
+        }
+        live={
+          status === "live" ? (
+            <LiveValueList
+              items={liveValueItems(chartLines.get(spec.id) ?? [])}
+              formatValue={sig ? formatterFor(sig.unit) : undefined}
+              ariaLabel={title}
+              height={150}
+            />
           ) : undefined
         }
         loading={series.loading}

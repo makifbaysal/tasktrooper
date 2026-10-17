@@ -1,10 +1,13 @@
 import { Play } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { ApiError, api, dataSourceFieldErrors, type MetricQueryResult } from "@/api";
+import { isInstantResult } from "@/components/operations/charts/chartData";
+import { LiveValueList, liveValueItems } from "@/components/operations/charts/LiveValueList";
 import { TimeSeriesChart } from "@/components/operations/charts/TimeSeriesChart";
 import { TIME_RANGE_MS, TimeRangeControl, type TimeRange } from "@/components/operations/console/TimeRangeControl";
 import {
   fieldErrorText,
+  queryHint,
   queryPlaceholder,
   queryWindow,
   toChartSeries,
@@ -40,6 +43,8 @@ export function QueryPlayground({ sourceId, kind, query, onQueryChange }: QueryP
   const seq = useRef(0);
 
   const series = useMemo(() => toChartSeries(result?.series ?? []), [result]);
+  const instant = result !== null && isInstantResult(series);
+  const hint = queryHint(t, kind);
 
   const describe = (err: unknown): QueryFailure => {
     const fields = dataSourceFieldErrors(err);
@@ -106,7 +111,7 @@ export function QueryPlayground({ sourceId, kind, query, onQueryChange }: QueryP
           aria-describedby="ds-query-hint"
         />
         <p id="ds-query-hint" className="text-caption text-muted-foreground">
-          {q("shortcut")}
+          {hint ? `${hint} ${q("shortcut")}` : q("shortcut")}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
@@ -141,15 +146,22 @@ export function QueryPlayground({ sourceId, kind, query, onQueryChange }: QueryP
           </ul>
         </Notice>
       )}
-      {(result || running) && (
-        <TimeSeriesChart
-          series={series}
-          ariaLabel={q("chartLabel")}
-          height={220}
-          loading={running && !result}
-          showTableToggle
-          emptyLabel={q("noSeries")}
-        />
+      {instant ? (
+        <div className="space-y-1.5">
+          <LiveValueList items={liveValueItems(series)} ariaLabel={q("valuesLabel")} height={260} />
+          <p className="text-caption text-muted-foreground">{q("liveNote")}</p>
+        </div>
+      ) : (
+        (result || running) && (
+          <TimeSeriesChart
+            series={series}
+            ariaLabel={q("chartLabel")}
+            height={220}
+            loading={running && !result}
+            showTableToggle
+            emptyLabel={q("noSeries")}
+          />
+        )
       )}
     </section>
   );

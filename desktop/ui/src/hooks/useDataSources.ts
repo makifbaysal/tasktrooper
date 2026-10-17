@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
   api,
@@ -99,6 +99,30 @@ export function useRecipeCatalog() {
   }, [t, setRecipes, setSignals, setLoading]);
 
   return { recipes, signals, loading };
+}
+
+/** The signal catalog alone, by id, for the units and directions a list row
+ * needs: the cached one at once, read once per visit when there is none, and
+ * a failed read leaves the rows to their own units. */
+export function useSignalCatalog(): ReadonlyMap<string, ObservabilitySignal> {
+  const [signals, setSignals] = useCachedState<ObservabilitySignal[]>(CACHE_SIGNALS, []);
+  const known = signals.length > 0;
+
+  useEffect(() => {
+    if (known) return;
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => api.listSignals())
+      .then((res) => {
+        if (!cancelled) setSignals((prev) => keepEqual(prev, res?.signals ?? []));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [known, setSignals]);
+
+  return useMemo(() => new Map(signals.map((s) => [s.id, s])), [signals]);
 }
 
 /** The connected cloud accounts a `cloud_account` field picks from, re-read

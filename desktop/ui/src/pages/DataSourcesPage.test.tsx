@@ -95,7 +95,7 @@ describe("DataSourcesPage", () => {
     apiMock.listDataSources.mockResolvedValue({ data_sources: [] });
     renderPage();
     expect(await screen.findByText("Connect where your metrics already live")).toBeInTheDocument();
-    expect(screen.getByText(/Google Cloud Monitoring and Amazon CloudWatch can be connected today/)).toBeInTheDocument();
+    expect(screen.getByText(/Amazon CloudWatch, Kafka, RabbitMQ and NATS can be connected today/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Add data source" })).toBeEnabled());
   });
 

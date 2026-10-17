@@ -1,6 +1,7 @@
 import { Plug } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { hasTrend } from "@/components/operations/charts/chartData";
 import { Sparkline } from "@/components/operations/charts/Sparkline";
 import { roleHasGolden } from "@/components/operations/console/entityTypes";
 import { goldenCell, type GoldenIndex, type GoldenReadState } from "@/components/operations/console/goldenMetrics";
@@ -161,9 +162,10 @@ function GoldenCell({ spec, row, values, read, formatCtx }: GoldenCellProps) {
       return <Blank label={t("operations.explorer.noValue")} />;
   }
   const found = cell.value;
+  const trend = hasTrend(found.spark);
   return (
-    <span className="inline-flex items-center justify-end gap-2">
-      {found.spark?.length > 0 && <Sparkline points={found.spark} width={48} height={16} />}
+    <span className="inline-flex items-center justify-end gap-2" title={trend ? undefined : t("operations.explorer.liveValue")}>
+      {trend && <Sparkline points={found.spark} width={48} height={16} />}
       <span className="text-foreground">{formatSignalValue(found.value, found.unit, formatCtx)}</span>
     </span>
   );

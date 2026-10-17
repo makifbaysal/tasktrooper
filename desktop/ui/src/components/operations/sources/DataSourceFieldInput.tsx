@@ -6,6 +6,7 @@ import {
   fieldHelp,
   fieldLabel,
   fieldPlaceholder,
+  isMultilineField,
   isSecretField,
   optionLabel,
   type HeaderRow,
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
 
 interface DataSourceFieldInputProps {
@@ -134,6 +136,22 @@ export function DataSourceFieldInput({
           ))}
         </SelectContent>
       </Select>
+    );
+  } else if (isMultilineField(field)) {
+    control = (
+      <Textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={secret && stored && !mustResupply ? f("secretSavedPlaceholder") : fieldPlaceholder(t, kind, field)}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={disabled || removed}
+        rows={4}
+        className="font-mono text-micro"
+      />
     );
   } else {
     control = (

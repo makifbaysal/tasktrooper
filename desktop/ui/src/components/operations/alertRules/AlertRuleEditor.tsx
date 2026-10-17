@@ -2,8 +2,6 @@ import { Gauge, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ALERT_CHANNEL_KINDS,
-  ALERT_CHANNELS_AVAILABLE,
   ALERT_RULE_OPS,
   api,
   dataSourceFieldErrors,
@@ -17,7 +15,11 @@ import {
 import { FormDialog } from "@/components/admin/FormDialog";
 import {
   ALERT_SEVERITIES,
+  channelLabel,
+  channelOptions,
   conditionText,
+  deliveringChannels,
+  draftConditionRule,
   draftErrorCount,
   draftFromRule,
   draftFromSuggestion,
@@ -53,8 +55,26 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useDataSources } from "@/hooks/useDataSources";
 import { useI18n } from "@/hooks/useI18n";
+import { useNotificationChannels } from "@/hooks/useOpsAlerts";
 import { useComponentSignals } from "@/hooks/useOpsSignals";
 import { intlLocale } from "@/lib/languages";
+
+// Every field the form shows an error under; a refusal of any other goes in
+// the form's own error.
+const rendered: ReadonlySet<DraftField> = new Set<DraftField>([
+  "name",
+  "componentId",
+  "environment",
+  "signal",
+  "dataSourceId",
+  "query",
+  "op",
+  "threshold",
+  "forSeconds",
+  "windowSeconds",
+  "severity",
+  "channels",
+]);
 
 export interface AlertRuleEditorProps {
   open: boolean;
@@ -94,8 +114,12 @@ export function AlertRuleEditor({
   const href = useOpsHref();
   const ctx = useMemo(() => ({ locale: intlLocale(lang), t }), [lang, t]);
   const editing = Boolean(rule);
+  const channels = useNotificationChannels();
+  const delivering = useMemo(() => deliveringChannels(channels.data), [channels.data]);
   const [draft, setDraft] = useState<AlertRuleDraft>(() =>
-    rule ? draftFromRule(rule) : emptyRuleDraft(lockedEntity?.id ?? (entities.length === 1 ? entities[0].id : ""), defaultEnv),
+    rule
+      ? draftFromRule(rule, ctx.locale)
+      : emptyRuleDraft(lockedEntity?.id ?? (entities.length === 1 ? entities[0].id : ""), defaultEnv, deliveringChannels(channels.data)),
   );
   const [revision, setRevision] = useState(0);
   const [errors, setErrors] = useState<DraftErrors>({});
@@ -116,21 +140,8 @@ export function AlertRuleEditor({
   const unit =
     draft.mode === "signal" ? (bound.find((s) => s.signal === draft.signal)?.unit ?? catalogUnits.get(draft.signal)) : undefined;
   const thresholdUnit = opIsChange(draft.op) ? "%" : unit ? signalValueParts(0, unit, ctx).unit : "";
-  const condition = conditionText(
-    {
-      signal: draft.mode === "signal" ? draft.signal : "",
-      query: draft.mode === "custom" ? draft.query : "",
-      condition: {
-        op: draft.op,
-        threshold: opNeedsThreshold(draft.op) && draft.threshold.trim() !== "" ? Number(draft.threshold.replace(",", ".")) : null,
-        for_seconds: Number.isFinite(draft.forSeconds) ? draft.forSeconds : 0,
-        window_seconds: Number.isFinite(draft.windowSeconds) ? draft.windowSeconds : 0,
-      },
-    },
-    unit,
-    ctx,
-  );
-  const local = validateRuleDraft(draft);
+  const condition = conditionText(draftConditionRule(draft, ctx.locale), unit, ctx);
+  const local = validateRuleDraft(draft, ctx.locale);
   const ready = draftErrorCount(local) === 0;
 
   const change = (patch: Partial<AlertRuleDraft>) => {
@@ -154,7 +165,7 @@ export function AlertRuleEditor({
       const answer = (await api.suggestAlertRules(componentId, environment)).rules ?? [];
       setSuggestions(answer);
       if (answer.length > 0) {
-        load(draftFromSuggestion(answer[0]));
+        load(draftFromSuggestion(answer[0], ctx.locale, delivering));
         setActiveIndex(0);
       }
     } catch (err) {
@@ -176,7 +187,7 @@ export function AlertRuleEditor({
   const pickSuggestion = (index: number) => {
     const s = suggestions?.[index];
     if (!s) return;
-    load(draftFromSuggestion(s));
+    load(draftFromSuggestion(s, ctx.locale, delivering));
     setActiveIndex(index);
   };
 
@@ -189,26 +200,26 @@ export function AlertRuleEditor({
       return false;
     }
     const next = Math.min(index, rest.length - 1);
-    load(draftFromSuggestion(rest[next]));
+    load(draftFromSuggestion(rest[next], ctx.locale, delivering));
     setActiveIndex(next);
     return true;
   };
 
   const dropSuggestion = (index: number) => {
     if (advanceFrom(index)) return;
-    if (index === activeIndex || activeIndex < 0) load(emptyRuleDraft(draft.componentId, draft.environment));
+    if (index === activeIndex || activeIndex < 0) load(emptyRuleDraft(draft.componentId, draft.environment, delivering));
   };
 
   const reviewing = suggestions !== null && activeIndex >= 0 && activeIndex < suggestions.length;
 
   const save = async () => {
-    const found = validateRuleDraft(draft);
+    const found = validateRuleDraft(draft, ctx.locale);
     setErrors(found);
     setSaveError("");
     if (draftErrorCount(found) > 0) return;
     setSaving(true);
     try {
-      const body = ruleInput(draft, condition);
+      const body = ruleInput(draft, condition, ctx.locale);
       const saved = rule ? await api.updateAlertRule(rule.id, body) : await api.createAlertRule(body);
       onSaved(saved);
       if (reviewing && advanceFrom(activeIndex)) return;
@@ -216,9 +227,17 @@ export function AlertRuleEditor({
     } catch (err) {
       const fields = dataSourceFieldErrors(err);
       if (fields) {
-        const { errors: inline, rest } = mapServerFields(fields);
+        const { errors: inline, rest } = mapServerFields(fields, rendered);
         setErrors(inline);
-        setSaveError(rest.map(([k, v]) => `${k}: ${errorText(v)}`).join(" "));
+        setSaveError(
+          rest.length > 0
+            ? rest.map(([k, v]) => `${k}: ${errorText(v)}`).join(" ")
+            : draftErrorCount(inline) > 0
+              ? e("fixFields")
+              : err instanceof Error
+                ? err.message
+                : t("common.actionFailed"),
+        );
       } else {
         setSaveError(err instanceof Error ? err.message : t("common.actionFailed"));
       }
@@ -234,12 +253,20 @@ export function AlertRuleEditor({
   };
 
   const shown = (field: DraftField) => errors[field];
+  const errorId = (field: DraftField) => `alert-${field}-error`;
   const fieldError = (field: DraftField) =>
     shown(field) ? (
-      <p id={`alert-${field}-error`} className="text-caption text-destructive">
+      <p id={errorId(field)} className="text-caption text-destructive">
         {errorText(shown(field)!)}
       </p>
     ) : null;
+  // A field's hint and, while it has one, its error: what a screen reader
+  // reads after the field's name.
+  const describedBy = (field: DraftField, ...hints: Array<string | undefined>) => {
+    const ids = [...hints, shown(field) ? errorId(field) : undefined].filter(Boolean);
+    return ids.length > 0 ? ids.join(" ") : undefined;
+  };
+  const invalid = (field: DraftField) => (shown(field) ? true : undefined);
 
   const setEntity = (componentId: string) => {
     change({ componentId, signal: "" });
@@ -253,8 +280,12 @@ export function AlertRuleEditor({
     setActiveIndex(-1);
   };
 
-  const toggleChannel = (kind: AlertChannelKind, on: boolean) =>
-    change({ channels: on ? [...new Set([...draft.channels, kind])] : draft.channels.filter((c) => c !== kind) });
+  const toggleChannel = (kind: string, on: boolean) =>
+    change({
+      channels: on ? [...new Set([...draft.channels, kind as AlertChannelKind])] : draft.channels.filter((c) => c !== kind),
+    });
+  // The rule's own channels stay listed, even unchecked, until the dialog closes.
+  const channelList = channelOptions(channels.data, [...new Set([...(rule?.channels ?? []), ...draft.channels])]);
 
   const envLabel = t(`cloud.environments.${draft.environment}`);
   const title = editing ? e("editTitle") : e("newTitle");
@@ -287,12 +318,12 @@ export function AlertRuleEditor({
         <div className="space-y-1.5">
           <Label htmlFor="alert-entity">{e("entity")}</Label>
           {lockedEntity || editing ? (
-            <p id="alert-entity" className="flex h-9 items-center truncate text-body font-medium">
+            <p id="alert-entity" aria-describedby={describedBy("componentId")} className="flex h-9 items-center truncate text-body font-medium">
               {entity?.name ?? draft.componentId}
             </p>
           ) : (
             <Select value={draft.componentId} onValueChange={setEntity} disabled={saving}>
-              <SelectTrigger id="alert-entity" aria-invalid={shown("componentId") ? true : undefined}>
+              <SelectTrigger id="alert-entity" aria-invalid={invalid("componentId")} aria-describedby={describedBy("componentId")}>
                 <SelectValue placeholder={e("entityPlaceholder")} />
               </SelectTrigger>
               <SelectContent>
@@ -310,7 +341,7 @@ export function AlertRuleEditor({
         <div className="space-y-1.5">
           <Label htmlFor="alert-env">{e("environment")}</Label>
           <Select value={draft.environment} onValueChange={(v) => setEnvironment(v as DeployEnvironment)} disabled={saving || editing}>
-            <SelectTrigger id="alert-env">
+            <SelectTrigger id="alert-env" aria-invalid={invalid("environment")} aria-describedby={describedBy("environment")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -321,6 +352,7 @@ export function AlertRuleEditor({
               ))}
             </SelectContent>
           </Select>
+          {fieldError("environment")}
         </div>
         {!editing && (
           <Button
@@ -399,7 +431,7 @@ export function AlertRuleEditor({
               </Notice>
             ) : (
               <Select value={draft.signal} onValueChange={(signal) => change({ signal })} disabled={saving || !draft.componentId}>
-                <SelectTrigger id="alert-signal" aria-invalid={shown("signal") ? true : undefined}>
+                <SelectTrigger id="alert-signal" aria-invalid={invalid("signal")} aria-describedby={describedBy("signal")}>
                   <SelectValue placeholder={draft.componentId ? e("signalPlaceholder") : e("pickEntityFirst")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -425,7 +457,7 @@ export function AlertRuleEditor({
             <div className="space-y-1.5">
               <Label htmlFor="alert-source">{e("dataSource")}</Label>
               <Select value={draft.dataSourceId} onValueChange={(dataSourceId) => change({ dataSourceId })} disabled={saving}>
-                <SelectTrigger id="alert-source" aria-invalid={shown("dataSourceId") ? true : undefined}>
+                <SelectTrigger id="alert-source" aria-invalid={invalid("dataSourceId")} aria-describedby={describedBy("dataSourceId")}>
                   <SelectValue placeholder={metrics.length === 0 ? e("noSources") : e("dataSourcePlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -448,7 +480,8 @@ export function AlertRuleEditor({
                 rows={3}
                 spellCheck={false}
                 className="font-mono text-caption"
-                aria-invalid={shown("query") ? true : undefined}
+                aria-invalid={invalid("query")}
+                aria-describedby={describedBy("query")}
                 disabled={saving}
               />
               {fieldError("query")}
@@ -463,7 +496,7 @@ export function AlertRuleEditor({
           <div className="space-y-1.5">
             <Label htmlFor="alert-op">{e("op")}</Label>
             <Select value={draft.op} onValueChange={(op) => change({ op: op as AlertRuleOp })} disabled={saving}>
-              <SelectTrigger id="alert-op">
+              <SelectTrigger id="alert-op" aria-invalid={invalid("op")} aria-describedby={describedBy("op")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -474,6 +507,7 @@ export function AlertRuleEditor({
                 ))}
               </SelectContent>
             </Select>
+            {fieldError("op")}
           </div>
           {opNeedsThreshold(draft.op) && (
             <div className="space-y-1.5">
@@ -484,8 +518,8 @@ export function AlertRuleEditor({
                   inputMode="decimal"
                   value={draft.threshold}
                   onChange={(ev) => change({ threshold: ev.target.value })}
-                  aria-invalid={shown("threshold") ? true : undefined}
-                  aria-describedby={opIsChange(draft.op) ? "alert-threshold-hint" : undefined}
+                  aria-invalid={invalid("threshold")}
+                  aria-describedby={describedBy("threshold", opIsChange(draft.op) ? "alert-threshold-hint" : undefined)}
                   className="w-32 font-mono tabular-nums"
                   disabled={saving}
                 />
@@ -509,7 +543,7 @@ export function AlertRuleEditor({
               onChange={(forSeconds) => change({ forSeconds })}
               invalid={Boolean(shown("forSeconds"))}
               disabled={saving}
-              describedBy="alert-for-hint"
+              describedBy={describedBy("forSeconds", "alert-for-hint")}
             />
             <p id="alert-for-hint" className="text-micro text-muted-foreground">
               {e("forHint")}
@@ -526,7 +560,7 @@ export function AlertRuleEditor({
               onChange={(windowSeconds) => change({ windowSeconds })}
               invalid={Boolean(shown("windowSeconds"))}
               disabled={saving}
-              describedBy="alert-window-hint"
+              describedBy={describedBy("windowSeconds", "alert-window-hint")}
             />
             <p id="alert-window-hint" className="text-micro text-muted-foreground">
               {e("windowHint")}
@@ -552,7 +586,8 @@ export function AlertRuleEditor({
               value={draft.name}
               onChange={(ev) => change({ name: ev.target.value })}
               placeholder={condition}
-              aria-invalid={shown("name") ? true : undefined}
+              aria-invalid={invalid("name")}
+              aria-describedby={describedBy("name")}
               disabled={saving}
             />
             {fieldError("name")}
@@ -560,7 +595,7 @@ export function AlertRuleEditor({
           <div className="space-y-1.5">
             <Label htmlFor="alert-severity">{e("severity")}</Label>
             <Select value={draft.severity} onValueChange={(v) => change({ severity: v as IncidentSeverity })} disabled={saving}>
-              <SelectTrigger id="alert-severity">
+              <SelectTrigger id="alert-severity" aria-invalid={invalid("severity")} aria-describedby={describedBy("severity")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -571,31 +606,35 @@ export function AlertRuleEditor({
                 ))}
               </SelectContent>
             </Select>
+            {fieldError("severity")}
           </div>
         </div>
 
-        <div className="space-y-2" role="group" aria-labelledby="alert-channels-label">
+        <div className="space-y-2" role="group" aria-labelledby="alert-channels-label" aria-describedby={describedBy("channels")}>
           <p id="alert-channels-label" className="text-body font-medium">
             {e("channels")}
           </p>
           <ul className="grid gap-2 sm:grid-cols-3">
-            {ALERT_CHANNEL_KINDS.map((kind) => {
-              const available = ALERT_CHANNELS_AVAILABLE.includes(kind);
+            {channelList.map(({ kind, available, known }) => {
               const id = `alert-channel-${kind}`;
+              const checked = draft.channels.includes(kind as AlertChannelKind);
+              // One that cannot deliver is never added, but one the rule
+              // already names can always be cleared.
+              const locked = available ? draft.openIncident : !checked;
               return (
                 <li key={kind} className="flex items-center gap-2">
                   <Checkbox
                     id={id}
-                    checked={available && draft.channels.includes(kind)}
-                    disabled={!available || saving || draft.openIncident}
-                    onCheckedChange={(checked) => toggleChannel(kind, checked === true)}
+                    checked={checked}
+                    disabled={saving || locked}
+                    onCheckedChange={(next) => toggleChannel(kind, next === true)}
                   />
                   <Label htmlFor={id} className={available ? "font-normal" : "font-normal text-muted-foreground"}>
-                    {e(`channelKinds.${kind}`)}
+                    {channelLabel(kind, t)}
                   </Label>
                   {!available && (
                     <Badge variant="outline" className="border-dashed px-1.5 py-0 text-micro text-muted-foreground">
-                      {e("comingLater")}
+                      {known ? e("comingLater") : e("unknownChannel")}
                     </Badge>
                   )}
                 </li>

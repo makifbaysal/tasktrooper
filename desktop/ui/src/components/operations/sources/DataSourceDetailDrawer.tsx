@@ -1,7 +1,7 @@
 import { Pencil, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import type { CloudAccount, DataSource, DataSourceKindInfo } from "@/api";
-import { kindLabel, sourceAddress } from "@/components/operations/sources/dataSourceSchema";
+import { inventoryQuery, kindLabel, sourceAddress } from "@/components/operations/sources/dataSourceSchema";
 import { CapabilityChips, DataSourceStatusBadge } from "@/components/operations/sources/DataSourceStatusBadge";
 import { DiscoveredMetrics } from "@/components/operations/sources/DiscoveredMetrics";
 import { QueryPlayground } from "@/components/operations/sources/QueryPlayground";
@@ -145,7 +145,7 @@ function DrawerBody({ source, kind, cloudAccounts, verifying, onVerify, onEdit }
           )}
 
           <Separator />
-          <DiscoveredMetrics sourceId={source.id} onPickMetric={metrics ? setQuery : undefined} />
+          <DiscoveredMetrics sourceId={source.id} onPickMetric={metrics ? (name) => setQuery(inventoryQuery(source.kind, name)) : undefined} />
         </div>
       </ScrollArea>
     </>

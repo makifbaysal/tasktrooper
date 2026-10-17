@@ -79,7 +79,9 @@ const OTHER_SIGNALS: SignalSpec[] = [
 ];
 
 const BASE_TABS: EntityTab[] = ["summary", "errors", "logs", "changes", "issues"];
-const NO_RUNTIME: ViewSpec = { tabs: ["summary", "changes", "issues"], golden: [], charts: [] };
+// Alerts for every role: a custom-query rule can watch any component, and an
+// alert notification links to `/operations/entity/<id>/alerts?rule=`.
+const NO_RUNTIME: ViewSpec = { tabs: ["summary", "changes", "issues", "alerts"], golden: [], charts: [] };
 
 // `golden` is the server's list for the role (catalog/observability/golden.yaml),
 // the signals GET /v1/operations/golden answers.

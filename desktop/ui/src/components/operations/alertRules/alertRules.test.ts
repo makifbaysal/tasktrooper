@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AlertRule } from "@/api";
 import {
+  backtestKey,
   backtestRequest,
+  changeWorded,
+  channelLabel,
+  channelOptions,
   conditionText,
+  deliveringChannels,
   draftFromRule,
   draftFromSuggestion,
   durationParts,
@@ -10,7 +15,13 @@ import {
   filterRules,
   fireBands,
   firingBands,
+  judgedSeries,
+  judgedSource,
+  judgedThresholds,
   mapServerFields,
+  parseThresholdText,
+  replayDays,
+  replayRequest,
   ruleInput,
   ruleThresholds,
   sortRules,
@@ -64,11 +75,21 @@ describe("conditionText", () => {
     ).toBe("Crash-free users < 99.5% for 30 min");
   });
 
-  it("says a change rule's threshold in signed percent over its window", () => {
+  it("reads a change rule as a rise or a fall by more than its size, as the server tests it", () => {
     const up = rule({ signal: "http.error_ratio", condition: { op: "change_pct_gt", threshold: 50, for_seconds: 0, window_seconds: 3600 } });
-    expect(conditionText(up, "%", ctx)).toBe("Error rate change over 1 h > +50%");
+    expect(conditionText(up, "%", ctx)).toBe("Error rate rises by more than 50% over 1 h");
     const down = rule({ signal: "http.requests", condition: { op: "change_pct_lt", threshold: -30, for_seconds: 120, window_seconds: 600 } });
-    expect(conditionText(down, "req/s", ctx)).toBe("Throughput change over 10 min < −30% for 2 min");
+    expect(conditionText(down, "req/s", ctx)).toBe("Throughput falls by more than 30% over 10 min for 2 min");
+  });
+
+  it("keeps a stored change rule whose sign the wording cannot say in signed terms", () => {
+    const below = rule({ signal: "http.requests", condition: { op: "change_pct_lt", threshold: 5, for_seconds: 0, window_seconds: 600 } });
+    expect(conditionText(below, "req/s", ctx)).toBe("Throughput change over 10 min < +5%");
+    const above = rule({ signal: "http.requests", condition: { op: "change_pct_gt", threshold: -10, for_seconds: 0, window_seconds: 600 } });
+    expect(conditionText(above, "req/s", ctx)).toBe("Throughput change over 10 min > −10%");
+    expect(changeWorded("change_pct_gt", 0)).toBe(true);
+    expect(changeWorded("change_pct_lt", 0)).toBe(true);
+    expect(changeWorded("gt", 1)).toBe(false);
   });
 
   it("covers rising, no data and a custom query", () => {
@@ -126,8 +147,56 @@ describe("the editor's model", () => {
     expect(custom.signal).toBe("");
     expect(custom.data_source_id).toBe("ds-1");
     expect(custom.query).toBe("up");
-    expect(custom.channels).toEqual(["desktop"]);
+    expect(custom.channels).toEqual(["desktop", "slack"]);
     expect(backtestRequest(draftFromRule(rule()), 30, "x").days).toBe(14);
+    expect(backtestRequest({ ...draftFromRule(rule()), channels: ["desktop", "slack"] }, 3, "x").channels).toEqual([]);
+  });
+
+  it("holds a fall's size and sends it negative", () => {
+    const fall = rule({ condition: { op: "change_pct_lt", threshold: -30, for_seconds: 0, window_seconds: 600 } });
+    const draft = draftFromRule(fall);
+    expect(draft.threshold).toBe("30");
+    expect(ruleInput(draft, "x").condition.threshold).toBe(-30);
+    expect(ruleInput({ ...draft, op: "change_pct_gt" }, "x").condition.threshold).toBe(30);
+    expect(ruleInput({ ...draft, threshold: "0" }, "x").condition.threshold).toBe(0);
+    expect(validateRuleDraft({ ...draft, threshold: "-30" })).toEqual({ threshold: "signed_change" });
+    expect(validateRuleDraft({ ...draft, op: "lt", threshold: "-30" })).toEqual({});
+    expect(draftFromRule(rule({ condition: { op: "gt", threshold: 1234.5, for_seconds: 0, window_seconds: 300 } }), "de-DE").threshold).toBe("1234,5");
+  });
+
+  it("reads a typed number in the reader's locale", () => {
+    expect(parseThresholdText("1,000", "en-US")).toBe(1000);
+    expect(parseThresholdText("1,000.5", "en-US")).toBe(1000.5);
+    expect(parseThresholdText("0.5", "en-US")).toBe(0.5);
+    expect(parseThresholdText("1,5", "en-US")).toBe(1.5);
+    expect(parseThresholdText("1.000", "tr-TR")).toBe(1000);
+    expect(parseThresholdText("1.000", "de-DE")).toBe(1000);
+    expect(parseThresholdText("1.000,5", "de-DE")).toBe(1000.5);
+    expect(parseThresholdText("0,5", "de-DE")).toBe(0.5);
+    expect(parseThresholdText("0.5", "de-DE")).toBe(0.5);
+    expect(parseThresholdText("1 000,5", "fr-FR")).toBe(1000.5);
+    expect(parseThresholdText("1 000", "fr-FR")).toBe(1000);
+    expect(parseThresholdText("−2,5", "tr-TR")).toBe(-2.5);
+    expect(parseThresholdText("+3", "en-US")).toBe(3);
+    expect(parseThresholdText("", "en-US")).toBeNull();
+    expect(parseThresholdText("1,2,3", "en-US")).toBeNull();
+    expect(parseThresholdText("abc", "en-US")).toBeNull();
+    expect(parseThresholdText("0x10", "en-US")).toBeNull();
+    const draft = { ...emptyRuleDraft("c", "production"), signal: "http.latency", threshold: "1.000" };
+    expect(ruleInput(draft, "x", "de-DE").condition.threshold).toBe(1000);
+    expect(validateRuleDraft(draft, "de-DE")).toEqual({});
+  });
+
+  it("marks a backtest stale only on what changes the evaluation", () => {
+    const draft = { ...emptyRuleDraft("c", "production"), signal: "http.latency", threshold: "800" };
+    const key = backtestKey(draft);
+    expect(backtestKey({ ...draft, name: "Slow", severity: "critical", channels: [], enabled: false, openIncident: true })).toBe(key);
+    expect(backtestKey({ ...draft, threshold: "900" })).not.toBe(key);
+    expect(backtestKey({ ...draft, windowSeconds: 600 })).not.toBe(key);
+    expect(backtestKey({ ...draft, forSeconds: 0 })).not.toBe(key);
+    expect(backtestKey({ ...draft, environment: "staging" })).not.toBe(key);
+    expect(backtestKey({ ...draft, signal: "http.requests" })).not.toBe(key);
+    expect(backtestKey({ ...draft, mode: "custom", dataSourceId: "ds", query: "up" })).not.toBe(key);
   });
 
   it("offers the channels that deliver on a suggestion that names none", () => {
@@ -141,6 +210,65 @@ describe("the editor's model", () => {
       errors: { windowSeconds: "invalid", signal: "required" },
       rest: [["limit", "invalid"]],
     });
+    expect(mapServerFields({ "channels.1": "unavailable", days: "invalid", "condition.op": "invalid_option" }, new Set(["channels", "op"]))).toEqual({
+      errors: { channels: "unavailable", op: "invalid_option" },
+      rest: [["days", "invalid"]],
+    });
+  });
+
+  it("lists the server's channels, then any other the rule names", () => {
+    expect(channelOptions(null, [])).toEqual(
+      ["desktop", "in_app", "ios_push", "slack", "email", "webhook"].map((kind) => ({ kind, available: kind === "desktop", known: true, onRule: false })),
+    );
+    const server = [
+      { kind: "desktop", available: true },
+      { kind: "slack", available: false },
+    ];
+    expect(channelOptions(server, ["slack", "pager"])).toEqual([
+      { kind: "desktop", available: true, known: true, onRule: false },
+      { kind: "slack", available: false, known: true, onRule: true },
+      { kind: "pager", available: false, known: false, onRule: true },
+    ]);
+    expect(deliveringChannels(server)).toEqual(["desktop"]);
+    expect(deliveringChannels([{ kind: "desktop", available: false }])).toEqual([]);
+    expect(deliveringChannels(null)).toEqual(["desktop"]);
+    expect(channelLabel("slack", t)).toBe("Slack");
+    expect(channelLabel("pager", t)).toBe("pager");
+  });
+});
+
+describe("what a rule's chart reads", () => {
+  it("draws what the evaluator judges: p95 from the series read, a p75 or a change from a replay", () => {
+    const cond = (op: AlertRule["condition"]["op"]) => ({ op, threshold: 1, for_seconds: 0, window_seconds: 300 });
+    expect(judgedSource({ signal: "http.latency", condition: cond("gt") })).toBe("series");
+    expect(judgedSource({ signal: "web.lcp", condition: cond("gt") })).toBe("replay");
+    expect(judgedSource({ signal: "http.requests", condition: cond("change_pct_gt") })).toBe("replay");
+    expect(judgedSource({ signal: "", condition: cond("gt") })).toBe("query");
+    expect(judgedSource({ signal: "", condition: cond("change_pct_lt") })).toBe("replay");
+
+    const lines = ["p50", "p95", "p99"].map((name) => ({ name, labels: {}, points: [] }));
+    expect(judgedSeries("http.latency", lines).map((s) => s.name)).toEqual(["p95"]);
+    expect(judgedSeries("http.requests", lines)).toBe(lines);
+    const single = [{ name: "", labels: {}, points: [] }];
+    expect(judgedSeries("http.latency", single)).toBe(single);
+  });
+
+  it("draws a change rule's threshold on its change series", () => {
+    expect(judgedThresholds(rule({ condition: { op: "change_pct_lt", threshold: -20, for_seconds: 0, window_seconds: 300 } }), "T")).toEqual([{ value: -20, label: "T" }]);
+    expect(judgedThresholds(rule(), "T")).toEqual([{ value: 800, label: "T" }]);
+    expect(judgedThresholds(rule({ condition: { op: "no_data", threshold: 0, for_seconds: 0, window_seconds: 300 } }), "T")).toEqual([]);
+  });
+
+  it("replays back to the window's start, 1 to 14 days, without channels", () => {
+    const now = Date.parse("2026-10-16T12:00:00Z");
+    expect(replayDays(now - 3_600_000, now)).toBe(1);
+    expect(replayDays(now - 3 * 86_400_000 - 1, now)).toBe(4);
+    expect(replayDays(now - 30 * 86_400_000, now)).toBe(14);
+    expect(replayDays(NaN, now)).toBe(1);
+    const req = replayRequest(rule({ signal: "web.lcp", channels: ["desktop", "slack"] }), 3);
+    expect(req).toMatchObject({ signal: "web.lcp", component_id: "c-api", environment: "production", channels: [], open_incident: false, days: 3 });
+    expect(req).not.toHaveProperty("data_source_id");
+    expect(replayRequest(rule({ signal: "", data_source_id: "ds-1", query: "up" }), 99)).toMatchObject({ data_source_id: "ds-1", query: "up", days: 14 });
   });
 });
 

@@ -33,11 +33,11 @@ describe("ROLE_VIEWS", () => {
     expect(hasTab("mobile", "releases")).toBe(true);
   });
 
-  it("gives Signals, last, to exactly the roles with golden signals", () => {
+  it("gives Signals, last, to exactly the roles with golden signals, and Alerts to every role", () => {
     for (const role of COMPONENT_ROLES) {
       const view = ROLE_VIEWS[role];
       expect(view.tabs.includes("signals"), role).toBe(view.golden.length > 0);
-      expect(view.tabs.includes("alerts"), role).toBe(view.golden.length > 0);
+      expect(view.tabs.includes("alerts"), role).toBe(true);
       if (view.golden.length > 0) {
         expect(view.tabs.at(-1), role).toBe("signals");
         expect(view.tabs.at(-2), role).toBe("alerts");
@@ -62,9 +62,9 @@ describe("ROLE_VIEWS", () => {
     expect(signalSpec("nope.signal")).toBeUndefined();
   });
 
-  it("keeps only changes and issues for roles with no runtime to watch", () => {
+  it("keeps changes, issues and alerts for roles with no runtime to watch", () => {
     for (const role of ["library", "cli", "infra", "data", "game", "other"] as const) {
-      expect(ROLE_VIEWS[role].tabs, role).toEqual(["summary", "changes", "issues"]);
+      expect(ROLE_VIEWS[role].tabs, role).toEqual(["summary", "changes", "issues", "alerts"]);
       expect(ROLE_VIEWS[role].charts, role).toEqual([]);
     }
   });
@@ -106,7 +106,7 @@ describe("ROLE_VIEWS", () => {
 
 describe("viewFor / tabOrDefault", () => {
   it("falls back to the no-runtime view and the view's first section", () => {
-    expect(viewFor(undefined).tabs).toEqual(["summary", "changes", "issues"]);
+    expect(viewFor(undefined).tabs).toEqual(["summary", "changes", "issues", "alerts"]);
     expect(tabOrDefault(ROLE_VIEWS.backend, "logs")).toBe("logs");
     expect(tabOrDefault(ROLE_VIEWS.backend, "queues")).toBe("summary");
     expect(tabOrDefault(ROLE_VIEWS.library, "errors")).toBe("summary");
@@ -119,5 +119,6 @@ describe("entitySectionPath", () => {
     expect(entitySectionPath({ id: "c-etl", role: "data" }, "errors")).toBe("/operations/errors?entity=c-etl");
     expect(entitySectionPath({ id: "c-cli", role: "cli" }, "logs")).toBe("/operations/logs?entity=c-cli");
     expect(entitySectionPath({ id: "c-cli", role: "cli" }, "queues")).toBe("/operations/entity/c-cli/summary");
+    expect(entitySectionPath({ id: "c-cli", role: "cli" }, "alerts")).toBe("/operations/entity/c-cli/alerts");
   });
 });

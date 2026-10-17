@@ -32,6 +32,7 @@ const apiMock = vi.hoisted(() => ({
   updateAlertRule: vi.fn(),
   backtestAlertRule: vi.fn(),
   suggestAlertRules: vi.fn(),
+  listNotificationChannels: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -121,7 +122,9 @@ function pick(label: RegExp, option: RegExp) {
 
 beforeEach(() => {
   sessionStorage.clear();
-  for (const key of ["operations.signals.c-api.production", "operations.sources.kinds", "operations.sources.list"]) writeCache(key, undefined);
+  for (const key of ["operations.signals.c-api.production", "operations.sources.kinds", "operations.sources.list", "operations.notificationChannels"]) {
+    writeCache(key, undefined);
+  }
   Object.values(apiMock).forEach((fn) => fn.mockReset());
   apiMock.getComponentSignals.mockResolvedValue({
     component_id: "c-api",
@@ -132,6 +135,13 @@ beforeEach(() => {
   apiMock.listDataSources.mockResolvedValue({ data_sources: [dataSource()] });
   apiMock.listDataSourceKinds.mockResolvedValue({ kinds: [prometheusKind] });
   apiMock.createAlertRule.mockImplementation((body: Partial<AlertRule>) => Promise.resolve(saved(body)));
+  apiMock.listNotificationChannels.mockResolvedValue({
+    channels: [
+      { kind: "desktop", available: true },
+      { kind: "in_app", available: false },
+      { kind: "slack", available: false },
+    ],
+  });
 });
 
 describe("AlertRuleEditor", () => {
@@ -168,7 +178,7 @@ describe("AlertRuleEditor", () => {
       environment: "production",
       signal: "http.latency",
       condition: { op: "gt", threshold: 800, for_seconds: 300, window_seconds: 300 },
-      channels: ["desktop"],
+      channels: [],
       days: 3,
     });
     expect(await screen.findByText("Times it would have fired in the last 3 days: 1")).toBeInTheDocument();
@@ -231,5 +241,78 @@ describe("AlertRuleEditor", () => {
     expect(apiMock.createAlertRule.mock.calls[1][0]).toMatchObject({ name: "Slow responses (p95)", condition: { threshold: 1000 } });
     expect(onSaved).toHaveBeenCalledTimes(2);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("words a fall as its size and sends it negative", async () => {
+    const { onSaved } = renderEditor();
+    await waitFor(() => expect(screen.getByLabelText(/^Signal$/)).toBeEnabled());
+    pick(/^Signal$/, /Response time/);
+    pick(/^When the value$/, /falls by more than/);
+    fireEvent.change(screen.getByLabelText("Threshold"), { target: { value: "30" } });
+    expect(screen.getByText("Response time (p95) falls by more than 30% over 5 min for 5 min")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(apiMock.createAlertRule).toHaveBeenCalledTimes(1));
+    expect(apiMock.createAlertRule.mock.calls[0][0]).toMatchObject({ condition: { op: "change_pct_lt", threshold: -30 } });
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("keeps a channel the rule names that cannot deliver, to be cleared, and says so when the server refuses it", async () => {
+    const existing = saved(
+      {
+        name: "Slow",
+        component_id: "c-api",
+        environment: "production",
+        signal: "http.latency",
+        data_source_id: null,
+        query: "",
+        condition: { op: "gt", threshold: 800, for_seconds: 0, window_seconds: 300 },
+        severity: "high",
+        channels: ["desktop", "slack", "pager" as never],
+        open_incident: false,
+        enabled: true,
+      },
+      "ar-1",
+    );
+    apiMock.updateAlertRule.mockRejectedValueOnce(new ApiError("invalid rule", 400, "", { "channels.1": "unavailable" }));
+    apiMock.updateAlertRule.mockImplementation((_id: string, body: Partial<AlertRule>) => Promise.resolve(saved(body, "ar-1")));
+    renderEditor({ rule: existing });
+    await waitFor(() => expect(apiMock.listNotificationChannels).toHaveBeenCalled());
+    const slack = await screen.findByRole("checkbox", { name: "Slack" });
+    await waitFor(() => expect(slack).toBeChecked());
+    expect(slack).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "pager" })).toBeChecked();
+    expect(screen.getByText("Unknown here")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "In the app" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(apiMock.updateAlertRule).toHaveBeenCalledTimes(1));
+    expect(apiMock.updateAlertRule.mock.calls[0][1]).toMatchObject({ channels: ["desktop", "slack", "pager"] });
+    const error = await screen.findByText("Doesn't deliver here yet: clear it to save");
+    expect(screen.getByRole("group", { name: "Channels" })).toHaveAttribute("aria-describedby", error.id);
+    expect(screen.getByText("Check the fields marked below.")).toBeInTheDocument();
+
+    fireEvent.click(slack);
+    expect(slack).not.toBeChecked();
+    expect(slack).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(apiMock.updateAlertRule).toHaveBeenCalledTimes(2));
+    expect(apiMock.updateAlertRule.mock.calls[1][1]).toMatchObject({ channels: ["desktop", "pager"] });
+  });
+
+  it("puts the server's environment, op and severity errors on their fields, and any other on the form", async () => {
+    apiMock.createAlertRule.mockRejectedValue(
+      new ApiError("invalid rule", 400, "", { environment: "invalid_option", "condition.op": "invalid", severity: "required", limit: "invalid" }),
+    );
+    renderEditor();
+    await waitFor(() => expect(screen.getByLabelText(/^Signal$/)).toBeEnabled());
+    pick(/^Signal$/, /Response time/);
+    fireEvent.change(screen.getByLabelText("Threshold"), { target: { value: "800" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    expect(await screen.findByText("limit: Not valid")).toBeInTheDocument();
+    const described = (label: RegExp | string) => screen.getByLabelText(label).getAttribute("aria-describedby") ?? "";
+    expect(document.getElementById(described("Environment"))).toHaveTextContent("Not allowed here");
+    expect(document.getElementById(described(/^When the value$/))).toHaveTextContent("Not valid");
+    expect(document.getElementById(described("Severity"))).toHaveTextContent("Required");
+    expect(screen.getByLabelText("Environment")).toHaveAttribute("aria-invalid", "true");
   });
 });

@@ -13,6 +13,7 @@ import { issueDurationMs } from "@/components/operations/issues/issueList";
 import { issueEnvironmentLabel, type IssueOwner } from "@/components/operations/issues/IssueTable";
 import { RemedyDialog } from "@/components/operations/issues/RemedyDialog";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
+import { useOpsDirectory } from "@/components/operations/shell/useOpsEntities";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
@@ -267,6 +268,7 @@ function IssueBody({ incident: i, owner, onChanged }: { incident: Incident; owne
   const { t, lang } = useI18n();
   const href = useOpsHref();
   const { releases, reload: reloadConsole } = useOpsConsole();
+  const { repositories } = useOpsDirectory();
   const d = (key: string, params?: Record<string, string | number>) => t(`operations.issues.detail.${key}`, params);
   const now = Date.now();
   const when = (iso?: string) =>
@@ -339,15 +341,14 @@ function IssueBody({ incident: i, owner, onChanged }: { incident: Incident; owne
   const events = [...(i.events ?? [])].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   const payload = i.payload && Object.keys(i.payload).length > 0 ? JSON.stringify(i.payload, null, 2) : null;
   const confidence = Math.max(0, Math.min(100, i.confidence ?? 0));
-  const suspect = incidentRollbackRelease(i, releases, now);
+  const suspect = incidentRollbackRelease(i, releases);
 
   return (
     <>
       {suspect && (
         <RollbackSuggestionBanner
           release={suspect}
-          suggestion={{ reason: "incident", incident: i }}
-          repositoryName={owner.repositoryName}
+          repositoryName={repositories.find((repo) => repo.id === suspect.repository_id)?.name ?? (suspect.repository_id === i.repository_id ? owner.repositoryName : undefined)}
           releaseHref={href(`/operations/changes?release=${encodeURIComponent(suspect.id)}`)}
           onDone={() => {
             reloadConsole();

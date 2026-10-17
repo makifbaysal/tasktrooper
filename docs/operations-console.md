@@ -176,7 +176,8 @@ once, for the environment and range picked, so the values of every row
 arrive together. A cell reads "—" while the signal has no data source bound;
 hover it to see why. A component with some signals bound but no value for
 this one in the range also reads "—", with "No value in this range, or no
-data source bound".
+data source bound". A worker whose backlog is read from a broker directly
+shows its live value with no sparkline: such a source keeps no history.
 
 An entity that is not connected in the environment picked has a
 **Connect** link. It opens its repository's **Deploy & Runtime** tab, where
@@ -239,8 +240,54 @@ say so. A link to a section the role does not have opens Summary.
   opening its change or issue, with links to all changes and all issues. An
   issue that started before the range shows where it was last seen.
 
-A worker's **Queues** waits on the broker's metrics the same way: until a
-data source sends them, it shows only the way to connect one.
+A signal bound to a broker read directly (Kafka, RabbitMQ or NATS, see
+[Data sources](data-sources.md#message-brokers-kafka-rabbitmq-and-nats))
+has no history: such a source answers only the value as it is now. Its
+chart shows that value instead, with "Live value — connect an
+exporter-backed source for history", and its golden metric shows the value
+with "Live value, no history" and no sparkline.
+
+### Queues
+
+A worker's **Queues** section shows its queues as they stand: how much is
+waiting, how fast it is consumed, and which queue or partition is behind.
+It uses the environment, the time range and **Compare with previous
+period** from the top bar.
+
+- **Queue health**: **Total backlog** (summed across queues and
+  partitions), **Oldest message** (the oldest of any queue), **Consume vs
+  publish** (the consume rate, with what is published and whether the
+  backlog is growing, draining or balanced) and **Dead letters**, each its
+  latest value in the range with the change against the previous period and
+  a sparkline. A signal that is not bound reads "—" with **Bind**.
+- **Backlog and throughput**: the backlog over the range, and the consume
+  rate against the publish rate, with a marker for every deploy in the range.
+  A broker read directly shows its live value in place of the chart.
+- **Queues**: one table per data source the queue signals are read from,
+  re-read every 30 seconds while the page is in view. Each table names its
+  source, the messaging system, the recipe (or **Custom query**) and its
+  parameters, and lists one row per queue, partition or consumer: for a
+  Kafka group, each partition's topic, committed and end offsets, lag and
+  member; for RabbitMQ, each queue's ready and unacknowledged messages,
+  consumers and rates; for NATS JetStream, each consumer's pending,
+  awaiting-ack and redelivered messages; for an exporter recipe, the
+  columns it declares. Rows are sorted by backlog, largest first; click any
+  column header to sort by it. When an enabled alert rule watches the
+  backlog in this environment, the rows above its threshold are marked;
+  otherwise the row with the largest backlog is. A source that holds more
+  rows than it sends says so.
+
+A table that could not be read says why: a binding missing a parameter
+offers **Fill in parameters**, a source that is gone **Bind another
+source**, a query the source refused **Edit the binding** (each opens the
+binding editor on that binding), a source that did not answer **Retry**,
+and a source with no per-queue table explains what would give one.
+
+With no queue signal bound yet, the section says where queue data comes
+from and offers **Find suggestions** (it looks through your data sources,
+consumer groups, queues and JetStream consumers included, for ones that
+name this worker, then points to Signals to accept them), **Bind backlog**
+(the binding editor) and **Add a broker data source**.
 
 ### Signals
 
@@ -261,8 +308,10 @@ sparkline of the range for a bound one.
   resource). When the environment runs on a connected cloud resource (a Cloud
   Run service, an ECS service, a Lambda function, …), the matching cloud
   recipe on a source that reads through the same cloud account is offered
-  with its parameters taken from the resource. Suggestions appear under their
-  signal.
+  with its parameters taken from the resource. On a Kafka, RabbitMQ or
+  NATS source, the consumer groups, queues or JetStream consumers whose names
+  best name the component are offered for its queue signals. Suggestions
+  appear under their signal.
 - **Accept** binds a suggestion in one click. A suggestion that could not
   fill every parameter shows what it needs and offers **Review** instead,
   which opens the editor with what it has. **Dismiss** hides a suggestion for
@@ -271,7 +320,8 @@ sparkline of the range for a bound one.
   either a **Recipe** (only the recipes written for that kind of source that
   provide the signal are listed, with the recipe's query and one field per
   parameter) or a **Custom query** in the source's own language (PromQL for
-  Prometheus and Google Cloud Monitoring, JSON for CloudWatch). **Preview**
+  Prometheus and Google Cloud Monitoring, JSON for CloudWatch, Kafka,
+  RabbitMQ and NATS). **Preview**
   runs it over the console's range before anything is saved and draws it,
   with the query as it was sent and any warnings. **Save** makes it the
   signal's binding, replacing the one before and any waiting suggestions.
@@ -458,27 +508,37 @@ more than 24 hours old says rollback is no longer offered.
 ### Rollback approval
 
 With auto rollback off for a component, the release engineer only proposes a
-rollback; a person approves it. The proposal is not stored on the release
-(the server writes it as a comment on the release's newest task and sends a
-`rollback_suggested` notification that links to
-`/operations/changes?release=<id>`), so the panel reads it back from the
-release itself. **Rollback suggested** shows at the top of a release's panel
-when its delivery profile has auto rollback off, it can still be rolled back
-(as in the table above), and one of these holds:
+rollback; a person approves it. The server keeps the proposal on the release
+(its reason, the release engineer's note, who proposed it and when, and the
+issue it answers, if any) and sends a `rollback_suggested` notification that
+links to `/operations/changes?release=<id>`. **Rollback suggested** shows at
+the top of a release's panel only while the server holds such a proposal —
+nothing is guessed from the release's status, its checks or the issues open
+around it.
 
-- it failed;
-- it is awaiting a verdict and its verification failed: it stopped early
-  (an impact threshold breached, for one), a smoke check failed, or more new
-  error groups appeared than the profile allows;
-- an open production issue began at most 15 minutes after it finished, the
-  same rule the server uses to put an incident down to a release.
+Whether the rollback can run is the server's call too, made again on every
+read:
 
-**Approve rollback** is the same rollback as **Roll back**: it asks you to
-type the repository's name, with the reason filled in from what triggered the
-suggestion, and the server's refusal stays in the dialog. The same banner
-shows on that issue's panel under [Issues](#issues), with a link to the
-change. The notification's address opens the panel straight away, in
-whatever environment the release ran.
+- When it can, the banner offers **Approve rollback**. It is the same
+  rollback as **Roll back**: it asks you to type the repository's name, with
+  the reason filled in from the proposal, and the server's refusal stays in
+  the dialog.
+- When it cannot, the banner says why and offers no approval: a newer release
+  of the component has shipped since, a newer one is under way, the release
+  never reached the environment, its verdict is more than 24 hours old, no
+  release of the component is on record as live, which one is live could not
+  be read, or the release is in a state that cannot be rolled back.
+
+**Dismiss suggestion** declines the proposal: the server drops it and the
+banner goes, for everyone. A proposal also goes away on its own once the
+release is rolled back, or once a newer release of the component ships.
+
+The same banner shows on an issue's panel under [Issues](#issues), with a
+link to the change, but only for the release the server put the issue down
+to: the proposal names the issue, or the issue's task is one the release
+carries. Another release of the same repository never shows there. The
+notification's address opens the panel straight away, in whatever
+environment the release ran.
 
 ### Workflow deploys
 
@@ -520,10 +580,9 @@ remedy** with its kind, confidence and author, the timeline and the raw
 alert payload as received. The source is one of alert webhook, health
 probe, failed deploy, alert rule or opened by hand; the author is the rules
 engine's first pass, an agent or a person. An issue an alert rule opened
-links back to the rule. When the issue began within 15 minutes of a
-production release that waits on a person to be rolled back, the panel
-starts with **Rollback suggested** and **Approve rollback** (see
-[Rollback approval](#rollback-approval)).
+links back to the rule. When the server has a rollback proposal for the
+release it put the issue down to, the panel starts with **Rollback
+suggested** (see [Rollback approval](#rollback-approval)).
 
 While an issue is live, the panel offers:
 
@@ -559,21 +618,25 @@ condition holds but not yet for as long as the rule asks), **No data** and
 and entity, **Suggest rules** (on an entity) and **New rule**.
 
 The columns are state, name, entity, environment, the condition in words
-("Response time (p95) > 800 ms for 10 min", "Error rate change over 10 min
-> +50%"), severity, the last value judged (in percent for a change rule),
+("Response time (p95) > 800 ms for 10 min", "Error rate rises by more than
+50% over 10 min"), severity, the last value judged (in percent for a change rule),
 when it was last evaluated, and a switch that turns the rule off without
 deleting it. Firing rules come first, then pending, no data and OK; rules
 switched off come last.
 
 Click a rule to open its panel (`?rule=<id>` in the address): the
 condition, signal or query, since when it is in its state, its last value,
-channels and whether it opens an issue; the signal over the time range with
-the threshold drawn and the spans the rule was firing shaded; and every state
+channels and whether it opens an issue (a channel that does not deliver yet
+is marked so); what the rule is judged on over the time range, with the
+threshold drawn and the spans the rule was firing shaded — latency at p95,
+web vitals at p75 and a change rule's percent change, exactly as the
+evaluator reads them; and every state
 change, newest first, with a link to the issue a firing opened or a recovery
 resolved. **Edit** opens the editor; **Delete** asks first (a firing rule's
 issue is resolved before it goes). Notifications link to
 `/operations/entity/<entity id>/alerts?rule=<rule id>`, which opens the
-panel and switches to the rule's environment.
+panel and switches to the rule's environment. Every entity has an **Alerts**
+section, whatever its role: a rule on a custom query can watch any of them.
 
 ### Writing a rule
 
@@ -583,8 +646,9 @@ The editor asks for:
 - What to watch: a **Signal** bound on the entity in that environment (only
   bound ones are offered; with none, a link to its Signals), or a **Custom
   query** on a metrics data source.
-- The **Condition**: above or below a threshold in the signal's unit; a
-  change against one window earlier, in percent (negative for a drop); above
+- The **Condition**: above or below a threshold in the signal's unit; rises
+  by more than, or falls by more than, a percentage against one window
+  earlier (enter the size, such as 30; the choice says which way); above
   a threshold and still rising, that is higher than one window earlier (0
   for any rise; it reads "Backlog above 1,000 messages and rising over 10
   min"); or no data. **For at least** is
@@ -592,14 +656,19 @@ The editor asks for:
   days); **Window** is what one value summarizes and how far back a change
   is measured (1 minute to 24 hours). Latency signals are judged at p95, web
   vitals at p75, and a query answering several series is judged by its worst
-  one. A line under the fields reads the condition back in words.
+  one. Numbers are read in your language's format (1,000.5 in English,
+  1.000,5 in German or Turkish). A line under the fields reads the condition
+  back in words.
 - **Backtest** (1 to 14 days): replays the condition on past data exactly as
   the evaluator would, and shows the series with the threshold (a change
   rule's percent change) and the times it would have fired shaded and
-  listed, with each one's peak. Change the rule and it says to run it again.
+  listed, with each one's peak. Change what it reads or how it is judged
+  and it says to run it again; a new name, severity or channel does not.
 - **Name** (the condition itself when left empty), **Severity**,
-  **Channels** and **Open an issue**. Only **Desktop notification** delivers
-  for now; the other channels are listed as coming later. With no channel, a
+  **Channels** and **Open an issue**. The channels this computer delivers on
+  are offered; the others are listed as coming later. A channel a rule
+  already names that does not deliver here stays listed and checked until
+  you clear it, and saving with it says so on the field. With no channel, a
   rule that opens no issue notifies nobody. While **Open an issue** is on the
   channel choice is locked: you hear about the issue the way you hear about
   any production issue.
@@ -608,6 +677,9 @@ The editor asks for:
 of the entity's role, built from its bound signals and their last 14 days,
 leaving out what a rule already tests. Each suggestion fills the form; review
 it, backtest it and save it, and the next one loads. **Skip** drops one.
+
+A rule saved into another environment than the one picked above takes the
+console there, so the list shows it.
 
 ## Mobile releases
 

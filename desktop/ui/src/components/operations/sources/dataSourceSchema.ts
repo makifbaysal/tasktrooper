@@ -66,6 +66,15 @@ export function isSecretField(field: DataSourceField): boolean {
   return field.secret || field.type === "secret" || field.type === "headers";
 }
 
+// The schema has no multi-line type: a certificate or key is a secret
+// field named for what it holds (Kafka's `ca_cert`), and a PEM needs its
+// line breaks, so it is typed in a text area rather than a password box.
+const MULTILINE_KEY = /(^|_)(cert|certificate|pem|ca)$/;
+
+export function isMultilineField(field: DataSourceField): boolean {
+  return (field.type === "secret" || field.type === "text") && MULTILINE_KEY.test(field.key);
+}
+
 export function fieldShown(field: DataSourceField, values: Record<string, string>): boolean {
   return Object.entries(field.show_when ?? {}).every(([key, want]) => (values[key] ?? "") === want);
 }
@@ -303,6 +312,43 @@ export function capabilityLabel(t: Translate, capability: DataSourceCapability |
 
 export function queryPlaceholder(t: Translate, kind: string): string {
   return firstTranslated(t, [`${NS}.kinds.${kind}.queryPlaceholder`], t(`${NS}.query.placeholder`));
+}
+
+/** A source of a broker kind (the `queues` capability: Kafka, RabbitMQ,
+ * NATS read directly) answers a series with the live value only: one point,
+ * now, however long the window. */
+export function readsLiveOnly(source: Pick<DataSource, "capabilities"> | null | undefined): boolean {
+  return (source?.capabilities ?? []).includes("queues");
+}
+
+/** The shape of a kind's queries in a sentence, "" for a kind the locale files do not describe. */
+export function queryHint(t: Translate, kind: string): string {
+  return firstTranslated(t, [`${NS}.kinds.${kind}.queryHint`], "");
+}
+
+// What a broker kind's inventory entry (`group/<name>`, `queue/<name>`,
+// `stream/<name>`, `consumer/<stream>/<name>`) reads as a query of its own.
+const INVENTORY_QUERIES: Record<string, Record<string, (rest: string) => Record<string, string> | null>> = {
+  kafka: { group: (name) => ({ group: name }) },
+  rabbitmq: { queue: (name) => ({ queue: name }) },
+  nats: {
+    stream: (name) => ({ stream: name }),
+    consumer: (rest) => {
+      const at = rest.indexOf("/");
+      return at > 0 && at < rest.length - 1 ? { stream: rest.slice(0, at), consumer: rest.slice(at + 1) } : null;
+    },
+  },
+};
+
+/** What picking a discovered name puts in the query box: for a broker kind
+ * the JSON query that reads it, else the name itself (a metric name is
+ * already a query). */
+export function inventoryQuery(kind: string, name: string): string {
+  const at = name.indexOf("/");
+  if (at <= 0) return name;
+  const make = INVENTORY_QUERIES[kind]?.[name.slice(0, at)];
+  const query = make?.(name.slice(at + 1));
+  return query ? JSON.stringify(query) : name;
 }
 
 export function fieldErrorText(t: Translate, key: string, code: string): string {

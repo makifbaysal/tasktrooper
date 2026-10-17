@@ -7,12 +7,12 @@ import {
   BACKTEST_MAX_DAYS,
   BACKTEST_MIN_DAYS,
   BACKTEST_QUERY_SERIES,
+  backtestKey,
   backtestRequest,
   fireBands,
   formatThreshold,
+  judgedThresholds,
   opIsChange,
-  parseThresholdText,
-  ruleThresholds,
   validBacktestDays,
   type AlertRuleDraft,
 } from "@/components/operations/alertRules/alertRules";
@@ -59,8 +59,8 @@ export function BacktestPanel({ draft, unit, fallbackName, ready }: BacktestPane
 
   const days = Number(daysText);
   const daysValid = validBacktestDays(days);
-  const body = backtestRequest(draft, daysValid ? days : BACKTEST_DEFAULT_DAYS, fallbackName);
-  const bodyKey = JSON.stringify(body);
+  const body = backtestRequest(draft, daysValid ? days : BACKTEST_DEFAULT_DAYS, fallbackName, ctx.locale);
+  const bodyKey = backtestKey(draft, ctx.locale);
   const stale = run !== null && run.body !== bodyKey;
 
   const start = async () => {
@@ -72,7 +72,7 @@ export function BacktestPanel({ draft, unit, fallbackName, ready }: BacktestPane
     try {
       const answer = await api.backtestAlertRule(body);
       if (mine !== seq.current) return;
-      setRun({ answer, body: bodyKey, from: to - body.days * DAY_MS, to, op: draft.op, threshold: parseThresholdText(draft.threshold) });
+      setRun({ answer, body: bodyKey, from: to - body.days * DAY_MS, to, op: body.condition.op, threshold: body.condition.threshold });
     } catch (err) {
       if (mine !== seq.current) return;
       const fields = dataSourceFieldErrors(err);
@@ -108,13 +108,7 @@ export function BacktestPanel({ draft, unit, fallbackName, ready }: BacktestPane
   }, [run, changeRun, t]);
   const bands = useMemo(() => (run ? fireBands(run.answer.fires ?? [], run.to) : []), [run]);
   const spanDays = run ? Math.round((run.to - run.from) / DAY_MS) : 0;
-  const thresholds = !run
-    ? []
-    : changeRun
-      ? run.threshold == null
-        ? []
-        : [{ value: run.threshold, label: b("threshold") }]
-      : ruleThresholds({ condition: { op: run.op, threshold: run.threshold, for_seconds: 0, window_seconds: 0 } }, b("threshold"));
+  const thresholds = run ? judgedThresholds({ condition: { op: run.op, threshold: run.threshold, for_seconds: 0, window_seconds: 0 } }, b("threshold")) : [];
 
   return (
     <section className="space-y-3 rounded-md border border-border p-3" aria-labelledby="alert-backtest-title">

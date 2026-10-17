@@ -133,8 +133,15 @@ export function AlertsView({ entity, showEntity = true, toolbarStart }: AlertsVi
     }
   };
 
+  // The list shows the console's environment only: a rule saved into another
+  // one takes the console there, so it is not saved out of sight.
   const saved = (rule: AlertRule) => {
     rules.update((prev) => upsertRule(prev ?? [], rule));
+    if (rule.environment !== env) {
+      setEnv(rule.environment);
+      toast.success(a("savedSwitched", { name: rule.name, env: t(`cloud.environments.${rule.environment}`) }));
+      return;
+    }
     toast.success(a("saved", { name: rule.name }));
   };
 

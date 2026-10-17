@@ -30,8 +30,10 @@ const mocks = vi.hoisted(() => ({
   getReleaseImpact: vi.fn(),
   getComponentSeries: vi.fn(),
   rollbackRelease: vi.fn(),
+  dismissRollbackProposal: vi.fn(),
   getDeployMatrix: vi.fn(),
   getIncident: vi.fn(),
+  listSignals: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -58,6 +60,9 @@ const bad = release("3.0.0", "r-shop", {
   component_id: "c-api",
   status: "awaiting_verdict",
   profile: off,
+  rollback_proposal: { proposed_at: "2026-10-15T10:31:00Z", by: "agent", reason: "verify_failed", note: "Error rate +3.2 pt past the 2 pt limit", incident_id: null },
+  rollback_allowed: true,
+  rollback_refusal: "",
   deployed_at: "2026-10-15T10:00:00Z",
   checks: {
     early_stop: "error rate rose 3.2 points (limit 2)",
@@ -86,10 +91,43 @@ const shipped = release("2.8.0", "r-shop", {
   component_id: "c-api",
   status: "released",
   profile: off,
+  tasks: [{ id: "t-checkout", key: "SHOP-12", title: "Checkout rewrite" } as Release["tasks"][number]],
+  rollback_proposal: { proposed_at: new Date(Date.now() - 50 * 60_000).toISOString(), by: "agent", reason: "health_incident", note: "Checkout errors since 2.8.0", incident_id: null },
+  rollback_allowed: false,
+  rollback_refusal: "newer_shipped",
   deployed_at: "2026-10-15T07:50:00Z",
   finished_at: new Date(Date.now() - 60 * 60_000).toISOString(),
 });
-const FEED = [bad, measuring, shipped];
+// Failed, with failing checks and auto rollback off: still nothing proposed.
+const failed = release("2.7.0", "r-shop", {
+  id: "rel-failed",
+  component_id: "c-api",
+  status: "failed",
+  profile: off,
+  failure_reason: "deploy failed",
+  rollback_allowed: true,
+  checks: { early_stop: "smoke failed" },
+});
+// The soak's check signals carry no unit: the catalog's says this one is a ratio.
+const unthresholded = release("2.6.0", "r-shop", {
+  id: "rel-ratio",
+  component_id: "c-api",
+  status: "released",
+  profile: off,
+  deployed_at: "2026-10-15T06:00:00Z",
+  checks: {
+    impact: {
+      checked_at: "2026-10-15T07:00:00Z",
+      pending: false,
+      verdict: "worse",
+      signals: [
+        { signal: "http.error_ratio", before: 0.4, after: 1.4, delta: 1, delta_pct: 250, verdict: "worse" },
+        { signal: "http.requests", before: 100, after: 99, delta: -1, delta_pct: -1, verdict: "neutral" },
+      ],
+    },
+  },
+});
+const FEED = [bad, measuring, shipped, failed, unthresholded];
 
 const impact: ReleaseImpact = {
   release_id: "rel-bad",
@@ -129,6 +167,7 @@ const CACHE_KEYS = [
   "operations.releaseImpact.rel-bad",
   "operations.releaseImpact.rel-shipped",
   "operations.issues.all.live",
+  "operations.sources.signals",
 ];
 
 beforeEach(() => {
@@ -146,6 +185,12 @@ beforeEach(() => {
   mocks.getReleaseImpact.mockResolvedValue(impact);
   mocks.getComponentSeries.mockResolvedValue({ from: "", to: "", step_seconds: 60, signals: [] });
   mocks.getDeployMatrix.mockResolvedValue({ repos: [], envs: [] });
+  mocks.listSignals.mockResolvedValue({
+    signals: [
+      { id: "http.error_ratio", kind: "metric", unit: "%", roles: ["backend"], aggregation: "ratio", better: "lower" },
+      { id: "http.latency", kind: "metric", unit: "ms", roles: ["backend"], aggregation: "quantile", better: "lower" },
+    ],
+  });
 });
 
 describe("Changes impact", () => {
@@ -157,6 +202,10 @@ describe("Changes impact", () => {
     expect(within(row("3.0.0")).getByText("· Error rate +3.2 pt")).toBeInTheDocument();
     expect(within(row("2.9.0")).getByText("Measuring")).toBeInTheDocument();
     expect(within(row("2.8.0")).queryByText("Worse")).not.toBeInTheDocument();
+    // Worded in the catalog's unit: percentage points for a ratio, never its raw +250%.
+    await waitFor(() => expect(mocks.listSignals).toHaveBeenCalled());
+    expect(await within(row("2.6.0")).findByText("· Error rate +1 pt")).toBeInTheDocument();
+    expect(within(row("2.6.0")).queryByText(/\+250%/)).not.toBeInTheDocument();
   });
 
   it("opens the release with its before and after, held to the profile's thresholds", async () => {
@@ -192,22 +241,62 @@ describe("Changes impact", () => {
     const dialog = (await screen.findAllByRole("dialog")).find((d) => within(d).queryByText("Roll back 3.0.0?"))!;
     const confirm = within(dialog).getByRole("button", { name: "Approve rollback" });
     expect(confirm).toBeDisabled();
-    expect(within(dialog).getByLabelText("Why roll back?")).toHaveValue("error rate rose 3.2 points (limit 2)");
+    expect(within(dialog).getByLabelText("Why roll back?")).toHaveValue("Error rate +3.2 pt past the 2 pt limit");
     fireEvent.change(within(dialog).getByRole("textbox", { name: /shop/ }), { target: { value: "shop" } });
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
-    await waitFor(() => expect(mocks.rollbackRelease).toHaveBeenCalledWith("rel-bad", "shop", "error rate rose 3.2 points (limit 2)"));
+    await waitFor(() => expect(mocks.rollbackRelease).toHaveBeenCalledWith("rel-bad", "shop", "Error rate +3.2 pt past the 2 pt limit"));
   });
 
-  it("offers the rollback on the issue a production release is held responsible for", async () => {
-    const onset = new Date(Date.parse(shipped.finished_at!) + 5 * 60_000).toISOString();
-    const issue = incident("i-1", "r-shop", "critical", { title: "Checkout is down", first_seen_at: onset, last_seen_at: onset });
-    mocks.listIncidents.mockResolvedValue({ incidents: [issue], count: 1 });
-    mocks.getIncident.mockResolvedValue(issue);
-    renderAt("/operations/issues?id=i-1");
+  it("says why a proposed rollback cannot run now, offers no approval, and dismisses it", async () => {
+    mocks.dismissRollbackProposal.mockResolvedValue({ ...shipped, rollback_proposal: null });
+    renderAt(`/operations/changes?${RANGE}&release=rel-shipped`);
     const panel = await screen.findByRole("dialog");
     expect(await within(panel).findByText("Rollback suggested · 2.8.0")).toBeInTheDocument();
-    expect(within(panel).getByText("A production issue began within 15 minutes of this deploy: Checkout is down")).toBeInTheDocument();
+    expect(within(panel).getByText("Checkout errors since 2.8.0")).toBeInTheDocument();
+    expect(within(panel).getByText("A health incident")).toBeInTheDocument();
+    expect(within(panel).getByText("Proposed by Release engineer", { exact: false })).toBeInTheDocument();
+    expect(within(panel).getByText("It can't be rolled back now: a newer release of this component has shipped since.")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Approve rollback" })).not.toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: "Dismiss suggestion" }));
+    await waitFor(() => expect(mocks.dismissRollbackProposal).toHaveBeenCalledWith("rel-shipped"));
+    await waitFor(() => expect(within(panel).queryByText("Rollback suggested · 2.8.0")).not.toBeInTheDocument());
+  });
+
+  it("suggests no rollback the server did not propose", async () => {
+    renderAt(`/operations/changes?${RANGE}&release=rel-failed`);
+    const panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText("deploy failed")).toBeInTheDocument();
+    expect(within(panel).queryByText(/Rollback suggested/)).not.toBeInTheDocument();
+  });
+
+  it("shows the proposal on the issue the server attributed it to, never by repository alone", async () => {
+    const onset = new Date(Date.parse(shipped.finished_at!) + 5 * 60_000).toISOString();
+    const attributed = incident("i-1", "r-shop", "critical", { title: "Checkout is down", first_seen_at: onset, last_seen_at: onset, task_id: "t-checkout" });
+    const named = incident("i-2", "r-shop", "high", { title: "Errors spiking", first_seen_at: onset, last_seen_at: onset });
+    const bystander = incident("i-3", "r-shop", "high", { title: "Disk almost full", first_seen_at: onset, last_seen_at: onset });
+    const proposedFor = { ...bad, rollback_proposal: { ...bad.rollback_proposal!, incident_id: "i-2" } };
+    mocks.listAllReleases.mockResolvedValue({ releases: [proposedFor, measuring, shipped, failed] });
+    mocks.listIncidents.mockResolvedValue({ incidents: [attributed, named, bystander], count: 3 });
+
+    mocks.getIncident.mockResolvedValue(attributed);
+    const first = renderAt("/operations/issues?id=i-1");
+    let panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText("Rollback suggested · 2.8.0")).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: "Open 2.8.0" })).toHaveAttribute("href", "/operations/changes?release=rel-shipped");
+    first.unmount();
+
+    mocks.getIncident.mockResolvedValue(named);
+    const second = renderAt("/operations/issues?id=i-2");
+    panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText("Rollback suggested · 3.0.0")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Approve rollback" })).toBeInTheDocument();
+    second.unmount();
+
+    mocks.getIncident.mockResolvedValue(bystander);
+    renderAt("/operations/issues?id=i-3");
+    panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText("Disk almost full", { selector: "h2" })).toBeInTheDocument();
+    expect(within(panel).queryByText(/Rollback suggested/)).not.toBeInTheDocument();
   });
 });

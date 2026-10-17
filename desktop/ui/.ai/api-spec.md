@@ -428,7 +428,14 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
   newest first; default limit 20, max 100 (`api.listReleases`).
 - `GET /v1/releases/{releaseId}` — one release in full: status, mode/executor, commit/tag,
   `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new
-  error groups), `verdict`, `rollback`, `tasks` (`api.getRelease`).
+  error groups), `verdict`, `rollback`, `tasks` (`api.getRelease`). Every release JSON also carries
+  `rollback_proposal` — `{proposed_at, by: agent|human|system, reason: RollbackReason, note?,
+  incident_id?}` or null: the release engineer's rollback with auto rollback off, waiting on a
+  person — and `rollback_allowed` / `rollback_refusal` (`newer_shipped`, `newer_open`,
+  `not_deployed`, `too_old`, `no_released`, `unresolved`, `wrong_status`; "" when allowed): what
+  a rollback would answer right now. The **Rollback suggested** banner reads only these
+  (`changes/rollbackSuggestion`); an issue's panel shows the release whose proposal names the
+  issue or carries its `task_id`.
 - `GET /v1/releases/{releaseId}/impact` — `ReleaseImpact` `{release_id, component_id, environment,
   deployed_at, window_minutes, pending, verdict, computed_at, signals: [{signal, unit, before,
   after, baseline, delta, delta_pct, higher_is_better, verdict}]}` (`api.getReleaseImpact`): the
@@ -462,6 +469,8 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
   verdict and still the newest; 409 with the reason otherwise (a newer release shipped or open).
   `rollback.mechanism` is `workflow_dispatch`, `revert_push` or `provider_rollback` (then
   `provider_deployment_id` / `promoted_deployment_id`); `progress_at` follows each side effect.
+- `POST /v1/releases/{releaseId}/rollback-proposal/dismiss` — no body → `Release` with
+  `rollback_proposal` null (`api.dismissRollbackProposal`; an empty answer is applied locally).
 - `POST /v1/repositories/{id}/tasks/{taskId}/before-deploy/confirm` — no body. Stamps
   `before_deploy_confirmed_at` and, when the task sits in `done`, wakes the release engineer
   immediately. Driven by `TaskDetailDrawer`'s before-deploy Confirm button
@@ -784,7 +793,18 @@ carries `fields`; read them with `dataSourceFieldErrors(e)`.
   `wrong_provider`). Kinds today: `prometheus`, `gcp_monitoring` (`cloud_account_id`,
   `project_id`), `aws_cloudwatch` (`cloud_account_id`, `region`; its query language is JSON,
   `{namespace, metric, stat, dimensions?, period?}` or `{expression, metrics?, period?}`). A cloud
-  kind's empty `name` becomes `<kind label> · <account label>`.
+  kind's empty `name` becomes `<kind label> · <account label>`. The direct broker kinds (`kafka`:
+  `bootstrap_servers` text, `sasl_mechanism` select, `username`, secret `password`, `tls` select,
+  secret `ca_cert` shown with `tls: on`; `rabbitmq`: `url`, `username`, secret `password`,
+  `vhost`; `nats`: `url`, secret `token`) have capabilities `metrics` + `queues`, a JSON query
+  each (`{"group", "topic"?, "metric"?}`, `{"queue", "metric"?}`, `{"stream", "consumer"?,
+  "metric"?}`), and read **live state only**: a series is one point, now, whatever the range, and
+  a window that ended over 5 minutes ago answers no series and a warning. The schema has no
+  multi-line type: the form draws a secret or text field whose key ends in `_cert`/`_pem`/
+  `certificate` as a text area (`dataSourceSchema#isMultilineField`). `bootstrap_servers` is a
+  destination like a `url` (refused at save as `invalid` / `not_permitted`; moving it to other
+  hosts asks for the stored secrets again), but the JSON does not say so: the form learns of it
+  from the save's `secrets_required`.
 - `GET /v1/data-sources` → `{data_sources: DataSource[]}`; `GET /v1/data-sources/{id}` → one
   (`listDataSources`, `getDataSource`). `DataSource` = `{id, kind, name, config, secrets_set,
   status: ok|error|unverified, status_detail, info: {version, detail}, verified_at (null until
@@ -814,8 +834,8 @@ carries `fields`; read them with `dataSourceFieldErrors(e)`.
   (a warning says so).
 - `GET /v1/signals` → `{signals: [{id, kind, unit, roles, aggregation}]}` (`listSignals`);
   `GET /v1/recipes` → `{recipes: [{id, source_kind, applies_to: {technology,
-  messaging_system}, detect: {metric}, params, signals: {signal_id: query}, origin}]}`
-  (`listRecipes`). Read-only: there is no recipe write API. `applies_to` also carries
+  messaging_system}, detect: {metric}, params, signals: {signal_id: query}, tables?: {queues:
+  {columns, key_labels, queries}}, origin}]}` (`listRecipes`). Read-only: there is no recipe write API. `applies_to` also carries
   `resource_kind` and `resource_params` (which bound cloud resource a recipe fits, and which of its
   ref's fields fill which param).
 
@@ -874,7 +894,26 @@ are RFC3339.
   rows from the answer, polled every 120 s; the Summary sends its one id, every 60 s. `value` is
   the window's last non-null point (p95 for a quantile signal), `previous` the one a span
   earlier. Window ≤ 30 days (`OPS_GOLDEN_MAX_WINDOW_MS`: the client asks for the last 30 days of
-  a longer range and says so), rounded to the minute, cached 60 s.
+  a longer range and says so), rounded to the minute, cached 60 s. A signal bound to a direct
+  broker source answers one point at the window's end: `value` is the live value, `previous`
+  null and `spark` one point — the explorer then shows the value with no sparkline.
+- `GET /v1/components/{id}/queues?env=` → `ComponentQueues {component_id, environment, queues:
+  [QueueTable]}` (`api.getComponentQueues(id, env)`, 45 s deadline; `hooks/useOpsSignals#
+  useComponentQueues`, polled every 30 s while visible — the server keeps an answer 30 s).
+  `QueueTable` = `{signal_binding_id, data_source_id, data_source_name, recipe_id,
+  messaging_system, params, columns: [{key, label, unit}], rows: [{<column key>:
+  string|number|null}], truncated, error: {code, message}|null}`: one table per distinct thing
+  the component's **confirmed** `queue.*` bindings read, as the source holds it now — a recipe's
+  `tables.queues` (Prometheus/CloudWatch exporters) or a broker kind's own table (Kafka: one row
+  per partition, `topic`, `partition`, `committed_offset`, `end_offset`, `lag`, `member_id`,
+  `client_id`; RabbitMQ: `queue`, `state`, `ready`, `unacked`, `consumers`, `publish_rate`,
+  `deliver_rate`, `ack_rate`; NATS: `consumer`, `pending`, `ack_pending`, `redelivered`,
+  `waiting`). A column with a `unit` is a measure, one without names the row. A binding with no
+  table (a raw PromQL query, a recipe without `tables`) has none. Each table stands alone:
+  `error.code` ∈ `needs_params`, `bad_query`, `unsupported`, `upstream`, `timeout`, `not_found`,
+  `error`, with no rows; the call answers 200 either way (400 bad `env`, 404 unknown component).
+  At most 500 rows per recipe table (`truncated`). The Queues page reads it only once the
+  signals list has a confirmed `queue.*` binding.
 
 ## Alert rules (migration 189)
 
@@ -890,12 +929,18 @@ or a raw `query` on `data_source_id` — never both. Refusals: 400 `{"error", "f
   severity, channels, open_incident, enabled, state: ok|pending|firing|no_data, state_since,
   last_value, last_evaluated_at, created_at, updated_at}`. `threshold` is always a number: the
   level for `gt`/`lt`, the floor for `rising` (above it and higher than one window earlier),
-  a percent for the change ops (`last_value` is then that percent), unused by `no_data`.
+  a percent for the change ops (`last_value` is then that percent), unused by `no_data`. The
+  server tests `pct > threshold` for `change_pct_gt` and `pct < threshold` for `change_pct_lt`;
+  the editor words them "rises by more than X%" / "falls by more than X%", takes X as a size
+  and sends −X for a fall.
   Quantile signals are read at p95, `web.*` at p75; several series → the worst. Defaults:
   environment production, severity medium, channels `[]` (no notification), enabled, window 300 s
   (60–86 400), for 0 (≤ 604 800). `channels` ⊆ `desktop, in_app, ios_push, slack, email,
-  webhook`; only `desktop` delivers in local mode, so the editor offers only it
-  (`ALERT_CHANNELS_AVAILABLE`). With `open_incident` a firing ingests an issue (source
+  webhook`; `GET /v1/notification-channels` → `{channels: [{kind, available}]}`
+  (`api.listNotificationChannels`) says which deliver here — the editor offers those, lists the
+  rest as coming later, and keeps any the rule already names until cleared; a write naming one
+  that does not deliver is refused with `channels: unavailable`, an unknown kind with
+  `invalid_option`. With `open_incident` a firing ingests an issue (source
   `alert_rule`, payload `{rule_id, rule_name, component_id, …}`) and channels are unused.
 - `GET /v1/alert-rules?component_id=&env=` → `{rules}` (`api.listAlertRules`; the console sends
   no `env` and filters itself, so a link to another environment's rule still finds it).
@@ -908,12 +953,15 @@ or a raw `query` on `data_source_id` — never both. Refusals: 400 `{"error", "f
 - `POST /v1/alert-rules/backtest` a rule's fields + `days` (1–14) → `{fires: [{start, end, peak}],
   series: [{name, points}], step_seconds}` (`api.backtestAlertRule`, 60 s deadline): `end` null
   while still firing; `series[0]` is named after the signal (or `query`), a change rule adds
-  `change_pct`.
+  `change_pct`. The editor sends it with `channels: []`; a rule's panel replays itself with it
+  (back to the window's start, 1–14 days) to chart what the series read cannot answer — a
+  web vital at p75, a change rule's percent change.
 - `POST /v1/alert-rules/suggest {component_id, environment}` → `{rules: [Rule without id/state]}`,
   nothing saved (`api.suggestAlertRules`).
 - Alert notifications link to `/operations/entity/<component id>/alerts?rule=<rule id>`; release
-  ones (`rollback_suggested`, `release_rolled_back`) to `/operations/changes?release=<id>`. The
-  server stores no rollback proposal on the release itself (see `changes/rollbackSuggestion`).
+  ones (`rollback_suggested`, `release_rolled_back`) to `/operations/changes?release=<id>`; the
+  proposal itself is the release's `rollback_proposal`. Every role's entity has an Alerts tab,
+  so the alert link always opens.
 
 ## Operations: Errors inbox and Logs explorer
 

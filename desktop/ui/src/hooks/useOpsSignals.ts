@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type ComponentSeries, type ComponentSignals, type DeployEnvironment, type OpsGolden } from "@/api";
+import { api, type ComponentQueues, type ComponentSeries, type ComponentSignals, type DeployEnvironment, type OpsGolden } from "@/api";
 import { autoStepSeconds } from "@/components/operations/charts/signalChart";
 import { goldenWindow } from "@/components/operations/console/goldenMetrics";
 import { useOptionalOpsContext, type OpsTimeRange } from "@/components/operations/shell/OpsContext";
@@ -137,4 +137,14 @@ export function useOpsGolden(
 export function useComponentSignals(componentId: string, env: DeployEnvironment, enabled = true): KeyedRead<ComponentSignals> {
   const key = `operations.signals.${componentId}.${env}`;
   return useKeyedRead(key, () => api.getComponentSignals(componentId, env), enabled);
+}
+
+// The server keeps a queues answer 30 s, so a faster poll reads the same one.
+export const OPS_QUEUES_POLL_MS = 30_000;
+
+/** A component's queue tables in one environment, as they are now: one per
+ * thing its confirmed `queue.*` bindings read. */
+export function useComponentQueues(componentId: string, env: DeployEnvironment, enabled = true): KeyedRead<ComponentQueues> {
+  const key = `operations.queues.${componentId}.${env}`;
+  return useKeyedRead(key, () => api.getComponentQueues(componentId, env), enabled, OPS_QUEUES_POLL_MS);
 }

@@ -110,7 +110,7 @@ export function DataSourceForm({
         ? root.querySelector<HTMLElement>("#ds-name")
         : root
             .querySelector(`[data-ds-field="${first}"]`)
-            ?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled])');
+            ?.querySelector<HTMLElement>('input:not([disabled]), textarea:not([disabled]), button:not([disabled])');
     target?.focus();
   }, [focusRequest]);
 

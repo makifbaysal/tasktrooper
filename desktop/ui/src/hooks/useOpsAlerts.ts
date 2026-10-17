@@ -1,13 +1,25 @@
-import { api, type AlertRule, type AlertRuleEvent, type MetricQueryResult, type ReleaseImpact } from "@/api";
-import { ALERT_RULES_POLL_MS } from "@/components/operations/alertRules/alertRules";
+import { useState } from "react";
+import {
+  api,
+  type AlertBacktest,
+  type AlertRule,
+  type AlertRuleEvent,
+  type MetricQueryResult,
+  type NotificationChannelInfo,
+  type ReleaseImpact,
+} from "@/api";
+import { ALERT_RULES_POLL_MS, replayDays, replayRequest } from "@/components/operations/alertRules/alertRules";
+import { impactPollMs } from "@/components/operations/changes/releaseImpact";
 import { autoStepSeconds } from "@/components/operations/charts/signalChart";
 import type { OpsTimeRange } from "@/components/operations/shell/OpsContext";
 import { windowKey } from "@/components/operations/query/opsQuery";
 import { useKeyedRead, type KeyedRead } from "@/hooks/useOpsSignals";
 
-const RELEASE_IMPACT_PENDING_POLL_MS = 60_000;
-// A settled impact does not change; the poll only guards a page left open.
-const RELEASE_IMPACT_SETTLED_POLL_MS = 10 * 60_000;
+// A replay reads up to 14 days at the rule's window; it is re-read far less
+// often than a plain series.
+const RULE_REPLAY_POLL_MS = 120_000;
+// What delivers changes only with the server's own build.
+const NOTIFICATION_CHANNELS_POLL_MS = 10 * 60_000;
 
 /** Every environment's alert rules, of one component or of all: a `?rule=`
  * link names no environment, so the page filters by the console's itself. */
@@ -53,13 +65,32 @@ export function useRuleQuerySeries(
   );
 }
 
-/** A release's before/after, re-read while its window after the deploy is open. */
-export function useReleaseImpact(releaseId: string | null, enabled: boolean, pending: boolean): KeyedRead<ReleaseImpact> {
-  const key = `operations.releaseImpact.${releaseId ?? ""}`;
+/** What the evaluator judges a rule on, replayed by the server back to the
+ * window's start (1–14 days): a web vital at p75 and a change rule's percent
+ * change, neither of which a plain series read answers. */
+export function useRuleReplay(rule: AlertRule, range: OpsTimeRange, enabled: boolean): KeyedRead<AlertBacktest> {
+  const days = replayDays(range.from, Date.now());
+  const key = `operations.alertRules.replay.${rule.id}.${rule.updated_at}.${days}`;
+  return useKeyedRead(key, () => api.backtestAlertRule(replayRequest(rule, days)), enabled, RULE_REPLAY_POLL_MS);
+}
+
+/** Which channels deliver here; null until the server has answered. */
+export function useNotificationChannels(): KeyedRead<NotificationChannelInfo[]> {
   return useKeyedRead(
-    key,
-    () => api.getReleaseImpact(releaseId ?? ""),
-    enabled && releaseId !== null,
-    pending ? RELEASE_IMPACT_PENDING_POLL_MS : RELEASE_IMPACT_SETTLED_POLL_MS,
+    "operations.notificationChannels",
+    async () => (await api.listNotificationChannels())?.channels ?? [],
+    true,
+    NOTIFICATION_CHANNELS_POLL_MS,
   );
+}
+
+/** A release's before/after, re-read every minute while its window after the
+ * deploy is open: by the release's own state, or by the impact's `pending`. */
+export function useReleaseImpact(releaseId: string | null, enabled: boolean, settling: boolean): KeyedRead<ReleaseImpact> {
+  const key = `operations.releaseImpact.${releaseId ?? ""}`;
+  const [pending, setPending] = useState(false);
+  const read = useKeyedRead(key, () => api.getReleaseImpact(releaseId ?? ""), enabled && releaseId !== null, impactPollMs(settling, pending));
+  const answered = read.data?.pending === true;
+  if (answered !== pending) setPending(answered);
+  return read;
 }

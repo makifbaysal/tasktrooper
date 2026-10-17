@@ -32,6 +32,12 @@ const apiMock = vi.hoisted(() => ({
   getComponentSeries: vi.fn(),
   listSignals: vi.fn(),
   listRecipes: vi.fn(),
+  backtestAlertRule: vi.fn(),
+  listNotificationChannels: vi.fn(),
+  getComponentSignals: vi.fn(),
+  listDataSources: vi.fn(),
+  listDataSourceKinds: vi.fn(),
+  createAlertRule: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -110,7 +116,7 @@ async function rows() {
 beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
-  for (const key of ["operations.entities.overview", "operations.alertRules.all", "operations.sources.recipes", "operations.sources.signals"]) {
+  for (const key of ["operations.entities.overview", "operations.alertRules.all", "operations.sources.recipes", "operations.sources.signals", "operations.notificationChannels", "operations.alertRules.c-api"]) {
     writeCache(key, undefined);
   }
   Object.values(apiMock).forEach((fn) => fn.mockReset());
@@ -133,6 +139,14 @@ beforeEach(() => {
     ],
   });
   apiMock.getComponentSeries.mockResolvedValue({ from: "", to: "", step_seconds: 60, signals: [] });
+  apiMock.listNotificationChannels.mockResolvedValue({
+    channels: [
+      { kind: "desktop", available: true },
+      { kind: "slack", available: false },
+    ],
+  });
+  apiMock.listDataSources.mockResolvedValue({ data_sources: [] });
+  apiMock.listDataSourceKinds.mockResolvedValue({ kinds: [] });
 });
 
 describe("OpsAlertsPage", () => {
@@ -143,7 +157,7 @@ describe("OpsAlertsPage", () => {
 
     const table = screen.getByRole("table", { name: "Alert rules" });
     expect(within(table).getByText("Response time (p95) > 800 ms for 10 min")).toBeInTheDocument();
-    expect(within(table).getByText("Error rate change over 10 min > +50%")).toBeInTheDocument();
+    expect(within(table).getByText("Error rate rises by more than 50% over 10 min")).toBeInTheDocument();
     expect(within(table).getByText("1.2 s")).toBeInTheDocument();
     expect(within(table).getByText("+75%")).toBeInTheDocument();
     expect(within(table).getByRole("link", { name: "web" })).toHaveAttribute("href", "/operations/entity/c-web/alerts");
@@ -204,5 +218,71 @@ describe("OpsAlertsPage", () => {
     await waitFor(() => expect(apiMock.getAlertRule).toHaveBeenCalledWith("Elsewhere"));
     const panel = await screen.findByRole("dialog");
     expect(await within(panel).findByRole("heading", { name: "Web errors" })).toBeInTheDocument();
+  });
+
+  it("opens a notification's link on a library's own Alerts: every role has the section", async () => {
+    apiMock.listAlertRules.mockResolvedValue({
+      rules: [rule("Lib rule", { component_id: "c-lib", name: "Bundle errors", signal: "", data_source_id: "ds-1", query: "up" })],
+    });
+    renderAt("/operations/entity/c-lib/alerts?rule=Lib%20rule");
+    const panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByRole("heading", { name: "Bundle errors" })).toBeInTheDocument();
+    expect(screen.getByTestId("where")).toHaveTextContent("/operations/entity/c-lib/alerts?rule=Lib%20rule");
+  });
+
+  it("charts a web vital at p75 from the server's replay, and keeps the console's window on the issue link", async () => {
+    const at = Date.now() - 30 * 60_000;
+    apiMock.backtestAlertRule.mockResolvedValue({ fires: [], series: [{ name: "web.lcp", points: [[at, 2600]] }], step_seconds: 300 });
+    apiMock.listAlertRuleEvents.mockResolvedValue({
+      events: [{ at: new Date(at).toISOString(), from_state: "ok", to_state: "firing", value: 2600, incident_id: "inc-7" }],
+    });
+    renderAt("/operations/alerts?rule=Web%20vitals&range=6h");
+    const panel = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(apiMock.backtestAlertRule).toHaveBeenCalledWith(expect.objectContaining({ signal: "web.lcp", component_id: "c-web", days: 1, channels: [] })),
+    );
+    expect(apiMock.getComponentSeries).not.toHaveBeenCalledWith("c-web", expect.objectContaining({ signals: ["web.lcp"] }));
+    expect(await within(panel).findByRole("link", { name: "Open the issue" })).toHaveAttribute("href", "/operations/issues?id=inc-7&range=6h");
+  });
+
+  it("shows a channel the rule names that does not deliver yet", async () => {
+    apiMock.listAlertRules.mockResolvedValue({ rules: [rule("Paged", { channels: ["desktop", "slack"] })] });
+    renderAt("/operations/alerts?rule=Paged");
+    const panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText("Desktop notification, Slack (doesn't deliver yet)")).toBeInTheDocument();
+  });
+
+  it("takes the console to the environment a new rule was saved in", async () => {
+    apiMock.listAlertRules.mockResolvedValue({ rules: [] });
+    apiMock.getComponentSignals.mockResolvedValue({
+      component_id: "c-api",
+      role: "backend",
+      environment: "staging",
+      signals: [
+        {
+          signal: "http.latency",
+          kind: "metric",
+          unit: "ms",
+          golden: true,
+          status: "bound",
+          binding: { id: "b-1", signal: "http.latency" },
+          suggestions: [],
+        },
+      ],
+    });
+    apiMock.createAlertRule.mockImplementation((body: Partial<AlertRule>) => Promise.resolve(rule("ar-new", { ...body, id: "ar-new" } as Partial<AlertRule>)));
+    renderAt("/operations/entity/c-api/alerts");
+    fireEvent.click((await screen.findAllByRole("button", { name: "New rule" }))[0]);
+    const editor = await screen.findByRole("dialog");
+    fireEvent.click(within(editor).getByLabelText("Environment"));
+    fireEvent.click(screen.getByRole("option", { name: "Staging" }));
+    await waitFor(() => expect(apiMock.getComponentSignals).toHaveBeenCalledWith("c-api", "staging"));
+    await waitFor(() => expect(within(editor).getByLabelText(/^Signal$/)).toBeEnabled());
+    fireEvent.click(within(editor).getByLabelText(/^Signal$/));
+    fireEvent.click(screen.getByRole("option", { name: /Response time/ }));
+    fireEvent.change(within(editor).getByLabelText("Threshold"), { target: { value: "800" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(apiMock.createAlertRule).toHaveBeenCalledWith(expect.objectContaining({ environment: "staging" })));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("env=staging"));
   });
 });

@@ -175,12 +175,12 @@ describe("OpsEntityPage", () => {
     expect(await sections("ios")).toEqual(["Summary", "Releases", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
     mobile.unmount();
     renderAt("/operations/entity/c-lib/summary");
-    expect(await sections("ui-kit")).toEqual(["Summary", "Changes", "Issues"]);
+    expect(await sections("ui-kit")).toEqual(["Summary", "Changes", "Issues", "Alerts"]);
   });
 
-  it("sends a section the role does not have back to Summary", async () => {
-    renderAt("/operations/entity/c-api/queues?range=6h");
-    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/operations/entity/c-api/summary?range=6h"));
+  it("sends a section the role does not have back to Summary, its query kept", async () => {
+    renderAt("/operations/entity/c-api/queues?range=6h&rule=ar-1");
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/operations/entity/c-api/summary?range=6h&rule=ar-1"));
   });
 
   it("renders the worker's Queues as the way to connect a data source", async () => {

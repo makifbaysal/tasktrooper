@@ -1,4 +1,4 @@
-import type { ImpactVerdict, Release, ReleaseImpact, ReleaseImpactCheckSignal, ReleaseImpactSignal } from "@/api";
+import type { ImpactVerdict, ObservabilitySignal, Release, ReleaseImpact, ReleaseImpactCheckSignal, ReleaseImpactSignal } from "@/api";
 import { HEADLINE_QUANTILE } from "@/components/operations/charts/signalChart";
 import { formatSignalValue, signalLabel, type SignalFormatContext } from "@/components/operations/console/signalFormat";
 
@@ -14,33 +14,62 @@ const POINT_UNITS = new Set(["%"]);
 
 const QUANTILE_SIGNALS = new Set(["http.latency", "web.lcp", "web.inp", "mobile.cold_start"]);
 
+/** The signal catalog by id (`GET /v1/signals`): a soak's check signals carry
+ * no unit or direction of their own. */
+export type SignalCatalog = ReadonlyMap<string, Pick<ObservabilitySignal, "unit" | "better">>;
+
 type ImpactLike = Pick<ReleaseImpactCheckSignal, "signal" | "before" | "after" | "delta" | "delta_pct" | "verdict"> & {
   unit?: string;
+  higher_is_better?: boolean;
   breached?: boolean;
   max_delta?: number | null;
 };
 
+function unitOf(s: ImpactLike, catalog?: SignalCatalog): string | undefined {
+  return s.unit ?? catalog?.get(s.signal)?.unit ?? (s.max_delta != null ? "%" : undefined);
+}
+
+function betterOf(s: ImpactLike, catalog?: SignalCatalog): "higher" | "lower" | undefined {
+  if (s.higher_is_better !== undefined) return s.higher_is_better ? "higher" : "lower";
+  return catalog?.get(s.signal)?.better;
+}
+
+/** How bad a move is, comparable across signals: percentage points for a
+ * ratio, percent otherwise, signed so a move the bad way ranks above the
+ * same move the good way (by size alone when the direction is not known). */
+export function impactSeverity(s: ImpactLike, catalog?: SignalCatalog): number {
+  const unit = unitOf(s, catalog);
+  const move = unit && POINT_UNITS.has(unit) ? s.delta : s.delta_pct;
+  if (move == null || !Number.isFinite(move)) return 0;
+  const better = betterOf(s, catalog);
+  if (better === "lower") return move;
+  if (better === "higher") return -move;
+  return Math.abs(move);
+}
+
 /** The signal to name beside a verdict: a breached threshold first, then the
- * worst verdict, then the largest relative move. */
-export function worstImpactSignal<T extends ImpactLike>(signals: T[]): T | undefined {
-  const move = (s: T) => Math.abs(s.delta_pct ?? 0);
+ * worst verdict, then the most severe move. */
+export function worstImpactSignal<T extends ImpactLike>(signals: T[], catalog?: SignalCatalog): T | undefined {
   return [...signals]
     .filter((s) => s.verdict !== "unknown" || s.breached)
     .sort(
       (a, b) =>
         Number(Boolean(b.breached)) - Number(Boolean(a.breached)) ||
         VERDICT_RANK[b.verdict] - VERDICT_RANK[a.verdict] ||
-        move(b) - move(a),
+        impactSeverity(b, catalog) - impactSeverity(a, catalog),
     )[0];
 }
 
 /** What the change column says for a release: the soak's own impact check,
  * when its profile sets an impact threshold; nothing otherwise. */
-export function listImpact(release: Pick<Release, "checks">): { state: ImpactState; worst?: ReleaseImpactCheckSignal } | undefined {
+export function listImpact(
+  release: Pick<Release, "checks">,
+  catalog?: SignalCatalog,
+): { state: ImpactState; worst?: ReleaseImpactCheckSignal } | undefined {
   const check = release.checks?.impact;
   if (!check) return undefined;
   const state: ImpactState = check.pending && check.verdict !== "worse" ? "pending" : check.verdict;
-  return { state, worst: state === "unknown" ? undefined : worstImpactSignal(check.signals ?? []) };
+  return { state, worst: state === "unknown" ? undefined : worstImpactSignal(check.signals ?? [], catalog) };
 }
 
 export function impactState(impact: Pick<ReleaseImpact, "pending" | "verdict">): ImpactState {
@@ -53,9 +82,10 @@ function signed(v: number, locale: string, digits = 1): string {
 }
 
 /** A signal's move across the deploy: percentage points for a ratio, else the
- * relative change, else the difference in the signal's own unit. */
-export function impactDeltaText(s: ImpactLike, ctx: SignalFormatContext): string {
-  const unit = s.unit ?? (s.max_delta != null ? "%" : undefined);
+ * relative change, else the difference in the signal's own unit. The unit is
+ * the signal's, else the catalog's. */
+export function impactDeltaText(s: ImpactLike, ctx: SignalFormatContext, catalog?: SignalCatalog): string {
+  const unit = unitOf(s, catalog);
   if (unit && POINT_UNITS.has(unit) && s.delta != null) return ctx.t("operations.changes.impactVerdict.points", { value: signed(s.delta, ctx.locale) });
   if (s.delta_pct != null) return `${signed(s.delta_pct, ctx.locale)}%`;
   if (s.delta != null) {
@@ -66,8 +96,8 @@ export function impactDeltaText(s: ImpactLike, ctx: SignalFormatContext): string
 }
 
 /** "Error rate +3.2 pt": the named signal and its move. */
-export function impactSummary(s: ImpactLike, ctx: SignalFormatContext): string {
-  return `${impactSignalName(s.signal, ctx.t, true)} ${impactDeltaText(s, ctx)}`;
+export function impactSummary(s: ImpactLike, ctx: SignalFormatContext, catalog?: SignalCatalog): string {
+  return `${impactSignalName(s.signal, ctx.t, true)} ${impactDeltaText(s, ctx, catalog)}`;
 }
 
 export function impactSignalName(signal: string, t: SignalFormatContext["t"], short = false): string {
@@ -101,4 +131,14 @@ export function sortImpactSignals(signals: ReleaseImpactSignal[], order: string[
     return i < 0 ? order.length : i;
   };
   return [...signals].sort((a, b) => rank(a.signal) - rank(b.signal) || a.signal.localeCompare(b.signal));
+}
+
+export const RELEASE_IMPACT_PENDING_POLL_MS = 60_000;
+// A settled impact does not change; the poll only guards a page left open.
+export const RELEASE_IMPACT_SETTLED_POLL_MS = 10 * 60_000;
+
+/** Every minute while the window after the deploy is open — the release is
+ * still settling, or the impact's own answer says `pending` — else rarely. */
+export function impactPollMs(settling: boolean, impactPending: boolean | undefined): number {
+  return settling || impactPending === true ? RELEASE_IMPACT_PENDING_POLL_MS : RELEASE_IMPACT_SETTLED_POLL_MS;
 }

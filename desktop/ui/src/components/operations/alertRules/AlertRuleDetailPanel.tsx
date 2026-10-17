@@ -3,7 +3,19 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, ApiError, type AlertRule } from "@/api";
-import { conditionText, firingBands, formatThreshold, ruleThresholds, ruleTimeline } from "@/components/operations/alertRules/alertRules";
+import {
+  BACKTEST_CHANGE_SERIES,
+  channelLabel,
+  conditionText,
+  firingBands,
+  formatThreshold,
+  judgedSeries,
+  judgedSource,
+  judgedThresholds,
+  opIsChange,
+  ruleSignalName,
+  ruleTimeline,
+} from "@/components/operations/alertRules/alertRules";
 import { AlertStatePill } from "@/components/operations/alertRules/AlertStatePill";
 import { signalChartSeries } from "@/components/operations/charts/signalChart";
 import { TimeSeriesChart, type ChartSeries } from "@/components/operations/charts/TimeSeriesChart";
@@ -20,7 +32,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Notice } from "@/components/ui/notice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
-import { useAlertRuleEvents, useRuleQuerySeries } from "@/hooks/useOpsAlerts";
+import { useAlertRuleEvents, useNotificationChannels, useRuleQuerySeries, useRuleReplay } from "@/hooks/useOpsAlerts";
 import { useComponentSeries } from "@/hooks/useOpsSignals";
 import { intlLocale } from "@/lib/languages";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
@@ -153,25 +165,48 @@ function RuleBody({ rule, entity, unit }: { rule: AlertRule; entity?: OpsEntity;
   const d = (key: string, params?: Record<string, string | number>) => t(`operations.alertRules.detail.${key}`, params);
   const ctx = useMemo(() => ({ locale: intlLocale(lang), t }), [lang, t]);
   const custom = !rule.signal;
+  // The chart shows what the evaluator judges, against the same threshold.
+  const source = judgedSource(rule);
+  const change = opIsChange(rule.condition.op);
 
-  const series = useComponentSeries(rule.component_id, rule.environment, custom ? [] : [rule.signal], range, { enabled: !custom });
-  const query = useRuleQuerySeries(rule.data_source_id ?? undefined, rule.query, range, custom);
+  const series = useComponentSeries(rule.component_id, rule.environment, source === "series" ? [rule.signal] : [], range, {
+    enabled: source === "series",
+  });
+  const query = useRuleQuerySeries(rule.data_source_id ?? undefined, rule.query, range, source === "query");
+  const replay = useRuleReplay(rule, range, source === "replay");
   const events = useAlertRuleEvents(rule.id);
+  const channels = useNotificationChannels();
   const signalAnswer = series.data?.signals?.find((s) => s.signal === rule.signal);
   const shownUnit = signalAnswer?.unit || unit;
-  const format = useMemo(() => signalFormatter(shownUnit, ctx), [shownUnit, ctx]);
+  const format = useMemo(() => signalFormatter(change ? "%" : shownUnit, ctx), [change, shownUnit, ctx]);
   const signalName = custom ? t("operations.alertRules.customQuery") : signalLabel(t, rule.signal);
+  const judgedName = ruleSignalName(rule, t);
 
   const lines: ChartSeries[] = useMemo(() => {
-    if (custom) return toChartSeries(query.data?.series ?? []);
+    if (source === "query") return toChartSeries(query.data?.series ?? []);
+    if (source === "replay") {
+      const wanted = (name: string) => (change ? name === BACKTEST_CHANGE_SERIES : name !== BACKTEST_CHANGE_SERIES);
+      return (replay.data?.series ?? [])
+        .filter((s) => wanted(s.name))
+        .map((s, i) => ({
+          id: `replay:${i}:${s.name}`,
+          label: change ? t("operations.alertRules.backtest.changeSeries") : judgedName,
+          points: s.points ?? [],
+          colorIndex: (i % 8) + 1,
+        }));
+    }
     if (!signalAnswer) return [];
-    return signalChartSeries(signalAnswer, false, { signal: signalName, previous: (label) => label });
-  }, [custom, query.data, signalAnswer, signalName]);
+    return signalChartSeries({ ...signalAnswer, series: judgedSeries(rule.signal, signalAnswer.series ?? []) }, false, {
+      signal: signalName,
+      previous: (label) => label,
+    });
+  }, [source, change, query.data, replay.data, signalAnswer, signalName, judgedName, rule.signal, t]);
   const timeline = useMemo(() => ruleTimeline(events.data ?? []), [events.data]);
   const bands = useMemo(() => firingBands(events.data ?? [], range.to), [events.data, range.to]);
-  const thresholds = ruleThresholds(rule, d("threshold"));
-  const chartError = custom ? query.error : (signalAnswer?.error?.message ?? series.error);
-  const chartLoading = custom ? query.loading : series.loading;
+  const thresholds = judgedThresholds(rule, d("threshold"));
+  const chartError =
+    source === "query" ? query.error : source === "replay" ? replay.error : (signalAnswer?.error?.message ?? series.error);
+  const chartLoading = source === "query" ? query.loading : source === "replay" ? replay.loading : series.loading;
 
   const when = (iso?: string | null) =>
     iso ? (
@@ -210,7 +245,12 @@ function RuleBody({ rule, entity, unit }: { rule: AlertRule; entity?: OpsEntity;
         (rule.channels ?? []).length === 0 ? (
           <span className="text-muted-foreground">{d("noChannels")}</span>
         ) : (
-          rule.channels.map((c) => t(`operations.alertRules.editor.channelKinds.${c}`)).join(", ")
+          rule.channels
+            .map((c) => {
+              const delivers = (channels.data ?? []).find((x) => x.kind === c)?.available;
+              return delivers === false ? d("channelNotDelivering", { channel: channelLabel(c, t) }) : channelLabel(c, t);
+            })
+            .join(", ")
         ),
     },
     { label: d("openIncident"), value: rule.open_incident ? d("yes") : d("no") },
@@ -265,7 +305,7 @@ function RuleBody({ rule, entity, unit }: { rule: AlertRule; entity?: OpsEntity;
                   <span className="ml-2 font-mono tabular-nums">{d("value", { value: formatThreshold(rule.condition.op, ev.value, shownUnit, ctx) })}</span>
                 )}
                 {ev.incident_id && (
-                  <Link to={`/operations/issues?id=${encodeURIComponent(ev.incident_id)}`} className="ml-2 text-info hover:underline">
+                  <Link to={href(`/operations/issues?id=${encodeURIComponent(ev.incident_id)}`)} className="ml-2 text-info hover:underline">
                     {d("openIssue")}
                   </Link>
                 )}

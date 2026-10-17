@@ -43,6 +43,23 @@ export function hasChartData(series: ChartSeriesLike[]): boolean {
   return series.some((s) => s.points.some(([x, y]) => Number.isFinite(x) && y !== null && Number.isFinite(y)));
 }
 
+/** A live-only answer: some series, none with more than one point. A direct
+ * broker source reads its broker as it is now, so a chart of it would be one
+ * lone dot per series; it reads better as values. */
+export function isInstantResult(series: ReadonlyArray<{ points: ChartPoint[] }>): boolean {
+  return series.length > 0 && series.every((s) => (s.points ?? []).length <= 1);
+}
+
+/** Whether points are worth a line: at least two that hold a value. */
+export function hasTrend(points: ReadonlyArray<ChartPoint> | undefined): boolean {
+  let n = 0;
+  for (const [x, y] of points ?? []) {
+    if (Number.isFinite(x) && y !== null && Number.isFinite(y)) n += 1;
+    if (n >= 2) return true;
+  }
+  return false;
+}
+
 export interface ChartTableRow {
   at: number;
   values: (number | null)[];

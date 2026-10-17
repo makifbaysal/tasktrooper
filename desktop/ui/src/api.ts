@@ -3428,7 +3428,23 @@ export interface ObservabilityRecipe {
   detect: { metric: string };
   params: string[] | null;
   signals: Record<string, string>;
+  /** Instant per-entity tables; only `queues` is known (the Queues view). */
+  tables?: { queues?: RecipeTable };
   origin: "catalog" | "user";
+}
+
+/** A column of a table answer. `unit` is a signal catalog unit
+ * (`messages`, `msg/s`, `s`, `count`, …) or "" for a label column. */
+export interface TableColumn {
+  key: string;
+  label: string;
+  unit: string;
+}
+
+export interface RecipeTable {
+  columns: TableColumn[];
+  key_labels: string[];
+  queries: Record<string, string>;
 }
 
 // Signal bindings: which data source (and recipe, or query of its own) feeds
@@ -3563,6 +3579,35 @@ export interface OpsGoldenQuery {
   componentIds?: string[];
 }
 
+/** `needs_params`, `bad_query`, `unsupported`, `upstream`, `timeout`,
+ * `not_found` (the source is gone) or `error`; an unknown code reads as `error`. */
+export type QueueTableErrorCode = "needs_params" | "bad_query" | "unsupported" | "upstream" | "timeout" | "not_found" | "error";
+
+/** One table of GET /v1/components/{id}/queues: what one data source holds,
+ * right now, for the queues, partitions or consumers a confirmed `queue.*`
+ * binding reads. `signal_binding_id` is the first such binding in signal
+ * catalog order; `params` the ones the table read with. A failed table has
+ * `error` and no rows; the others stand. */
+export interface QueueTable {
+  signal_binding_id: string;
+  data_source_id: string;
+  data_source_name: string;
+  recipe_id: string;
+  /** The recipe's `applies_to.messaging_system`, else the broker kind. */
+  messaging_system: string;
+  params: Record<string, string>;
+  columns: TableColumn[];
+  rows: Array<Record<string, string | number | null>>;
+  truncated: boolean;
+  error: { code: QueueTableErrorCode | string; message: string } | null;
+}
+
+export interface ComponentQueues {
+  component_id: string;
+  environment: DeployEnvironment;
+  queues: QueueTable[];
+}
+
 // ---------------------------------------------------------------------------
 // Alert rules (migration 189): a condition over one of a component's signals,
 // or over a data source query of its own, that the server evaluates on a
@@ -3587,7 +3632,14 @@ export type AlertChannelKind = "desktop" | "in_app" | "ios_push" | "slack" | "em
 
 export const ALERT_CHANNEL_KINDS: AlertChannelKind[] = ["desktop", "in_app", "ios_push", "slack", "email", "webhook"];
 
+/** What a new rule starts with until GET /v1/notification-channels answers. */
 export const ALERT_CHANNELS_AVAILABLE: AlertChannelKind[] = ["desktop"];
+
+/** GET /v1/notification-channels: every channel kind and whether it delivers here. */
+export interface NotificationChannelInfo {
+  kind: string;
+  available: boolean;
+}
 
 export interface AlertRuleCondition {
   op: AlertRuleOp;
@@ -4399,7 +4451,41 @@ export interface Release {
   finished_at?: string;
   /** Set when a human cut this batch release. */
   cut_at?: string;
+  /** A rollback the release engineer proposed with auto rollback off, waiting
+   * on a person; null once approved, dismissed or moot. */
+  rollback_proposal?: ReleaseRollbackProposal | null;
+  /** Whether POST .../rollback would be accepted now, as the server decides it. */
+  rollback_allowed?: boolean;
+  /** Why not, when `rollback_allowed` is false ("" when it is allowed). */
+  rollback_refusal?: string;
 }
+
+/** domain.RollbackProposal: nothing ran; a person approves (rolls back) or
+ * dismisses it. */
+export interface ReleaseRollbackProposal {
+  proposed_at: string;
+  /** domain.ReleaseActor: "agent", "human" or "system". */
+  by: string;
+  reason: RollbackReason;
+  /** The proposer's own words. */
+  note?: string;
+  /** The issue this release was attributed, when the proposal answers one. */
+  incident_id?: string | null;
+}
+
+/** domain.RollbackRefusal*: why a rollback would be refused now; an unknown
+ * one is shown as sent. */
+export type RollbackRefusal = "newer_shipped" | "newer_open" | "not_deployed" | "too_old" | "no_released" | "unresolved" | "wrong_status";
+
+export const ROLLBACK_REFUSALS: RollbackRefusal[] = [
+  "newer_shipped",
+  "newer_open",
+  "not_deployed",
+  "too_old",
+  "no_released",
+  "unresolved",
+  "wrong_status",
+];
 
 /** GET .../cut-preview: what cutting a batch component's draft release right
  * now would produce, before a human commits to a version. */
@@ -6664,6 +6750,15 @@ export const api = {
       OPS_SIGNALS_TIMEOUT_MS,
     ),
 
+  // Each table stands alone: one that cannot be read carries `error` (see
+  // QueueTableErrorCode) and the call itself still answers 200.
+  getComponentQueues: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentQueues>(
+      `/v1/components/${encodeURIComponent(componentId)}/queues${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
   // ---- Alert rules ---------------------------------------------
   // A refused write answers 400 with `fields` (see dataSourceFieldErrors).
 
@@ -6696,6 +6791,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ component_id: componentId, environment }),
     }),
+
+  listNotificationChannels: () => request<{ channels: NotificationChannelInfo[] | null }>("/v1/notification-channels"),
 
   // ---- Releases & delivery --------------------------------------
 
@@ -6748,6 +6845,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm, note }),
     }),
+
+  dismissRollbackProposal: (releaseId: string) =>
+    request<Release | undefined>(`/v1/releases/${encodeURIComponent(releaseId)}/rollback-proposal/dismiss`, { method: "POST" }),
 
   // PATCHes the component with only {delivery}: a value sets the override, null clears it.
   updateComponentDelivery: (componentId: string, delivery: ComponentDelivery | null) =>

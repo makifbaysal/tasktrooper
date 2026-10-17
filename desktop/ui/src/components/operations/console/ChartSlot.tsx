@@ -13,9 +13,11 @@ export const DATA_SOURCES_PATH = "/operations/sources";
 
 const NO_SERIES: ChartSeries[] = [];
 
-/** Where the slot's signal stands: fed by a binding, waiting for one, or a
- * read that failed. Left out, an empty slot reads as "no data source bound". */
-export type ChartSlotStatus = "bound" | "unbound" | "error";
+/** Where the slot's signal stands: fed by a binding, waiting for one, a read
+ * that failed, or fed by a source that reads only the value as it is now
+ * (`live`: no history to draw). Left out, an empty slot reads as "no data
+ * source bound". */
+export type ChartSlotStatus = "bound" | "unbound" | "error" | "live";
 
 interface ChartSlotProps {
   title: string;
@@ -42,6 +44,8 @@ interface ChartSlotProps {
   manageHref?: string;
   /** A small line under the chart that does not replace it (e.g. the previous period could not be read). */
   note?: ReactNode;
+  /** What stands in for the chart while `status` is "live" (the values read now). */
+  live?: ReactNode;
 }
 
 /** One metric chart card: a title row with its "…" menu, then the chart.
@@ -66,6 +70,7 @@ export function ChartSlot({
   onBind,
   manageHref,
   note,
+  live,
 }: ChartSlotProps) {
   const { t } = useI18n();
   const href = useOpsHref();
@@ -96,6 +101,12 @@ export function ChartSlot({
             )
           }
         />
+      </div>
+    );
+  } else if (status === "live" && !loading) {
+    body = (
+      <div style={{ minHeight: height }} className="flex flex-col justify-center">
+        {live}
       </div>
     );
   } else {

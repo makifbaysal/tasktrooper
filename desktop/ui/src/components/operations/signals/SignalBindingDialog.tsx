@@ -13,6 +13,8 @@ import {
   type SignalPreview,
 } from "@/api";
 import { FormDialog } from "@/components/admin/FormDialog";
+import { isInstantResult } from "@/components/operations/charts/chartData";
+import { LiveValueList, liveValueItems } from "@/components/operations/charts/LiveValueList";
 import { autoStepSeconds } from "@/components/operations/charts/signalChart";
 import { TimeSeriesChart } from "@/components/operations/charts/TimeSeriesChart";
 import { DATA_SOURCES_PATH } from "@/components/operations/console/ChartSlot";
@@ -34,7 +36,7 @@ import {
   type BindingMode,
   type BindingPrefill,
 } from "@/components/operations/signals/signalBinding";
-import { kindLabel, queryPlaceholder, toChartSeries } from "@/components/operations/sources/dataSourceSchema";
+import { kindLabel, queryHint, queryPlaceholder, readsLiveOnly, toChartSeries } from "@/components/operations/sources/dataSourceSchema";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -124,6 +126,7 @@ export function SignalBindingDialog({
   const format = useMemo(() => signalFormatter(unit, { locale: intlLocale(lang), t }), [unit, lang, t]);
   const series = useMemo(() => toChartSeries(preview?.series ?? []), [preview]);
   const valid = bindingErrorCount(validateBindingDraft(draft, recipe)) === 0;
+  const liveSource = readsLiveOnly(source);
 
   const change = (next: BindingDraft) => {
     setDraft(next);
@@ -386,7 +389,11 @@ export function SignalBindingDialog({
                 disabled={saving}
               />
               <p id="sb-query-hint" className="text-caption text-muted-foreground">
-                {QUERY_LANGUAGE[source.kind] ? b(`queryHints.${QUERY_LANGUAGE[source.kind]}`) : b("queryHint")}
+                {QUERY_LANGUAGE[source.kind]
+                  ? b(`queryHints.${QUERY_LANGUAGE[source.kind]}`)
+                  : queryHint(t, source.kind)
+                    ? `${queryHint(t, source.kind)} ${b("previewShortcut")}`
+                    : b("queryHint")}
               </p>
               {errors.query && <p className="text-caption text-destructive">{errorText(errors.query)}</p>}
               {customParams.length > 0 && (
@@ -456,17 +463,24 @@ export function SignalBindingDialog({
                 </pre>
               </div>
             )}
-            {(preview || previewing) && (
-              <TimeSeriesChart
-                series={series}
-                ariaLabel={b("preview.chartLabel", { signal: name })}
-                formatValue={format}
-                height={180}
-                loading={previewing && !preview}
-                xRange={[previewWindow.from, previewWindow.to]}
-                emptyLabel={b("preview.noSeries")}
-                showTableToggle
-              />
+            {preview && liveSource && isInstantResult(series) ? (
+              <div className="space-y-1.5">
+                <LiveValueList items={liveValueItems(series)} formatValue={format} ariaLabel={b("preview.chartLabel", { signal: name })} height={180} />
+                <p className="text-caption text-muted-foreground">{b("preview.liveNote")}</p>
+              </div>
+            ) : (
+              (preview || previewing) && (
+                <TimeSeriesChart
+                  series={series}
+                  ariaLabel={b("preview.chartLabel", { signal: name })}
+                  formatValue={format}
+                  height={180}
+                  loading={previewing && !preview}
+                  xRange={[previewWindow.from, previewWindow.to]}
+                  emptyLabel={b("preview.noSeries")}
+                  showTableToggle
+                />
+              )
             )}
           </section>
         </>
