@@ -620,7 +620,12 @@ tab beside **Inbox** in the Errors area) say what one kind of error means
 and what it should set off. A definition belongs to a repository and covers
 every component of it, or one. Definitions have no environment: they mark
 groups in the inbox wherever they appear, and their alerts, issues and tasks
-are carried out on production, about every two minutes.
+are carried out on production. A definition's count is read at most once
+per twelfth of its window (every 5 minutes for an hour, every 2 hours for a
+day — tasks look a day back), never more often than every two minutes. A
+repository-wide definition counts a Sentry issue once even when several
+components read the same project. A repository holds at most 200 active and
+suggested definitions.
 
 Pick a repository and a component to narrow the list, or search names,
 patterns and reasons. Three tabs split the definitions by status:
@@ -648,7 +653,12 @@ marks what it matches. It runs in your browser; the server checks the
 pattern again with RE2 when you save, and RE2 has no lookarounds or
 backreferences. When several active definitions match a group, a
 component's own wins over a repository-wide one, then the more specific
-(a fingerprint counts most), then the most recently edited.
+(a fingerprint counts most), then the most recently edited — that is the
+definition the inbox shows. What a match sets off is decided per kind of
+action: the best matching **Alert** or **Open an issue** definition opens
+the issue and the best matching **Open a task** definition opens the task,
+so one group can do both. Only a better matching **Hide from the inbox**
+definition stops them; **No action** stops nothing.
 
 **Category** is what the failure is: **Bug**, **Expected** (raised on
 purpose, such as a declined card), **Dependency**, **Infrastructure** or
@@ -664,8 +674,9 @@ purpose, such as a declined card), **Dependency**, **Infrastructure** or
 
 **Suggested** definitions wait until you **Accept** (it becomes active) or
 **Dismiss** them (it is never suggested again). **Edit** a suggestion to
-change it first; **Save and accept** does both. **Delete** asks first; an
-issue a definition opened stays as it is.
+change it first; **Save and accept** does both. **Delete** asks first.
+Deleting a definition whose issue is open resolves it, as does changing its
+action to one that opens none, or deleting its component.
 
 ## AI suggestions
 
@@ -691,6 +702,13 @@ same kind runs for the same scope picks that job up instead of starting
 another. What the release engineer proposed carries an **AI** badge: alert
 rules, signal bindings and suggestions, and definitions (as their source).
 
+A job may only read and suggest, inside the repository (and component) you
+picked — see [Tool policies](tool-policies.md#the-release-engineers-observability-jobs).
+It runs at most 30 minutes; one that waits 30 minutes for a free slot fails.
+If the agent's CLI hits its usage limit the job fails with that message
+instead of resuming later. A job stuck for over 35 minutes no longer blocks
+a new one.
+
 The jobs need the release engineer agent switched on. Without one for the
 component, the card says so: turn it on with **Edit team** (the pencil
 beside Team in the sidebar) and ask again.
@@ -714,6 +732,7 @@ Tempo) or **An OTLP endpoint** with its URL. **Create the task** opens a task
 for the release engineer and links to it. The release engineer plans the
 work and opens the developer's task; once the telemetry arrives it checks
 it and proposes the bindings and alert rules. It never edits code itself.
+Asking again while that task is still open answers the same task.
 
 While a component has a gap, its Summary shows a short **Observability
 gaps** card with the first of them and the same button.
@@ -878,7 +897,10 @@ read:
   be read, or the release is in a state that cannot be rolled back.
 
 **Dismiss suggestion** declines the proposal: the server drops it and the
-banner goes, for everyone. A proposal also goes away on its own once the
+banner goes, for everyone. Dismissing is remembered: the release engineer
+won't suggest rolling that release back again until a new incident is
+attributed to it. On a server with no git reverter, rollback is not offered
+(*not configured*). A proposal also goes away on its own once the
 release is rolled back, or once a newer release of the component ships.
 
 The same banner shows on an issue's panel under [Issues](#issues), with a
@@ -958,7 +980,12 @@ the issue's own. Incident notifications carry this address; the older
 picked, across every entity; an entity's own **Alerts** section lists only
 its rules. A rule watches one of an entity's bound [signals](#signals) (or a
 query of a data source's own) and fires when its condition holds. The server
-evaluates every enabled rule about once a minute.
+evaluates every enabled rule about once a minute. A firing rule recovers only
+after five clear minutes (or its **For at least**, if longer). A rule whose
+source can't be read shows the last error and holds its state for up to ten
+evaluations, then reads as no data. A rule that changes state more than four
+times in 30 minutes notifies nothing more until it stays put for 15 minutes,
+then once with the state it ended in.
 
 Above the list, four filters with their counts: **Firing**, **Pending** (the
 condition holds but not yet for as long as the rule asks), **No data** and
