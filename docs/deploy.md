@@ -9,8 +9,9 @@ A **deploy target** is one row per (repository, environment): which provider
 it ships through, the values that provider's workflow needs, a health URL,
 and whether a failed release rolls back automatically. Deploy targets live on
 the repository's **Deploy targets** page (**Settings → Deploy targets**,
-reached from a repository), and the cross-repository view of what is live
-where is the **Deployments** page under Operations.
+reached from a repository), and the cross-repository view of what shipped
+where is **Operations → Changes** in the
+[Operations console](operations-console.md).
 
 ## Providers and the recipe catalog
 
@@ -63,20 +64,35 @@ that covers every agent-writable address (see
 and re-validated on every fetch afterward — a name that resolved to a public
 address when it was saved is free to answer `127.0.0.1` later.
 
-## The Deployments page
+## Changes in the Operations console
 
-Operations → Deployments shows a matrix of every repository against every
-environment it deploys to, refreshed roughly every 15 seconds. Selecting a
-cell opens the run's detail — the same GitHub Actions run, commit status or
-GitHub Deployment the release engine reads (see **Releases**, below) — with
-rollback where the target allows it.
+**Operations → Changes** lists every release of every component in one
+environment (the one picked in the console's top bar), newest first and
+grouped by day, over the time range picked; a release still deploying,
+verifying, waiting for a verdict or rolling back, or waiting to deploy, is
+always listed. It reads again every 15 seconds while a release is moving
+and every minute otherwise. Each row shows the release's status, version,
+commit, tasks, what triggered it (merge, dispatch, a cut, batch) and its
+**Impact**: the deploy impact verdict its soak recorded, when its delivery
+profile sets an impact threshold (see **Deploy impact**, below), beside what
+its verification recorded (health samples, smoke checks, new error groups).
+
+Selecting a release opens its panel: the timeline, the deploy watch, what
+verification recorded, its deploy impact signal by signal, the rollback and
+the release notes, with **Roll
+back**, **Deploy** and **Mark as released** where its state allows (see
+**Releases**, below). Each action's confirmation asks you to type the
+repository's name, whatever the environment. Each component's own page in the console has the
+same feed, narrowed to it, under **Changes**. See
+[Operations console](operations-console.md#changes).
 
 ## Hosting links
 
 A repository ships to exactly one place, and which place that is lives under
 **Repository settings → Deploy**, next to that repository's addresses — the
-same section the operations matrix opens at `/repositories/{id}/deploy`. One
-scope at a time, with the provider picked rather than stacked.
+same place `/repositories/{id}/deploy` and the Operations console's
+**Connect** links open. One scope at a time, with the provider picked rather
+than stacked.
 
 A monorepo picks the scope once, at the top of the section: the repository
 itself or one of its sub-projects. The hosting link, the per-environment
@@ -164,8 +180,12 @@ Each profile also carries: which GitHub Actions workflow to dispatch or
 watch, how long to soak production after a deploy before asking for a
 verdict (`soak_minutes`, default 10), how many brand-new runtime error
 groups are tolerated before that soak stops early, a list of read-only
-smoke checks (GET/HEAD only — nothing that could write to production), and
-whether a bad release may be rolled back automatically or only proposed.
+smoke checks (GET/HEAD only — nothing that could write to production), two
+optional deploy impact thresholds (`max_error_rate_delta`, in percentage
+points, and `max_p95_delta_pct`, in percent — see **Deploy impact**, below),
+and whether a bad release may be rolled back automatically or only proposed.
+A release keeps the profile it was opened with, so a changed threshold
+applies from the next release on.
 
 ### From merge to a verdict
 
@@ -192,10 +212,11 @@ whether a bad release may be rolled back automatically or only proposed.
    engineer dispatches it for `dispatch`/a cut batch release.
 3. **A soak window runs.** A system sweeper — no agent, no tokens spent —
    watches the deploy settle, then samples the environment's health, runs
-   the profile's smoke checks, and watches for brand-new runtime error
-   groups, for the configured number of minutes (or until something clearly
-   fails, whichever comes first). The task's card sits parked the whole
-   time; nothing polls or waits idly.
+   the profile's smoke checks, watches for brand-new runtime error groups
+   and, when the profile sets an impact threshold, reads the release's
+   deploy impact, for the configured number of minutes (or until something
+   clearly fails, whichever comes first). The task's card sits parked the
+   whole time; nothing polls or waits idly.
 4. **The release engineer is woken for a verdict.** It reads the runtime
    logs and errors since the deploy, wherever the component has a bound
    environment (see "Hosting links" and "Vercel account and detection",
@@ -212,11 +233,74 @@ task's own staging deploy already succeeded — a migration is the one class
 of change build and test cannot judge, since both stay green while the
 rollout itself breaks production.
 
+### Deploy impact
+
+A release's **deploy impact** is what it did to its component's golden
+signals in production — the ones the console shows for every component of
+that role: request rate, error rate and p95 latency for a backend; backlog,
+consume rate and processing errors for a worker; page views, LCP and INP for
+a frontend; crash-free users, cold start and ANR (or crash) rate for mobile
+and desktop. Only signals with a confirmed production binding count (see
+[Operations console](operations-console.md#signals)).
+
+For each of them it takes the average over the hour before the deploy, the
+hour after it, and that same hour a day earlier (the **baseline**); a
+quantile signal such as latency is read at its p95. A signal is **worse** or
+**improved** when it moved past a threshold both from the hour before and
+from the baseline — so a change the time of day explains (an evening dip in
+traffic that happens every day) stays **neutral**. The threshold is 10% of
+the value before the deploy, or half a percentage point for a ratio such as
+an error rate; throughput (requests, page views) uses 25%. Small moves never
+count: a count or backlog must move by at least 1, a rate by at least 0.05
+per second, any signal by at least 5% of the larger value, and latency by at
+least 50 ms. When a binding returns several series, the worst one is judged.
+`deploy_ops.impact.change_pct`, `ratio_points`, `throughput_change_pct`,
+`count_floor`, `rate_floor`, `floor_pct` and `latency_floor_ms` in the
+configuration change these. Which way is better comes from the signal
+catalog: lower for errors, latency, backlog and cold start, higher for
+throughput and crash-free users. A signal that could not be read is
+**unknown**, and the release's verdict is its worst signal — **unknown**
+only when nothing could be judged, including when nothing is bound. Until the
+hour after the deploy is over the impact is **pending** and covers the part
+that has passed. The deploy is the moment the release went live, or, for a
+release that never deployed on its own, the moment it finished.
+
+`GET /v1/releases/{id}/impact` answers it, the release's panel on
+Operations → Changes shows it signal by signal, and the release engineer
+reads it with `get_deploy_impact`.
+
+**In the soak.** Two delivery-profile thresholds hold a release to its deploy
+impact while it soaks: `max_error_rate_delta` (how many percentage points
+`http.error_ratio` may rise) and `max_p95_delta_pct` (how many percent
+`http.latency`'s p95 may rise), both off at 0. With either set, the soak
+reads deploy impact at most every two minutes and once more when the window
+ends, and records it on the release (`checks.impact`: each signal's before,
+after, move and verdict, the threshold it was held to, and any threshold whose
+signal is not bound). A signal is **settling** until the hour after the
+deploy holds at least ten minutes and five points of data (the sample at the
+deploy itself is not counted), and a settling signal never breaches; the soak
+masks the time of day against the baseline exactly as the impact read does,
+and the 50 ms latency floor applies to `max_p95_delta_pct` too. A rise past a
+threshold stops the soak early, like a failed smoke check: the release waits
+for the release engineer's verdict, and `auto_rollback` decides what a
+rollback does exactly as it does for any other failed check.
+
+Because a signal needs ten minutes after the deploy to settle, a soak with an
+impact threshold lasts at least ten minutes from the deploy, whatever
+`soak_minutes` says. If a threshold's signal is still settling when the
+window ends (a source that keeps few points, for example), the soak keeps
+verifying for up to 15 more minutes, reading deploy impact every two minutes,
+until the signal settles. The last read skips deploy impact's one-minute
+cache. A threshold whose signal never settled is listed in
+`checks.impact.unchecked`, the same as one whose signal is not bound: it was
+not checked, so it did not pass.
+
 ### Rolling a release back
 
 A rollback is called for on real evidence — a failed deploy, a failing
-smoke check, a health check gone red, or new runtime error groups tied to
-the change — never a hunch, and it always does two things:
+smoke check, a health check gone red, new runtime error groups tied to the
+change, or a golden signal its deploy impact reads as worse — never a hunch,
+and it always does two things:
 
 1. **Reverts the change on the default branch** (a `git revert` of the
    merge commits, newest first, pushed) — this always happens, so the next
@@ -239,11 +323,40 @@ the change — never a hunch, and it always does two things:
 
 A rollback is refused — nothing reverted, nothing redeployed — while a newer
 release of the same component is already open or has already shipped; roll
-that one back (or resolve it) first.
+that one back (or resolve it) first. It is also refused on a server with no
+git reverter configured (`rollback_refusal: not_configured`), since every
+rollback starts with the revert; the release engineer cannot propose one
+there either.
 
 If the profile's `auto_rollback` is off, nothing is executed automatically:
-the release engineer writes up the proposal as a comment on the task, and a
-human confirms it from the release's detail drawer instead.
+the release engineer writes up the proposal as a comment on the task and the
+proposal is stored on the release itself. Its panel on Operations → Changes
+then shows **Rollback suggested** with the reason; **Approve** (typing the
+repository name) appears only while the server would accept the rollback —
+otherwise the panel says why not (a newer release already shipped or is open,
+the release never deployed, it is too old, and so on) — and **Dismiss** clears
+the suggestion. A stored proposal is cleared when a rollback runs, when the
+release is superseded, when the release itself is finished, when a newer
+release of the component finishes, or when it is dismissed. A dismissal is
+kept on the release (`rollback_dismissal`: when, and the incident the
+proposal answered). The release engineer cannot propose rolling that release
+back again until another incident is attributed to it, and a dismissal also
+counts as the answer the hand-back watchdog waits for, so the agent is not
+woken again to propose the same thing. You can still roll the release back by
+hand. The proposal also sends a **Rollback suggested**
+notification (a desktop notification on macOS) linking to that panel. A
+rollback the release engineer executes on its own (`auto_rollback` on) sends
+a **Rolled back** notification — also when the revert landed but the rest of
+the rollback did not finish, which the notification then says. Each is sent
+at most once per release every 30 minutes, and a rollback you start yourself
+is not notified back to you.
+
+When a production incident opens inside a release's attribution window (see
+[Production incidents](incidents.md)) — for an incident an alert rule opened,
+only a release of that rule's own component counts — the release engineer
+reads the release's deploy impact beside the logs and the incident: a golden
+signal worse since the deploy is evidence for rolling it back, executed or
+proposed by `auto_rollback` as above.
 
 Every rollback names its **manual steps** — the part no mechanism can
 perform on its own: undoing a database migration, flipping a feature flag,
@@ -319,6 +432,8 @@ before, just slower.
 
 ## See also
 
+- [Operations console](operations-console.md) — Changes, and what each
+  release's panel offers
 - [Production incidents](incidents.md) — how a failed deploy or a failing
   health check turns into an incident, and how it gets attributed back to
   the release that caused it

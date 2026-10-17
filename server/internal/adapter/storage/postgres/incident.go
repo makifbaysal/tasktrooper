@@ -117,8 +117,9 @@ func (s *IncidentStore) List(ctx context.Context, filter domain.IncidentFilter) 
 		WHERE ($1::uuid IS NULL OR repository_id = $1)
 		  AND ($2 = '' OR env = $2)
 		  AND (cardinality($3::text[]) = 0 OR status = ANY($3))
+		  AND ($5 = '' OR source = $5)
 		ORDER BY last_seen_at DESC
-		LIMIT $4`, repositoryID, filter.Env, statuses, limit)
+		LIMIT $4`, repositoryID, filter.Env, statuses, limit, filter.Source)
 	if err != nil {
 		return nil, fmt.Errorf("list incidents: %w", err)
 	}

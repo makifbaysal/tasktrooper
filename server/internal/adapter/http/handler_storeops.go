@@ -227,9 +227,11 @@ func (h *Handler) ReleaseIOSVersion(c *fiber.Ctx) error {
 // only when ToTrack is "production" — enforced server-side by the service,
 // not duplicated here.
 type promoteAndroidRequest struct {
-	ToTrack      string  `json:"to_track"`
-	UserFraction float64 `json:"user_fraction"`
-	Confirm      string  `json:"confirm"`
+	ToTrack string `json:"to_track"`
+	// UserFraction is a pointer so the channel promote below can tell "left
+	// out" (everyone) from an explicit 0 (refused).
+	UserFraction *float64 `json:"user_fraction"`
+	Confirm      string   `json:"confirm"`
 	// From/To are the channel vocabulary the generic promote route speaks.
 	// They ride on this struct because the literal Android route shadows that
 	// one — see PromoteAndroidTrack.
@@ -257,23 +259,30 @@ func (h *Handler) PromoteAndroidTrack(c *fiber.Ctx) error {
 		return badRequest(c, "invalid request body")
 	}
 	if req.From != "" || req.To != "" {
-		return h.promoteChannel(c, id, domain.MobileStorePlatformAndroid, req.From, req.To, req.Confirm)
+		return h.promoteChannel(c, id, domain.MobileStorePlatformAndroid, req.From, req.To, req.UserFraction, req.Confirm)
 	}
-	if err := h.storeOpsSvc.PromoteAndroid(h.enrichContext(c), id, req.ToTrack, req.UserFraction, req.Confirm, consoleActor); err != nil {
+	var fraction float64
+	if req.UserFraction != nil {
+		fraction = *req.UserFraction
+	}
+	if err := h.storeOpsSvc.PromoteAndroid(h.enrichContext(c), id, req.ToTrack, fraction, req.Confirm, consoleActor); err != nil {
 		return storeOpsActionError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-// setAndroidRolloutRequest is the SetAndroidRollout body.
+// setAndroidRolloutRequest is the SetAndroidRollout body. Confirm is
+// required only when UserFraction is 1, which completes the rollout.
 type setAndroidRolloutRequest struct {
 	UserFraction float64 `json:"user_fraction"`
+	Confirm      string  `json:"confirm"`
 }
 
 // SetAndroidRollout — POST /v1/repositories/:id/store/apps/android/rollout
-// Body: {"user_fraction": 0.5}. The fraction is range-checked server-side
-// (svc.SetAndroidRollout) — it is user input heading for a production API,
-// and the browser is not the enforcement point.
+// Body: {"user_fraction": 0.5} or {"user_fraction": 1, "confirm": "<repository name>"}.
+// The fraction is range-checked server-side (svc.SetAndroidRollout, (0,1]) —
+// it is user input heading for a production API, and the browser is not the
+// enforcement point.
 func (h *Handler) SetAndroidRollout(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -283,7 +292,7 @@ func (h *Handler) SetAndroidRollout(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return badRequest(c, "invalid request body")
 	}
-	if err := h.storeOpsSvc.SetAndroidRollout(h.enrichContext(c), id, req.UserFraction, consoleActor); err != nil {
+	if err := h.storeOpsSvc.SetAndroidRollout(h.enrichContext(c), id, req.UserFraction, req.Confirm, consoleActor); err != nil {
 		return storeOpsActionError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
@@ -414,15 +423,17 @@ func (h *Handler) StoreAppTracks(c *fiber.Ctx) error {
 
 // promoteChannelRequest is the PromoteStoreChannel body. Confirm is required
 // only when To is "production" — enforced server-side by the service, not
-// duplicated here.
+// duplicated here. UserFraction is Android-into-production's staged rollout,
+// (0, 1]; left out it is 1, and the service ignores it everywhere else.
 type promoteChannelRequest struct {
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Confirm string `json:"confirm"`
+	From         string   `json:"from"`
+	To           string   `json:"to"`
+	Confirm      string   `json:"confirm"`
+	UserFraction *float64 `json:"user_fraction"`
 }
 
 // PromoteStoreChannel — POST /v1/repositories/:id/store/apps/:platform/promote
-// Body: {"from": "internal", "to": "external", "confirm": "..."}.
+// Body: {"from": "internal", "to": "external", "confirm": "...", "user_fraction": 0.1}.
 func (h *Handler) PromoteStoreChannel(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -432,13 +443,17 @@ func (h *Handler) PromoteStoreChannel(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return badRequest(c, "invalid request body")
 	}
-	return h.promoteChannel(c, id, c.Params("platform"), req.From, req.To, req.Confirm)
+	return h.promoteChannel(c, id, c.Params("platform"), req.From, req.To, req.UserFraction, req.Confirm)
 }
 
 // promoteChannel is the shared tail of the two routes that can carry a channel
 // promotion: the generic one, and the literal Android one that shadows it.
-func (h *Handler) promoteChannel(c *fiber.Ctx, id uuid.UUID, platform, from, to, confirm string) error {
-	if err := h.storeOpsSvc.PromoteChannel(h.enrichContext(c), id, platform, from, to, confirm, consoleActor); err != nil {
+func (h *Handler) promoteChannel(c *fiber.Ctx, id uuid.UUID, platform, from, to string, userFraction *float64, confirm string) error {
+	fraction := 1.0
+	if userFraction != nil {
+		fraction = *userFraction
+	}
+	if err := h.storeOpsSvc.PromoteChannel(h.enrichContext(c), id, platform, from, to, fraction, confirm, consoleActor); err != nil {
 		return storeOpsActionError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)

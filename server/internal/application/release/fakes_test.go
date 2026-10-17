@@ -160,6 +160,13 @@ func (f *fakeReleaseStore) Update(_ context.Context, r domain.Release, expect do
 	if r.Tasks == nil {
 		r.Tasks = cur.Tasks
 	}
+	r.RollbackProposal, r.RollbackDismissal = cur.RollbackProposal, cur.RollbackDismissal
+	switch {
+	case r.Status == domain.ReleaseRollingBack, r.Status == domain.ReleaseRolledBack, r.Status == domain.ReleaseSuperseded,
+		r.Status == domain.ReleaseReleased && cur.Status != domain.ReleaseReleased:
+		r.RollbackProposal = nil
+	}
+	r.RollbackAllowed, r.RollbackRefusal = false, ""
 	r.UpdatedAt = time.Now()
 	if f.beforeUpdate != nil {
 		f.beforeUpdate(r)
@@ -906,4 +913,35 @@ func (f *fakeReleaseStore) MarkAgentSeen(_ context.Context, id uuid.UUID, at tim
 	r.AgentSeenAt = &at
 	f.releases[id] = r
 	return nil
+}
+
+func (f *fakeReleaseStore) SetRollbackProposal(_ context.Context, id uuid.UUID, p *domain.RollbackProposal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.releases[id]
+	if !ok {
+		return domain.ErrReleaseNotFound
+	}
+	switch r.Status {
+	case domain.ReleaseFailed, domain.ReleaseAwaitingVerdict, domain.ReleaseReleased:
+	default:
+		if p != nil {
+			return fmt.Errorf("%w: the release is %s", domain.ErrReleaseWrongStatus, r.Status)
+		}
+	}
+	r.RollbackProposal = p
+	f.releases[id] = r
+	return nil
+}
+
+func (f *fakeReleaseStore) DismissRollbackProposal(_ context.Context, id uuid.UUID, proposedAt time.Time, d domain.RollbackDismissal) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.releases[id]
+	if !ok || r.RollbackProposal == nil || !r.RollbackProposal.ProposedAt.Equal(proposedAt) {
+		return false, nil
+	}
+	r.RollbackProposal, r.RollbackDismissal = nil, &d
+	f.releases[id] = r
+	return true, nil
 }

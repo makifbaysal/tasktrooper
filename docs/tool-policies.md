@@ -210,6 +210,33 @@ The columns `BehaviourStripWriters` treats as judging, not changing (and where
 | Done | Yes | No — the merge and the deploy watch/rollback happen here | No |
 | Released | Yes | No — the deploy watch and rollback happen here | No |
 
+## The release engineer's observability jobs
+
+The jobs behind **Ask AI to define errors** and **Ask AI to map signals** on
+the Operations console run the release engineer under a fixed set of tools,
+whatever its own policy allows elsewhere. The agent only ever gets the tools
+that are in both lists:
+
+| Job | Tools |
+|---|---|
+| Define errors from recent errors | `list_error_groups`, `propose_error_definitions` |
+| Define errors from the code's error types | `propose_error_definitions` |
+| Map signals | `list_data_source_metrics`, `propose_signal_binding`, `propose_alert_rule` |
+
+Every job also keeps the code readers (`codebase_search`, `grep_code`,
+`read_file`, `get_repo_tree`), `get_project_brief` and `load_skill`. A job
+gets no terminal, no web fetch, no file writes, no merge, deploy or rollback,
+no memory or skill edits, and none of your MCP servers. It reads production
+error text and metric names, which anyone who can make your service log
+something can influence, so the job cannot do anything with what it reads
+beyond proposing suggestions you accept or dismiss.
+
+Inside a job, the observability tools also refuse any repository or
+component other than the job's own. Data sources are limited too: the job
+sees only the sources its repository's components already read through, plus
+sources no component uses yet. Outside a job, a run bound to a repository
+may name only that repository.
+
 ## Editing a policy
 
 Open the agent's **Settings** tab; the tool policy editor sits below the

@@ -220,7 +220,7 @@ func permanentRefusal(c *fiber.Ctx, err error) (bool, error) {
 		if !errors.Is(err, r.sentinel) {
 			continue
 		}
-		log.Info().Str("path", c.Path()).Str("method", c.Method()).Str("code", r.code).
+		log.Info().Str("path", RedactPath(c.Path())).Str("method", c.Method()).Str("code", r.code).
 			Msg("permanent refusal")
 		return true, c.Status(fiber.StatusConflict).JSON(codedErrorResponse{
 			Error: errorDetail{Message: err.Error(), Type: r.code},

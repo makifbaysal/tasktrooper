@@ -21,6 +21,7 @@ type Config struct {
 	ProdOps       ProdOpsConfig       `koanf:"prod_ops"`
 	Storeops      StoreopsConfig      `koanf:"storeops"`
 	DeployOps     DeployOpsConfig     `koanf:"deploy_ops"`
+	Alerting      AlertingConfig      `koanf:"alerting"`
 	ClaudeCode    ClaudeCodeConfig    `koanf:"claude_code"`
 	Antigravity   AntigravityConfig   `koanf:"antigravity"`
 	CursorAgent   CursorAgentConfig   `koanf:"cursor_agent"`
@@ -90,8 +91,18 @@ type ClaudeCodeConfig struct {
 // ProdOpsConfig drives production monitoring: the health probe that watches
 // deploy targets and turns a dead environment into an incident.
 type ProdOpsConfig struct {
-	MonitorEnabled bool          `koanf:"monitor_enabled"`
-	ProbeInterval  time.Duration `koanf:"probe_interval"`
+	MonitorEnabled bool              `koanf:"monitor_enabled"`
+	ProbeInterval  time.Duration     `koanf:"probe_interval"`
+	AlertIngest    AlertIngestLimits `koanf:"alert_ingest"`
+}
+
+// AlertIngestLimits bounds what one alert ingest token can make this server
+// do, since a leaked token is otherwise unbounded incidents, tasks and agent
+// runs. Zero or less means the built-in default, never unlimited.
+type AlertIngestLimits struct {
+	RequestsPerMinute   int `koanf:"requests_per_minute"`
+	Burst               int `koanf:"burst"`
+	NewIncidentsPerHour int `koanf:"new_incidents_per_hour"`
 }
 
 // StoreopsConfig drives the mobile store monitor.
@@ -108,7 +119,63 @@ type DeployOpsConfig struct {
 	// attributed to the task that just released (the post-release watch and
 	// auto_rollback window); 0 means the package default (15m). Short on
 	// purpose: it authorises a rollback of a specific card.
-	HealthWindow time.Duration `koanf:"health_window"`
+	HealthWindow time.Duration      `koanf:"health_window"`
+	Impact       DeployImpactConfig `koanf:"impact"`
+}
+
+// DeployImpactConfig is how far a golden signal must move across a deploy to
+// count as improved or worse rather than neutral: ChangePct percent of its
+// value before the deploy (ThroughputChangePct for a rate where higher is
+// better, which swings more on its own), or RatioPoints percentage points for
+// a ratio signal (an error rate, crash-free users). A count where lower is
+// better must also move by an absolute floor: CountFloor for a gauge
+// (backlog, dead letters, restarts), RateFloor for a rate (errors/s), each at
+// least FloorPct percent of the larger of the two values. A latency in ms
+// must move by LatencyFloorMS, which also floors a soak's max_p95_delta_pct.
+// 0 or less means the default.
+type DeployImpactConfig struct {
+	ChangePct           float64 `koanf:"change_pct"`
+	RatioPoints         float64 `koanf:"ratio_points"`
+	ThroughputChangePct float64 `koanf:"throughput_change_pct"`
+	CountFloor          float64 `koanf:"count_floor"`
+	RateFloor           float64 `koanf:"rate_floor"`
+	FloorPct            float64 `koanf:"floor_pct"`
+	LatencyFloorMS      float64 `koanf:"latency_floor_ms"`
+}
+
+const (
+	DefaultImpactChangePct           = 10
+	DefaultImpactRatioPoints         = 0.5
+	DefaultImpactThroughputChangePct = 25
+	DefaultImpactCountFloor          = 1
+	DefaultImpactRateFloor           = 0.05
+	DefaultImpactFloorPct            = 5
+	DefaultImpactLatencyFloorMS      = 50
+)
+
+// WithDefaults fills every unset threshold with its default.
+func (c DeployImpactConfig) WithDefaults() DeployImpactConfig {
+	orDefault := func(v *float64, d float64) {
+		if *v <= 0 {
+			*v = d
+		}
+	}
+	orDefault(&c.ChangePct, DefaultImpactChangePct)
+	orDefault(&c.RatioPoints, DefaultImpactRatioPoints)
+	orDefault(&c.ThroughputChangePct, DefaultImpactThroughputChangePct)
+	orDefault(&c.CountFloor, DefaultImpactCountFloor)
+	orDefault(&c.RateFloor, DefaultImpactRateFloor)
+	orDefault(&c.FloorPct, DefaultImpactFloorPct)
+	orDefault(&c.LatencyFloorMS, DefaultImpactLatencyFloorMS)
+	return c
+}
+
+// AlertingConfig drives the alert rule evaluator. Zero or less means the
+// default (every minute, 200 rules per sweep).
+type AlertingConfig struct {
+	Enabled          bool          `koanf:"enabled"`
+	Interval         time.Duration `koanf:"interval"`
+	MaxRulesPerSweep int           `koanf:"max_rules_per_sweep"`
 }
 
 // EvolutionConfig drives agent self-evolution.

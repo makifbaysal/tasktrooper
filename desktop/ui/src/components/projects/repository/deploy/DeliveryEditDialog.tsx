@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import {
   api,
   DELIVERY_MODES,
+  MAX_ERROR_RATE_DELTA,
+  MAX_P95_DELTA_PCT,
   MAX_SMOKE_LATENCY_MS,
   MAX_SOAK_MINUTES,
   type Component,
@@ -107,6 +109,14 @@ export function DeliveryEditDialog({ open, onOpenChange, componentId, current, h
     }
     if ((d.verify.max_new_errors ?? 0) < 0) {
       out.push(t("release.deliveryEdit.errors.maxNewErrorsNegative"));
+    }
+    const errorRateDelta = d.verify.max_error_rate_delta ?? 0;
+    if (!Number.isFinite(errorRateDelta) || errorRateDelta < 0 || errorRateDelta > MAX_ERROR_RATE_DELTA) {
+      out.push(t("release.deliveryEdit.errors.maxErrorRateDeltaRange", { max: MAX_ERROR_RATE_DELTA }));
+    }
+    const p95DeltaPct = d.verify.max_p95_delta_pct ?? 0;
+    if (!Number.isFinite(p95DeltaPct) || p95DeltaPct < 0 || p95DeltaPct > MAX_P95_DELTA_PCT) {
+      out.push(t("release.deliveryEdit.errors.maxP95DeltaPctRange", { max: MAX_P95_DELTA_PCT }));
     }
     for (const c of d.verify.smoke ?? []) {
       if (c.method !== "GET" && c.method !== "HEAD") {
@@ -312,6 +322,49 @@ export function DeliveryEditDialog({ open, onOpenChange, componentId, current, h
                   }
                 />
               </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="delivery-max-error-rate-delta">{t("release.deliveryEdit.maxErrorRateDelta")}</Label>
+                <Input
+                  id="delivery-max-error-rate-delta"
+                  type="number"
+                  min={0}
+                  max={MAX_ERROR_RATE_DELTA}
+                  step="0.1"
+                  value={draft.verify.max_error_rate_delta ?? ""}
+                  placeholder={t("release.deliveryEdit.impactUnchecked")}
+                  aria-describedby="delivery-impact-help"
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...d,
+                      verify: { ...d.verify, max_error_rate_delta: e.target.value === "" ? undefined : Number(e.target.value) },
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="delivery-max-p95-delta">{t("release.deliveryEdit.maxP95DeltaPct")}</Label>
+                <Input
+                  id="delivery-max-p95-delta"
+                  type="number"
+                  min={0}
+                  max={MAX_P95_DELTA_PCT}
+                  value={draft.verify.max_p95_delta_pct ?? ""}
+                  placeholder={t("release.deliveryEdit.impactUnchecked")}
+                  aria-describedby="delivery-impact-help"
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...d,
+                      verify: { ...d.verify, max_p95_delta_pct: e.target.value === "" ? undefined : Number(e.target.value) },
+                    }))
+                  }
+                />
+              </div>
+              <p id="delivery-impact-help" className="text-micro text-muted-foreground sm:col-span-2">
+                {t("release.deliveryEdit.impactHelp")}
+              </p>
             </div>
 
             <SmokeChecksEditor

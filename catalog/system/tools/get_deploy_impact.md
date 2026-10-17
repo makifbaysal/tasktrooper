@@ -1,0 +1,7 @@
+---
+key: tool.get_deploy_impact
+version: "1"
+params:
+    task_id: Board task UUID or its board key (e.g. "T-1" for a task, "B-1" for a bug, "A-1" for an analysis). Optional in a chat that is already about one task — omit it there and the task in context is used.
+---
+Read what the release covering this task did to its component in production: for each golden signal with a confirmed binding (request rate, error rate, p95 latency for a backend; backlog, consume rate, errors for a worker; page views, LCP, INP for a frontend; crash-free users, cold start, ANR for mobile), its mean over the hour before the deploy (`before`), the hour after it (`after`) and that same hour a day earlier (`baseline`), with `delta`, `delta_pct`, `higher_is_better` and a per-signal `verdict` (`improved`, `neutral`, `worse`, `unknown`); the overall `verdict` is the worst of them. A move the baseline also shows is read as the time of day, not the deploy, and stays `neutral`. `pending: true` means the hour after the deploy is not over yet and `after` covers only what has passed. `verdict: "unknown"` with no signals means nothing is bound (or the release never deployed) — not that production is fine. The result also carries the release's own `auto_rollback`: with it on, `rollback_release` executes; with it off, `rollback_release` only writes a proposal and a human is asked to approve it. It changes nothing and never parks the run. Read it whenever an incident lands in a release's window, and before a verdict, beside the logs and errors — never as the only evidence.

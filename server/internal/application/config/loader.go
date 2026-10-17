@@ -165,6 +165,13 @@ func applyDefaults(cfg *domain.Config) {
 	if cfg.DeployOps.PollInterval <= 0 {
 		cfg.DeployOps.PollInterval = 2 * time.Minute
 	}
+	if cfg.Alerting.Interval <= 0 {
+		cfg.Alerting.Interval = time.Minute
+	}
+	if cfg.Alerting.MaxRulesPerSweep <= 0 {
+		cfg.Alerting.MaxRulesPerSweep = 200
+	}
+	cfg.DeployOps.Impact = cfg.DeployOps.Impact.WithDefaults()
 
 	if strings.TrimSpace(cfg.ClaudeCode.Binary) == "" {
 		cfg.ClaudeCode.Binary = "claude"

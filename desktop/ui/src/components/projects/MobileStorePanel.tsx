@@ -220,6 +220,7 @@ function StorePlatformSection({
                 channel === "production" ? (
                   <StoreReleaseControls
                     app={{ ...app, repository_name: repository.name }}
+                    production={tracks.production}
                     onActed={onReload}
                   />
                 ) : (

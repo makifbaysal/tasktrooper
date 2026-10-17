@@ -150,6 +150,7 @@ var (
 		domain.RunSmokeChecksToolName,
 		domain.FinishReleaseToolName,
 		domain.ReleaseRollbackToolName,
+		domain.GetDeployImpactToolName,
 	}
 )
 
@@ -290,9 +291,24 @@ func releaseEngineerToolPolicy() domain.ToolPolicy {
 	// get_deploy_logs stays for a CI job's own output; the release tools above cover the release's own checks.
 	tools = append(tools, domain.DeployLogsToolName)
 	tools = append(tools, "list_incidents", "get_incident")
+	tools = append(tools, roleObservabilityTools...)
+	// Enabling observability ends in a developer task, never in an edit: the
+	// release engineer opens it and parks its own card on it with blocked_by.
+	tools = append(tools, "codebase_search", "create_board_task", "update_board_task")
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	return domain.ToolPolicy{AllowTools: tools}
+}
+
+// The release engineer's observability work: read error groups and data
+// source inventories, propose definitions, bindings and (disabled) rules a
+// person accepts.
+var roleObservabilityTools = []string{
+	"list_error_groups",
+	"propose_error_definitions",
+	"list_data_source_metrics",
+	"propose_signal_binding",
+	"propose_alert_rule",
 }
 
 func toolPolicyEqual(a, b domain.ToolPolicy) bool {

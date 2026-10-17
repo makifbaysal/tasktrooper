@@ -77,6 +77,12 @@ func (s *Service) runtimeCached(key runtimeCacheKey, fetch func() (interface{}, 
 	s.runtimeCacheMu.Unlock()
 
 	v, err := fetch()
+	// A deadline or cancellation belongs to the caller that ran out of time
+	// (the Operations fan-out cuts each environment short), not to the
+	// environment; caching it would answer the next caller with it too.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return v, err
+	}
 
 	s.runtimeCacheMu.Lock()
 	s.runtimeCache[key] = runtimeCacheEntry{value: v, err: err, expires: s.now().Add(runtimeCacheTTL)}
@@ -93,12 +99,12 @@ func (s *Service) Overview(ctx context.Context, envID uuid.UUID) (domain.Environ
 	bound, err := s.resolveRuntimeBound(ctx, envID)
 	if err != nil {
 		if errors.Is(err, ErrNotConnected) {
-			return domain.EnvironmentRuntime{Environment: bound.env, Unavailable: "not connected to a cloud account", UnavailableCode: "not_connected", ErrorsSupported: s.errorsSupported(bound.env)}, nil
+			return domain.EnvironmentRuntime{Environment: bound.env, Unavailable: "not connected to a cloud account", UnavailableCode: "not_connected", ErrorsSupported: s.ErrorsSupported(bound.env)}, nil
 		}
 		return domain.EnvironmentRuntime{}, err
 	}
 	env := bound.env
-	out := domain.EnvironmentRuntime{Environment: env, ErrorsSupported: s.errorsSupported(env)}
+	out := domain.EnvironmentRuntime{Environment: env, ErrorsSupported: s.ErrorsSupported(env)}
 
 	key := runtimeCacheKey{envID, "resource", ""}
 	v, err := s.runtimeCached(key, func() (interface{}, error) {
@@ -141,10 +147,10 @@ func (s *Service) Overview(ctx context.Context, envID uuid.UUID) (domain.Environ
 	return out, nil
 }
 
-// errorsSupported: a per-branch environment has no one deployment whose
-// errors mean anything; otherwise the provider decides, and one that does
-// not say is assumed to have an error surface.
-func (s *Service) errorsSupported(env domain.ComponentEnvironment) bool {
+// ErrorsSupported makes no provider call: a per-branch environment has no
+// one deployment whose errors mean anything; otherwise the provider decides,
+// and one that does not say is assumed to have an error surface.
+func (s *Service) ErrorsSupported(env domain.ComponentEnvironment) bool {
 	if env.PerBranch() {
 		return false
 	}
@@ -226,7 +232,7 @@ func normalizeLogQuery(now time.Time, q domain.RuntimeLogQuery) domain.RuntimeLo
 }
 
 func logQueryCacheParams(q domain.RuntimeLogQuery) string {
-	return fmt.Sprintf("%d|%d|%s|%s|%d|%s", q.Since.Unix(), q.Until.Unix(), q.MinSeverity, q.Text, q.Limit, q.Cursor)
+	return fmt.Sprintf("%d|%d|%s|%s|%d|%s", q.Since.UnixNano(), q.Until.UnixNano(), q.MinSeverity, q.Text, q.Limit, q.Cursor)
 }
 
 func (s *Service) Logs(ctx context.Context, envID uuid.UUID, q domain.RuntimeLogQuery) (domain.RuntimeLogPage, error) {

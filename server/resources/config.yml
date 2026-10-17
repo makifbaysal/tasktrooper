@@ -50,6 +50,14 @@ prod_ops:
   # two intervals (six minutes), inside deploy_ops.health_window. Shorter costs
   # an HTTP probe per target, and a query, on an otherwise idle machine.
   probe_interval: "3m"
+  # Per alert ingest token (POST /v1/alerts/ingest/:token), so a leaked token
+  # cannot open incidents, tasks and agent runs without bound. Over either
+  # limit the request gets 429; an alert that folds into an incident already
+  # open, and a recovery, are never refused by the hourly cap. 0 = default.
+  alert_ingest:
+    requests_per_minute: 60
+    burst: 10
+    new_incidents_per_hour: 20
 
 # The deploy monitor mirrors GitHub Actions deploy runs into deployment_runs,
 # attributes console-triggered dispatches, and opens an incident for a failed
@@ -74,6 +82,32 @@ deploy_ops:
   # rolled back. Short on purpose: it authorises undoing a specific card's
   # release, so a coincidence must not reach it.
   health_window: "15m"
+  # Deploy impact: how far a golden signal must move across a deploy (the
+  # hour before against the hour after, and the same hour a day earlier) to
+  # read as improved or worse — percent of its value before (throughput,
+  # which swings more, by throughput_change_pct), or percentage points for a
+  # ratio signal such as an error rate. A count must also move by an absolute
+  # floor (count_floor for a gauge such as a backlog, rate_floor per second
+  # for an error rate), at least floor_pct percent of the larger value; a
+  # latency in ms by latency_floor_ms, which also floors a soak's
+  # max_p95_delta_pct.
+  impact:
+    change_pct: 10
+    ratio_points: 0.5
+    throughput_change_pct: 25
+    count_floor: 1
+    rate_floor: 0.05
+    floor_pct: 5
+    latency_floor_ms: 50
+
+# The alert rule evaluator: each enabled rule is read and judged once per
+# interval (one query against its data source), at most max_rules_per_sweep a
+# sweep, four at a time. A sweep runs every quarter interval, so a rule is
+# judged at most a quarter interval late.
+alerting:
+  enabled: true
+  interval: "1m"
+  max_rules_per_sweep: 200
 
 storeops:
   poll_interval: "5m"

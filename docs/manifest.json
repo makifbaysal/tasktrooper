@@ -29,7 +29,9 @@
     { "title": "Delivery", "pages": [
       { "slug": "git-and-pull-requests", "title": "Git and pull requests" },
       { "slug": "deploy", "title": "Deploy targets and recipes" },
+      { "slug": "operations-console", "title": "Operations console" },
       { "slug": "incidents", "title": "Production incidents" },
+      { "slug": "data-sources", "title": "Data sources" },
       { "slug": "mobile-releases", "title": "Mobile devices and store releases" }
     ]},
     { "title": "Reference", "pages": [

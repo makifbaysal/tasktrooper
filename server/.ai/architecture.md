@@ -268,6 +268,27 @@ that worked; otherwise the error signature classifies it as config / dependency 
 diagnosis task that must stop at a written proposal, `auto_fix` lets the task carry the fix
 through the board.
 
+Notifying is split the same way as everything else here: `prodops` decides *whether* (severity
+floor, a 30-minute re-notify cooldown keyed by (repository, env, fingerprint) — not incident id,
+which a flapping alert renews every cycle — that holds back only a repeat of the kind last told,
+never an opening after a told recovery or the other way round) and builds a channel-neutral
+`domain.Notification`; `application/notify` only *delivers*, fanning out to every registered,
+enabled `port.NotificationChannel` (bounded wait, failures logged). A new channel (Slack, email,
+iOS push) is a new adapter registered in runtime wiring — no incident code changes. Local mode
+registers only `desktop`; there is no `in_app` channel because the UI has no feed for
+notifications that are not about a board task (its bell is built from board events).
+`application/release` notifies the same way through the same service, under the shared
+`notify.Cooldown` keyed by (kind, release): `rollback_suggested` for a proposal written because
+`auto_rollback` is off (with an `approve_rollback` action) and `release_rolled_back` for a
+rollback an agent executed. Every notification carries a `domain.NotificationKind`.
+
+An alerter without the API key posts to `POST /v1/alerts/ingest/:token` (migration 187,
+`alert_ingest_tokens`, sha256 only); the handler resolves the token to its repository and runs the
+same `Normalize` → `Ingest` as the keyed webhook. Because the URL is the whole credential, each
+token is bounded in memory (`prodops.alertIngestGuard`, `prod_ops.alert_ingest`): a request bucket
+keyed by the token hash, and a rolling-hour cap on the NEW incidents it may open — an alert that
+folds into an open incident, or a recovery, is never refused by the cap.
+
 ## Run lifetime vs process lifetime (drain, heartbeat, stale sweep)
 
 A board run is minutes of work on a checked-out branch; the server process can restart
@@ -447,7 +468,9 @@ work now ends at its verdict in `in_qa`/`pm_uat`.
 `project_components.delivery` is a `Fact[domain.ComponentDelivery]` like `name`/`role`/`stack`
 — `mode` (`on_merge` | `dispatch` | `batch` | `none`), `executor` (`github_actions` | `vercel`
 | `local` | `store`), `workflow`, `tag_pattern`, `local_command`, `verify` (`soak_minutes`,
-`max_new_errors`, GET/HEAD-only `smoke` checks), `auto_rollback`. `domain.DeliveryConfirmed`
+`max_new_errors`, GET/HEAD-only `smoke` checks, the deploy impact thresholds
+`max_error_rate_delta`/`max_p95_delta_pct` the soak holds `application/deployimpact` to),
+`auto_rollback`. `domain.DeliveryConfirmed`
 is what a release may act on without asking: an `Override` always confirms; a `Detected`
 guess confirms only at `exact`/`high` confidence — a medium guess must not start dispatching
 production deploys nobody asked for.

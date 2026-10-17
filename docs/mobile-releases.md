@@ -67,15 +67,29 @@ bypass:
 | `external` | TestFlight external groups, plus Beta App Review | `alpha` / `beta` track |
 | `production` | App Store version | `production` track |
 
-## The Mobile Apps page
+## The Releases page
 
-Operations → Mobile Apps lists every repository's iOS and Android app in one
-place, with its current lifecycle state, review state, and last released and
-last submitted version — the cross-repository view that used to require
-opening each repository's own deploy settings, or the store consoles
-themselves. Selecting an app opens its detail, where a build can be started,
-tracks can be read live from the console, and a channel can be promoted
-(promoting to `production` requires an explicit confirmation).
+**Operations → Mobile** in the [Operations console](operations-console.md)
+lists every mobile and desktop component. A Mobile-role component's page has
+a **Releases** section for its repository's iOS and Android apps, read live
+from App Store Connect and Google Play, so the console's time range and
+environment do not apply there. Each app shows its lifecycle state, review
+state, last released and last submitted version, and how far production has
+rolled out. For the app you pick, the page shows:
+
+- the three channels and what each holds, read from the store, with **Start
+  release build**;
+- **Promote to …**, one channel at a time; promoting to `production` asks
+  you to type the repository's name, and on Android for the staged
+  rollout's starting share;
+- the production controls: on iOS **Submit for review** and **Release**, on
+  Android the staged rollout's share, **Halt rollout** and **Resume
+  rollout**;
+- the onboarding checklist, with **Verify now**, while the app is not live;
+- its test builds, and its TestFlight groups or Play testing tracks.
+
+[Operations console](operations-console.md#mobile-releases) describes each
+control and when it is available.
 
 Which machine actually builds and uploads a release is
 `release_engine` on the repository: `auto` (the default) tries GitHub
@@ -136,6 +150,8 @@ agent can also write is not a guard.
 
 ## See also
 
+- [Operations console](operations-console.md) — a mobile app's Releases
+  page in full
 - [Agent tools](tools.md) — the full `mobile_*` tool list
 - [Deploy targets and recipes](deploy.md) — how a release actually ships once
   an app is live

@@ -115,6 +115,12 @@ func (h *Handler) isPublicPath(path string) bool {
 	if path == MCPOAuthCallbackPath {
 		return true
 	}
+	// An external alerter holds no API key; the token in the path is its
+	// credential, checked by IngestAlertWithToken. One segment only, so a route
+	// added under the prefix later is not public by accident.
+	if isAlertIngestPath(path) {
+		return true
+	}
 	if !strings.HasPrefix(path, "/v1") && !strings.HasPrefix(path, "/admin") {
 		return true
 	}

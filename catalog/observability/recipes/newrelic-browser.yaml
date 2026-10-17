@@ -1,0 +1,36 @@
+# A web frontend from New Relic Browser. app is the browser application's
+# name (appName). Page views and JavaScript errors are per second, sessions
+# distinct per interval; the vitals are p75 of PageViewTiming's
+# largestContentfulPaint and interactionToNextPaint (seconds, here in ms)
+# and cumulativeLayoutShift. The pages table is one row per page URL over
+# the last 7 days, the top 100 by views.
+id: newrelic-browser
+source_kind: newrelic
+applies_to:
+  technology: newrelic
+detect:
+  metric: PageView
+params: [app]
+signals:
+  web.page_views: >-
+    SELECT rate(count(*), 1 second) AS 'page_views' FROM PageView WHERE appName = '$app'
+  web.sessions: >-
+    SELECT uniqueCount(session) AS 'sessions' FROM PageView WHERE appName = '$app'
+  web.js_errors: >-
+    SELECT rate(count(*), 1 second) AS 'js_errors' FROM JavaScriptError WHERE appName = '$app'
+  web.lcp: >-
+    SELECT percentile(largestContentfulPaint, 75) * 1000 AS 'lcp' FROM PageViewTiming WHERE appName = '$app'
+  web.inp: >-
+    SELECT percentile(interactionToNextPaint, 75) * 1000 AS 'inp' FROM PageViewTiming WHERE appName = '$app'
+  web.cls: >-
+    SELECT percentile(cumulativeLayoutShift, 75) AS 'cls' FROM PageViewTiming WHERE appName = '$app'
+tables:
+  pages:
+    key_labels: [facet]
+    columns:
+      - {key: facet, label: Page}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Sessions, unit: sessions}
+    query: >-
+      SELECT count(*) AS 'views', uniqueCount(session) AS 'visitors' FROM PageView
+      WHERE appName = '$app' FACET pageUrl SINCE 7 days ago LIMIT 100

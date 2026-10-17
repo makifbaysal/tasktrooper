@@ -1,0 +1,12 @@
+# Traces in Tempo from a service, by its OpenTelemetry resource
+# service.name.
+id: tempo-service
+source_kind: tempo
+applies_to:
+  technology: opentelemetry
+detect:
+  metric: resource.service.name
+params: [service]
+signals:
+  traces.spans: >-
+    { resource.service.name = "$service" }

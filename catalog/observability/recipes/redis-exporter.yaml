@@ -1,0 +1,39 @@
+# oliver006/redis_exporter's stream metrics (run it with
+# --check-streams=<pattern>): a Redis Streams consumer group, the shape of
+# BullMQ's and Celery's stream transports. stream is the stream key, group
+# the consumer group. redis_stream_group_lag needs Redis 7 or later. For a
+# list-backed queue (BullMQ's wait list, Sidekiq, Celery's Redis broker) see
+# redis-exporter-lists.
+id: redis-exporter
+source_kind: prometheus
+applies_to:
+  technology: redis
+  messaging_system: redis
+detect:
+  metric: redis_stream_length
+params: [stream, group]
+signals:
+  queue.backlog: >-
+    sum(redis_stream_group_lag{stream="$stream", group="$group"})
+  queue.consume_rate: >-
+    sum(rate(redis_stream_group_entries_read{stream="$stream", group="$group"}[$__rate]))
+  queue.publish_rate: >-
+    sum(rate(redis_stream_entries_added_total{stream="$stream"}[$__rate]))
+  queue.consumers: >-
+    sum(redis_stream_group_consumers{stream="$stream", group="$group"})
+tables:
+  queues:
+    key_labels: [stream, group]
+    columns:
+      - {key: stream, label: Stream}
+      - {key: group, label: Group}
+      - {key: lag, label: Lag, unit: messages}
+      - {key: pending, label: Pending, unit: messages}
+      - {key: consumers, label: Consumers, unit: count}
+    queries:
+      lag: >-
+        sum by (stream, group) (redis_stream_group_lag{stream="$stream", group="$group"})
+      pending: >-
+        sum by (stream, group) (redis_stream_group_messages_pending{stream="$stream", group="$group"})
+      consumers: >-
+        sum by (stream, group) (redis_stream_group_consumers{stream="$stream", group="$group"})

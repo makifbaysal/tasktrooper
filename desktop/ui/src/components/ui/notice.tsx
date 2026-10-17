@@ -9,6 +9,10 @@ interface NoticeProps {
   /** The body. Plain text, or nodes when the caller renders markdown itself. */
   children?: React.ReactNode;
   className?: string;
+  /** Defaults to `alert` for the error variant, so a failure is announced
+   * when it appears; `null` for an error that is part of the page's resting
+   * state and should not interrupt. */
+  role?: "alert" | "status" | null;
 }
 
 const variantStyles: Record<NoticeVariant, { box: string; icon: LucideIcon; iconClass: string }> = {
@@ -36,11 +40,15 @@ const variantStyles: Record<NoticeVariant, { box: string; icon: LucideIcon; icon
  * had the same red stack-trace treatment, which taught people to read neither.
  * Warning is the default because that is the case that needed one.
  */
-export function Notice({ variant = "warning", title, children, className }: NoticeProps) {
+export function Notice({ variant = "warning", title, children, className, role }: NoticeProps) {
   const style = variantStyles[variant];
   const Icon = style.icon;
+  const announced = role === undefined ? (variant === "error" ? "alert" : undefined) : (role ?? undefined);
   return (
-    <div className={cn("flex gap-3 rounded-2xl border px-4 py-3 text-body shadow-[var(--shadow-raised)]", style.box, className)}>
+    <div
+      role={announced}
+      className={cn("flex gap-3 rounded-2xl border px-4 py-3 text-body shadow-[var(--shadow-raised)]", style.box, className)}
+    >
       <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", style.iconClass)} aria-hidden />
       <div className="min-w-0 space-y-1">
         <p className="font-medium">{title}</p>

@@ -426,6 +426,14 @@ const (
 	EnvironmentDevelopment DeployEnvironment = "development"
 )
 
+func (e DeployEnvironment) Valid() bool {
+	switch e {
+	case EnvironmentProduction, EnvironmentStaging, EnvironmentPreview, EnvironmentDevelopment:
+		return true
+	}
+	return false
+}
+
 // LocalCommand is one argv run without a shell inside Dir (repo-relative).
 type LocalCommand struct {
 	Dir  string   `json:"dir"`

@@ -45,3 +45,15 @@ var afterDeployCommentKey = prompt.Define("briefs.release.after_deploy_comment",
 var mergeOutsideComponentsKey = prompt.Define("notices.release_merge_outside_components", struct{}{})
 
 var noComponentKey = prompt.Define("notices.release_no_component", struct{}{})
+
+type impactBreachInput struct {
+	ErrorRate bool
+	Before    string
+	After     string
+	Delta     string
+	Limit     string
+}
+
+var impactBreachKey = prompt.Define("briefs.release.impact_breach", impactBreachInput{
+	ErrorRate: true, Before: "0.4", After: "2.5", Delta: "2.1", Limit: "1",
+})

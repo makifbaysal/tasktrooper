@@ -41,6 +41,10 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -118,6 +122,10 @@
   --chart-2: #eb6834;
   --chart-3: #1baf7a;
   --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #6250d6;
+  --chart-8: #e34948;
 }
 
 .dark {
@@ -157,6 +165,10 @@
   --chart-2: #d95926;
   --chart-3: #199e70;
   --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
   --scrollbar-thumb: oklch(0.38 0.02 265 / 0.85);
   --scrollbar-thumb-hover: oklch(0.48 0.03 265 / 0.95);
   --scrollbar-track: transparent;
@@ -377,4 +389,10 @@ html[data-idle] .sonner-loading-bar {
   --xy-controls-button-border-color: var(--border);
   --xy-controls-box-shadow: var(--shadow-raised);
   --xy-attribution-background-color: transparent;
+}
+
+/* uPlot (Operations time series) — its stylesheet ships a dashed slate
+   crosshair; this keeps the cursor on the theme's own hairline. */
+.tt-timeseries .u-hz .u-cursor-x {
+  border-right: 1px solid var(--muted-foreground);
 }

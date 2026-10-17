@@ -73,6 +73,16 @@ const (
 	CloudResourceAppRunnerService CloudResourceKind = "app_runner_service"
 )
 
+func ValidCloudResourceKind(k CloudResourceKind) bool {
+	switch k {
+	case CloudResourceVercelProject, CloudResourceCloudRunService, CloudResourceCloudRunJob,
+		CloudResourceAppEngineService, CloudResourceCloudFunction, CloudResourceGKEWorkload,
+		CloudResourceECSService, CloudResourceLambdaFunction, CloudResourceAppRunnerService:
+		return true
+	}
+	return false
+}
+
 // CloudResourceRef identifies one deployable thing inside an account. ID is
 // the provider-native identifier (prj_…, a Cloud Run resource name, an ARN).
 type CloudResourceRef struct {

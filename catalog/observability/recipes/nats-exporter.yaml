@@ -1,0 +1,39 @@
+# nats-io/prometheus-nats-exporter's JetStream metrics (run it with
+# -jsz=consumers, or -jsz=all). stream is the stream, consumer the durable
+# consumer the worker pulls from. Each server holding a replica reports the
+# consumer, so the queries take the highest report rather than a sum.
+# queue.consume_rate is how fast the ack floor moves.
+id: nats-exporter
+source_kind: prometheus
+applies_to:
+  technology: nats
+  messaging_system: nats
+detect:
+  metric: jetstream_consumer_num_pending
+params: [stream, consumer]
+signals:
+  queue.backlog: >-
+    max(jetstream_consumer_num_pending{stream_name="$stream", consumer_name="$consumer"})
+  queue.consume_rate: >-
+    max(rate(jetstream_consumer_ack_floor_consumer_seq{stream_name="$stream", consumer_name="$consumer"}[$__rate]))
+  queue.publish_rate: >-
+    max(rate(jetstream_stream_last_seq{stream_name="$stream"}[$__rate]))
+tables:
+  queues:
+    key_labels: [stream_name, consumer_name]
+    columns:
+      - {key: stream_name, label: Stream}
+      - {key: consumer_name, label: Consumer}
+      - {key: pending, label: Pending, unit: messages}
+      - {key: ack_pending, label: Awaiting ack, unit: messages}
+      - {key: redelivered, label: Redelivered, unit: messages}
+      - {key: waiting, label: Waiting pulls, unit: count}
+    queries:
+      pending: >-
+        max by (stream_name, consumer_name) (jetstream_consumer_num_pending{stream_name="$stream", consumer_name="$consumer"})
+      ack_pending: >-
+        max by (stream_name, consumer_name) (jetstream_consumer_num_ack_pending{stream_name="$stream", consumer_name="$consumer"})
+      redelivered: >-
+        max by (stream_name, consumer_name) (jetstream_consumer_num_redelivered{stream_name="$stream", consumer_name="$consumer"})
+      waiting: >-
+        max by (stream_name, consumer_name) (jetstream_consumer_num_waiting{stream_name="$stream", consumer_name="$consumer"})

@@ -22,7 +22,7 @@ var ErrConfirmMismatch = errors.New("storeops: confirmation phrase does not matc
 
 var ErrAppNotReady = errors.New("storeops: mobile store app is not ready for this action")
 
-var ErrInvalidRolloutFraction = errors.New("storeops: rollout fraction must be between 0 and 1")
+var ErrInvalidRolloutFraction = errors.New("storeops: rollout fraction must be above 0 and at most 1")
 
 var ErrStoreCredentialUnavailable = errors.New("storeops: store credential unavailable for this action")
 
@@ -118,7 +118,26 @@ func (s *Service) SubmitIOS(ctx context.Context, repositoryID uuid.UUID, confirm
 		return wrapped
 	}
 	s.recordAudit(ctx, repositoryID, domain.OpsActionStoreSubmit, platform, actor, detail, nil)
+	s.followReview(ctx, repositoryID, version.Version)
 	return nil
+}
+
+// followReview starts the monitor's review poll for a submit made here, the
+// way the release pipeline's own submit does; without it a rejection never
+// becomes an incident. The submit itself already happened, so a failure to
+// record it is only logged.
+func (s *Service) followReview(ctx context.Context, repositoryID uuid.UUID, version string) {
+	if err := s.MarkSubmitted(ctx, repositoryID, domain.MobileStorePlatformIOS, version); err != nil {
+		log.Warn().Err(err).Str("repository_id", repositoryID.String()).
+			Msg("storeops: recording the App Review submit failed")
+	}
+}
+
+// validRolloutFraction is (0, 1]: Play reads a zero (or negative) fraction as
+// a completed release, so a share that rounded to nothing would ship to
+// everyone.
+func validRolloutFraction(f float64) bool {
+	return f > 0 && f <= 1
 }
 
 func (s *Service) ReleaseIOS(ctx context.Context, repositoryID uuid.UUID, confirm, actor string) error {
@@ -190,12 +209,15 @@ func (s *Service) PromoteAndroid(ctx context.Context, repositoryID uuid.UUID, to
 	return nil
 }
 
-func (s *Service) SetAndroidRollout(ctx context.Context, repositoryID uuid.UUID, userFraction float64, actor string) error {
-	if userFraction < 0 || userFraction > 1 {
-		return fmt.Errorf("storeops: rollout fraction %v is outside [0,1]: %w", userFraction, ErrInvalidRolloutFraction)
+// SetAndroidRollout moves production's staged rollout to userFraction. 1
+// completes it — every user gets the release — so that one needs the
+// repository's name as confirm, like any other full production release.
+func (s *Service) SetAndroidRollout(ctx context.Context, repositoryID uuid.UUID, userFraction float64, confirm, actor string) error {
+	if !validRolloutFraction(userFraction) {
+		return fmt.Errorf("storeops: rollout fraction %v is outside (0,1]: %w", userFraction, ErrInvalidRolloutFraction)
 	}
 	const platform = domain.MobileStorePlatformAndroid
-	_, app, err := s.loadRepoAndApp(ctx, repositoryID, platform)
+	repo, app, err := s.loadRepoAndApp(ctx, repositoryID, platform)
 	if err != nil {
 		return err
 	}
@@ -203,6 +225,12 @@ func (s *Service) SetAndroidRollout(ctx context.Context, repositoryID uuid.UUID,
 		notReady := fmt.Errorf("storeops: android app must be live to change its rollout: %w", ErrAppNotReady)
 		s.recordAudit(ctx, repositoryID, domain.OpsActionStoreRollout, platform, actor, nil, notReady)
 		return notReady
+	}
+	if userFraction == 1 {
+		if err := checkConfirm(confirm, repo.Name); err != nil {
+			s.recordAudit(ctx, repositoryID, domain.OpsActionStoreRollout, platform, actor, map[string]string{"user_fraction": "1"}, err)
+			return err
+		}
 	}
 	client, err := s.playClient(ctx)
 	if err != nil {
@@ -313,7 +341,11 @@ func validPlayTrack(track string) bool {
 
 var ErrInvalidChannel = errors.New("storeops: promotion must move one channel forward")
 
-func (s *Service) PromoteChannel(ctx context.Context, repositoryID uuid.UUID, platform, from, to, confirm, actor string) error {
+// PromoteChannel moves a build one channel forward. userFraction is the
+// staged rollout a Play promote into production starts at, (0, 1]; it is
+// ignored for App Store (whose production step is App Review) and for the
+// testing channels, which always open to everyone.
+func (s *Service) PromoteChannel(ctx context.Context, repositoryID uuid.UUID, platform, from, to string, userFraction float64, confirm, actor string) error {
 
 	pair := map[string]string{"from": from, "to": to}
 	if !validPlatform(platform) {
@@ -328,6 +360,14 @@ func (s *Service) PromoteChannel(ctx context.Context, repositoryID uuid.UUID, pl
 	}
 	if next, ok := domain.NextChannel(from); !ok || next != to {
 		err := fmt.Errorf("storeops: %q does not promote to %q: %w", from, to, ErrInvalidChannel)
+		s.recordAudit(ctx, repositoryID, domain.OpsActionStorePromote, platform, actor, pair, err)
+		return err
+	}
+	staged := platform == domain.MobileStorePlatformAndroid && to == domain.StoreChannelProduction
+	if !staged {
+		userFraction = 1
+	} else if !validRolloutFraction(userFraction) {
+		err := fmt.Errorf("storeops: promoting to production at fraction %v: %w", userFraction, ErrInvalidRolloutFraction)
 		s.recordAudit(ctx, repositoryID, domain.OpsActionStorePromote, platform, actor, pair, err)
 		return err
 	}
@@ -366,6 +406,9 @@ func (s *Service) PromoteChannel(ctx context.Context, repositoryID uuid.UUID, pl
 			s.recordAudit(ctx, repositoryID, domain.OpsActionStorePromote, platform, actor, detail, wrapped)
 			return wrapped
 		}
+		if toProduction {
+			s.followReview(ctx, repositoryID, app.Tracks.External.Version)
+		}
 	case domain.MobileStorePlatformAndroid:
 		client, err := s.playClient(ctx)
 		if err != nil {
@@ -376,8 +419,11 @@ func (s *Service) PromoteChannel(ctx context.Context, repositoryID uuid.UUID, pl
 		toTrack := playTrack(to, app.Tracks)
 		detail["from_track"] = fromTrack
 		detail["to_track"] = toTrack
+		if staged {
+			detail["user_fraction"] = fmt.Sprintf("%v", userFraction)
+		}
 
-		if err := client.PromoteTrack(ctx, app.Identifier, fromTrack, toTrack, 1); err != nil {
+		if err := client.PromoteTrack(ctx, app.Identifier, fromTrack, toTrack, userFraction); err != nil {
 			wrapped := fmt.Errorf("storeops: promoting %s from %s to %s: %w", app.Identifier, fromTrack, toTrack, err)
 			s.recordAudit(ctx, repositoryID, domain.OpsActionStorePromote, platform, actor, detail, wrapped)
 			return wrapped

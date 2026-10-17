@@ -115,10 +115,33 @@ func TestSubmitIOSRefusesAnAppThatIsNotOnboarded(t *testing.T) {
 
 func TestSetAndroidRolloutRejectsFractionOutOfRange(t *testing.T) {
 	svc, f := newReleaseTestService(t, "r")
-	for _, bad := range []float64{-0.1, 1.5} {
-		if err := svc.SetAndroidRollout(context.Background(), f.repoID, bad, "akif"); err == nil {
-			t.Fatalf("fraction %v accepted", bad)
+	// 0 is the dangerous one: Play reads a zero fraction as a completed release.
+	for _, bad := range []float64{-0.1, 0, 1.5} {
+		err := svc.SetAndroidRollout(context.Background(), f.repoID, bad, "r", "akif")
+		if !errors.Is(err, storeops.ErrInvalidRolloutFraction) {
+			t.Fatalf("fraction %v: err = %v, want ErrInvalidRolloutFraction", bad, err)
 		}
+	}
+	if len(f.play.SetRolloutFractionCalls) != 0 {
+		t.Fatalf("an out-of-range fraction reached Play: %+v", f.play.SetRolloutFractionCalls)
+	}
+}
+
+func TestSetAndroidRolloutCompletingItRequiresTheConfirmPhrase(t *testing.T) {
+	svc, f := newReleaseTestService(t, "tasktrooper")
+	ctx := context.Background()
+	if err := svc.SetAndroidRollout(ctx, f.repoID, 0.5, "", "akif"); err != nil {
+		t.Fatalf("a staged share needs no confirmation: %v", err)
+	}
+	if err := svc.SetAndroidRollout(ctx, f.repoID, 1, "", "akif"); !errors.Is(err, storeops.ErrConfirmMismatch) {
+		t.Fatalf("completing without a confirmation: err = %v, want ErrConfirmMismatch", err)
+	}
+	if err := svc.SetAndroidRollout(ctx, f.repoID, 1, " tasktrooper ", "akif"); err != nil {
+		t.Fatalf("completing with the repository name: %v", err)
+	}
+	calls := f.play.SetRolloutFractionCalls
+	if len(calls) != 2 || calls[0].UserFraction != 0.5 || calls[1].UserFraction != 1 {
+		t.Fatalf("SetRolloutFractionCalls = %+v, want 0.5 then 1", calls)
 	}
 }
 
@@ -163,6 +186,13 @@ func TestSubmitIOSSucceedsAndAudits(t *testing.T) {
 	}
 	if len(f.audit.entries) != 1 || f.audit.entries[0].Outcome != domain.OpsOutcomeOK {
 		t.Fatalf("audit = %+v", f.audit.entries)
+	}
+	app, err := f.apps.Get(context.Background(), f.repoID, domain.MobileStorePlatformIOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.ReviewState != domain.ReviewStateWaiting {
+		t.Fatalf("review_state = %q, want %q so the monitor follows the review", app.ReviewState, domain.ReviewStateWaiting)
 	}
 }
 

@@ -361,7 +361,8 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding, s.effectiveToolPolicy(ctx, sess, policy))
+	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding,
+		domain.CeilToolPolicy(s.effectiveToolPolicy(ctx, sess, policy), req.ToolCeiling))
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
@@ -371,7 +372,7 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 		return domain.AgentResponse{}, err
 	}
 	model := resolveChatModel(req.Model, sess.Model, agentModel)
-	effectivePolicy := domain.UpliftWorkspaceTools(domain.MergeToolPolicy(policy, agentPolicy))
+	effectivePolicy := domain.CeilToolPolicy(domain.UpliftWorkspaceTools(domain.MergeToolPolicy(policy, agentPolicy)), req.ToolCeiling)
 
 	history, err = s.applyContextPipeline(ctx, sessionID, history, model, agentProvider)
 	if err != nil {
@@ -605,7 +606,8 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
-	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding, s.effectiveToolPolicy(ctx, sess, policy))
+	ctx, history, err = s.prepareRunContext(ctx, sess, sessionID, workspaceDir, settings.DefaultLanguage, history, taskBinding,
+		domain.CeilToolPolicy(s.effectiveToolPolicy(ctx, sess, policy), req.ToolCeiling))
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
@@ -615,7 +617,7 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 		return domain.AgentResponse{}, err
 	}
 	model := resolveChatModel(req.Model, sess.Model, agentModel)
-	effectivePolicy := domain.UpliftWorkspaceTools(domain.MergeToolPolicy(policy, agentPolicy))
+	effectivePolicy := domain.CeilToolPolicy(domain.UpliftWorkspaceTools(domain.MergeToolPolicy(policy, agentPolicy)), req.ToolCeiling)
 
 	history, err = s.applyContextPipeline(ctx, sessionID, history, model, agentProvider)
 	if err != nil {
@@ -950,6 +952,11 @@ func (s *Service) prepareRunContext(
 }
 
 func (s *Service) parkTurnOnQuota(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy, block *domain.QuotaBlock, lang string) error {
+	if req.NoQuotaPark || len(req.ToolCeiling) > 0 {
+		notice := domain.NewQuotaNotice(block, lang)
+		s.appendAssistantError(ctx, sessionID, notice)
+		return notice
+	}
 	if err := s.store.ParkPendingTurn(context.WithoutCancel(ctx), sessionID, req, policy, block.ResumeAt); err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID.String()).Msg("could not park a quota-blocked chat turn; the user will have to resend it")
 		notice := domain.NewQuotaNotice(block, lang)

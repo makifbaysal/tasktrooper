@@ -1,0 +1,30 @@
+# A Lambda function, from CloudWatch's AWS/Lambda metrics. A bound Lambda
+# function fills function from its ref's name. An invocation is a request
+# whether an HTTP API, a queue or a schedule sent it, so the http and process
+# signals read the same counts; Duration is already in ms.
+id: aws-lambda
+source_kind: aws_cloudwatch
+applies_to:
+  technology: lambda
+  resource_kind: lambda_function
+  resource_params: {function: name}
+detect:
+  metric: AWS/Lambda/Invocations
+params: [function]
+signals:
+  http.requests: >-
+    {"expression": "i / PERIOD(i)",
+     "metrics": {"i": {"namespace": "AWS/Lambda", "metric": "Invocations", "stat": "Sum", "dimensions": {"FunctionName": "$function"}}}}
+  http.error_ratio: >-
+    {"expression": "100 * FILL(e, 0) / i",
+     "metrics": {
+       "e": {"namespace": "AWS/Lambda", "metric": "Errors", "stat": "Sum", "dimensions": {"FunctionName": "$function"}},
+       "i": {"namespace": "AWS/Lambda", "metric": "Invocations", "stat": "Sum", "dimensions": {"FunctionName": "$function"}}}}
+  http.latency: >-
+    {"namespace": "AWS/Lambda", "metric": "Duration", "stat": "$__quantile", "dimensions": {"FunctionName": "$function"}}
+  process.errors: >-
+    {"expression": "e / PERIOD(e)",
+     "metrics": {"e": {"namespace": "AWS/Lambda", "metric": "Errors", "stat": "Sum", "dimensions": {"FunctionName": "$function"}}}}
+  infra.throttles: >-
+    {"expression": "t / PERIOD(t)",
+     "metrics": {"t": {"namespace": "AWS/Lambda", "metric": "Throttles", "stat": "Sum", "dimensions": {"FunctionName": "$function"}}}}

@@ -1,0 +1,48 @@
+# The fixed signal catalog: vendor-neutral measures a recipe maps onto one
+# source kind's native queries. Loaded by server/internal/application/datasource.
+# better: which way the signal moves when things improve (higher or lower);
+# left out, a signal is not judged before and after a deploy. Every golden
+# signal has one.
+signals:
+  - {id: http.requests, kind: metric, unit: req/s, roles: [backend], aggregation: rate, better: higher}
+  - {id: http.error_ratio, kind: metric, unit: "%", roles: [backend], aggregation: ratio, better: lower}
+  - {id: http.latency, kind: metric, unit: ms, roles: [backend], aggregation: quantile, better: lower}
+  - {id: infra.cpu, kind: metric, unit: cores, roles: [backend, worker], aggregation: rate, better: lower}
+  - {id: infra.memory, kind: metric, unit: bytes, roles: [backend, worker], aggregation: gauge, better: lower}
+  - {id: infra.instances, kind: metric, unit: count, roles: [backend, worker], aggregation: gauge}
+  - {id: infra.restarts, kind: metric, unit: restarts, roles: [backend, worker], aggregation: gauge, better: lower}
+  - {id: infra.throttles, kind: metric, unit: req/s, roles: [backend, worker], aggregation: rate, better: lower}
+
+  - {id: queue.backlog, kind: metric, unit: messages, roles: [worker], aggregation: gauge, better: lower}
+  - {id: queue.backlog_age, kind: metric, unit: s, roles: [worker], aggregation: gauge, better: lower}
+  - {id: queue.consume_rate, kind: metric, unit: msg/s, roles: [worker], aggregation: rate, better: higher}
+  - {id: queue.publish_rate, kind: metric, unit: msg/s, roles: [worker], aggregation: rate}
+  - {id: queue.dead_letter, kind: metric, unit: messages, roles: [worker], aggregation: gauge, better: lower}
+  - {id: queue.consumers, kind: metric, unit: count, roles: [worker], aggregation: gauge}
+  - {id: process.errors, kind: metric, unit: errors/s, roles: [worker], aggregation: rate, better: lower}
+
+  # Where a component's log lines and traces are read (the Logs explorer, the
+  # traces view): a log or trace kind's query, not a series.
+  - {id: logs.lines, kind: log, unit: lines/s, roles: [backend, worker, frontend], aggregation: rate}
+  - {id: traces.spans, kind: trace, unit: spans/s, roles: [backend, worker, frontend], aggregation: rate}
+  # Where a component's error groups are read (the errors inbox, beside its
+  # cloud's own): an errors kind's query (a Sentry project), not a series.
+  - {id: errors.issues, kind: error, unit: issues, roles: [backend, worker, frontend, mobile, desktop], aggregation: gauge}
+
+  - {id: web.page_views, kind: metric, unit: views/s, roles: [frontend], aggregation: rate, better: higher}
+  - {id: web.sessions, kind: metric, unit: count, roles: [frontend], aggregation: gauge, better: higher}
+  # Distinct visitors per interval (PostHog persons, GA4 active users,
+  # Plausible visitors).
+  - {id: web.visitors, kind: metric, unit: count, roles: [frontend], aggregation: gauge, better: higher}
+  - {id: web.lcp, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}
+  - {id: web.fcp, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}
+  - {id: web.inp, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}
+  - {id: web.cls, kind: metric, unit: score, roles: [frontend], aggregation: quantile, better: lower}
+  - {id: web.ttfb, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}
+  - {id: web.js_errors, kind: metric, unit: errors/s, roles: [frontend], aggregation: rate, better: lower}
+
+  - {id: mobile.crash_free_users, kind: metric, unit: "%", roles: [mobile], aggregation: ratio, better: higher}
+  - {id: mobile.crash_rate, kind: metric, unit: "%", roles: [mobile], aggregation: ratio, better: lower}
+  - {id: mobile.anr_rate, kind: metric, unit: "%", roles: [mobile], aggregation: ratio, better: lower}
+  - {id: mobile.cold_start, kind: metric, unit: ms, roles: [mobile], aggregation: quantile, better: lower}
+  - {id: mobile.rollout_fraction, kind: metric, unit: "%", roles: [mobile], aggregation: gauge}

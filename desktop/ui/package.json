@@ -34,7 +34,8 @@
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
-    "umap-js": "^1.4.0"
+    "umap-js": "^1.4.0",
+    "uplot": "1.6.32"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",

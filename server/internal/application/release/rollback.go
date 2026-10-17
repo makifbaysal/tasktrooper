@@ -15,70 +15,151 @@ import (
 )
 
 func (s *Service) rollbackAllowed(ctx context.Context, r domain.Release) (bool, string) {
-	switch r.Status {
-	case domain.ReleaseFailed, domain.ReleaseAwaitingVerdict:
-		// A newer release already shipped over this one: undoing this one now
-		// would redeploy past it.
-		if last, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, s.now()); err == nil && last.CreatedAt.After(r.CreatedAt) {
-			return false, rollbackNotAllowedReasonKey.Render(rollbackNotAllowedReasonInput{Case: "newer_shipped", Version: last.Version})
-		}
-	case domain.ReleaseReleased:
-		if r.FinishedAt == nil || s.now().Sub(*r.FinishedAt) > 24*time.Hour {
-			return false, rollbackNotAllowedReasonKey.Render(rollbackNotAllowedReasonInput{Case: "too_old"})
-		}
-		last, err := s.store.LastReleased(ctx, r.RepositoryID, r.ComponentID, s.now())
-		if err != nil {
-			if errors.Is(err, domain.ErrReleaseNotFound) {
-				return false, rollbackNotAllowedReasonKey.Render(rollbackNotAllowedReasonInput{Case: "no_released"})
-			}
-			return false, rollbackNotAllowedReasonKey.Render(rollbackNotAllowedReasonInput{Case: "unresolved", Err: err.Error()})
-		}
-		if last.ID != r.ID {
-			return false, rollbackNotAllowedReasonKey.Render(rollbackNotAllowedReasonInput{Case: "newer_shipped", Version: last.Version})
-		}
-	default:
-		return false, rollbackNotAllowedReasonKey.Render(rollbackNotAllowedReasonInput{Case: "wrong_status", Status: string(r.Status)})
+	var facts rollbackFacts
+	if needsRollbackFacts(r, s.now()) {
+		facts = s.rollbackFactsFor(ctx, r.RepositoryID, r.ComponentID)
 	}
-	// A failed/awaiting_verdict release is neither Open() nor Terminal(), so
-	// OpenForMerge's take-over-an-open-release logic never supersedes it —
-	// a later merge can open its own release right beside it. Rolling this
-	// one back now would fight that newer release for the branch/tag.
-	if version, ok := s.newerOpenRelease(ctx, r); ok {
-		return false, rollbackNotAllowedReasonKey.Render(rollbackNotAllowedReasonInput{Case: "newer_open", Version: version})
-	}
-	return true, ""
+	code, why := s.rollbackRefusal(r, facts)
+	return code == "", why
 }
 
-// newerOpenRelease answers whether the component has an Open() release
-// created after r that is not r itself.
-func (s *Service) newerOpenRelease(ctx context.Context, r domain.Release) (string, bool) {
-	if r.ComponentID == nil {
-		return "", false
+// rollbackFacts is what deciding a rollback reads off the store for one
+// component: its newest released release (or why there is none) and its
+// Open() releases.
+type rollbackFacts struct {
+	last    *domain.Release
+	lastErr error
+	open    []domain.Release
+}
+
+func needsRollbackFacts(r domain.Release, now time.Time) bool {
+	switch r.Status {
+	case domain.ReleaseFailed, domain.ReleaseAwaitingVerdict:
+		return true
+	case domain.ReleaseReleased:
+		return !rollbackTooOld(r, now)
 	}
-	componentID := *r.ComponentID
-	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
-		RepositoryID: &r.RepositoryID,
-		ComponentID:  &componentID,
+	return false
+}
+
+func rollbackTooOld(r domain.Release, now time.Time) bool {
+	return r.FinishedAt == nil || now.Sub(*r.FinishedAt) > rollbackMaxAge
+}
+
+func (s *Service) rollbackFactsFor(ctx context.Context, repositoryID uuid.UUID, componentID *uuid.UUID) rollbackFacts {
+	var f rollbackFacts
+	if last, err := s.store.LastReleased(ctx, repositoryID, componentID, s.now()); err != nil {
+		f.lastErr = err
+	} else {
+		f.last = &last
+	}
+	if componentID == nil {
+		return f
+	}
+	open, err := s.store.List(ctx, domain.ReleaseListFilter{
+		RepositoryID: &repositoryID,
+		ComponentID:  componentID,
 		Statuses: []domain.ReleaseStatus{
 			domain.ReleasePending, domain.ReleaseDeploying, domain.ReleaseVerifying, domain.ReleaseAwaitingVerdict,
 		},
 	})
 	if err != nil {
-		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: checking for a newer open release before rollback failed")
-		return "", false
+		log.Warn().Err(err).Str("component_id", componentID.String()).Msg("release: checking for a newer open release before rollback failed")
+		return f
 	}
-	for _, other := range releases {
+	f.open = open
+	return f
+}
+
+// rollbackRefusal is why rolling r back now would be refused — a
+// domain.RollbackRefusal* code and the guard's wording of it — or empty
+// when it would run.
+func (s *Service) rollbackRefusal(r domain.Release, f rollbackFacts) (string, string) {
+	refuse := func(code string, in rollbackNotAllowedReasonInput) (string, string) {
+		return code, rollbackNotAllowedReasonKey.Render(in)
+	}
+	switch r.Status {
+	case domain.ReleaseFailed, domain.ReleaseAwaitingVerdict:
+		// A newer release already shipped over this one: undoing this one now
+		// would redeploy past it.
+		if f.last != nil && f.last.CreatedAt.After(r.CreatedAt) {
+			return refuse(domain.RollbackRefusalNewerShipped, rollbackNotAllowedReasonInput{Case: "newer_shipped", Version: f.last.Version})
+		}
+	case domain.ReleaseReleased:
+		if rollbackTooOld(r, s.now()) {
+			return refuse(domain.RollbackRefusalTooOld, rollbackNotAllowedReasonInput{Case: "too_old"})
+		}
+		if f.last == nil {
+			if f.lastErr == nil || errors.Is(f.lastErr, domain.ErrReleaseNotFound) {
+				return refuse(domain.RollbackRefusalNoReleased, rollbackNotAllowedReasonInput{Case: "no_released"})
+			}
+			return refuse(domain.RollbackRefusalUnresolved, rollbackNotAllowedReasonInput{Case: "unresolved", Err: f.lastErr.Error()})
+		}
+		if f.last.ID != r.ID {
+			return refuse(domain.RollbackRefusalNewerShipped, rollbackNotAllowedReasonInput{Case: "newer_shipped", Version: f.last.Version})
+		}
+	case domain.ReleaseDraft, domain.ReleasePending, domain.ReleaseDeploying:
+		return refuse(domain.RollbackRefusalNotDeployed, rollbackNotAllowedReasonInput{Case: "wrong_status", Status: string(r.Status)})
+	default:
+		return refuse(domain.RollbackRefusalWrongStatus, rollbackNotAllowedReasonInput{Case: "wrong_status", Status: string(r.Status)})
+	}
+	// A failed/awaiting_verdict release is neither Open() nor Terminal(), so
+	// OpenForMerge's take-over-an-open-release logic never supersedes it —
+	// a later merge can open its own release right beside it. Rolling this
+	// one back now would fight that newer release for the branch/tag.
+	for _, other := range f.open {
 		if other.ID != r.ID && other.CreatedAt.After(r.CreatedAt) {
-			return other.Version, true
+			return refuse(domain.RollbackRefusalNewerOpen, rollbackNotAllowedReasonInput{Case: "newer_open", Version: other.Version})
 		}
 	}
-	return "", false
+	// Every rollback starts by reverting the release's merge commits.
+	if s.reverter == nil {
+		return refuse(domain.RollbackRefusalNotConfigured, rollbackNotAllowedReasonInput{Case: "not_configured"})
+	}
+	return "", ""
 }
 
 // Rollback undoes a release: it always reverts the release's merge commits
 // on the default branch, then (dispatch mode) redeploys the previous good
-// release or (on_merge mode) lets the revert push itself redeploy.
+// release or (on_merge mode) lets the revert push itself redeploy. A rollback
+// nobody typed (an agent's, with auto_rollback on) is told to a human once it
+// is under way; one only proposed (auto_rollback off) is told as a
+// suggestion they can approve.
 func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error) {
+	updated, err := s.rollback(ctx, releaseID, actor, reason, note)
+	if actor != domain.ReleaseActorHuman {
+		why := firstNonEmptyStr(note, string(reason))
+		switch {
+		case err == nil && (updated.Status == domain.ReleaseRollingBack || updated.Status == domain.ReleaseRolledBack):
+			s.notifyRelease(ctx, domain.NotificationReleaseRolledBack, updated, why)
+		case revertLanded(updated):
+			// The default branch already changed under people's feet, so the
+			// rollback is told even though a later step failed.
+			failure := updated.FailureReason
+			if err != nil {
+				failure = err.Error()
+			}
+			s.notifyRelease(ctx, domain.NotificationReleaseRolledBack, updated, rolledBackWithFailureBody(why, failure))
+		}
+	}
+	if err != nil {
+		return domain.Release{}, err
+	}
+	return updated, nil
+}
+
+func revertLanded(r domain.Release) bool {
+	return r.Rollback != nil && strings.TrimSpace(r.Rollback.RevertSHA) != ""
+}
+
+func rolledBackWithFailureBody(why, failure string) string {
+	if strings.TrimSpace(failure) == "" {
+		return why
+	}
+	return why + " — not finished: " + failure
+}
+
+func (s *Service) rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error) {
 	r, err := s.store.Get(ctx, releaseID)
 	if err != nil {
 		return domain.Release{}, err
@@ -92,7 +173,26 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 	}
 
 	if !r.Profile.AutoRollback && actor == domain.ReleaseActorAgent {
+		attributed := s.attributedIncident(r.ID)
+		if dismissedWithoutNewIncident(r.RollbackDismissal, attributed) {
+			in := rollbackProposalDismissedInput{}
+			if r.RollbackDismissal.IncidentID != nil {
+				in.IncidentID = r.RollbackDismissal.IncidentID.String()
+			}
+			return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrRollbackProposalDismissed, rollbackProposalDismissedKey.Render(in))
+		}
+		proposal := &domain.RollbackProposal{ProposedAt: s.now().UTC(), By: actor, Reason: reason, Note: note}
+		if reason == domain.RollbackHealthIncident {
+			proposal.IncidentID = attributed
+		}
+		// Stored before anyone hears of it: the notification's approve action
+		// opens the release, which must already show the proposal.
+		if err := s.store.SetRollbackProposal(ctx, r.ID, proposal); err != nil {
+			return domain.Release{}, fmt.Errorf("recording the rollback proposal: %w", err)
+		}
+		r.RollbackProposal = proposal
 		s.writeRollbackProposal(ctx, r, reason, note)
+		s.notifyRelease(ctx, domain.NotificationRollbackSuggested, r, firstNonEmptyStr(note, string(reason)))
 		return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrRollbackNeedsHuman, prompt.Text(rollbackNeedsHumanKey))
 	}
 
@@ -218,7 +318,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		r.Rollback = rollback
 		persisted, perr := s.store.Update(ctx, r, domain.ReleaseRollingBack)
 		if perr != nil {
-			return domain.Release{}, perr
+			return r, perr
 		}
 		r = persisted
 		rollback = r.Rollback
@@ -228,7 +328,11 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 	}
 
 	if r.Mode == domain.DeliveryBatch {
-		return s.finishBatchRollback(ctx, r, domain.ReleaseRollingBack, rollback)
+		finished, err := s.finishBatchRollback(ctx, r, domain.ReleaseRollingBack, rollback)
+		if err != nil {
+			return r, err
+		}
+		return finished, nil
 	}
 
 	if neverDeployed {
@@ -241,7 +345,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 		r.FinishedAt = &now
 		updated, uerr := s.store.Update(ctx, r, domain.ReleaseRollingBack)
 		if uerr != nil {
-			return domain.Release{}, uerr
+			return r, uerr
 		}
 		s.reopenTasks(ctx, updated)
 		return updated, nil
@@ -272,7 +376,7 @@ func (s *Service) Rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 	r.Rollback = rollback
 	updated, err := s.store.Update(ctx, r, domain.ReleaseRollingBack)
 	if err != nil {
-		return domain.Release{}, err
+		return r, err
 	}
 	if updated.Status == domain.ReleaseFailed {
 		s.handBack(ctx, updated)

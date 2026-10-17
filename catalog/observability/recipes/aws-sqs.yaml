@@ -1,0 +1,38 @@
+# An SQS queue, from CloudWatch's AWS/SQS metrics. queue is the queue's name
+# (the QueueName dimension, the last part of its URL). SQS reports once a
+# minute, so a step under a minute shows nothing new. The queues table is the
+# queue's latest datapoint of the last 20 minutes.
+id: aws-sqs
+source_kind: aws_cloudwatch
+applies_to:
+  technology: sqs
+  messaging_system: sqs
+detect:
+  metric: AWS/SQS/ApproximateNumberOfMessagesVisible
+params: [queue]
+signals:
+  queue.backlog: >-
+    {"namespace": "AWS/SQS", "metric": "ApproximateNumberOfMessagesVisible", "stat": "Maximum", "dimensions": {"QueueName": "$queue"}}
+  queue.backlog_age: >-
+    {"namespace": "AWS/SQS", "metric": "ApproximateAgeOfOldestMessage", "stat": "Maximum", "dimensions": {"QueueName": "$queue"}}
+  queue.consume_rate: >-
+    {"expression": "d / PERIOD(d)",
+     "metrics": {"d": {"namespace": "AWS/SQS", "metric": "NumberOfMessagesDeleted", "stat": "Sum", "dimensions": {"QueueName": "$queue"}}}}
+  queue.publish_rate: >-
+    {"expression": "s / PERIOD(s)",
+     "metrics": {"s": {"namespace": "AWS/SQS", "metric": "NumberOfMessagesSent", "stat": "Sum", "dimensions": {"QueueName": "$queue"}}}}
+tables:
+  queues:
+    key_labels: [QueueName]
+    columns:
+      - {key: QueueName, label: Queue}
+      - {key: visible, label: Visible, unit: messages}
+      - {key: in_flight, label: In flight, unit: messages}
+      - {key: oldest_age, label: Oldest, unit: s}
+    queries:
+      visible: >-
+        {"namespace": "AWS/SQS", "metric": "ApproximateNumberOfMessagesVisible", "stat": "Maximum", "dimensions": {"QueueName": "$queue"}}
+      in_flight: >-
+        {"namespace": "AWS/SQS", "metric": "ApproximateNumberOfMessagesNotVisible", "stat": "Maximum", "dimensions": {"QueueName": "$queue"}}
+      oldest_age: >-
+        {"namespace": "AWS/SQS", "metric": "ApproximateAgeOfOldestMessage", "stat": "Maximum", "dimensions": {"QueueName": "$queue"}}

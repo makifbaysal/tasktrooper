@@ -65,6 +65,7 @@ import (
 	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agentcli"
+	alertingapp "github.com/makifbaysal/tasktrooper/server/internal/application/alerting"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/apikey"
 	attachmentapp "github.com/makifbaysal/tasktrooper/server/internal/application/attachment"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/billing"
@@ -75,6 +76,7 @@ import (
 	cloudapp "github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
 	appconfig "github.com/makifbaysal/tasktrooper/server/internal/application/config"
 	appcontext "github.com/makifbaysal/tasktrooper/server/internal/application/context"
+	datasourceapp "github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploywatch"
@@ -96,6 +98,8 @@ import (
 	memoryapp "github.com/makifbaysal/tasktrooper/server/internal/application/memory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mobiledevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/newrepo"
+	notifyapp "github.com/makifbaysal/tasktrooper/server/internal/application/notify"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/opsquery"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/orchestrator"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
@@ -139,6 +143,17 @@ func (a releaseAttributor) AttributeRelease(ctx context.Context, repositoryID uu
 		return att, true
 	}
 	return a.fallback.AttributeRelease(ctx, repositoryID, env, onset)
+}
+
+func (a releaseAttributor) AttributeIncident(ctx context.Context, incident domain.Incident, onset time.Time) (domain.ReleaseAttribution, bool) {
+	if ia, ok := a.primary.(prodops.IncidentAttributor); ok {
+		if att, ok := ia.AttributeIncident(ctx, incident, onset); ok {
+			return att, true
+		}
+	} else if att, ok := a.primary.AttributeRelease(ctx, incident.RepositoryID, incident.Env, onset); ok {
+		return att, true
+	}
+	return a.fallback.AttributeRelease(ctx, incident.RepositoryID, incident.Env, onset)
 }
 
 func (a releaseAttributor) HealthWindow() time.Duration { return a.primary.HealthWindow() }
@@ -293,8 +308,12 @@ type engine struct {
 	projectModelSvc *projectmodel.Service
 	newRepoSvc      *newrepo.Service
 	cloudSvc        *cloudapp.Service
+	opsQuerySvc     *opsquery.Service
 	prodOpsSvc      *prodops.Service
 	healthMonitor   *prodops.Monitor
+	// notifier is the one notify service incidents and alert rules share.
+	notifier        *notifyapp.Service
+	alertEvaluator  *alertingapp.Service
 	storeOpsSvc     *storeops.Service
 	storeMonitor    *storeops.Monitor
 	simRunSvc       *simrunapp.Service
@@ -532,7 +551,7 @@ func Run(ctx context.Context, opts Options) (*Server, error) {
 				errType = "request_error"
 			}
 			if code >= fiber.StatusInternalServerError {
-				log.Error().Err(err).Str("path", c.Path()).Int("status", code).Msg("unhandled error")
+				log.Error().Err(err).Str("path", httpadapter.RedactPath(c.Path())).Int("status", code).Msg("unhandled error")
 			}
 			return c.Status(code).JSON(fiber.Map{
 				"error": fiber.Map{"message": err.Error(), "type": errType},
@@ -630,6 +649,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.engine.deployMonitor != nil {
 		s.engine.deployMonitor.Stop()
+	}
+	if s.engine.alertEvaluator != nil {
+		s.engine.alertEvaluator.Stop()
 	}
 	if s.engine.evolutionSvc != nil {
 		s.engine.evolutionSvc.Stop()
@@ -2099,6 +2121,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			cloudSvc.Start(ctx)
 			cloudSvc.Boot(ctx)
 			e.cloudSvc = cloudSvc
+			e.opsQuerySvc = opsquery.NewService(opsquery.Deps{
+				Environments: environmentStore,
+				Components:   cloudComponents,
+				Runtime:      cloudSvc,
+			})
 			if modelSvc != nil {
 				// A finished scan turns its deploy signals into environment rows
 				// through the same service the runtime routes read, and the model
@@ -2251,12 +2278,20 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			}
 
 			incidentStore := pgstore.NewIncidentStore(e.pgDB)
+			// No in_app channel yet: the UI has no feed for notifications
+			// that are not about a board task.
+			incidentNotifier := notifyapp.NewService()
+			incidentNotifier.Register(desktopadapter.NewChannel(desktopadapter.NewNotifier("local-llm")))
+			e.notifier = incidentNotifier
 			prodOpsDeps := prodops.Deps{
-				Incidents: incidentStore,
-				Targets:   deployTargetStore,
-				Repos:     repositoryStore,
-				Tasks:     repositorySvc,
-				Deploys:   pipelineStore,
+				Incidents:   incidentStore,
+				Targets:     deployTargetStore,
+				Repos:       repositoryStore,
+				Tasks:       repositorySvc,
+				Deploys:     pipelineStore,
+				Notifier:    incidentNotifier,
+				AlertTokens: pgstore.NewAlertIngestTokenStore(e.pgDB),
+				AlertLimits: cfg.ProdOps.AlertIngest,
 			}
 			prodOpsSvc := prodops.NewService(prodOpsDeps)
 			if workflowSvc != nil {
@@ -2264,6 +2299,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				prodOpsSvc.SetRoleResolver(workflowSvc)
 			}
 			e.prodOpsSvc = prodOpsSvc
+			prodOpsSvc.Start(ctx)
 			pipelineRunner.SetIncidentReporter(prodOpsSvc)
 
 			for _, tool := range opstools.NewExecutors(&opstools.ToolKit{
@@ -2601,6 +2637,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					HealthWindow:        cfg.DeployOps.HealthWindow,
 					BeforeDeploy:        repository.BeforeDeployConfirmer{Service: repositorySvc},
 					Locator:             repositorySvc,
+					Notifier:            incidentNotifier,
 				}
 				if relations, ok := relationStore.(*pgstore.TaskRelationStore); ok {
 					releaseDeps.DeployOrder = relations
@@ -3011,6 +3048,32 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		e.githubRunner = newGitHubRunner(opts.DataDir, githubTokens, issueSyncSettingsStore, repositoryStore)
 		go e.githubRunner.Start(context.Background())
 	}
+	var dataSourceSvc *datasourceapp.Service
+	if e.pgDB != nil {
+		dataSourceSvc = newDataSourceService(e.pgDB, e.secretsCipher, e.secretsCipherErr)
+	}
+	if dataSourceSvc != nil && e.storeOpsSvc != nil {
+		dataSourceSvc.SetStoreCredentials(e.storeOpsSvc)
+	}
+	signalsSvc := newSignalsService(e.pgDB, dataSourceSvc)
+	// The Logs explorer is built with the cloud routes, before the signal
+	// bindings exist: a component's logs binding is handed to it here.
+	if e.opsQuerySvc != nil && signalsSvc != nil {
+		e.opsQuerySvc.SetBoundLogs(signalsSvc)
+		e.opsQuerySvc.SetBoundErrors(signalsSvc)
+	}
+	wireDeployImpact(e.releaseSvc, e.pgDB, signalsSvc, cfg.DeployOps.Impact)
+	alertingSvc := e.newAlertingService(ctx, cfg.Alerting, signalsSvc, dataSourceSvc)
+	errorDefsSvc, opsAISvc := e.wireObservabilityAI(ctx, cfg, observabilityAIDeps{
+		repositories: repositoryStore,
+		tasks:        repositorySvc,
+		workflows:    workflowSvc,
+		agents:       catalogStore,
+		sessions:     sessionSvc,
+		signals:      signalsSvc,
+		sources:      dataSourceSvc,
+		alerting:     alertingSvc,
+	})
 
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
@@ -3051,6 +3114,12 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,
 		CloudSvc:          e.cloudSvc,
+		OpsQuerySvc:       e.opsQuerySvc,
+		DataSourceSvc:     dataSourceSvc,
+		SignalsSvc:        signalsSvc,
+		AlertingSvc:       alertingSvc,
+		ErrorDefsSvc:      errorDefsSvc,
+		OpsAISvc:          opsAISvc,
 		EnvRequirements:   envRequirementsOrNil(e.envReqSvc),
 		ReleaseSvc:        releaseHTTP,
 		SmokeGenSvc:       smokeGenHTTP,

@@ -1,0 +1,36 @@
+# OpenTelemetry HTTP server semantic conventions, exported to Prometheus
+# (http.server.request.duration as a seconds histogram).
+id: otel-http
+source_kind: prometheus
+applies_to:
+  technology: opentelemetry
+detect:
+  metric: http_server_request_duration_seconds_count
+params: [job]
+signals:
+  http.requests: >-
+    sum(rate(http_server_request_duration_seconds_count{job="$job"}[$__rate]))
+  http.error_ratio: >-
+    100 * (sum(rate(http_server_request_duration_seconds_count{job="$job", http_response_status_code=~"5.."}[$__rate])) or vector(0))
+    / sum(rate(http_server_request_duration_seconds_count{job="$job"}[$__rate]))
+  http.latency: >-
+    1000 * histogram_quantile($__quantile, sum by (le) (rate(http_server_request_duration_seconds_bucket{job="$job"}[$__rate])))
+# The endpoints table is one row per route (http_route), at the instant it
+# is read: requests per minute, the share answered 5xx, and p95 latency.
+tables:
+  endpoints:
+    key_labels: [http_route]
+    columns:
+      - {key: http_route, label: Endpoint}
+      - {key: rpm, label: Requests, unit: req/min}
+      - {key: error_pct, label: Errors, unit: "%"}
+      - {key: p95_ms, label: p95, unit: ms}
+    queries:
+      rpm: >-
+        topk(500, 60 * sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job"}[$__rate])))
+      error_pct: >-
+        100 * (sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job", http_response_status_code=~"5.."}[$__rate]))
+        or 0 * sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job"}[$__rate])))
+        / sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job"}[$__rate]))
+      p95_ms: >-
+        1000 * histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job="$job"}[$__rate])))

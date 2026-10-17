@@ -170,6 +170,168 @@ paths:
       security:
         - bearerAuth: []
 
+  /v1/repositories/{id}/alert-tokens:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Create an alert ingest token for the repository
+      description: >-
+        The plaintext token is in this response only; the server keeps its
+        sha256. default_env (local, stage, preprod or prod; prod when omitted)
+        is the incident environment when neither the payload nor ?env= names one.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label:
+                  type: string
+                  maxLength: 100
+                default_env:
+                  type: string
+                  enum: [local, stage, preprod, prod]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AlertIngestToken'
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+                      ingest_path:
+                        type: string
+                        example: /v1/alerts/ingest/tt_alert_…
+        '400':
+          description: Missing or over-long label, or an unknown default_env
+        '404':
+          description: No such repository
+        '503':
+          description: Alert tokens are not available on this server
+    get:
+      summary: List the repository's alert ingest tokens (never the token itself)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Tokens, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertIngestToken'
+        '503':
+          description: Alert tokens are not available on this server
+
+  /v1/repositories/{id}/alert-tokens/{tokenId}:
+    delete:
+      summary: Revoke one of the repository's alert ingest tokens
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Revoked
+        '404':
+          description: No such token on this repository
+        '503':
+          description: Alert tokens are not available on this server
+
+  /v1/alerts/ingest/{token}:
+    post:
+      summary: Ingest an alert with an alert ingest token instead of the API key
+      description: >-
+        The same normalization and ingest as POST /v1/repositories/{id}/incidents
+        (Alertmanager, Sentry, GCP Cloud Monitoring, generic JSON), for the
+        token's repository. A Content-Length (or a chunked body) over 256 KiB is
+        refused. An unknown token is a bare 404. Each token has a request rate
+        (prod_ops.alert_ingest.requests_per_minute, burst) and a cap on NEW
+        incidents per rolling hour (new_incidents_per_hour); an alert that folds
+        into an incident already open, and a recovery, are not refused by the
+        cap.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: env
+          in: query
+          required: false
+          description: Environment when the payload names none; overrides the token's default_env.
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Ingested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incident_id:
+                    type: string
+                    format: uuid
+        '202':
+          description: A recovery for an incident that is not open; nothing changed
+        '400':
+          description: The body is not JSON
+        '404':
+          description: Unknown token
+        '413':
+          description: Body over 256 KiB
+        '429':
+          description: The token is over its request rate, or over its hourly cap on new incidents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [rate_limited]
+
   /v1/store/credentials/{provider}/apps:
     get:
       summary: List apps a saved store credential can see
@@ -277,7 +439,10 @@ paths:
       description: >-
         internal -> external -> production only, one step at a time.
         to=production requires a matching confirm phrase. 409 when the app
-        is not yet ready for the move.
+        is not yet ready for the move. Android into production takes
+        user_fraction, the staged rollout's share in (0, 1] (left out: 1,
+        everyone; 400 outside the range); App Store and the testing channels
+        ignore it.
       security:
         - bearerAuth: []
       parameters:
@@ -305,6 +470,46 @@ paths:
                   type: string
                 confirm:
                   type: string
+                user_fraction:
+                  type: number
+                  minimum: 0
+                  exclusiveMinimum: true
+                  maximum: 1
+
+  /v1/repositories/{id}/store/apps/android/rollout:
+    post:
+      summary: Change a Google Play production staged rollout
+      description: >-
+        user_fraction must be in (0, 1] — Play reads 0 as a completed
+        release, so 0 is refused like anything outside the range (400).
+        1 completes the rollout and requires confirm to match the
+        repository's name (400 otherwise). 409 before the app is live.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_fraction]
+              properties:
+                user_fraction:
+                  type: number
+                  minimum: 0
+                  exclusiveMinimum: true
+                  maximum: 1
+                confirm:
+                  type: string
+      responses:
+        '204':
+          description: The rollout share was changed
 
   /v1/repositories/{id}/store/apps/{platform}/build:
     post:
@@ -649,6 +854,1825 @@ paths:
         '204':
           description: Saved
 
+  /v1/data-source-kinds:
+    get:
+      summary: Registered observability data source kinds and their config forms
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The kind registry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kinds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DataSourceKind'
+
+  /v1/data-sources:
+    get:
+      summary: Configured data sources (never a secret value)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every data source
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data_sources:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DataSource'
+    post:
+      summary: Add a data source, then verify it
+      description: >-
+        Saved first and verified after: 201 even when the source cannot be
+        reached, with status error and status_detail saying why. A secret field
+        sent in config is stored as a secret. An empty name defaults to the
+        URL's host.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind:
+                  type: string
+                name:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties:
+                    type: string
+                secrets:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        '201':
+          description: Created; status reflects the verify run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+        '400':
+          description: The request does not fit the kind's schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceFieldErrors'
+
+  /v1/data-sources/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: One data source
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The data source
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+        '404':
+          description: No such data source
+    patch:
+      summary: Change a data source, then verify it again
+      description: >-
+        A key given in config or secrets replaces its value and an empty string
+        removes it; keys left out are kept. A field hidden by its show_when
+        loses its value. Moving a url to another scheme, host or port needs
+        every stored secret the result keeps re-sent in secrets (a new value,
+        or "" to remove), else 400 with fields.secrets = secrets_required.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties:
+                    type: string
+                secrets:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        '200':
+          description: Saved; status reflects the verify run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+        '400':
+          description: The result does not fit the kind's schema, or moves the URL without the secrets (secrets_required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceFieldErrors'
+        '404':
+          description: No such data source
+    delete:
+      summary: Remove a data source
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Removed
+        '404':
+          description: No such data source
+
+  /v1/data-sources/{id}/verify:
+    post:
+      summary: Verify a data source again
+      description: Always 200 for a known source; a failure is reported through status and status_detail.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The data source with the new status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+
+  /v1/data-sources/{id}/discover:
+    get:
+      summary: Metric names the source holds, and the recipes they suggest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: match
+          in: query
+          required: false
+          description: Case-insensitive substring filter on metric names. Recipe detection ignores it.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1000
+            maximum: 5000
+      responses:
+        '200':
+          description: The inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      type: string
+                  truncated:
+                    type: boolean
+                  recipes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        recipe_id:
+                          type: string
+                        matched_metric:
+                          type: string
+        '422':
+          description: The kind cannot list metrics (code unsupported)
+        '502':
+          description: The source failed (code upstream)
+
+  /v1/data-sources/{id}/query:
+    post:
+      summary: Range query against a metrics data source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query, from, to]
+              properties:
+                query:
+                  type: string
+                  description: >-
+                    In the kind's query language: PromQL for prometheus and
+                    gcp_monitoring, CloudWatch query JSON for aws_cloudwatch
+                    ({namespace, metric, stat, dimensions?, period?} or
+                    {expression, metrics?: {id: metric}, period?}), and for
+                    the direct broker kinds one JSON object: kafka {group,
+                    topic?, metric?: lag|lag_by_partition|consumers|members},
+                    rabbitmq {queue (a * matches any run of characters),
+                    metric?: messages|ready|unacked|consumers|publish_rate|deliver_rate|ack_rate},
+                    nats {stream, consumer?, metric?: pending|ack_pending|redelivered|waiting}
+                    (an absent metric is the backlog: lag, messages,
+                    pending), and for loki a LogQL metric query
+                    (sum(rate({…} |= "error" [2m]))). A direct broker kind reads live state, so it
+                    answers one point per series, at `to` (or now when `to`
+                    is later); a window that ended more than 5 minutes ago
+                    answers no series and a warning — chart history needs an
+                    exporter-backed source.
+                from:
+                  type: string
+                  format: date-time
+                to:
+                  type: string
+                  format: date-time
+                step_seconds:
+                  type: number
+                  description: 0 or omitted picks a step giving about 600 points (at least 15 s).
+      responses:
+        '200':
+          description: The series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        labels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                        points:
+                          type: array
+                          description: '[unix_ms, value] pairs; value is null where the source answered NaN or ±Inf.'
+                          items:
+                            type: array
+                            minItems: 2
+                            maxItems: 2
+                            items:
+                              type: number
+                              nullable: true
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Bad range or step (fields), or a query the source refused (code bad_query)
+        '422':
+          description: The kind cannot query metrics (code unsupported)
+        '502':
+          description: The source failed (code upstream)
+
+  /v1/signals:
+    get:
+      summary: The vendor-neutral signal catalog
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every signal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Signal'
+
+  /v1/recipes:
+    get:
+      summary: Recipes mapping signals to native queries (catalog plus user-added)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every recipe
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recipe'
+
+  /v1/operations/errors:
+    get:
+      summary: Error groups across every component of one deploy environment
+      description: >-
+        Reads every confirmed, bound environment of the kind (at most 50; truncated
+        says more matched), 4 at a time, each cut off after 20s. An environment whose
+        provider has no error surface is skipped silently; one that fails is listed
+        in unavailable and never fails the answer. The groups of every component's
+        confirmed errors.issues binding on an errors-capable source (a Sentry
+        project) join them, read beside the cloud environments the same way (at most
+        50 bindings, at most 100 groups each): provider is the source's kind,
+        data_source_id is set and environment_id is the zero UUID; a binding that
+        fails is unavailable with its data_source_id. Sorted new first, then
+        last_seen newest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - $ref: '#/components/parameters/OpsComponentID'
+        - name: since
+          in: query
+          required: false
+          description: RFC3339; default 24 hours ago, clamped to 30 days back.
+          schema:
+            type: string
+            format: date-time
+        - name: include_ignored
+          in: query
+          required: false
+          description: 1 or true keeps the groups an ignore error definition matches.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The merged error groups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsErrorGroup'
+                  unavailable:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsUnavailable'
+                  truncated:
+                    type: boolean
+                  ignored_count:
+                    type: integer
+                    description: Groups an ignore definition left out; present only when non-zero.
+        '400':
+          description: Unknown env, malformed since or component_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatError'
+
+  /v1/operations/logs:
+    get:
+      summary: Log entries across every component of one deploy environment
+      description: >-
+        Reads at most 10 confirmed, bound environments of the kind, 4 at a time,
+        each cut off after 20s, with the same window and limit, and merges them
+        newest first. More than 10 with no component_id is 400
+        too_many_environments; with one, the first 10 are read and truncated is
+        set. truncated is also set when an environment had more or the merge was
+        cut. The next older page is the same query with until = the oldest
+        timestamp returned (inclusive; de-duplicate entries at that instant).
+        A component with a confirmed logs.lines binding in the environment is
+        read through that binding (Loki, Elasticsearch) instead of its cloud
+        environments; such a read counts toward the 10, and its entries and
+        unavailable rows carry data_source_id and the zero environment_id.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - $ref: '#/components/parameters/OpsComponentID'
+        - name: since
+          in: query
+          required: false
+          description: RFC3339; default an hour before until.
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          required: false
+          description: RFC3339; default now.
+          schema:
+            type: string
+            format: date-time
+        - name: min_severity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [debug, info, warning, error, critical]
+        - name: text
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Per environment and for the merge; default 200, max 500.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: The merged entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsLogEntry'
+                  unavailable:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpsUnavailable'
+                  truncated:
+                    type: boolean
+        '400':
+          description: >-
+            Bad input, or too_many_environments (code too_many_environments, with
+            matched and max_environments): pick components.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatError'
+
+  /v1/operations/golden:
+    get:
+      summary: Golden signal values for every component with a confirmed binding
+      description: >-
+        At most 200 active components (by name), each with its role's golden signals
+        (catalog/observability/golden.yaml). from/to default to the last hour and are
+        rounded down to the minute; at most 30 days. value is the window's last non-null
+        sample (p95 for a quantile signal), previous the last non-null one a window
+        earlier, spark about 30 points of the window. An unbound or failing signal
+        answers nulls and an empty spark; bound tells the two apart. The whole read is
+        bounded at 25s (a signal still unread answers nulls), and a source that timed
+        out is not asked again within it. Cached 60s per env, window, component set and
+        source/recipe version; any binding or source change drops the cache, and polls
+        asking the same at once share one read.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - $ref: '#/components/parameters/OpsComponentID'
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: The golden values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at:
+                    type: string
+                    format: date-time
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        component_id:
+                          type: string
+                          format: uuid
+                        signals:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              signal:
+                                type: string
+                              unit:
+                                type: string
+                              bound:
+                                type: boolean
+                                description: The component has a confirmed binding for the signal in env.
+                              live:
+                                type: boolean
+                                description: >-
+                                  Present (true) when the bound source reads only the value now (a
+                                  direct broker kind): the spark is one point.
+                              value:
+                                type: number
+                                nullable: true
+                              previous:
+                                type: number
+                                nullable: true
+                              spark:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/SeriesPoint'
+        '400':
+          description: Unknown env, malformed from/to (fields) or component_id
+
+  /v1/components/{id}/signals:
+    get:
+      summary: The component's signals with their bindings and suggestions in one environment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The role's signals, then any other signal with a binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentSignals'
+        '400':
+          description: Unknown env or malformed id
+        '404':
+          description: Unknown component
+
+  /v1/components/{id}/signals/suggest:
+    post:
+      summary: Run the binding detector, then answer as GET signals
+      description: >-
+        Offers recipes whose detect metric a source holds (params from the label
+        values naming the component; on loki, elasticsearch and tempo the detect metric is a
+        label, field or tag and its values are listed directly), for an environment bound to a cloud resource the
+        recipes for that resource kind on sources linked to the same cloud account, and on
+        a broker source (kafka, rabbitmq, nats) the consumers whose names best name the
+        component, each with the kind's own queries. Once the component's brokers are
+        known (the vendors of the queue resources its links reach), a worker is offered no
+        recipe or broker source of another messaging system, and suggestions reading one of
+        its brokers come first. Never touches a confirmed binding or re-offers a dismissed
+        target.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The signals after detection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentSignals'
+
+  /v1/components/{id}/signals/preview:
+    post:
+      summary: Render and run a binding before it is saved
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/SignalBindingRequest'
+                - type: object
+                  required: [signal]
+                  properties:
+                    signal:
+                      type: string
+                    from:
+                      type: string
+                      format: date-time
+                    to:
+                      type: string
+                      format: date-time
+                    step_seconds:
+                      type: number
+      responses:
+        '200':
+          description: The rendered query and its series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rendered_query:
+                    type: string
+                  series:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MetricSeries'
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Field errors (fields), or a query the source refused (code bad_query)
+        '422':
+          description: The kind cannot query metrics (code unsupported)
+        '502':
+          description: The source failed (code upstream)
+
+  /v1/components/{id}/signals/{signal}:
+    put:
+      summary: Bind a signal by hand (confirmed, source human)
+      description: >-
+        Replaces the confirmed binding of (component, env, signal) in place and drops that
+        slot's pending suggestions. A raw query wins over a recipe when both are given.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - name: signal
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/OpsEnvironment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalBindingRequest'
+      responses:
+        '200':
+          description: The confirmed binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalBinding'
+        '400':
+          description: Field errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceFieldErrors'
+        '409':
+          description: Another write to the same slot won (code conflict); read and retry
+
+  /v1/components/{id}/series:
+    get:
+      summary: Time series of a component's bound signals
+      description: >-
+        to defaults to now, from to an hour before; step_seconds 0 or absent gives about
+        120 points (at least 15s). A quantile signal whose query takes $__quantile answers
+        p50, p75, p95 and p99 series. compare=1 fills previous with the window before, shifted
+        onto this one; a previous window that fails carries previous_error and leaves
+        series be. A signal that fails carries error and never fails the others. At most
+        4 queries at once, 20s each, 30s for the whole read (a signal still unread answers
+        timeout); a source that timed out is not asked again within it. step_seconds is
+        the coarsest spacing a source answered at (CloudWatch rounds to whole minutes).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - name: signals
+          in: query
+          required: false
+          description: Comma-separated signal ids; absent means every metric signal of the role.
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: step_seconds
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: compare
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['1', 'true']
+      responses:
+        '200':
+          description: One entry per signal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from:
+                    type: string
+                    format: date-time
+                  to:
+                    type: string
+                    format: date-time
+                  step_seconds:
+                    type: integer
+                  signals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        signal:
+                          type: string
+                        unit:
+                          type: string
+                        bound:
+                          type: boolean
+                        live:
+                          type: boolean
+                          description: >-
+                            Present (true) when the bound source reads only the value now (a direct
+                            broker kind): a series holds one point however long the window.
+                        series:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/MetricSeries'
+                        previous:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/MetricSeries'
+                        error:
+                          type: object
+                          nullable: true
+                          properties:
+                            code:
+                              type: string
+                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                            message:
+                              type: string
+                        previous_error:
+                          type: object
+                          nullable: true
+                          description: The previous window's read failed (compare=1 only); same shape as error.
+                          properties:
+                            code:
+                              type: string
+                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                            message:
+                              type: string
+        '400':
+          description: Bad window or step (fields), or unknown env
+
+  /v1/components/{id}/queues:
+    get:
+      summary: Per-queue tables of a component's confirmed queue bindings
+      description: >-
+        One table per distinct thing the component's confirmed queue.* bindings read in
+        env, at the instant of the request. A binding whose recipe declares tables.queues
+        reads that table with the params the table uses (two bindings agreeing on them
+        share one table, named by the first in catalog order); a binding on a broker kind
+        (a source with the queues capability) hands its own query to the kind, grouped by
+        what it reads with its metric left out. Any other binding has no table. Each table stands alone: one that cannot be read carries
+        error and no rows. At most 4 queries at once, 20s each, 20s for the whole read,
+        shared by requests asking at once; answers are kept 30s per cache scope (read_at
+        says when they were read).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The component's queue tables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  component_id:
+                    type: string
+                    format: uuid
+                  environment:
+                    type: string
+                  read_at:
+                    type: string
+                    format: date-time
+                    description: When the tables were read; a cached answer is older than the request.
+                  queues:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QueueTable'
+        '400':
+          description: Unknown env
+        '404':
+          description: Unknown component
+
+  /v1/components/{id}/endpoints:
+    get:
+      summary: The backend endpoints tables of a component's confirmed http bindings
+      description: >-
+        For each confirmed http.* binding in env whose recipe declares tables.endpoints
+        (otel-http, datadog-apm, newrelic-apm), that table read with the params it uses
+        (a recipe default fills one the binding leaves empty): one row per route or
+        transaction, its key column the source's own label (http_route, resource_name,
+        facet), then rpm (requests per minute), error_pct and p95_ms. Two bindings
+        agreeing on the table's params share one table, named by the first in catalog
+        order; a binding with a raw query has none. Rows are the busiest first. Each
+        table stands alone: one that cannot be read carries error and no rows. At most 4
+        queries at once (each distinct query once), 20s each, 20s for the whole read;
+        answers are kept 30s per cache scope.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The component's endpoints tables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentTables'
+        '400':
+          description: Unknown env
+        '404':
+          description: Unknown component
+
+  /v1/components/{id}/web:
+    get:
+      summary: One web table of a frontend's confirmed web bindings
+      description: >-
+        For each confirmed web.* binding in env whose recipe declares the table (pages,
+        referrers, countries or devices: posthog-web, ga4-web, plausible-web,
+        newrelic-browser's pages), that table, read and shared as for endpoints. A table
+        whose value columns share one query keeps the order its source ranked the rows
+        in (the most viewed first); the web kinds read the last 7 days unless the
+        recipe's query says otherwise.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - name: table
+          in: query
+          schema:
+            type: string
+            enum: [pages, referrers, countries, devices]
+            default: pages
+      responses:
+        '200':
+          description: The component's tables of that name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentTables'
+        '400':
+          description: Unknown env or table
+        '404':
+          description: Unknown component
+
+  /v1/components/{id}/crashes:
+    get:
+      summary: The crashes and signatures tables of a mobile component's confirmed bindings
+      description: >-
+        For each confirmed mobile.* or errors.issues binding in env whose recipe
+        declares tables.crashes (play-vitals, sentry-mobile) or tables.signatures
+        (app-store-metrics), that table (crashes before signatures for one recipe),
+        read and shared as for endpoints, in the order its source ranked the rows.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The component's crashes and signatures tables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentTables'
+        '400':
+          description: Unknown env
+        '404':
+          description: Unknown component
+
+  /v1/components/{id}/traces:
+    get:
+      summary: Search a component's traces through its traces.spans binding
+      description: >-
+        until defaults to now and since to an hour before; at most 7 days. The
+        binding's TraceQL is run as a Tempo search (newest first); min_duration_ms
+        keeps traces at least that long. An unbound component answers bound false
+        and no traces; a binding that cannot be read answers error, never a failed
+        request. Cut off after 20s (error code timeout).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: min_duration_ms
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 86400000
+        - name: limit
+          in: query
+          required: false
+          description: 1–100, default 20.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: The traces, or why the binding could not be read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  component_id:
+                    type: string
+                    format: uuid
+                  environment:
+                    type: string
+                  bound:
+                    type: boolean
+                  data_source_id:
+                    type: string
+                    format: uuid
+                    nullable: true
+                  traces:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TraceSummary'
+                  error:
+                    type: object
+                    nullable: true
+                    properties:
+                      code:
+                        type: string
+                        enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                      message:
+                        type: string
+        '400':
+          description: Bad window, limit or min_duration_ms (fields), or unknown env
+        '404':
+          description: Unknown component
+
+  /v1/components/{id}/traces/{traceId}:
+    get:
+      summary: One trace, read through the component's traces.spans binding
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalComponentID'
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - name: traceId
+          in: path
+          required: true
+          description: 1–32 hex digits, any case.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The trace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceView'
+        '400':
+          description: A trace id that is not hex, or an unknown env
+        '404':
+          description: Unknown component, or the source holds no such trace
+        '422':
+          description: The component has no confirmed traces.spans binding (code unbound)
+        '502':
+          description: The source failed (code upstream)
+        '504':
+          description: No answer within 20s (code timeout)
+
+  /v1/operations/traces/{traceId}:
+    get:
+      summary: The Logs explorer's trace link
+      description: >-
+        With component_id, as GET /v1/components/{id}/traces/{traceId}. Without,
+        the trace is looked up in each data source the environment's confirmed
+        traces.spans bindings read (at most 8, in binding order), the first that
+        holds it answering; 404 when none does, the last failure when one failed.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OpsEnvironment'
+        - name: traceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: component_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The trace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceView'
+        '400':
+          description: A malformed component_id or trace id, or an unknown env
+        '404':
+          description: Unknown component, or no source holds the trace
+        '422':
+          description: No traces.spans binding to read through (code unbound)
+        '502':
+          description: The source failed (code upstream)
+        '504':
+          description: No answer within 20s (code timeout)
+
+  /v1/signal-bindings/{bindingId}/confirm:
+    post:
+      summary: Promote a suggestion to the confirmed binding of its signal
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalBindingID'
+      responses:
+        '200':
+          description: The confirmed binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalBinding'
+        '400':
+          description: A recipe param still has no value (fields params.<name> required)
+        '404':
+          description: Unknown binding, or one another confirm of its slot replaced
+        '409':
+          description: Another write to the same slot won (code conflict); read and retry
+
+  /v1/signal-bindings/{bindingId}/dismiss:
+    post:
+      summary: Dismiss a suggestion so the detector never offers it again
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalBindingID'
+      responses:
+        '204':
+          description: Dismissed
+        '404':
+          description: Unknown binding
+        '409':
+          description: The binding is confirmed, even if only since it was listed (code confirmed); delete it instead
+
+  /v1/signal-bindings/{bindingId}:
+    delete:
+      summary: Delete a binding or suggestion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SignalBindingID'
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Unknown binding
+
+  /v1/error-definitions:
+    get:
+      summary: Error definitions, newest first
+      description: component_id answers that component's definitions and the repository-wide ones (migration 191).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: repository_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: component_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, suggested, dismissed]
+      responses:
+        '200':
+          description: The definitions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  definitions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ErrorDefinition'
+        '400':
+          description: Malformed id, or unknown status (fields)
+    post:
+      summary: Create an error definition (source human, status active)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErrorDefinitionRequest'
+      responses:
+        '201':
+          description: The definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefinition'
+        '400':
+          description: Field errors (fields)
+
+  /v1/error-definitions/suggest:
+    post:
+      summary: Have the release engineer propose error definitions
+      description: >-
+        Starts (or answers the running) AI job: one chat turn with the release
+        engineer, which reads recent error groups (mode errors) or the code's own
+        error types (mode code) and stores its proposals as suggested definitions.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repository_id]
+              properties:
+                repository_id:
+                  type: string
+                  format: uuid
+                component_id:
+                  type: string
+                  format: uuid
+                environment:
+                  type: string
+                  enum: [production, staging, preview, development]
+                  default: production
+                mode:
+                  type: string
+                  enum: [errors, code]
+                  default: errors
+      responses:
+        '202':
+          description: The job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIJobStarted'
+        '400':
+          description: Field errors (fields)
+        '409':
+          description: No release engineer for the area (code no_release_engineer)
+        '503':
+          description: No chat sessions on this server (code unavailable)
+
+  /v1/error-definitions/{definitionId}:
+    patch:
+      summary: Edit an error definition
+      description: Absent keeps; component_id "" makes it repository-wide; alert_threshold null clears it; match replaces the whole match.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: definitionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErrorDefinitionRequest'
+      responses:
+        '200':
+          description: The definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefinition'
+        '400':
+          description: Field errors (fields); repository_id not_permitted
+        '404':
+          description: Unknown definition
+    delete:
+      summary: Delete an error definition
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: definitionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Unknown definition
+
+  /v1/error-definitions/{definitionId}/accept:
+    post:
+      summary: Accept a suggested definition (status active)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: definitionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefinition'
+        '404':
+          description: Unknown definition
+        '409':
+          description: Not a suggestion (code not_suggested)
+
+  /v1/error-definitions/{definitionId}/dismiss:
+    post:
+      summary: Dismiss a suggested definition; its match is never suggested again
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: definitionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDefinition'
+        '404':
+          description: Unknown definition
+        '409':
+          description: Not a suggestion (code not_suggested)
+
+  /v1/ai-jobs/{jobId}:
+    get:
+      summary: One release engineer suggestion job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIJob'
+        '404':
+          description: Unknown job
+
+  /v1/components/{componentId}/signals/ai-suggest:
+    post:
+      summary: Have the release engineer propose signal bindings and alert rules
+      description: >-
+        Starts (or answers the running) AI job that reads the data sources'
+        inventories and proposes suggested bindings (source ai) for the
+        component's unbound signals and disabled alert rules (created_by ai).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: componentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '202':
+          description: The job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIJobStarted'
+        '400':
+          description: Unknown env (fields)
+        '404':
+          description: Unknown component
+        '409':
+          description: No release engineer for the area (code no_release_engineer)
+
+  /v1/components/{componentId}/observability:
+    get:
+      summary: What the component environment can be observed through, and what is missing
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: componentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/OpsEnvironment'
+      responses:
+        '200':
+          description: The readiness summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservabilityReadiness'
+        '400':
+          description: Unknown env (fields)
+        '404':
+          description: Unknown component
+
+  /v1/components/{componentId}/observability/enable:
+    post:
+      summary: Open the release engineer's "enable observability" task
+      description: >-
+        A technical task in todo on the component, assigned to the release
+        engineer, whose brief has it define the instrumentation work and open
+        the developer's task; it never edits code itself.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: componentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goals, target]
+              properties:
+                environment:
+                  type: string
+                  enum: [production, staging, preview, development]
+                  default: production
+                goals:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    enum: [metrics, traces, logs, rum, crash, queues]
+                target:
+                  type: string
+                  enum: [own_cloud, self_hosted, otlp_endpoint]
+                otlp_endpoint:
+                  type: string
+                  format: uri
+                  description: Required with target otlp_endpoint, refused otherwise.
+      responses:
+        '201':
+          description: The task
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    format: uuid
+                  task_key:
+                    type: string
+        '400':
+          description: Field errors (fields)
+        '404':
+          description: Unknown component
+        '409':
+          description: No release engineer for the area (code no_release_engineer)
+        '503':
+          description: No board on this server (code unavailable)
+
+  /v1/alert-rules:
+    get:
+      summary: Alert rules, by name
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: component_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: env
+          in: query
+          required: false
+          description: Absent means every environment.
+          schema:
+            type: string
+            enum: [production, staging, preview, development]
+      responses:
+        '200':
+          description: The rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertRule'
+        '400':
+          description: Malformed component_id or unknown env (fields)
+    post:
+      summary: Create an alert rule
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleRequest'
+      responses:
+        '201':
+          description: The rule, state ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '400':
+          description: Field errors (fields)
+
+  /v1/alert-rules/backtest:
+    post:
+      summary: Replay a rule's condition over the last days
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/AlertRuleRequest'
+                - type: object
+                  properties:
+                    days:
+                      type: integer
+                      minimum: 1
+                      maximum: 14
+                      default: 7
+      responses:
+        '200':
+          description: What would have fired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fires:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start:
+                          type: string
+                          format: date-time
+                        end:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          description: Null while still firing at the end of the range
+                        peak:
+                          type: number
+                          nullable: true
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        points:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/SeriesPoint'
+                  step_seconds:
+                    type: integer
+        '400':
+          description: Field errors (fields), or a query the source refused (code bad_query)
+        '422':
+          description: The signal has no confirmed binding (code unbound)
+        '502':
+          description: The data source failed (code upstream)
+
+  /v1/alert-rules/suggest:
+    post:
+      summary: Starting rules for a component environment's bound signals (nothing is saved)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [component_id]
+              properties:
+                component_id:
+                  type: string
+                  format: uuid
+                environment:
+                  type: string
+                  enum: [production, staging, preview, development]
+      responses:
+        '200':
+          description: Suggested rules, without id or state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertRuleSpec'
+        '400':
+          description: Malformed or unknown component_id, unknown environment (fields)
+
+  /v1/alert-rules/{ruleId}:
+    get:
+      summary: One alert rule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+      responses:
+        '200':
+          description: The rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '404':
+          description: Unknown rule
+    patch:
+      summary: Edit an alert rule; absent fields keep their value
+      description: >-
+        Changing what the rule reads or tests, open_incident or enabled
+        restarts it from ok, resolving a firing rule first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleRequest'
+      responses:
+        '200':
+          description: The rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '400':
+          description: Field errors (fields)
+        '404':
+          description: Unknown rule
+    delete:
+      summary: Delete an alert rule, resolving it first when firing
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Unknown rule
+
+  /v1/alert-rules/{ruleId}/events:
+    get:
+      summary: A rule's state changes, newest first
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleID'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        '200':
+          description: The events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        at:
+                          type: string
+                          format: date-time
+                        from_state:
+                          $ref: '#/components/schemas/AlertState'
+                        to_state:
+                          $ref: '#/components/schemas/AlertState'
+                        value:
+                          type: number
+                          nullable: true
+                        incident_id:
+                          type: string
+                          format: uuid
+                          nullable: true
+        '400':
+          description: Bad limit (fields)
+        '404':
+          description: Unknown rule
+
+  /v1/notification-channels:
+    get:
+      summary: The channel kinds an alert rule may name, and which this server can deliver on
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Every kind, available or not
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [channels]
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationChannelStatus'
+
+  /v1/releases/{releaseId}/rollback-proposal/dismiss:
+    post:
+      summary: Dismiss the release engineer's proposed rollback
+      description: >-
+        Clears rollback_proposal; nothing in production changes, so no confirm phrase. A
+        release without a proposal answers as it is. A rollback stays possible by hand
+        while rollback_allowed says so.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The release, as GET /v1/releases/{id} answers it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseRollbackState'
+        '400':
+          description: Invalid release id
+        '404':
+          description: Unknown release
+
+  /v1/releases/{releaseId}/impact:
+    get:
+      summary: What a release did to its component's golden signals in production
+      description: >-
+        For each golden signal of the component's role with a confirmed production binding,
+        read at its p95 alone for a quantile signal and by its worst series where it answers
+        several: the mean over [T-60m, T) (before), (T, T+60m] (after: the sample at T still
+        straddles the deploy) and that after-window a day earlier (baseline), T being the
+        release's deployed_at (finished_at for a release that never deployed on its own). A
+        signal is worse or improved when it moved past deploy_ops.impact both from before and
+        from the baseline, else neutral: change_pct of its before value (throughput_change_pct
+        for a rate where higher is better), ratio_points for a ratio signal, and for a count
+        an absolute floor too (count_floor for a gauge, rate_floor for a rate, at least
+        floor_pct of the larger value; latency_floor_ms for a quantile in ms). unknown when it
+        could not be read. verdict is the worst judged signal, unknown when none was. pending
+        while T+60m is in the future (after and baseline cover what has passed). Fully read
+        answers are kept for the minute.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The impact; verdict unknown and no signals when nothing is bound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployImpact'
+        '400':
+          description: Invalid release id
+        '404':
+          description: Unknown release
+
   /health:
     get:
       summary: Server and LLM provider health
@@ -726,7 +2750,818 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+  parameters:
+    OpsEnvironment:
+      name: env
+      in: query
+      required: false
+      description: The deploy environment kind; default production.
+      schema:
+        type: string
+        enum: [production, staging, preview, development]
+    OpsComponentID:
+      name: component_id
+      in: query
+      required: false
+      description: Repeated or comma-separated; limits the read to these components.
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
+          format: uuid
+    SignalComponentID:
+      name: id
+      in: path
+      required: true
+      description: The component id.
+      schema:
+        type: string
+        format: uuid
+    SignalBindingID:
+      name: bindingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AlertRuleID:
+      name: ruleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   schemas:
+    AlertState:
+      type: string
+      enum: [ok, pending, firing, no_data]
+    AlertCondition:
+      type: object
+      properties:
+        op:
+          type: string
+          enum: [gt, lt, change_pct_gt, change_pct_lt, rising, no_data]
+          description: >-
+            rising holds while the value is above threshold and higher than a
+            window earlier; the change ops compare the percent change from a
+            window earlier; no_data holds while nothing is read.
+        threshold:
+          type: number
+        for_seconds:
+          type: integer
+          minimum: 0
+          maximum: 604800
+        window_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 300
+    AlertRuleSpec:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        component_id:
+          type: string
+          format: uuid
+        environment:
+          type: string
+          enum: [production, staging, preview, development]
+        signal:
+          type: string
+          description: A catalog signal, '' for a raw rule.
+        data_source_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: A raw rule's source; null for a signal rule.
+        query:
+          type: string
+          description: A raw rule's query; '' for a signal rule.
+        condition:
+          $ref: '#/components/schemas/AlertCondition'
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        channels:
+          type: array
+          description: >-
+            Only kinds GET /v1/notification-channels answers available; another is the
+            field error channels: unavailable (an unknown kind is invalid_option).
+          items:
+            type: string
+            enum: [in_app, desktop, ios_push, slack, email, webhook]
+        open_incident:
+          type: boolean
+        enabled:
+          type: boolean
+    NotificationChannelStatus:
+      type: object
+      required: [kind, available]
+      properties:
+        kind:
+          type: string
+          enum: [in_app, desktop, ios_push, slack, email, webhook]
+        available:
+          type: boolean
+          description: This server registered the channel, so a rule may name it.
+    RollbackProposal:
+      type: object
+      description: >-
+        A rollback the release engineer asked for while the release's profile had
+        auto_rollback off. Nothing ran; a human approves it (POST /v1/releases/{id}/rollback)
+        or dismisses it. Cleared when a rollback runs, the release is superseded, a newer
+        release of the component ships, or it is dismissed.
+      required: [proposed_at, by, reason]
+      properties:
+        proposed_at:
+          type: string
+          format: date-time
+        by:
+          type: string
+          enum: [agent]
+        reason:
+          type: string
+          enum: [deploy_failed, verify_failed, health_incident]
+        note:
+          type: string
+          description: What the release engineer observed.
+        incident_id:
+          type: string
+          format: uuid
+          description: The incident this release was attributed, when the proposal answers it (reason health_incident).
+    ReleaseRollbackState:
+      type: object
+      description: >-
+        Carried by every release JSON (list, get and every action's answer): the stored
+        proposal, and what a rollback would answer right now, by the same rules
+        POST /v1/releases/{id}/rollback applies.
+      required: [rollback_proposal, rollback_allowed, rollback_refusal]
+      properties:
+        rollback_proposal:
+          allOf:
+            - $ref: '#/components/schemas/RollbackProposal'
+          nullable: true
+        rollback_allowed:
+          type: boolean
+        rollback_refusal:
+          type: string
+          enum: ['', newer_shipped, newer_open, not_deployed, too_old, no_released, unresolved, wrong_status]
+          description: >-
+            '' when allowed. newer_shipped: a newer release of the component is live;
+            newer_open: a newer one is open; not_deployed: draft, pending or deploying;
+            too_old: released more than 24 hours ago; no_released / unresolved: the
+            component's newest released release is missing or could not be read;
+            wrong_status: verifying, rolling_back, rolled_back or superseded.
+    AlertRuleRequest:
+      description: AlertRuleSpec's fields, each optional; absent keeps the rule's value (or the default on create).
+      allOf:
+        - $ref: '#/components/schemas/AlertRuleSpec'
+    AlertRule:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+        - $ref: '#/components/schemas/AlertRuleSpec'
+        - type: object
+          properties:
+            state:
+              $ref: '#/components/schemas/AlertState'
+            state_since:
+              type: string
+              format: date-time
+            last_value:
+              type: number
+              nullable: true
+            last_evaluated_at:
+              type: string
+              format: date-time
+              nullable: true
+            created_by:
+              type: string
+              enum: [human, ai]
+              description: Set on create and never changed; ai is a disabled draft from propose_alert_rule (migration 191).
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    ErrorMatch:
+      type: object
+      description: Every field that is set must hold (AND); at least one is required.
+      properties:
+        fingerprint:
+          type: string
+        message_regex:
+          type: string
+          maxLength: 512
+          description: RE2, tested against the message, then the sample.
+        exception_type:
+          type: string
+        endpoint:
+          type: string
+          description: '"POST /v1/charges", "/v1/orders/*", "/:version/charges".'
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+    ErrorAlertThreshold:
+      type: object
+      properties:
+        count:
+          type: integer
+          minimum: 1
+        window_seconds:
+          type: integer
+          minimum: 60
+          maximum: 604800
+    ErrorDefinitionRef:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        category:
+          type: string
+          enum: [bug, expected, dependency, infrastructure, user_error]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        action:
+          type: string
+          enum: [none, ignore, alert, incident, task]
+    ErrorDefinition:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        component_id:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        match:
+          $ref: '#/components/schemas/ErrorMatch'
+        category:
+          type: string
+          enum: [bug, expected, dependency, infrastructure, user_error]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        action:
+          type: string
+          enum: [none, ignore, alert, incident, task]
+        alert_threshold:
+          allOf:
+            - $ref: '#/components/schemas/ErrorAlertThreshold'
+          nullable: true
+        source:
+          type: string
+          enum: [human, ai, code]
+        status:
+          type: string
+          enum: [active, suggested, dismissed]
+        rationale:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+        task_id:
+          type: string
+          format: uuid
+          nullable: true
+        firing_since:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ErrorDefinitionRequest:
+      type: object
+      properties:
+        repository_id:
+          type: string
+          format: uuid
+        component_id:
+          type: string
+          description: '"" makes the definition repository-wide.'
+        name:
+          type: string
+          maxLength: 200
+        match:
+          $ref: '#/components/schemas/ErrorMatch'
+        category:
+          type: string
+          enum: [bug, expected, dependency, infrastructure, user_error]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        action:
+          type: string
+          enum: [none, ignore, alert, incident, task]
+        alert_threshold:
+          allOf:
+            - $ref: '#/components/schemas/ErrorAlertThreshold'
+          nullable: true
+        rationale:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+    AIJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [define_errors, error_catalog, map_signals]
+        repository_id:
+          type: string
+          format: uuid
+        component_id:
+          type: string
+          format: uuid
+          nullable: true
+        environment:
+          type: string
+          enum: [production, staging, preview, development]
+        status:
+          type: string
+          enum: [running, done, failed]
+        session_id:
+          type: string
+          format: uuid
+          nullable: true
+        result_summary:
+          type: string
+        error:
+          type: string
+        created:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum: [error_definition, signal_binding, alert_rule]
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              rationale:
+                type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+    AIJobStarted:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        job:
+          $ref: '#/components/schemas/AIJob'
+    ObservabilityReadiness:
+      type: object
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        environment:
+          type: string
+        role:
+          type: string
+        provider:
+          type: string
+          description: The cloud of the environment's confirmed binding, empty without one.
+        signals:
+          type: array
+          items:
+            type: object
+            properties:
+              signal:
+                type: string
+              status:
+                type: string
+                enum: [bound, suggested, unbound]
+              golden:
+                type: boolean
+        instrumentation:
+          type: object
+          additionalProperties:
+            type: boolean
+          description: otel, sentry, datadog, prometheus, posthog, crashlytics, newrelic, web_vitals.
+        suggestions:
+          type: array
+          items:
+            type: object
+            properties:
+              goal:
+                type: string
+                enum: [metrics, traces, logs, rum, crash, queues]
+              code:
+                type: string
+                enum: [golden_unbound, golden_partly_unbound, no_tracing_sdk, no_log_source, no_rum, no_crash_sdk, queues_unbound]
+    FlatError:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        matched:
+          type: integer
+          description: too_many_environments only
+        max_environments:
+          type: integer
+          description: too_many_environments only
+    SeriesPoint:
+      type: array
+      description: '[unix_ms, value]; value is null where the source answered NaN or ±Inf.'
+      minItems: 2
+      maxItems: 2
+      items:
+        type: number
+        nullable: true
+    MetricSeries:
+      type: object
+      properties:
+        name:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeriesPoint'
+    SignalBindingRequest:
+      type: object
+      required: [data_source_id]
+      properties:
+        data_source_id:
+          type: string
+          format: uuid
+        recipe_id:
+          type: string
+        params:
+          type: object
+          additionalProperties:
+            type: string
+        query:
+          type: string
+          description: A raw query in the source's language; wins over recipe_id.
+    SignalBinding:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        component_id:
+          type: string
+          format: uuid
+        environment:
+          type: string
+          enum: [production, staging, preview, development]
+        signal:
+          type: string
+        data_source_id:
+          type: string
+          format: uuid
+        data_source_name:
+          type: string
+        data_source_kind:
+          type: string
+        recipe_id:
+          type: string
+        params:
+          type: object
+          additionalProperties:
+            type: string
+        query:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, suggested, dismissed]
+        source:
+          type: string
+          enum: [detected, human, ai]
+        rendered_query:
+          type: string
+          description: The query at a 60s step; empty while needs_params is not.
+        needs_params:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ComponentSignals:
+      type: object
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+        environment:
+          type: string
+        signals:
+          type: array
+          items:
+            type: object
+            properties:
+              signal:
+                type: string
+              kind:
+                type: string
+                enum: [metric, log, trace, error]
+              unit:
+                type: string
+              golden:
+                type: boolean
+              status:
+                type: string
+                enum: [bound, suggested, unbound]
+              binding:
+                allOf:
+                  - $ref: '#/components/schemas/SignalBinding'
+                nullable: true
+              suggestions:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SignalBinding'
+        source_offers:
+          type: array
+          description: >-
+            Filled by POST …/signals/suggest only ([] otherwise): data sources
+            the detector would read the component through had one of that kind
+            existed — today a mobile component whose repository has a store
+            app linked and no google_play_vitals / app_store_metrics source.
+            POST /v1/data-sources {kind, config} creates one (its
+            store_credential must be saved first); the next detection then
+            suggests recipe_id with params.
+          items:
+            $ref: '#/components/schemas/DataSourceOffer'
+    DataSourceOffer:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [google_play_vitals, app_store_metrics]
+        config:
+          type: object
+          description: "The config to create the source with: store_credential set to the provider."
+          additionalProperties:
+            type: string
+        recipe_id:
+          type: string
+        params:
+          type: object
+          additionalProperties:
+            type: string
+        signals:
+          type: array
+          items:
+            type: string
+        store_credential:
+          type: string
+          enum: [google_play, asc]
+          description: The store credential (Settings → Integrations) the source reads.
+    OpsUnavailable:
+      type: object
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        environment_id:
+          type: string
+          format: uuid
+          description: The zero UUID for a read through a data source binding.
+        data_source_id:
+          type: string
+          format: uuid
+          description: Set for a read through a component's data source binding (logs.lines, errors.issues).
+        code:
+          type: string
+          enum: [not_connected, cloud_auth, provider_error, timeout]
+        message:
+          type: string
+    OpsErrorGroup:
+      type: object
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        repository_id:
+          type: string
+          format: uuid
+        environment_id:
+          type: string
+          format: uuid
+          description: The zero UUID for a group read through a component's errors.issues binding.
+        data_source_id:
+          type: string
+          format: uuid
+          description: Set (and environment_id zero) for a group read through a component's errors.issues binding.
+        provider:
+          type: string
+          enum: [vercel, gcp, aws, sentry]
+          description: The cloud provider, or for a group read through a data source binding its kind (sentry).
+        fingerprint:
+          type: string
+        message:
+          type: string
+        count:
+          type: integer
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+        sample:
+          type: string
+        source:
+          type: string
+        new:
+          type: boolean
+          description: The group's first occurrence falls inside the window.
+        external_url:
+          type: string
+        definition:
+          allOf:
+            - $ref: '#/components/schemas/ErrorDefinitionRef'
+          nullable: true
+          description: The active error definition the group matches (migration 191), null when none does.
+    OpsLogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        severity:
+          type: string
+          enum: [debug, info, warning, error, critical]
+        message:
+          type: string
+        source:
+          type: string
+        method:
+          type: string
+        path:
+          type: string
+        status_code:
+          type: integer
+        trace_id:
+          type: string
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+        component_id:
+          type: string
+          format: uuid
+        environment_id:
+          type: string
+          format: uuid
+          description: The zero UUID for an entry read through a data source binding.
+        data_source_id:
+          type: string
+          format: uuid
+          description: Set for an entry read through the component's logs.lines binding.
+    Span:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Hex.
+        parent_id:
+          type: string
+          description: Hex; absent on a root span.
+        service:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [internal, server, client, producer, consumer]
+        start:
+          type: string
+          format: date-time
+        duration_ms:
+          type: number
+        status:
+          type: string
+          enum: [unset, ok, error]
+        status_message:
+          type: string
+        attributes:
+          type: object
+          description: The span's attributes and its resource's, the latter prefixed resource.; values stringified, cut at 1024 characters.
+          additionalProperties:
+            type: string
+    Trace:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Lowercase hex.
+        spans:
+          type: array
+          description: By start time.
+          items:
+            $ref: '#/components/schemas/Span'
+        truncated:
+          type: boolean
+          description: The trace had more than 20 000 spans.
+    TraceSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 32 lowercase hex digits.
+        root_service:
+          type: string
+        root_name:
+          type: string
+        start:
+          type: string
+          format: date-time
+        duration_ms:
+          type: number
+        span_count:
+          type: integer
+          description: Spans the search matched, not every span of the trace.
+        error:
+          type: boolean
+          description: The trace also matches the query with { status = error }.
+    TraceView:
+      type: object
+      properties:
+        trace:
+          $ref: '#/components/schemas/Trace'
+        component_id:
+          type: string
+          format: uuid
+        data_source_id:
+          type: string
+          format: uuid
+    AlertIngestToken:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        default_env:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When an alert was last accepted with this token
     ToolPolicy:
       type: object
       properties:
@@ -767,3 +3602,481 @@ components:
           description: >-
             True while one of the task's agent runs is in status running, so a
             board can poll a task's activity only while it is moving.
+    DataSourceField:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        help:
+          type: string
+        type:
+          type: string
+          enum: [text, url, secret, select, headers, cloud_account, store_credential]
+          description: >-
+            cloud_account takes the id of a connected cloud account of the
+            field's provider; store_credential takes the provider of the
+            workspace's store credential to read (there is one per provider,
+            saved under Settings → Integrations; app_store_connect is accepted
+            for asc). Either way the kind reads that credential when it calls,
+            so the source stores none.
+        provider:
+          type: string
+          enum: [gcp, aws, vercel, google_play, asc]
+          description: >-
+            Only on a cloud_account field (the provider its account must be:
+            gcp, aws, vercel) or a store_credential field (the store
+            credential it names: google_play, asc).
+        default:
+          type: string
+          description: >-
+            The value a shown field takes when none is given (a
+            store_credential field's provider, Sentry's https://sentry.io);
+            absent when the field has none.
+        required:
+          type: boolean
+          description: Applies only while the field is shown.
+        options:
+          type: array
+          items:
+            type: string
+        placeholder:
+          type: string
+        show_when:
+          type: object
+          description: The field is shown only while every named field holds the given value.
+          additionalProperties:
+            type: string
+        secret:
+          type: boolean
+          description: Send it in secrets; it never comes back, only its key in secrets_set.
+        destination:
+          type: boolean
+          description: >-
+            Present (true) on a text field holding the host[:port] list a kind connects to
+            (Kafka's bootstrap_servers): judged by the URL policy at save, and moving it
+            re-asks for the stored secrets.
+        multiline:
+          type: boolean
+          description: >-
+            Present (true) on a field whose value spans lines (a PEM certificate, a key
+            file's JSON): give it a text area.
+    DataSourceKind:
+      type: object
+      properties:
+        kind:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [metrics, logs, traces, errors, crashes, rum, queues]
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataSourceField'
+    DataSource:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        name:
+          type: string
+        config:
+          type: object
+          additionalProperties:
+            type: string
+        secrets_set:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [ok, error, unverified]
+        status_detail:
+          type: string
+        info:
+          type: object
+          properties:
+            version:
+              type: string
+            detail:
+              type: string
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: The last successful verify.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        capabilities:
+          type: array
+          items:
+            type: string
+    DataSourceFieldErrors:
+      type: object
+      properties:
+        error:
+          type: string
+        fields:
+          type: object
+          description: >-
+            Key (a config or secret field, kind, name, secrets, query, from,
+            to, step_seconds, limit) to one of required, invalid,
+            not_permitted, unknown_field, invalid_option, too_long,
+            secrets_required, not_found, wrong_provider. not_found and
+            wrong_provider are a cloud_account field naming no connected
+            account, or another provider's, or a store_credential field
+            naming a store credential not saved, or the other store's.
+            secrets_required (key secrets) is a PATCH
+            moving a url to another scheme, host or port (or kafka's
+            bootstrap_servers to another set of hosts) without re-sending
+            every stored secret it keeps (a new value, or "" to remove).
+            kafka's bootstrap_servers is a comma-separated host[:port] list:
+            invalid when malformed, not_permitted when a host is a refused
+            literal or name (cloud metadata).
+          additionalProperties:
+            type: string
+    Signal:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [metric, log, trace, error]
+        unit:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        aggregation:
+          type: string
+          enum: [rate, ratio, quantile, gauge]
+        better:
+          type: string
+          enum: [higher, lower]
+          description: Which way the signal moves when things improve; absent, it is not judged across a deploy.
+    DeployImpact:
+      type: object
+      required: [release_id, component_id, environment, deployed_at, window_minutes, pending, verdict, computed_at, signals]
+      properties:
+        release_id:
+          type: string
+          format: uuid
+        component_id:
+          type: string
+          format: uuid
+          nullable: true
+        environment:
+          type: string
+          enum: [production]
+        deployed_at:
+          type: string
+          format: date-time
+          nullable: true
+        window_minutes:
+          type: integer
+        pending:
+          type: boolean
+        verdict:
+          $ref: '#/components/schemas/ImpactVerdict'
+        computed_at:
+          type: string
+          format: date-time
+        signals:
+          type: array
+          items:
+            $ref: '#/components/schemas/SignalImpact'
+    SignalImpact:
+      type: object
+      required: [signal, unit, before, after, after_points, baseline, delta, delta_pct, higher_is_better, verdict]
+      properties:
+        signal:
+          type: string
+        unit:
+          type: string
+        before:
+          type: number
+          nullable: true
+        after:
+          type: number
+          nullable: true
+        after_points:
+          type: integer
+          description: How many samples after averaged; a soak holds a threshold only from 5 on.
+        baseline:
+          type: number
+          nullable: true
+        delta:
+          type: number
+          nullable: true
+          description: after - before, in the signal's unit (percentage points for a ratio).
+        delta_pct:
+          type: number
+          nullable: true
+          description: delta as a percent of before; null when before is 0.
+        higher_is_better:
+          type: boolean
+        verdict:
+          $ref: '#/components/schemas/ImpactVerdict'
+    ImpactVerdict:
+      type: string
+      enum: [improved, neutral, worse, unknown]
+    Recipe:
+      type: object
+      properties:
+        id:
+          type: string
+        source_kind:
+          type: string
+        applies_to:
+          type: object
+          properties:
+            technology:
+              type: string
+            messaging_system:
+              type: string
+            resource_kind:
+              type: string
+              description: >-
+                The cloud resource kind (cloud_run_service, gke_workload,
+                ecs_service, lambda_function, …) an environment must be bound
+                to for the recipe to fit it; empty when none.
+            resource_params:
+              type: object
+              description: >-
+                Param to the field of that resource's ref that fills it: id,
+                name, region or extra.<key>.
+              additionalProperties:
+                type: string
+            store_platform:
+              type: string
+              enum: ['', ios, android]
+              description: >-
+                The store app a mobile component's repository must have linked
+                for the recipe to fit it; empty when none.
+            store_params:
+              type: object
+              description: >-
+                Param to the field of that store app that fills it:
+                identifier (bundle id / package name) or store_app_id (App
+                Store Connect's app id).
+              additionalProperties:
+                type: string
+        detect:
+          type: object
+          properties:
+            metric:
+              type: string
+        params:
+          type: array
+          items:
+            type: string
+        defaults:
+          type: object
+          description: >-
+            The value a declared param takes where a binding leaves it empty
+            (datadog-apm's metric_prefix); absent when none.
+          additionalProperties:
+            type: string
+        signals:
+          type: object
+          description: >-
+            Signal id to native query in the source kind's language; $param,
+            $__rate, $__interval and $__quantile are placeholders.
+          additionalProperties:
+            type: string
+        tables:
+          type: object
+          description: >-
+            Per-entity tables the recipe reads at an instant, by name: queues
+            (the queues view), crashes (one row per crash or error issue:
+            issue, type, cause, location, users, reports, last_version,
+            last_seen, link) and signatures (one row per diagnostic
+            signature: issue, type, cause, weight, build) for the crashes
+            view, pages, referrers, countries and devices (one row per path,
+            source, country or device: views, visitors, …) for the web view,
+            and endpoints (one row per route or transaction: rpm, error_pct,
+            p95_ms) for the endpoints view. Absent when the recipe has none.
+          additionalProperties:
+            $ref: '#/components/schemas/RecipeTable'
+        origin:
+          type: string
+          enum: [catalog, user]
+    RecipeTable:
+      type: object
+      description: >-
+        A key_labels column is filled from that label of each result row and
+        identifies the row; every other column is the value its own query in
+        queries answers (the file may write query for a table with one value
+        column, or for a crashes, signatures, web or endpoints table one
+        query for every column, its kind answering them by name). Rows of all queries are
+        joined on the key labels' values.
+      properties:
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableColumn'
+        key_labels:
+          type: array
+          items:
+            type: string
+        queries:
+          type: object
+          additionalProperties:
+            type: string
+    TableColumn:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+    QueueTable:
+      type: object
+      properties:
+        signal_binding_id:
+          type: string
+          format: uuid
+          description: The first binding, in catalog order, of those reading this table.
+        signal:
+          type: string
+          description: That binding's signal.
+        data_source_id:
+          type: string
+          format: uuid
+        data_source_name:
+          type: string
+        recipe_id:
+          type: string
+          description: Empty for a broker kind's own query.
+        messaging_system:
+          type: string
+          description: >-
+            The recipe's applies_to.messaging_system, or the broker kind
+            (kafka, rabbitmq, nats).
+        params:
+          type: object
+          description: The params the table read (for a recipe table, only those its queries use).
+          additionalProperties:
+            type: string
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableColumn'
+        rows:
+          type: array
+          description: >-
+            One object per row keyed by column key: a string, a number, or
+            null where the source had no value.
+          items:
+            type: object
+            additionalProperties: true
+        key_columns:
+          type: array
+          description: >-
+            The columns that name a row (a recipe table's key_labels, a broker kind's own);
+            absent when unknown.
+          items:
+            type: string
+        truncated:
+          type: boolean
+          description: >-
+            More than 500 rows; the 500 with the largest first value column are shown, in key
+            order.
+        error:
+          type: object
+          nullable: true
+          properties:
+            code:
+              type: string
+              enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+            message:
+              type: string
+    ComponentTables:
+      type: object
+      description: GET /v1/components/{id}/endpoints, …/web and …/crashes.
+      properties:
+        component_id:
+          type: string
+          format: uuid
+        environment:
+          type: string
+        read_at:
+          type: string
+          format: date-time
+          description: When the tables were read; a cached answer is older than the request.
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentTable'
+    ComponentTable:
+      type: object
+      properties:
+        signal_binding_id:
+          type: string
+          format: uuid
+          description: The first binding, in catalog order, of those reading this table.
+        signal:
+          type: string
+          description: That binding's signal.
+        data_source_id:
+          type: string
+          format: uuid
+        data_source_name:
+          type: string
+        recipe_id:
+          type: string
+        table:
+          type: string
+          enum: [endpoints, pages, referrers, countries, devices, crashes, signatures]
+        params:
+          type: object
+          description: The params the table read (only those its queries use, defaults filled in).
+          additionalProperties:
+            type: string
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableColumn'
+        rows:
+          type: array
+          description: >-
+            One object per row keyed by column key: a string, a number, or
+            null where the source had no value.
+          items:
+            type: object
+            additionalProperties: true
+        key_columns:
+          type: array
+          description: The columns that name a row (the recipe table's key_labels).
+          items:
+            type: string
+        truncated:
+          type: boolean
+          description: The source held more rows than were returned (at most 500).
+        error:
+          type: object
+          nullable: true
+          properties:
+            code:
+              type: string
+              enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+            message:
+              type: string

@@ -17,6 +17,13 @@ type ReleaseAttributor interface {
 	HealthWindow() time.Duration
 }
 
+// IncidentAttributor is a ReleaseAttributor that reads the incident itself:
+// a component its payload names narrows which releases may be blamed, so a
+// monorepo part's alert is never pinned on another part's deploy.
+type IncidentAttributor interface {
+	AttributeIncident(ctx context.Context, incident domain.Incident, onset time.Time) (domain.ReleaseAttribution, bool)
+}
+
 type ReleaseRollbackDispatcher interface {
 	DispatchReleaseRollback(ctx context.Context, attribution domain.ReleaseAttribution, incident domain.Incident, autoRollback bool) error
 }
@@ -33,7 +40,13 @@ func (s *Service) attributeAndMaybeRollBack(ctx context.Context, incident domain
 	if onset.IsZero() {
 		onset = incident.LastSeenAt
 	}
-	attribution, ok := s.attributor.AttributeRelease(ctx, incident.RepositoryID, incident.Env, onset)
+	var attribution domain.ReleaseAttribution
+	var ok bool
+	if ia, isIncident := s.attributor.(IncidentAttributor); isIncident {
+		attribution, ok = ia.AttributeIncident(ctx, incident, onset)
+	} else {
+		attribution, ok = s.attributor.AttributeRelease(ctx, incident.RepositoryID, incident.Env, onset)
+	}
 	if !ok {
 		return incident
 	}

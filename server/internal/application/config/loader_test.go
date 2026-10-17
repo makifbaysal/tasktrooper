@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/config"
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
 type ConfigLoaderSuite struct {
@@ -127,6 +128,12 @@ func (s *ConfigLoaderSuite) TestFileNotFoundFallsBackToTheEmbeddedConfig() {
 	cfg, err := config.Load("/nonexistent/path/config.yml")
 	s.Require().NoError(err)
 	s.Equal(8085, cfg.Server.Port)
+}
+
+func (s *ConfigLoaderSuite) TestTheEmbeddedConfigBoundsAlertIngestTokens() {
+	cfg, err := config.Load("/nonexistent/path/config.yml")
+	s.Require().NoError(err)
+	s.Equal(domain.AlertIngestLimits{RequestsPerMinute: 60, Burst: 10, NewIncidentsPerHour: 20}, cfg.ProdOps.AlertIngest)
 }
 
 func (s *ConfigLoaderSuite) TestToolsConfigWithoutMCPServers() {

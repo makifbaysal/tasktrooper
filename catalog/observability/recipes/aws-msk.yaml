@@ -1,0 +1,40 @@
+# A consumer group of an Amazon MSK (Kafka) cluster, from CloudWatch's
+# AWS/Kafka consumer-lag metrics, which MSK publishes at the default
+# monitoring level. cluster is the cluster's name, group the consumer group,
+# topic the topic it reads; none comes from a cloud resource ref. The queues
+# table is per topic: the per-partition OffsetLag needs the
+# PER_TOPIC_PER_PARTITION level, and a CloudWatch read names one dimension
+# set, so it cannot list a topic's partitions.
+id: aws-msk
+source_kind: aws_cloudwatch
+applies_to:
+  technology: kafka
+  messaging_system: kafka
+detect:
+  metric: AWS/Kafka/SumOffsetLag
+params: [cluster, group, topic]
+signals:
+  queue.backlog: >-
+    {"namespace": "AWS/Kafka", "metric": "SumOffsetLag", "stat": "Maximum",
+     "dimensions": {"Cluster Name": "$cluster", "Consumer Group": "$group", "Topic": "$topic"}}
+  queue.backlog_age: >-
+    {"namespace": "AWS/Kafka", "metric": "EstimatedMaxTimeLag", "stat": "Maximum",
+     "dimensions": {"Cluster Name": "$cluster", "Consumer Group": "$group", "Topic": "$topic"}}
+tables:
+  queues:
+    key_labels: [Topic]
+    columns:
+      - {key: Topic, label: Topic}
+      - {key: sum_lag, label: Lag, unit: messages}
+      - {key: max_lag, label: Worst partition, unit: messages}
+      - {key: time_lag, label: Time to drain, unit: s}
+    queries:
+      sum_lag: >-
+        {"namespace": "AWS/Kafka", "metric": "SumOffsetLag", "stat": "Maximum",
+         "dimensions": {"Cluster Name": "$cluster", "Consumer Group": "$group", "Topic": "$topic"}}
+      max_lag: >-
+        {"namespace": "AWS/Kafka", "metric": "MaxOffsetLag", "stat": "Maximum",
+         "dimensions": {"Cluster Name": "$cluster", "Consumer Group": "$group", "Topic": "$topic"}}
+      time_lag: >-
+        {"namespace": "AWS/Kafka", "metric": "EstimatedMaxTimeLag", "stat": "Maximum",
+         "dimensions": {"Cluster Name": "$cluster", "Consumer Group": "$group", "Topic": "$topic"}}

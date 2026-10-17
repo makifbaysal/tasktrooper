@@ -603,7 +603,8 @@ export interface StoreAppListing {
 
 export type StoreChannel = "internal" | "external" | "production";
 
-export type TrackStatus = "none" | "draft" | "in_review" | "rolling_out" | "halted" | "live";
+// "approved" is App Store only: cleared review, waiting for someone to release it.
+export type TrackStatus = "none" | "draft" | "in_review" | "approved" | "rolling_out" | "halted" | "live";
 
 // has_release false means the channel is empty and every other field is
 // meaningless — which is why it is stated, not inferred from a blank version.
@@ -765,6 +766,9 @@ export interface Incident {
   payload?: Record<string, unknown>;
   remedy?: string;
   remedy_kind?: string;
+  /** Who wrote the current proposal: "auto_triage" (the rules engine's
+   * first pass), "agent" or "human"; absent when unknown. */
+  remedy_author?: string;
   confidence: number;
   occurrences: number;
   task_id?: string;
@@ -774,7 +778,51 @@ export interface Incident {
   events?: IncidentEvent[];
 }
 
-export type RepoKind = "backend" | "frontend" | "mobile" | "worker" | "data" | "game" | "monorepo";
+export type IncidentRemedyKind = "rollback" | "code_fix" | "config" | "dependency" | "capacity" | "unknown";
+
+export const INCIDENT_REMEDY_KINDS: IncidentRemedyKind[] = ["rollback", "code_fix", "config", "dependency", "capacity", "unknown"];
+
+/** POST /v1/incidents/{id}/remedy's body: a proposal written by hand. The
+ * server records its author as "human" when none is sent, which keeps the
+ * next recurrence's machine triage from overwriting it. */
+export interface IncidentRemedyInput {
+  kind: IncidentRemedyKind;
+  summary: string;
+  steps?: string[];
+  evidence?: string[];
+  /** 0–100. */
+  confidence: number;
+  rollback?: boolean;
+}
+
+/** An alert connection as listed: the server keeps only the token's hash, so
+ * no read ever carries the token. `last_used_at` is null until an alert lands. */
+export interface AlertToken {
+  id: string;
+  label: string;
+  default_env: DeployEnv;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface AlertTokenInput {
+  label: string;
+  /** The server uses `prod` when it is left out. */
+  default_env?: DeployEnv;
+}
+
+/** POST /v1/repositories/{id}/alert-tokens's answer — the only one that holds
+ * the plaintext `token`; `ingest_path` is `/v1/alerts/ingest/<token>`. */
+export interface CreatedAlertToken {
+  id: string;
+  label: string;
+  default_env: DeployEnv;
+  created_at: string;
+  token: string;
+  ingest_path: string;
+}
+
+export type RepoKind ="backend" | "frontend" | "mobile" | "worker" | "data" | "game" | "monorepo";
 export type SubRepoKind = "backend" | "frontend" | "mobile" | "worker" | "data" | "game";
 export type MobilePlatform = "" | "ios" | "android" | "cross_platform";
 /** One sub-project inside a monorepo: where it lives and what it is. See
@@ -2351,13 +2399,28 @@ function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 0): Promis
 export class ApiError extends Error {
   readonly status: number;
   readonly type: string;
+  readonly fields?: Record<string, string>;
+  /** The whole JSON error body, for a coded error that carries more than a
+   * message (too_many_environments' `matched` / `max_environments`). */
+  readonly details?: Record<string, unknown>;
 
-  constructor(message: string, status: number, type = "") {
+  constructor(message: string, status: number, type = "", fields?: Record<string, string>, details?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.type = type;
+    this.fields = fields;
+    this.details = details;
   }
+}
+
+function stringMap(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 // Every non-2xx carries a JSON error body: {"error": {"message": "...", "type": "..."}}.
@@ -2367,11 +2430,16 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   const text = await res.text();
   let message = text;
   let type = "";
+  let fields: Record<string, string> | undefined;
+  let details: Record<string, unknown> | undefined;
   try {
     const parsed = JSON.parse(text) as {
       error?: string | { message?: string; type?: string };
       code?: string;
+      fields?: unknown;
     };
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) details = parsed as Record<string, unknown>;
+    fields = stringMap(parsed.fields);
     if (typeof parsed.error === "string") {
       message = parsed.error;
     } else {
@@ -2384,7 +2452,7 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   } catch {
     /* keep text */
   }
-  return new ApiError(message || `HTTP ${res.status}`, res.status, type);
+  return new ApiError(message || `HTTP ${res.status}`, res.status, type, fields, details);
 }
 
 /** A cloud account's provider rejected the stored credential — the UI says
@@ -2398,7 +2466,7 @@ export function isOAuthClientRequiredError(e: unknown): boolean {
   return e instanceof ApiError && e.status === 400 && e.type === "oauth_client_required";
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, deadlineMs?: number): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
   };
@@ -2406,7 +2474,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
   const method = (init.method ?? "GET").toUpperCase();
-  const timeoutMs = method === "GET" || method === "HEAD" ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS;
+  const timeoutMs = deadlineMs ?? (method === "GET" || method === "HEAD" ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetchWithTimeout(apiUrl(path), { ...init, headers: authHeaders(headers) }, timeoutMs);
@@ -2665,6 +2733,9 @@ export const DELIVERY_EXECUTORS: DeliveryExecutor[] = ["github_actions", "vercel
 
 export const DEFAULT_SOAK_MINUTES = 10;
 export const MAX_SOAK_MINUTES = 120;
+/** domain.MaxErrorRateDeltaLimit (percentage points) and MaxP95DeltaPctLimit (percent). */
+export const MAX_ERROR_RATE_DELTA = 100;
+export const MAX_P95_DELTA_PCT = 1000;
 export const MAX_SMOKE_CHECKS = 20;
 export const MAX_SMOKE_LATENCY_MS = 10000;
 
@@ -2690,6 +2761,12 @@ export interface DeliveryVerify {
   soak_minutes?: number;
   /** How many new runtime error groups are tolerated before the soak stops early. */
   max_new_errors?: number;
+  /** How far http.error_ratio may rise across the deploy, in percentage
+   * points (≤ 100); absent or 0 leaves it unchecked. */
+  max_error_rate_delta?: number;
+  /** How far http.latency's p95 may rise across the deploy, in percent
+   * (≤ 1000); absent or 0 leaves it unchecked. */
+  max_p95_delta_pct?: number;
   smoke?: SmokeCheck[];
 }
 
@@ -3225,6 +3302,765 @@ export interface NewLinkRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Observability data sources, signals and recipes. Mirrors
+// server/internal/domain/datasource.go and observability.go's JSON tags.
+// ---------------------------------------------------------------------------
+
+export type DataSourceCapability = "metrics" | "logs" | "traces" | "errors" | "crashes" | "rum" | "queues";
+
+export type DataSourceFieldType = "text" | "url" | "secret" | "select" | "headers" | "cloud_account" | "store_credential";
+
+/** One entry of a kind's config form. `show_when` shows the field only while
+ * every named field holds the given value; `required` applies only then. A
+ * `secret` field (and every `secret`/`headers` type) goes in `secrets`. A
+ * `cloud_account` field holds the id of a connected cloud account of
+ * `provider`; a `store_credential` field names the workspace's store
+ * credential of `provider` (`google_play`, `asc`), and its value is that
+ * provider. `default` is what a shown field takes when none is sent. */
+export interface DataSourceField {
+  key: string;
+  label: string;
+  help: string;
+  type: DataSourceFieldType;
+  required: boolean;
+  options: string[];
+  placeholder: string;
+  show_when: Record<string, string>;
+  secret: boolean;
+  provider?: CloudProviderKind | StoreCredentialProvider;
+  default?: string;
+}
+
+export interface DataSourceKindInfo {
+  kind: string;
+  label: string;
+  description: string;
+  capabilities: DataSourceCapability[];
+  fields: DataSourceField[];
+}
+
+export type DataSourceStatus = "ok" | "error" | "unverified";
+
+/** A secret value never round-trips: only its key, in `secrets_set`. */
+export interface DataSource {
+  id: string;
+  kind: string;
+  name: string;
+  config: Record<string, string>;
+  secrets_set: string[];
+  status: DataSourceStatus;
+  status_detail: string;
+  info: { version: string; detail: string };
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+  capabilities: DataSourceCapability[];
+}
+
+export interface SaveDataSourceRequest {
+  kind: string;
+  name?: string;
+  config: Record<string, string>;
+  secrets: Record<string, string>;
+}
+
+/** A key given replaces its value, "" removes it, a key left out is kept. */
+export interface PatchDataSourceRequest {
+  name?: string;
+  config?: Record<string, string>;
+  secrets?: Record<string, string>;
+}
+
+export interface DataSourceRecipeMatch {
+  recipe_id: string;
+  matched_metric: string;
+}
+
+export interface DataSourceDiscovery {
+  metrics: string[];
+  truncated: boolean;
+  recipes: DataSourceRecipeMatch[];
+}
+
+export type MetricPoint = [number, number | null];
+
+export interface MetricSeries {
+  name: string;
+  labels: Record<string, string>;
+  points: MetricPoint[];
+}
+
+export interface MetricQueryResult {
+  series: MetricSeries[];
+  warnings: string[];
+}
+
+/** from/to are RFC3339; step_seconds 0 lets the server pick (~600 points). */
+export interface MetricQueryRequest {
+  query: string;
+  from: string;
+  to: string;
+  step_seconds?: number;
+}
+
+export type SignalKind = "metric" | "log" | "trace" | "error";
+
+export type SignalAggregation = "rate" | "ratio" | "quantile" | "gauge";
+
+export interface ObservabilitySignal {
+  id: string;
+  kind: SignalKind;
+  unit: string;
+  roles: ComponentRole[];
+  aggregation: SignalAggregation;
+  /** Which way the signal moves when things improve; absent, it is not judged. */
+  better?: "higher" | "lower";
+}
+
+export interface ObservabilityRecipe {
+  id: string;
+  source_kind: string;
+  /** `resource_kind`: the cloud resource an environment must run on for the
+   * recipe to fit; `resource_params`: param → the resource ref field filling it. */
+  applies_to: {
+    technology: string;
+    messaging_system: string;
+    resource_kind: string;
+    resource_params: Record<string, string>;
+    /** The linked store app's platform (`ios`, `android`) the recipe reads. */
+    store_platform?: string;
+    store_params?: Record<string, string>;
+  };
+  detect: { metric: string };
+  params: string[] | null;
+  /** A param's value when a binding leaves it empty (Datadog's `metric_prefix`). */
+  defaults?: Record<string, string>;
+  signals: Record<string, string>;
+  /** Instant per-entity tables by name: `queues` (Queues), `crashes` and
+   * `signatures` (Crashes), `endpoints` (Endpoints), `pages`, `referrers`,
+   * `countries`, `devices` (Pages). */
+  tables?: Partial<Record<string, RecipeTable>>;
+  origin: "catalog" | "user";
+}
+
+/** A column of a table answer. `unit` is a signal catalog unit
+ * (`messages`, `msg/s`, `s`, `count`, …) or "" for a label column. */
+export interface TableColumn {
+  key: string;
+  label: string;
+  unit: string;
+}
+
+export interface RecipeTable {
+  columns: TableColumn[];
+  key_labels: string[];
+  queries: Record<string, string>;
+}
+
+// Signal bindings: which data source (and recipe, or query of its own) feeds
+// one signal of one component in one environment.
+
+export type SignalBindingStatus = "confirmed" | "suggested" | "dismissed";
+
+export type SignalBindingSource = "detected" | "human" | "ai";
+
+export interface SignalBinding {
+  id: string;
+  component_id: string;
+  environment: DeployEnvironment;
+  signal: string;
+  data_source_id: string;
+  data_source_name: string;
+  data_source_kind: string;
+  recipe_id: string;
+  params: Record<string, string>;
+  query: string;
+  status: SignalBindingStatus;
+  source: SignalBindingSource;
+  rendered_query: string;
+  /** Recipe params a suggestion could not fill on its own. */
+  needs_params: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type ComponentSignalStatus = "bound" | "suggested" | "unbound";
+
+export interface ComponentSignal {
+  signal: string;
+  kind: SignalKind;
+  unit: string;
+  golden: boolean;
+  status: ComponentSignalStatus;
+  binding: SignalBinding | null;
+  suggestions: SignalBinding[];
+}
+
+/** A data source the detector would read the component through had one of
+ * `kind` existed: `POST /v1/data-sources {kind, config}` creates it (a store
+ * kind's credential must be saved first), and the next suggest offers
+ * `recipe_id` for `signals` with `params`. */
+export interface DataSourceOffer {
+  kind: string;
+  config: Record<string, string>;
+  recipe_id: string;
+  params: Record<string, string>;
+  signals: string[];
+  /** The workspace store credential the source reads (`google_play`, `asc`). */
+  store_credential?: string;
+}
+
+export interface ComponentSignals {
+  component_id: string;
+  role: ComponentRole;
+  environment: DeployEnvironment;
+  signals: ComponentSignal[];
+  /** Filled by a suggest only; `[]` (or absent) on every other answer. */
+  source_offers?: DataSourceOffer[];
+}
+
+/** A recipe with its params, or a query of the source's own language. */
+export interface SaveSignalBindingRequest {
+  data_source_id: string;
+  recipe_id?: string;
+  params?: Record<string, string>;
+  query?: string;
+}
+
+/** from/to are RFC3339. */
+export interface SignalPreviewRequest extends SaveSignalBindingRequest {
+  signal: string;
+  from: string;
+  to: string;
+  step_seconds?: number;
+}
+
+export interface SignalPreview {
+  rendered_query: string;
+  series: MetricSeries[];
+  warnings: string[];
+}
+
+export interface SignalSeriesError {
+  code: string;
+  message: string;
+}
+
+/** One signal's window. `previous` is the period before, already shifted onto
+ * this window's time axis; `http.latency` answers one series per quantile
+ * (`p50`, `p95`, `p99`). */
+export interface SignalSeries {
+  signal: string;
+  unit: string;
+  bound: boolean;
+  series: MetricSeries[];
+  previous: MetricSeries[];
+  error: SignalSeriesError | null;
+  /** Why `previous` is empty although compare was asked; the window's own
+   * series still stand. */
+  previous_error?: SignalSeriesError | null;
+}
+
+export interface ComponentSeries {
+  from: string;
+  to: string;
+  step_seconds: number;
+  signals: SignalSeries[];
+}
+
+export interface ComponentSeriesQuery {
+  env: DeployEnvironment;
+  signals: string[];
+  from: number;
+  to: number;
+  stepSeconds?: number;
+  compare?: boolean;
+}
+
+export interface GoldenSignalValue {
+  signal: string;
+  unit: string;
+  /** False when the signal has no confirmed binding; nulls then mean
+   * "unbound", not "no data". Absent from a server older than the flag. */
+  bound?: boolean;
+  value: number | null;
+  previous: number | null;
+  spark: MetricPoint[];
+}
+
+export interface GoldenComponent {
+  component_id: string;
+  signals: GoldenSignalValue[];
+}
+
+export interface OpsGolden {
+  generated_at: string;
+  components: GoldenComponent[];
+}
+
+export interface OpsGoldenQuery {
+  env: DeployEnvironment;
+  from: number;
+  to: number;
+  componentIds?: string[];
+}
+
+/** `needs_params`, `bad_query`, `unsupported`, `upstream`, `timeout`,
+ * `not_found` (the source is gone) or `error`; an unknown code reads as `error`. */
+export type QueueTableErrorCode = "needs_params" | "bad_query" | "unsupported" | "upstream" | "timeout" | "not_found" | "error";
+
+/** One table of GET /v1/components/{id}/queues: what one data source holds,
+ * right now, for the queues, partitions or consumers a confirmed `queue.*`
+ * binding reads. `signal_binding_id` is the first such binding in signal
+ * catalog order; `params` the ones the table read with. A failed table has
+ * `error` and no rows; the others stand. */
+export interface QueueTable {
+  signal_binding_id: string;
+  data_source_id: string;
+  data_source_name: string;
+  recipe_id: string;
+  /** The recipe's `applies_to.messaging_system`, else the broker kind. */
+  messaging_system: string;
+  params: Record<string, string>;
+  columns: TableColumn[];
+  rows: Array<Record<string, string | number | null>>;
+  truncated: boolean;
+  error: { code: QueueTableErrorCode | string; message: string } | null;
+}
+
+export interface ComponentQueues {
+  component_id: string;
+  environment: DeployEnvironment;
+  queues: QueueTable[];
+}
+
+/** The web tables GET /v1/components/{id}/web reads, one per request. */
+export type WebTableName = "pages" | "referrers" | "countries" | "devices";
+
+export const WEB_TABLES: WebTableName[] = ["pages", "referrers", "countries", "devices"];
+
+/** One recipe table a component's confirmed bindings read, as it is now:
+ * GET /v1/components/{id}/endpoints (`endpoints`, from `http.*` bindings),
+ * …/web (`pages`, `referrers`, `countries` or `devices`, from `web.*`),
+ * …/crashes (`crashes`, `signatures`, from `mobile.*` and `errors.issues`).
+ * `signal_binding_id` is the first binding, in catalog order, of those that
+ * read the table; `params` the ones it read with. A failed table has `error`
+ * (as QueueTableErrorCode) and no rows; the others stand. */
+export interface ComponentTable {
+  signal_binding_id?: string;
+  data_source_id: string;
+  data_source_name: string;
+  recipe_id: string;
+  table: string;
+  params?: Record<string, string>;
+  columns: TableColumn[];
+  rows: Array<Record<string, string | number | null>>;
+  truncated: boolean;
+  error: { code: QueueTableErrorCode | string; message: string } | null;
+}
+
+export interface ComponentTables {
+  component_id: string;
+  environment: DeployEnvironment;
+  tables: ComponentTable[];
+}
+
+// Traces, read through a component's confirmed `traces.spans` binding.
+// Mirrors server/internal/domain/logs_traces.go's JSON tags.
+
+export type SpanStatus = "unset" | "ok" | "error";
+
+/** One operation of a trace. `attributes` hold the span's own and its
+ * resource's, the latter prefixed `resource.`. */
+export interface TraceSpan {
+  id: string;
+  parent_id?: string;
+  service: string;
+  name: string;
+  kind?: string;
+  start: string;
+  duration_ms: number;
+  status: SpanStatus;
+  status_message?: string;
+  attributes: Record<string, string> | null;
+}
+
+/** Every span a source holds for one trace id, by start time. */
+export interface Trace {
+  id: string;
+  spans: TraceSpan[];
+  truncated: boolean;
+}
+
+/** One row of a trace search; `span_count` is the spans the search matched. */
+export interface TraceSummary {
+  id: string;
+  root_service: string;
+  root_name: string;
+  start: string;
+  duration_ms: number;
+  span_count: number;
+  error: boolean;
+}
+
+/** `bound: false` → no confirmed traces.spans binding; `error` is why the
+ * binding could not be read (as a series `error.code`), with no traces. */
+export interface ComponentTraces {
+  component_id: string;
+  environment: DeployEnvironment;
+  bound: boolean;
+  data_source_id: string | null;
+  traces: TraceSummary[];
+  error: SignalSeriesError | null;
+}
+
+export interface TraceView {
+  trace: Trace;
+  component_id: string;
+  data_source_id: string;
+}
+
+/** since/until unix ms; at most 7 days apart. `limit` 1–100 (default 20). */
+export interface ComponentTracesQuery {
+  env: DeployEnvironment;
+  since?: number;
+  until?: number;
+  minDurationMs?: number;
+  limit?: number;
+}
+
+export const OPS_TRACES_MAX_WINDOW_MS = 7 * 24 * 3_600_000;
+
+export const OPS_TRACES_MAX_LIMIT = 100;
+
+// ---------------------------------------------------------------------------
+// Alert rules (migration 189): a condition over one of a component's signals,
+// or over a data source query of its own, that the server evaluates on a
+// schedule. Mirrors server/internal/domain/alert_rule.go's JSON tags.
+// ---------------------------------------------------------------------------
+
+/** `gt`/`lt` compare the value with the threshold in the signal's unit;
+ * `change_pct_*` the change against one window earlier, in percent;
+ * `rising` holds while the value is above the threshold and higher than one
+ * window earlier; `no_data` while the rule reads nothing (no threshold). */
+export type AlertRuleOp = "gt" | "lt" | "change_pct_gt" | "change_pct_lt" | "rising" | "no_data";
+
+export const ALERT_RULE_OPS: AlertRuleOp[] = ["gt", "lt", "change_pct_gt", "change_pct_lt", "rising", "no_data"];
+
+export type AlertRuleState = "ok" | "pending" | "firing" | "no_data";
+
+export const ALERT_RULE_STATES: AlertRuleState[] = ["firing", "pending", "no_data", "ok"];
+
+/** domain.NotificationChannelKind: only `desktop` delivers in v1; the rest are
+ * reserved names the server already accepts. */
+export type AlertChannelKind = "desktop" | "in_app" | "ios_push" | "slack" | "email" | "webhook";
+
+export const ALERT_CHANNEL_KINDS: AlertChannelKind[] = ["desktop", "in_app", "ios_push", "slack", "email", "webhook"];
+
+/** What a new rule starts with until GET /v1/notification-channels answers. */
+export const ALERT_CHANNELS_AVAILABLE: AlertChannelKind[] = ["desktop"];
+
+/** GET /v1/notification-channels: every channel kind and whether it delivers here. */
+export interface NotificationChannelInfo {
+  kind: string;
+  available: boolean;
+}
+
+export interface AlertRuleCondition {
+  op: AlertRuleOp;
+  threshold: number;
+  /** How long the condition has to hold before the rule fires; 0 fires at once. */
+  for_seconds: number;
+  /** The span each evaluation reads (and a change is measured over). */
+  window_seconds: number;
+}
+
+export interface AlertRule {
+  id: string;
+  name: string;
+  component_id: string;
+  environment: DeployEnvironment;
+  /** A catalog signal read through the environment's confirmed binding;
+   * empty with a custom query on `data_source_id`. Never both. */
+  signal: string;
+  data_source_id?: string | null;
+  query?: string;
+  condition: AlertRuleCondition;
+  severity: IncidentSeverity;
+  channels: AlertChannelKind[];
+  open_incident: boolean;
+  enabled: boolean;
+  state: AlertRuleState;
+  state_since: string;
+  last_value?: number | null;
+  last_evaluated_at?: string | null;
+  /** `ai`: proposed by the release engineer's signal job, saved disabled. */
+  created_by?: "human" | "ai";
+  created_at: string;
+  updated_at: string;
+}
+
+export type AlertRuleInput = Pick<
+  AlertRule,
+  "name" | "component_id" | "environment" | "signal" | "data_source_id" | "query" | "condition" | "severity" | "channels" | "open_incident" | "enabled"
+>;
+
+/** A rule POST /v1/alert-rules/suggest proposes: never saved, so no id or state yet. */
+export type AlertRuleSuggestion = AlertRuleInput & Partial<Pick<AlertRule, "state" | "created_at" | "updated_at">>;
+
+/** One state change; `incident_id` is the issue its firing opened or its
+ * recovery resolved. */
+export interface AlertRuleEvent {
+  at: string;
+  from_state: AlertRuleState;
+  to_state: AlertRuleState;
+  value?: number | null;
+  incident_id?: string | null;
+}
+
+export interface AlertBacktestRequest extends AlertRuleInput {
+  /** 1–14. */
+  days: number;
+}
+
+export interface AlertBacktestFire {
+  start: string;
+  /** Absent while the condition still held at the end of the span. */
+  end?: string | null;
+  peak?: number | null;
+}
+
+export interface AlertBacktest {
+  fires: AlertBacktestFire[];
+  series: Array<{ name: string; points: MetricPoint[] }>;
+  step_seconds: number;
+}
+
+// ---------------------------------------------------------------------------
+// Error definitions and AI suggestions (migration 191): what one kind of
+// runtime error means and what it sets off, the release engineer's
+// suggestion jobs, and a component's observability readiness. Mirrors
+// server/internal/domain/error_definition.go, ai_job.go and
+// observability_readiness.go.
+// ---------------------------------------------------------------------------
+
+export type ErrorCategory = "bug" | "expected" | "dependency" | "infrastructure" | "user_error";
+
+export const ERROR_CATEGORIES: ErrorCategory[] = ["bug", "expected", "dependency", "infrastructure", "user_error"];
+
+/** `ignore` hides matching groups from the Errors inbox; `alert`/`incident`
+ * open an issue past the threshold; `task` opens one board task per group. */
+export type ErrorAction = "none" | "ignore" | "alert" | "incident" | "task";
+
+export const ERROR_ACTIONS: ErrorAction[] = ["none", "ignore", "alert", "incident", "task"];
+
+export type ErrorDefinitionSource = "human" | "ai" | "code";
+
+export type ErrorDefinitionStatus = "active" | "suggested" | "dismissed";
+
+export const ERROR_DEFINITION_STATUSES: ErrorDefinitionStatus[] = ["active", "suggested", "dismissed"];
+
+/** Every field that is set must hold. `message_regex` is RE2. */
+export interface ErrorMatch {
+  fingerprint?: string;
+  message_regex?: string;
+  exception_type?: string;
+  /** `METHOD /path`; a trailing `*`, a `*`, `:id` or `{id}` segment are wildcards. */
+  endpoint?: string;
+  status?: number;
+  attributes?: Record<string, string>;
+}
+
+export interface ErrorAlertThreshold {
+  count: number;
+  window_seconds: number;
+}
+
+export interface ErrorDefinition {
+  id: string;
+  repository_id: string;
+  /** null covers every component of the repository. */
+  component_id: string | null;
+  name: string;
+  match: ErrorMatch;
+  category: ErrorCategory;
+  severity: IncidentSeverity;
+  action: ErrorAction;
+  alert_threshold: ErrorAlertThreshold | null;
+  source: ErrorDefinitionSource;
+  status: ErrorDefinitionStatus;
+  rationale: string;
+  evidence: string[] | null;
+  task_id: string | null;
+  firing_since: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** POST takes `repository_id` and `name`, `match`, `category`; PATCH any of
+ * them (absent keeps; `component_id: ""` makes it repository-wide,
+ * `alert_threshold: null` clears it). */
+export interface ErrorDefinitionInput {
+  repository_id?: string;
+  component_id?: string;
+  name?: string;
+  match?: ErrorMatch;
+  category?: ErrorCategory;
+  severity?: IncidentSeverity;
+  action?: ErrorAction;
+  alert_threshold?: ErrorAlertThreshold | null;
+  rationale?: string;
+  evidence?: string[];
+}
+
+/** The active definition an error group matches, as the inbox shows it. */
+export type ErrorDefinitionRef = Pick<ErrorDefinition, "id" | "name" | "category" | "severity" | "action">;
+
+export type AIJobKind = "define_errors" | "error_catalog" | "map_signals";
+
+export type AIJobStatus = "running" | "done" | "failed";
+
+export interface AIJobItem {
+  kind: "error_definition" | "signal_binding" | "alert_rule";
+  id: string;
+  name: string;
+  rationale?: string;
+}
+
+/** One chat turn with the release engineer; `created` lists only what was newly stored. */
+export interface AIJob {
+  id: string;
+  kind: AIJobKind;
+  repository_id: string;
+  component_id: string | null;
+  environment: DeployEnvironment;
+  status: AIJobStatus;
+  session_id: string | null;
+  result_summary: string;
+  error: string;
+  created: AIJobItem[] | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+/** A running job of the same kind and scope is answered instead of a new one. */
+export interface AIJobStarted {
+  job_id: string;
+  job: AIJob;
+}
+
+export type ErrorSuggestMode = "errors" | "code";
+
+export interface ErrorSuggestRequest {
+  repository_id: string;
+  component_id?: string;
+  environment?: DeployEnvironment;
+  mode?: ErrorSuggestMode;
+}
+
+/** The error-definition and AI-job routes' coded refusals: 409 when no
+ * enabled agent holds the release role for the component's area, 503 when
+ * the server has no chat sessions or no board. */
+export type AIJobRefusal = "no_release_engineer" | "unavailable";
+
+export function aiJobRefusal(e: unknown): AIJobRefusal | null {
+  if (!(e instanceof ApiError)) return null;
+  if (e.status === 409 && e.type === "no_release_engineer") return "no_release_engineer";
+  if (e.status === 503 && e.type === "unavailable") return "unavailable";
+  return null;
+}
+
+/** Accept/dismiss of a definition that is not a suggestion. */
+export function isNotSuggestedError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 && e.type === "not_suggested";
+}
+
+export type ObservabilityGoal = "metrics" | "traces" | "logs" | "rum" | "crash" | "queues";
+
+export const OBSERVABILITY_GOALS: ObservabilityGoal[] = ["metrics", "traces", "logs", "rum", "crash", "queues"];
+
+export type ObservabilityTarget = "own_cloud" | "self_hosted" | "otlp_endpoint";
+
+export const OBSERVABILITY_TARGETS: ObservabilityTarget[] = ["own_cloud", "self_hosted", "otlp_endpoint"];
+
+export type ObservabilityInstrumentation =
+  | "otel"
+  | "sentry"
+  | "datadog"
+  | "prometheus"
+  | "posthog"
+  | "crashlytics"
+  | "newrelic"
+  | "web_vitals";
+
+export const OBSERVABILITY_INSTRUMENTATION: ObservabilityInstrumentation[] = [
+  "otel",
+  "sentry",
+  "datadog",
+  "prometheus",
+  "posthog",
+  "crashlytics",
+  "newrelic",
+  "web_vitals",
+];
+
+/** A gap the readiness read found; the UI words the code. */
+export type ReadinessCode =
+  | "golden_unbound"
+  | "golden_partly_unbound"
+  | "no_tracing_sdk"
+  | "no_log_source"
+  | "no_rum"
+  | "no_crash_sdk"
+  | "queues_unbound";
+
+export interface ObservabilityReadiness {
+  component_id: string;
+  environment: DeployEnvironment;
+  role: ComponentRole;
+  /** The cloud of the environment's confirmed, bound binding; "" without one. */
+  provider: CloudProviderKind | "";
+  signals: Array<{ signal: string; status: ComponentSignalStatus; golden: boolean }> | null;
+  instrumentation: Partial<Record<ObservabilityInstrumentation, boolean>>;
+  suggestions: Array<{ goal: ObservabilityGoal; code: ReadinessCode | string }> | null;
+}
+
+export interface EnableObservabilityRequest {
+  environment?: DeployEnvironment;
+  goals: ObservabilityGoal[];
+  target: ObservabilityTarget;
+  /** http/https; required with `otlp_endpoint`, refused otherwise. */
+  otlp_endpoint?: string;
+}
+
+export interface EnableObservabilityResult {
+  task_id: string;
+  task_key: string;
+}
+
+function envQuery(env: DeployEnvironment): string {
+  return `?env=${encodeURIComponent(env)}`;
+}
+
+// The server gives a source up to 45s to answer a discover or a query; the
+// 20s read deadline would cut a slow but working source off first. Writes
+// (verify, query) already get WRITE_TIMEOUT_MS.
+const DATA_SOURCE_UPSTREAM_TIMEOUT_MS = 60_000;
+
+// A series read answers within the server's overall budget (about 30 s), a
+// golden read within about 25 s; signals it could not read by then come back
+// with an error or nulls. The client waits longer than that so a healthy
+// answer is never cut off on this side.
+const OPS_SIGNALS_TIMEOUT_MS = 45_000;
+
+/** The data source endpoints' 400: which request key failed, and why
+ * (required, invalid, not_permitted, unknown_field, invalid_option, too_long). */
+export function dataSourceFieldErrors(e: unknown): Record<string, string> | null {
+  return e instanceof ApiError && e.status === 400 && e.fields ? e.fields : null;
+}
+
+// ---------------------------------------------------------------------------
 // Cloud & runtime (Phase 2): connected provider accounts, the resources they
 // can see, and per-component-environment deployments/logs/errors read
 // through them. Mirrors server/internal/domain/cloud.go's JSON tags exactly.
@@ -3427,6 +4263,122 @@ export interface RuntimeErrorGroup {
    * with this deploy". */
   new: boolean;
   external_url?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Operations console: the Errors inbox and the Logs explorer, one fan-out over
+// every confirmed, bound environment of one kind. Mirrors
+// server/internal/domain/opsquery.go's JSON tags.
+// ---------------------------------------------------------------------------
+
+export type OpsUnavailableCode = "not_connected" | "cloud_auth" | "provider_error" | "timeout";
+
+/** One environment the fan-out could not read; the rest of the answer stands.
+ * A read through a component's data source binding names that source, with
+ * the zero `environment_id`. */
+export interface OpsUnavailable {
+  component_id: string;
+  environment_id: string;
+  data_source_id?: string | null;
+  code: OpsUnavailableCode;
+  message: string;
+}
+
+/** The environment id a binding-read row carries: it belongs to no environment. */
+export const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
+/** A group read through a component's `errors.issues` binding carries its
+ * `data_source_id`, the zero `environment_id` and the source's kind as
+ * `provider` (`sentry`). */
+export interface OpsErrorGroup extends RuntimeErrorGroup {
+  component_id: string;
+  repository_id: string;
+  environment_id: string;
+  data_source_id?: string | null;
+  provider: CloudProviderKind | string;
+  /** The active error definition the group matches; absent from an older server. */
+  definition?: ErrorDefinitionRef | null;
+}
+
+/** `truncated`: more environments matched than one call reads (50).
+ * `ignored_count`: groups an `ignore` definition left out, present only when non-zero. */
+export interface OpsErrors {
+  groups: OpsErrorGroup[];
+  unavailable: OpsUnavailable[];
+  truncated: boolean;
+  ignored_count?: number;
+}
+
+/** An entry read through a `logs.lines` binding carries `data_source_id` and the zero `environment_id`. */
+export interface OpsLogEntry extends RuntimeLogEntry {
+  component_id: string;
+  environment_id: string;
+  data_source_id?: string | null;
+}
+
+/** `truncated`: the window holds more than was returned. */
+export interface OpsLogs {
+  entries: OpsLogEntry[];
+  unavailable: OpsUnavailable[];
+  truncated: boolean;
+}
+
+export interface OpsErrorsQuery {
+  env?: DeployEnvironment;
+  /** RFC3339; the server defaults to 24 h ago and clamps to 30 days back. */
+  since?: string;
+  componentIds?: string[];
+  /** Also the groups an `ignore` definition hides. */
+  includeIgnored?: boolean;
+}
+
+export interface OpsLogsQuery {
+  env?: DeployEnvironment;
+  since?: string;
+  /** Inclusive and kept at full precision: pass a returned `timestamp` as is. */
+  until?: string;
+  componentIds?: string[];
+  minSeverity?: LogSeverity;
+  text?: string;
+  limit?: number;
+}
+
+export const OPS_ERRORS_MAX_WINDOW_MS = 30 * 24 * 3_600_000;
+
+/** The longest window GET /v1/operations/golden reads (signals.MaxGoldenWindow). */
+export const OPS_GOLDEN_MAX_WINDOW_MS = 30 * 24 * 3_600_000;
+
+export const OPS_LOGS_MAX_ENVIRONMENTS = 10;
+
+// The server reads at most 4 environments at once and gives each 20 s, so a
+// wide fan-out outlives the 20 s read deadline.
+const OPS_ERRORS_TIMEOUT_MS = 120_000;
+const OPS_LOGS_TIMEOUT_MS = 75_000;
+
+function opsQueryString(params: Array<[string, string | undefined]>, componentIds?: string[]): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of params) if (value) qs.set(key, value);
+  const ids = [...new Set((componentIds ?? []).map((id) => id.trim()).filter(Boolean))];
+  if (ids.length > 0) qs.set("component_id", ids.join(","));
+  const out = qs.toString();
+  return out ? `?${out}` : "";
+}
+
+export interface OpsTooManyEnvironments {
+  matched: number;
+  max: number;
+}
+
+/** The Logs explorer matched more environments than it reads at once with no
+ * component picked; the UI asks for entities. */
+export function opsTooManyEnvironments(e: unknown): OpsTooManyEnvironments | null {
+  if (!(e instanceof ApiError) || e.status !== 400 || e.type !== "too_many_environments") return null;
+  const matched = Number(e.details?.matched);
+  const max = Number(e.details?.max_environments);
+  return {
+    matched: Number.isFinite(matched) ? matched : 0,
+    max: Number.isFinite(max) && max > 0 ? max : OPS_LOGS_MAX_ENVIRONMENTS,
+  };
 }
 
 /**
@@ -3658,6 +4610,66 @@ export interface ReleaseChecks {
   notes?: string[];
   /** Why the soak ended before its window did. */
   early_stop?: string;
+  /** What the soak read from the deploy impact against the profile's impact
+   * thresholds; present only when the profile sets one. */
+  impact?: ReleaseImpactCheck;
+}
+
+/** One signal the soak held to a threshold: `max_delta` (percentage points)
+ * or `max_delta_pct` (percent) when it had one, `breached` past it. */
+export interface ReleaseImpactCheckSignal {
+  signal: string;
+  before: number | null;
+  after: number | null;
+  delta?: number | null;
+  delta_pct?: number | null;
+  verdict: ImpactVerdict;
+  max_delta?: number | null;
+  max_delta_pct?: number | null;
+  breached?: boolean;
+}
+
+export interface ReleaseImpactCheck {
+  checked_at: string;
+  pending: boolean;
+  verdict: ImpactVerdict;
+  signals: ReleaseImpactCheckSignal[];
+  /** Thresholds whose signal was not bound or not readable. */
+  unchecked?: string[];
+}
+
+export type ImpactVerdict = "improved" | "neutral" | "worse" | "unknown";
+
+/** One bound golden signal across a deploy: window means (the p95 of a
+ * quantile signal). `delta` is in the signal's unit (percentage points for a
+ * ratio); `delta_pct` is null when `before` is 0. */
+export interface ReleaseImpactSignal {
+  signal: string;
+  unit: string;
+  before: number | null;
+  after: number | null;
+  /** The same after-window a day earlier. */
+  baseline: number | null;
+  delta: number | null;
+  delta_pct: number | null;
+  higher_is_better: boolean;
+  verdict: ImpactVerdict;
+}
+
+/** GET /v1/releases/{id}/impact: the window on each side of the deploy
+ * (`deployed_at`, else `finished_at` for a release that never deployed on
+ * its own; neither leaves it null and unknown). */
+export interface ReleaseImpact {
+  release_id: string;
+  component_id: string | null;
+  environment: DeployEnvironment;
+  deployed_at: string | null;
+  window_minutes: number;
+  /** The window after the deploy has not closed yet: the part that has passed. */
+  pending: boolean;
+  verdict: ImpactVerdict;
+  computed_at: string;
+  signals: ReleaseImpactSignal[];
 }
 
 export type RollbackReason = "deploy_failed" | "verify_failed" | "health_incident" | "manual";
@@ -3665,8 +4677,10 @@ export type RollbackReason = "deploy_failed" | "verify_failed" | "health_inciden
 export const ROLLBACK_REASONS: RollbackReason[] = ["deploy_failed", "verify_failed", "health_incident", "manual"];
 
 /** HOW a release was undone: redeploying the previous good release
- * (dispatch) or a pushed revert that redeploys on merge (on_merge). */
-export type RollbackMechanism = "workflow_dispatch" | "revert_push";
+ * (dispatch), a pushed revert that redeploys on merge (on_merge), or the
+ * provider itself serving the earlier deployment again (on_merge on Vercel /
+ * Cloud Run, before the revert lands). */
+export type RollbackMechanism = "workflow_dispatch" | "revert_push" | "provider_rollback";
 
 export interface ReleaseRollback {
   reason: RollbackReason;
@@ -3678,11 +4692,17 @@ export interface ReleaseRollback {
   /** What was redeployed: the previous release's tag or the revert commit. */
   restored_ref?: string;
   run_url?: string;
+  /** The earlier deployment the provider was told to serve, and the revert's
+   * deployment promoted afterwards (provider_rollback only). */
+  provider_deployment_id?: string;
+  promoted_deployment_id?: string;
   /** What no mechanism can undo (migrations, flags, CDN) — from the tasks'
    * own rollback plans; the agent performs or reports each. */
   manual_steps?: string[];
   actor?: string;
   started_at: string;
+  /** Stamped after every side effect the rollback completed. */
+  progress_at?: string;
   detail?: string;
 }
 
@@ -3779,7 +4799,41 @@ export interface Release {
   finished_at?: string;
   /** Set when a human cut this batch release. */
   cut_at?: string;
+  /** A rollback the release engineer proposed with auto rollback off, waiting
+   * on a person; null once approved, dismissed or moot. */
+  rollback_proposal?: ReleaseRollbackProposal | null;
+  /** Whether POST .../rollback would be accepted now, as the server decides it. */
+  rollback_allowed?: boolean;
+  /** Why not, when `rollback_allowed` is false ("" when it is allowed). */
+  rollback_refusal?: string;
 }
+
+/** domain.RollbackProposal: nothing ran; a person approves (rolls back) or
+ * dismisses it. */
+export interface ReleaseRollbackProposal {
+  proposed_at: string;
+  /** domain.ReleaseActor: "agent", "human" or "system". */
+  by: string;
+  reason: RollbackReason;
+  /** The proposer's own words. */
+  note?: string;
+  /** The issue this release was attributed, when the proposal answers one. */
+  incident_id?: string | null;
+}
+
+/** domain.RollbackRefusal*: why a rollback would be refused now; an unknown
+ * one is shown as sent. */
+export type RollbackRefusal = "newer_shipped" | "newer_open" | "not_deployed" | "too_old" | "no_released" | "unresolved" | "wrong_status";
+
+export const ROLLBACK_REFUSALS: RollbackRefusal[] = [
+  "newer_shipped",
+  "newer_open",
+  "not_deployed",
+  "too_old",
+  "no_released",
+  "unresolved",
+  "wrong_status",
+];
 
 /** GET .../cut-preview: what cutting a batch component's draft release right
  * now would produce, before a human commits to a version. */
@@ -4949,10 +6003,12 @@ export const api = {
     from: StoreChannel,
     to: StoreChannel,
     confirm?: string,
+    /** Android into production only: the staged rollout's share, (0, 1]. Left out, everyone. */
+    userFraction?: number,
   ) =>
     request<void>(`/v1/repositories/${id}/store/apps/${platform}/promote`, {
       method: "POST",
-      body: JSON.stringify({ from, to, confirm: confirm ?? "" }),
+      body: JSON.stringify({ from, to, confirm: confirm ?? "", ...(userFraction !== undefined ? { user_fraction: userFraction } : {}) }),
     }),
 
   startStoreBuild: (id: string, platform: MobileStorePlatform, engine?: ReleaseEngine) =>
@@ -5111,9 +6167,10 @@ export const api = {
       method: "POST", body: JSON.stringify(body),
     }),
 
-  setAndroidRollout: (id: string, userFraction: number) =>
+  /** userFraction in (0, 1]; 1 completes the rollout and needs `confirm`. */
+  setAndroidRollout: (id: string, userFraction: number, confirm?: string) =>
     request<void>(`/v1/repositories/${id}/store/apps/android/rollout`, {
-      method: "POST", body: JSON.stringify({ user_fraction: userFraction }),
+      method: "POST", body: JSON.stringify({ user_fraction: userFraction, ...(confirm !== undefined ? { confirm } : {}) }),
     }),
 
   haltAndroid: (id: string, confirm: string) =>
@@ -5124,11 +6181,14 @@ export const api = {
   resumeAndroid: (id: string) =>
     request<void>(`/v1/repositories/${id}/store/apps/android/resume`, { method: "POST" }),
 
-  listIncidents: (params?: { repositoryId?: string; env?: string; status?: string }) => {
+  // Newest last_seen first; `limit` defaults to 100 and the server reads
+  // anything above 500 as 100.
+  listIncidents: (params?: { repositoryId?: string; env?: string; status?: string; limit?: number }) => {
     const query = new URLSearchParams();
     if (params?.repositoryId) query.set("repository_id", params.repositoryId);
     if (params?.env) query.set("env", params.env);
     if (params?.status) query.set("status", params.status);
+    if (params?.limit) query.set("limit", String(params.limit));
     const qs = query.toString();
     return request<{ incidents: Incident[] | null; count: number }>(
       `/v1/incidents${qs ? `?${qs}` : ""}`);
@@ -5150,6 +6210,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ note: note ?? "" }),
     }),
+
+  // 400 with the server's reason (an empty summary, an unknown incident).
+  proposeIncidentRemedy: (incidentId: string, remedy: IncidentRemedyInput) =>
+    request<Incident>(`/v1/incidents/${incidentId}/remedy`, {
+      method: "POST",
+      body: JSON.stringify(remedy),
+    }),
+
+  listAlertTokens: (repositoryId: string) =>
+    request<{ tokens: AlertToken[] | null }>(`/v1/repositories/${repositoryId}/alert-tokens`),
+
+  // The answer holds the plaintext token: show it once, never cache it.
+  createAlertToken: (repositoryId: string, input: AlertTokenInput) =>
+    request<CreatedAlertToken>(`/v1/repositories/${repositoryId}/alert-tokens`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteAlertToken: (repositoryId: string, tokenId: string) =>
+    request<void>(`/v1/repositories/${repositoryId}/alert-tokens/${tokenId}`, { method: "DELETE" }),
 
   deleteRepository: (id: string) =>
     request<void>(`/v1/repositories/${id}`, { method: "DELETE" }),
@@ -5887,10 +6967,294 @@ export const api = {
       body: JSON.stringify(group),
     }),
 
+  listOpsErrors: (query: OpsErrorsQuery = {}) =>
+    request<OpsErrors>(
+      `/v1/operations/errors${opsQueryString(
+        [
+          ["env", query.env],
+          ["since", query.since],
+          ["include_ignored", query.includeIgnored ? "1" : undefined],
+        ],
+        query.componentIds,
+      )}`,
+      {},
+      OPS_ERRORS_TIMEOUT_MS,
+    ),
+
+  listOpsLogs: (query: OpsLogsQuery = {}) =>
+    request<OpsLogs>(
+      `/v1/operations/logs${opsQueryString(
+        [
+          ["env", query.env],
+          ["since", query.since],
+          ["until", query.until],
+          ["min_severity", query.minSeverity],
+          ["text", query.text?.trim() || undefined],
+          ["limit", query.limit ? String(query.limit) : undefined],
+        ],
+        query.componentIds,
+      )}`,
+      {},
+      OPS_LOGS_TIMEOUT_MS,
+    ),
+
   getTaskPreviews: (repositoryId: string, taskId: string) =>
     request<{ previews: TaskPreview[] }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/previews`),
 
+  // ---- Observability data sources -------------------------------------
+
+  listDataSourceKinds: () => request<{ kinds: DataSourceKindInfo[] }>("/v1/data-source-kinds"),
+
+  listDataSources: () => request<{ data_sources: DataSource[] }>("/v1/data-sources"),
+
+  getDataSource: (id: string) => request<DataSource>(`/v1/data-sources/${id}`),
+
+  // 201 even when the source cannot be reached: status/status_detail carry
+  // the verify that ran after saving. A 400 carries `fields` — see
+  // dataSourceFieldErrors.
+  createDataSource: (body: SaveDataSourceRequest) =>
+    request<DataSource>("/v1/data-sources", { method: "POST", body: JSON.stringify(body) }),
+
+  updateDataSource: (id: string, patch: PatchDataSourceRequest) =>
+    request<DataSource>(`/v1/data-sources/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  deleteDataSource: (id: string) => request<void>(`/v1/data-sources/${id}`, { method: "DELETE" }),
+
+  verifyDataSource: (id: string) => request<DataSource>(`/v1/data-sources/${id}/verify`, { method: "POST" }),
+
+  discoverDataSource: (id: string, opts: { match?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.match) qs.set("match", opts.match);
+    if (opts.limit) qs.set("limit", String(opts.limit));
+    const suffix = qs.toString();
+    return request<DataSourceDiscovery>(
+      `/v1/data-sources/${id}/discover${suffix ? `?${suffix}` : ""}`,
+      {},
+      DATA_SOURCE_UPSTREAM_TIMEOUT_MS,
+    );
+  },
+
+  // 400 code "bad_query" when the source refused the query, 422 "unsupported"
+  // for a kind without metrics, 502 "upstream" when the source failed.
+  queryDataSource: (id: string, body: MetricQueryRequest) =>
+    request<MetricQueryResult>(`/v1/data-sources/${id}/query`, { method: "POST", body: JSON.stringify(body) }),
+
+  listSignals: () => request<{ signals: ObservabilitySignal[] }>("/v1/signals"),
+
+  listRecipes: () => request<{ recipes: ObservabilityRecipe[] }>("/v1/recipes"),
+
+  // ---- Signal bindings, series and golden metrics ----------------------
+
+  getComponentSignals: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentSignals>(`/v1/components/${encodeURIComponent(componentId)}/signals${envQuery(env)}`),
+
+  suggestComponentSignals: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentSignals>(
+      `/v1/components/${encodeURIComponent(componentId)}/signals/suggest${envQuery(env)}`,
+      { method: "POST" },
+    ),
+
+  bindComponentSignal: (componentId: string, signal: string, env: DeployEnvironment, body: SaveSignalBindingRequest) =>
+    request<SignalBinding>(
+      `/v1/components/${encodeURIComponent(componentId)}/signals/${encodeURIComponent(signal)}${envQuery(env)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
+
+  confirmSignalBinding: (id: string) =>
+    request<SignalBinding>(`/v1/signal-bindings/${encodeURIComponent(id)}/confirm`, { method: "POST" }),
+
+  dismissSignalBinding: (id: string) =>
+    request<void>(`/v1/signal-bindings/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
+
+  deleteSignalBinding: (id: string) => request<void>(`/v1/signal-bindings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  // Errors as queryDataSource: 400 "bad_query" or `fields`, 422 "unsupported", 502 "upstream".
+  previewComponentSignal: (componentId: string, body: SignalPreviewRequest) =>
+    request<SignalPreview>(
+      `/v1/components/${encodeURIComponent(componentId)}/signals/preview`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  getComponentSeries: (componentId: string, query: ComponentSeriesQuery) => {
+    const qs = new URLSearchParams({
+      env: query.env,
+      signals: query.signals.join(","),
+      from: new Date(query.from).toISOString(),
+      to: new Date(query.to).toISOString(),
+    });
+    if (query.stepSeconds) qs.set("step_seconds", String(query.stepSeconds));
+    if (query.compare) qs.set("compare", "1");
+    return request<ComponentSeries>(
+      `/v1/components/${encodeURIComponent(componentId)}/series?${qs.toString()}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    );
+  },
+
+  getOpsGolden: (query: OpsGoldenQuery) =>
+    request<OpsGolden>(
+      `/v1/operations/golden${opsQueryString(
+        [
+          ["env", query.env],
+          ["from", new Date(query.from).toISOString()],
+          ["to", new Date(query.to).toISOString()],
+        ],
+        query.componentIds,
+      )}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  // Each table stands alone: one that cannot be read carries `error` (see
+  // QueueTableErrorCode) and the call itself still answers 200.
+  getComponentQueues: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentQueues>(
+      `/v1/components/${encodeURIComponent(componentId)}/queues${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  // Each table stands alone, as the queues route's: a failed one carries `error`.
+  getComponentEndpoints: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentTables>(
+      `/v1/components/${encodeURIComponent(componentId)}/endpoints${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  getComponentWeb: (componentId: string, env: DeployEnvironment, table: WebTableName) =>
+    request<ComponentTables>(
+      `/v1/components/${encodeURIComponent(componentId)}/web${envQuery(env)}&table=${encodeURIComponent(table)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  getComponentCrashes: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentTables>(
+      `/v1/components/${encodeURIComponent(componentId)}/crashes${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  // A binding that cannot be read answers 200 with `error`; 400 `fields`
+  // for a bad window, limit or min_duration_ms.
+  getComponentTraces: (componentId: string, query: ComponentTracesQuery) => {
+    const qs = new URLSearchParams({ env: query.env });
+    if (query.since !== undefined) qs.set("since", new Date(query.since).toISOString());
+    if (query.until !== undefined) qs.set("until", new Date(query.until).toISOString());
+    if (query.minDurationMs) qs.set("min_duration_ms", String(Math.max(0, Math.round(query.minDurationMs))));
+    if (query.limit) qs.set("limit", String(query.limit));
+    return request<ComponentTraces>(
+      `/v1/components/${encodeURIComponent(componentId)}/traces?${qs.toString()}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    );
+  },
+
+  // 422 code "unbound" without a confirmed traces.spans binding, 404 for a
+  // trace the source does not hold, 502 "upstream", 504 "timeout".
+  getComponentTrace: (componentId: string, traceId: string, env: DeployEnvironment) =>
+    request<TraceView>(
+      `/v1/components/${encodeURIComponent(componentId)}/traces/${encodeURIComponent(traceId)}${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  // Without componentId the id is looked up in every traces source the
+  // environment's bindings read; 422 "unbound" when no component has one.
+  getOperationsTrace: (traceId: string, opts: { env: DeployEnvironment; componentId?: string }) => {
+    const qs = new URLSearchParams({ env: opts.env });
+    if (opts.componentId) qs.set("component_id", opts.componentId);
+    return request<TraceView>(
+      `/v1/operations/traces/${encodeURIComponent(traceId)}?${qs.toString()}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    );
+  },
+
+  // ---- Alert rules ---------------------------------------------
+  // A refused write answers 400 with `fields` (see dataSourceFieldErrors).
+
+  listAlertRules: (opts: { componentId?: string; env?: DeployEnvironment } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.componentId) qs.set("component_id", opts.componentId);
+    if (opts.env) qs.set("env", opts.env);
+    const suffix = qs.toString();
+    return request<{ rules: AlertRule[] | null }>(`/v1/alert-rules${suffix ? `?${suffix}` : ""}`);
+  },
+
+  getAlertRule: (id: string) => request<AlertRule>(`/v1/alert-rules/${encodeURIComponent(id)}`),
+
+  createAlertRule: (body: AlertRuleInput) =>
+    request<AlertRule>("/v1/alert-rules", { method: "POST", body: JSON.stringify(body) }),
+
+  updateAlertRule: (id: string, body: Partial<AlertRuleInput>) =>
+    request<AlertRule>(`/v1/alert-rules/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteAlertRule: (id: string) => request<void>(`/v1/alert-rules/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  listAlertRuleEvents: (id: string, limit = 50) =>
+    request<{ events: AlertRuleEvent[] | null }>(`/v1/alert-rules/${encodeURIComponent(id)}/events?limit=${limit}`),
+
+  backtestAlertRule: (body: AlertBacktestRequest) =>
+    request<AlertBacktest>("/v1/alert-rules/backtest", { method: "POST", body: JSON.stringify(body) }, DATA_SOURCE_UPSTREAM_TIMEOUT_MS),
+
+  suggestAlertRules: (componentId: string, environment: DeployEnvironment) =>
+    request<{ rules: AlertRuleSuggestion[] | null }>("/v1/alert-rules/suggest", {
+      method: "POST",
+      body: JSON.stringify({ component_id: componentId, environment }),
+    }),
+
+  listNotificationChannels: () => request<{ channels: NotificationChannelInfo[] | null }>("/v1/notification-channels"),
+
+  // ---- Error definitions and AI suggestions ---------------------
+  // A refused write answers 400 with `fields` (see dataSourceFieldErrors);
+  // the AI routes' 409/503 codes are read by aiJobRefusal.
+
+  listErrorDefinitions: (opts: { repositoryId?: string; componentId?: string; status?: ErrorDefinitionStatus } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.repositoryId) qs.set("repository_id", opts.repositoryId);
+    if (opts.componentId) qs.set("component_id", opts.componentId);
+    if (opts.status) qs.set("status", opts.status);
+    const suffix = qs.toString();
+    return request<{ definitions: ErrorDefinition[] | null }>(`/v1/error-definitions${suffix ? `?${suffix}` : ""}`);
+  },
+
+  createErrorDefinition: (body: ErrorDefinitionInput) =>
+    request<ErrorDefinition>("/v1/error-definitions", { method: "POST", body: JSON.stringify(body) }),
+
+  updateErrorDefinition: (id: string, body: ErrorDefinitionInput) =>
+    request<ErrorDefinition>(`/v1/error-definitions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteErrorDefinition: (id: string) => request<void>(`/v1/error-definitions/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  acceptErrorDefinition: (id: string) =>
+    request<ErrorDefinition>(`/v1/error-definitions/${encodeURIComponent(id)}/accept`, { method: "POST" }),
+
+  dismissErrorDefinition: (id: string) =>
+    request<ErrorDefinition>(`/v1/error-definitions/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
+
+  suggestErrorDefinitions: (body: ErrorSuggestRequest) =>
+    request<AIJobStarted>("/v1/error-definitions/suggest", { method: "POST", body: JSON.stringify(body) }),
+
+  suggestComponentSignalsAI: (componentId: string, env: DeployEnvironment) =>
+    request<AIJobStarted>(`/v1/components/${encodeURIComponent(componentId)}/signals/ai-suggest${envQuery(env)}`, { method: "POST" }),
+
+  getAIJob: (id: string) => request<AIJob>(`/v1/ai-jobs/${encodeURIComponent(id)}`),
+
+  getComponentObservability: (componentId: string, env: DeployEnvironment) =>
+    request<ObservabilityReadiness>(`/v1/components/${encodeURIComponent(componentId)}/observability${envQuery(env)}`),
+
+  enableComponentObservability: (componentId: string, body: EnableObservabilityRequest) =>
+    request<EnableObservabilityResult>(`/v1/components/${encodeURIComponent(componentId)}/observability/enable`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   // ---- Releases & delivery --------------------------------------
+
+  getReleaseImpact: (releaseId: string) =>
+    request<ReleaseImpact>(`/v1/releases/${encodeURIComponent(releaseId)}/impact`, {}, DATA_SOURCE_UPSTREAM_TIMEOUT_MS),
 
   listReleases: (repositoryId: string, opts: { componentId?: string; taskId?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams();
@@ -5938,6 +7302,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm, note }),
     }),
+
+  dismissRollbackProposal: (releaseId: string) =>
+    request<Release | undefined>(`/v1/releases/${encodeURIComponent(releaseId)}/rollback-proposal/dismiss`, { method: "POST" }),
 
   // PATCHes the component with only {delivery}: a value sets the override, null clears it.
   updateComponentDelivery: (componentId: string, delivery: ComponentDelivery | null) =>

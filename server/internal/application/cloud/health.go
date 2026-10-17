@@ -96,7 +96,7 @@ func (s *Service) healthCheckOne(ctx context.Context, e domain.ComponentEnvironm
 	}
 
 	errCount := 0
-	if s.errorsSupported(e) {
+	if s.ErrorsSupported(e) {
 		if groups, err := s.Errors(ctx, e.ID, s.now().Add(-24*time.Hour)); err == nil {
 			for _, g := range groups {
 				errCount += g.Count

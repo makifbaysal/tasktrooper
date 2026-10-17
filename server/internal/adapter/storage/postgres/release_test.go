@@ -614,3 +614,89 @@ func (s *ReleaseStoreSuite) TestMarkAgentSeenSurvivesAConcurrentUpdate() {
 	s.Require().NotNil(reread.AgentSeenAt, "Update must not have clobbered agent_seen_at back to nil")
 	s.WithinDuration(seenAt, *reread.AgentSeenAt, time.Millisecond)
 }
+
+func (s *ReleaseStoreSuite) TestARollbackProposalIsWrittenOnlyByItsOwnStatement() {
+	task := s.newTask(domain.TaskColumnDone)
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Version: "rp00001", Mode: domain.DeliveryOnMerge,
+		Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseAwaitingVerdict, CommitSHA: "rp00001bbb",
+		Profile: testProfile(),
+	}, []uuid.UUID{task.ID})
+	s.Require().NoError(err)
+	s.Nil(created.RollbackProposal)
+
+	incidentID := uuid.New()
+	proposal := &domain.RollbackProposal{
+		ProposedAt: time.Now().UTC().Truncate(time.Millisecond), By: domain.ReleaseActorAgent,
+		Reason: domain.RollbackHealthIncident, Note: "error rate up", IncidentID: &incidentID,
+	}
+	s.Require().NoError(s.store.SetRollbackProposal(s.ctx, created.ID, proposal))
+
+	stale := created
+	stale.Notes = "sweep touched it"
+	_, err = s.store.Update(s.ctx, stale, domain.ReleaseAwaitingVerdict)
+	s.Require().NoError(err)
+	reread, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(reread.RollbackProposal, "a stale copy's Update keeps it")
+	s.Equal(proposal.Reason, reread.RollbackProposal.Reason)
+	s.Equal(proposal.Note, reread.RollbackProposal.Note)
+	s.Equal(incidentID, *reread.RollbackProposal.IncidentID)
+	s.WithinDuration(proposal.ProposedAt, reread.RollbackProposal.ProposedAt, time.Millisecond)
+
+	reread.Status = domain.ReleaseRollingBack
+	rolling, err := s.store.Update(s.ctx, reread, domain.ReleaseAwaitingVerdict)
+	s.Require().NoError(err)
+	s.Nil(rolling.RollbackProposal, "a rollback running clears it")
+
+	s.ErrorIs(s.store.SetRollbackProposal(s.ctx, created.ID, proposal), domain.ErrReleaseWrongStatus,
+		"a release rolling back takes no proposal")
+	s.Require().NoError(s.store.SetRollbackProposal(s.ctx, created.ID, nil))
+	cleared, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Nil(cleared.RollbackProposal)
+
+	s.ErrorIs(s.store.SetRollbackProposal(s.ctx, uuid.New(), proposal), domain.ErrReleaseNotFound)
+}
+
+func (s *ReleaseStoreSuite) TestADismissalClearsOnlyTheProposalItAnswersAndFinishingClearsTheRest() {
+	task := s.newTask(domain.TaskColumnDone)
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Version: "rp00002", Mode: domain.DeliveryOnMerge,
+		Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseAwaitingVerdict, CommitSHA: "rp00002bbb",
+		Profile: testProfile(),
+	}, []uuid.UUID{task.ID})
+	s.Require().NoError(err)
+	incidentID := uuid.New()
+	proposal := &domain.RollbackProposal{ProposedAt: time.Now().UTC(), By: domain.ReleaseActorAgent,
+		Reason: domain.RollbackHealthIncident, IncidentID: &incidentID}
+	s.Require().NoError(s.store.SetRollbackProposal(s.ctx, created.ID, proposal))
+	stored, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Equal(created.UpdatedAt, stored.UpdatedAt, "a proposal is not an edit of the release")
+
+	dismissal := domain.RollbackDismissal{DismissedAt: time.Now().UTC().Truncate(time.Millisecond), IncidentID: &incidentID}
+	ok, err := s.store.DismissRollbackProposal(s.ctx, created.ID, proposal.ProposedAt.Add(time.Second), dismissal)
+	s.Require().NoError(err)
+	s.False(ok, "a proposal of another instant is not the one dismissed")
+	ok, err = s.store.DismissRollbackProposal(s.ctx, created.ID, stored.RollbackProposal.ProposedAt, dismissal)
+	s.Require().NoError(err)
+	s.True(ok)
+	got, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Nil(got.RollbackProposal)
+	s.Require().NotNil(got.RollbackDismissal)
+	s.Equal(incidentID, *got.RollbackDismissal.IncidentID)
+	s.WithinDuration(dismissal.DismissedAt, got.RollbackDismissal.DismissedAt, time.Millisecond)
+
+	s.Require().NoError(s.store.SetRollbackProposal(s.ctx, created.ID, proposal))
+	got.Status = domain.ReleaseReleased
+	released, err := s.store.Update(s.ctx, got, domain.ReleaseAwaitingVerdict)
+	s.Require().NoError(err)
+	s.Nil(released.RollbackProposal, "finishing the release answers its proposal")
+	s.NotNil(released.RollbackDismissal, "Update never writes the dismissal")
+	s.Require().NoError(s.store.SetRollbackProposal(s.ctx, created.ID, proposal))
+	again, err := s.store.Update(s.ctx, released, domain.ReleaseReleased)
+	s.Require().NoError(err)
+	s.NotNil(again.RollbackProposal, "a proposal on a release already released stays")
+}

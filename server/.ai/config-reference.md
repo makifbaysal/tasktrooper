@@ -358,6 +358,11 @@ Periodic reflections, KPI evaluation, impact tracking.
 |---|---|---|
 | `monitor_enabled` | `true` | Probes deploy targets' `health_url` |
 | `probe_interval` | `3m` | Two consecutive failed probes open an incident; the first successful probe closes it |
+| `alert_ingest.requests_per_minute` | `60` | Per alert ingest token: the refill rate of its request bucket on `POST /v1/alerts/ingest/:token`. Over it: 429 `{"error":"rate_limited"}` |
+| `alert_ingest.burst` | `10` | Per token: requests allowed back to back before the rate applies |
+| `alert_ingest.new_incidents_per_hour` | `20` | Per token, rolling hour: how many NEW incidents it may open. Past it a new alert gets 429; an alert that folds into an incident already open still counts its occurrence, and a recovery still resolves |
+
+The three `alert_ingest` limits are in memory (one process; a restart resets them), and `0` or less means the default above — never unlimited.
 
 ## Deploy ops (`deploy_ops`)
 
@@ -366,6 +371,21 @@ Periodic reflections, KPI evaluation, impact tracking.
 | `monitor_enabled` | `true` | Mirrors Actions deploy runs into `deployment_runs`, matches console dispatches, turns a failed deploy into an incident. When off, rollback cannot find the commit to return to and release attribution is impossible |
 | `poll_interval` | `2m` | At most one GitHub call per sweep, per (repository × environment) |
 | `health_window` | `15m` | How long after a successful deploy an incident is attributed to the releasing task; `auto_rollback` fires inside this window. Deliberately short — it authorizes rolling back a specific card's release. The 45-minute general correlation in `prodops/remedy.go` is independent of it and only writes advice |
+| `impact.change_pct` | `10` | Deploy impact (`GET /v1/releases/{id}/impact`, `get_deploy_impact`): how far a golden signal must move from the hour before the deploy, in percent of its value then, to read as improved or worse rather than neutral |
+| `impact.ratio_points` | `0.5` | The same for a ratio signal (`http.error_ratio`, `mobile.crash_free_users`, …), in percentage points |
+| `impact.throughput_change_pct` | `25` | `change_pct` for a rate where higher is better (`http.requests`, `queue.consume_rate`, `web.page_views`), which swings more on its own |
+| `impact.count_floor` | `1` | A gauge where lower is better (`queue.backlog`, `queue.dead_letter`, `infra.restarts`) must also move by at least this many units |
+| `impact.rate_floor` | `0.05` | A rate where lower is better (`process.errors`, `web.js_errors`), per second, must also move by at least this |
+| `impact.floor_pct` | `5` | Each of the two floors above is at least this percent of the larger of the before and after values |
+| `impact.latency_floor_ms` | `50` | A quantile in ms (`http.latency`, `web.lcp`, …) must also move by at least this; the soak's `max_p95_delta_pct` breaches only past it too. `0` or less means the default for every `impact.*` key |
+
+## Alerting (`alerting`)
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Runs the alert rule evaluator (`internal/application/alerting`, migration 189) and the error definition sweep (`internal/application/errordef`, migration 191, every 2 min: the alert, incident and task actions). Off, rules can still be edited and backtested and the Errors inbox is still annotated; none changes state |
+| `interval` | `1m` | How often each enabled rule is judged: one query against its data source per rule per interval. A sweep runs every quarter interval and takes the rules last judged at least an interval ago, never-judged first |
+| `max_rules_per_sweep` | `200` | At most this many rules per sweep, four at a time; the rest wait for the next sweep. `0` or less means the default |
 
 ## Store ops (`storeops`)
 

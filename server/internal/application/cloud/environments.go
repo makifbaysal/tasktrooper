@@ -11,14 +11,6 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-func validDeployEnvironment(env domain.DeployEnvironment) bool {
-	switch env {
-	case domain.EnvironmentProduction, domain.EnvironmentStaging, domain.EnvironmentPreview, domain.EnvironmentDevelopment:
-		return true
-	}
-	return false
-}
-
 func (s *Service) ListEnvironments(ctx context.Context, repoID uuid.UUID) ([]domain.ComponentEnvironment, error) {
 	envs, err := s.environments.ListEnvironments(ctx, repoID)
 	if err != nil {
@@ -57,7 +49,7 @@ func (s *Service) resourceURL(ctx context.Context, accountID uuid.UUID, ref doma
 // custom (no-account) address the platform can only probe, never confirmed
 // automatically by MatchScan.
 func (s *Service) BindEnvironment(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, req domain.SaveEnvironmentRequest) (domain.ComponentEnvironment, error) {
-	if !validDeployEnvironment(env) {
+	if !env.Valid() {
 		return domain.ComponentEnvironment{}, fmt.Errorf("unknown environment %q: %w", env, ErrInvalidInput)
 	}
 	comp, err := s.components.GetComponent(ctx, componentID)

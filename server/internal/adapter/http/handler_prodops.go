@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -47,6 +48,7 @@ func (h *Handler) registerProdOpsRoutes(app fiber.Router) {
 	app.Post("/v1/incidents/:incidentId/resolve", h.ResolveIncident)
 	app.Post("/v1/incidents/:incidentId/ignore", h.IgnoreIncident)
 	app.Put("/v1/repositories/:id/incident-policy", h.SetIncidentPolicy)
+	h.registerAlertTokenRoutes(app)
 }
 
 // registerRepositoryOpsRoutes exposes the per-repository verification settings
@@ -210,15 +212,16 @@ func (h *Handler) IngestIncident(c *fiber.Ctx) error {
 	if err != nil {
 		return badRequest(c, "invalid repository id")
 	}
-	in, err := prodops.Normalize(c.Body(), prodops.Defaults{
+	incident, err := h.ingestAlert(c, prodops.Defaults{
 		Env:    strings.TrimSpace(c.Query("env")),
 		Source: strings.TrimSpace(c.Query("source")),
+	}, func(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
+		in.RepositoryID = id
+		return h.prodOpsSvc.Ingest(ctx, in)
 	})
-	if err != nil {
+	if isAlertPayloadError(err) {
 		return badRequest(c, err.Error())
 	}
-	in.RepositoryID = id
-	incident, err := h.prodOpsSvc.Ingest(h.enrichContext(c), in)
 	if err != nil {
 		return internalError(c, err)
 	}

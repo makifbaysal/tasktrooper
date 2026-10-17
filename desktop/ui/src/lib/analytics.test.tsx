@@ -44,11 +44,16 @@ describe("screenFor", () => {
     ["/repositories/r1/tasks/t9/analysis", "analysis_review", "/repositories/:repositoryId/tasks/:taskId/analysis"],
     ["/settings", "settings_general", "/settings"],
     ["/settings/llm", "settings_llm", "/settings/llm"],
+    ["/operations", "ops_explorer", "/operations"],
+    ["/operations/entity/c-1/errors", "ops_entity_errors", "/operations/entity/:componentId/errors"],
+    ["/operations/mobile/app/r-1", "ops_store_apps", "/operations/mobile/app/:repositoryId"],
+    ["/operations/alerts", "ops_alerts", "/operations/alerts"],
+    ["/operations/entity/c-1/alerts", "ops_entity_alerts", "/operations/entity/:componentId/alerts"],
   ])("names %s %s and sends only the template", (path, name, template) => {
     expect(screenFor(path)).toEqual({ name, template });
   });
 
-  it.each(["/", "/teams/x", "/nowhere"])("does not count %s", (path) => {
+  it.each(["/", "/teams/x", "/nowhere", "/operations/deployments", "/operations/incidents", "/operations/entity/c-1"])("does not count %s", (path) => {
     expect(screenFor(path)).toBeNull();
   });
 });

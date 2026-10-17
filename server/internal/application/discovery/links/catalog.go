@@ -14,13 +14,14 @@ import (
 var catalogYAML []byte
 
 type catalogMatch struct {
-	NPM  []string `yaml:"npm,omitempty"`
-	Go   []string `yaml:"go,omitempty"`
-	Py   []string `yaml:"py,omitempty"`
-	Rust []string `yaml:"rust,omitempty"`
-	Ruby []string `yaml:"ruby,omitempty"`
-	PHP  []string `yaml:"php,omitempty"`
-	JVM  []string `yaml:"jvm,omitempty"`
+	NPM   []string `yaml:"npm,omitempty"`
+	Go    []string `yaml:"go,omitempty"`
+	Py    []string `yaml:"py,omitempty"`
+	Rust  []string `yaml:"rust,omitempty"`
+	Ruby  []string `yaml:"ruby,omitempty"`
+	PHP   []string `yaml:"php,omitempty"`
+	JVM   []string `yaml:"jvm,omitempty"`
+	NuGet []string `yaml:"nuget,omitempty"`
 }
 
 type catalogResource struct {
@@ -39,17 +40,19 @@ type catalogEntry struct {
 
 // ecosystem is one manifest kind the catalog matches dependency names from;
 // "go" is always a prefix match (module paths nest), every other ecosystem
-// is exact unless the pattern itself ends in "*".
+// is exact unless the pattern itself ends in "*" (NuGet's ignoring case, as
+// NuGet does).
 type ecosystem string
 
 const (
-	ecoNPM  ecosystem = "npm"
-	ecoGo   ecosystem = "go"
-	ecoPy   ecosystem = "py"
-	ecoRust ecosystem = "rust"
-	ecoRuby ecosystem = "ruby"
-	ecoPHP  ecosystem = "php"
-	ecoJVM  ecosystem = "jvm"
+	ecoNPM   ecosystem = "npm"
+	ecoGo    ecosystem = "go"
+	ecoPy    ecosystem = "py"
+	ecoRust  ecosystem = "rust"
+	ecoRuby  ecosystem = "ruby"
+	ecoPHP   ecosystem = "php"
+	ecoJVM   ecosystem = "jvm"
+	ecoNuGet ecosystem = "nuget"
 )
 
 func (e catalogEntry) patternsFor(eco ecosystem) []string {
@@ -68,6 +71,8 @@ func (e catalogEntry) patternsFor(eco ecosystem) []string {
 		return e.Match.PHP
 	case ecoJVM:
 		return e.Match.JVM
+	case ecoNuGet:
+		return e.Match.NuGet
 	}
 	return nil
 }
@@ -135,6 +140,9 @@ func matchScore(eco ecosystem, pattern, name string) (int, bool) {
 			return len(pattern), true
 		}
 		return 0, false
+	}
+	if eco == ecoNuGet {
+		pattern, name = strings.ToLower(pattern), strings.ToLower(name)
 	}
 	if strings.HasSuffix(pattern, "*") {
 		prefix := strings.TrimSuffix(pattern, "*")

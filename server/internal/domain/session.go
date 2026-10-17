@@ -96,6 +96,14 @@ type SessionMessageRequest struct {
 	// (RAG context, chunked text) the image ones go to the model as native
 	// multimodal content; documents are linked but not sent.
 	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	// ToolCeiling, when set, narrows the turn's tools to these names after
+	// the agent's own policy is applied (CeilToolPolicy). Never read from a
+	// request body and never persisted, so a turn carrying one is never
+	// parked on a usage limit either.
+	ToolCeiling []string `json:"-"`
+	// NoQuotaPark answers a usage limit with its error instead of parking the
+	// turn to resume once the limit resets.
+	NoQuotaPark bool `json:"-"`
 }
 
 // MessageMention is an @-tag the user picked from the composer's autocomplete.

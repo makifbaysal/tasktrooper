@@ -1,0 +1,12 @@
+# A backend service's or worker's errors from Sentry. project is the Sentry
+# project's slug. process.errors is error events per second; errors.issues
+# brings the project's unresolved issues into the errors inbox, beside what
+# the cloud it runs on reports.
+id: sentry-backend
+source_kind: sentry
+applies_to:
+  technology: sentry
+params: [project]
+signals:
+  process.errors: '{"project": "$project", "metric": "event_rate"}'
+  errors.issues: '{"project": "$project"}'

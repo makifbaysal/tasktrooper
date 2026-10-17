@@ -1,0 +1,24 @@
+# A GKE workload's containers, from Google Cloud Monitoring's built-in
+# kubernetes.io metrics (the k8s_container resource). Infra only: request
+# metrics come from the load balancer in front of it (gcp-https-loadbalancer).
+# A bound gke_workload ref names its cluster, so it fills cluster (the ref's
+# name) and location (its region); namespace and workload (the Deployment,
+# StatefulSet or DaemonSet name, GKE's top-level controller) are set by hand.
+id: gcp-gke-workload
+source_kind: gcp_monitoring
+applies_to:
+  technology: gke
+  resource_kind: gke_workload
+  resource_params: {cluster: name, location: region}
+detect:
+  metric: kubernetes_io:container_cpu_core_usage_time
+params: [cluster, location, namespace, workload]
+signals:
+  infra.cpu: >-
+    sum(rate(kubernetes_io:container_cpu_core_usage_time{monitored_resource="k8s_container", cluster_name="$cluster", location="$location", namespace_name="$namespace", metadata_system_top_level_controller_name="$workload"}[$__rate]))
+  infra.memory: >-
+    sum(kubernetes_io:container_memory_used_bytes{monitored_resource="k8s_container", cluster_name="$cluster", location="$location", namespace_name="$namespace", metadata_system_top_level_controller_name="$workload", memory_type="non-evictable"})
+  infra.instances: >-
+    count(count by (pod_name) (kubernetes_io:container_memory_used_bytes{monitored_resource="k8s_container", cluster_name="$cluster", location="$location", namespace_name="$namespace", metadata_system_top_level_controller_name="$workload", memory_type="non-evictable"}))
+  infra.restarts: >-
+    sum(increase(kubernetes_io:container_restart_count{monitored_resource="k8s_container", cluster_name="$cluster", location="$location", namespace_name="$namespace", metadata_system_top_level_controller_name="$workload"}[$__interval]))

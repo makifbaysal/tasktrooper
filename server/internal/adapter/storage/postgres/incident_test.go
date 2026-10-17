@@ -199,3 +199,22 @@ func (s *IncidentStoreSuite) TestListFiltersByStatus() {
 	s.Require().NoError(err)
 	s.GreaterOrEqual(len(all), len(open))
 }
+
+func (s *IncidentStoreSuite) TestListFiltersBySource() {
+	webhook, _, err := s.store.Upsert(s.ctx, s.input("fp-source-webhook", domain.IncidentSeverityHigh))
+	s.Require().NoError(err)
+	in := s.input("fp-source-rule", domain.IncidentSeverityHigh)
+	in.Source = domain.IncidentSourceAlertRule
+	rule, _, err := s.store.Upsert(s.ctx, in)
+	s.Require().NoError(err)
+
+	got, err := s.store.List(s.ctx, domain.IncidentFilter{RepositoryID: &s.repoID, Source: domain.IncidentSourceAlertRule, Limit: 500})
+	s.Require().NoError(err)
+	ids := map[uuid.UUID]bool{}
+	for _, inc := range got {
+		s.Equal(domain.IncidentSourceAlertRule, inc.Source)
+		ids[inc.ID] = true
+	}
+	s.True(ids[rule.ID])
+	s.False(ids[webhook.ID])
+}

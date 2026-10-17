@@ -190,6 +190,7 @@ const (
 	TrackStatusNone       = "none"        // nothing has ever reached this channel
 	TrackStatusDraft      = "draft"       // uploaded, not handed to anyone yet
 	TrackStatusInReview   = "in_review"   // the store is looking at it
+	TrackStatusApproved   = "approved"    // review passed, waiting for someone to release it (App Store only)
 	TrackStatusRollingOut = "rolling_out" // live for a fraction of users
 	TrackStatusHalted     = "halted"      // rollout stopped in place
 	TrackStatusLive       = "live"        // fully released on this channel

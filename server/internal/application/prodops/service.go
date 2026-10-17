@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/notify"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -30,8 +31,10 @@ type DeployHistory interface {
 	RecentDeploys(ctx context.Context, repositoryID uuid.UUID, limit int) ([]domain.TaskPipeline, error)
 }
 
+// Notifier is satisfied by notify.Service. Whether and how often to notify is
+// decided here (severity floor, re-notify cooldown); the notifier only delivers.
 type Notifier interface {
-	Alert(ctx context.Context, title, body string)
+	Notify(ctx context.Context, n domain.Notification)
 }
 
 type Deps struct {
@@ -41,6 +44,9 @@ type Deps struct {
 	Tasks     TaskBoard
 	Deploys   DeployHistory
 	Notifier  Notifier
+	// AlertTokens backs the token-authenticated ingest; nil disables it.
+	AlertTokens port.AlertIngestTokenStore
+	AlertLimits domain.AlertIngestLimits
 }
 
 type Service struct {
@@ -51,11 +57,16 @@ type Service struct {
 	deploys   DeployHistory
 	notifier  Notifier
 
+	alertTokens port.AlertIngestTokenStore
+	alertGuard  *alertIngestGuard
+
 	attributor ReleaseAttributor
 	rollbacks  ReleaseRollbackDispatcher
 
-	notifyMu   sync.Mutex
-	lastNotify map[uuid.UUID]time.Time
+	now      func() time.Time
+	notifyMu sync.Mutex
+	cooldown *notify.Cooldown
+	scope    func(ctx context.Context) string
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
@@ -84,15 +95,16 @@ func NewService(deps Deps) *Service {
 		tasks:     deps.Tasks,
 		deploys:   deps.Deploys,
 		notifier:  deps.Notifier,
+
+		alertTokens: deps.AlertTokens,
+		alertGuard:  newAlertIngestGuard(deps.AlertLimits),
+		now:         time.Now,
 	}
 }
 
 const taskSeverityFloor = domain.IncidentSeverityHigh
 
-func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
-	if in.RepositoryID == uuid.Nil {
-		return domain.Incident{}, errors.New("incident needs a repository")
-	}
+func withInputDefaults(in domain.IncidentInput) domain.IncidentInput {
 	if in.Env == "" {
 		in.Env = domain.DeployEnvProd
 	}
@@ -108,14 +120,28 @@ func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.I
 	if in.Severity == "" {
 		in.Severity = domain.IncidentSeverityMedium
 	}
+	return in
+}
+
+func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
+	incident, _, err := s.ingest(ctx, in)
+	return incident, err
+}
+
+func (s *Service) ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, bool, error) {
+	if in.RepositoryID == uuid.Nil {
+		return domain.Incident{}, false, errors.New("incident needs a repository")
+	}
+	in = withInputDefaults(in)
 
 	if in.Resolved {
-		return s.recover(ctx, in)
+		incident, err := s.recover(ctx, in)
+		return incident, false, err
 	}
 
 	incident, created, err := s.incidents.Upsert(ctx, in)
 	if err != nil {
-		return domain.Incident{}, err
+		return domain.Incident{}, false, err
 	}
 	if created {
 		s.event(ctx, incident.ID, domain.IncidentEventDetected,
@@ -153,10 +179,13 @@ func (s *Service) Ingest(ctx context.Context, in domain.IncidentInput) (domain.I
 		}
 	}
 
-	if (created || incident.Severity == domain.IncidentSeverityCritical) && s.shouldRenotify(incident.ID) {
-		s.notify(ctx, incident, remedy)
+	if (created || incident.Severity == domain.IncidentSeverityCritical) && s.notifiable(incident) {
+		n := heldIncidentNotice{notification: openedNotification(incident, remedy), incidentID: incident.ID, opened: true}
+		if s.shouldRenotify(ctx, alertKey(incident), notifyOpened, n) {
+			s.deliver(ctx, n)
+		}
 	}
-	return incident, nil
+	return incident, created, nil
 }
 
 func machineMayOverwriteRemedy(incident domain.Incident) bool {
@@ -170,26 +199,95 @@ func machineMayOverwriteRemedy(incident domain.Incident) bool {
 	}
 }
 
-const renotifyCooldown = 30 * time.Minute
+const (
+	notifyOpened    = "opened"
+	notifyRecovered = "recovered"
+)
 
-func (s *Service) shouldRenotify(incidentID uuid.UUID) bool {
+// alertKey is the alert's identity, not the incident's: a flapping alert
+// resolves and re-fires as a NEW incident every cycle. A repeat of the last
+// kind told is held back (a critical incident recurring); an opening after a
+// told recovery, or a recovery after a told opening, goes out, so the last
+// word a person heard is never "recovered" while it is down — unless the
+// alert has changed more than four times in half an hour. Then it is told
+// nothing until it has stayed put for fifteen minutes, and then where it
+// ended (FlushSettled).
+func alertKey(incident domain.Incident) string {
+	return incident.RepositoryID.String() + "\x00" + incident.Env + "\x00" + incident.Fingerprint
+}
+
+// heldIncidentNotice is an opening or recovery notification, kept by the
+// cooldown while its alert flaps.
+type heldIncidentNotice struct {
+	notification domain.Notification
+	incidentID   uuid.UUID
+	opened       bool
+}
+
+func (s *Service) notifyCooldown() *notify.Cooldown {
 	s.notifyMu.Lock()
 	defer s.notifyMu.Unlock()
-	if s.lastNotify == nil {
-		s.lastNotify = make(map[uuid.UUID]time.Time)
+	if s.cooldown == nil {
+		s.cooldown = notify.NewCooldown(notify.DefaultCooldown).WithFlapLimit(notify.DefaultFlapLimit, notify.DefaultFlapSettle)
 	}
-	if last, ok := s.lastNotify[incidentID]; ok && time.Since(last) < renotifyCooldown {
-		return false
+	return s.cooldown
+}
+
+func (s *Service) shouldRenotify(ctx context.Context, key, kind string, n heldIncidentNotice) bool {
+	return s.notifyCooldown().AllowTransitionHolding(s.scopeOf(ctx)+"\x00"+key, kind, s.now(), n)
+}
+
+func (s *Service) deliver(ctx context.Context, n heldIncidentNotice) {
+	s.notifier.Notify(ctx, n.notification)
+	if n.opened {
+		s.event(ctx, n.incidentID, domain.IncidentEventNotified, "pushed to devices")
 	}
-	if len(s.lastNotify) > 256 {
-		for id, last := range s.lastNotify {
-			if time.Since(last) >= renotifyCooldown {
-				delete(s.lastNotify, id)
+}
+
+// SetScope keys the notification cooldown by scope(ctx) as well, so a
+// process serving several tenants delivers each one's held notifications
+// under its own context (FlushSettled). Without it there is one scope. Call
+// it before serving.
+func (s *Service) SetScope(scope func(ctx context.Context) string) { s.scope = scope }
+
+func (s *Service) scopeOf(ctx context.Context) string {
+	if s.scope == nil {
+		return ""
+	}
+	return s.scope(ctx)
+}
+
+// SettleInterval is how often Start delivers the final state of alerts that
+// stopped flapping.
+const SettleInterval = time.Minute
+
+// Start runs FlushSettled every SettleInterval until ctx ends.
+func (s *Service) Start(ctx context.Context) {
+	go func() {
+		t := time.NewTicker(SettleInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.FlushSettled(ctx)
 			}
 		}
+	}()
+}
+
+// FlushSettled tells, once each, where the alerts of this scope whose
+// flapping held their notifications back ended up.
+func (s *Service) FlushSettled(ctx context.Context) {
+	if s.notifier == nil {
+		return
 	}
-	s.lastNotify[incidentID] = time.Now()
-	return true
+	for _, h := range s.notifyCooldown().Settled(s.scopeOf(ctx)+"\x00", s.now()) {
+		if n, ok := h.Payload.(heldIncidentNotice); ok {
+			s.deliver(ctx, n)
+		}
+	}
 }
 
 func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
@@ -213,8 +311,11 @@ func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.
 			log.Warn().Err(err).Msg("incident recovery comment failed")
 		}
 	}
-	if s.notifier != nil {
-		s.notifier.Alert(ctx, "Recovered · "+resolved.Env, resolved.Title)
+	if s.notifiable(resolved) {
+		n := heldIncidentNotice{notification: incidentNotification(domain.NotificationIncidentRecovered, resolved, "Recovered · "+resolved.Env, resolved.Title), incidentID: resolved.ID}
+		if s.shouldRenotify(ctx, alertKey(resolved), notifyRecovered, n) {
+			s.deliver(ctx, n)
+		}
 	}
 	return resolved, nil
 }
@@ -341,8 +442,9 @@ func (s *Service) ProposeRemedy(ctx context.Context, incidentID uuid.UUID, remed
 		incident = updated
 	}
 	s.event(ctx, incidentID, domain.IncidentEventProposed, author+" proposed a "+remedy.Kind+" remedy")
-	if s.notifier != nil {
-		s.notifier.Alert(ctx, "Fix proposed · "+incident.Env, truncate(remedy.Summary, 200))
+	// Whoever typed the proposal by hand does not need telling about it.
+	if author != domain.RemedyAuthorHuman && s.notifiable(incident) {
+		s.notifier.Notify(ctx, incidentNotification(domain.NotificationRemedyProposed, incident, "Fix proposed · "+incident.Env, truncate(remedy.Summary, 200)))
 	}
 	return incident, nil
 }
@@ -392,13 +494,27 @@ func (s *Service) ByTask(ctx context.Context, taskID uuid.UUID) (domain.Incident
 	return s.incidents.ByTask(ctx, taskID)
 }
 
-func (s *Service) notify(ctx context.Context, incident domain.Incident, remedy domain.Remedy) {
-	if s.notifier == nil || incident.Severity.Rank() < taskSeverityFloor.Rank() {
-		return
-	}
+func openedNotification(incident domain.Incident, remedy domain.Remedy) domain.Notification {
 	title := fmt.Sprintf("%s · %s", strings.ToUpper(incident.Env), truncate(incident.Title, 80))
-	s.notifier.Alert(ctx, title, truncate(remedy.Summary, 200))
-	s.event(ctx, incident.ID, domain.IncidentEventNotified, "pushed to devices")
+	return incidentNotification(domain.NotificationIncidentOpened, incident, title, truncate(remedy.Summary, 200))
+}
+
+// notifiable keeps the follow-ups (recovered, fix proposed) to the incidents
+// whose opening was loud enough to notify in the first place.
+func (s *Service) notifiable(incident domain.Incident) bool {
+	return s.notifier != nil && incident.Severity.Rank() >= taskSeverityFloor.Rank()
+}
+
+func incidentNotification(kind domain.NotificationKind, incident domain.Incident, title, body string) domain.Notification {
+	return domain.Notification{
+		Kind:     kind,
+		Title:    title,
+		Body:     body,
+		Severity: incident.Severity,
+		Link:     domain.IncidentLink(incident.ID),
+		Source:   domain.NotificationSourceIncident,
+		SourceID: incident.ID.String(),
+	}
 }
 
 func (s *Service) policy(ctx context.Context, repositoryID uuid.UUID) domain.IncidentPolicy {

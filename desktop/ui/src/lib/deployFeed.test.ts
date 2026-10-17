@@ -195,6 +195,15 @@ describe("releaseEnvironment", () => {
     expect(releaseEnvironment(release({ deploy: { env: "stage" } as Release["deploy"] }))).toBe("staging");
     expect(releaseEnvironment(release({ deploy: { env: "prod" } as Release["deploy"] }))).toBe("production");
   });
+
+  it("never reads a pre-production or unknown label as production", () => {
+    const at = (env: string) => releaseEnvironment(release({ deploy: { env } as Release["deploy"] }));
+    expect(at("preprod")).toBe("staging");
+    expect(at("uat")).toBe("staging");
+    expect(at("qa")).toBe("staging");
+    expect(at("live")).toBe("production");
+    expect(at("canary-eu")).toBeUndefined();
+  });
 });
 
 describe("mergeReleasePages", () => {

@@ -31,6 +31,70 @@ Every incident lands in one deduplicated table regardless of source:
 - **A failed deploy.** A pipeline run's own stage, preprod or prod deploy
   failing is reported the same way as an external alert.
 
+## Alert tokens
+
+The alert webhook above needs the app's own API key, which an alerting system
+does not have. Give it an **alert token** instead: create one per alerter with
+`POST /v1/repositories/{id}/alert-tokens` (`{"label": "Alertmanager",
+"default_env": "prod"}`) and point the alerter at the `ingest_path` it returns,
+`/v1/alerts/ingest/<token>`. That URL takes exactly the same payloads as the
+webhook, `?env=` and `?source=` included; `default_env` is used when neither
+the payload nor `?env=` names an environment. The token is shown once — only
+a hash of it is kept — and listing tokens shows each one's label and when it
+last delivered an alert. Delete a token
+(`DELETE /v1/repositories/{id}/alert-tokens/{tokenId}`) to revoke it. Treat
+the URL as a secret: anyone holding it can open incidents on that repository.
+
+Each token is rate limited, so a leaked one cannot flood the board: by
+default 60 requests a minute (with a burst of 10) and at most 20 **new**
+incidents an hour (`prod_ops.alert_ingest` in the configuration). Past either
+limit the alerter gets `429 {"error":"rate_limited"}`. The hourly cap only
+stops new incidents — an alert that repeats an incident already open still
+counts as an occurrence, and a recovery still closes its incident.
+
+In the desktop app the server listens on `127.0.0.1` only, so an alerter on
+another machine cannot reach this URL directly; put a tunnel of your own in
+front of it (for example `cloudflared` or `ngrok` forwarding to the local
+port) and give the alerter the tunnel's address with the same path. The
+desktop app picks a new local port each time it starts, so the tunnel has to
+follow it.
+
+## Notifications
+
+A new incident at `high` or `critical` — and a `critical` one that keeps
+recurring — shows a desktop notification on macOS, as do its recovery and a
+fix proposed by an agent. Repeats of the same message are held back for 30
+minutes, but a change of state is told: if the last thing you heard about an
+alert was its recovery and it fires again, you hear about it at once, so the
+last notification matches the alert's real state. Medium and low incidents
+stay on **Operations → Issues** without interrupting you.
+
+An alert that keeps flipping is the exception. Once an alert has changed state
+four times inside 30 minutes, TaskTrooper stops notifying about it until it
+has stayed in one state for 15 minutes, and then tells you once where it
+ended up — opened or recovered. If it settled where your last notification
+left it, you hear nothing more. The incidents themselves still open and
+resolve on **Operations → Issues** the whole time. The same limit applies to
+the notifications of [alert rules](operations-console.md#alerts) that notify
+on their own channels instead of opening an incident.
+
+Incidents opened by an [alert rule](operations-console.md#alerts) recover
+only after the condition has been clear for two evaluations in a row and for
+at least five minutes (longer if the rule's `for` duration is longer). A
+firing rule also rides out up to three evaluations with no data before it
+stops firing. So a condition that clears for a few minutes and comes back
+does not close the incident and open a new one every cycle. A source that
+cannot be read keeps the rule in the state it was in for up to ten
+evaluations in a row. The rule shows the last read error meanwhile. After
+that the rule treats the source as returning no data, so a source that is
+down for good does not hold an incident open forever. A rule that was
+`pending` when its reads started failing restarts its `for` once they work
+again, because the time it could not read is not time the condition held.
+
+Incidents opened by an [error definition](operations-console.md#error-definitions)
+resolve when the definition is deleted (by hand, or together with its
+component), dismissed, or changed to an action that opens no incident.
+
 ## Severity
 
 Every alert normalizes onto four levels — `critical`, `high`, `medium`,
@@ -85,16 +149,31 @@ allowed to go on its own:
 | **Suggest** (default) | A diagnosis task is opened and must stop at a written proposal — a human decides whether to act on it |
 | **Auto fix** | The diagnosis task may carry the fix all the way through the board — tests, review and deploy still gate it exactly as any other task would |
 
-## The Incidents page
+## The Issues page
 
-Operations → Production incidents lists every live incident (open, triaging,
-proposed or fixing) by default, with a filter to include resolved and ignored
-ones. Selecting an incident shows its severity, environment, source,
-first-seen and last-seen times, occurrence count, the current remedy and its
-confidence, the raw alert payload, and its full timeline. From there you can
-**Triage** (re-run the remedy engine), **Resolve**, or **Ignore** it — an
-ignored incident stays terminal and a later recurrence of the same
-fingerprint opens a fresh one rather than reopening it.
+Incidents are listed as **issues** on **Operations → Issues** in the
+[Operations console](operations-console.md), one environment at a time (the
+one picked in the console's top bar), and on each entity's own Issues
+section. By default it lists every live incident (open, triaging, fix
+proposed or fixing); **Include resolved and ignored** adds the closed ones
+from the time range. Selecting an incident opens its panel: severity,
+environment, source, first-seen and last-seen times, occurrence count, the
+task carrying it, the current remedy with its confidence and author, the raw
+alert payload, and its full timeline. From there you can **Triage again**
+(re-run the remedy engine), **Write a remedy** by hand, **Resolve**, or
+**Ignore** it. An ignored incident stays terminal and a later recurrence of
+the same fingerprint opens a fresh one rather than reopening it.
+
+An open incident also counts against the health of the components it is
+about: a critical or high one makes them **Critical** on the console, any
+other **Warning**. An incident names a repository and an environment, so it
+is shown on that repository's components that run in the environment, or on
+all of the repository's components when none does. See
+[Operations console](operations-console.md#entities-and-health).
+
+The panel's address is `/operations/issues?id=<incident id>`, and that is
+the link an incident notification carries. The older address,
+`/operations/incidents?id=<id>`, still opens the same panel.
 
 ## How an incident becomes a task
 
@@ -115,16 +194,21 @@ incident whose onset falls inside it is attributed to that specific release
 and its newest task, which is what wakes the **release engineer** on the
 task's card in Released — see [Deploy targets and recipes](deploy.md) →
 "Releases" — rather than only producing generic "roll back the last deploy"
-advice with no card to act on. The release engineer reads the logs and the
-incident, and either calls `rollback_release` (executed automatically when
-the component's delivery profile has `auto_rollback` on, or written up as a
-proposal for a human to confirm otherwise) or explains why the incident is
+advice with no card to act on. The release engineer reads the logs, the
+incident and the release's [deploy impact](deploy.md#deploy-impact) (its
+golden signals the hour before the deploy against the hour after), and
+either calls `rollback_release` (executed automatically when the
+component's delivery profile has `auto_rollback` on, or written up as a
+proposal for a human to confirm otherwise, with a "rollback suggested"
+notification) or explains why the incident is
 not this release's doing and leaves it alone. A component with no release
 history to attribute to falls back to the older, environment-keyed remedy
 above, gated by the deploy target's own `auto_rollback` field instead.
 
 ## See also
 
+- [Operations console](operations-console.md) — the Issues page, and how
+  open incidents drive each component's health
 - [Deploy targets and recipes](deploy.md) — health URLs, rollback mechanisms
   and the release flow an incident's remedy plugs into
 - [Agent tools](tools.md) — `list_incidents`, `get_incident`,

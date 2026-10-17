@@ -1,0 +1,33 @@
+# RabbitMQ's built-in rabbitmq_prometheus plugin. Per-queue labels need
+# per-object metrics (prometheus.return_per_object_metrics = true, or a scrape
+# of /metrics/per-object).
+id: rabbitmq-prometheus
+source_kind: prometheus
+applies_to:
+  technology: rabbitmq
+  messaging_system: rabbitmq
+detect:
+  metric: rabbitmq_queue_messages_ready
+params: [queue, vhost]
+signals:
+  queue.backlog: >-
+    sum(rabbitmq_queue_messages_ready{queue="$queue", vhost="$vhost"})
+    + sum(rabbitmq_queue_messages_unacked{queue="$queue", vhost="$vhost"})
+  queue.consumers: >-
+    sum(rabbitmq_queue_consumers{queue="$queue", vhost="$vhost"})
+tables:
+  queues:
+    key_labels: [vhost, queue]
+    columns:
+      - {key: vhost, label: Virtual host}
+      - {key: queue, label: Queue}
+      - {key: ready, label: Ready, unit: messages}
+      - {key: unacked, label: Unacked, unit: messages}
+      - {key: consumers, label: Consumers, unit: count}
+    queries:
+      ready: >-
+        sum by (vhost, queue) (rabbitmq_queue_messages_ready{queue="$queue", vhost="$vhost"})
+      unacked: >-
+        sum by (vhost, queue) (rabbitmq_queue_messages_unacked{queue="$queue", vhost="$vhost"})
+      consumers: >-
+        sum by (vhost, queue) (rabbitmq_queue_consumers{queue="$queue", vhost="$vhost"})

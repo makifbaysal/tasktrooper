@@ -83,3 +83,21 @@ func TestParkTurnOnQuotaFallsBackToAnErrorNoticeWhenTheParkItselfFails(t *testin
 	assert.NotContains(t, store.appendedContent, domain.QuotaQueuedNoticePrefix,
 		"a park that was never written must not claim to be queued")
 }
+
+func TestATurnThatMayNotBeParkedOrCarriesAToolCeilingIsNeverParked(t *testing.T) {
+	for _, req := range []domain.SessionMessageRequest{
+		{Role: domain.RoleUser, Content: "job", NoQuotaPark: true},
+		{Role: domain.RoleUser, Content: "job", ToolCeiling: []string{"read_file"}},
+	} {
+		store := &quotaParkStore{}
+		block := &domain.QuotaBlock{ResumeAt: time.Now().Add(time.Hour)}
+
+		err := session.ParkTurnOnQuotaForTest(context.Background(), store, uuid.New(), req, domain.ToolPolicy{}, block, "en")
+
+		_, isQuota := domain.QuotaBlockOf(err)
+		assert.True(t, isQuota, "the caller still learns it hit the usage limit")
+		assert.Zero(t, store.parkCalls, "a ceiling is never persisted, so the turn must not resume without it")
+		assert.Equal(t, 1, store.appendCalls)
+		assert.NotContains(t, store.appendedContent, domain.QuotaQueuedNoticePrefix)
+	}
+}

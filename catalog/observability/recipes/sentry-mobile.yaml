@@ -1,0 +1,31 @@
+# A mobile (or desktop) app's release health and crashes from Sentry. project
+# is the Sentry project's slug. Every environment the project reports is read
+# together; to read one, bind a raw query with "environment" set. Release
+# health needs the SDK's session tracking (on by default in the mobile SDKs).
+# crash_free_users and crash_rate (crashed sessions over all sessions) are
+# percent, at whole-hour intervals. errors.issues brings the project's
+# unresolved issues into the errors inbox; the crashes table is its unhandled
+# ones of the last 14 days, the most frequent first.
+id: sentry-mobile
+source_kind: sentry
+applies_to:
+  technology: sentry
+params: [project]
+signals:
+  mobile.crash_free_users: '{"project": "$project", "metric": "crash_free_users"}'
+  mobile.crash_rate: '{"project": "$project", "metric": "crash_rate"}'
+  errors.issues: '{"project": "$project"}'
+tables:
+  crashes:
+    key_labels: [issue]
+    columns:
+      - {key: issue, label: Issue}
+      - {key: type, label: Type}
+      - {key: cause, label: Cause}
+      - {key: location, label: Location}
+      - {key: users, label: Users, unit: users}
+      - {key: reports, label: Reports, unit: reports}
+      - {key: last_version, label: Last version}
+      - {key: last_seen, label: Last seen}
+      - {key: link, label: Link}
+    query: '{"project": "$project", "search": "is:unresolved error.unhandled:true"}'

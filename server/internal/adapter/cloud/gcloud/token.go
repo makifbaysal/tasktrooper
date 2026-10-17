@@ -27,6 +27,10 @@ const jwtBearerGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
 const assertionTTL = time.Hour
 
+// maxTokenLifetime bounds how long a minted token is kept, whatever
+// expires_in the endpoint answers: Google's are an hour.
+const maxTokenLifetime = int64(time.Hour / time.Second)
+
 const defaultTokenURL = "https://oauth2.googleapis.com/token"
 
 type serviceAccount struct {
@@ -165,8 +169,8 @@ func fetchAccessToken(ctx context.Context, httpClient *http.Client, tokenURL, cl
 		return "", time.Time{}, errors.New("gcloud: token response missing access_token")
 	}
 	expiresIn := tr.ExpiresIn
-	if expiresIn <= 0 {
-		expiresIn = 3600
+	if expiresIn <= 0 || expiresIn > maxTokenLifetime {
+		expiresIn = maxTokenLifetime
 	}
 	return tr.AccessToken, time.Now().Add(time.Duration(expiresIn) * time.Second), nil
 }

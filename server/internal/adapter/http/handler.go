@@ -25,11 +25,13 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpserver"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	agentcliapp "github.com/makifbaysal/tasktrooper/server/internal/application/agentcli"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/alerting"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/apikey"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/attachment"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/billing"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/designsystem"
@@ -46,6 +48,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/memory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/mobiledevice"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/newrepo"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/opsquery"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
@@ -54,6 +57,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/settings"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/signals"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/simrun"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workflow"
@@ -149,6 +153,12 @@ type Handler struct {
 	releaseWaker    ReleaseWaker
 	smokeGenSvc     SmokeGenService
 	cloudSvc        *cloud.Service
+	dataSourceSvc   *datasource.Service
+	opsQuerySvc     *opsquery.Service
+	signalsSvc      *signals.Service
+	alertingSvc     *alerting.Service
+	errorDefsSvc    ErrorDefinitionService
+	opsAISvc        OpsAIService
 	envRequirements EnvRequirementService
 	localPreviewSvc *localpreview.Service
 	simRunSvc       *simrun.Service
@@ -218,6 +228,12 @@ type Config struct {
 	ReleaseWaker      ReleaseWaker
 	SmokeGenSvc       SmokeGenService
 	CloudSvc          *cloud.Service
+	DataSourceSvc     *datasource.Service
+	OpsQuerySvc       *opsquery.Service
+	SignalsSvc        *signals.Service
+	AlertingSvc       *alerting.Service
+	ErrorDefsSvc      ErrorDefinitionService
+	OpsAISvc          OpsAIService
 	EnvRequirements   EnvRequirementService
 	LocalPreviewSvc   *localpreview.Service
 	SimRunSvc         *simrun.Service
@@ -286,6 +302,12 @@ func NewHandler(cfg Config) *Handler {
 		releaseWaker:      cfg.ReleaseWaker,
 		smokeGenSvc:       cfg.SmokeGenSvc,
 		cloudSvc:          cfg.CloudSvc,
+		dataSourceSvc:     cfg.DataSourceSvc,
+		opsQuerySvc:       cfg.OpsQuerySvc,
+		signalsSvc:        cfg.SignalsSvc,
+		alertingSvc:       cfg.AlertingSvc,
+		errorDefsSvc:      cfg.ErrorDefsSvc,
+		opsAISvc:          cfg.OpsAISvc,
 		envRequirements:   cfg.EnvRequirements,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		simRunSvc:         cfg.SimRunSvc,
@@ -334,6 +356,12 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerReleaseRoutes(app)
 	h.registerSmokeGenRoutes(app)
 	h.registerCloudRoutes(app)
+	h.registerOpsQueryRoutes(app)
+	h.registerDataSourceRoutes(app)
+	h.registerSignalRoutes(app)
+	h.registerTraceRoutes(app)
+	h.registerAlertRuleRoutes(app)
+	h.registerErrorDefinitionRoutes(app)
 	h.registerEnvRequirementRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)

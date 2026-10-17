@@ -90,8 +90,8 @@ func TestTracksProductionShowsTheLiveVersionAndQueuesTheApprovedOne(t *testing.T
 	if got.Version != "1.4.0" || got.Status != domain.TrackStatusLive {
 		t.Errorf("Production = %s/%s, want 1.4.0/live", got.Version, got.Status)
 	}
-	if got.PendingVersion != "1.5.0" || got.PendingStatus != domain.TrackStatusDraft {
-		t.Errorf("Pending = %s/%s, want 1.5.0/draft", got.PendingVersion, got.PendingStatus)
+	if got.PendingVersion != "1.5.0" || got.PendingStatus != domain.TrackStatusApproved {
+		t.Errorf("Pending = %s/%s, want 1.5.0/approved — the version Release acts on", got.PendingVersion, got.PendingStatus)
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
 const tokenAudience = "appstoreconnect-v1"
@@ -72,4 +74,20 @@ func mintToken(keyID, issuerID string, priv *ecdsa.PrivateKey) (token string, ex
 	s.FillBytes(sig[32:])
 
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig), exp, nil
+}
+
+// MintToken signs an App Store Connect API token from a store credential
+// (key_id, issuer_id, p8), for an adapter outside this package that calls
+// the API with the workspace's key (the App Store metrics data source). The
+// token is valid until expiresAt, tokenTTL from now.
+func MintToken(cred domain.StoreCredential) (token string, expiresAt time.Time, err error) {
+	keyID, issuerID, p8 := cred.Data["key_id"], cred.Data["issuer_id"], cred.Data["p8"]
+	if keyID == "" || issuerID == "" || p8 == "" {
+		return "", time.Time{}, errors.New("appstore: credential missing key_id, issuer_id, or p8")
+	}
+	priv, err := parseP8PrivateKey([]byte(p8))
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return mintToken(keyID, issuerID, priv)
 }

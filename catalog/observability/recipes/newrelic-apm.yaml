@@ -1,0 +1,31 @@
+# A backend service's requests from New Relic APM's Transaction events.
+# app is the application's name (appName). The kind appends SINCE, UNTIL and
+# TIMESERIES. Latency is the quantile asked for of duration (seconds), in
+# ms. The endpoints table is one row per transaction name (the facet) over
+# the last hour, the top 100 by count.
+id: newrelic-apm
+source_kind: newrelic
+applies_to:
+  technology: newrelic
+detect:
+  metric: Transaction
+params: [app]
+signals:
+  http.requests: >-
+    SELECT rate(count(*), 1 second) AS 'requests' FROM Transaction WHERE appName = '$app'
+  http.error_ratio: >-
+    SELECT percentage(count(*), WHERE error IS true) AS 'error_ratio' FROM Transaction WHERE appName = '$app'
+  http.latency: >-
+    SELECT percentile(duration, $__quantile) * 1000 AS 'latency' FROM Transaction WHERE appName = '$app'
+tables:
+  endpoints:
+    key_labels: [facet]
+    columns:
+      - {key: facet, label: Endpoint}
+      - {key: rpm, label: Requests, unit: req/min}
+      - {key: error_pct, label: Errors, unit: "%"}
+      - {key: p95_ms, label: p95, unit: ms}
+    query: >-
+      SELECT rate(count(*), 1 minute) AS 'rpm', percentage(count(*), WHERE error IS true) AS 'error_pct',
+      percentile(duration, 95) * 1000 AS 'p95_ms'
+      FROM Transaction WHERE appName = '$app' FACET name LIMIT 100

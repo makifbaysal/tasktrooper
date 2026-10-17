@@ -120,7 +120,7 @@ func TestPromoteChannelRefusesASkippedChannel(t *testing.T) {
 	ctx := context.Background()
 
 	err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformIOS,
-		domain.StoreChannelInternal, domain.StoreChannelProduction, "trooper", "akif")
+		domain.StoreChannelInternal, domain.StoreChannelProduction, 1, "trooper", "akif")
 	if !errors.Is(err, storeops.ErrInvalidChannel) {
 		t.Fatalf("err = %v, want ErrInvalidChannel", err)
 	}
@@ -139,7 +139,7 @@ func TestPromoteChannelRefusesBackwardsAndUnknownChannels(t *testing.T) {
 		{domain.StoreChannelProduction, domain.StoreChannelProduction},
 		{"nightly", domain.StoreChannelProduction},
 	} {
-		err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformIOS, pair[0], pair[1], "trooper", "akif")
+		err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformIOS, pair[0], pair[1], 1, "trooper", "akif")
 		if !errors.Is(err, storeops.ErrInvalidChannel) {
 			t.Fatalf("%v -> %v: err = %v, want ErrInvalidChannel", pair[0], pair[1], err)
 		}
@@ -151,7 +151,7 @@ func TestPromoteChannelToProductionRequiresTheConfirmPhrase(t *testing.T) {
 	ctx := context.Background()
 
 	err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformIOS,
-		domain.StoreChannelExternal, domain.StoreChannelProduction, "wrong", "akif")
+		domain.StoreChannelExternal, domain.StoreChannelProduction, 1, "wrong", "akif")
 	if !errors.Is(err, storeops.ErrConfirmMismatch) {
 		t.Fatalf("err = %v, want ErrConfirmMismatch", err)
 	}
@@ -170,12 +170,12 @@ func TestPromoteChannelRefusesProductionForAnAppThatIsNotLive(t *testing.T) {
 	f.setState(domain.MobileStoreStateTestReady)
 
 	err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformIOS,
-		domain.StoreChannelExternal, domain.StoreChannelProduction, "trooper", "akif")
+		domain.StoreChannelExternal, domain.StoreChannelProduction, 1, "trooper", "akif")
 	if !errors.Is(err, storeops.ErrAppNotReady) {
 		t.Fatalf("err = %v, want ErrAppNotReady", err)
 	}
 	if err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformIOS,
-		domain.StoreChannelInternal, domain.StoreChannelExternal, "", "akif"); err != nil {
+		domain.StoreChannelInternal, domain.StoreChannelExternal, 1, "", "akif"); err != nil {
 		t.Fatalf("a test-channel promotion was refused for a test_ready app: %v", err)
 	}
 }
@@ -185,7 +185,7 @@ func TestPromoteChannelTranslatesAndroidTrackNames(t *testing.T) {
 	ctx := context.Background()
 
 	if err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformAndroid,
-		domain.StoreChannelInternal, domain.StoreChannelExternal, "", "akif"); err != nil {
+		domain.StoreChannelInternal, domain.StoreChannelExternal, 1, "", "akif"); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.play.PromoteTrackCalls) != 1 || f.play.PromoteTrackCalls[0].ToTrack != "beta" {
@@ -201,7 +201,7 @@ func TestPromoteChannelTranslatesAndroidTrackNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformAndroid,
-		domain.StoreChannelExternal, domain.StoreChannelProduction, "trooper", "akif"); err != nil {
+		domain.StoreChannelExternal, domain.StoreChannelProduction, 1, "trooper", "akif"); err != nil {
 		t.Fatal(err)
 	}
 	last := f.play.PromoteTrackCalls[len(f.play.PromoteTrackCalls)-1]
@@ -210,10 +210,53 @@ func TestPromoteChannelTranslatesAndroidTrackNames(t *testing.T) {
 	}
 }
 
+func TestPromoteChannelStartsAPlayProductionPromoteAtTheGivenShare(t *testing.T) {
+	svc, f := newReleaseTestService(t, "trooper")
+	ctx := context.Background()
+
+	if err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformAndroid,
+		domain.StoreChannelExternal, domain.StoreChannelProduction, 0.1, "trooper", "akif"); err != nil {
+		t.Fatal(err)
+	}
+	if last := f.play.PromoteTrackCalls[len(f.play.PromoteTrackCalls)-1]; last.ToTrack != "production" || last.UserFraction != 0.1 {
+		t.Fatalf("call = %+v, want production at 0.1", last)
+	}
+
+	// Only into production: a testing channel opens to everyone whatever is sent.
+	if err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformAndroid,
+		domain.StoreChannelInternal, domain.StoreChannelExternal, 0.1, "", "akif"); err != nil {
+		t.Fatal(err)
+	}
+	if last := f.play.PromoteTrackCalls[len(f.play.PromoteTrackCalls)-1]; last.UserFraction != 1 {
+		t.Fatalf("call = %+v, want a testing promote at 1", last)
+	}
+}
+
+func TestPromoteChannelRefusesAPlayProductionShareOutsideZeroToOne(t *testing.T) {
+	svc, f := newReleaseTestService(t, "trooper")
+	ctx := context.Background()
+
+	for _, bad := range []float64{0, -0.5, 1.2} {
+		err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformAndroid,
+			domain.StoreChannelExternal, domain.StoreChannelProduction, bad, "trooper", "akif")
+		if !errors.Is(err, storeops.ErrInvalidRolloutFraction) {
+			t.Fatalf("fraction %v: err = %v, want ErrInvalidRolloutFraction", bad, err)
+		}
+	}
+	if len(f.play.PromoteTrackCalls) != 0 {
+		t.Fatalf("an out-of-range share reached Play: %+v", f.play.PromoteTrackCalls)
+	}
+	// App Store's production step is App Review; the share means nothing there.
+	if err := svc.PromoteChannel(ctx, f.repoID, domain.MobileStorePlatformIOS,
+		domain.StoreChannelExternal, domain.StoreChannelProduction, 0, "trooper", "akif"); err != nil {
+		t.Fatalf("an iOS promote was refused over a share it ignores: %v", err)
+	}
+}
+
 func TestPromoteChannelUsesTheASCResourceIDForIOS(t *testing.T) {
 	svc, f := newReleaseTestService(t, "trooper")
 	if err := svc.PromoteChannel(context.Background(), f.repoID, domain.MobileStorePlatformIOS,
-		domain.StoreChannelInternal, domain.StoreChannelExternal, "", "akif"); err != nil {
+		domain.StoreChannelInternal, domain.StoreChannelExternal, 1, "", "akif"); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.asc.PromoteChannelCalls) != 1 || f.asc.PromoteChannelCalls[0] != [3]string{"asc-app-1", "internal", "external"} {
@@ -224,7 +267,7 @@ func TestPromoteChannelUsesTheASCResourceIDForIOS(t *testing.T) {
 func TestPromoteChannelOnAnUnknownRepositoryIsNotFound(t *testing.T) {
 	svc, _ := newReleaseTestService(t, "trooper")
 	err := svc.PromoteChannel(context.Background(), uuid.New(), domain.MobileStorePlatformIOS,
-		domain.StoreChannelInternal, domain.StoreChannelExternal, "", "akif")
+		domain.StoreChannelInternal, domain.StoreChannelExternal, 1, "", "akif")
 	if !errors.Is(err, port.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}

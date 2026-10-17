@@ -33,23 +33,23 @@ var _ port.ReleaseStore = (*ReleaseStore)(nil)
 const releaseCols = `id, repository_id, component_id, version, mode, executor, status, commit_sha, tag, notes,
 	profile, deploy, checks, verdict, rollback, failure_reason, card_task_id, local_run, store_builds, cut_at,
 	created_at, updated_at, deploy_started_at, deployed_at, verify_until, finished_at,
-	hand_back_count, last_hand_back_at, agent_seen_at`
+	hand_back_count, last_hand_back_at, agent_seen_at, rollback_proposal, rollback_dismissal`
 
 const releaseColsPrefixed = `r.id, r.repository_id, r.component_id, r.version, r.mode, r.executor, r.status, r.commit_sha, r.tag, r.notes,
 	r.profile, r.deploy, r.checks, r.verdict, r.rollback, r.failure_reason, r.card_task_id, r.local_run, r.store_builds, r.cut_at,
 	r.created_at, r.updated_at, r.deploy_started_at, r.deployed_at, r.verify_until, r.finished_at,
-	r.hand_back_count, r.last_hand_back_at, r.agent_seen_at`
+	r.hand_back_count, r.last_hand_back_at, r.agent_seen_at, r.rollback_proposal, r.rollback_dismissal`
 
 func scanRelease(row pgx.Row) (domain.Release, error) {
 	var r domain.Release
 	var mode, executor, status string
-	var profileJSON, checksJSON, deployJSON, rollbackJSON, localRunJSON, storeBuildsJSON []byte
+	var profileJSON, checksJSON, deployJSON, rollbackJSON, localRunJSON, storeBuildsJSON, proposalJSON, dismissalJSON []byte
 	if err := row.Scan(
 		&r.ID, &r.RepositoryID, &r.ComponentID, &r.Version, &mode, &executor, &status, &r.CommitSHA, &r.Tag, &r.Notes,
 		&profileJSON, &deployJSON, &checksJSON, &r.Verdict, &rollbackJSON, &r.FailureReason, &r.CardTaskID,
 		&localRunJSON, &storeBuildsJSON, &r.CutAt,
 		&r.CreatedAt, &r.UpdatedAt, &r.DeployStartedAt, &r.DeployedAt, &r.VerifyUntil, &r.FinishedAt,
-		&r.HandBackCount, &r.LastHandBackAt, &r.AgentSeenAt,
+		&r.HandBackCount, &r.LastHandBackAt, &r.AgentSeenAt, &proposalJSON, &dismissalJSON,
 	); err != nil {
 		return domain.Release{}, err
 	}
@@ -87,6 +87,20 @@ func scanRelease(row pgx.Row) (domain.Release, error) {
 		if err := json.Unmarshal(storeBuildsJSON, &r.StoreBuilds); err != nil {
 			return domain.Release{}, fmt.Errorf("unmarshal release store_builds: %w", err)
 		}
+	}
+	if proposalJSON != nil {
+		var p domain.RollbackProposal
+		if err := json.Unmarshal(proposalJSON, &p); err != nil {
+			return domain.Release{}, fmt.Errorf("unmarshal release rollback_proposal: %w", err)
+		}
+		r.RollbackProposal = &p
+	}
+	if dismissalJSON != nil {
+		var d domain.RollbackDismissal
+		if err := json.Unmarshal(dismissalJSON, &d); err != nil {
+			return domain.Release{}, fmt.Errorf("unmarshal release rollback_dismissal: %w", err)
+		}
+		r.RollbackDismissal = &d
 	}
 	return r, nil
 }
@@ -375,6 +389,8 @@ UPDATE releases SET
 	finished_at = $20,
 	hand_back_count = $21,
 	last_hand_back_at = $22,
+	rollback_proposal = CASE WHEN $3 IN ('rolling_back', 'rolled_back', 'superseded') OR ($3 = 'released' AND $2 <> 'released')
+		THEN NULL ELSE rollback_proposal END,
 	updated_at = now()
 WHERE id = $1 AND status = $2
 RETURNING ` + releaseCols
@@ -530,6 +546,60 @@ func (s *ReleaseStore) LastReleased(ctx context.Context, repositoryID uuid.UUID,
 		return domain.Release{}, fmt.Errorf("last released: %w", err)
 	}
 	return s.fillOne(ctx, r)
+}
+
+// SetRollbackProposal writes rollback_proposal directly, outside the
+// optimistic Update(r, expect) path, which never writes it from its copy. It
+// leaves updated_at alone: a proposal is not an edit of the release, and the
+// hand-back watchdog reads updated_at as the release's last movement.
+func (s *ReleaseStore) SetRollbackProposal(ctx context.Context, id uuid.UUID, p *domain.RollbackProposal) error {
+	if p == nil {
+		tag, err := s.pool.Exec(ctx, `UPDATE releases SET rollback_proposal = NULL WHERE id = $1`, id)
+		if err != nil {
+			return fmt.Errorf("clear release rollback proposal: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("clear release rollback proposal: %w", domain.ErrReleaseNotFound)
+		}
+		return nil
+	}
+	proposalJSON, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("marshal release rollback_proposal: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE releases SET rollback_proposal = $2
+		WHERE id = $1 AND status IN ('failed', 'awaiting_verdict', 'released')`, id, proposalJSON)
+	if err != nil {
+		return fmt.Errorf("set release rollback proposal: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var status string
+	switch err := s.pool.QueryRow(ctx, `SELECT status FROM releases WHERE id = $1`, id).Scan(&status); {
+	case errors.Is(err, pgx.ErrNoRows):
+		return fmt.Errorf("set release rollback proposal: %w", domain.ErrReleaseNotFound)
+	case err != nil:
+		return fmt.Errorf("set release rollback proposal: %w", err)
+	}
+	return fmt.Errorf("set release rollback proposal: %w: the release is %s", domain.ErrReleaseWrongStatus, status)
+}
+
+func (s *ReleaseStore) DismissRollbackProposal(ctx context.Context, id uuid.UUID, proposedAt time.Time, d domain.RollbackDismissal) (bool, error) {
+	at, err := json.Marshal(proposedAt)
+	if err != nil {
+		return false, fmt.Errorf("dismiss release rollback proposal: %w", err)
+	}
+	dismissalJSON, err := json.Marshal(d)
+	if err != nil {
+		return false, fmt.Errorf("marshal release rollback_dismissal: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE releases SET rollback_proposal = NULL, rollback_dismissal = $3
+		WHERE id = $1 AND to_jsonb(rollback_proposal->>'proposed_at') = $2::jsonb`, id, at, dismissalJSON)
+	if err != nil {
+		return false, fmt.Errorf("dismiss release rollback proposal: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // MarkAgentSeen stamps agent_seen_at directly, outside the optimistic

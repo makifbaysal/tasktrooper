@@ -1,0 +1,29 @@
+# redpanda-data/kminion. The queues table is the group's lag per partition
+# of every topic it reads, which kminion exports at its default partition
+# granularity (minion.consumerGroups.granularity: partition).
+id: kminion
+source_kind: prometheus
+applies_to:
+  technology: kafka
+  messaging_system: kafka
+detect:
+  metric: kminion_kafka_consumer_group_topic_lag
+params: [group, topic]
+signals:
+  queue.backlog: >-
+    sum(kminion_kafka_consumer_group_topic_lag{group_id="$group", topic_name="$topic"})
+  queue.consume_rate: >-
+    sum(rate(kminion_kafka_consumer_group_topic_offset_sum{group_id="$group", topic_name="$topic"}[$__rate]))
+  queue.publish_rate: >-
+    sum(rate(kminion_kafka_topic_high_water_mark_sum{topic_name="$topic"}[$__rate]))
+  queue.consumers: >-
+    sum(kminion_kafka_consumer_group_members{group_id="$group"})
+tables:
+  queues:
+    key_labels: [topic_name, partition_id]
+    columns:
+      - {key: topic_name, label: Topic}
+      - {key: partition_id, label: Partition}
+      - {key: lag, label: Lag, unit: messages}
+    query: >-
+      sum by (topic_name, partition_id) (kminion_kafka_consumer_group_topic_partition_lag{group_id="$group"})

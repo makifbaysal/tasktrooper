@@ -1,0 +1,23 @@
+# oliver006/redis_exporter's key sizes (run it with --check-keys=<pattern>,
+# e.g. "bull:*:wait,queue:*"): a queue kept as a Redis list, whose length
+# (LLEN) is its backlog. key is the list: bull:<queue>:wait for BullMQ,
+# queue:<name> for Sidekiq, the queue name itself for Celery's Redis broker.
+id: redis-exporter-lists
+source_kind: prometheus
+applies_to:
+  technology: redis
+  messaging_system: redis
+detect:
+  metric: redis_key_size
+params: [key]
+signals:
+  queue.backlog: >-
+    sum(redis_key_size{key="$key"})
+tables:
+  queues:
+    key_labels: [key]
+    columns:
+      - {key: key, label: List}
+      - {key: length, label: Length, unit: messages}
+    query: >-
+      sum by (key) (redis_key_size{key="$key"})

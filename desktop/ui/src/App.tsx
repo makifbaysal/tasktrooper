@@ -9,7 +9,6 @@ import { useRestoreFocusOnReturn } from "@/hooks/useRestoreFocusOnReturn";
 import { useScreenTracking } from "@/lib/analytics";
 import { SetupPage } from "@/pages/SetupPage";
 import { WorkspaceAgentLayout } from "@/components/layout/WorkspaceAgentLayout";
-import { OperationsLayout } from "@/components/layout/OperationsLayout";
 import { SettingsLayout } from "@/components/layout/SettingsLayout";
 import { WorkspaceLayout } from "@/components/layout/WorkspaceLayout";
 import { HomePage } from "@/pages/HomePage";
@@ -21,15 +20,39 @@ const AgentColumnsPage = lazy(() => import("@/pages/AgentColumnsPage").then((m) 
 const AddRepositoryPage = lazy(() => import("@/pages/AddRepositoryPage").then((m) => ({ default: m.AddRepositoryPage })));
 const ProjectPage = lazy(() => import("@/pages/ProjectPage").then((m) => ({ default: m.ProjectPage })));
 const RepositoryPage = lazy(() => import("@/pages/RepositoryPage").then((m) => ({ default: m.RepositoryPage })));
-const IncidentsPage = lazy(() => import("@/pages/IncidentsPage").then((m) => ({ default: m.IncidentsPage })));
-const DeploymentsPage = lazy(() => import("@/pages/DeploymentsPage").then((m) => ({ default: m.DeploymentsPage })));
-const MobileAppsPage = lazy(() => import("@/pages/MobileAppsPage").then((m) => ({ default: m.MobileAppsPage })));
+const OpsShell = lazy(() => import("@/components/operations/shell/OpsShell").then((m) => ({ default: m.OpsShell })));
+const OpsExplorerPage = lazy(() => import("@/pages/ops/OpsExplorerPage"));
+const OpsEntityPage = lazy(() => import("@/pages/ops/OpsEntityPage"));
+const OpsErrorsInboxPage = lazy(() => import("@/pages/ops/OpsErrorsInboxPage"));
+const OpsErrorDefinitionsPage = lazy(() => import("@/pages/ops/OpsErrorDefinitionsPage"));
+const OpsLogsPage = lazy(() => import("@/pages/ops/OpsLogsPage"));
+const OpsChangesPage = lazy(() => import("@/pages/ops/OpsChangesPage"));
+const OpsStoreAppsPage = lazy(() => import("@/pages/ops/OpsStoreAppsPage"));
+const OpsIssuesPage = lazy(() => import("@/pages/ops/OpsIssuesPage"));
+const OpsAlertsPage = lazy(() => import("@/pages/ops/OpsAlertsPage"));
+const EntitySummary = lazy(() => import("@/pages/ops/entity/EntitySummary"));
+const EntityErrors = lazy(() => import("@/pages/ops/entity/EntityErrors"));
+const EntityLogs = lazy(() => import("@/pages/ops/entity/EntityLogs"));
+const EntityChanges = lazy(() => import("@/pages/ops/entity/EntityChanges"));
+const EntityIssues = lazy(() => import("@/pages/ops/entity/EntityIssues"));
+const EntityReleases = lazy(() => import("@/pages/ops/entity/EntityReleases"));
+const EntityQueues = lazy(() => import("@/pages/ops/entity/EntityQueues"));
+const EntitySignals = lazy(() => import("@/pages/ops/entity/EntitySignals"));
+const EntityAlerts = lazy(() => import("@/pages/ops/entity/EntityAlerts"));
+const EntityEndpoints = lazy(() => import("@/pages/ops/entity/EntityEndpoints"));
+const EntityPages = lazy(() => import("@/pages/ops/entity/EntityPages"));
+const EntityCrashes = lazy(() => import("@/pages/ops/entity/EntityCrashes"));
+const EntityTraces = lazy(() => import("@/pages/ops/entity/EntityTraces"));
+const DataSourcesPage = lazy(() => import("@/pages/DataSourcesPage").then((m) => ({ default: m.DataSourcesPage })));
+const OpsAlertConnectionsPage = lazy(() => import("@/pages/ops/OpsAlertConnectionsPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage").then((m) => ({ default: m.FilesPage })));
 const RulesPage = lazy(() => import("@/pages/RulesPage").then((m) => ({ default: m.RulesPage })));
 const IntegrationsSettingsPage = lazy(() => import("@/pages/IntegrationsSettingsPage").then((m) => ({ default: m.IntegrationsSettingsPage })));
 const MCPServersPage = lazy(() => import("@/pages/MCPServersPage").then((m) => ({ default: m.MCPServersPage })));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 import { AdvancedConfigRoute } from "@/components/layout/AdvancedConfigRoute";
+import { EntitySubRoute } from "@/pages/ops/entity/EntitySubRoute";
+import { EntityIndexRedirect, LegacyComponentRedirect, RedirectKeepingSearch } from "@/pages/ops/opsRedirects";
 const BoardSettingsPage = lazy(() => import("@/pages/BoardSettingsPage").then((m) => ({ default: m.BoardSettingsPage })));
 const RolesSettingsPage = lazy(() => import("@/pages/RolesSettingsPage").then((m) => ({ default: m.RolesSettingsPage })));
 const WorkflowSettingsPage = lazy(() => import("@/pages/WorkflowSettingsPage").then((m) => ({ default: m.WorkflowSettingsPage })));
@@ -107,13 +130,48 @@ export default function App() {
                     operations matrix's "not configured" link still points here. */}
                 <Route path="repositories/:repositoryId/deploy" element={<RepositoryDeployRedirect />} />
                 <Route path="repositories/:repositoryId/tasks/:taskId/analysis" element={<AnalysisReviewPage />} />
-                <Route path="operations" element={<OperationsLayout />}>
-                  <Route index element={<Navigate to="deployments" replace />} />
-                  <Route path="deployments" element={<DeploymentsPage />} />
-                  <Route path="apps" element={<MobileAppsPage />} />
-                  <Route path="incidents" element={<IncidentsPage />} />
+                {/* The Operations console (New Relic style): its own shell with a
+                    grouped nav and a top bar whose range/env/compare live in the URL. */}
+                <Route path="operations" element={<OpsShell />}>
+                  <Route index element={<OpsExplorerPage />} />
+                  <Route path="services" element={<OpsExplorerPage type="services" />} />
+                  <Route path="web" element={<OpsExplorerPage type="web" />} />
+                  <Route path="mobile" element={<OpsExplorerPage type="mobile" />} />
+                  <Route path="mobile/app/:repositoryId" element={<OpsStoreAppsPage />} />
+                  <Route path="workers" element={<OpsExplorerPage type="workers" />} />
+                  <Route path="errors" element={<OpsErrorsInboxPage />} />
+                  <Route path="errors/definitions" element={<OpsErrorDefinitionsPage />} />
+                  <Route path="logs" element={<OpsLogsPage />} />
+                  <Route path="changes" element={<OpsChangesPage />} />
+                  <Route path="issues" element={<OpsIssuesPage />} />
+                  <Route path="alerts" element={<OpsAlertsPage />} />
+                  <Route path="sources" element={<DataSourcesPage />} />
+                  <Route path="alert-connections" element={<OpsAlertConnectionsPage />} />
+                  <Route path="entity/:componentId" element={<OpsEntityPage />}>
+                    <Route index element={<EntityIndexRedirect />} />
+                    <Route path="summary" element={<EntitySubRoute tab="summary" page={EntitySummary} />} />
+                    <Route path="endpoints" element={<EntitySubRoute tab="endpoints" page={EntityEndpoints} />} />
+                    <Route path="pages" element={<EntitySubRoute tab="pages" page={EntityPages} />} />
+                    <Route path="crashes" element={<EntitySubRoute tab="crashes" page={EntityCrashes} />} />
+                    <Route path="queues" element={<EntitySubRoute tab="queues" page={EntityQueues} />} />
+                    <Route path="releases" element={<EntitySubRoute tab="releases" page={EntityReleases} />} />
+                    <Route path="errors" element={<EntitySubRoute tab="errors" page={EntityErrors} />} />
+                    <Route path="logs" element={<EntitySubRoute tab="logs" page={EntityLogs} />} />
+                    <Route path="traces" element={<EntitySubRoute tab="traces" page={EntityTraces} />} />
+                    <Route path="changes" element={<EntitySubRoute tab="changes" page={EntityChanges} />} />
+                    <Route path="issues" element={<EntitySubRoute tab="issues" page={EntityIssues} />} />
+                    <Route path="alerts" element={<EntitySubRoute tab="alerts" page={EntityAlerts} />} />
+                    <Route path="signals" element={<EntitySubRoute tab="signals" page={EntitySignals} />} />
+                    <Route path="*" element={<EntityIndexRedirect />} />
+                  </Route>
+                  {/* The screens the console replaced; old links land on their successors. */}
+                  <Route path="deployments" element={<RedirectKeepingSearch to="/operations/changes" />} />
+                  <Route path="incidents" element={<RedirectKeepingSearch to="/operations/issues" />} />
+                  <Route path="apps" element={<RedirectKeepingSearch to="/operations/mobile" />} />
+                  <Route path="c/:componentId" element={<LegacyComponentRedirect />} />
+                  <Route path="*" element={<Navigate to="/operations" replace />} />
                 </Route>
-                <Route path="incidents" element={<Navigate to="/operations/incidents" replace />} />
+                <Route path="incidents" element={<RedirectKeepingSearch to="/operations/issues" />} />
                 <Route path="files" element={<FilesPage />} />
                 <Route path="memory" element={<SharedMemoryPage />} />
                 <Route path="settings" element={<SettingsLayout />}>

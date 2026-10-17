@@ -37,7 +37,9 @@ export function WorkspaceLayout() {
   const isBacklog = pathname === "/backlog";
   const isReleased = pathname === "/released";
   const isAnalysisReview = /^\/repositories\/[^/]+\/tasks\/[^/]+\/analysis\/?$/.test(pathname);
-  const fullBleed = isHome || isChat || isBoard || isBacklog || isReleased || isAnalysisReview;
+  // The Operations console brings its own nav column and scroll area.
+  const isOperations = pathname === "/operations" || pathname.startsWith("/operations/");
+  const fullBleed = isHome || isChat || isBoard || isBacklog || isReleased || isAnalysisReview || isOperations;
   // The sidebar's roster and column config come back from cache first: a
   // reload (or the desktop shell restoring a tab) renders the nav immediately
   // instead of holding it on skeletons until the server answers.

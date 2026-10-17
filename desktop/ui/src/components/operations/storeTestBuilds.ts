@@ -10,13 +10,19 @@ import type { BadgeProps } from "@/components/ui/badge";
 /**
  * The test-build vocabulary (TestFlight / Play internal app sharing), the
  * sibling of the release-channel one in `StoreReleaseControls`. The task
- * drawer's build panel and the Operations app drawer both read their status
+ * drawer's build panel and a mobile entity's Releases both read their status
  * labels, colours and build names from here — neither grows its own switch.
  */
 
 export const STORE_PLATFORMS: MobileStorePlatform[] = ["ios", "android"];
 
 export const storePlatformLabelKey = (platform: MobileStorePlatform) => `operations.storeTest.platforms.${platform}`;
+
+/** A platform the server wrote as a plain string; one this build doesn't know is shown as written. */
+export function storeTestPlatformLabel(t: (key: string) => string, platform: string): string {
+  const known = STORE_PLATFORMS.find((p) => p === platform);
+  return known ? t(storePlatformLabelKey(known)) : platform;
+}
 
 /** Still moving on its own. action_required is not: it waits on a person, so nothing polls for it. */
 export const ACTIVE_TEST_BUILD_STATUSES: StoreTestBuildStatus[] = ["queued", "building", "processing"];
@@ -116,6 +122,15 @@ export function mergeTestBuilds(list: StoreTestBuild[], incoming: StoreTestBuild
   const fresh = incoming.filter((b) => !list.some((existing) => existing.id === b.id));
   return [...fresh, ...list.map((b) => byId.get(b.id) ?? b)];
 }
+
+// TestFlight's betaTester state, or its inviteType when Apple gives no state.
+const KNOWN_TESTER_STATES = new Set<string>(["not_invited", "invited", "accepted", "installed", "revoked", "email", "public_link"]);
+
+/** Apple's tester state (`INVITED`, `PUBLIC_LINK`, …) as a label key; anything else reads "Other". */
+export const testerStateLabelKey = (state: string) => {
+  const key = state.trim().toLowerCase();
+  return KNOWN_TESTER_STATES.has(key) ? `operations.storeTest.testerStates.${key}` : "operations.storeTest.testerStates.unknown";
+};
 
 const KNOWN_GROUP_KINDS = new Set<string>(["internal", "external", "closed", "open"]);
 

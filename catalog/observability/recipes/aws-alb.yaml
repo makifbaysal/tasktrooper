@@ -1,0 +1,25 @@
+# An Application Load Balancer, from CloudWatch's AWS/ApplicationELB metrics.
+# load_balancer is the LoadBalancer dimension: the part of the ALB's ARN after
+# "loadbalancer/", e.g. app/my-alb/50dc6c495c0c9188. No cloud resource ref
+# names it, so it is set by hand. Errors count 5xx answers from the targets
+# and from the load balancer itself; latency is TargetResponseTime, in ms.
+id: aws-alb
+source_kind: aws_cloudwatch
+applies_to:
+  technology: alb
+detect:
+  metric: AWS/ApplicationELB/RequestCount
+params: [load_balancer]
+signals:
+  http.requests: >-
+    {"expression": "r / PERIOD(r)",
+     "metrics": {"r": {"namespace": "AWS/ApplicationELB", "metric": "RequestCount", "stat": "Sum", "dimensions": {"LoadBalancer": "$load_balancer"}}}}
+  http.error_ratio: >-
+    {"expression": "100 * (FILL(t, 0) + FILL(l, 0)) / r",
+     "metrics": {
+       "r": {"namespace": "AWS/ApplicationELB", "metric": "RequestCount", "stat": "Sum", "dimensions": {"LoadBalancer": "$load_balancer"}},
+       "t": {"namespace": "AWS/ApplicationELB", "metric": "HTTPCode_Target_5XX_Count", "stat": "Sum", "dimensions": {"LoadBalancer": "$load_balancer"}},
+       "l": {"namespace": "AWS/ApplicationELB", "metric": "HTTPCode_ELB_5XX_Count", "stat": "Sum", "dimensions": {"LoadBalancer": "$load_balancer"}}}}
+  http.latency: >-
+    {"expression": "1000 * t",
+     "metrics": {"t": {"namespace": "AWS/ApplicationELB", "metric": "TargetResponseTime", "stat": "$__quantile", "dimensions": {"LoadBalancer": "$load_balancer"}}}}

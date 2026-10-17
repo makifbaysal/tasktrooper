@@ -551,7 +551,32 @@ or explicitly report EVERY entry in `rollback.manual_steps`, then call
 nothing redeployed) when the release is not `failed`, `awaiting_verdict`, or
 `released` within 24h and still the component's newest released release, OR
 when a newer release of the component is already open or has since shipped
-(`ErrReleaseWrongStatus`, naming which).
+(`ErrReleaseWrongStatus`, naming which). With `auto_rollback` off the proposal
+is stored on the release (`rollback_proposal`, which the console shows until a
+rollback runs, a newer release ships or a human dismisses it) and then
+notifies a human (`rollback_suggested`, with an `approve_rollback` action); a
+proposal that could not be stored is an error, told to no one. An executed
+agent rollback notifies `release_rolled_back`, also when a step after the
+revert failed (its body says what did not finish).
+
+### `get_deploy_impact`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | no | Board task UUID or board key. |
+
+Reads the deploy impact of the release covering this task — the same
+`domain.DeployImpact` `GET /v1/releases/{id}/impact` answers (see
+`.ai/api-spec.md` → "Releases"): each bound golden signal's mean over the hour
+before the deploy, the hour after it and that hour a day earlier, `delta`,
+`delta_pct`, `higher_is_better` and a verdict, the worst of them as the
+overall `verdict`, `pending` while the hour after is not over. The result is
+`{impact, auto_rollback, next}`: `auto_rollback` is the release's frozen
+profile flag, deciding whether a `rollback_release` the impact calls for
+executes or only proposes; `next` (`tool_results.board_deploy_impact_next`)
+says which per verdict. Changes nothing, never parks. Release engineer only;
+the `released` column reads it when an incident lands in a release's
+attribution window.
 
 See `.ai/architecture.md` → "Releases (migrations 159–161)" for the full state
 machine, the provider-rollback mechanism and the Vercel promote trap, and the
@@ -583,8 +608,9 @@ The destination is re-validated through `urlguard` on **every** fetch, not only
 when it was written, because the field is agent-writable and a name that resolved
 to a public address at save time is free to answer `127.0.0.1` later.
 
-There is no cluster and no cloud log API anywhere in this — no `kubectl`, no
-`gcloud`, no provider SDK ([CLAUDE.md](../CLAUDE.md)). An HTTP endpoint the
+`get_deploy_logs` itself reads no cluster and no cloud log API — no `kubectl`,
+no `gcloud`; a bound environment's provider logs (Cloud Logging, CloudWatch,
+Vercel) are read by `query_runtime_logs` through the `cloud` package. An HTTP endpoint the
 application serves is a fact about the application, not about where it is hosted.
 An agent running on a **local runner** may additionally use its own shell to
 inspect whatever tooling that host happens to provide; that capability comes from
@@ -604,6 +630,65 @@ release-control tools on every stage except the ones whose `allow` param names
 them — `done` keeps both, `released` keeps only the release-control tools; see
 `.ai/orchestration-agents.md` → "`done` / `released` = the columns where the
 release is watched".
+
+## Observability tools (release engineer)
+
+`internal/adapter/tools/observability`, registered once the error definitions,
+signal bindings, data sources and alert rules exist (each tool only when what it
+reads or writes is wired). Every one resolves its repository from
+`repository_id`, else the AI job the chat belongs to (`opsai.Service.SessionJob`,
+keyed by the session on the call's context), else the run's own repository; its
+component from `component` (an active component's exact path), else the job's,
+else — where one is required — the repository's only or root component; its
+environment from `environment`, else the job's, else production. Inside a job,
+what a propose tool newly stores is appended to the job's `created` (once, while
+the job runs), a `repository_id` or `component` other than the job's is refused
+(`guard.observability_outside_job`), and only the data sources a component of
+the job's repository reads through, or none does yet, are listed and accepted
+(`ToolKit.SourceUse`). Outside a job, a run bound to a repository may name only
+that one (`guard.observability_outside_run_repository`). A job's turn also runs
+under its kind's tool ceiling (`opsai.JobTools`). Granted to
+`release-engineer` only (`roleObservabilityTools`), together with
+`codebase_search`, `create_board_task` and `update_board_task` for the
+"enable observability" card. API details: `.ai/api-spec.md` → "Error
+definitions and AI suggestions".
+
+- **`list_error_groups`** `{component?, environment?, since? (default "7d";
+  a duration or RFC3339), limit? (default 50, max 200), repository_id?}` — the
+  Errors inbox's fan-out for the repository's (or one component's) components:
+  `{environment, since, groups: [{fingerprint, component, message, count,
+  first_seen, last_seen, new, provider?, source?, sample? (first 15 lines, 3000
+  bytes), sample_truncated?, external_url?, definition}], count, truncated,
+  unavailable: [{component, code, message}]}`. Ignored groups are included, with
+  their definition.
+- **`propose_error_definitions`** `{definitions: [{name, component?, match,
+  category, severity?, action, alert_threshold?, rationale?, evidence?}],
+  source?: ai|code, repository_id?}` — stores each as `status: suggested`
+  (`source` defaults to `code` inside an `error_catalog` job, `ai` otherwise) →
+  `{stored: [{id, name, category, action}], duplicates: [{name, existing_id}],
+  rejected: [{name, fields}]}`. A proposal equal (component + match) to any
+  existing definition, dismissed ones included, is a duplicate; an unknown
+  `component` path is rejected with `fields.component`.
+- **`list_data_source_metrics`** `{data_source_id?, match?, limit? (default 200,
+  max 1000)}` — without an id `{data_sources: [{id, name, kind, status}]}`; with
+  one `{data_source, metrics, truncated, matching_recipes: [{recipe_id,
+  matched_metric}], recipes: [{id, signals, params, detect_metric?}]}` (every
+  recipe of the source's kind), through `datasource.Service.Discover`.
+- **`propose_signal_binding`** `{component?, environment?, signal,
+  data_source_id, recipe_id?, params?, query?, rationale?, repository_id?}` —
+  `signals.Service.Propose`: the checks of `PUT …/signals/:signal`, stored as
+  `status: suggested, source: ai`; a target already in the slot (any status)
+  comes back as it stands and is not recorded on the job → `{binding: {id,
+  component, environment, signal, status, source, rendered_query,
+  needs_params}}`.
+- **`propose_alert_rule`** `{component?, environment?, name, signal? |
+  (data_source_id + query), condition: {op, threshold?, for_seconds?,
+  window_seconds?}, severity?, open_incident?, rationale?, repository_id?}` —
+  `alerting.Service.CreateAIDraft`: the checks of `POST /v1/alert-rules`, always
+  `enabled: false`, `created_by: ai` → `{rule: {…}}`. When the component
+  environment already has a rule for that signal (or that query), nothing is
+  stored and `{existing_rule: {id, name, signal, enabled, created_by}}` comes
+  back.
 
 ## MCP Tools
 
@@ -643,7 +728,7 @@ Registered when the board and Postgres are wired (`internal/adapter/tools/ops`).
 | `load_deploy_template` | Full recipe: workflow YAML, required secrets, smoke check, rollback. |
 | `get_deploy_target` | How a repo ships to an env (provider, vars, health URL) + rendered recipe. `repository_id` optional. |
 | `update_deploy_target` | Record where an env actually answers after a deploy: `base_url` / `health_url` / `logs_url` / `app_url` only. Creates a minimal hand-rolled target when the env has none; never touches provider, template or vars. `repository_id` optional. |
-| `record_local_deploy` | Report a break-glass deploy run from a machine (`scripts/release-local.sh`, `scripts/deploy-local.sh`) so Operations → Deployments still shows what is live. Call twice: `status=in_progress` before, `status=completed` + `conclusion` + the returned `run_id` after. Records only — deploys nothing. `repository_id` optional but strict (writer). |
+| `record_local_deploy` | Report a break-glass deploy run from a machine (`scripts/release-local.sh`, `scripts/deploy-local.sh`) so Operations → Changes still shows what is live. Call twice: `status=in_progress` before, `status=completed` + `conclusion` + the returned `run_id` after. Records only — deploys nothing. `repository_id` optional but strict (writer). |
 
 `repository_id` is **optional** on those three, and an omission means something different on each: `list_incidents` lists every repository, while `get_deploy_target` and `update_deploy_target` use the repository of the task this run is working on. A value that is not a UUID (agents pass the repository *name*) resolves to that same run repository on the two readers — but `update_deploy_target` **writes**, so there it is refused rather than guessed at: a guess would record one repository's URL against another's target with nothing in the transcript to show it.
 
@@ -661,9 +746,8 @@ to — and tags it `local`.
 that is *read* rather than polled: `get_deploy_logs` fetches it after a deploy.
 It gets the same treatment as `health_url` in every respect that matters —
 agent-writable, offline `urlguard` check on write, and re-validated on **every**
-fetch. It must point at an endpoint the application itself serves; there is no
-cluster or cloud-provider log source anywhere in this repository and there must
-never be one.
+fetch. It must point at an endpoint the application itself serves; a cloud
+provider's logs are read by `query_runtime_logs`, never through `logs_url`.
 
 ## `mobile_*` — this machine's devices
 

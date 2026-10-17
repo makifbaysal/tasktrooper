@@ -48,6 +48,9 @@ type fakeReleaseService struct {
 	rollbackCall int
 	gotReleaseID uuid.UUID
 	gotActor     domain.ReleaseActor
+
+	impact    domain.DeployImpact
+	impactErr error
 }
 
 func (f *fakeReleaseService) ForTask(_ context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error) {
@@ -89,6 +92,11 @@ func (f *fakeReleaseService) Rollback(_ context.Context, releaseID uuid.UUID, ac
 	f.rollbackCall++
 	f.gotReleaseID, f.gotActor, f.gotReason, f.gotNote = releaseID, actor, reason, note
 	return f.rollbackRel, f.rollbackErr
+}
+
+func (f *fakeReleaseService) Impact(_ context.Context, releaseID uuid.UUID) (domain.DeployImpact, error) {
+	f.gotReleaseID = releaseID
+	return f.impact, f.impactErr
 }
 
 // releaseToolKit builds a kit bound to a task in repoID, with the fake
@@ -134,6 +142,7 @@ func TestReleaseToolsRefuseWhenNotConfigured(t *testing.T) {
 		newRunSmokeChecksTool(kit),
 		newFinishReleaseTool(kit),
 		newRollbackReleaseTool(kit),
+		newGetDeployImpactTool(kit),
 	}
 	for _, tool := range tools {
 		res := tool.Execute(context.Background(), `{}`)
@@ -196,7 +205,7 @@ func TestReleaseToolsResolveTheReleaseThroughForAgent(t *testing.T) {
 	ctx := releaseCtx(repoID, taskID)
 
 	tools := []port.ToolExecutor{
-		newGetReleaseTool(kit), newWatchReleaseTool(kit), newRunSmokeChecksTool(kit),
+		newGetReleaseTool(kit), newWatchReleaseTool(kit), newRunSmokeChecksTool(kit), newGetDeployImpactTool(kit),
 	}
 	for _, tool := range tools {
 		fake.forAgentCalls = 0
@@ -648,7 +657,7 @@ func TestReleaseToolsAreRegisteredWithThePullRequestDependency(t *testing.T) {
 
 	for _, name := range []string{
 		getReleaseToolName, deployReleaseToolName, watchReleaseToolName,
-		runSmokeChecksToolName, finishReleaseToolName, rollbackReleaseToolName,
+		runSmokeChecksToolName, finishReleaseToolName, rollbackReleaseToolName, getDeployImpactToolName,
 	} {
 		if hasName(without, name) {
 			t.Errorf("%s must not be registered without the PR dependency", name)
@@ -663,5 +672,64 @@ func TestTriggerReleaseToolNoLongerExists(t *testing.T) {
 	execs := NewExecutors(&ToolKit{Tasks: &fakeTaskManager{}, PullRequests: &fakeTaskPullRequests{}, Releases: &fakeReleaseService{}})
 	if hasName(toolNames(execs), "trigger_release") {
 		t.Fatalf("trigger_release must have been removed, not just unregistered by default")
+	}
+}
+
+// ------------------------------------------------------------ get_deploy_impact
+
+func TestGetDeployImpactToolCarriesTheImpactAndWhoDecidesTheRollback(t *testing.T) {
+	cases := []struct {
+		name         string
+		verdict      domain.ImpactVerdict
+		autoRollback bool
+		want         string
+	}{
+		{"worse with auto rollback", domain.ImpactWorse, true, "it executes"},
+		{"worse without auto rollback", domain.ImpactWorse, false, "only writes the proposal"},
+		{"unknown", domain.ImpactUnknown, false, "deploy impact was unknown"},
+		{"neutral", domain.ImpactNeutral, true, "not a reason to roll back"},
+	}
+	repoID, taskID := uuid.New(), uuid.New()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			releaseID := uuid.New()
+			fake := &fakeReleaseService{
+				release: domain.Release{ID: releaseID, Status: domain.ReleaseReleased, Profile: domain.ComponentDelivery{AutoRollback: tc.autoRollback}},
+				impact:  domain.DeployImpact{ReleaseID: releaseID, Verdict: tc.verdict, Signals: []domain.SignalImpact{{Signal: domain.SignalHTTPErrorRatio, Verdict: tc.verdict}}},
+			}
+			res := newGetDeployImpactTool(releaseToolKit(repoID, fake)).Execute(releaseCtx(repoID, taskID), `{}`)
+			if res.IsError {
+				t.Fatalf("unexpected error: %s", res.Content)
+			}
+			var payload struct {
+				Impact       domain.DeployImpact `json:"impact"`
+				AutoRollback bool                `json:"auto_rollback"`
+				Next         string              `json:"next"`
+			}
+			if err := json.Unmarshal([]byte(res.Content), &payload); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if fake.gotReleaseID != releaseID {
+				t.Fatalf("impact was read for %s, want the task's release %s", fake.gotReleaseID, releaseID)
+			}
+			if payload.Impact.Verdict != tc.verdict || len(payload.Impact.Signals) != 1 {
+				t.Fatalf("impact not passed through: %+v", payload.Impact)
+			}
+			if payload.AutoRollback != tc.autoRollback {
+				t.Fatalf("auto_rollback = %v, want %v", payload.AutoRollback, tc.autoRollback)
+			}
+			if !strings.Contains(payload.Next, tc.want) {
+				t.Fatalf("next = %q, want it to mention %q", payload.Next, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetDeployImpactToolReportsAReadFailure(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	fake := &fakeReleaseService{release: domain.Release{ID: uuid.New()}, impactErr: fmt.Errorf("bindings store unavailable")}
+	res := newGetDeployImpactTool(releaseToolKit(repoID, fake)).Execute(releaseCtx(repoID, taskID), `{}`)
+	if !res.IsError || !strings.Contains(res.Content, "bindings store unavailable") {
+		t.Fatalf("want the read failure as a tool error, got %+v", res)
 	}
 }

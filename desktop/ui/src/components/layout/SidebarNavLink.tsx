@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,22 @@ interface SidebarNavLinkProps {
    * unexplained.
    */
   trailing?: ReactNode;
+  /**
+   * Overrides route matching, for a nav whose item stays lit on pages below
+   * it that its path does not match (the Operations console's entity pages).
+   */
+  active?: boolean;
+}
+
+function linkClass(isActive: boolean, collapsed: boolean, className?: string) {
+  return cn(
+    "flex items-center gap-3 rounded-lg px-3 py-2 text-body font-medium transition-colors active:scale-[0.98]",
+    className,
+    collapsed && "justify-center px-2",
+    isActive
+      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+      : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground active:bg-sidebar-accent/80",
+  );
 }
 
 export function SidebarNavLink({
@@ -32,27 +48,40 @@ export function SidebarNavLink({
   end,
   onClick,
   trailing,
+  active,
 }: SidebarNavLinkProps) {
+  const content = (
+    <>
+      {leading ?? (Icon && <Icon className="h-4 w-4 shrink-0" />)}
+      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
+      {collapsed && active !== undefined && <span className="sr-only">{label}</span>}
+      {!collapsed && trailing}
+    </>
+  );
+
+  if (active !== undefined) {
+    return (
+      <Link
+        to={to}
+        onClick={onClick}
+        aria-current={active ? "page" : undefined}
+        className={linkClass(active, collapsed, className)}
+        title={collapsed ? label : undefined}
+      >
+        {content}
+      </Link>
+    );
+  }
+
   return (
     <NavLink
       to={to}
       end={end}
       onClick={onClick}
-      className={({ isActive }) =>
-        cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2 text-body font-medium transition-colors active:scale-[0.98]",
-          className,
-          collapsed && "justify-center px-2",
-          isActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground active:bg-sidebar-accent/80",
-        )
-      }
+      className={({ isActive }) => linkClass(isActive, collapsed, className)}
       title={collapsed ? label : undefined}
     >
-      {leading ?? (Icon && <Icon className="h-4 w-4 shrink-0" />)}
-      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
-      {!collapsed && trailing}
+      {content}
     </NavLink>
   );
 }

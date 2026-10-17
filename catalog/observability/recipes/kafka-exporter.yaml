@@ -1,0 +1,32 @@
+# danielqsj/kafka_exporter. The queues table is the group's lag and consume
+# rate per partition of every topic it reads.
+id: kafka-exporter
+source_kind: prometheus
+applies_to:
+  technology: kafka
+  messaging_system: kafka
+detect:
+  metric: kafka_consumergroup_lag
+params: [group, topic]
+signals:
+  queue.backlog: >-
+    sum(kafka_consumergroup_lag{consumergroup="$group", topic="$topic"})
+  queue.consume_rate: >-
+    sum(rate(kafka_consumergroup_current_offset{consumergroup="$group", topic="$topic"}[$__rate]))
+  queue.publish_rate: >-
+    sum(rate(kafka_topic_partition_current_offset{topic="$topic"}[$__rate]))
+  queue.consumers: >-
+    sum(kafka_consumergroup_members{consumergroup="$group"})
+tables:
+  queues:
+    key_labels: [topic, partition]
+    columns:
+      - {key: topic, label: Topic}
+      - {key: partition, label: Partition}
+      - {key: lag, label: Lag, unit: messages}
+      - {key: consume_rate, label: Consumed, unit: msg/s}
+    queries:
+      lag: >-
+        sum by (topic, partition) (kafka_consumergroup_lag{consumergroup="$group"})
+      consume_rate: >-
+        sum by (topic, partition) (rate(kafka_consumergroup_current_offset{consumergroup="$group"}[$__rate]))

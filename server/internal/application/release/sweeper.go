@@ -103,6 +103,7 @@ func (s *Service) sweepWatchedReleases(ctx context.Context) (watched, listed boo
 		log.Warn().Err(err).Msg("release sweeper: listing watched releases failed")
 		return false, false
 	}
+	s.forgetUnverifiedChecks(ctx, releases)
 	for _, r := range releases {
 		select {
 		case <-ctx.Done():
@@ -230,7 +231,8 @@ func releaseHasParkedTask(r domain.Release, parkedTaskIDs map[uuid.UUID]bool) bo
 // An agent looking at the release since the hand-back (AgentSeenAt, every
 // ForAgent call) means different things by status. For failed or pending the
 // look was the answer: a report, or a deploy the agent chose not to start.
-// For awaiting_verdict only finish_release or rollback_release answers, so a
+// For awaiting_verdict only finish_release or rollback_release answers (a
+// rollback proposed since the hand-back waits on a human, not the agent), so a
 // look merely restarts the cooldown — a verdict run that ended without one
 // used to strand the release, and its tasks in done, for good.
 func handBackDue(r domain.Release, now time.Time) bool {
@@ -238,6 +240,12 @@ func handBackDue(r domain.Release, now time.Time) bool {
 		return false
 	}
 	quietSince := *r.LastHandBackAt
+	if r.RollbackProposal != nil && !r.RollbackProposal.ProposedAt.Before(*r.LastHandBackAt) {
+		return false
+	}
+	if r.RollbackDismissal != nil && !r.RollbackDismissal.DismissedAt.Before(*r.LastHandBackAt) {
+		return false
+	}
 	if r.AgentSeenAt != nil && !r.AgentSeenAt.Before(*r.LastHandBackAt) {
 		if r.Status != domain.ReleaseAwaitingVerdict {
 			return false
@@ -341,6 +349,11 @@ func (s *Service) settleDeploySuccess(ctx context.Context, r domain.Release, sta
 	r.Deploy = &status
 	r.DeployedAt = &now
 	until := now.Add(time.Duration(r.Profile.Verify.SoakMinutes) * time.Minute)
+	// An impact threshold judges only once the after-window is long enough;
+	// a shorter soak would end with it unjudged.
+	if r.Profile.Verify.ImpactThresholds() && until.Before(now.Add(minImpactAfter)) {
+		until = now.Add(minImpactAfter)
+	}
 	r.VerifyUntil = &until
 
 	target, notes := s.resolveVerifyTarget(ctx, r)
@@ -396,12 +409,32 @@ func (s *Service) sweepVerifying(ctx context.Context, r domain.Release) {
 		}
 	}
 
+	// The soak ends at its window, unless an impact threshold's signal is
+	// still settling: then it goes on verifying, its reads paced, until the
+	// signal settles or impactSettleGrace has passed. The last impact read
+	// skips deploy impact's cache, and a threshold still settling then is
+	// listed unchecked.
 	windowOver := r.VerifyUntil != nil && !now.Before(*r.VerifyUntil)
+	thresholds := r.Profile.Verify.ImpactThresholds()
+	graceOver := r.VerifyUntil != nil && !now.Before(r.VerifyUntil.Add(impactSettleGrace))
+	ending := windowOver && (!thresholds || graceOver || !impactSettling(r.Checks.Impact))
 
-	if r.Checks.EnvironmentID != nil && (windowOver || s.errorCheckDue(r.ID, now)) {
+	if r.Checks.EnvironmentID != nil && (ending || s.errorCheckDue(ctx, r.ID, now)) {
 		s.checkNewErrors(ctx, &r)
-		s.markErrorChecked(r.ID, now)
+		s.markErrorChecked(ctx, r.ID, now)
 	}
+
+	if thresholds && (ending || s.impactCheckDue(ctx, r.ID, now)) {
+		s.checkImpact(ctx, &r, ending)
+		s.markImpactChecked(ctx, r.ID, now)
+		if ending && !graceOver && r.Checks.EarlyStop == "" && impactSettling(r.Checks.Impact) {
+			ending = false
+		}
+	}
+	if ending && thresholds {
+		settledUnchecked(r.Checks.Impact)
+	}
+	windowOver = ending
 
 	if windowOver {
 		final := s.runSmokeChecks(ctx, r.Profile.Verify.Smoke, r.Checks.BaseURL)
@@ -426,7 +459,7 @@ func (s *Service) sweepVerifying(ctx context.Context, r domain.Release) {
 		s.logSweepUpdate(err, r.ID)
 		return
 	}
-	s.clearErrorCheck(r.ID)
+	s.clearErrorCheck(ctx, r.ID)
 	s.handBack(ctx, updated)
 }
 
@@ -483,23 +516,68 @@ func lastTwoFailed(samples []domain.HealthSample) bool {
 // reads to at most every 2 minutes. It's a soft cadence to avoid hammering
 // the runtime errors API, not a correctness invariant, so an in-process,
 // best-effort cache (reset on restart or between test Services) is enough.
-func (s *Service) errorCheckDue(releaseID uuid.UUID, now time.Time) bool {
+// Its entries are keyed by the sweep's scope too (SetScope), so a sweep of
+// one tenant never forgets another's.
+func (s *Service) errorCheckDue(ctx context.Context, releaseID uuid.UUID, now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	last, ok := s.lastErrorCheck[releaseID]
+	last, ok := s.lastErrorCheck[s.pacingKey(ctx, releaseID)]
 	return !ok || now.Sub(last) >= errorCheckInterval
 }
 
-func (s *Service) markErrorChecked(releaseID uuid.UUID, now time.Time) {
+func (s *Service) markErrorChecked(ctx context.Context, releaseID uuid.UUID, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lastErrorCheck[releaseID] = now
+	s.lastErrorCheck[s.pacingKey(ctx, releaseID)] = now
 }
 
-func (s *Service) clearErrorCheck(releaseID uuid.UUID) {
+func (s *Service) clearErrorCheck(ctx context.Context, releaseID uuid.UUID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.lastErrorCheck, releaseID)
+	k := s.pacingKey(ctx, releaseID)
+	delete(s.lastErrorCheck, k)
+	delete(s.lastImpactCheck, k)
+}
+
+// forgetUnverifiedChecks drops the pacing of every release of this scope no
+// longer verifying, whichever path took it out (a verdict, a rollback, a
+// supersede).
+func (s *Service) forgetUnverifiedChecks(ctx context.Context, watched []domain.Release) {
+	scope := s.scopeOf(ctx)
+	verifying := make(map[uuid.UUID]bool, len(watched))
+	for _, r := range watched {
+		if r.Status == domain.ReleaseVerifying {
+			verifying[r.ID] = true
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.lastErrorCheck {
+		if k.scope == scope && !verifying[k.release] {
+			delete(s.lastErrorCheck, k)
+		}
+	}
+	for k := range s.lastImpactCheck {
+		if k.scope == scope && !verifying[k.release] {
+			delete(s.lastImpactCheck, k)
+		}
+	}
+}
+
+// impactCheckDue / markImpactChecked pace deploy impact reads the way runtime
+// error reads are paced, for the same reason: each one queries the data
+// source.
+func (s *Service) impactCheckDue(ctx context.Context, releaseID uuid.UUID, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	last, ok := s.lastImpactCheck[s.pacingKey(ctx, releaseID)]
+	return !ok || now.Sub(last) >= errorCheckInterval
+}
+
+func (s *Service) markImpactChecked(ctx context.Context, releaseID uuid.UUID, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastImpactCheck[s.pacingKey(ctx, releaseID)] = now
 }
 
 func (s *Service) logSweepUpdate(err error, releaseID uuid.UUID) {

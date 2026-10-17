@@ -88,10 +88,10 @@ func logsFilter(ref domain.CloudResourceRef, q domain.RuntimeLogQuery) (string, 
 		return "", fmt.Errorf("gcloud: unsupported resource kind %q: %w", ref.Kind, port.ErrUnsupported)
 	}
 	if !q.Since.IsZero() {
-		clauses = append(clauses, fmt.Sprintf(`timestamp>="%s"`, q.Since.UTC().Format(time.RFC3339)))
+		clauses = append(clauses, fmt.Sprintf(`timestamp>="%s"`, q.Since.UTC().Format(time.RFC3339Nano)))
 	}
 	if !q.Until.IsZero() {
-		clauses = append(clauses, fmt.Sprintf(`timestamp<="%s"`, q.Until.UTC().Format(time.RFC3339)))
+		clauses = append(clauses, fmt.Sprintf(`timestamp<="%s"`, q.Until.UTC().Format(time.RFC3339Nano)))
 	}
 	if q.MinSeverity != "" {
 		clauses = append(clauses, fmt.Sprintf(`severity>=%s`, gcpSeverity(q.MinSeverity)))

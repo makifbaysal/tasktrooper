@@ -9,10 +9,12 @@ import type {
   ReleaseStatus,
   RepositorySummary,
 } from "@/api";
+import { environmentFromLabel } from "@/lib/environmentLabel";
 
 export interface RepoInfo {
   id: string;
   name: string;
+  remoteUrl?: string;
   projectIds: string[];
   components: ComponentSummary[];
   environments: EnvironmentSummary[];
@@ -37,7 +39,14 @@ export function buildCatalog(overview: ProjectsOverview): DeployCatalog {
   const add = (r: RepositorySummary, projectId?: string) => {
     let info = repos.get(r.id);
     if (!info) {
-      info = { id: r.id, name: r.name, projectIds: [], components: r.components ?? [], environments: r.environments ?? [] };
+      info = {
+        id: r.id,
+        name: r.name,
+        remoteUrl: r.remote_url,
+        projectIds: [],
+        components: r.components ?? [],
+        environments: r.environments ?? [],
+      };
       repos.set(r.id, info);
     }
     if (projectId && !info.projectIds.includes(projectId)) info.projectIds.push(projectId);
@@ -102,13 +111,10 @@ export function deploymentState(status: CloudDeploymentStatus): FeedState {
 }
 
 // The deploy watch records the environment in the release engineer's own
-// shorthand ("prod", "stage"); a release with no watch yet ships to production.
-export function releaseEnvironment(r: Release): DeployEnvironment {
-  const env = (r.deploy?.env ?? "").toLowerCase();
-  if (env.startsWith("stag")) return "staging";
-  if (env.startsWith("prev")) return "preview";
-  if (env.startsWith("dev") || env === "local") return "development";
-  return "production";
+// shorthand ("prod", "stage", "preprod"); a release with no watch yet ships to
+// production, and one whose label no environment answers to matches none.
+export function releaseEnvironment(r: Release): DeployEnvironment | undefined {
+  return environmentFromLabel(r.deploy?.env);
 }
 
 export interface DeployFeedItem {
@@ -249,11 +255,6 @@ export function itemMatches(item: DeployFeedItem, f: FeedFilter): boolean {
   if (!repoMatches(item.repo, f)) return false;
   if (f.environment !== ALL && item.environment !== f.environment) return false;
   return stateMatches(item.state, f.state);
-}
-
-export function envMatches(ref: EnvRef, f: FeedFilter): boolean {
-  if (!repoMatches(ref.repo, f)) return false;
-  return f.environment === ALL || ref.env.environment === f.environment;
 }
 
 // A release being verified or awaiting its verdict is already deployed: the

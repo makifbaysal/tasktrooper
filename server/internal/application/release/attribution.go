@@ -33,14 +33,36 @@ func (s *Service) HealthWindow() time.Duration { return s.healthWindow }
 // incident belongs to. Only the production environment attributes — a
 // release has no other notion of "environment" to key on.
 func (s *Service) AttributeRelease(ctx context.Context, repositoryID uuid.UUID, env string, onset time.Time) (domain.ReleaseAttribution, bool) {
+	attribution, _, ok := s.attribute(ctx, repositoryID, nil, env, onset)
+	return attribution, ok
+}
+
+// AttributeIncident is AttributeRelease for one incident: when its payload
+// names a component (an alert rule's incident does), only that component's
+// releases may be blamed — in a monorepo another part's deploy says nothing
+// about it. The release remembers the incident, so a rollback proposed for
+// it names it.
+func (s *Service) AttributeIncident(ctx context.Context, incident domain.Incident, onset time.Time) (domain.ReleaseAttribution, bool) {
+	var componentID *uuid.UUID
+	if id, ok := incident.ComponentID(); ok {
+		componentID = &id
+	}
+	attribution, releaseID, ok := s.attribute(ctx, incident.RepositoryID, componentID, incident.Env, onset)
+	if ok && incident.ID != uuid.Nil {
+		s.rememberIncident(releaseID, incident.ID)
+	}
+	return attribution, ok
+}
+
+func (s *Service) attribute(ctx context.Context, repositoryID uuid.UUID, componentID *uuid.UUID, env string, onset time.Time) (domain.ReleaseAttribution, uuid.UUID, bool) {
 	if s.store == nil || repositoryID == uuid.Nil {
-		return domain.ReleaseAttribution{}, false
+		return domain.ReleaseAttribution{}, uuid.Nil, false
 	}
 	if strings.TrimSpace(env) == "" {
 		env = domain.DeployEnvProd
 	}
 	if env != domain.DeployEnvProd {
-		return domain.ReleaseAttribution{}, false
+		return domain.ReleaseAttribution{}, uuid.Nil, false
 	}
 	if onset.IsZero() {
 		onset = s.now()
@@ -48,18 +70,19 @@ func (s *Service) AttributeRelease(ctx context.Context, repositoryID uuid.UUID, 
 
 	releases, err := s.store.List(ctx, domain.ReleaseListFilter{
 		RepositoryID: &repositoryID,
+		ComponentID:  componentID,
 		Statuses:     []domain.ReleaseStatus{domain.ReleaseReleased},
 		Limit:        attributionReleaseLookback,
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("repository_id", repositoryID.String()).
 			Msg("release: listing released releases for attribution failed")
-		return domain.ReleaseAttribution{}, false
+		return domain.ReleaseAttribution{}, uuid.Nil, false
 	}
 
 	live, ok := liveRelease(releases, onset, s.healthWindow)
 	if !ok || len(live.Tasks) == 0 {
-		return domain.ReleaseAttribution{}, false
+		return domain.ReleaseAttribution{}, uuid.Nil, false
 	}
 	newest := live.Tasks[len(live.Tasks)-1]
 	return domain.ReleaseAttribution{
@@ -70,7 +93,7 @@ func (s *Service) AttributeRelease(ctx context.Context, repositoryID uuid.UUID, 
 		Env:          env,
 		DeployedAt:   releaseFinishedAt(live),
 		AutoRollback: live.Profile.AutoRollback,
-	}, true
+	}, live.ID, true
 }
 
 // releaseFinishedAt is the moment a release's verdict took effect: FinishedAt

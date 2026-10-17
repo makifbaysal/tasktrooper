@@ -137,6 +137,8 @@ type ReleaseChecks struct {
 	Notes []string `json:"notes,omitempty"`
 	// EarlyStop names why the soak ended before its window did.
 	EarlyStop string `json:"early_stop,omitempty"`
+	// Impact is set only when the profile has an impact threshold.
+	Impact *ReleaseImpactCheck `json:"impact,omitempty"`
 }
 
 // Failing reports whether the evidence alone says the release is unhealthy.
@@ -244,7 +246,53 @@ type Release struct {
 	DeployedAt      *time.Time       `json:"deployed_at,omitempty"`
 	VerifyUntil     *time.Time       `json:"verify_until,omitempty"`
 	FinishedAt      *time.Time       `json:"finished_at,omitempty"`
+	// RollbackProposal is written only by ReleaseStore.SetRollbackProposal
+	// (migration 190), never by Update.
+	RollbackProposal *RollbackProposal `json:"rollback_proposal"`
+	// RollbackDismissal is written only by ReleaseStore.DismissRollbackProposal
+	// (migration 192), never by Update.
+	RollbackDismissal *RollbackDismissal `json:"rollback_dismissal"`
+	// RollbackAllowed and RollbackRefusal (a RollbackRefusal* code, empty
+	// when allowed) are what a rollback would answer right now; computed on
+	// read by the release service, never stored.
+	RollbackAllowed bool   `json:"rollback_allowed"`
+	RollbackRefusal string `json:"rollback_refusal"`
 }
+
+// RollbackProposal is a rollback the release engineer asked for while the
+// release's delivery profile had auto_rollback off: nothing ran, and a human
+// approves (rolls back) or dismisses it. IncidentID is the incident this
+// release was attributed when the proposal answers one.
+type RollbackProposal struct {
+	ProposedAt time.Time      `json:"proposed_at"`
+	By         ReleaseActor   `json:"by"`
+	Reason     RollbackReason `json:"reason"`
+	Note       string         `json:"note,omitempty"`
+	IncidentID *uuid.UUID     `json:"incident_id,omitempty"`
+}
+
+// RollbackDismissal is a person declining the release engineer's proposed
+// rollback: when, and the incident the proposal answered. The release
+// engineer may not propose a rollback of the release again until another
+// incident is attributed to it.
+type RollbackDismissal struct {
+	DismissedAt time.Time  `json:"dismissed_at"`
+	IncidentID  *uuid.UUID `json:"incident_id,omitempty"`
+}
+
+// Why a rollback is refused, as Release.RollbackRefusal answers it.
+const (
+	RollbackRefusalNewerShipped = "newer_shipped"
+	RollbackRefusalNewerOpen    = "newer_open"
+	RollbackRefusalNotDeployed  = "not_deployed"
+	RollbackRefusalTooOld       = "too_old"
+	RollbackRefusalNoReleased   = "no_released"
+	RollbackRefusalUnresolved   = "unresolved"
+	RollbackRefusalWrongStatus  = "wrong_status"
+	// RollbackRefusalNotConfigured: this deployment has no git reverter, and
+	// every rollback starts by reverting the release's merge commits.
+	RollbackRefusalNotConfigured = "not_configured"
+)
 
 func (r Release) TaskIDs() []uuid.UUID {
 	out := make([]uuid.UUID, 0, len(r.Tasks))
@@ -294,6 +342,10 @@ var (
 	// ErrRollbackNeedsHuman: auto_rollback is off; the proposal is written and
 	// a human confirms it.
 	ErrRollbackNeedsHuman = errors.New("auto rollback is off for this component — a human must confirm the rollback")
+	// ErrRollbackProposalDismissed: a person dismissed the release engineer's
+	// rollback proposal and no other incident has been attributed to the
+	// release since.
+	ErrRollbackProposalDismissed = errors.New("the rollback proposal was dismissed")
 	// ErrBeforeDeployPending: a task carries before-deploy steps a human has
 	// not confirmed; nothing that would deploy it may run until they do.
 	ErrBeforeDeployPending = errors.New("before-deploy steps are not confirmed")
@@ -312,4 +364,5 @@ const (
 	RunSmokeChecksToolName  = "run_smoke_checks"
 	FinishReleaseToolName   = "finish_release"
 	ReleaseRollbackToolName = "rollback_release"
+	GetDeployImpactToolName = "get_deploy_impact"
 )

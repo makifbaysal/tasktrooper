@@ -1,0 +1,13 @@
+# A NATS JetStream consumer read directly by the nats kind from the server's
+# monitoring endpoint (/jsz), no exporter. stream is the stream, consumer the
+# durable consumer the worker pulls from. The live value only; nats-exporter
+# gives rates and chart history.
+id: nats-direct
+source_kind: nats
+applies_to:
+  technology: nats
+  messaging_system: nats
+params: [stream, consumer]
+signals:
+  queue.backlog: >-
+    {"stream": "$stream", "consumer": "$consumer", "metric": "pending"}

@@ -195,8 +195,9 @@ No auth. Returns bridge and LM Studio status.
 
 ## GET /v1/releases
 
-Every repository's releases, newest first — the Operations → Deployments
-history. Query: `repository_id`, `component_id`, `status` (comma list of
+Every repository's releases, newest first — the Operations console's
+"last deploy", deploy markers and Changes (it asks with `status=` for shipped
+releases only, so drafts and pending cuts never use up a page). Query: `repository_id`, `component_id`, `status` (comma list of
 release statuses), `before` (RFC3339 `created_at` of the last row already
 shown, for paging) and `limit` (≤ 100, default 20). Answers
 `{"releases": [...]}`, never `null`; a bad id, status or timestamp is 400.
@@ -427,7 +428,25 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
   newest first; default limit 20, max 100 (`api.listReleases`).
 - `GET /v1/releases/{releaseId}` — one release in full: status, mode/executor, commit/tag,
   `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new
-  error groups), `verdict`, `rollback`, `tasks` (`api.getRelease`).
+  error groups), `verdict`, `rollback`, `tasks` (`api.getRelease`). Every release JSON also carries
+  `rollback_proposal` — `{proposed_at, by: agent|human|system, reason: RollbackReason, note?,
+  incident_id?}` or null: the release engineer's rollback with auto rollback off, waiting on a
+  person — and `rollback_allowed` / `rollback_refusal` (`newer_shipped`, `newer_open`,
+  `not_deployed`, `too_old`, `no_released`, `unresolved`, `wrong_status`; "" when allowed): what
+  a rollback would answer right now. The **Rollback suggested** banner reads only these
+  (`changes/rollbackSuggestion`); an issue's panel shows the release whose proposal names the
+  issue or carries its `task_id`.
+- `GET /v1/releases/{releaseId}/impact` — `ReleaseImpact` `{release_id, component_id, environment,
+  deployed_at, window_minutes, pending, verdict, computed_at, signals: [{signal, unit, before,
+  after, baseline, delta, delta_pct, higher_is_better, verdict}]}` (`api.getReleaseImpact`): the
+  golden signals' means over the `window_minutes` before the deploy, after it and that
+  after-window a day earlier; `pending` while the after-window is open; `verdict` the worst
+  judged signal. The release panel's Impact section (re-read every minute while pending).
+  `checks.impact` on a release is the soak's own read of it when the profile sets an impact
+  threshold: `{checked_at, pending, verdict, signals: [{signal, before, after, delta?,
+  delta_pct?, verdict, max_delta?, max_delta_pct?, breached?}], unchecked?}` (`unchecked` names
+  the thresholds, `max_error_rate_delta` / `max_p95_delta_pct`, whose signal is unbound) — what
+  the Changes feed's Impact column reads.
 - `GET /v1/releases/{releaseId}/cut-preview` — `ReleaseCutPreview` for a `draft` release, or a
   `pending` one that has never deployed (a re-cut): suggested/previous version (highest semver
   among the last released version, the newest matching git tag, and any tag any of the
@@ -446,13 +465,19 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
 - `POST /v1/releases/{releaseId}/finish` — `{confirm, note}` → `Release`, every task moved
   to `released`.
 - `POST /v1/releases/{releaseId}/rollback` — `{confirm, note}` → `Release`, always a manual
-  (human) reason.
+  (human) reason. Allowed on `failed`, `awaiting_verdict`, or `released` within 24 h of the
+  verdict and still the newest; 409 with the reason otherwise (a newer release shipped or open).
+  `rollback.mechanism` is `workflow_dispatch`, `revert_push` or `provider_rollback` (then
+  `provider_deployment_id` / `promoted_deployment_id`); `progress_at` follows each side effect.
+- `POST /v1/releases/{releaseId}/rollback-proposal/dismiss` — no body → `Release` with
+  `rollback_proposal` null (`api.dismissRollbackProposal`; an empty answer is applied locally).
 - `POST /v1/repositories/{id}/tasks/{taskId}/before-deploy/confirm` — no body. Stamps
   `before_deploy_confirmed_at` and, when the task sits in `done`, wakes the release engineer
   immediately. Driven by `TaskDetailDrawer`'s before-deploy Confirm button
   (`api.confirmBeforeDeploy`).
 - `PATCH /v1/components/{componentId}` — existing body plus
-  `"delivery": ComponentDelivery | null` (`api.updateComponentDelivery`); `null` clears the
+  `"delivery": ComponentDelivery | null` (`verify` also takes `max_error_rate_delta`, percentage
+  points ≤ 100, and `max_p95_delta_pct`, percent ≤ 1000; absent or 0 = not checked) (`api.updateComponentDelivery`); `null` clears the
   human override back to the detected profile. A save that newly CONFIRMS the profile opens
   releases for every task of that component already sitting in `done`, merged, with none yet.
 
@@ -714,12 +739,390 @@ shipping order.
   GCP Cloud Monitoring and generic `{title, severity, env, detail, fingerprint, resolved}`;
   `?env=` and `?source=` fill what the payload omits. A recovery payload resolves the
   matching incident (202 when nothing matched).
-- `GET /v1/incidents?repository_id=&env=&status=open,triaging` — list.
-- `GET /v1/incidents/{incidentId}` — incident with its timeline.
-- `POST /v1/incidents/{incidentId}/triage` — re-run the remedy engine.
-- `POST /v1/incidents/{incidentId}/remedy` — record a proposal `{kind, summary, steps, evidence, confidence, rollback}`.
+- `GET /v1/incidents?repository_id=&env=&status=open,triaging&limit=` — list, newest `last_seen`
+  first (default limit 100, max 500 — anything above is read as 100). The console always asks for
+  500 and says so when a full page comes back. `env` is matched as stored, so the console filters
+  environments itself through `lib/environmentLabel`, and lists a label it does not know on its own.
+- `GET /v1/incidents/{incidentId}` — incident with its timeline. `remedy_author` says who wrote
+  the current proposal (`auto_triage`, `agent`, `human`).
+- `POST /v1/incidents/{incidentId}/triage` — re-run the remedy engine; it always writes an
+  `auto_triage` proposal, so the console asks first when a person or an agent wrote the current one.
+- `POST /v1/incidents/{incidentId}/remedy` — record a proposal `{kind, summary, steps, evidence, confidence, rollback}`
+  (`api.proposeIncidentRemedy`; author defaults to `human`, which later machine triage leaves alone;
+  400 without a summary). Moves the incident to `proposed`, or `fixing` under the auto-fix policy.
 - `POST /v1/incidents/{incidentId}/resolve` · `POST /v1/incidents/{incidentId}/ignore`.
 - `PUT /v1/repositories/{id}/incident-policy` — `{incident_policy: off|suggest|auto_fix}`.
+
+### Alert connections (alert ingest tokens)
+
+Operations → Alert connections (`pages/ops/OpsAlertConnectionsPage`). Types `AlertToken`, `AlertTokenInput`,
+`CreatedAlertToken` in `src/api.ts`.
+
+- `GET /v1/repositories/{id}/alert-tokens` — `api.listAlertTokens(repositoryId)` →
+  `{tokens: [{id, label, default_env, created_at, last_used_at}] | null}`, newest first; never the token.
+  `last_used_at` is null until an alert is accepted.
+- `POST /v1/repositories/{id}/alert-tokens` — `api.createAlertToken(repositoryId, {label, default_env?})`
+  (label 1–100 characters; `default_env` one of `prod`·`preprod`·`stage`·`local`, `prod` when left out) →
+  201 `{id, label, default_env, created_at, token, ingest_path}`. The **only** answer that carries the
+  plaintext `token`: the UI shows `<api base><ingest_path>` in the creating dialog and keeps it nowhere else
+  (no cache, URL or storage; the listed row is rebuilt without it, `alertConnections#listedToken`).
+  400 bad label/env (shown as worded), 404 no repository, 503 no token store on this server.
+- `DELETE /v1/repositories/{id}/alert-tokens/{tokenId}` — `api.deleteAlertToken(repositoryId, tokenId)` → 204;
+  404 when unknown or another repository's (the UI drops the row either way).
+- `POST /v1/alerts/ingest/{token}` — called by the alerting tool, never by this app. No API key; same payloads
+  as the incident webhook above, `?env=`/`?source=` honoured (each snippet adds `?source=<tool>`). Per token:
+  60 requests/min (burst 10) and 20 new incidents/hour, then 429 `{"error":"rate_limited"}`. Local mode
+  listens on `127.0.0.1` on a port picked at each launch, so an external tool needs a tunnel that follows it.
+
+## Observability data sources, signals and recipes
+
+Operations → Data sources (`pages/DataSourcesPage`, `components/operations/sources/*`).
+Shapes mirror `server/internal/domain/datasource.go` / `observability.go`; the server's
+`.ai/api-spec.md` is the contract. Errors are flat `{error}`, plus `fields` (400, per key a
+code: `required`, `invalid`, `not_permitted`, `unknown_field`, `invalid_option`, `too_long`,
+`secrets_required`) or `code` (`unsupported` 422, `bad_query` 400, `upstream` 502). `ApiError`
+carries `fields`; read them with `dataSourceFieldErrors(e)`.
+
+- `GET /v1/data-source-kinds` → `{kinds: DataSourceKindInfo[]}` (`api.listDataSourceKinds`). A
+  kind's `fields` (`{key, label, help, type: text|url|secret|select|headers|cloud_account|
+  store_credential, required, options, placeholder, show_when, secret, provider?, default?}`) are the whole add/edit form;
+  `show_when {auth: "bearer"}` shows a field only while `auth` is `bearer`, and `required` applies
+  only then. `options` and `show_when` are never null. A `cloud_account` field (`provider`
+  `gcp|aws`) holds the id of a connected cloud account of that provider, picked from
+  `listCloudAccounts()` (`DataSourceFieldInput`); the save checks it (`not_found`,
+  `wrong_provider`). Kinds today: `prometheus`, `gcp_monitoring` (`cloud_account_id`,
+  `project_id`), `aws_cloudwatch` (`cloud_account_id`, `region`; its query language is JSON,
+  `{namespace, metric, stat, dimensions?, period?}` or `{expression, metrics?, period?}`). A cloud
+  kind's empty `name` becomes `<kind label> · <account label>`. The direct broker kinds (`kafka`:
+  `bootstrap_servers` text, `sasl_mechanism` select, `username`, secret `password`, `tls` select,
+  secret `ca_cert` shown with `tls: on`; `rabbitmq`: `url`, `username`, secret `password`,
+  `vhost`; `nats`: `url`, secret `token`) have capabilities `metrics` + `queues`, a JSON query
+  each (`{"group", "topic"?, "metric"?}`, `{"queue", "metric"?}`, `{"stream", "consumer"?,
+  "metric"?}`), and read **live state only**: a series is one point, now, whatever the range, and
+  a window that ended over 5 minutes ago answers no series and a warning. The schema has no
+  multi-line type: the form draws a secret or text field whose key ends in `_cert`/`_pem`/
+  `certificate` as a text area (`dataSourceSchema#isMultilineField`). `bootstrap_servers` is a
+  destination like a `url` (refused at save as `invalid` / `not_permitted`; moving it to other
+  hosts asks for the stored secrets again), but the JSON does not say so: the form learns of it
+  from the save's `secrets_required`.
+  **F4 kinds** (labels, help, placeholders and query hints in `locales/*/opsTelemetry.ts`,
+  `telemetryKinds`, spread into `operations.sources.kinds`): `google_play_vitals`
+  (`store_credential`, `package_name`), `app_store_metrics` (`store_credential`, `app_id`) and
+  `sentry` (`url` default `https://sentry.io`, `org`, secret `token`); `loki`, `tempo` (`url`,
+  `auth`, `token`/`username`/`password`, `headers`) and `elasticsearch` (`url`, `index`,
+  `time_field`, `message_field`, `level_field`, `auth` none|basic|api_key, secrets `password`,
+  `api_key`, `headers`); `posthog` (`url` default `https://us.posthog.com`, `project_id`, secret
+  `personal_api_key`), `ga4` (`property_id`, `auth` cloud_account|service_account,
+  `cloud_account_id` (gcp) or secret `service_account_json` — a text area: `_json` is a multi-line
+  key), `plausible` (`url`, `site_id`, secret `api_key`), `datadog` (`site` select, default
+  `datadoghq.com`; secrets `api_key`, `app_key`) and `newrelic` (`region` us|eu, `account_id`,
+  secret `api_key`). A field type `store_credential` (`provider` `google_play`|`asc`) names the
+  workspace's store credential and its value is that provider: the form offers it from
+  `listStoreCredentials()` (configured or not; an unsaved one is "No … is saved yet" + Settings →
+  Integrations), and its save refusals `not_found` / `wrong_provider` / `not_permitted` have words
+  of their own. A field's `default` prefills a new source's draft (`dataSourceSchema#emptyDraft`).
+  A store kind's list address is the app it reads (`package_name` / `app_id`). Option keys with a
+  dot cannot be looked up in the locale files (`t()` splits on dots), so Datadog's sites show as
+  sent.
+- `GET /v1/data-sources` → `{data_sources: DataSource[]}`; `GET /v1/data-sources/{id}` → one
+  (`listDataSources`, `getDataSource`). `DataSource` = `{id, kind, name, config, secrets_set,
+  status: ok|error|unverified, status_detail, info: {version, detail}, verified_at (null until
+  the first success), created_at, updated_at, capabilities}`. A secret value never comes back,
+  only its key in `secrets_set`.
+- `POST /v1/data-sources {kind, name?, config, secrets}` → 201 `DataSource`
+  (`createDataSource`). Always saved, then verified: an unreachable source comes back with
+  `status: "error"` and `status_detail`. Secret fields (`secret: true`, and every `secret` or
+  `headers` type) go in `secrets`. `headers` is one string, one `Name: value` per line
+  (framing headers and `Metadata-Flavor` / `X-aws-ec2-metadata-token(-ttl-seconds)` refused).
+  Empty `name` → the URL's host.
+- `PATCH /v1/data-sources/{id} {name?, config?, secrets?}` → `DataSource`
+  (`updateDataSource`), saved `unverified` and verified again. A key given replaces it, `""`
+  removes it, a key left out is kept; a field hidden by `show_when` loses its value. Moving a
+  `url` to another origin (scheme, host case-insensitive, port with 80/443 implied) requires
+  every stored secret the result keeps to be in `secrets` (a new value or `""`), else 400
+  `fields: {secrets: "secrets_required"}`. The UI sends a secret only when typed or removed.
+- `DELETE /v1/data-sources/{id}` → 204 (`deleteDataSource`). `POST /v1/data-sources/{id}/verify`
+  → `DataSource`, 200 either way (`verifyDataSource`).
+- `GET /v1/data-sources/{id}/discover?match=&limit=` → `{metrics, truncated, recipes:
+  [{recipe_id, matched_metric}]}` (`discoverDataSource`). `match` is a case-insensitive
+  substring filter, `limit` defaults to 1000 (max 5000; the drawer asks for 200); recipe
+  detection runs over the whole inventory.
+- `POST /v1/data-sources/{id}/query {query, from, to, step_seconds}` → `{series: [{name,
+  labels, points: [[unix_ms, value|null]]}], warnings}` (`queryDataSource`). RFC3339 range,
+  `step_seconds` 0 = about 600 points; at most 90 days, 11 000 points per series, 500 series
+  (a warning says so).
+- `GET /v1/signals` → `{signals: [{id, kind, unit, roles, aggregation}]}` (`listSignals`);
+  `GET /v1/recipes` → `{recipes: [{id, source_kind, applies_to: {technology,
+  messaging_system}, detect: {metric}, params, signals: {signal_id: query}, tables?: {queues:
+  {columns, key_labels, queries}}, origin}]}` (`listRecipes`). Read-only: there is no recipe write API. `applies_to` also carries
+  `resource_kind` and `resource_params` (which bound cloud resource a recipe fits, and which of its
+  ref's fields fill which param), and `store_platform` / `store_params` (a linked store app's).
+  `defaults` (optional) is a param's value when a binding leaves it empty (Datadog's
+  `metric_prefix`): the binding editor shows it as the input's placeholder and sends it for an empty
+  input (`signalBinding#paramValue` — PUT still requires every declared param). `tables` may name
+  `queues`, `endpoints`, `pages`, `referrers`, `countries`, `devices`, `crashes`, `signatures`.
+  Signals have `kind` metric|log|trace|error; the binding editor lists only the sources whose
+  capabilities feed that kind (`signalBinding#bindableSources`: metrics, logs, traces, errors — for
+  traces only kinds with a `traces.spans` recipe: Datadog and New Relic list `traces` but read no
+  trace search) and
+  never previews a non-metric one (the server answers 422).
+
+## Signal bindings, series and golden metrics
+
+Which data source feeds one signal of one component in one environment, and the reads built on
+that (`pages/ops/entity/EntitySignals`, `EntitySummary`, the explorer's golden columns; hooks in
+`hooks/useOpsSignals`). Shapes mirror `server/internal/domain/signal_binding.go`; the server's
+`.ai/api-spec.md` ("Signal bindings and series") is the contract. `env` absent → `production`.
+Errors as the data source routes (`fields` 400, `bad_query`, `unsupported`, `upstream`); times
+are RFC3339.
+
+- `SignalBinding` = `{id, component_id, environment, signal, data_source_id, data_source_name,
+  data_source_kind, recipe_id, params, query, status: confirmed|suggested|dismissed, source:
+  detected|human|ai, rendered_query, needs_params, created_at, updated_at}`. A raw `query` wins
+  over a recipe; `needs_params` lists recipe params with no value (then `rendered_query` is "").
+- `GET /v1/components/{id}/signals?env=` → `ComponentSignals {component_id, role, environment,
+  signals: [{signal, kind, unit, golden, status: bound|suggested|unbound, binding, suggestions}]}`
+  (`api.getComponentSignals`): the role's signals in catalog order, then any other with a binding.
+  `POST …/signals/suggest?env=` runs the detector and answers the same (`suggestComponentSignals`),
+  plus `source_offers: [{kind, config, recipe_id, params, signals, store_credential?}]` (`[]` on
+  every other answer): a data source of a kind none exists of (a mobile app's linked store app →
+  `google_play_vitals` / `app_store_metrics`). The Signals page shows each as a card
+  (`signals/SourceOfferCards`, `signals/sourceOffers`); Connect opens `DataSourceForm` on
+  `{kind, values: config}` (the store credential filled in), and once `POST /v1/data-sources`
+  answers, PUTs the offered recipe and params for each offered signal through the new source. Its
+  credential unsaved → Connect is disabled with a link to Settings → Integrations.
+- `PUT /v1/components/{id}/signals/{signal}?env= {data_source_id, recipe_id?, params?, query?}` →
+  the confirmed binding (`bindComponentSignal`), replacing the slot's in place and dropping its
+  pending suggestions. 400 `fields`: `data_source_id`, `recipe_id` (`required` | `invalid` |
+  `invalid_option`), `params.<name>` (`required` | `unknown_field` | `too_long`), `query`. The
+  editor sends exactly the recipe's declared params, or `{data_source_id, query, params?}` (a
+  custom query keeps the non-empty params it was opened with; a binding with both a recipe and a
+  query opens on the query, which is what the server reads). Field errors land on their inputs;
+  the rest are worded from `operations.signalBinding.errors.<code>`, never the raw key.
+- `POST /v1/signal-bindings/{id}/confirm` → binding (`confirmSignalBinding`); 400 `fields
+  {"params.<name>": "required"}` for a suggestion still missing one (the page opens the editor).
+  `POST …/dismiss` → 204 (409 `confirmed` for the confirmed one); `DELETE /v1/signal-bindings/{id}`
+  → 204 (`dismissSignalBinding`, `deleteSignalBinding`). A 409 (`confirmed`, `conflict`) or 404
+  on any of them is toasted from `operations.signalsPage.writeErrors` and re-reads the list
+  (`signals/signalBinding#signalWriteError`).
+- `POST /v1/components/{id}/signals/preview {signal, data_source_id, recipe_id?, params?, query?,
+  from, to, step_seconds?}` → `{rendered_query, series, warnings}` (`previewComponentSignal`),
+  validated as PUT; the editor sends the console's range and `charts/signalChart#autoStepSeconds`.
+- `GET /v1/components/{id}/series?env=&signals=a,b&from=&to=&step_seconds=&compare=1` →
+  `{from, to, step_seconds, signals: [{signal, unit, bound, series, previous, error}]}`
+  (`getComponentSeries(id, {env, signals, from, to, stepSeconds, compare})`, one request per page).
+  A quantile signal whose query takes `$__quantile` answers series `p50`, `p95`, `p99` (or
+  `p95 <name>` for several); `previous` is the window before, already shifted onto this one.
+  `error.code` ∈ `unknown_signal`, `needs_params`, `unsupported`, `bad_query`, `upstream`,
+  `timeout`, `not_found`, `error`; unbound = `bound: false`, no error. 90 days / 11 000 points max.
+  `previous_error` (optional): the previous period could not be read while the window's own
+  series stand — the Summary notes it under the chart. The server answers within its overall
+  budget (~30 s); the client waits 45 s (`OPS_SIGNALS_TIMEOUT_MS`), as for golden (~25 s).
+- `GET /v1/operations/golden?env=&from=&to=&component_id=a,b` → `{generated_at, components:
+  [{component_id, signals: [{signal, unit, bound?, value, previous, spark}]}]}` (`getOpsGolden`).
+  Only active components with at least one confirmed binding are listed (at most 200, by name),
+  each with **all** its role's golden signals (`catalog/observability/golden.yaml`, mirrored by
+  `ROLE_VIEWS[role].golden`): an unbound or failing one answers `null`s and an empty spark;
+  `bound: false` marks the unbound ones (a server without the flag leaves it out, and then the
+  Summary reads bound from the series answer and the explorer says "no value, or no data source
+  bound"). The explorer sends **no** `component_id` (a list of ids outgrows the URL) and picks its
+  rows from the answer, polled every 120 s; the Summary sends its one id, every 60 s. `value` is
+  the window's last non-null point (p95 for a quantile signal), `previous` the one a span
+  earlier. Window ≤ 30 days (`OPS_GOLDEN_MAX_WINDOW_MS`: the client asks for the last 30 days of
+  a longer range and says so), rounded to the minute, cached 60 s. A signal bound to a direct
+  broker source answers one point at the window's end: `value` is the live value, `previous`
+  null and `spark` one point — the explorer then shows the value with no sparkline.
+- `GET /v1/components/{id}/queues?env=` → `ComponentQueues {component_id, environment, queues:
+  [QueueTable]}` (`api.getComponentQueues(id, env)`, 45 s deadline; `hooks/useOpsSignals#
+  useComponentQueues`, polled every 30 s while visible — the server keeps an answer 30 s).
+  `QueueTable` = `{signal_binding_id, data_source_id, data_source_name, recipe_id,
+  messaging_system, params, columns: [{key, label, unit}], rows: [{<column key>:
+  string|number|null}], truncated, error: {code, message}|null}`: one table per distinct thing
+  the component's **confirmed** `queue.*` bindings read, as the source holds it now — a recipe's
+  `tables.queues` (Prometheus/CloudWatch exporters) or a broker kind's own table (Kafka: one row
+  per partition, `topic`, `partition`, `committed_offset`, `end_offset`, `lag`, `member_id`,
+  `client_id`; RabbitMQ: `queue`, `state`, `ready`, `unacked`, `consumers`, `publish_rate`,
+  `deliver_rate`, `ack_rate`; NATS: `consumer`, `pending`, `ack_pending`, `redelivered`,
+  `waiting`). A column with a `unit` is a measure, one without names the row. A binding with no
+  table (a raw PromQL query, a recipe without `tables`) has none. Each table stands alone:
+  `error.code` ∈ `needs_params`, `bad_query`, `unsupported`, `upstream`, `timeout`, `not_found`,
+  `error`, with no rows; the call answers 200 either way (400 bad `env`, 404 unknown component).
+  At most 500 rows per recipe table (`truncated`). The Queues page reads it only once the
+  signals list has a confirmed `queue.*` binding.
+- `GET /v1/components/{id}/endpoints?env=`, `…/web?env=&table=pages|referrers|countries|devices`
+  (default `pages`, another name 400), `…/crashes?env=` → `ComponentTables {component_id,
+  environment, tables: [{signal_binding_id, data_source_id, data_source_name, recipe_id, table,
+  params, columns, rows, truncated, error}]}` (`api.getComponentEndpoints`, `getComponentWeb`,
+  `getComponentCrashes`; `hooks/useOpsTables`, 60 s, 45 s deadline): one table per bound recipe
+  that declares one of the view's tables — `http.*` bindings' `endpoints` (otel-http,
+  datadog-apm, newrelic-apm: the source's key label — `http_route`, `resource_name`, `facet` —
+  then `rpm` req/min, `error_pct` %, `p95_ms` ms), `web.*` bindings' web table (posthog-web,
+  ga4-web, plausible-web, newrelic-browser: `path`/`referrer`/`country`/`device`, `browser`,
+  `os`, then `views`, `visitors`, …), `mobile.*` and `errors.issues` bindings' `crashes` (play-vitals,
+  sentry-mobile: `issue`, `type`, `cause`, `location`, `users`, `reports`, `last_version`,
+  `last_seen`, `link`) and `signatures` (app-store-metrics: `issue`, `type`, `cause`, `weight` %,
+  `build`). Columns are read from `columns`, never assumed. A single-query table keeps the
+  source's order, a joined one is ranked by its first value column; the UI sorts by the headline
+  measure, largest first (`tables/componentTables`). Errors per table as the queues route's.
+  Read as the source holds it now, so those pages turn the time range off.
+- `GET /v1/components/{id}/traces?env=&since=&until=&min_duration_ms=&limit=` → `{component_id,
+  environment, bound, data_source_id, traces: [{id, root_service, root_name, start, duration_ms,
+  span_count, error}], error}` (`api.getComponentTraces(id, {env, since, until, minDurationMs,
+  limit})`, `hooks/useOpsTraces#useComponentTraces`, 60 s): through the confirmed `traces.spans`
+  binding; ≤ 7 days (`OPS_TRACES_MAX_WINDOW_MS`, the page cuts the range to its last 7 days and
+  says so), `limit` 1–100 (the page asks 50). Unbound → `bound: false`; a binding read error is
+  `error` (series codes), 200 either way; 400 `fields` for a bad window / limit.
+- `GET /v1/operations/traces/{traceId}?env=&component_id=` → `{trace: {id, spans: [{id,
+  parent_id?, service, name, kind?, start, duration_ms, status: unset|ok|error, status_message?,
+  attributes}], truncated}, component_id, data_source_id}` (`api.getOperationsTrace`;
+  `getComponentTrace` is the per-component twin). 1–32 hex digits; 404 not held, 422 `unbound`,
+  502, 504. `useTraceView` asks with the component first and, on 422 `unbound`, again without it
+  (every traces source of the environment), naming the component it was found through.
+
+## Alert rules (migration 189)
+
+A rule watches one catalog `signal` of a component environment (through its confirmed binding)
+or a raw `query` on `data_source_id` — never both. Refusals: 400 `{"error", "fields"}` (codes
+`required`, `invalid`, `invalid_option`, `too_long`; keys `name`, `component_id`,
+`environment`, `signal`, `query`, `data_source_id`, `condition.op`, `condition.window_seconds`,
+`condition.for_seconds`, `severity`, `channels`, `days`, `limit`), 404 an unknown rule, 422
+`code: "unbound"` where a rule must be read and its signal has no confirmed binding.
+
+- `AlertRule` = `{id, name, component_id, environment, signal, data_source_id, query, condition:
+  {op: gt|lt|change_pct_gt|change_pct_lt|rising|no_data, threshold, for_seconds, window_seconds},
+  severity, channels, open_incident, enabled, state: ok|pending|firing|no_data, state_since,
+  last_value, last_evaluated_at, created_by: human|ai, created_at, updated_at}`. `created_by: ai`
+  is a rule the release engineer's signal job proposed (saved disabled); the table and the panel
+  badge it "AI". `threshold` is always a number: the
+  level for `gt`/`lt`, the floor for `rising` (above it and higher than one window earlier),
+  a percent for the change ops (`last_value` is then that percent), unused by `no_data`. The
+  server tests `pct > threshold` for `change_pct_gt` and `pct < threshold` for `change_pct_lt`;
+  the editor words them "rises by more than X%" / "falls by more than X%", takes X as a size
+  and sends −X for a fall.
+  Quantile signals are read at p95, `web.*` at p75; several series → the worst. Defaults:
+  environment production, severity medium, channels `[]` (no notification), enabled, window 300 s
+  (60–86 400), for 0 (≤ 604 800). `channels` ⊆ `desktop, in_app, ios_push, slack, email,
+  webhook`; `GET /v1/notification-channels` → `{channels: [{kind, available}]}`
+  (`api.listNotificationChannels`) says which deliver here — the editor offers those, lists the
+  rest as coming later, and keeps any the rule already names until cleared; a write naming one
+  that does not deliver is refused with `channels: unavailable`, an unknown kind with
+  `invalid_option`. With `open_incident` a firing ingests an issue (source
+  `alert_rule`, payload `{rule_id, rule_name, component_id, …}`) and channels are unused.
+- `GET /v1/alert-rules?component_id=&env=` → `{rules}` (`api.listAlertRules`; the console sends
+  no `env` and filters itself, so a link to another environment's rule still finds it).
+- `GET /v1/alert-rules/{id}` → Rule (`api.getAlertRule`, a `?rule=` the list lacks).
+- `POST /v1/alert-rules` → 201 Rule; `PATCH /v1/alert-rules/{id}` → Rule (absent fields kept; the
+  enabled switch sends `{enabled}` only); `DELETE /v1/alert-rules/{id}` → 204 (a firing rule is
+  resolved first).
+- `GET /v1/alert-rules/{id}/events?limit=` → `{events: [{at, from_state, to_state, value,
+  incident_id}]}`, newest first (`api.listAlertRuleEvents`, limit 100).
+- `POST /v1/alert-rules/backtest` a rule's fields + `days` (1–14) → `{fires: [{start, end, peak}],
+  series: [{name, points}], step_seconds}` (`api.backtestAlertRule`, 60 s deadline): `end` null
+  while still firing; `series[0]` is named after the signal (or `query`), a change rule adds
+  `change_pct`. The editor sends it with `channels: []`; a rule's panel replays itself with it
+  (back to the window's start, 1–14 days) to chart what the series read cannot answer — a
+  web vital at p75, a change rule's percent change.
+- `POST /v1/alert-rules/suggest {component_id, environment}` → `{rules: [Rule without id/state]}`,
+  nothing saved (`api.suggestAlertRules`).
+- Alert notifications link to `/operations/entity/<component id>/alerts?rule=<rule id>`; release
+  ones (`rollback_suggested`, `release_rolled_back`) to `/operations/changes?release=<id>`; the
+  proposal itself is the release's `rollback_proposal`. Every role's entity has an Alerts tab,
+  so the alert link always opens.
+
+## Operations: Errors inbox and Logs explorer
+
+The console's two cross-component reads (`pages/ops/OpsErrorsInboxPage`, `OpsLogsPage` and the
+entity Errors / Logs sub-pages). Shapes mirror `server/internal/domain/opsquery.go`
+(`OpsErrors`, `OpsLogs`, `OpsUnavailable`); the server's `.ai/api-spec.md` is the contract. One
+fan-out over every confirmed, bound environment of one kind; an environment that fails is listed
+in `unavailable` and never fails the answer. `env` absent → `production`. `componentIds` goes out
+as one comma list in `component_id` (`opsQueryString`). Both calls carry a longer deadline than
+the 20 s read default (errors 120 s, logs 75 s): the server reads 4 environments at a time and
+gives each 20 s.
+
+- `GET /v1/operations/errors?env=&since=&component_id=&include_ignored=` → `{groups: OpsErrorGroup[], unavailable,
+  truncated, ignored_count?}` (`api.listOpsErrors({env, since, componentIds, includeIgnored})`). Every group carries
+  `definition` — `{id, name, category, severity, action}` of the active error definition it matches, or
+  `null` (see "Error definitions and AI suggestions"); groups an `ignore` definition matches are left out
+  unless `include_ignored=1`, and `ignored_count` (only when non-zero) says how many. `OpsErrorGroup` = the
+  per-environment `RuntimeErrorGroup` plus `component_id`, `repository_id`, `environment_id`,
+  `provider`, and for a group read through an `errors.issues` binding (Sentry) `data_source_id`,
+  `provider: "sentry"` and the zero `environment_id` (`ZERO_UUID`; `errors/errorGroups#isBindingRow`:
+  keyed by the source, no resource, no task — `createErrorTask` needs an environment). `since` RFC3339, default 24 h ago, clamped server-side to 30 days back
+  (`OPS_ERRORS_MAX_WINDOW_MS`; the inbox clamps too and says so). There is no `until`: a custom
+  range that ends in the past still counts to now, and the inbox says that. Vercel and `per_branch`
+  environments have no error surface and are skipped silently. Sorted `new` first, then
+  `last_seen`, then `count`. `truncated`: more than 50 environments matched.
+- `GET /v1/operations/logs?env=&since=&until=&component_id=&min_severity=&text=&limit=` →
+  `{entries: OpsLogEntry[], unavailable, truncated}` (`api.listOpsLogs({env, since, until,
+  componentIds, minSeverity, text, limit})`; `text` trimmed, empty left out). `OpsLogEntry` =
+  `RuntimeLogEntry` plus `component_id`, `environment_id` (and `data_source_id` with the zero
+  environment id for a line read through a `logs.lines` binding). `until` defaults to now, `since` to an
+  hour before; limit default 200, max 500. Newest first. **Older page:** the same query with
+  `until` = the oldest `timestamp` shown, passed as returned (full precision). `until` is
+  inclusive, so the entries at that instant come back: `query/opsQuery#appendOlder` drops them as
+  a multiset (identity = environment, timestamp, severity, message, request, trace, fields); the
+  live tail does the same at the newest instant with `since` (`prependNewer`). `truncated`: the
+  window holds more than was returned.
+- More than 10 environments match with no `component_id` → 400 `{error: "too_many_environments",
+  code, matched, max_environments}`. `ApiError.details` carries the whole JSON body;
+  `opsTooManyEnvironments(e)` → `{matched, max}` or null. The explorer then asks for entities
+  (none preselected).
+- `unavailable[]` = `{component_id, environment_id, data_source_id?, code, message}` (a binding
+  read names its source, linked to `/operations/sources?source=`), `code` ∈ `not_connected`
+  (link: the repository's Deploy & Runtime tab), `cloud_auth` (link: Settings → Integrations),
+  `provider_error` (the server's message is shown), `timeout` (Refresh retries; never cached).
+- A group becomes a board task through the per-environment `POST
+  /v1/environments/{environment_id}/errors/task` (`api.createErrorTask`), with the group's
+  `RuntimeErrorGroup` fields only (`errors/errorGroups#runtimeGroup`).
+
+## Error definitions and AI suggestions (migration 191)
+
+What one kind of runtime error means and what it sets off, the release engineer's suggestion jobs,
+and a component's observability readiness. Shapes mirror the server's `domain/error_definition.go`,
+`ai_job.go`, `observability_readiness.go`; its `.ai/api-spec.md` section of the same name is the
+contract. Refusals: 400 `{"error", "fields"}` (`required`, `invalid`, `invalid_option`,
+`too_long`, `not_permitted`; keys `name`, `repository_id`, `component_id`, `match`,
+`match.fingerprint|message_regex|exception_type|endpoint|status|attributes[.<key>]`, `category`,
+`severity`, `action`, `alert_threshold[.count|.window_seconds]`, `rationale`, `evidence`; the
+enable route `goals`, `target`, `otlp_endpoint`), 404 an unknown id, 409 `code: "not_suggested"`
+(`isNotSuggestedError`), 409 `code: "no_release_engineer"` and 503 `code: "unavailable"`
+(`aiJobRefusal(e)`).
+
+- `ErrorDefinition` = `{id, repository_id, component_id|null, name, match: {fingerprint?,
+  message_regex?, exception_type?, endpoint?, status?, attributes?}, category:
+  bug|expected|dependency|infrastructure|user_error, severity, action: none|ignore|alert|incident|task,
+  alert_threshold: {count, window_seconds}|null, source: human|ai|code, status:
+  active|suggested|dismissed, rationale, evidence[], task_id|null, firing_since|null, created_at,
+  updated_at}`. Every set match field must hold; `message_regex` is RE2 (≤ 512). A threshold only
+  on `alert` (default 10 in 3600 s) and `incident` (default 1 in 3600 s); count 1–1 000 000, window
+  60–604 800 s.
+- `GET /v1/error-definitions?repository_id=&component_id=&status=` → `{definitions}`, newest first
+  (`api.listErrorDefinitions`; the Definitions page reads every status at once and splits them
+  itself). `component_id` also answers the repository-wide ones.
+- `POST /v1/error-definitions` → 201 (`source: human`, `status: active`); `PATCH
+  /v1/error-definitions/{id}` (absent keeps, `component_id: ""` repository-wide, `alert_threshold:
+  null` clears, `match` replaces); `DELETE …/{id}` → 204; `POST …/{id}/accept` / `…/dismiss` → the
+  definition (`api.create|update|delete|accept|dismissErrorDefinition`). The editor sends every
+  field it holds on a PATCH and `alert_threshold: null` once the action takes none.
+- `POST /v1/error-definitions/suggest {repository_id, component_id?, environment?, mode?:
+  errors|code}` → 202 `{job_id, job}` (`api.suggestErrorDefinitions`); `POST
+  /v1/components/{id}/signals/ai-suggest?env=` → 202 `{job_id, job}`
+  (`api.suggestComponentSignalsAI`); a running job of the same kind and scope is answered instead
+  of a new one. `GET /v1/ai-jobs/{id}` → `AIJob` = `{id, kind: define_errors|error_catalog|map_signals,
+  repository_id, component_id, environment, status: running|done|failed, session_id, result_summary,
+  error, created: [{kind: error_definition|signal_binding|alert_rule, id, name, rationale?}],
+  created_at, updated_at, finished_at}` (`api.getAIJob`, read every 3 s while running by
+  `hooks/useAIJob`). A failed job that asked a question names its chat in `session_id`; the UI
+  reads `GET /v1/sessions/{id}` for the agent and opens `/agents/<agent>/chat/<session>`.
+- `GET /v1/components/{id}/observability?env=` → `{component_id, environment, role, provider,
+  signals: [{signal, status, golden}], instrumentation: {otel, sentry, datadog, prometheus, posthog,
+  crashlytics, newrelic, web_vitals}, suggestions: [{goal, code}]}` (`api.getComponentObservability`);
+  codes `golden_unbound|golden_partly_unbound|no_tracing_sdk|no_log_source|no_rum|no_crash_sdk|queues_unbound`,
+  worded under `operations.observability.codes` (an unknown one shown as sent).
+- `POST /v1/components/{id}/observability/enable {environment?, goals: [metrics|traces|logs|rum|crash|queues],
+  target: own_cloud|self_hosted|otlp_endpoint, otlp_endpoint?}` → 201 `{task_id, task_key}`
+  (`api.enableComponentObservability`); the dialog links `/board?task=<task_id>`.
 
 ## Store operations
 
@@ -749,8 +1152,17 @@ shipping order.
 - `GET /v1/repositories/{id}/store/apps/{platform}/tracks` (`api.storeAppTracks`) — reads the
   three channels live and refreshes the row's cache; returns `StoreTracks`.
 - `POST /v1/repositories/{id}/store/apps/{platform}/promote` (`api.promoteStoreChannel`) — body
-  `{from, to, confirm}`, one channel forward at a time (internal→external→production);
-  `to=production` needs `confirm`; 409 when the app isn't ready for the move.
+  `{from, to, confirm, user_fraction?}`, one channel forward at a time (internal→external→production);
+  `to=production` needs `confirm`; Android into production starts a staged rollout at
+  `user_fraction` ∈ (0, 1] (left out: everyone; 400 outside it); 409 when the app isn't ready
+  for the move.
+- `POST /v1/repositories/{id}/store/apps/ios/submit` · `…/ios/release` (`api.submitIOS` /
+  `api.releaseIOS`) — `{confirm}`. Submit also sets `review_state` waiting so the monitor
+  follows the review. The console gates both on the production track just read: submit a
+  `draft` pending version, release an `approved` one (App Store's `PENDING_DEVELOPER_RELEASE`).
+- `POST /v1/repositories/{id}/store/apps/android/rollout` (`api.setAndroidRollout`) —
+  `{user_fraction, confirm?}`, (0, 1]; 0 is refused (Play reads it as completed); 1
+  completes the rollout and needs `confirm`.
 - `POST /v1/repositories/{id}/store/apps/{platform}/build` (`api.startStoreBuild`) — body
   `{engine?}` (`auto|github_actions|local`, defaults to the repo's `release_engine`); 409 when
   neither engine can run it (`domain.ErrNoReleaseEngine`) — the task card is parked on

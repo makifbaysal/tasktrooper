@@ -1,0 +1,12 @@
+# Lines in Loki labelled app, the label Promtail's Kubernetes config and
+# most Loki 2 shippers set; loki-service (service_name) is the primary one.
+id: loki-app
+source_kind: loki
+applies_to:
+  technology: loki
+detect:
+  metric: app
+params: [app]
+signals:
+  logs.lines: >-
+    {app="$app"}

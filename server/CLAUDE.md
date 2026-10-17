@@ -79,6 +79,16 @@ the tool call's context. Its prompt is `catalog/system/prompts/issuesync/convert
 Migration 183 holds `issue_imports` (one per issue) and `issue_links` (one per
 task). Details: [API Specification](.ai/api-spec.md#issue-sync-migration-183).
 
+## Error definitions and the release engineer's observability work
+
+`internal/application/errordef` says what each runtime error group means (migration 191): matched
+on read into every Errors inbox answer, with a sweep carrying out the alert, incident and task
+actions over production. `internal/application/opsai` runs the release engineer's suggestion jobs
+the way issue sync runs the product manager — one chat turn (`session.Service.SendMessage`) whose
+`propose_*` tools (`internal/adapter/tools/observability`) store suggestions and find their job
+through the chat session on the tool call's context — and opens the "enable observability" card.
+Prompts live in `catalog/system/prompts/observability/`. Details: [API Specification](.ai/api-spec.md#error-definitions-and-ai-suggestions-migration-191).
+
 ## GitHub runner
 
 `internal/adapter/local/ghrunner` makes this computer a self-hosted GitHub Actions runner for the
