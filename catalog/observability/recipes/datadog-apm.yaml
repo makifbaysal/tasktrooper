@@ -1,0 +1,42 @@
+# A backend service's requests from Datadog APM trace metrics. service and
+# env are the service's unified tags. metric_prefix is trace.<span name>,
+# which depends on the tracer's integration: trace.http.request (Go net/http,
+# the default here), trace.flask.request, trace.django.request,
+# trace.express.request, trace.rack.request, trace.servlet.request,
+# trace.aspnet_core.request; set it to the one Datadog's service page lists.
+# Latency reads the trace.<span name> distribution (seconds) at the quantile
+# asked for. The endpoints table is one row per resource (route), its
+# latest values of the last 10 minutes.
+id: datadog-apm
+source_kind: datadog
+applies_to:
+  technology: datadog
+detect:
+  metric: trace.http.request.hits
+params: [service, env, metric_prefix]
+defaults:
+  metric_prefix: trace.http.request
+signals:
+  http.requests: >-
+    sum:$metric_prefix.hits{service:$service,env:$env}.as_rate()
+  http.error_ratio: >-
+    100 * sum:$metric_prefix.errors{service:$service,env:$env}.as_count()
+    / sum:$metric_prefix.hits{service:$service,env:$env}.as_count()
+  http.latency: >-
+    $__quantile:$metric_prefix{service:$service,env:$env} * 1000
+tables:
+  endpoints:
+    key_labels: [resource_name]
+    columns:
+      - {key: resource_name, label: Endpoint}
+      - {key: rpm, label: Requests, unit: req/min}
+      - {key: error_pct, label: Errors, unit: "%"}
+      - {key: p95_ms, label: p95, unit: ms}
+    queries:
+      rpm: >-
+        sum:$metric_prefix.hits{service:$service,env:$env} by {resource_name}.as_rate() * 60
+      error_pct: >-
+        100 * sum:$metric_prefix.errors{service:$service,env:$env} by {resource_name}.as_count()
+        / sum:$metric_prefix.hits{service:$service,env:$env} by {resource_name}.as_count()
+      p95_ms: >-
+        p95:$metric_prefix{service:$service,env:$env} by {resource_name} * 1000

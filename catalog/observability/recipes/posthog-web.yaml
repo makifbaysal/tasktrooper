@@ -1,0 +1,51 @@
+# A web frontend's traffic from PostHog (the posthog kind), read with HogQL
+# the kind writes itself. No params: the source's project is the site; a
+# project shared by several sites is narrowed with a binding query of its
+# own ({"metric": "page_views", "host": "app.example.com"}). page_views and
+# js_errors ($exception events, from PostHog's exception autocapture) are per
+# second; sessions ($session_id) and visitors (persons) are distinct counts
+# per interval, of $pageview events. Tables cover the last 7 days, the most
+# viewed first; the pages table's lcp_p75 comes from $web_vitals events.
+id: posthog-web
+source_kind: posthog
+applies_to:
+  technology: posthog
+detect:
+  metric: $pageview
+signals:
+  web.page_views: '{"metric": "page_views"}'
+  web.sessions: '{"metric": "sessions"}'
+  web.visitors: '{"metric": "visitors"}'
+  web.js_errors: '{"metric": "js_errors"}'
+tables:
+  pages:
+    key_labels: [path]
+    columns:
+      - {key: path, label: Path}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: visitors}
+      - {key: lcp_p75, label: LCP p75, unit: ms}
+    query: '{"table": "pages"}'
+  referrers:
+    key_labels: [referrer]
+    columns:
+      - {key: referrer, label: Referrer}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: visitors}
+    query: '{"table": "referrers"}'
+  countries:
+    key_labels: [country]
+    columns:
+      - {key: country, label: Country}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: visitors}
+    query: '{"table": "countries"}'
+  devices:
+    key_labels: [device, browser, os]
+    columns:
+      - {key: device, label: Device}
+      - {key: browser, label: Browser}
+      - {key: os, label: OS}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: visitors}
+    query: '{"table": "devices"}'

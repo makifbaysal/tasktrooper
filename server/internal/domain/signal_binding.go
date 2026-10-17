@@ -91,6 +91,9 @@ type ComponentSignals struct {
 	Role        ComponentRole     `json:"role"`
 	Environment DeployEnvironment `json:"environment"`
 	Signals     []ComponentSignal `json:"signals"`
+	// SourceOffers are filled by the detector only: data sources it would
+	// read the component through if one of that kind existed.
+	SourceOffers []DataSourceOffer `json:"source_offers"`
 }
 
 // SignalPreview is a recipe or query run once before it is bound.

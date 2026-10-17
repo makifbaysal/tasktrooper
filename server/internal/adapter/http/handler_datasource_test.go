@@ -278,8 +278,14 @@ func (s *DataSourceHandlerSuite) TestSignalsAndRecipesListTheCatalog() {
 		}
 	}
 	s.Require().NotNil(otel)
-	s.ElementsMatch([]string{"id", "source_kind", "applies_to", "detect", "params", "signals", "origin"}, keysOf(otel))
-	s.Equal(map[string]any{"technology": "opentelemetry", "messaging_system": "", "resource_kind": "", "resource_params": map[string]any{}}, otel["applies_to"])
+	s.ElementsMatch([]string{"id", "source_kind", "applies_to", "detect", "params", "signals", "tables", "origin"}, keysOf(otel))
+	endpoints := otel["tables"].(map[string]any)["endpoints"].(map[string]any)
+	s.ElementsMatch([]string{"columns", "key_labels", "queries"}, keysOf(endpoints))
+	s.Equal([]any{"http_route"}, endpoints["key_labels"])
+	s.Equal(map[string]any{
+		"technology": "opentelemetry", "messaging_system": "", "resource_kind": "", "resource_params": map[string]any{},
+		"store_platform": "", "store_params": map[string]any{},
+	}, otel["applies_to"])
 	s.Equal(map[string]any{"metric": "http_server_request_duration_seconds_count"}, otel["detect"])
 	s.Equal([]any{"job"}, otel["params"])
 	s.Equal("catalog", otel["origin"])

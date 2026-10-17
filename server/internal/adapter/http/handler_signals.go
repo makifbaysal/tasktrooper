@@ -13,9 +13,10 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// registerSignalRoutes mounts signal bindings, a component's series and the
-// explorer's golden values. See .ai/api-spec.md ("Signal bindings and
-// series") for the contract.
+// registerSignalRoutes mounts signal bindings, a component's series and its
+// queue, endpoints, web and crashes tables, and the explorer's golden values.
+// See .ai/api-spec.md ("Signal bindings and series", "Queue tables",
+// "Component tables") for the contract.
 func (h *Handler) registerSignalRoutes(app fiber.Router) {
 	if h.signalsSvc == nil {
 		return
@@ -25,6 +26,10 @@ func (h *Handler) registerSignalRoutes(app fiber.Router) {
 	app.Post("/v1/components/:componentId/signals/preview", h.PreviewComponentSignal)
 	app.Put("/v1/components/:componentId/signals/:signal", h.PutComponentSignal)
 	app.Get("/v1/components/:componentId/series", h.ComponentSeries)
+	app.Get("/v1/components/:componentId/queues", h.ComponentQueues)
+	app.Get("/v1/components/:componentId/endpoints", h.ComponentEndpoints)
+	app.Get("/v1/components/:componentId/web", h.ComponentWeb)
+	app.Get("/v1/components/:componentId/crashes", h.ComponentCrashes)
 	app.Post("/v1/signal-bindings/:bindingId/confirm", h.ConfirmSignalBinding)
 	app.Post("/v1/signal-bindings/:bindingId/dismiss", h.DismissSignalBinding)
 	app.Delete("/v1/signal-bindings/:bindingId", h.DeleteSignalBinding)
@@ -246,6 +251,19 @@ func (h *Handler) OperationsGolden(c *fiber.Ctx) error {
 		To:           to,
 		ComponentIDs: ids,
 	})
+	if err != nil {
+		return signalsErr(c, err)
+	}
+	return c.JSON(out)
+}
+
+// ComponentQueues — GET /v1/components/:componentId/queues?env=
+func (h *Handler) ComponentQueues(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "componentId")
+	if err != nil {
+		return cErrMsg(c, fiber.StatusBadRequest, "invalid component id")
+	}
+	out, err := h.signalsSvc.Queues(h.enrichContext(c), id, opsEnvironment(c))
 	if err != nil {
 		return signalsErr(c, err)
 	}

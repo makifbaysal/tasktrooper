@@ -249,6 +249,99 @@ func (a *API) QueryRange(ctx context.Context, ep Endpoint, q domain.SeriesQuery)
 	return out, nil
 }
 
+type vectorSample struct {
+	Metric map[string]string `json:"metric"`
+	Value  *samplePair       `json:"value"`
+}
+
+// Instant runs an instant query (POST /api/v1/query) at q.At and answers
+// each sample of the vector as a row: its labels but __name__, and its value
+// under domain.TableValueKey (nil for NaN, ±Inf or a native histogram). A
+// scalar is one row of just the value. Rows are ordered by their labels.
+func (a *API) Instant(ctx context.Context, ep Endpoint, q domain.TableQuery) (domain.TableResult, error) {
+	c, err := a.open(ctx, ep, a.queryTimeout)
+	if err != nil {
+		return domain.TableResult{}, err
+	}
+	defer c.client.CloseIdleConnections()
+	form := url.Values{"query": {q.Query}}
+	if !q.At.IsZero() {
+		form.Set("time", formatTime(q.At))
+	}
+	r, err := c.call(ctx, http.MethodPost, "/api/v1/query", form, maxSeriesBody)
+	if err != nil {
+		return domain.TableResult{}, err
+	}
+	if r.code != http.StatusOK || r.env == nil || r.env.Status != "success" {
+		return domain.TableResult{}, c.statusError("query", r)
+	}
+	var data struct {
+		ResultType string          `json:"resultType"`
+		Result     json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(r.env.Data, &data); err != nil {
+		return domain.TableResult{}, errNotPrometheus
+	}
+	var samples []vectorSample
+	switch data.ResultType {
+	case "vector":
+		if err := json.Unmarshal(data.Result, &samples); err != nil {
+			return domain.TableResult{}, errNotPrometheus
+		}
+	case "scalar":
+		var p samplePair
+		if err := json.Unmarshal(data.Result, &p); err != nil {
+			return domain.TableResult{}, errNotPrometheus
+		}
+		samples = []vectorSample{{Value: &p}}
+	default:
+		return domain.TableResult{}, fmt.Errorf("%w: a table query must answer an instant vector, not a %s", port.ErrDataSourceQuery, data.ResultType)
+	}
+	return vectorTable(samples), nil
+}
+
+func vectorTable(samples []vectorSample) domain.TableResult {
+	labels := map[string]bool{}
+	type keyed struct {
+		key string
+		row map[string]any
+	}
+	rows := make([]keyed, 0, len(samples))
+	for _, s := range samples {
+		row := map[string]any{domain.TableValueKey: nil}
+		plain := map[string]string{}
+		for k, v := range s.Metric {
+			if k == "__name__" || k == domain.TableValueKey {
+				continue
+			}
+			labels[k] = true
+			row[k] = v
+			plain[k] = v
+		}
+		if s.Value != nil {
+			if v, err := strconv.ParseFloat(s.Value.V, 64); err == nil && !math.IsNaN(v) && !math.IsInf(v, 0) {
+				row[domain.TableValueKey] = v
+			}
+		}
+		rows = append(rows, keyed{key: seriesName(plain, ""), row: row})
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].key < rows[j].key })
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := domain.TableResult{Columns: make([]domain.TableColumn, 0, len(keys)+1), Rows: make([]map[string]any, 0, len(rows))}
+	for _, k := range keys {
+		out.Columns = append(out.Columns, domain.TableColumn{Key: k, Label: k})
+	}
+	out.Columns = append(out.Columns, domain.TableColumn{Key: domain.TableValueKey, Label: domain.TableValueKey})
+	for _, r := range rows {
+		out.Rows = append(out.Rows, r.row)
+	}
+	return out
+}
+
 func seriesName(labels map[string]string, query string) string {
 	if len(labels) == 0 {
 		return query

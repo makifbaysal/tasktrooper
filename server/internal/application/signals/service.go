@@ -65,6 +65,12 @@ type Deps struct {
 	Sources      *datasource.Service
 	Components   Components
 	Environments Environments
+	// Links is optional; without it the detector does not know which brokers
+	// a component talks to.
+	Links Links
+	// StoreApps is optional; without it the detector does not know which
+	// store apps a mobile component's repository ships.
+	StoreApps StoreApps
 	// Catalog holds golden.yaml; defaults to the embedded catalog.ObservabilityFS().
 	Catalog fs.FS
 }
@@ -74,6 +80,8 @@ type Service struct {
 	sources      *datasource.Service
 	components   Components
 	environments Environments
+	links        Links
+	storeApps    StoreApps
 
 	signals     []domain.Signal
 	signalIndex map[string]domain.Signal
@@ -85,10 +93,14 @@ type Service struct {
 	queryTimeout      time.Duration
 	seriesBudget      time.Duration
 	goldenBudget      time.Duration
+	queuesBudget      time.Duration
+	tablesBudget      time.Duration
 
 	scope        func(ctx context.Context) string
 	discovery    *discoveryCache
-	goldenCache  *goldenCache
+	goldenCache  *answerCache[domain.GoldenBoard]
+	queuesCache  *answerCache[domain.ComponentQueues]
+	tablesCache  *answerCache[domain.ComponentTables]
 	goldenFlight singleflight.Group
 }
 
@@ -140,8 +152,14 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 		queryTimeout:      defaultQueryTimeout,
 		seriesBudget:      defaultSeriesBudget,
 		goldenBudget:      defaultGoldenBudget,
+		queuesBudget:      defaultQueuesBudget,
+		tablesBudget:      defaultTablesBudget,
+		links:             d.Links,
+		storeApps:         d.StoreApps,
 		discovery:         newDiscoveryCache(),
-		goldenCache:       newGoldenCache(),
+		goldenCache:       newAnswerCache[domain.GoldenBoard](goldenCacheTTL, goldenCacheSize),
+		queuesCache:       newAnswerCache[domain.ComponentQueues](queuesCacheTTL, queuesCacheSize),
+		tablesCache:       newAnswerCache[domain.ComponentTables](queuesCacheTTL, queuesCacheSize),
 	}
 	for _, sig := range s.signals {
 		s.signalIndex[sig.ID] = sig
@@ -201,7 +219,7 @@ func (s *Service) assemble(ctx context.Context, l lookup, comp domain.Component,
 	}
 	relevant := s.relevant(role)
 	golden := s.goldenSet(role)
-	out := domain.ComponentSignals{ComponentID: comp.ID, Role: role, Environment: env, Signals: []domain.ComponentSignal{}}
+	out := domain.ComponentSignals{ComponentID: comp.ID, Role: role, Environment: env, Signals: []domain.ComponentSignal{}, SourceOffers: []domain.DataSourceOffer{}}
 	for _, sig := range s.signals {
 		if !relevant[sig.ID] && len(bySignal[sig.ID]) == 0 {
 			continue
@@ -251,7 +269,7 @@ func (s *Service) Put(ctx context.Context, componentID uuid.UUID, env domain.Dep
 	if err != nil {
 		return domain.SignalBindingView{}, err
 	}
-	s.goldenCache.clear()
+	s.dropAnswers()
 	return s.view(ctx, l, saved), nil
 }
 
@@ -277,7 +295,7 @@ func (s *Service) Confirm(ctx context.Context, id uuid.UUID) (domain.SignalBindi
 	if err != nil {
 		return domain.SignalBindingView{}, err
 	}
-	s.goldenCache.clear()
+	s.dropAnswers()
 	return s.view(ctx, l, confirmed), nil
 }
 
@@ -298,7 +316,7 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := s.bindings.DeleteSignalBinding(ctx, id); err != nil {
 		return err
 	}
-	s.goldenCache.clear()
+	s.dropAnswers()
 	return nil
 }
 
@@ -358,7 +376,7 @@ func needsParams(l lookup, b domain.SignalBinding) []string {
 		return out
 	}
 	for _, p := range r.Params {
-		if strings.TrimSpace(b.Params[p]) == "" {
+		if strings.TrimSpace(b.Params[p]) == "" && strings.TrimSpace(r.Defaults[p]) == "" {
 			out = append(out, p)
 		}
 	}

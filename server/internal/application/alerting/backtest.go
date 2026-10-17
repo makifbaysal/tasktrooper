@@ -52,11 +52,11 @@ func (s *Service) Backtest(ctx context.Context, req BacktestRequest) (domain.Ale
 	span := time.Duration(days) * 24 * time.Hour
 	step := backtestStep(spec.Condition.Window(), span)
 	from := to.Add(-span)
-	samples, err := s.read(ctx, spec, from.Add(-step), to, step)
+	samples, effective, err := s.read(ctx, spec, from.Add(-step), to, step)
 	if err != nil {
 		return domain.AlertBacktest{}, err
 	}
-	fires, change := replay(spec.Condition, samples, from, to, step)
+	fires, change := replay(spec.Condition, samples, from, to, step, effective)
 
 	name := spec.Signal
 	if name == "" {
@@ -87,28 +87,29 @@ func backtestStep(window, span time.Duration) time.Duration {
 	return step
 }
 
-// replay runs the state machine over every step of (from, to]; for a change
-// op it also answers the percent change it judged at each step.
-func replay(c domain.AlertCondition, samples []sample, from, to time.Time, step time.Duration) ([]domain.AlertFire, []domain.SeriesPoint) {
+// replay runs the state machine over every step of (from, to], each step an
+// evaluation, picking samples at their effective step; for a change op it
+// also answers the percent change it judged at each step.
+func replay(c domain.AlertCondition, samples []sample, from, to time.Time, step, effective time.Duration) ([]domain.AlertFire, []domain.SeriesPoint) {
 	fires := []domain.AlertFire{}
 	var change []domain.SeriesPoint
 	isChange := c.Op == domain.AlertOpChangePctAbove || c.Op == domain.AlertOpChangePctBelow
 	if isChange {
 		change = []domain.SeriesPoint{}
 	}
-	state, since := domain.AlertStateOK, from
+	st := standing{state: domain.AlertStateOK, since: from}
 	var open *domain.AlertFire
 	for at := from.Add(step); !at.After(to); at = at.Add(step) {
-		cur, prev := pick(samples, at, step)
+		cur, prev := pick(samples, at, max(step, effective))
 		v := judge(c, cur, prev)
 		if isChange {
 			change = append(change, domain.SeriesPoint{Time: at, Value: v.value})
 		}
-		next, nextSince := advance(state, since, c, v, at)
+		next := advance(st, c, v, at)
 		switch {
-		case next == domain.AlertStateFiring && state != domain.AlertStateFiring:
+		case next.state == domain.AlertStateFiring && st.state != domain.AlertStateFiring:
 			open = &domain.AlertFire{Start: at}
-		case next != domain.AlertStateFiring && state == domain.AlertStateFiring:
+		case next.state != domain.AlertStateFiring && st.state == domain.AlertStateFiring:
 			end := at
 			open.End = &end
 			fires = append(fires, *open)
@@ -118,7 +119,7 @@ func replay(c domain.AlertCondition, samples []sample, from, to time.Time, step 
 			peak := *v.value
 			open.Peak = &peak
 		}
-		state, since = next, nextSince
+		st = next
 	}
 	if open != nil {
 		fires = append(fires, *open)

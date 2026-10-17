@@ -81,7 +81,7 @@ func opsTime(c *fiber.Ctx, key string) (time.Time, error) {
 	return t, nil
 }
 
-// OperationsErrors — GET /v1/operations/errors?env=&since=&component_id=…
+// OperationsErrors — GET /v1/operations/errors?env=&since=&component_id=…&include_ignored=
 func (h *Handler) OperationsErrors(c *fiber.Ctx) error {
 	ids, err := opsComponentIDs(c)
 	if err != nil {
@@ -99,10 +99,14 @@ func (h *Handler) OperationsErrors(c *fiber.Ctx) error {
 	if err != nil {
 		return opsQueryErr(c, err)
 	}
+	if h.errorDefsSvc != nil {
+		includeIgnored := c.Query("include_ignored") == "1" || c.Query("include_ignored") == "true"
+		out = h.errorDefsSvc.Annotate(h.enrichContext(c), out, includeIgnored)
+	}
 	return c.JSON(out)
 }
 
-// OperationsLogs — GET /v1/operations/logs?env=&since=&until=&component_id=…&min_severity=&text=&limit=
+// OperationsLogs —GET /v1/operations/logs?env=&since=&until=&component_id=…&min_severity=&text=&limit=
 func (h *Handler) OperationsLogs(c *fiber.Ctx) error {
 	ids, err := opsComponentIDs(c)
 	if err != nil {

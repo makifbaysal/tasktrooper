@@ -179,7 +179,7 @@ func (s *Service) ingest(ctx context.Context, in domain.IncidentInput) (domain.I
 	}
 
 	if (created || incident.Severity == domain.IncidentSeverityCritical) && s.notifiable(incident) &&
-		s.shouldRenotify(cooldownKey("opened", incident)) {
+		s.shouldRenotify(alertKey(incident), notifyOpened) {
 		s.notify(ctx, incident, remedy)
 	}
 	return incident, created, nil
@@ -196,22 +196,28 @@ func machineMayOverwriteRemedy(incident domain.Incident) bool {
 	}
 }
 
-// cooldownKey is the alert's identity, not the incident's: a flapping alert
-// resolves and re-fires as a NEW incident every cycle, so an incident-id key
-// let it notify on every flap. Opening and recovery are cooled apart, so the
-// first recovery after an outage is never swallowed by that outage's alert.
-func cooldownKey(kind string, incident domain.Incident) string {
-	return kind + "\x00" + incident.RepositoryID.String() + "\x00" + incident.Env + "\x00" + incident.Fingerprint
+const (
+	notifyOpened    = "opened"
+	notifyRecovered = "recovered"
+)
+
+// alertKey is the alert's identity, not the incident's: a flapping alert
+// resolves and re-fires as a NEW incident every cycle. Only a repeat of the
+// last kind told is held back (a critical incident recurring): an opening
+// after a told recovery, or a recovery after a told opening, always goes out,
+// so the last word a person heard is never "recovered" while it is down.
+func alertKey(incident domain.Incident) string {
+	return incident.RepositoryID.String() + "\x00" + incident.Env + "\x00" + incident.Fingerprint
 }
 
-func (s *Service) shouldRenotify(key string) bool {
+func (s *Service) shouldRenotify(key, kind string) bool {
 	s.notifyMu.Lock()
 	if s.cooldown == nil {
 		s.cooldown = notify.NewCooldown(notify.DefaultCooldown)
 	}
 	cooldown := s.cooldown
 	s.notifyMu.Unlock()
-	return cooldown.Allow(key, s.now())
+	return cooldown.AllowTransition(key, kind, s.now())
 }
 
 func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
@@ -235,7 +241,7 @@ func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.
 			log.Warn().Err(err).Msg("incident recovery comment failed")
 		}
 	}
-	if s.notifiable(resolved) && s.shouldRenotify(cooldownKey("recovered", resolved)) {
+	if s.notifiable(resolved) && s.shouldRenotify(alertKey(resolved), notifyRecovered) {
 		s.notifier.Notify(ctx, incidentNotification(domain.NotificationIncidentRecovered, resolved, "Recovered · "+resolved.Env, resolved.Title))
 	}
 	return resolved, nil

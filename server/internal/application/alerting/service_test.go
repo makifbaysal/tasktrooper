@@ -58,6 +58,9 @@ type AlertingSuite struct {
 	peak     atomic.Int32
 	slow     time.Duration
 	fail     error
+	step     time.Duration
+	bindErr  error
+	live     []domain.Incident
 	sent     map[domain.NotificationChannelKind][]domain.Notification
 
 	svc *alerting.Service
@@ -69,7 +72,7 @@ func (s *AlertingSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.now = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 	s.value = func(string, time.Time) *float64 { return nil }
-	s.seen, s.slow, s.bound, s.fail = nil, 0, nil, nil
+	s.seen, s.slow, s.bound, s.fail, s.step, s.bindErr, s.live = nil, 0, nil, nil, 0, nil, nil
 	s.inFlight.Store(0)
 	s.peak.Store(0)
 	s.sent = map[domain.NotificationChannelKind][]domain.Notification{}
@@ -113,6 +116,9 @@ func (s *AlertingSuite) build(opts ...alerting.Option) {
 		func(_ context.Context, componentID uuid.UUID, env domain.DeployEnvironment) ([]domain.SignalBinding, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
+			if s.bindErr != nil {
+				return nil, s.bindErr
+			}
 			out := []domain.SignalBinding{}
 			for _, b := range s.bound {
 				if b.ComponentID == componentID && b.Environment == env {
@@ -123,6 +129,17 @@ func (s *AlertingSuite) build(opts ...alerting.Option) {
 		}).Maybe()
 
 	s.incidents.On("AppendEvent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	s.incidents.On("List", mock.Anything, mock.Anything).Return(func(_ context.Context, f domain.IncidentFilter) ([]domain.Incident, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var out []domain.Incident
+		for _, in := range s.live {
+			if f.Source == "" || in.Source == f.Source {
+				out = append(out, in)
+			}
+		}
+		return out, nil
+	}).Maybe()
 	s.incidents.On("History", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	s.incidents.On("UpdateRemedy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(func(_ context.Context, id uuid.UUID, _, _, _ string, _ int) (domain.Incident, error) {
@@ -170,7 +187,8 @@ func (s *AlertingSuite) channel(kind domain.NotificationChannelKind) *mocks.Noti
 	return ch
 }
 
-// answer is the source: a point per step of the range, valued by s.value.
+// answer is the source: a point per step of the range (per s.step when the
+// source keeps a coarser period, as CloudWatch does), valued by s.value.
 func (s *AlertingSuite) answer(_ context.Context, _ domain.DataSource, _ map[string]string, q domain.SeriesQuery) (domain.SeriesResult, error) {
 	n := s.inFlight.Add(1)
 	defer s.inFlight.Add(-1)
@@ -182,7 +200,7 @@ func (s *AlertingSuite) answer(_ context.Context, _ domain.DataSource, _ map[str
 	}
 	s.mu.Lock()
 	s.seen = append(s.seen, q)
-	value, slow, fail := s.value, s.slow, s.fail
+	value, slow, fail, step := s.value, s.slow, s.fail, s.step
 	s.mu.Unlock()
 	if fail != nil {
 		return domain.SeriesResult{}, fail
@@ -190,13 +208,14 @@ func (s *AlertingSuite) answer(_ context.Context, _ domain.DataSource, _ map[str
 	if slow > 0 {
 		time.Sleep(slow)
 	}
+	every := max(q.Step, step)
 	points := []domain.SeriesPoint{}
-	for at := q.From; !at.After(q.To); at = at.Add(q.Step) {
-		if v := value(q.Query, at); v != nil {
+	for at := q.From.Truncate(every); !at.After(q.To); at = at.Add(every) {
+		if v := value(q.Query, at); v != nil && !at.Before(q.From) {
 			points = append(points, domain.SeriesPoint{Time: at, Value: v})
 		}
 	}
-	return domain.SeriesResult{Series: []domain.Series{{Name: "", Points: points}}}, nil
+	return domain.SeriesResult{Series: []domain.Series{{Name: "", Points: points}}, Step: step}, nil
 }
 
 func (s *AlertingSuite) constant(v float64) {
@@ -373,6 +392,9 @@ func (s *AlertingSuite) TestAFiringRuleOpensAnIncidentThroughProdopsAndRecovers(
 	s.False(in.Resolved)
 
 	s.constant(1)
+	s.sweepAfter(time.Minute)
+	s.sweepAfter(time.Minute)
+	s.Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State, "false for one minute of its two-minute for")
 	s.expectRecovery(incidentID, rule)
 	s.sweepAfter(time.Minute)
 
@@ -428,6 +450,7 @@ func (s *AlertingSuite) TestARuleWithoutAnIncidentNotifiesOnItsChannelsOnly() {
 	s.sweepAfter(0)
 	s.constant(1)
 	s.sweepAfter(time.Minute)
+	s.sweepAfter(time.Minute)
 
 	s.Empty(s.notifications(domain.NotificationChannelDesktop))
 	sent := s.notifications(domain.NotificationChannelSlack)
@@ -442,11 +465,11 @@ func (s *AlertingSuite) TestARuleWithoutAnIncidentNotifiesOnItsChannelsOnly() {
 	s.Equal("Recovered · Error ratio", sent[1].Title)
 }
 
-func (s *AlertingSuite) TestAFlappingRuleNotifiesOncePerCooldown() {
+func (s *AlertingSuite) TestAFlappingConditionStaysFiringAndNotifiesOnce() {
 	s.bind(s.api, "http.error_ratio", errorRatioQuery)
 	req := s.ruleRequest("http.error_ratio", domain.AlertOpAbove, 2, 0)
 	req.Channels = ptr([]string{"desktop"})
-	s.create(req)
+	rule := s.create(req)
 
 	for range 3 {
 		s.constant(5)
@@ -455,10 +478,37 @@ func (s *AlertingSuite) TestAFlappingRuleNotifiesOncePerCooldown() {
 		s.sweepAfter(time.Minute)
 	}
 
+	s.Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State)
+	s.Equal([]string{"ok>firing"}, s.rules.transitions(rule.ID))
 	sent := s.notifications(domain.NotificationChannelDesktop)
-	s.Require().Len(sent, 2)
+	s.Require().Len(sent, 1)
 	s.Equal(domain.NotificationAlertFiring, sent[0].Kind)
-	s.Equal(domain.NotificationAlertResolved, sent[1].Kind)
+}
+
+func (s *AlertingSuite) TestAReFiringAfterAToldRecoveryIsToldInsideTheCooldown() {
+	s.bind(s.api, "http.error_ratio", errorRatioQuery)
+	req := s.ruleRequest("http.error_ratio", domain.AlertOpAbove, 2, 0)
+	req.Channels = ptr([]string{"desktop"})
+	s.create(req)
+
+	cycle := func() {
+		s.constant(5)
+		s.sweepAfter(time.Minute)
+		s.constant(1)
+		s.sweepAfter(time.Minute)
+		s.sweepAfter(time.Minute)
+	}
+	cycle()
+	cycle()
+
+	var kinds []domain.NotificationKind
+	for _, n := range s.notifications(domain.NotificationChannelDesktop) {
+		kinds = append(kinds, n.Kind)
+	}
+	s.Equal([]domain.NotificationKind{
+		domain.NotificationAlertFiring, domain.NotificationAlertResolved,
+		domain.NotificationAlertFiring, domain.NotificationAlertResolved,
+	}, kinds, "six minutes apart, each opposite of the last one told")
 }
 
 func (s *AlertingSuite) TestRisingAndChangeRulesCompareAWindowEarlier() {
@@ -497,7 +547,7 @@ func (s *AlertingSuite) TestOnlyRulesWhoseIntervalElapsedAreRead() {
 	q := s.queries()[1]
 	s.Equal(errorRatioQuery, q.Query)
 	s.Equal(5*time.Minute, q.Step)
-	s.Equal(s.now.Add(-10*time.Minute), q.From)
+	s.Equal(s.now.Add(-15*time.Minute), q.From)
 	s.Equal(s.now, q.To)
 }
 
@@ -618,7 +668,7 @@ func (s *AlertingSuite) TestBacktestReplaysTheConditionAtTheWindowsResolution() 
 	s.Require().Len(out.Fires, 1)
 	s.Equal(outageFrom.Add(10*time.Minute), out.Fires[0].Start)
 	s.Require().NotNil(out.Fires[0].End)
-	s.Equal(outageTo, *out.Fires[0].End)
+	s.Equal(outageTo.Add(10*time.Minute), *out.Fires[0].End, "false for two steps and its for")
 	s.InDelta(5+55.0/10, *out.Fires[0].Peak, 1e-9)
 	s.Require().Len(out.Series, 1)
 	s.Equal("http.error_ratio", out.Series[0].Name)
@@ -763,4 +813,156 @@ func (s *AlertingSuite) TestASignalWithNothingBoundIsNoData() {
 
 	s.Equal(domain.AlertStateNoData, s.rules.get(rule.ID).State)
 	s.Empty(s.queries())
+}
+
+func (s *AlertingSuite) firingIncidentRule() (domain.AlertRule, uuid.UUID) {
+	rule := s.incidentRule()
+	s.constant(5)
+	s.sweepAfter(0)
+	incidentID := uuid.New()
+	s.expectIngest(rule, incidentID)
+	s.sweepAfter(2 * time.Minute)
+	s.Require().Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State)
+	return rule, incidentID
+}
+
+func (s *AlertingSuite) TestAStoreErrorKeepsAFiringRuleFiringWithNoRecovery() {
+	rule, _ := s.firingIncidentRule()
+	s.mu.Lock()
+	s.bindErr = errors.New("reading signal bindings: connection reset")
+	s.mu.Unlock()
+
+	for range 5 {
+		s.sweepAfter(time.Minute)
+	}
+
+	got := s.rules.get(rule.ID)
+	s.Equal(domain.AlertStateFiring, got.State)
+	s.Equal(5.0, *got.LastValue)
+	s.Equal(s.now, *got.LastEvaluatedAt, "the evaluation is still recorded, so the rule waits its interval")
+	s.Equal([]string{"ok>pending", "pending>firing"}, s.rules.transitions(rule.ID))
+	s.incidents.AssertNotCalled(s.T(), "FindLive", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func (s *AlertingSuite) TestAPanickingReadKeepsTheState() {
+	rule, _ := s.firingIncidentRule()
+	s.mu.Lock()
+	s.value = func(string, time.Time) *float64 { panic("adapter bug") }
+	s.mu.Unlock()
+
+	s.sweepAfter(time.Minute)
+
+	got := s.rules.get(rule.ID)
+	s.Equal(domain.AlertStateFiring, got.State)
+	s.Equal(s.now, *got.LastEvaluatedAt)
+}
+
+func (s *AlertingSuite) TestABindingGoneFromAFiringRuleIsNoDataOnlyPastTheGrace() {
+	rule, incidentID := s.firingIncidentRule()
+	s.mu.Lock()
+	s.bound = nil
+	s.mu.Unlock()
+
+	for range 3 {
+		s.sweepAfter(time.Minute)
+		s.Require().Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State)
+	}
+	s.expectRecovery(incidentID, rule)
+	s.sweepAfter(time.Minute)
+
+	s.Equal(domain.AlertStateNoData, s.rules.get(rule.ID).State)
+	s.Equal([]string{"ok>pending", "pending>firing", "firing>no_data"}, s.rules.transitions(rule.ID))
+}
+
+func (s *AlertingSuite) TestASourceKeepingFiveMinutePeriodsIsStillJudgedEveryMinute() {
+	s.bind(s.api, "http.error_ratio", errorRatioQuery)
+	signalReq := s.ruleRequest("http.error_ratio", domain.AlertOpAbove, 2, 0)
+	signalReq.Condition.WindowSeconds = ptr(int64(60))
+	signalRule := s.create(signalReq)
+	rawRule := s.create(alerting.RuleRequest{
+		Name: ptr("Up"), ComponentID: ptr(s.api.ID.String()),
+		DataSourceID: ptr(s.source.ID.String()), Query: ptr(rawQuery),
+		Condition: &alerting.ConditionRequest{Op: ptr("gt"), Threshold: ptr(2.0), WindowSeconds: ptr(int64(60))},
+	})
+	s.constant(5)
+	s.step = 5 * time.Minute
+
+	s.sweepAfter(4 * time.Minute)
+
+	s.Equal(domain.AlertStateFiring, s.rules.get(signalRule.ID).State, "the gap between samples is the period")
+	s.Equal(domain.AlertStateFiring, s.rules.get(rawRule.ID).State, "the period the source answered at")
+}
+
+func (s *AlertingSuite) TestStartAfterStopStartsAgain() {
+	s.build(alerting.WithInterval(40 * time.Millisecond))
+	s.bind(s.api, "http.error_ratio", errorRatioQuery)
+	s.create(s.ruleRequest("http.error_ratio", domain.AlertOpAbove, 2, 0))
+	s.constant(1)
+
+	s.svc.Start(s.ctx)
+	s.Eventually(func() bool { return len(s.queries()) >= 1 }, 2*time.Second, 5*time.Millisecond)
+	s.svc.Stop()
+
+	read := len(s.queries())
+	s.now = s.now.Add(time.Hour)
+	s.svc.Start(s.ctx)
+	defer s.svc.Stop()
+	s.Eventually(func() bool { return len(s.queries()) > read }, 2*time.Second, 5*time.Millisecond)
+}
+
+func (s *AlertingSuite) TestTheIncidentOfARuleThatNoLongerExistsIsResolved() {
+	kept := s.create(s.ruleRequest("http.error_ratio", domain.AlertOpAbove, 2, 0))
+	orphan := domain.Incident{
+		ID: uuid.New(), RepositoryID: s.api.RepositoryID, Env: "prod", Source: domain.IncidentSourceAlertRule,
+		Fingerprint: domain.AlertRuleFingerprint(uuid.New()), Status: domain.IncidentStatusOpen,
+	}
+	s.live = []domain.Incident{
+		orphan,
+		{ID: uuid.New(), Source: domain.IncidentSourceAlertRule, Fingerprint: domain.AlertRuleFingerprint(kept.ID)},
+		{ID: uuid.New(), Source: domain.IncidentSourceWebhook, Fingerprint: domain.AlertRuleFingerprint(uuid.New())},
+	}
+	s.incidents.On("UpdateStatus", mock.Anything, orphan.ID, domain.IncidentStatusResolved).
+		Return(domain.Incident{ID: orphan.ID, Status: domain.IncidentStatusResolved}, nil).Once()
+
+	s.sweepAfter(0)
+	s.sweepAfter(time.Minute)
+
+	s.incidents.AssertNumberOfCalls(s.T(), "UpdateStatus", 1)
+}
+
+func (s *AlertingSuite) TestAChannelThisServerCannotDeliverOnIsRefused() {
+	s.bind(s.api, "http.error_ratio", errorRatioQuery)
+	req := s.ruleRequest("http.error_ratio", domain.AlertOpAbove, 2, 0)
+	req.Channels = ptr([]string{"desktop", "email"})
+
+	_, err := s.svc.Create(s.ctx, req)
+
+	var fe alerting.FieldErrors
+	s.Require().ErrorAs(err, &fe)
+	s.Equal(alerting.FieldUnavailable, fe["channels"])
+	available := map[domain.NotificationChannelKind]bool{}
+	for _, ch := range s.svc.Channels() {
+		available[ch.Kind] = ch.Available
+	}
+	s.Equal(map[domain.NotificationChannelKind]bool{
+		domain.NotificationChannelInApp: false, domain.NotificationChannelDesktop: true, domain.NotificationChannelIOSPush: false,
+		domain.NotificationChannelSlack: true, domain.NotificationChannelEmail: false, domain.NotificationChannelWebhook: false,
+	}, available)
+}
+
+func (s *AlertingSuite) TestARecoveryProdopsRefusedIsTriedAgainAtTheNextFalseEvaluation() {
+	rule, incidentID := s.firingIncidentRule()
+	s.constant(1)
+	s.sweepAfter(time.Minute)
+	s.sweepAfter(time.Minute)
+	s.incidents.On("FindLive", mock.Anything, s.api.RepositoryID, "prod", domain.AlertRuleFingerprint(rule.ID)).
+		Return(domain.Incident{}, errors.New("db down")).Once()
+	s.sweepAfter(time.Minute)
+	s.Require().Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State)
+
+	s.expectRecovery(incidentID, rule)
+	s.sweepAfter(time.Minute)
+
+	s.Equal(domain.AlertStateOK, s.rules.get(rule.ID).State)
+	s.Equal(domain.AlertStreak{}, s.rules.get(rule.ID).AlertStreak, "a streak is kept only while firing")
 }

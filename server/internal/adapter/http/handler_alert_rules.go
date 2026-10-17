@@ -27,6 +27,14 @@ func (h *Handler) registerAlertRuleRoutes(app fiber.Router) {
 	app.Patch("/v1/alert-rules/:ruleId", h.UpdateAlertRule)
 	app.Delete("/v1/alert-rules/:ruleId", h.DeleteAlertRule)
 	app.Get("/v1/alert-rules/:ruleId/events", h.ListAlertRuleEvents)
+	app.Get("/v1/notification-channels", h.ListNotificationChannels)
+}
+
+// ListNotificationChannels — GET /v1/notification-channels: every channel kind
+// a rule may name and whether this server can deliver on it; a rule naming
+// an unavailable one is refused with field error "unavailable".
+func (h *Handler) ListNotificationChannels(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{"channels": h.alertingSvc.Channels()})
 }
 
 // alertingErr: field errors in the data source routes' shape, 422 code

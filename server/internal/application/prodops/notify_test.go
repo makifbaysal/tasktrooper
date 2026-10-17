@@ -121,7 +121,7 @@ func (s *IncidentNotifySuite) TestRecoveryOfANotifiedIncidentNotifies() {
 	s.Equal("/operations/issues?id="+resolved.ID.String(), sent[1].Link)
 }
 
-func (s *IncidentNotifySuite) TestAFlappingAlertNotifiesOnceAnOutageAndOnceARecoveryPerCooldown() {
+func (s *IncidentNotifySuite) TestAReFiringAfterAToldRecoveryIsToldInsideTheCooldown() {
 	clock := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	prodops.SetClock(s.svc, func() time.Time { return clock })
 	flap := func() {
@@ -135,18 +135,30 @@ func (s *IncidentNotifySuite) TestAFlappingAlertNotifiesOnceAnOutageAndOnceAReco
 		clock = clock.Add(5 * time.Minute)
 	}
 
-	for range 4 {
-		flap()
-	}
-	sent := s.notifications()
-	s.Require().Len(sent, 2, "four flaps in twenty minutes: one outage, one recovery")
-	s.Equal("PROD · api down", sent[0].Title)
-	s.Equal("Recovered · prod", sent[1].Title)
-	s.Len(s.incidents.incidents, 4, "every flap is its own incident")
-
-	clock = clock.Add(31 * time.Minute)
 	flap()
-	s.Len(s.notifications(), 4, "past the cooldown the next flap is told again")
+	flap()
+
+	var kinds []domain.NotificationKind
+	for _, n := range s.notifications() {
+		kinds = append(kinds, n.Kind)
+	}
+	s.Equal([]domain.NotificationKind{
+		domain.NotificationIncidentOpened, domain.NotificationIncidentRecovered,
+		domain.NotificationIncidentOpened, domain.NotificationIncidentRecovered,
+	}, kinds, "the last word told is never recovered while it is down again")
+	s.Len(s.incidents.incidents, 2, "every flap is its own incident")
+}
+
+func (s *IncidentNotifySuite) TestAnOutageWhoseRecoveryWasNotToldStaysQuietWhenItRecurs() {
+	clock := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	prodops.SetClock(s.svc, func() time.Time { return clock })
+	_, err := s.svc.Ingest(s.ctx, s.alert(domain.IncidentSeverityCritical))
+	s.Require().NoError(err)
+	clock = clock.Add(5 * time.Minute)
+	_, err = s.svc.Ingest(s.ctx, s.alert(domain.IncidentSeverityCritical))
+	s.Require().NoError(err)
+
+	s.Len(s.notifications(), 1, "a repeat of the kind last told waits out the cooldown")
 }
 
 func (s *IncidentNotifySuite) TestOnlyAProposalSomeoneElseWroteIsNotified() {

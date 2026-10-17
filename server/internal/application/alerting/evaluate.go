@@ -14,12 +14,14 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/signals"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 // Start runs Sweep now and then a few times per interval until Stop, so a
-// rule waits at most a quarter interval past its due time.
+// rule waits at most a quarter interval past its due time. A Start after
+// Stop starts it again.
 func (s *Service) Start(ctx context.Context) {
 	s.runMu.Lock()
 	if s.cancel != nil {
@@ -57,11 +59,15 @@ func (s *Service) Stop() {
 		cancel()
 	}
 	s.wg.Wait()
+	s.runMu.Lock()
+	s.cancel = nil
+	s.runMu.Unlock()
 }
 
 // Sweep evaluates every enabled rule whose interval has elapsed since its
 // last evaluation (never evaluated first, at most max_rules_per_sweep),
-// a few at once, and drops events older than 30 days.
+// a few at once, resolves the incidents of rules that no longer exist and
+// drops events older than 30 days.
 func (s *Service) Sweep(ctx context.Context) {
 	now := s.now()
 	due, err := s.rules.DueAlertRules(ctx, now.Add(-s.interval), s.maxPerSweep)
@@ -93,6 +99,7 @@ sweep:
 		}(rule)
 	}
 	wg.Wait()
+	s.resolveOrphans(ctx, now)
 	s.prune(ctx, now)
 }
 
@@ -105,31 +112,94 @@ func (s *Service) prune(ctx context.Context, now time.Time) {
 	}
 }
 
+// resolveOrphans resolves the live alert_rule incidents whose rule is gone:
+// deleting a component or a data source deletes its rules in the database,
+// with no evaluation left to resolve what a firing one opened. At most every
+// orphanSweepEvery.
+func (s *Service) resolveOrphans(ctx context.Context, now time.Time) {
+	closer, ok := s.incidents.(IncidentCloser)
+	if !ok || ctx.Err() != nil {
+		return
+	}
+	s.orphanMu.Lock()
+	if !s.lastOrphanSweep.IsZero() && now.Sub(s.lastOrphanSweep) < orphanSweepEvery {
+		s.orphanMu.Unlock()
+		return
+	}
+	s.lastOrphanSweep = now
+	s.orphanMu.Unlock()
+
+	live, err := closer.List(ctx, domain.IncidentFilter{
+		Source: domain.IncidentSourceAlertRule, Statuses: domain.LiveIncidentStatuses, Limit: orphanSweepLimit,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("alerting: listing alert rule incidents failed")
+		return
+	}
+	for _, in := range live {
+		ruleID, ok := domain.AlertRuleOfFingerprint(in.Fingerprint)
+		if !ok || in.Source != domain.IncidentSourceAlertRule {
+			continue
+		}
+		_, err := s.rules.GetAlertRule(ctx, ruleID)
+		switch {
+		case err == nil:
+			continue
+		case !errors.Is(err, port.ErrNotFound):
+			log.Warn().Err(err).Str("rule_id", ruleID.String()).Msg("alerting: reading an incident's rule failed")
+			continue
+		}
+		if _, err := closer.Resolve(ctx, in.ID, orphanResolveNote); err != nil {
+			log.Warn().Err(err).Str("incident_id", in.ID.String()).Msg("alerting: resolving an orphaned rule's incident failed")
+		}
+	}
+}
+
+// orphanResolveNote is the incident timeline's entry for it.
+const orphanResolveNote = "the alert rule that opened it no longer exists"
+
+// noData is a read that answered nothing to judge, for a reason that will
+// not change by itself: nothing bound, a query the source refuses, a kind
+// that cannot answer it, a source that is gone. Anything else — the source
+// down or slow, a store or decryption failure, a panic — says nothing about
+// the value, so the rule keeps its state.
+func noData(err error) bool {
+	return errors.Is(err, signals.ErrUnbound) ||
+		errors.Is(err, signals.ErrInvalidInput) ||
+		errors.Is(err, datasource.ErrInvalidInput) ||
+		errors.Is(err, ErrInvalidInput) ||
+		errors.Is(err, port.ErrDataSourceQuery) ||
+		errors.Is(err, datasource.ErrUnsupported) ||
+		errors.Is(err, port.ErrNotFound)
+}
+
 // evaluate reads a rule's latest window and moves its state. The read runs
 // unlocked; the write re-reads the rule under its lock and is dropped when
 // the rule was edited meanwhile, so an edit is never overwritten by an
-// evaluation of what the rule used to say. A source that is down or slow
-// leaves the rule where it was rather than resolving it, so one failed query
-// never closes an incident a minute before reopening another; a read that
-// cannot work (nothing bound, a refused query) is no data. A firing or a
-// recovery that does not reach prodops leaves the rule where it was too, to
-// be tried again next time.
+// evaluation of what the rule used to say. Only a read that cannot work (see
+// noData) is no data; any other failure leaves the rule where it was rather
+// than resolving it, so one failed query never closes an incident a minute
+// before reopening another. A firing or a recovery that does not reach
+// prodops leaves the rule where it was too, to be tried again next time.
 func (s *Service) evaluate(ctx context.Context, snapshot domain.AlertRule) error {
 	now := s.now()
 	window := snapshot.Condition.Window()
-	samples, err := s.read(ctx, snapshot.AlertRuleSpec, now.Add(-2*window), now, window)
-	unreachable := false
+	samples, step, err := s.safeRead(ctx, snapshot.AlertRuleSpec, now.Add(-max(2*window, minReadLookback)), now, window)
+	keep := false
 	switch {
 	case err == nil:
 	case ctx.Err() != nil:
 		return ctx.Err()
+	case noData(err):
+		log.Debug().Err(err).Str("rule_id", snapshot.ID.String()).Msg("alerting: no samples")
 	case errors.Is(err, datasource.ErrUpstream), errors.Is(err, context.DeadlineExceeded):
 		log.Debug().Err(err).Str("rule_id", snapshot.ID.String()).Msg("alerting: the source did not answer; keeping the state")
-		unreachable = true
+		keep = true
 	default:
-		log.Debug().Err(err).Str("rule_id", snapshot.ID.String()).Msg("alerting: no samples")
+		log.Warn().Err(err).Str("rule_id", snapshot.ID.String()).Msg("alerting: reading the rule failed; keeping the state")
+		keep = true
 	}
-	cur, prev := pick(samples, now, window)
+	cur, prev := pick(samples, now, step)
 	v := judge(snapshot.Condition, cur, prev)
 
 	l := s.lock(snapshot.ID)
@@ -145,42 +215,56 @@ func (s *Service) evaluate(ctx context.Context, snapshot domain.AlertRule) error
 	if !rule.UpdatedAt.Equal(snapshot.UpdatedAt) || !rule.Enabled {
 		return nil
 	}
-	if unreachable {
+	if keep {
 		_, _, err = s.rules.RecordAlertEvaluation(ctx, rule.ID, rule.UpdatedAt,
-			domain.AlertEvaluation{State: rule.State, StateSince: rule.StateSince, Value: rule.LastValue, At: now}, nil)
+			domain.AlertEvaluation{State: rule.State, StateSince: rule.StateSince, Value: rule.LastValue, At: now, Streak: rule.AlertStreak}, nil)
 		return err
 	}
-	state, since := advance(rule.State, rule.StateSince, rule.Condition, v, now)
+	next := advance(standingOf(rule), rule.Condition, v, now)
 	var event *domain.AlertEvent
-	if state != rule.State {
-		incidentID, err := s.announce(ctx, rule, state, v.value)
+	if next.state != rule.State {
+		incidentID, err := s.announce(ctx, rule, next.state, v.value)
 		if err != nil {
-			log.Warn().Err(err).Str("rule_id", rule.ID.String()).Str("to", string(state)).
+			log.Warn().Err(err).Str("rule_id", rule.ID.String()).Str("to", string(next.state)).
 				Msg("alerting: the incident was not updated; trying again next evaluation")
-			state, since = holdBack(rule, state, now)
+			next = holdBack(rule, next, now)
 		}
-		if state != rule.State {
-			event = &domain.AlertEvent{At: now, FromState: rule.State, ToState: state, Value: v.value, IncidentID: incidentID}
+		if next.state != rule.State {
+			event = &domain.AlertEvent{At: now, FromState: rule.State, ToState: next.state, Value: v.value, IncidentID: incidentID}
 		}
 	}
 	_, _, err = s.rules.RecordAlertEvaluation(ctx, rule.ID, rule.UpdatedAt,
-		domain.AlertEvaluation{State: state, StateSince: since, Value: v.value, At: now}, event)
+		domain.AlertEvaluation{State: next.state, StateSince: next.since, Value: v.value, At: now, Streak: next.stored()}, event)
 	return err
 }
 
+// safeRead is read with a panic turned into an error the rule keeps its
+// state on, so the evaluation is still recorded and the rule waits its
+// interval instead of being read again every sweep.
+func (s *Service) safeRead(ctx context.Context, spec domain.AlertRuleSpec, from, to time.Time, step time.Duration) (samples []sample, effective time.Duration, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Interface("panic", r).Msg("alerting: reading a rule panicked")
+			samples, effective, err = nil, 0, errReadPanicked
+		}
+	}()
+	return s.read(ctx, spec, from, to, step)
+}
+
 // holdBack is where a rule stays when its firing or recovery could not be
-// made: firing until the recovery goes through, pending (its for already
+// made: firing until the recovery goes through (with the streak that led
+// out, so the next evaluation agreeing tries again), pending (its for already
 // served) until the firing does.
-func holdBack(rule domain.AlertRule, wanted domain.AlertState, now time.Time) (domain.AlertState, time.Time) {
+func holdBack(rule domain.AlertRule, wanted standing, now time.Time) standing {
 	switch {
 	case rule.State == domain.AlertStateFiring:
-		return rule.State, rule.StateSince
-	case wanted == domain.AlertStateFiring && rule.State == domain.AlertStatePending:
-		return rule.State, rule.StateSince
-	case wanted == domain.AlertStateFiring:
-		return domain.AlertStatePending, now.Add(-rule.Condition.For())
+		return standing{state: rule.State, since: rule.StateSince, streak: wanted.streak}
+	case wanted.state == domain.AlertStateFiring && rule.State == domain.AlertStatePending:
+		return standing{state: rule.State, since: rule.StateSince}
+	case wanted.state == domain.AlertStateFiring:
+		return standing{state: domain.AlertStatePending, since: now.Add(-rule.Condition.For())}
 	}
-	return wanted, now
+	return wanted
 }
 
 // announce makes a state change known: entering firing opens (or folds
@@ -267,11 +351,12 @@ func (s *Service) incidentInput(ctx context.Context, rule domain.AlertRule, valu
 	}, nil
 }
 
-// notify keeps to one firing and one recovery notification per rule every
-// 30 minutes, as prodops does for an alert, so a flapping rule is heard
-// about once.
+// notify holds back only a repeat of the kind last told for the rule inside
+// 30 minutes, as prodops does for an alert: a firing after a told recovery
+// is always told. The hysteresis in advance is what keeps a flapping
+// condition from firing and recovering every evaluation.
 func (s *Service) notify(ctx context.Context, rule domain.AlertRule, kind domain.NotificationKind, title, body string) {
-	if s.notifier == nil || len(rule.Channels) == 0 || !s.cooldown.Allow(string(kind)+"\x00"+rule.ID.String(), s.now()) {
+	if s.notifier == nil || len(rule.Channels) == 0 || !s.cooldown.AllowTransition(rule.ID.String(), string(kind), s.now()) {
 		return
 	}
 	s.notifier.NotifyVia(ctx, domain.Notification{

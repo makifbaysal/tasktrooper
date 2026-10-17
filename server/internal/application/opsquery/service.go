@@ -53,6 +53,8 @@ type Service struct {
 	environments Environments
 	components   Components
 	runtime      port.RuntimeReader
+	boundLogs    port.BoundLogReader
+	boundErrors  port.BoundErrorReader
 	now          func() time.Time
 	concurrency  int
 	envTimeout   time.Duration
@@ -116,7 +118,9 @@ type LogsQuery struct {
 }
 
 // Errors skips an environment whose provider has no error surface without
-// reporting it: there is nothing to read there, so nothing is missing.
+// reporting it: there is nothing to read there, so nothing is missing. The
+// groups of each component's errors.issues binding join the cloud's (see
+// readBoundErrors).
 func (s *Service) Errors(ctx context.Context, q ErrorsQuery) (domain.OpsErrors, error) {
 	if !q.Environment.Valid() {
 		return domain.OpsErrors{}, fmt.Errorf("unknown environment %q: %w", q.Environment, ErrInvalidInput)
@@ -147,6 +151,7 @@ func (s *Service) Errors(ctx context.Context, q ErrorsQuery) (domain.OpsErrors, 
 		out.Truncated = true
 	}
 
+	waitBound := s.readBoundErrors(ctx, q, since, now)
 	results := fanOut(ctx, len(readable), s.concurrency, s.envTimeout, func(ctx context.Context, i int) ([]domain.RuntimeErrorGroup, error) {
 		return s.runtime.Errors(ctx, readable[i].ID, since)
 	})
@@ -166,6 +171,10 @@ func (s *Service) Errors(ctx context.Context, q ErrorsQuery) (domain.OpsErrors, 
 			})
 		}
 	}
+	bound := waitBound()
+	out.Groups = append(out.Groups, bound.groups...)
+	out.Unavailable = append(out.Unavailable, bound.unavailable...)
+	out.Truncated = out.Truncated || bound.truncated
 	sort.SliceStable(out.Groups, func(i, j int) bool {
 		a, b := out.Groups[i], out.Groups[j]
 		if a.New != b.New {
@@ -179,9 +188,11 @@ func (s *Service) Errors(ctx context.Context, q ErrorsQuery) (domain.OpsErrors, 
 	return out, nil
 }
 
-// Logs merges every environment's newest entries by timestamp. There is no
-// cursor across providers: the next older page is the same query with Until
-// set to the oldest timestamp returned.
+// Logs merges every environment's newest entries by timestamp, and those of
+// each component's logs binding, which replaces that component's cloud
+// environments (see mergeLogs). There is no cursor across providers: the
+// next older page is the same query with Until set to the oldest timestamp
+// returned.
 func (s *Service) Logs(ctx context.Context, q LogsQuery) (domain.OpsLogs, error) {
 	if !q.Environment.Valid() {
 		return domain.OpsLogs{}, fmt.Errorf("unknown environment %q: %w", q.Environment, ErrInvalidInput)
@@ -205,46 +216,7 @@ func (s *Service) Logs(ctx context.Context, q LogsQuery) (domain.OpsLogs, error)
 		return domain.OpsLogs{}, fmt.Errorf("since must be before until: %w", ErrInvalidInput)
 	}
 
-	envs, err := s.selectEnvironments(ctx, q.Environment, q.ComponentIDs)
-	if err != nil {
-		return domain.OpsLogs{}, err
-	}
-	out := domain.OpsLogs{Entries: []domain.OpsLogEntry{}, Unavailable: []domain.OpsUnavailable{}}
-	if len(envs) > MaxLogEnvironments {
-		if len(q.ComponentIDs) == 0 {
-			return domain.OpsLogs{}, &TooManyEnvironmentsError{Matched: len(envs), Max: MaxLogEnvironments}
-		}
-		envs = envs[:MaxLogEnvironments]
-		out.Truncated = true
-	}
-
-	rq := domain.RuntimeLogQuery{Since: since, Until: until, MinSeverity: q.MinSeverity, Text: q.Text, Limit: limit}
-	results := fanOut(ctx, len(envs), s.concurrency, s.envTimeout, func(ctx context.Context, i int) (domain.RuntimeLogPage, error) {
-		return s.runtime.Logs(ctx, envs[i].ID, rq)
-	})
-	for i, r := range results {
-		env := envs[i]
-		if r.err != nil {
-			out.Unavailable = append(out.Unavailable, s.unavailable(env, r.err))
-			continue
-		}
-		// A full page may hide older entries even without a cursor; not every
-		// provider hands one back.
-		if r.value.Truncated || r.value.NextCursor != "" || len(r.value.Entries) >= limit {
-			out.Truncated = true
-		}
-		for _, e := range r.value.Entries {
-			out.Entries = append(out.Entries, domain.OpsLogEntry{RuntimeLogEntry: e, ComponentID: env.ComponentID, EnvironmentID: env.ID})
-		}
-	}
-	sort.SliceStable(out.Entries, func(i, j int) bool {
-		return out.Entries[i].Timestamp.After(out.Entries[j].Timestamp)
-	})
-	if len(out.Entries) > limit {
-		out.Entries = out.Entries[:limit]
-		out.Truncated = true
-	}
-	return out, nil
+	return s.mergeLogs(ctx, q, since, until, limit)
 }
 
 func (s *Service) selectEnvironments(ctx context.Context, kind domain.DeployEnvironment, componentIDs []uuid.UUID) ([]domain.ComponentEnvironment, error) {

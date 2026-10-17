@@ -275,3 +275,25 @@ func (s *AlertRuleStoreSuite) TestDeletingTheRuleOrItsComponentDeletesItsEvents(
 	_, err = s.store.GetAlertRule(s.ctx, other.ID)
 	s.ErrorIs(err, port.ErrNotFound)
 }
+
+func (s *AlertRuleStoreSuite) TestTheStreakOfAFiringRuleIsKept() {
+	saved := s.create(s.rule("errors", domain.EnvironmentProduction))
+	at := time.Date(2026, 10, 17, 12, 1, 0, 0, time.UTC)
+	clearSince := at.Add(-time.Minute)
+
+	rule, ok, err := s.store.RecordAlertEvaluation(s.ctx, saved.ID, saved.UpdatedAt, domain.AlertEvaluation{
+		State: domain.AlertStateFiring, StateSince: at, At: at,
+		Streak: domain.AlertStreak{ClearCount: 2, ClearSince: &clearSince, NoDataCount: 1},
+	}, nil)
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Equal(2, rule.ClearCount)
+	s.Require().NotNil(rule.ClearSince)
+	s.True(rule.ClearSince.Equal(clearSince))
+	s.Equal(1, rule.NoDataCount)
+
+	rule.AlertStreak = domain.AlertStreak{}
+	edited, err := s.store.UpdateAlertRule(s.ctx, rule)
+	s.Require().NoError(err)
+	s.Equal(domain.AlertStreak{}, edited.AlertStreak)
+}

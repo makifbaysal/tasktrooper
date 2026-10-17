@@ -1,0 +1,19 @@
+# A mobile app from New Relic Mobile. app is the mobile application's name
+# (appName). crash_rate is crashes per hundred sessions; crash_free_users is
+# the share of devices (uuid) with a session and no crash in the interval.
+id: newrelic-mobile
+source_kind: newrelic
+applies_to:
+  technology: newrelic
+detect:
+  metric: MobileSession
+params: [app]
+signals:
+  mobile.crash_rate: >-
+    SELECT filter(count(*), WHERE eventType() = 'MobileCrash') * 100
+    / filter(count(*), WHERE eventType() = 'MobileSession') AS 'crash_rate'
+    FROM MobileSession, MobileCrash WHERE appName = '$app'
+  mobile.crash_free_users: >-
+    SELECT 100 - filter(uniqueCount(uuid), WHERE eventType() = 'MobileCrash') * 100
+    / filter(uniqueCount(uuid), WHERE eventType() = 'MobileSession') AS 'crash_free_users'
+    FROM MobileSession, MobileCrash WHERE appName = '$app'

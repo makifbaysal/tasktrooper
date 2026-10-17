@@ -41,15 +41,44 @@ type RenderOptions struct {
 // for the one place the language lets a recipe put it, so render is safe only
 // for a query check admitted.
 type dialect interface {
-	check(signal, query string, declared map[string]bool) []string
+	check(subject, query string, declared map[string]bool) []string
 	render(query string, params map[string]string, step time.Duration, quantile float64) (string, error)
 	validMetricName(name string) bool
 }
 
-// dialectFor: every kind but CloudWatch speaks PromQL, F0's only language.
+// dialectFor: every kind without a language of its own speaks PromQL.
 func dialectFor(kind domain.DataSourceKind) dialect {
-	if kind == domain.DataSourceKindCloudWatch {
+	switch kind {
+	case domain.DataSourceKindCloudWatch:
 		return cloudWatchDialect{}
+	case domain.DataSourceKindKafka:
+		return kafkaDialect
+	case domain.DataSourceKindRabbitMQ:
+		return rabbitMQDialect
+	case domain.DataSourceKindNATS:
+		return natsDialect
+	case domain.DataSourceKindLoki:
+		return logQLDialect{}
+	case domain.DataSourceKindTempo:
+		return traceQLDialect{}
+	case domain.DataSourceKindElasticsearch:
+		return elasticsearchDialect{}
+	case domain.DataSourceKindGooglePlayVitals:
+		return playVitalsDialect
+	case domain.DataSourceKindAppStoreMetrics:
+		return appStoreMetricsDialect
+	case domain.DataSourceKindSentry:
+		return sentryDialect
+	case domain.DataSourceKindPostHog:
+		return postHogDialect
+	case domain.DataSourceKindGA4:
+		return ga4Dialect
+	case domain.DataSourceKindPlausible:
+		return plausibleDialect
+	case domain.DataSourceKindDatadog:
+		return datadogDialect{}
+	case domain.DataSourceKindNewRelic:
+		return nrqlDialect{}
 	}
 	return promQLDialect{}
 }

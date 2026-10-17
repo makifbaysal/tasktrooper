@@ -20,13 +20,23 @@ const (
 	DataSourceKindPrometheus    DataSourceKind = "prometheus"
 	DataSourceKindGCPMonitoring DataSourceKind = "gcp_monitoring"
 	DataSourceKindCloudWatch    DataSourceKind = "aws_cloudwatch"
+	DataSourceKindKafka         DataSourceKind = "kafka"
+	DataSourceKindRabbitMQ      DataSourceKind = "rabbitmq"
+	DataSourceKindNATS          DataSourceKind = "nats"
 )
 
 // BuiltinDataSourceKinds are the kinds this build ships an adapter for. A
 // catalog recipe may name one even where it is not registered, so a
 // deployment that leaves a kind out still loads the shared catalog.
 func BuiltinDataSourceKinds() []DataSourceKind {
-	return []DataSourceKind{DataSourceKindPrometheus, DataSourceKindGCPMonitoring, DataSourceKindCloudWatch}
+	return []DataSourceKind{
+		DataSourceKindPrometheus, DataSourceKindGCPMonitoring, DataSourceKindCloudWatch,
+		DataSourceKindKafka, DataSourceKindRabbitMQ, DataSourceKindNATS,
+		DataSourceKindLoki, DataSourceKindElasticsearch, DataSourceKindTempo,
+		DataSourceKindGooglePlayVitals, DataSourceKindAppStoreMetrics, DataSourceKindSentry,
+		DataSourceKindPostHog, DataSourceKindGA4, DataSourceKindPlausible,
+		DataSourceKindDatadog, DataSourceKindNewRelic,
+	}
 }
 
 type Capability string
@@ -105,6 +115,11 @@ const (
 	// field's Provider. The kind reads that account's credential when it
 	// calls, so the source stores no copy of it.
 	FieldCloudAccount DataSourceFieldType = "cloud_account"
+	// FieldStoreCredential names the workspace's store credential of the
+	// field's Provider (StoreCredentialGooglePlay or StoreCredentialASC; there
+	// is one per provider), and its value is that provider. The kind reads the
+	// credential when it calls, so the source stores no copy of it.
+	FieldStoreCredential DataSourceFieldType = "store_credential"
 )
 
 // DataSourceField is one entry of a kind's config form. ShowWhen hides the
@@ -120,7 +135,17 @@ type DataSourceField struct {
 	Placeholder string              `json:"placeholder"`
 	ShowWhen    map[string]string   `json:"show_when"`
 	Secret      bool                `json:"secret"`
-	Provider    CloudProviderKind   `json:"provider,omitempty"`
+	// Provider is the cloud provider of a cloud_account field, or the store
+	// credential provider of a store_credential field.
+	Provider CloudProviderKind `json:"provider,omitempty"`
+	// Default is the value a shown field takes when none is given, so what is
+	// stored (and what an origin move is judged against) is never empty.
+	Default string `json:"default,omitempty"`
+	// Destination marks a text field holding the host[:port] list a kind
+	// connects to (Kafka's bootstrap servers, see ParseHostList): the URL
+	// policy judges it when it is saved, and moving it to other hosts
+	// re-asks for the stored secrets as moving a url field's origin does.
+	Destination bool `json:"-"`
 }
 
 // IsSecret: a headers field is always secret, since it is where an

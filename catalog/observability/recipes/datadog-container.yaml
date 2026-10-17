@@ -1,0 +1,16 @@
+# A workload's containers from the Datadog Agent's container check.
+# container is the container_name tag (the Kubernetes container's name).
+# container.cpu.usage is nanocores, so / 1e9 is cores; memory is bytes in
+# use across the workload's containers.
+id: datadog-container
+source_kind: datadog
+applies_to:
+  technology: datadog
+detect:
+  metric: container.cpu.usage
+params: [container]
+signals:
+  infra.cpu: >-
+    sum:container.cpu.usage{container_name:$container} / 1000000000
+  infra.memory: >-
+    sum:container.memory.usage{container_name:$container}

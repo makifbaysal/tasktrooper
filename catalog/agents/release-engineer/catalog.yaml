@@ -47,6 +47,14 @@ tool_policy:
         - get_deploy_logs
         - list_incidents
         - get_incident
+        - list_error_groups
+        - propose_error_definitions
+        - list_data_source_metrics
+        - propose_signal_binding
+        - propose_alert_rule
+        - codebase_search
+        - create_board_task
+        - update_board_task
         - save_memory
         - search_memory
         - delete_memory

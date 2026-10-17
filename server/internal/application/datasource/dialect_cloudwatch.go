@@ -28,7 +28,7 @@ func (cloudWatchDialect) validMetricName(name string) bool {
 	return cloudWatchMetricPattern.MatchString(name)
 }
 
-func (d cloudWatchDialect) check(signal, query string, declared map[string]bool) []string {
+func (d cloudWatchDialect) check(subject, query string, declared map[string]bool) []string {
 	var problems []string
 	seen := map[string]bool{}
 	add := func(format string, args ...any) {
@@ -39,7 +39,7 @@ func (d cloudWatchDialect) check(signal, query string, declared map[string]bool)
 		}
 	}
 	for _, name := range placeholdersOutsideJSONStrings(query) {
-		add("signal %q: $%s must sit inside a JSON string", signal, name)
+		add("%s: $%s must sit inside a JSON string", subject, name)
 	}
 	if len(problems) > 0 {
 		return problems
@@ -48,24 +48,24 @@ func (d cloudWatchDialect) check(signal, query string, declared map[string]bool)
 	dec := json.NewDecoder(strings.NewReader(query))
 	dec.UseNumber()
 	if err := dec.Decode(&doc); err != nil {
-		return []string{fmt.Sprintf("signal %q is not JSON: %v", signal, err)}
+		return []string{fmt.Sprintf("%s is not JSON: %v", subject, err)}
 	}
 	walkJSONStrings(doc, nil, func(path []string, s string, isKey bool) {
 		for _, m := range placeholderRegex.FindAllStringSubmatch(s, -1) {
 			name := m[1]
 			switch {
 			case isKey:
-				add("signal %q: $%s may not sit in a JSON key", signal, name)
+				add("%s: $%s may not sit in a JSON key", subject, name)
 			case name == builtinQuantile:
 				if !isStatPath(path) || s != "$"+builtinQuantile {
-					add("signal %q: $%s may appear only as a whole stat value", signal, name)
+					add("%s: $%s may appear only as a whole stat value", subject, name)
 				}
 			case builtinPlaceholders[name]:
-				add("signal %q: $%s has no meaning in a CloudWatch query; the period follows the step", signal, name)
+				add("%s: $%s has no meaning in a CloudWatch query; the period follows the step", subject, name)
 			case !declared[name]:
-				add("signal %q uses $%s, which is neither a declared param nor a built-in", signal, name)
+				add("%s uses $%s, which is neither a declared param nor a built-in", subject, name)
 			case !isDimensionValuePath(path):
-				add("signal %q: $%s may appear only in a dimension value", signal, name)
+				add("%s: $%s may appear only in a dimension value", subject, name)
 			}
 		}
 	})
@@ -81,7 +81,7 @@ func (d cloudWatchDialect) check(signal, query string, declared map[string]bool)
 		_, err = domain.ParseCloudWatchQuery(rendered)
 	}
 	if err != nil {
-		return []string{fmt.Sprintf("signal %q: %v", signal, err)}
+		return []string{fmt.Sprintf("%s: %v", subject, err)}
 	}
 	return nil
 }

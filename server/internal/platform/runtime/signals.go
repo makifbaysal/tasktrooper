@@ -16,11 +16,14 @@ func newSignalsService(db *pgstore.DB, sources *datasourceapp.Service) *signalsa
 	if db == nil || sources == nil {
 		return nil
 	}
+	model := pgstore.NewProjectModelStore(db)
 	svc, err := signalsapp.NewService(signalsapp.Deps{
 		Bindings:     pgstore.NewSignalBindingStore(db),
 		Sources:      sources,
-		Components:   pgstore.NewProjectModelStore(db),
+		Components:   model,
 		Environments: pgstore.NewEnvironmentStore(db),
+		Links:        model,
+		StoreApps:    pgstore.NewMobileStoreAppStore(db),
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("signal bindings: disabled")

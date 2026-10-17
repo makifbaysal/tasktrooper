@@ -145,6 +145,17 @@ func (a releaseAttributor) AttributeRelease(ctx context.Context, repositoryID uu
 	return a.fallback.AttributeRelease(ctx, repositoryID, env, onset)
 }
 
+func (a releaseAttributor) AttributeIncident(ctx context.Context, incident domain.Incident, onset time.Time) (domain.ReleaseAttribution, bool) {
+	if ia, ok := a.primary.(prodops.IncidentAttributor); ok {
+		if att, ok := ia.AttributeIncident(ctx, incident, onset); ok {
+			return att, true
+		}
+	} else if att, ok := a.primary.AttributeRelease(ctx, incident.RepositoryID, incident.Env, onset); ok {
+		return att, true
+	}
+	return a.fallback.AttributeRelease(ctx, incident.RepositoryID, incident.Env, onset)
+}
+
 func (a releaseAttributor) HealthWindow() time.Duration { return a.primary.HealthWindow() }
 
 // componentPathReader scopes a monorepo task's pipeline mappings to its own
@@ -3040,9 +3051,28 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	if e.pgDB != nil {
 		dataSourceSvc = newDataSourceService(e.pgDB, e.secretsCipher, e.secretsCipherErr)
 	}
+	if dataSourceSvc != nil && e.storeOpsSvc != nil {
+		dataSourceSvc.SetStoreCredentials(e.storeOpsSvc)
+	}
 	signalsSvc := newSignalsService(e.pgDB, dataSourceSvc)
+	// The Logs explorer is built with the cloud routes, before the signal
+	// bindings exist: a component's logs binding is handed to it here.
+	if e.opsQuerySvc != nil && signalsSvc != nil {
+		e.opsQuerySvc.SetBoundLogs(signalsSvc)
+		e.opsQuerySvc.SetBoundErrors(signalsSvc)
+	}
 	wireDeployImpact(e.releaseSvc, e.pgDB, signalsSvc, cfg.DeployOps.Impact)
 	alertingSvc := e.newAlertingService(ctx, cfg.Alerting, signalsSvc, dataSourceSvc)
+	errorDefsSvc, opsAISvc := e.wireObservabilityAI(ctx, cfg, observabilityAIDeps{
+		repositories: repositoryStore,
+		tasks:        repositorySvc,
+		workflows:    workflowSvc,
+		agents:       catalogStore,
+		sessions:     sessionSvc,
+		signals:      signalsSvc,
+		sources:      dataSourceSvc,
+		alerting:     alertingSvc,
+	})
 
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
@@ -3087,6 +3117,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		DataSourceSvc:     dataSourceSvc,
 		SignalsSvc:        signalsSvc,
 		AlertingSvc:       alertingSvc,
+		ErrorDefsSvc:      errorDefsSvc,
+		OpsAISvc:          opsAISvc,
 		EnvRequirements:   envRequirementsOrNil(e.envReqSvc),
 		ReleaseSvc:        releaseHTTP,
 		SmokeGenSvc:       smokeGenHTTP,

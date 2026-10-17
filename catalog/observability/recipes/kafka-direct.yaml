@@ -1,0 +1,16 @@
+# A Kafka cluster read directly by the kafka kind, no exporter: a consumer
+# group's lag (committed offsets against end offsets) and the members
+# assigned a partition. group is the consumer group the worker consumes as.
+# A direct read is the live value only, so there are no rates and no chart
+# history; kafka-exporter or kminion give those.
+id: kafka-direct
+source_kind: kafka
+applies_to:
+  technology: kafka
+  messaging_system: kafka
+params: [group]
+signals:
+  queue.backlog: >-
+    {"group": "$group", "metric": "lag"}
+  queue.consumers: >-
+    {"group": "$group", "metric": "consumers"}

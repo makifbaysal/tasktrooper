@@ -1,0 +1,51 @@
+# A web frontend's traffic from Google Analytics 4 (the ga4 kind, Data API
+# runReport). No params: the source's property is the site; a property
+# shared by several sites is narrowed with a binding query of its own
+# ({"metric": "page_views", "host": "www.example.com"}). Series are hourly
+# below a one-day step, else daily, in the property's time zone; GA4 keeps
+# processing a day for up to 48 hours, so the newest points may still rise.
+# page_views (screenPageViews) is per second; sessions and visitors
+# (activeUsers) are counts per interval. Tables cover the last 7 days of the
+# property's calendar, the most viewed first; referrers are source / medium.
+id: ga4-web
+source_kind: ga4
+applies_to:
+  technology: google_analytics
+detect:
+  metric: page_view
+signals:
+  web.page_views: '{"metric": "page_views"}'
+  web.sessions: '{"metric": "sessions"}'
+  web.visitors: '{"metric": "visitors"}'
+tables:
+  pages:
+    key_labels: [path]
+    columns:
+      - {key: path, label: Path}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: users}
+    query: '{"table": "pages"}'
+  referrers:
+    key_labels: [referrer]
+    columns:
+      - {key: referrer, label: Source / medium}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: users}
+      - {key: sessions, label: Sessions, unit: sessions}
+    query: '{"table": "referrers"}'
+  countries:
+    key_labels: [country]
+    columns:
+      - {key: country, label: Country}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: users}
+    query: '{"table": "countries"}'
+  devices:
+    key_labels: [device, browser, os]
+    columns:
+      - {key: device, label: Device}
+      - {key: browser, label: Browser}
+      - {key: os, label: OS}
+      - {key: views, label: Views, unit: views}
+      - {key: visitors, label: Visitors, unit: users}
+    query: '{"table": "devices"}'

@@ -16,6 +16,19 @@ import (
 
 var prometheusOnly = []domain.DataSourceKind{domain.DataSourceKindPrometheus}
 
+// directBroker kinds are offered through their own consumer listing
+// (port.QueueDiscoverer), not a detect metric.
+var directBroker = map[domain.DataSourceKind]bool{
+	domain.DataSourceKindKafka: true, domain.DataSourceKindRabbitMQ: true, domain.DataSourceKindNATS: true,
+}
+
+// boundWithoutDetection kinds list nothing to detect from: a store kind's
+// recipe is offered from the repository's linked store app, a Sentry one is
+// bound by hand to a project.
+var boundWithoutDetection = map[domain.DataSourceKind]bool{
+	domain.DataSourceKindGooglePlayVitals: true, domain.DataSourceKindAppStoreMetrics: true, domain.DataSourceKindSentry: true,
+}
+
 func TestEveryEmbeddedRecipeValidatesAndRenders(t *testing.T) {
 	c, err := datasource.LoadCatalog(catalog.ObservabilityFS(), domain.BuiltinDataSourceKinds())
 	require.NoError(t, err)
@@ -25,10 +38,15 @@ func TestEveryEmbeddedRecipeValidatesAndRenders(t *testing.T) {
 	for _, r := range recipes {
 		ids = append(ids, r.ID)
 		assert.Equal(t, domain.RecipeOriginCatalog, r.Origin)
-		assert.NotEmpty(t, r.Detect.Metric, r.ID)
+		if !directBroker[r.SourceKind] && !boundWithoutDetection[r.SourceKind] {
+			assert.NotEmpty(t, r.Detect.Metric, r.ID)
+		}
 		params := map[string]string{}
 		for _, p := range r.Params {
 			params[p] = `sam"ple`
+			if r.SourceKind == domain.DataSourceKindDatadog {
+				params[p] = "sample"
+			}
 		}
 		for signal, query := range r.Signals {
 			rendered, err := datasource.RenderKindQuery(r.SourceKind, query, params, datasource.RenderOptions{Step: time.Minute, Quantile: 0.99})
@@ -44,6 +62,10 @@ func TestEveryEmbeddedRecipeValidatesAndRenders(t *testing.T) {
 		"otel-http", "rabbitmq-prometheus", "kafka-exporter", "kminion", "cadvisor",
 		"gcp-cloud-run", "gcp-gke-workload", "gcp-https-loadbalancer", "gcp-pubsub",
 		"aws-alb", "aws-ecs", "aws-lambda", "aws-sqs", "aws-msk",
+		"kafka-direct", "rabbitmq-direct", "nats-direct",
+		"play-vitals", "app-store-metrics", "sentry-mobile", "sentry-web", "sentry-backend",
+		"posthog-web", "posthog-web-vitals", "ga4-web", "plausible-web",
+		"datadog-apm", "datadog-system", "datadog-container", "newrelic-apm", "newrelic-browser", "newrelic-mobile",
 	})
 }
 
@@ -127,8 +149,8 @@ source_kind: prometheus
 params: [queue]
 signals: {queue.backlog: 'x{queue="$queue", vhost="$vhost"}[$__rate]'}`, "uses $vhost"},
 		{"unregistered kind", "recipes/r.yaml", `id: r
-source_kind: datadog
-signals: {queue.backlog: "x"}`, `source_kind "datadog"`},
+source_kind: honeycomb
+signals: {queue.backlog: "x"}`, `source_kind "honeycomb"`},
 		{"id differs from the file name", "recipes/other.yaml", `id: r
 source_kind: prometheus
 signals: {queue.backlog: "x"}`, "must match the file name"},

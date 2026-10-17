@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,8 +74,8 @@ type AlertRuleSpec struct {
 	Enabled      bool                      `json:"enabled"`
 }
 
-// AlertRule is a spec plus where its evaluation stands (migration 189).
-// UpdatedAt moves only when the spec changes, never on an evaluation.
+// AlertRule is a spec plus where its evaluation stands (migrations 189,
+// 190). UpdatedAt moves only when the spec changes, never on an evaluation.
 type AlertRule struct {
 	ID uuid.UUID `json:"id"`
 	AlertRuleSpec
@@ -82,8 +83,20 @@ type AlertRule struct {
 	StateSince      time.Time  `json:"state_since"`
 	LastValue       *float64   `json:"last_value"`
 	LastEvaluatedAt *time.Time `json:"last_evaluated_at"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	AlertStreak
+	// CreatedBy is set once, on create; an edit never changes it.
+	CreatedBy AlertRuleCreator `json:"created_by"`
+	CreatedAt time.Time        `json:"created_at"`
+	UpdatedAt time.Time        `json:"updated_at"`
+}
+
+// AlertStreak is how long a firing rule has disagreed with firing: the
+// evaluations in a row its condition read false (and when the first of them
+// ran), and the evaluations in a row it read nothing. Zero outside firing.
+type AlertStreak struct {
+	ClearCount  int        `json:"-"`
+	ClearSince  *time.Time `json:"-"`
+	NoDataCount int        `json:"-"`
 }
 
 type AlertRuleFilter struct {
@@ -97,6 +110,7 @@ type AlertEvaluation struct {
 	StateSince time.Time
 	Value      *float64
 	At         time.Time
+	Streak     AlertStreak
 }
 
 // AlertEvent is one state change of a rule; IncidentID is the incident its
@@ -134,9 +148,31 @@ type AlertBacktest struct {
 // IncidentSourceAlertRule is an incident an alert rule opened.
 const IncidentSourceAlertRule = "alert_rule"
 
+const alertRuleFingerprintPrefix = "alert:"
+
 // AlertRuleFingerprint is the one identity every firing of a rule shares, so
 // a rule that keeps firing folds into its open incident.
-func AlertRuleFingerprint(ruleID uuid.UUID) string { return "alert:" + ruleID.String() }
+func AlertRuleFingerprint(ruleID uuid.UUID) string {
+	return alertRuleFingerprintPrefix + ruleID.String()
+}
+
+// AlertRuleOfFingerprint is the rule an alert_rule incident's fingerprint
+// names.
+func AlertRuleOfFingerprint(fingerprint string) (uuid.UUID, bool) {
+	raw, ok := strings.CutPrefix(fingerprint, alertRuleFingerprintPrefix)
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(raw)
+	return id, err == nil
+}
+
+// NotificationChannelStatus is one entry of GET /v1/notification-channels: a
+// channel kind a rule may name, and whether this server can deliver on it.
+type NotificationChannelStatus struct {
+	Kind      NotificationChannelKind `json:"kind"`
+	Available bool                    `json:"available"`
+}
 
 func AlertRuleLink(componentID, ruleID uuid.UUID) string {
 	return "/operations/entity/" + componentID.String() + "/alerts?rule=" + ruleID.String()

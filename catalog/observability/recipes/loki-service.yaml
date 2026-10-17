@@ -1,0 +1,18 @@
+# Lines in Loki labelled service_name: the primary Loki recipe. Loki 3 sets
+# that label on every stream, from OTLP's service.name or else the first of
+# service, app, application, name, app_kubernetes_io_name, container,
+# container_name, component, workload, job; loki-app reads streams a shipper
+# labelled app instead (Loki 2, Promtail's Kubernetes config). The error rate
+# counts lines Loki 3 detected as error or worse (detected_level).
+id: loki-service
+source_kind: loki
+applies_to:
+  technology: loki
+detect:
+  metric: service_name
+params: [service]
+signals:
+  logs.lines: >-
+    {service_name="$service"}
+  process.errors: >-
+    sum(rate({service_name="$service"} | detected_level=~"(?i)(error|err|critical|crit|fatal|panic|alert|emerg)" [$__rate]))

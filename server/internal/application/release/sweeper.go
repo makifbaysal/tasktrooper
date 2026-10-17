@@ -103,6 +103,7 @@ func (s *Service) sweepWatchedReleases(ctx context.Context) (watched, listed boo
 		log.Warn().Err(err).Msg("release sweeper: listing watched releases failed")
 		return false, false
 	}
+	s.forgetUnverifiedChecks(releases)
 	for _, r := range releases {
 		select {
 		case <-ctx.Done():
@@ -230,7 +231,8 @@ func releaseHasParkedTask(r domain.Release, parkedTaskIDs map[uuid.UUID]bool) bo
 // An agent looking at the release since the hand-back (AgentSeenAt, every
 // ForAgent call) means different things by status. For failed or pending the
 // look was the answer: a report, or a deploy the agent chose not to start.
-// For awaiting_verdict only finish_release or rollback_release answers, so a
+// For awaiting_verdict only finish_release or rollback_release answers (a
+// rollback proposed since the hand-back waits on a human, not the agent), so a
 // look merely restarts the cooldown — a verdict run that ended without one
 // used to strand the release, and its tasks in done, for good.
 func handBackDue(r domain.Release, now time.Time) bool {
@@ -238,6 +240,9 @@ func handBackDue(r domain.Release, now time.Time) bool {
 		return false
 	}
 	quietSince := *r.LastHandBackAt
+	if r.RollbackProposal != nil && !r.RollbackProposal.ProposedAt.Before(*r.LastHandBackAt) {
+		return false
+	}
 	if r.AgentSeenAt != nil && !r.AgentSeenAt.Before(*r.LastHandBackAt) {
 		if r.Status != domain.ReleaseAwaitingVerdict {
 			return false
@@ -506,6 +511,29 @@ func (s *Service) clearErrorCheck(releaseID uuid.UUID) {
 	defer s.mu.Unlock()
 	delete(s.lastErrorCheck, releaseID)
 	delete(s.lastImpactCheck, releaseID)
+}
+
+// forgetUnverifiedChecks drops the pacing of every release no longer
+// verifying, whichever path took it out (a verdict, a rollback, a supersede).
+func (s *Service) forgetUnverifiedChecks(watched []domain.Release) {
+	verifying := make(map[uuid.UUID]bool, len(watched))
+	for _, r := range watched {
+		if r.Status == domain.ReleaseVerifying {
+			verifying[r.ID] = true
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.lastErrorCheck {
+		if !verifying[id] {
+			delete(s.lastErrorCheck, id)
+		}
+	}
+	for id := range s.lastImpactCheck {
+		if !verifying[id] {
+			delete(s.lastImpactCheck, id)
+		}
+	}
 }
 
 // impactCheckDue / markImpactChecked pace deploy impact reads the way runtime

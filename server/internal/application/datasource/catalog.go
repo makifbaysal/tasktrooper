@@ -56,12 +56,16 @@ type recipeDoc struct {
 		MessagingSystem string            `yaml:"messaging_system"`
 		ResourceKind    string            `yaml:"resource_kind"`
 		ResourceParams  map[string]string `yaml:"resource_params"`
+		StorePlatform   string            `yaml:"store_platform"`
+		StoreParams     map[string]string `yaml:"store_params"`
 	} `yaml:"applies_to"`
 	Detect struct {
 		Metric string `yaml:"metric"`
 	} `yaml:"detect"`
-	Params  []string          `yaml:"params"`
-	Signals map[string]string `yaml:"signals"`
+	Params   []string            `yaml:"params"`
+	Defaults map[string]string   `yaml:"defaults"`
+	Signals  map[string]string   `yaml:"signals"`
+	Tables   map[string]tableDoc `yaml:"tables"`
 }
 
 // LoadCatalog reads signals.yaml and recipes/*.yaml from fsys and validates
@@ -156,7 +160,12 @@ func decodeRecipe(raw []byte) (domain.Recipe, error) {
 	for k, v := range doc.Signals {
 		signals[k] = strings.TrimSpace(v)
 	}
+	tables, err := decodeTables(doc.Tables)
+	if err != nil {
+		return domain.Recipe{}, err
+	}
 	return domain.Recipe{
+		Tables:     tables,
 		ID:         doc.ID,
 		SourceKind: domain.DataSourceKind(doc.SourceKind),
 		AppliesTo: domain.RecipeAppliesTo{
@@ -164,10 +173,13 @@ func decodeRecipe(raw []byte) (domain.Recipe, error) {
 			MessagingSystem: doc.AppliesTo.MessagingSystem,
 			ResourceKind:    domain.CloudResourceKind(doc.AppliesTo.ResourceKind),
 			ResourceParams:  doc.AppliesTo.ResourceParams,
+			StorePlatform:   doc.AppliesTo.StorePlatform,
+			StoreParams:     doc.AppliesTo.StoreParams,
 		},
-		Detect:  domain.RecipeDetect{Metric: doc.Detect.Metric},
-		Params:  doc.Params,
-		Signals: signals,
+		Detect:   domain.RecipeDetect{Metric: doc.Detect.Metric},
+		Params:   doc.Params,
+		Defaults: doc.Defaults,
+		Signals:  signals,
 	}, nil
 }
 
@@ -204,6 +216,8 @@ func (c *Catalog) ValidateRecipe(r domain.Recipe) error {
 		declared[p] = true
 	}
 	problems = append(problems, checkResource(r.AppliesTo, declared)...)
+	problems = append(problems, checkStoreApp(r.AppliesTo, declared)...)
+	problems = append(problems, checkDefaults(r, lang, declared)...)
 	if len(r.Signals) == 0 {
 		add("no signals")
 	}
@@ -221,8 +235,9 @@ func (c *Catalog) ValidateRecipe(r domain.Recipe) error {
 			add("signal %q has an empty query", id)
 			continue
 		}
-		problems = append(problems, lang.check(id, query, declared)...)
+		problems = append(problems, lang.check(fmt.Sprintf("signal %q", id), query, declared)...)
 	}
+	problems = append(problems, checkTables(r.Tables, lang, declared)...)
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))
 	}

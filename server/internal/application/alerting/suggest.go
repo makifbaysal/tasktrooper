@@ -160,7 +160,7 @@ func (s *Service) Suggest(ctx context.Context, req SuggestRequest) ([]domain.Ale
 				Op: t.op, ForSeconds: t.forSeconds, WindowSeconds: t.window,
 			},
 			Severity:     t.severity,
-			Channels:     []domain.NotificationChannelKind{domain.NotificationChannelDesktop},
+			Channels:     s.suggestedChannels(),
 			OpenIncident: t.openIncident,
 			Enabled:      true,
 		}
@@ -172,6 +172,15 @@ func (s *Service) Suggest(ctx context.Context, req SuggestRequest) ([]domain.Ale
 		out = append(out, spec)
 	}
 	return out, nil
+}
+
+// suggestedChannels is the desktop notification where this server can
+// show one, else none: a suggestion must save as it is.
+func (s *Service) suggestedChannels() []domain.NotificationChannelKind {
+	if s.channelAvailable(domain.NotificationChannelDesktop) {
+		return []domain.NotificationChannelKind{domain.NotificationChannelDesktop}
+	}
+	return []domain.NotificationChannelKind{}
 }
 
 func (s *Service) boundSignals(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment) (map[string]bool, error) {
@@ -190,7 +199,7 @@ func (s *Service) boundSignals(ctx context.Context, componentID uuid.UUID, env d
 
 func (s *Service) history(ctx context.Context, spec domain.AlertRuleSpec) history {
 	to := s.now().Truncate(time.Minute)
-	samples, err := s.read(ctx, spec, to.Add(-historySpan), to, historyStep)
+	samples, _, err := s.read(ctx, spec, to.Add(-historySpan), to, historyStep)
 	if err != nil {
 		log.Debug().Err(err).Str("signal", spec.Signal).Msg("alerting: no history for a suggested threshold")
 		return history{}

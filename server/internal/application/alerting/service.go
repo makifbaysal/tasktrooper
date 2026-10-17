@@ -33,9 +33,13 @@ const (
 	defaultReadTimeout = 20 * time.Second
 
 	DefaultWindow = 5 * time.Minute
-	minWindow     = time.Minute
-	maxWindow     = 24 * time.Hour
-	maxFor        = 7 * 24 * time.Hour
+	// minReadLookback: an evaluation reads two windows back, and never less
+	// than this, so a source keeping one point every few minutes still
+	// answers its latest ones.
+	minReadLookback = 15 * time.Minute
+	minWindow       = time.Minute
+	maxWindow       = 24 * time.Hour
+	maxFor          = 7 * 24 * time.Hour
 
 	maxNameLen  = 200
 	maxQueryLen = 10000
@@ -45,6 +49,11 @@ const (
 	eventRetention    = 30 * 24 * time.Hour
 
 	lockStripes = 64
+
+	// orphanSweepEvery paces resolving the incidents of rules deleted with
+	// their component or data source.
+	orphanSweepEvery = 5 * time.Minute
+	orphanSweepLimit = 500
 )
 
 // webVitalsQuantile: Core Web Vitals are judged at the 75th percentile, every
@@ -69,9 +78,18 @@ type IncidentIngester interface {
 	Ingest(ctx context.Context, in domain.IncidentInput) (domain.Incident, error)
 }
 
-// Notifier is satisfied by notify.Service.
+// IncidentCloser is what resolving an orphaned rule's incident needs; an
+// IncidentIngester that is one too (prodops.Service) gets the sweep.
+type IncidentCloser interface {
+	List(ctx context.Context, filter domain.IncidentFilter) ([]domain.Incident, error)
+	Resolve(ctx context.Context, incidentID uuid.UUID, note string) (domain.Incident, error)
+}
+
+// Notifier is satisfied by notify.Service. Kinds are the channels it can
+// deliver on: a rule may name only those.
 type Notifier interface {
 	NotifyVia(ctx context.Context, n domain.Notification, kinds []domain.NotificationChannelKind)
+	Kinds() []domain.NotificationChannelKind
 }
 
 type Deps struct {
@@ -102,6 +120,9 @@ type Service struct {
 
 	locks    [lockStripes]sync.Mutex
 	cooldown *notify.Cooldown
+
+	orphanMu        sync.Mutex
+	lastOrphanSweep time.Time
 
 	runMu  sync.Mutex
 	cancel context.CancelFunc
@@ -258,6 +279,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req RuleRequest) (do
 	if restarts(rule.AlertRuleSpec, spec) {
 		event = s.reset(ctx, rule)
 		rule.State, rule.StateSince, rule.LastValue, rule.LastEvaluatedAt = domain.AlertStateOK, s.now(), nil, nil
+		rule.AlertStreak = domain.AlertStreak{}
 	}
 	rule.AlertRuleSpec = spec
 	updated, err := s.rules.UpdateAlertRule(ctx, rule)
@@ -400,6 +422,10 @@ func (s *Service) specFrom(ctx context.Context, base domain.AlertRuleSpec, req R
 			switch {
 			case !slices.Contains(channelKinds, kind):
 				fe["channels"] = datasource.FieldInvalidOption
+			case !s.channelAvailable(kind):
+				if _, bad := fe["channels"]; !bad {
+					fe["channels"] = FieldUnavailable
+				}
 			case !slices.Contains(spec.Channels, kind):
 				spec.Channels = append(spec.Channels, kind)
 			}
@@ -556,30 +582,47 @@ func (s *Service) quantileOf(signal string) float64 {
 	return headlineQuantile
 }
 
-// read answers a rule's samples over [from, to] at step: its signal through
-// the component environment's confirmed binding, or its raw query.
-func (s *Service) read(ctx context.Context, spec domain.AlertRuleSpec, from, to time.Time, step time.Duration) ([]sample, error) {
+// read answers a rule's samples over [from, to] at step, and their effective
+// step: its signal through the component environment's confirmed binding, or
+// its raw query.
+func (s *Service) read(ctx context.Context, spec domain.AlertRuleSpec, from, to time.Time, step time.Duration) ([]sample, time.Duration, error) {
 	if spec.Signal != "" {
 		series, err := s.signals.ReadSignal(ctx, spec.ComponentID, spec.Environment, spec.Signal, s.quantileOf(spec.Signal), from, to, step)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		return samplesOf(series, spec.Condition.Op), nil
+		samples := samplesOf(series, spec.Condition.Op)
+		return samples, effectiveStep(samples, step, 0), nil
 	}
 	if spec.DataSourceID == nil {
-		return nil, fmt.Errorf("the rule names neither a signal nor a data source: %w", ErrInvalidInput)
+		return nil, 0, fmt.Errorf("the rule names neither a signal nor a data source: %w", ErrInvalidInput)
 	}
 	rctx, cancel := context.WithTimeout(ctx, s.readTimeout)
 	defer cancel()
 	query, err := s.sources.RenderRawQuery(rctx, *spec.DataSourceID, spec.Query, nil, datasource.RenderOptions{Step: step})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	res, err := s.sources.Query(rctx, *spec.DataSourceID, domain.SeriesQuery{Query: query, From: from, To: to, Step: step})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return samplesOf(res.Series, spec.Condition.Op), nil
+	samples := samplesOf(res.Series, spec.Condition.Op)
+	return samples, effectiveStep(samples, step, res.Step), nil
+}
+
+// Channels is every channel kind a rule may name and whether this server can
+// deliver on it.
+func (s *Service) Channels() []domain.NotificationChannelStatus {
+	out := make([]domain.NotificationChannelStatus, 0, len(channelKinds))
+	for _, kind := range channelKinds {
+		out = append(out, domain.NotificationChannelStatus{Kind: kind, Available: s.channelAvailable(kind)})
+	}
+	return out
+}
+
+func (s *Service) channelAvailable(kind domain.NotificationChannelKind) bool {
+	return s.notifier != nil && slices.Contains(s.notifier.Kinds(), kind)
 }
 
 func (s *Service) unit(spec domain.AlertRuleSpec) string {

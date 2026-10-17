@@ -20,3 +20,15 @@ signals:
     sum(rate(pubsub_googleapis_com:subscription_ack_message_count{monitored_resource="pubsub_subscription", subscription_id="$subscription"}[$__rate]))
   queue.dead_letter: >-
     sum(increase(pubsub_googleapis_com:subscription_dead_letter_message_count{monitored_resource="pubsub_subscription", subscription_id="$subscription"}[$__interval]))
+tables:
+  queues:
+    key_labels: [subscription_id]
+    columns:
+      - {key: subscription_id, label: Subscription}
+      - {key: undelivered, label: Undelivered, unit: messages}
+      - {key: oldest_age, label: Oldest unacked, unit: s}
+    queries:
+      undelivered: >-
+        sum by (subscription_id) (pubsub_googleapis_com:subscription_num_undelivered_messages{monitored_resource="pubsub_subscription", subscription_id="$subscription"})
+      oldest_age: >-
+        max by (subscription_id) (pubsub_googleapis_com:subscription_oldest_unacked_message_age{monitored_resource="pubsub_subscription", subscription_id="$subscription"})

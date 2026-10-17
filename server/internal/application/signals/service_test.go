@@ -21,17 +21,33 @@ import (
 )
 
 const (
-	httpRecipe  = "svc-http"
-	kafkaRecipe = "svc-kafka"
-	runRecipe   = "svc-cloud-run"
-	httpMetric  = "svc_http_requests_seconds_count"
-	kafkaMetric = "svc_kafka_consumergroup_lag"
+	httpRecipe   = "svc-http"
+	kafkaRecipe  = "svc-kafka"
+	runRecipe    = "svc-cloud-run"
+	depthRecipe  = "svc-depth"
+	rabbitRecipe = "svc-rabbit"
+	httpMetric   = "svc_http_requests_seconds_count"
+	kafkaMetric  = "svc_kafka_consumergroup_lag"
+	depthMetric  = "svc_queue_depth"
+	rabbitMetric = "svc_rabbit_ready"
 )
 
 type promKind struct {
 	*mocks.DataSourceKindAdapter
 	*mocks.MetricsQuerier
 	*mocks.Discoverer
+	*mocks.TableQuerier
+}
+
+type brokerKind struct {
+	*mocks.DataSourceKindAdapter
+	*mocks.TableQuerier
+	*mocks.QueueDiscoverer
+}
+
+type componentLinks struct {
+	*mocks.LinkStore
+	*mocks.ResourceStore
 }
 
 type gcpKind struct {
@@ -54,11 +70,34 @@ func userRecipes() []domain.Recipe {
 		},
 		{
 			ID: kafkaRecipe, SourceKind: domain.DataSourceKindPrometheus,
-			Detect: domain.RecipeDetect{Metric: kafkaMetric}, Params: []string{"group", "topic"},
+			AppliesTo: domain.RecipeAppliesTo{MessagingSystem: "kafka"},
+			Detect:    domain.RecipeDetect{Metric: kafkaMetric}, Params: []string{"group", "topic"},
 			Signals: map[string]string{
 				"queue.backlog":      `sum(` + kafkaMetric + `{consumergroup="$group", topic="$topic"})`,
 				"queue.publish_rate": `sum(rate(svc_kafka_offset{topic="$topic"}[$__rate]))`,
 			},
+			Tables: map[string]domain.RecipeTable{domain.RecipeTableQueues: {
+				Columns: []domain.TableColumn{
+					{Key: "topic", Label: "Topic"}, {Key: "partition", Label: "Partition"},
+					{Key: "lag", Label: "Lag", Unit: "messages"}, {Key: "rate", Label: "Consumed", Unit: "msg/s"},
+				},
+				KeyLabels: []string{"topic", "partition"},
+				Queries: map[string]string{
+					"lag":  `sum by (topic, partition) (` + kafkaMetric + `{consumergroup="$group"})`,
+					"rate": `sum by (topic, partition) (rate(svc_kafka_offset{consumergroup="$group"}[$__rate]))`,
+				},
+			}},
+		},
+		{
+			ID: depthRecipe, SourceKind: domain.DataSourceKindPrometheus,
+			Detect: domain.RecipeDetect{Metric: depthMetric}, Params: []string{"queue"},
+			Signals: map[string]string{"queue.backlog": `sum(` + depthMetric + `{queue="$queue"})`},
+		},
+		{
+			ID: rabbitRecipe, SourceKind: domain.DataSourceKindPrometheus,
+			AppliesTo: domain.RecipeAppliesTo{MessagingSystem: "rabbitmq"},
+			Detect:    domain.RecipeDetect{Metric: rabbitMetric}, Params: []string{"queue"},
+			Signals: map[string]string{"queue.backlog": `sum(` + rabbitMetric + `{queue="$queue"})`},
 		},
 		{
 			ID: runRecipe, SourceKind: domain.DataSourceKindGCPMonitoring,
@@ -87,6 +126,14 @@ type SignalsSuite struct {
 	gcpQuerier *mocks.MetricsQuerier
 	cw         *mocks.DataSourceKindAdapter
 	cwQuerier  *mocks.MetricsQuerier
+	table      *mocks.TableQuerier
+	broker     *mocks.DataSourceKindAdapter
+	brokerRead *mocks.TableQuerier
+	consumers  *mocks.QueueDiscoverer
+	linkStore  *mocks.LinkStore
+	resources  *mocks.ResourceStore
+	links      []domain.ComponentLink
+	linked     []domain.SystemResource
 	bindings   *mocks.SignalBindingStore
 	comps      *mocks.ComponentStore
 	envs       *mocks.EnvironmentStore
@@ -116,6 +163,13 @@ func (s *SignalsSuite) reset(opts ...signals.Option) {
 	s.gcpQuerier = mocks.NewMetricsQuerier(t)
 	s.cw = mocks.NewDataSourceKindAdapter(t)
 	s.cwQuerier = mocks.NewMetricsQuerier(t)
+	s.table = mocks.NewTableQuerier(t)
+	s.broker = mocks.NewDataSourceKindAdapter(t)
+	s.brokerRead = mocks.NewTableQuerier(t)
+	s.consumers = mocks.NewQueueDiscoverer(t)
+	s.linkStore = mocks.NewLinkStore(t)
+	s.resources = mocks.NewResourceStore(t)
+	s.links, s.linked = nil, nil
 	s.bindings = mocks.NewSignalBindingStore(t)
 	s.comps = mocks.NewComponentStore(t)
 	s.envs = mocks.NewEnvironmentStore(t)
@@ -129,13 +183,31 @@ func (s *SignalsSuite) reset(opts ...signals.Option) {
 	s.cw.On("Kind").Return(domain.DataSourceKindCloudWatch).Maybe()
 	s.cw.On("Schema").Return(domain.DataSourceSchema{Label: "CloudWatch"}).Maybe()
 	s.cw.On("Capabilities").Return([]domain.Capability{}).Maybe()
+	s.broker.On("Kind").Return(domain.DataSourceKindKafka).Maybe()
+	s.broker.On("Schema").Return(domain.DataSourceSchema{Label: "Kafka"}).Maybe()
+	s.broker.On("Capabilities").Return([]domain.Capability{domain.CapabilityQueues}).Maybe()
+	s.linkStore.On("ListLinks", mock.Anything, mock.Anything).Return(func(context.Context, uuid.UUID) ([]domain.ComponentLink, error) {
+		return s.links, nil
+	}).Maybe()
+	s.resources.On("ListResources", mock.Anything, mock.Anything).Return(func(_ context.Context, ids []uuid.UUID) ([]domain.SystemResource, error) {
+		var out []domain.SystemResource
+		for _, r := range s.linked {
+			if slices.Contains(ids, r.ID) {
+				out = append(out, r)
+			}
+		}
+		return out, nil
+	}).Maybe()
 	s.recipes.On("ListUserRecipes", mock.Anything).Return(userRecipes(), nil).Maybe()
 
 	policy := urlguard.HumanConfigured()
 	sources, err := datasource.NewService(datasource.Deps{
-		Store:     s.dsStore,
-		Recipes:   s.recipes,
-		Kinds:     []port.DataSourceKindAdapter{promKind{s.prom, s.querier, s.discoverer}, gcpKind{s.gcp, s.gcpQuerier}, gcpKind{s.cw, s.cwQuerier}},
+		Store:   s.dsStore,
+		Recipes: s.recipes,
+		Kinds: []port.DataSourceKindAdapter{
+			promKind{s.prom, s.querier, s.discoverer, s.table}, gcpKind{s.gcp, s.gcpQuerier}, gcpKind{s.cw, s.cwQuerier},
+			brokerKind{s.broker, s.brokerRead, s.consumers},
+		},
 		URLPolicy: &policy,
 	})
 	s.Require().NoError(err)
@@ -146,6 +218,7 @@ func (s *SignalsSuite) reset(opts ...signals.Option) {
 	base := []signals.Option{signals.WithClock(func() time.Time { return s.now }), signals.WithQueryTimeout(2 * time.Second)}
 	svc, err := signals.NewService(signals.Deps{
 		Bindings: s.bindings, Sources: sources, Components: s.comps, Environments: s.envs,
+		Links: componentLinks{s.linkStore, s.resources},
 	}, append(base, opts...)...)
 	s.Require().NoError(err)
 	s.svc = svc

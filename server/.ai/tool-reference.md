@@ -552,8 +552,12 @@ nothing redeployed) when the release is not `failed`, `awaiting_verdict`, or
 `released` within 24h and still the component's newest released release, OR
 when a newer release of the component is already open or has since shipped
 (`ErrReleaseWrongStatus`, naming which). With `auto_rollback` off the proposal
-also notifies a human (`rollback_suggested`, with an `approve_rollback`
-action); an executed agent rollback notifies `release_rolled_back`.
+is stored on the release (`rollback_proposal`, which the console shows until a
+rollback runs, a newer release ships or a human dismisses it) and then
+notifies a human (`rollback_suggested`, with an `approve_rollback` action); a
+proposal that could not be stored is an error, told to no one. An executed
+agent rollback notifies `release_rolled_back`, also when a step after the
+revert failed (its body says what did not finish).
 
 ### `get_deploy_impact`
 
@@ -626,6 +630,59 @@ release-control tools on every stage except the ones whose `allow` param names
 them — `done` keeps both, `released` keeps only the release-control tools; see
 `.ai/orchestration-agents.md` → "`done` / `released` = the columns where the
 release is watched".
+
+## Observability tools (release engineer)
+
+`internal/adapter/tools/observability`, registered once the error definitions,
+signal bindings, data sources and alert rules exist (each tool only when what it
+reads or writes is wired). Every one resolves its repository from
+`repository_id`, else the AI job the chat belongs to (`opsai.Service.SessionJob`,
+keyed by the session on the call's context), else the run's own repository; its
+component from `component` (an active component's exact path), else the job's,
+else — where one is required — the repository's only or root component; its
+environment from `environment`, else the job's, else production. Inside a job,
+what a propose tool newly stores is appended to the job's `created`. Granted to
+`release-engineer` only (`roleObservabilityTools`), together with
+`codebase_search`, `create_board_task` and `update_board_task` for the
+"enable observability" card. API details: `.ai/api-spec.md` → "Error
+definitions and AI suggestions".
+
+- **`list_error_groups`** `{component?, environment?, since? (default "7d";
+  a duration or RFC3339), limit? (default 50, max 200), repository_id?}` — the
+  Errors inbox's fan-out for the repository's (or one component's) components:
+  `{environment, since, groups: [{fingerprint, component, message, count,
+  first_seen, last_seen, new, provider?, source?, sample? (first 15 lines, 3000
+  bytes), sample_truncated?, external_url?, definition}], count, truncated,
+  unavailable: [{component, code, message}]}`. Ignored groups are included, with
+  their definition.
+- **`propose_error_definitions`** `{definitions: [{name, component?, match,
+  category, severity?, action, alert_threshold?, rationale?, evidence?}],
+  source?: ai|code, repository_id?}` — stores each as `status: suggested`
+  (`source` defaults to `code` inside an `error_catalog` job, `ai` otherwise) →
+  `{stored: [{id, name, category, action}], duplicates: [{name, existing_id}],
+  rejected: [{name, fields}]}`. A proposal equal (component + match) to any
+  existing definition, dismissed ones included, is a duplicate; an unknown
+  `component` path is rejected with `fields.component`.
+- **`list_data_source_metrics`** `{data_source_id?, match?, limit? (default 200,
+  max 1000)}` — without an id `{data_sources: [{id, name, kind, status}]}`; with
+  one `{data_source, metrics, truncated, matching_recipes: [{recipe_id,
+  matched_metric}], recipes: [{id, signals, params, detect_metric?}]}` (every
+  recipe of the source's kind), through `datasource.Service.Discover`.
+- **`propose_signal_binding`** `{component?, environment?, signal,
+  data_source_id, recipe_id?, params?, query?, rationale?, repository_id?}` —
+  `signals.Service.Propose`: the checks of `PUT …/signals/:signal`, stored as
+  `status: suggested, source: ai`; a target already in the slot (any status)
+  comes back as it stands and is not recorded on the job → `{binding: {id,
+  component, environment, signal, status, source, rendered_query,
+  needs_params}}`.
+- **`propose_alert_rule`** `{component?, environment?, name, signal? |
+  (data_source_id + query), condition: {op, threshold?, for_seconds?,
+  window_seconds?}, severity?, open_incident?, rationale?, repository_id?}` —
+  `alerting.Service.CreateAIDraft`: the checks of `POST /v1/alert-rules`, always
+  `enabled: false`, `created_by: ai` → `{rule: {…}}`. When the component
+  environment already has a rule for that signal (or that query), nothing is
+  stored and `{existing_rule: {id, name, signal, enabled, created_by}}` comes
+  back.
 
 ## MCP Tools
 

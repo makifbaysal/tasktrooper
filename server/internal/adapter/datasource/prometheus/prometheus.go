@@ -35,6 +35,7 @@ type Adapter struct {
 var (
 	_ port.DataSourceKindAdapter = (*Adapter)(nil)
 	_ port.MetricsQuerier        = (*Adapter)(nil)
+	_ port.TableQuerier          = (*Adapter)(nil)
 	_ port.Discoverer            = (*Adapter)(nil)
 )
 
@@ -109,6 +110,14 @@ func (a *Adapter) Series(ctx context.Context, ds domain.DataSource, secrets map[
 		return domain.SeriesResult{}, err
 	}
 	return a.api.QueryRange(ctx, ep, q)
+}
+
+func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[string]string, q domain.TableQuery) (domain.TableResult, error) {
+	ep, err := endpoint(ds, secrets)
+	if err != nil {
+		return domain.TableResult{}, err
+	}
+	return a.api.Instant(ctx, ep, q)
 }
 
 func (a *Adapter) Discover(ctx context.Context, ds domain.DataSource, secrets map[string]string) (domain.Inventory, error) {

@@ -170,6 +170,27 @@ func (f *fakeReleaseService) Cut(_ context.Context, id uuid.UUID, actor domain.R
 	return r, nil
 }
 
+// Annotate stands in for the release service's own eligibility: a rolling
+// back release is refused, anything else allowed.
+func (f *fakeReleaseService) Annotate(_ context.Context, r domain.Release) domain.Release {
+	r.RollbackAllowed = r.Status != domain.ReleaseRollingBack
+	r.RollbackRefusal = ""
+	if !r.RollbackAllowed {
+		r.RollbackRefusal = domain.RollbackRefusalWrongStatus
+	}
+	return r
+}
+
+func (f *fakeReleaseService) DismissRollbackProposal(ctx context.Context, id uuid.UUID) (domain.Release, error) {
+	r, ok := f.releases[id]
+	if !ok {
+		return domain.Release{}, domain.ErrReleaseNotFound
+	}
+	r.RollbackProposal = nil
+	f.releases[id] = r
+	return f.Annotate(ctx, r), nil
+}
+
 // newReleaseTestApp builds a fiber app with the release routes backed by a
 // fakeReleaseService and a real repository.Service (constructed with every
 // optional dependency nil — Get/withGitWarning tolerate that, see
@@ -720,4 +741,76 @@ func TestGetReleaseImpactAnswersTheContract(t *testing.T) {
 	assert.Equal(t, "worse", body["verdict"])
 	assert.Equal(t, "http.error_ratio", sig["signal"])
 	assert.Equal(t, false, sig["higher_is_better"])
+}
+
+func TestAReleaseCarriesItsProposalAndWhetherARollbackWouldRun(t *testing.T) {
+	incidentID := uuid.New()
+	proposedAt := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	r := domain.Release{
+		ID: uuid.New(), Status: domain.ReleaseAwaitingVerdict, RollbackAllowed: true,
+		RollbackProposal: &domain.RollbackProposal{
+			ProposedAt: proposedAt, By: domain.ReleaseActorAgent, Reason: domain.RollbackHealthIncident,
+			Note: "error rate up", IncidentID: &incidentID,
+		},
+	}
+	plain := domain.Release{ID: uuid.New(), Status: domain.ReleaseVerifying, RollbackRefusal: domain.RollbackRefusalWrongStatus}
+	app, _, _ := newReleaseTestApp(t, r, plain)
+
+	resp, err := app.Test(httptest.NewRequest("GET", "/v1/releases/"+r.ID.String(), nil))
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, true, got["rollback_allowed"])
+	assert.Equal(t, "", got["rollback_refusal"])
+	assert.Equal(t, map[string]any{
+		"proposed_at": "2026-10-17T12:00:00Z", "by": "agent", "reason": "health_incident",
+		"note": "error rate up", "incident_id": incidentID.String(),
+	}, got["rollback_proposal"])
+
+	resp, err = app.Test(httptest.NewRequest("GET", "/v1/releases/"+plain.ID.String(), nil))
+	require.NoError(t, err)
+	got = map[string]any{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Contains(t, got, "rollback_proposal")
+	assert.Nil(t, got["rollback_proposal"])
+	assert.Equal(t, false, got["rollback_allowed"])
+	assert.Equal(t, "wrong_status", got["rollback_refusal"])
+}
+
+func TestAnActionAnswersTheReleaseWithItsRollbackEligibility(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseFailed}
+	app, _, _ := newReleaseTestApp(t, r)
+
+	req := httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/rollback", strings.NewReader(`{"confirm":"tasktrooper"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	var got domain.Release
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Equal(t, domain.ReleaseRollingBack, got.Status)
+	assert.False(t, got.RollbackAllowed)
+	assert.Equal(t, domain.RollbackRefusalWrongStatus, got.RollbackRefusal)
+}
+
+func TestDismissingARollbackProposalNeedsNoConfirm(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseAwaitingVerdict,
+		RollbackProposal: &domain.RollbackProposal{By: domain.ReleaseActorAgent, Reason: domain.RollbackVerifyFailed}}
+	app, _, svc := newReleaseTestApp(t, r)
+
+	resp, err := app.Test(httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/rollback-proposal/dismiss", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	var got domain.Release
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Nil(t, got.RollbackProposal)
+	assert.True(t, got.RollbackAllowed)
+	assert.Nil(t, svc.releases[r.ID].RollbackProposal)
+
+	resp, err = app.Test(httptest.NewRequest("POST", "/v1/releases/"+uuid.New().String()+"/rollback-proposal/dismiss", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+
+	resp, err = app.Test(httptest.NewRequest("POST", "/v1/releases/not-a-uuid/rollback-proposal/dismiss", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
 }

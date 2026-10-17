@@ -39,4 +39,10 @@ type ReleaseStore interface {
 	// older value — the hand-back watchdog's AgentSeenAt-vs-LastHandBackAt
 	// race depends on that.
 	MarkAgentSeen(ctx context.Context, id uuid.UUID, at time.Time) error
+	// SetRollbackProposal stores (nil clears) the release's rollback
+	// proposal, out of band from Update for the same reason as
+	// MarkAgentSeen. Update clears it on its own when the release moves to
+	// rolling_back, rolled_back or superseded. A missing release is
+	// domain.ErrReleaseNotFound.
+	SetRollbackProposal(ctx context.Context, id uuid.UUID, p *domain.RollbackProposal) error
 }

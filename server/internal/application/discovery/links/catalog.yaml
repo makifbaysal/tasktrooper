@@ -67,30 +67,41 @@
   protocol: sdk
   scope: repo
 
+# A queue resource's vendor is the messaging system the Operations console
+# matches recipes and broker sources against (kafka, rabbitmq, nats, sqs,
+# pubsub, redis): keep it the same across entries for one broker.
 - id: kafka
   match:
-    npm: [kafkajs]
-    go: [github.com/segmentio/kafka-go]
-    py: [confluent-kafka, kafka-python]
+    npm: [kafkajs, "@confluentinc/kafka-javascript", node-rdkafka]
+    go: [github.com/segmentio/kafka-go, github.com/IBM/sarama, github.com/Shopify/sarama, github.com/twmb/franz-go, github.com/confluentinc/confluent-kafka-go]
+    py: [confluent-kafka, kafka-python, aiokafka]
     rust: [rdkafka]
+    ruby: [ruby-kafka, rdkafka, karafka]
+    jvm: ["org.springframework.kafka:spring-kafka", "org.apache.kafka:kafka-clients"]
   resource: { kind: queue, vendor: kafka, name: Kafka }
   protocol: queue
   scope: repo
 
 - id: rabbitmq
   match:
-    npm: [amqplib]
-    go: [github.com/rabbitmq/amqp091-go]
-    py: [pika]
+    npm: [amqplib, amqp-connection-manager]
+    go: [github.com/rabbitmq/amqp091-go, github.com/streadway/amqp]
+    py: [pika, aio-pika]
+    rust: [lapin]
+    ruby: [bunny]
+    jvm: ["org.springframework.amqp:spring-rabbit", "org.springframework.boot:spring-boot-starter-amqp", "com.rabbitmq:amqp-client"]
   resource: { kind: queue, vendor: rabbitmq, name: RabbitMQ }
   protocol: queue
   scope: repo
 
 - id: nats
   match:
-    npm: [nats]
+    npm: [nats, "@nats-io/transport-node", "@nats-io/jetstream"]
     go: [github.com/nats-io/nats.go]
     py: [nats-py]
+    rust: [async-nats]
+    ruby: [nats-pure]
+    jvm: ["io.nats:jnats"]
   resource: { kind: queue, vendor: nats, name: NATS }
   protocol: queue
   scope: repo
@@ -106,9 +117,11 @@
 
 - id: aws_sqs
   match:
-    npm: ["@aws-sdk/client-sqs"]
+    npm: ["@aws-sdk/client-sqs", sqs-consumer]
     go: [github.com/aws/aws-sdk-go-v2/service/sqs]
     rust: [aws-sdk-sqs]
+    ruby: [aws-sdk-sqs, shoryuken]
+    jvm: ["software.amazon.awssdk:sqs", "com.amazonaws:aws-java-sdk-sqs", "io.awspring.cloud:spring-cloud-aws-starter-sqs"]
   resource: { kind: queue, vendor: sqs, name: Amazon SQS }
   protocol: queue
   scope: repo
@@ -156,6 +169,9 @@
   match:
     npm: ["@google-cloud/pubsub"]
     go: [cloud.google.com/go/pubsub]
+    py: [google-cloud-pubsub]
+    ruby: [google-cloud-pubsub]
+    jvm: ["com.google.cloud:google-cloud-pubsub", "com.google.cloud:spring-cloud-gcp-starter-pubsub"]
   resource: { kind: queue, vendor: pubsub, name: Google Pub/Sub }
   protocol: queue
   scope: repo
@@ -416,9 +432,15 @@
   protocol: sql
   scope: repo
 
+# Job queues that only run on Redis. Celery is left out: its broker is as
+# often RabbitMQ, which its manifest does not say.
 - id: bullmq
   match:
-    npm: [bullmq, bull]
+    npm: [bullmq, bull, bee-queue]
+    go: [github.com/hibiken/asynq]
+    py: [rq]
+    ruby: [sidekiq, resque]
+    php: [laravel/horizon]
   resource: { kind: queue, vendor: redis, name: Redis }
   protocol: queue
   scope: repo

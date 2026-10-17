@@ -16,6 +16,34 @@ type SignalBindingStore struct {
 	mock.Mock
 }
 
+// AddSignalBindingSuggestion provides a mock function with given fields: ctx, b
+func (_m *SignalBindingStore) AddSignalBindingSuggestion(ctx context.Context, b domain.SignalBinding) (domain.SignalBinding, error) {
+	ret := _m.Called(ctx, b)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddSignalBindingSuggestion")
+	}
+
+	var r0 domain.SignalBinding
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, domain.SignalBinding) (domain.SignalBinding, error)); ok {
+		return rf(ctx, b)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, domain.SignalBinding) domain.SignalBinding); ok {
+		r0 = rf(ctx, b)
+	} else {
+		r0 = ret.Get(0).(domain.SignalBinding)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, domain.SignalBinding) error); ok {
+		r1 = rf(ctx, b)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ConfirmSignalBinding provides a mock function with given fields: ctx, id
 func (_m *SignalBindingStore) ConfirmSignalBinding(ctx context.Context, id uuid.UUID) (domain.SignalBinding, error) {
 	ret := _m.Called(ctx, id)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -204,6 +205,9 @@ func carriesSecretsToANewOrigin(schema domain.DataSourceSchema, oldConfig, newCo
 		if f.Type == domain.FieldURL && oldConfig[f.Key] != "" && origin(oldConfig[f.Key]) != origin(newConfig[f.Key]) {
 			moved = true
 		}
+		if f.Destination && oldConfig[f.Key] != "" && hostSet(oldConfig[f.Key]) != hostSet(newConfig[f.Key]) {
+			moved = true
+		}
 	}
 	if !moved {
 		return false
@@ -293,6 +297,11 @@ func (s *Service) merge(ctx context.Context, schema domain.DataSourceSchema, sto
 			}
 		}
 	}
+	for _, field := range schema.Fields {
+		if field.Default != "" && !field.IsSecret() && config[field.Key] == "" {
+			config[field.Key] = normalizeValue(field, field.Default)
+		}
+	}
 
 	values := maps.Clone(config)
 	maps.Copy(values, secrets)
@@ -323,6 +332,8 @@ func normalizeValue(field domain.DataSourceField, v string) string {
 		if id, err := uuid.Parse(v); err == nil {
 			v = id.String()
 		}
+	case domain.FieldStoreCredential:
+		v = canonicalStoreProvider(v)
 	}
 	return v
 }
@@ -343,6 +354,9 @@ func (s *Service) checkField(ctx context.Context, field domain.DataSourceField, 
 	if len(v) > limit {
 		return FieldTooLong, nil
 	}
+	if field.Destination {
+		return s.checkHosts(v), nil
+	}
 	switch field.Type {
 	case domain.FieldSelect:
 		for _, o := range field.Options {
@@ -360,6 +374,8 @@ func (s *Service) checkField(ctx context.Context, field domain.DataSourceField, 
 	case domain.FieldCloudAccount:
 		_, code, err := s.cloudAccount(ctx, field, v)
 		return code, err
+	case domain.FieldStoreCredential:
+		return s.checkStoreCredential(ctx, field, v)
 	}
 	return "", nil
 }
@@ -385,18 +401,19 @@ func (s *Service) cloudAccount(ctx context.Context, field domain.DataSourceField
 	return acct, "", nil
 }
 
-// masks is secrets plus the credential values of every cloud account the
-// config names, for masking only: a kind reads that credential itself and
+// masks is secrets plus the credential values of every cloud account and
+// store credential the config names, for masking only: a kind reads that credential itself and
 // must not echo it, and a message that does is masked like one of the
 // source's own secrets. A value the account also reports in its non-secret
 // Meta (an AWS region) is not one.
 func (s *Service) masks(ctx context.Context, schema domain.DataSourceSchema, config, secrets map[string]string) map[string]string {
-	if s.clouds == nil {
-		return secrets
-	}
 	out := maps.Clone(secrets)
 	if out == nil {
 		out = map[string]string{}
+	}
+	s.storeCredentialMasks(ctx, schema, config, out)
+	if s.clouds == nil {
+		return out
 	}
 	for _, f := range schema.Fields {
 		if f.Type != domain.FieldCloudAccount {
@@ -438,10 +455,41 @@ func (s *Service) checkURL(raw string) string {
 	return ""
 }
 
-// defaultName is the URL's host, or for a kind reading a cloud account the
-// kind's label and the account's.
+// checkHosts is checkURL for a destination field: every host of the list is
+// judged by the policy's literal rules.
+func (s *Service) checkHosts(raw string) string {
+	hosts, err := domain.ParseHostList(raw, "")
+	if err != nil {
+		return FieldInvalid
+	}
+	for _, h := range hosts {
+		if s.policy.PrecheckHost(h) != nil {
+			return FieldNotPermitted
+		}
+	}
+	return ""
+}
+
+// hostSet is a destination field's hosts in a comparable form: order and
+// case do not move a source anywhere.
+func hostSet(raw string) string {
+	hosts, err := domain.ParseHostList(raw, "")
+	if err != nil {
+		return raw
+	}
+	slices.Sort(hosts)
+	return strings.Join(hosts, ",")
+}
+
+// defaultName is the URL's host (a destination field's first host), or for a
+// kind reading a cloud account the kind's label and the account's.
 func (s *Service) defaultName(ctx context.Context, schema domain.DataSourceSchema, config map[string]string) string {
 	for _, f := range schema.Fields {
+		if f.Destination {
+			if hosts, err := domain.ParseHostList(config[f.Key], ""); err == nil {
+				return hosts[0]
+			}
+		}
 		switch f.Type {
 		case domain.FieldURL:
 			if u, err := url.Parse(config[f.Key]); err == nil && u.Host != "" {

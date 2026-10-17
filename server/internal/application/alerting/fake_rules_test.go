@@ -126,6 +126,7 @@ func (f *fakeRules) RecordAlertEvaluation(_ context.Context, id uuid.UUID, specV
 	}
 	evaluatedAt := eval.At
 	r.State, r.StateSince, r.LastValue, r.LastEvaluatedAt = eval.State, eval.StateSince, eval.Value, &evaluatedAt
+	r.AlertStreak = eval.Streak
 	f.rules[id] = r
 	if event != nil {
 		e := *event

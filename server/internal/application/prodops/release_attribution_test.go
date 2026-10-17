@@ -110,3 +110,34 @@ func TestIngestReadsAutoRollbackFromTheAttributedReleaseNotTheLegacyTarget(t *te
 			"the dispatched auto_rollback bit must come from the release's own profile")
 	}
 }
+
+// incidentAttributor also reads the incident itself, the way the release
+// service does.
+type incidentAttributor struct {
+	fakeReleaseAttributor
+	seen []domain.Incident
+}
+
+func (f *incidentAttributor) AttributeIncident(_ context.Context, incident domain.Incident, _ time.Time) (domain.ReleaseAttribution, bool) {
+	f.seen = append(f.seen, incident)
+	return f.attribution, f.ok
+}
+
+func TestIngestHandsTheIncidentToAnAttributorThatReadsIt(t *testing.T) {
+	componentID := uuid.New()
+	attributor := &incidentAttributor{fakeReleaseAttributor: fakeReleaseAttributor{window: 15 * time.Minute}}
+	svc := prodops.NewService(prodops.Deps{Incidents: newFakeIncidents()})
+	svc.SetReleaseAttributor(attributor)
+
+	_, err := svc.Ingest(context.Background(), domain.IncidentInput{
+		RepositoryID: uuid.New(), Env: domain.DeployEnvProd, Source: domain.IncidentSourceAlertRule,
+		Fingerprint: "alert:x", Title: "errors", Severity: domain.IncidentSeverityLow,
+		Payload: map[string]any{domain.IncidentPayloadComponentID: componentID.String()},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, attributor.seen, 1)
+	got, ok := attributor.seen[0].ComponentID()
+	require.True(t, ok)
+	require.Equal(t, componentID, got)
+}

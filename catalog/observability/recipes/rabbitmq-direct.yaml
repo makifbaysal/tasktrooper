@@ -1,0 +1,19 @@
+# A RabbitMQ queue read directly by the rabbitmq kind through the management
+# API, no exporter. queue is the queue's name in the source's virtual host; a
+# * in it matches any run of characters (orders.*). Rates are the management
+# API's own recent per-second rates; there is no chart history.
+id: rabbitmq-direct
+source_kind: rabbitmq
+applies_to:
+  technology: rabbitmq
+  messaging_system: rabbitmq
+params: [queue]
+signals:
+  queue.backlog: >-
+    {"queue": "$queue", "metric": "messages"}
+  queue.consumers: >-
+    {"queue": "$queue", "metric": "consumers"}
+  queue.consume_rate: >-
+    {"queue": "$queue", "metric": "deliver_rate"}
+  queue.publish_rate: >-
+    {"queue": "$queue", "metric": "publish_rate"}

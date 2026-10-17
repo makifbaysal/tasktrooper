@@ -76,8 +76,9 @@ func TestOperationsErrorsAnswersTheContractShapeAndDefaultsToProduction(t *testi
 	g := groups[0].(map[string]any)
 	require.ElementsMatch(t, []string{
 		"component_id", "repository_id", "environment_id", "provider", "fingerprint", "message", "count",
-		"first_seen", "last_seen", "sample", "source", "new", "external_url",
+		"first_seen", "last_seen", "sample", "source", "new", "external_url", "definition",
 	}, keysOf(g))
+	require.Nil(t, g["definition"])
 	require.Equal(t, prod.ComponentID.String(), g["component_id"])
 	require.Equal(t, prod.RepositoryID.String(), g["repository_id"])
 	require.Equal(t, prod.ID.String(), g["environment_id"])

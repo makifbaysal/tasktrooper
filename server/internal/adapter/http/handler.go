@@ -157,6 +157,8 @@ type Handler struct {
 	opsQuerySvc     *opsquery.Service
 	signalsSvc      *signals.Service
 	alertingSvc     *alerting.Service
+	errorDefsSvc    ErrorDefinitionService
+	opsAISvc        OpsAIService
 	envRequirements EnvRequirementService
 	localPreviewSvc *localpreview.Service
 	simRunSvc       *simrun.Service
@@ -230,6 +232,8 @@ type Config struct {
 	OpsQuerySvc       *opsquery.Service
 	SignalsSvc        *signals.Service
 	AlertingSvc       *alerting.Service
+	ErrorDefsSvc      ErrorDefinitionService
+	OpsAISvc          OpsAIService
 	EnvRequirements   EnvRequirementService
 	LocalPreviewSvc   *localpreview.Service
 	SimRunSvc         *simrun.Service
@@ -302,6 +306,8 @@ func NewHandler(cfg Config) *Handler {
 		opsQuerySvc:       cfg.OpsQuerySvc,
 		signalsSvc:        cfg.SignalsSvc,
 		alertingSvc:       cfg.AlertingSvc,
+		errorDefsSvc:      cfg.ErrorDefsSvc,
+		opsAISvc:          cfg.OpsAISvc,
 		envRequirements:   cfg.EnvRequirements,
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		simRunSvc:         cfg.SimRunSvc,
@@ -353,7 +359,9 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerOpsQueryRoutes(app)
 	h.registerDataSourceRoutes(app)
 	h.registerSignalRoutes(app)
+	h.registerTraceRoutes(app)
 	h.registerAlertRuleRoutes(app)
+	h.registerErrorDefinitionRoutes(app)
 	h.registerEnvRequirementRoutes(app)
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)

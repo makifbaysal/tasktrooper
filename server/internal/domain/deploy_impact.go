@@ -50,12 +50,16 @@ type DeployImpact struct {
 }
 
 // SignalImpact is one bound golden signal across the deploy: window means,
-// the p95 for a quantile signal. DeltaPct is nil when Before is zero.
+// the p95 for a quantile signal, of its worst series where it answers
+// several. After leaves out the samples at or before the deploy (a rate's
+// first one after it still straddles it); AfterPoints is how many it
+// averaged. DeltaPct is nil when Before is zero.
 type SignalImpact struct {
 	Signal         string        `json:"signal"`
 	Unit           string        `json:"unit"`
 	Before         *float64      `json:"before"`
 	After          *float64      `json:"after"`
+	AfterPoints    int           `json:"after_points"`
 	Baseline       *float64      `json:"baseline"`
 	Delta          *float64      `json:"delta"`
 	DeltaPct       *float64      `json:"delta_pct"`
@@ -109,7 +113,9 @@ type ReleaseImpactCheck struct {
 }
 
 // ReleaseImpactSignal: MaxDelta (percentage points) or MaxDeltaPct (percent)
-// is the threshold this signal was held to, when one was.
+// is the threshold this signal was held to, when one was. Settling: the
+// after-window is still too short or too sparse to hold it to the threshold,
+// so it cannot breach yet.
 type ReleaseImpactSignal struct {
 	Signal      string        `json:"signal"`
 	Before      *float64      `json:"before"`
@@ -120,6 +126,7 @@ type ReleaseImpactSignal struct {
 	MaxDelta    *float64      `json:"max_delta,omitempty"`
 	MaxDeltaPct *float64      `json:"max_delta_pct,omitempty"`
 	Breached    bool          `json:"breached,omitempty"`
+	Settling    bool          `json:"settling,omitempty"`
 }
 
 // Delivery profile thresholds the release soak holds a deploy's impact to.

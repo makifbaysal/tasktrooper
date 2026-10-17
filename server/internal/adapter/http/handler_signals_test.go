@@ -28,6 +28,7 @@ type signalsPromKind struct {
 	*mocks.DataSourceKindAdapter
 	*mocks.MetricsQuerier
 	*mocks.Discoverer
+	*mocks.TableQuerier
 }
 
 type SignalsHandlerSuite struct {
@@ -35,6 +36,7 @@ type SignalsHandlerSuite struct {
 	dsStore    *mocks.DataSourceStore
 	querier    *mocks.MetricsQuerier
 	discoverer *mocks.Discoverer
+	table      *mocks.TableQuerier
 	bindings   *mocks.SignalBindingStore
 	comps      *mocks.ComponentStore
 	envs       *mocks.EnvironmentStore
@@ -54,6 +56,7 @@ func (s *SignalsHandlerSuite) SetupTest() {
 	kind := mocks.NewDataSourceKindAdapter(t)
 	s.querier = mocks.NewMetricsQuerier(t)
 	s.discoverer = mocks.NewDiscoverer(t)
+	s.table = mocks.NewTableQuerier(t)
 	s.bindings = mocks.NewSignalBindingStore(t)
 	s.comps = mocks.NewComponentStore(t)
 	s.envs = mocks.NewEnvironmentStore(t)
@@ -78,7 +81,7 @@ func (s *SignalsHandlerSuite) SetupTest() {
 	policy := urlguard.HumanConfigured()
 	sources, err := datasource.NewService(datasource.Deps{
 		Store: s.dsStore, Recipes: recipes,
-		Kinds:     []port.DataSourceKindAdapter{signalsPromKind{kind, s.querier, s.discoverer}},
+		Kinds:     []port.DataSourceKindAdapter{signalsPromKind{kind, s.querier, s.discoverer, s.table}},
 		URLPolicy: &policy,
 	})
 	s.Require().NoError(err)
@@ -132,7 +135,7 @@ func (s *SignalsHandlerSuite) TestListAnswersTheContractShape() {
 
 	status, body := s.do("GET", s.componentPath("/signals?env=staging"), "")
 	s.Require().Equal(fiber.StatusOK, status, body)
-	s.ElementsMatch([]string{"component_id", "role", "environment", "signals"}, keysOf(body))
+	s.ElementsMatch([]string{"component_id", "role", "environment", "signals", "source_offers"}, keysOf(body))
 	s.Equal("backend", body["role"])
 	s.Equal("staging", body["environment"])
 	list := body["signals"].([]any)
@@ -185,7 +188,7 @@ func (s *SignalsHandlerSuite) TestSuggestAnswersTheListShape() {
 
 	status, body := s.do("POST", s.componentPath("/signals/suggest"), "")
 	s.Require().Equal(fiber.StatusOK, status, body)
-	s.ElementsMatch([]string{"component_id", "role", "environment", "signals"}, keysOf(body))
+	s.ElementsMatch([]string{"component_id", "role", "environment", "signals", "source_offers"}, keysOf(body))
 	s.Equal("production", body["environment"])
 }
 
@@ -326,4 +329,38 @@ func (s *SignalsHandlerSuite) TestGoldenAnswersTheExplorerShape() {
 
 	status, _ = s.do("GET", "/v1/operations/golden?component_id=nope", "")
 	s.Equal(fiber.StatusBadRequest, status)
+}
+
+func (s *SignalsHandlerSuite) TestQueuesAnswersTheContractShape() {
+	backlog := s.binding("queue.backlog", domain.SignalBindingConfirmed)
+	backlog.RecipeID, backlog.Params = "rabbitmq-prometheus", map[string]string{"queue": "orders", "vhost": "/"}
+	s.bindings.On("ListSignalBindings", mock.Anything, s.component.ID, domain.EnvironmentStaging).Return([]domain.SignalBinding{backlog}, nil).Once()
+	s.table.On("Table", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(q domain.TableQuery) bool {
+		return q.At.Equal(s.now)
+	})).Return(domain.TableResult{Rows: []map[string]any{{"vhost": "/", "queue": "orders", "value": 3.0}}}, nil).Times(3)
+
+	status, body := s.do("GET", s.componentPath("/queues?env=staging"), "")
+	s.Require().Equal(fiber.StatusOK, status, body)
+	s.ElementsMatch([]string{"component_id", "environment", "queues"}, keysOf(body))
+	s.Equal("staging", body["environment"])
+	queues := body["queues"].([]any)
+	s.Require().Len(queues, 1)
+	q := queues[0].(map[string]any)
+	s.ElementsMatch([]string{
+		"signal_binding_id", "data_source_id", "data_source_name", "recipe_id", "messaging_system",
+		"params", "columns", "rows", "truncated", "error",
+	}, keysOf(q))
+	s.Equal(backlog.ID.String(), q["signal_binding_id"])
+	s.Equal("rabbitmq", q["messaging_system"])
+	s.Equal(map[string]any{"queue": "orders", "vhost": "/"}, q["params"])
+	s.Nil(q["error"])
+	first := q["columns"].([]any)[0].(map[string]any)
+	s.ElementsMatch([]string{"key", "label", "unit"}, keysOf(first))
+	s.Equal([]any{map[string]any{"vhost": "/", "queue": "orders", "ready": 3.0, "unacked": 3.0, "consumers": 3.0}}, q["rows"])
+}
+
+func (s *SignalsHandlerSuite) TestQueuesRefusesABadEnvironment() {
+	status, body := s.do("GET", s.componentPath("/queues?env=prod"), "")
+	s.Equal(fiber.StatusBadRequest, status)
+	s.Contains(body["error"], "unknown environment")
 }

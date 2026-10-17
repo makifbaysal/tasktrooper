@@ -78,21 +78,99 @@ func TestAdvance(t *testing.T) {
 		{"pending to firing once for has passed", domain.AlertStatePending, cond(domain.AlertOpAbove, 1, 300), verdict{value: f(2), holds: true}, t0.Add(5 * time.Minute), domain.AlertStateFiring, t0.Add(5 * time.Minute)},
 		{"no for fires at once", domain.AlertStateOK, cond(domain.AlertOpAbove, 1, 0), verdict{value: f(2), holds: true}, t0.Add(time.Minute), domain.AlertStateFiring, t0.Add(time.Minute)},
 		{"firing stays firing", domain.AlertStateFiring, cond(domain.AlertOpAbove, 1, 300), verdict{value: f(2), holds: true}, t0.Add(time.Hour), domain.AlertStateFiring, since},
-		{"firing resolves to ok", domain.AlertStateFiring, cond(domain.AlertOpAbove, 1, 300), verdict{value: f(0)}, t0.Add(time.Hour), domain.AlertStateOK, t0.Add(time.Hour)},
+		{"firing waits for a second false evaluation", domain.AlertStateFiring, cond(domain.AlertOpAbove, 1, 300), verdict{value: f(0)}, t0.Add(time.Hour), domain.AlertStateFiring, since},
 		{"pending falls back to ok", domain.AlertStatePending, cond(domain.AlertOpAbove, 1, 300), verdict{value: f(0)}, t0.Add(time.Minute), domain.AlertStateOK, t0.Add(time.Minute)},
 		{"ok keeps its since", domain.AlertStateOK, cond(domain.AlertOpAbove, 1, 300), verdict{value: f(0)}, t0.Add(time.Minute), domain.AlertStateOK, since},
-		{"no value is no_data", domain.AlertStateFiring, cond(domain.AlertOpAbove, 1, 300), verdict{}, t0.Add(time.Minute), domain.AlertStateNoData, t0.Add(time.Minute)},
+		{"no value is no_data", domain.AlertStatePending, cond(domain.AlertOpAbove, 1, 300), verdict{}, t0.Add(time.Minute), domain.AlertStateNoData, t0.Add(time.Minute)},
+		{"firing holds through no value", domain.AlertStateFiring, cond(domain.AlertOpAbove, 1, 300), verdict{}, t0.Add(time.Minute), domain.AlertStateFiring, since},
 		{"no_data to pending when it holds again", domain.AlertStateNoData, cond(domain.AlertOpAbove, 1, 300), verdict{value: f(2), holds: true}, t0.Add(time.Minute), domain.AlertStatePending, t0.Add(time.Minute)},
 		{"a no_data rule goes pending without a value", domain.AlertStateOK, cond(domain.AlertOpNoData, 0, 300), verdict{holds: true}, t0.Add(time.Minute), domain.AlertStatePending, t0.Add(time.Minute)},
 		{"a no_data rule fires after for", domain.AlertStatePending, cond(domain.AlertOpNoData, 0, 300), verdict{holds: true}, t0.Add(5 * time.Minute), domain.AlertStateFiring, t0.Add(5 * time.Minute)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state, gotSince := advance(tt.state, since, tt.c, tt.v, tt.now)
-			assert.Equal(t, tt.want, state)
-			assert.Equal(t, tt.wantSince, gotSince)
+			got := advance(standing{state: tt.state, since: since}, tt.c, tt.v, tt.now)
+			assert.Equal(t, tt.want, got.state)
+			assert.Equal(t, tt.wantSince, got.since)
 		})
 	}
+}
+
+// run feeds advance one verdict per minute from a firing start and answers
+// the state after each.
+func run(c domain.AlertCondition, verdicts ...verdict) []domain.AlertState {
+	st := standing{state: domain.AlertStateFiring, since: t0}
+	var out []domain.AlertState
+	for i, v := range verdicts {
+		st = advance(st, c, v, t0.Add(time.Duration(i+1)*time.Minute))
+		out = append(out, st.state)
+	}
+	return out
+}
+
+var (
+	holding = verdict{value: f(5), holds: true}
+	cleared = verdict{value: f(0)}
+	nothing = verdict{}
+)
+
+func TestAFiringRuleResolvesAfterTwoFalseEvaluationsAndItsFor(t *testing.T) {
+	firing, ok := domain.AlertStateFiring, domain.AlertStateOK
+	assert.Equal(t, []domain.AlertState{firing, ok}, run(cond(domain.AlertOpAbove, 1, 0), cleared, cleared))
+	assert.Equal(t, []domain.AlertState{firing, firing, ok}, run(cond(domain.AlertOpAbove, 1, 120), cleared, cleared, cleared),
+		"false for two minutes, its for")
+}
+
+func TestAFlappingConditionKeepsTheRuleFiring(t *testing.T) {
+	got := run(cond(domain.AlertOpAbove, 1, 0), cleared, holding, cleared, holding, cleared, holding)
+	for _, state := range got {
+		assert.Equal(t, domain.AlertStateFiring, state)
+	}
+}
+
+func TestAFiringRuleMovesToNoDataOnlyPastTheGrace(t *testing.T) {
+	firing := domain.AlertStateFiring
+	got := run(cond(domain.AlertOpAbove, 1, 0), nothing, nothing, nothing, nothing)
+	assert.Equal(t, []domain.AlertState{firing, firing, firing, domain.AlertStateNoData}, got)
+
+	got = run(cond(domain.AlertOpAbove, 1, 0), nothing, nothing, holding, nothing, nothing, nothing)
+	for _, state := range got {
+		assert.Equal(t, firing, state, "a value in between starts the count over")
+	}
+}
+
+func TestSparseFalseEvaluationsStillResolve(t *testing.T) {
+	got := run(cond(domain.AlertOpAbove, 1, 0), cleared, nothing, nothing, cleared)
+	assert.Equal(t, []domain.AlertState{domain.AlertStateFiring, domain.AlertStateFiring, domain.AlertStateFiring, domain.AlertStateOK}, got,
+		"an evaluation reading nothing neither counts toward nor breaks a recovery")
+}
+
+func TestTheStreakStartsOverWhenTheConditionHoldsAgain(t *testing.T) {
+	st := advance(standing{state: domain.AlertStateFiring, since: t0}, cond(domain.AlertOpAbove, 1, 0), cleared, t0.Add(time.Minute))
+	require.Equal(t, 1, st.streak.ClearCount)
+	require.NotNil(t, st.streak.ClearSince)
+	st = advance(st, cond(domain.AlertOpAbove, 1, 0), holding, t0.Add(2*time.Minute))
+	assert.Equal(t, domain.AlertStreak{}, st.streak)
+	assert.Equal(t, t0, st.since)
+}
+
+func TestEffectiveStepIsTheSpacingTheSourceKept(t *testing.T) {
+	sparse := []sample{at(0, 1), at(5, 2), at(15, 3)}
+	assert.Equal(t, 5*time.Minute, effectiveStep(sparse, time.Minute, 0))
+	assert.Equal(t, 10*time.Minute, effectiveStep(sparse, time.Minute, 10*time.Minute), "the period the source said it answered at")
+	assert.Equal(t, time.Minute, effectiveStep([]sample{at(0, 1)}, time.Minute, 0))
+}
+
+func TestPickToleratesACloudWatchLikePeriod(t *testing.T) {
+	samples := []sample{at(0, 1), at(5, 2)}
+	cur, _ := pick(samples, t0.Add(12*time.Minute), time.Minute)
+	assert.Nil(t, cur, "at the asked step a five-minute period is stale")
+
+	cur, prev := pick(samples, t0.Add(12*time.Minute), effectiveStep(samples, time.Minute, 5*time.Minute))
+	require.NotNil(t, cur)
+	assert.Equal(t, 2.0, cur.value)
+	require.NotNil(t, prev)
+	assert.Equal(t, 1.0, prev.value)
 }
 
 func TestPickAllowsAPeriodLabelledByItsStart(t *testing.T) {
@@ -142,13 +220,13 @@ func TestReplayFindsEachFiringWithItsPeak(t *testing.T) {
 	}
 	c := domain.AlertCondition{Op: domain.AlertOpAbove, Threshold: 4, ForSeconds: 300, WindowSeconds: 300}
 
-	fires, change := replay(c, samples, t0, t0.Add(40*time.Minute), step)
+	fires, change := replay(c, samples, t0, t0.Add(40*time.Minute), step, step)
 
 	assert.Nil(t, change)
 	require.Len(t, fires, 2)
 	assert.Equal(t, t0.Add(15*time.Minute), fires[0].Start)
 	require.NotNil(t, fires[0].End)
-	assert.Equal(t, t0.Add(25*time.Minute), *fires[0].End)
+	assert.Equal(t, t0.Add(30*time.Minute), *fires[0].End, "false for two steps and its for")
 	assert.Equal(t, 7.0, *fires[0].Peak)
 	assert.Equal(t, t0.Add(40*time.Minute), fires[1].Start)
 	assert.Nil(t, fires[1].End)
@@ -159,7 +237,7 @@ func TestReplayAnswersTheChangeItJudged(t *testing.T) {
 	samples := []sample{at(0, 10), at(5, 10), at(10, 20)}
 	c := domain.AlertCondition{Op: domain.AlertOpChangePctAbove, Threshold: 50, WindowSeconds: 300}
 
-	fires, change := replay(c, samples, t0, t0.Add(10*time.Minute), 5*time.Minute)
+	fires, change := replay(c, samples, t0, t0.Add(10*time.Minute), 5*time.Minute, 5*time.Minute)
 
 	require.Len(t, change, 2)
 	assert.Equal(t, 0.0, *change[0].Value)

@@ -1,0 +1,11 @@
+# A web frontend's JavaScript errors from Sentry. project is the Sentry
+# project's slug. js_errors is error events per second; errors.issues brings
+# the project's unresolved issues into the errors inbox.
+id: sentry-web
+source_kind: sentry
+applies_to:
+  technology: sentry
+params: [project]
+signals:
+  web.js_errors: '{"project": "$project", "metric": "event_rate"}'
+  errors.issues: '{"project": "$project"}'

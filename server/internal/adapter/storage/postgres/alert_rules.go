@@ -14,7 +14,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// AlertRuleStore persists alert rules and their events (migration 189).
+// AlertRuleStore persists alert rules and their events (migrations 189, 190).
 type AlertRuleStore struct {
 	pool *DB
 }
@@ -26,7 +26,8 @@ func NewAlertRuleStore(pool *DB) *AlertRuleStore {
 var _ port.AlertRuleStore = (*AlertRuleStore)(nil)
 
 const alertRuleCols = `id, name, component_id, environment, signal, data_source_id, query, condition, severity, channels,
-	open_incident, enabled, state, state_since, last_value, last_evaluated_at, created_at, updated_at`
+	open_incident, enabled, state, state_since, last_value, last_evaluated_at, clear_count, clear_since, no_data_count,
+	created_by, created_at, updated_at`
 
 func scanAlertRule(row pgx.Row) (domain.AlertRule, error) {
 	var r domain.AlertRule
@@ -35,7 +36,7 @@ func scanAlertRule(row pgx.Row) (domain.AlertRule, error) {
 	if err := row.Scan(
 		&r.ID, &r.Name, &r.ComponentID, &r.Environment, &r.Signal, &r.DataSourceID, &r.Query, &conditionJSON, &r.Severity,
 		&channels, &r.OpenIncident, &r.Enabled, &r.State, &r.StateSince, &r.LastValue, &r.LastEvaluatedAt,
-		&r.CreatedAt, &r.UpdatedAt,
+		&r.ClearCount, &r.ClearSince, &r.NoDataCount, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt,
 	); err != nil {
 		return domain.AlertRule{}, err
 	}
@@ -95,6 +96,13 @@ func (s *AlertRuleStore) GetAlertRule(ctx context.Context, id uuid.UUID) (domain
 	return r, nil
 }
 
+func alertRuleCreator(c domain.AlertRuleCreator) string {
+	if c == "" {
+		return string(domain.AlertRuleByHuman)
+	}
+	return string(c)
+}
+
 func (s *AlertRuleStore) CreateAlertRule(ctx context.Context, r domain.AlertRule) (domain.AlertRule, error) {
 	if r.ID == uuid.Nil {
 		r.ID = uuid.New()
@@ -105,11 +113,13 @@ func (s *AlertRuleStore) CreateAlertRule(ctx context.Context, r domain.AlertRule
 	}
 	out, err := scanAlertRule(s.pool.QueryRow(ctx, `
 		INSERT INTO alert_rules (id, name, component_id, environment, signal, data_source_id, query, condition, severity,
-			channels, open_incident, enabled, state, state_since, last_value, last_evaluated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+			channels, open_incident, enabled, state, state_since, last_value, last_evaluated_at, clear_count, clear_since, no_data_count,
+			created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		RETURNING `+alertRuleCols,
 		r.ID, r.Name, r.ComponentID, r.Environment, r.Signal, r.DataSourceID, r.Query, conditionJSON, r.Severity,
-		channels, r.OpenIncident, r.Enabled, r.State, r.StateSince, r.LastValue, r.LastEvaluatedAt))
+		channels, r.OpenIncident, r.Enabled, r.State, r.StateSince, r.LastValue, r.LastEvaluatedAt,
+		r.ClearCount, r.ClearSince, r.NoDataCount, alertRuleCreator(r.CreatedBy)))
 	if err != nil {
 		return domain.AlertRule{}, fmt.Errorf("create alert rule: %w", err)
 	}
@@ -124,11 +134,13 @@ func (s *AlertRuleStore) UpdateAlertRule(ctx context.Context, r domain.AlertRule
 	out, err := scanAlertRule(s.pool.QueryRow(ctx, `
 		UPDATE alert_rules SET name = $2, component_id = $3, environment = $4, signal = $5, data_source_id = $6,
 			query = $7, condition = $8, severity = $9, channels = $10, open_incident = $11, enabled = $12,
-			state = $13, state_since = $14, last_value = $15, last_evaluated_at = $16, updated_at = now()
+			state = $13, state_since = $14, last_value = $15, last_evaluated_at = $16,
+			clear_count = $17, clear_since = $18, no_data_count = $19, updated_at = now()
 		WHERE id = $1
 		RETURNING `+alertRuleCols,
 		r.ID, r.Name, r.ComponentID, r.Environment, r.Signal, r.DataSourceID, r.Query, conditionJSON, r.Severity,
-		channels, r.OpenIncident, r.Enabled, r.State, r.StateSince, r.LastValue, r.LastEvaluatedAt))
+		channels, r.OpenIncident, r.Enabled, r.State, r.StateSince, r.LastValue, r.LastEvaluatedAt,
+		r.ClearCount, r.ClearSince, r.NoDataCount))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.AlertRule{}, fmt.Errorf("update alert rule: %w", port.ErrNotFound)
 	}
@@ -175,9 +187,11 @@ func (s *AlertRuleStore) RecordAlertEvaluation(ctx context.Context, id uuid.UUID
 	found := false
 	err := s.pool.InTx(ctx, func(tx pgx.Tx) error {
 		r, err := scanAlertRule(tx.QueryRow(ctx, `
-			UPDATE alert_rules SET state = $3, state_since = $4, last_value = $5, last_evaluated_at = $6
+			UPDATE alert_rules SET state = $3, state_since = $4, last_value = $5, last_evaluated_at = $6,
+				clear_count = $7, clear_since = $8, no_data_count = $9
 			WHERE id = $1 AND updated_at = $2
-			RETURNING `+alertRuleCols, id, specVersion, eval.State, eval.StateSince, eval.Value, eval.At))
+			RETURNING `+alertRuleCols, id, specVersion, eval.State, eval.StateSince, eval.Value, eval.At,
+			eval.Streak.ClearCount, eval.Streak.ClearSince, eval.Streak.NoDataCount))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

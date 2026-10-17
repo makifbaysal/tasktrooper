@@ -140,3 +140,15 @@ func send(ctx context.Context, ch port.NotificationChannel, n domain.Notificatio
 	}()
 	return ch.Send(ctx, n)
 }
+
+// Kinds are the channel kinds registered, enabled or not: what a source may
+// name and have delivered once a person turns it on.
+func (s *Service) Kinds() []domain.NotificationChannelKind {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.NotificationChannelKind, 0, len(s.channels))
+	for _, ch := range s.channels {
+		out = append(out, ch.Kind())
+	}
+	return out
+}

@@ -3,7 +3,9 @@ package deployimpact_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,68 +22,88 @@ var catalog = map[string]domain.Signal{
 	"http.requests":             {ID: "http.requests", Unit: "req/s", Aggregation: domain.AggregationRate, Better: domain.SignalHigherIsBetter},
 	domain.SignalHTTPErrorRatio: {ID: domain.SignalHTTPErrorRatio, Unit: "%", Aggregation: domain.AggregationRatio, Better: domain.SignalLowerIsBetter},
 	domain.SignalHTTPLatency:    {ID: domain.SignalHTTPLatency, Unit: "ms", Aggregation: domain.AggregationQuantile, Better: domain.SignalLowerIsBetter},
+	"queue.dead_letter":         {ID: "queue.dead_letter", Unit: "messages", Aggregation: domain.AggregationGauge, Better: domain.SignalLowerIsBetter},
+	"process.errors":            {ID: "process.errors", Unit: "errors/s", Aggregation: domain.AggregationRate, Better: domain.SignalLowerIsBetter},
+}
+
+type signalRead struct {
+	signal   string
+	quantile float64
+	from, to time.Time
 }
 
 // fakeSignals answers each signal from a function of time, so a window's mean
 // is whatever the test says that stretch of time held. Unbound signals and
-// read errors are per signal, the way signals.Service reports them.
+// read errors are per signal, the way signals.Service.ReadSignal reports them;
+// extra adds series a signal answers beside its own.
 type fakeSignals struct {
+	mu      sync.Mutex
 	values  map[string]func(time.Time) float64
+	extra   map[string][]func(time.Time) float64
 	unbound map[string]bool
 	readErr map[string]bool
 	err     error
-	queries []signals.SeriesQuery
+	reads   []signalRead
 }
 
-func (f *fakeSignals) Series(_ context.Context, _ uuid.UUID, q signals.SeriesQuery) (domain.ComponentSeries, error) {
-	f.queries = append(f.queries, q)
-	if f.err != nil {
-		return domain.ComponentSeries{}, f.err
+func (f *fakeSignals) ReadSignal(_ context.Context, _ uuid.UUID, _ domain.DeployEnvironment, signal string, quantile float64, from, to time.Time, step time.Duration) ([]domain.Series, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads = append(f.reads, signalRead{signal: signal, quantile: quantile, from: from, to: to})
+	switch {
+	case f.err != nil:
+		return nil, f.err
+	case f.unbound[signal]:
+		return nil, signals.ErrUnbound
+	case f.readErr[signal]:
+		return nil, context.DeadlineExceeded
 	}
-	out := domain.ComponentSeries{From: q.From, To: q.To}
-	for _, id := range q.Signals {
-		ss := domain.SignalSeries{Signal: id, Unit: catalog[id].Unit, Bound: !f.unbound[id]}
-		switch {
-		case !ss.Bound:
-		case f.readErr[id]:
-			ss.Error = &domain.SignalReadError{Code: domain.SignalErrTimeout, Message: "no answer"}
-		default:
-			var points []domain.SeriesPoint
-			for t := q.From; !t.After(q.To); t = t.Add(q.Step) {
-				points = append(points, domain.FinitePoint(t, f.values[id](t)))
-			}
-			if catalog[id].Aggregation == domain.AggregationQuantile {
-				ss.Series = []domain.Series{
-					{Name: "p50", Labels: map[string]string{"quantile": "0.5"}, Points: scaled(points, 0.5)},
-					{Name: "p95", Labels: map[string]string{"quantile": "0.95"}, Points: points},
-				}
-			} else {
-				ss.Series = []domain.Series{{Points: points}}
-			}
+	series := func(value func(time.Time) float64) domain.Series {
+		var points []domain.SeriesPoint
+		for t := from; !t.After(to); t = t.Add(step) {
+			points = append(points, domain.FinitePoint(t, value(t)))
 		}
-		out.Signals = append(out.Signals, ss)
+		return domain.Series{Points: points}
+	}
+	out := []domain.Series{series(f.values[signal])}
+	for _, value := range f.extra[signal] {
+		out = append(out, series(value))
 	}
 	return out, nil
 }
 
-func (f *fakeSignals) GoldenSignals(role domain.ComponentRole) []string {
-	if role != domain.ComponentRoleBackend {
-		return nil
+func (f *fakeSignals) readsOf(signal string) []signalRead {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []signalRead
+	for _, r := range f.reads {
+		if r.signal == signal {
+			out = append(out, r)
+		}
 	}
-	return []string{"http.requests", domain.SignalHTTPErrorRatio, domain.SignalHTTPLatency}
+	sort.Slice(out, func(i, j int) bool { return out[i].from.After(out[j].from) })
+	return out
+}
+
+func (f *fakeSignals) readCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.reads)
+}
+
+func (f *fakeSignals) GoldenSignals(role domain.ComponentRole) []string {
+	switch role {
+	case domain.ComponentRoleBackend:
+		return []string{"http.requests", domain.SignalHTTPErrorRatio, domain.SignalHTTPLatency}
+	case domain.ComponentRoleWorker:
+		return []string{"queue.dead_letter", "process.errors"}
+	}
+	return nil
 }
 
 func (f *fakeSignals) Signal(id string) (domain.Signal, bool) {
 	sig, ok := catalog[id]
 	return sig, ok
-}
-
-func scaled(points []domain.SeriesPoint, by float64) []domain.SeriesPoint {
-	out := make([]domain.SeriesPoint, len(points))
-	for i, p := range points {
-		out[i] = domain.FinitePoint(p.Time, *p.Value*by)
-	}
-	return out
 }
 
 type fakeComponents map[uuid.UUID]domain.Component
@@ -128,7 +150,10 @@ func (s *ImpactSuite) SetupTest() {
 			"http.requests":             flat(100),
 			domain.SignalHTTPErrorRatio: flat(0.4),
 			domain.SignalHTTPLatency:    flat(200),
+			"queue.dead_letter":         flat(0),
+			"process.errors":            flat(0.01),
 		},
+		extra:   map[string][]func(time.Time) float64{},
 		unbound: map[string]bool{},
 		readErr: map[string]bool{},
 	}
@@ -260,11 +285,13 @@ func (s *ImpactSuite) TestAnOpenAfterWindowIsPendingAndReadsWhatHasPassed() {
 
 	s.True(impact.Pending)
 	s.Equal(domain.ImpactWorse, impact.Verdict)
-	s.Require().Len(s.signals.queries, 2)
-	s.Equal(s.deployedAt.Add(-time.Hour), s.signals.queries[0].From)
-	s.Equal(s.now, s.signals.queries[0].To)
-	s.Equal(s.deployedAt.Add(-24*time.Hour), s.signals.queries[1].From)
-	s.Equal(s.now.Add(-24*time.Hour), s.signals.queries[1].To, "the baseline covers as much of yesterday's hour as has passed today")
+	s.Equal(20, s.signal(impact, domain.SignalHTTPErrorRatio).AfterPoints)
+	reads := s.signals.readsOf(domain.SignalHTTPErrorRatio)
+	s.Require().Len(reads, 2)
+	s.Equal(s.deployedAt.Add(-time.Hour), reads[0].from)
+	s.Equal(s.now, reads[0].to)
+	s.Equal(s.deployedAt.Add(-24*time.Hour), reads[1].from)
+	s.Equal(s.now.Add(-24*time.Hour), reads[1].to, "the baseline covers as much of yesterday's hour as has passed today")
 }
 
 func (s *ImpactSuite) TestOnlyBoundSignalsAreListedAndAnUnreadableOneIsUnknown() {
@@ -338,12 +365,12 @@ func (s *ImpactSuite) TestAnswersAreReusedWithinAMinute() {
 	s.Require().NoError(err)
 	_, err = s.svc.ForRelease(s.ctx, r)
 	s.Require().NoError(err)
-	s.Len(s.signals.queries, 2, "one current and one baseline read, then the cached answer")
+	s.Equal(6, s.signals.readCount(), "one current and one baseline read per signal, then the cached answer")
 
 	s.now = s.now.Add(time.Minute)
 	_, err = s.svc.ForRelease(s.ctx, r)
 	s.Require().NoError(err)
-	s.Len(s.signals.queries, 4)
+	s.Equal(12, s.signals.readCount())
 }
 
 func (s *ImpactSuite) TestAFailingReadIsAnError() {
@@ -361,4 +388,112 @@ func (s *ImpactSuite) TestFromZeroAnyChangeCounts() {
 	s.Nil(req.DeltaPct)
 	s.Equal("5", strconv.FormatFloat(*req.Delta, 'f', -1, 64))
 	s.Equal(domain.ImpactImproved, req.Verdict)
+}
+
+func (s *ImpactSuite) TestTheSampleAtTheDeployIsNotPartOfTheHourAfter() {
+	s.signals.values[domain.SignalHTTPErrorRatio] = func(t time.Time) float64 {
+		if t.Equal(s.deployedAt) {
+			return 9
+		}
+		return 0.4
+	}
+
+	impact, err := s.svc.ForRelease(s.ctx, s.release())
+	s.Require().NoError(err)
+
+	errs := s.signal(impact, domain.SignalHTTPErrorRatio)
+	s.InDelta(0.4, *errs.After, 1e-9)
+	s.Equal(60, errs.AfterPoints)
+	s.Equal(domain.ImpactNeutral, errs.Verdict)
+}
+
+func (s *ImpactSuite) TestOnlyTheP95OfAQuantileSignalIsRead() {
+	_, err := s.svc.ForRelease(s.ctx, s.release())
+	s.Require().NoError(err)
+
+	for _, r := range s.signals.readsOf(domain.SignalHTTPLatency) {
+		s.Equal(0.95, r.quantile)
+	}
+	for _, r := range s.signals.readsOf("http.requests") {
+		s.Zero(r.quantile)
+	}
+}
+
+func (s *ImpactSuite) TestTheWorstSeriesIsWhatASignalIsJudgedBy() {
+	s.signals.extra[domain.SignalHTTPLatency] = []func(time.Time) float64{stepAt(s.deployedAt, 200, 400)}
+
+	impact, err := s.svc.ForRelease(s.ctx, s.release())
+	s.Require().NoError(err)
+
+	lat := s.signal(impact, domain.SignalHTTPLatency)
+	s.InDelta(400, *lat.After, 1e-9)
+	s.Equal(domain.ImpactWorse, lat.Verdict)
+}
+
+func (s *ImpactSuite) TestMovesUnderTheAbsoluteFloorsAreNeutral() {
+	worker := domain.Component{ID: uuid.New(), Role: domain.Fact[domain.ComponentRole]{Override: ptr(domain.ComponentRoleWorker)}}
+	tests := []struct {
+		name   string
+		worker bool
+		signal string
+		before float64
+		after  float64
+		want   domain.ImpactVerdict
+	}{
+		{"half a dead letter from none", true, "queue.dead_letter", 0, 0.5, domain.ImpactNeutral},
+		{"three dead letters from none", true, "queue.dead_letter", 0, 3, domain.ImpactWorse},
+		{"a few errors a minute more", true, "process.errors", 0.01, 0.04, domain.ImpactNeutral},
+		{"errors every second", true, "process.errors", 0.01, 1, domain.ImpactWorse},
+		{"p95 up 40% but 40 ms", false, domain.SignalHTTPLatency, 100, 140, domain.ImpactNeutral},
+		{"p95 up 60 ms", false, domain.SignalHTTPLatency, 100, 160, domain.ImpactWorse},
+		{"throughput down 20%", false, "http.requests", 100, 80, domain.ImpactNeutral},
+		{"throughput down 30%", false, "http.requests", 100, 70, domain.ImpactWorse},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.SetupTest()
+			s.svc = deployimpact.New(deployimpact.Deps{
+				Signals:    s.signals,
+				Components: fakeComponents{s.component.ID: s.component, worker.ID: worker},
+				Clock:      func() time.Time { return s.now },
+			})
+			s.signals.values[tt.signal] = stepAt(s.deployedAt, tt.before, tt.after)
+			r := s.release()
+			if tt.worker {
+				r.ComponentID = &worker.ID
+			}
+			impact, err := s.svc.ForRelease(s.ctx, r)
+			s.Require().NoError(err)
+			s.Equal(tt.want, s.signal(impact, tt.signal).Verdict)
+		})
+	}
+}
+
+func (s *ImpactSuite) TestTheFloorsAreConfigurable() {
+	svc := deployimpact.New(deployimpact.Deps{
+		Signals:    s.signals,
+		Components: fakeComponents{s.component.ID: s.component},
+		Thresholds: domain.DeployImpactConfig{LatencyFloorMS: 10, ThroughputChangePct: 10},
+		Clock:      func() time.Time { return s.now },
+	})
+	s.signals.values[domain.SignalHTTPLatency] = stepAt(s.deployedAt, 100, 140)
+	s.signals.values["http.requests"] = stepAt(s.deployedAt, 100, 85)
+
+	impact, err := svc.ForRelease(s.ctx, s.release())
+	s.Require().NoError(err)
+
+	s.Equal(domain.ImpactWorse, s.signal(impact, domain.SignalHTTPLatency).Verdict)
+	s.Equal(domain.ImpactWorse, s.signal(impact, "http.requests").Verdict)
+	s.Equal(10.0, svc.Thresholds().LatencyFloorMS)
+	s.Equal(float64(domain.DefaultImpactCountFloor), svc.Thresholds().CountFloor)
+}
+
+func (s *ImpactSuite) TestAnAnswerWithAnUnreadableSignalIsNotReused() {
+	s.signals.readErr[domain.SignalHTTPLatency] = true
+	r := s.release()
+	_, err := s.svc.ForRelease(s.ctx, r)
+	s.Require().NoError(err)
+	_, err = s.svc.ForRelease(s.ctx, r)
+	s.Require().NoError(err)
+	s.Equal(12, s.signals.readCount())
 }

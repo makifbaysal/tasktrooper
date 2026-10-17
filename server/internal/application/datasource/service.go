@@ -39,6 +39,13 @@ type CloudAccountsSetter interface {
 	SetCloudAccounts(port.CloudAccountReader)
 }
 
+// StoreCredentialsSetter must be implemented by every kind whose schema has a
+// store_credential field: the service hands it the same reader it checks
+// those fields against.
+type StoreCredentialsSetter interface {
+	SetStoreCredentials(port.StoreCredentialReader)
+}
+
 type Deps struct {
 	Store port.DataSourceStore
 	// Recipes is optional; without it only the embedded catalog is listed.
@@ -46,7 +53,10 @@ type Deps struct {
 	// CloudAccounts is optional; without it a cloud_account field accepts no
 	// value (not_permitted).
 	CloudAccounts port.CloudAccountReader
-	Kinds         []port.DataSourceKindAdapter
+	// StoreCredentials is optional; without it a store_credential field
+	// accepts no value (not_permitted).
+	StoreCredentials port.StoreCredentialReader
+	Kinds            []port.DataSourceKindAdapter
 	// URLPolicy is required: where a source URL may point is a deployment
 	// decision (urlguard.HumanConfigured on a person's own computer, a
 	// public-only policy on a shared host), never a default.
@@ -59,6 +69,7 @@ type Service struct {
 	store       port.DataSourceStore
 	recipeStore port.ObservabilityRecipeStore
 	clouds      port.CloudAccountReader
+	storeCreds  port.StoreCredentialReader
 	kinds       map[domain.DataSourceKind]port.DataSourceKindAdapter
 	order       []domain.DataSourceKind
 	catalog     *Catalog
@@ -79,6 +90,7 @@ func NewService(d Deps) (*Service, error) {
 		store:       d.Store,
 		recipeStore: d.Recipes,
 		clouds:      d.CloudAccounts,
+		storeCreds:  d.StoreCredentials,
 		kinds:       map[domain.DataSourceKind]port.DataSourceKindAdapter{},
 		now:         func() time.Time { return time.Now().UTC() },
 	}
@@ -90,6 +102,9 @@ func NewService(d Deps) (*Service, error) {
 		s.order = append(s.order, k.Kind())
 		if setter, ok := k.(CloudAccountsSetter); ok && d.CloudAccounts != nil {
 			setter.SetCloudAccounts(d.CloudAccounts)
+		}
+		if setter, ok := k.(StoreCredentialsSetter); ok && d.StoreCredentials != nil {
+			setter.SetStoreCredentials(d.StoreCredentials)
 		}
 	}
 	fsys := d.Catalog
@@ -198,6 +213,9 @@ func (s *Service) Recipes(ctx context.Context) ([]domain.Recipe, error) {
 		r.Params = nonNilSlice(r.Params)
 		if r.AppliesTo.ResourceParams == nil {
 			r.AppliesTo.ResourceParams = map[string]string{}
+		}
+		if r.AppliesTo.StoreParams == nil {
+			r.AppliesTo.StoreParams = map[string]string{}
 		}
 		out = append(out, r)
 	}

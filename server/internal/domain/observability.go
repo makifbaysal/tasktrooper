@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // SignalKind is the shape of what a signal measures.
 type SignalKind string
@@ -79,12 +82,17 @@ const (
 // RecipeAppliesTo says what a recipe reads. ResourceKind is the cloud
 // resource an environment must be bound to for the recipe to fit it, and
 // ResourceParams says which field of that resource's ref fills which param
-// (see ResourceRefValue for the paths).
+// (see ResourceRefValue for the paths). StorePlatform is the store app
+// (MobileStorePlatformIOS or MobileStorePlatformAndroid) a component's
+// repository must have linked for the recipe to fit it, and StoreParams
+// says which field of that app fills which param (see StoreAppValue).
 type RecipeAppliesTo struct {
 	Technology      string            `json:"technology"`
 	MessagingSystem string            `json:"messaging_system"`
 	ResourceKind    CloudResourceKind `json:"resource_kind"`
 	ResourceParams  map[string]string `json:"resource_params"`
+	StorePlatform   string            `json:"store_platform"`
+	StoreParams     map[string]string `json:"store_params"`
 }
 
 // RecipeDetect is how discovery suggests a recipe: Metric present in a
@@ -97,16 +105,48 @@ type RecipeDetect struct {
 // reference a declared param as $name, and the built-ins $__rate (a rate
 // window derived from the step), $__interval (the step) and $__quantile (the
 // quantile a quantile signal is read at); where each may sit is the kind's
-// query language's rule.
+// query language's rule. Tables are the per-entity tables it reads at an
+// instant, by name (RecipeTableQueues). Defaults is the value a declared
+// param takes where a binding leaves it empty (WithDefaults).
 type Recipe struct {
-	ID         string            `json:"id"`
-	SourceKind DataSourceKind    `json:"source_kind"`
-	AppliesTo  RecipeAppliesTo   `json:"applies_to"`
-	Detect     RecipeDetect      `json:"detect"`
-	Params     []string          `json:"params"`
-	Signals    map[string]string `json:"signals"`
-	Origin     RecipeOrigin      `json:"origin"`
+	ID         string                 `json:"id"`
+	SourceKind DataSourceKind         `json:"source_kind"`
+	AppliesTo  RecipeAppliesTo        `json:"applies_to"`
+	Detect     RecipeDetect           `json:"detect"`
+	Params     []string               `json:"params"`
+	Defaults   map[string]string      `json:"defaults,omitempty"`
+	Signals    map[string]string      `json:"signals"`
+	Tables     map[string]RecipeTable `json:"tables,omitempty"`
+	Origin     RecipeOrigin           `json:"origin"`
 }
+
+// RecipeTableQueues is the table the queues view reads: one row per queue,
+// partition or subscription the recipe's params select.
+const RecipeTableQueues = "queues"
+
+// RecipeTable is one table a recipe reads at an instant. Columns are shown in
+// order. A column named in KeyLabels is filled from that label of each result
+// and identifies the row; every other column is the value its own query in
+// Queries answers, so one row joins a result of each query on the key
+// labels' values.
+type RecipeTable struct {
+	Columns   []TableColumn     `json:"columns"`
+	KeyLabels []string          `json:"key_labels"`
+	Queries   map[string]string `json:"queries"`
+}
+
+// ValueColumns are the columns a query fills, in column order.
+func (t RecipeTable) ValueColumns() []TableColumn {
+	var out []TableColumn
+	for _, c := range t.Columns {
+		if !t.IsKey(c.Key) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (t RecipeTable) IsKey(column string) bool { return slices.Contains(t.KeyLabels, column) }
 
 // RecipeMatch is one recipe discovery found evidence for.
 type RecipeMatch struct {

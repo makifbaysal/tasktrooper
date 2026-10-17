@@ -246,7 +246,38 @@ type Release struct {
 	DeployedAt      *time.Time       `json:"deployed_at,omitempty"`
 	VerifyUntil     *time.Time       `json:"verify_until,omitempty"`
 	FinishedAt      *time.Time       `json:"finished_at,omitempty"`
+	// RollbackProposal is written only by ReleaseStore.SetRollbackProposal
+	// (migration 190), never by Update.
+	RollbackProposal *RollbackProposal `json:"rollback_proposal"`
+	// RollbackAllowed and RollbackRefusal (a RollbackRefusal* code, empty
+	// when allowed) are what a rollback would answer right now; computed on
+	// read by the release service, never stored.
+	RollbackAllowed bool   `json:"rollback_allowed"`
+	RollbackRefusal string `json:"rollback_refusal"`
 }
+
+// RollbackProposal is a rollback the release engineer asked for while the
+// release's delivery profile had auto_rollback off: nothing ran, and a human
+// approves (rolls back) or dismisses it. IncidentID is the incident this
+// release was attributed when the proposal answers one.
+type RollbackProposal struct {
+	ProposedAt time.Time      `json:"proposed_at"`
+	By         ReleaseActor   `json:"by"`
+	Reason     RollbackReason `json:"reason"`
+	Note       string         `json:"note,omitempty"`
+	IncidentID *uuid.UUID     `json:"incident_id,omitempty"`
+}
+
+// Why a rollback is refused, as Release.RollbackRefusal answers it.
+const (
+	RollbackRefusalNewerShipped = "newer_shipped"
+	RollbackRefusalNewerOpen    = "newer_open"
+	RollbackRefusalNotDeployed  = "not_deployed"
+	RollbackRefusalTooOld       = "too_old"
+	RollbackRefusalNoReleased   = "no_released"
+	RollbackRefusalUnresolved   = "unresolved"
+	RollbackRefusalWrongStatus  = "wrong_status"
+)
 
 func (r Release) TaskIDs() []uuid.UUID {
 	out := make([]uuid.UUID, 0, len(r.Tasks))

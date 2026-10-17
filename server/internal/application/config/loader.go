@@ -171,12 +171,7 @@ func applyDefaults(cfg *domain.Config) {
 	if cfg.Alerting.MaxRulesPerSweep <= 0 {
 		cfg.Alerting.MaxRulesPerSweep = 200
 	}
-	if cfg.DeployOps.Impact.ChangePct <= 0 {
-		cfg.DeployOps.Impact.ChangePct = domain.DefaultImpactChangePct
-	}
-	if cfg.DeployOps.Impact.RatioPoints <= 0 {
-		cfg.DeployOps.Impact.RatioPoints = domain.DefaultImpactRatioPoints
-	}
+	cfg.DeployOps.Impact = cfg.DeployOps.Impact.WithDefaults()
 
 	if strings.TrimSpace(cfg.ClaudeCode.Binary) == "" {
 		cfg.ClaudeCode.Binary = "claude"

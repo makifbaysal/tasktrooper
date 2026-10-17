@@ -40,5 +40,10 @@ type SignalBindingStore interface {
 	// sources, the ones the detector heard back from. Confirmed, dismissed and
 	// human or AI rows are left alone. Answers the pending detected rows after.
 	ReplaceDetectedSuggestions(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, sources []uuid.UUID, suggestions []domain.SignalBinding) ([]domain.SignalBinding, error)
+	// AddSignalBindingSuggestion stores b as a pending suggestion of b.Source
+	// under its slot's lock. A row of that slot with the same target, in any
+	// status, is answered as it stands instead: a dismissed target is never
+	// offered again, and a repeat proposal adds nothing.
+	AddSignalBindingSuggestion(ctx context.Context, b domain.SignalBinding) (domain.SignalBinding, error)
 	DeleteSignalBinding(ctx context.Context, id uuid.UUID) error
 }

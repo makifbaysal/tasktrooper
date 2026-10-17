@@ -32,6 +32,10 @@ type ReleaseService interface {
 	// delivery profile.
 	TestSmoke(ctx context.Context, componentID uuid.UUID, checks []domain.SmokeCheck) (baseURL string, results []domain.SmokeResult, err error)
 	Impact(ctx context.Context, releaseID uuid.UUID) (domain.DeployImpact, error)
+	// Annotate fills what the release's rollback would answer right now
+	// (rollback_allowed, rollback_refusal); List and Get answer it already.
+	Annotate(ctx context.Context, r domain.Release) domain.Release
+	DismissRollbackProposal(ctx context.Context, releaseID uuid.UUID) (domain.Release, error)
 }
 
 // errReleaseConfirmMismatch matches the wording of deployops.ErrConfirmMismatch
@@ -61,6 +65,7 @@ func (h *Handler) registerReleaseRoutes(app fiber.Router) {
 	app.Post("/v1/releases/:releaseId/deploy", h.DeployRelease)
 	app.Post("/v1/releases/:releaseId/finish", h.FinishRelease)
 	app.Post("/v1/releases/:releaseId/rollback", h.RollbackRelease)
+	app.Post("/v1/releases/:releaseId/rollback-proposal/dismiss", h.DismissRollbackProposal)
 	app.Post("/v1/components/:componentId/smoke-checks/test", h.TestComponentSmokeChecks)
 }
 
@@ -260,7 +265,7 @@ func (h *Handler) CutRelease(c *fiber.Ctx) error {
 	if err != nil {
 		return releaseErr(c, err)
 	}
-	return c.JSON(updated)
+	return c.JSON(h.releaseSvc.Annotate(ctx, updated))
 }
 
 // releaseActionRequest is the body every release write endpoint shares: the
@@ -295,7 +300,7 @@ func (h *Handler) DeployRelease(c *fiber.Ctx) error {
 	if err != nil {
 		return releaseErr(c, err)
 	}
-	return c.JSON(updated)
+	return c.JSON(h.releaseSvc.Annotate(ctx, updated))
 }
 
 // FinishRelease — POST /v1/releases/:releaseId/finish
@@ -322,7 +327,7 @@ func (h *Handler) FinishRelease(c *fiber.Ctx) error {
 	if err != nil {
 		return releaseErr(c, err)
 	}
-	return c.JSON(updated)
+	return c.JSON(h.releaseSvc.Annotate(ctx, updated))
 }
 
 // RollbackRelease — POST /v1/releases/:releaseId/rollback
@@ -349,6 +354,22 @@ func (h *Handler) RollbackRelease(c *fiber.Ctx) error {
 	}
 
 	updated, err := h.releaseSvc.Rollback(ctx, id, domain.ReleaseActorHuman, domain.RollbackManual, req.Note)
+	if err != nil {
+		return releaseErr(c, err)
+	}
+	return c.JSON(h.releaseSvc.Annotate(ctx, updated))
+}
+
+// DismissRollbackProposal — POST /v1/releases/:releaseId/rollback-proposal/dismiss
+// A human declining the release engineer's proposed rollback. It changes
+// nothing in production, so no confirm phrase; a release without a proposal
+// answers as it is.
+func (h *Handler) DismissRollbackProposal(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "releaseId")
+	if err != nil {
+		return badRequest(c, "invalid release id")
+	}
+	updated, err := h.releaseSvc.DismissRollbackProposal(h.enrichContext(c), id)
 	if err != nil {
 		return releaseErr(c, err)
 	}

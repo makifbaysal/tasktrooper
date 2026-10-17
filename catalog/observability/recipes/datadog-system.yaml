@@ -1,0 +1,16 @@
+# A host's CPU and memory from the Datadog Agent's system check. host is the
+# host's name as Datadog tags it. CPU is the share of the host's cores in use
+# (user + system), as cores; memory is bytes in use.
+id: datadog-system
+source_kind: datadog
+applies_to:
+  technology: datadog
+detect:
+  metric: system.cpu.user
+params: [host]
+signals:
+  infra.cpu: >-
+    (avg:system.cpu.user{host:$host} + avg:system.cpu.system{host:$host})
+    / 100 * avg:system.cpu.num_cores{host:$host}
+  infra.memory: >-
+    avg:system.mem.used{host:$host}

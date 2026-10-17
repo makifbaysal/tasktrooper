@@ -45,7 +45,7 @@ func renderIn(l lookup, b domain.SignalBinding, step time.Duration, quantile flo
 	if !ok {
 		return "", fmt.Errorf("recipe %q has no query for %s: %w", b.RecipeID, b.Signal, datasource.ErrInvalidInput)
 	}
-	return datasource.RenderKindQuery(ds.Kind, query, b.Params, opts)
+	return datasource.RenderKindQuery(ds.Kind, query, r.WithDefaults(b.Params), opts)
 }
 
 func (rd *reader) read(ctx context.Context, b domain.SignalBinding, quantile float64, from, to time.Time, step time.Duration) (domain.SeriesResult, string, error) {

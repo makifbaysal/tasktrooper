@@ -20,12 +20,14 @@ import (
 const (
 	goldenCacheTTL     = time.Minute
 	goldenCacheSize    = 64
+	queuesCacheTTL     = 30 * time.Second
+	queuesCacheSize    = 128
 	discoveryTTL       = 5 * time.Minute
 	discoveryCacheSize = 256
 )
 
 // SetCacheScope keys every process-wide cache of the service (golden
-// answers, discovered recipe matches) by scope(ctx) as well, so a process
+// boards, queue tables, discovered recipe matches) by scope(ctx) as well, so a process
 // serving several tenants never answers one from another's entry. Without it
 // the scope is "", one for the whole process. Call it before serving.
 func (s *Service) SetCacheScope(scope func(ctx context.Context) string) { s.scope = scope }
@@ -39,7 +41,7 @@ func (s *Service) cacheScope(ctx context.Context) string {
 
 // sourceChanged drops what was read through a source saved again or deleted.
 func (s *Service) sourceChanged(id uuid.UUID) {
-	s.goldenCache.clear()
+	s.dropAnswers()
 	s.discovery.drop(id)
 }
 
@@ -61,55 +63,61 @@ func (l lookup) version() string {
 	return hex.EncodeToString(h.Sum(nil)[:16])
 }
 
-// goldenCache keeps boards for goldenCacheTTL. gen moves on every clear, so
-// a read that started before a binding changed does not store what it read.
-type goldenCache struct {
+// answerCache keeps answers for ttl, at most size of them. gen moves on every
+// clear, so a read that started before a binding changed does not store what
+// it read.
+type answerCache[V any] struct {
+	ttl     time.Duration
+	size    int
 	mu      sync.Mutex
 	gen     uint64
-	entries map[string]goldenEntry
+	entries map[string]answerEntry[V]
 }
 
-type goldenEntry struct {
+type answerEntry[V any] struct {
 	at    time.Time
-	board domain.GoldenBoard
+	value V
 }
 
-func newGoldenCache() *goldenCache { return &goldenCache{entries: map[string]goldenEntry{}} }
+func newAnswerCache[V any](ttl time.Duration, size int) *answerCache[V] {
+	return &answerCache[V]{ttl: ttl, size: size, entries: map[string]answerEntry[V]{}}
+}
 
-func (c *goldenCache) get(key string, now time.Time) (domain.GoldenBoard, bool) {
+func (c *answerCache[V]) get(key string, now time.Time) (V, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.entries[key]
-	if !ok || now.Sub(e.at) >= goldenCacheTTL {
-		return domain.GoldenBoard{}, false
+	if !ok || now.Sub(e.at) >= c.ttl {
+		var zero V
+		return zero, false
 	}
-	return e.board, true
+	return e.value, true
 }
 
-func (c *goldenCache) generation() uint64 {
+func (c *answerCache[V]) generation() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.gen
 }
 
-func (c *goldenCache) put(key string, board domain.GoldenBoard, now time.Time, gen uint64) {
+func (c *answerCache[V]) put(key string, value V, now time.Time, gen uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if gen != c.gen {
 		return
 	}
 	for k, e := range c.entries {
-		if now.Sub(e.at) >= goldenCacheTTL {
+		if now.Sub(e.at) >= c.ttl {
 			delete(c.entries, k)
 		}
 	}
-	if len(c.entries) >= goldenCacheSize {
-		delete(c.entries, oldest(c.entries, func(e goldenEntry) time.Time { return e.at }))
+	if _, ok := c.entries[key]; !ok && len(c.entries) >= c.size {
+		delete(c.entries, oldest(c.entries, func(e answerEntry[V]) time.Time { return e.at }))
 	}
-	c.entries[key] = goldenEntry{at: now, board: board}
+	c.entries[key] = answerEntry[V]{at: now, value: value}
 }
 
-func (c *goldenCache) clear() {
+func (c *answerCache[V]) clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gen++
@@ -182,4 +190,12 @@ func oldest[K comparable, E any](entries map[K]E, at func(E) time.Time) K {
 		}
 	}
 	return key
+}
+
+// dropAnswers forgets every golden board and queue table: a binding or a
+// source they were read through changed.
+func (s *Service) dropAnswers() {
+	s.goldenCache.clear()
+	s.queuesCache.clear()
+	s.tablesCache.clear()
 }

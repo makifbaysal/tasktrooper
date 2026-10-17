@@ -1,0 +1,12 @@
+# Lines in Elasticsearch or OpenSearch carrying ECS service.name (Elastic
+# Agent, Filebeat with add_fields, OpenTelemetry's exporter).
+id: elasticsearch-service
+source_kind: elasticsearch
+applies_to:
+  technology: elasticsearch
+detect:
+  metric: service.name
+params: [service]
+signals:
+  logs.lines: >-
+    {"filters": {"service.name": "$service"}}

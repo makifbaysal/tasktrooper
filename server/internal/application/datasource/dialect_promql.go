@@ -20,7 +20,7 @@ type promQLDialect struct{}
 
 func (promQLDialect) validMetricName(name string) bool { return promMetricPattern.MatchString(name) }
 
-func (promQLDialect) check(signal, query string, declared map[string]bool) []string {
+func (promQLDialect) check(subject, query string, declared map[string]bool) []string {
 	var problems []string
 	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 	seen := map[string]bool{}
@@ -32,19 +32,19 @@ func (promQLDialect) check(signal, query string, declared map[string]bool) []str
 		case use.name == builtinQuantile:
 			if use.quote != 0 || use.inBraces || use.inBrackets {
 				seen[use.name] = true
-				add("signal %q: $%s may appear only where a number goes, outside strings, {...} and [...]", signal, use.name)
+				add("%s: $%s may appear only where a number goes, outside strings, {...} and [...]", subject, use.name)
 			}
 		case builtinPlaceholders[use.name]:
 			if use.quote != 0 || !use.inBrackets {
 				seen[use.name] = true
-				add("signal %q: $%s may appear only inside [...]", signal, use.name)
+				add("%s: $%s may appear only inside [...]", subject, use.name)
 			}
 		case !declared[use.name]:
 			seen[use.name] = true
-			add("signal %q uses $%s, which is neither a declared param nor a built-in", signal, use.name)
+			add("%s uses $%s, which is neither a declared param nor a built-in", subject, use.name)
 		case !use.inEqualityMatcher():
 			seen[use.name] = true
-			add("signal %q: $%s must sit inside a double-quoted label value matched with = or !=", signal, use.name)
+			add("%s: $%s must sit inside a double-quoted label value matched with = or !=", subject, use.name)
 		}
 	}
 	return problems

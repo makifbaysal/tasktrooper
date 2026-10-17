@@ -146,6 +146,24 @@ type Incident struct {
 	Events []IncidentEvent `json:"events,omitempty"`
 }
 
+// IncidentPayloadComponentID is the payload key an incident names the
+// component it is about under; an alert rule's incident always does.
+const IncidentPayloadComponentID = "component_id"
+
+// ComponentID is the component the incident's payload names, when it names
+// one.
+func (i Incident) ComponentID() (uuid.UUID, bool) {
+	raw, ok := i.Payload[IncidentPayloadComponentID].(string)
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
 // Incident event kinds.
 const (
 	IncidentEventDetected    = "detected"
@@ -189,7 +207,14 @@ type IncidentFilter struct {
 	RepositoryID *uuid.UUID
 	Env          string
 	Statuses     []IncidentStatus
-	Limit        int
+	// Source narrows to one incident source (alert_rule, webhook, …).
+	Source string
+	Limit  int
+}
+
+// LiveIncidentStatuses are the statuses an incident still needs someone in.
+var LiveIncidentStatuses = []IncidentStatus{
+	IncidentStatusOpen, IncidentStatusTriaging, IncidentStatusProposed, IncidentStatusFixing,
 }
 
 // Remedy kinds — the shape of the fix, not the fix itself. Kind drives who is

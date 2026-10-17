@@ -9,7 +9,11 @@ import (
 )
 
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (domain.Release, error) {
-	return s.store.Get(ctx, id)
+	r, err := s.store.Get(ctx, id)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	return s.Annotate(ctx, r), nil
 }
 
 // ForTask takes repositoryID for symmetry with the rest of the tool surface
@@ -17,9 +21,17 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (domain.Release, error)
 // the newest release for the task without needing it.
 func (s *Service) ForTask(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error) {
 	_ = repositoryID
-	return s.store.ForTask(ctx, taskID)
+	r, err := s.store.ForTask(ctx, taskID)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	return s.Annotate(ctx, r), nil
 }
 
 func (s *Service) List(ctx context.Context, f domain.ReleaseListFilter) ([]domain.Release, error) {
-	return s.store.List(ctx, f)
+	releases, err := s.store.List(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return s.annotateAll(ctx, releases), nil
 }

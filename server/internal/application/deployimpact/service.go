@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -23,12 +24,16 @@ import (
 const (
 	step          = time.Minute
 	baselineShift = 24 * time.Hour
-	headlineLabel = "0.95"
-	cacheSize     = 256
+	// headlineQuantile is the one quantile a quantile signal is read at:
+	// nothing else of it is judged.
+	headlineQuantile = 0.95
+	cacheSize        = 256
+	unitMS           = "ms"
 )
 
+// Signals is satisfied by signals.Service.
 type Signals interface {
-	Series(ctx context.Context, componentID uuid.UUID, q signals.SeriesQuery) (domain.ComponentSeries, error)
+	ReadSignal(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, signal string, quantile float64, from, to time.Time, step time.Duration) ([]domain.Series, error)
 	GoldenSignals(role domain.ComponentRole) []string
 	Signal(id string) (domain.Signal, bool)
 }
@@ -65,27 +70,34 @@ func New(d Deps) *Service {
 	s := &Service{
 		signals:    d.Signals,
 		components: d.Components,
-		thresholds: d.Thresholds,
+		thresholds: d.Thresholds.WithDefaults(),
 		now:        d.Clock,
 		cache:      map[cacheKey]domain.DeployImpact{},
 	}
 	if s.now == nil {
 		s.now = func() time.Time { return time.Now().UTC() }
 	}
-	if s.thresholds.ChangePct <= 0 {
-		s.thresholds.ChangePct = domain.DefaultImpactChangePct
-	}
-	if s.thresholds.RatioPoints <= 0 {
-		s.thresholds.RatioPoints = domain.DefaultImpactRatioPoints
-	}
 	return s
+}
+
+// Thresholds is what this service judges by, defaults filled in.
+func (s *Service) Thresholds() domain.DeployImpactConfig { return s.thresholds }
+
+// read is one signal's two reads: the hour around the deploy and, once the
+// after-window has begun, yesterday's same stretch.
+type read struct {
+	signal         string
+	current, prior []domain.Series
+	currErr, prErr error
+	unbound        bool
+	withBaseline   bool
 }
 
 // ForRelease reads the release's production impact. A release with no
 // deploy time, no component, a component gone or a role with no golden
 // signals answers unknown with no signals; so does one whose golden signals
 // are all unbound. A signal that cannot be read is listed as unknown and
-// never fails the others.
+// never fails the others; every bound signal failing is the answer's error.
 func (s *Service) ForRelease(ctx context.Context, r domain.Release) (domain.DeployImpact, error) {
 	now := s.now().UTC()
 	out := domain.NewDeployImpact(r, now)
@@ -119,53 +131,39 @@ func (s *Service) ForRelease(ctx context.Context, r domain.Release) (domain.Depl
 	if !to.After(deployed) {
 		to = deployed
 	}
-	current, err := s.signals.Series(ctx, comp.ID, signals.SeriesQuery{
-		Environment: domain.EnvironmentProduction,
-		Signals:     ids,
-		From:        deployed.Add(-domain.DefaultImpactWindow),
-		To:          to,
-		Step:        step,
-	})
-	if err != nil {
-		return domain.DeployImpact{}, err
-	}
-	baseline := map[string]domain.SignalSeries{}
-	if afterEnd.After(deployed) {
-		prior, err := s.signals.Series(ctx, comp.ID, signals.SeriesQuery{
-			Environment: domain.EnvironmentProduction,
-			Signals:     ids,
-			From:        deployed.Add(-baselineShift),
-			To:          afterEnd.Add(-baselineShift),
-			Step:        step,
-		})
-		if err != nil {
-			return domain.DeployImpact{}, err
-		}
-		for _, ss := range prior.Signals {
-			baseline[ss.Signal] = ss
-		}
-	}
+	reads := s.readAll(ctx, comp.ID, ids, deployed, to, afterEnd)
 
-	verdicts := make([]domain.ImpactVerdict, 0, len(current.Signals))
-	for _, ss := range current.Signals {
-		if !ss.Bound {
+	verdicts := make([]domain.ImpactVerdict, 0, len(reads))
+	var firstErr error
+	complete, bound, failed := true, 0, 0
+	for _, rd := range reads {
+		if rd.unbound {
 			continue
 		}
-		sig, _ := s.signals.Signal(ss.Signal)
+		bound++
+		sig, _ := s.signals.Signal(rd.signal)
 		si := domain.SignalImpact{
-			Signal:         ss.Signal,
-			Unit:           ss.Unit,
+			Signal:         rd.signal,
+			Unit:           sig.Unit,
 			HigherIsBetter: sig.Better == domain.SignalHigherIsBetter,
 			Verdict:        domain.ImpactUnknown,
 		}
-		if ss.Error == nil {
-			points := headline(ss.Series)
-			si.Before = mean(points, deployed.Add(-domain.DefaultImpactWindow), deployed, false)
-			if afterEnd.After(deployed) {
-				si.After = mean(points, deployed, afterEnd, true)
+		if rd.currErr != nil {
+			complete = false
+			failed++
+			if firstErr == nil {
+				firstErr = rd.currErr
 			}
-			if prior, ok := baseline[ss.Signal]; ok && prior.Error == nil {
-				si.Baseline = mean(headline(prior.Series), deployed.Add(-baselineShift), afterEnd.Add(-baselineShift), true)
+		} else {
+			points := headline(rd.current, sig)
+			si.Before, _ = mean(points, deployed.Add(-domain.DefaultImpactWindow), deployed, false)
+			if afterEnd.After(deployed) {
+				si.After, si.AfterPoints = mean(points, deployed, afterEnd, true)
+			}
+			if rd.withBaseline && rd.prErr == nil {
+				si.Baseline, _ = mean(headline(rd.prior, sig), deployed.Add(-baselineShift), afterEnd.Add(-baselineShift), true)
+			} else if rd.prErr != nil {
+				complete = false
 			}
 			si.Delta, si.DeltaPct = deltas(si.Before, si.After)
 			si.Verdict = s.verdict(sig, si.Before, si.After, si.Baseline)
@@ -173,9 +171,56 @@ func (s *Service) ForRelease(ctx context.Context, r domain.Release) (domain.Depl
 		verdicts = append(verdicts, si.Verdict)
 		out.Signals = append(out.Signals, si)
 	}
+	if bound > 0 && failed == bound {
+		return domain.DeployImpact{}, firstErr
+	}
 	out.Verdict = domain.WorstImpact(verdicts)
-	s.store(key, out)
+	if complete {
+		s.store(key, out)
+	}
 	return out, nil
+}
+
+// readAll reads every golden signal's two windows at once, so the slowest
+// source bounds the answer rather than the sum of them. A signal with no
+// confirmed binding is marked unbound.
+func (s *Service) readAll(ctx context.Context, componentID uuid.UUID, ids []string, deployed, to, afterEnd time.Time) []read {
+	reads := make([]read, len(ids))
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		reads[i] = read{signal: id, withBaseline: afterEnd.After(deployed)}
+		quantile := s.quantileOf(id)
+		wg.Add(1)
+		go func(rd *read) {
+			defer wg.Done()
+			rd.current, rd.currErr = s.signals.ReadSignal(ctx, componentID, domain.EnvironmentProduction, rd.signal, quantile,
+				deployed.Add(-domain.DefaultImpactWindow), to, step)
+			if errors.Is(rd.currErr, signals.ErrUnbound) {
+				rd.unbound, rd.currErr = true, nil
+			}
+		}(&reads[i])
+		if !reads[i].withBaseline {
+			continue
+		}
+		wg.Add(1)
+		go func(rd *read) {
+			defer wg.Done()
+			rd.prior, rd.prErr = s.signals.ReadSignal(ctx, componentID, domain.EnvironmentProduction, rd.signal, quantile,
+				deployed.Add(-baselineShift), afterEnd.Add(-baselineShift), step)
+			if errors.Is(rd.prErr, signals.ErrUnbound) {
+				rd.prErr = nil
+			}
+		}(&reads[i])
+	}
+	wg.Wait()
+	return reads
+}
+
+func (s *Service) quantileOf(id string) float64 {
+	if sig, ok := s.signals.Signal(id); ok && sig.Aggregation == domain.AggregationQuantile {
+		return headlineQuantile
+	}
+	return 0
 }
 
 // verdict needs the move from before to after to clear the threshold, and,
@@ -200,8 +245,8 @@ func (s *Service) verdict(sig domain.Signal, before, after, baseline *float64) d
 }
 
 // move is +1 for a change for the better past the threshold, -1 for one for
-// the worse, 0 inside it. From zero any change counts: there is no
-// percentage of nothing.
+// the worse, 0 inside it. From zero any change past the absolute floor
+// counts: there is no percentage of nothing.
 func (s *Service) move(sig domain.Signal, from, to float64) int {
 	delta := to - from
 	if delta == 0 {
@@ -212,8 +257,11 @@ func (s *Service) move(sig domain.Signal, from, to float64) int {
 		if math.Abs(delta) < s.thresholds.RatioPoints {
 			return 0
 		}
-	case from != 0:
-		if math.Abs(delta)/math.Abs(from)*100 < s.thresholds.ChangePct {
+	default:
+		if from != 0 && math.Abs(delta)/math.Abs(from)*100 < s.changePct(sig) {
+			return 0
+		}
+		if math.Abs(delta) < s.floor(sig, from, to) {
 			return 0
 		}
 	}
@@ -221,6 +269,30 @@ func (s *Service) move(sig domain.Signal, from, to float64) int {
 		return 1
 	}
 	return -1
+}
+
+func (s *Service) changePct(sig domain.Signal) float64 {
+	if sig.Aggregation == domain.AggregationRate && sig.Better == domain.SignalHigherIsBetter {
+		return s.thresholds.ThroughputChangePct
+	}
+	return s.thresholds.ChangePct
+}
+
+// floor is the smallest absolute move that counts: a fraction of an error a
+// second or of a queued message is noise, however large it is in percent.
+func (s *Service) floor(sig domain.Signal, from, to float64) float64 {
+	larger := math.Max(math.Abs(from), math.Abs(to))
+	switch {
+	case sig.Aggregation == domain.AggregationQuantile && sig.Unit == unitMS:
+		return s.thresholds.LatencyFloorMS
+	case sig.Better != domain.SignalLowerIsBetter:
+		return 0
+	case sig.Aggregation == domain.AggregationGauge:
+		return math.Max(s.thresholds.CountFloor, larger*s.thresholds.FloorPct/100)
+	case sig.Aggregation == domain.AggregationRate:
+		return math.Max(s.thresholds.RateFloor, larger*s.thresholds.FloorPct/100)
+	}
+	return 0
 }
 
 func deltas(before, after *float64) (*float64, *float64) {
@@ -235,36 +307,55 @@ func deltas(before, after *float64) (*float64, *float64) {
 	return &d, &pct
 }
 
-// headline is the series a signal is judged by: its p95 when it was read
-// per quantile, else the first it answered.
-func headline(series []domain.Series) []domain.SeriesPoint {
+// headline is the series a signal is judged by: at each instant the worst of
+// the series it answered — the highest where lower is better, the lowest
+// where higher is — as the alert evaluator judges a query answering several.
+func headline(series []domain.Series, sig domain.Signal) []domain.SeriesPoint {
+	if len(series) == 1 {
+		return series[0].Points
+	}
+	lowIsWorse := sig.Better == domain.SignalHigherIsBetter
+	byTime := map[int64]domain.SeriesPoint{}
 	for _, sr := range series {
-		if sr.Labels["quantile"] == headlineLabel {
-			return sr.Points
+		for _, p := range sr.Points {
+			if p.Value == nil {
+				continue
+			}
+			k := p.Time.UnixNano()
+			cur, seen := byTime[k]
+			if !seen || (lowIsWorse && *p.Value < *cur.Value) || (!lowIsWorse && *p.Value > *cur.Value) {
+				byTime[k] = p
+			}
 		}
 	}
-	if len(series) == 0 {
-		return nil
+	out := make([]domain.SeriesPoint, 0, len(byTime))
+	for _, p := range byTime {
+		out = append(out, p)
 	}
-	return series[0].Points
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.Before(out[j].Time) })
+	return out
 }
 
-// mean of the non-null points from from up to to, to itself included only
-// when closed.
-func mean(points []domain.SeriesPoint, from, to time.Time, closed bool) *float64 {
+// mean of the non-null points between from and to and how many there were:
+// [from, to) for the window before the deploy, (from, to] for one after it,
+// whose sample at the deploy itself still describes the release before.
+func mean(points []domain.SeriesPoint, from, to time.Time, after bool) (*float64, int) {
 	sum, n := 0.0, 0
 	for _, p := range points {
-		if p.Value == nil || p.Time.Before(from) || p.Time.After(to) || (!closed && p.Time.Equal(to)) {
+		if p.Value == nil || p.Time.Before(from) || p.Time.After(to) {
+			continue
+		}
+		if (after && !p.Time.After(from)) || (!after && p.Time.Equal(to)) {
 			continue
 		}
 		sum += *p.Value
 		n++
 	}
 	if n == 0 {
-		return nil
+		return nil, 0
 	}
 	m := sum / float64(n)
-	return &m
+	return &m, n
 }
 
 func (s *Service) cached(key cacheKey) (domain.DeployImpact, bool) {

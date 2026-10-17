@@ -21,9 +21,21 @@ signals:
   - {id: queue.consumers, kind: metric, unit: count, roles: [worker], aggregation: gauge}
   - {id: process.errors, kind: metric, unit: errors/s, roles: [worker], aggregation: rate, better: lower}
 
+  # Where a component's log lines and traces are read (the Logs explorer, the
+  # traces view): a log or trace kind's query, not a series.
+  - {id: logs.lines, kind: log, unit: lines/s, roles: [backend, worker, frontend], aggregation: rate}
+  - {id: traces.spans, kind: trace, unit: spans/s, roles: [backend, worker, frontend], aggregation: rate}
+  # Where a component's error groups are read (the errors inbox, beside its
+  # cloud's own): an errors kind's query (a Sentry project), not a series.
+  - {id: errors.issues, kind: error, unit: issues, roles: [backend, worker, frontend, mobile, desktop], aggregation: gauge}
+
   - {id: web.page_views, kind: metric, unit: views/s, roles: [frontend], aggregation: rate, better: higher}
   - {id: web.sessions, kind: metric, unit: count, roles: [frontend], aggregation: gauge, better: higher}
+  # Distinct visitors per interval (PostHog persons, GA4 active users,
+  # Plausible visitors).
+  - {id: web.visitors, kind: metric, unit: count, roles: [frontend], aggregation: gauge, better: higher}
   - {id: web.lcp, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}
+  - {id: web.fcp, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}
   - {id: web.inp, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}
   - {id: web.cls, kind: metric, unit: score, roles: [frontend], aggregation: quantile, better: lower}
   - {id: web.ttfb, kind: metric, unit: ms, roles: [frontend], aggregation: quantile, better: lower}

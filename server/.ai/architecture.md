@@ -270,8 +270,8 @@ through the board.
 
 Notifying is split the same way as everything else here: `prodops` decides *whether* (severity
 floor, a 30-minute re-notify cooldown keyed by (repository, env, fingerprint) — not incident id,
-which a flapping alert renews every cycle — with opening and recovery cooled under separate
-keys) and builds a channel-neutral
+which a flapping alert renews every cycle — that holds back only a repeat of the kind last told,
+never an opening after a told recovery or the other way round) and builds a channel-neutral
 `domain.Notification`; `application/notify` only *delivers*, fanning out to every registered,
 enabled `port.NotificationChannel` (bounded wait, failures logged). A new channel (Slack, email,
 iOS push) is a new adapter registered in runtime wiring — no incident code changes. Local mode

@@ -17,6 +17,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/alerting"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/notify"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/signals"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
@@ -29,7 +30,7 @@ var (
 		"name", "component_id", "environment", "signal", "data_source_id", "query", "condition", "severity",
 		"channels", "open_incident", "enabled",
 	}
-	alertRuleKeys = append([]string{"id", "state", "state_since", "last_value", "last_evaluated_at", "created_at", "updated_at"},
+	alertRuleKeys = append([]string{"id", "state", "state_since", "last_value", "last_evaluated_at", "created_by", "created_at", "updated_at"},
 		alertRuleSpecKeys...)
 )
 
@@ -77,13 +78,17 @@ func (s *AlertRulesHandlerSuite) SetupTest() {
 	policy := urlguard.HumanConfigured()
 	sources, err := datasource.NewService(datasource.Deps{
 		Store: dsStore, Recipes: recipes,
-		Kinds:     []port.DataSourceKindAdapter{signalsPromKind{kind, s.querier, mocks.NewDiscoverer(t)}},
+		Kinds:     []port.DataSourceKindAdapter{signalsPromKind{kind, s.querier, mocks.NewDiscoverer(t), mocks.NewTableQuerier(t)}},
 		URLPolicy: &policy,
 	})
 	s.Require().NoError(err)
 	sigs, err := signals.NewService(signals.Deps{Bindings: s.bindings, Sources: sources, Components: comps, Environments: mocks.NewEnvironmentStore(t)})
 	s.Require().NoError(err)
-	svc, err := alerting.NewService(alerting.Deps{Rules: s.rules, Signals: sigs, Sources: sources, Components: comps},
+	desktop := mocks.NewNotificationChannel(t)
+	desktop.On("Kind").Return(domain.NotificationChannelDesktop).Maybe()
+	notifier := notify.NewService()
+	notifier.Register(desktop)
+	svc, err := alerting.NewService(alerting.Deps{Rules: s.rules, Signals: sigs, Sources: sources, Components: comps, Notifier: notifier},
 		alerting.WithClock(func() time.Time { return s.now }))
 	s.Require().NoError(err)
 	s.app = fiber.New(fiber.Config{JSONEncoder: goccyjson.Marshal, JSONDecoder: goccyjson.Unmarshal})
@@ -166,6 +171,26 @@ func (s *AlertRulesHandlerSuite) TestCreateAnswers201WithTheRule() {
 	s.Equal("ok", body["state"])
 	s.Equal(true, body["enabled"])
 	s.Equal(map[string]any{"op": "gt", "threshold": 2.0, "for_seconds": 300.0, "window_seconds": 300.0}, body["condition"])
+}
+
+func (s *AlertRulesHandlerSuite) TestNotificationChannelsSayWhichCanDeliver() {
+	status, body := s.do("GET", "/v1/notification-channels", "")
+	s.Require().Equal(fiber.StatusOK, status, body)
+	channels := body["channels"].([]any)
+	s.Require().Len(channels, 6)
+	available := map[string]any{}
+	for _, raw := range channels {
+		ch := raw.(map[string]any)
+		s.ElementsMatch([]string{"kind", "available"}, keysOf(ch))
+		available[ch["kind"].(string)] = ch["available"]
+	}
+	s.Equal(true, available["desktop"])
+	s.Equal(false, available["slack"])
+
+	status, body = s.do("POST", "/v1/alert-rules", `{"name":"Errors","component_id":"`+s.component.ID.String()+
+		`","signal":"http.error_ratio","condition":{"op":"gt","threshold":2},"channels":["slack"]}`)
+	s.Require().Equal(fiber.StatusBadRequest, status, body)
+	s.Equal(map[string]any{"channels": "unavailable"}, body["fields"])
 }
 
 func (s *AlertRulesHandlerSuite) TestCreateAnswersFieldErrorsInTheDataSourceShape() {

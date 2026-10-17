@@ -1,0 +1,15 @@
+# Core Web Vitals from PostHog: posthog-js' $web_vitals events (on unless
+# capture_performance.web_vitals is turned off), whose $web_vitals_<LCP|INP|
+# CLS|FCP>_value properties are in ms (CLS a score). Each is read at p75 per
+# interval, the percentile Core Web Vitals are judged at.
+id: posthog-web-vitals
+source_kind: posthog
+applies_to:
+  technology: posthog
+detect:
+  metric: $web_vitals
+signals:
+  web.lcp: '{"metric": "lcp", "quantile": 0.75}'
+  web.inp: '{"metric": "inp", "quantile": 0.75}'
+  web.cls: '{"metric": "cls", "quantile": 0.75}'
+  web.fcp: '{"metric": "fcp", "quantile": 0.75}'

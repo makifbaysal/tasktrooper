@@ -1,0 +1,29 @@
+# An iOS app's power and performance metrics from App Store Connect (the
+# app_store_metrics kind), read with the workspace's App Store Connect key:
+# what Xcode Organizer shows. app is the app's App Store Connect id; the
+# detector fills it from the repository's linked iOS app. Apple reports these
+# per app version, so a series is a staircase that moves when a version ships
+# (each point is the value of the newest version created by then), and has
+# p50 and p90 only: cold_start reads launch time at p90. Apple reports no
+# crash-free rate; bind mobile.crash_free_users to Sentry (sentry-mobile) or
+# Crashlytics instead. The signatures table is the newest build's hang,
+# launch and disk write signatures by weight.
+id: app-store-metrics
+source_kind: app_store_metrics
+applies_to:
+  technology: ios
+  store_platform: ios
+  store_params: {app: store_app_id}
+params: [app]
+signals:
+  mobile.cold_start: '{"app": "$app", "metric": "launchTime", "percentile": "p90"}'
+tables:
+  signatures:
+    key_labels: [issue]
+    columns:
+      - {key: issue, label: Signature id}
+      - {key: type, label: Type}
+      - {key: cause, label: Signature}
+      - {key: weight, label: Share, unit: "%"}
+      - {key: build, label: Build}
+    query: '{"app": "$app", "diagnostics": "all"}'

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net"
 	"net/http"
@@ -81,6 +82,7 @@ type Adapter struct {
 var (
 	_ port.DataSourceKindAdapter = (*Adapter)(nil)
 	_ port.MetricsQuerier        = (*Adapter)(nil)
+	_ port.TableQuerier          = (*Adapter)(nil)
 	_ port.Discoverer            = (*Adapter)(nil)
 	_ port.MetricDiscoverer      = (*Adapter)(nil)
 )
@@ -625,4 +627,47 @@ func parseTime(s string) (time.Time, error) {
 func taken(metrics map[string]domain.CloudWatchMetric, id string) bool {
 	_, ok := metrics[id]
 	return ok
+}
+
+// tableWindow is how far back a table read looks for each series' latest
+// datapoint: CloudWatch publishes most metrics a few minutes late.
+const tableWindow = 20 * time.Minute
+
+// Table reads the query over the 20 minutes up to q.At at a one-minute
+// period and answers each series' latest datapoint as a row: its labels (a
+// single metric's dimensions and stat) and the value under
+// domain.TableValueKey. GetMetricData answers no dimensions for an
+// expression's series, so such a row is the value alone.
+func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[string]string, q domain.TableQuery) (domain.TableResult, error) {
+	at := q.At
+	if at.IsZero() {
+		at = a.now()
+	}
+	res, err := a.Series(ctx, ds, secrets, domain.SeriesQuery{Query: q.Query, From: at.Add(-tableWindow), To: at, Step: time.Minute})
+	if err != nil {
+		return domain.TableResult{}, err
+	}
+	labels := map[string]bool{}
+	out := domain.TableResult{Rows: make([]map[string]any, 0, len(res.Series))}
+	for _, s := range res.Series {
+		row := map[string]any{domain.TableValueKey: nil}
+		for k, v := range s.Labels {
+			if k != domain.TableValueKey {
+				labels[k] = true
+				row[k] = v
+			}
+		}
+		for i := len(s.Points) - 1; i >= 0; i-- {
+			if v := s.Points[i].Value; v != nil {
+				row[domain.TableValueKey] = *v
+				break
+			}
+		}
+		out.Rows = append(out.Rows, row)
+	}
+	for _, k := range slices.Sorted(maps.Keys(labels)) {
+		out.Columns = append(out.Columns, domain.TableColumn{Key: k, Label: k})
+	}
+	out.Columns = append(out.Columns, domain.TableColumn{Key: domain.TableValueKey, Label: domain.TableValueKey})
+	return out, nil
 }

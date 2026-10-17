@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"path"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
@@ -32,20 +32,25 @@ const (
 	minContainedNameLen     = 3
 )
 
-// equalityMatcher finds label="$param" in a recipe query: the label a param
-// selects on, which is what the probe groups by to list candidate values.
-var equalityMatcher = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"\$([A-Za-z_][A-Za-z0-9_]*)"`)
-
 // Suggest runs the detector for one component environment and answers what
-// List would afterwards. It offers (a) every recipe a metrics source holds
-// the detect metric of, with params taken from the label values that name
-// the component in that environment, and (b) when the environment is bound
+// List would afterwards. It offers (a) every recipe a source holds the
+// detect metric of (on a log or trace source, a label, field or tag), with
+// params taken from the label values that name the component in that
+// environment, and (b) when the environment is bound
 // to a cloud resource, every recipe for that resource kind on a source
-// linked to the same cloud account, with params from the resource. A signal
-// with a confirmed binding gets no suggestion, a dismissed one is never
-// offered again, and only the detector's own pending suggestions are
-// replaced: those of a source whose discovery or label probe failed this
-// time are kept, and one offered again keeps its id.
+// linked to the same cloud account, with params from the resource, and (c)
+// on a broker source, the consumers whose names best name the component,
+// with its kind's own queries, and (d) for a mobile component whose
+// repository has a store app linked, the recipes for that store platform
+// with params from the app (detectFromStoreApps; with no source of their
+// kind, SourceOffers says which to create). Once the component's brokers are known (its
+// links to queue resources), a worker is offered no recipe and no broker
+// source of another messaging system, and suggestions reading one of its
+// brokers come first. A signal with a confirmed binding gets no suggestion,
+// a dismissed one is never offered again, and only the detector's own
+// pending suggestions are replaced: those of a source whose discovery, label
+// probe or consumer listing failed this time are kept, and one offered again
+// keeps its id.
 func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment) (domain.ComponentSignals, error) {
 	if !env.Valid() {
 		return domain.ComponentSignals{}, fmt.Errorf("unknown environment %q: %w", env, ErrInvalidInput)
@@ -77,27 +82,34 @@ func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain
 			bound = &e
 		}
 	}
-	relevant := s.relevant(comp.Role.Get())
+	role := comp.Role.Get()
+	relevant := s.relevant(role)
 	names := componentNames(comp, here)
+	brokers := s.messagingSystems(ctx, comp)
 
 	rd := s.reader(l)
 	scope := s.cacheScope(ctx)
 	var found []domain.SignalBinding
 	var answered []uuid.UUID
 	for _, ds := range l.order {
-		got, ok := s.detectFromInventory(ctx, rd, scope, ds, relevant, names)
+		got, ok := s.detectFromInventory(ctx, rd, scope, ds, relevant, names, role, brokers)
 		found = append(found, got...)
-		if ok {
+		fromBroker, brokerOK := s.detectFromBroker(ctx, rd, ds, relevant, names, role, brokers)
+		found = append(found, fromBroker...)
+		if ok && brokerOK {
 			answered = append(answered, ds.ID)
 		}
 	}
 	if bound != nil {
 		for _, ds := range l.order {
 			if ds.Config[cloudAccountKey] == bound.AccountID.String() {
-				found = append(found, detectFromResource(l, ds, relevant, *bound.Resource)...)
+				found = append(found, detectFromResource(l, ds, relevant, *bound.Resource, role, brokers)...)
 			}
 		}
 	}
+	fromApps, offers := s.detectFromStoreApps(ctx, l, comp, relevant)
+	found = append(fromApps, found...)
+	rankByBrokers(l, found, brokers)
 	if _, err := s.bindings.ReplaceDetectedSuggestions(ctx, comp.ID, env, answered, newSuggestions(found, existing)); err != nil {
 		return domain.ComponentSignals{}, err
 	}
@@ -105,7 +117,9 @@ func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain
 	if err != nil {
 		return domain.ComponentSignals{}, err
 	}
-	return s.assemble(ctx, l, comp, env, after), nil
+	out := s.assemble(ctx, l, comp, env, after)
+	out.SourceOffers = offers
+	return out, nil
 }
 
 // newSuggestions drops what must not be offered: a signal already bound, a
@@ -139,8 +153,10 @@ func newSuggestions(found, existing []domain.SignalBinding) []domain.SignalBindi
 
 // detectFromInventory answers false when the source did not answer this
 // time: its discovery, or a label probe, failed.
-func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope string, ds domain.DataSource, relevant map[string]bool, names []string) ([]domain.SignalBinding, bool) {
-	if !slices.Contains(ds.Capabilities, domain.CapabilityMetrics) {
+func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope string, ds domain.DataSource, relevant map[string]bool, names []string, role domain.ComponentRole, brokers map[string]bool) ([]domain.SignalBinding, bool) {
+	// A kind that lists nothing (the store kinds) has nothing to detect from,
+	// and answers by not being asked.
+	if !s.sources.CanDiscover(ds.Kind) {
 		return nil, true
 	}
 	matches, ok := s.discover(ctx, rd, scope, ds)
@@ -158,7 +174,7 @@ func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope str
 		r, ok := rd.l.recipes[id]
 		// A recipe for a cloud resource kind is offered from the environment's
 		// binding, with params from the resource, never from the inventory.
-		if !ok || r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind != "" {
+		if !ok || r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind != "" || !fitsBrokers(role, brokers, r.AppliesTo.MessagingSystem) {
 			continue
 		}
 		sigs := recipeSignals(r, relevant)
@@ -176,12 +192,12 @@ func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope str
 	return out, answered
 }
 
-func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool, ref domain.CloudResourceRef) []domain.SignalBinding {
+func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool, ref domain.CloudResourceRef, role domain.ComponentRole, brokers map[string]bool) []domain.SignalBinding {
 	ids := slices.Sorted(maps.Keys(l.recipes))
 	var out []domain.SignalBinding
 	for _, id := range ids {
 		r := l.recipes[id]
-		if r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind == "" || r.AppliesTo.ResourceKind != ref.Kind {
+		if r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind == "" || r.AppliesTo.ResourceKind != ref.Kind || !fitsBrokers(role, brokers, r.AppliesTo.MessagingSystem) {
 			continue
 		}
 		params := r.ParamsFromResource(ref)
@@ -190,6 +206,52 @@ func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool
 		}
 	}
 	return out
+}
+
+// detectFromBroker offers the consumers a broker source holds that best name
+// the component (the label probe's score, at most maxParamSetsPerRecipe),
+// each with the queries its kind reads for the role's signals. False when
+// the source did not answer.
+func (s *Service) detectFromBroker(ctx context.Context, rd *reader, ds domain.DataSource, relevant map[string]bool, names []string, role domain.ComponentRole, brokers map[string]bool) ([]domain.SignalBinding, bool) {
+	if !s.sources.CanDiscoverQueues(ds.Kind) || !fitsBrokers(role, brokers, brokerSystem(ds.Kind)) || len(names) == 0 {
+		return nil, true
+	}
+	targets, err := rd.batch.DiscoverQueues(ctx, ds.ID)
+	if err != nil {
+		log.Debug().Err(err).Str("data_source", ds.ID.String()).Msg("signals: listing the broker's consumers failed; skipping the source")
+		return nil, false
+	}
+	best := 0
+	scores := make([]int, len(targets))
+	for i, t := range targets {
+		scores[i] = matchScore(t.Name, names)
+		best = max(best, scores[i])
+	}
+	if best == 0 {
+		return nil, true
+	}
+	var picked []domain.QueueTarget
+	for i, t := range targets {
+		if scores[i] == best {
+			picked = append(picked, t)
+		}
+	}
+	sort.SliceStable(picked, func(i, j int) bool { return picked[i].Name < picked[j].Name })
+	if len(picked) > maxParamSetsPerRecipe {
+		picked = picked[:maxParamSetsPerRecipe]
+	}
+	var out []domain.SignalBinding
+	for _, t := range picked {
+		for _, sig := range slices.Sorted(maps.Keys(t.Queries)) {
+			if q := strings.TrimSpace(t.Queries[sig]); relevant[sig] && q != "" {
+				out = append(out, domain.SignalBinding{
+					Signal: sig, DataSourceID: ds.ID, Params: map[string]string{}, Query: q,
+					Status: domain.SignalBindingSuggested, Source: domain.SignalBindingDetected,
+				})
+			}
+		}
+	}
+	return out, true
 }
 
 func suggestion(signal string, dataSourceID uuid.UUID, recipeID string, params map[string]string) domain.SignalBinding {
@@ -233,6 +295,9 @@ func (s *Service) paramSets(ctx context.Context, rd *reader, ds domain.DataSourc
 	labels := paramLabels(r)
 	if len(labels) == 0 || r.Detect.Metric == "" || len(names) == 0 {
 		return none, true
+	}
+	if s.sources.CanListLabelValues(ds.Kind) {
+		return paramSetsFromValues(ctx, rd, ds, labels, names)
 	}
 	labelNames := slices.Sorted(maps.Values(labels))
 	labelNames = slices.Compact(labelNames)
@@ -289,15 +354,15 @@ func (s *Service) paramSets(ctx context.Context, rd *reader, ds domain.DataSourc
 	return out, true
 }
 
-// paramLabels maps each declared param to the label it is matched against
-// with = in the recipe's queries, the first one found in signal order.
+// paramLabels maps each declared param to the label (field, tag) it is
+// compared to with equality in the recipe's queries, in the language of its
+// kind: the first one found in signal order.
 func paramLabels(r domain.Recipe) map[string]string {
 	out := map[string]string{}
 	for _, id := range slices.Sorted(maps.Keys(r.Signals)) {
-		for _, m := range equalityMatcher.FindAllStringSubmatch(r.Signals[id], -1) {
-			label, param := m[1], m[2]
-			if _, done := out[param]; !done && slices.Contains(r.Params, param) {
-				out[param] = label
+		for _, f := range datasource.ParamFields(r.SourceKind, r.Signals[id]) {
+			if _, done := out[f.Param]; !done && slices.Contains(r.Params, f.Param) {
+				out[f.Param] = f.Field
 			}
 		}
 	}

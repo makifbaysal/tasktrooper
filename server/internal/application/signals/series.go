@@ -29,8 +29,8 @@ const (
 )
 
 // SeriesQuery: a zero To is now, a zero From DefaultWindow before To, a zero
-// Step one giving about 120 points. No Signals means every signal of the
-// component's role.
+// Step one giving about 120 points. No Signals means every metric signal of
+// the component's role: a log or trace signal is no series.
 type SeriesQuery struct {
 	Environment domain.DeployEnvironment
 	Signals     []string
@@ -209,6 +209,9 @@ func (s *Service) Preview(ctx context.Context, componentID uuid.UUID, req Previe
 	if err != nil {
 		return domain.SignalPreview{}, err
 	}
+	if sig := s.signalIndex[signal]; sig.Kind != domain.SignalMetric {
+		return domain.SignalPreview{}, fmt.Errorf("%s is a %s signal, read in the Logs explorer or the traces view rather than as a series: %w", signal, sig.Kind, datasource.ErrUnsupported)
+	}
 	rd := s.reader(l)
 	out := domain.SignalPreview{Series: []domain.Series{}, Warnings: []string{}}
 	for _, v := range variants(s.signalIndex[signal], template(l, b)) {
@@ -286,7 +289,7 @@ func (s *Service) requestedSignals(role domain.ComponentRole, asked []string) []
 	}
 	relevant := s.relevant(role)
 	for _, sig := range s.signals {
-		if relevant[sig.ID] {
+		if relevant[sig.ID] && sig.Kind == domain.SignalMetric {
 			out = append(out, sig.ID)
 		}
 	}

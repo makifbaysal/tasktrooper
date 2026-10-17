@@ -308,6 +308,7 @@ type Service struct {
 	lastErrorCheck  map[uuid.UUID]time.Time
 	lastImpactCheck map[uuid.UUID]time.Time
 	impact          ImpactReader
+	attributed      map[uuid.UUID]attributedIncident
 
 	cadenceMu  sync.Mutex
 	watching   bool
@@ -348,6 +349,7 @@ func New(d Deps) *Service {
 		notifyCooldown:   notify.NewCooldown(notify.DefaultCooldown),
 		lastErrorCheck:   map[uuid.UUID]time.Time{},
 		lastImpactCheck:  map[uuid.UUID]time.Time{},
+		attributed:       map[uuid.UUID]attributedIncident{},
 		impact:           d.Impact,
 		watchKick:        make(chan struct{}, 1),
 	}

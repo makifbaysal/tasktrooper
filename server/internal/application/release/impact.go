@@ -4,11 +4,27 @@ import (
 	"context"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
+
+const (
+	// impactReadTimeout keeps one slow data source from stalling a sweep
+	// that has every other watched release still to advance.
+	impactReadTimeout = 15 * time.Second
+	// minImpactAfter and minImpactAfterPoints: a few minutes of a rate, its
+	// first point still straddling the deploy, is not a regression yet.
+	minImpactAfter       = 10 * time.Minute
+	minImpactAfterPoints = 5
+)
+
+// impactThresholds is satisfied by deployimpact.Service.
+type impactThresholds interface {
+	Thresholds() domain.DeployImpactConfig
+}
 
 // checkImpact records the release's deploy impact against the profile's
 // impact thresholds and early-stops the soak on the first one breached. An
@@ -18,23 +34,51 @@ func (s *Service) checkImpact(ctx context.Context, r *domain.Release) {
 	if reader == nil {
 		return
 	}
-	impact, err := reader.ForRelease(ctx, *r)
+	rctx, cancel := context.WithTimeout(ctx, impactReadTimeout)
+	defer cancel()
+	impact, err := reader.ForRelease(rctx, *r)
 	if err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: reading deploy impact failed")
 		return
 	}
-	check, breach := impactCheck(impact, r.Profile.Verify)
+	floors := domain.DeployImpactConfig{}.WithDefaults()
+	if t, ok := reader.(impactThresholds); ok {
+		floors = t.Thresholds().WithDefaults()
+	}
+	check, breach := impactCheck(impact, r.Profile.Verify, floors, afterWindow(impact, *r, s.now()))
 	r.Checks.Impact = &check
 	if breach != nil && r.Checks.EarlyStop == "" {
 		r.Checks.EarlyStop = impactBreachKey.Render(*breach)
 	}
 }
 
+// afterWindow is how much of the hour after the deploy the impact covers.
+func afterWindow(impact domain.DeployImpact, r domain.Release, now time.Time) time.Duration {
+	deployed := impact.DeployedAt
+	if deployed == nil {
+		deployed = r.DeployedAt
+	}
+	if deployed == nil {
+		return 0
+	}
+	end := impact.ComputedAt
+	if end.IsZero() {
+		end = now
+	}
+	if limit := deployed.Add(domain.DefaultImpactWindow); end.After(limit) {
+		end = limit
+	}
+	return max(end.Sub(*deployed), 0)
+}
+
 // impactCheck holds http.error_ratio's delta (percentage points) to
 // max_error_rate_delta and http.latency's p95 delta_pct to max_p95_delta_pct.
-// A threshold whose signal is unbound or has no delta is listed unchecked,
-// not passed.
-func impactCheck(impact domain.DeployImpact, verify domain.DeliveryVerify) (domain.ReleaseImpactCheck, *impactBreachInput) {
+// A threshold breaches only once the after-window is long and dense enough,
+// when the signal moved past it from yesterday's same hour too (the time of
+// day masks it the way it masks deploy impact's verdict), and, for latency,
+// by at least the latency floor. A threshold whose signal is unbound or has
+// no delta is listed unchecked, not passed.
+func impactCheck(impact domain.DeployImpact, verify domain.DeliveryVerify, floors domain.DeployImpactConfig, after time.Duration) (domain.ReleaseImpactCheck, *impactBreachInput) {
 	check := domain.ReleaseImpactCheck{
 		CheckedAt: impact.ComputedAt,
 		Pending:   impact.Pending,
@@ -48,11 +92,13 @@ func impactCheck(impact domain.DeployImpact, verify domain.DeliveryVerify) (doma
 			Signal: si.Signal, Before: si.Before, After: si.After,
 			Delta: si.Delta, DeltaPct: si.DeltaPct, Verdict: si.Verdict,
 		}
+		settling := after < minImpactAfter || si.AfterPoints < minImpactAfterPoints
 		switch {
 		case si.Signal == domain.SignalHTTPErrorRatio && verify.MaxErrorRateDelta > 0 && si.Delta != nil:
 			limit := verify.MaxErrorRateDelta
 			rs.MaxDelta = &limit
-			rs.Breached = *si.Delta > limit
+			rs.Settling = settling
+			rs.Breached = !settling && *si.Delta > limit && pastBaseline(si, func(baseline float64) bool { return *si.After-baseline > limit })
 			checked[domain.VerifyMaxErrorRateDelta] = true
 			if rs.Breached && breach == nil {
 				breach = &impactBreachInput{ErrorRate: true, Before: number(si.Before), After: number(si.After), Delta: number(si.Delta), Limit: number(&limit)}
@@ -60,7 +106,11 @@ func impactCheck(impact domain.DeployImpact, verify domain.DeliveryVerify) (doma
 		case si.Signal == domain.SignalHTTPLatency && verify.MaxP95DeltaPct > 0 && si.DeltaPct != nil:
 			limit := verify.MaxP95DeltaPct
 			rs.MaxDeltaPct = &limit
-			rs.Breached = *si.DeltaPct > limit
+			rs.Settling = settling
+			rs.Breached = !settling && *si.DeltaPct > limit && si.Delta != nil && *si.Delta >= floors.LatencyFloorMS &&
+				pastBaseline(si, func(baseline float64) bool {
+					return baseline == 0 || (*si.After-baseline)/math.Abs(baseline)*100 > limit
+				})
 			checked[domain.VerifyMaxP95DeltaPct] = true
 			if rs.Breached && breach == nil {
 				breach = &impactBreachInput{Before: number(si.Before), After: number(si.After), Delta: number(si.DeltaPct), Limit: number(&limit)}
@@ -75,6 +125,15 @@ func impactCheck(impact domain.DeployImpact, verify domain.DeliveryVerify) (doma
 		check.Unchecked = append(check.Unchecked, domain.VerifyMaxP95DeltaPct)
 	}
 	return check, breach
+}
+
+// pastBaseline: with yesterday's same hour unread, only the move from the
+// hour before can be judged.
+func pastBaseline(si domain.SignalImpact, past func(baseline float64) bool) bool {
+	if si.Baseline == nil || si.After == nil {
+		return true
+	}
+	return past(*si.Baseline)
 }
 
 func number(v *float64) string {

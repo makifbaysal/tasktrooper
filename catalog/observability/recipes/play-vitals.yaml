@@ -1,0 +1,38 @@
+# Android vitals from Google Play (the google_play_vitals kind), read with the
+# workspace's Google Play credential. package is the app's package name; the
+# detector fills it from the repository's linked Android app. Play answers a
+# rate as a fraction of distinct users per day (America/Los_Angeles days),
+# published a day or two late, so the newest point is never today's.
+# crash_rate and anr_rate are the user-perceived rates Play's core vitals and
+# bad behavior thresholds judge. crash_free_users is 100 minus crashRate
+# (every crash, in the foreground or not) for each day: the share of that
+# day's users who did not crash. It approximates Crashlytics' crash-free users
+# day by day; it is not deduplicated across a longer window. cold_start is not
+# mapped: Play measures the share of slow starts, not how long a start takes.
+# The crashes table is the app's error issues of the last 7 days (crashes,
+# ANRs and non-fatal issues), most affected users first.
+id: play-vitals
+source_kind: google_play_vitals
+applies_to:
+  technology: android
+  store_platform: android
+  store_params: {package: identifier}
+params: [package]
+signals:
+  mobile.crash_free_users: '{"package": "$package", "metric_set": "crashRateMetricSet", "metric": "crashRate", "as": "free_percent"}'
+  mobile.crash_rate: '{"package": "$package", "metric_set": "crashRateMetricSet", "metric": "userPerceivedCrashRate", "as": "percent"}'
+  mobile.anr_rate: '{"package": "$package", "metric_set": "anrRateMetricSet", "metric": "userPerceivedAnrRate", "as": "percent"}'
+tables:
+  crashes:
+    key_labels: [issue]
+    columns:
+      - {key: issue, label: Issue}
+      - {key: type, label: Type}
+      - {key: cause, label: Cause}
+      - {key: location, label: Location}
+      - {key: users, label: Users, unit: users}
+      - {key: reports, label: Reports, unit: reports}
+      - {key: last_version, label: Last version}
+      - {key: last_seen, label: Last seen}
+      - {key: link, label: Link}
+    query: '{"package": "$package", "issues": "all"}'
