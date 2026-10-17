@@ -250,8 +250,13 @@ quantile signal such as latency is read at its p95. A signal is **worse** or
 from the baseline — so a change the time of day explains (an evening dip in
 traffic that happens every day) stays **neutral**. The threshold is 10% of
 the value before the deploy, or half a percentage point for a ratio such as
-an error rate; `deploy_ops.impact.change_pct` and `ratio_points` in the
-configuration change them. Which way is better comes from the signal
+an error rate; throughput (requests, page views) uses 25%. Small moves never
+count: a count or backlog must move by at least 1, a rate by at least 0.05
+per second, any signal by at least 5% of the larger value, and latency by at
+least 50 ms. When a binding returns several series, the worst one is judged.
+`deploy_ops.impact.change_pct`, `ratio_points`, `throughput_change_pct`,
+`count_floor`, `rate_floor`, `floor_pct` and `latency_floor_ms` in the
+configuration change these. Which way is better comes from the signal
 catalog: lower for errors, latency, backlog and cold start, higher for
 throughput and crash-free users. A signal that could not be read is
 **unknown**, and the release's verdict is its worst signal — **unknown**
@@ -271,10 +276,14 @@ impact while it soaks: `max_error_rate_delta` (how many percentage points
 reads deploy impact at most every two minutes and once more when the window
 ends, and records it on the release (`checks.impact`: each signal's before,
 after, move and verdict, the threshold it was held to, and any threshold whose
-signal is not bound). A rise past a threshold stops the soak early, like a
-failed smoke check: the release waits for the release engineer's verdict, and
-`auto_rollback` decides what a rollback does exactly as it does for any other
-failed check.
+signal is not bound). A signal is **settling** until the hour after the
+deploy holds at least ten minutes and five points of data (the sample at the
+deploy itself is not counted), and a settling signal never breaches; the soak
+masks the time of day against the baseline exactly as the impact read does,
+and the 50 ms latency floor applies to `max_p95_delta_pct` too. A rise past a
+threshold stops the soak early, like a failed smoke check: the release waits
+for the release engineer's verdict, and `auto_rollback` decides what a
+rollback does exactly as it does for any other failed check.
 
 ### Rolling a release back
 
@@ -307,20 +316,27 @@ release of the same component is already open or has already shipped; roll
 that one back (or resolve it) first.
 
 If the profile's `auto_rollback` is off, nothing is executed automatically:
-the release engineer writes up the proposal as a comment on the task, and a
-human confirms it from the release's detail drawer, or from its panel on
-Operations → Changes, instead. The proposal also sends a **Rollback
-suggested** notification (a desktop notification on macOS); it links to the
-release on Operations → Changes and carries an approve action for the
-channels that can offer one. A rollback the release engineer executes on
-its own (`auto_rollback` on) sends a **Rolled back** notification. Each is
-sent at most once per release every 30 minutes, and a rollback you start
-yourself is not notified back to you.
+the release engineer writes up the proposal as a comment on the task and the
+proposal is stored on the release itself. Its panel on Operations → Changes
+then shows **Rollback suggested** with the reason; **Approve** (typing the
+repository name) appears only while the server would accept the rollback —
+otherwise the panel says why not (a newer release already shipped or is open,
+the release never deployed, it is too old, and so on) — and **Dismiss** clears
+the suggestion. A stored proposal is cleared when a rollback runs, when the
+release is superseded, when a newer release of the component finishes, or
+when it is dismissed. The proposal also sends a **Rollback suggested**
+notification (a desktop notification on macOS) linking to that panel. A
+rollback the release engineer executes on its own (`auto_rollback` on) sends
+a **Rolled back** notification — also when the revert landed but the rest of
+the rollback did not finish, which the notification then says. Each is sent
+at most once per release every 30 minutes, and a rollback you start yourself
+is not notified back to you.
 
 When a production incident opens inside a release's attribution window (see
-[Production incidents](incidents.md)), the release engineer reads the
-release's deploy impact beside the logs and the incident: a golden signal
-worse since the deploy is evidence for rolling it back, executed or
+[Production incidents](incidents.md)) — for an incident an alert rule opened,
+only a release of that rule's own component counts — the release engineer
+reads the release's deploy impact beside the logs and the incident: a golden
+signal worse since the deploy is evidence for rolling it back, executed or
 proposed by `auto_rollback` as above.
 
 Every rollback names its **manual steps** — the part no mechanism can

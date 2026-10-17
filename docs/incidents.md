@@ -63,11 +63,18 @@ follow it.
 
 A new incident at `high` or `critical` — and a `critical` one that keeps
 recurring — shows a desktop notification on macOS, as do its recovery and a
-fix proposed by an agent. The same alert notifies at most once every 30
-minutes, and so does its recovery, even when it flaps: an alert that keeps
-resolving and firing again opens a new incident each time, but you hear about
-the first outage and the first recovery, not every cycle. Medium and low
+fix proposed by an agent. Repeats of the same message are held back for 30
+minutes, but a change of state never is: if the last thing you heard about an
+alert was its recovery and it fires again, you hear about it at once, so the
+last notification always matches the alert's real state. Medium and low
 incidents stay on **Operations → Issues** without interrupting you.
+
+Incidents opened by an [alert rule](operations-console.md#alerts) recover
+only after the condition has been clear for two evaluations in a row (and for
+the rule's `for` duration), and a firing rule rides out up to three
+evaluations with no data before it stops firing, so one sparse or late sample
+does not close an incident and open a new one a minute later. A source that
+cannot be read at all keeps the rule in the state it was in.
 
 ## Severity
 
