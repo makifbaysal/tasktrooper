@@ -11,6 +11,8 @@ import {
   impactThresholdText,
   impactWindow,
   listImpact,
+  stillSettling,
+  uncheckedThresholds,
   worstImpactSignal,
 } from "@/components/operations/changes/releaseImpact";
 import {
@@ -148,6 +150,7 @@ describe("rollback suggestion", () => {
     });
     expect(rollbackSuggestion(release("r1", "r-shop", { rollback_proposal: proposal }))).toMatchObject({ kind: "refused", refusal: "" });
     expect(refusalKey("too_old")).toBe("too_old");
+    expect(refusalKey("not_configured")).toBe("not_configured");
     expect(refusalKey("frozen")).toBeUndefined();
   });
 
@@ -169,5 +172,19 @@ describe("rollback suggestion", () => {
     expect(withoutProposal(r, undefined).rollback_proposal).toBeNull();
     const answered = { ...r, rollback_proposal: null, updated_at: "2026-10-15T11:00:00Z" };
     expect(withoutProposal(r, answered)).toBe(answered);
+  });
+});
+
+describe("unchecked thresholds", () => {
+  it("tells a threshold whose signal never settled from one that could not be read", () => {
+    const check: Pick<ReleaseImpactCheck, "unchecked" | "signals"> = {
+      unchecked: ["max_error_rate_delta", "max_p95_delta_pct"],
+      signals: [{ signal: "http.error_ratio", before: 1, after: 1.2, verdict: "neutral", max_delta: 2, settling: true }],
+    };
+    expect(uncheckedThresholds(check)).toEqual({ settling: ["max_error_rate_delta"], unread: ["max_p95_delta_pct"] });
+    expect(uncheckedThresholds(undefined)).toEqual({ settling: [], unread: [] });
+    expect(stillSettling({ settling: true })).toBe(true);
+    expect(stillSettling({ settling: true, breached: true })).toBe(false);
+    expect(stillSettling({})).toBe(false);
   });
 });

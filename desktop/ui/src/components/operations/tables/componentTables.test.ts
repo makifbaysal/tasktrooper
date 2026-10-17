@@ -10,6 +10,7 @@ import {
   headlineColumn,
   isCountUnit,
   safeLink,
+  tableWindow,
   tablesNamed,
   worstEndpoints,
 } from "@/components/operations/tables/componentTables";
@@ -81,5 +82,32 @@ describe("componentTables", () => {
     });
     expect(tablesNamed([t("crashes", "a"), t("signatures", "b"), t("crashes", "c")], "crashes").map((x) => x.recipe_id)).toEqual(["a", "c"]);
     expect(tablesNamed(undefined, "crashes")).toEqual([]);
+  });
+});
+
+describe("tableWindow", () => {
+  it("knows each table recipe's window", () => {
+    expect(tableWindow({ recipe_id: "ga4-web" })).toEqual({ amount: 7, unit: "days" });
+    expect(tableWindow({ recipe_id: "newrelic-browser" })).toEqual({ amount: 7, unit: "days" });
+    expect(tableWindow({ recipe_id: "play-vitals" })).toEqual({ amount: 7, unit: "days" });
+    expect(tableWindow({ recipe_id: "sentry-mobile" })).toEqual({ amount: 14, unit: "days" });
+    expect(tableWindow({ recipe_id: "datadog-apm" })).toEqual({ amount: 10, unit: "minutes" });
+    expect(tableWindow({ recipe_id: "newrelic-apm" })).toEqual({ amount: 1, unit: "hours" });
+    expect(tableWindow({ recipe_id: "otel-http" })).toBeUndefined();
+    expect(tableWindow({ recipe_id: "app-store-metrics" })).toBeUndefined();
+  });
+
+  it("reads a custom query's window from its source kind and the query's own days or SINCE", () => {
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "posthog", query: '{"table": "pages"}' })).toEqual({ amount: 7, unit: "days" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "sentry", query: '{"project": "ios", "days": 30}' })).toEqual({ amount: 30, unit: "days" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "sentry", query: "{}" })).toEqual({ amount: 14, unit: "days" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "google_play_vitals", query: '{"days": "3"}' })).toEqual({ amount: 3, unit: "days" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "datadog", query: "avg:x{*} by {host}" })).toEqual({ amount: 10, unit: "minutes" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "newrelic", query: "SELECT count(*) FROM PageView FACET pageUrl" })).toEqual({ amount: 1, unit: "hours" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "newrelic", query: "SELECT count(*) FROM X SINCE 2 weeks ago" })).toEqual({ amount: 14, unit: "days" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "newrelic", query: "SELECT count(*) FROM X SINCE 30 minutes ago" })).toEqual({ amount: 30, unit: "minutes" });
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "newrelic", query: "SELECT count(*) FROM X SINCE yesterday" })).toBeUndefined();
+    expect(tableWindow({ recipe_id: "" }, { data_source_kind: "prometheus", query: "up" })).toBeUndefined();
+    expect(tableWindow({ recipe_id: "" })).toBeUndefined();
   });
 });

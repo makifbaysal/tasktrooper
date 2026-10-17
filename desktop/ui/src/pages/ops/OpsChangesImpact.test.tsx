@@ -231,6 +231,38 @@ describe("Changes impact", () => {
     );
   });
 
+  it("reads a threshold whose signal never settled as not checked, not passed", async () => {
+    const settled = {
+      ...bad,
+      checks: {
+        impact: {
+          checked_at: "2026-10-15T10:30:00Z",
+          pending: false,
+          verdict: "neutral" as const,
+          signals: [{ signal: "http.error_ratio", before: 0.4, after: 0.6, delta: 0.2, delta_pct: 50, verdict: "neutral" as const, max_delta: 2, settling: true }],
+          unchecked: ["max_error_rate_delta", "max_p95_delta_pct"],
+        },
+      },
+    };
+    mocks.getRelease.mockResolvedValue(settled);
+    renderAt(`/operations/changes?${RANGE}&release=rel-bad`);
+    const panel = await screen.findByRole("dialog");
+    const section = await within(panel).findByRole("region", { name: "Impact" });
+    const table = await within(section).findByRole("table", { name: "Golden signals before and after the deploy" });
+    const errorRow = within(table).getByRole("rowheader", { name: /Error rate/ }).closest("tr")!;
+    expect(within(errorRow).getByText("Not checked — still settling")).toBeInTheDocument();
+    expect(within(errorRow).queryByText("Breached")).not.toBeInTheDocument();
+    expect(within(section).getByText("Not checked, because the signal was still settling when the soak ended: error rate threshold")).toBeInTheDocument();
+    expect(within(section).getByText("Not checked, because the signal is not bound or not readable: p95 latency threshold")).toBeInTheDocument();
+  });
+
+  it("says a rollback can't run on a server with no git reverter", async () => {
+    mocks.getRelease.mockResolvedValue({ ...shipped, rollback_refusal: "not_configured" });
+    renderAt(`/operations/changes?${RANGE}&release=rel-shipped`);
+    const panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText(/this server has no git access to revert the release's merges/)).toBeInTheDocument();
+  });
+
   it("approves a suggested rollback with the repository's name typed", async () => {
     mocks.rollbackRelease.mockResolvedValue({ ...bad, status: "rolling_back" });
     renderAt(`/operations/changes?${RANGE}&release=rel-bad`);
@@ -249,7 +281,11 @@ describe("Changes impact", () => {
   });
 
   it("says why a proposed rollback cannot run now, offers no approval, and dismisses it", async () => {
-    mocks.dismissRollbackProposal.mockResolvedValue({ ...shipped, rollback_proposal: null });
+    mocks.dismissRollbackProposal.mockResolvedValue({
+      ...shipped,
+      rollback_proposal: null,
+      rollback_dismissal: { dismissed_at: new Date(Date.now() - 60_000).toISOString(), incident_id: null },
+    });
     renderAt(`/operations/changes?${RANGE}&release=rel-shipped`);
     const panel = await screen.findByRole("dialog");
     expect(await within(panel).findByText("Rollback suggested · 2.8.0")).toBeInTheDocument();
@@ -261,6 +297,7 @@ describe("Changes impact", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Dismiss suggestion" }));
     await waitFor(() => expect(mocks.dismissRollbackProposal).toHaveBeenCalledWith("rel-shipped"));
     await waitFor(() => expect(within(panel).queryByText("Rollback suggested · 2.8.0")).not.toBeInTheDocument());
+    expect(within(panel).getByText("Rollback suggestion dismissed 1 minute ago")).toBeInTheDocument();
   });
 
   it("suggests no rollback the server did not propose", async () => {

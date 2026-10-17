@@ -161,6 +161,38 @@ describe("EntityEndpoints", () => {
     expect(screen.getByRole("link", { name: "Open Signals" })).toHaveAttribute("href", "/operations/entity/c-api/signals");
   });
 
+  it("says when the tables were read, the window each covers, and names rows by their key columns", async () => {
+    const readAt = new Date(Date.now() - 2 * 60_000).toISOString();
+    apiMock.getComponentEndpoints.mockResolvedValue({
+      ...tables("c-api", [
+        table({ recipe_id: "datadog-apm", data_source_name: "Datadog", key_columns: ["http_route"], columns, rows: [{ http_route: "/orders", rpm: 9, error_pct: 0, p95_ms: 3 }] }),
+        table({ recipe_id: "otel-http", data_source_name: "Prom", columns, rows: [{ http_route: "/x", rpm: 1, error_pct: 0, p95_ms: 3 }] }),
+      ]),
+      read_at: readAt,
+    });
+    renderAt("/operations/entity/c-api/endpoints", <EntityEndpoints entity={api} env="production" />);
+    const datadog = (await screen.findByRole("table", { name: "Datadog" })).closest(".rounded-xl") as HTMLElement;
+    expect(within(datadog).getByText("Covers the last 10 minutes")).toBeInTheDocument();
+    const read = within(datadog).getByText("Read 2 minutes ago");
+    expect(read.closest("[title]")).toHaveAttribute("title", expect.stringContaining("30 seconds"));
+    expect(within(bodyRows("Datadog")[0]).getByText("/orders")).toHaveClass("font-medium");
+    expect(within(bodyRows("Prom")[0]).getByText("/x")).not.toHaveClass("font-medium");
+    const prom = screen.getByRole("table", { name: "Prom" }).closest(".rounded-xl") as HTMLElement;
+    expect(within(prom).getByText("Covers the source's own recent window")).toBeInTheDocument();
+    expect(within(prom).getByRole("link", { name: "Table windows" })).toHaveAttribute("href", expect.stringContaining("data-sources#table-windows"));
+  });
+
+  it("opens the binding editor on the table's signal for an error its binding fixes", async () => {
+    apiMock.getComponentEndpoints.mockResolvedValue(
+      tables("c-api", [table({ signal: "http.requests", columns, error: { code: "needs_params", message: "no value for job" } })]),
+    );
+    renderAt("/operations/entity/c-api/endpoints", <EntityEndpoints entity={api} env="production" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Fill in parameters" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent(/Bind/));
+    await waitFor(() => expect(apiMock.getComponentSignals).toHaveBeenCalledWith("c-api", "production"));
+    expect(screen.queryByRole("link", { name: "Open Signals" })).toBeNull();
+  });
+
   it("explains a table that could not be read, with Retry", async () => {
     apiMock.getComponentEndpoints.mockResolvedValue(
       tables("c-api", [table({ columns, error: { code: "upstream", message: "502 from prometheus" } })]),

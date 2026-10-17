@@ -247,6 +247,26 @@ describe("OpsErrorDefinitionsPage", () => {
     await waitFor(() => expect(screen.getByTestId("where").textContent).toContain("definition=d-new"));
   });
 
+  it("says a full repository takes no more definitions, in words", async () => {
+    apiMock.createErrorDefinition
+      .mockRejectedValueOnce(new ApiError("the repository already has as many error definitions as it may hold", 409, "too_many_definitions"))
+      .mockRejectedValueOnce(new ApiError("bad", 400, "", { definitions: "too_long" }));
+    renderAt("/operations/errors/definitions");
+    await rows();
+    fireEvent.click(screen.getByRole("button", { name: "New definition" }));
+    const dialog = await screen.findByRole("dialog", { name: "New error definition" });
+    fireEvent.click(within(dialog).getByLabelText("Repository"));
+    fireEvent.click(screen.getByRole("option", { name: "shop" }));
+    fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Payments timeout" } });
+    fireEvent.change(within(dialog).getByLabelText("Message pattern"), { target: { value: "payments.*timeout" } });
+    fireEvent.click(within(dialog).getByLabelText("Category"));
+    fireEvent.click(screen.getByRole("option", { name: "Bug" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await within(dialog).findByText(/already holds 200 definitions, active and suggested together. Delete or dismiss some/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await within(dialog).findByText("This repository already holds 200 definitions, active and suggested together.")).toBeInTheDocument();
+  });
+
   it("asks the AI, follows the job and links what it proposed", async () => {
     apiMock.suggestErrorDefinitions.mockResolvedValue({ job_id: "j-1", job: job() });
     apiMock.getAIJob.mockResolvedValue(

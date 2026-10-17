@@ -6,7 +6,9 @@ import {
   cellText,
   columnUnit,
   defaultSort,
+  isKeyColumn,
   queueErrorView,
+  rowKey,
   sortRows,
   toggleSort,
   worstRows,
@@ -127,5 +129,22 @@ describe("queue tables", () => {
     expect(cellText(300, { key: "oldest_age", label: "Oldest", unit: "s" }, ctx)?.text).toBe("5 min");
     expect(cellText(123456789, KAFKA[2], ctx)).toEqual({ text: "123456789" });
     expect(cellText(null, KAFKA[3], ctx)).toBeUndefined();
+  });
+});
+
+describe("key columns", () => {
+  const columns: TableColumn[] = [
+    { key: "topic", label: "Topic", unit: "" },
+    { key: "partition", label: "Partition", unit: "" },
+    { key: "member", label: "Member", unit: "" },
+    { key: "lag", label: "Lag", unit: "messages" },
+  ];
+  it("names a row by the columns the server calls keys, else by its label columns", () => {
+    const row = { topic: "orders", partition: "3", member: "c-1", lag: 40 };
+    expect(isKeyColumn(columns[0], ["topic", "partition"])).toBe(true);
+    expect(isKeyColumn(columns[2], ["topic", "partition"])).toBe(false);
+    expect(isKeyColumn(columns[0], undefined)).toBe(false);
+    expect(rowKey(row, columns, 0, ["topic", "partition"])).toBe("orders\u0000" + "3");
+    expect(rowKey(row, columns, 0)).toBe("orders\u00003\u0000c-1");
   });
 });

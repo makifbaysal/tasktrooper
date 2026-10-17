@@ -202,7 +202,10 @@ beforeEach(() => {
 
 describe("EntityQueues", () => {
   it("lists each queue source as a table sorted by the largest lag, units in the header, the largest flagged", async () => {
-    mocks.getComponentQueues.mockResolvedValue(queuesAnswer([table({ truncated: true })]));
+    mocks.getComponentQueues.mockResolvedValue({
+      ...queuesAnswer([table({ truncated: true, key_columns: ["topic", "partition"] })]),
+      read_at: new Date(Date.now() - 45_000).toISOString(),
+    });
     renderQueues(onDay(1));
 
     const heading = await screen.findByRole("heading", { level: 3, name: /kafka-prod/ });
@@ -213,8 +216,11 @@ describe("EntityQueues", () => {
     expect(within(card).getByRole("button", { name: "Sort by Lag" })).toHaveTextContent("Lag(messages)");
     expect(within(card).getByRole("columnheader", { name: /Lag/ })).toHaveAttribute("aria-sort", "descending");
 
+    expect(within(card).getByText(/^Read /).closest("[title]")).toHaveAttribute("title", expect.stringContaining("30 seconds"));
     let rows = bodyRows(card);
     expect(rows.map((r) => within(r).getAllByRole("cell")[2].textContent)).toEqual(["1", "2", "0"]);
+    expect(within(rows[0]).getAllByRole("cell")[1]).toHaveClass("font-medium");
+    expect(within(rows[0]).getAllByRole("cell")[3]).not.toHaveClass("font-medium");
     expect(within(rows[0]).getByText("Largest backlog")).toBeInTheDocument();
     expect(within(rows[1]).getByText("No value")).toBeInTheDocument();
     expect(within(card).getByText("The highlighted row holds the largest backlog.")).toBeInTheDocument();
@@ -259,7 +265,7 @@ describe("EntityQueues", () => {
   it("answers each table's error by its code: fill in the binding, retry, or explain", async () => {
     mocks.getComponentQueues.mockResolvedValue(
       queuesAnswer([
-        table({ data_source_name: "needs", rows: [], columns: [], error: { code: "needs_params", message: "no value for group" } }),
+        table({ signal: "queue.consumers", data_source_name: "needs", rows: [], columns: [], error: { code: "needs_params", message: "no value for group" } }),
         table({ signal_binding_id: "b-2", data_source_name: "slow", rows: [], columns: [], error: { code: "timeout", message: "" } }),
         table({ signal_binding_id: "b-3", data_source_name: "plain", rows: [], columns: [], error: { code: "unsupported", message: "" } }),
       ]),
@@ -279,7 +285,7 @@ describe("EntityQueues", () => {
     await waitFor(() => expect(mocks.getComponentQueues.mock.calls.length).toBeGreaterThan(before));
 
     fireEvent.click(within(card("needs")).getByRole("button", { name: "Fill in parameters" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Bind Backlog" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Bind Consumers" })).toBeInTheDocument());
   });
 
   it("shows a direct broker's live value with the way to history instead of an empty chart", async () => {
