@@ -74,12 +74,34 @@ Two ideas sit between a raw metric and a chart on the console:
   (`detect.metric`), which is how TaskTrooper notices that a source holds
   RabbitMQ data at all; on a log or trace store it is a label, field or tag
   name, on a web analytics source an event name. A recipe may also declare
-  **tables**: one row per endpoint, page, crash issue or queue, read as the
-  source holds them when they are shown.
+  **tables**: one row per endpoint, page, crash issue or queue, read when
+  they are shown over a recent window of the source's own (see
+  [Table windows](#table-windows)).
 
 So a source answers "what do you have", a recipe answers "what does it mean",
 and a signal is the common vocabulary between them. Supporting a new exporter
 is a new recipe, not new code.
+
+### Table windows
+
+A table is not read over the console's time range: each source reads a
+fixed window before the moment it is asked, and each table on the console
+says which ("Covers the last 7 days"):
+
+| Source | Window |
+|---|---|
+| PostHog, Google Analytics 4, Plausible (Pages, Referrers, Countries, Devices) | The last 7 days, or the query's own `days` |
+| New Relic Browser (`newrelic-browser`) | The last 7 days (its NRQL says `SINCE 7 days ago`) |
+| Google Play vitals (crash and ANR issues) | The last 7 days, or the query's own `days` (1–30) |
+| Sentry (crash issues) | The last 14 days, or the query's own `days` (1–90) |
+| Datadog (endpoints) | The 10 minutes before |
+| New Relic APM (endpoints) | The hour before, unless the NRQL has a `SINCE` of its own |
+| Queues, Prometheus and CloudWatch tables, App Store Connect signatures | The value as the source holds it now |
+
+A table whose window cannot be told (a Prometheus rate, the newest build's
+signatures) says it covers the source's own recent window. Tables are kept
+30 seconds on the server, so each card also says when it was read ("Read 1
+minute ago").
 
 The **Recipes** tab on the Data sources page lists every recipe this version
 knows: its id, the technology it covers, the source kind it is written for,
@@ -244,7 +266,13 @@ address that is not allowed is refused when you save, and every broker the
 cluster advertises is checked again when TaskTrooper connects to it — so
 those advertised addresses must be reachable from this computer too. Moving
 the bootstrap servers to other hosts asks for the saved password and CA
-certificate again, as moving a URL does.
+certificate again, as moving a URL does; while the source holds them, the
+field says so.
+
+**Kafka without TLS.** With SASL **PLAIN** and TLS **off**, a source whose
+bootstrap or advertised brokers are not on this computer (not `localhost` or
+a loopback address) still saves, but its check shows a warning: PLAIN then
+sends the password unencrypted. Turn TLS on, or use SCRAM.
 
 **Queries** are one small JSON object each; an absent `metric` is the
 backlog:
@@ -257,9 +285,13 @@ backlog:
 
 **Find suggestions** on a worker's Signals page lists a broker's consumer
 groups, queues or JetStream consumers and offers the ones whose names best
-name the component, already written as these queries. The catalog's
-`kafka-direct`, `rabbitmq-direct` and `nats-direct` recipes do the same with
-a parameter you fill in (`group`; `queue`; `stream` and `consumer`).
+name the component through the catalog's `kafka-direct`, `rabbitmq-direct`
+and `nats-direct` recipes, the name filled in as the recipe's parameter
+(`group`; `queue`; `stream` and `consumer`), which escapes it for the query.
+A RabbitMQ queue whose name holds `*` is not offered, since a query reads
+`*` as a pattern; under **Discovered metrics** such a queue is listed but
+cannot be put in the query box. Bind it through `rabbitmq-direct`'s `queue`
+parameter by hand.
 
 ## Logs and traces: Loki, Elasticsearch and Tempo
 
@@ -298,6 +330,9 @@ is counted from lines:
 {service_name="api"}
 sum(rate({service_name="api"} | detected_level="error" [5m]))
 ```
+
+A Loki query may end in a `# comment`: the Logs explorer's own filters go on
+a line of their own after the query, so the comment cannot swallow them.
 
 Elasticsearch takes one JSON object of filters, every one of which must
 match (exact on a keyword field, every word on a text one), at most 32:
@@ -423,7 +458,12 @@ whole minutes. `environment` narrows every read, `release` keeps one
 release, and `search` adds Sentry search syntax to an events or issues read
 (issues default to `is:unresolved`). Bound to `errors.issues`, a project's
 issues join the [Errors inbox](operations-console.md#errors-inbox), beside
-what the component's cloud reports.
+what the component's cloud reports, and each can be made a task from there.
+
+**Links.** A Play issue's link and a Sentry issue's permalink are shown only
+when they are the service's own https pages: Play Console on
+`play.google.com`, and your configured Sentry (for Sentry's cloud, `sentry.io`
+or a subdomain of it). Any other link the source answers is left out.
 
 **Recipes.**
 
@@ -434,6 +474,10 @@ what the component's cloud reports.
 | `sentry-mobile` | `project` | `mobile.crash_free_users`, `mobile.crash_rate`, `errors.issues` | `crashes`: unhandled, unresolved issues of the last 14 days, most frequent first |
 | `sentry-web` | `project` | `web.js_errors` (per second), `errors.issues` | — |
 | `sentry-backend` | `project` | `process.errors` (per second), `errors.issues` | — |
+
+App Store Connect metrics lists **Crashes** among what it provides: its
+`signatures` table is what a mobile app's
+[Crashes](operations-console.md#crashes) shows from it.
 
 Play does not map cold start: it measures the share of slow starts, not how
 long a start takes. A Sentry recipe reads every environment the project
@@ -560,8 +604,9 @@ Read as a table, a query answers each tag group's latest value over the 10
 minutes before, so `… by {resource_name}` is one row per resource.
 
 **New Relic** queries are NRQL without `SINCE`, `UNTIL`, `TIMESERIES` or
-`COMPARE WITH`: the kind adds them for the range, in steps of whole minutes,
-366 at most:
+`COMPARE WITH`, and without comments (`--`, `//`, `/* */` would swallow what
+the kind appends, so a query holding one outside a string is refused): the
+kind adds them for the range, in steps of whole minutes, 366 at most:
 
 ```
 SELECT percentile(duration, 95) * 1000 FROM Transaction WHERE appName = 'api'
@@ -590,8 +635,9 @@ escaped. **Find suggestions** offers these recipes once the source holds
 their telltale (a metric name for Datadog, an event type for New Relic),
 with the parameters left for you to fill in: **Review** opens the editor.
 
-Both kinds list **Traces** among what they provide, but the console reads
-traces from Tempo only: a `traces.spans` binding needs a Tempo source.
+Neither kind provides **traces**: Datadog provides metrics, New Relic
+metrics, RUM and crashes, and the console reads traces from Tempo only — a
+`traces.spans` binding needs a Tempo source.
 
 ## Checking a source
 

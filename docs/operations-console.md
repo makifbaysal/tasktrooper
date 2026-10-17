@@ -245,9 +245,10 @@ Errors. A link to a section the role does not have opens Summary.
   for a desktop app. Other roles have no standard signals yet. Once a signal
   is bound its chart draws the range from that source, with the deploy
   markers and a crosshair shared by every chart. Response time draws its
-  p50, p95 and p99 as three lines with a legend when the binding reads
-  quantiles; with **Compare with previous period** on, each line gets a
-  dashed twin for the period before. Values carry their unit, and the y axis
+  p50, p75, p95 and p99 as four lines with a legend when the binding reads
+  quantiles (p75 is the newest of them, in the same palette order); with
+  **Compare with previous period** on, each line gets a dashed twin for the
+  period before. Values carry their unit, and the y axis
   switches to seconds, minutes or KB…GB when the numbers get large. A chart
   that is not bound reads "No data source bound" with **Bind**, which opens
   the binding editor right there, and **Manage signals**; a chart whose read
@@ -259,8 +260,9 @@ Errors. A link to a section the role does not have opens Summary.
 
 A signal bound to a broker read directly (Kafka, RabbitMQ or NATS, see
 [Data sources](data-sources.md#message-brokers-kafka-rabbitmq-and-nats))
-has no history: such a source answers only the value as it is now. Its
-chart shows that value instead, with "Live value — connect an
+has no history: such a source answers only the value as it is now, and the
+server marks the signal live. A live broker signal shows a value, not a
+chart: its chart shows that value instead, with "Live value — connect an
 exporter-backed source for history", and its golden metric shows the value
 with "Live value, no history" and no sparkline.
 
@@ -280,8 +282,8 @@ Each tile names its band, marks the value on a good / needs improvement /
 poor meter, lists the two thresholds and carries a sparkline of the range;
 it is tinted when the vital needs improvement or is poor. The web analytics
 recipes (PostHog, New Relic Browser) answer the p75 itself. A binding that
-reads a histogram (a query with `$__quantile`, read at p50, p95 and p99)
-shows its p95 instead, labelled as stricter than the p75 Google rates by.
+reads a histogram (a query with `$__quantile`) is read at p75 as well, the
+percentile Google rates by; no other percentile stands in for it.
 
 **Traffic** shows page views (per second), sessions and visitors, each its
 latest value in the range with a sparkline. A vital or traffic signal that
@@ -309,16 +311,23 @@ rate, error rate, latency) whose recipe declares an endpoints table:
 | `newrelic-apm` | One per transaction name over the last hour, the top 100 by count |
 
 There is one table per data source and recipe, headed by the source's name
-and the recipe. They are read as the source holds them now, again every
-minute, so the time range does not apply; the environment does. A table
+and the recipe. Each covers its source's own recent window (Datadog the 10
+minutes before, New Relic the hour before; a Prometheus table its rate
+window), which the table says beside the recipe, and is read again every
+minute, so the time range does not apply; the environment does. Tables show
+when they were read ("Read 1 minute ago"): the server keeps a read for 30
+seconds, which the time's tooltip says. See
+[Table windows](data-sources.md#table-windows). A table
 shows 100 rows with **Show all** for the rest, and says so when the source
 held more rows than it sent.
 
 With no such binding, the section says where endpoints come from, with
 **Open Signals** and **Add a data source**. A table that could not be read
-says why: a binding missing a parameter, a source that is gone or a query
-the source refused offers **Open Signals**, a source that did not answer
-**Retry**, and a kind that cannot list rows explains what would give one.
+says why: a binding missing a parameter (**Fill in parameters**), a source
+that is gone (**Bind another source**) or a query the source refused
+(**Edit the binding**) opens the binding editor on the signal the table was
+read through, a source that did not answer offers **Retry**, and a kind that
+cannot list rows explains what would give one.
 
 ### Pages
 
@@ -336,8 +345,9 @@ app's confirmed `web.*` bindings whose recipe declares that table:
 | `plausible-web` | All four; Referrers are visit sources |
 | `newrelic-browser` | Pages only: one row per page URL, with sessions |
 
-Each covers the last 7 days, as the source reports it now, and is read again
-every minute; the time range does not apply, the environment does. With no
+Each covers the last 7 days (or the query's own `days`), said on the table
+with when it was read, and is read again every minute; the time range does
+not apply, the environment does. With no
 such table bound for the tab, it says where the table comes from, with
 **Open Signals** and **Add a data source**. A table that could not be read
 says why, as on Endpoints.
@@ -366,16 +376,20 @@ period** from the top bar.
   member; for RabbitMQ, each queue's ready and unacknowledged messages,
   consumers and rates; for NATS JetStream, each consumer's pending,
   awaiting-ack and redelivered messages; for an exporter recipe, the
-  columns it declares. Rows are sorted by backlog, largest first; click any
-  column header to sort by it. When an enabled alert rule watches the
-  backlog in this environment, the rows above its threshold are marked;
+  columns it declares. The columns that name a row (topic and partition,
+  queue, consumer) read as keys. Each table says when it was read: the
+  server keeps a read for 30 seconds. Rows are sorted by backlog, largest
+  first; click any column header to sort by it. When an enabled alert rule
+  watches the backlog in this environment, the rows above its threshold are
+  marked;
   otherwise the row with the largest backlog is. A source that holds more
   rows than it sends says so.
 
 A table that could not be read says why: a binding missing a parameter
 offers **Fill in parameters**, a source that is gone **Bind another
 source**, a query the source refused **Edit the binding** (each opens the
-binding editor on that binding), a source that did not answer **Retry**,
+binding editor on the signal the table was read through), a source that did
+not answer **Retry**,
 and a source with no per-queue table explains what would give one.
 
 With no queue signal bound yet, the section says where queue data comes
@@ -387,8 +401,9 @@ name this worker, then points to Signals to accept them), **Bind backlog**
 ### Crashes
 
 A mobile app's **Crashes** section lists what the stores and Sentry hold
-about its crashes, as they list them now, read again every minute; the time
-range does not apply, the environment does.
+about its crashes over each source's own recent window, said on each table
+with when it was read, and read again every minute; the time range does not
+apply, the environment does.
 
 - **Crash and ANR issues**: one table per source. Google Play's are its
   error issues of the last 7 days (crashes, ANRs and non-fatal issues),
@@ -487,7 +502,12 @@ sparkline of the range for a bound one.
   recipe on a source that reads through the same cloud account is offered
   with its parameters taken from the resource. On a Kafka, RabbitMQ or
   NATS source, the consumer groups, queues or JetStream consumers whose names
-  best name the component are offered for its queue signals. For a mobile
+  best name the component are offered for its queue signals, through the
+  source's direct recipe with the name as its parameter. A worker sees the
+  recipes and broker sources for its own brokers first — the messaging
+  clients found in its code, .NET projects (`.csproj`, `.fsproj`) included,
+  which are scanned for Kafka, RabbitMQ, NATS, SQS, Pub/Sub and Service Bus
+  clients — and the others still appear after them. For a mobile
   app whose repository has a store app linked, the Google Play vitals and
   App Store Connect recipes come first, their parameter filled from the app.
   A Datadog or New Relic recipe comes with its parameters to fill in; Sentry
@@ -552,13 +572,14 @@ has its Sentry issues read as well, beside its cloud's groups rather than
 instead of them. They carry a **Sentry** badge. For these, the fingerprint
 is the issue id, the occurrences are its events in the range, **New** means
 its first event falls in the range, and **Open in Sentry** opens the issue.
-Such a group has no environment, so **Create task** is unavailable (hovering
-it says to open the issue in Sentry instead), and its panel links to the
-data source rather than to the environment's settings. At most 50 bindings
-are read, 100 issues each. An entity with such a binding has its Errors
-section read even when it has no environment connected; on the console-wide
-page it is read with the rest, while at least one of the entities the page
-covers has an environment connected.
+Errors read through a binding (Sentry) can become a task: **Create task**
+opens it through the component, naming the data source, with the issue's
+link when it is Sentry's own page. Its panel links to the data source rather
+than to the environment's settings. At most 50 bindings are read, 100 issues
+each. An entity with such a binding has its Errors section read even when
+it has no environment connected, and the console-wide page reads such
+components with the rest even when nothing is connected in the environment;
+it says "Nothing is connected" only when nothing answers.
 
 The filters are **Entities** (pick one or more; none picked means all), a
 search over message, source, fingerprint, sample and entity name, **New in
@@ -751,9 +772,9 @@ never both: the same lines often reach both stores. The search text and the
 minimum severity are applied by the source in its own language, and a line
 with no level there is judged by its text. Such a read counts toward the
 10-environment limit like an environment. An entity with such a binding has
-its Logs section read even when it has no environment connected; on the
-console-wide page it is read with the rest, while at least one of the
-entities the page covers has an environment connected.
+its Logs section read even when it has no environment connected, and the
+console-wide page reads such components with the rest even when nothing is
+connected in the environment.
 
 The query bar has:
 
@@ -839,8 +860,12 @@ that has a confirmed binding in the environment: its average over the hour
 before the deploy, the hour after it and that same hour a day earlier, how
 far it moved (in percentage points for a rate such as errors, in percent
 otherwise) and its verdict, with the threshold the soak held it to and
-whether it was breached. Below the table, a chart per signal spans the two
-hours around the deploy, with the deploy marked. While the hour after the
+whether it was breached. A threshold whose signal was still settling when
+the soak ended (the hour after too short or too sparse to judge) reads **Not
+checked — still settling**, never as passed, and the thresholds the soak
+could not judge are named under the heading with why. Below the table, a
+chart per signal spans the two hours around the deploy, with the deploy
+marked. While the hour after the
 deploy is still running it says so, and the numbers cover what has passed.
 With no signal bound it offers a link to the entity's **Signals**, where they
 are bound. It reads `GET /v1/releases/{id}/impact` (again every minute while
@@ -894,14 +919,16 @@ read:
   of the component has shipped since, a newer one is under way, the release
   never reached the environment, its verdict is more than 24 hours old, no
   release of the component is on record as live, which one is live could not
-  be read, or the release is in a state that cannot be rolled back.
+  be read, the release is in a state that cannot be rolled back, or this
+  server has no git access to revert its merges (*not configured*).
 
 **Dismiss suggestion** declines the proposal: the server drops it and the
 banner goes, for everyone. Dismissing is remembered: the release engineer
 won't suggest rolling that release back again until a new incident is
-attributed to it. On a server with no git reverter, rollback is not offered
-(*not configured*). A proposal also goes away on its own once the
-release is rolled back, or once a newer release of the component ships.
+attributed to it, and the panel says quietly when it was dismissed. On a
+server with no git reverter, rollback is not offered (*not configured*). A
+proposal also goes away on its own once the release is rolled back, or once
+a newer release of the component ships.
 
 The same banner shows on an issue's panel under [Issues](#issues), with a
 link to the change, but only for the release the server put the issue down
@@ -983,7 +1010,9 @@ query of a data source's own) and fires when its condition holds. The server
 evaluates every enabled rule about once a minute. A firing rule recovers only
 after five clear minutes (or its **For at least**, if longer). A rule whose
 source can't be read shows the last error and holds its state for up to ten
-evaluations, then reads as no data. A rule that changes state more than four
+evaluations, then reads as no data: the list marks it with a warning icon,
+and its panel says how many evaluations it held its state for, with the
+error. A rule that changes state more than four
 times in 30 minutes notifies nothing more until it stays put for 15 minutes,
 then once with the state it ended in.
 
