@@ -231,3 +231,49 @@ func hostPort(entry, defaultPort string) (string, error) {
 	}
 	return net.JoinHostPort(host, port), nil
 }
+
+// BrokerTarget is what a direct broker kind's query reads, its measure left
+// out, as canonical JSON: each kind's table answers the entity whatever the
+// metric, so two queries differing only in it read the same table. ok is
+// false for another kind or a query that does not parse.
+func BrokerTarget(kind DataSourceKind, query string) (string, bool) {
+	var (
+		v   any
+		err error
+	)
+	switch kind {
+	case DataSourceKindKafka:
+		var q KafkaQuery
+		q, err = ParseKafkaQuery(query)
+		q.Metric = ""
+		v = q
+	case DataSourceKindRabbitMQ:
+		var q RabbitMQQuery
+		q, err = ParseRabbitMQQuery(query)
+		q.Metric = ""
+		v = q
+	case DataSourceKindNATS:
+		var q NATSQuery
+		q, err = ParseNATSQuery(query)
+		q.Metric = ""
+		v = q
+	default:
+		return "", false
+	}
+	if err != nil {
+		return "", false
+	}
+	b, err := json.Marshal(v)
+	return string(b), err == nil
+}
+
+// LiveOnlyKind: a direct broker kind reads its broker's state as it is now,
+// so whatever window it is asked for it answers one point, at the instant
+// read, and no window that ended earlier.
+func LiveOnlyKind(k DataSourceKind) bool {
+	switch k {
+	case DataSourceKindKafka, DataSourceKindRabbitMQ, DataSourceKindNATS:
+		return true
+	}
+	return false
+}

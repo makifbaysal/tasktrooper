@@ -141,7 +141,7 @@ func (a *Adapter) Schema() domain.DataSourceSchema {
 				Help: "Its service account must be a Viewer of the property (Admin → Property access management).",
 			},
 			{
-				Key: keyServiceAccount, Label: "Service account key (JSON)", Type: domain.FieldSecret, Required: true, Secret: true,
+				Key: keyServiceAccount, Label: "Service account key (JSON)", Type: domain.FieldSecret, Required: true, Secret: true, Multiline: true,
 				ShowWhen: map[string]string{keyAuth: AuthServiceAccount},
 				Help:     "A key of a service account that is a Viewer of the property, with the Google Analytics Data API enabled in its project. Stored encrypted.",
 			},

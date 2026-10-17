@@ -49,30 +49,34 @@ func newDataSourceService(db *pgstore.DB, cipher *secrets.Cipher, cipherErr erro
 		Store:         store,
 		Recipes:       store,
 		CloudAccounts: cloudAccounts,
-		Kinds: []port.DataSourceKindAdapter{
-			prometheusds.New(),
-			gcpmonitoringds.New(),
-			cloudwatchds.New(),
-			kafkads.New(),
-			rabbitmqds.New(),
-			natsds.New(),
-			lokids.New(),
-			elasticsearchds.New(),
-			tempods.New(),
-			playvitalsds.New(),
-			appstoremetricsds.New(),
-			sentryds.New(),
-			posthogds.New(),
-			ga4ds.New(),
-			plausibleds.New(),
-			datadogds.New(),
-			newrelicds.New(),
-		},
-		URLPolicy: &policy,
+		Kinds:         dataSourceKinds(),
+		URLPolicy:     &policy,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("data sources: disabled")
 		return nil
 	}
 	return svc
+}
+
+func dataSourceKinds() []port.DataSourceKindAdapter {
+	return []port.DataSourceKindAdapter{
+		prometheusds.New(),
+		gcpmonitoringds.New(),
+		cloudwatchds.New(),
+		kafkads.New(),
+		rabbitmqds.New(),
+		natsds.New(),
+		lokids.New(),
+		elasticsearchds.New(),
+		tempods.New(),
+		playvitalsds.New(),
+		appstoremetricsds.New(),
+		sentryds.New(),
+		posthogds.New(),
+		ga4ds.New(),
+		plausibleds.New(),
+		datadogds.New(),
+		newrelicds.New(),
+	}
 }

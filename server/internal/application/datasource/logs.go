@@ -20,6 +20,9 @@ const (
 	MaxTraceLimit     = 100
 	// MaxTraceWindow is Tempo's own default search ceiling (max_duration).
 	MaxTraceWindow = 7 * 24 * time.Hour
+	// MaxTraceMinDuration bounds a search's minimum span duration; no trace
+	// a window holds runs longer.
+	MaxTraceMinDuration = 24 * time.Hour
 
 	maxLabelValues = 5000
 	maxTraceSpans  = 20000

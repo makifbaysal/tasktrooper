@@ -360,11 +360,18 @@ func searchBody(s settings, query domain.ElasticsearchQuery, q domain.LogQuery, 
 	if words := domain.SeverityWordsBelow(q.MinSeverity); len(words) > 0 {
 		boolQuery["must_not"] = []any{map[string]any{"terms": map[string]any{s.levelField: caseVariants(words)}}}
 	}
+	// _doc breaks ties between lines of the same timestamp, so search_after
+	// neither skips nor repeats those that straddle a page; it needs no point
+	// in time, which _shard_doc would, and Elasticsearch and OpenSearch both
+	// take it.
 	body := map[string]any{
 		"size":             limit,
 		"track_total_hits": false,
-		"sort":             []any{map[string]any{s.timeField: map[string]any{"order": "desc", "unmapped_type": "date"}}},
-		"query":            map[string]any{"bool": boolQuery},
+		"sort": []any{
+			map[string]any{s.timeField: map[string]any{"order": "desc", "unmapped_type": "date"}},
+			map[string]any{"_doc": map[string]any{"order": "desc"}},
+		},
+		"query": map[string]any{"bool": boolQuery},
 	}
 	if len(after) > 0 {
 		body["search_after"] = after

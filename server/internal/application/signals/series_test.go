@@ -39,7 +39,7 @@ func (s *SignalsSuite) TestSeriesReadsAQuantileSignalOncePerQuantile() {
 	api := s.component(domain.ComponentRoleBackend, "api")
 	s.stored(api.ID, domain.EnvironmentProduction, s.binding(api, "http.latency", domain.SignalBindingConfirmed, map[string]string{"job": "api"}))
 	from := s.now.Add(-time.Hour)
-	for i, q := range []string{"0.5", "0.95", "0.99"} {
+	for i, q := range []string{"0.5", "0.75", "0.95", "0.99"} {
 		s.answers(mock.MatchedBy(func(sq domain.SeriesQuery) bool {
 			return strings.Contains(sq.Query, "histogram_quantile("+q+",") && strings.Contains(sq.Query, `{job="api"}[120s]`) &&
 				sq.Step == 30*time.Second && sq.From.Equal(from) && sq.To.Equal(s.now)
@@ -56,8 +56,8 @@ func (s *SignalsSuite) TestSeriesReadsAQuantileSignalOncePerQuantile() {
 	s.Nil(lat.Error)
 	s.True(lat.Bound)
 	s.Equal("ms", lat.Unit)
-	s.Require().Len(lat.Series, 3)
-	for i, want := range []struct{ name, q string }{{"p50", "0.5"}, {"p95", "0.95"}, {"p99", "0.99"}} {
+	s.Require().Len(lat.Series, 4)
+	for i, want := range []struct{ name, q string }{{"p50", "0.5"}, {"p75", "0.75"}, {"p95", "0.95"}, {"p99", "0.99"}} {
 		s.Equal(want.name, lat.Series[i].Name)
 		s.Equal(want.q, lat.Series[i].Labels["quantile"])
 		s.Equal(float64(i), *lat.Series[i].Points[0].Value)
@@ -146,7 +146,7 @@ func (s *SignalsSuite) TestSeriesReadsAtMostFourQueriesAtOnce() {
 			time.Sleep(20 * time.Millisecond)
 			inFlight.Add(-1)
 		}).
-		Return(domain.SeriesResult{}, nil).Times(16)
+		Return(domain.SeriesResult{}, nil).Times(18)
 
 	got, err := s.svc.Series(s.ctx, api.ID, signals.SeriesQuery{Environment: domain.EnvironmentProduction, Compare: true})
 	s.Require().NoError(err)
@@ -201,7 +201,7 @@ func (s *SignalsSuite) TestSeriesRefusesABadWindow() {
 func (s *SignalsSuite) TestPreviewRendersAndRunsAQueryBeforeItIsBound() {
 	api := s.component(domain.ComponentRoleBackend, "api")
 	from := s.now.Add(-time.Hour)
-	for _, q := range []string{"0.5", "0.95", "0.99"} {
+	for _, q := range []string{"0.5", "0.75", "0.95", "0.99"} {
 		s.answers(queryContaining("histogram_quantile("+q+","), domain.Series{Points: points(from, time.Minute, value(1))}).Once()
 	}
 
@@ -211,8 +211,9 @@ func (s *SignalsSuite) TestPreviewRendersAndRunsAQueryBeforeItIsBound() {
 	})
 	s.Require().NoError(err)
 	s.Equal(`1000 * histogram_quantile(0.95, sum by (le) (rate(svc_http_bucket{job="api"}[120s])))`, got.RenderedQuery)
-	s.Len(got.Series, 3)
-	s.Equal("p99", got.Series[2].Name)
+	s.Len(got.Series, 4)
+	s.Equal("p75", got.Series[1].Name, "a web vital's p75 is read too")
+	s.Equal("p99", got.Series[3].Name)
 	s.Equal([]string{}, got.Warnings)
 }
 
@@ -222,7 +223,7 @@ func (s *SignalsSuite) TestSeriesReadsACloudWatchQuantileSignalOncePerPercentile
 	lat := s.binding(api, "http.latency", domain.SignalBindingConfirmed, map[string]string{"load_balancer": "app/web/1"})
 	lat.DataSourceID, lat.RecipeID = cw.ID, "aws-alb"
 	s.stored(api.ID, domain.EnvironmentProduction, lat)
-	for _, stat := range []string{"p50", "p95", "p99"} {
+	for _, stat := range []string{"p50", "p75", "p95", "p99"} {
 		s.cwQuerier.On("Series", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(q domain.SeriesQuery) bool {
 			return regexp.MustCompile(`"stat":\s*"`+stat+`"`).MatchString(q.Query) && strings.Contains(q.Query, `"LoadBalancer": "app/web/1"`)
 		})).Return(func(context.Context, domain.DataSource, map[string]string, domain.SeriesQuery) (domain.SeriesResult, error) {
@@ -237,7 +238,7 @@ func (s *SignalsSuite) TestSeriesReadsACloudWatchQuantileSignalOncePerPercentile
 	for _, sr := range got.Signals[0].Series {
 		names = append(names, sr.Name)
 	}
-	s.Equal([]string{"p50", "p95", "p99"}, names)
+	s.Equal([]string{"p50", "p75", "p95", "p99"}, names)
 }
 
 func (s *SignalsSuite) TestSeriesKeepsThisWindowWhenThePreviousOneFails() {

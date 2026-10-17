@@ -28,22 +28,27 @@ var oauthErrorCodes = map[string]bool{
 // scope through httpClient: the JWT-bearer grant Client makes, for an adapter
 // outside this package that calls a Google API on a connected account (the
 // Cloud Monitoring data source). The key's token_uri is uploaded with the key,
-// so it must be Google's: https on oauth2.googleapis.com or another
-// googleapis.com host, or the legacy accounts.google.com; anything else is
-// ErrTokenURINotGoogle, refused before any request. It is dialled through
-// httpClient, whose transport still decides whether that address may be
-// reached. A refusal names the HTTP status and the OAuth error code only; the
-// endpoint's own text is logged, never returned, since it ends up in a data
-// source's status_detail.
+// so it must name Google's token endpoint, https://oauth2.googleapis.com/token,
+// or one of the legacy URLs older keys carry (accounts.google.com/o/oauth2/token,
+// www.googleapis.com/oauth2/v4/token), which are asked at that endpoint;
+// anything else is ErrTokenURINotGoogle, refused before any request. It is
+// dialled through httpClient, whose transport still decides whether that
+// address may be reached, and a redirect is never followed: it would carry the
+// signed assertion elsewhere. A refusal names the HTTP status and the OAuth
+// error code only; the endpoint's own text is logged, never returned, since it
+// ends up in a data source's status_detail.
 func MintAccessToken(ctx context.Context, httpClient *http.Client, serviceAccountJSON, scope string) (string, time.Time, error) {
 	sa, err := parseServiceAccountJSON(serviceAccountJSON)
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	if !googleTokenURL(sa.TokenURL) {
+	tokenURL, ok := googleTokenURL(sa.TokenURL)
+	if !ok {
 		return "", time.Time{}, ErrTokenURINotGoogle
 	}
-	tok, exp, err := fetchAccessToken(ctx, httpClient, sa.TokenURL, sa.ClientEmail, scope, sa.PrivateKey)
+	client := *httpClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	tok, exp, err := fetchAccessToken(ctx, &client, tokenURL, sa.ClientEmail, scope, sa.PrivateKey)
 	var ae *apiError
 	if errors.As(err, &ae) {
 		log.Warn().Int("status", ae.Status).Str("body", ae.Body).Msg("gcloud: the token endpoint refused a service account key")
@@ -52,13 +57,18 @@ func MintAccessToken(ctx context.Context, httpClient *http.Client, serviceAccoun
 	return tok, exp, err
 }
 
-func googleTokenURL(raw string) bool {
+// googleTokenURL answers the endpoint a key's token_uri is asked at.
+func googleTokenURL(raw string) (string, bool) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") {
-		return false
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.Fragment != "" ||
+		(u.Port() != "" && u.Port() != "443") {
+		return "", false
 	}
-	host := strings.ToLower(u.Hostname())
-	return host == "oauth2.googleapis.com" || host == "accounts.google.com" || strings.HasSuffix(host, ".googleapis.com")
+	switch strings.ToLower(u.Hostname()) + u.EscapedPath() {
+	case "oauth2.googleapis.com/token", "accounts.google.com/o/oauth2/token", "www.googleapis.com/oauth2/v4/token":
+		return defaultTokenURL, true
+	}
+	return "", false
 }
 
 func tokenRefusal(ae *apiError) error {

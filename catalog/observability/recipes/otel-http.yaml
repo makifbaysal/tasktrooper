@@ -27,7 +27,7 @@ tables:
       - {key: p95_ms, label: p95, unit: ms}
     queries:
       rpm: >-
-        60 * sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job"}[$__rate]))
+        topk(500, 60 * sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job"}[$__rate])))
       error_pct: >-
         100 * (sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job", http_response_status_code=~"5.."}[$__rate]))
         or 0 * sum by (http_route) (rate(http_server_request_duration_seconds_count{job="$job"}[$__rate])))

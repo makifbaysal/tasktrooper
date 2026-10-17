@@ -20,6 +20,7 @@ type FixTaskSuite struct {
 	envs     *fakeEnvironments
 	provider *fakeProvider
 	tasks    *fakeTasks
+	comps    *fakeComponents
 	svc      *cloud.Service
 
 	repoID      uuid.UUID
@@ -39,12 +40,13 @@ func (s *FixTaskSuite) SetupTest() {
 	s.tasks = &fakeTasks{}
 	s.repoID = uuid.New()
 	s.componentID = uuid.New()
+	s.comps = newFakeComponents()
 
 	s.svc = cloud.NewService(cloud.Deps{
 		Accounts:     s.accounts,
 		Environments: s.envs,
 		Providers:    []port.CloudProvider{s.provider},
-		Components:   newFakeComponents(),
+		Components:   s.comps,
 		Scans:        newFakeScans(),
 		Repos:        newFakeRepos(domain.Repository{ID: s.repoID, Name: "acme"}),
 		Tasks:        s.tasks,
@@ -117,4 +119,44 @@ func (s *FixTaskSuite) TestCreateFixTaskRequiresTaskCreator() {
 	})
 	_, err := svc.CreateFixTask(s.ctx, s.env.ID, domain.RuntimeErrorGroup{Message: "x"})
 	s.Require().Error(err)
+}
+
+func (s *FixTaskSuite) TestABoundGroupOpensTheSameTaskInTheComponentsRepository() {
+	comp := s.comps.seed(domain.Component{ID: uuid.New(), RepositoryID: s.repoID, Status: domain.ComponentStatusActive})
+	group := domain.RuntimeErrorGroup{
+		Fingerprint: "101", Message: "NSInvalidArgumentException\nmore", Count: 250, Sample: "unrecognized selector",
+		ExternalURL: "https://acme.sentry.io/issues/101/",
+	}
+
+	_, err := s.svc.CreateBoundFixTask(s.ctx, comp.ID, cloud.BoundErrorSource{
+		Environment: domain.EnvironmentProduction, Name: "Sentry prod", Kind: domain.DataSourceKindSentry,
+	}, group)
+
+	s.Require().NoError(err)
+	req, repoID := s.tasks.lastCall()
+	s.Equal(s.repoID, repoID)
+	s.Equal(domain.TaskTypeBug, req.TaskType)
+	s.Equal("Fix: NSInvalidArgumentException", req.Title)
+	s.Require().NotNil(req.ComponentID)
+	s.Equal(comp.ID, *req.ComponentID)
+	s.Contains(req.Description, "Environment: production")
+	s.Contains(req.Description, "Data source: Sentry prod (sentry)")
+	s.Contains(req.Description, "Count: 250")
+	s.Contains(req.Description, "unrecognized selector")
+	s.Contains(req.Description, "(https://acme.sentry.io/issues/101/)")
+}
+
+func (s *FixTaskSuite) TestABoundGroupsLinkMustBeAWebPage() {
+	comp := s.comps.seed(domain.Component{ID: uuid.New(), RepositoryID: s.repoID, Status: domain.ComponentStatusActive})
+
+	_, err := s.svc.CreateBoundFixTask(s.ctx, comp.ID, cloud.BoundErrorSource{Environment: domain.EnvironmentProduction, Name: "x", Kind: domain.DataSourceKindSentry},
+		domain.RuntimeErrorGroup{Message: "boom", ExternalURL: "javascript:alert(1)"})
+	s.Require().NoError(err)
+	req, _ := s.tasks.lastCall()
+	s.NotContains(req.Description, "javascript")
+
+	_, err = s.svc.CreateBoundFixTask(s.ctx, comp.ID, cloud.BoundErrorSource{Environment: "qa"}, domain.RuntimeErrorGroup{Message: "boom"})
+	s.ErrorIs(err, cloud.ErrInvalidInput)
+	_, err = s.svc.CreateBoundFixTask(s.ctx, uuid.New(), cloud.BoundErrorSource{Environment: domain.EnvironmentProduction}, domain.RuntimeErrorGroup{Message: "boom"})
+	s.ErrorIs(err, port.ErrNotFound)
 }

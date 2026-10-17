@@ -283,20 +283,39 @@ func TestSchemaMarksOnlyThePasswordSecret(t *testing.T) {
 	assert.Equal(t, map[string]bool{"url": false, "username": false, "vhost": false, "password": true}, secret)
 }
 
-func TestDiscoverQueuesOffersEachQueueWithItsQueries(t *testing.T) {
+func TestDiscoverQueuesOffersEachQueueByItsNameButNotOneAQueryWouldReadAsAPattern(t *testing.T) {
 	srv, _ := serve(t, map[string]http.HandlerFunc{
-		"/api/queues/%2F": reply(200, `{"page": 1, "page_count": 1, "items": [{"name": "orders"}]}`),
+		"/api/queues/%2F": reply(200, `{"page": 1, "page_count": 1, "items": [{"name": "orders"}, {"name": "orders*"}]}`),
 	})
 
 	targets, err := newAdapter().DiscoverQueues(context.Background(), source(srv.URL, nil), secrets)
 
 	require.NoError(t, err)
-	require.Len(t, targets, 1)
-	assert.Equal(t, "orders", targets[0].Name)
-	assert.Equal(t, map[string]string{
-		"queue.backlog":      `{"queue":"orders","metric":"messages"}`,
-		"queue.consumers":    `{"queue":"orders","metric":"consumers"}`,
-		"queue.consume_rate": `{"queue":"orders","metric":"deliver_rate"}`,
-		"queue.publish_rate": `{"queue":"orders","metric":"publish_rate"}`,
-	}, targets[0].Queries)
+	assert.Equal(t, []domain.QueueTarget{{Name: "orders", Params: map[string]string{"queue": "orders"}}}, targets)
+}
+
+func TestAListingStopsAtItsPageCap(t *testing.T) {
+	pages := 0
+	srv, _ := serve(t, map[string]http.HandlerFunc{"/api/queues/%2F": func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"page_count": 100000, "items": [{"name": "other"}]}`)
+	}})
+
+	res, err := newAdapter().Table(context.Background(), source(srv.URL, nil), secrets, domain.TableQuery{Query: `{"queue": "orders*"}`, At: time.Now()})
+
+	require.NoError(t, err)
+	assert.Empty(t, res.Rows)
+	assert.True(t, res.Truncated)
+	assert.Equal(t, 40, pages, "a server claiming endless pages of queues the pattern drops is not read forever")
+}
+
+func TestADotSegmentIsNeverSentAsAPath(t *testing.T) {
+	srv, b := serve(t, map[string]http.HandlerFunc{})
+
+	for _, name := range []string{"..", "."} {
+		_, err := newAdapter().Series(context.Background(), source(srv.URL, nil), secrets, instant(`{"queue": "`+name+`"}`))
+		require.Error(t, err)
+	}
+	assert.Empty(t, b.requests)
 }

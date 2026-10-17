@@ -74,7 +74,7 @@ func (traceQLDialect) check(subject, query string, declared map[string]bool) []s
 	var problems []string
 	seen := map[string]bool{}
 	for _, use := range placeholderUses(query) {
-		if seen[use.name] {
+		if seen[use.name] || use.harmless(declared) {
 			continue
 		}
 		seen[use.name] = true

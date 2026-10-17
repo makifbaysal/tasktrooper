@@ -201,8 +201,8 @@ func TestCrashesAnswersBothMobileTablesAndEachStandsAlone(t *testing.T) {
 	require.Len(t, got.Tables, 2)
 	assert.Equal(t, domain.RecipeTableCrashes, got.Tables[0].Table)
 	assert.Nil(t, got.Tables[0].Error)
-	assert.Equal(t, []map[string]any{{"issue": "A-1", "users": 3.0}, {"issue": "A-2", "users": 9.0}}, got.Tables[0].Rows,
-		"one value column: the source's order")
+	assert.Equal(t, []map[string]any{{"issue": "A-2", "users": 9.0}, {"issue": "A-1", "users": 3.0}}, got.Tables[0].Rows,
+		"one value per row in no order of the source's own (a PromQL vector): ranked by it")
 	assert.Equal(t, domain.RecipeTableSignatures, got.Tables[1].Table)
 	require.NotNil(t, got.Tables[1].Error)
 	assert.Equal(t, domain.SignalErrUpstream, got.Tables[1].Error.Code)
@@ -248,4 +248,30 @@ func TestEndpointsSaysWhichParamATableStillNeeds(t *testing.T) {
 	require.NotNil(t, got.Tables[0].Error)
 	assert.Equal(t, domain.SignalErrNeedsParams, got.Tables[0].Error.Code)
 	assert.Equal(t, "no value for service", got.Tables[0].Error.Message, "a param with a default is never missing")
+}
+
+func TestPutTakesAParamLeftOutWhenTheRecipeHasADefaultForIt(t *testing.T) {
+	f := newTablesFixture(t)
+	f.bindings.On("PutConfirmedSignalBinding", mock.Anything, mock.MatchedBy(func(b domain.SignalBinding) bool {
+		_, set := b.Params["prefix"]
+		return b.RecipeID == apmRecipe && b.Params["service"] == "api" && !set
+	})).Return(func(_ context.Context, b domain.SignalBinding) (domain.SignalBinding, error) {
+		b.ID, b.Status = uuid.New(), domain.SignalBindingConfirmed
+		return b, nil
+	}).Once()
+
+	got, err := f.svc.Put(context.Background(), f.comp.ID, domain.EnvironmentProduction, "http.requests", signals.BindingRequest{
+		DataSourceID: f.source.ID.String(), RecipeID: apmRecipe, Params: map[string]string{"service": "api"},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, `sum(rate(svc_requests{service="api", prefix="http"}[120s]))`, got.RenderedQuery)
+	assert.Equal(t, []string{}, got.NeedsParams)
+
+	_, err = f.svc.Put(context.Background(), f.comp.ID, domain.EnvironmentProduction, "http.requests", signals.BindingRequest{
+		DataSourceID: f.source.ID.String(), RecipeID: apmRecipe, Params: map[string]string{"prefix": "grpc"},
+	})
+	var fe datasource.FieldErrors
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, datasource.FieldErrors{"params.service": datasource.FieldRequired}, fe, "a param with no default is still required")
 }

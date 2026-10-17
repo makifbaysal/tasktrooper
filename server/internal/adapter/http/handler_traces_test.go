@@ -127,7 +127,7 @@ func (s *TracesHandlerSuite) TestComponentTracesAnswersTheContractShape() {
 }
 
 func (s *TracesHandlerSuite) TestComponentTracesRefusesBadParameters() {
-	for _, q := range []string{"?since=yesterday", "?min_duration_ms=-1", "?limit=0", "?limit=x", "?env=prod"} {
+	for _, q := range []string{"?since=yesterday", "?min_duration_ms=-1", "?min_duration_ms=86400001", "?min_duration_ms=9223372036854775807", "?limit=0", "?limit=x", "?env=prod"} {
 		status, body := s.get(s.path("/traces" + q))
 		s.Equal(fiber.StatusBadRequest, status, q)
 		s.NotEmpty(body["error"], q)
@@ -169,6 +169,7 @@ func (s *TracesHandlerSuite) TestOperationsTraceResolvesTheComponentsSourceOrLoo
 		Return([]domain.SignalBinding{s.binding(domain.SignalTracesSpans, "tempo-service")}, nil).Once()
 	s.bindings.On("ListConfirmedSignalBindings", mock.Anything, domain.EnvironmentProduction).
 		Return([]domain.SignalBinding{s.binding(domain.SignalTracesSpans, "tempo-service")}, nil).Once()
+	s.comps.On("ListAllComponents", mock.Anything).Return([]domain.Component{s.component}, nil).Once()
 	s.traces.On("Trace", mock.Anything, mock.Anything, mock.Anything, "abc").Return(domain.Trace{ID: "abc"}, nil).Twice()
 
 	status, body := s.get("/v1/operations/traces/abc?component_id=" + s.component.ID.String())

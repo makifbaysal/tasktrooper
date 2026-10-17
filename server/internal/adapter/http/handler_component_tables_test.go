@@ -12,8 +12,8 @@ import (
 )
 
 var componentTableKeys = []string{
-	"signal_binding_id", "data_source_id", "data_source_name", "recipe_id", "table",
-	"params", "columns", "rows", "truncated", "error",
+	"signal_binding_id", "signal", "data_source_id", "data_source_name", "recipe_id", "table",
+	"params", "columns", "key_columns", "rows", "truncated", "error",
 }
 
 func (s *SignalsHandlerSuite) TestEndpointsAnswersTheContractShape() {
@@ -26,7 +26,7 @@ func (s *SignalsHandlerSuite) TestEndpointsAnswersTheContractShape() {
 			return q.At.Equal(s.now) && strings.HasPrefix(q.Query, match)
 		})).Return(domain.TableResult{Rows: rows}, nil).Once()
 	}
-	answer("60 * sum by (http_route)",
+	answer("topk(500, 60 * sum by (http_route)",
 		map[string]any{"http_route": "/health", "value": 6.0},
 		map[string]any{"http_route": "/orders", "value": 120.0})
 	answer("100 * (sum by (http_route)", map[string]any{"http_route": "/orders", "value": 2.5})
@@ -34,12 +34,14 @@ func (s *SignalsHandlerSuite) TestEndpointsAnswersTheContractShape() {
 
 	status, body := s.do("GET", s.componentPath("/endpoints?env=staging"), "")
 	s.Require().Equal(fiber.StatusOK, status, body)
-	s.ElementsMatch([]string{"component_id", "environment", "tables"}, keysOf(body))
+	s.ElementsMatch([]string{"component_id", "environment", "read_at", "tables"}, keysOf(body))
 	s.Equal("staging", body["environment"])
 	tables := body["tables"].([]any)
 	s.Require().Len(tables, 1, "both bindings read the one table their recipe declares")
 	t := tables[0].(map[string]any)
 	s.ElementsMatch(componentTableKeys, keysOf(t))
+	s.Equal("http.requests", t["signal"])
+	s.Equal([]any{"http_route"}, t["key_columns"])
 	s.Equal(requests.ID.String(), t["signal_binding_id"], "the first binding in catalog order names the table")
 	s.Equal(s.source.ID.String(), t["data_source_id"])
 	s.Equal("otel-http", t["recipe_id"])
@@ -77,7 +79,7 @@ func (s *SignalsHandlerSuite) TestWebAndCrashesAnswerNoTablesWithoutABindingThat
 	for _, path := range []string{"/web?table=referrers", "/crashes"} {
 		status, body := s.do("GET", s.componentPath(path), "")
 		s.Require().Equal(fiber.StatusOK, status, body)
-		s.ElementsMatch([]string{"component_id", "environment", "tables"}, keysOf(body))
+		s.ElementsMatch([]string{"component_id", "environment", "read_at", "tables"}, keysOf(body))
 		s.Equal([]any{}, body["tables"], path)
 	}
 }

@@ -1403,6 +1403,11 @@ paths:
                               bound:
                                 type: boolean
                                 description: The component has a confirmed binding for the signal in env.
+                              live:
+                                type: boolean
+                                description: >-
+                                  Present (true) when the bound source reads only the value now (a
+                                  direct broker kind): the spark is one point.
                               value:
                                 type: number
                                 nullable: true
@@ -1559,7 +1564,7 @@ paths:
       description: >-
         to defaults to now, from to an hour before; step_seconds 0 or absent gives about
         120 points (at least 15s). A quantile signal whose query takes $__quantile answers
-        p50, p95 and p99 series. compare=1 fills previous with the window before, shifted
+        p50, p75, p95 and p99 series. compare=1 fills previous with the window before, shifted
         onto this one; a previous window that fails carries previous_error and leaves
         series be. A signal that fails carries error and never fails the others. At most
         4 queries at once, 20s each, 30s for the whole read (a signal still unread answers
@@ -1626,6 +1631,11 @@ paths:
                           type: string
                         bound:
                           type: boolean
+                        live:
+                          type: boolean
+                          description: >-
+                            Present (true) when the bound source reads only the value now (a direct
+                            broker kind): a series holds one point however long the window.
                         series:
                           type: array
                           items:
@@ -1664,10 +1674,11 @@ paths:
         env, at the instant of the request. A binding whose recipe declares tables.queues
         reads that table with the params the table uses (two bindings agreeing on them
         share one table, named by the first in catalog order); a binding on a broker kind
-        (a source with the queues capability) hands its own query to the kind. Any other
-        binding has no table. Each table stands alone: one that cannot be read carries
-        error and no rows. At most 4 queries at once, 20s each, 20s for the whole read;
-        answers are kept 30s per cache scope.
+        (a source with the queues capability) hands its own query to the kind, grouped by
+        what it reads with its metric left out. Any other binding has no table. Each table stands alone: one that cannot be read carries
+        error and no rows. At most 4 queries at once, 20s each, 20s for the whole read,
+        shared by requests asking at once; answers are kept 30s per cache scope (read_at
+        says when they were read).
       security:
         - bearerAuth: []
       parameters:
@@ -1686,6 +1697,10 @@ paths:
                     format: uuid
                   environment:
                     type: string
+                  read_at:
+                    type: string
+                    format: date-time
+                    description: When the tables were read; a cached answer is older than the request.
                   queues:
                     type: array
                     items:
@@ -1816,6 +1831,7 @@ paths:
           schema:
             type: integer
             minimum: 0
+            maximum: 86400000
         - name: limit
           in: query
           required: false
@@ -3635,6 +3651,17 @@ components:
         secret:
           type: boolean
           description: Send it in secrets; it never comes back, only its key in secrets_set.
+        destination:
+          type: boolean
+          description: >-
+            Present (true) on a text field holding the host[:port] list a kind connects to
+            (Kafka's bootstrap_servers): judged by the URL policy at save, and moving it
+            re-asks for the stored secrets.
+        multiline:
+          type: boolean
+          description: >-
+            Present (true) on a field whose value spans lines (a PEM certificate, a key
+            file's JSON): give it a text area.
     DataSourceKind:
       type: object
       properties:
@@ -3928,6 +3955,9 @@ components:
           type: string
           format: uuid
           description: The first binding, in catalog order, of those reading this table.
+        signal:
+          type: string
+          description: That binding's signal.
         data_source_id:
           type: string
           format: uuid
@@ -3958,9 +3988,18 @@ components:
           items:
             type: object
             additionalProperties: true
+        key_columns:
+          type: array
+          description: >-
+            The columns that name a row (a recipe table's key_labels, a broker kind's own);
+            absent when unknown.
+          items:
+            type: string
         truncated:
           type: boolean
-          description: More than 500 rows; the first 500 by key are shown.
+          description: >-
+            More than 500 rows; the 500 with the largest first value column are shown, in key
+            order.
         error:
           type: object
           nullable: true
@@ -3979,6 +4018,10 @@ components:
           format: uuid
         environment:
           type: string
+        read_at:
+          type: string
+          format: date-time
+          description: When the tables were read; a cached answer is older than the request.
         tables:
           type: array
           items:
@@ -3990,6 +4033,9 @@ components:
           type: string
           format: uuid
           description: The first binding, in catalog order, of those reading this table.
+        signal:
+          type: string
+          description: That binding's signal.
         data_source_id:
           type: string
           format: uuid
@@ -4017,6 +4063,11 @@ components:
           items:
             type: object
             additionalProperties: true
+        key_columns:
+          type: array
+          description: The columns that name a row (the recipe table's key_labels).
+          items:
+            type: string
         truncated:
           type: boolean
           description: The source held more rows than were returned (at most 500).

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,10 @@ func TestMintAccessTokenAsksOnlyGooglesTokenEndpoint(t *testing.T) {
 		{"none named", "", true},
 		{"oauth2", "https://oauth2.googleapis.com/token", true},
 		{"legacy accounts host", "https://accounts.google.com/o/oauth2/token", true},
+		{"legacy v4 endpoint", "https://www.googleapis.com/oauth2/v4/token", true},
+		{"another googleapis host", "https://storage.googleapis.com/token", false},
+		{"another path on the token host", "https://oauth2.googleapis.com/upload/token", false},
+		{"a query", "https://oauth2.googleapis.com/token?x=1", false},
 		{"plain http", "http://oauth2.googleapis.com/token", false},
 		{"another host", "https://tokens.example.com/token", false},
 		{"lookalike host", "https://oauth2.googleapis.com.example.com/token", false},
@@ -57,9 +62,37 @@ func TestMintAccessTokenAsksOnlyGooglesTokenEndpoint(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, "ya29.minted", tok)
-			require.Len(t, asked, 1)
+			assert.Equal(t, []string{"https://oauth2.googleapis.com/token"}, asked, "a legacy URL is asked at the endpoint it moved to")
 		})
 	}
+}
+
+func TestMintAccessTokenNeverFollowsARedirect(t *testing.T) {
+	var asked []string
+	client := &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		asked = append(asked, r.URL.String())
+		return &http.Response{
+			StatusCode: http.StatusTemporaryRedirect, Header: http.Header{"Location": {"https://collector.example.com/token"}},
+			Body: io.NopCloser(strings.NewReader("")), Request: r,
+		}, nil
+	})}
+
+	_, _, err := gcloud.MintAccessToken(context.Background(), client, serviceAccountJSON(t, ""), "scope")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HTTP 307")
+	assert.Equal(t, []string{"https://oauth2.googleapis.com/token"}, asked, "the signed assertion goes nowhere else")
+	assert.Nil(t, client.CheckRedirect, "the caller's client is left as it was")
+}
+
+func TestMintAccessTokenKeepsATokenAnHourAtMost(t *testing.T) {
+	var asked []string
+	client := answering(&asked, 200, `{"access_token":"ya29.minted","expires_in":864000}`)
+
+	_, exp, err := gcloud.MintAccessToken(context.Background(), client, serviceAccountJSON(t, ""), "scope")
+
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), exp, time.Minute)
 }
 
 func TestMintAccessTokenNeverReturnsTheEndpointsOwnText(t *testing.T) {

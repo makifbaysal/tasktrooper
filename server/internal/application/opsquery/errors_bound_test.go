@@ -2,6 +2,7 @@ package opsquery_test
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,4 +93,23 @@ func (s *OpsQuerySuite) TestErrorsStandsWhenTheErrorsBindingsCannotBeListed() {
 	s.Require().NoError(err)
 	s.Equal([]uuid.UUID{cloudEnv.ID}, groupEnvironments(out))
 	s.Empty(out.Unavailable)
+}
+
+func (s *OpsQuerySuite) TestErrorsSaysTruncatedWhenABindingFillsItsCap() {
+	mobile := domain.Component{ID: uuid.New(), RepositoryID: uuid.New(), Status: domain.ComponentStatusActive}
+	s.seed(nil, mobile)
+	s.comps.On("ListAllComponents", mock.Anything).Return([]domain.Component{mobile}, nil).Once()
+	reads := errorsBinding(mobile.ID)
+	full := make([]domain.RuntimeErrorGroup, 100)
+	for i := range full {
+		full[i] = domain.RuntimeErrorGroup{Fingerprint: fmt.Sprint(i), Count: 1}
+	}
+	bound := mocks.NewBoundErrorReader(s.T())
+	bound.On("ErrorBindings", mock.Anything, domain.EnvironmentProduction).Return([]domain.SignalBindingView{reads}, nil).Once()
+	bound.On("ReadErrors", mock.Anything, reads.SignalBinding, mock.Anything).Return(full, nil).Once()
+	s.svc.SetBoundErrors(bound)
+
+	out, err := s.svc.Errors(s.ctx, opsquery.ErrorsQuery{Environment: domain.EnvironmentProduction})
+	s.Require().NoError(err)
+	s.True(out.Truncated, "a binding answering its whole cap may hold more")
 }

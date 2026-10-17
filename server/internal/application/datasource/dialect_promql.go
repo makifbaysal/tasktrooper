@@ -25,7 +25,7 @@ func (promQLDialect) check(subject, query string, declared map[string]bool) []st
 	add := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 	seen := map[string]bool{}
 	for _, use := range placeholderUses(query) {
-		if seen[use.name] {
+		if seen[use.name] || use.harmless(declared) {
 			continue
 		}
 		switch {
@@ -78,17 +78,36 @@ type placeholderUse struct {
 	op         string
 	inBraces   bool
 	inBrackets bool
+	inComment  bool
+}
+
+// harmless: a use in a comment is read by nothing but the expansion, which
+// still needs the name to be declared or built in.
+func (u placeholderUse) harmless(declared map[string]bool) bool {
+	return u.inComment && (declared[u.name] || builtinPlaceholders[u.name] || u.name == builtinQuantile)
 }
 
 func (u placeholderUse) inEqualityMatcher() bool {
 	return u.quote == '"' && u.inBraces && (u.op == "=" || u.op == "!=")
 }
 
+// placeholderUses reads a # comment to the end of its line as text: a quote
+// there opens no string, and a $name there is a use inComment.
 func placeholderUses(q string) []placeholderUse {
 	var uses []placeholderUse
 	braces, brackets := 0, 0
 	for i := 0; i < len(q); i++ {
 		switch c := q[i]; c {
+		case '#':
+			for i < len(q) && q[i] != '\n' {
+				if q[i] == '$' {
+					if name := identAt(q, i+1); name != "" {
+						uses = append(uses, placeholderUse{name: name, inComment: true})
+						i += len(name)
+					}
+				}
+				i++
+			}
 		case '"', '\'', '`':
 			op := matcherOpBefore(q, i)
 			j := i + 1

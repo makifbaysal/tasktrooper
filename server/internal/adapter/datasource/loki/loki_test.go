@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -136,13 +137,35 @@ func TestLogsAppendsTheConsolesFiltersSafely(t *testing.T) {
 	require.NoError(t, err)
 	_, q, _ := rec.last()
 	below := `"(?i)^(trace|debug|dbug|dbg|verbose|info|information|informational|notice|inf)$"`
-	assert.Equal(t, `{service_name="api"} | json |= "say \"hi\" \\ now"`+
+	assert.Equal(t, `{service_name="api"} | json`+"\n"+`|= "say \"hi\" \\ now"`+
 		` | detected_level!~`+below+` | level!~`+below+` | severity!~`+below, q.Get("query"))
 	assert.True(t, page.Truncated, "a full page may hide older lines")
 	for _, e := range page.Entries {
 		assert.GreaterOrEqual(t, e.Severity.Rank(), domain.LogWarning.Rank(), e.Message)
 	}
 	assert.Len(t, page.Entries, 2, "lines with no level label are judged by their text here")
+}
+
+func TestATrailingCommentCannotSwallowTheConsolesFilters(t *testing.T) {
+	srv, rec := serve(t, map[string]http.HandlerFunc{"/loki/api/v1/query_range": reply(200, streams)})
+
+	_, err := newAdapter().Logs(context.Background(), source(srv.URL, nil), nil, domain.LogQuery{
+		Query: `{app="x"} # only the api`, Since: since, Until: until, Limit: 4, Text: "boom", MinSeverity: domain.LogError,
+	})
+
+	require.NoError(t, err)
+	_, q, _ := rec.last()
+	lines := strings.Split(q.Get("query"), "\n")
+	require.Len(t, lines, 2)
+	assert.Equal(t, `{app="x"} # only the api`, lines[0])
+	assert.True(t, strings.HasPrefix(lines[1], `|= "boom" | detected_level!~`), lines[1])
+
+	_, err = newAdapter().Logs(context.Background(), source(srv.URL, nil), nil, domain.LogQuery{
+		Query: `{app="x"} # note`, Since: since, Until: until, Limit: 4, MinSeverity: domain.LogError,
+	})
+	require.NoError(t, err)
+	_, q, _ = rec.last()
+	assert.True(t, strings.HasPrefix(q.Get("query"), "{app=\"x\"} # note\n| detected_level!~"), q.Get("query"))
 }
 
 func TestLogsRefusesAMetricQuery(t *testing.T) {

@@ -77,12 +77,6 @@ func systemOf(l lookup, b domain.SignalBinding) string {
 	return brokerSystem(l.sources[b.DataSourceID].Kind)
 }
 
-// fitsBrokers: once a worker's brokers are known, a recipe or a broker
-// source for another one is not offered to it.
-func fitsBrokers(role domain.ComponentRole, systems map[string]bool, system string) bool {
-	return role != domain.ComponentRoleWorker || len(systems) == 0 || system == "" || systems[system]
-}
-
 // rankByBrokers moves the suggestions reading one of the component's brokers
 // to the front, keeping the order otherwise, so the per-signal cap keeps them
 // first.

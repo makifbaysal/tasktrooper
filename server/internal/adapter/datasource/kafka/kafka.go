@@ -132,7 +132,7 @@ func (a *Adapter) Schema() domain.DataSourceSchema {
 				Placeholder: tlsOff,
 			},
 			{
-				Key: keyCACert, Label: "CA certificate", Type: domain.FieldSecret, Secret: true,
+				Key: keyCACert, Label: "CA certificate", Type: domain.FieldSecret, Secret: true, Multiline: true,
 				ShowWhen: map[string]string{keyTLS: tlsOn},
 				Help:     "PEM of the CA that signed the brokers' certificates, when it is not a public one.",
 			},
@@ -262,6 +262,25 @@ func (a *Adapter) dial(tlsCfg *tls.Config) func(context.Context, string, string)
 	}
 }
 
+// clearTextPassword: SASL PLAIN sends the password as it is, so without TLS
+// anyone on the path to a broker off this computer can read it. SCRAM never
+// sends it.
+func clearTextPassword(ds domain.DataSource, hosts []string) bool {
+	if ds.Config[keySASL] != saslPlain || ds.Config[keyTLS] == tlsOn {
+		return false
+	}
+	for _, h := range hosts {
+		if host, _, err := net.SplitHostPort(h); err == nil {
+			h = host
+		}
+		ip := net.ParseIP(h)
+		if !strings.EqualFold(h, "localhost") && (ip == nil || !ip.IsLoopback()) {
+			return true
+		}
+	}
+	return false
+}
+
 type blockedBroker struct{ address string }
 
 func (e blockedBroker) Error() string {
@@ -349,6 +368,14 @@ func (a *Adapter) Verify(ctx context.Context, ds domain.DataSource, secrets map[
 	if md.Cluster != "" {
 		info.Detail += " · cluster " + md.Cluster
 	}
+	hosts, _ := domain.ParseHostList(ds.Config[keyBootstrap], defaultPort)
+	for _, b := range md.Brokers {
+		hosts = append(hosts, b.Host)
+	}
+	if clearTextPassword(ds, hosts) {
+		log.Warn().Msg("data source: Kafka SASL PLAIN without TLS to a broker off this computer")
+		info.Detail += " · warning: SASL PLAIN without TLS sends the password unencrypted; turn TLS on or use SCRAM"
+	}
 	req := kmsg.NewPtrApiVersionsRequest()
 	req.ClientSoftwareName = clientID
 	req.ClientSoftwareVersion = "1"
@@ -404,6 +431,8 @@ func (a *Adapter) Series(ctx context.Context, ds domain.DataSource, secrets map[
 	return res, nil
 }
 
+var keyColumns = []string{"topic", "partition"}
+
 var tableColumns = []domain.TableColumn{
 	{Key: "topic", Label: "Topic"},
 	{Key: "partition", Label: "Partition"},
@@ -421,7 +450,7 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[s
 	if err != nil {
 		return domain.TableResult{}, fmt.Errorf("%w: %s", port.ErrDataSourceQuery, err.Error())
 	}
-	res := domain.TableResult{Columns: tableColumns, Rows: []map[string]any{}}
+	res := domain.TableResult{Columns: tableColumns, KeyColumns: keyColumns, Rows: []map[string]any{}}
 	if _, ok := live.Instant(q.At, a.now()); !ok {
 		return res, nil
 	}
@@ -483,8 +512,7 @@ func (a *Adapter) Discover(ctx context.Context, ds domain.DataSource, secrets ma
 	return inv, nil
 }
 
-// DiscoverQueues offers every consumer group, with the queries that read its
-// backlog and its consumers.
+// DiscoverQueues offers every consumer group by its name.
 func (a *Adapter) DiscoverQueues(ctx context.Context, ds domain.DataSource, secrets map[string]string) ([]domain.QueueTarget, error) {
 	ctx, cancel := context.WithTimeout(ctx, a.queryTimeout)
 	defer cancel()
@@ -499,10 +527,7 @@ func (a *Adapter) DiscoverQueues(ctx context.Context, ds domain.DataSource, secr
 	}
 	out := make([]domain.QueueTarget, 0, min(len(groups), a.maxInventory))
 	for _, g := range groups[:min(len(groups), a.maxInventory)] {
-		out = append(out, domain.QueueTarget{Name: g, Queries: map[string]string{
-			live.SignalBacklog:   live.Query(domain.KafkaQuery{Group: g, Metric: domain.KafkaMetricLag}),
-			live.SignalConsumers: live.Query(domain.KafkaQuery{Group: g, Metric: domain.KafkaMetricConsumers}),
-		}})
+		out = append(out, domain.QueueTarget{Name: g, Params: map[string]string{"group": g}})
 	}
 	return out, nil
 }

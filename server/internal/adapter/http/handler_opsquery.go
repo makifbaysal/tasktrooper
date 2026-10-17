@@ -106,7 +106,7 @@ func (h *Handler) OperationsErrors(c *fiber.Ctx) error {
 	return c.JSON(out)
 }
 
-// OperationsLogs —GET /v1/operations/logs?env=&since=&until=&component_id=…&min_severity=&text=&limit=
+// OperationsLogs — GET /v1/operations/logs?env=&since=&until=&component_id=…&min_severity=&text=&limit=
 func (h *Handler) OperationsLogs(c *fiber.Ctx) error {
 	ids, err := opsComponentIDs(c)
 	if err != nil {

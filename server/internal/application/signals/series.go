@@ -89,6 +89,7 @@ func (s *Service) Series(ctx context.Context, componentID uuid.UUID, q SeriesQue
 		sig, known := s.signalIndex[id]
 		b, isBound := confirmed[id]
 		res.Unit, res.Bound = sig.Unit, isBound
+		res.Live = isBound && domain.LiveOnlyKind(l.sources[b.DataSourceID].Kind)
 		switch {
 		case !known:
 			res.Error = &domain.SignalReadError{Code: domain.SignalErrUnknown, Message: fmt.Sprintf("%q is not a catalog signal", id)}

@@ -18,8 +18,10 @@ import (
 const (
 	DefaultTraceWindow = time.Hour
 	// maxTraceSources bounds how many sources a trace id is looked up in
-	// when no component says which one holds it.
+	// when no component says which one holds it, traceLookups how many at
+	// once.
 	maxTraceSources = 8
+	traceLookups    = 4
 )
 
 var _ port.BoundLogReader = (*Service)(nil)
@@ -31,8 +33,15 @@ func (s *Service) LogBindings(ctx context.Context, env domain.DeployEnvironment)
 		return nil, fmt.Errorf("unknown environment %q: %w", env, ErrInvalidInput)
 	}
 	bound, err := s.confirmedOf(ctx, env, domain.SignalLogsLines)
-	if err != nil || len(bound) == 0 {
-		return bound, err
+	if err != nil {
+		return nil, err
+	}
+	return s.withoutDismissed(ctx, bound)
+}
+
+func (s *Service) withoutDismissed(ctx context.Context, bound []domain.SignalBinding) ([]domain.SignalBinding, error) {
+	if len(bound) == 0 {
+		return bound, nil
 	}
 	components, err := s.components.ListAllComponents(ctx)
 	if err != nil {
@@ -125,7 +134,7 @@ func (s *Service) Traces(ctx context.Context, componentID uuid.UUID, q TracesQue
 	if q.Limit < 0 || q.Limit > datasource.MaxTraceLimit {
 		fe["limit"] = datasource.FieldInvalid
 	}
-	if q.MinDuration < 0 {
+	if q.MinDuration < 0 || q.MinDuration > datasource.MaxTraceMinDuration {
 		fe["min_duration_ms"] = datasource.FieldInvalid
 	}
 	if len(fe) > 0 {
@@ -192,15 +201,20 @@ func (s *Service) Trace(ctx context.Context, componentID uuid.UUID, env domain.D
 }
 
 // FindTrace looks a trace id up in each source the environment's confirmed
-// traces.spans bindings read, one at a time, in binding order: the first
-// that holds it answers. ErrUnbound when no component has one; port.ErrNotFound
-// when none holds it and none failed, else the last failure.
+// traces.spans bindings read (a dismissed component's left out), at most
+// maxTraceSources of them, traceLookups at once and all within one query
+// timeout: the first in binding order that holds it answers. ErrUnbound when
+// no component has one; port.ErrNotFound when none holds it and none failed,
+// else the last failure.
 func (s *Service) FindTrace(ctx context.Context, env domain.DeployEnvironment, traceID string) (domain.TraceView, error) {
 	id, err := checkTraceRead(env, traceID)
 	if err != nil {
 		return domain.TraceView{}, err
 	}
 	bound, err := s.confirmedOf(ctx, env, domain.SignalTracesSpans)
+	if err == nil {
+		bound, err = s.withoutDismissed(ctx, bound)
+	}
 	if err != nil {
 		return domain.TraceView{}, err
 	}
@@ -212,20 +226,31 @@ func (s *Service) FindTrace(ctx context.Context, env domain.DeployEnvironment, t
 		return domain.TraceView{}, err
 	}
 	tried := map[uuid.UUID]bool{}
-	var last error
+	var picked []domain.SignalBinding
 	for _, b := range bound {
-		if tried[b.DataSourceID] || len(tried) == maxTraceSources {
-			continue
+		if !tried[b.DataSourceID] && len(picked) < maxTraceSources {
+			tried[b.DataSourceID] = true
+			picked = append(picked, b)
 		}
-		tried[b.DataSourceID] = true
-		view, err := s.readTrace(ctx, l, b, id)
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	defer cancel()
+	rd := s.reader(l)
+	results := fanOut(ctx, len(picked), traceLookups, s.queryTimeout,
+		func(i int) uuid.UUID { return picked[i].DataSourceID },
+		func(ctx context.Context, i int) (domain.Trace, error) {
+			return rd.batch.Trace(ctx, picked[i].DataSourceID, id)
+		})
+	var last error
+	for i, r := range results {
+		b := picked[i]
 		switch {
-		case err == nil:
-			return view, nil
-		case errors.Is(err, port.ErrNotFound):
+		case r.err == nil:
+			return domain.TraceView{Trace: r.value, ComponentID: b.ComponentID, DataSourceID: b.DataSourceID}, nil
+		case errors.Is(r.err, port.ErrNotFound):
 		default:
-			log.Debug().Err(err).Str("data_source", b.DataSourceID.String()).Msg("signals: looking a trace up failed")
-			last = err
+			log.Debug().Err(r.err).Str("data_source", b.DataSourceID.String()).Msg("signals: looking a trace up failed")
+			last = r.err
 		}
 	}
 	if last != nil {

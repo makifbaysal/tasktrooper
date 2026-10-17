@@ -1,9 +1,11 @@
 package datasource
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -19,7 +21,10 @@ const (
 
 // Table runs an instant table read on a source whose kind implements
 // port.TableQuerier; a zero At is now. Rows past MaxTableRows are dropped
-// (Truncated), and a number JSON cannot carry (NaN, ±Inf) becomes nil.
+// (Truncated): where rows carry one value each (domain.TableValueKey), the
+// smallest values go, so a cut never hides the busiest route or the longest
+// backlog behind ones that sort first by name. A number JSON cannot carry
+// (NaN, ±Inf) becomes nil.
 func (b *Batch) Table(ctx context.Context, id uuid.UUID, q domain.TableQuery) (domain.TableResult, error) {
 	q.Query = strings.TrimSpace(q.Query)
 	switch {
@@ -47,6 +52,10 @@ func (b *Batch) Table(ctx context.Context, id uuid.UUID, q domain.TableQuery) (d
 	}
 	res.Columns = nonNilSlice(res.Columns)
 	if len(res.Rows) > MaxTableRows {
+		if slices.ContainsFunc(res.Rows, func(r map[string]any) bool { _, ok := r[domain.TableValueKey]; return ok }) {
+			res.Rows = slices.Clone(res.Rows)
+			RankByValue(res.Rows, domain.TableValueKey)
+		}
 		res.Rows, res.Truncated = res.Rows[:MaxTableRows], true
 	}
 	res.Rows = nonNilSlice(res.Rows)
@@ -56,10 +65,32 @@ func (b *Batch) Table(ctx context.Context, id uuid.UUID, q domain.TableQuery) (d
 			continue
 		}
 		for k, v := range row {
-			row[k] = finiteValue(v)
+			if v != nil && finiteValue(v) == nil {
+				row[k] = nil
+			}
 		}
 	}
 	return res, nil
+}
+
+// RankByValue orders rows by one column, largest first; a row without a
+// finite number there goes last, and ties keep their order.
+func RankByValue(rows []map[string]any, column string) {
+	slices.SortStableFunc(rows, func(a, b map[string]any) int {
+		fa, okA := a[column].(float64)
+		fb, okB := b[column].(float64)
+		okA = okA && !math.IsNaN(fa)
+		okB = okB && !math.IsNaN(fb)
+		switch {
+		case okA && okB:
+			return cmp.Compare(fb, fa)
+		case okA:
+			return -1
+		case okB:
+			return 1
+		}
+		return 0
+	})
 }
 
 func finiteValue(v any) any {

@@ -112,7 +112,10 @@ func TestLogsBuildsTheBoolQueryAndMapsHits(t *testing.T) {
 	assert.Equal(t, "true", c.query.Get("ignore_unavailable"))
 	assert.Equal(t, "ApiKey ZW5jb2RlZA==", c.auth)
 	assert.Equal(t, float64(2), c.body["size"])
-	assert.Equal(t, []any{map[string]any{"@timestamp": map[string]any{"order": "desc", "unmapped_type": "date"}}}, c.body["sort"])
+	assert.Equal(t, []any{
+		map[string]any{"@timestamp": map[string]any{"order": "desc", "unmapped_type": "date"}},
+		map[string]any{"_doc": map[string]any{"order": "desc"}},
+	}, c.body["sort"], "a tiebreaker keeps lines of one timestamp from straddling a page twice or never")
 	boolQuery := c.body["query"].(map[string]any)["bool"].(map[string]any)
 	assert.Equal(t, []any{
 		map[string]any{"range": map[string]any{"@timestamp": map[string]any{"gte": float64(since.UnixMilli()), "lte": float64(until.UnixMilli()), "format": "epoch_millis"}}},

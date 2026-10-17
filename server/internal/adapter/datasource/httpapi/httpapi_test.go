@@ -167,6 +167,24 @@ func TestStatusErrorsMaskEverySecretAndTheEncodedBasicValue(t *testing.T) {
 	assert.NotContains(t, msg, "tenant-secret-1")
 }
 
+func TestAMaskInsideAnotherNeverLeavesTheLongerOneShowing(t *testing.T) {
+	key := `{"private_key_id":"kid-0123","private_key":"MATERIAL-xyz"}`
+	srv, _ := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprint(w, "bad key "+key)
+	})
+	for range 20 {
+		c, err := httpapi.Open(context.Background(), urlguard.HumanConfigured(), httpapi.Endpoint{
+			Base: srv.URL, Masks: []string{"kid-0123", key, "MATERIAL-xyz"}, API: "Test",
+		}, time.Second)
+		require.NoError(t, err)
+		r, err := c.Do(context.Background(), httpapi.Request{Path: "/x", Limit: 1 << 20})
+		require.NoError(t, err)
+		assert.Equal(t, "bad key [redacted]", c.Detail(r))
+		c.Close()
+	}
+}
+
 func TestDetailReadsJSONAndPlainTextRefusals(t *testing.T) {
 	tests := []struct {
 		name string

@@ -2,6 +2,7 @@ package datasource
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -514,28 +515,70 @@ func (f FieldErrors) with(key, code string) FieldErrors {
 	return f
 }
 
+const minRedactLen = 4
+
 // redact is a second line behind the adapters' own rule of never echoing a
 // secret: a value seen in an upstream message is masked before it is stored
-// or returned.
+// or returned. The longest value goes first, so one inside another (a key's
+// private_key_id inside the key file) cannot leave the rest showing. An
+// adapter bounds its text before this runs, so a message cut short (ending
+// in "…") also loses a tail that begins a secret.
 func redact(msg string, secrets map[string]string) string {
-	for _, v := range secretValues(secrets) {
-		if len(v) >= 4 {
-			msg = strings.ReplaceAll(msg, v, redactedMarker)
+	values := secretValues(secrets)
+	for _, v := range values {
+		msg = strings.ReplaceAll(msg, v, redactedMarker)
+	}
+	body, cut := strings.CutSuffix(msg, "…")
+	if !cut {
+		return msg
+	}
+	for i := range body {
+		tail := body[i:]
+		if len(tail) < minRedactLen {
+			break
+		}
+		for _, v := range values {
+			if strings.HasPrefix(v, tail) {
+				return body[:i] + redactedMarker + "…"
+			}
 		}
 	}
 	return msg
 }
 
+// secretValues are the values to mask, longest first: each secret, the
+// values of a headers secret, and the key material inside a service account
+// key file (as parsed and as the file writes it).
 func secretValues(secrets map[string]string) []string {
 	var out []string
+	add := func(v string) {
+		if len(v) >= minRedactLen && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
 	for _, v := range secrets {
-		out = append(out, v)
+		add(v)
 		if lines, err := domain.ParseHeaderLines(v); err == nil {
 			for _, l := range lines {
-				out = append(out, l.Value)
+				add(l.Value)
+			}
+		}
+		var key struct {
+			PrivateKey   string `json:"private_key"`
+			PrivateKeyID string `json:"private_key_id"`
+		}
+		if json.Unmarshal([]byte(v), &key) == nil {
+			add(key.PrivateKeyID)
+			add(key.PrivateKey)
+			add(strings.ReplaceAll(key.PrivateKey, "\n", `\n`))
+			for _, line := range strings.Split(key.PrivateKey, "\n") {
+				if line = strings.TrimSpace(line); !strings.HasPrefix(line, "-----") {
+					add(line)
+				}
 			}
 		}
 	}
+	slices.SortStableFunc(out, func(a, b string) int { return len(b) - len(a) })
 	return out
 }
 

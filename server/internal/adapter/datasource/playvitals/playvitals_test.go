@@ -306,3 +306,47 @@ func TestTableListsTheTopErrorIssuesOfTheLastDays(t *testing.T) {
 	assert.Equal(t, "15", q.Get("interval.startTime.day"))
 	assert.Equal(t, "UTC", q.Get("interval.startTime.timeZone.id"))
 }
+
+func TestTheIssuesTableStopsAtItsPageCapAndSaysSo(t *testing.T) {
+	f := newFixture(t)
+	f.credential()
+	pages := 0
+	f.routes["GET /v1beta1/apps/com.acme.app/errorIssues:search"] = func(w http.ResponseWriter, _ *http.Request) {
+		pages++
+		_, _ = fmt.Fprint(w, `{"errorIssues":[],"nextPageToken":"again"}`)
+	}
+
+	res, err := f.adapter.Table(context.Background(), source(nil), nil, domain.TableQuery{
+		Query: `{"package":"com.acme.app","issues":"all","days":2}`, At: f.now,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, res.Truncated)
+	assert.Equal(t, 20, pages, "a server handing out page tokens forever is not read forever")
+}
+
+func TestAnIssueLinkIsKeptOnlyWhenItIsPlayConsolesOwnHTTPSPage(t *testing.T) {
+	for uri, want := range map[string]string{
+		"https://play.google.com/console/u/0/developers/1/app/2/vitals/crashes/abc": "https://play.google.com/console/u/0/developers/1/app/2/vitals/crashes/abc",
+		"javascript:alert(1)":                      "",
+		"http://play.google.com/console/x":         "",
+		"https://play.google.com.evil.example/x":   "",
+		"https://user@play.google.com/console/x":   "",
+		"data:text/html,<script>alert(1)</script>": "",
+	} {
+		t.Run(uri, func(t *testing.T) {
+			f := newFixture(t)
+			f.credential()
+			f.routes["GET /v1beta1/apps/com.acme.app/errorIssues:search"] = func(w http.ResponseWriter, _ *http.Request) {
+				raw, _ := json.Marshal(map[string]any{"errorIssues": []map[string]string{{"name": "apps/com.acme.app/errorIssues/abc", "type": "CRASH", "issueUri": uri}}})
+				_, _ = w.Write(raw)
+			}
+			res, err := f.adapter.Table(context.Background(), source(nil), nil, domain.TableQuery{
+				Query: `{"package":"com.acme.app","issues":"all","days":2}`, At: f.now,
+			})
+			require.NoError(t, err)
+			require.Len(t, res.Rows, 1)
+			assert.Equal(t, want, res.Rows[0]["link"])
+		})
+	}
+}

@@ -11,7 +11,8 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
-// maxBoundErrorGroups bounds the groups one errors.issues binding adds.
+// maxBoundErrorGroups bounds the groups one errors.issues binding adds; a
+// binding answering that many may hold more, so the answer is Truncated.
 const maxBoundErrorGroups = 100
 
 // SetBoundErrors hands the errors inbox the components' errors.issues
@@ -69,6 +70,9 @@ func (s *Service) boundErrorGroups(ctx context.Context, q ErrorsQuery, since, un
 		if r.err != nil {
 			out.unavailable = append(out.unavailable, s.bindingUnavailable(b.SignalBinding, r.err))
 			continue
+		}
+		if len(r.value) >= maxBoundErrorGroups {
+			out.truncated = true
 		}
 		id := b.DataSourceID
 		for _, g := range r.value {

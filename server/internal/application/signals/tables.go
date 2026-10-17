@@ -1,7 +1,6 @@
 package signals
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -83,10 +82,11 @@ func (t *tableTarget) renderTable() {
 
 // tableRead is one target's answer, or the error that kept it unread.
 type tableRead struct {
-	columns   []domain.TableColumn
-	rows      []map[string]any
-	truncated bool
-	err       *domain.SignalReadError
+	columns    []domain.TableColumn
+	keyColumns []string
+	rows       []map[string]any
+	truncated  bool
+	err        *domain.SignalReadError
 }
 
 // readTargets runs every distinct query of each readable target once, at
@@ -94,9 +94,11 @@ type tableRead struct {
 // budget (what names the read in a timeout's message), and joins each
 // target's answers. Ranked: a recipe table whose value columns share one
 // query keeps the order its source answered in (the most viewed page
-// first), and one joined from several is ordered by its first value column,
-// largest first; unranked rows are in key order (a queue's partitions).
-func (s *Service) readTargets(ctx context.Context, l lookup, targets []*tableTarget, budget time.Duration, what string, ranked bool) []tableRead {
+// first), unless the source answers one value per row in no order of its
+// own (an instant PromQL vector), and one joined from several is ordered by
+// its first value column, largest first; unranked rows are in key order (a
+// queue's partitions).
+func (s *Service) readTargets(ctx context.Context, l lookup, targets []*tableTarget, at time.Time, budget time.Duration, what string, ranked bool) []tableRead {
 	out := make([]tableRead, len(targets))
 	type job struct {
 		target int
@@ -123,7 +125,6 @@ func (s *Service) readTargets(ctx context.Context, l lookup, targets []*tableTar
 	}
 
 	rd := s.reader(l)
-	at := s.now()
 	bctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	results := fanOut(bctx, len(jobs), s.concurrency, s.queryTimeout,
@@ -159,11 +160,15 @@ func (s *Service) readTargets(ctx context.Context, l lookup, targets []*tableTar
 		switch {
 		case t.table == nil:
 			res := byColumn[domain.TableValueKey]
-			r.columns, r.rows, r.truncated = res.Columns, res.Rows, res.Truncated
+			r.columns, r.keyColumns, r.rows, r.truncated = res.Columns, res.KeyColumns, res.Rows, res.Truncated
 		case ranked && len(answers[i]) == 1:
-			r.columns, r.rows, r.truncated = projectTable(*t.table, answers[i][t.queries[t.table.ValueColumns()[0].Key]])
+			res := answers[i][t.queries[t.table.ValueColumns()[0].Key]]
+			r.columns, r.rows, r.truncated = projectTable(*t.table, res)
+			if slices.ContainsFunc(res.Rows, func(row map[string]any) bool { _, ok := row[domain.TableValueKey]; return ok }) {
+				rankRows(r.rows, t.table.ValueColumns()[0].Key)
+			}
 		default:
-			r.columns, r.rows, r.truncated = joinTable(*t.table, byColumn)
+			r.columns, r.rows, r.truncated = joinTable(*t.table, byColumn, ranked)
 			if ranked {
 				rankRows(r.rows, t.table.ValueColumns()[0].Key)
 			}
@@ -207,21 +212,7 @@ func projectTable(t domain.RecipeTable, res domain.TableResult) ([]domain.TableC
 
 // rankRows orders rows by one column, largest first; a row without a number
 // there goes last, and ties keep their key order.
-func rankRows(rows []map[string]any, column string) {
-	slices.SortStableFunc(rows, func(a, b map[string]any) int {
-		fa, okA := a[column].(float64)
-		fb, okB := b[column].(float64)
-		switch {
-		case okA && okB:
-			return cmp.Compare(fb, fa)
-		case okA:
-			return -1
-		case okB:
-			return 1
-		}
-		return 0
-	})
-}
+func rankRows(rows []map[string]any, column string) { datasource.RankByValue(rows, column) }
 
 // tablesView is one of the component table reads: which confirmed bindings
 // it reads tables through, and which recipe tables, in the order answered.
@@ -281,8 +272,9 @@ func (s *Service) Crashes(ctx context.Context, componentID uuid.UUID, env domain
 // table uses, so bindings agreeing on those share one. A binding with a raw
 // query, or of a recipe declaring none of them, has no table. Each table
 // stands alone: one that cannot be read carries its error. Read as Queues is,
-// within the tables budget, and kept 30 s per cache scope, view, component,
-// environment, and version of what they were read through.
+// within the tables budget and once for every request asking at the same
+// time, and kept 30 s per cache scope, view, component, environment, and
+// version of what they were read through.
 func (s *Service) componentTables(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment, view tablesView) (domain.ComponentTables, error) {
 	if !env.Valid() {
 		return domain.ComponentTables{}, fmt.Errorf("unknown environment %q: %w", env, ErrInvalidInput)
@@ -299,17 +291,26 @@ func (s *Service) componentTables(ctx context.Context, componentID uuid.UUID, en
 		return domain.ComponentTables{}, err
 	}
 	targets := s.viewTargets(l, bindings, view)
-	key := s.cacheScope(ctx) + "\x00" + view.name + "\x00" + componentID.String() + "\x00" + string(env) + "\x00" + l.version() + "\x00" + targetsKey(targets)
+	scope := s.cacheScope(ctx)
+	key := scope + "\x00" + view.name + "\x00" + componentID.String() + "\x00" + string(env) + "\x00" + l.version() + "\x00" + targetsKey(targets)
 	if out, ok := s.tablesCache.get(key, s.now()); ok {
 		return out, nil
 	}
-	gen := s.tablesCache.generation()
-	reads := s.readTargets(ctx, l, targets, s.tablesBudget, view.what, true)
-	out := domain.ComponentTables{ComponentID: componentID, Environment: env, Tables: make([]domain.ComponentTable, len(targets))}
+	return shared(ctx, &s.tablesFlight, s.tablesCache, scope, key, s.tablesCache.generation(scope), s.now,
+		func(ctx context.Context) domain.ComponentTables {
+			return s.readComponentTables(ctx, l, componentID, env, view, targets)
+		})
+}
+
+func (s *Service) readComponentTables(ctx context.Context, l lookup, componentID uuid.UUID, env domain.DeployEnvironment, view tablesView, targets []*tableTarget) domain.ComponentTables {
+	at := s.now()
+	reads := s.readTargets(ctx, l, targets, at, s.tablesBudget, view.what, true)
+	out := domain.ComponentTables{ComponentID: componentID, Environment: env, ReadAt: at, Tables: make([]domain.ComponentTable, len(targets))}
 	for i, t := range targets {
 		ct := domain.ComponentTable{
-			SignalBindingID: t.first.ID, DataSourceID: t.first.DataSourceID, RecipeID: t.first.RecipeID, Table: t.name,
-			Params: maps.Clone(t.params), Columns: slices.Clone(t.table.Columns), Rows: []map[string]any{},
+			SignalBindingID: t.first.ID, Signal: t.first.Signal, DataSourceID: t.first.DataSourceID, RecipeID: t.first.RecipeID, Table: t.name,
+			Params: maps.Clone(t.params), Columns: slices.Clone(t.table.Columns), KeyColumns: slices.Clone(t.table.KeyLabels),
+			Rows: []map[string]any{},
 		}
 		if t.known {
 			ct.DataSourceName = t.ds.Name
@@ -321,8 +322,7 @@ func (s *Service) componentTables(ctx context.Context, componentID uuid.UUID, en
 		}
 		out.Tables[i] = ct
 	}
-	s.tablesCache.put(key, out, s.now(), gen)
-	return out, nil
+	return out
 }
 
 func (s *Service) viewTargets(l lookup, bindings []domain.SignalBinding, view tablesView) []*tableTarget {

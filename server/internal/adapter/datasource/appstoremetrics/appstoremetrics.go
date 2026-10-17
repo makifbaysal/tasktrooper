@@ -99,8 +99,10 @@ func (a *Adapter) SetClock(now func() time.Time) { a.now = now }
 
 func (a *Adapter) Kind() domain.DataSourceKind { return domain.DataSourceKindAppStoreMetrics }
 
+// Capabilities: the signatures table (hang, launch and disk write
+// diagnostics) is what crashes stands for on this kind.
 func (a *Adapter) Capabilities() []domain.Capability {
-	return []domain.Capability{domain.CapabilityMetrics}
+	return []domain.Capability{domain.CapabilityMetrics, domain.CapabilityCrashes}
 }
 
 func (a *Adapter) Schema() domain.DataSourceSchema {

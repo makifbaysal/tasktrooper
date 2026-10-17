@@ -65,7 +65,8 @@ func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard
 	if board, ok := s.goldenCache.get(key, s.now()); ok {
 		return board, nil
 	}
-	gen := s.goldenCache.generation()
+	scope := s.cacheScope(ctx)
+	gen := s.goldenCache.generation(scope)
 	// The shared read outlives the request that started it (the others wait
 	// on it too), so it keeps that request's values but not its cancel; the
 	// budget bounds it.
@@ -81,7 +82,7 @@ func (s *Service) Golden(ctx context.Context, q GoldenQuery) (domain.GoldenBoard
 		if err != nil {
 			return nil, err
 		}
-		s.goldenCache.put(key, board, s.now(), gen)
+		s.goldenCache.put(scope, key, board, s.now(), gen)
 		return board, nil
 	})
 	select {
@@ -148,7 +149,9 @@ func (s *Service) readGolden(ctx context.Context, l lookup, q GoldenQuery, from,
 		for si, id := range ids {
 			sig := s.signalIndex[id]
 			b, ok := bound[c.ID][id]
-			gc.Signals[si] = domain.GoldenSignal{Signal: id, Unit: sig.Unit, Bound: ok, Spark: []domain.SeriesPoint{}}
+			gc.Signals[si] = domain.GoldenSignal{
+				Signal: id, Unit: sig.Unit, Bound: ok, Live: ok && domain.LiveOnlyKind(l.sources[b.DataSourceID].Kind), Spark: []domain.SeriesPoint{},
+			}
 			if !ok || sig.Kind != domain.SignalMetric || len(needsParams(l, b)) > 0 {
 				continue
 			}

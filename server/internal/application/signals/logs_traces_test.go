@@ -48,6 +48,7 @@ type LogsTracesSuite struct {
 	loki       domain.DataSource
 	tempo      domain.DataSource
 	api        domain.Component
+	sources    *datasource.Service
 	svc        *signals.Service
 }
 
@@ -92,6 +93,7 @@ func (s *LogsTracesSuite) SetupTest() {
 		Kinds: []port.DataSourceKindAdapter{lokiKind{lk, s.logs, s.lokiFinder, s.lokiValues}, tempoKind{tk, s.traces, mocks.NewLabelValuesLister(t)}},
 	})
 	s.Require().NoError(err)
+	s.sources = sources
 	s.svc, err = signals.NewService(signals.Deps{Bindings: s.bindings, Sources: sources, Components: s.comps, Environments: s.envs},
 		signals.WithClock(func() time.Time { return s.now }), signals.WithQueryTimeout(2*time.Second))
 	s.Require().NoError(err)
@@ -231,16 +233,20 @@ func (s *LogsTracesSuite) TestTraceWithoutABindingIsUnboundAndAMalformedIDInvali
 
 func (s *LogsTracesSuite) TestFindTraceTriesEachSourceUntilOneHoldsIt() {
 	other := domain.DataSource{ID: uuid.New(), Kind: domain.DataSourceKindTempo, Name: "tempo-eu"}
+	gone := domain.DataSource{ID: uuid.New(), Kind: domain.DataSourceKindTempo, Name: "tempo-old"}
 	s.dsStore.ExpectedCalls = nil
-	s.dsStore.On("ListDataSources", mock.Anything).Return([]domain.DataSource{s.loki, s.tempo, other}, nil).Maybe()
+	s.dsStore.On("ListDataSources", mock.Anything).Return([]domain.DataSource{s.loki, s.tempo, other, gone}, nil).Maybe()
 	s.dsStore.On("DataSourceSecrets", mock.Anything, mock.Anything).Return(map[string]string{}, nil).Maybe()
-	web := uuid.New()
+	web, dismissed := uuid.New(), domain.Component{ID: uuid.New(), Status: domain.ComponentStatusDismissed}
+	s.comps.On("ListAllComponents", mock.Anything).Return([]domain.Component{s.api, dismissed}, nil).Once()
 	first := s.binding(s.api.ID, domain.SignalTracesSpans, s.tempo, "tempo-service", map[string]string{"service": "api"})
 	shared := s.binding(uuid.New(), domain.SignalTracesSpans, s.tempo, "tempo-service", map[string]string{"service": "jobs"})
+	ofDismissed := s.binding(dismissed.ID, domain.SignalTracesSpans, gone, "tempo-service", map[string]string{"service": "old"})
 	second := s.binding(web, domain.SignalTracesSpans, other, "tempo-service", map[string]string{"service": "web"})
-	s.bindings.On("ListConfirmedSignalBindings", mock.Anything, domain.EnvironmentProduction).Return([]domain.SignalBinding{first, shared, second}, nil).Once()
+	s.bindings.On("ListConfirmedSignalBindings", mock.Anything, domain.EnvironmentProduction).Return([]domain.SignalBinding{first, shared, ofDismissed, second}, nil).Once()
 	s.traces.On("Trace", mock.Anything, sameSource(s.tempo), mock.Anything, "abc").Return(domain.Trace{}, fmt.Errorf("gone: %w", port.ErrNotFound)).Once()
 	s.traces.On("Trace", mock.Anything, sameSource(other), mock.Anything, "abc").Return(domain.Trace{ID: "abc"}, nil).Once()
+	s.traces.AssertNotCalled(s.T(), "Trace", mock.Anything, sameSource(gone), mock.Anything, mock.Anything)
 
 	got, err := s.svc.FindTrace(s.ctx, domain.EnvironmentProduction, "abc")
 
@@ -282,4 +288,32 @@ func (s *LogsTracesSuite) TestSuggestOffersLogRecipesWithParamsFromLabelValues()
 // sameSource: the kinds are handed the source as listed, capabilities filled.
 func sameSource(ds domain.DataSource) any {
 	return mock.MatchedBy(func(got domain.DataSource) bool { return got.ID == ds.ID })
+}
+
+func (s *LogsTracesSuite) TestFindTraceAsksTheSourcesAtOnceWithinOneQueryTimeout() {
+	slow := make([]domain.DataSource, 4)
+	var bound []domain.SignalBinding
+	for i := range slow {
+		slow[i] = domain.DataSource{ID: uuid.New(), Kind: domain.DataSourceKindTempo, Name: fmt.Sprint("tempo-", i)}
+		bound = append(bound, s.binding(uuid.New(), domain.SignalTracesSpans, slow[i], "tempo-service", map[string]string{"service": "x"}))
+	}
+	s.dsStore.ExpectedCalls = nil
+	s.dsStore.On("ListDataSources", mock.Anything).Return(append([]domain.DataSource{s.loki, s.tempo}, slow...), nil).Maybe()
+	s.dsStore.On("DataSourceSecrets", mock.Anything, mock.Anything).Return(map[string]string{}, nil).Maybe()
+	s.comps.On("ListAllComponents", mock.Anything).Return([]domain.Component{s.api}, nil).Once()
+	s.bindings.On("ListConfirmedSignalBindings", mock.Anything, domain.EnvironmentProduction).Return(bound, nil).Once()
+	s.traces.On("Trace", mock.Anything, mock.Anything, mock.Anything, "abc").
+		Run(func(args mock.Arguments) { <-args.Get(0).(context.Context).Done() }).
+		Return(domain.Trace{}, context.DeadlineExceeded)
+
+	const timeout = 200 * time.Millisecond
+	svc, err := signals.NewService(signals.Deps{Bindings: s.bindings, Sources: s.sources, Components: s.comps, Environments: s.envs},
+		signals.WithClock(func() time.Time { return s.now }), signals.WithQueryTimeout(timeout))
+	s.Require().NoError(err)
+
+	start := time.Now()
+	_, err = svc.FindTrace(s.ctx, domain.EnvironmentProduction, "abc")
+
+	s.Require().ErrorIs(err, context.DeadlineExceeded)
+	s.Less(time.Since(start), 3*timeout, "four slow sources cost one timeout, not four")
 }

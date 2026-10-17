@@ -242,8 +242,10 @@ func (a *Adapter) Logs(ctx context.Context, ds domain.DataSource, secrets map[st
 	return page, nil
 }
 
-// logQuery appends the console's filters to a rendered log query. Text is
-// quoted as a Go string literal, which is how LogQL reads its strings.
+// logQuery appends the console's filters to a rendered log query, on a line
+// of their own: a # comment closing the query runs to the end of its line
+// and would swallow them. Text is quoted as a Go string literal, which is how
+// LogQL reads its strings.
 func logQuery(q domain.LogQuery) (string, error) {
 	base := strings.TrimSpace(q.Query)
 	if !strings.HasPrefix(base, "{") {
@@ -251,14 +253,21 @@ func logQuery(q domain.LogQuery) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString(base)
+	words := domain.SeverityWordsBelow(q.MinSeverity)
+	if q.Text != "" || len(words) > 0 {
+		b.WriteString("\n")
+	}
 	if q.Text != "" {
-		b.WriteString(" |= ")
+		b.WriteString("|= ")
 		b.WriteString(strconv.Quote(q.Text))
 	}
-	if words := domain.SeverityWordsBelow(q.MinSeverity); len(words) > 0 {
+	if len(words) > 0 {
 		re := strconv.Quote("(?i)^(" + strings.Join(words, "|") + ")$")
-		for _, label := range filterLabels {
-			b.WriteString(" | ")
+		for i, label := range filterLabels {
+			if i > 0 || q.Text != "" {
+				b.WriteString(" ")
+			}
+			b.WriteString("| ")
 			b.WriteString(label)
 			b.WriteString("!~")
 			b.WriteString(re)

@@ -151,6 +151,29 @@ func TestAQueryWithItsOwnWindowIsRefusedBeforeAnyRequest(t *testing.T) {
 	assert.Len(t, f.requests, 1)
 }
 
+func TestACommentThatWouldSwallowTheAppendedClausesIsRefused(t *testing.T) {
+	f := newFixture(t)
+	f.answer = func(request) (int, string) { return 200, results(`[]`) }
+	for _, q := range []string{
+		"SELECT count(*) FROM Transaction -- the api",
+		"SELECT count(*) FROM Transaction // the api",
+		"SELECT count(*) FROM Transaction /* the api */",
+		"SELECT count(*) FROM Transaction -- SINCE 1 day ago",
+	} {
+		_, err := f.adapter.Series(context.Background(), source(), secrets, domain.SeriesQuery{Query: q, From: f.now.Add(-time.Hour), To: f.now, Step: time.Minute})
+		require.ErrorIs(t, err, port.ErrDataSourceQuery, q)
+		assert.Contains(t, err.Error(), "comments", q)
+		_, err = f.adapter.Table(context.Background(), source(), secrets, domain.TableQuery{Query: q, At: f.now})
+		require.ErrorIs(t, err, port.ErrDataSourceQuery, q)
+	}
+	assert.Empty(t, f.requests)
+
+	_, err := f.adapter.Series(context.Background(), source(), secrets, domain.SeriesQuery{
+		Query: "SELECT count(*) FROM Transaction WHERE name = 'a -- b' AND request.uri = 'http://x/y'", From: f.now.Add(-time.Hour), To: f.now, Step: time.Minute,
+	})
+	assert.NoError(t, err, "comment marks inside a string are text")
+}
+
 func TestTableAnswersOneRowPerFacetOverTheLastHour(t *testing.T) {
 	f := newFixture(t)
 	f.answer = func(request) (int, string) {

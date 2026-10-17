@@ -117,3 +117,56 @@ func (s *OpsQuerySuite) TestLogsReadsOnlyTheBindingsOfTheComponentsAskedFor() {
 	s.Require().Len(out.Entries, 1)
 	s.Equal(wanted.ComponentID, out.Entries[0].ComponentID)
 }
+
+func (s *OpsQuerySuite) TestLogsCutAtTheLimitKeepsTheBindings() {
+	envs := make([]domain.ComponentEnvironment, opsquery.MaxLogEnvironments)
+	ids := make([]uuid.UUID, 0, len(envs)+1)
+	for i := range envs {
+		envs[i] = s.env(domain.EnvironmentProduction)
+		ids = append(ids, envs[i].ComponentID)
+	}
+	s.seed(envs)
+	r := s.withBoundLogs()
+	b := logsBinding(uuid.New())
+	ids = append(ids, b.ComponentID)
+	r.On("LogBindings", mock.Anything, domain.EnvironmentProduction).Return([]domain.SignalBinding{b}, nil).Once()
+	r.On("ReadLogs", mock.Anything, b, mock.Anything).Return(domain.RuntimeLogPage{Entries: []domain.RuntimeLogEntry{s.entry(1, "from loki")}}, nil).Once()
+	s.runtime.On("Logs", mock.Anything, mock.Anything, mock.Anything).Return(domain.RuntimeLogPage{}, nil)
+
+	out, err := s.svc.Logs(s.ctx, opsquery.LogsQuery{Environment: domain.EnvironmentProduction, ComponentIDs: ids})
+
+	s.Require().NoError(err)
+	s.True(out.Truncated)
+	s.Require().NotEmpty(out.Entries)
+	s.Equal("from loki", out.Entries[0].Message, "the bound component is read; an environment is what the cut drops")
+}
+
+func (s *OpsQuerySuite) TestTheConsoleWideReadsCoverAComponentWithOnlyABinding() {
+	s.seed(nil)
+	r := s.withBoundLogs()
+	b := logsBinding(uuid.New())
+	r.On("LogBindings", mock.Anything, domain.EnvironmentProduction).Return([]domain.SignalBinding{b}, nil).Once()
+	r.On("ReadLogs", mock.Anything, b, mock.Anything).Return(domain.RuntimeLogPage{Entries: []domain.RuntimeLogEntry{s.entry(1, "from loki")}}, nil).Once()
+
+	logs, err := s.svc.Logs(s.ctx, opsquery.LogsQuery{Environment: domain.EnvironmentProduction})
+	s.Require().NoError(err)
+	s.Require().Len(logs.Entries, 1)
+	s.Equal(b.ComponentID, logs.Entries[0].ComponentID)
+}
+
+func (s *OpsQuerySuite) TestTheErrorsInboxCoversAComponentWithOnlyABinding() {
+	mobile := domain.Component{ID: uuid.New(), RepositoryID: uuid.New(), Status: domain.ComponentStatusActive}
+	s.seed(nil, mobile)
+	s.comps.On("ListAllComponents", mock.Anything).Return([]domain.Component{mobile}, nil).Once()
+	reads := errorsBinding(mobile.ID)
+	bound := mocks.NewBoundErrorReader(s.T())
+	bound.On("ErrorBindings", mock.Anything, domain.EnvironmentProduction).Return([]domain.SignalBindingView{reads}, nil).Once()
+	bound.On("ReadErrors", mock.Anything, reads.SignalBinding, mock.Anything).Return([]domain.RuntimeErrorGroup{{Fingerprint: "101"}}, nil).Once()
+	s.svc.SetBoundErrors(bound)
+
+	errs, err := s.svc.Errors(s.ctx, opsquery.ErrorsQuery{Environment: domain.EnvironmentProduction})
+	s.Require().NoError(err)
+	s.Require().Len(errs.Groups, 1)
+	s.Equal(mobile.ID, errs.Groups[0].ComponentID)
+	s.Equal(mobile.RepositoryID, errs.Groups[0].RepositoryID)
+}

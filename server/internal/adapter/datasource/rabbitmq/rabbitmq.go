@@ -37,6 +37,10 @@ const (
 
 	// pageSize is the management API's largest page.
 	pageSize = 500
+	// maxPages bounds one listing however many pages the server claims, and
+	// however few queues of each a name pattern keeps; past it the answer is
+	// Truncated.
+	maxPages = 40
 	// DefaultMaxQueues bounds the queues one read or listing covers; a vhost
 	// with more answers Truncated.
 	DefaultMaxQueues = 2000
@@ -224,6 +228,8 @@ func (a *Adapter) Series(ctx context.Context, ds domain.DataSource, secrets map[
 	return res, nil
 }
 
+var keyColumns = []string{"queue"}
+
 var tableColumns = []domain.TableColumn{
 	{Key: "queue", Label: "Queue"},
 	{Key: "state", Label: "State"},
@@ -242,7 +248,7 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[s
 	if err != nil {
 		return domain.TableResult{}, fmt.Errorf("%w: %s", port.ErrDataSourceQuery, err.Error())
 	}
-	res := domain.TableResult{Columns: tableColumns, Rows: []map[string]any{}}
+	res := domain.TableResult{Columns: tableColumns, KeyColumns: keyColumns, Rows: []map[string]any{}}
 	if _, ok := live.Instant(q.At, a.now()); !ok {
 		return res, nil
 	}
@@ -289,8 +295,8 @@ func (a *Adapter) Discover(ctx context.Context, ds domain.DataSource, secrets ma
 	return inv, nil
 }
 
-// DiscoverQueues offers every queue of the virtual host, with the queries
-// that read its backlog, consumers and rates.
+// DiscoverQueues offers every queue of the virtual host by its name. One
+// whose name holds a * is left out: a query would read it as a pattern.
 func (a *Adapter) DiscoverQueues(ctx context.Context, ds domain.DataSource, secrets map[string]string) ([]domain.QueueTarget, error) {
 	c, err := a.open(ctx, ds, secrets, a.queryTimeout)
 	if err != nil {
@@ -303,13 +309,10 @@ func (a *Adapter) DiscoverQueues(ctx context.Context, ds domain.DataSource, secr
 	}
 	out := make([]domain.QueueTarget, 0, len(queues))
 	for _, qi := range queues {
-		query := func(metric string) string { return live.Query(domain.RabbitMQQuery{Queue: qi.Name, Metric: metric}) }
-		out = append(out, domain.QueueTarget{Name: qi.Name, Queries: map[string]string{
-			live.SignalBacklog:     query(domain.RabbitMQMetricMessages),
-			live.SignalConsumers:   query(domain.RabbitMQMetricConsumers),
-			live.SignalConsumeRate: query(domain.RabbitMQMetricDeliverRate),
-			live.SignalPublishRate: query(domain.RabbitMQMetricPublishRate),
-		}})
+		if strings.Contains(qi.Name, "*") {
+			continue
+		}
+		out = append(out, domain.QueueTarget{Name: qi.Name, Params: map[string]string{"queue": qi.Name}})
 	}
 	return out, nil
 }
@@ -348,7 +351,7 @@ type queuePage struct {
 // filter, so a server ignoring it still answers only the queues asked for.
 func (a *Adapter) list(ctx context.Context, c *live.Conn, vhost string, extra url.Values, keep *regexp.Regexp) ([]queueInfo, bool, error) {
 	var out []queueInfo
-	for page := 1; ; page++ {
+	for page := 1; page <= maxPages; page++ {
 		params := url.Values{"page": {strconv.Itoa(page)}, "page_size": {strconv.Itoa(pageSize)}}
 		for k, v := range extra {
 			params[k] = v
@@ -374,6 +377,7 @@ func (a *Adapter) list(ctx context.Context, c *live.Conn, vhost string, extra ur
 			return out, false, nil
 		}
 	}
+	return out, true, nil
 }
 
 // globPattern turns a queue name with * wildcards into an anchored regular

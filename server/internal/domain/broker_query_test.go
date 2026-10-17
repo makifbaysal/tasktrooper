@@ -79,3 +79,24 @@ func TestParseHostList(t *testing.T) {
 		assert.Error(t, err, bad)
 	}
 }
+
+func TestBrokerTargetLeavesTheMeasureOut(t *testing.T) {
+	lag, ok := domain.BrokerTarget(domain.DataSourceKindKafka, `{"group": "billing", "metric": "lag"}`)
+	assert.True(t, ok)
+	consumers, _ := domain.BrokerTarget(domain.DataSourceKindKafka, `{"metric":"consumers","group":"billing"}`)
+	assert.Equal(t, lag, consumers, "one group's table whatever is measured")
+	topic, _ := domain.BrokerTarget(domain.DataSourceKindKafka, `{"group": "billing", "topic": "orders"}`)
+	assert.NotEqual(t, lag, topic)
+
+	q1, _ := domain.BrokerTarget(domain.DataSourceKindRabbitMQ, `{"queue": "orders", "metric": "ready"}`)
+	q2, _ := domain.BrokerTarget(domain.DataSourceKindRabbitMQ, `{"queue": "orders"}`)
+	assert.Equal(t, q1, q2)
+	n1, _ := domain.BrokerTarget(domain.DataSourceKindNATS, `{"stream": "S", "consumer": "c", "metric": "waiting"}`)
+	n2, _ := domain.BrokerTarget(domain.DataSourceKindNATS, `{"stream": "S", "consumer": "c"}`)
+	assert.Equal(t, n1, n2)
+
+	_, ok = domain.BrokerTarget(domain.DataSourceKindKafka, `not json`)
+	assert.False(t, ok)
+	_, ok = domain.BrokerTarget(domain.DataSourceKindPrometheus, `up`)
+	assert.False(t, ok)
+}

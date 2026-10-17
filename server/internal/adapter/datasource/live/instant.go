@@ -1,7 +1,6 @@
 package live
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -41,21 +40,4 @@ func Point(t time.Time, v *float64) []domain.SeriesPoint {
 func Float(v int64) *float64 {
 	f := float64(v)
 	return &f
-}
-
-// The catalog signals a broker kind offers queries for (port.QueueDiscoverer).
-const (
-	SignalBacklog     = "queue.backlog"
-	SignalConsumers   = "queue.consumers"
-	SignalConsumeRate = "queue.consume_rate"
-	SignalPublishRate = "queue.publish_rate"
-)
-
-// Query writes a kind's query value as its JSON text, every name escaped.
-func Query(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-	return string(b)
 }

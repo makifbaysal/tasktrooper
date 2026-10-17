@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -67,7 +68,11 @@ func Open(ctx context.Context, policy urlguard.Policy, ep Endpoint, timeout time
 	}
 	client := policy.ClientFor(target, timeout)
 	client.CheckRedirect = policy.SameHostRedirect(target.URL)
+	// Longest first: a secret inside another (a key's id inside the key file)
+	// would otherwise leave the rest of the longer one showing. A header value
+	// comes after them, so "Bearer " stays readable around a masked token.
 	masks := append([]string(nil), ep.Masks...)
+	slices.SortStableFunc(masks, func(a, b string) int { return len(b) - len(a) })
 	for _, h := range ep.Headers {
 		masks = append(masks, h.Value)
 	}

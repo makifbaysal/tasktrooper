@@ -56,10 +56,11 @@ func (h *Handler) ComponentTraces(c *fiber.Ctx) error {
 	q := signals.TracesQuery{Environment: opsEnvironment(c), Since: since, Until: until}
 	if raw := c.Query("min_duration_ms"); raw != "" {
 		ms, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || ms < 0 {
+		if err != nil || ms < 0 || ms > datasource.MaxTraceMinDuration.Milliseconds() {
 			fe["min_duration_ms"] = datasource.FieldInvalid
+		} else {
+			q.MinDuration = time.Duration(ms) * time.Millisecond
 		}
-		q.MinDuration = time.Duration(ms) * time.Millisecond
 	}
 	if raw := c.Query("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)

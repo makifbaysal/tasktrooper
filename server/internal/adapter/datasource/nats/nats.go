@@ -226,6 +226,8 @@ func (a *Adapter) Series(ctx context.Context, ds domain.DataSource, secrets map[
 	return res, nil
 }
 
+var keyColumns = []string{"consumer"}
+
 var tableColumns = []domain.TableColumn{
 	{Key: "consumer", Label: "Consumer"},
 	{Key: "pending", Label: "Pending", Unit: "messages"},
@@ -241,7 +243,7 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[s
 	if err != nil {
 		return domain.TableResult{}, fmt.Errorf("%w: %s", port.ErrDataSourceQuery, err.Error())
 	}
-	res := domain.TableResult{Columns: tableColumns, Rows: []map[string]any{}}
+	res := domain.TableResult{Columns: tableColumns, KeyColumns: keyColumns, Rows: []map[string]any{}}
 	if _, ok := live.Instant(q.At, a.now()); !ok {
 		return res, nil
 	}
@@ -295,7 +297,7 @@ func (a *Adapter) Discover(ctx context.Context, ds domain.DataSource, secrets ma
 }
 
 // DiscoverQueues offers every consumer of every stream, named by the
-// consumer, with the query that reads its backlog.
+// consumer.
 func (a *Adapter) DiscoverQueues(ctx context.Context, ds domain.DataSource, secrets map[string]string) ([]domain.QueueTarget, error) {
 	j, err := a.fetch(ctx, ds, secrets)
 	if err != nil {
@@ -310,9 +312,7 @@ func (a *Adapter) DiscoverQueues(ctx context.Context, ds domain.DataSource, secr
 					continue
 				}
 				seen[s.Name+"\x00"+cons.Name] = true
-				out = append(out, domain.QueueTarget{Name: cons.Name, Queries: map[string]string{
-					live.SignalBacklog: live.Query(domain.NATSQuery{Stream: s.Name, Consumer: cons.Name, Metric: domain.NATSMetricPending}),
-				}})
+				out = append(out, domain.QueueTarget{Name: cons.Name, Params: map[string]string{"stream": s.Name, "consumer": cons.Name}})
 			}
 		}
 	}

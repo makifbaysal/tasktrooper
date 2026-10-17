@@ -70,10 +70,22 @@ func TestBatchTableCapsTheRowsAndDropsNumbersJSONCannotCarry(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Truncated)
 	assert.Len(t, res.Rows, datasource.MaxTableRows)
-	assert.Nil(t, res.Rows[0]["value"])
-	assert.Nil(t, res.Rows[1]["value"])
-	assert.Equal(t, 2.0, res.Rows[2]["value"])
+	assert.Nil(t, res.Rows[0]["value"], "+Inf ranks first, and JSON cannot carry it")
+	assert.Equal(t, float64(datasource.MaxTableRows), res.Rows[1]["value"], "the cut keeps the largest values")
+	assert.Equal(t, 2.0, res.Rows[len(res.Rows)-1]["value"], "a NaN, no number at all, is what goes")
 	assert.Equal(t, []domain.TableColumn{}, res.Columns)
+}
+
+func TestBatchTableKeepsTheSourcesOrderWhenNothingIsCut(t *testing.T) {
+	f := newTableFixture(t)
+	f.store.On("DataSourceSecrets", mock.Anything, f.ds.ID).Return(map[string]string{}, nil).Once()
+	rows := []map[string]any{{"queue": "a", "value": 1.0}, {"queue": "b", "value": 9.0}}
+	f.table.On("Table", mock.Anything, f.ds, mock.Anything, mock.Anything).Return(domain.TableResult{Rows: rows}, nil).Once()
+
+	res, err := f.svc.Batch(f.ds).Table(context.Background(), f.ds.ID, domain.TableQuery{Query: "x"})
+
+	require.NoError(t, err)
+	assert.Equal(t, []map[string]any{{"queue": "a", "value": 1.0}, {"queue": "b", "value": 9.0}}, res.Rows)
 }
 
 func TestBatchTableRedactsTheSourcesErrorAndRefusesAKindWithoutTables(t *testing.T) {

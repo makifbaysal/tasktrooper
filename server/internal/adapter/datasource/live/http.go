@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -68,7 +69,11 @@ func Open(ctx context.Context, policy urlguard.Policy, ep Endpoint, timeout time
 	}
 	client := policy.ClientFor(target, timeout)
 	client.CheckRedirect = policy.SameHostRedirect(target.URL)
+	// Longest first: a secret inside another (a key's id inside the key file)
+	// would otherwise leave the rest of the longer one showing. A header value
+	// comes after them, so "Bearer " stays readable around a masked token.
 	masks := append([]string(nil), ep.Masks...)
+	slices.SortStableFunc(masks, func(a, b string) int { return len(b) - len(a) })
 	for _, h := range ep.Headers {
 		masks = append(masks, h.Value)
 	}
@@ -79,12 +84,17 @@ func (c *Conn) Close() { c.client.CloseIdleConnections() }
 
 // Get reads base + "/" + the path segments (each escaped on its own, so a
 // RabbitMQ vhost "/" travels as %2F) into out. A 404 is ErrNotFound; any
-// other answer but 200 is an error naming the status.
+// other answer but 200 is an error naming the status. A "." or ".." segment
+// is refused: escaping leaves it as it is, and a server or proxy resolving it
+// would read another path than the one named.
 func (c *Conn) Get(ctx context.Context, segments []string, query url.Values, limit int64, out any) error {
 	u := *c.base
 	op := "/" + strings.Join(segments, "/")
 	escaped := make([]string, len(segments))
 	for i, s := range segments {
+		if s == "." || s == ".." {
+			return fmt.Errorf("%s: %q cannot be read as a name", c.api, s)
+		}
 		escaped[i] = url.PathEscape(s)
 	}
 	u.Path = strings.TrimRight(c.base.Path, "/") + op

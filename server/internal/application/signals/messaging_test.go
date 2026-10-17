@@ -18,21 +18,24 @@ func (s *SignalsSuite) linkTo(c domain.Component, vendor string, status domain.L
 	})
 }
 
-func (s *SignalsSuite) TestSuggestOffersAWorkerOnlyTheRecipesOfTheBrokersItIsLinkedTo() {
+func (s *SignalsSuite) TestSuggestRanksTheBrokersAWorkerIsLinkedToFirstAndKeepsTheOthersOnOffer() {
 	worker := s.component(domain.ComponentRoleWorker, "billing")
 	s.linkTo(worker, "kafka", domain.LinkConfirmed)
 	s.linkTo(worker, "rabbitmq", domain.LinkDismissed)
 	s.noEnvironments(worker)
-	s.inventory(kafkaMetric, rabbitMetric)
+	s.inventory(rabbitMetric, kafkaMetric)
 	s.labelProbe(`count by (consumergroup, topic) (`+kafkaMetric+`)`, map[string]string{"consumergroup": "billing", "topic": "orders"})
+	s.labelProbe(`count by (queue) (`+rabbitMetric+`)`, map[string]string{"queue": "billing"})
 	saved := s.expectSuggestions(worker, nil)
 
 	_, err := s.svc.Suggest(s.ctx, worker.ID, domain.EnvironmentProduction)
 	s.Require().NoError(err)
-	s.Equal([]string{
-		"queue.backlog svc-kafka group=billing,topic=orders",
-		"queue.publish_rate svc-kafka group=billing,topic=orders",
-	}, summarizeBindings(*saved), "a dismissed link names no broker")
+	var order []string
+	for _, b := range *saved {
+		order = append(order, b.Signal+" "+b.RecipeID)
+	}
+	s.Equal([]string{"queue.backlog svc-kafka", "queue.publish_rate svc-kafka", "queue.backlog svc-rabbit"}, order,
+		"a dismissed link names no broker, and a library the discovery catalog misses must not hide the broker it uses")
 }
 
 func (s *SignalsSuite) TestSuggestOffersEveryBrokersRecipeWhileTheComponentsBrokersAreUnknown() {
@@ -78,44 +81,41 @@ func (s *SignalsSuite) TestSuggestOffersTheBrokersConsumersThatNameTheComponent(
 	s.inventory()
 	s.consumers.On("DiscoverQueues", mock.Anything, mock.MatchedBy(func(ds domain.DataSource) bool { return ds.ID == kafka.ID }), mock.Anything).
 		Return([]domain.QueueTarget{
-			{Name: "shipping", Queries: map[string]string{"queue.backlog": `{"group": "shipping"}`}},
-			{Name: "billing-v2", Queries: map[string]string{"queue.backlog": `{"group": "billing-v2"}`}},
-			{Name: "billing", Queries: map[string]string{
-				"queue.backlog":   `{"group": "billing"}`,
-				"queue.consumers": `{"group": "billing", "metric": "members"}`,
-				"http.requests":   `{"group": "billing"}`,
-			}},
+			{Name: "shipping", Params: map[string]string{"group": "shipping"}},
+			{Name: "billing-v2", Params: map[string]string{"group": "billing-v2"}},
+			{Name: `billing"}`, Params: map[string]string{"group": `billing"}`}},
+			{Name: "billing.audit", Params: map[string]string{"group": "billing.audit", "topic": "audit"}},
 		}, nil).Once()
 	saved, answered := s.expectSuggestionsFrom(worker, nil)
 
 	got, err := s.svc.Suggest(s.ctx, worker.ID, domain.EnvironmentProduction)
 	s.Require().NoError(err)
-	var queries []string
 	for _, b := range *saved {
 		s.Equal(kafka.ID, b.DataSourceID)
-		s.Empty(b.RecipeID)
-		queries = append(queries, b.Signal+" "+b.Query)
+		s.Empty(b.Query, "a discovered name never goes into a raw query")
 	}
 	s.Equal([]string{
-		`queue.backlog {"group": "billing"}`,
-		`queue.consumers {"group": "billing", "metric": "members"}`,
-	}, queries, "only the best-named consumer, and only the role's signals")
+		`queue.backlog kafka-direct group=billing"}`,
+		`queue.consumers kafka-direct group=billing"}`,
+	}, summarizeBindings(*saved), "only the best-named consumer, through the recipe taking exactly its params")
 	s.ElementsMatch([]uuid.UUID{s.promSource.ID, kafka.ID}, *answered)
 	backlog := signalByID(got, "queue.backlog")
 	s.Require().Len(backlog.Suggestions, 1)
-	s.Equal(`{"group": "billing"}`, backlog.Suggestions[0].RenderedQuery)
+	s.Equal(`{"group": "billing\"}", "metric": "lag"}`, backlog.Suggestions[0].RenderedQuery)
 }
 
-func (s *SignalsSuite) TestSuggestSkipsABrokerSourceOfAnotherMessagingSystem() {
+func (s *SignalsSuite) TestSuggestStillOffersABrokerSourceOfAnotherMessagingSystem() {
 	worker := s.component(domain.ComponentRoleWorker, "billing")
 	s.linkTo(worker, "rabbitmq", domain.LinkConfirmed)
 	kafka := s.addSource(domain.DataSource{Kind: domain.DataSourceKindKafka, Name: "kafka prod"})
 	s.noEnvironments(worker)
 	s.inventory()
+	s.consumers.On("DiscoverQueues", mock.Anything, mock.Anything, mock.Anything).
+		Return([]domain.QueueTarget{{Name: "billing", Params: map[string]string{"group": "billing"}}}, nil).Once()
 	saved, answered := s.expectSuggestionsFrom(worker, nil)
 
 	_, err := s.svc.Suggest(s.ctx, worker.ID, domain.EnvironmentProduction)
 	s.Require().NoError(err)
-	s.Empty(*saved)
-	s.Contains(*answered, kafka.ID, "a source skipped on purpose still clears its stale suggestions")
+	s.Equal([]string{"queue.backlog kafka-direct group=billing", "queue.consumers kafka-direct group=billing"}, summarizeBindings(*saved))
+	s.Contains(*answered, kafka.ID)
 }

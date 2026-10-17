@@ -12,6 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
 )
 
@@ -44,4 +45,26 @@ func TestBrokerRefusalsReadAsWhatThePersonCanFix(t *testing.T) {
 func TestNormalizePEMRestoresTheMarkersLines(t *testing.T) {
 	got := string(normalizePEM("-----BEGIN CERTIFICATE----- MIIB AAA -----END CERTIFICATE-----"))
 	assert.Equal(t, "\n-----BEGIN CERTIFICATE-----\n MIIB AAA \n-----END CERTIFICATE-----\n", got)
+}
+
+func TestSASLPlainWithoutTLSToABrokerOffThisComputerIsFlagged(t *testing.T) {
+	plain := map[string]string{keySASL: saslPlain}
+	tests := []struct {
+		name   string
+		config map[string]string
+		hosts  []string
+		want   bool
+	}{
+		{"loopback only", plain, []string{"localhost:9092", "127.0.0.1:9093", "[::1]:9094"}, false},
+		{"a remote seed", plain, []string{"localhost:9092", "kafka.internal:9092"}, true},
+		{"a remote advertised broker", plain, []string{"127.0.0.1:9092", "10.0.0.7"}, true},
+		{"TLS on", map[string]string{keySASL: saslPlain, keyTLS: tlsOn}, []string{"kafka.internal:9092"}, false},
+		{"SCRAM", map[string]string{keySASL: saslSCRAM512}, []string{"kafka.internal:9092"}, false},
+		{"no SASL", map[string]string{}, []string{"kafka.internal:9092"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, clearTextPassword(domain.DataSource{Config: tt.config}, tt.hosts))
+		})
+	}
 }

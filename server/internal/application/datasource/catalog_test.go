@@ -228,6 +228,7 @@ func TestValidateRecipeAdmitsPlaceholdersOnlyWhereTheyAreEscapedCorrectly(t *tes
 		`sum by (le) (rate(depth{queue != "pre-$queue", a=~"5.."}[$__rate]))`,
 		`max_over_time(depth{queue="$queue"}[$__rate:$__interval])`,
 		`label_replace(depth{queue="$queue"}, "q", "$1", "queue", "(.*)")`,
+		"# don't count the retries\nsum(depth{queue=\"$queue\"}) # nor $queue's dead letters\n+ 0",
 	} {
 		assert.NoError(t, c.ValidateRecipe(recipe(ok)), ok)
 	}
@@ -244,6 +245,7 @@ func TestValidateRecipeAdmitsPlaceholdersOnlyWhereTheyAreEscapedCorrectly(t *tes
 		{"comparison", `depth == "$queue"`, "must sit inside a double-quoted label value"},
 		{"rate window outside brackets", `rate(depth[5m]) * $__rate`, "$__rate may appear only inside [...]"},
 		{"interval in a string", `depth{queue="$__interval"}`, "$__interval may appear only inside [...]"},
+		{"an undeclared name in a comment", "sum(depth{queue=\"$queue\"}) # see $other", "$other, which is neither a declared param nor a built-in"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

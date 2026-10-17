@@ -42,7 +42,7 @@ const (
 
 // quantiles are what a quantile signal is read at when its query takes
 // $__quantile, each answered as a series named by its label.
-var quantiles = []variant{{"p50", 0.5}, {"p95", headlineQuantile}, {"p99", 0.99}}
+var quantiles = []variant{{"p50", 0.5}, {"p75", 0.75}, {"p95", headlineQuantile}, {"p99", 0.99}}
 
 // variant is one read of a binding: a quantile and the series name it gives,
 // or the zero value for a single read as written.
@@ -102,6 +102,8 @@ type Service struct {
 	queuesCache  *answerCache[domain.ComponentQueues]
 	tablesCache  *answerCache[domain.ComponentTables]
 	goldenFlight singleflight.Group
+	queuesFlight singleflight.Group
+	tablesFlight singleflight.Group
 }
 
 type Option func(*Service)
@@ -269,7 +271,7 @@ func (s *Service) Put(ctx context.Context, componentID uuid.UUID, env domain.Dep
 	if err != nil {
 		return domain.SignalBindingView{}, err
 	}
-	s.dropAnswers()
+	s.dropAnswers(ctx)
 	return s.view(ctx, l, saved), nil
 }
 
@@ -295,7 +297,7 @@ func (s *Service) Confirm(ctx context.Context, id uuid.UUID) (domain.SignalBindi
 	if err != nil {
 		return domain.SignalBindingView{}, err
 	}
-	s.dropAnswers()
+	s.dropAnswers(ctx)
 	return s.view(ctx, l, confirmed), nil
 }
 
@@ -316,7 +318,7 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := s.bindings.DeleteSignalBinding(ctx, id); err != nil {
 		return err
 	}
-	s.dropAnswers()
+	s.dropAnswers(ctx)
 	return nil
 }
 
@@ -476,7 +478,7 @@ func (s *Service) validateTarget(ctx context.Context, l lookup, signal string, r
 			}
 			if query == "" {
 				for _, p := range r.Params {
-					if params[p] == "" {
+					if params[p] == "" && strings.TrimSpace(r.Defaults[p]) == "" {
 						fe["params."+p] = datasource.FieldRequired
 					}
 				}

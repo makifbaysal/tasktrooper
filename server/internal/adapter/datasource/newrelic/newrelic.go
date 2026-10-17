@@ -86,7 +86,7 @@ func (a *Adapter) SetClock(now func() time.Time) { a.now = now }
 func (a *Adapter) Kind() domain.DataSourceKind { return domain.DataSourceKindNewRelic }
 
 func (a *Adapter) Capabilities() []domain.Capability {
-	return []domain.Capability{domain.CapabilityMetrics, domain.CapabilityTraces, domain.CapabilityRUM, domain.CapabilityCrashes}
+	return []domain.Capability{domain.CapabilityMetrics, domain.CapabilityRUM, domain.CapabilityCrashes}
 }
 
 func (a *Adapter) Schema() domain.DataSourceSchema {
@@ -278,12 +278,15 @@ func (a *Adapter) Discover(ctx context.Context, ds domain.DataSource, secrets ma
 }
 
 // clauses are the keywords of q outside its strings and backquoted names,
-// upper-cased.
+// upper-cased; a comment there (--, // or /* */) is the word "--".
 func clauses(q string) map[string]bool {
 	out := map[string]bool{}
 	for i := 0; i < len(q); i++ {
 		c := q[i]
 		switch {
+		case (c == '-' || c == '/') && i+1 < len(q) && q[i+1] == c, c == '/' && i+1 < len(q) && q[i+1] == '*':
+			out[commentWord] = true
+			return out
 		case c == '\'' || c == '"' || c == '`':
 			j := i + 1
 			for ; j < len(q) && q[j] != c; j++ {
@@ -308,8 +311,23 @@ func isWordByte(c byte) bool {
 	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
+// commentWord stands for a comment in clauses: the kind appends its clauses
+// after the query, which a comment there would swallow (-- and // run to the
+// end of the line), and a keyword inside one is no clause of the query.
+const commentWord = "--"
+
+func refuseComment(words map[string]bool) error {
+	if words[commentWord] {
+		return fmt.Errorf("%w: leave out comments (--, // or /* */): the kind appends SINCE, UNTIL and TIMESERIES after the query", port.ErrDataSourceQuery)
+	}
+	return nil
+}
+
 func refuseWindow(q string) error {
 	words := clauses(q)
+	if err := refuseComment(words); err != nil {
+		return err
+	}
 	for _, w := range windowClauses {
 		if words[w] {
 			return fmt.Errorf("%w: leave out %s: the kind adds SINCE, UNTIL and TIMESERIES from the window", port.ErrDataSourceQuery, w)
@@ -447,6 +465,9 @@ func num(v any) (float64, bool) {
 // multi-attribute facet joined with ", "), every other value by its key.
 func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[string]string, tq domain.TableQuery) (domain.TableResult, error) {
 	words := clauses(tq.Query)
+	if err := refuseComment(words); err != nil {
+		return domain.TableResult{}, err
+	}
 	if words["TIMESERIES"] || words["COMPARE"] {
 		return domain.TableResult{}, fmt.Errorf("%w: a table query takes no TIMESERIES or COMPARE WITH", port.ErrDataSourceQuery)
 	}

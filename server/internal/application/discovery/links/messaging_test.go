@@ -22,6 +22,17 @@ func TestDetect_MessagingLibrariesLinkToTheirBrokersQueue(t *testing.T) {
 		"sqs/Gemfile":             mapFile("gem 'shoryuken'\n"),
 		"jobs/Gemfile":            mapFile("gem \"sidekiq\"\n"),
 		"asynq/go.mod":            mapFile("module example.com/asynq\n\ngo 1.22\n\nrequire github.com/hibiken/asynq v0.25.0\n"),
+		"streams/build.gradle":    mapFile("dependencies {\n  implementation 'org.apache.kafka:kafka-streams:3.7.0'\n}\n"),
+		"binder/build.gradle":     mapFile("dependencies {\n  implementation(\"org.springframework.cloud:spring-cloud-stream-binder-rabbit:4.1.0\")\n}\n"),
+		"quarkus/build.gradle":    mapFile("dependencies {\n  implementation 'io.quarkus:quarkus-smallrye-reactive-messaging-kafka'\n}\n"),
+		"faust/requirements.txt":  mapFile("faust-streaming==0.11.0\n"),
+		"dotnet/Worker.csproj": mapFile(`<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <PackageReference Include="confluent.kafka" Version="2.4.0" />
+  </ItemGroup>
+</Project>`),
+		"bus/Bus.csproj":   mapFile(`<Project><ItemGroup><PackageReference Version="7.17.0" Include="Azure.Messaging.ServiceBus" /></ItemGroup></Project>`),
+		"natsnet/N.csproj": mapFile(`<Project><ItemGroup><PackageReference Include="NATS.Net" Version="2.2.0" /></ItemGroup></Project>`),
 	}
 	cases := []struct {
 		path, signalKey, vendor string
@@ -35,6 +46,13 @@ func TestDetect_MessagingLibrariesLinkToTheirBrokersQueue(t *testing.T) {
 		{"sqs", "dep:aws_sqs", "sqs"},
 		{"jobs", "dep:bullmq", "redis"},
 		{"asynq", "dep:bullmq", "redis"},
+		{"streams", "dep:kafka", "kafka"},
+		{"binder", "dep:rabbitmq", "rabbitmq"},
+		{"quarkus", "dep:kafka", "kafka"},
+		{"faust", "dep:kafka", "kafka"},
+		{"dotnet", "dep:kafka", "kafka"},
+		{"bus", "dep:azure_servicebus", "servicebus"},
+		{"natsnet", "dep:nats", "nats"},
 	}
 	var components []domain.DetectedComponent
 	for _, tc := range cases {

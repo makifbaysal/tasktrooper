@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -37,7 +38,14 @@ const (
 	maxSmallBody  = 1 << 20
 	maxTagsBody   = 8 << 20
 	maxSearchBody = 16 << 20
-	maxTraceBody  = 64 << 20
+	maxTraceBody  = 32 << 20
+
+	// A trace answers at most maxTraceSpans spans (the earliest), each with
+	// at most maxSpanAttrs attributes of its own and maxResourceAttrs of its
+	// resource: the resource's are copied into every span of it.
+	maxTraceSpans    = 20000
+	maxSpanAttrs     = 128
+	maxResourceAttrs = 32
 
 	defaultLimit = 20
 	maxLimit     = 100
@@ -177,7 +185,8 @@ func (a *Adapter) Trace(ctx context.Context, ds domain.DataSource, secrets map[s
 	if err := json.Unmarshal(r.Body, &doc); err != nil {
 		return domain.Trace{}, errNotTempo
 	}
-	return domain.Trace{ID: id, Spans: doc.spans()}, nil
+	spans, truncated := doc.spans()
+	return domain.Trace{ID: id, Spans: spans, Truncated: truncated}, nil
 }
 
 type otlpTrace struct {
@@ -258,20 +267,54 @@ func (v anyValue) String() string {
 	return ""
 }
 
-func (t otlpTrace) spans() []domain.Span {
-	var out []domain.Span
+// spans are the trace's earliest maxTraceSpans, by start; only those are
+// turned into spans, so a huge trace costs no attribute maps for the rest.
+func (t otlpTrace) spans() ([]domain.Span, bool) {
+	type ref struct {
+		span     *otlpSpan
+		resource int
+		start    int64
+	}
+	var resources []map[string]string
+	var refs []ref
 	for _, rs := range append(t.Batches, t.ResourceSpans...) {
-		resource := map[string]string{}
-		for _, kv := range rs.Resource.Attributes {
-			resource[kv.Key] = truncate(kv.Value.String())
-		}
+		resources = append(resources, resourceAttributes(rs.Resource.Attributes))
 		for _, ss := range append(rs.ScopeSpans, rs.InstrumentationLibrarySpans...) {
-			for _, s := range ss.Spans {
-				out = append(out, span(s, resource))
+			for i := range ss.Spans {
+				refs = append(refs, ref{span: &ss.Spans[i], resource: len(resources) - 1, start: unixNanos(ss.Spans[i].StartTimeUnixNano)})
 			}
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	sort.SliceStable(refs, func(i, j int) bool { return refs[i].start < refs[j].start })
+	truncated := len(refs) > maxTraceSpans
+	refs = refs[:min(len(refs), maxTraceSpans)]
+	out := make([]domain.Span, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, span(*r.span, resources[r.resource]))
+	}
+	return out, truncated
+}
+
+// resourceAttributes keeps service.name and the first others by name, up to
+// maxResourceAttrs.
+func resourceAttributes(kvs []keyValue) map[string]string {
+	all := make(map[string]string, len(kvs))
+	for _, kv := range kvs {
+		all[kv.Key] = truncate(kv.Value.String())
+	}
+	if len(all) <= maxResourceAttrs {
+		return all
+	}
+	out := make(map[string]string, maxResourceAttrs)
+	if v, ok := all["service.name"]; ok {
+		out["service.name"] = v
+	}
+	for _, k := range slices.Sorted(maps.Keys(all)) {
+		if len(out) == maxResourceAttrs {
+			break
+		}
+		out[k] = all[k]
+	}
 	return out
 }
 
@@ -294,7 +337,7 @@ func span(s otlpSpan, resource map[string]string) domain.Span {
 	for k, v := range resource {
 		out.Attributes["resource."+k] = v
 	}
-	for _, kv := range s.Attributes {
+	for _, kv := range s.Attributes[:min(len(s.Attributes), maxSpanAttrs)] {
 		out.Attributes[kv.Key] = truncate(kv.Value.String())
 	}
 	return out

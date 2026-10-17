@@ -224,7 +224,7 @@ func TestSchemaMarksTheTokenSecret(t *testing.T) {
 	assert.Equal(t, map[string]bool{"url": false, "token": true}, secret)
 }
 
-func TestDiscoverQueuesOffersEachConsumerWithItsBacklog(t *testing.T) {
+func TestDiscoverQueuesOffersEachConsumerByItsStreamAndName(t *testing.T) {
 	srv, _ := serve(t, map[string]http.HandlerFunc{"/jsz": reply(200, jsz)})
 
 	targets, err := newAdapter().DiscoverQueues(context.Background(), source(srv.URL), nil)
@@ -235,5 +235,5 @@ func TestDiscoverQueuesOffersEachConsumerWithItsBacklog(t *testing.T) {
 		names = append(names, tg.Name)
 	}
 	assert.Equal(t, []string{"audit", "billing", "sender"}, names)
-	assert.Equal(t, map[string]string{"queue.backlog": `{"stream":"ORDERS","consumer":"billing","metric":"pending"}`}, targets[1].Queries)
+	assert.Equal(t, map[string]string{"stream": "ORDERS", "consumer": "billing"}, targets[1].Params)
 }

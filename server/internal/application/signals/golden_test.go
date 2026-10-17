@@ -133,3 +133,30 @@ func (s *SignalsSuite) TestGoldenRefusesAnUnknownEnvironment() {
 	_, err := s.svc.Golden(s.ctx, signals.GoldenQuery{Environment: "prod"})
 	s.ErrorIs(err, signals.ErrInvalidInput)
 }
+
+func (s *SignalsSuite) TestASignalBoundToALiveOnlySourceSaysSo() {
+	worker := s.component(domain.ComponentRoleWorker, "billing")
+	kafka := s.addSource(domain.DataSource{Kind: domain.DataSourceKindKafka, Name: "kafka prod"})
+	backlog := s.confirmedOn(worker, kafka, "queue.backlog", "", nil, `{"group": "billing"}`)
+	viaProm := s.confirmedOn(worker, s.promSource, "queue.publish_rate", kafkaRecipe, map[string]string{"group": "billing", "topic": "orders"}, "")
+	s.stored(worker.ID, domain.EnvironmentProduction, backlog, viaProm)
+	s.answers(mock.Anything).Maybe()
+
+	series, err := s.svc.Series(s.ctx, worker.ID, signals.SeriesQuery{Environment: domain.EnvironmentProduction, Signals: []string{"queue.backlog", "queue.publish_rate", "queue.consumers"}})
+	s.Require().NoError(err)
+	live := map[string]bool{}
+	for _, sig := range series.Signals {
+		live[sig.Signal] = sig.Live
+	}
+	s.Equal(map[string]bool{"queue.backlog": true, "queue.publish_rate": false, "queue.consumers": false}, live)
+
+	s.goldenWorld([]domain.Component{worker}, []domain.SignalBinding{backlog, viaProm})
+	board, err := s.svc.Golden(s.ctx, signals.GoldenQuery{Environment: domain.EnvironmentProduction})
+	s.Require().NoError(err)
+	seen := false
+	for _, sig := range board.Components[0].Signals {
+		s.Equal(sig.Signal == "queue.backlog", sig.Live, sig.Signal)
+		seen = seen || sig.Live
+	}
+	s.True(seen, "the worker's golden board shows its backlog")
+}

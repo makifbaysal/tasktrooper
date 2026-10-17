@@ -418,7 +418,7 @@ func selfSigned(t *testing.T) (string, *tls.Config) {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
 }
 
-func TestDiscoverQueuesOffersEachGroupWithItsQueries(t *testing.T) {
+func TestDiscoverQueuesOffersEachGroupByItsName(t *testing.T) {
 	c := cluster(t)
 	commit(t, c, `billing"x`, map[int32]int64{0: 0})
 
@@ -427,12 +427,21 @@ func TestDiscoverQueuesOffersEachGroupWithItsQueries(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 	assert.Equal(t, `billing"x`, targets[0].Name)
-	assert.Equal(t, map[string]string{
-		"queue.backlog":   `{"group":"billing\"x","metric":"lag"}`,
-		"queue.consumers": `{"group":"billing\"x","metric":"consumers"}`,
-	}, targets[0].Queries)
-	for _, q := range targets[0].Queries {
-		_, err := domain.ParseKafkaQuery(q)
-		assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"group": `billing"x`}, targets[0].Params)
+}
+
+func TestSchemaTellsAFormWhichFieldIsADestinationAndWhichSpansLines(t *testing.T) {
+	raw, err := json.Marshal(newAdapter().Schema())
+	require.NoError(t, err)
+	var schema struct {
+		Fields []map[string]any `json:"fields"`
 	}
+	require.NoError(t, json.Unmarshal(raw, &schema))
+	flags := map[string][2]any{}
+	for _, f := range schema.Fields {
+		flags[f["key"].(string)] = [2]any{f["destination"], f["multiline"]}
+	}
+	assert.Equal(t, [2]any{true, nil}, flags["bootstrap_servers"])
+	assert.Equal(t, [2]any{nil, true}, flags["ca_cert"])
+	assert.Equal(t, [2]any{nil, nil}, flags["username"], "an unset flag stays out of the answer")
 }

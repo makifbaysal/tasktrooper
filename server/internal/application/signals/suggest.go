@@ -40,13 +40,13 @@ const (
 // to a cloud resource, every recipe for that resource kind on a source
 // linked to the same cloud account, with params from the resource, and (c)
 // on a broker source, the consumers whose names best name the component,
-// with its kind's own queries, and (d) for a mobile component whose
+// through its kind's direct recipe, and (d) for a mobile component whose
 // repository has a store app linked, the recipes for that store platform
 // with params from the app (detectFromStoreApps; with no source of their
-// kind, SourceOffers says which to create). Once the component's brokers are known (its
-// links to queue resources), a worker is offered no recipe and no broker
-// source of another messaging system, and suggestions reading one of its
-// brokers come first. A signal with a confirmed binding gets no suggestion,
+// kind, SourceOffers says which to create). Once the component's brokers are
+// known (its links to queue resources), suggestions reading one of them come
+// first; another system's stay on offer after them, since the links know only
+// the libraries the discovery catalog names. A signal with a confirmed binding gets no suggestion,
 // a dismissed one is never offered again, and only the detector's own
 // pending suggestions are replaced: those of a source whose discovery, label
 // probe or consumer listing failed this time are kept, and one offered again
@@ -92,9 +92,9 @@ func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain
 	var found []domain.SignalBinding
 	var answered []uuid.UUID
 	for _, ds := range l.order {
-		got, ok := s.detectFromInventory(ctx, rd, scope, ds, relevant, names, role, brokers)
+		got, ok := s.detectFromInventory(ctx, rd, scope, ds, relevant, names)
 		found = append(found, got...)
-		fromBroker, brokerOK := s.detectFromBroker(ctx, rd, ds, relevant, names, role, brokers)
+		fromBroker, brokerOK := s.detectFromBroker(ctx, rd, ds, relevant, names)
 		found = append(found, fromBroker...)
 		if ok && brokerOK {
 			answered = append(answered, ds.ID)
@@ -103,7 +103,7 @@ func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain
 	if bound != nil {
 		for _, ds := range l.order {
 			if ds.Config[cloudAccountKey] == bound.AccountID.String() {
-				found = append(found, detectFromResource(l, ds, relevant, *bound.Resource, role, brokers)...)
+				found = append(found, detectFromResource(l, ds, relevant, *bound.Resource)...)
 			}
 		}
 	}
@@ -153,7 +153,7 @@ func newSuggestions(found, existing []domain.SignalBinding) []domain.SignalBindi
 
 // detectFromInventory answers false when the source did not answer this
 // time: its discovery, or a label probe, failed.
-func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope string, ds domain.DataSource, relevant map[string]bool, names []string, role domain.ComponentRole, brokers map[string]bool) ([]domain.SignalBinding, bool) {
+func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope string, ds domain.DataSource, relevant map[string]bool, names []string) ([]domain.SignalBinding, bool) {
 	// A kind that lists nothing (the store kinds) has nothing to detect from,
 	// and answers by not being asked.
 	if !s.sources.CanDiscover(ds.Kind) {
@@ -174,7 +174,7 @@ func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope str
 		r, ok := rd.l.recipes[id]
 		// A recipe for a cloud resource kind is offered from the environment's
 		// binding, with params from the resource, never from the inventory.
-		if !ok || r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind != "" || !fitsBrokers(role, brokers, r.AppliesTo.MessagingSystem) {
+		if !ok || r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind != "" {
 			continue
 		}
 		sigs := recipeSignals(r, relevant)
@@ -192,12 +192,12 @@ func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope str
 	return out, answered
 }
 
-func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool, ref domain.CloudResourceRef, role domain.ComponentRole, brokers map[string]bool) []domain.SignalBinding {
+func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool, ref domain.CloudResourceRef) []domain.SignalBinding {
 	ids := slices.Sorted(maps.Keys(l.recipes))
 	var out []domain.SignalBinding
 	for _, id := range ids {
 		r := l.recipes[id]
-		if r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind == "" || r.AppliesTo.ResourceKind != ref.Kind || !fitsBrokers(role, brokers, r.AppliesTo.MessagingSystem) {
+		if r.SourceKind != ds.Kind || r.AppliesTo.ResourceKind == "" || r.AppliesTo.ResourceKind != ref.Kind {
 			continue
 		}
 		params := r.ParamsFromResource(ref)
@@ -210,10 +210,11 @@ func detectFromResource(l lookup, ds domain.DataSource, relevant map[string]bool
 
 // detectFromBroker offers the consumers a broker source holds that best name
 // the component (the label probe's score, at most maxParamSetsPerRecipe),
-// each with the queries its kind reads for the role's signals. False when
-// the source did not answer.
-func (s *Service) detectFromBroker(ctx context.Context, rd *reader, ds domain.DataSource, relevant map[string]bool, names []string, role domain.ComponentRole, brokers map[string]bool) ([]domain.SignalBinding, bool) {
-	if !s.sources.CanDiscoverQueues(ds.Kind) || !fitsBrokers(role, brokers, brokerSystem(ds.Kind)) || len(names) == 0 {
+// each as the params of every recipe of the kind that takes exactly those
+// params (its direct recipe), for the role's signals. False when the source
+// did not answer.
+func (s *Service) detectFromBroker(ctx context.Context, rd *reader, ds domain.DataSource, relevant map[string]bool, names []string) ([]domain.SignalBinding, bool) {
+	if !s.sources.CanDiscoverQueues(ds.Kind) || len(names) == 0 {
 		return nil, true
 	}
 	targets, err := rd.batch.DiscoverQueues(ctx, ds.ID)
@@ -242,16 +243,30 @@ func (s *Service) detectFromBroker(ctx context.Context, rd *reader, ds domain.Da
 	}
 	var out []domain.SignalBinding
 	for _, t := range picked {
-		for _, sig := range slices.Sorted(maps.Keys(t.Queries)) {
-			if q := strings.TrimSpace(t.Queries[sig]); relevant[sig] && q != "" {
-				out = append(out, domain.SignalBinding{
-					Signal: sig, DataSourceID: ds.ID, Params: map[string]string{}, Query: q,
-					Status: domain.SignalBindingSuggested, Source: domain.SignalBindingDetected,
-				})
+		for _, r := range directRecipes(rd.l, ds.Kind, t.Params) {
+			for _, sig := range recipeSignals(r, relevant) {
+				out = append(out, suggestion(sig, ds.ID, r.ID, t.Params))
 			}
 		}
 	}
 	return out, true
+}
+
+// directRecipes are the kind's recipes whose params are exactly the ones a
+// discovered consumer is named by, in id order.
+func directRecipes(l lookup, kind domain.DataSourceKind, params map[string]string) []domain.Recipe {
+	if len(params) == 0 {
+		return nil
+	}
+	want := slices.Sorted(maps.Keys(params))
+	var out []domain.Recipe
+	for _, id := range slices.Sorted(maps.Keys(l.recipes)) {
+		r := l.recipes[id]
+		if r.SourceKind == kind && r.AppliesTo.ResourceKind == "" && slices.Equal(slices.Sorted(slices.Values(r.Params)), want) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func suggestion(signal string, dataSourceID uuid.UUID, recipeID string, params map[string]string) domain.SignalBinding {

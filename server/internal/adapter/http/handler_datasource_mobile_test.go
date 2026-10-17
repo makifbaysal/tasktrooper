@@ -34,7 +34,7 @@ func (s *DataSourceHandlerSuite) TestStoreAndSentryKindsListTheirFormSchema() {
 		capabilities   []any
 	}{
 		{"google_play_vitals", "google_play", []any{"metrics", "crashes"}},
-		{"app_store_metrics", "asc", []any{"metrics"}},
+		{"app_store_metrics", "asc", []any{"metrics", "crashes"}},
 	} {
 		k := kinds[i].(map[string]any)
 		s.Equal(want.kind, k["kind"])

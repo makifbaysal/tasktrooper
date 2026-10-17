@@ -78,7 +78,7 @@ func (a *Adapter) SetClock(now func() time.Time) { a.now = now }
 func (a *Adapter) Kind() domain.DataSourceKind { return domain.DataSourceKindDatadog }
 
 func (a *Adapter) Capabilities() []domain.Capability {
-	return []domain.Capability{domain.CapabilityMetrics, domain.CapabilityTraces}
+	return []domain.Capability{domain.CapabilityMetrics}
 }
 
 func (a *Adapter) Schema() domain.DataSourceSchema {

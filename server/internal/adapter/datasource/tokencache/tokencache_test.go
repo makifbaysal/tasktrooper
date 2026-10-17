@@ -1,6 +1,7 @@
 package tokencache_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -44,4 +45,32 @@ func TestAnotherCredentialOrPurposeIsAnotherEntry(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = c.Get(tokencache.Key("key-file", "scope-b"), now)
 	assert.False(t, ok)
+}
+
+func TestAFullCacheDropsTheLeastRecentlyUsedTokenOnly(t *testing.T) {
+	now := time.Now()
+	c := tokencache.NewSized(2)
+	a, b, d := tokencache.Key("a", "s"), tokencache.Key("b", "s"), tokencache.Key("d", "s")
+	c.Put(a, "a", now.Add(time.Hour), now)
+	c.Put(b, "b", now.Add(time.Hour), now)
+	_, _ = c.Get(a, now)
+	c.Put(d, "d", now.Add(time.Hour), now)
+
+	_, ok := c.Get(b, now)
+	assert.False(t, ok, "the least recently used goes")
+	for key, want := range map[[32]byte]string{a: "a", d: "d"} {
+		tok, ok := c.Get(key, now)
+		assert.True(t, ok)
+		assert.Equal(t, want, tok)
+	}
+}
+
+func TestTheDefaultCacheHoldsHundredsOfCredentials(t *testing.T) {
+	now := time.Now()
+	c := tokencache.New()
+	for i := range tokencache.DefaultMaxEntries {
+		c.Put(tokencache.Key(fmt.Sprint(i), "s"), "tok", now.Add(time.Hour), now)
+	}
+	_, ok := c.Get(tokencache.Key("0", "s"), now)
+	assert.True(t, ok, "a full cache is not emptied")
 }

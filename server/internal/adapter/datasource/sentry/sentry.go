@@ -121,7 +121,8 @@ func (a *Adapter) Schema() domain.DataSourceSchema {
 
 type conn struct {
 	*httpapi.Conn
-	org string
+	org  string
+	base *url.URL
 }
 
 func (a *Adapter) open(ctx context.Context, ds domain.DataSource, secrets map[string]string) (*conn, error) {
@@ -146,7 +147,31 @@ func (a *Adapter) open(ctx context.Context, ds domain.DataSource, secrets map[st
 	if err != nil {
 		return nil, err
 	}
-	return &conn{Conn: c, org: org}, nil
+	u, _ := url.Parse(base)
+	return &conn{Conn: c, org: org, base: u}, nil
+}
+
+// link keeps an issue's permalink only when it points at this Sentry: its
+// configured host over https (or the scheme it is configured with), or, for
+// Sentry's cloud, an https page of sentry.io, where each organization has a
+// subdomain. It is shown as a link, and the answer is not this server's to
+// trust.
+func (c *conn) link(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || c.base == nil || u.User != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	sameHost := strings.EqualFold(u.Host, c.base.Host) && (u.Scheme == "https" || u.Scheme == c.base.Scheme)
+	cloud := u.Scheme == "https" && u.Port() == "" && sentryCloud(c.base.Hostname()) && sentryCloud(u.Hostname())
+	if !sameHost && !cloud {
+		return ""
+	}
+	return u.String()
+}
+
+func sentryCloud(host string) bool {
+	host = strings.ToLower(host)
+	return host == "sentry.io" || strings.HasSuffix(host, ".sentry.io")
 }
 
 func (c *conn) orgPath(rest string) string {
@@ -389,26 +414,56 @@ func (a *Adapter) events(ctx context.Context, c *conn, projectID string, q domai
 	return domain.SeriesResult{Series: []domain.Series{s}, Warnings: []string{}, Step: iv}, nil
 }
 
+// issue: Sentry answers count and userCount over the window asked for (start,
+// end, environment), filtered the same over the search's conditions too when
+// it has any, and lifetime over all time.
 type issue struct {
-	ID          string `json:"id"`
-	ShortID     string `json:"shortId"`
-	Title       string `json:"title"`
-	Culprit     string `json:"culprit"`
-	Permalink   string `json:"permalink"`
-	Count       string `json:"count"`
-	UserCount   int64  `json:"userCount"`
-	FirstSeen   string `json:"firstSeen"`
-	LastSeen    string `json:"lastSeen"`
-	Level       string `json:"level"`
-	IsUnhandled bool   `json:"isUnhandled"`
+	ID          string       `json:"id"`
+	ShortID     string       `json:"shortId"`
+	Title       string       `json:"title"`
+	Culprit     string       `json:"culprit"`
+	Permalink   string       `json:"permalink"`
+	Count       string       `json:"count"`
+	UserCount   int64        `json:"userCount"`
+	Filtered    *issueCounts `json:"filtered"`
+	FirstSeen   string       `json:"firstSeen"`
+	LastSeen    string       `json:"lastSeen"`
+	Level       string       `json:"level"`
+	IsUnhandled bool         `json:"isUnhandled"`
 	Metadata    struct {
 		Value string `json:"value"`
 	} `json:"metadata"`
 }
 
-// issues lists the project's issues with events in [since, until], the most
-// frequent first, at most limit.
-func (a *Adapter) issues(ctx context.Context, c *conn, q domain.SentryQuery, since, until time.Time, limit int) ([]issue, bool, error) {
+type issueCounts struct {
+	Count     string `json:"count"`
+	UserCount int64  `json:"userCount"`
+}
+
+// events and users are the issue's in the window, of the events the search
+// matches when Sentry counted those.
+func (is issue) events() float64 {
+	if is.Filtered != nil && is.Filtered.Count != "" {
+		return countOf(is.Filtered.Count)
+	}
+	return countOf(is.Count)
+}
+
+func (is issue) users() int64 {
+	if is.Filtered != nil && is.Filtered.Count != "" {
+		return is.Filtered.UserCount
+	}
+	return is.UserCount
+}
+
+const (
+	sortFrequent = "freq"
+	sortNewest   = "new"
+)
+
+// issues lists the project's issues with events in [since, until] in order
+// (the most frequent first, or the newest), at most limit.
+func (a *Adapter) issues(ctx context.Context, c *conn, q domain.SentryQuery, since, until time.Time, limit int, order string) ([]issue, bool, error) {
 	if limit <= 0 {
 		limit = pageSize
 	}
@@ -425,7 +480,7 @@ func (a *Adapter) issues(ctx context.Context, c *conn, q domain.SentryQuery, sin
 		"query":   {releaseFilter(search, q.Release)},
 		"start":   {since.UTC().Format(time.RFC3339)},
 		"end":     {until.UTC().Format(time.RFC3339)},
-		"sort":    {"freq"},
+		"sort":    {order},
 		"limit":   {strconv.Itoa(min(pageSize, limit))},
 	}
 	if q.Environment != "" {
@@ -458,7 +513,9 @@ func (a *Adapter) issues(ctx context.Context, c *conn, q domain.SentryQuery, sin
 
 // Errors answers the project's issues seen in the window as error groups:
 // the fingerprint is the issue id, the message its title, the source its
-// culprit, the count its events in the window.
+// culprit, the count its events in the window. They are the most frequent;
+// when there are more than the limit, a fifth of it goes to the newest ones
+// those left out, so a new rare issue still reaches the inbox.
 func (a *Adapter) Errors(ctx context.Context, ds domain.DataSource, secrets map[string]string, eq domain.ErrorsQuery) ([]domain.RuntimeErrorGroup, error) {
 	q, err := parse(eq.Query)
 	if err != nil {
@@ -469,15 +526,27 @@ func (a *Adapter) Errors(ctx context.Context, ds domain.DataSource, secrets map[
 		return nil, err
 	}
 	defer c.Close()
-	found, _, err := a.issues(ctx, c, q, eq.Since, eq.Until, eq.Limit)
+	limit := eq.Limit
+	if limit <= 0 {
+		limit = pageSize
+	}
+	found, more, err := a.issues(ctx, c, q, eq.Since, eq.Until, limit, sortFrequent)
 	if err != nil {
 		return nil, err
+	}
+	if more {
+		reserve := max(1, limit/5)
+		newest, _, err := a.issues(ctx, c, q, eq.Since, eq.Until, reserve, sortNewest)
+		if err != nil {
+			return nil, err
+		}
+		found = withNewest(found, newest, limit, eq.Since)
 	}
 	out := make([]domain.RuntimeErrorGroup, 0, len(found))
 	for _, is := range found {
 		g := domain.RuntimeErrorGroup{
-			Fingerprint: is.ID, Message: is.Title, Count: int(countOf(is.Count)), Source: is.Culprit,
-			Sample: is.Metadata.Value, ExternalURL: is.Permalink,
+			Fingerprint: is.ID, Message: is.Title, Count: int(is.events()), Source: is.Culprit,
+			Sample: is.Metadata.Value, ExternalURL: c.link(is.Permalink),
 		}
 		g.FirstSeen, _ = time.Parse(time.RFC3339, is.FirstSeen)
 		g.LastSeen, _ = time.Parse(time.RFC3339, is.LastSeen)
@@ -485,6 +554,25 @@ func (a *Adapter) Errors(ctx context.Context, ds domain.DataSource, secrets map[
 		out = append(out, g)
 	}
 	return out, nil
+}
+
+// withNewest ends the most frequent issues with the ones first seen since
+// that they do not hold, keeping limit.
+func withNewest(frequent, newest []issue, limit int, since time.Time) []issue {
+	held := map[string]bool{}
+	for _, is := range frequent {
+		held[is.ID] = true
+	}
+	var extra []issue
+	for _, is := range newest {
+		first, err := time.Parse(time.RFC3339, is.FirstSeen)
+		if !held[is.ID] && err == nil && !first.Before(since) {
+			held[is.ID] = true
+			extra = append(extra, is)
+		}
+	}
+	keep := max(0, min(len(frequent), limit-len(extra)))
+	return append(frequent[:keep:keep], extra...)
 }
 
 // Table answers the crashes table: the project's issues of the last Days
@@ -501,7 +589,7 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[s
 	}
 	defer c.Close()
 	until := tq.At
-	found, truncated, err := a.issues(ctx, c, q, until.Add(-time.Duration(q.Days)*24*time.Hour), until, maxIssueRows)
+	found, truncated, err := a.issues(ctx, c, q, until.Add(-time.Duration(q.Days)*24*time.Hour), until, maxIssueRows, sortFrequent)
 	if err != nil {
 		return domain.TableResult{}, err
 	}
@@ -513,8 +601,8 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, secrets map[s
 		}
 		res.Rows = append(res.Rows, map[string]any{
 			"issue": is.ShortID, "type": kind, "cause": is.Title, "location": is.Culprit,
-			"users": float64(is.UserCount), "reports": countOf(is.Count),
-			"last_seen": is.LastSeen, "link": is.Permalink,
+			"users": float64(is.users()), "reports": is.events(),
+			"last_seen": is.LastSeen, "link": c.link(is.Permalink),
 		})
 	}
 	return res, nil

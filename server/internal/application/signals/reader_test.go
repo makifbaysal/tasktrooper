@@ -42,7 +42,7 @@ func (s *SignalsSuite) TestASeriesReadLoadsEachSourceOnce() {
 		s.on(ds, s.binding(api, "http.latency", domain.SignalBindingConfirmed, map[string]string{"job": "api"})),
 	)
 	s.querier.On("Series", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(fresh(domain.Series{Name: "x"})).Times(10)
+		Return(fresh(domain.Series{Name: "x"})).Times(12)
 
 	got, err := s.svc.Series(s.ctx, api.ID, signals.SeriesQuery{
 		Environment: domain.EnvironmentProduction, Signals: []string{"http.requests", "http.error_ratio", "http.latency"}, Compare: true,

@@ -2,7 +2,6 @@ package datasource
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 
@@ -23,12 +22,13 @@ func canonicalStoreProvider(v string) string {
 
 // checkStoreCredential: the value is the provider whose credential the
 // source reads; it must be the field's provider and that credential must be
-// saved. Without a reader the field takes no value.
+// saved. Without a reader, or on a field naming no provider, the field takes
+// no value.
 func (s *Service) checkStoreCredential(ctx context.Context, field domain.DataSourceField, v string) (string, error) {
-	if s.storeCreds == nil {
+	if s.storeCreds == nil || field.Provider == "" {
 		return FieldNotPermitted, nil
 	}
-	if want := string(field.Provider); want != "" && v != want {
+	if want := string(field.Provider); v != want {
 		if v == domain.StoreCredentialASC || v == domain.StoreCredentialGooglePlay {
 			return FieldWrongProvider, nil
 		}
@@ -60,14 +60,6 @@ func (s *Service) storeCredentialMasks(ctx context.Context, schema domain.DataSo
 		}
 		for k, v := range cred.Data {
 			out["store_credential:"+f.Key+":"+k] = v
-			var key struct {
-				PrivateKey   string `json:"private_key"`
-				PrivateKeyID string `json:"private_key_id"`
-			}
-			if json.Unmarshal([]byte(v), &key) == nil {
-				out["store_credential:"+f.Key+":"+k+":private_key"] = key.PrivateKey
-				out["store_credential:"+f.Key+":"+k+":private_key_id"] = key.PrivateKeyID
-			}
 		}
 	}
 }

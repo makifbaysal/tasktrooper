@@ -551,7 +551,7 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, _ map[string]
 	}
 	res := domain.TableResult{Columns: IssueColumns(), Rows: []map[string]any{}}
 	path := "/v1beta1/apps/" + url.PathEscape(pkg) + "/errorIssues:search"
-	for {
+	for range maxPages {
 		var out struct {
 			ErrorIssues   []errorIssue `json:"errorIssues"`
 			NextPageToken string       `json:"nextPageToken"`
@@ -571,6 +571,8 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, _ map[string]
 		}
 		params.Set("pageToken", out.NextPageToken)
 	}
+	res.Truncated = true
+	return res, nil
 }
 
 // IssueColumns are the crashes table's columns, in the order the recipe
@@ -592,7 +594,7 @@ func issueRow(is errorIssue) map[string]any {
 	row := map[string]any{
 		"issue": id, "type": issueTypeName[is.Type], "cause": is.Cause, "location": is.Location,
 		"users": count(is.DistinctUsers), "reports": count(is.ErrorReportCount),
-		"last_seen": is.LastErrorReportTime, "link": is.IssueURI,
+		"last_seen": is.LastErrorReportTime, "link": playConsoleLink(is.IssueURI),
 	}
 	if row["type"] == "" {
 		row["type"] = strings.ToLower(is.Type)
@@ -601,6 +603,17 @@ func issueRow(is errorIssue) map[string]any {
 		row["last_version"] = is.LastAppVersion.VersionCode
 	}
 	return row
+}
+
+// playConsoleLink keeps an issue's link only when it is Play Console's own
+// https page: it is shown as a link, and the answer is not this server's to
+// trust.
+func playConsoleLink(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || !strings.EqualFold(u.Host, "play.google.com") {
+		return ""
+	}
+	return u.String()
 }
 
 func count(s string) any {

@@ -2,6 +2,7 @@ package signals_test
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,9 +60,12 @@ func (s *SignalsSuite) TestQueuesReadsOneTablePerTargetAndJoinsItsColumnsOnTheKe
 	s.Require().NoError(err)
 	s.Equal(worker.ID, got.ComponentID)
 	s.Equal(domain.EnvironmentProduction, got.Environment)
+	s.True(got.ReadAt.Equal(s.now))
 	s.Require().Len(got.Queues, 2)
 	recipeTable := got.Queues[0]
 	s.Equal(backlog.ID, recipeTable.SignalBindingID, "the first binding in catalog order names the table")
+	s.Equal("queue.backlog", recipeTable.Signal)
+	s.Equal([]string{"topic", "partition"}, recipeTable.KeyColumns)
 	s.Equal(s.promSource.ID, recipeTable.DataSourceID)
 	s.Equal("local prom", recipeTable.DataSourceName)
 	s.Equal(kafkaRecipe, recipeTable.RecipeID)
@@ -155,6 +159,101 @@ func (s *SignalsSuite) TestQueuesIsReadAgainOnceTheBindingChanges() {
 		_, err := s.svc.Queues(s.ctx, worker.ID, domain.EnvironmentProduction)
 		s.Require().NoError(err)
 	}
+}
+
+func (s *SignalsSuite) TestQueuesGroupsABrokersQueriesByWhatTheyReadNotWhatTheyMeasure() {
+	worker := s.component(domain.ComponentRoleWorker, "billing")
+	kafka := s.addSource(domain.DataSource{Kind: domain.DataSourceKindKafka, Name: "kafka prod"})
+	lag := s.confirmedOn(worker, kafka, "queue.backlog", "", nil, `{"group":"billing","metric":"lag"}`)
+	members := s.confirmedOn(worker, kafka, "queue.consumers", "", nil, `{"group":"billing","metric":"consumers"}`)
+	other := s.confirmedOn(worker, kafka, "queue.consume_rate", "", nil, `{"group":"shipping"}`)
+	s.stored(worker.ID, domain.EnvironmentProduction, members, other, lag)
+	s.tableAnswers(s.brokerRead, `{"group":"billing","metric":"lag"}`, domain.TableResult{
+		KeyColumns: []string{"topic", "partition"}, Rows: []map[string]any{{"topic": "orders", "partition": 0.0, "lag": 4.0}},
+	}, nil)
+	s.tableAnswers(s.brokerRead, `{"group":"shipping"}`, rows(), nil)
+
+	got, err := s.svc.Queues(s.ctx, worker.ID, domain.EnvironmentProduction)
+
+	s.Require().NoError(err)
+	s.Require().Len(got.Queues, 2, "one table per group, however many measures are bound")
+	s.Equal(lag.ID, got.Queues[0].SignalBindingID)
+	s.Equal("queue.backlog", got.Queues[0].Signal)
+	s.Equal([]string{"topic", "partition"}, got.Queues[0].KeyColumns, "a broker kind names its own key columns")
+	s.Equal(other.ID, got.Queues[1].SignalBindingID)
+}
+
+func (s *SignalsSuite) TestQueuesAskedAtOnceAreReadOnce() {
+	worker := s.component(domain.ComponentRoleWorker, "billing")
+	backlog := s.confirmedOn(worker, s.promSource, "queue.backlog", kafkaRecipe, map[string]string{"group": "billing", "topic": "orders"}, "")
+	s.stored(worker.ID, domain.EnvironmentProduction, backlog)
+	release := make(chan struct{})
+	s.tableAnswers(s.table, lagTable, rows(), nil).Run(func(mock.Arguments) { <-release })
+	s.tableAnswers(s.table, rateTable, rows(), nil).Run(func(mock.Arguments) { <-release })
+
+	const callers = 5
+	done := make(chan error, callers)
+	for range callers {
+		go func() {
+			_, err := s.svc.Queues(s.ctx, worker.ID, domain.EnvironmentProduction)
+			done <- err
+		}()
+	}
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+	for range callers {
+		s.Require().NoError(<-done)
+	}
+}
+
+func (s *SignalsSuite) TestABindingChangeDropsOnlyItsOwnScopesAnswers() {
+	s.scopeByTenant()
+	worker := s.component(domain.ComponentRoleWorker, "billing")
+	backlog := s.confirmedOn(worker, s.promSource, "queue.backlog", kafkaRecipe, map[string]string{"group": "billing", "topic": "orders"}, "")
+	s.stored(worker.ID, domain.EnvironmentProduction, backlog)
+	for _, lag := range []float64{1, 2, 3} {
+		s.tableAnswers(s.table, lagTable, rows(map[string]any{"topic": "orders", "partition": "0", "value": lag}), nil)
+		s.tableAnswers(s.table, rateTable, rows(), nil)
+	}
+	gone := uuid.New()
+	s.bindings.On("DeleteSignalBinding", mock.Anything, gone).Return(nil).Once()
+
+	a, err := s.svc.Queues(s.scoped("tenant-a"), worker.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	b, err := s.svc.Queues(s.scoped("tenant-b"), worker.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	s.Require().NoError(s.svc.Delete(s.scoped("tenant-a"), gone))
+	stillB, err := s.svc.Queues(s.scoped("tenant-b"), worker.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	againA, err := s.svc.Queues(s.scoped("tenant-a"), worker.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+
+	s.Equal(1.0, a.Queues[0].Rows[0]["lag"])
+	s.Equal(b, stillB, "another scope's answer outlives this one's change")
+	s.Equal(3.0, againA.Queues[0].Rows[0]["lag"], "the scope that changed reads again")
+}
+
+func (s *SignalsSuite) TestAJoinedTableOverTheRowCapKeepsTheLargestInKeyOrder() {
+	worker := s.component(domain.ComponentRoleWorker, "billing")
+	backlog := s.confirmedOn(worker, s.promSource, "queue.backlog", kafkaRecipe, map[string]string{"group": "billing", "topic": "orders"}, "")
+	s.stored(worker.ID, domain.EnvironmentProduction, backlog)
+	var lags, rates []map[string]any
+	for p := range 300 {
+		lags = append(lags, map[string]any{"topic": "orders", "partition": fmt.Sprint(p), "value": float64(p)})
+		rates = append(rates, map[string]any{"topic": "orders", "partition": fmt.Sprint(300 + p), "value": 1.0})
+	}
+	s.tableAnswers(s.table, lagTable, rows(lags...), nil)
+	s.tableAnswers(s.table, rateTable, rows(rates...), nil)
+
+	got, err := s.svc.Queues(s.ctx, worker.ID, domain.EnvironmentProduction)
+
+	s.Require().NoError(err)
+	q := got.Queues[0]
+	s.True(q.Truncated)
+	s.Require().Len(q.Rows, 500)
+	s.Equal("0", q.Rows[0]["partition"], "key order survives the cut")
+	s.Equal("299", q.Rows[299]["partition"], "every row with a backlog is kept")
+	s.Equal("499", q.Rows[499]["partition"], "rows with none are what goes")
 }
 
 func (s *SignalsSuite) TestQueuesRefusesAnUnknownEnvironment() {

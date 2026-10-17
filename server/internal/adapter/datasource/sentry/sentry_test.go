@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -162,6 +163,12 @@ const issuesPage = `[{"id":"101","shortId":"IOS-1A","title":"NSInvalidArgumentEx
 	{"id":"102","shortId":"IOS-1B","title":"Timeout","culprit":"api.fetch","permalink":"https://acme.sentry.io/issues/102/",
 	"count":"4","userCount":2,"firstSeen":"2026-09-01T00:00:00Z","lastSeen":"2026-10-17T07:00:00Z","level":"error","isUnhandled":false}]`
 
+// issuesPage links its issues on the fixture's own host, as a Sentry links
+// to itself.
+func (f *fixture) issuesPage() string {
+	return strings.ReplaceAll(issuesPage, "https://acme.sentry.io", f.srv.URL)
+}
+
 func TestErrorsMapsIssuesToErrorGroupsAndMarksTheNewOnes(t *testing.T) {
 	f := newFixture(t)
 	f.project()
@@ -175,7 +182,7 @@ func TestErrorsMapsIssuesToErrorGroupsAndMarksTheNewOnes(t *testing.T) {
 		assert.Equal(t, "2026-10-16T09:00:00Z", q.Get("start"))
 		if page == 1 {
 			w.Header().Set("Link", link("c2", true))
-			_, _ = fmt.Fprint(w, issuesPage)
+			_, _ = fmt.Fprint(w, f.issuesPage())
 			return
 		}
 		assert.Equal(t, "c2", q.Get("cursor"))
@@ -189,7 +196,7 @@ func TestErrorsMapsIssuesToErrorGroupsAndMarksTheNewOnes(t *testing.T) {
 	require.Len(t, groups, 2)
 	assert.Equal(t, domain.RuntimeErrorGroup{
 		Fingerprint: "101", Message: "NSInvalidArgumentException", Count: 250, Source: "-[Feed reload]",
-		Sample: "unrecognized selector", ExternalURL: "https://acme.sentry.io/issues/101/", New: true,
+		Sample: "unrecognized selector", ExternalURL: f.srv.URL + "/issues/101/", New: true,
 		FirstSeen: time.Date(2026, 10, 16, 20, 0, 0, 0, time.UTC), LastSeen: time.Date(2026, 10, 17, 8, 0, 0, 0, time.UTC),
 	}, groups[0])
 	assert.False(t, groups[1].New)
@@ -202,7 +209,7 @@ func TestTableAnswersTheCrashesColumns(t *testing.T) {
 	f.routes["/api/0/organizations/acme/issues/"] = func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "is:unresolved error.unhandled:true", r.URL.Query().Get("query"))
 		assert.Equal(t, "2026-10-10T09:00:00Z", r.URL.Query().Get("start"))
-		_, _ = fmt.Fprint(w, issuesPage)
+		_, _ = fmt.Fprint(w, f.issuesPage())
 	}
 	res, err := f.adapter.Table(context.Background(), f.source(), secrets, domain.TableQuery{
 		Query: `{"project":"ios-app","search":"is:unresolved error.unhandled:true","days":7}`,
@@ -212,7 +219,7 @@ func TestTableAnswersTheCrashesColumns(t *testing.T) {
 	require.Len(t, res.Rows, 2)
 	assert.Equal(t, map[string]any{
 		"issue": "IOS-1A", "type": "crash", "cause": "NSInvalidArgumentException", "location": "-[Feed reload]",
-		"users": 30.0, "reports": 250.0, "last_seen": "2026-10-17T08:00:00Z", "link": "https://acme.sentry.io/issues/101/",
+		"users": 30.0, "reports": 250.0, "last_seen": "2026-10-17T08:00:00Z", "link": f.srv.URL + "/issues/101/",
 	}, res.Rows[0])
 	assert.Equal(t, "error", res.Rows[1]["type"])
 }
@@ -252,4 +259,88 @@ func TestAnOrganizationSlugThatCouldClimbThePathIsRefused(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a Sentry organization slug")
 	assert.Empty(t, f.requests)
+}
+
+func TestErrorsGiveAFifthOfTheLimitToTheNewestIssuesTheMostFrequentLeaveOut(t *testing.T) {
+	f := newFixture(t)
+	f.project()
+	since := time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)
+	issueJSON := func(id, firstSeen string) string {
+		return fmt.Sprintf(`{"id":%q,"title":"t%s","count":"9","firstSeen":%q}`, id, id, firstSeen)
+	}
+	var sorts []string
+	f.routes["/api/0/organizations/acme/issues/"] = func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		sorts = append(sorts, q.Get("sort")+" "+q.Get("limit"))
+		if q.Get("sort") == "new" {
+			_, _ = fmt.Fprint(w, "["+issueJSON("f1", "2026-10-16T10:00:00Z")+","+issueJSON("n1", "2026-10-16T11:00:00Z")+","+issueJSON("old", "2026-01-01T00:00:00Z")+"]")
+			return
+		}
+		w.Header().Set("Link", link("c2", true))
+		var page []string
+		for i := range 10 {
+			page = append(page, issueJSON(fmt.Sprintf("f%d", i), "2026-09-01T00:00:00Z"))
+		}
+		_, _ = fmt.Fprint(w, "["+strings.Join(page, ",")+"]")
+	}
+
+	groups, err := f.adapter.Errors(context.Background(), f.source(), secrets, domain.ErrorsQuery{
+		Query: `{"project":"ios-app"}`, Since: since, Until: since.Add(24 * time.Hour), Limit: 10,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"freq 10", "new 2"}, sorts)
+	var ids []string
+	for _, g := range groups {
+		ids = append(ids, g.Fingerprint)
+	}
+	assert.Equal(t, []string{"f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "n1"}, ids,
+		"a new rare issue takes the last place; one already held, or first seen before the window, does not")
+}
+
+func TestIssueCountsAreTheSearchsWhenSentryFilteredThem(t *testing.T) {
+	f := newFixture(t)
+	f.project()
+	f.route("/api/0/organizations/acme/issues/", 200, `[{"id":"1","count":"900","userCount":90,"filtered":{"count":"12","userCount":3},"lifetime":{"count":"5000"}},
+		{"id":"2","count":"40","userCount":4,"filtered":null}]`)
+
+	groups, err := f.adapter.Errors(context.Background(), f.source(), secrets, domain.ErrorsQuery{
+		Query: `{"project":"ios-app","search":"is:unresolved level:error"}`, Since: time.Now().Add(-time.Hour), Until: time.Now(), Limit: 10,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, groups, 2)
+	assert.Equal(t, 12, groups[0].Count, "the window's events the search matches, never the lifetime count")
+	assert.Equal(t, 40, groups[1].Count)
+}
+
+func TestAnIssueLinkIsKeptOnlyWhenItPointsAtThisSentry(t *testing.T) {
+	f := newFixture(t)
+	f.project()
+	for _, tc := range []struct {
+		name, base, permalink, want string
+	}{
+		{"this host", "", f.srv.URL + "/organizations/acme/issues/1/", f.srv.URL + "/organizations/acme/issues/1/"},
+		{"another host", "", "https://evil.example/issues/1/", ""},
+		{"javascript", "", "javascript:alert(1)", ""},
+		{"credentials", "", strings.Replace(f.srv.URL, "://", "://u:p@", 1) + "/issues/1/", ""},
+		{"an org subdomain of sentry.io", "https://sentry.io", "https://acme.sentry.io/issues/1/", "https://acme.sentry.io/issues/1/"},
+		{"sentry.io over http", "https://sentry.io", "http://acme.sentry.io/issues/1/", ""},
+		{"a lookalike of sentry.io", "https://sentry.io", "https://acme.sentry.io.evil.example/issues/1/", ""},
+		{"sentry.io from a self-hosted Sentry", "", "https://acme.sentry.io/issues/1/", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f.route("/api/0/organizations/acme/issues/", 200, fmt.Sprintf(`[{"id":"1","permalink":%q}]`, tc.permalink))
+			if tc.base != "" {
+				assert.Equal(t, tc.want, sentry.IssueLinkFor(tc.base, tc.permalink))
+				return
+			}
+			groups, err := f.adapter.Errors(context.Background(), f.source(), secrets, domain.ErrorsQuery{
+				Query: `{"project":"ios-app"}`, Since: time.Now().Add(-time.Hour), Until: time.Now(), Limit: 10,
+			})
+			require.NoError(t, err)
+			require.Len(t, groups, 1)
+			assert.Equal(t, tc.want, groups[0].ExternalURL)
+		})
+	}
 }

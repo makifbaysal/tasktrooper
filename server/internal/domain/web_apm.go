@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -187,26 +188,32 @@ func (q *WebQuery) checkSeries(known []string) error {
 // view: what one data source answers for the recipe table Table of a
 // confirmed binding's recipe. SignalBindingID is the first such binding (in
 // catalog order) of the ones that read this same table; Params are the ones
-// the table used. A table that could not be read carries Error and no rows;
-// the others stand.
+// the table used. Signal is that binding's signal. KeyColumns are the
+// columns that name a row (the recipe table's key labels), the others hold
+// values. A table that could not be read carries Error and no rows; the
+// others stand.
 type ComponentTable struct {
 	SignalBindingID uuid.UUID         `json:"signal_binding_id"`
+	Signal          string            `json:"signal"`
 	DataSourceID    uuid.UUID         `json:"data_source_id"`
 	DataSourceName  string            `json:"data_source_name"`
 	RecipeID        string            `json:"recipe_id"`
 	Table           string            `json:"table"`
 	Params          map[string]string `json:"params"`
 	Columns         []TableColumn     `json:"columns"`
+	KeyColumns      []string          `json:"key_columns,omitempty"`
 	Rows            []map[string]any  `json:"rows"`
 	Truncated       bool              `json:"truncated"`
 	Error           *SignalReadError  `json:"error"`
 }
 
 // ComponentTables is GET /v1/components/:id/endpoints, …/web and
-// …/crashes.
+// …/crashes. ReadAt is when its tables were read: an answer is kept a
+// while, so it may be older than the request.
 type ComponentTables struct {
 	ComponentID uuid.UUID         `json:"component_id"`
 	Environment DeployEnvironment `json:"environment"`
+	ReadAt      time.Time         `json:"read_at"`
 	Tables      []ComponentTable  `json:"tables"`
 }
 

@@ -145,7 +145,10 @@ type DataSourceField struct {
 	// connects to (Kafka's bootstrap servers, see ParseHostList): the URL
 	// policy judges it when it is saved, and moving it to other hosts
 	// re-asks for the stored secrets as moving a url field's origin does.
-	Destination bool `json:"-"`
+	Destination bool `json:"destination,omitempty"`
+	// Multiline marks a field whose value spans lines (a PEM certificate, a
+	// key file's JSON), so a form gives it a text area.
+	Multiline bool `json:"multiline,omitempty"`
 }
 
 // IsSecret: a headers field is always secret, since it is where an

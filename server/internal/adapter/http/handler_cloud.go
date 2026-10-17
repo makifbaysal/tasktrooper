@@ -38,6 +38,7 @@ func (h *Handler) registerCloudRoutes(app fiber.Router) {
 	app.Get("/v1/environments/:envId/errors", h.EnvironmentErrors)
 	app.Get("/v1/environments/:envId/deployments", h.EnvironmentDeployments)
 	app.Post("/v1/environments/:envId/errors/task", h.CreateEnvironmentErrorTask)
+	app.Post("/v1/components/:componentId/errors/task", h.CreateComponentErrorTask)
 
 	app.Get("/v1/repositories/:id/tasks/:taskId/previews", h.ListTaskPreviews)
 }
@@ -402,6 +403,49 @@ func (h *Handler) CreateEnvironmentErrorTask(c *fiber.Ctx) error {
 		return cErrMsg(c, fiber.StatusBadRequest, "invalid request body")
 	}
 	task, err := h.cloudSvc.CreateFixTask(h.enrichContext(c), id, group)
+	if err != nil {
+		return cloudErr(c, err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(task)
+}
+
+// CreateComponentErrorTask — POST /v1/components/:componentId/errors/task
+// Body: an Errors inbox group read through a binding rather than an
+// environment (RuntimeErrorGroup plus its data_source_id, and environment,
+// production when absent). Opens the same bug task as
+// CreateEnvironmentErrorTask, in the component's repository, naming the data
+// source.
+func (h *Handler) CreateComponentErrorTask(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "componentId")
+	if err != nil {
+		return cErrMsg(c, fiber.StatusBadRequest, "invalid component id")
+	}
+	var body struct {
+		domain.RuntimeErrorGroup
+		DataSourceID string                   `json:"data_source_id"`
+		Environment  domain.DeployEnvironment `json:"environment"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return cErrMsg(c, fiber.StatusBadRequest, "invalid request body")
+	}
+	dsID, err := uuid.Parse(body.DataSourceID)
+	if err != nil {
+		return cErrMsg(c, fiber.StatusBadRequest, "invalid data_source_id")
+	}
+	if body.Environment == "" {
+		body.Environment = domain.EnvironmentProduction
+	}
+	if h.dataSourceSvc == nil {
+		return cErrMsg(c, fiber.StatusNotFound, "data sources are not available")
+	}
+	ctx := h.enrichContext(c)
+	ds, err := h.dataSourceSvc.Get(ctx, dsID)
+	if err != nil {
+		return cloudErr(c, err)
+	}
+	task, err := h.cloudSvc.CreateBoundFixTask(ctx, id, cloud.BoundErrorSource{
+		Environment: body.Environment, Name: ds.Name, Kind: ds.Kind,
+	}, body.RuntimeErrorGroup)
 	if err != nil {
 		return cloudErr(c, err)
 	}

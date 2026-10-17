@@ -341,16 +341,19 @@ func (s *SignalsHandlerSuite) TestQueuesAnswersTheContractShape() {
 
 	status, body := s.do("GET", s.componentPath("/queues?env=staging"), "")
 	s.Require().Equal(fiber.StatusOK, status, body)
-	s.ElementsMatch([]string{"component_id", "environment", "queues"}, keysOf(body))
+	s.ElementsMatch([]string{"component_id", "environment", "read_at", "queues"}, keysOf(body))
 	s.Equal("staging", body["environment"])
+	s.Equal(s.now.Format(time.RFC3339), body["read_at"])
 	queues := body["queues"].([]any)
 	s.Require().Len(queues, 1)
 	q := queues[0].(map[string]any)
 	s.ElementsMatch([]string{
-		"signal_binding_id", "data_source_id", "data_source_name", "recipe_id", "messaging_system",
-		"params", "columns", "rows", "truncated", "error",
+		"signal_binding_id", "signal", "data_source_id", "data_source_name", "recipe_id", "messaging_system",
+		"params", "columns", "key_columns", "rows", "truncated", "error",
 	}, keysOf(q))
 	s.Equal(backlog.ID.String(), q["signal_binding_id"])
+	s.Equal("queue.backlog", q["signal"])
+	s.Equal([]any{"vhost", "queue"}, q["key_columns"])
 	s.Equal("rabbitmq", q["messaging_system"])
 	s.Equal(map[string]any{"queue": "orders", "vhost": "/"}, q["params"])
 	s.Nil(q["error"])

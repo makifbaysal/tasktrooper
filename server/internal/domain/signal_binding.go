@@ -125,10 +125,13 @@ type SignalReadError struct {
 // window before, shifted onto this window's timestamps; empty unless asked
 // for. A signal that failed carries Error and no series; the others stand.
 // A previous window that failed carries PreviousError and leaves Series be.
+// Live: the bound source reads only the value now (LiveOnlyKind), so a
+// series holds one point however long the window.
 type SignalSeries struct {
 	Signal        string           `json:"signal"`
 	Unit          string           `json:"unit"`
 	Bound         bool             `json:"bound"`
+	Live          bool             `json:"live,omitempty"`
 	Series        []Series         `json:"series"`
 	Previous      []Series         `json:"previous"`
 	Error         *SignalReadError `json:"error"`
@@ -148,11 +151,14 @@ type ComponentSeries struct {
 // GoldenSignal is one golden measure of a component: Value the last non-null
 // sample of the window (the p95 for a quantile signal), Previous the sample
 // one window earlier, Spark the window itself. Bound tells a signal with no
-// confirmed binding from one that has one but answered no data.
+// confirmed binding from one that has one but answered no data; Live one
+// read from a source that holds only the value now (LiveOnlyKind), whose
+// spark is one point.
 type GoldenSignal struct {
 	Signal   string        `json:"signal"`
 	Unit     string        `json:"unit"`
 	Bound    bool          `json:"bound"`
+	Live     bool          `json:"live,omitempty"`
 	Value    *float64      `json:"value"`
 	Previous *float64      `json:"previous"`
 	Spark    []SeriesPoint `json:"spark"`

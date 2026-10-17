@@ -44,6 +44,8 @@ func (depsExtractor) extract(ctx *scanCtx) {
 			addCatalogDeps(ctx, owner, ecoPHP, parseComposerJSON(ctx.tree, file))
 		case base == "build.gradle" || base == "build.gradle.kts":
 			addCatalogDeps(ctx, owner, ecoJVM, parseGradle(ctx.tree, file))
+		case strings.HasSuffix(base, ".csproj") || strings.HasSuffix(base, ".fsproj"):
+			addCatalogDeps(ctx, owner, ecoNuGet, parseProjectFile(ctx.tree, file))
 		}
 	}
 }
@@ -416,6 +418,24 @@ func parseGradle(tree *inventory.Tree, file string) []manifestDep {
 			continue
 		}
 		deps = append(deps, manifestDep{name: m[1], evidence: domain.SourceEvidence{Path: file, Line: i + 1}})
+	}
+	return deps
+}
+
+// --- .csproj / .fsproj ---
+
+var packageReferenceRe = regexp.MustCompile(`<PackageReference\s+(?:[^>]*\s)?Include\s*=\s*"([^"]+)"`)
+
+func parseProjectFile(tree *inventory.Tree, file string) []manifestDep {
+	raw := tree.ReadString(file)
+	if raw == "" {
+		return nil
+	}
+	var deps []manifestDep
+	for i, line := range strings.Split(raw, "\n") {
+		for _, m := range packageReferenceRe.FindAllStringSubmatch(line, -1) {
+			deps = append(deps, manifestDep{name: m[1], evidence: domain.SourceEvidence{Path: file, Line: i + 1}})
+		}
 	}
 	return deps
 }

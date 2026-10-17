@@ -209,6 +209,28 @@ func TestWithoutACredentialReaderAStoreCredentialFieldTakesNoValue(t *testing.T)
 	require.Equal(t, datasource.FieldErrors{"store_credential": datasource.FieldNotPermitted}, fe)
 }
 
+func TestAStoreCredentialFieldNamingNoProviderTakesNoValue(t *testing.T) {
+	schema := storeSchema()
+	schema.Fields[0].Provider = ""
+	kind := &mocks.DataSourceKindAdapter{}
+	kind.On("Kind").Return(domain.DataSourceKindGooglePlayVitals)
+	kind.On("Schema").Return(schema)
+	creds := mocks.NewStoreCredentialReader(t)
+	policy := urlguard.HumanConfigured()
+	svc, err := datasource.NewService(datasource.Deps{
+		Store: &mocks.DataSourceStore{}, StoreCredentials: creds, Kinds: []port.DataSourceKindAdapter{kind}, URLPolicy: &policy,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(context.Background(), domain.SaveDataSourceRequest{
+		Kind: domain.DataSourceKindGooglePlayVitals, Config: map[string]string{"store_credential": "asc"},
+	})
+
+	var fe datasource.FieldErrors
+	require.ErrorAs(t, err, &fe)
+	require.Equal(t, datasource.FieldErrors{"store_credential": datasource.FieldNotPermitted}, fe, "a field that says no provider reads none, rather than any")
+}
+
 func TestValidateRecipeHoldsTheStoreAndSentryQueriesToTheirNameKeys(t *testing.T) {
 	c, err := datasource.LoadCatalog(fstest.MapFS{"signals.yaml": {Data: []byte(mobileSignals)}}, domain.BuiltinDataSourceKinds())
 	require.NoError(t, err)

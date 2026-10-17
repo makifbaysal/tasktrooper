@@ -2,6 +2,7 @@ package tempo_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -114,6 +115,55 @@ func TestTraceMapsOTLPJSONToSpans(t *testing.T) {
 	assert.Equal(t, "[a, 2]", child.Attributes["db.args"])
 	paths, _ := rec.all()
 	assert.Equal(t, []string{"/tempo/api/traces/" + traceID}, paths)
+}
+
+func TestAHugeTraceKeepsItsEarliestSpansAndBoundsTheAttributesCopied(t *testing.T) {
+	const spans = 20005
+	var resource []map[string]any
+	resource = append(resource, map[string]any{"key": "service.name", "value": map[string]any{"stringValue": "api"}})
+	for i := range 100 {
+		resource = append(resource, map[string]any{"key": fmt.Sprintf("r%03d", i), "value": map[string]any{"stringValue": "v"}})
+	}
+	list := make([]map[string]any, 0, spans)
+	for i := range spans {
+		list = append(list, map[string]any{"spanId": fmt.Sprintf("%016x", i+1), "name": "op", "startTimeUnixNano": fmt.Sprint(1792227600000000000 + int64(spans-i))})
+	}
+	body, err := json.Marshal(map[string]any{"batches": []any{map[string]any{
+		"resource": map[string]any{"attributes": resource}, "scopeSpans": []any{map[string]any{"spans": list}},
+	}}})
+	require.NoError(t, err)
+	srv, _ := serve(t, map[string]http.HandlerFunc{"/api/traces/" + traceID: reply(200, string(body))})
+
+	tr, err := newAdapter().Trace(context.Background(), source(srv.URL), nil, traceID)
+
+	require.NoError(t, err)
+	assert.True(t, tr.Truncated)
+	require.Len(t, tr.Spans, 20000)
+	assert.Equal(t, fmt.Sprintf("%016x", spans), tr.Spans[0].ID, "the earliest span leads")
+	assert.Equal(t, "api", tr.Spans[0].Service, "service.name survives the resource cap")
+	assert.Len(t, tr.Spans[0].Attributes, 32, "a resource's attributes are copied into each span up to their cap")
+	for _, sp := range tr.Spans {
+		assert.NotEqual(t, fmt.Sprintf("%016x", 1), sp.ID, "the latest spans are what is left out")
+	}
+}
+
+func TestASpansOwnAttributesAreBounded(t *testing.T) {
+	var own []map[string]any
+	for i := range 300 {
+		own = append(own, map[string]any{"key": fmt.Sprintf("a%03d", i), "value": map[string]any{"stringValue": "v"}})
+	}
+	body, err := json.Marshal(map[string]any{"batches": []any{map[string]any{
+		"scopeSpans": []any{map[string]any{"spans": []any{map[string]any{"spanId": "0000000000000001", "name": "op", "attributes": own}}}},
+	}}})
+	require.NoError(t, err)
+	srv, _ := serve(t, map[string]http.HandlerFunc{"/api/traces/" + traceID: reply(200, string(body))})
+
+	tr, err := newAdapter().Trace(context.Background(), source(srv.URL), nil, traceID)
+
+	require.NoError(t, err)
+	require.Len(t, tr.Spans, 1)
+	assert.Len(t, tr.Spans[0].Attributes, 128)
+	assert.False(t, tr.Truncated)
 }
 
 func TestAMissingTraceIsNotFound(t *testing.T) {

@@ -96,21 +96,20 @@ func (s *Service) mergeLogs(ctx context.Context, q LogsQuery, since, until time.
 	return out, nil
 }
 
-// logTargets: every environment of a component without a logs binding, then
-// every binding.
+// logTargets: every binding, then every environment of a component without
+// one. Bindings go first so that cutting the list at MaxLogEnvironments drops
+// environments, never a component's own choice of where its lines are read.
 func logTargets(envs []domain.ComponentEnvironment, bound []domain.SignalBinding) []logTarget {
 	viaBinding := make(map[uuid.UUID]bool, len(bound))
-	for _, b := range bound {
-		viaBinding[b.ComponentID] = true
-	}
 	out := make([]logTarget, 0, len(envs)+len(bound))
+	for i := range bound {
+		viaBinding[bound[i].ComponentID] = true
+		out = append(out, logTarget{binding: &bound[i]})
+	}
 	for _, e := range envs {
 		if !viaBinding[e.ComponentID] {
 			out = append(out, logTarget{env: e})
 		}
-	}
-	for i := range bound {
-		out = append(out, logTarget{binding: &bound[i]})
 	}
 	return out
 }

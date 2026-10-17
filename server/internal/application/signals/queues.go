@@ -39,9 +39,12 @@ func WithQueuesBudget(d time.Duration) Option {
 // (one with the queues capability) hands its own query to the kind's Table.
 // Any other binding has no table. Each table stands alone: one that cannot
 // be read carries its error. Read at most s.concurrency queries at once, each
-// within the query timeout and all within the queues budget; answers are kept
-// 30 s per cache scope, component, environment, and version of the bindings,
-// sources and recipes they were read through.
+// within the query timeout and all within the queues budget, once for every
+// request asking at the same time; answers are kept 30 s per cache scope,
+// component, environment, and version of the bindings, sources and recipes
+// they were read through. A broker kind's query is grouped by what it reads,
+// whatever it measures (domain.BrokerTarget): that kind's table ignores the
+// metric.
 func (s *Service) Queues(ctx context.Context, componentID uuid.UUID, env domain.DeployEnvironment) (domain.ComponentQueues, error) {
 	if !env.Valid() {
 		return domain.ComponentQueues{}, fmt.Errorf("unknown environment %q: %w", env, ErrInvalidInput)
@@ -58,14 +61,15 @@ func (s *Service) Queues(ctx context.Context, componentID uuid.UUID, env domain.
 		return domain.ComponentQueues{}, err
 	}
 	targets := s.queueTargets(l, bindings)
-	key := s.cacheScope(ctx) + "\x00" + componentID.String() + "\x00" + string(env) + "\x00" + l.version() + "\x00" + targetsKey(targets)
+	scope := s.cacheScope(ctx)
+	key := scope + "\x00" + componentID.String() + "\x00" + string(env) + "\x00" + l.version() + "\x00" + targetsKey(targets)
 	if out, ok := s.queuesCache.get(key, s.now()); ok {
 		return out, nil
 	}
-	gen := s.queuesCache.generation()
-	out := s.readQueues(ctx, l, componentID, env, targets)
-	s.queuesCache.put(key, out, s.now(), gen)
-	return out, nil
+	return shared(ctx, &s.queuesFlight, s.queuesCache, scope, key, s.queuesCache.generation(scope), s.now,
+		func(ctx context.Context) domain.ComponentQueues {
+			return s.readQueues(ctx, l, componentID, env, targets)
+		})
 }
 
 func (s *Service) queueTargets(l lookup, bindings []domain.SignalBinding) []*tableTarget {
@@ -101,6 +105,13 @@ func (s *Service) queueTargets(l lookup, bindings []domain.SignalBinding) []*tab
 				t.params = map[string]string{}
 			}
 			key = "broker\x00" + b.DataSourceID.String() + "\x00" + b.RecipeID + "\x00" + canonicalParams(t.params) + "\x00" + b.Query
+			if len(needsParams(l, b)) == 0 {
+				if q, err := renderIn(l, b, displayStep, headlineQuantile); err == nil {
+					if target, ok := domain.BrokerTarget(t.ds.Kind, q); ok {
+						key = "broker\x00" + b.DataSourceID.String() + "\x00" + target
+					}
+				}
+			}
 		default:
 			continue
 		}
@@ -142,14 +153,18 @@ func targetsKey(targets []*tableTarget) string {
 }
 
 func (s *Service) readQueues(ctx context.Context, l lookup, componentID uuid.UUID, env domain.DeployEnvironment, targets []*tableTarget) domain.ComponentQueues {
-	out := domain.ComponentQueues{ComponentID: componentID, Environment: env, Queues: make([]domain.QueueTable, len(targets))}
-	reads := s.readTargets(ctx, l, targets, s.queuesBudget, "a queues read", false)
+	at := s.now()
+	out := domain.ComponentQueues{ComponentID: componentID, Environment: env, ReadAt: at, Queues: make([]domain.QueueTable, len(targets))}
+	reads := s.readTargets(ctx, l, targets, at, s.queuesBudget, "a queues read", false)
 	for i, t := range targets {
 		q := s.queueHeader(t)
 		if r := reads[i]; r.err != nil {
 			q.Error = r.err
 		} else if r.columns != nil || r.rows != nil {
 			q.Columns, q.Rows, q.Truncated = r.columns, r.rows, r.truncated
+			if r.keyColumns != nil {
+				q.KeyColumns = r.keyColumns
+			}
 		}
 		out.Queues[i] = q
 	}
@@ -158,7 +173,7 @@ func (s *Service) readQueues(ctx context.Context, l lookup, componentID uuid.UUI
 
 func (s *Service) queueHeader(t *tableTarget) domain.QueueTable {
 	q := domain.QueueTable{
-		SignalBindingID: t.first.ID, DataSourceID: t.first.DataSourceID, RecipeID: t.first.RecipeID,
+		SignalBindingID: t.first.ID, Signal: t.first.Signal, DataSourceID: t.first.DataSourceID, RecipeID: t.first.RecipeID,
 		MessagingSystem: t.recipe.AppliesTo.MessagingSystem, Params: maps.Clone(t.params),
 		Columns: []domain.TableColumn{}, Rows: []map[string]any{},
 	}
@@ -170,6 +185,7 @@ func (s *Service) queueHeader(t *tableTarget) domain.QueueTable {
 	}
 	if t.table != nil {
 		q.Columns = slices.Clone(t.table.Columns)
+		q.KeyColumns = slices.Clone(t.table.KeyLabels)
 	}
 	return q
 }
@@ -177,8 +193,10 @@ func (s *Service) queueHeader(t *tableTarget) domain.QueueTable {
 // joinTable puts each value column's answer onto the row its key labels'
 // values name, in key order (numbers as numbers: partition 2 before 10). A
 // result row carries its value under domain.TableValueKey, or under the
-// column's own key where the kind answers columns of its own.
-func joinTable(t domain.RecipeTable, answers map[string]domain.TableResult) ([]domain.TableColumn, []map[string]any, bool) {
+// column's own key where the kind answers columns of its own. More rows than
+// MaxTableRows keep the largest of the first value column; unranked, those
+// stay in key order.
+func joinTable(t domain.RecipeTable, answers map[string]domain.TableResult, ranked bool) ([]domain.TableColumn, []map[string]any, bool) {
 	rows := map[string]map[string]any{}
 	keys := map[string][]string{}
 	truncated := false
@@ -211,14 +229,26 @@ func joinTable(t domain.RecipeTable, answers map[string]domain.TableResult) ([]d
 		}
 	}
 	ids := slices.SortedFunc(maps.Keys(rows), func(a, b string) int { return compareKeys(keys[a], keys[b]) })
-	if len(ids) > datasource.MaxTableRows {
-		ids, truncated = ids[:datasource.MaxTableRows], true
-	}
 	out := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, rows[id])
 	}
+	if len(out) > datasource.MaxTableRows && len(values) > 0 {
+		datasource.RankByValue(out, values[0].Key)
+		out, truncated = out[:datasource.MaxTableRows], true
+		if !ranked {
+			slices.SortStableFunc(out, func(a, b map[string]any) int { return compareKeys(rowKey(t, a), rowKey(t, b)) })
+		}
+	}
 	return slices.Clone(t.Columns), out, truncated
+}
+
+func rowKey(t domain.RecipeTable, row map[string]any) []string {
+	id := make([]string, len(t.KeyLabels))
+	for i, k := range t.KeyLabels {
+		id[i] = cellString(row[k])
+	}
+	return id
 }
 
 func cellString(v any) string {
