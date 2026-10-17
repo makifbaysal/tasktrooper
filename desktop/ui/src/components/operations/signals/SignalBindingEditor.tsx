@@ -1,3 +1,4 @@
+import { signalKindOf } from "@/components/operations/signals/signalBinding";
 import { SignalBindingDialog, type SignalBindingDialogProps } from "@/components/operations/signals/SignalBindingDialog";
 import { FormDialog } from "@/components/admin/FormDialog";
 import { Button } from "@/components/ui/button";
@@ -44,8 +45,19 @@ export function SignalBindingEditor({ prefillCurrent = false, ...props }: Editor
       </FormDialog>
     );
   }
-  const unit = props.unit ?? catalog.signals.find((s) => s.id === props.signal)?.unit;
+  const spec = catalog.signals.find((s) => s.id === props.signal);
+  const unit = props.unit ?? spec?.unit;
   const prefill =
     props.prefill ?? (prefillCurrent ? (current.data?.signals?.find((s) => s.signal === props.signal)?.binding ?? null) : null);
-  return <SignalBindingDialog {...props} unit={unit} prefill={prefill} sources={sources} kinds={kinds} recipes={catalog.recipes} />;
+  return (
+    <SignalBindingDialog
+      {...props}
+      unit={unit}
+      signalKind={props.signalKind ?? signalKindOf(props.signal, spec?.kind)}
+      prefill={prefill}
+      sources={sources}
+      kinds={kinds}
+      recipes={catalog.recipes}
+    />
+  );
 }

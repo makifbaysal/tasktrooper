@@ -1,3 +1,6 @@
+import { aiJob, errorDefinitions, observability } from "@/locales/de/opsDefinitions";
+import { telemetry, telemetryKinds } from "@/locales/de/opsTelemetry";
+
 // German dictionary for operations. Must mirror en/operations.ts keys exactly.
 export const operations = {
   nav: "Betrieb",
@@ -206,10 +209,14 @@ export const operations = {
     },
     tabs: {
       summary: "Übersicht",
+      endpoints: "Endpunkte",
+      pages: "Seiten",
+      crashes: "Abstürze",
       queues: "Warteschlangen",
       releases: "Releases",
       errors: "Fehler",
       logs: "Logs",
+      traces: "Traces",
       changes: "Änderungen",
       issues: "Probleme",
       alerts: "Alarme",
@@ -1037,7 +1044,7 @@ export const operations = {
     listLabel: "Datenquellen",
     empty: {
       title: "Verbinden Sie den Ort, an dem Ihre Metriken schon liegen",
-      description: "Eine Datenquelle ist ein System, das die Telemetrie deiner Dienste bereits sammelt, etwa Prometheus, Loki, das Monitoring eines Cloud-Anbieters oder der Message Broker selbst. TaskTrooper liest bei Bedarf daraus und behält keine Kopie. Heute lassen sich Prometheus-kompatible Server, Google Cloud Monitoring, Amazon CloudWatch, Kafka, RabbitMQ und NATS verbinden; weitere Arten folgen.",
+      description: "Eine Datenquelle ist ein System, das die Telemetrie deiner Dienste bereits sammelt, etwa Prometheus, Loki, das Monitoring eines Cloud-Anbieters oder der Message Broker selbst. TaskTrooper liest bei Bedarf daraus und behält keine Kopie. Verbinden lassen sich Metrikspeicher (Prometheus-kompatible Server, Google Cloud Monitoring, Amazon CloudWatch, Datadog, New Relic), Logs und Traces (Loki, Elasticsearch, Tempo), Absturz- und Fehlertracker (Google Play vitals, App Store Connect, Sentry), Webanalyse (PostHog, Google Analytics 4, Plausible) und Message Broker (Kafka, RabbitMQ, NATS).",
     },
     columns: {
       name: "Name",
@@ -1085,7 +1092,7 @@ export const operations = {
       editTitle: "{name} bearbeiten",
       pickKind: "Welche Art von Quelle ist es?",
       noKinds: "Diese Version bietet keine Datenquellenarten an.",
-      moreKindsLater: "Weitere Arten von Quellen, etwa Logs und Fehlertracker, folgen.",
+      moreKindsLater: "Fehlt eine Art, die Sie brauchen? Neue Arten kommen mit jedem Release in den Katalog von TaskTrooper.",
       continue: "Weiter",
       back: "Zurück",
       save: "Speichern und prüfen",
@@ -1366,6 +1373,7 @@ export const operations = {
           },
         },
       },
+      ...telemetryKinds,
     },
     fields: {
       url: {
@@ -1582,6 +1590,12 @@ export const operations = {
     mobileCrashRate: "Absturzrate",
     infraRestarts: "Neustarts",
     infraThrottles: "Gedrosselte Anfragen",
+    logsLines: "Log-Zeilen",
+    tracesSpans: "Traces",
+    errorsIssues: "Fehlergruppen",
+    webVisitors: "Besucher",
+    webFcp: "First Contentful Paint",
+    webFcpShort: "FCP",
   },
   units: {
     percent: "%",
@@ -2397,4 +2411,8 @@ export const operations = {
       timeout: "Der Server hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut.",
     },
   },
+  telemetry,
+  errorDefinitions,
+  aiJob,
+  observability,
 };

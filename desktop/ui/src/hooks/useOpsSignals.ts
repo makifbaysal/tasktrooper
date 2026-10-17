@@ -148,3 +148,14 @@ export function useComponentQueues(componentId: string, env: DeployEnvironment, 
   const key = `operations.queues.${componentId}.${env}`;
   return useKeyedRead(key, () => api.getComponentQueues(componentId, env), enabled, OPS_QUEUES_POLL_MS);
 }
+
+/** Whether a component has a confirmed binding for one signal in an
+ * environment: what a page reads through when the component runs nowhere it
+ * can read itself (a Sentry project, a Loki stream). Undefined while unknown;
+ * a failed read counts as unbound. */
+export function useSignalBound(componentId: string, env: DeployEnvironment, signal: string, enabled = true): boolean | undefined {
+  const read = useComponentSignals(componentId, env, enabled);
+  if (!enabled) return undefined;
+  if (read.data) return Boolean(read.data.signals?.find((s) => s.signal === signal)?.binding);
+  return read.error ? false : undefined;
+}

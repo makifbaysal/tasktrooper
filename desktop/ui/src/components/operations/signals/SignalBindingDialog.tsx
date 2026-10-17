@@ -10,6 +10,7 @@ import {
   type DeployEnvironment,
   type ObservabilityRecipe,
   type SignalBinding,
+  type SignalKind,
   type SignalPreview,
 } from "@/api";
 import { FormDialog } from "@/components/admin/FormDialog";
@@ -21,11 +22,12 @@ import { DATA_SOURCES_PATH } from "@/components/operations/console/ChartSlot";
 import { signalFormatter, signalLabel } from "@/components/operations/console/signalFormat";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
 import {
+  bindableSources,
   bindingErrorCount,
   bindingRequest,
+  canPreview,
   compatibleRecipes,
   initialBindingDraft,
-  metricsSources,
   placeFieldErrors,
   previewRequest,
   recipeParams,
@@ -56,6 +58,8 @@ export interface SignalBindingDialogProps {
   signal: string;
   /** The signal's catalog unit, for the preview's values. */
   unit?: string;
+  /** The signal's catalog kind: which sources can feed it, and whether it previews as a series. */
+  signalKind?: SignalKind;
   sources: DataSource[];
   kinds: DataSourceKindInfo[];
   recipes: ObservabilityRecipe[];
@@ -95,6 +99,7 @@ export function SignalBindingDialog({
   env,
   signal,
   unit,
+  signalKind = "metric",
   sources,
   kinds,
   recipes,
@@ -105,8 +110,9 @@ export function SignalBindingDialog({
   const { t, lang } = useI18n();
   const b = (key: string, params?: Record<string, string | number>) => t(`operations.signalBinding.${key}`, params);
   const href = useOpsHref();
-  const metrics = useMemo(() => metricsSources(sources), [sources]);
-  const [draft, setDraft] = useState<BindingDraft>(() => initialBindingDraft(signal, sources, recipes, prefill));
+  const metrics = useMemo(() => bindableSources(sources, signalKind, recipes), [sources, signalKind, recipes]);
+  const previewable = canPreview(signalKind);
+  const [draft, setDraft] = useState<BindingDraft>(() => initialBindingDraft(signal, sources, recipes, prefill, signalKind));
   const [errors, setErrors] = useState<BindingErrors>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -350,6 +356,7 @@ export function SignalBindingDialog({
                               <Input
                                 id={`sb-param-${p}`}
                                 value={draft.params[p] ?? ""}
+                                placeholder={recipe.defaults?.[p] || undefined}
                                 onChange={(e) => change({ ...draft, params: { ...draft.params, [p]: e.target.value } })}
                                 aria-invalid={error ? true : undefined}
                                 autoComplete="off"
@@ -375,7 +382,7 @@ export function SignalBindingDialog({
                 value={draft.query}
                 onChange={(e) => change({ ...draft, query: e.target.value })}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  if (previewable && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     void runPreview();
                   }
@@ -392,7 +399,9 @@ export function SignalBindingDialog({
                 {QUERY_LANGUAGE[source.kind]
                   ? b(`queryHints.${QUERY_LANGUAGE[source.kind]}`)
                   : queryHint(t, source.kind)
-                    ? `${queryHint(t, source.kind)} ${b("previewShortcut")}`
+                    ? previewable
+                      ? `${queryHint(t, source.kind)} ${b("previewShortcut")}`
+                      : queryHint(t, source.kind)
                     : b("queryHint")}
               </p>
               {errors.query && <p className="text-caption text-destructive">{errorText(errors.query)}</p>}
@@ -426,63 +435,69 @@ export function SignalBindingDialog({
             </div>
           )}
 
-          <section className="space-y-3" aria-labelledby="sb-preview-title">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 id="sb-preview-title" className="text-body font-semibold">
-                  {b("preview.title")}
-                </h3>
-                <p className="text-caption text-muted-foreground">{b("preview.description")}</p>
+          {!previewable ? (
+            <Notice variant="info" title={t("operations.telemetry.binding.noPreviewTitle")} role="status">
+              {t("operations.telemetry.binding.noPreview", { signal: name })}
+            </Notice>
+          ) : (
+            <section className="space-y-3" aria-labelledby="sb-preview-title">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 id="sb-preview-title" className="text-body font-semibold">
+                    {b("preview.title")}
+                  </h3>
+                  <p className="text-caption text-muted-foreground">{b("preview.description")}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => void runPreview()} disabled={previewing || !valid}>
+                  <Play aria-hidden />
+                  {previewing ? b("preview.running") : b("preview.run")}
+                </Button>
               </div>
-              <Button variant="outline" size="sm" onClick={() => void runPreview()} disabled={previewing || !valid}>
-                <Play aria-hidden />
-                {previewing ? b("preview.running") : b("preview.run")}
-              </Button>
-            </div>
-            {failure && (
-              <Notice variant="error" title={failure.title}>
-                {failure.message && <p className="break-words font-mono text-caption">{failure.message}</p>}
-              </Notice>
-            )}
-            {preview && (preview.warnings ?? []).length > 0 && (
-              <Notice variant="warning" title={b("preview.warnings")}>
-                <ul className="list-disc space-y-0.5 pl-4">
-                  {preview.warnings.map((w) => (
-                    <li key={w} className="break-words">
-                      {w}
-                    </li>
-                  ))}
-                </ul>
-              </Notice>
-            )}
-            {preview?.rendered_query && (
-              <div className="space-y-1">
-                <p className="text-caption font-medium text-muted-foreground">{b("preview.rendered")}</p>
-                <pre className="max-h-28 overflow-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-micro whitespace-pre-wrap break-all">
-                  {preview.rendered_query}
-                </pre>
-              </div>
-            )}
-            {preview && liveSource && isInstantResult(series) ? (
-              <div className="space-y-1.5">
-                <LiveValueList items={liveValueItems(series)} formatValue={format} ariaLabel={b("preview.chartLabel", { signal: name })} height={180} />
-                <p className="text-caption text-muted-foreground">{b("preview.liveNote")}</p>
-              </div>
-            ) : (
-              (preview || previewing) && (
-                <TimeSeriesChart
-                  series={series}
-                  ariaLabel={b("preview.chartLabel", { signal: name })}
-                  formatValue={format}
-                  height={180}
-                  loading={previewing && !preview}
-                  xRange={[previewWindow.from, previewWindow.to]}
-                  emptyLabel={b("preview.noSeries")}
-                  showTableToggle
-                />
-              )
-            )}
-          </section>
+              {failure && (
+                <Notice variant="error" title={failure.title}>
+                  {failure.message && <p className="break-words font-mono text-caption">{failure.message}</p>}
+                </Notice>
+              )}
+              {preview && (preview.warnings ?? []).length > 0 && (
+                <Notice variant="warning" title={b("preview.warnings")}>
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {preview.warnings.map((w) => (
+                      <li key={w} className="break-words">
+                        {w}
+                      </li>
+                    ))}
+                  </ul>
+                </Notice>
+              )}
+              {preview?.rendered_query && (
+                <div className="space-y-1">
+                  <p className="text-caption font-medium text-muted-foreground">{b("preview.rendered")}</p>
+                  <pre className="max-h-28 overflow-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-micro whitespace-pre-wrap break-all">
+                    {preview.rendered_query}
+                  </pre>
+                </div>
+              )}
+              {preview && liveSource && isInstantResult(series) ? (
+                <div className="space-y-1.5">
+                  <LiveValueList items={liveValueItems(series)} formatValue={format} ariaLabel={b("preview.chartLabel", { signal: name })} height={180} />
+                  <p className="text-caption text-muted-foreground">{b("preview.liveNote")}</p>
+                </div>
+              ) : (
+                (preview || previewing) && (
+                  <TimeSeriesChart
+                    series={series}
+                    ariaLabel={b("preview.chartLabel", { signal: name })}
+                    formatValue={format}
+                    height={180}
+                    loading={previewing && !preview}
+                    xRange={[previewWindow.from, previewWindow.to]}
+                    emptyLabel={b("preview.noSeries")}
+                    showTableToggle
+                  />
+                )
+              )}
+            </section>
+          )}
         </>
       )}
     </FormDialog>

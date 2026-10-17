@@ -1,3 +1,6 @@
+import { aiJob, errorDefinitions, observability } from "@/locales/fr/opsDefinitions";
+import { telemetry, telemetryKinds } from "@/locales/fr/opsTelemetry";
+
 // French dictionary for operations. Must mirror en/operations.ts keys exactly.
 export const operations = {
   nav: "Opérations",
@@ -206,10 +209,14 @@ export const operations = {
     },
     tabs: {
       summary: "Résumé",
+      endpoints: "Endpoints",
+      pages: "Pages",
+      crashes: "Plantages",
       queues: "Files",
       releases: "Versions",
       errors: "Erreurs",
       logs: "Logs",
+      traces: "Traces",
       changes: "Changements",
       issues: "Problèmes",
       alerts: "Alertes",
@@ -1037,7 +1044,7 @@ export const operations = {
     listLabel: "Sources de données",
     empty: {
       title: "Connectez l'endroit où vivent déjà vos métriques",
-      description: "Une source de données est un système qui collecte déjà la télémétrie de vos services, comme Prometheus, Loki, la supervision d'un fournisseur cloud ou le broker de messages lui-même. TaskTrooper la lit quand il en a besoin et n'en garde aucune copie. Les serveurs compatibles Prometheus, Google Cloud Monitoring, Amazon CloudWatch, Kafka, RabbitMQ et NATS peuvent être connectés aujourd'hui ; d'autres types suivront.",
+      description: "Une source de données est un système qui collecte déjà la télémétrie de vos services, comme Prometheus, Loki, la supervision d'un fournisseur cloud ou le broker de messages lui-même. TaskTrooper la lit quand il en a besoin et n'en garde aucune copie. Vous pouvez connecter des bases de métriques (serveurs compatibles Prometheus, Google Cloud Monitoring, Amazon CloudWatch, Datadog, New Relic), des logs et des traces (Loki, Elasticsearch, Tempo), des outils de suivi des plantages et des erreurs (Google Play vitals, App Store Connect, Sentry), des outils d'analyse web (PostHog, Google Analytics 4, Plausible) et des brokers de messages (Kafka, RabbitMQ, NATS).",
     },
     columns: {
       name: "Nom",
@@ -1085,7 +1092,7 @@ export const operations = {
       editTitle: "Modifier {name}",
       pickKind: "De quel type de source s'agit-il ?",
       noKinds: "Cette version ne propose aucun type de source de données.",
-      moreKindsLater: "D'autres types de sources, comme les logs et les outils de suivi des erreurs, suivront.",
+      moreKindsLater: "Il manque le type dont vous avez besoin ? De nouveaux types rejoignent le catalogue de TaskTrooper à chaque version.",
       continue: "Continuer",
       back: "Retour",
       save: "Enregistrer et vérifier",
@@ -1366,6 +1373,7 @@ export const operations = {
           },
         },
       },
+      ...telemetryKinds,
     },
     fields: {
       url: {
@@ -1582,6 +1590,12 @@ export const operations = {
     mobileCrashRate: "Taux de plantage",
     infraRestarts: "Redémarrages",
     infraThrottles: "Requêtes limitées",
+    logsLines: "Lignes de log",
+    tracesSpans: "Traces",
+    errorsIssues: "Groupes d'erreurs",
+    webVisitors: "Visiteurs",
+    webFcp: "First Contentful Paint",
+    webFcpShort: "FCP",
   },
   units: {
     percent: "%",
@@ -2397,4 +2411,8 @@ export const operations = {
       timeout: "Le serveur n'a pas répondu à temps. Réessayez.",
     },
   },
+  telemetry,
+  errorDefinitions,
+  aiJob,
+  observability,
 };

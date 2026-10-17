@@ -24,6 +24,8 @@ export const SIGNAL_TREND: Record<string, "upIsGood" | "upIsBad"> = {
   "process.errors": "upIsBad",
   "web.page_views": "upIsGood",
   "web.sessions": "upIsGood",
+  "web.visitors": "upIsGood",
+  "web.fcp": "upIsBad",
   "web.lcp": "upIsBad",
   "web.inp": "upIsBad",
   "web.cls": "upIsBad",

@@ -38,6 +38,9 @@ const apiMock = vi.hoisted(() => ({
   listDataSources: vi.fn(),
   listRecipes: vi.fn(),
   listSignals: vi.fn(),
+  listStoreCredentials: vi.fn(),
+  createDataSource: vi.fn(),
+  bindComponentSignal: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -143,6 +146,7 @@ beforeEach(() => {
     ],
   });
   apiMock.listSignals.mockResolvedValue({ signals: [] });
+  apiMock.listStoreCredentials.mockResolvedValue([{ provider: "google_play", configured: true, updated_at: "" }]);
 });
 
 describe("EntitySignals", () => {
@@ -239,11 +243,81 @@ describe("EntitySignals", () => {
     expect(apiMock.getComponentSeries).toHaveBeenCalledTimes(2);
   });
 
-  it("points to Data sources when no metrics source exists yet", async () => {
-    apiMock.listDataSources.mockResolvedValue({ data_sources: [dataSource({ id: "ds-logs", capabilities: ["logs"] })] });
+  it("points to Data sources when no source can feed a signal yet, and still looks for sources to connect", async () => {
+    apiMock.listDataSources.mockResolvedValue({ data_sources: [dataSource({ id: "ds-rum", capabilities: ["rum"] })] });
     renderPage();
     expect(await screen.findByText("Connect a metrics data source first")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to Data sources" })).toHaveAttribute("href", "/operations/sources");
-    expect(screen.queryByRole("button", { name: "Find suggestions" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find suggestions" })).toBeInTheDocument();
+  });
+});
+
+describe("EntitySignals source offers", () => {
+  const playKind = {
+    kind: "google_play_vitals",
+    label: "Google Play vitals",
+    description: "Android vitals from Google Play.",
+    capabilities: ["metrics", "crashes"],
+    fields: [
+      { key: "store_credential", label: "Google Play credential", help: "", type: "store_credential", required: true, options: [], placeholder: "", show_when: {}, secret: false, provider: "google_play", default: "google_play" },
+      { key: "package_name", label: "Package name", help: "", type: "text", required: false, options: [], placeholder: "", show_when: {}, secret: false },
+    ],
+  };
+  const offer = {
+    kind: "google_play_vitals",
+    config: { store_credential: "google_play", package_name: "com.acme.app" },
+    recipe_id: "play-vitals",
+    params: { package: "com.acme.app" },
+    signals: ["mobile.crash_free_users", "mobile.anr_rate"],
+    store_credential: "google_play",
+  };
+
+  beforeEach(() => {
+    apiMock.listDataSourceKinds.mockResolvedValue({ kinds: [prometheusKind, playKind] });
+    apiMock.suggestComponentSignals.mockResolvedValue({ ...answer([ready, partial, bound, cpu]), source_offers: [offer] });
+    apiMock.createDataSource.mockResolvedValue(dataSource({ id: "ds-play", kind: "google_play_vitals", name: "Google Play vitals", capabilities: ["metrics", "crashes"] }));
+    apiMock.bindComponentSignal.mockImplementation((_c: string, signal: string) => Promise.resolve(binding({ id: `b-${signal}`, signal, data_source_id: "ds-play" })));
+  });
+
+  it("offers to connect Google Play vitals, creates the source prefilled and binds the offered recipe", async () => {
+    renderPage();
+    await screen.findByRole("table", { name: "Signals" });
+    fireEvent.click(screen.getByRole("button", { name: "Find suggestions" }));
+    expect(await screen.findByText("Connect Google Play vitals for this app")).toBeInTheDocument();
+    expect(screen.getByText("package=com.acme.app")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/^Package name/)).toHaveValue("com.acme.app");
+    expect(within(dialog).getByText("Google Play service account")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save and check" }));
+
+    await waitFor(() =>
+      expect(apiMock.createDataSource).toHaveBeenCalledWith({
+        kind: "google_play_vitals",
+        config: { store_credential: "google_play", package_name: "com.acme.app" },
+        secrets: {},
+      }),
+    );
+    await waitFor(() => expect(apiMock.bindComponentSignal).toHaveBeenCalledTimes(2));
+    for (const signal of offer.signals) {
+      expect(apiMock.bindComponentSignal).toHaveBeenCalledWith("c-api", signal, "production", {
+        data_source_id: "ds-play",
+        recipe_id: "play-vitals",
+        params: { package: "com.acme.app" },
+      });
+    }
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Bound 2 signals through Google Play vitals"));
+    expect(screen.queryByText("Connect Google Play vitals for this app")).not.toBeInTheDocument();
+  });
+
+  it("asks for the store credential first when it isn't saved", async () => {
+    apiMock.listStoreCredentials.mockResolvedValue([{ provider: "google_play", configured: false, updated_at: "" }]);
+    renderPage();
+    await screen.findByRole("table", { name: "Signals" });
+    fireEvent.click(screen.getByRole("button", { name: "Find suggestions" }));
+    expect(await screen.findByText("Save the Google Play credential first.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings → Integrations" })).toHaveAttribute("href", "/settings/integrations");
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
   });
 });

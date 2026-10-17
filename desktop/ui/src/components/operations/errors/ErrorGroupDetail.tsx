@@ -1,8 +1,10 @@
-import { Copy, ExternalLink, ListPlus, Plug, X } from "lucide-react";
+import { BookMarked, BookPlus, Copy, Database, ExternalLink, ListPlus, Plug, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { OpsErrorGroup } from "@/api";
 import { repositoryDeployPath } from "@/components/operations/console/opsEntities";
+import { DefinitionChip } from "@/components/operations/errorDefinitions/DefinitionBadges";
+import { canCreateTask, dataSourcePath, isBindingRow, isCloudProvider, providerLabel } from "@/components/operations/errors/errorGroups";
 import type { EnvironmentRef } from "@/components/operations/query/opsQuery";
 import type { OpsEntity } from "@/components/operations/shell/useOpsEntities";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
@@ -23,6 +25,10 @@ interface ErrorGroupDetailProps {
   closeHref: string;
   onCreateTask: () => void;
   onCopyFingerprint: () => void;
+  /** Where the group's error definition is shown, when it matches one. */
+  definitionHref?: string;
+  /** Opens the definition editor for this group; absent, no Define button. */
+  onDefine?: () => void;
   className?: string;
 }
 
@@ -47,12 +53,16 @@ export function ErrorGroupDetail({
   closeHref,
   onCreateTask,
   onCopyFingerprint,
+  definitionHref,
+  onDefine,
   className,
 }: ErrorGroupDetailProps) {
   const { t, lang } = useI18n();
   const d = (key: string, params?: Record<string, string | number>) => t(`operations.errorsInbox.detail.${key}`, params);
   const e = (key: string, params?: Record<string, string | number>) => t(`operations.errorsInbox.${key}`, params);
-  const provider = t(`cloud.providers.${group.provider}`);
+  const provider = providerLabel(t, group.provider);
+  const binding = isBindingRow(group);
+  const taskable = canCreateTask(group);
   const number = new Intl.NumberFormat(lang);
 
   return (
@@ -72,6 +82,7 @@ export function ErrorGroupDetail({
           <p className="font-mono text-micro text-muted-foreground tabular-nums">
             {d("summary", { count: number.format(group.count), time: formatRelativeTime(group.last_seen, lang) })}
           </p>
+          {group.definition && <DefinitionChip definition={group.definition} />}
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
           <Link to={closeHref} aria-label={d("close")} title={d("close")}>
@@ -81,7 +92,12 @@ export function ErrorGroupDetail({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={onCreateTask} disabled={creating}>
+        <Button
+          size="sm"
+          onClick={onCreateTask}
+          disabled={creating || !taskable}
+          title={taskable ? undefined : t("operations.telemetry.errors.noTask", { provider })}
+        >
           {creating ? <Spinner size="sm" className="text-current" /> : <ListPlus aria-hidden />}
           {e("createTask")}
         </Button>
@@ -97,6 +113,22 @@ export function ErrorGroupDetail({
           <Copy aria-hidden />
           {e("copyFingerprint")}
         </Button>
+        {group.definition && definitionHref ? (
+          <Button size="sm" variant="outline" asChild>
+            <Link to={definitionHref}>
+              <BookMarked aria-hidden />
+              {t("operations.errorDefinitions.inbox.definitionLabel")}
+            </Link>
+          </Button>
+        ) : (
+          !group.definition &&
+          onDefine && (
+            <Button size="sm" variant="outline" onClick={onDefine}>
+              <BookPlus aria-hidden />
+              {t("operations.errorDefinitions.inbox.define")}
+            </Button>
+          )
+        )}
       </div>
 
       <dl className="space-y-3">
@@ -124,7 +156,11 @@ export function ErrorGroupDetail({
           </Field>
           <Field label={d("provider")}>
             <span className="inline-flex items-center gap-1.5">
-              <ProviderIcon provider={group.provider} className="h-3.5 w-3.5" />
+              {isCloudProvider(group.provider) ? (
+                <ProviderIcon provider={group.provider} className="h-3.5 w-3.5" />
+              ) : (
+                <Database className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              )}
               {provider}
             </span>
           </Field>
@@ -156,7 +192,16 @@ export function ErrorGroupDetail({
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span>{envLabel}</span>
             {environment?.resource && <span className="truncate font-mono text-muted-foreground">{environment.resource}</span>}
-            {entity && (
+            {binding && group.data_source_id && (
+              <Link
+                to={dataSourcePath(group.data_source_id)}
+                className="inline-flex items-center gap-1 text-micro font-medium text-info hover:underline"
+              >
+                <Database className="h-3 w-3" aria-hidden />
+                {t("operations.telemetry.errors.openSource", { provider })}
+              </Link>
+            )}
+            {entity && !binding && (
               <Link
                 to={repositoryDeployPath(entity.repositoryId)}
                 className="inline-flex items-center gap-1 text-micro font-medium text-info hover:underline"

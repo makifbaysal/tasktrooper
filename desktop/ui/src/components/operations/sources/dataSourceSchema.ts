@@ -8,6 +8,8 @@ import type {
   MetricSeries,
   PatchDataSourceRequest,
   SaveDataSourceRequest,
+  StoreCredentialProvider,
+  StoreCredentialView,
 } from "@/api";
 import type { ChartSeries } from "@/components/operations/charts/TimeSeriesChart";
 
@@ -67,9 +69,10 @@ export function isSecretField(field: DataSourceField): boolean {
 }
 
 // The schema has no multi-line type: a certificate or key is a secret
-// field named for what it holds (Kafka's `ca_cert`), and a PEM needs its
-// line breaks, so it is typed in a text area rather than a password box.
-const MULTILINE_KEY = /(^|_)(cert|certificate|pem|ca)$/;
+// field named for what it holds (Kafka's `ca_cert`, GA4's
+// `service_account_json`), and a PEM or a key file needs its line breaks, so
+// it is typed in a text area rather than a password box.
+const MULTILINE_KEY = /(^|_)(cert|certificate|pem|ca|json)$/;
 
 export function isMultilineField(field: DataSourceField): boolean {
   return (field.type === "secret" || field.type === "text") && MULTILINE_KEY.test(field.key);
@@ -102,7 +105,7 @@ export function emptyDraft(kind: DataSourceKindInfo, source?: DataSource | null)
     }
     const stored = source?.config?.[field.key] ?? "";
     base[field.key] = stored;
-    values[field.key] = stored || (field.type === "select" ? selectDefault(field) : "");
+    values[field.key] = stored || (source ? "" : (field.default ?? "")) || (field.type === "select" ? selectDefault(field) : "");
   }
   return { name: source?.name ?? "", values, headers, removed: [], ...(source ? { base } : {}) };
 }
@@ -331,6 +334,7 @@ export function queryHint(t: Translate, kind: string): string {
 const INVENTORY_QUERIES: Record<string, Record<string, (rest: string) => Record<string, string> | null>> = {
   kafka: { group: (name) => ({ group: name }) },
   rabbitmq: { queue: (name) => ({ queue: name }) },
+  sentry: { project: (name) => ({ project: name }) },
   nats: {
     stream: (name) => ({ stream: name }),
     consumer: (rest) => {
@@ -352,7 +356,27 @@ export function inventoryQuery(kind: string, name: string): string {
 }
 
 export function fieldErrorText(t: Translate, key: string, code: string): string {
-  return firstTranslated(t, [`${NS}.errors.byField.${key}.${code}`, `${NS}.errors.${code}`], code);
+  return firstTranslated(
+    t,
+    [`operations.telemetry.sources.errors.${key}.${code}`, `${NS}.errors.byField.${key}.${code}`, `${NS}.errors.${code}`],
+    code,
+  );
+}
+
+/** The store credential a `store_credential` field names: its provider, else its default. */
+export function storeCredentialProvider(field: DataSourceField): StoreCredentialProvider | undefined {
+  const raw = field.provider || field.default || "";
+  if (raw === "app_store_connect" || raw === "asc") return "asc";
+  return raw === "google_play" ? "google_play" : undefined;
+}
+
+/** Whether the workspace has that credential saved; undefined while the vault is unknown. */
+export function storeCredentialSaved(
+  credentials: StoreCredentialView[] | null | undefined,
+  provider: StoreCredentialProvider,
+): boolean | undefined {
+  if (!credentials) return undefined;
+  return credentials.some((c) => c.provider === provider && c.configured);
 }
 
 /** The address a source points at, for the list: its first URL-typed field,
@@ -363,6 +387,11 @@ export function sourceAddress(source: DataSource, kind?: DataSourceKindInfo, acc
   if (!urlField && accountField) {
     const id = source.config?.[accountField.key] ?? "";
     return accounts.find((a) => a.id === id)?.label ?? id;
+  }
+  // A store kind reads the workspace's credential: what it reads is the app.
+  if (!urlField && kind?.fields.some((f) => f.type === "store_credential")) {
+    const app = kind.fields.find((f) => f.type === "text" && source.config?.[f.key]);
+    return app ? (source.config?.[app.key] ?? "") : "";
   }
   return source.config?.[urlField?.key ?? "url"] ?? "";
 }

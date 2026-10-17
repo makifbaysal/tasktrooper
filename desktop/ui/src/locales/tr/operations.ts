@@ -1,4 +1,6 @@
 import type { OperationsDict } from "@/locales/en/operations";
+import { aiJob, errorDefinitions, observability } from "@/locales/tr/opsDefinitions";
+import { telemetry, telemetryKinds } from "@/locales/tr/opsTelemetry";
 
 // Turkish dictionary for the `operations` namespace. Typed as OperationsDict;
 // must mirror en/operations.ts keys exactly.
@@ -209,10 +211,14 @@ export const operations: OperationsDict = {
     },
     tabs: {
       summary: "Özet",
+      endpoints: "Uç noktalar",
+      pages: "Sayfalar",
+      crashes: "Çökmeler",
       queues: "Kuyruklar",
       releases: "Sürümler",
       errors: "Hatalar",
       logs: "Loglar",
+      traces: "Trace'ler",
       changes: "Değişiklikler",
       issues: "Sorunlar",
       alerts: "Alarmlar",
@@ -1040,7 +1046,7 @@ export const operations: OperationsDict = {
     listLabel: "Veri kaynakları",
     empty: {
       title: "Metriklerinizin zaten durduğu yeri bağlayın",
-      description: "Veri kaynağı, servislerinizin telemetrisini zaten toplayan bir sistemdir: Prometheus, Loki, bir bulut sağlayıcısının izleme servisi ya da mesaj aracının kendisi gibi. TaskTrooper gerektiğinde buradan okur ve kopya tutmaz. Bugün Prometheus uyumlu sunucular, Google Cloud Monitoring, Amazon CloudWatch, Kafka, RabbitMQ ve NATS bağlanabiliyor; başka türler de gelecek.",
+      description: "Veri kaynağı, servislerinizin telemetrisini zaten toplayan bir sistemdir: Prometheus, Loki, bir bulut sağlayıcısının izleme servisi ya da mesaj aracının kendisi gibi. TaskTrooper gerektiğinde buradan okur ve kopya tutmaz. Metrik depoları (Prometheus uyumlu sunucular, Google Cloud Monitoring, Amazon CloudWatch, Datadog, New Relic), log ve trace sistemleri (Loki, Elasticsearch, Tempo), çökme ve hata izleyicileri (Google Play vitals, App Store Connect, Sentry), web analitiği araçları (PostHog, Google Analytics 4, Plausible) ve mesaj araçları (Kafka, RabbitMQ, NATS) bağlanabilir.",
     },
     columns: {
       name: "Ad",
@@ -1088,7 +1094,7 @@ export const operations: OperationsDict = {
       editTitle: "{name} kaynağını düzenle",
       pickKind: "Nasıl bir kaynak?",
       noKinds: "Bu sürümde kullanılabilir bir veri kaynağı türü yok.",
-      moreKindsLater: "Loglar ve hata izleyiciler gibi başka kaynak türleri de gelecek.",
+      moreKindsLater: "İhtiyacınız olan tür eksik mi? Her sürümle TaskTrooper kataloğuna yeni türler ekleniyor.",
       continue: "Devam",
       back: "Geri",
       save: "Kaydet ve denetle",
@@ -1366,6 +1372,7 @@ export const operations: OperationsDict = {
           },
         },
       },
+      ...telemetryKinds,
     },
     fields: {
       url: {
@@ -1582,6 +1589,12 @@ export const operations: OperationsDict = {
     mobileCrashRate: "Çökme oranı",
     infraRestarts: "Yeniden başlatmalar",
     infraThrottles: "Kısıtlanan istekler",
+    logsLines: "Log satırları",
+    tracesSpans: "Trace'ler",
+    errorsIssues: "Hata grupları",
+    webVisitors: "Ziyaretçiler",
+    webFcp: "İlk içerik boyaması",
+    webFcpShort: "FCP",
   },
   units: {
     percent: "%",
@@ -2398,4 +2411,8 @@ export const operations: OperationsDict = {
       timeout: "Sunucu zamanında yanıt vermedi. Tekrar deneyin.",
     },
   },
+  telemetry,
+  errorDefinitions,
+  aiJob,
+  observability,
 };

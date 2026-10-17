@@ -6,6 +6,7 @@ import { hasTrend } from "@/components/operations/charts/chartData";
 import { LiveValueList, liveValueItems } from "@/components/operations/charts/LiveValueList";
 import { signalChartSeries, signalErrorView } from "@/components/operations/charts/signalChart";
 import { isLiveSignal, seriesWindowEnd } from "@/components/operations/queues/queueSignals";
+import { boundSourceKinds, vitalsLagLikely } from "@/components/operations/releases/vitalsWindow";
 import type { DeployMarker } from "@/components/operations/charts/TimeSeriesChart";
 import { ChartSlot, DATA_SOURCES_PATH, type ChartSlotStatus } from "@/components/operations/console/ChartSlot";
 import { goldenValue, goldenWindow, indexGolden } from "@/components/operations/console/goldenMetrics";
@@ -17,13 +18,15 @@ import { SignalTile, type SignalDelta } from "@/components/operations/console/Si
 import { SignalBindingEditor } from "@/components/operations/signals/SignalBindingEditor";
 import { DeployTimeline } from "@/components/operations/entity/DeployTimeline";
 import { EntityActivity, buildActivity } from "@/components/operations/entity/EntityActivity";
+import { ObservabilityReadinessCard } from "@/components/operations/observability/ObservabilityReadinessCard";
 import { inRange, previousPeriod, useOpsContext, useOpsHref, useOpsPageScope } from "@/components/operations/shell/OpsContext";
+import { WebVitalsStrip } from "@/components/operations/web/WebVitalsStrip";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
 import { useEntityHealth, useEntityIncidents, useEntityReleases } from "@/hooks/useOpsEntityData";
-import { useComponentSeries, useOpsGolden } from "@/hooks/useOpsSignals";
+import { useComponentSeries, useComponentSignals, useOpsGolden } from "@/hooks/useOpsSignals";
 import { intlLocale } from "@/lib/languages";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 import type { EntitySubPageProps } from "@/pages/ops/entity/types";
@@ -53,10 +56,16 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
   const locale = intlLocale(lang);
   const formatCtx = useMemo(() => ({ locale, t }), [locale, t]);
   const [binding, setBinding] = useState<BindTarget | null>(null);
+  const [savedCount, setSavedCount] = useState(0);
   const chartIds = useMemo(() => view.charts.map((c) => c.id), [view]);
   const series = useComponentSeries(entity.id, env, chartIds, range, { compare });
   const golden = useOpsGolden(env, range, [entity.id], view.golden.length > 0);
   const goldenIndex = useMemo(() => indexGolden(golden.data), [golden.data]);
+  // Only an app's vitals can be late (Google Play's): which source each is
+  // bound to says whether an empty tile is "not published yet".
+  const appVitals = entity.role === "mobile" || entity.role === "desktop";
+  const bindings = useComponentSignals(entity.id, env, appVitals);
+  const sourceKinds = useMemo(() => boundSourceKinds(bindings.data), [bindings.data]);
   const signalsHref = hasTab(entity.role, "signals") ? href(entityPath(entity.id, "signals")) : undefined;
   const formatterFor = useMemo(() => {
     const made = new Map<string, (v: number) => string>();
@@ -173,6 +182,8 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
           );
         } else if ((seriesFailed && bound !== true) || (goldenFailed && !found)) {
           foot = readFailedFoot(s("tileFoot.readFailed"), retryButton);
+        } else if (bound === true && vitalsLagLikely(spec.id, range, sourceKinds.get(spec.id))) {
+          foot = t("operations.telemetry.mobileVitals.notYet");
         } else {
           foot = s("tileFoot.noData");
         }
@@ -371,6 +382,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
               </Link>
             </Notice>
           )}
+          <ObservabilityReadinessCard entity={entity} env={env} />
 
           <section aria-labelledby={`${syncKey}-golden`} className="space-y-2">
             <h2 id={`${syncKey}-golden`} className="text-micro font-medium tracking-wide text-muted-foreground uppercase">
@@ -382,6 +394,18 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
               {BUILTIN_TILES.map(builtin)}
             </div>
           </section>
+
+          {entity.role === "frontend" && (
+            <WebVitalsStrip
+              componentId={entity.id}
+              env={env}
+              range={range}
+              formatCtx={formatCtx}
+              onBind={(signal, unit) => setBinding({ signal, unit })}
+              onEdit={(signal, unit) => setBinding({ signal, unit, current: true })}
+              reloadToken={savedCount}
+            />
+          )}
 
           <section aria-labelledby={`${syncKey}-signals`} className="space-y-2">
             <h2 id={`${syncKey}-signals`} className="text-micro font-medium tracking-wide text-muted-foreground uppercase">
@@ -425,6 +449,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
           onSaved={() => {
             void series.reload();
             void golden.reload();
+            setSavedCount((n) => n + 1);
           }}
         />
       )}

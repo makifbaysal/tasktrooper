@@ -1,3 +1,6 @@
+import { aiJob, errorDefinitions, observability } from "@/locales/es/opsDefinitions";
+import { telemetry, telemetryKinds } from "@/locales/es/opsTelemetry";
+
 // Spanish dictionary for operations. Must mirror en/operations.ts keys exactly.
 export const operations = {
   nav: "Operaciones",
@@ -206,10 +209,14 @@ export const operations = {
     },
     tabs: {
       summary: "Resumen",
+      endpoints: "Endpoints",
+      pages: "Páginas",
+      crashes: "Fallos",
       queues: "Colas",
       releases: "Versiones",
       errors: "Errores",
       logs: "Logs",
+      traces: "Trazas",
       changes: "Cambios",
       issues: "Incidencias",
       alerts: "Alertas",
@@ -1037,7 +1044,7 @@ export const operations = {
     listLabel: "Fuentes de datos",
     empty: {
       title: "Conecta el lugar donde ya están tus métricas",
-      description: "Una fuente de datos es un sistema que ya recoge la telemetría de tus servicios, como Prometheus, Loki, la monitorización de un proveedor cloud o el propio broker de mensajes. TaskTrooper lee de ella cuando lo necesita y no guarda ninguna copia. Hoy se pueden conectar servidores compatibles con Prometheus, Google Cloud Monitoring, Amazon CloudWatch, Kafka, RabbitMQ y NATS; llegarán más tipos.",
+      description: "Una fuente de datos es un sistema que ya recoge la telemetría de tus servicios, como Prometheus, Loki, la monitorización de un proveedor cloud o el propio broker de mensajes. TaskTrooper lee de ella cuando lo necesita y no guarda ninguna copia. Se pueden conectar almacenes de métricas (servidores compatibles con Prometheus, Google Cloud Monitoring, Amazon CloudWatch, Datadog, New Relic), logs y trazas (Loki, Elasticsearch, Tempo), rastreadores de fallos y errores (Google Play vitals, App Store Connect, Sentry), analítica web (PostHog, Google Analytics 4, Plausible) y brokers de mensajes (Kafka, RabbitMQ, NATS).",
     },
     columns: {
       name: "Nombre",
@@ -1085,7 +1092,7 @@ export const operations = {
       editTitle: "Editar {name}",
       pickKind: "¿Qué tipo de fuente es?",
       noKinds: "Esta versión no tiene tipos de fuente de datos disponibles.",
-      moreKindsLater: "Llegarán más tipos de fuentes, como logs y rastreadores de errores.",
+      moreKindsLater: "¿Falta el tipo que necesitas? Con cada versión se añaden tipos nuevos al catálogo de TaskTrooper.",
       continue: "Continuar",
       back: "Atrás",
       save: "Guardar y comprobar",
@@ -1366,6 +1373,7 @@ export const operations = {
           },
         },
       },
+      ...telemetryKinds,
     },
     fields: {
       url: {
@@ -1582,6 +1590,12 @@ export const operations = {
     mobileCrashRate: "Tasa de fallos",
     infraRestarts: "Reinicios",
     infraThrottles: "Solicitudes limitadas",
+    logsLines: "Líneas de log",
+    tracesSpans: "Trazas",
+    errorsIssues: "Grupos de errores",
+    webVisitors: "Visitantes",
+    webFcp: "First contentful paint",
+    webFcpShort: "FCP",
   },
   units: {
     percent: "%",
@@ -2397,4 +2411,8 @@ export const operations = {
       timeout: "El servidor no respondió a tiempo. Vuelve a intentarlo.",
     },
   },
+  telemetry,
+  errorDefinitions,
+  aiJob,
+  observability,
 };

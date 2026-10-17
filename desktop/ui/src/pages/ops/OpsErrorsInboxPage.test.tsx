@@ -2,13 +2,14 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpsErrorGroup, OpsErrors, ProjectsOverview } from "@/api";
+import { ZERO_UUID, type OpsErrorGroup, type OpsErrors, type ProjectsOverview } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
 import { writeCache } from "@/lib/uiCache";
 import { component, env, opsOverview, repo } from "@/test/opsConsoleFixtures";
 
-const { getProjectsOverview, listIncidents, listAllReleases, listOpsErrors, createErrorTask, toastSuccess } = vi.hoisted(() => ({
+const { getProjectsOverview, listIncidents, listAllReleases, listOpsErrors, createErrorTask, getComponentSignals, toastSuccess } = vi.hoisted(() => ({
   getProjectsOverview: vi.fn(),
+  getComponentSignals: vi.fn(),
   listIncidents: vi.fn(),
   listAllReleases: vi.fn(),
   listOpsErrors: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
   return {
     ...actual,
-    api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases, listOpsErrors, createErrorTask },
+    api: { ...actual.api, getProjectsOverview, listIncidents, listAllReleases, listOpsErrors, createErrorTask, getComponentSignals },
   };
 });
 
@@ -115,6 +116,7 @@ beforeEach(() => {
   listAllReleases.mockReset().mockResolvedValue({ releases: [] });
   listOpsErrors.mockReset().mockResolvedValue(answer);
   createErrorTask.mockReset().mockResolvedValue({ id: "t-1", key: "SHOP-7" });
+  getComponentSignals.mockReset().mockResolvedValue({ component_id: "c-worker", role: "worker", environment: "production", signals: [] });
   toastSuccess.mockReset();
 });
 
@@ -264,5 +266,57 @@ describe("EntityErrors", () => {
       expect(link).toHaveAttribute("href", "/repositories/r-tools?tab=deploy");
     }
     expect(listOpsErrors).not.toHaveBeenCalled();
+  });
+});
+
+describe("Sentry groups", () => {
+  const SENTRY = "ds-sentry";
+  const sentryGroup = group({
+    environment_id: ZERO_UUID,
+    data_source_id: SENTRY,
+    provider: "sentry",
+    fingerprint: "4711",
+    message: "NSInvalidArgumentException",
+    source: "AppDelegate.swift",
+    external_url: "https://sentry.io/organizations/acme/issues/4711/",
+  });
+
+  it("marks a group read through Sentry, opens it there and makes no task from it", async () => {
+    listOpsErrors.mockResolvedValue({ groups: [sentryGroup], unavailable: [], truncated: false });
+    renderAt("/operations/errors");
+    const [row] = await groupRows();
+    expect(within(row).getByText("Sentry", { selector: "div" })).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "Open in Sentry" })).toHaveAttribute("href", sentryGroup.external_url);
+    expect(within(row).getByRole("button", { name: /A task is made from a cloud environment's errors/ })).toBeDisabled();
+
+    fireEvent.click(within(row).getByRole("link", { name: "NSInvalidArgumentException" }));
+    const panel = await screen.findByRole("region", { name: "Error group" });
+    expect(within(panel).getByRole("link", { name: "Sentry data source" })).toHaveAttribute("href", `/operations/sources?source=${SENTRY}`);
+    expect(within(panel).queryByRole("link", { name: "Environment settings" })).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Create task" })).toBeDisabled();
+    expect(screen.getByTestId("where")).toHaveTextContent(`group=${SENTRY}.4711`);
+  });
+
+  it("links a binding the inbox could not read to its data source", async () => {
+    listOpsErrors.mockResolvedValue({
+      groups: [],
+      unavailable: [{ component_id: "c-api", environment_id: ZERO_UUID, data_source_id: SENTRY, code: "provider_error", message: "401" }],
+      truncated: false,
+    });
+    renderAt("/operations/errors");
+    expect(await screen.findByRole("link", { name: "Open the data source" })).toHaveAttribute("href", `/operations/sources?source=${SENTRY}`);
+  });
+
+  it("reads an entity with no environment when Sentry is bound to its errors", async () => {
+    getComponentSignals.mockResolvedValue({
+      component_id: "c-worker",
+      role: "worker",
+      environment: "production",
+      signals: [{ signal: "errors.issues", kind: "error", unit: "issues", golden: false, status: "bound", binding: { id: "b-s" }, suggestions: [] }],
+    });
+    listOpsErrors.mockResolvedValue({ groups: [{ ...sentryGroup, component_id: "c-worker" }], unavailable: [], truncated: false });
+    renderAt("/operations/entity/c-worker/errors");
+    await groupRows();
+    expect(listOpsErrors.mock.calls[0][0].componentIds).toEqual(["c-worker"]);
   });
 });

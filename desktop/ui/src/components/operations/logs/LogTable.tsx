@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, ListTree } from "lucide-react";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -22,6 +22,8 @@ interface LogTableProps {
   entities: Map<string, OpsEntity>;
   showEntity: boolean;
   entityHref?: (entity: OpsEntity) => string;
+  /** Where a trace id opens: the entity's Traces, or nothing when it has none. */
+  traceHref?: (traceId: string, entity: OpsEntity | undefined) => string | undefined;
 }
 
 // Log lines carry no id: identical lines at one instant are told apart by
@@ -47,7 +49,7 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 
 /** The explorer's entries, newest first: one dense line each, opened in place
  * to show the request, trace id and structured fields. */
-export function LogTable({ entries, environments, entities, showEntity, entityHref }: LogTableProps) {
+export function LogTable({ entries, environments, entities, showEntity, entityHref, traceHref }: LogTableProps) {
   const { t, lang } = useI18n();
   const l = (key: string, params?: Record<string, string | number>) => t(`operations.logsExplorer.${key}`, params);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -101,6 +103,7 @@ export function LogTable({ entries, environments, entities, showEntity, entityHr
               const at = Date.parse(entry.timestamp);
               const request = [entry.method, entry.path].filter(Boolean).join(" ");
               const fields = entry.fields ? Object.entries(entry.fields).sort(([a], [b]) => a.localeCompare(b)) : [];
+              const traceLink = entry.trace_id ? traceHref?.(entry.trace_id, entity) : undefined;
               return (
                 <Fragment key={key}>
                   <tr
@@ -174,6 +177,15 @@ export function LogTable({ entries, environments, entities, showEntity, entityHr
                                 >
                                   <Copy aria-hidden />
                                 </Button>
+                                {traceLink && (
+                                  <Link
+                                    to={traceLink}
+                                    className="inline-flex shrink-0 items-center gap-1 font-sans text-micro font-medium text-info hover:underline"
+                                  >
+                                    <ListTree className="h-3 w-3" aria-hidden />
+                                    {t("operations.telemetry.traces.openFromLog")}
+                                  </Link>
+                                )}
                               </span>
                             </Detail>
                           )}

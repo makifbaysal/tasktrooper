@@ -15,6 +15,7 @@ import { Notice } from "@/components/ui/notice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCloudAccounts, useDataSources, useRecipeCatalog } from "@/hooks/useDataSources";
+import { useStoreCredentials } from "@/hooks/useStoreCredentials";
 import { useI18n } from "@/hooks/useI18n";
 
 type SourcesTab = "sources" | "recipes";
@@ -34,6 +35,7 @@ export function DataSourcesPage() {
   const { kinds, sources, loading, upsert, remove } = useDataSources();
   const catalog = useRecipeCatalog();
   const { accounts } = useCloudAccounts();
+  const store = useStoreCredentials();
   const offers = useMemo(() => unusedCloudAccounts(accounts, kinds, sources), [accounts, kinds, sources]);
   const [form, setForm] = useState<FormTarget | null>(null);
   const [verifying, setVerifying] = useState<ReadonlySet<string>>(() => new Set());
@@ -189,6 +191,7 @@ export function DataSourcesPage() {
           onSaved={upsert}
           onGone={dropGone}
           cloudAccounts={accounts}
+          storeCredentials={store.loading && store.credentials.length === 0 ? null : store.credentials}
           initial={form.mode === "create" ? form.initial : undefined}
         />
       )}

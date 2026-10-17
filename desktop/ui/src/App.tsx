@@ -24,6 +24,7 @@ const OpsShell = lazy(() => import("@/components/operations/shell/OpsShell").the
 const OpsExplorerPage = lazy(() => import("@/pages/ops/OpsExplorerPage"));
 const OpsEntityPage = lazy(() => import("@/pages/ops/OpsEntityPage"));
 const OpsErrorsInboxPage = lazy(() => import("@/pages/ops/OpsErrorsInboxPage"));
+const OpsErrorDefinitionsPage = lazy(() => import("@/pages/ops/OpsErrorDefinitionsPage"));
 const OpsLogsPage = lazy(() => import("@/pages/ops/OpsLogsPage"));
 const OpsChangesPage = lazy(() => import("@/pages/ops/OpsChangesPage"));
 const OpsStoreAppsPage = lazy(() => import("@/pages/ops/OpsStoreAppsPage"));
@@ -38,6 +39,10 @@ const EntityReleases = lazy(() => import("@/pages/ops/entity/EntityReleases"));
 const EntityQueues = lazy(() => import("@/pages/ops/entity/EntityQueues"));
 const EntitySignals = lazy(() => import("@/pages/ops/entity/EntitySignals"));
 const EntityAlerts = lazy(() => import("@/pages/ops/entity/EntityAlerts"));
+const EntityEndpoints = lazy(() => import("@/pages/ops/entity/EntityEndpoints"));
+const EntityPages = lazy(() => import("@/pages/ops/entity/EntityPages"));
+const EntityCrashes = lazy(() => import("@/pages/ops/entity/EntityCrashes"));
+const EntityTraces = lazy(() => import("@/pages/ops/entity/EntityTraces"));
 const DataSourcesPage = lazy(() => import("@/pages/DataSourcesPage").then((m) => ({ default: m.DataSourcesPage })));
 const OpsAlertConnectionsPage = lazy(() => import("@/pages/ops/OpsAlertConnectionsPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage").then((m) => ({ default: m.FilesPage })));
@@ -135,6 +140,7 @@ export default function App() {
                   <Route path="mobile/app/:repositoryId" element={<OpsStoreAppsPage />} />
                   <Route path="workers" element={<OpsExplorerPage type="workers" />} />
                   <Route path="errors" element={<OpsErrorsInboxPage />} />
+                  <Route path="errors/definitions" element={<OpsErrorDefinitionsPage />} />
                   <Route path="logs" element={<OpsLogsPage />} />
                   <Route path="changes" element={<OpsChangesPage />} />
                   <Route path="issues" element={<OpsIssuesPage />} />
@@ -144,10 +150,14 @@ export default function App() {
                   <Route path="entity/:componentId" element={<OpsEntityPage />}>
                     <Route index element={<EntityIndexRedirect />} />
                     <Route path="summary" element={<EntitySubRoute tab="summary" page={EntitySummary} />} />
+                    <Route path="endpoints" element={<EntitySubRoute tab="endpoints" page={EntityEndpoints} />} />
+                    <Route path="pages" element={<EntitySubRoute tab="pages" page={EntityPages} />} />
+                    <Route path="crashes" element={<EntitySubRoute tab="crashes" page={EntityCrashes} />} />
                     <Route path="queues" element={<EntitySubRoute tab="queues" page={EntityQueues} />} />
                     <Route path="releases" element={<EntitySubRoute tab="releases" page={EntityReleases} />} />
                     <Route path="errors" element={<EntitySubRoute tab="errors" page={EntityErrors} />} />
                     <Route path="logs" element={<EntitySubRoute tab="logs" page={EntityLogs} />} />
+                    <Route path="traces" element={<EntitySubRoute tab="traces" page={EntityTraces} />} />
                     <Route path="changes" element={<EntitySubRoute tab="changes" page={EntityChanges} />} />
                     <Route path="issues" element={<EntitySubRoute tab="issues" page={EntityIssues} />} />
                     <Route path="alerts" element={<EntitySubRoute tab="alerts" page={EntityAlerts} />} />

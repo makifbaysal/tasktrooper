@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, dataSourceFieldErrors, type CloudAccount, type DataSource, type DataSourceKindInfo } from "@/api";
+import {
+  api,
+  ApiError,
+  dataSourceFieldErrors,
+  type CloudAccount,
+  type DataSource,
+  type DataSourceKindInfo,
+  type StoreCredentialView,
+} from "@/api";
 import { FormDialog } from "@/components/admin/FormDialog";
 import {
   buildCreateRequest,
@@ -42,6 +50,8 @@ interface DataSourceFormProps {
   onGone?: (source: DataSource) => void;
   /** Connected cloud accounts, for a kind that reads through one. */
   cloudAccounts?: CloudAccount[];
+  /** The store credential vault, for a kind that reads a store credential; null while unknown. */
+  storeCredentials?: StoreCredentialView[] | null;
   /** A new source's kind and settings to start from (a connected cloud
    * account offered for metrics): the form opens on them, past the kind step. */
   initial?: { kind: string; values: Record<string, string> };
@@ -73,6 +83,7 @@ export function DataSourceForm({
   onSaved,
   onGone,
   cloudAccounts,
+  storeCredentials,
   initial,
 }: DataSourceFormProps) {
   const { t } = useI18n();
@@ -334,7 +345,13 @@ export function DataSourceForm({
               clearError("name");
             }}
             placeholder={
-              target ? undefined : kind.fields.some((x) => x.type === "url") ? f("namePlaceholder") : f("namePlaceholderCloud")
+              target
+                ? undefined
+                : kind.fields.some((x) => x.type === "url")
+                  ? f("namePlaceholder")
+                  : kind.fields.some((x) => x.type === "store_credential")
+                    ? t("operations.telemetry.sources.namePlaceholderStore")
+                    : f("namePlaceholderCloud")
             }
             aria-invalid={errors.name ? true : undefined}
             aria-describedby={errors.name ? "ds-name-error" : undefined}
@@ -363,6 +380,7 @@ export function DataSourceForm({
             error={errors[field.key]}
             disabled={saving}
             cloudAccounts={cloudAccounts}
+            storeCredentials={storeCredentials}
           />
         ))}
       </div>

@@ -76,6 +76,22 @@ export const OPS_NAV: OpsNavGroup[] = [
 
 export const OPS_NAV_ITEMS: OpsNavItem[] = OPS_NAV.flatMap((g) => g.items);
 
+/** A page under a nav item that has a title of its own; the nav lights its parent. */
+export interface OpsSubPage {
+  path: string;
+  parent: OpsNavId;
+  titleKey: string;
+}
+
+export const OPS_SUB_PAGES: OpsSubPage[] = [
+  { path: "/operations/errors/definitions", parent: "errors", titleKey: "operations.errorDefinitions.title" },
+];
+
+export function opsSubPage(pathname: string): OpsSubPage | undefined {
+  const path = pathname.replace(/\/+$/, "");
+  return OPS_SUB_PAGES.find((p) => path === p.path);
+}
+
 export function navGroupOf(id: OpsNavId): OpsNavGroupId {
   return OPS_NAV.find((g) => g.items.some((i) => i.id === id))?.id ?? "explore";
 }

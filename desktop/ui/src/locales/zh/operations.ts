@@ -1,3 +1,6 @@
+import { aiJob, errorDefinitions, observability } from "@/locales/zh/opsDefinitions";
+import { telemetry, telemetryKinds } from "@/locales/zh/opsTelemetry";
+
 // Simplified Chinese dictionary for operations. Must mirror en/operations.ts keys exactly.
 export const operations = {
   nav: "运维",
@@ -206,10 +209,14 @@ export const operations = {
     },
     tabs: {
       summary: "摘要",
+      endpoints: "端点",
+      pages: "页面",
+      crashes: "崩溃",
       queues: "队列",
       releases: "版本发布",
       errors: "错误",
       logs: "日志",
+      traces: "链路追踪",
       changes: "变更",
       issues: "问题",
       alerts: "告警",
@@ -1036,7 +1043,7 @@ export const operations = {
     listLabel: "数据源",
     empty: {
       title: "连接你的指标已经所在的系统",
-      description: "数据源是已经在收集你服务遥测数据的系统，例如 Prometheus、Loki、云服务商的监控，或消息代理本身。TaskTrooper 只在需要时从中读取，不保留任何副本。目前可以连接兼容 Prometheus 的服务器、Google Cloud Monitoring、Amazon CloudWatch、Kafka、RabbitMQ 和 NATS；更多类型即将推出。",
+      description: "数据源是已经在收集你服务遥测数据的系统，例如 Prometheus、Loki、云服务商的监控，或消息代理本身。TaskTrooper 只在需要时从中读取，不保留任何副本。可以连接的有：指标存储（兼容 Prometheus 的服务器、Google Cloud Monitoring、Amazon CloudWatch、Datadog、New Relic），日志和链路追踪（Loki、Elasticsearch、Tempo），崩溃和错误追踪（Google Play vitals、App Store Connect、Sentry），网站分析（PostHog、Google Analytics 4、Plausible），以及消息代理（Kafka、RabbitMQ、NATS）。",
     },
     columns: {
       name: "名称",
@@ -1083,7 +1090,7 @@ export const operations = {
       editTitle: "编辑 {name}",
       pickKind: "这是哪种数据源？",
       noKinds: "此版本没有可用的数据源类型。",
-      moreKindsLater: "日志、错误追踪等更多类型的数据源即将推出。",
+      moreKindsLater: "没有你需要的类型？TaskTrooper 的目录会随每次发布加入新的类型。",
       continue: "继续",
       back: "返回",
       save: "保存并检查",
@@ -1356,6 +1363,7 @@ export const operations = {
           },
         },
       },
+      ...telemetryKinds,
     },
     fields: {
       url: {
@@ -1571,6 +1579,12 @@ export const operations = {
     mobileCrashRate: "崩溃率",
     infraRestarts: "重启次数",
     infraThrottles: "被限流的请求",
+    logsLines: "日志行",
+    tracesSpans: "链路追踪",
+    errorsIssues: "错误问题",
+    webVisitors: "访客",
+    webFcp: "首次内容绘制",
+    webFcpShort: "FCP",
   },
   units: {
     percent: "%",
@@ -2386,4 +2400,8 @@ export const operations = {
       timeout: "服务器未及时响应。请重试。",
     },
   },
+  telemetry,
+  errorDefinitions,
+  aiJob,
+  observability,
 };

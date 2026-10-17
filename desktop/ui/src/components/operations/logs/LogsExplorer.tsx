@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { OPS_LOGS_MAX_ENVIRONMENTS, type LogSeverity } from "@/api";
 import { bucketize } from "@/components/operations/charts/histogramData";
 import { VolumeHistogram } from "@/components/operations/charts/VolumeHistogram";
-import { entitySectionPath } from "@/components/operations/console/roleViews";
+import { entityPath, entitySectionPath, hasTab } from "@/components/operations/console/roleViews";
 import { LogQueryBar } from "@/components/operations/logs/LogQueryBar";
 import { LogTable } from "@/components/operations/logs/LogTable";
 import { SEVERITY_STACK, isLogSeverity, severityIndex, severitySeries } from "@/components/operations/logs/severity";
@@ -26,6 +26,8 @@ import { formatDate } from "@/lib/utils";
 interface LogsExplorerProps {
   /** One entity's logs: no entity filter, its component only. */
   entity?: OpsEntity;
+  /** The entity has a confirmed logs.lines binding, which is read with no environment connected. */
+  bindingRead?: boolean;
 }
 
 function iso(ms: number): string {
@@ -34,7 +36,7 @@ function iso(ms: number): string {
 
 /** New Relic's Logs: a query line, the volume of what was loaded by
  * severity, and the entries newest first with "load older" and a live tail. */
-export function LogsExplorer({ entity: scoped }: LogsExplorerProps) {
+export function LogsExplorer({ entity: scoped, bindingRead = false }: LogsExplorerProps) {
   const { t } = useI18n();
   const l = (key: string, params?: Record<string, string | number>) => t(`operations.logsExplorer.${key}`, params);
   const { range, env } = useOpsContext();
@@ -58,7 +60,7 @@ export function LogsExplorer({ entity: scoped }: LogsExplorerProps) {
   const envLabel = t(`cloud.environments.${env}`);
 
   const inScope = scoped ? [scoped] : picked.length > 0 ? entities.filter((x) => picked.includes(x.id)) : entities;
-  const enabled = inScope.some((x) => x.environments.some((v) => v.environment === env));
+  const enabled = bindingRead || inScope.some((x) => x.environments.some((v) => v.environment === env));
   // A custom range that ended in the past has nothing new to follow.
   const pastRange = range.preset === "custom" && range.to < Date.now() - OPS_AUTO_ADVANCE_MS;
   const tailing = live && !pastRange;
@@ -103,6 +105,8 @@ export function LogsExplorer({ entity: scoped }: LogsExplorerProps) {
     );
   const pickEntities = (ids: string[]) => setParam("entity", formatIdList(ids));
   const entityHref = scoped ? undefined : (x: OpsEntity) => href(entitySectionPath(x, "logs"));
+  const traceHref = (traceId: string, x: OpsEntity | undefined) =>
+    x && hasTab(x.role, "traces") ? href(`${entityPath(x.id, "traces")}?trace=${encodeURIComponent(traceId)}`) : undefined;
 
   if (!scoped && entitiesLoading && listed.length === 0) {
     return (
@@ -207,7 +211,14 @@ export function LogsExplorer({ entity: scoped }: LogsExplorerProps) {
   } else {
     list = (
       <div className="space-y-2">
-        <LogTable entries={logs.entries} environments={environments} entities={byId} showEntity={!scoped} entityHref={entityHref} />
+        <LogTable
+          entries={logs.entries}
+          environments={environments}
+          entities={byId}
+          showEntity={!scoped}
+          entityHref={entityHref}
+          traceHref={traceHref}
+        />
         <div className="flex min-h-9 flex-wrap items-center justify-center gap-3 text-caption text-muted-foreground">
           {logs.older === "more" && (
             <Button variant="outline" size="sm" onClick={() => void logs.loadOlder()} disabled={logs.loadingOlder}>

@@ -1,4 +1,19 @@
-import { BellRing, Bug, Gauge, GitCommitHorizontal, Inbox, LayoutDashboard, Package, ScrollText, Siren, type LucideIcon } from "lucide-react";
+import {
+  BellRing,
+  Bug,
+  FileText,
+  Gauge,
+  GitCommitHorizontal,
+  Inbox,
+  LayoutDashboard,
+  ListTree,
+  Network,
+  Package,
+  ScrollText,
+  Siren,
+  Smartphone,
+  type LucideIcon,
+} from "lucide-react";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { viewFor, type EntityTab } from "@/components/operations/console/roleViews";
@@ -9,10 +24,14 @@ import { useI18n } from "@/hooks/useI18n";
 
 export const ENTITY_TAB_ICONS: Record<EntityTab, LucideIcon> = {
   summary: LayoutDashboard,
+  endpoints: Network,
+  pages: FileText,
+  crashes: Smartphone,
   queues: Inbox,
   releases: Package,
   errors: Bug,
   logs: ScrollText,
+  traces: ListTree,
   changes: GitCommitHorizontal,
   issues: Siren,
   alerts: BellRing,

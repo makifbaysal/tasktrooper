@@ -1,6 +1,6 @@
 ---
 title: Operations console
-description: The cross-repository console for what your components do once they run: entities and their health, metric charts and golden metrics from bound signals, the Errors inbox, Logs, Changes with deploy impact and rollback approval, Issues, alert rules, mobile releases and data sources, and how the top bar's environment and time range apply.
+description: The cross-repository console for what your components do once they run: entities and their health, metric charts, golden metrics and Core Web Vitals from bound signals, endpoint, page and crash tables, traces, the Errors inbox, Logs, Changes with deploy impact and rollback approval, Issues, alert rules, mobile releases and data sources, and how the top bar's environment and time range apply.
 ---
 
 # Operations console
@@ -18,8 +18,10 @@ Google Cloud, AWS, App Store Connect and Google Play. Metric charts and
 golden metrics come from [data sources](data-sources.md): each of a
 component's **signals** (request rate, latency, queue backlog, …) is
 **bound** to a source on the entity's [Signals](#signals) page, and from
-then on its chart and golden metric are drawn from that source. A signal
-that is not bound yet shows an empty slot with a way to bind it.
+then on its chart and golden metric are drawn from that source. So are an
+entity's endpoint, page and crash tables and its traces, and, once bound,
+its log lines (Loki, Elasticsearch) and Sentry issues. A signal that is not
+bound yet shows an empty slot with a way to bind it.
 
 ## Navigation
 
@@ -33,11 +35,12 @@ The console has its own column next to the app sidebar, in three groups:
 | | **Mobile** | `/operations/mobile` | Components with the Mobile or Desktop role |
 | | **Workers** | `/operations/workers` | Components with the Worker role |
 | Monitor | **Errors inbox** | `/operations/errors` | Grouped errors from every connected component |
+| | **Error definitions** | `/operations/errors/definitions` | What each kind of error means and what it sets off (the Errors area's second tab) |
 | | **Logs** | `/operations/logs` | Log entries across components |
 | | **Changes** | `/operations/changes` | Every release, grouped by day |
 | | **Issues** | `/operations/issues` | Production incidents |
 | | **Alerts** | `/operations/alerts` | Alert rules and their state |
-| Settings | **Data sources** | `/operations/sources` | Systems that already collect your metrics |
+| Settings | **Data sources** | `/operations/sources` | Systems that already collect your metrics, logs, traces and errors |
 
 **Collapse** folds the column to icons. It starts folded on an entity page,
 which has its own section list, until you choose; your choice is kept after
@@ -87,10 +90,11 @@ most of them put a note in its place saying what the page shows instead.
 |---|---|
 | All entities | Errors over the last 24 hours and the issues open now, whatever the range |
 | Issues, and an entity's Issues | Every issue open now. With **Include resolved and ignored** on, the picker comes back and closed issues are listed when they were happening at some point in the range |
-| A mobile entity's Releases | Read live from App Store Connect and Google Play; neither the range nor the environment applies |
-| A worker's Queues, and Data sources | Neither the range nor the environment applies |
+| An entity's Endpoints, Pages and Crashes | Each table as its data source holds it now, over the window its recipe reads (see [Endpoints](#endpoints), [Pages](#pages) and [Crashes](#crashes)). The environment applies |
+| A mobile entity's Releases | Read live from App Store Connect and Google Play; the environment picker is hidden too. Its [Crash & launch](#crash-and-launch-tiles) tiles show the last 7 days, in the environment last picked |
+| Data sources | Neither the range nor the environment applies |
 
-Elsewhere the range applies, with three exceptions:
+Elsewhere the range applies, with these exceptions:
 
 - The **Errors inbox** reads from the start of the range up to now. Error
   groups have no end time, so a custom range that ends in the past still
@@ -101,6 +105,8 @@ Elsewhere the range applies, with three exceptions:
   whatever the range.
 - On an entity's Summary, the **Errors (24 h)** tile is the last 24 hours
   whatever the range.
+- An entity's **Traces** searches the last 7 days of the range at most, the
+  longest a trace search reads, and says so when it cuts the range.
 - On Services, Web, Mobile and Workers the range drives only the golden
   metric columns; **Errors (24 h)** and **Open issues** stay as on All
   entities.
@@ -189,21 +195,27 @@ Click an entity to open its page. The header shows its health, name and
 role; its repository (which opens the repository); the environment picked,
 with the provider and the resource or address it runs on, or **Not
 connected in …** with **Connect**; and the last deploy there. The
-environment is always the one in the top bar, connected or not.
+environment is always the one in the top bar, connected or not. A service,
+web app, worker, mobile or desktop app also has **Enable observability** at
+the right of the header (see [Enable observability](#enable-observability)).
 
 The sections depend on the role:
 
 | Role | Sections |
 |---|---|
-| Backend, Frontend, Desktop | Summary, Errors, Logs, Changes, Issues, Alerts, Signals |
-| Worker | Summary, Queues, Errors, Logs, Changes, Issues, Alerts, Signals |
-| Mobile | Summary, Releases, Errors, Logs, Changes, Issues, Alerts, Signals |
-| Library, CLI, Infra, Data, Game, Other | Summary, Changes, Issues |
+| Backend | Summary, Endpoints, Errors, Logs, Traces, Changes, Issues, Alerts, Signals |
+| Worker | Summary, Queues, Errors, Logs, Traces, Changes, Issues, Alerts, Signals |
+| Frontend | Summary, Pages, Errors, Logs, Traces, Changes, Issues, Alerts, Signals |
+| Mobile | Summary, Crashes, Releases, Errors, Logs, Changes, Issues, Alerts, Signals |
+| Desktop | Summary, Errors, Logs, Changes, Issues, Alerts, Signals |
+| Library, CLI, Infra, Data, Game, Other | Summary, Changes, Issues, Alerts |
 
 Errors, Logs, Changes, Issues and Alerts are the console pages described
 below, narrowed to this entity. An entity with no environment connected in the
 environment picked has no errors or logs to read there, and those sections
-say so. A link to a section the role does not have opens Summary.
+say so — unless it has a confirmed binding there that is read on its own:
+`logs.lines` (Loki, Elasticsearch) for Logs, `errors.issues` (Sentry) for
+Errors. A link to a section the role does not have opens Summary.
 
 **Summary** has three parts:
 
@@ -213,12 +225,17 @@ say so. A link to a section the role does not have opens Summary.
   by what the signal means: up is bad for latency, error rate, backlog and
   errors, good for throughput, page views and crash-free users; under 1%
   reads "No change". A signal that is
-  not bound reads "—" with **Bind a data source**, which opens Signals.
+  not bound reads "—" with **Bind a data source**, which opens Signals. On a
+  mobile or desktop app, a crash-free users, crash rate or ANR rate bound to
+  Google Play vitals with no value while the range ends within two days of
+  now reads "Not published yet": Google Play publishes its daily vitals a day
+  or two late. Bound to any other source, it reads "No data in this range".
   Then come the tiles TaskTrooper fills itself. **Errors (24 h)**,
   **Open issues** in this environment, **Deploys** in the range (with the
   previous period's count when compare is on), **Last deploy** (version,
   status and when) and **Runs on** (the provider, or Custom URL, and the
-  resource).
+  resource). A web app adds its
+  [Core Web Vitals and traffic](#core-web-vitals-and-traffic) next.
 - **Golden signals**: a lane with a marker for every deploy in the range,
   each opening that change, then the role's charts. Response time,
   throughput, error rate and CPU for a service; backlog, consume rate,
@@ -246,6 +263,84 @@ has no history: such a source answers only the value as it is now. Its
 chart shows that value instead, with "Live value — connect an
 exporter-backed source for history", and its golden metric shows the value
 with "Live value, no history" and no sparkline.
+
+### Core Web Vitals and traffic
+
+A web app's Summary has two more rows between its golden metrics and its
+charts. **Core Web Vitals** shows LCP, INP and CLS, each its latest p75 in
+the range, against Google's thresholds:
+
+| Vital | Good | Needs improvement | Poor |
+|---|---|---|---|
+| LCP (largest contentful paint) | 2.5 s or less | over 2.5 s, up to 4 s | over 4 s |
+| INP (interaction to next paint) | 200 ms or less | over 200 ms, up to 500 ms | over 500 ms |
+| CLS (cumulative layout shift) | 0.1 or less | over 0.1, up to 0.25 | over 0.25 |
+
+Each tile names its band, marks the value on a good / needs improvement /
+poor meter, lists the two thresholds and carries a sparkline of the range;
+it is tinted when the vital needs improvement or is poor. The web analytics
+recipes (PostHog, New Relic Browser) answer the p75 itself. A binding that
+reads a histogram (a query with `$__quantile`, read at p50, p95 and p99)
+shows its p95 instead, labelled as stricter than the p75 Google rates by.
+
+**Traffic** shows page views (per second), sessions and visitors, each its
+latest value in the range with a sparkline. A vital or traffic signal that
+is not bound reads "—" with **Bind a data source**, which opens the binding
+editor; one whose read failed says why, with **Retry** or a way to fix the
+binding.
+
+### Endpoints
+
+A service's **Endpoints** section lists its endpoints the way New Relic's
+Transactions page does: one row per route or transaction, with
+**Requests** (per minute, with a bar against the busiest), **Errors** (the
+share that failed, in percent) and **p95** latency. Rows start busiest
+first; click any column header to sort by it. With at least two rows, the
+endpoint with the highest error rate (when it is above 0) and the one with
+the slowest p95 are flagged, with a legend under the table.
+
+The tables come from the service's confirmed `http.*` bindings (request
+rate, error rate, latency) whose recipe declares an endpoints table:
+
+| Recipe | Rows |
+|---|---|
+| `otel-http` (OpenTelemetry metrics in Prometheus) | One per `http_route`, at the moment it is read |
+| `datadog-apm` | One per resource, its latest values of the last 10 minutes |
+| `newrelic-apm` | One per transaction name over the last hour, the top 100 by count |
+
+There is one table per data source and recipe, headed by the source's name
+and the recipe. They are read as the source holds them now, again every
+minute, so the time range does not apply; the environment does. A table
+shows 100 rows with **Show all** for the rest, and says so when the source
+held more rows than it sent.
+
+With no such binding, the section says where endpoints come from, with
+**Open Signals** and **Add a data source**. A table that could not be read
+says why: a binding missing a parameter, a source that is gone or a query
+the source refused offers **Open Signals**, a source that did not answer
+**Retry**, and a kind that cannot list rows explains what would give one.
+
+### Pages
+
+A web app's **Pages** section has four tabs, **Pages**, **Referrers**,
+**Countries** and **Devices** (`?table=` in the address). Each lists one
+table per bound source: one row per path, referring source, country, or
+device, browser and OS, with views (with bars) and visitors, the most viewed
+first; click a column header to sort by it. The tables come from the web
+app's confirmed `web.*` bindings whose recipe declares that table:
+
+| Recipe | Tables |
+|---|---|
+| `posthog-web` | All four; Pages also has LCP p75 |
+| `ga4-web` | All four; Referrers are source / medium, with sessions |
+| `plausible-web` | All four; Referrers are visit sources |
+| `newrelic-browser` | Pages only: one row per page URL, with sessions |
+
+Each covers the last 7 days, as the source reports it now, and is read again
+every minute; the time range does not apply, the environment does. With no
+such table bound for the tab, it says where the table comes from, with
+**Open Signals** and **Add a data source**. A table that could not be read
+says why, as on Endpoints.
 
 ### Queues
 
@@ -289,6 +384,86 @@ consumer groups, queues and JetStream consumers included, for ones that
 name this worker, then points to Signals to accept them), **Bind backlog**
 (the binding editor) and **Add a broker data source**.
 
+### Crashes
+
+A mobile app's **Crashes** section lists what the stores and Sentry hold
+about its crashes, as they list them now, read again every minute; the time
+range does not apply, the environment does.
+
+- **Crash and ANR issues**: one table per source. Google Play's are its
+  error issues of the last 7 days (crashes, ANRs and non-fatal issues),
+  Sentry's the unhandled, unresolved issues of the last 14 days. Each row has
+  the issue id, which opens the issue in Play Console or Sentry; its type
+  (Crash, ANR, Non-fatal, or Sentry's level); the cause; where it happened;
+  the users it hit, with bars, most first; its reports; the last version it
+  was seen in (Google Play only); and how long ago it was last seen.
+- **Diagnostic signatures**: App Store Connect's hang, launch and
+  disk-write signatures of the newest build, each with its type, the
+  signature, its share of the build's events and the build number. App Store
+  Connect lists no crash signatures there.
+
+The tables come from the app's confirmed mobile or `errors.issues` bindings
+whose recipe declares them: `play-vitals`, `sentry-mobile` and
+`app-store-metrics` (see
+[Data sources](data-sources.md#app-stores-and-sentry)). With none, the
+section points to Signals, where Find suggestions offers a linked store
+app's source in one step, and to Data sources. A table that could not be
+read says why, as on Endpoints.
+
+### Traces
+
+A service's, worker's or web app's **Traces** section searches its traces
+through its `traces.spans` binding, a Tempo source (see
+[Data sources](data-sources.md#logs-and-traces-loki-elasticsearch-and-tempo)).
+It covers the console's time range, cut to its last 7 days, the longest a
+trace search reads, with a notice when it is cut. **Minimum duration (ms)**
+keeps the traces at least that long; it searches when you press Enter or
+leave the box, and is `?min=` in the address.
+
+Up to 50 traces are listed, **Newest first** or **Slowest first**: when each
+started, its root span and service, its duration with a bar against the
+slowest, how many of its spans the search matched, and whether it failed.
+Above the list, the count and how many have errors. When 50 come back, a
+note says only the newest are shown and to narrow the range or raise the
+minimum duration. The list is read again every minute.
+
+With no traces binding, the section reads **Connect a traces source**, with
+**Bind traces** (the binding editor on `traces.spans`, which lists only the
+sources a traces recipe reads — Tempo; Datadog and New Relic read trace
+metrics, not traces) and **Add a data source**. A binding that cannot be read says why: one missing a parameter
+offers **Fill in parameters**, a source that is gone **Bind another
+source**, and a source that did not answer **Retry**. **Manage the traces
+binding** links to Signals.
+
+Click a trace, or open `?trace=<id>`, to see it:
+
+- The header: the root span and its service, the trace id with a copy
+  button, when it started, its duration, how many spans it has and how many
+  failed, and the services in it, each in its own colour with its span and
+  failure counts. A trace with more spans than one answer carries (20,000)
+  says only the first are shown.
+- **Waterfall**: every span in tree order, each under its parent and
+  siblings by start, its bar placed on the trace's time axis in its
+  service's colour. A failed span is ringed in red, with an icon. A span with
+  spans under it folds and unfolds. A span whose parent the trace does not
+  hold starts a tree of its own.
+- **Table**: the same spans as rows, with depth, service, operation, when it
+  starts after the trace's start, duration and status.
+- Pick a span for its panel: its name, service, kind and status, the status
+  message of a failed span, its duration, when it starts in the trace and
+  the time it started, its span and parent ids, its attributes and its
+  resource's.
+
+A trace is read through the entity's own traces binding. When the entity
+has none — say, a trace opened from one of its
+[log entries](#logs-explorer) while another component's source holds its
+traces — it is looked up in every traces source the environment's bindings
+read, and a notice names the component it was found through, with a link to
+open it there. A trace no source holds says
+so (it may be older than the source keeps); with no traces binding anywhere
+in the environment, there is nothing to look it up in. A trace does not
+change once ended, so it is read once, and again on **Refresh**.
+
 ### Signals
 
 **Signals**, the last section of a service, web app, worker, mobile or
@@ -301,35 +476,62 @@ bound**), the data source and who set it (detected, by hand or by an
 agent), the recipe or **Custom query**, the recipe's parameters, and a
 sparkline of the range for a bound one.
 
-- **Find suggestions** looks through your data sources for what fits. It
-  lists the metric names of every metrics source and offers each recipe
-  whose telltale metric is there, with its parameters filled from the label
-  values that best name the component (its name, directory, package or cloud
-  resource). When the environment runs on a connected cloud resource (a Cloud
+- **Find suggestions** looks through your data sources for what fits; it is
+  offered even before any source exists. It lists what every source holds —
+  metric names, a log or trace store's label, field or tag names, a web
+  analytics source's event names — and offers each recipe whose telltale is
+  there, with its parameters filled from the label values that best name the
+  component (its name, directory, package or cloud resource). When the
+  environment runs on a connected cloud resource (a Cloud
   Run service, an ECS service, a Lambda function, …), the matching cloud
   recipe on a source that reads through the same cloud account is offered
   with its parameters taken from the resource. On a Kafka, RabbitMQ or
   NATS source, the consumer groups, queues or JetStream consumers whose names
-  best name the component are offered for its queue signals. Suggestions
-  appear under their signal.
+  best name the component are offered for its queue signals. For a mobile
+  app whose repository has a store app linked, the Google Play vitals and
+  App Store Connect recipes come first, their parameter filled from the app.
+  A Datadog or New Relic recipe comes with its parameters to fill in; Sentry
+  recipes are never offered, so bind them by hand. Suggestions appear under
+  their signal.
+- When a linked store app's source does not exist yet, Find suggestions
+  offers to create it instead: a card, **Connect Google Play vitals for this
+  app** or **Connect App Store metrics for this app**, lists the signals and
+  parameters it would bind. **Connect** opens the Data sources add dialog on
+  that kind with the store credential chosen, and once the source is saved
+  binds the offered recipe for each of those signals. While the credential
+  is not saved under Settings → Integrations, the card says so with a link
+  there, and **Connect** is unavailable. **Not now** hides the card. See
+  [Connecting a store source from Signals](data-sources.md#connecting-a-store-source-from-signals).
 - **Accept** binds a suggestion in one click. A suggestion that could not
   fill every parameter shows what it needs and offers **Review** instead,
   which opens the editor with what it has. **Dismiss** hides a suggestion for
   good: it is not offered again.
-- **Bind** or **Edit** opens the editor: pick a metrics data source, then
-  either a **Recipe** (only the recipes written for that kind of source that
-  provide the signal are listed, with the recipe's query and one field per
-  parameter) or a **Custom query** in the source's own language (PromQL for
-  Prometheus and Google Cloud Monitoring, JSON for CloudWatch, Kafka,
-  RabbitMQ and NATS). **Preview**
-  runs it over the console's range before anything is saved and draws it,
-  with the query as it was sent and any warnings. **Save** makes it the
-  signal's binding, replacing the one before and any waiting suggestions.
+- **Bind** or **Edit** opens the editor: pick a data source that can feed
+  the signal — a metrics source for a metric signal, Loki or Elasticsearch
+  for `logs.lines`, a traces source (Tempo) for `traces.spans`, Sentry for
+  `errors.issues` — then either a **Recipe** (only the recipes written for
+  that kind of source that provide the signal are listed, with the recipe's
+  query and one field per parameter; a parameter with a default shows it and
+  takes it when left empty) or a **Custom query** in the source's own
+  language: PromQL for Prometheus and Google Cloud Monitoring, LogQL for
+  Loki, TraceQL for Tempo, a Datadog metric query, NRQL for New Relic, and
+  JSON for the others, with the kind's query shape under the box.
+  **Preview** runs a metric signal over the console's range before anything
+  is saved and draws it, with the query as it was sent and any warnings. A
+  log, trace or error signal is not a series and has no preview: save it to
+  bind it. **Save** makes it the signal's binding, replacing the one before
+  and any waiting suggestions.
 - **Remove** drops the binding after asking; the chart and golden metric go
   back to empty. The data source is not touched.
+- **Ask AI to map signals** has the release engineer read your data
+  sources' inventories and propose bindings for the unbound signals, golden
+  ones first, plus alert rules for the golden ones, saved switched off. Its
+  bindings arrive here as suggestions marked **AI**, to accept or dismiss
+  like any other; see [AI suggestions](#ai-suggestions).
 
-With no metrics data source connected yet, the page says so and links to
-Data sources.
+With no data source connected that could feed a signal, the page says so
+and links to Data sources; Find suggestions still offers the store sources
+a mobile app can connect.
 
 ## Errors inbox
 
@@ -338,10 +540,25 @@ environment picked, across all components, and lists them new first, then
 the most recently seen, then the most frequent.
 
 Errors come from where a component runs. An environment bound to Google
-Cloud uses Error Reporting's own groups; one bound to AWS has its
-error-level log lines grouped by message. Vercel environments and ones
-connected by a custom URL have no error feed and are skipped; when nothing
-connected in the environment has one, the empty page says so.
+Cloud uses Error Reporting's own groups; any other bound environment (AWS,
+Vercel production) has its error-level log lines grouped by message. Vercel
+previews and environments connected by a custom URL have no error feed and
+are skipped; when nothing connected in the environment has one, the empty
+page says so.
+
+A component with a confirmed `errors.issues` binding in the environment, a
+Sentry project (see [Data sources](data-sources.md#app-stores-and-sentry)),
+has its Sentry issues read as well, beside its cloud's groups rather than
+instead of them. They carry a **Sentry** badge. For these, the fingerprint
+is the issue id, the occurrences are its events in the range, **New** means
+its first event falls in the range, and **Open in Sentry** opens the issue.
+Such a group has no environment, so **Create task** is unavailable (hovering
+it says to open the issue in Sentry instead), and its panel links to the
+data source rather than to the environment's settings. At most 50 bindings
+are read, 100 issues each. An entity with such a binding has its Errors
+section read even when it has no environment connected; on the console-wide
+page it is read with the rest, while at least one of the entities the page
+covers has an environment connected.
 
 The filters are **Entities** (pick one or more; none picked means all), a
 search over message, source, fingerprint, sample and entity name, **New in
@@ -370,6 +587,16 @@ Click a row to open its details beside the list: message, sample, source,
 fingerprint, occurrences, provider, first and last seen, entity,
 environment, and a link to the environment's settings.
 
+A group that matches an [error definition](#error-definitions) shows it
+under its message: the category and the definition's name, which opens it.
+Groups whose definition hides them are left out; **Show ignored (n)** next to
+**New in this range only** brings them back, marked as hidden, and the empty
+page offers the same when everything in the range is hidden. A group with no
+definition has **Define**, in its row and in its panel: it opens the
+definition editor with the group's fingerprint and a pattern for its first
+line (numbers and ids left open) filled in, and the message in the pattern's
+test box. An entity's Errors section links to that entity's definitions.
+
 ### Environments that could not be read
 
 One environment failing never empties the page. The environments that
@@ -382,14 +609,132 @@ resource, the reason and the fix:
 | The cloud account's credentials were rejected | **Reconnect the account** opens Settings → Integrations |
 | The provider answered with an error | The provider's message is shown |
 | No answer within 20 seconds | Press Refresh to try again |
+| A data source binding could not be read: the source is gone, did not answer within 20 seconds, or answered with an error | **Open the data source** opens it on Data sources |
 
 The Logs explorer lists the same way any environment it could not read.
+
+## Error definitions
+
+**Error definitions** (`/operations/errors/definitions`, the **Definitions**
+tab beside **Inbox** in the Errors area) say what one kind of error means
+and what it should set off. A definition belongs to a repository and covers
+every component of it, or one. Definitions have no environment: they mark
+groups in the inbox wherever they appear, and their alerts, issues and tasks
+are carried out on production, about every two minutes.
+
+Pick a repository and a component to narrow the list, or search names,
+patterns and reasons. Three tabs split the definitions by status:
+**Active**, **Suggested** (with how many are waiting) and **Dismissed**. Each
+row shows the name, what it applies to, its match in words ("message
+matches /context deadline exceeded.*stripe/ and status is 502"), category,
+severity, action, threshold, who wrote it (**Human**, **AI** from recent
+errors, **Code** from the code's own error types) and since when it is
+firing. Click one to open its panel: each match field, what it sets off, the
+task it opened, why it was written and the evidence behind a suggestion.
+
+**Match.** Every field you fill in must hold for a group to match:
+
+| Field | Matches |
+|---|---|
+| Message pattern | An RE2 regular expression, tried on the message, then the sample |
+| Exception type | The name before the first `:` or `(`; `NullPointerException` also matches `java.lang.NullPointerException` |
+| Endpoint | `METHOD /path` printed in the message; the method is optional, a trailing `*` matches the rest of the path, `*`, `:id` or `{id}` one segment |
+| HTTP status | A status printed as `status 502`, `status_code=502`, `HTTP 502` or after a request line |
+| Fingerprint | Exactly one group |
+| Attributes | Exact `key=value` pairs in the message, plus `source` and `provider` |
+
+The editor's test box tries the pattern on an error message you paste and
+marks what it matches. It runs in your browser; the server checks the
+pattern again with RE2 when you save, and RE2 has no lookarounds or
+backreferences. When several active definitions match a group, a
+component's own wins over a repository-wide one, then the more specific
+(a fingerprint counts most), then the most recently edited.
+
+**Category** is what the failure is: **Bug**, **Expected** (raised on
+purpose, such as a declined card), **Dependency**, **Infrastructure** or
+**User error**. **Action** is what a match sets off:
+
+| Action | What happens |
+|---|---|
+| No action | The inbox shows the definition on the group |
+| Hide from the inbox | The group is left out of the inbox (**Show ignored** brings it back) |
+| Alert | An issue opens while the matching groups' count is over the threshold (10 in 1 hour unless set) and resolves once it drops below |
+| Open an issue | An issue opens when the threshold (1 in 1 hour unless set) is crossed and stays open until someone resolves it |
+| Open a task | A board task for each new matching group, for the component's developer |
+
+**Suggested** definitions wait until you **Accept** (it becomes active) or
+**Dismiss** them (it is never suggested again). **Edit** a suggestion to
+change it first; **Save and accept** does both. **Delete** asks first; an
+issue a definition opened stays as it is.
+
+## AI suggestions
+
+Two jobs hand work to the release engineer agent, which reads what you
+point it at and proposes what it finds. Nothing it proposes is active until
+you accept it.
+
+- **Ask AI to define errors**, on Error definitions: pick a repository (and
+  optionally one component) and what to define them from, **Recent errors**
+  in the environment picked or **The code's error types** (the errors and
+  codes the repository declares, for expected and user errors). Its
+  proposals wait in the **Suggested** tab.
+- **Ask AI to map signals**, on an entity's [Signals](#signals): bindings
+  for the unbound signals as suggestions, and disabled alert rules for the
+  golden ones on [Alerts](#alerts).
+
+While a job runs, a card above the list shows how long it has been running;
+you can leave the page and come back to it. When it is done, the card lists
+what was proposed, each linked to where you review it, with the agent's
+reason, and its closing notes. A job that stopped to ask a question says so
+and opens the chat where you can answer. Asking again while a job of the
+same kind runs for the same scope picks that job up instead of starting
+another. What the release engineer proposed carries an **AI** badge: alert
+rules, signal bindings and suggestions, and definitions (as their source).
+
+The jobs need the release engineer agent switched on. Without one for the
+component, the card says so: turn it on with **Edit team** (the pencil
+beside Team in the sidebar) and ask again.
+
+## Enable observability
+
+**Enable observability**, in an entity's header, asks the release engineer
+to instrument the component in the environment picked. The dialog shows
+what it reports now: how many of its golden signals and of all its signals
+are bound, the cloud its metrics are read from, the observability libraries
+found in its code (OpenTelemetry, Sentry, Datadog, Prometheus, PostHog,
+Crashlytics, New Relic, web-vitals), and what is missing — golden signals
+not bound, no tracing SDK, no log source, no real-user monitoring on a web
+app, no crash reporter on an app, queue signals not bound.
+
+Pick what to set up (metrics, traces, logs, real-user monitoring, crash
+reporting, queue metrics; what is missing is ticked) and where the
+telemetry goes: **The cloud it runs on** (Google Cloud's or AWS's own
+monitoring), **A self-hosted stack** (Grafana with Prometheus, Loki and
+Tempo) or **An OTLP endpoint** with its URL. **Create the task** opens a task
+for the release engineer and links to it. The release engineer plans the
+work and opens the developer's task; once the telemetry arrives it checks
+it and proposes the bindings and alert rules. It never edits code itself.
+
+While a component has a gap, its Summary shows a short **Observability
+gaps** card with the first of them and the same button.
 
 ## Logs explorer
 
 Logs reads log entries, newest first, from the components connected in the
 environment picked, between the start and the end of the range. An
 environment connected by a custom URL has no logs to read.
+
+A component with a confirmed `logs.lines` binding in the environment, a
+Loki or Elasticsearch source (see
+[Data sources](data-sources.md#logs-and-traces-loki-elasticsearch-and-tempo)),
+is read through that binding **instead of** its connected environments,
+never both: the same lines often reach both stores. The search text and the
+minimum severity are applied by the source in its own language, and a line
+with no level there is judged by its text. Such a read counts toward the
+10-environment limit like an environment. An entity with such a binding has
+its Logs section read even when it has no environment connected; on the
+console-wide page it is read with the rest, while at least one of the
+entities the page covers has an environment connected.
 
 The query bar has:
 
@@ -407,7 +752,10 @@ totals; the note beside it says how many that is.
 
 Each entry shows its time, severity, entity and message. Expand it for the
 full timestamp, the request (method and path) and status, the trace ID
-(with a copy button), the source, what it runs on and any other fields.
+(with a copy button), the source, what it runs on and any other fields. An
+entry with a trace ID, of an entity that has a Traces section (a service,
+worker or web app), also has **Open trace**, which opens that trace on the
+entity's [Traces](#traces).
 
 One read returns up to 200 entries. When the range holds more, a notice
 says so and **Load older entries** reads further back, until it reaches
@@ -624,6 +972,9 @@ when it was last evaluated, and a switch that turns the rule off without
 deleting it. Firing rules come first, then pending, no data and OK; rules
 switched off come last.
 
+A rule the release engineer proposed carries an **AI** badge and starts
+switched off; turn it on once it looks right.
+
 Click a rule to open its panel (`?rule=<id>` in the address): the
 condition, signal or query, since when it is in its state, its last value,
 channels and whether it opens an issue (a channel that does not deliver yet
@@ -685,7 +1036,9 @@ console there, so the list shows it.
 
 A Mobile-role entity's **Releases** section is where its repository's App
 Store Connect and Google Play apps are released. It is read live from the
-stores, so neither the time range nor the environment applies.
+stores, so the time range does not apply and the environment picker is
+hidden; only its [Crash & launch](#crash-and-launch-tiles) tiles read an
+environment.
 
 At the top, one card per store app (iOS, Android) shows its bundle ID or
 package name, lifecycle (Not linked, Onboarding, Ready for testing, Live),
@@ -743,8 +1096,33 @@ entity's issues.
 
 While the app is not live, the **Onboarding checklist** lists the store's
 first-publish steps, each checked against the store itself; **Verify now**
-checks again. **Crash & launch** has tiles for crash-free users, cold start
-and ANR rate, empty until a data source is bound.
+checks again.
+
+### Crash and launch tiles
+
+**Crash & launch** shows the app's crash-free users, crash rate, ANR rate
+and cold start, read through the mobile entity's bindings: Google Play
+vitals, App Store Connect metrics, Sentry or New Relic (see
+[Data sources](data-sources.md#app-stores-and-sentry)). Each tile covers the
+last 7 days whatever the range, and shows its latest value, "As of" the day
+it is for, with a sparkline. The tiles read the environment last picked in
+the top bar, which the line under them names, though this page hides the
+picker.
+
+- A signal that is not bound reads "—" with **Bind on Signals**.
+- Google Play publishes its daily vitals a day or two after the day they
+  cover. A crash-free users, crash rate or ANR rate tile bound to Google
+  Play vitals with no value yet reads **Not published yet**, and the line
+  under the tiles adds that Google Play's data runs 1–2 days behind. Bound to
+  another source (Sentry, New Relic), an empty tile reads **No data in the
+  last 7 days**.
+- Cold start, read from App Store Connect, comes per app version, so it
+  changes when a version ships.
+- A tile whose read failed says why, with **Retry** or a link to fix the
+  binding on Signals.
+
+A repository's store-app row under Mobile, which no mobile component
+carries, has no bindings to read: its tiles link to Data sources.
 
 ### Test builds and groups
 
@@ -776,10 +1154,13 @@ Connecting the stores, the app lifecycle and which machine builds are on
 ## Data sources
 
 **Settings → Data sources**, the last item in the console's column, is
-where you connect the system that already collects your metrics (a
-Prometheus-compatible server, Google Cloud Monitoring or Amazon CloudWatch
-through a connected cloud account), check it, browse what it holds and try
-a query. See [Data sources](data-sources.md).
+where you connect the systems that already collect your telemetry —
+metrics (a Prometheus-compatible server, Google Cloud Monitoring or Amazon
+CloudWatch through a connected cloud account, Datadog, New Relic), logs and
+traces (Loki, Elasticsearch, Tempo), crashes and errors (Google Play vitals,
+App Store Connect metrics, Sentry), web analytics (PostHog, Google
+Analytics 4, Plausible) or a message broker — check them, browse what they
+hold and try a query. See [Data sources](data-sources.md).
 
 ## See also
 
@@ -789,5 +1170,5 @@ a query. See [Data sources](data-sources.md).
 - [Deploy targets and recipes](deploy.md): the release flow behind Changes
 - [Mobile devices and store releases](mobile-releases.md): store
   credentials, onboarding and release engines
-- [Data sources](data-sources.md): connecting Prometheus-compatible
-  sources, Google Cloud Monitoring and Amazon CloudWatch, signals and recipes
+- [Data sources](data-sources.md): connecting metrics, logs, traces, store,
+  Sentry, web analytics, APM and broker sources, signals and recipes

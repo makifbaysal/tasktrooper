@@ -1,6 +1,7 @@
 import { Check, CircleCheck, CircleDashed, Link2, Pencil, Sparkles, Trash2, X, type LucideIcon } from "lucide-react";
 import { Fragment } from "react";
 import type { ComponentSignal, ComponentSignalStatus, MetricPoint, SignalBinding } from "@/api";
+import { AIBadge } from "@/components/operations/ai/AIBadge";
 import { Sparkline } from "@/components/operations/charts/Sparkline";
 import { signalLabel } from "@/components/operations/console/signalFormat";
 import { suggestionNeedsEditor } from "@/components/operations/signals/signalBinding";
@@ -118,7 +119,10 @@ export function SignalsTable({ signals, sparks, busy, onBind, onRemove, onAccept
                       {binding ? (
                         <>
                           <span className="font-medium">{binding.data_source_name}</span>
-                          <p className="text-micro text-muted-foreground">{p(`origin.${binding.source}`)}</p>
+                          <p className="flex items-center gap-1.5 text-micro text-muted-foreground">
+                            {p(`origin.${binding.source}`)}
+                            {binding.source === "ai" && <AIBadge title={t("operations.aiJob.bindingTitle")} />}
+                          </p>
                         </>
                       ) : (
                         <span className="text-muted-foreground">—</span>
@@ -164,10 +168,17 @@ export function SignalsTable({ signals, sparks, busy, onBind, onRemove, onAccept
                   {(s.suggestions ?? []).map((sug, i, all) => (
                     <tr key={sug.id} className={cn("bg-info/5", i === all.length - 1 && "border-b border-border/60")}>
                       <td className={cn(TD, "pl-6")}>
-                        <span className="inline-flex items-center gap-1.5 text-micro font-medium text-info">
-                          <Sparkles className="h-3 w-3" aria-hidden />
-                          {p(`suggestion.${sug.source === "ai" ? "fromAgent" : "detected"}`)}
-                        </span>
+                        {sug.source === "ai" ? (
+                          <span className="inline-flex items-center gap-1.5 text-micro font-medium text-info">
+                            <AIBadge title={t("operations.aiJob.bindingTitle")} />
+                            {p("suggestion.fromAgent")}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-micro font-medium text-info">
+                            <Sparkles className="h-3 w-3" aria-hidden />
+                            {p("suggestion.detected")}
+                          </span>
+                        )}
                       </td>
                       <td className={TD} />
                       <td className={TD}>

@@ -27,7 +27,7 @@ export function useStoreCredentials({ onError }: { onError?: (message: string) =
   // store cards while the vault is re-read.
   const load = useCallback(async () => {
     try {
-      setCredentials(await api.listStoreCredentials());
+      setCredentials((await api.listStoreCredentials()) ?? []);
       setError("");
     } catch (err) {
       const message = err instanceof Error ? err.message : tStatic("settingsPages.integrations.loadFailed");

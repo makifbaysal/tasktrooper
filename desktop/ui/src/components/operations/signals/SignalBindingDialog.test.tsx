@@ -325,3 +325,44 @@ describe("SignalBindingEditor", () => {
     expect(await screen.findByText("1.5 s")).toBeInTheDocument();
   });
 });
+
+describe("SignalBindingDialog — logs, traces and recipe defaults", () => {
+  const tempo = dataSource({ id: "ds-tempo", kind: "tempo", name: "Tempo", capabilities: ["traces"], config: {}, secrets_set: [] });
+  const tempoRecipe = recipe("tempo-service", "tempo", { "traces.spans": '{ resource.service.name = "$service" }' }, ["service"]);
+
+  it("offers only traces sources for a trace signal, and saves it without a preview", async () => {
+    bindComponentSignal.mockResolvedValue(binding({ signal: "traces.spans", data_source_id: "ds-tempo", recipe_id: "tempo-service" }));
+    const { onSaved } = renderDialog({ signal: "traces.spans", signalKind: "trace", unit: "spans/s", sources: [prom, tempo, loki], recipes: [...recipes, tempoRecipe] });
+    fireEvent.click(screen.getByLabelText("Data source"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("Tempo")]);
+    fireEvent.click(screen.getByRole("option", { name: /Tempo/ }));
+    expect(screen.getByText("No preview for this signal")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("service"), { target: { value: "api" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(bindComponentSignal).toHaveBeenCalledWith("c-api", "traces.spans", "production", {
+        data_source_id: "ds-tempo",
+        recipe_id: "tempo-service",
+        params: { service: "api" },
+      }),
+    );
+    expect(onSaved).toHaveBeenCalled();
+    expect(previewComponentSignal).not.toHaveBeenCalled();
+  });
+
+  it("sends a recipe's default for a param left empty", async () => {
+    bindComponentSignal.mockResolvedValue(binding());
+    const withDefault = { ...recipe("otel-http", "prometheus", { "http.latency": 'x{job="$job"}' }, ["job"]), defaults: { job: "api" } };
+    renderDialog({ recipes: [withDefault], sources: [prom] });
+    expect(screen.getByLabelText("job")).toHaveAttribute("placeholder", "api");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(bindComponentSignal).toHaveBeenCalledWith("c-api", "http.latency", "production", {
+        data_source_id: "ds-1",
+        recipe_id: "otel-http",
+        params: { job: "api" },
+      }),
+    );
+  });
+});

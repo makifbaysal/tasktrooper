@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import type { CloudAccount, DataSourceField } from "@/api";
+import type { CloudAccount, DataSourceField, StoreCredentialView } from "@/api";
 import {
   cloudAccountsFor,
   fieldErrorText,
@@ -9,6 +9,8 @@ import {
   isMultilineField,
   isSecretField,
   optionLabel,
+  storeCredentialProvider,
+  storeCredentialSaved,
   type HeaderRow,
 } from "@/components/operations/sources/dataSourceSchema";
 import { HeadersEditor } from "@/components/operations/sources/HeadersEditor";
@@ -37,6 +39,8 @@ interface DataSourceFieldInputProps {
   disabled?: boolean;
   /** Every connected cloud account; a `cloud_account` field lists its provider's. */
   cloudAccounts?: CloudAccount[];
+  /** The store credential vault; a `store_credential` field offers its provider's saved one. Null while unknown. */
+  storeCredentials?: StoreCredentialView[] | null;
 }
 
 export const INTEGRATIONS_PATH = "/settings/integrations";
@@ -61,6 +65,7 @@ export function DataSourceFieldInput({
   error,
   disabled = false,
   cloudAccounts = [],
+  storeCredentials = null,
 }: DataSourceFieldInputProps) {
   const { t } = useI18n();
   const f = (key: string, params?: Record<string, string | number>) => t(`operations.sources.form.${key}`, params);
@@ -82,7 +87,33 @@ export function DataSourceFieldInput({
   let control;
   const accounts = field.type === "cloud_account" ? cloudAccountsFor(cloudAccounts, field) : [];
   const providerName = field.provider ? t(`cloud.providers.${field.provider}`) : t("operations.sources.form.cloudAccountAny");
-  if (field.type === "cloud_account" && accounts.length === 0) {
+  const storeProvider = field.type === "store_credential" ? storeCredentialProvider(field) : undefined;
+  const storeName = storeProvider ? t(`operations.telemetry.sources.storeCredentials.${storeProvider}`) : "";
+  const storeSaved = storeProvider ? storeCredentialSaved(storeCredentials, storeProvider) : undefined;
+  if (field.type === "store_credential" && storeSaved === false) {
+    control = (
+      <div id={id} className="rounded-md border border-dashed border-border px-3 py-2.5 text-caption" aria-describedby={describedBy}>
+        <p className="text-muted-foreground">{t("operations.telemetry.sources.noStoreCredential", { credential: storeName })}</p>
+        <Link to={INTEGRATIONS_PATH} className="font-medium text-info hover:underline">
+          {t("operations.telemetry.sources.saveStoreCredential")}
+        </Link>
+      </div>
+    );
+  } else if (field.type === "store_credential") {
+    control = (
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger id={id} aria-invalid={invalid} aria-describedby={describedBy}>
+          <SelectValue placeholder={t("operations.telemetry.sources.storeCredentialPlaceholder", { credential: storeName })} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={storeProvider ?? ""}>
+            {storeName}
+            <span className="ml-2 text-muted-foreground">{t("operations.telemetry.sources.storeCredentialWorkspace")}</span>
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    );
+  } else if (field.type === "cloud_account" && accounts.length === 0) {
     control = (
       <div id={id} className="rounded-md border border-dashed border-border px-3 py-2.5 text-caption" aria-describedby={describedBy}>
         <p className="text-muted-foreground">{f("noCloudAccount", { provider: providerName })}</p>
@@ -173,7 +204,14 @@ export function DataSourceFieldInput({
 
   return (
     <div className="space-y-1.5" data-ds-field={field.key}>
-      <Label id={ids.label} htmlFor={headers || (field.type === "cloud_account" && accounts.length === 0) ? undefined : id}>
+      <Label
+        id={ids.label}
+        htmlFor={
+          headers || (field.type === "cloud_account" && accounts.length === 0) || (field.type === "store_credential" && storeSaved === false)
+            ? undefined
+            : id
+        }
+      >
         {label}
         {!field.required && <span className="ml-1 font-normal text-muted-foreground">({f("optional")})</span>}
       </Label>

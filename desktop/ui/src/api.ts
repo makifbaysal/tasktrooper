@@ -3308,13 +3308,15 @@ export interface NewLinkRequest {
 
 export type DataSourceCapability = "metrics" | "logs" | "traces" | "errors" | "crashes" | "rum" | "queues";
 
-export type DataSourceFieldType = "text" | "url" | "secret" | "select" | "headers" | "cloud_account";
+export type DataSourceFieldType = "text" | "url" | "secret" | "select" | "headers" | "cloud_account" | "store_credential";
 
 /** One entry of a kind's config form. `show_when` shows the field only while
  * every named field holds the given value; `required` applies only then. A
  * `secret` field (and every `secret`/`headers` type) goes in `secrets`. A
  * `cloud_account` field holds the id of a connected cloud account of
- * `provider`. */
+ * `provider`; a `store_credential` field names the workspace's store
+ * credential of `provider` (`google_play`, `asc`), and its value is that
+ * provider. `default` is what a shown field takes when none is sent. */
 export interface DataSourceField {
   key: string;
   label: string;
@@ -3325,7 +3327,8 @@ export interface DataSourceField {
   placeholder: string;
   show_when: Record<string, string>;
   secret: boolean;
-  provider?: CloudProviderKind;
+  provider?: CloudProviderKind | StoreCredentialProvider;
+  default?: string;
 }
 
 export interface DataSourceKindInfo {
@@ -3424,12 +3427,19 @@ export interface ObservabilityRecipe {
     messaging_system: string;
     resource_kind: string;
     resource_params: Record<string, string>;
+    /** The linked store app's platform (`ios`, `android`) the recipe reads. */
+    store_platform?: string;
+    store_params?: Record<string, string>;
   };
   detect: { metric: string };
   params: string[] | null;
+  /** A param's value when a binding leaves it empty (Datadog's `metric_prefix`). */
+  defaults?: Record<string, string>;
   signals: Record<string, string>;
-  /** Instant per-entity tables; only `queues` is known (the Queues view). */
-  tables?: { queues?: RecipeTable };
+  /** Instant per-entity tables by name: `queues` (Queues), `crashes` and
+   * `signatures` (Crashes), `endpoints` (Endpoints), `pages`, `referrers`,
+   * `countries`, `devices` (Pages). */
+  tables?: Partial<Record<string, RecipeTable>>;
   origin: "catalog" | "user";
 }
 
@@ -3486,11 +3496,27 @@ export interface ComponentSignal {
   suggestions: SignalBinding[];
 }
 
+/** A data source the detector would read the component through had one of
+ * `kind` existed: `POST /v1/data-sources {kind, config}` creates it (a store
+ * kind's credential must be saved first), and the next suggest offers
+ * `recipe_id` for `signals` with `params`. */
+export interface DataSourceOffer {
+  kind: string;
+  config: Record<string, string>;
+  recipe_id: string;
+  params: Record<string, string>;
+  signals: string[];
+  /** The workspace store credential the source reads (`google_play`, `asc`). */
+  store_credential?: string;
+}
+
 export interface ComponentSignals {
   component_id: string;
   role: ComponentRole;
   environment: DeployEnvironment;
   signals: ComponentSignal[];
+  /** Filled by a suggest only; `[]` (or absent) on every other answer. */
+  source_offers?: DataSourceOffer[];
 }
 
 /** A recipe with its params, or a query of the source's own language. */
@@ -3608,6 +3634,105 @@ export interface ComponentQueues {
   queues: QueueTable[];
 }
 
+/** The web tables GET /v1/components/{id}/web reads, one per request. */
+export type WebTableName = "pages" | "referrers" | "countries" | "devices";
+
+export const WEB_TABLES: WebTableName[] = ["pages", "referrers", "countries", "devices"];
+
+/** One recipe table a component's confirmed bindings read, as it is now:
+ * GET /v1/components/{id}/endpoints (`endpoints`, from `http.*` bindings),
+ * …/web (`pages`, `referrers`, `countries` or `devices`, from `web.*`),
+ * …/crashes (`crashes`, `signatures`, from `mobile.*` and `errors.issues`).
+ * `signal_binding_id` is the first binding, in catalog order, of those that
+ * read the table; `params` the ones it read with. A failed table has `error`
+ * (as QueueTableErrorCode) and no rows; the others stand. */
+export interface ComponentTable {
+  signal_binding_id?: string;
+  data_source_id: string;
+  data_source_name: string;
+  recipe_id: string;
+  table: string;
+  params?: Record<string, string>;
+  columns: TableColumn[];
+  rows: Array<Record<string, string | number | null>>;
+  truncated: boolean;
+  error: { code: QueueTableErrorCode | string; message: string } | null;
+}
+
+export interface ComponentTables {
+  component_id: string;
+  environment: DeployEnvironment;
+  tables: ComponentTable[];
+}
+
+// Traces, read through a component's confirmed `traces.spans` binding.
+// Mirrors server/internal/domain/logs_traces.go's JSON tags.
+
+export type SpanStatus = "unset" | "ok" | "error";
+
+/** One operation of a trace. `attributes` hold the span's own and its
+ * resource's, the latter prefixed `resource.`. */
+export interface TraceSpan {
+  id: string;
+  parent_id?: string;
+  service: string;
+  name: string;
+  kind?: string;
+  start: string;
+  duration_ms: number;
+  status: SpanStatus;
+  status_message?: string;
+  attributes: Record<string, string> | null;
+}
+
+/** Every span a source holds for one trace id, by start time. */
+export interface Trace {
+  id: string;
+  spans: TraceSpan[];
+  truncated: boolean;
+}
+
+/** One row of a trace search; `span_count` is the spans the search matched. */
+export interface TraceSummary {
+  id: string;
+  root_service: string;
+  root_name: string;
+  start: string;
+  duration_ms: number;
+  span_count: number;
+  error: boolean;
+}
+
+/** `bound: false` → no confirmed traces.spans binding; `error` is why the
+ * binding could not be read (as a series `error.code`), with no traces. */
+export interface ComponentTraces {
+  component_id: string;
+  environment: DeployEnvironment;
+  bound: boolean;
+  data_source_id: string | null;
+  traces: TraceSummary[];
+  error: SignalSeriesError | null;
+}
+
+export interface TraceView {
+  trace: Trace;
+  component_id: string;
+  data_source_id: string;
+}
+
+/** since/until unix ms; at most 7 days apart. `limit` 1–100 (default 20). */
+export interface ComponentTracesQuery {
+  env: DeployEnvironment;
+  since?: number;
+  until?: number;
+  minDurationMs?: number;
+  limit?: number;
+}
+
+export const OPS_TRACES_MAX_WINDOW_MS = 7 * 24 * 3_600_000;
+
+export const OPS_TRACES_MAX_LIMIT = 100;
+
 // ---------------------------------------------------------------------------
 // Alert rules (migration 189): a condition over one of a component's signals,
 // or over a data source query of its own, that the server evaluates on a
@@ -3669,6 +3794,8 @@ export interface AlertRule {
   state_since: string;
   last_value?: number | null;
   last_evaluated_at?: string | null;
+  /** `ai`: proposed by the release engineer's signal job, saved disabled. */
+  created_by?: "human" | "ai";
   created_at: string;
   updated_at: string;
 }
@@ -3707,6 +3834,209 @@ export interface AlertBacktest {
   fires: AlertBacktestFire[];
   series: Array<{ name: string; points: MetricPoint[] }>;
   step_seconds: number;
+}
+
+// ---------------------------------------------------------------------------
+// Error definitions and AI suggestions (migration 191): what one kind of
+// runtime error means and what it sets off, the release engineer's
+// suggestion jobs, and a component's observability readiness. Mirrors
+// server/internal/domain/error_definition.go, ai_job.go and
+// observability_readiness.go.
+// ---------------------------------------------------------------------------
+
+export type ErrorCategory = "bug" | "expected" | "dependency" | "infrastructure" | "user_error";
+
+export const ERROR_CATEGORIES: ErrorCategory[] = ["bug", "expected", "dependency", "infrastructure", "user_error"];
+
+/** `ignore` hides matching groups from the Errors inbox; `alert`/`incident`
+ * open an issue past the threshold; `task` opens one board task per group. */
+export type ErrorAction = "none" | "ignore" | "alert" | "incident" | "task";
+
+export const ERROR_ACTIONS: ErrorAction[] = ["none", "ignore", "alert", "incident", "task"];
+
+export type ErrorDefinitionSource = "human" | "ai" | "code";
+
+export type ErrorDefinitionStatus = "active" | "suggested" | "dismissed";
+
+export const ERROR_DEFINITION_STATUSES: ErrorDefinitionStatus[] = ["active", "suggested", "dismissed"];
+
+/** Every field that is set must hold. `message_regex` is RE2. */
+export interface ErrorMatch {
+  fingerprint?: string;
+  message_regex?: string;
+  exception_type?: string;
+  /** `METHOD /path`; a trailing `*`, a `*`, `:id` or `{id}` segment are wildcards. */
+  endpoint?: string;
+  status?: number;
+  attributes?: Record<string, string>;
+}
+
+export interface ErrorAlertThreshold {
+  count: number;
+  window_seconds: number;
+}
+
+export interface ErrorDefinition {
+  id: string;
+  repository_id: string;
+  /** null covers every component of the repository. */
+  component_id: string | null;
+  name: string;
+  match: ErrorMatch;
+  category: ErrorCategory;
+  severity: IncidentSeverity;
+  action: ErrorAction;
+  alert_threshold: ErrorAlertThreshold | null;
+  source: ErrorDefinitionSource;
+  status: ErrorDefinitionStatus;
+  rationale: string;
+  evidence: string[] | null;
+  task_id: string | null;
+  firing_since: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** POST takes `repository_id` and `name`, `match`, `category`; PATCH any of
+ * them (absent keeps; `component_id: ""` makes it repository-wide,
+ * `alert_threshold: null` clears it). */
+export interface ErrorDefinitionInput {
+  repository_id?: string;
+  component_id?: string;
+  name?: string;
+  match?: ErrorMatch;
+  category?: ErrorCategory;
+  severity?: IncidentSeverity;
+  action?: ErrorAction;
+  alert_threshold?: ErrorAlertThreshold | null;
+  rationale?: string;
+  evidence?: string[];
+}
+
+/** The active definition an error group matches, as the inbox shows it. */
+export type ErrorDefinitionRef = Pick<ErrorDefinition, "id" | "name" | "category" | "severity" | "action">;
+
+export type AIJobKind = "define_errors" | "error_catalog" | "map_signals";
+
+export type AIJobStatus = "running" | "done" | "failed";
+
+export interface AIJobItem {
+  kind: "error_definition" | "signal_binding" | "alert_rule";
+  id: string;
+  name: string;
+  rationale?: string;
+}
+
+/** One chat turn with the release engineer; `created` lists only what was newly stored. */
+export interface AIJob {
+  id: string;
+  kind: AIJobKind;
+  repository_id: string;
+  component_id: string | null;
+  environment: DeployEnvironment;
+  status: AIJobStatus;
+  session_id: string | null;
+  result_summary: string;
+  error: string;
+  created: AIJobItem[] | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+/** A running job of the same kind and scope is answered instead of a new one. */
+export interface AIJobStarted {
+  job_id: string;
+  job: AIJob;
+}
+
+export type ErrorSuggestMode = "errors" | "code";
+
+export interface ErrorSuggestRequest {
+  repository_id: string;
+  component_id?: string;
+  environment?: DeployEnvironment;
+  mode?: ErrorSuggestMode;
+}
+
+/** The error-definition and AI-job routes' coded refusals: 409 when no
+ * enabled agent holds the release role for the component's area, 503 when
+ * the server has no chat sessions or no board. */
+export type AIJobRefusal = "no_release_engineer" | "unavailable";
+
+export function aiJobRefusal(e: unknown): AIJobRefusal | null {
+  if (!(e instanceof ApiError)) return null;
+  if (e.status === 409 && e.type === "no_release_engineer") return "no_release_engineer";
+  if (e.status === 503 && e.type === "unavailable") return "unavailable";
+  return null;
+}
+
+/** Accept/dismiss of a definition that is not a suggestion. */
+export function isNotSuggestedError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 && e.type === "not_suggested";
+}
+
+export type ObservabilityGoal = "metrics" | "traces" | "logs" | "rum" | "crash" | "queues";
+
+export const OBSERVABILITY_GOALS: ObservabilityGoal[] = ["metrics", "traces", "logs", "rum", "crash", "queues"];
+
+export type ObservabilityTarget = "own_cloud" | "self_hosted" | "otlp_endpoint";
+
+export const OBSERVABILITY_TARGETS: ObservabilityTarget[] = ["own_cloud", "self_hosted", "otlp_endpoint"];
+
+export type ObservabilityInstrumentation =
+  | "otel"
+  | "sentry"
+  | "datadog"
+  | "prometheus"
+  | "posthog"
+  | "crashlytics"
+  | "newrelic"
+  | "web_vitals";
+
+export const OBSERVABILITY_INSTRUMENTATION: ObservabilityInstrumentation[] = [
+  "otel",
+  "sentry",
+  "datadog",
+  "prometheus",
+  "posthog",
+  "crashlytics",
+  "newrelic",
+  "web_vitals",
+];
+
+/** A gap the readiness read found; the UI words the code. */
+export type ReadinessCode =
+  | "golden_unbound"
+  | "golden_partly_unbound"
+  | "no_tracing_sdk"
+  | "no_log_source"
+  | "no_rum"
+  | "no_crash_sdk"
+  | "queues_unbound";
+
+export interface ObservabilityReadiness {
+  component_id: string;
+  environment: DeployEnvironment;
+  role: ComponentRole;
+  /** The cloud of the environment's confirmed, bound binding; "" without one. */
+  provider: CloudProviderKind | "";
+  signals: Array<{ signal: string; status: ComponentSignalStatus; golden: boolean }> | null;
+  instrumentation: Partial<Record<ObservabilityInstrumentation, boolean>>;
+  suggestions: Array<{ goal: ObservabilityGoal; code: ReadinessCode | string }> | null;
+}
+
+export interface EnableObservabilityRequest {
+  environment?: DeployEnvironment;
+  goals: ObservabilityGoal[];
+  target: ObservabilityTarget;
+  /** http/https; required with `otlp_endpoint`, refused otherwise. */
+  otlp_endpoint?: string;
+}
+
+export interface EnableObservabilityResult {
+  task_id: string;
+  task_key: string;
 }
 
 function envQuery(env: DeployEnvironment): string {
@@ -3943,31 +4273,47 @@ export interface RuntimeErrorGroup {
 
 export type OpsUnavailableCode = "not_connected" | "cloud_auth" | "provider_error" | "timeout";
 
-/** One environment the fan-out could not read; the rest of the answer stands. */
+/** One environment the fan-out could not read; the rest of the answer stands.
+ * A read through a component's data source binding names that source, with
+ * the zero `environment_id`. */
 export interface OpsUnavailable {
   component_id: string;
   environment_id: string;
+  data_source_id?: string | null;
   code: OpsUnavailableCode;
   message: string;
 }
 
+/** The environment id a binding-read row carries: it belongs to no environment. */
+export const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
+/** A group read through a component's `errors.issues` binding carries its
+ * `data_source_id`, the zero `environment_id` and the source's kind as
+ * `provider` (`sentry`). */
 export interface OpsErrorGroup extends RuntimeErrorGroup {
   component_id: string;
   repository_id: string;
   environment_id: string;
-  provider: CloudProviderKind;
+  data_source_id?: string | null;
+  provider: CloudProviderKind | string;
+  /** The active error definition the group matches; absent from an older server. */
+  definition?: ErrorDefinitionRef | null;
 }
 
-/** `truncated`: more environments matched than one call reads (50). */
+/** `truncated`: more environments matched than one call reads (50).
+ * `ignored_count`: groups an `ignore` definition left out, present only when non-zero. */
 export interface OpsErrors {
   groups: OpsErrorGroup[];
   unavailable: OpsUnavailable[];
   truncated: boolean;
+  ignored_count?: number;
 }
 
+/** An entry read through a `logs.lines` binding carries `data_source_id` and the zero `environment_id`. */
 export interface OpsLogEntry extends RuntimeLogEntry {
   component_id: string;
   environment_id: string;
+  data_source_id?: string | null;
 }
 
 /** `truncated`: the window holds more than was returned. */
@@ -3982,6 +4328,8 @@ export interface OpsErrorsQuery {
   /** RFC3339; the server defaults to 24 h ago and clamps to 30 days back. */
   since?: string;
   componentIds?: string[];
+  /** Also the groups an `ignore` definition hides. */
+  includeIgnored?: boolean;
 }
 
 export interface OpsLogsQuery {
@@ -6621,7 +6969,14 @@ export const api = {
 
   listOpsErrors: (query: OpsErrorsQuery = {}) =>
     request<OpsErrors>(
-      `/v1/operations/errors${opsQueryString([["env", query.env], ["since", query.since]], query.componentIds)}`,
+      `/v1/operations/errors${opsQueryString(
+        [
+          ["env", query.env],
+          ["since", query.since],
+          ["include_ignored", query.includeIgnored ? "1" : undefined],
+        ],
+        query.componentIds,
+      )}`,
       {},
       OPS_ERRORS_TIMEOUT_MS,
     ),
@@ -6759,6 +7114,64 @@ export const api = {
       OPS_SIGNALS_TIMEOUT_MS,
     ),
 
+  // Each table stands alone, as the queues route's: a failed one carries `error`.
+  getComponentEndpoints: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentTables>(
+      `/v1/components/${encodeURIComponent(componentId)}/endpoints${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  getComponentWeb: (componentId: string, env: DeployEnvironment, table: WebTableName) =>
+    request<ComponentTables>(
+      `/v1/components/${encodeURIComponent(componentId)}/web${envQuery(env)}&table=${encodeURIComponent(table)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  getComponentCrashes: (componentId: string, env: DeployEnvironment) =>
+    request<ComponentTables>(
+      `/v1/components/${encodeURIComponent(componentId)}/crashes${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  // A binding that cannot be read answers 200 with `error`; 400 `fields`
+  // for a bad window, limit or min_duration_ms.
+  getComponentTraces: (componentId: string, query: ComponentTracesQuery) => {
+    const qs = new URLSearchParams({ env: query.env });
+    if (query.since !== undefined) qs.set("since", new Date(query.since).toISOString());
+    if (query.until !== undefined) qs.set("until", new Date(query.until).toISOString());
+    if (query.minDurationMs) qs.set("min_duration_ms", String(Math.max(0, Math.round(query.minDurationMs))));
+    if (query.limit) qs.set("limit", String(query.limit));
+    return request<ComponentTraces>(
+      `/v1/components/${encodeURIComponent(componentId)}/traces?${qs.toString()}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    );
+  },
+
+  // 422 code "unbound" without a confirmed traces.spans binding, 404 for a
+  // trace the source does not hold, 502 "upstream", 504 "timeout".
+  getComponentTrace: (componentId: string, traceId: string, env: DeployEnvironment) =>
+    request<TraceView>(
+      `/v1/components/${encodeURIComponent(componentId)}/traces/${encodeURIComponent(traceId)}${envQuery(env)}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    ),
+
+  // Without componentId the id is looked up in every traces source the
+  // environment's bindings read; 422 "unbound" when no component has one.
+  getOperationsTrace: (traceId: string, opts: { env: DeployEnvironment; componentId?: string }) => {
+    const qs = new URLSearchParams({ env: opts.env });
+    if (opts.componentId) qs.set("component_id", opts.componentId);
+    return request<TraceView>(
+      `/v1/operations/traces/${encodeURIComponent(traceId)}?${qs.toString()}`,
+      {},
+      OPS_SIGNALS_TIMEOUT_MS,
+    );
+  },
+
   // ---- Alert rules ---------------------------------------------
   // A refused write answers 400 with `fields` (see dataSourceFieldErrors).
 
@@ -6793,6 +7206,50 @@ export const api = {
     }),
 
   listNotificationChannels: () => request<{ channels: NotificationChannelInfo[] | null }>("/v1/notification-channels"),
+
+  // ---- Error definitions and AI suggestions ---------------------
+  // A refused write answers 400 with `fields` (see dataSourceFieldErrors);
+  // the AI routes' 409/503 codes are read by aiJobRefusal.
+
+  listErrorDefinitions: (opts: { repositoryId?: string; componentId?: string; status?: ErrorDefinitionStatus } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.repositoryId) qs.set("repository_id", opts.repositoryId);
+    if (opts.componentId) qs.set("component_id", opts.componentId);
+    if (opts.status) qs.set("status", opts.status);
+    const suffix = qs.toString();
+    return request<{ definitions: ErrorDefinition[] | null }>(`/v1/error-definitions${suffix ? `?${suffix}` : ""}`);
+  },
+
+  createErrorDefinition: (body: ErrorDefinitionInput) =>
+    request<ErrorDefinition>("/v1/error-definitions", { method: "POST", body: JSON.stringify(body) }),
+
+  updateErrorDefinition: (id: string, body: ErrorDefinitionInput) =>
+    request<ErrorDefinition>(`/v1/error-definitions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  deleteErrorDefinition: (id: string) => request<void>(`/v1/error-definitions/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  acceptErrorDefinition: (id: string) =>
+    request<ErrorDefinition>(`/v1/error-definitions/${encodeURIComponent(id)}/accept`, { method: "POST" }),
+
+  dismissErrorDefinition: (id: string) =>
+    request<ErrorDefinition>(`/v1/error-definitions/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
+
+  suggestErrorDefinitions: (body: ErrorSuggestRequest) =>
+    request<AIJobStarted>("/v1/error-definitions/suggest", { method: "POST", body: JSON.stringify(body) }),
+
+  suggestComponentSignalsAI: (componentId: string, env: DeployEnvironment) =>
+    request<AIJobStarted>(`/v1/components/${encodeURIComponent(componentId)}/signals/ai-suggest${envQuery(env)}`, { method: "POST" }),
+
+  getAIJob: (id: string) => request<AIJob>(`/v1/ai-jobs/${encodeURIComponent(id)}`),
+
+  getComponentObservability: (componentId: string, env: DeployEnvironment) =>
+    request<ObservabilityReadiness>(`/v1/components/${encodeURIComponent(componentId)}/observability${envQuery(env)}`),
+
+  enableComponentObservability: (componentId: string, body: EnableObservabilityRequest) =>
+    request<EnableObservabilityResult>(`/v1/components/${encodeURIComponent(componentId)}/observability/enable`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   // ---- Releases & delivery --------------------------------------
 

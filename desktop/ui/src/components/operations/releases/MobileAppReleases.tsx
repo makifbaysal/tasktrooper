@@ -10,7 +10,7 @@ import { ReleasePipeline } from "@/components/operations/releases/ReleasePipelin
 import { ReleaseSection } from "@/components/operations/releases/ReleaseSection";
 import { TestBuildsTable } from "@/components/operations/releases/TestBuildsTable";
 import { TestGroupsTable } from "@/components/operations/releases/TestGroupsTable";
-import { useOpsHref } from "@/components/operations/shell/OpsContext";
+import { useOpsHref, useOptionalOpsContext } from "@/components/operations/shell/OpsContext";
 import { hasStoreChannels, isStoreAppLinked } from "@/components/operations/StoreReleaseControls";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
@@ -37,6 +37,7 @@ export function MobileAppReleases({ app, issuesTarget, credentialMissing, onChan
   const { t, lang } = useI18n();
   const r = (key: string, params?: Record<string, string | number>) => t(`operations.mobileReleases.${key}`, params);
   const href = useOpsHref();
+  const env = useOptionalOpsContext()?.env;
   const linked = isStoreAppLinked(app);
   const channelsReady = hasStoreChannels(app);
   const { tracks, readAt, stale, loading, error, refresh } = useStoreTracks(app);
@@ -165,7 +166,7 @@ export function MobileAppReleases({ app, issuesTarget, credentialMissing, onChan
       )}
 
       <ReleaseSection title={r("vitals.title")}>
-        <MobileVitals />
+        <MobileVitals componentId={issuesTarget.entityId} env={env} />
       </ReleaseSection>
 
       {channelsReady && <TestBuildsTable app={app} groups={testGroups.groups} groupsError={testGroups.error} />}

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { AlertRule } from "@/api";
+import { AIBadge } from "@/components/operations/ai/AIBadge";
 import { conditionText, formatThreshold } from "@/components/operations/alertRules/alertRules";
 import { AlertStatePill } from "@/components/operations/alertRules/AlertStatePill";
 import { entityPath } from "@/components/operations/console/opsEntities";
@@ -109,9 +110,12 @@ function RuleRow({ rule, entity, unit, href, selected, showEntity, busy, onToggl
         <AlertStatePill state={rule.state} disabled={!rule.enabled} />
       </td>
       <td className={cn(TD, "max-w-64")}>
-        <Link to={href} className="block truncate font-medium text-foreground hover:underline focus-visible:underline focus-visible:outline-none" title={rule.name}>
-          {rule.name}
-        </Link>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Link to={href} className="block min-w-0 truncate font-medium text-foreground hover:underline focus-visible:underline focus-visible:outline-none" title={rule.name}>
+            {rule.name}
+          </Link>
+          {rule.created_by === "ai" && <AIBadge title={t("operations.aiJob.ruleTitle")} className="shrink-0" />}
+        </div>
       </td>
       {showEntity && (
         <td className={cn(TD, "max-w-48")}>

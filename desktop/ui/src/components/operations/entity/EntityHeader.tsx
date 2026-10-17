@@ -4,6 +4,7 @@ import type { DeployEnvironment, EnvironmentSummary, Release } from "@/api";
 import { HealthSquare, healthReasonText } from "@/components/operations/console/HealthSquare";
 import { releaseLabel, releaseTime, repositoryDeployPath } from "@/components/operations/console/opsEntities";
 import type { OpsHealth } from "@/components/operations/console/opsStatus";
+import { EnableObservabilityButton } from "@/components/operations/observability/EnableObservabilityButton";
 import type { OpsEntity } from "@/components/operations/shell/useOpsEntities";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { RoleBadge } from "@/components/projects/model/RoleBadge";
@@ -75,6 +76,7 @@ export function EntityHeader({ entity, env, environment, health, lastRelease }: 
           </span>
         </div>
       </div>
+      <EnableObservabilityButton entity={entity} env={env} className="shrink-0" />
     </div>
   );
 }

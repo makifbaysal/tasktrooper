@@ -1,3 +1,6 @@
+import { aiJob, errorDefinitions, observability } from "@/locales/en/opsDefinitions";
+import { telemetry, telemetryKinds } from "@/locales/en/opsTelemetry";
+
 // English dictionary for the `operations` namespace: the cross-repository
 // /operations console — its shell (nav, top bar), the entity explorer, the
 // entity pages, Data sources, and the store vocabulary the board shares.
@@ -210,10 +213,14 @@ export const operations = {
     },
     tabs: {
       summary: "Summary",
+      endpoints: "Endpoints",
+      pages: "Pages",
+      crashes: "Crashes",
       queues: "Queues",
       releases: "Releases",
       errors: "Errors",
       logs: "Logs",
+      traces: "Traces",
       changes: "Changes",
       issues: "Issues",
       alerts: "Alerts",
@@ -1049,7 +1056,7 @@ export const operations = {
     listLabel: "Data sources",
     empty: {
       title: "Connect where your metrics already live",
-      description: "A data source is a system that already collects your services' telemetry, such as Prometheus, Loki or a cloud provider's monitoring, or the message broker itself. TaskTrooper reads from it when it needs to and keeps no copy. Prometheus-compatible servers, Google Cloud Monitoring, Amazon CloudWatch, Kafka, RabbitMQ and NATS can be connected today; more kinds will follow.",
+      description: "A data source is a system that already collects your services' telemetry, such as Prometheus, Loki or a cloud provider's monitoring, or the message broker itself. TaskTrooper reads from it when it needs to and keeps no copy. Metrics stores (Prometheus-compatible servers, Google Cloud Monitoring, Amazon CloudWatch, Datadog, New Relic), logs and traces (Loki, Elasticsearch, Tempo), crash and error trackers (Google Play vitals, App Store Connect, Sentry), web analytics (PostHog, Google Analytics 4, Plausible) and message brokers (Kafka, RabbitMQ, NATS) can be connected.",
     },
     columns: {
       name: "Name",
@@ -1097,7 +1104,7 @@ export const operations = {
       editTitle: "Edit {name}",
       pickKind: "What kind of source is it?",
       noKinds: "This version has no data source kinds available.",
-      moreKindsLater: "More kinds of sources, such as logs and error trackers, will follow.",
+      moreKindsLater: "A kind you need is missing? New kinds are added to TaskTrooper's catalog with each release.",
       continue: "Continue",
       back: "Back",
       save: "Save and check",
@@ -1378,6 +1385,7 @@ export const operations = {
           },
         },
       },
+      ...telemetryKinds,
     },
     fields: {
       url: {
@@ -1594,6 +1602,12 @@ export const operations = {
     mobileCrashRate: "Crash rate",
     infraRestarts: "Restarts",
     infraThrottles: "Throttled requests",
+    logsLines: "Log lines",
+    tracesSpans: "Traces",
+    errorsIssues: "Error issues",
+    webVisitors: "Visitors",
+    webFcp: "First contentful paint",
+    webFcpShort: "FCP",
   },
   units: {
     percent: "%",
@@ -2423,6 +2437,10 @@ export const operations = {
       timeout: "The server didn't answer in time. Try again.",
     },
   },
+  telemetry,
+  errorDefinitions,
+  aiJob,
+  observability,
 };
 
 export type OperationsDict = typeof operations;

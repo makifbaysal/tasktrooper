@@ -164,15 +164,15 @@ describe("OpsEntityPage", () => {
 
   it("gives each role its own sections", async () => {
     renderAt("/operations/entity/c-api/summary");
-    expect(await sections("api")).toEqual(["Summary", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
+    expect(await sections("api")).toEqual(["Summary", "Endpoints", "Errors", "Logs", "Traces", "Changes", "Issues", "Alerts", "Signals"]);
   });
 
-  it("adds Queues for a worker and Releases for a mobile app", async () => {
+  it("adds Queues for a worker, and Crashes and Releases for a mobile app", async () => {
     const worker = renderAt("/operations/entity/c-queue/summary");
-    expect(await sections("mailer")).toEqual(["Summary", "Queues", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
+    expect(await sections("mailer")).toEqual(["Summary", "Queues", "Errors", "Logs", "Traces", "Changes", "Issues", "Alerts", "Signals"]);
     worker.unmount();
     const mobile = renderAt("/operations/entity/c-ios/summary");
-    expect(await sections("ios")).toEqual(["Summary", "Releases", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
+    expect(await sections("ios")).toEqual(["Summary", "Crashes", "Releases", "Errors", "Logs", "Changes", "Issues", "Alerts", "Signals"]);
     mobile.unmount();
     renderAt("/operations/entity/c-lib/summary");
     expect(await sections("ui-kit")).toEqual(["Summary", "Changes", "Issues", "Alerts"]);

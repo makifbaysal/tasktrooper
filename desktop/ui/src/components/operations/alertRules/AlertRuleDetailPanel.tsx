@@ -19,6 +19,7 @@ import {
 import { AlertStatePill } from "@/components/operations/alertRules/AlertStatePill";
 import { signalChartSeries } from "@/components/operations/charts/signalChart";
 import { TimeSeriesChart, type ChartSeries } from "@/components/operations/charts/TimeSeriesChart";
+import { AIBadge } from "@/components/operations/ai/AIBadge";
 import { DetailFacts, DetailPanel, DetailSection, type DetailFact } from "@/components/operations/console/DetailPanel";
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { signalFormatter, signalLabel } from "@/components/operations/console/signalFormat";
@@ -81,6 +82,7 @@ export function AlertRuleDetailPanel({ ruleId, rule, loading, entityOf, unitOf, 
             <Badge variant="outline" className="px-2 py-0">
               <IssueSeverity severity={rule.severity} className="text-micro" />
             </Badge>
+            {rule.created_by === "ai" && <AIBadge title={t("operations.aiJob.ruleTitle")} />}
           </>
         ) : undefined
       }

@@ -1,8 +1,9 @@
-import { ChevronDown, ChevronRight, Copy, ExternalLink, ListPlus } from "lucide-react";
+import { BookMarked, BookPlus, ChevronDown, ChevronRight, Copy, ExternalLink, ListPlus } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { OpsErrorGroup } from "@/api";
-import { groupKey } from "@/components/operations/errors/errorGroups";
+import { DefinitionChip } from "@/components/operations/errorDefinitions/DefinitionBadges";
+import { canCreateTask, groupKey, isBindingRow, providerLabel } from "@/components/operations/errors/errorGroups";
 import { SeenLane } from "@/components/operations/errors/SeenLane";
 import type { EnvironmentRef } from "@/components/operations/query/opsQuery";
 import type { OpsEntity } from "@/components/operations/shell/useOpsEntities";
@@ -28,6 +29,10 @@ interface ErrorGroupTableProps {
   creatingKey?: string;
   onCreateTask: (group: OpsErrorGroup) => void;
   onCopyFingerprint: (group: OpsErrorGroup) => void;
+  /** Where a group's error definition is shown; with it, the chip is a link. */
+  definitionHref?: (group: OpsErrorGroup) => string | undefined;
+  /** Opens the definition editor for a group no definition covers yet. */
+  onDefine?: (group: OpsErrorGroup) => void;
 }
 
 /** The inbox's dense list: one row per error group, newest problems first. */
@@ -43,6 +48,8 @@ export function ErrorGroupTable({
   creatingKey,
   onCreateTask,
   onCopyFingerprint,
+  definitionHref,
+  onDefine,
 }: ErrorGroupTableProps) {
   const { t, lang } = useI18n();
   const e = (key: string, params?: Record<string, string | number>) => t(`operations.errorsInbox.${key}`, params);
@@ -71,7 +78,7 @@ export function ErrorGroupTable({
               <th scope="col" className={cn(TH, "text-right")}>{e("columns.occurrences")}</th>
               <th scope="col" className={TH}>{e("columns.lastSeen")}</th>
               <th scope="col" className={TH}>{e("columns.firstSeen")}</th>
-              <th scope="col" className={cn(TH, "w-28")}>
+              <th scope="col" className={cn(TH, onDefine ? "w-36" : "w-28")}>
                 <span className="sr-only">{e("columns.actions")}</span>
               </th>
             </tr>
@@ -83,13 +90,21 @@ export function ErrorGroupTable({
               const selected = key === selectedKey;
               const ref = environments.get(g.environment_id);
               const entity = ref?.entity ?? entities.get(g.component_id);
-              const provider = t(`cloud.providers.${g.provider}`);
+              const provider = providerLabel(t, g.provider);
+              const binding = isBindingRow(g);
+              const taskable = canCreateTask(g);
               const message = g.message || e("noMessage");
+              const defHref = g.definition ? definitionHref?.(g) : undefined;
+              const ignored = g.definition?.action === "ignore";
               return (
                 <tr
                   key={key}
                   data-state={selected ? "selected" : undefined}
-                  className={cn("border-b border-border/60 last:border-0 hover:bg-muted/30", selected && "bg-info/5 hover:bg-info/10")}
+                  className={cn(
+                    "border-b border-border/60 last:border-0 hover:bg-muted/30",
+                    selected && "bg-info/5 hover:bg-info/10",
+                    ignored && "text-muted-foreground",
+                  )}
                 >
                   <td className={TD}>
                     {g.new && (
@@ -123,7 +138,27 @@ export function ErrorGroupTable({
                         >
                           {message}
                         </Link>
-                        {g.source && <p className="truncate font-mono text-micro text-muted-foreground">{g.source}</p>}
+                        {(binding || g.source) && (
+                          <p className="flex min-w-0 items-center gap-1.5 text-micro text-muted-foreground">
+                            {binding && (
+                              <Badge variant="outline" className="shrink-0 rounded-[4px] px-1.5 py-0 text-micro font-medium" title={t("operations.telemetry.errors.fromProvider", { provider })}>
+                                {provider}
+                              </Badge>
+                            )}
+                            {g.source && <span className="truncate font-mono">{g.source}</span>}
+                          </p>
+                        )}
+                        {g.definition && (
+                          <p className="mt-0.5 flex min-w-0">
+                            {defHref ? (
+                              <Link to={defHref} className="min-w-0 rounded-sm hover:underline focus-visible:underline focus-visible:outline-none">
+                                <DefinitionChip definition={g.definition} />
+                              </Link>
+                            ) : (
+                              <DefinitionChip definition={g.definition} />
+                            )}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -178,6 +213,27 @@ export function ErrorGroupTable({
                           </a>
                         </Button>
                       )}
+                      {onDefine &&
+                        (defHref ? (
+                          <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                            <Link to={defHref} aria-label={t("operations.errorDefinitions.inbox.definitionLabel")} title={t("operations.errorDefinitions.inbox.definitionLabel")}>
+                              <BookMarked aria-hidden />
+                            </Link>
+                          </Button>
+                        ) : (
+                          !g.definition && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              aria-label={t("operations.errorDefinitions.inbox.defineLabel")}
+                              title={t("operations.errorDefinitions.inbox.defineLabel")}
+                              onClick={() => onDefine(g)}
+                            >
+                              <BookPlus aria-hidden />
+                            </Button>
+                          )
+                        ))}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -192,9 +248,9 @@ export function ErrorGroupTable({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        aria-label={e("createTask")}
-                        title={e("createTask")}
-                        disabled={creatingKey !== undefined}
+                        aria-label={taskable ? e("createTask") : t("operations.telemetry.errors.noTask", { provider })}
+                        title={taskable ? e("createTask") : t("operations.telemetry.errors.noTask", { provider })}
+                        disabled={creatingKey !== undefined || !taskable}
                         onClick={() => onCreateTask(g)}
                       >
                         {creatingKey === key ? <Spinner size="sm" /> : <ListPlus aria-hidden />}

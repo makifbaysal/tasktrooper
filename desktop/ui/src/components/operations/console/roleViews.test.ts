@@ -23,11 +23,14 @@ describe("ROLE_VIEWS", () => {
   });
 
   it("gives every running role the base sections and its own extra", () => {
-    expect(ROLE_VIEWS.backend.tabs).toEqual(["summary", "errors", "logs", "changes", "issues", "alerts", "signals"]);
-    expect(ROLE_VIEWS.frontend.tabs).toEqual(["summary", "errors", "logs", "changes", "issues", "alerts", "signals"]);
+    expect(ROLE_VIEWS.backend.tabs).toEqual(["summary", "endpoints", "errors", "logs", "traces", "changes", "issues", "alerts", "signals"]);
+    expect(ROLE_VIEWS.frontend.tabs).toEqual(["summary", "pages", "errors", "logs", "traces", "changes", "issues", "alerts", "signals"]);
     expect(ROLE_VIEWS.desktop.tabs).toEqual(["summary", "errors", "logs", "changes", "issues", "alerts", "signals"]);
-    expect(ROLE_VIEWS.worker.tabs).toEqual(["summary", "queues", "errors", "logs", "changes", "issues", "alerts", "signals"]);
-    expect(ROLE_VIEWS.mobile.tabs).toEqual(["summary", "releases", "errors", "logs", "changes", "issues", "alerts", "signals"]);
+    expect(ROLE_VIEWS.worker.tabs).toEqual(["summary", "queues", "errors", "logs", "traces", "changes", "issues", "alerts", "signals"]);
+    expect(ROLE_VIEWS.mobile.tabs).toEqual(["summary", "crashes", "releases", "errors", "logs", "changes", "issues", "alerts", "signals"]);
+    expect(hasTab("backend", "endpoints")).toBe(true);
+    expect(hasTab("frontend", "endpoints")).toBe(false);
+    expect(hasTab("mobile", "traces")).toBe(false);
     expect(hasTab("backend", "queues")).toBe(false);
     expect(hasTab("worker", "queues")).toBe(true);
     expect(hasTab("mobile", "releases")).toBe(true);

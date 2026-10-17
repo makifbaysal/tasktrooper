@@ -98,7 +98,7 @@ export function cloudAccount(overrides: Partial<CloudAccount> = {}): CloudAccoun
 
 /** A kind the locale files know nothing about: everything must come from the server. */
 export const lokiKind: DataSourceKindInfo = {
-  kind: "loki",
+  kind: "made_up_logs",
   label: "Loki (server label)",
   description: "Server-side description of Loki.",
   capabilities: ["logs"],

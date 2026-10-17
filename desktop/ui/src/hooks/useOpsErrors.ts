@@ -13,6 +13,8 @@ export interface OpsErrorsQueryState {
   componentIds: string[];
   /** The window's identity (`windowKey`): a sliding preset keeps one cache entry. */
   window: string;
+  /** Also the groups an `ignore` error definition hides. */
+  includeIgnored?: boolean;
 }
 
 interface State {
@@ -22,8 +24,8 @@ interface State {
   fetching: boolean;
 }
 
-export function opsErrorsCacheKey(q: Pick<OpsErrorsQueryState, "env" | "componentIds" | "window">): string {
-  return `operations.errors.${q.env}.${q.window}.${[...q.componentIds].sort().join(",") || "*"}`;
+export function opsErrorsCacheKey(q: Pick<OpsErrorsQueryState, "env" | "componentIds" | "window" | "includeIgnored">): string {
+  return `operations.errors.${q.env}.${q.window}.${[...q.componentIds].sort().join(",") || "*"}${q.includeIgnored ? ".ignored" : ""}`;
 }
 
 /** The Errors inbox's one read: cached per query so a revisit paints at once,
@@ -39,6 +41,7 @@ export function useOpsErrors(query: OpsErrorsQueryState, enabled = true) {
   const seq = useRef(0);
   const ids = query.componentIds.join(",");
   const env = query.env;
+  const includeIgnored = query.includeIgnored === true;
 
   const load = useCallback(async () => {
     if (!enabled) return;
@@ -49,9 +52,11 @@ export function useOpsErrors(query: OpsErrorsQueryState, enabled = true) {
         env,
         since: new Date(since.current).toISOString(),
         componentIds: ids ? ids.split(",") : undefined,
+        ...(includeIgnored ? { includeIgnored } : {}),
       });
       if (mine !== seq.current) return;
       const answer: OpsErrors = { groups: next.groups ?? [], unavailable: next.unavailable ?? [], truncated: !!next.truncated };
+      if (next.ignored_count) answer.ignored_count = next.ignored_count;
       writeCache(key, answer);
       setState((prev) => (prev.key === key ? { key, data: keepEqual(prev.data, answer), fetching: false } : prev));
     } catch (e) {
@@ -59,7 +64,7 @@ export function useOpsErrors(query: OpsErrorsQueryState, enabled = true) {
       const message = e instanceof Error ? e.message : String(e);
       setState((prev) => (prev.key === key ? { ...prev, error: message, fetching: false } : prev));
     }
-  }, [enabled, env, ids, key]);
+  }, [enabled, env, ids, includeIgnored, key]);
 
   const refreshKey = useOptionalOpsContext()?.refreshKey ?? 0;
   useEffect(() => {

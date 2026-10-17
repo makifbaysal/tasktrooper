@@ -1,4 +1,4 @@
-import { Bug, Search, SearchX, Unplug } from "lucide-react";
+import { BookMarked, Bug, Search, SearchX, Unplug } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -6,9 +6,19 @@ import { api, type OpsErrorGroup } from "@/api";
 import { isEntityType } from "@/components/operations/console/entityTypes";
 import { ALL, type ExplorerRowType } from "@/components/operations/console/opsEntities";
 import { entitySectionPath } from "@/components/operations/console/roleViews";
+import { ErrorDefinitionEditor } from "@/components/operations/errorDefinitions/ErrorDefinitionEditor";
+import { ERROR_DEFINITIONS_PATH, definitionPath, draftFromGroup } from "@/components/operations/errorDefinitions/errorDefinitions";
 import { ErrorGroupDetail } from "@/components/operations/errors/ErrorGroupDetail";
 import { ErrorGroupTable } from "@/components/operations/errors/ErrorGroupTable";
-import { groupKey, groupMatches, hasErrorFeed, runtimeGroup, typeCountsOf, type ErrorFilter } from "@/components/operations/errors/errorGroups";
+import {
+  canCreateTask,
+  groupKey,
+  groupMatches,
+  hasErrorFeed,
+  runtimeGroup,
+  typeCountsOf,
+  type ErrorFilter,
+} from "@/components/operations/errors/errorGroups";
 import { TypeFacetChips } from "@/components/operations/explorer/TypeFacetChips";
 import { EntityMultiSelect } from "@/components/operations/query/EntityMultiSelect";
 import {
@@ -21,7 +31,7 @@ import {
 } from "@/components/operations/query/opsQuery";
 import { UnavailableNotice } from "@/components/operations/query/UnavailableNotice";
 import { useOpsContext, useOpsHref, useOpsShellState } from "@/components/operations/shell/OpsContext";
-import { useOpsEntities, type OpsEntity } from "@/components/operations/shell/useOpsEntities";
+import { useOpsDirectory, useOpsEntities, type OpsEntity } from "@/components/operations/shell/useOpsEntities";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -41,11 +51,13 @@ const FILTER_KEYS = ["entity", "type", "new", "q"];
 interface ErrorsInboxProps {
   /** One entity's inbox: no entity or type filter, its component only. */
   entity?: OpsEntity;
+  /** The entity has a confirmed errors.issues binding (Sentry), which is read with no environment connected. */
+  bindingRead?: boolean;
 }
 
 /** New Relic's Errors inbox over every connected environment of the one
  * picked: grouped errors, newest problems first, with a side panel for one. */
-export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
+export function ErrorsInbox({ entity: scoped, bindingRead = false }: ErrorsInboxProps) {
   const { t } = useI18n();
   const e = (key: string, params?: Record<string, string | number>) => t(`operations.errorsInbox.${key}`, params);
   const { range, env } = useOpsContext();
@@ -53,10 +65,13 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
   const href = useOpsHref();
   const navigate = useNavigate();
   const newOnlyId = useId();
+  const ignoredId = useId();
   const [params, setParams] = useSearchParams();
   const { entities: listed, loading: entitiesLoading } = useOpsEntities();
+  const { repositories } = useOpsDirectory();
   const [limit, setLimit] = useState(PAGE);
   const [creating, setCreating] = useState<string | undefined>(undefined);
+  const [defining, setDefining] = useState<OpsErrorGroup | null>(null);
 
   const entities = useMemo(
     () => (scoped && !listed.some((x) => x.id === scoped.id) ? [...listed, scoped] : listed),
@@ -79,9 +94,14 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
   const envLabel = t(`cloud.environments.${env}`);
   const inScope = scoped ? [scoped] : picked.length > 0 ? entities.filter((x) => picked.includes(x.id)) : entities;
   const connected = inScope.flatMap((x) => x.environments.filter((v) => v.environment === env));
-  const enabled = connected.length > 0;
+  const enabled = bindingRead || connected.length > 0;
 
-  const { data, error, loading } = useOpsErrors({ env, since: win.since, componentIds: picked, window: windowKey(range) }, enabled);
+  const showIgnored = params.get("ignored") === "1";
+  const { data, error, loading, reload } = useOpsErrors(
+    { env, since: win.since, componentIds: picked, window: windowKey(range), includeIgnored: showIgnored },
+    enabled,
+  );
+  const ignoredCount = data?.ignored_count ?? 0;
 
   const groups = data?.groups ?? [];
   const visible = groups.filter((g) => groupMatches(g, filter, byId));
@@ -119,6 +139,7 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
   const entityHref = scoped ? undefined : (x: OpsEntity) => href(entitySectionPath(x, "errors"));
 
   const createTask = async (g: OpsErrorGroup) => {
+    if (!canCreateTask(g)) return;
     setCreating(groupKey(g));
     try {
       const task = await api.createErrorTask(g.environment_id, runtimeGroup(g));
@@ -131,6 +152,18 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
       setCreating(undefined);
     }
   };
+  const definitionHref = (g: OpsErrorGroup) =>
+    g.definition ? href(definitionPath({ id: g.definition.id, repository_id: g.repository_id })) : undefined;
+  const definitionSaved = (def: { id: string; repository_id: string }) => {
+    toast.success(t("operations.errorDefinitions.inbox.definitionSaved"), {
+      action: { label: t("operations.errorDefinitions.inbox.viewDefinition"), onClick: () => navigate(href(definitionPath(def))) },
+    });
+    void reload();
+  };
+  const definitionsHref = scoped
+    ? href(`${ERROR_DEFINITIONS_PATH}?${new URLSearchParams({ repository: scoped.repositoryId, component: scoped.id }).toString()}`)
+    : undefined;
+
   const copyFingerprint = async (g: OpsErrorGroup) => {
     if (await copyText(g.fingerprint)) toast.success(e("copied"));
     else toast.error(e("copyFailed"));
@@ -162,11 +195,31 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
             className="h-8 pl-8 text-caption"
           />
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Switch id={newOnlyId} checked={filter.newOnly} onCheckedChange={(on) => setParam("new", on ? "1" : null)} />
-          <Label htmlFor={newOnlyId} className="cursor-pointer text-caption font-normal text-muted-foreground">
-            {e("newOnly")}
-          </Label>
+        <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
+          {(showIgnored || ignoredCount > 0) && (
+            <div className="flex items-center gap-2">
+              <Switch id={ignoredId} checked={showIgnored} onCheckedChange={(on) => setParam("ignored", on ? "1" : null)} />
+              <Label htmlFor={ignoredId} className="cursor-pointer text-caption font-normal text-muted-foreground">
+                {showIgnored
+                  ? t("operations.errorDefinitions.inbox.showIgnored")
+                  : t("operations.errorDefinitions.inbox.showIgnoredCount", { count: ignoredCount })}
+              </Label>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Switch id={newOnlyId} checked={filter.newOnly} onCheckedChange={(on) => setParam("new", on ? "1" : null)} />
+            <Label htmlFor={newOnlyId} className="cursor-pointer text-caption font-normal text-muted-foreground">
+              {e("newOnly")}
+            </Label>
+          </div>
+          {definitionsHref && (
+            <Button variant="ghost" size="sm" className="h-8" asChild>
+              <Link to={definitionsHref}>
+                <BookMarked aria-hidden />
+                {t("operations.errorDefinitions.inbox.definitions")}
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
       {!scoped && groups.length > 0 && (
@@ -195,7 +248,7 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
     );
   }
 
-  const noFeed = !connected.some(hasErrorFeed);
+  const noFeed = !bindingRead && !connected.some(hasErrorFeed);
   let body;
   if (loading) {
     body = (
@@ -218,6 +271,13 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
           icon={Bug}
           title={e("empty.title")}
           description={noFeed ? e("empty.noFeed", { env: envLabel }) : e("empty.body", { env: envLabel, since: sinceText })}
+          action={
+            ignoredCount > 0 ? (
+              <Button variant="outline" size="sm" onClick={() => setParam("ignored", "1")}>
+                {t("operations.errorDefinitions.inbox.showIgnoredCount", { count: ignoredCount })}
+              </Button>
+            ) : undefined
+          }
         />
       </Card>
     );
@@ -253,6 +313,8 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
           creatingKey={creating}
           onCreateTask={(g) => void createTask(g)}
           onCopyFingerprint={(g) => void copyFingerprint(g)}
+          definitionHref={definitionHref}
+          onDefine={setDefining}
         />
         {visible.length > shown.length && (
           <div className="flex justify-center">
@@ -303,9 +365,22 @@ export function ErrorsInbox({ entity: scoped }: ErrorsInboxProps) {
             closeHref={withGroup(null)}
             onCreateTask={() => void createTask(selected)}
             onCopyFingerprint={() => void copyFingerprint(selected)}
+            definitionHref={definitionHref(selected)}
+            onDefine={() => setDefining(selected)}
           />
         )}
       </div>
+      {defining && (
+        <ErrorDefinitionEditor
+          open
+          onOpenChange={(open) => !open && setDefining(null)}
+          repositories={repositories}
+          entities={entities}
+          initial={draftFromGroup(defining)}
+          sample={defining.sample && defining.sample !== defining.message ? `${defining.message}\n${defining.sample}` : defining.message}
+          onSaved={definitionSaved}
+        />
+      )}
     </div>
   );
 }

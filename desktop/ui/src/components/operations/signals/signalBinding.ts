@@ -3,6 +3,8 @@ import {
   type ComponentSignal,
   type ComponentSignals,
   type DataSource,
+  type DataSourceCapability,
+  type SignalKind,
   type ObservabilityRecipe,
   type SaveSignalBindingRequest,
   type SignalBinding,
@@ -27,6 +29,50 @@ export function metricsSources(sources: DataSource[]): DataSource[] {
   return sources.filter((s) => (s.capabilities ?? []).includes("metrics"));
 }
 
+// The capability a source must have to feed a signal of each kind: a log
+// signal is read from a logs store (Loki, Elasticsearch), a trace signal from
+// a traces store (Tempo), an error signal from an issue tracker (Sentry).
+const KIND_CAPABILITY: Record<SignalKind, DataSourceCapability> = {
+  metric: "metrics",
+  log: "logs",
+  trace: "traces",
+  error: "errors",
+};
+
+const TRACES_SIGNAL = "traces.spans";
+
+/** The sources that can feed a signal of this kind. */
+export function bindableSources(sources: DataSource[], kind: SignalKind = "metric", recipes?: ObservabilityRecipe[]): DataSource[] {
+  const want = KIND_CAPABILITY[kind] ?? "metrics";
+  const able = sources.filter((s) => (s.capabilities ?? []).includes(want));
+  // The APM kinds (Datadog, New Relic) list `traces` for the trace metrics
+  // they read, not for traces themselves: only a kind with a traces.spans
+  // recipe (Tempo) answers a trace search.
+  if (kind !== "trace" || !recipes?.length) return able;
+  return able.filter((s) => recipes.some((r) => r.source_kind === s.kind && Object.prototype.hasOwnProperty.call(r.signals ?? {}, TRACES_SIGNAL)));
+}
+
+/** Every source that can feed some signal: the Signals page has something to bind. */
+export function anyBindableSource(sources: DataSource[]): boolean {
+  return sources.some((s) => (s.capabilities ?? []).some((c) => (Object.values(KIND_CAPABILITY) as string[]).includes(c)));
+}
+
+// The catalog signals that are no metric, for a page that has not read the
+// catalog yet (catalog/observability/signals.yaml).
+const NON_METRIC: Record<string, SignalKind> = { "logs.lines": "log", "traces.spans": "trace", "errors.issues": "error" };
+
+/** A signal's kind: the catalog's answer, else what the console knows of it. */
+export function signalKindOf(signal: string, catalogKind?: SignalKind): SignalKind {
+  return catalogKind ?? NON_METRIC[signal] ?? "metric";
+}
+
+/** Only a metric signal is read as a series: the server refuses to preview a
+ * log, trace or error signal (422), which the Logs explorer, Traces and the
+ * Errors inbox read instead. */
+export function canPreview(kind: SignalKind | undefined): boolean {
+  return (kind ?? "metric") === "metric";
+}
+
 /** The recipes written for this source's kind that provide this signal. */
 export function compatibleRecipes(recipes: ObservabilityRecipe[], sourceKind: string | undefined, signal: string): ObservabilityRecipe[] {
   if (!sourceKind) return [];
@@ -48,10 +94,11 @@ export function initialBindingDraft(
   sources: DataSource[],
   recipes: ObservabilityRecipe[],
   prefill?: BindingPrefill | null,
+  signalKind: SignalKind = "metric",
 ): BindingDraft {
-  const metrics = metricsSources(sources);
+  const metrics = bindableSources(sources, signalKind, recipes);
   const sourceId = prefill?.data_source_id || (metrics.length === 1 ? metrics[0].id : "");
-  const kind = metrics.find((s) => s.id === sourceId)?.kind;
+  const kind = metrics.find((s) => s.id === sourceId)?.kind ?? sources.find((s) => s.id === sourceId)?.kind;
   const fitting = compatibleRecipes(recipes, kind, signal);
   const custom = prefill ? Boolean(prefill.query?.trim()) : sourceId !== "" && fitting.length === 0;
   const recipeId = prefill?.recipe_id || (fitting.length === 1 ? fitting[0].id : "");
@@ -74,6 +121,12 @@ export function withSource(draft: BindingDraft, sourceId: string, sources: DataS
   return { ...draft, sourceId, recipeId };
 }
 
+/** A recipe param's value as sent: what was typed, else the recipe's default
+ * — sent as is, since a save names every param the recipe declares. */
+export function paramValue(draft: BindingDraft, recipe: ObservabilityRecipe | undefined, param: string): string {
+  return (draft.params[param] ?? "").trim() || (recipe?.defaults?.[param] ?? "").trim();
+}
+
 export function validateBindingDraft(draft: BindingDraft, recipe: ObservabilityRecipe | undefined): BindingErrors {
   const errors: BindingErrors = {};
   if (!draft.sourceId) errors.source = "required";
@@ -85,7 +138,7 @@ export function validateBindingDraft(draft: BindingDraft, recipe: ObservabilityR
     errors.recipe = "required";
     return errors;
   }
-  const missing = recipeParams(recipe).filter((p) => (draft.params[p] ?? "").trim() === "");
+  const missing = recipeParams(recipe).filter((p) => paramValue(draft, recipe, p) === "");
   if (missing.length > 0) errors.params = Object.fromEntries(missing.map((p) => [p, "required"]));
   return errors;
 }
@@ -111,7 +164,7 @@ export function bindingRequest(draft: BindingDraft, recipe: ObservabilityRecipe 
     const params = customQueryParams(draft);
     return { data_source_id: draft.sourceId, query: draft.query.trim(), ...(Object.keys(params).length > 0 ? { params } : {}) };
   }
-  const params = Object.fromEntries(recipeParams(recipe).map((p) => [p, (draft.params[p] ?? "").trim()]));
+  const params = Object.fromEntries(recipeParams(recipe).map((p) => [p, paramValue(draft, recipe, p)]));
   return { data_source_id: draft.sourceId, recipe_id: recipe.id, params };
 }
 

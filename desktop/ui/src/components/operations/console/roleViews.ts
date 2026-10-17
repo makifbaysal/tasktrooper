@@ -1,8 +1,35 @@
 import type { ComponentRole } from "@/api";
 
-export type EntityTab = "summary" | "queues" | "releases" | "errors" | "logs" | "changes" | "issues" | "alerts" | "signals";
+export type EntityTab =
+  | "summary"
+  | "endpoints"
+  | "pages"
+  | "crashes"
+  | "queues"
+  | "releases"
+  | "errors"
+  | "logs"
+  | "traces"
+  | "changes"
+  | "issues"
+  | "alerts"
+  | "signals";
 
-export const ENTITY_TABS: EntityTab[] = ["summary", "queues", "releases", "errors", "logs", "changes", "issues", "alerts", "signals"];
+export const ENTITY_TABS: EntityTab[] = [
+  "summary",
+  "endpoints",
+  "pages",
+  "crashes",
+  "queues",
+  "releases",
+  "errors",
+  "logs",
+  "traces",
+  "changes",
+  "issues",
+  "alerts",
+  "signals",
+];
 
 export type SignalUnit = "percent" | "ms" | "perSecond" | "seconds" | "cores";
 
@@ -74,11 +101,21 @@ const OTHER_SIGNALS: SignalSpec[] = [
   { id: "queue.dead_letter", label: "queueDeadLetter" },
   { id: "queue.consumers", label: "queueConsumers" },
   { id: "web.sessions", label: "webSessions" },
+  { id: "web.visitors", label: "webVisitors" },
+  { id: "web.fcp", label: "webFcp", short: "webFcpShort", unit: "ms" },
   { id: "web.cls", label: "webCls", short: "webClsShort" },
   { id: "web.ttfb", label: "webTtfb", short: "webTtfbShort", unit: "ms" },
+  { id: "logs.lines", label: "logsLines" },
+  { id: "traces.spans", label: "tracesSpans" },
+  { id: "errors.issues", label: "errorsIssues" },
 ];
 
 const BASE_TABS: EntityTab[] = ["summary", "errors", "logs", "changes", "issues"];
+// New Relic's order: the entity's own view (Endpoints, Pages, Queues) right
+// after Summary, then errors, logs and traces, then what changed.
+function tracedTabs(own: EntityTab): EntityTab[] {
+  return ["summary", own, "errors", "logs", "traces", "changes", "issues", "alerts", "signals"];
+}
 // Alerts for every role: a custom-query rule can watch any component, and an
 // alert notification links to `/operations/entity/<id>/alerts?rule=`.
 const NO_RUNTIME: ViewSpec = { tabs: ["summary", "changes", "issues", "alerts"], golden: [], charts: [] };
@@ -87,22 +124,22 @@ const NO_RUNTIME: ViewSpec = { tabs: ["summary", "changes", "issues", "alerts"],
 // the signals GET /v1/operations/golden answers.
 export const ROLE_VIEWS: Record<ComponentRole, ViewSpec> = {
   backend: {
-    tabs: [...BASE_TABS, "alerts", "signals"],
+    tabs: tracedTabs("endpoints"),
     golden: [RESPONSE_TIME, THROUGHPUT, ERROR_RATE],
     charts: [RESPONSE_TIME, THROUGHPUT, ERROR_RATE, CPU],
   },
   worker: {
-    tabs: ["summary", "queues", "errors", "logs", "changes", "issues", "alerts", "signals"],
+    tabs: tracedTabs("queues"),
     golden: [BACKLOG, CONSUME_RATE, PROCESS_ERRORS],
     charts: [BACKLOG, CONSUME_RATE, BACKLOG_AGE, PROCESS_ERRORS],
   },
   frontend: {
-    tabs: [...BASE_TABS, "alerts", "signals"],
+    tabs: tracedTabs("pages"),
     golden: [LCP, PAGE_VIEWS, INP],
     charts: [LCP, PAGE_VIEWS, INP, JS_ERRORS],
   },
   mobile: {
-    tabs: ["summary", "releases", "errors", "logs", "changes", "issues", "alerts", "signals"],
+    tabs: ["summary", "crashes", "releases", "errors", "logs", "changes", "issues", "alerts", "signals"],
     golden: [CRASH_FREE, COLD_START, ANR_RATE],
     charts: [CRASH_FREE, COLD_START, ANR_RATE, ROLLOUT],
   },
