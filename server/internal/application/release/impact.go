@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -19,6 +20,9 @@ const (
 	// first point still straddling the deploy, is not a regression yet.
 	minImpactAfter       = 10 * time.Minute
 	minImpactAfterPoints = 5
+	// impactSettleGrace bounds how long past its window a soak keeps
+	// verifying while a threshold's signal is still settling.
+	impactSettleGrace = 15 * time.Minute
 )
 
 // impactThresholds is satisfied by deployimpact.Service.
@@ -26,17 +30,28 @@ type impactThresholds interface {
 	Thresholds() domain.DeployImpactConfig
 }
 
+// freshImpact is satisfied by deployimpact.Service: a read past its
+// per-minute cache.
+type freshImpact interface {
+	ForReleaseFresh(ctx context.Context, r domain.Release) (domain.DeployImpact, error)
+}
+
 // checkImpact records the release's deploy impact against the profile's
-// impact thresholds and early-stops the soak on the first one breached. An
-// unreadable impact leaves the soak to its other checks.
-func (s *Service) checkImpact(ctx context.Context, r *domain.Release) {
+// impact thresholds and early-stops the soak on the first one breached; fresh
+// reads past deploy impact's cache. An unreadable impact leaves the soak to
+// its other checks.
+func (s *Service) checkImpact(ctx context.Context, r *domain.Release, fresh bool) {
 	reader := s.impactReader()
 	if reader == nil {
 		return
 	}
 	rctx, cancel := context.WithTimeout(ctx, impactReadTimeout)
 	defer cancel()
-	impact, err := reader.ForRelease(rctx, *r)
+	read := reader.ForRelease
+	if f, ok := reader.(freshImpact); ok && fresh {
+		read = f.ForReleaseFresh
+	}
+	impact, err := read(rctx, *r)
 	if err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release sweeper: reading deploy impact failed")
 		return
@@ -125,6 +140,43 @@ func impactCheck(impact domain.DeployImpact, verify domain.DeliveryVerify, floor
 		check.Unchecked = append(check.Unchecked, domain.VerifyMaxP95DeltaPct)
 	}
 	return check, breach
+}
+
+// impactSettling reports whether a threshold's signal was still too short or
+// too sparse to judge at the last check.
+func impactSettling(c *domain.ReleaseImpactCheck) bool {
+	if c == nil {
+		return false
+	}
+	for _, sig := range c.Signals {
+		if sig.Settling && !sig.Breached {
+			return true
+		}
+	}
+	return false
+}
+
+// settledUnchecked closes a soak whose threshold signal never settled: that
+// threshold is listed unchecked, not passed.
+func settledUnchecked(c *domain.ReleaseImpactCheck) {
+	if c == nil {
+		return
+	}
+	for _, sig := range c.Signals {
+		if !sig.Settling || sig.Breached {
+			continue
+		}
+		key := ""
+		switch {
+		case sig.MaxDelta != nil:
+			key = domain.VerifyMaxErrorRateDelta
+		case sig.MaxDeltaPct != nil:
+			key = domain.VerifyMaxP95DeltaPct
+		}
+		if key != "" && !slices.Contains(c.Unchecked, key) {
+			c.Unchecked = append(c.Unchecked, key)
+		}
+	}
 }
 
 // pastBaseline: with yesterday's same hour unread, only the move from the

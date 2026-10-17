@@ -149,6 +149,35 @@ func (s *IncidentNotifySuite) TestAReFiringAfterAToldRecoveryIsToldInsideTheCool
 	s.Len(s.incidents.incidents, 2, "every flap is its own incident")
 }
 
+func (s *IncidentNotifySuite) TestAnAlertFlappingEveryMinuteIsToldFourTimesThenWhereItSettles() {
+	clock := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	prodops.SetClock(s.svc, func() time.Time { return clock })
+	recovery := s.alert(domain.IncidentSeverityHigh)
+	recovery.Resolved = true
+	for range 3 {
+		_, err := s.svc.Ingest(s.ctx, s.alert(domain.IncidentSeverityHigh))
+		s.Require().NoError(err)
+		clock = clock.Add(time.Minute)
+		_, err = s.svc.Ingest(s.ctx, recovery)
+		s.Require().NoError(err)
+		clock = clock.Add(time.Minute)
+	}
+	_, err := s.svc.Ingest(s.ctx, s.alert(domain.IncidentSeverityHigh))
+	s.Require().NoError(err)
+	s.Len(s.notifications(), 4, "seven changes in seven minutes tell four")
+
+	clock = clock.Add(14 * time.Minute)
+	s.svc.FlushSettled(s.ctx)
+	s.Len(s.notifications(), 4)
+	clock = clock.Add(time.Minute)
+	s.svc.FlushSettled(s.ctx)
+	sent := s.notifications()
+	s.Require().Len(sent, 5)
+	s.Equal(domain.NotificationIncidentOpened, sent[4].Kind, "it settled down, and that is the last word")
+	s.svc.FlushSettled(s.ctx)
+	s.Len(s.notifications(), 5)
+}
+
 func (s *IncidentNotifySuite) TestAnOutageWhoseRecoveryWasNotToldStaysQuietWhenItRecurs() {
 	clock := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	prodops.SetClock(s.svc, func() time.Time { return clock })

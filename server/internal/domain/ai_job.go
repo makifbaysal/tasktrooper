@@ -57,8 +57,14 @@ type AIJob struct {
 	Error         string            `json:"error"`
 	Created       []AIJobItem       `json:"created"`
 	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
-	FinishedAt    *time.Time        `json:"finished_at"`
+	// StartedAt is when the job took a slot and its chat turn began (migration
+	// 192); nil while it waits for one.
+	StartedAt  *time.Time `json:"started_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	// Owner is the process that created the job, so a restart fails only the
+	// jobs a process before it left running.
+	Owner string `json:"-"`
 }
 
 // AlertRuleCreator says who wrote an alert rule (migration 191).

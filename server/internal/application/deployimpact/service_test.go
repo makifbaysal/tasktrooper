@@ -497,3 +497,15 @@ func (s *ImpactSuite) TestAnAnswerWithAnUnreadableSignalIsNotReused() {
 	s.Require().NoError(err)
 	s.Equal(12, s.signals.readCount())
 }
+
+func (s *ImpactSuite) TestAFreshReadSkipsTheMinutesCachedAnswer() {
+	r := s.release()
+	_, err := s.svc.ForRelease(s.ctx, r)
+	s.Require().NoError(err)
+	_, err = s.svc.ForReleaseFresh(s.ctx, r)
+	s.Require().NoError(err)
+	s.Equal(12, s.signals.readCount(), "the soak's last read goes to the sources")
+	_, err = s.svc.ForRelease(s.ctx, r)
+	s.Require().NoError(err)
+	s.Equal(12, s.signals.readCount(), "and leaves its answer cached for the minute")
+}

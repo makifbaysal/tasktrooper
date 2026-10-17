@@ -13,7 +13,6 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/opsai"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
-	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/makifbaysal/tasktrooper/server/internal/port/mocks"
 )
 
@@ -28,6 +27,10 @@ func (t *turnSessions) Create(context.Context, domain.CreateSessionRequest) (dom
 
 func (t *turnSessions) SendMessage(ctx context.Context, sid uuid.UUID, _ domain.SessionMessageRequest, _ domain.ToolPolicy) (domain.AgentResponse, error) {
 	return t.turn(registry.ContextWithSessionID(ctx, sid)), nil
+}
+
+func (t *turnSessions) CancelSession(context.Context, uuid.UUID, string) (bool, error) {
+	return false, nil
 }
 
 type releaseRoles struct{ agent uuid.UUID }
@@ -68,9 +71,9 @@ func TestASuggestionJobStoresWhatTheAgentsToolCallProposes(t *testing.T) {
 	withSession := job
 	withSession.SessionID = &sid
 	stored := uuid.New()
-	jobStore.On("RunningAIJob", mock.Anything, domain.AIJobDefineErrors, repo.ID, &api.ID, domain.EnvironmentProduction).
-		Return(domain.AIJob{}, port.ErrNotFound).Once()
-	jobStore.On("CreateAIJob", mock.Anything, mock.Anything).Return(job, nil).Once()
+	jobStore.On("FailStaleAIJobs", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(int64(0), nil).Once()
+	jobStore.On("CreateAIJob", mock.Anything, mock.Anything).Return(job, true, nil).Once()
+	jobStore.On("StartAIJob", mock.Anything, job.ID).Return(true, nil).Once()
 	jobStore.On("SetAIJobSession", mock.Anything, job.ID, sid).Return(nil).Once()
 	jobStore.On("GetAIJobBySession", mock.Anything, sid).Return(withSession, nil)
 	defStore.On("ListErrorDefinitions", mock.Anything, domain.ErrorDefinitionFilter{RepositoryIDs: []uuid.UUID{repo.ID}}).

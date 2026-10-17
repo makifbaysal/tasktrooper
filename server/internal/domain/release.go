@@ -249,6 +249,9 @@ type Release struct {
 	// RollbackProposal is written only by ReleaseStore.SetRollbackProposal
 	// (migration 190), never by Update.
 	RollbackProposal *RollbackProposal `json:"rollback_proposal"`
+	// RollbackDismissal is written only by ReleaseStore.DismissRollbackProposal
+	// (migration 192), never by Update.
+	RollbackDismissal *RollbackDismissal `json:"rollback_dismissal"`
 	// RollbackAllowed and RollbackRefusal (a RollbackRefusal* code, empty
 	// when allowed) are what a rollback would answer right now; computed on
 	// read by the release service, never stored.
@@ -268,6 +271,15 @@ type RollbackProposal struct {
 	IncidentID *uuid.UUID     `json:"incident_id,omitempty"`
 }
 
+// RollbackDismissal is a person declining the release engineer's proposed
+// rollback: when, and the incident the proposal answered. The release
+// engineer may not propose a rollback of the release again until another
+// incident is attributed to it.
+type RollbackDismissal struct {
+	DismissedAt time.Time  `json:"dismissed_at"`
+	IncidentID  *uuid.UUID `json:"incident_id,omitempty"`
+}
+
 // Why a rollback is refused, as Release.RollbackRefusal answers it.
 const (
 	RollbackRefusalNewerShipped = "newer_shipped"
@@ -277,6 +289,9 @@ const (
 	RollbackRefusalNoReleased   = "no_released"
 	RollbackRefusalUnresolved   = "unresolved"
 	RollbackRefusalWrongStatus  = "wrong_status"
+	// RollbackRefusalNotConfigured: this deployment has no git reverter, and
+	// every rollback starts by reverting the release's merge commits.
+	RollbackRefusalNotConfigured = "not_configured"
 )
 
 func (r Release) TaskIDs() []uuid.UUID {
@@ -327,6 +342,10 @@ var (
 	// ErrRollbackNeedsHuman: auto_rollback is off; the proposal is written and
 	// a human confirms it.
 	ErrRollbackNeedsHuman = errors.New("auto rollback is off for this component — a human must confirm the rollback")
+	// ErrRollbackProposalDismissed: a person dismissed the release engineer's
+	// rollback proposal and no other incident has been attributed to the
+	// release since.
+	ErrRollbackProposalDismissed = errors.New("the rollback proposal was dismissed")
 	// ErrBeforeDeployPending: a task carries before-deploy steps a human has
 	// not confirmed; nothing that would deploy it may run until they do.
 	ErrBeforeDeployPending = errors.New("before-deploy steps are not confirmed")

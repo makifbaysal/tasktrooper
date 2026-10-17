@@ -99,13 +99,23 @@ type read struct {
 // are all unbound. A signal that cannot be read is listed as unknown and
 // never fails the others; every bound signal failing is the answer's error.
 func (s *Service) ForRelease(ctx context.Context, r domain.Release) (domain.DeployImpact, error) {
+	return s.forRelease(ctx, r, true)
+}
+
+// ForReleaseFresh is ForRelease read from the sources even when this
+// minute's answer is cached: the soak's last word on a release.
+func (s *Service) ForReleaseFresh(ctx context.Context, r domain.Release) (domain.DeployImpact, error) {
+	return s.forRelease(ctx, r, false)
+}
+
+func (s *Service) forRelease(ctx context.Context, r domain.Release, useCache bool) (domain.DeployImpact, error) {
 	now := s.now().UTC()
 	out := domain.NewDeployImpact(r, now)
 	if out.DeployedAt == nil || r.ComponentID == nil || s.signals == nil || s.components == nil {
 		return out, nil
 	}
 	key := cacheKey{release: r.ID, minute: now.Truncate(time.Minute).Unix()}
-	if cached, ok := s.cached(key); ok {
+	if cached, ok := s.cached(key); ok && useCache {
 		return cached, nil
 	}
 

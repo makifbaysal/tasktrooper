@@ -71,8 +71,14 @@ type AlertRules interface {
 	CreateAIDraft(ctx context.Context, req alerting.RuleRequest) (domain.AlertRule, error)
 }
 
+// SourceUse is the signal binding store: which data sources the components
+// read through, to keep an AI job to its own repository's.
+type SourceUse interface {
+	ListConfirmedSignalBindings(ctx context.Context, env domain.DeployEnvironment) ([]domain.SignalBinding, error)
+}
+
 // ToolKit: a tool is offered only when what it reads or writes is wired.
-// Jobs is optional everywhere.
+// Jobs is optional everywhere. Without SourceUse a job reads no data source.
 type ToolKit struct {
 	Components  Components
 	Errors      ErrorsReader
@@ -81,6 +87,7 @@ type ToolKit struct {
 	DataSources DataSources
 	Bindings    SignalBindings
 	Alerts      AlertRules
+	SourceUse   SourceUse
 }
 
 func NewExecutors(k *ToolKit) []port.ToolExecutor {
@@ -137,7 +144,9 @@ func severitySchema() map[string]any {
 }
 
 // scope is where a call reads or writes: the repository and component its
-// arguments name, else its AI job's, else the run's own repository.
+// arguments name, else its AI job's, else the run's own repository. Inside a
+// job the arguments may name only the job's repository and component;
+// outside one, a run bound to a repository may name only that one.
 type scope struct {
 	repositoryID uuid.UUID
 	component    *domain.Component
@@ -145,24 +154,42 @@ type scope struct {
 	job          *domain.AIJob
 }
 
-func (k *ToolKit) resolve(ctx context.Context, toolName, repositoryArg, componentArg, envArg string, needComponent bool) (scope, error) {
-	var sc scope
-	if k.Jobs != nil {
-		if job, ok := k.Jobs.SessionJob(ctx); ok {
-			sc.job = &job
-		}
+const (
+	outsideRepository = "repository"
+	outsideComponent  = "component"
+	outsideSource     = "data_source"
+)
+
+func (k *ToolKit) sessionJob(ctx context.Context) *domain.AIJob {
+	if k.Jobs == nil {
+		return nil
 	}
+	if job, ok := k.Jobs.SessionJob(ctx); ok {
+		return &job
+	}
+	return nil
+}
+
+func (k *ToolKit) resolve(ctx context.Context, toolName, repositoryArg, componentArg, envArg string, needComponent bool) (scope, error) {
+	sc := scope{job: k.sessionJob(ctx)}
+	bound := registry.RepositoryIDFromContext(ctx)
 	switch raw := strings.TrimSpace(repositoryArg); {
 	case raw != "":
 		id, err := uuid.Parse(raw)
 		if err != nil {
 			return scope{}, fmt.Errorf("invalid repository_id: %w", err)
 		}
+		switch {
+		case sc.job != nil && id != sc.job.RepositoryID:
+			return scope{}, k.outsideJob(ctx, toolName, outsideRepository, *sc.job)
+		case sc.job == nil && bound != uuid.Nil && id != bound:
+			return scope{}, errors.New(outsideRunRepositoryKey.Render(outsideRunRepositoryInput{ToolName: toolName, RepositoryID: bound.String()}))
+		}
 		sc.repositoryID = id
 	case sc.job != nil:
 		sc.repositoryID = sc.job.RepositoryID
 	default:
-		sc.repositoryID = registry.RepositoryIDFromContext(ctx)
+		sc.repositoryID = bound
 	}
 	if sc.repositoryID == uuid.Nil {
 		return scope{}, errors.New(prompt.ToolRepositoryRequiredText(toolName))
@@ -170,14 +197,14 @@ func (k *ToolKit) resolve(ctx context.Context, toolName, repositoryArg, componen
 	sc.environment = domain.DeployEnvironment(strings.TrimSpace(envArg))
 	if sc.environment == "" {
 		sc.environment = domain.EnvironmentProduction
-		if sc.job != nil && sc.job.RepositoryID == sc.repositoryID && sc.job.Environment != "" {
+		if sc.job != nil && sc.job.Environment != "" {
 			sc.environment = sc.job.Environment
 		}
 	}
 	if !sc.environment.Valid() {
 		return scope{}, fmt.Errorf("unknown environment %q", sc.environment)
 	}
-	comp, err := k.component(ctx, sc, componentArg, needComponent)
+	comp, err := k.component(ctx, toolName, sc, componentArg, needComponent)
 	if err != nil {
 		return scope{}, err
 	}
@@ -185,13 +212,29 @@ func (k *ToolKit) resolve(ctx context.Context, toolName, repositoryArg, componen
 	return sc, nil
 }
 
+// outsideJob is the refusal of a call that reaches past its job's scope.
+func (k *ToolKit) outsideJob(ctx context.Context, toolName, what string, job domain.AIJob) error {
+	in := outsideJobInput{ToolName: toolName, Case: what, RepositoryID: job.RepositoryID.String()}
+	if job.ComponentID != nil {
+		if c, err := k.Components.GetComponent(ctx, *job.ComponentID); err == nil {
+			in.Component = c.Path
+		}
+	}
+	return errors.New(outsideJobKey.Render(in))
+}
+
 // component resolves a path exactly among the repository's active
 // components. With no path it is the job's component, else (when one is
-// needed) the repository's only or root component.
-func (k *ToolKit) component(ctx context.Context, sc scope, path string, need bool) (*domain.Component, error) {
+// needed) the repository's only or root component. A job scoped to one
+// component refuses any other.
+func (k *ToolKit) component(ctx context.Context, toolName string, sc scope, path string, need bool) (*domain.Component, error) {
 	path = strings.TrimSpace(path)
-	if path == "" && sc.job != nil && sc.job.ComponentID != nil && sc.job.RepositoryID == sc.repositoryID {
-		c, err := k.Components.GetComponent(ctx, *sc.job.ComponentID)
+	var jobComponent *uuid.UUID
+	if sc.job != nil && sc.job.ComponentID != nil {
+		jobComponent = sc.job.ComponentID
+	}
+	if path == "" && jobComponent != nil {
+		c, err := k.Components.GetComponent(ctx, *jobComponent)
 		if err != nil {
 			return nil, err
 		}
@@ -213,6 +256,17 @@ func (k *ToolKit) component(ctx context.Context, sc scope, path string, need boo
 	if len(active) == 0 {
 		return nil, errors.New("this repository has no active components")
 	}
+	pick, err := pickComponent(active, path)
+	if err != nil {
+		return nil, err
+	}
+	if jobComponent != nil && pick.ID != *jobComponent {
+		return nil, k.outsideJob(ctx, toolName, outsideComponent, *sc.job)
+	}
+	return pick, nil
+}
+
+func pickComponent(active []domain.Component, path string) (*domain.Component, error) {
 	if path != "" && path != "." {
 		for i := range active {
 			if active[i].Path == path {
@@ -235,6 +289,76 @@ func (k *ToolKit) component(ctx context.Context, sc scope, path string, need boo
 	}
 	sort.Strings(paths)
 	return nil, errors.New(prompt.RuntimeComponentsAmbiguousText(len(active), strings.Join(paths, ", ")))
+}
+
+// jobSources is which data sources a job may read and propose through: the
+// ones with a confirmed binding on a component of its repository in its
+// environment, and the ones no component reads through yet. Nil outside a
+// job, where every source is open.
+func (k *ToolKit) jobSources(ctx context.Context, job *domain.AIJob) (map[uuid.UUID]bool, error) {
+	if job == nil {
+		return nil, nil
+	}
+	allowed := map[uuid.UUID]bool{}
+	if k.SourceUse == nil {
+		return allowed, nil
+	}
+	comps, err := k.Components.ListComponents(ctx, job.RepositoryID)
+	if err != nil {
+		return nil, err
+	}
+	own := make(map[uuid.UUID]bool, len(comps))
+	for _, c := range comps {
+		own[c.ID] = true
+	}
+	env := job.Environment
+	if env == "" {
+		env = domain.EnvironmentProduction
+	}
+	bindings, err := k.SourceUse.ListConfirmedSignalBindings(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	foreign := map[uuid.UUID]bool{}
+	for _, b := range bindings {
+		if own[b.ComponentID] {
+			allowed[b.DataSourceID] = true
+		} else {
+			foreign[b.DataSourceID] = true
+		}
+	}
+	if k.DataSources != nil {
+		sources, err := k.DataSources.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, ds := range sources {
+			if !foreign[ds.ID] {
+				allowed[ds.ID] = true
+			}
+		}
+	}
+	return allowed, nil
+}
+
+// checkSource refuses, inside a job, a data_source_id the job may not use.
+func (k *ToolKit) checkSource(ctx context.Context, toolName string, job *domain.AIJob, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if job == nil || raw == "" {
+		return nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid data_source_id: %w", err)
+	}
+	allowed, err := k.jobSources(ctx, job)
+	if err != nil {
+		return err
+	}
+	if !allowed[id] {
+		return k.outsideJob(ctx, toolName, outsideSource, *job)
+	}
+	return nil
 }
 
 func (k *ToolKit) record(ctx context.Context, item domain.AIJobItem) {

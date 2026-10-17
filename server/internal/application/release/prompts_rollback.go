@@ -24,4 +24,10 @@ type rollbackInvalidReasonInput struct{ Reason string }
 var rollbackInvalidReasonKey = prompt.Define("guard.release_rollback_invalid_reason", rollbackInvalidReasonInput{Reason: `"weird"`})
 
 var rollbackNeedsHumanKey = prompt.Define("guard.release_rollback_needs_human", struct{}{})
+
+type rollbackProposalDismissedInput struct{ IncidentID string }
+
+var rollbackProposalDismissedKey = prompt.Define("guard.release_rollback_proposal_dismissed", rollbackProposalDismissedInput{
+	IncidentID: "3f2b8c1e-5d4a-4e9b-8c7d-1a2b3c4d5e6f",
+})
 var rollbackNotConfiguredKey = prompt.Define("guard.release_rollback_not_configured", struct{}{})

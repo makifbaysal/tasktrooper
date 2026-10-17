@@ -773,6 +773,8 @@ func TestAReleaseCarriesItsProposalAndWhetherARollbackWouldRun(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 	assert.Contains(t, got, "rollback_proposal")
 	assert.Nil(t, got["rollback_proposal"])
+	assert.Contains(t, got, "rollback_dismissal")
+	assert.Nil(t, got["rollback_dismissal"])
 	assert.Equal(t, false, got["rollback_allowed"])
 	assert.Equal(t, "wrong_status", got["rollback_refusal"])
 }

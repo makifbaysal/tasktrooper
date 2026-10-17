@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	maxEndpointLen = 2048
-	stackSummaryN  = 8
+	maxEndpointLen    = 2048
+	stackSummaryN     = 8
+	enableTaskCreator = "system"
 )
 
 // EnableRequest is the body of POST /v1/components/:id/observability/enable.
@@ -102,6 +103,11 @@ func (s *Service) Enable(ctx context.Context, componentID uuid.UUID, req EnableR
 		Instrumentation: found,
 	})
 	title := strings.TrimSpace(enableTitleKey.Render(enableTitleInput{Component: comp.DisplayName(), Environment: string(env)}))
+	if open, ok, err := s.openEnableTask(ctx, repo.ID, comp.ID, title); err != nil {
+		return domain.BoardTask{}, err
+	} else if ok {
+		return open, nil
+	}
 	compID := comp.ID
 	return s.tasks.CreateTask(ctx, repo.ID, domain.CreateBoardTaskRequest{
 		Title:           title,
@@ -109,10 +115,26 @@ func (s *Service) Enable(ctx context.Context, componentID uuid.UUID, req EnableR
 		TaskType:        domain.TaskTypeTechnical,
 		Priority:        domain.TaskPriorityMedium,
 		Column:          domain.TaskColumnTodo,
-		CreatedBy:       "system",
+		CreatedBy:       enableTaskCreator,
 		ComponentID:     &compID,
 		AssigneeAgentID: &agentID,
 	})
+}
+
+// openEnableTask is the component environment's enable task still on the
+// board short of done: asking again answers it rather than a second one.
+func (s *Service) openEnableTask(ctx context.Context, repositoryID, componentID uuid.UUID, title string) (domain.BoardTask, bool, error) {
+	tasks, err := s.tasks.ListTasks(ctx, repositoryID)
+	if err != nil {
+		return domain.BoardTask{}, false, err
+	}
+	for _, t := range tasks {
+		if t.ComponentID != nil && *t.ComponentID == componentID && t.CreatedBy == enableTaskCreator && t.Title == title &&
+			t.Column != domain.TaskColumnDone && t.Column != domain.TaskColumnReleased {
+			return t, true, nil
+		}
+	}
+	return domain.BoardTask{}, false, nil
 }
 
 func goalsOf(raw []string, fe FieldErrors) []string {

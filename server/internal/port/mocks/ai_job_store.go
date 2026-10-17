@@ -8,6 +8,8 @@ import (
 	domain "github.com/makifbaysal/tasktrooper/server/internal/domain"
 	mock "github.com/stretchr/testify/mock"
 
+	time "time"
+
 	uuid "github.com/google/uuid"
 )
 
@@ -35,7 +37,7 @@ func (_m *AIJobStore) AppendAIJobItem(ctx context.Context, id uuid.UUID, item do
 }
 
 // CreateAIJob provides a mock function with given fields: ctx, job
-func (_m *AIJobStore) CreateAIJob(ctx context.Context, job domain.AIJob) (domain.AIJob, error) {
+func (_m *AIJobStore) CreateAIJob(ctx context.Context, job domain.AIJob) (domain.AIJob, bool, error) {
 	ret := _m.Called(ctx, job)
 
 	if len(ret) == 0 {
@@ -43,8 +45,9 @@ func (_m *AIJobStore) CreateAIJob(ctx context.Context, job domain.AIJob) (domain
 	}
 
 	var r0 domain.AIJob
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, domain.AIJob) (domain.AIJob, error)); ok {
+	var r1 bool
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, domain.AIJob) (domain.AIJob, bool, error)); ok {
 		return rf(ctx, job)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, domain.AIJob) domain.AIJob); ok {
@@ -53,18 +56,24 @@ func (_m *AIJobStore) CreateAIJob(ctx context.Context, job domain.AIJob) (domain
 		r0 = ret.Get(0).(domain.AIJob)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, domain.AIJob) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, domain.AIJob) bool); ok {
 		r1 = rf(ctx, job)
 	} else {
-		r1 = ret.Error(1)
+		r1 = ret.Get(1).(bool)
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, domain.AIJob) error); ok {
+		r2 = rf(ctx, job)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
-// FailRunningAIJobs provides a mock function with given fields: ctx, reason
-func (_m *AIJobStore) FailRunningAIJobs(ctx context.Context, reason string) (int64, error) {
-	ret := _m.Called(ctx, reason)
+// FailRunningAIJobs provides a mock function with given fields: ctx, owner, before, reason
+func (_m *AIJobStore) FailRunningAIJobs(ctx context.Context, owner string, before time.Time, reason string) (int64, error) {
+	ret := _m.Called(ctx, owner, before, reason)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FailRunningAIJobs")
@@ -72,17 +81,45 @@ func (_m *AIJobStore) FailRunningAIJobs(ctx context.Context, reason string) (int
 
 	var r0 int64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, error)); ok {
-		return rf(ctx, reason)
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time, string) (int64, error)); ok {
+		return rf(ctx, owner, before, reason)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
-		r0 = rf(ctx, reason)
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time, string) int64); ok {
+		r0 = rf(ctx, owner, before, reason)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, reason)
+	if rf, ok := ret.Get(1).(func(context.Context, string, time.Time, string) error); ok {
+		r1 = rf(ctx, owner, before, reason)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// FailStaleAIJobs provides a mock function with given fields: ctx, startedBefore, queuedBefore, reason
+func (_m *AIJobStore) FailStaleAIJobs(ctx context.Context, startedBefore time.Time, queuedBefore time.Time, reason string) (int64, error) {
+	ret := _m.Called(ctx, startedBefore, queuedBefore, reason)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FailStaleAIJobs")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time, time.Time, string) (int64, error)); ok {
+		return rf(ctx, startedBefore, queuedBefore, reason)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time, time.Time, string) int64); ok {
+		r0 = rf(ctx, startedBefore, queuedBefore, reason)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, time.Time, time.Time, string) error); ok {
+		r1 = rf(ctx, startedBefore, queuedBefore, reason)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -174,34 +211,6 @@ func (_m *AIJobStore) GetAIJobBySession(ctx context.Context, sessionID uuid.UUID
 	return r0, r1
 }
 
-// RunningAIJob provides a mock function with given fields: ctx, kind, repositoryID, componentID, env
-func (_m *AIJobStore) RunningAIJob(ctx context.Context, kind domain.AIJobKind, repositoryID uuid.UUID, componentID *uuid.UUID, env domain.DeployEnvironment) (domain.AIJob, error) {
-	ret := _m.Called(ctx, kind, repositoryID, componentID, env)
-
-	if len(ret) == 0 {
-		panic("no return value specified for RunningAIJob")
-	}
-
-	var r0 domain.AIJob
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, domain.AIJobKind, uuid.UUID, *uuid.UUID, domain.DeployEnvironment) (domain.AIJob, error)); ok {
-		return rf(ctx, kind, repositoryID, componentID, env)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, domain.AIJobKind, uuid.UUID, *uuid.UUID, domain.DeployEnvironment) domain.AIJob); ok {
-		r0 = rf(ctx, kind, repositoryID, componentID, env)
-	} else {
-		r0 = ret.Get(0).(domain.AIJob)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, domain.AIJobKind, uuid.UUID, *uuid.UUID, domain.DeployEnvironment) error); ok {
-		r1 = rf(ctx, kind, repositoryID, componentID, env)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // SetAIJobSession provides a mock function with given fields: ctx, id, sessionID
 func (_m *AIJobStore) SetAIJobSession(ctx context.Context, id uuid.UUID, sessionID uuid.UUID) error {
 	ret := _m.Called(ctx, id, sessionID)
@@ -218,6 +227,34 @@ func (_m *AIJobStore) SetAIJobSession(ctx context.Context, id uuid.UUID, session
 	}
 
 	return r0
+}
+
+// StartAIJob provides a mock function with given fields: ctx, id
+func (_m *AIJobStore) StartAIJob(ctx context.Context, id uuid.UUID) (bool, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartAIJob")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (bool, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) bool); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // NewAIJobStore creates a new instance of AIJobStore. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

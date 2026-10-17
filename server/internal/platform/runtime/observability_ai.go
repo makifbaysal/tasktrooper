@@ -94,7 +94,7 @@ func (e *engine) wireObservabilityAI(ctx context.Context, cfg *domain.Config, d 
 	}
 	ai.Start(ctx)
 
-	kit := &observabilitytools.ToolKit{Components: model, Definitions: defs, Jobs: ai}
+	kit := &observabilitytools.ToolKit{Components: model, Definitions: defs, Jobs: ai, SourceUse: pgstore.NewSignalBindingStore(e.pgDB)}
 	if e.opsQuerySvc != nil {
 		kit.Errors = e.opsQuerySvc
 	}

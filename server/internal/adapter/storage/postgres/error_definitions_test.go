@@ -28,6 +28,7 @@ type ErrorDefinitionStoreSuite struct {
 	sources   *postgres.DataSourceStore
 	models    *postgres.ProjectModelStore
 	repos     *postgres.RepositoryStore
+	tasks     *postgres.BoardTaskStore
 	repo      domain.Repository
 	component domain.Component
 }
@@ -55,6 +56,7 @@ func (s *ErrorDefinitionStoreSuite) SetupSuite() {
 	s.sources = postgres.NewDataSourceStore(db)
 	s.models = postgres.NewProjectModelStore(db)
 	s.repos = postgres.NewRepositoryStore(db)
+	s.tasks = postgres.NewBoardTaskStore(db)
 }
 
 func (s *ErrorDefinitionStoreSuite) TearDownSuite() {
@@ -88,6 +90,17 @@ func (s *ErrorDefinitionStoreSuite) definition(name string, comp *uuid.UUID, sta
 	})
 	s.Require().NoError(err)
 	return d
+}
+
+func (s *ErrorDefinitionStoreSuite) task() uuid.UUID {
+	num, err := s.tasks.NextTaskNumber(s.ctx, "task")
+	s.Require().NoError(err)
+	task, err := s.tasks.Create(s.ctx, domain.BoardTask{
+		RepositoryID: s.repo.ID, TaskNumber: num, Title: "errdef-test", TaskType: "task",
+		Column: domain.TaskColumnTodo, Priority: domain.TaskPriorityMedium, CreatedBy: "test",
+	})
+	s.Require().NoError(err)
+	return task.ID
 }
 
 func (s *ErrorDefinitionStoreSuite) TestRoundTripsEveryField() {
@@ -162,30 +175,84 @@ func (s *ErrorDefinitionStoreSuite) TestUpdateKeepsFiringOnlyWhileTheActionStays
 func (s *ErrorDefinitionStoreSuite) TestAGroupLinkIsClaimedOnceAndReleasedWithoutATask() {
 	d := s.definition("Nil", nil, domain.ErrorDefinitionActive, domain.ErrorActionTask)
 	link := domain.ErrorGroupLink{DefinitionID: d.ID, Fingerprint: "fp", ComponentID: s.component.ID}
-	ok, err := s.defs.ClaimErrorGroupLink(s.ctx, link)
+	longAgo := time.Now().Add(-time.Hour)
+	ok, err := s.defs.ClaimErrorGroupLink(s.ctx, link, longAgo)
 	s.Require().NoError(err)
 	s.True(ok)
-	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, link)
+	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, link, longAgo)
 	s.Require().NoError(err)
 	s.False(ok)
 	s.Require().NoError(s.defs.ReleaseErrorGroupLink(s.ctx, d.ID, "fp"))
-	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, link)
+	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, link, longAgo)
 	s.Require().NoError(err)
 	s.True(ok)
 }
 
-func (s *ErrorDefinitionStoreSuite) TestAIJobsLifecycle() {
-	job, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobMapSignals, RepositoryID: s.repo.ID,
-		ComponentID: &s.component.ID, Environment: domain.EnvironmentProduction})
+func (s *ErrorDefinitionStoreSuite) TestAClaimThatNeverLinkedATaskIsReclaimedOnceStaleButALinkedOneNever() {
+	d := s.definition("Crash", nil, domain.ErrorDefinitionActive, domain.ErrorActionTask)
+	link := domain.ErrorGroupLink{DefinitionID: d.ID, Fingerprint: "fp-stale", ComponentID: s.component.ID}
+	ok, err := s.defs.ClaimErrorGroupLink(s.ctx, link, time.Now().Add(-time.Hour))
 	s.Require().NoError(err)
+	s.Require().True(ok)
+
+	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, link, time.Now().Add(-time.Hour))
+	s.Require().NoError(err)
+	s.False(ok, "a fresh claim is someone else's task in the making")
+	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, link, time.Now().Add(time.Minute))
+	s.Require().NoError(err)
+	s.True(ok, "a claim older than the cutoff that opened no task is taken over")
+
+	other := domain.ErrorGroupLink{DefinitionID: d.ID, Fingerprint: "fp-linked", ComponentID: s.component.ID}
+	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, other, time.Now())
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Require().NoError(s.defs.SetErrorGroupLinkTask(s.ctx, d.ID, "fp-linked", s.task()))
+	ok, err = s.defs.ClaimErrorGroupLink(s.ctx, other, time.Now().Add(time.Hour))
+	s.Require().NoError(err)
+	s.False(ok, "a group that has its task is never claimed again")
+}
+
+func (s *ErrorDefinitionStoreSuite) TestTwoEqualSuggestionsCannotBothBeStored() {
+	d := domain.ErrorDefinition{RepositoryID: s.repo.ID, ComponentID: &s.component.ID, Name: "Dup",
+		Match: domain.ErrorMatch{ExceptionType: "DupError"}, Category: domain.ErrorCategoryBug, Severity: domain.IncidentSeverityLow,
+		Action: domain.ErrorActionNone, Source: domain.ErrorDefinitionAI, Status: domain.ErrorDefinitionSuggested, Evidence: []string{}}
+	_, err := s.defs.CreateErrorDefinition(s.ctx, d)
+	s.Require().NoError(err)
+	_, err = s.defs.CreateErrorDefinition(s.ctx, d)
+	s.ErrorIs(err, port.ErrErrorDefinitionExists)
+
+	d.Status, d.Source = domain.ErrorDefinitionActive, domain.ErrorDefinitionHuman
+	_, err = s.defs.CreateErrorDefinition(s.ctx, d)
+	s.NoError(err, "a person's own definition is not a suggestion")
+}
+
+func (s *ErrorDefinitionStoreSuite) TestAIJobsLifecycle() {
+	job, created, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobMapSignals, RepositoryID: s.repo.ID,
+		ComponentID: &s.component.ID, Environment: domain.EnvironmentProduction, Owner: "this process"})
+	s.Require().NoError(err)
+	s.True(created)
 	s.Equal(domain.AIJobRunning, job.Status)
+	s.Equal("this process", job.Owner)
+	s.Nil(job.StartedAt)
 	s.Equal([]domain.AIJobItem{}, job.Created)
 
-	running, err := s.jobs.RunningAIJob(s.ctx, domain.AIJobMapSignals, s.repo.ID, &s.component.ID, domain.EnvironmentProduction)
+	same, created, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobMapSignals, RepositoryID: s.repo.ID,
+		ComponentID: &s.component.ID, Environment: domain.EnvironmentProduction})
 	s.Require().NoError(err)
-	s.Equal(job.ID, running.ID)
-	_, err = s.jobs.RunningAIJob(s.ctx, domain.AIJobMapSignals, s.repo.ID, nil, domain.EnvironmentProduction)
-	s.ErrorIs(err, port.ErrNotFound)
+	s.False(created, "one job of a kind runs per repository, component and environment")
+	s.Equal(job.ID, same.ID)
+	wide, created, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobMapSignals, RepositoryID: s.repo.ID, Environment: domain.EnvironmentProduction})
+	s.Require().NoError(err)
+	s.True(created, "the repository-wide job is another one")
+	_, err = s.jobs.FinishAIJob(s.ctx, wide.ID, domain.AIJobDone, "", "")
+	s.Require().NoError(err)
+
+	started, err := s.jobs.StartAIJob(s.ctx, job.ID)
+	s.Require().NoError(err)
+	s.True(started)
+	started, err = s.jobs.StartAIJob(s.ctx, job.ID)
+	s.Require().NoError(err)
+	s.False(started)
 
 	session := uuid.New()
 	s.Require().NoError(s.jobs.SetAIJobSession(s.ctx, job.ID, session))
@@ -196,24 +263,45 @@ func (s *ErrorDefinitionStoreSuite) TestAIJobsLifecycle() {
 	for _, it := range items {
 		s.Require().NoError(s.jobs.AppendAIJobItem(s.ctx, job.ID, it))
 	}
+	s.Require().NoError(s.jobs.AppendAIJobItem(s.ctx, job.ID, domain.AIJobItem{Kind: items[0].Kind, ID: items[0].ID, Name: "again"}))
 	bySession, err := s.jobs.GetAIJobBySession(s.ctx, session)
 	s.Require().NoError(err)
-	s.Equal(items, bySession.Created)
+	s.Equal(items, bySession.Created, "an item already recorded is not added twice")
+	s.NotNil(bySession.StartedAt)
 
 	done, err := s.jobs.FinishAIJob(s.ctx, job.ID, domain.AIJobDone, "two proposals", "")
 	s.Require().NoError(err)
 	s.Equal(domain.AIJobDone, done.Status)
 	s.NotNil(done.FinishedAt)
-
-	left, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobDefineErrors, RepositoryID: s.repo.ID, Environment: domain.EnvironmentProduction})
+	_, err = s.jobs.FinishAIJob(s.ctx, job.ID, domain.AIJobFailed, "", "late")
+	s.ErrorIs(err, port.ErrNotFound, "a job that ended keeps its outcome")
+	s.Require().NoError(s.jobs.AppendAIJobItem(s.ctx, job.ID, domain.AIJobItem{Kind: domain.AIJobItemAlertRule, ID: uuid.New()}))
+	got, err := s.jobs.GetAIJob(s.ctx, job.ID)
 	s.Require().NoError(err)
-	n, err := s.jobs.FailRunningAIJobs(s.ctx, "restart")
+	s.Equal(domain.AIJobDone, got.Status)
+	s.Len(got.Created, 2, "nothing is added to a job that ended")
+
+	left, _, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobDefineErrors, RepositoryID: s.repo.ID, Environment: domain.EnvironmentProduction, Owner: "old"})
+	s.Require().NoError(err)
+	mine, _, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobErrorCatalog, RepositoryID: s.repo.ID, Environment: domain.EnvironmentProduction, Owner: "new"})
+	s.Require().NoError(err)
+	n, err := s.jobs.FailRunningAIJobs(s.ctx, "new", time.Now().Add(time.Minute), "restart")
 	s.Require().NoError(err)
 	s.GreaterOrEqual(n, int64(1))
-	got, err := s.jobs.GetAIJob(s.ctx, left.ID)
+	got, err = s.jobs.GetAIJob(s.ctx, left.ID)
 	s.Require().NoError(err)
 	s.Equal(domain.AIJobFailed, got.Status)
 	s.Equal("restart", got.Error)
+	got, err = s.jobs.GetAIJob(s.ctx, mine.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.AIJobRunning, got.Status, "the booting process's own jobs stay")
+
+	n, err = s.jobs.FailStaleAIJobs(s.ctx, time.Now().Add(-time.Hour), time.Now().Add(time.Minute), "stale")
+	s.Require().NoError(err)
+	s.Equal(int64(1), n, "a job queued since before the cutoff that never started is stale")
+	got, err = s.jobs.GetAIJob(s.ctx, mine.ID)
+	s.Require().NoError(err)
+	s.Equal("stale", got.Error)
 }
 
 func (s *ErrorDefinitionStoreSuite) TestAnAISuggestionIsStoredOnceAndNeverOverADismissedTarget() {

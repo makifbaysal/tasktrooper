@@ -64,17 +64,36 @@ follow it.
 A new incident at `high` or `critical` — and a `critical` one that keeps
 recurring — shows a desktop notification on macOS, as do its recovery and a
 fix proposed by an agent. Repeats of the same message are held back for 30
-minutes, but a change of state never is: if the last thing you heard about an
+minutes, but a change of state is told: if the last thing you heard about an
 alert was its recovery and it fires again, you hear about it at once, so the
-last notification always matches the alert's real state. Medium and low
-incidents stay on **Operations → Issues** without interrupting you.
+last notification matches the alert's real state. Medium and low incidents
+stay on **Operations → Issues** without interrupting you.
+
+An alert that keeps flipping is the exception. Once an alert has changed state
+four times inside 30 minutes, TaskTrooper stops notifying about it until it
+has stayed in one state for 15 minutes, and then tells you once where it
+ended up — opened or recovered. If it settled where your last notification
+left it, you hear nothing more. The incidents themselves still open and
+resolve on **Operations → Issues** the whole time. The same limit applies to
+the notifications of [alert rules](operations-console.md#alerts) that notify
+on their own channels instead of opening an incident.
 
 Incidents opened by an [alert rule](operations-console.md#alerts) recover
-only after the condition has been clear for two evaluations in a row (and for
-the rule's `for` duration), and a firing rule rides out up to three
-evaluations with no data before it stops firing, so one sparse or late sample
-does not close an incident and open a new one a minute later. A source that
-cannot be read at all keeps the rule in the state it was in.
+only after the condition has been clear for two evaluations in a row and for
+at least five minutes (longer if the rule's `for` duration is longer). A
+firing rule also rides out up to three evaluations with no data before it
+stops firing. So a condition that clears for a few minutes and comes back
+does not close the incident and open a new one every cycle. A source that
+cannot be read keeps the rule in the state it was in for up to ten
+evaluations in a row. The rule shows the last read error meanwhile. After
+that the rule treats the source as returning no data, so a source that is
+down for good does not hold an incident open forever. A rule that was
+`pending` when its reads started failing restarts its `for` once they work
+again, because the time it could not read is not time the condition held.
+
+Incidents opened by an [error definition](operations-console.md#error-definitions)
+resolve when the definition is deleted (by hand, or together with its
+component), dismissed, or changed to an action that opens no incident.
 
 ## Severity
 

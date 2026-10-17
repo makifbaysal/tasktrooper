@@ -18,7 +18,7 @@ params:
     definitions.items.properties.name: Short human name of this kind of error, e.g. "Payment provider timeout".
     definitions.items.properties.rationale: One sentence a person reads before accepting it - why this category and this action.
     definitions.items.properties.severity: Severity of an incident or task it opens (default medium).
-    repository_id: Repository UUID. Omit to use the AI job's or the current task's repository.
+    repository_id: Repository UUID. Omit to use the AI job's or the current task's repository; inside an AI job only the job's own is accepted, and a run bound to a repository may name only that one.
     source: '"ai" when you read it off error groups (the default), "code" when you derived it from an error type or code declared in the code.'
 ---
 Store error definitions you propose for a repository. Every one is saved as a suggestion — status `suggested`, never active — and a person accepts or dismisses it on the Errors page; nothing hides, alerts or opens a task until they do. A proposal whose component and match equal an existing definition's (in any status, a dismissed one included) is not stored again and comes back under `duplicates`; an invalid one comes back under `rejected` with its field errors while the others are still stored. Returns `stored` (`{id, name, category, action}`), `duplicates` (`{name, existing_id}`) and `rejected` (`{name, fields}`). It never changes code.

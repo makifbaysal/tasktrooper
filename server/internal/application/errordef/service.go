@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/opsquery"
@@ -35,6 +36,9 @@ const (
 	maxAttributeKeyLen  = 100
 	maxAttributeValLen  = 500
 	maxProposals        = 50
+	// MaxDefinitionsPerRepository bounds a repository's active and suggested
+	// definitions: every one is matched against every group of every read.
+	MaxDefinitionsPerRepository = 200
 
 	minThresholdWindow = time.Minute
 	maxThresholdWindow = 7 * 24 * time.Hour
@@ -117,6 +121,10 @@ type Service struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	sweepMu  sync.Mutex
+
+	scope  func(ctx context.Context) string
+	paceMu sync.Mutex
+	read   map[string]time.Time
 }
 
 type cachedDefinitions struct {
@@ -154,6 +162,7 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 		now:        func() time.Time { return time.Now().UTC() },
 		cache:      map[uuid.UUID]cachedDefinitions{},
 		interval:   DefaultSweepInterval,
+		read:       map[string]time.Time{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -207,6 +216,16 @@ func (s *Service) Create(ctx context.Context, req DefinitionRequest) (domain.Err
 	if err != nil {
 		return domain.ErrorDefinition{}, err
 	}
+	held, err := s.store.ListErrorDefinitions(ctx, domain.ErrorDefinitionFilter{
+		RepositoryIDs: []uuid.UUID{d.RepositoryID},
+		Statuses:      []domain.ErrorDefinitionStatus{domain.ErrorDefinitionActive, domain.ErrorDefinitionSuggested},
+	})
+	if err != nil {
+		return domain.ErrorDefinition{}, err
+	}
+	if len(held) >= MaxDefinitionsPerRepository {
+		return domain.ErrorDefinition{}, ErrTooManyDefinitions
+	}
 	d.Source, d.Status = domain.ErrorDefinitionHuman, domain.ErrorDefinitionActive
 	out, err := s.store.CreateErrorDefinition(ctx, d)
 	if err != nil {
@@ -235,9 +254,14 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req DefinitionReques
 		return domain.ErrorDefinition{}, err
 	}
 	s.forget(out.RepositoryID)
+	if !out.Action.Thresholded() {
+		s.quiet(ctx, cur)
+	}
 	return out, nil
 }
 
+// Delete resolves the incident the definition's firing alert or incident
+// action holds open: no sweep will judge it again.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	cur, err := s.store.GetErrorDefinition(ctx, id)
 	if err != nil {
@@ -247,7 +271,22 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	s.forget(cur.RepositoryID)
+	s.quiet(ctx, cur)
 	return nil
+}
+
+// quiet resolves the incident of a definition that was firing and no longer
+// opens one. A resolution that does not go through is left to the sweep's
+// orphan pass.
+func (s *Service) quiet(ctx context.Context, was domain.ErrorDefinition) {
+	if was.FiringSince == nil || !was.Action.Thresholded() || s.incidents == nil {
+		return
+	}
+	in := incidentInput(was, nil, 0, threshold(was))
+	in.Resolved = true
+	if _, err := s.incidents.Ingest(ctx, in); err != nil {
+		log.Warn().Err(err).Str("definition_id", was.ID.String()).Msg("errordef: resolving the incident of a definition that stopped acting failed")
+	}
 }
 
 // Accept turns a suggestion into an active definition; accepting an active
@@ -309,6 +348,12 @@ func (s *Service) Propose(ctx context.Context, repositoryID uuid.UUID, proposals
 	repo := repositoryID.String()
 	out := make([]ProposalOutcome, 0, len(proposals))
 	stored := false
+	held := 0
+	for _, e := range existing {
+		if e.Status != domain.ErrorDefinitionDismissed {
+			held++
+		}
+	}
 	for _, p := range proposals {
 		p.RepositoryID = &repo
 		outcome := ProposalOutcome{}
@@ -330,15 +375,31 @@ func (s *Service) Propose(ctx context.Context, repositoryID uuid.UUID, proposals
 			out = append(out, outcome)
 			continue
 		}
+		if held >= MaxDefinitionsPerRepository {
+			outcome.Fields = FieldErrors{"definitions": datasource.FieldTooLong}
+			out = append(out, outcome)
+			continue
+		}
 		d.Source, d.Status = p.Source, domain.ErrorDefinitionSuggested
 		if d.Source != domain.ErrorDefinitionCode {
 			d.Source = domain.ErrorDefinitionAI
 		}
 		saved, err := s.store.CreateErrorDefinition(ctx, d)
+		if errors.Is(err, port.ErrErrorDefinitionExists) {
+			if existing, err = s.store.ListErrorDefinitions(ctx, domain.ErrorDefinitionFilter{RepositoryIDs: []uuid.UUID{repositoryID}}); err != nil {
+				return nil, err
+			}
+			if dup := sameDefinition(existing, d); dup != nil {
+				outcome.Existing = &dup.ID
+			}
+			out = append(out, outcome)
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
 		existing = append(existing, saved)
+		held++
 		outcome.Stored = &saved
 		out = append(out, outcome)
 		stored = true

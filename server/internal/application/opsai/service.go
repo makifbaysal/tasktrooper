@@ -12,8 +12,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,15 +30,37 @@ import (
 const (
 	defaultConcurrency = 2
 	jobTimeout         = 30 * time.Minute
-	maxSummaryLen      = 2000
-	maxErrorLen        = 500
-	maxTitleLen        = 120
+	// jobQueueLimit is how long a job may wait for a free slot before it is
+	// failed instead of started.
+	jobQueueLimit = 30 * time.Minute
+	// staleGrace is how far past its own limits a running row must be before
+	// a new request fails it as stale: a stuck job never blocks its kind.
+	staleGrace    = 5 * time.Minute
+	maxSummaryLen = 2000
+	maxErrorLen   = 500
+	maxTitleLen   = 120
 )
+
+// jobTools is each kind's tool ceiling: the job's turn gets only these of the
+// release engineer's own tools, whatever its role grants elsewhere — reads,
+// the code, skills and the job's own propose_* tools; no shell, no network
+// fetch, no writes, no merge, deploy or rollback, no memory or skill edits.
+var jobTools = map[domain.AIJobKind][]string{
+	domain.AIJobDefineErrors: append([]string{"list_error_groups", "propose_error_definitions"}, codeReadTools...),
+	domain.AIJobErrorCatalog: append([]string{"propose_error_definitions"}, codeReadTools...),
+	domain.AIJobMapSignals:   append([]string{"list_data_source_metrics", "propose_signal_binding", "propose_alert_rule"}, codeReadTools...),
+}
+
+var codeReadTools = []string{"codebase_search", "grep_code", "read_file", "get_repo_tree", "get_project_brief", "load_skill"}
+
+// JobTools is the tool ceiling of a job kind.
+func JobTools(kind domain.AIJobKind) []string { return slices.Clone(jobTools[kind]) }
 
 // Sessions is session.Service.
 type Sessions interface {
 	Create(ctx context.Context, req domain.CreateSessionRequest) (domain.Session, error)
 	SendMessage(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy) (domain.AgentResponse, error)
+	CancelSession(ctx context.Context, sessionID uuid.UUID, reason string) (bool, error)
 }
 
 type Roles interface {
@@ -75,6 +99,7 @@ type Links interface {
 
 type TaskBoard interface {
 	CreateTask(ctx context.Context, repositoryID uuid.UUID, req domain.CreateBoardTaskRequest) (domain.BoardTask, error)
+	ListTasks(ctx context.Context, repositoryID uuid.UUID) ([]domain.BoardTask, error)
 }
 
 // Deps: without Sessions the jobs are refused (ErrUnavailable); without
@@ -109,11 +134,21 @@ type Service struct {
 	policy       domain.ToolPolicy
 
 	now  func() time.Time
-	sem  chan struct{}
 	base context.Context
 	wg   sync.WaitGroup
 	// sync, when set, runs a job inside the call that started it (tests).
 	sync bool
+
+	// owner marks the jobs this process created, so Start fails only the
+	// ones another process left running.
+	owner            string
+	interruptedAfter time.Duration
+	timeout          time.Duration
+	queueLimit       time.Duration
+
+	scope func(ctx context.Context) string
+	semMu sync.Mutex
+	sems  map[string]chan struct{}
 }
 
 type Option func(*Service)
@@ -123,6 +158,30 @@ func WithClock(now func() time.Time) Option { return func(s *Service) { s.now = 
 // WithSynchronousJobs runs each job to its end before the call that started
 // it returns.
 func WithSynchronousJobs() Option { return func(s *Service) { s.sync = true } }
+
+// WithInterruptedAfter: Start fails another process's running jobs only once
+// they are this old, for a deployment where that process may still be alive.
+// Zero (the default) fails every one: on this machine there is no other.
+func WithInterruptedAfter(d time.Duration) Option {
+	return func(s *Service) { s.interruptedAfter = max(d, 0) }
+}
+
+// WithJobLimits replaces the 30-minute run and queue limits (tests).
+func WithJobLimits(run, queue time.Duration) Option {
+	return func(s *Service) {
+		if run > 0 {
+			s.timeout = run
+		}
+		if queue > 0 {
+			s.queueLimit = queue
+		}
+	}
+}
+
+// SetScope bounds the jobs running at once per scope(ctx) of the request that
+// started them rather than per process. Without it there is one scope. Call
+// it before serving.
+func (s *Service) SetScope(scope func(ctx context.Context) string) { s.scope = scope }
 
 func NewService(d Deps, opts ...Option) (*Service, error) {
 	if d.Jobs == nil || d.Components == nil || d.Repositories == nil || d.Roles == nil {
@@ -141,8 +200,11 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 		tasks:        d.Tasks,
 		policy:       d.Policy,
 		now:          func() time.Time { return time.Now().UTC() },
-		sem:          make(chan struct{}, defaultConcurrency),
 		base:         context.Background(),
+		owner:        uuid.NewString(),
+		timeout:      jobTimeout,
+		queueLimit:   jobQueueLimit,
+		sems:         map[string]chan struct{}{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -154,7 +216,7 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 // died with it. Jobs started afterwards run under ctx.
 func (s *Service) Start(ctx context.Context) {
 	s.base = ctx
-	if n, err := s.jobs.FailRunningAIJobs(ctx, interruptedReason); err != nil {
+	if n, err := s.jobs.FailRunningAIJobs(ctx, s.owner, s.now().Add(-s.interruptedAfter), interruptedReason); err != nil {
 		log.Warn().Err(err).Msg("opsai: failing interrupted jobs failed")
 	} else if n > 0 {
 		log.Info().Int64("jobs", n).Msg("opsai: failed jobs interrupted by a restart")
@@ -164,7 +226,12 @@ func (s *Service) Start(ctx context.Context) {
 // Wait returns once every job started so far has finished.
 func (s *Service) Wait() { s.wg.Wait() }
 
-const interruptedReason = "interrupted by a restart"
+const (
+	interruptedReason = "interrupted by a restart"
+	staleReason       = "stopped answering; failed so a new job can start"
+	shutdownReason    = "the server stopped before the job could start"
+	cancelReason      = "the AI job ran past its time limit"
+)
 
 func (s *Service) Job(ctx context.Context, id uuid.UUID) (domain.AIJob, error) {
 	return s.jobs.GetAIJob(ctx, id)
@@ -186,11 +253,12 @@ func (s *Service) SessionJob(ctx context.Context) (domain.AIJob, bool) {
 	return job, true
 }
 
-// Record adds what a tool stored to the job whose chat this is; outside a
-// job it is no change.
+// Record adds what a tool stored to the job whose chat this is, once and
+// only while the job runs: outside a job, or in a job's chat after it ended,
+// it is no change.
 func (s *Service) Record(ctx context.Context, item domain.AIJobItem) {
 	job, ok := s.SessionJob(ctx)
-	if !ok {
+	if !ok || job.Status != domain.AIJobRunning {
 		return
 	}
 	if err := s.jobs.AppendAIJobItem(ctx, job.ID, item); err != nil {
@@ -278,6 +346,7 @@ type jobContext struct {
 	component *domain.Component
 	agentID   uuid.UUID
 	actor     string
+	scope     string
 }
 
 func (s *Service) start(ctx context.Context, kind domain.AIJobKind, repoID uuid.UUID, compID *uuid.UUID, env domain.DeployEnvironment) (domain.AIJob, error) {
@@ -312,16 +381,23 @@ func (s *Service) start(ctx context.Context, kind domain.AIJobKind, repoID uuid.
 	if err != nil {
 		return domain.AIJob{}, err
 	}
-	if running, err := s.jobs.RunningAIJob(ctx, kind, repo.ID, compID, env); err == nil {
-		return running, nil
-	} else if !errors.Is(err, port.ErrNotFound) {
+	now := s.now()
+	if n, err := s.jobs.FailStaleAIJobs(ctx, now.Add(-(s.timeout + staleGrace)), now.Add(-(s.queueLimit + staleGrace)), staleReason); err != nil {
 		return domain.AIJob{}, err
+	} else if n > 0 {
+		log.Warn().Int64("jobs", n).Msg("opsai: failed jobs that stopped answering")
 	}
-	job, err := s.jobs.CreateAIJob(ctx, domain.AIJob{Kind: kind, RepositoryID: repo.ID, ComponentID: compID, Environment: env})
+	job, created, err := s.jobs.CreateAIJob(ctx, domain.AIJob{Kind: kind, RepositoryID: repo.ID, ComponentID: compID, Environment: env, Owner: s.owner})
 	if err != nil {
 		return domain.AIJob{}, err
 	}
+	if !created {
+		return job, nil
+	}
 	jc := jobContext{job: job, repo: repo, component: comp, agentID: agentID, actor: registry.ActorUserIDFromContext(ctx)}
+	if s.scope != nil {
+		jc.scope = s.scope(ctx)
+	}
 	if s.sync {
 		s.run(jc)
 		return s.jobs.GetAIJob(ctx, job.ID)
@@ -359,48 +435,103 @@ func (s *Service) releaseEngineer(ctx context.Context, area string) (uuid.UUID, 
 	return uuid.Nil, ErrNoReleaseEngineer
 }
 
+// slots is the scope's job semaphore.
+func (s *Service) slots(scope string) chan struct{} {
+	s.semMu.Lock()
+	defer s.semMu.Unlock()
+	sem, ok := s.sems[scope]
+	if !ok {
+		sem = make(chan struct{}, defaultConcurrency)
+		s.sems[scope] = sem
+	}
+	return sem
+}
+
+// takeSlot waits for a free slot; a job that waits past the queue limit, or
+// for a server that stops, is failed instead.
+func (s *Service) takeSlot(jc jobContext) (release func(), ok bool) {
+	sem := s.slots(jc.scope)
+	wait := time.NewTimer(s.queueLimit)
+	defer wait.Stop()
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, true
+	case <-s.base.Done():
+		s.finish(context.WithoutCancel(s.base), jc.job.ID, domain.AIJobFailed, "", shutdownReason)
+	case <-wait.C:
+		s.finish(s.base, jc.job.ID, domain.AIJobFailed, "", errQueuedTooLong.Error())
+	}
+	return nil, false
+}
+
 func (s *Service) run(jc jobContext) {
-	s.sem <- struct{}{}
-	defer func() { <-s.sem }()
-	ctx, cancel := context.WithTimeout(s.base, jobTimeout)
+	release, ok := s.takeSlot(jc)
+	if !ok {
+		return
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(s.base, s.timeout)
 	defer cancel()
+	finishCtx := context.WithoutCancel(ctx)
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error().Interface("panic", r).Str("job_id", jc.job.ID.String()).Msg("opsai: job panicked")
-			s.finish(context.WithoutCancel(ctx), jc.job.ID, domain.AIJobFailed, "", "the job failed unexpectedly")
+			s.finish(finishCtx, jc.job.ID, domain.AIJobFailed, "", "the job failed unexpectedly")
 		}
 	}()
 
+	started, err := s.jobs.StartAIJob(ctx, jc.job.ID)
+	if err != nil {
+		s.finish(finishCtx, jc.job.ID, domain.AIJobFailed, "", "start the job: "+err.Error())
+		return
+	}
+	if !started {
+		return
+	}
 	sess, err := s.sessions.Create(ctx, domain.CreateSessionRequest{
 		Title:     domain.TruncateHead(s.jobTitle(jc), maxTitleLen),
 		ProjectID: &jc.repo.ID,
 		AgentID:   &jc.agentID,
 	})
 	if err != nil {
-		s.finish(ctx, jc.job.ID, domain.AIJobFailed, "", "open the release engineer chat: "+err.Error())
+		s.finish(finishCtx, jc.job.ID, domain.AIJobFailed, "", "open the release engineer chat: "+err.Error())
 		return
 	}
 	if err := s.jobs.SetAIJobSession(ctx, jc.job.ID, sess.ID); err != nil {
-		s.finish(ctx, jc.job.ID, domain.AIJobFailed, "", "record the chat: "+err.Error())
+		s.finish(finishCtx, jc.job.ID, domain.AIJobFailed, "", "record the chat: "+err.Error())
 		return
 	}
 	message, err := s.jobMessage(ctx, jc)
 	if err != nil {
-		s.finish(ctx, jc.job.ID, domain.AIJobFailed, "", err.Error())
+		s.finish(finishCtx, jc.job.ID, domain.AIJobFailed, "", err.Error())
 		return
 	}
 	runCtx := ctx
 	if jc.actor != "" {
 		runCtx = registry.ContextWithActorUserID(runCtx, jc.actor)
 	}
+	// The chat turn outlives a cancelled context by design (a dropped
+	// connection must not lose an answer), so only stopping the session ends
+	// it: the time limit does that, then fails the job itself.
+	var timedOut atomic.Bool
+	limit := time.AfterFunc(s.timeout, func() {
+		timedOut.Store(true)
+		s.finish(finishCtx, jc.job.ID, domain.AIJobFailed, "", errTimedOut.Error())
+		if _, err := s.sessions.CancelSession(finishCtx, sess.ID, cancelReason); err != nil {
+			log.Warn().Err(err).Str("job_id", jc.job.ID.String()).Msg("opsai: stopping a job past its time limit failed")
+		}
+	})
+	defer limit.Stop()
 	noOrchestration := false
 	resp, err := s.sessions.SendMessage(runCtx, sess.ID, domain.SessionMessageRequest{
 		Role:        domain.RoleUser,
 		Content:     message,
 		Orchestrate: &noOrchestration,
+		ToolCeiling: jobTools[jc.job.Kind],
+		NoQuotaPark: true,
 	}, s.policy)
-	finishCtx := context.WithoutCancel(ctx)
 	switch {
+	case timedOut.Load():
 	case err != nil:
 		s.finish(finishCtx, jc.job.ID, domain.AIJobFailed, "", err.Error())
 	case resp.Clarification != nil:
@@ -410,9 +541,11 @@ func (s *Service) run(jc jobContext) {
 	}
 }
 
+// finish ends a running job; one already ended (failed past its time limit,
+// or as stale) keeps that outcome.
 func (s *Service) finish(ctx context.Context, id uuid.UUID, status domain.AIJobStatus, summary, errMsg string) {
 	if _, err := s.jobs.FinishAIJob(ctx, id, status,
-		domain.TruncateHead(summary, maxSummaryLen), domain.TruncateHead(strings.TrimSpace(errMsg), maxErrorLen)); err != nil {
+		domain.TruncateHead(summary, maxSummaryLen), domain.TruncateHead(strings.TrimSpace(errMsg), maxErrorLen)); err != nil && !errors.Is(err, port.ErrNotFound) {
 		log.Warn().Err(err).Str("job_id", id.String()).Msg("opsai: finishing the job failed")
 	}
 }

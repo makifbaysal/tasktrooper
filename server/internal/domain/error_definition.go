@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -185,4 +186,15 @@ const errorDefinitionFingerprintPrefix = "errdef:"
 // incident.
 func ErrorDefinitionFingerprint(id uuid.UUID) string {
 	return errorDefinitionFingerprintPrefix + id.String()
+}
+
+// ErrorDefinitionOfFingerprint reads the definition id back out of an
+// incident fingerprint ErrorDefinitionFingerprint wrote.
+func ErrorDefinitionOfFingerprint(fingerprint string) (uuid.UUID, bool) {
+	raw, ok := strings.CutPrefix(fingerprint, errorDefinitionFingerprintPrefix)
+	if !ok {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(raw)
+	return id, err == nil
 }

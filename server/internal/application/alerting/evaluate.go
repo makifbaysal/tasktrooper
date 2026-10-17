@@ -99,8 +99,32 @@ sweep:
 		}(rule)
 	}
 	wg.Wait()
+	s.deliverSettled(ctx, now)
 	s.resolveOrphans(ctx, now)
 	s.prune(ctx, now)
+}
+
+// deliverSettled tells the final state of the rules whose flapping held
+// their notifications back, once each has stayed put.
+func (s *Service) deliverSettled(ctx context.Context, now time.Time) {
+	if s.notifier == nil || ctx.Err() != nil {
+		return
+	}
+	for _, h := range s.cooldown.Settled(s.cooldownKey(ctx, ""), now) {
+		if n, ok := h.Payload.(heldNotification); ok {
+			s.notifier.NotifyVia(ctx, n.notification, n.channels)
+		}
+	}
+}
+
+// heldNotification is a rule's notification held back while it flapped.
+type heldNotification struct {
+	notification domain.Notification
+	channels     []domain.NotificationChannelKind
+}
+
+func (s *Service) cooldownKey(ctx context.Context, ruleID string) string {
+	return s.scopeOf(ctx) + "\x00" + ruleID
 }
 
 // prune runs every sweep rather than on a timer of its own: a deployment that
@@ -121,12 +145,13 @@ func (s *Service) resolveOrphans(ctx context.Context, now time.Time) {
 	if !ok || ctx.Err() != nil {
 		return
 	}
+	scope := s.scopeOf(ctx)
 	s.orphanMu.Lock()
-	if !s.lastOrphanSweep.IsZero() && now.Sub(s.lastOrphanSweep) < orphanSweepEvery {
+	if last, ok := s.lastOrphanSweep[scope]; ok && now.Sub(last) < orphanSweepEvery {
 		s.orphanMu.Unlock()
 		return
 	}
-	s.lastOrphanSweep = now
+	s.lastOrphanSweep[scope] = now
 	s.orphanMu.Unlock()
 
 	live, err := closer.List(ctx, domain.IncidentFilter{
@@ -179,8 +204,12 @@ func noData(err error) bool {
 // evaluation of what the rule used to say. Only a read that cannot work (see
 // noData) is no data; any other failure leaves the rule where it was rather
 // than resolving it, so one failed query never closes an incident a minute
-// before reopening another. A firing or a recovery that does not reach
-// prodops leaves the rule where it was too, to be tried again next time.
+// before reopening another — for up to maxReadErrors evaluations in a row,
+// counted on the rule with the last failure, after which it reads as no data.
+// A pending rule whose run of failures ends starts its for over: the time it
+// went unread is not time the condition was seen to hold. A firing or a
+// recovery that does not reach prodops leaves the rule where it was too, to
+// be tried again next time.
 func (s *Service) evaluate(ctx context.Context, snapshot domain.AlertRule) error {
 	now := s.now()
 	window := snapshot.Condition.Window()
@@ -198,6 +227,14 @@ func (s *Service) evaluate(ctx context.Context, snapshot domain.AlertRule) error
 	default:
 		log.Warn().Err(err).Str("rule_id", snapshot.ID.String()).Msg("alerting: reading the rule failed; keeping the state")
 		keep = true
+	}
+	var readErrors domain.AlertReadErrors
+	if keep {
+		readErrors = domain.AlertReadErrors{ErrorCount: snapshot.ErrorCount + 1, LastError: domain.TruncateHead(err.Error(), maxLastErrorLen)}
+		if readErrors.ErrorCount > maxReadErrors {
+			keep = false
+			samples = nil
+		}
 	}
 	cur, prev := pick(samples, now, step)
 	v := judge(snapshot.Condition, cur, prev)
@@ -217,10 +254,14 @@ func (s *Service) evaluate(ctx context.Context, snapshot domain.AlertRule) error
 	}
 	if keep {
 		_, _, err = s.rules.RecordAlertEvaluation(ctx, rule.ID, rule.UpdatedAt,
-			domain.AlertEvaluation{State: rule.State, StateSince: rule.StateSince, Value: rule.LastValue, At: now, Streak: rule.AlertStreak}, nil)
+			domain.AlertEvaluation{State: rule.State, StateSince: rule.StateSince, Value: rule.LastValue, At: now, Streak: rule.AlertStreak, Errors: readErrors}, nil)
 		return err
 	}
-	next := advance(standingOf(rule), rule.Condition, v, now)
+	st := standingOf(rule)
+	if rule.ErrorCount > 0 && rule.State == domain.AlertStatePending {
+		st.since = now
+	}
+	next := advance(st, rule.Condition, v, now)
 	var event *domain.AlertEvent
 	if next.state != rule.State {
 		incidentID, err := s.announce(ctx, rule, next.state, v.value)
@@ -234,7 +275,7 @@ func (s *Service) evaluate(ctx context.Context, snapshot domain.AlertRule) error
 		}
 	}
 	_, _, err = s.rules.RecordAlertEvaluation(ctx, rule.ID, rule.UpdatedAt,
-		domain.AlertEvaluation{State: next.state, StateSince: next.since, Value: v.value, At: now, Streak: next.stored()}, event)
+		domain.AlertEvaluation{State: next.state, StateSince: next.since, Value: v.value, At: now, Streak: next.stored(), Errors: readErrors}, event)
 	return err
 }
 
@@ -351,15 +392,17 @@ func (s *Service) incidentInput(ctx context.Context, rule domain.AlertRule, valu
 	}, nil
 }
 
-// notify holds back only a repeat of the kind last told for the rule inside
-// 30 minutes, as prodops does for an alert: a firing after a told recovery
-// is always told. The hysteresis in advance is what keeps a flapping
-// condition from firing and recovering every evaluation.
+// notify holds back a repeat of the kind last told for the rule inside 30
+// minutes, as prodops does for an alert: a firing after a told recovery is
+// told. A rule changing state more than four times in that window is
+// flapping; it is told nothing more until it has stayed put for fifteen
+// minutes, and then where it ended (deliverSettled). The hysteresis in
+// advance keeps a condition near its threshold from flapping that fast.
 func (s *Service) notify(ctx context.Context, rule domain.AlertRule, kind domain.NotificationKind, title, body string) {
-	if s.notifier == nil || len(rule.Channels) == 0 || !s.cooldown.AllowTransition(rule.ID.String(), string(kind), s.now()) {
+	if s.notifier == nil || len(rule.Channels) == 0 {
 		return
 	}
-	s.notifier.NotifyVia(ctx, domain.Notification{
+	n := domain.Notification{
 		Kind:     kind,
 		Title:    title,
 		Body:     body,
@@ -367,7 +410,12 @@ func (s *Service) notify(ctx context.Context, rule domain.AlertRule, kind domain
 		Link:     domain.AlertRuleLink(rule.ComponentID, rule.ID),
 		Source:   domain.NotificationSourceAlert,
 		SourceID: rule.ID.String(),
-	}, rule.Channels)
+	}
+	held := heldNotification{notification: n, channels: rule.Channels}
+	if !s.cooldown.AllowTransitionHolding(s.cooldownKey(ctx, rule.ID.String()), string(kind), s.now(), held) {
+		return
+	}
+	s.notifier.NotifyVia(ctx, n, rule.Channels)
 }
 
 func (s *Service) appendEvent(ctx context.Context, e domain.AlertEvent) {

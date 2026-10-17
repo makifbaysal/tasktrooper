@@ -128,6 +128,7 @@ var errorDefinitionKeys = []string{
 
 func (s *ErrorDefinitionsHandlerSuite) TestCreateStoresAnActiveHumanDefinition() {
 	s.comps.On("GetComponent", mock.Anything, s.comp.ID).Return(s.comp, nil).Once()
+	s.store.On("ListErrorDefinitions", mock.Anything, mock.Anything).Return([]domain.ErrorDefinition{}, nil).Once()
 	s.store.On("CreateErrorDefinition", mock.Anything, mock.MatchedBy(func(d domain.ErrorDefinition) bool {
 		return d.Source == domain.ErrorDefinitionHuman && d.Status == domain.ErrorDefinitionActive &&
 			d.Match.MessageRegex == "timeout" && *d.ComponentID == s.comp.ID && d.AlertThreshold.Count == 5
@@ -259,7 +260,7 @@ func (s *ErrorDefinitionsHandlerSuite) TestSuggestJobsAnswerTheirJobID() {
 	status, body = s.do("GET", "/v1/ai-jobs/"+s.ai.job.ID.String(), "")
 	s.Equal(fiber.StatusOK, status)
 	s.ElementsMatch([]string{"id", "kind", "repository_id", "component_id", "environment", "status", "session_id",
-		"result_summary", "error", "created", "created_at", "updated_at", "finished_at"}, keysOf(body))
+		"result_summary", "error", "created", "created_at", "started_at", "updated_at", "finished_at"}, keysOf(body))
 	status, _ = s.do("GET", "/v1/ai-jobs/"+uuid.NewString(), "")
 	s.Equal(fiber.StatusNotFound, status)
 

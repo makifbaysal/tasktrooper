@@ -84,6 +84,7 @@ type AlertRule struct {
 	LastValue       *float64   `json:"last_value"`
 	LastEvaluatedAt *time.Time `json:"last_evaluated_at"`
 	AlertStreak
+	AlertReadErrors
 	// CreatedBy is set once, on create; an edit never changes it.
 	CreatedBy AlertRuleCreator `json:"created_by"`
 	CreatedAt time.Time        `json:"created_at"`
@@ -99,6 +100,15 @@ type AlertStreak struct {
 	NoDataCount int        `json:"-"`
 }
 
+// AlertReadErrors is the evaluations in a row whose read failed for a reason
+// that says nothing about the value (the source down or slow), and the last
+// such failure (migration 192). A rule holds its state through them, up to a
+// limit; a successful read zeroes both.
+type AlertReadErrors struct {
+	ErrorCount int    `json:"error_count"`
+	LastError  string `json:"last_error"`
+}
+
 type AlertRuleFilter struct {
 	ComponentID *uuid.UUID
 	Environment DeployEnvironment
@@ -111,6 +121,7 @@ type AlertEvaluation struct {
 	Value      *float64
 	At         time.Time
 	Streak     AlertStreak
+	Errors     AlertReadErrors
 }
 
 // AlertEvent is one state change of a rule; IncidentID is the incident its

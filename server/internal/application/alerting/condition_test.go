@@ -40,7 +40,7 @@ func TestJudge(t *testing.T) {
 		{"rising above the floor", cond(domain.AlertOpRising, 10, 0), cur, prev, f(12), true},
 		{"rising under the floor", cond(domain.AlertOpRising, 20, 0), cur, prev, f(12), false},
 		{"falling is not rising", cond(domain.AlertOpRising, 0, 0), prev, cur, f(8), false},
-		{"rising without an earlier value", cond(domain.AlertOpRising, 0, 0), cur, nil, f(12), false},
+		{"rising without an earlier value is no data", cond(domain.AlertOpRising, 0, 0), cur, nil, nil, false},
 		{"change up 50%", cond(domain.AlertOpChangePctAbove, 40, 0), cur, prev, f(50), true},
 		{"change down 33%", cond(domain.AlertOpChangePctBelow, -30, 0), prev, cur, f(-100.0 / 3), true},
 		{"change against zero is no data", cond(domain.AlertOpChangePctAbove, 10, 0), cur, zero, nil, false},
@@ -114,11 +114,22 @@ var (
 	nothing = verdict{}
 )
 
-func TestAFiringRuleResolvesAfterTwoFalseEvaluationsAndItsFor(t *testing.T) {
+func TestAFiringRuleResolvesAfterTwoFalseEvaluationsAndItsForOrFiveMinutes(t *testing.T) {
 	firing, ok := domain.AlertStateFiring, domain.AlertStateOK
-	assert.Equal(t, []domain.AlertState{firing, ok}, run(cond(domain.AlertOpAbove, 1, 0), cleared, cleared))
-	assert.Equal(t, []domain.AlertState{firing, firing, ok}, run(cond(domain.AlertOpAbove, 1, 120), cleared, cleared, cleared),
-		"false for two minutes, its for")
+	sixFalse := []verdict{cleared, cleared, cleared, cleared, cleared, cleared}
+	assert.Equal(t, []domain.AlertState{firing, firing, firing, firing, firing, ok}, run(cond(domain.AlertOpAbove, 1, 0), sixFalse...),
+		"false for five minutes, however short its for")
+	eleven := append(append([]verdict{}, sixFalse...), cleared, cleared, cleared, cleared, cleared)
+	got := run(cond(domain.AlertOpAbove, 1, 600), eleven...)
+	assert.Equal(t, ok, got[10], "false for ten minutes, its for")
+	assert.Equal(t, firing, got[9])
+}
+
+func TestAConditionThatClearsAndReturnsEveryFewMinutesDoesNotRecover(t *testing.T) {
+	got := run(cond(domain.AlertOpAbove, 1, 0), cleared, cleared, cleared, holding, cleared, cleared, cleared, holding)
+	for _, state := range got {
+		assert.Equal(t, domain.AlertStateFiring, state, "three minutes clear is not a recovery: no incident is reopened every cycle")
+	}
 }
 
 func TestAFlappingConditionKeepsTheRuleFiring(t *testing.T) {
@@ -140,8 +151,9 @@ func TestAFiringRuleMovesToNoDataOnlyPastTheGrace(t *testing.T) {
 }
 
 func TestSparseFalseEvaluationsStillResolve(t *testing.T) {
-	got := run(cond(domain.AlertOpAbove, 1, 0), cleared, nothing, nothing, cleared)
-	assert.Equal(t, []domain.AlertState{domain.AlertStateFiring, domain.AlertStateFiring, domain.AlertStateFiring, domain.AlertStateOK}, got,
+	got := run(cond(domain.AlertOpAbove, 1, 0), cleared, nothing, nothing, cleared, cleared, cleared)
+	firing := domain.AlertStateFiring
+	assert.Equal(t, []domain.AlertState{firing, firing, firing, firing, firing, domain.AlertStateOK}, got,
 		"an evaluation reading nothing neither counts toward nor breaks a recovery")
 }
 

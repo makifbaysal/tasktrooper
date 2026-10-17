@@ -30,7 +30,7 @@ var (
 		"name", "component_id", "environment", "signal", "data_source_id", "query", "condition", "severity",
 		"channels", "open_incident", "enabled",
 	}
-	alertRuleKeys = append([]string{"id", "state", "state_since", "last_value", "last_evaluated_at", "created_by", "created_at", "updated_at"},
+	alertRuleKeys = append([]string{"id", "state", "state_since", "last_value", "last_evaluated_at", "error_count", "last_error", "created_by", "created_at", "updated_at"},
 		alertRuleSpecKeys...)
 )
 

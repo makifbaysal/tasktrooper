@@ -11,6 +11,10 @@ var (
 	// ErrNotSuggested is accept or dismiss on a definition no one suggested,
 	// or one already accepted or dismissed the other way.
 	ErrNotSuggested = errors.New("the error definition is not a suggestion")
+	// ErrTooManyDefinitions: the repository already holds MaxDefinitionsPerRepository
+	// active or suggested definitions; every one is matched against every
+	// group of every inbox read.
+	ErrTooManyDefinitions = errors.New("the repository already has as many error definitions as it may hold")
 
 	errRegexTooLong  = errors.New("the pattern is longer than 512 characters")
 	errRegexTooLarge = errors.New("the pattern compiles to too large a program")

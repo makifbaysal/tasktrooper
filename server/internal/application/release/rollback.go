@@ -112,6 +112,10 @@ func (s *Service) rollbackRefusal(r domain.Release, f rollbackFacts) (string, st
 			return refuse(domain.RollbackRefusalNewerOpen, rollbackNotAllowedReasonInput{Case: "newer_open", Version: other.Version})
 		}
 	}
+	// Every rollback starts by reverting the release's merge commits.
+	if s.reverter == nil {
+		return refuse(domain.RollbackRefusalNotConfigured, rollbackNotAllowedReasonInput{Case: "not_configured"})
+	}
 	return "", ""
 }
 
@@ -169,9 +173,17 @@ func (s *Service) rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 	}
 
 	if !r.Profile.AutoRollback && actor == domain.ReleaseActorAgent {
+		attributed := s.attributedIncident(r.ID)
+		if dismissedWithoutNewIncident(r.RollbackDismissal, attributed) {
+			in := rollbackProposalDismissedInput{}
+			if r.RollbackDismissal.IncidentID != nil {
+				in.IncidentID = r.RollbackDismissal.IncidentID.String()
+			}
+			return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrRollbackProposalDismissed, rollbackProposalDismissedKey.Render(in))
+		}
 		proposal := &domain.RollbackProposal{ProposedAt: s.now().UTC(), By: actor, Reason: reason, Note: note}
 		if reason == domain.RollbackHealthIncident {
-			proposal.IncidentID = s.attributedIncident(r.ID)
+			proposal.IncidentID = attributed
 		}
 		// Stored before anyone hears of it: the notification's approve action
 		// opens the release, which must already show the proposal.

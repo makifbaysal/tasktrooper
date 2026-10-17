@@ -18,9 +18,9 @@ type ErrorDefinitionStore struct {
 	mock.Mock
 }
 
-// ClaimErrorGroupLink provides a mock function with given fields: ctx, link
-func (_m *ErrorDefinitionStore) ClaimErrorGroupLink(ctx context.Context, link domain.ErrorGroupLink) (bool, error) {
-	ret := _m.Called(ctx, link)
+// ClaimErrorGroupLink provides a mock function with given fields: ctx, link, staleBefore
+func (_m *ErrorDefinitionStore) ClaimErrorGroupLink(ctx context.Context, link domain.ErrorGroupLink, staleBefore time.Time) (bool, error) {
+	ret := _m.Called(ctx, link, staleBefore)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ClaimErrorGroupLink")
@@ -28,17 +28,17 @@ func (_m *ErrorDefinitionStore) ClaimErrorGroupLink(ctx context.Context, link do
 
 	var r0 bool
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, domain.ErrorGroupLink) (bool, error)); ok {
-		return rf(ctx, link)
+	if rf, ok := ret.Get(0).(func(context.Context, domain.ErrorGroupLink, time.Time) (bool, error)); ok {
+		return rf(ctx, link, staleBefore)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, domain.ErrorGroupLink) bool); ok {
-		r0 = rf(ctx, link)
+	if rf, ok := ret.Get(0).(func(context.Context, domain.ErrorGroupLink, time.Time) bool); ok {
+		r0 = rf(ctx, link, staleBefore)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, domain.ErrorGroupLink) error); ok {
-		r1 = rf(ctx, link)
+	if rf, ok := ret.Get(1).(func(context.Context, domain.ErrorGroupLink, time.Time) error); ok {
+		r1 = rf(ctx, link, staleBefore)
 	} else {
 		r1 = ret.Error(1)
 	}

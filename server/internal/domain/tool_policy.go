@@ -589,6 +589,26 @@ func IntersectMCPServers(base ToolPolicy, names []string) ToolPolicy {
 	return out
 }
 
+// CeilToolPolicy narrows p to the tools ceiling names, whatever the agent's
+// own allow list says, and admits no user-configured MCP server. It never
+// widens: an intersection left empty keeps only ask_user, because an empty
+// allow list would read as unrestricted.
+func CeilToolPolicy(p ToolPolicy, ceiling []string) ToolPolicy {
+	if len(ceiling) == 0 {
+		return p
+	}
+	allowed := make([]string, 0, len(ceiling))
+	for _, name := range ceiling {
+		if len(p.AllowTools) == 0 || matchesAnyToolPattern(name, p.AllowTools) {
+			allowed = append(allowed, name)
+		}
+	}
+	if len(allowed) == 0 {
+		allowed = []string{AskUserToolName}
+	}
+	return ToolPolicy{AllowTools: allowed, AllowMCPServers: []string{ReservedMCPServerID}}
+}
+
 func IntersectToolPolicy(base ToolPolicy, toolNames []string) ToolPolicy {
 	if len(toolNames) == 0 {
 		return base

@@ -87,6 +87,8 @@ func TestCompileBoundedRefusesLongAndHugePatterns(t *testing.T) {
 	require.Error(t, err)
 	_, err = compileBounded(`timeout after \d+ms`)
 	require.NoError(t, err)
+	_, err = compileBounded(`x{300}y{300}z{300}w{300}`)
+	require.ErrorIs(t, err, errRegexTooLarge, "a program past a thousand instructions is refused")
 }
 
 func TestMatchingReadsOnlyTheHeadOfAHugeSample(t *testing.T) {

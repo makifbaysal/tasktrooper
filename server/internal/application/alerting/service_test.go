@@ -392,9 +392,10 @@ func (s *AlertingSuite) TestAFiringRuleOpensAnIncidentThroughProdopsAndRecovers(
 	s.False(in.Resolved)
 
 	s.constant(1)
-	s.sweepAfter(time.Minute)
-	s.sweepAfter(time.Minute)
-	s.Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State, "false for one minute of its two-minute for")
+	for range 5 {
+		s.sweepAfter(time.Minute)
+	}
+	s.Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State, "false for four of the five minutes a recovery needs")
 	s.expectRecovery(incidentID, rule)
 	s.sweepAfter(time.Minute)
 
@@ -449,8 +450,9 @@ func (s *AlertingSuite) TestARuleWithoutAnIncidentNotifiesOnItsChannelsOnly() {
 	s.constant(5)
 	s.sweepAfter(0)
 	s.constant(1)
-	s.sweepAfter(time.Minute)
-	s.sweepAfter(time.Minute)
+	for range 6 {
+		s.sweepAfter(time.Minute)
+	}
 
 	s.Empty(s.notifications(domain.NotificationChannelDesktop))
 	sent := s.notifications(domain.NotificationChannelSlack)
@@ -491,24 +493,121 @@ func (s *AlertingSuite) TestAReFiringAfterAToldRecoveryIsToldInsideTheCooldown()
 	req.Channels = ptr([]string{"desktop"})
 	s.create(req)
 
-	cycle := func() {
-		s.constant(5)
-		s.sweepAfter(time.Minute)
-		s.constant(1)
-		s.sweepAfter(time.Minute)
-		s.sweepAfter(time.Minute)
-	}
-	cycle()
-	cycle()
+	s.cycle()
+	s.cycle()
 
-	var kinds []domain.NotificationKind
-	for _, n := range s.notifications(domain.NotificationChannelDesktop) {
-		kinds = append(kinds, n.Kind)
-	}
 	s.Equal([]domain.NotificationKind{
 		domain.NotificationAlertFiring, domain.NotificationAlertResolved,
 		domain.NotificationAlertFiring, domain.NotificationAlertResolved,
-	}, kinds, "six minutes apart, each opposite of the last one told")
+	}, s.kindsSent(domain.NotificationChannelDesktop), "seven minutes apart, each opposite of the last one told")
+}
+
+// cycle fires the rule, then clears it for the five minutes a recovery needs.
+func (s *AlertingSuite) cycle() {
+	s.constant(5)
+	s.sweepAfter(time.Minute)
+	s.constant(1)
+	for range 6 {
+		s.sweepAfter(time.Minute)
+	}
+}
+
+func (s *AlertingSuite) kindsSent(channel domain.NotificationChannelKind) []domain.NotificationKind {
+	var kinds []domain.NotificationKind
+	for _, n := range s.notifications(channel) {
+		kinds = append(kinds, n.Kind)
+	}
+	return kinds
+}
+
+func (s *AlertingSuite) TestAFlappingRuleIsToldFourTimesThenWhereItSettles() {
+	s.bind(s.api, "http.error_ratio", errorRatioQuery)
+	req := s.ruleRequest("http.error_ratio", domain.AlertOpAbove, 2, 0)
+	req.Channels = ptr([]string{"desktop"})
+	rule := s.create(req)
+
+	s.cycle()
+	s.cycle()
+	s.constant(5)
+	s.sweepAfter(time.Minute)
+	s.Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State)
+	firing, resolved := domain.NotificationAlertFiring, domain.NotificationAlertResolved
+	s.Equal([]domain.NotificationKind{firing, resolved, firing, resolved}, s.kindsSent(domain.NotificationChannelDesktop),
+		"the fifth change inside half an hour is held")
+
+	for range 14 {
+		s.sweepAfter(time.Minute)
+	}
+	s.Len(s.kindsSent(domain.NotificationChannelDesktop), 4, "fourteen minutes firing is not settled yet")
+	s.sweepAfter(time.Minute)
+	s.Equal([]domain.NotificationKind{firing, resolved, firing, resolved, firing}, s.kindsSent(domain.NotificationChannelDesktop),
+		"once it has stayed firing for fifteen minutes it is told so")
+	s.sweepAfter(time.Minute)
+	s.Len(s.kindsSent(domain.NotificationChannelDesktop), 5)
+}
+
+func (s *AlertingSuite) TestReadFailuresAreCountedAndPastTheLimitReadAsNoData() {
+	rule := s.incidentRule()
+	s.constant(5)
+	s.sweepAfter(0)
+	incidentID := uuid.New()
+	s.expectIngest(rule, incidentID)
+	s.sweepAfter(2 * time.Minute)
+	s.Require().Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State)
+
+	s.mu.Lock()
+	s.fail = errors.New("connection refused")
+	s.mu.Unlock()
+	for range 10 {
+		s.sweepAfter(time.Minute)
+	}
+	got := s.rules.get(rule.ID)
+	s.Equal(domain.AlertStateFiring, got.State, "ten failed reads in a row still hold the state")
+	s.Equal(10, got.ErrorCount)
+	s.Contains(got.LastError, "connection refused")
+
+	for range 3 {
+		s.sweepAfter(time.Minute)
+	}
+	s.Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State, "past the limit they read as no data, with its grace")
+	s.expectRecovery(incidentID, rule)
+	s.sweepAfter(time.Minute)
+	got = s.rules.get(rule.ID)
+	s.Equal(domain.AlertStateNoData, got.State, "a source down for good does not hold the rule firing forever")
+	s.Equal(14, got.ErrorCount)
+
+	s.mu.Lock()
+	s.fail = nil
+	s.mu.Unlock()
+	s.sweepAfter(time.Minute)
+	got = s.rules.get(rule.ID)
+	s.Zero(got.ErrorCount)
+	s.Empty(got.LastError)
+}
+
+func (s *AlertingSuite) TestAPendingRuleStartsItsForOverAfterARunOfFailedReads() {
+	rule := s.incidentRule()
+	s.constant(5)
+	s.sweepAfter(0)
+	s.Require().Equal(domain.AlertStatePending, s.rules.get(rule.ID).State)
+
+	s.mu.Lock()
+	s.fail = errors.New("connection refused")
+	s.mu.Unlock()
+	for range 5 {
+		s.sweepAfter(time.Minute)
+	}
+	s.mu.Lock()
+	s.fail = nil
+	s.mu.Unlock()
+	s.sweepAfter(time.Minute)
+	got := s.rules.get(rule.ID)
+	s.Equal(domain.AlertStatePending, got.State, "five unread minutes are not five minutes the condition held")
+	s.Equal(s.now, got.StateSince)
+
+	s.expectIngest(rule, uuid.New())
+	s.sweepAfter(2 * time.Minute)
+	s.Equal(domain.AlertStateFiring, s.rules.get(rule.ID).State)
 }
 
 func (s *AlertingSuite) TestRisingAndChangeRulesCompareAWindowEarlier() {
@@ -953,8 +1052,9 @@ func (s *AlertingSuite) TestAChannelThisServerCannotDeliverOnIsRefused() {
 func (s *AlertingSuite) TestARecoveryProdopsRefusedIsTriedAgainAtTheNextFalseEvaluation() {
 	rule, incidentID := s.firingIncidentRule()
 	s.constant(1)
-	s.sweepAfter(time.Minute)
-	s.sweepAfter(time.Minute)
+	for range 5 {
+		s.sweepAfter(time.Minute)
+	}
 	s.incidents.On("FindLive", mock.Anything, s.api.RepositoryID, "prod", domain.AlertRuleFingerprint(rule.ID)).
 		Return(domain.Incident{}, errors.New("db down")).Once()
 	s.sweepAfter(time.Minute)

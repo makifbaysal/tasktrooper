@@ -152,19 +152,20 @@ func TestProposeErrorDefinitionsStoresSuggestionsAndRecordsThemOnTheJob(t *testi
 
 	body, res := execute(t, fx.kit, proposeErrorDefinitionsToolName, map[string]any{"definitions": []map[string]any{
 		{"name": "Validation failed", "match": map[string]any{"exception_type": "ValidationError"}, "category": "user_error", "action": "ignore", "rationale": "rejected input"},
-		{"name": "Not found", "component": "web", "match": map[string]any{"status": 404}, "category": "expected", "action": "none"},
+		{"name": "Not found", "component": "services/api", "match": map[string]any{"status": 404}, "category": "expected", "action": "none"},
 		{"name": "Broken", "match": map[string]any{}, "category": "bug", "action": "task"},
 		{"name": "Elsewhere", "component": "nope", "match": map[string]any{"status": 500}, "category": "bug", "action": "task"},
+		{"name": "Other component", "component": "web", "match": map[string]any{"status": 500}, "category": "bug", "action": "task"},
 	}})
 	require.False(t, res.IsError, res.Content)
 
 	require.Len(t, fx.defs.proposals, 3)
 	assert.Equal(t, domain.ErrorDefinitionCode, fx.defs.proposals[0].Source)
 	assert.Equal(t, fx.api.ID.String(), *fx.defs.proposals[0].ComponentID)
-	assert.Equal(t, fx.web.ID.String(), *fx.defs.proposals[1].ComponentID)
+	assert.Equal(t, fx.api.ID.String(), *fx.defs.proposals[1].ComponentID)
 	assert.Len(t, body["stored"], 1)
 	assert.Len(t, body["duplicates"], 1)
-	assert.Len(t, body["rejected"], 2)
+	assert.Len(t, body["rejected"], 3, "inside a job scoped to services/api, web is refused")
 	require.Len(t, fx.jobs.recorded, 1)
 	assert.Equal(t, domain.AIJobItem{Kind: domain.AIJobItemErrorDefinition, ID: stored.ID, Name: stored.Name, Rationale: "rejected input"}, fx.jobs.recorded[0])
 }
@@ -201,12 +202,15 @@ func TestProposeAlertRuleCreatesADraftUnlessTheSignalHasARule(t *testing.T) {
 
 func TestProposeSignalBindingRecordsOnlyANewAISuggestion(t *testing.T) {
 	fx := newFixture()
-	fx.jobs.job = &domain.AIJob{ID: uuid.New(), RepositoryID: fx.repo, ComponentID: &fx.web.ID}
+	jobStart := time.Now()
+	fx.jobs.job = &domain.AIJob{ID: uuid.New(), RepositoryID: fx.repo, ComponentID: &fx.web.ID, CreatedAt: jobStart}
+	source := uuid.New()
+	fx.kit.DataSources.(*fakeDataSources).sources = []domain.DataSource{{ID: source}}
 	b := fx.kit.Bindings.(*fakeBindings)
 	b.view = domain.SignalBindingView{SignalBinding: domain.SignalBinding{
-		ID: uuid.New(), Signal: "web.lcp", Status: domain.SignalBindingSuggested, Source: domain.SignalBindingAI,
+		ID: uuid.New(), Signal: "web.lcp", Status: domain.SignalBindingSuggested, Source: domain.SignalBindingAI, CreatedAt: jobStart.Add(time.Second),
 	}}
-	args := map[string]any{"signal": "web.lcp", "data_source_id": uuid.NewString(), "query": "q", "rationale": "the lcp histogram"}
+	args := map[string]any{"signal": "web.lcp", "data_source_id": source.String(), "query": "q", "rationale": "the lcp histogram"}
 
 	_, res := execute(t, fx.kit, proposeSignalBindingToolName, args)
 	require.False(t, res.IsError, res.Content)
@@ -218,6 +222,87 @@ func TestProposeSignalBindingRecordsOnlyANewAISuggestion(t *testing.T) {
 	_, res = execute(t, fx.kit, proposeSignalBindingToolName, args)
 	require.False(t, res.IsError, res.Content)
 	assert.Len(t, fx.jobs.recorded, 1)
+
+	b.view.Status = domain.SignalBindingSuggested
+	b.view.CreatedAt = jobStart.Add(-time.Hour)
+	_, res = execute(t, fx.kit, proposeSignalBindingToolName, args)
+	require.False(t, res.IsError, res.Content)
+	assert.Len(t, fx.jobs.recorded, 1, "a suggestion from before the job is not this job's")
+}
+
+func TestInsideAJobTheToolsRefuseAnythingOutsideItsScope(t *testing.T) {
+	fx := newFixture()
+	fx.jobs.job = &domain.AIJob{ID: uuid.New(), Kind: domain.AIJobMapSignals, RepositoryID: fx.repo, ComponentID: &fx.api.ID,
+		Environment: domain.EnvironmentProduction}
+	other := uuid.New()
+
+	_, res := execute(t, fx.kit, listErrorGroupsToolName, map[string]any{"repository_id": other.String()})
+	require.True(t, res.IsError)
+	assert.Contains(t, res.Content, "inside an AI job")
+	assert.Contains(t, res.Content, "another repository")
+
+	_, res = execute(t, fx.kit, listErrorGroupsToolName, map[string]any{"component": "web"})
+	require.True(t, res.IsError)
+	assert.Contains(t, res.Content, "another component")
+
+	_, res = execute(t, fx.kit, proposeAlertRuleToolName, map[string]any{
+		"repository_id": other.String(), "name": "x", "signal": "http.latency", "condition": map[string]any{"op": "gt", "threshold": 1},
+	})
+	require.True(t, res.IsError)
+	assert.Empty(t, fx.kit.Alerts.(*fakeAlerts).created)
+
+	_, res = execute(t, fx.kit, listErrorGroupsToolName, map[string]any{"repository_id": fx.repo.String(), "component": "services/api"})
+	assert.False(t, res.IsError, res.Content)
+}
+
+func TestInsideAJobListDataSourceMetricsShowsOnlyTheRepositorysSources(t *testing.T) {
+	fx := newFixture()
+	fx.jobs.job = &domain.AIJob{ID: uuid.New(), Kind: domain.AIJobMapSignals, RepositoryID: fx.repo, ComponentID: &fx.api.ID,
+		Environment: domain.EnvironmentProduction}
+	own, unused, foreign := uuid.New(), uuid.New(), uuid.New()
+	sources := fx.kit.DataSources.(*fakeDataSources)
+	sources.sources = []domain.DataSource{{ID: own, Name: "ours"}, {ID: unused, Name: "fresh"}, {ID: foreign, Name: "theirs"}}
+	fx.kit.SourceUse = &fakeSourceUse{bindings: []domain.SignalBinding{
+		{ComponentID: fx.web.ID, DataSourceID: own},
+		{ComponentID: uuid.New(), DataSourceID: foreign},
+	}}
+
+	body, res := execute(t, fx.kit, listDataSourceMetricsToolName, map[string]any{})
+	require.False(t, res.IsError, res.Content)
+	var names []string
+	for _, ds := range body["data_sources"].([]any) {
+		names = append(names, ds.(map[string]any)["name"].(string))
+	}
+	assert.ElementsMatch(t, []string{"ours", "fresh"}, names)
+
+	_, res = execute(t, fx.kit, listDataSourceMetricsToolName, map[string]any{"data_source_id": foreign.String()})
+	require.True(t, res.IsError)
+	assert.Contains(t, res.Content, "only other repositories use")
+	assert.Empty(t, sources.discovered)
+
+	_, res = execute(t, fx.kit, proposeSignalBindingToolName, map[string]any{"signal": "http.latency", "data_source_id": foreign.String(), "query": "q"})
+	require.True(t, res.IsError)
+
+	fx.jobs.job = nil
+	body, res = execute(t, fx.kit, listDataSourceMetricsToolName, map[string]any{})
+	require.False(t, res.IsError, res.Content)
+	assert.Len(t, body["data_sources"], 3, "outside a job every source is listed")
+}
+
+func TestOutsideAJobARunBoundToARepositoryMayNameOnlyThatOne(t *testing.T) {
+	fx := newFixture()
+	ex := &listErrorGroupsTool{kit: fx.kit}
+	bound := registry.ContextWithRepositoryID(context.Background(), fx.repo)
+
+	res := ex.Execute(bound, `{"repository_id":"`+uuid.NewString()+`"}`)
+	require.True(t, res.IsError)
+	assert.Contains(t, res.Content, "which this run is bound to")
+
+	res = ex.Execute(bound, `{"repository_id":"`+fx.repo.String()+`"}`)
+	assert.False(t, res.IsError, res.Content)
+
+	res = ex.Execute(context.Background(), `{"repository_id":"`+fx.repo.String()+`"}`)
+	assert.False(t, res.IsError, res.Content)
 }
 
 func TestParseSince(t *testing.T) {

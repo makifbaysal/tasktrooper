@@ -44,6 +44,7 @@ func (s *ServiceSuite) SetupTest() {
 	s.web = domain.Component{ID: uuid.New(), RepositoryID: s.repo, Path: "web", Status: domain.ComponentStatusActive,
 		Role: domain.Detected(domain.ComponentRoleFrontend, domain.ConfidenceExact)}
 	s.now = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	s.store.now = func() time.Time { return s.now }
 	svc, err := NewService(Deps{
 		Store:      s.store,
 		Components: &fakeComponents{comps: []domain.Component{s.api, s.web}},
@@ -57,6 +58,12 @@ func (s *ServiceSuite) SetupTest() {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// sweep runs one sweep a pace later than the last, so every window is due.
+func (s *ServiceSuite) sweep() {
+	s.now = s.now.Add(pace(taskWindow))
+	s.svc.SweepOnce(s.ctx)
+}
 
 func (s *ServiceSuite) create(name string, match domain.ErrorMatch, action domain.ErrorAction, comp *uuid.UUID) domain.ErrorDefinition {
 	req := DefinitionRequest{
@@ -211,6 +218,7 @@ func (s *ServiceSuite) TestAnnotateReadsDefinitionsFromCacheUntilAWrite() {
 	s.svc.Annotate(s.ctx, in, false)
 	s.Equal(reads, s.store.lists)
 	s.create("B", domain.ErrorMatch{Status: 501}, "", nil)
+	reads = s.store.lists
 	s.svc.Annotate(s.ctx, in, false)
 	s.Equal(reads+1, s.store.lists)
 }
@@ -231,7 +239,7 @@ func (s *ServiceSuite) TestAlertFiresOnceAtTheThresholdAndResolvesBelowIt() {
 	s.Require().NoError(err)
 
 	s.errors.answer = domain.OpsErrors{Groups: []domain.OpsErrorGroup{s.groupOf(s.api, "a", "timeout", 3), s.groupOf(s.api, "b", "timeout", 2)}}
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Require().Len(s.incidents.ingested, 1)
 	in := s.incidents.ingested[0]
 	s.Equal(domain.ErrorDefinitionFingerprint(d.ID), in.Fingerprint)
@@ -242,16 +250,16 @@ func (s *ServiceSuite) TestAlertFiresOnceAtTheThresholdAndResolvesBelowIt() {
 	s.Equal(s.now.Add(-10*time.Minute), s.errors.queries[0].Since)
 	s.Equal([]uuid.UUID{s.api.ID}, s.errors.queries[0].ComponentIDs)
 
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Len(s.incidents.ingested, 1)
 
 	s.errors.answer = domain.OpsErrors{Groups: []domain.OpsErrorGroup{s.groupOf(s.api, "a", "timeout", 1)},
 		Unavailable: []domain.OpsUnavailable{{ComponentID: s.api.ID}}}
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Len(s.incidents.ingested, 1)
 
 	s.errors.answer = domain.OpsErrors{Groups: []domain.OpsErrorGroup{s.groupOf(s.api, "a", "timeout", 1)}}
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Require().Len(s.incidents.ingested, 2)
 	s.True(s.incidents.ingested[1].Resolved)
 	s.Nil(s.store.defs[d.ID].FiringSince)
@@ -260,12 +268,12 @@ func (s *ServiceSuite) TestAlertFiresOnceAtTheThresholdAndResolvesBelowIt() {
 func (s *ServiceSuite) TestIncidentActionNeverResolvesOnItsOwn() {
 	d := s.create("Crash", domain.ErrorMatch{MessageRegex: "panic"}, domain.ErrorActionIncident, nil)
 	s.errors.answer = domain.OpsErrors{Groups: []domain.OpsErrorGroup{s.groupOf(s.web, "a", "panic: nil map", 1)}}
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Require().Len(s.incidents.ingested, 1)
 	s.ElementsMatch([]uuid.UUID{s.api.ID, s.web.ID}, s.errors.queries[0].ComponentIDs)
 
 	s.errors.answer = domain.OpsErrors{}
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Len(s.incidents.ingested, 1)
 	s.Nil(s.store.defs[d.ID].FiringSince)
 }
@@ -274,7 +282,7 @@ func (s *ServiceSuite) TestAMoreSpecificIgnoreDefinitionSilencesABroaderAlert() 
 	s.create("Any timeout", domain.ErrorMatch{MessageRegex: "timeout"}, domain.ErrorActionIncident, nil)
 	s.create("Known timeout", domain.ErrorMatch{Fingerprint: "known"}, domain.ErrorActionIgnore, nil)
 	s.errors.answer = domain.OpsErrors{Groups: []domain.OpsErrorGroup{s.groupOf(s.api, "known", "timeout", 50)}}
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Empty(s.incidents.ingested)
 }
 
@@ -284,7 +292,7 @@ func (s *ServiceSuite) TestTaskActionOpensOneTaskPerGroupForTheComponentsDevelop
 		s.groupOf(s.api, "fp1", "java.lang.NullPointerException: user", 9),
 		s.groupOf(s.api, "fp2", "java.lang.NullPointerException: order", 4),
 	}}
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Require().Len(s.tasks.created, 1)
 	task := s.tasks.created[0]
 	s.Equal(s.backendID, *task.AssigneeAgentID)
@@ -295,11 +303,11 @@ func (s *ServiceSuite) TestTaskActionOpensOneTaskPerGroupForTheComponentsDevelop
 	s.Contains(task.Description, "fp1")
 	s.NotNil(s.store.defs[d.ID].TaskID)
 
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Require().Len(s.tasks.created, 2)
 	s.Contains(s.tasks.created[1].Description, "fp2")
 
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Len(s.tasks.created, 2)
 }
 
@@ -307,17 +315,17 @@ func (s *ServiceSuite) TestTaskActionReleasesItsClaimWhenTheBoardFails() {
 	s.create("Nil user", domain.ErrorMatch{MessageRegex: "nil"}, domain.ErrorActionTask, nil)
 	s.errors.answer = domain.OpsErrors{Groups: []domain.OpsErrorGroup{s.groupOf(s.web, "fp1", "nil pointer", 1)}}
 	s.tasks.fail = true
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Empty(s.store.links)
 
 	s.tasks.fail = false
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Require().Len(s.tasks.created, 1)
 	s.Nil(s.tasks.created[0].AssigneeAgentID)
 }
 
 func (s *ServiceSuite) TestSweepReadsNothingWithoutActingDefinitions() {
 	s.create("Labelled", domain.ErrorMatch{Status: 500}, domain.ErrorActionNone, nil)
-	s.svc.SweepOnce(s.ctx)
+	s.sweep()
 	s.Empty(s.errors.queries)
 }

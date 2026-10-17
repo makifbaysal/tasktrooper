@@ -416,7 +416,7 @@ requires `confirm` to equal the repository's name, the same guardrail
 |---|---|
 | `GET /v1/repositories/{id}/releases?component_id=&task_id=&limit=` | `{"releases": domain.Release[]}`, newest first; default limit 20, max 100 |
 | `GET /v1/releases/{releaseId}` | One release in full: status, mode/executor, commit/tag, `deploy` (incl. a batch release's `local_run`/`store_builds`), `checks` (health/smoke/new error groups), `verdict`, `rollback`, `tasks`, and the rollback state below |
-| `POST /v1/releases/{releaseId}/rollback-proposal/dismiss` | No body, **no confirm** (nothing in production changes) → `Release`: clears `rollback_proposal`. Idempotent — a release without one answers as it is. 404 unknown release |
+| `POST /v1/releases/{releaseId}/rollback-proposal/dismiss` | No body, **no confirm** (nothing in production changes) → `Release`: clears `rollback_proposal` and records `rollback_dismissal`. Idempotent — a release without one (or whose proposal was replaced meanwhile) answers as it is. 404 unknown release |
 | `GET /v1/releases/{releaseId}/cut-preview` | `domain.ReleaseCutPreview` for a `draft` release, or a `pending` one `deploy_release` was never attempted on (a re-cut, e.g. after `ErrReleaseTagExists`): suggested/previous version (the HIGHEST semver among the component's last released version, its newest matching git tag, and any tag any of its releases ever carried), the tag it would carry, the commit it would cut at, generated notes, its tasks. 409 `ErrReleaseWrongStatus` off draft/re-cuttable-pending, 409 `ErrReleaseEmpty` with no tasks |
 | `GET /v1/releases/{releaseId}/impact` | `domain.DeployImpact` `{release_id, component_id, environment: "production", deployed_at, window_minutes: 60, pending, verdict, computed_at, signals: [{signal, unit, before, after, after_points, baseline, delta, delta_pct, higher_is_better, verdict}]}` (`application/deployimpact`). T is `deployed_at` (`finished_at` for a release that never deployed on its own); for each golden signal of the component's role (`catalog/observability/golden.yaml`) with a confirmed production binding, read through `signals.ReadSignal` — a quantile signal at p95 alone — and judged by its worst series at each instant where it answers several (the highest where lower is better, the lowest where higher is, as the alert evaluator does): the mean over [T−60m, T) (`before`), (T, T+60m] (`after`; the sample at T itself still straddles the deploy, so it is left out; `after_points` is how many were averaged) and that after-window 24h earlier (`baseline`). A signal is `worse`/`improved` when it moved past `deploy_ops.impact` both from `before` and, when read, from `baseline` — else `neutral`: `change_pct` of `before` (`throughput_change_pct` for a rate where higher is better), or `ratio_points` percentage points for a ratio signal; a count where lower is better must also move by `count_floor` (gauge) or `rate_floor` (rate), each at least `floor_pct` of the larger value, and a quantile in ms by `latency_floor_ms`. `unknown` when unreadable. `higher_is_better` is the catalog's `better` (`signals.yaml`). `verdict` is the worst judged signal, `unknown` when none was; every bound signal failing to read is the answer's error. `pending` while T+60m is in the future: `after`/`baseline` cover what has passed. A fully read answer is kept per (release, minute). 404 unknown release; 200 `verdict: "unknown"`, `signals: []` when nothing is bound, the release has no component or never deployed |
 | `POST /v1/releases/{releaseId}/cut` | `{confirm, version, notes}` → `Release`, `draft → pending` (or re-cutting a `pending` release that never deployed); re-reads and freezes the component's CURRENT confirmed delivery profile, stamps every carried task's before-deploy confirmation, wakes the release engineer. 400 invalid version (`domain.ValidReleaseVersion` — also enforces git ref rules: no `..`, no trailing `.`, no `.lock` suffix, no `@{`, no `//`); 409 `ErrDeployDependencyPending` while any carried task ships after an unreleased dependency |
@@ -446,18 +446,28 @@ answer — cut, deploy, finish, rollback, dismiss):
   `health_incident` and this process attributed one). Stored (`releases.rollback_proposal`,
   migration 190) BEFORE the `rollback_suggested` notification goes out, so its approve
   action (`/operations/changes?release=<id>`) always finds it. Written only by
-  `ReleaseStore.SetRollbackProposal`, never by the general update; cleared when the release
-  moves to `rolling_back`/`rolled_back`/`superseded` (in the update itself), when a newer
-  release of the same component is finished (`Finish` clears the older ones), and by the
-  dismiss route. A proposal stored since the last hand-back also stops the watchdog
-  re-waking the release engineer: the release waits on a human.
+  `ReleaseStore.SetRollbackProposal` (only on a `failed`/`awaiting_verdict`/`released`
+  release; it never moves `updated_at`), never by the general update; cleared when the release
+  moves to `rolling_back`/`rolled_back`/`superseded`, or is finished into `released` (in the
+  update itself), when a newer release of the same component is finished (`Finish` clears the
+  older ones), and by the dismiss route. A proposal stored since the last hand-back also stops
+  the watchdog re-waking the release engineer: the release waits on a human.
+- `rollback_dismissal`: `null` or `{dismissed_at, incident_id?}` (migration 192) — a person
+  dismissed the proposal; `incident_id` is the one it answered. Written only by
+  `ReleaseStore.DismissRollbackProposal`, which clears the proposal in the same statement and
+  only if it is still the one read (compare on `proposed_at`). Until an incident other than that
+  one is attributed to the release, the agent's `rollback_release` with `auto_rollback` off is
+  refused (`domain.ErrRollbackProposalDismissed`, `guard.release_rollback_proposal_dismissed`)
+  and nothing is stored or told. A dismissal since the last hand-back counts as its answer for the
+  watchdog, like a proposal.
 - `rollback_allowed`: what `POST …/rollback` would do right now, by the server's own rule
   (computed on read, never stored; one store read per component per list).
 - `rollback_refusal`: `""` when allowed, else `newer_shipped` (a newer release of the
   component is live), `newer_open` (a newer one is pending/deploying/verifying/awaiting a
   verdict), `not_deployed` (`draft`/`pending`/`deploying`), `too_old` (released more than
   24h ago), `no_released`/`unresolved` (the component's newest released release is missing
-  or unreadable), `wrong_status` (`verifying`, `rolling_back`, `rolled_back`, `superseded`).
+  or unreadable), `wrong_status` (`verifying`, `rolling_back`, `rolled_back`, `superseded`),
+  `not_configured` (this server has no git reverter; every rollback starts with the revert).
 
 An automatic rollback (`auto_rollback` on, agent) whose later step fails after the revert
 landed on the default branch (a redeploy refused, the record not saved) still sends
@@ -479,7 +489,13 @@ was read (the masking `get_deploy_impact`'s verdict applies, so the soak and the
 `delta` at least `deploy_ops.impact.latency_floor_ms`. A breach sets `checks.early_stop` (when
 nothing set it first) and the release goes `awaiting_verdict` like any failed check; the
 release engineer decides, `auto_rollback` unchanged. The thresholds are frozen with the rest of
-the profile when a release opens.
+the profile when a release opens. With either set, `verify_until` is at least 10 minutes after
+the deploy. When the window ends with a threshold's signal still `settling`, the soak keeps
+verifying (impact read at most every 2 minutes) until it settles or 15 more minutes pass; the
+read that ends the soak skips deploy impact's one-minute cache (`deployimpact.Service.ForReleaseFresh`),
+and a threshold whose signal is still settling then is added to `unchecked`. The sweeper's
+in-process pacing is keyed by `release.Service.SetScope` as well, so a sweep of one tenant never
+forgets another's.
 
 Errors: `ErrReleaseNotFound` → 404; `ErrReleaseWrongStatus`, `ErrReleaseNoDeploy`,
 `ErrDeliveryUnconfirmed`, `ErrReleaseEmpty`, `ErrReleaseTagExists`,
@@ -1525,7 +1541,10 @@ must be read and its signal has no confirmed binding.
 
 - **Rule** = `{id, name, component_id, environment, signal, data_source_id, query, condition: {op,
   threshold, for_seconds, window_seconds}, severity, channels, open_incident, enabled, state,
-  state_since, last_value, last_evaluated_at, created_by, created_at, updated_at}`. `signal` is `''` for a raw
+  state_since, last_value, last_evaluated_at, error_count, last_error, created_by, created_at,
+  updated_at}`. `error_count`/`last_error` (migration 192) are the evaluations in a row whose read
+  failed for a reason that says nothing about the value and the last such failure (≤ 300 bytes);
+  a read that works zeroes both, and so does an edit that restarts the rule. `signal` is `''` for a raw
   rule, `data_source_id` `null` and `query` `''` for a signal rule. `created_by` ∈ `human|ai`
   (migration 191): set on create and never changed — `ai` is a disabled draft the release
   engineer's `propose_alert_rule` stored, and it stays `ai` after a person enables it. `environment` ∈
@@ -1544,7 +1563,7 @@ must be read and its signal has no confirmed binding.
   its worst at each instant (the highest; the lowest for `lt` and `change_pct_lt`). A quantile
   signal is read at p95, a `web.*` one (Core Web Vitals) at p75. `gt`/`lt` compare the value with
   `threshold`; `rising` holds while the value is above `threshold` **and** higher than a window
-  earlier (`threshold: 0` for a bare "is rising"); `change_pct_gt`/`change_pct_lt` compare the
+  earlier (`threshold: 0` for a bare "is rising"; no sample a window earlier is no data); `change_pct_gt`/`change_pct_lt` compare the
   percent change from a window earlier (`last_value` is then that percent; a zero or missing
   earlier value is no data); `no_data` holds while there is no value (threshold unused). Only a
   read that cannot work is no data: `signals.ErrUnbound`, `signals`/`datasource.ErrInvalidInput`
@@ -1552,13 +1571,16 @@ must be read and its signal has no confirmed binding.
   the query), `datasource.ErrUnsupported`, `port.ErrNotFound` (the source is gone). Every other
   failure — the source down or slow (`upstream`, timeout), a store or decryption error, a panic,
   anything unexpected — leaves the rule where it is (its evaluation still recorded, so it waits
-  its interval), so one failed read never resolves a firing rule.
+  its interval, with `error_count` and `last_error`), so one failed read never resolves a firing
+  rule; past 10 such evaluations in a row the read counts as no data (a firing rule then moves to
+  `no_data` after its grace, resolving). A `pending` rule whose run of failed reads ends starts its
+  `for_seconds` over at that evaluation.
 - **State machine**, one step per evaluation: holding → `pending` until it has held `for_seconds`
   (0: `firing` at once), then `firing`; not holding → `ok`; no value → `no_data`, except for a
   `no_data` rule, where it is the condition. Leaving `firing` takes longer (hysteresis, migration
   190 `clear_count`/`clear_since`/`no_data_count`, not in the JSON): a firing rule goes `ok` only
-  after its condition read false for at least 2 evaluations in a row **and** for `for_seconds`
-  since the first of them (an evaluation reading nothing in between neither counts nor breaks the
+  after its condition read false for at least 2 evaluations in a row **and** for `for_seconds`, or
+  5 minutes when that is longer, since the first of them (an evaluation reading nothing in between neither counts nor breaks the
   run; one holding again starts it over), and goes `no_data` only on the 4th evaluation in a row
   that read nothing (it stays `firing` through 3). Backtests replay the same rule, a step being
   an evaluation. Leaving `firing` (for `ok` or `no_data`) resolves.
@@ -1571,11 +1593,15 @@ must be read and its signal has no confirmed binding.
   refuses is tried again at the next evaluation (the rule stays pending or firing). **Without
   `open_incident`** firing and resolving notify on the rule's `channels` (none: no notification)
   with kind `alert_firing`/`alert_resolved`, source `alert`, source id the rule id, link
-  `/operations/entity/<component id>/alerts?rule=<rule id>`. Only a repeat of the kind last told
-  for the rule is held back inside 30 minutes: a firing after a told recovery (or a recovery after
-  a told firing) always goes out (`notify.Cooldown.AllowTransition`; prodops applies the same rule
-  to an alert's opened/recovered notifications). The hysteresis above is what keeps a flapping
-  condition from firing and recovering every evaluation.
+  `/operations/entity/<component id>/alerts?rule=<rule id>`. A repeat of the kind last told for
+  the rule is held back inside 30 minutes; a firing after a told recovery (or a recovery after a
+  told firing) goes out — unless the rule has changed state 4 times inside those 30 minutes: then
+  every change is held until the rule has stayed in one state for 15 minutes, and the evaluator
+  sends the one it ended on (nothing if that is what was last told). `notify.Cooldown`
+  `WithFlapLimit`/`AllowTransitionHolding`/`Settled`; prodops applies the same rule to an alert's
+  opened/recovered notifications, delivering what settled from a one-minute loop
+  (`prodops.Service.Start`/`FlushSettled`). The hysteresis above keeps a condition near its
+  threshold from flapping that fast.
 - **Orphans.** Deleting a component or a data source deletes its rules in the database (cascade),
   with no evaluation left to resolve what a firing one opened; at most every 5 minutes a sweep
   resolves (prodops `Resolve`, note "the alert rule that opened it no longer exists") every live
@@ -1602,7 +1628,10 @@ must be read and its signal has no confirmed binding.
   until one is elected to run it; raw-query rules and `/backtest` read a data source directly, so
   they should require the same role as `POST /v1/data-sources/{id}/query`; and the global
   `alerting.enabled` loop (`Start`) must be off there, the control plane calling `Sweep` per
-  tenant instead.
+  tenant instead, with `alerting.Service.SetScope` (the orphan sweep's pacing and the flap
+  cooldown are keyed by it) and `prodops.Service.SetScope` returning the tenant. The orphan
+  resolver lists incidents with no repository filter, so it must only ever run inside one
+  tenant's scope.
 - `GET /v1/alert-rules?component_id=&env=` → `{"rules": [Rule]}` by name; both filters optional
   (absent `env` = every environment).
 - `GET /v1/alert-rules/{id}` → Rule.
@@ -1652,13 +1681,15 @@ rule), `query`, `condition` JSONB, `severity`, `channels` TEXT[], `open_incident
 
 ## Error definitions and AI suggestions (migration 191)
 
+Migration 192 adds the job, claim and suggestion columns and indexes noted below.
 `internal/application/errordef` (definitions, matching, the action sweep) and
 `internal/application/opsai` (the release engineer's suggestion jobs, the "enable observability"
 task, readiness). Mounted when Postgres and the workflow service exist; the job and component
 routes also need the AI service. Errors are the data source routes' shapes: 400 `{"error",
 "fields"}` (codes `required`, `invalid`, `invalid_option`, `too_long`, `not_permitted`), 404 for an
 unknown id, 409 `code: "not_suggested"` (accept/dismiss of a definition that is not a suggestion),
-409 `code: "no_release_engineer"` (no enabled agent holds role `release` for the component's area,
+409 `code: "too_many_definitions"` (the repository already holds 200 active and suggested
+definitions), 409 `code: "no_release_engineer"` (no enabled agent holds role `release` for the component's area,
 or its fallback), 503 `code: "unavailable"` (no chat sessions or no board on this server).
 
 **Definition** = `{id, repository_id, component_id|null, name, match: {fingerprint?, message_regex?,
@@ -1675,9 +1706,9 @@ only on `alert`/`incident` (else `invalid_option`), `count` 1–1 000 000, `wind
 
 **Matching** happens on read; nothing per group is stored. A definition matches a group when every
 `match` field that is set holds (AND; an empty match is refused). `fingerprint` equals the group's;
-`message_regex` (RE2, ≤ 512 characters, compiled program ≤ 5000 instructions — `too_long` past
+`message_regex` (RE2, ≤ 512 characters, compiled program ≤ 1000 instructions — `too_long` past
 either, `invalid` when it does not compile) is tested against the group's message, then its sample,
-each cut to 16 KiB; `exception_type` equals the identifier before the first `:` or `(` of the
+each cut to 4 KiB; `exception_type` equals the identifier before the first `:` or `(` of the
 message's first line, else of the sample's last or first line (a bare `NullPointerException`
 also matches `java.lang.NullPointerException`, likewise after `::` and `\`); `endpoint` is the
 `METHOD /path` printed in the message or sample — the definition's may name the method
@@ -1686,24 +1717,37 @@ any one segment; `status` is a status printed as `status 502`, `status_code=502`
 after a request line (`GET /x 503`); `attributes` are exact pairs among the message's `key=value`
 tokens plus `source` and `provider`. Only `active` definitions match. Of several that match, a
 component's own beats a repository-wide one, then the more specific (a fingerprint counts 10, every
-other field 1, each attribute 1), then the most recently edited. Active definitions are cached per
-repository for 30 s; any write through the service clears that repository's entry.
+other field 1, each attribute 1), then the most recently edited; that one is the group's
+`definition` in the inbox. Active definitions are cached per repository for 30 s; any write through
+the service clears that repository's entry. A repository holds at most 200 active and suggested
+definitions (`POST` past that is 409 `too_many_definitions`; a proposal past it is rejected with
+`fields: {definitions: too_long}`).
 
 **Actions.** `ignore` hides the group from the Errors inbox (above). The others are carried out by
 a sweep (every 2 min, started when `alerting.enabled`) over **production** only — definitions have
-no environment — reading `GET /v1/operations/errors`'s fan-out once per distinct threshold window
-(at most 8 per sweep, shortest first) scoped to the definitions' components. A group counts toward a
-definition only when that definition is the one the inbox shows for it, so a more specific `ignore`
-silences a broader `alert`. `alert`: while the matched groups' summed `count` over the window is ≥
-`count` (default 10 in 3600 s) one incident is opened through prodops (`source: error_definition`,
-fingerprint `errdef:<id>`, the definition's severity, env `prod`; title `<name>: <count> in
-<window>`; payload with the fingerprints) and `firing_since` is set; once below, it is resolved and
-cleared — but never on a read that missed one of the definition's components or was truncated.
-`incident`: the same crossing (default 1 in 3600 s) opens it, and dropping below only clears
-`firing_since`; a person resolves the incident. `task`: one board task per (definition,
-fingerprint) — `error_group_links` is claimed before the task is opened and released if opening
-fails — at most 1 per definition and 5 in all per sweep, groups by count; looked for over the last
-24 h. The task is the workspace's defect type, in `todo`, priority from severity, `component_id` the
+no environment. Each sweep lists the active definitions once and judges by that list. It reads
+`GET /v1/operations/errors`'s fan-out per repository and distinct threshold window, at most 50
+components per read; a window is read at most once per twelfth of it (and at most every 2 min), and
+one sweep makes at most 8 reads, the due windows read longest ago first. A group counts toward a
+definition only when that definition acts on it: per action class — `alert`/`incident` (both open
+an incident) and `task` — the best matching definition of that class acts, unless a better
+matching `ignore` definition silences it; a `none` definition silences nothing, and an `alert` and
+a `task` definition may both act on one group. `alert`: while the matched groups' summed `count`
+over the window is ≥ `count` (default 10 in 3600 s) one incident is opened through prodops
+(`source: error_definition`, fingerprint `errdef:<id>`, the definition's severity, env `prod`;
+title `<name>: <count> in <window>`; detail the five largest groups as one sanitized line each;
+payload with the fingerprints) and `firing_since` is set; once below, it is resolved and cleared —
+but never on a read that missed one of the definition's own components (unavailable, failed or
+truncated). A repository-wide definition counts an error tracker's issue once however many
+components bind the same source (one per `data_source_id` and fingerprint). `incident`: the same
+crossing (default 1 in 3600 s) opens it, and dropping below only clears `firing_since`; a person
+resolves the incident. Deleting a firing `alert`/`incident` definition, or changing its action to
+one that opens none, resolves its incident at once, and each sweep resolves the live
+`error_definition` incidents whose definition no longer exists or no longer opens one (deleted with
+its component, for example). `task`: one board task per (definition, fingerprint) —
+`error_group_links` is claimed before the task is opened (`claimed_at`, migration 192) and released
+if opening fails; a claim that opened no task for 10 min is claimed again — at most 1 per
+definition and 5 in all per sweep, groups by count; looked for over the last 24 h. The task is the workspace's defect type, in `todo`, priority from severity, `component_id` the
 group's, assigned to the agent holding role `developer` for the component's area
 (`domain.ComponentArea`: frontend and desktop → frontend, mobile, data, game, everything else
 backend; with `AreaFallbacks`), unassigned when none; its brief is
@@ -1719,7 +1763,8 @@ backend; with `AreaFallbacks`), unassigned when none; its brief is
   makes it repository-wide, `alert_threshold: null` clears it, `match` replaces the whole match;
   a different `repository_id` is `not_permitted`. Changing `action` clears `firing_since`; status
   and source never change here.
-- `DELETE /v1/error-definitions/:id` → 204.
+- `DELETE /v1/error-definitions/:id` → 204; resolves the incident a firing `alert`/`incident`
+  definition holds open.
 - `POST /v1/error-definitions/:id/accept` → the definition, `status: active` (its `source` stays
   `ai`/`code`). `POST /v1/error-definitions/:id/dismiss` → `status: dismissed`; a dismissed match is
   never suggested again. Either on a definition already in that status answers it unchanged; on any
@@ -1727,19 +1772,34 @@ backend; with `AreaFallbacks`), unassigned when none; its brief is
 
 **AI jobs.** A job is one chat turn with the release engineer (`session.Service.SendMessage`, no
 orchestration, the server's default tool policy merged with the agent's own), titled from
-`observability.job_title`, in a new chat on the repository. Its tools (`list_error_groups`,
-`propose_error_definitions`, `list_data_source_metrics`, `propose_signal_binding`,
-`propose_alert_rule`) find the job through the chat session on the tool call's context and append
-what they stored to its `created`. At most 2 jobs run at once, each for at most 30 min; a job of
-the same kind, repository, component and environment that is still running is answered instead of
-starting another. Jobs still `running` at boot are failed with `error: "interrupted by a
-restart"`.
+`observability.job_title`, in a new chat on the repository. The turn carries a tool ceiling
+(`SessionMessageRequest.ToolCeiling`, `domain.CeilToolPolicy`): it gets only the tools both the
+agent's policy and its kind's list allow, and no user MCP server — `define_errors`:
+`list_error_groups`, `propose_error_definitions`; `error_catalog`: `propose_error_definitions`;
+`map_signals`: `list_data_source_metrics`, `propose_signal_binding`, `propose_alert_rule`; every
+kind also `codebase_search`, `grep_code`, `read_file`, `get_repo_tree`, `get_project_brief`,
+`load_skill` (`opsai.JobTools`). The turn is never parked on a usage limit (`NoQuotaPark`): the
+job fails with the limit's notice instead of resuming after it ended. Its tools find the job
+through the chat session on the tool call's context and append what they stored to its `created`,
+once per item and only while it runs. Inside a job they refuse a `repository_id` or component
+other than the job's (`guard.observability_outside_job`), and `list_data_source_metrics` lists,
+and the propose tools accept, only data sources a component of the job's repository reads through
+(a confirmed binding in the job's environment) or no component reads through yet; outside a job a
+run bound to a repository may name only that one (`guard.observability_outside_run_repository`).
+At most 2 jobs run at once (`opsai.Service.SetScope` makes that per scope); a job that
+waits 30 min for a slot fails, and one that runs 30 min is stopped (`session.CancelSession`) and
+fails. A job of the same kind, repository, component and environment that is still running is
+answered instead of starting another (`uq_ai_jobs_running`, migration 192); a running one that
+started more than 35 min ago, or has waited more than 35 min, is failed as stale first. At boot the
+jobs another process created (`owner`) are failed with `error: "interrupted by a restart"`.
 
 - **Job** = `{id, kind, repository_id, component_id|null, environment, status, session_id|null,
-  result_summary, error, created: [{kind, id, name, rationale?}], created_at, updated_at,
-  finished_at|null}`. `kind` ∈ `define_errors|error_catalog|map_signals`; `status` ∈
+  result_summary, error, created: [{kind, id, name, rationale?}], created_at, started_at|null,
+  updated_at, finished_at|null}`. `started_at` is when it took a slot (null while it waits). `kind` ∈ `define_errors|error_catalog|map_signals`; `status` ∈
   `running|done|failed`; `created[].kind` ∈ `error_definition|signal_binding|alert_rule` (only what
-  was newly stored: a duplicate proposal is not listed). `result_summary` is the agent's final reply
+  this job newly stored: a duplicate proposal, or one matching a suggestion from before the job, is
+  not listed). Two equal suggestions (repository, component, match) cannot both be stored
+  (`uq_error_definitions_suggested`); the second is answered as a duplicate. `result_summary` is the agent's final reply
   (≤ 2000 bytes); `failed` carries `error` — the turn's error, or "the release engineer stopped on a
   question; answer it in the chat" when it asked one (`session_id` is that chat).
 - `POST /v1/error-definitions/suggest` `{repository_id, component_id?, environment? (default
@@ -1776,7 +1836,8 @@ restart"`.
   with `otlp_endpoint` and refused otherwise (`invalid_option`); an unknown goal is
   `invalid_option`, none `required`. Opens a `technical` task in `todo` on the component, assigned
   to the release engineer for the component's area, titled `Enable observability: <component>
-  (<env>)`, whose description is `observability/enable_brief.md` rendered with the component, its
+  (<env>)` — while that task is still open (short of `done`/`released`), asking again answers it
+  instead of opening another — whose description is `observability/enable_brief.md` rendered with the component, its
   stack, the environment's provider, bound and unbound golden signals, detected instrumentation,
   goals and target. The brief has the release engineer define the work and open the developer's
   task with `create_board_task` (`assignee_role: developer`), park its own card on it with

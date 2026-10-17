@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -59,9 +60,20 @@ func (t *listDataSourceMetricsTool) Execute(ctx context.Context, arguments strin
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return toolError(name, fmt.Sprintf("invalid arguments: %v", err))
 	}
-	sources, err := t.kit.DataSources.List(ctx)
+	listed, err := t.kit.DataSources.List(ctx)
 	if err != nil {
 		return toolError(name, err.Error())
+	}
+	job := t.kit.sessionJob(ctx)
+	allowed, err := t.kit.jobSources(ctx, job)
+	if err != nil {
+		return toolError(name, err.Error())
+	}
+	sources := make([]domain.DataSource, 0, len(listed))
+	for _, ds := range listed {
+		if allowed == nil || allowed[ds.ID] {
+			sources = append(sources, ds)
+		}
 	}
 	if strings.TrimSpace(args.DataSourceID) == "" {
 		views := make([]dataSourceView, 0, len(sources))
@@ -79,6 +91,9 @@ func (t *listDataSourceMetricsTool) Execute(ctx context.Context, arguments strin
 		if sources[i].ID == id {
 			source = &sources[i]
 		}
+	}
+	if source == nil && job != nil && slices.ContainsFunc(listed, func(ds domain.DataSource) bool { return ds.ID == id }) {
+		return toolError(name, t.kit.outsideJob(ctx, name, outsideSource, *job).Error())
 	}
 	if source == nil {
 		return toolError(name, fmt.Sprintf("unknown data_source_id %s", id))
@@ -159,6 +174,9 @@ func (t *proposeSignalBindingTool) Execute(ctx context.Context, arguments string
 	if err != nil {
 		return toolError(name, err.Error())
 	}
+	if err := t.kit.checkSource(ctx, name, sc.job, args.DataSourceID); err != nil {
+		return toolError(name, err.Error())
+	}
 	signal := strings.TrimSpace(args.Signal)
 	view, err := t.kit.Bindings.Propose(ctx, sc.component.ID, sc.environment, signal, signals.BindingRequest{
 		DataSourceID: args.DataSourceID,
@@ -169,7 +187,10 @@ func (t *proposeSignalBindingTool) Execute(ctx context.Context, arguments string
 	if err != nil {
 		return toolError(name, err.Error())
 	}
-	if view.Source == domain.SignalBindingAI && view.Status == domain.SignalBindingSuggested {
+	// A proposal matching a suggestion that predates the job answers that
+	// one: it is not something this job stored.
+	fresh := sc.job == nil || !view.CreatedAt.Before(sc.job.CreatedAt)
+	if view.Source == domain.SignalBindingAI && view.Status == domain.SignalBindingSuggested && fresh {
 		t.kit.record(ctx, domain.AIJobItem{Kind: domain.AIJobItemSignalBinding, ID: view.ID, Name: signal, Rationale: strings.TrimSpace(args.Rationale)})
 	}
 	return toolJSON(name, map[string]any{
@@ -241,6 +262,9 @@ func (t *proposeAlertRuleTool) Execute(ctx context.Context, arguments string) do
 	}
 	sc, err := t.kit.resolve(ctx, name, args.RepositoryID, args.Component, args.Environment, true)
 	if err != nil {
+		return toolError(name, err.Error())
+	}
+	if err := t.kit.checkSource(ctx, name, sc.job, args.DataSourceID); err != nil {
 		return toolError(name, err.Error())
 	}
 	compID := sc.component.ID

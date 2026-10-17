@@ -641,7 +641,13 @@ keyed by the session on the call's context), else the run's own repository; its
 component from `component` (an active component's exact path), else the job's,
 else — where one is required — the repository's only or root component; its
 environment from `environment`, else the job's, else production. Inside a job,
-what a propose tool newly stores is appended to the job's `created`. Granted to
+what a propose tool newly stores is appended to the job's `created` (once, while
+the job runs), a `repository_id` or `component` other than the job's is refused
+(`guard.observability_outside_job`), and only the data sources a component of
+the job's repository reads through, or none does yet, are listed and accepted
+(`ToolKit.SourceUse`). Outside a job, a run bound to a repository may name only
+that one (`guard.observability_outside_run_repository`). A job's turn also runs
+under its kind's tool ceiling (`opsai.JobTools`). Granted to
 `release-engineer` only (`roleObservabilityTools`), together with
 `codebase_search`, `create_board_task` and `update_board_task` for the
 "enable observability" card. API details: `.ai/api-spec.md` → "Error

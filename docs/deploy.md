@@ -285,6 +285,16 @@ threshold stops the soak early, like a failed smoke check: the release waits
 for the release engineer's verdict, and `auto_rollback` decides what a
 rollback does exactly as it does for any other failed check.
 
+Because a signal needs ten minutes after the deploy to settle, a soak with an
+impact threshold lasts at least ten minutes from the deploy, whatever
+`soak_minutes` says. If a threshold's signal is still settling when the
+window ends (a source that keeps few points, for example), the soak keeps
+verifying for up to 15 more minutes, reading deploy impact every two minutes,
+until the signal settles. The last read skips deploy impact's one-minute
+cache. A threshold whose signal never settled is listed in
+`checks.impact.unchecked`, the same as one whose signal is not bound: it was
+not checked, so it did not pass.
+
 ### Rolling a release back
 
 A rollback is called for on real evidence — a failed deploy, a failing
@@ -313,7 +323,10 @@ and it always does two things:
 
 A rollback is refused — nothing reverted, nothing redeployed — while a newer
 release of the same component is already open or has already shipped; roll
-that one back (or resolve it) first.
+that one back (or resolve it) first. It is also refused on a server with no
+git reverter configured (`rollback_refusal: not_configured`), since every
+rollback starts with the revert; the release engineer cannot propose one
+there either.
 
 If the profile's `auto_rollback` is off, nothing is executed automatically:
 the release engineer writes up the proposal as a comment on the task and the
@@ -323,8 +336,14 @@ repository name) appears only while the server would accept the rollback —
 otherwise the panel says why not (a newer release already shipped or is open,
 the release never deployed, it is too old, and so on) — and **Dismiss** clears
 the suggestion. A stored proposal is cleared when a rollback runs, when the
-release is superseded, when a newer release of the component finishes, or
-when it is dismissed. The proposal also sends a **Rollback suggested**
+release is superseded, when the release itself is finished, when a newer
+release of the component finishes, or when it is dismissed. A dismissal is
+kept on the release (`rollback_dismissal`: when, and the incident the
+proposal answered). The release engineer cannot propose rolling that release
+back again until another incident is attributed to it, and a dismissal also
+counts as the answer the hand-back watchdog waits for, so the agent is not
+woken again to propose the same thing. You can still roll the release back by
+hand. The proposal also sends a **Rollback suggested**
 notification (a desktop notification on macOS) linking to that panel. A
 rollback the release engineer executes on its own (`auto_rollback` on) sends
 a **Rolled back** notification — also when the revert landed but the rest of

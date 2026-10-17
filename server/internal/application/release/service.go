@@ -305,8 +305,9 @@ type Service struct {
 	notifyCooldown *notify.Cooldown
 
 	mu              sync.Mutex
-	lastErrorCheck  map[uuid.UUID]time.Time
-	lastImpactCheck map[uuid.UUID]time.Time
+	scope           func(ctx context.Context) string
+	lastErrorCheck  map[pacingKey]time.Time
+	lastImpactCheck map[pacingKey]time.Time
 	impact          ImpactReader
 	attributed      map[uuid.UUID]attributedIncident
 
@@ -347,8 +348,8 @@ func New(d Deps) *Service {
 		now:              d.Clock,
 		notifier:         d.Notifier,
 		notifyCooldown:   notify.NewCooldown(notify.DefaultCooldown),
-		lastErrorCheck:   map[uuid.UUID]time.Time{},
-		lastImpactCheck:  map[uuid.UUID]time.Time{},
+		lastErrorCheck:   map[pacingKey]time.Time{},
+		lastImpactCheck:  map[pacingKey]time.Time{},
 		attributed:       map[uuid.UUID]attributedIncident{},
 		impact:           d.Impact,
 		watchKick:        make(chan struct{}, 1),
@@ -386,6 +387,32 @@ func (s *Service) SetImpact(r ImpactReader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.impact = r
+}
+
+// pacingKey is one release's soak pacing, within the scope that swept it.
+type pacingKey struct {
+	scope   string
+	release uuid.UUID
+}
+
+// SetScope keys the sweeper's in-process pacing by scope(ctx) as well, so a
+// process sweeping several tenants paces and forgets each one's releases
+// apart. Without it there is one scope. Call it before Start.
+func (s *Service) SetScope(scope func(ctx context.Context) string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scope = scope
+}
+
+func (s *Service) scopeOf(ctx context.Context) string {
+	if s.scope == nil {
+		return ""
+	}
+	return s.scope(ctx)
+}
+
+func (s *Service) pacingKey(ctx context.Context, releaseID uuid.UUID) pacingKey {
+	return pacingKey{scope: s.scopeOf(ctx), release: releaseID}
 }
 
 func (s *Service) impactReader() ImpactReader {

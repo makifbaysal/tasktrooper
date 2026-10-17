@@ -77,13 +77,23 @@ func (f *fakeJobs) Record(_ context.Context, item domain.AIJobItem) {
 	f.recorded = append(f.recorded, item)
 }
 
-type fakeDataSources struct{}
+type fakeDataSources struct {
+	sources    []domain.DataSource
+	discovered []uuid.UUID
+}
 
-func (fakeDataSources) List(context.Context) ([]domain.DataSource, error) { return nil, nil }
-func (fakeDataSources) Discover(context.Context, uuid.UUID, string, int) (domain.DataSourceDiscovery, error) {
+func (f *fakeDataSources) List(context.Context) ([]domain.DataSource, error) { return f.sources, nil }
+func (f *fakeDataSources) Discover(_ context.Context, id uuid.UUID, _ string, _ int) (domain.DataSourceDiscovery, error) {
+	f.discovered = append(f.discovered, id)
 	return domain.DataSourceDiscovery{}, nil
 }
-func (fakeDataSources) Recipes(context.Context) ([]domain.Recipe, error) { return nil, nil }
+func (f *fakeDataSources) Recipes(context.Context) ([]domain.Recipe, error) { return nil, nil }
+
+type fakeSourceUse struct{ bindings []domain.SignalBinding }
+
+func (f *fakeSourceUse) ListConfirmedSignalBindings(context.Context, domain.DeployEnvironment) ([]domain.SignalBinding, error) {
+	return f.bindings, nil
+}
 
 type fakeBindings struct {
 	got  signals.BindingRequest
@@ -115,7 +125,8 @@ func testKit() *ToolKit {
 		Errors:      &fakeErrors{},
 		Definitions: &fakeDefinitions{},
 		Jobs:        &fakeJobs{},
-		DataSources: fakeDataSources{},
+		DataSources: &fakeDataSources{},
+		SourceUse:   &fakeSourceUse{},
 		Bindings:    &fakeBindings{},
 		Alerts:      &fakeAlerts{},
 	}

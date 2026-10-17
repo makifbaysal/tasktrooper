@@ -66,6 +66,7 @@ type Service struct {
 	now      func() time.Time
 	notifyMu sync.Mutex
 	cooldown *notify.Cooldown
+	scope    func(ctx context.Context) string
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
@@ -178,9 +179,11 @@ func (s *Service) ingest(ctx context.Context, in domain.IncidentInput) (domain.I
 		}
 	}
 
-	if (created || incident.Severity == domain.IncidentSeverityCritical) && s.notifiable(incident) &&
-		s.shouldRenotify(alertKey(incident), notifyOpened) {
-		s.notify(ctx, incident, remedy)
+	if (created || incident.Severity == domain.IncidentSeverityCritical) && s.notifiable(incident) {
+		n := heldIncidentNotice{notification: openedNotification(incident, remedy), incidentID: incident.ID, opened: true}
+		if s.shouldRenotify(ctx, alertKey(incident), notifyOpened, n) {
+			s.deliver(ctx, n)
+		}
 	}
 	return incident, created, nil
 }
@@ -202,22 +205,89 @@ const (
 )
 
 // alertKey is the alert's identity, not the incident's: a flapping alert
-// resolves and re-fires as a NEW incident every cycle. Only a repeat of the
-// last kind told is held back (a critical incident recurring): an opening
-// after a told recovery, or a recovery after a told opening, always goes out,
-// so the last word a person heard is never "recovered" while it is down.
+// resolves and re-fires as a NEW incident every cycle. A repeat of the last
+// kind told is held back (a critical incident recurring); an opening after a
+// told recovery, or a recovery after a told opening, goes out, so the last
+// word a person heard is never "recovered" while it is down — unless the
+// alert has changed more than four times in half an hour. Then it is told
+// nothing until it has stayed put for fifteen minutes, and then where it
+// ended (FlushSettled).
 func alertKey(incident domain.Incident) string {
 	return incident.RepositoryID.String() + "\x00" + incident.Env + "\x00" + incident.Fingerprint
 }
 
-func (s *Service) shouldRenotify(key, kind string) bool {
+// heldIncidentNotice is an opening or recovery notification, kept by the
+// cooldown while its alert flaps.
+type heldIncidentNotice struct {
+	notification domain.Notification
+	incidentID   uuid.UUID
+	opened       bool
+}
+
+func (s *Service) notifyCooldown() *notify.Cooldown {
 	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
 	if s.cooldown == nil {
-		s.cooldown = notify.NewCooldown(notify.DefaultCooldown)
+		s.cooldown = notify.NewCooldown(notify.DefaultCooldown).WithFlapLimit(notify.DefaultFlapLimit, notify.DefaultFlapSettle)
 	}
-	cooldown := s.cooldown
-	s.notifyMu.Unlock()
-	return cooldown.AllowTransition(key, kind, s.now())
+	return s.cooldown
+}
+
+func (s *Service) shouldRenotify(ctx context.Context, key, kind string, n heldIncidentNotice) bool {
+	return s.notifyCooldown().AllowTransitionHolding(s.scopeOf(ctx)+"\x00"+key, kind, s.now(), n)
+}
+
+func (s *Service) deliver(ctx context.Context, n heldIncidentNotice) {
+	s.notifier.Notify(ctx, n.notification)
+	if n.opened {
+		s.event(ctx, n.incidentID, domain.IncidentEventNotified, "pushed to devices")
+	}
+}
+
+// SetScope keys the notification cooldown by scope(ctx) as well, so a
+// process serving several tenants delivers each one's held notifications
+// under its own context (FlushSettled). Without it there is one scope. Call
+// it before serving.
+func (s *Service) SetScope(scope func(ctx context.Context) string) { s.scope = scope }
+
+func (s *Service) scopeOf(ctx context.Context) string {
+	if s.scope == nil {
+		return ""
+	}
+	return s.scope(ctx)
+}
+
+// SettleInterval is how often Start delivers the final state of alerts that
+// stopped flapping.
+const SettleInterval = time.Minute
+
+// Start runs FlushSettled every SettleInterval until ctx ends.
+func (s *Service) Start(ctx context.Context) {
+	go func() {
+		t := time.NewTicker(SettleInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.FlushSettled(ctx)
+			}
+		}
+	}()
+}
+
+// FlushSettled tells, once each, where the alerts of this scope whose
+// flapping held their notifications back ended up.
+func (s *Service) FlushSettled(ctx context.Context) {
+	if s.notifier == nil {
+		return
+	}
+	for _, h := range s.notifyCooldown().Settled(s.scopeOf(ctx)+"\x00", s.now()) {
+		if n, ok := h.Payload.(heldIncidentNotice); ok {
+			s.deliver(ctx, n)
+		}
+	}
 }
 
 func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.Incident, error) {
@@ -241,8 +311,11 @@ func (s *Service) recover(ctx context.Context, in domain.IncidentInput) (domain.
 			log.Warn().Err(err).Msg("incident recovery comment failed")
 		}
 	}
-	if s.notifiable(resolved) && s.shouldRenotify(alertKey(resolved), notifyRecovered) {
-		s.notifier.Notify(ctx, incidentNotification(domain.NotificationIncidentRecovered, resolved, "Recovered · "+resolved.Env, resolved.Title))
+	if s.notifiable(resolved) {
+		n := heldIncidentNotice{notification: incidentNotification(domain.NotificationIncidentRecovered, resolved, "Recovered · "+resolved.Env, resolved.Title), incidentID: resolved.ID}
+		if s.shouldRenotify(ctx, alertKey(resolved), notifyRecovered, n) {
+			s.deliver(ctx, n)
+		}
 	}
 	return resolved, nil
 }
@@ -421,13 +494,9 @@ func (s *Service) ByTask(ctx context.Context, taskID uuid.UUID) (domain.Incident
 	return s.incidents.ByTask(ctx, taskID)
 }
 
-func (s *Service) notify(ctx context.Context, incident domain.Incident, remedy domain.Remedy) {
-	if !s.notifiable(incident) {
-		return
-	}
+func openedNotification(incident domain.Incident, remedy domain.Remedy) domain.Notification {
 	title := fmt.Sprintf("%s · %s", strings.ToUpper(incident.Env), truncate(incident.Title, 80))
-	s.notifier.Notify(ctx, incidentNotification(domain.NotificationIncidentOpened, incident, title, truncate(remedy.Summary, 200)))
-	s.event(ctx, incident.ID, domain.IncidentEventNotified, "pushed to devices")
+	return incidentNotification(domain.NotificationIncidentOpened, incident, title, truncate(remedy.Summary, 200))
 }
 
 // notifiable keeps the follow-ups (recovered, fix proposed) to the incidents

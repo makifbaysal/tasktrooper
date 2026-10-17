@@ -14,10 +14,10 @@ const (
 	maxRegexLen = 512
 	// maxRegexProg bounds the compiled program: RE2 runs in linear time, but
 	// a pattern like (a{1000}){1000} still compiles to a program too large
-	// to run on every group of every inbox read.
-	maxRegexProg = 5000
+	// to run on every group of every inbox read, times every definition.
+	maxRegexProg = 1000
 	// maxMatchText is how much of a message or a sample a pattern reads.
-	maxMatchText   = 16 << 10
+	maxMatchText   = 4 << 10
 	regexCacheSize = 1024
 )
 
@@ -206,7 +206,7 @@ func endpointMatches(pattern, method, path string) bool {
 // regexCache compiles each pattern once; a pattern that does not compile is
 // cached as nil, which matches nothing.
 type regexCache struct {
-	mu    sync.Mutex
+	mu    sync.RWMutex
 	cache map[string]*regexp.Regexp
 }
 
@@ -215,6 +215,12 @@ func newRegexCache() *regexCache {
 }
 
 func (c *regexCache) get(pattern string) *regexp.Regexp {
+	c.mu.RLock()
+	re, ok := c.cache[pattern]
+	c.mu.RUnlock()
+	if ok {
+		return re
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if re, ok := c.cache[pattern]; ok {

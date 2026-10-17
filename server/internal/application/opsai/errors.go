@@ -16,6 +16,8 @@ var (
 	ErrNoReleaseEngineer = errors.New("no release engineer is on the team")
 
 	errStoppedOnQuestion = errors.New("the release engineer stopped on a question; answer it in the chat")
+	errTimedOut          = errors.New("the job ran past its time limit and was stopped")
+	errQueuedTooLong     = errors.New("the job waited too long for a free slot; start it again")
 )
 
 // FieldErrors maps a request key ("environment", "goals") to a

@@ -14,7 +14,7 @@ params:
     open_incident: Whether firing opens an incident (default false).
     query: A raw query instead of a signal; needs data_source_id.
     rationale: One sentence a person reads before enabling it - why this threshold.
-    repository_id: Repository UUID. Omit to use the AI job's or the current task's repository.
+    repository_id: Repository UUID. Omit to use the AI job's or the current task's repository; inside an AI job only the job's own is accepted, and a run bound to a repository may name only that one.
     severity: Severity of what it opens (default medium).
     signal: Catalog signal read through the component environment's confirmed binding.
 ---

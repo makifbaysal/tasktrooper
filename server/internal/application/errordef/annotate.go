@@ -84,6 +84,87 @@ func (s *Service) best(defs []domain.ErrorDefinition, g domain.OpsErrorGroup) *d
 	return pick
 }
 
+// actionClass groups the actions that act on a group: an alert and an
+// incident both open an incident, so they compete; a task opens a task
+// beside either. none and ignore act on nothing.
+type actionClass int
+
+const (
+	classNone actionClass = iota
+	classIncident
+	classTask
+)
+
+func classOf(a domain.ErrorAction) actionClass {
+	switch {
+	case a.Thresholded():
+		return classIncident
+	case a == domain.ErrorActionTask:
+		return classTask
+	}
+	return classNone
+}
+
+// acting is what acts on one group: the best matching definition of each
+// action class, unless a better matching ignore definition silences it. A
+// none definition labels the group and silences nothing.
+type acting struct {
+	incident *domain.ErrorDefinition
+	task     *domain.ErrorDefinition
+}
+
+func (a acting) of(c actionClass) *domain.ErrorDefinition {
+	switch c {
+	case classIncident:
+		return a.incident
+	case classTask:
+		return a.task
+	}
+	return nil
+}
+
+func (s *Service) actingOn(defs []domain.ErrorDefinition, g domain.OpsErrorGroup) acting {
+	var f *facts
+	var ignore, incident, task *domain.ErrorDefinition
+	for i := range defs {
+		d := &defs[i]
+		if d.ComponentID != nil && *d.ComponentID != g.ComponentID {
+			continue
+		}
+		var slot **domain.ErrorDefinition
+		switch {
+		case d.Action == domain.ErrorActionIgnore:
+			slot = &ignore
+		case classOf(d.Action) == classIncident:
+			slot = &incident
+		case classOf(d.Action) == classTask:
+			slot = &task
+		default:
+			continue
+		}
+		if f == nil {
+			v := factsOf(g)
+			f = &v
+		}
+		if !s.regexes.matches(d.Match, *f) {
+			continue
+		}
+		if *slot == nil || better(d, *slot) {
+			*slot = d
+		}
+	}
+	out := acting{incident: incident, task: task}
+	if ignore != nil {
+		if out.incident != nil && !better(out.incident, ignore) {
+			out.incident = nil
+		}
+		if out.task != nil && !better(out.task, ignore) {
+			out.task = nil
+		}
+	}
+	return out
+}
+
 func better(a, b *domain.ErrorDefinition) bool {
 	if (a.ComponentID != nil) != (b.ComponentID != nil) {
 		return a.ComponentID != nil

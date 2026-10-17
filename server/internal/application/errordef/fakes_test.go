@@ -17,16 +17,21 @@ import (
 // memStore is a stateful fake: what the service writes is what the sweep and
 // the inbox read back on later calls.
 type memStore struct {
-	mu    sync.Mutex
-	defs  map[uuid.UUID]domain.ErrorDefinition
-	links map[string]domain.ErrorGroupLink
-	clock time.Time
-	lists int
+	mu        sync.Mutex
+	defs      map[uuid.UUID]domain.ErrorDefinition
+	links     map[string]domain.ErrorGroupLink
+	claimedAt map[string]time.Time
+	// now stamps a claim, as the database's now() does.
+	now func() time.Time
+	// beforeCreate runs under the lock as a create starts: a racing writer.
+	beforeCreate func(d domain.ErrorDefinition)
+	clock        time.Time
+	lists        int
 }
 
 func newMemStore() *memStore {
 	return &memStore{defs: map[uuid.UUID]domain.ErrorDefinition{}, links: map[string]domain.ErrorGroupLink{},
-		clock: time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)}
+		claimedAt: map[string]time.Time{}, clock: time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC), now: time.Now}
 }
 
 var _ port.ErrorDefinitionStore = (*memStore)(nil)
@@ -73,6 +78,17 @@ func (m *memStore) GetErrorDefinition(_ context.Context, id uuid.UUID) (domain.E
 func (m *memStore) CreateErrorDefinition(_ context.Context, d domain.ErrorDefinition) (domain.ErrorDefinition, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.beforeCreate != nil {
+		m.beforeCreate(d)
+	}
+	if d.Status == domain.ErrorDefinitionSuggested {
+		for _, e := range m.defs {
+			if e.Status == domain.ErrorDefinitionSuggested && e.RepositoryID == d.RepositoryID &&
+				sameComponent(e.ComponentID, d.ComponentID) && sameMatch(e.Match, d.Match) {
+				return domain.ErrorDefinition{}, port.ErrErrorDefinitionExists
+			}
+		}
+	}
 	d.ID = uuid.New()
 	d.CreatedAt = m.tick()
 	d.UpdatedAt = d.CreatedAt
@@ -141,14 +157,15 @@ func (m *memStore) DeleteErrorDefinition(_ context.Context, id uuid.UUID) error 
 
 func linkKey(id uuid.UUID, fp string) string { return id.String() + "\x00" + fp }
 
-func (m *memStore) ClaimErrorGroupLink(_ context.Context, l domain.ErrorGroupLink) (bool, error) {
+func (m *memStore) ClaimErrorGroupLink(_ context.Context, l domain.ErrorGroupLink, staleBefore time.Time) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	k := linkKey(l.DefinitionID, l.Fingerprint)
-	if _, ok := m.links[k]; ok {
+	if have, ok := m.links[k]; ok && (have.TaskID != nil || !m.claimedAt[k].Before(staleBefore)) {
 		return false, nil
 	}
 	m.links[k] = l
+	m.claimedAt[k] = m.now()
 	return true, nil
 }
 
@@ -192,18 +209,54 @@ func (f *fakeComponents) ListComponents(_ context.Context, repo uuid.UUID) ([]do
 type fakeErrors struct {
 	queries []opsquery.ErrorsQuery
 	answer  domain.OpsErrors
+	// byComponent, when set, answers each query with the groups and
+	// unavailable entries of its components only.
+	byComponent bool
 }
 
 func (f *fakeErrors) Errors(_ context.Context, q opsquery.ErrorsQuery) (domain.OpsErrors, error) {
 	f.queries = append(f.queries, q)
-	return f.answer, nil
+	if !f.byComponent {
+		return f.answer, nil
+	}
+	out := domain.OpsErrors{Truncated: f.answer.Truncated}
+	for _, g := range f.answer.Groups {
+		if slices.Contains(q.ComponentIDs, g.ComponentID) {
+			out.Groups = append(out.Groups, g)
+		}
+	}
+	for _, u := range f.answer.Unavailable {
+		if slices.Contains(q.ComponentIDs, u.ComponentID) {
+			out.Unavailable = append(out.Unavailable, u)
+		}
+	}
+	return out, nil
 }
 
-type fakeIncidents struct{ ingested []domain.IncidentInput }
+type fakeIncidents struct {
+	ingested []domain.IncidentInput
+	live     []domain.Incident
+	resolved []uuid.UUID
+}
 
 func (f *fakeIncidents) Ingest(_ context.Context, in domain.IncidentInput) (domain.Incident, error) {
 	f.ingested = append(f.ingested, in)
 	return domain.Incident{ID: uuid.New()}, nil
+}
+
+func (f *fakeIncidents) List(_ context.Context, filter domain.IncidentFilter) ([]domain.Incident, error) {
+	var out []domain.Incident
+	for _, in := range f.live {
+		if filter.Source == "" || in.Source == filter.Source {
+			out = append(out, in)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeIncidents) Resolve(_ context.Context, id uuid.UUID, _ string) (domain.Incident, error) {
+	f.resolved = append(f.resolved, id)
+	return domain.Incident{ID: id, Status: domain.IncidentStatusResolved}, nil
 }
 
 type fakeTasks struct {

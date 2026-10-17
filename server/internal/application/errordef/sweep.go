@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -21,23 +22,63 @@ const (
 	// taskWindow is how far back the task action looks for a group it has
 	// not opened a task for yet.
 	taskWindow = 24 * time.Hour
-	// maxReadsPerSweep bounds the inbox reads one sweep makes: one per
-	// distinct threshold window.
+	// A window is read at most once per window/windowReadsPerWindow, and
+	// never more often than minWindowPace: a seven-day count does not move
+	// in two minutes, and each read costs the provider a query.
+	windowReadsPerWindow = 12
+	minWindowPace        = 2 * time.Minute
+	// maxReadsPerSweep bounds the inbox reads one sweep makes; the due
+	// windows that read longest ago go first, so none waits forever.
 	maxReadsPerSweep = 8
+	// componentsPerRead keeps one read within the environments the inbox
+	// reads at once (opsquery.MaxErrorEnvironments), so it is not truncated.
+	componentsPerRead = 50
 	// One broad pattern can match many groups at once; the rest wait for
 	// later sweeps rather than flooding the board.
 	maxTasksPerSweep      = 5
 	maxTasksPerDefinition = 1
+	// staleClaim: a group claimed this long ago that opened no task was
+	// claimed by a process that died before it could; it is claimed again.
+	staleClaim = 10 * time.Minute
 
 	taskSampleLines = 40
 	taskSampleChars = 4000
 	taskMessageLen  = 1000
 	titleMessageLen = 80
+	detailMessages  = 5
+	detailLineLen   = 200
+	minFence        = 3
+
+	orphanSweepLimit = 500
 )
+
+// orphanResolveNote is the incident timeline's entry for an incident whose
+// definition no longer acts.
+const orphanResolveNote = "the error definition that opened it no longer exists or no longer opens incidents"
 
 // sweptEnvironment: definitions carry no environment of their own, and only
 // production failures are worth an incident or a task.
 const sweptEnvironment = domain.EnvironmentProduction
+
+// IncidentCloser is what resolving the incidents of definitions that no
+// longer act needs; an IncidentIngester that is one too (prodops.Service)
+// gets it.
+type IncidentCloser interface {
+	List(ctx context.Context, filter domain.IncidentFilter) ([]domain.Incident, error)
+	Resolve(ctx context.Context, incidentID uuid.UUID, note string) (domain.Incident, error)
+}
+
+// SetScope keys the sweep's in-process pacing by scope(ctx) as well, so a
+// process sweeping several tenants paces each on its own. Without it there is
+// one scope. Call it before Start.
+func (s *Service) SetScope(scope func(ctx context.Context) string) { s.scope = scope }
+
+func (s *Service) scopeOf(ctx context.Context) string {
+	if s.scope == nil {
+		return ""
+	}
+	return s.scope(ctx)
+}
 
 // Start runs the sweep until ctx ends or Stop. Without an errors reader
 // there is nothing to sweep.
@@ -79,28 +120,69 @@ func (s *Service) Stop() {
 }
 
 // SweepOnce carries out the alert, incident and task actions of every active
-// definition against production's error groups. A group counts toward a
-// definition only when that definition is the one the inbox shows for it,
-// so a more specific ignore definition silences a broader alert.
+// definition against production's error groups, and resolves the incidents
+// of definitions that no longer act. A group counts toward a definition only
+// when that definition acts on it (see actingOn), so a more specific ignore
+// definition silences a broader alert. Each sweep reads the definitions once
+// and judges by that one read.
 func (s *Service) SweepOnce(ctx context.Context) {
 	if s.errors == nil {
 		return
 	}
 	s.sweepMu.Lock()
 	defer s.sweepMu.Unlock()
-	defs, err := s.store.ListErrorDefinitions(ctx, domain.ErrorDefinitionFilter{
+	all, err := s.store.ListErrorDefinitions(ctx, domain.ErrorDefinitionFilter{
 		Statuses: []domain.ErrorDefinitionStatus{domain.ErrorDefinitionActive},
-		Actions:  []domain.ErrorAction{domain.ErrorActionAlert, domain.ErrorActionIncident, domain.ErrorActionTask},
 	})
 	if err != nil {
-		log.Warn().Err(err).Msg("errordef: listing acting definitions failed")
+		log.Warn().Err(err).Msg("errordef: listing active definitions failed")
 		return
 	}
-	if len(defs) == 0 {
+	byRepo := map[uuid.UUID][]domain.ErrorDefinition{}
+	var acting []domain.ErrorDefinition
+	for _, d := range all {
+		byRepo[d.RepositoryID] = append(byRepo[d.RepositoryID], d)
+		if d.Action.Swept() {
+			acting = append(acting, d)
+		}
+	}
+	s.resolveOrphans(ctx, acting)
+	if len(acting) == 0 {
 		return
 	}
-	scopes := s.scopes(ctx, defs)
-	byWindow := map[time.Duration][]domain.ErrorDefinition{}
+	units := s.dueUnits(ctx, acting, s.scopes(ctx, acting))
+	budget, reads := maxTasksPerSweep, 0
+	for _, u := range units {
+		if reads > 0 && reads+len(u.chunks) > maxReadsPerSweep {
+			break
+		}
+		reads += len(u.chunks)
+		s.markRead(u.key, s.now())
+		s.sweepUnit(ctx, u, byRepo[u.repo], &budget)
+	}
+}
+
+// sweepUnit is one window of one repository: the definitions judged over it
+// and the reads, at most componentsPerRead components each, that cover them.
+type sweepUnit struct {
+	key    string
+	window time.Duration
+	repo   uuid.UUID
+	defs   []domain.ErrorDefinition
+	scopes map[uuid.UUID][]uuid.UUID
+	chunks [][]uuid.UUID
+	last   time.Time
+}
+
+// dueUnits answers the units whose window is due, the one read longest ago
+// (or never) first.
+func (s *Service) dueUnits(ctx context.Context, defs []domain.ErrorDefinition, scopes map[uuid.UUID][]uuid.UUID) []sweepUnit {
+	type unitKey struct {
+		window time.Duration
+		repo   uuid.UUID
+	}
+	byKey := map[unitKey]*sweepUnit{}
+	var keys []unitKey
 	for _, d := range defs {
 		if len(scopes[d.ID]) == 0 {
 			continue
@@ -109,23 +191,74 @@ func (s *Service) SweepOnce(ctx context.Context) {
 		if d.Action.Thresholded() {
 			w = threshold(d).Window()
 		}
-		byWindow[w] = append(byWindow[w], d)
+		k := unitKey{window: w, repo: d.RepositoryID}
+		u, ok := byKey[k]
+		if !ok {
+			u = &sweepUnit{window: w, repo: d.RepositoryID, scopes: map[uuid.UUID][]uuid.UUID{}}
+			byKey[k] = u
+			keys = append(keys, k)
+		}
+		u.defs = append(u.defs, d)
+		u.scopes[d.ID] = scopes[d.ID]
 	}
-	windows := make([]time.Duration, 0, len(byWindow))
-	for w := range byWindow {
-		windows = append(windows, w)
+	scope := s.scopeOf(ctx)
+	now := s.now()
+	var out []sweepUnit
+	for _, k := range keys {
+		u := byKey[k]
+		u.key = scope + "\x00" + k.repo.String() + "\x00" + k.window.String()
+		u.last = s.lastRead(u.key)
+		if !u.last.IsZero() && now.Sub(u.last) < pace(k.window) {
+			continue
+		}
+		var comps []uuid.UUID
+		for _, d := range u.defs {
+			for _, c := range u.scopes[d.ID] {
+				if !slices.Contains(comps, c) {
+					comps = append(comps, c)
+				}
+			}
+		}
+		for len(comps) > 0 {
+			n := min(len(comps), componentsPerRead)
+			u.chunks = append(u.chunks, comps[:n])
+			comps = comps[n:]
+		}
+		out = append(out, *u)
 	}
-	slices.Sort(windows)
-	if len(windows) > maxReadsPerSweep {
-		log.Warn().Int("windows", len(windows)).Int("max", maxReadsPerSweep).
-			Msg("errordef: more distinct threshold windows than one sweep reads; the longest wait")
-		windows = windows[:maxReadsPerSweep]
-	}
-	budget := maxTasksPerSweep
-	for _, w := range windows {
-		s.sweepWindow(ctx, w, byWindow[w], scopes, &budget)
-	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].last.Equal(out[j].last) {
+			return out[i].last.Before(out[j].last)
+		}
+		return out[i].window < out[j].window
+	})
+	return out
 }
+
+func pace(window time.Duration) time.Duration {
+	return max(window/windowReadsPerWindow, minWindowPace)
+}
+
+func (s *Service) lastRead(key string) time.Time {
+	s.paceMu.Lock()
+	defer s.paceMu.Unlock()
+	return s.read[key]
+}
+
+func (s *Service) markRead(key string, at time.Time) {
+	s.paceMu.Lock()
+	defer s.paceMu.Unlock()
+	if len(s.read) > paceSweepAbove {
+		for k, last := range s.read {
+			if at.Sub(last) > maxThresholdWindow {
+				delete(s.read, k)
+			}
+		}
+	}
+	s.read[key] = at
+}
+
+const paceSweepAbove = 1024
 
 // scopes is each definition's components: its own, or every active one of
 // its repository.
@@ -155,51 +288,58 @@ func (s *Service) scopes(ctx context.Context, defs []domain.ErrorDefinition) map
 	return out
 }
 
-func (s *Service) sweepWindow(ctx context.Context, window time.Duration, defs []domain.ErrorDefinition, scopes map[uuid.UUID][]uuid.UUID, budget *int) {
-	var comps []uuid.UUID
-	var repos []uuid.UUID
-	for _, d := range defs {
-		for _, c := range scopes[d.ID] {
-			if !slices.Contains(comps, c) {
-				comps = append(comps, c)
+// sweepUnit reads the unit's window and judges its definitions. A component
+// whose read failed, came back unavailable or was cut short counts as
+// partial for the definitions covering it, and only for those.
+func (s *Service) sweepUnit(ctx context.Context, u sweepUnit, repoDefs []domain.ErrorDefinition, budget *int) {
+	var groups []domain.OpsErrorGroup
+	partialComp := map[uuid.UUID]bool{}
+	for _, chunk := range u.chunks {
+		res, err := s.errors.Errors(ctx, opsquery.ErrorsQuery{
+			Environment:  sweptEnvironment,
+			Since:        s.now().Add(-u.window),
+			ComponentIDs: chunk,
+		})
+		if err != nil {
+			log.Warn().Err(err).Dur("window", u.window).Str("repository_id", u.repo.String()).Msg("errordef: reading production errors failed")
+			for _, c := range chunk {
+				partialComp[c] = true
+			}
+			continue
+		}
+		for _, g := range res.Groups {
+			if g.RepositoryID == u.repo {
+				groups = append(groups, g)
 			}
 		}
-		if !slices.Contains(repos, d.RepositoryID) {
-			repos = append(repos, d.RepositoryID)
+		for _, c := range res.Unavailable {
+			partialComp[c.ComponentID] = true
+		}
+		if res.Truncated {
+			for _, c := range chunk {
+				partialComp[c] = true
+			}
 		}
 	}
-	res, err := s.errors.Errors(ctx, opsquery.ErrorsQuery{
-		Environment:  sweptEnvironment,
-		Since:        s.now().Add(-window),
-		ComponentIDs: comps,
-	})
-	if err != nil {
-		log.Warn().Err(err).Dur("window", window).Msg("errordef: reading production errors failed")
-		return
+	picks := make([]acting, len(groups))
+	for i, g := range groups {
+		picks[i] = s.actingOn(repoDefs, g)
 	}
-	active, err := s.active(ctx, repos)
-	if err != nil {
-		log.Warn().Err(err).Msg("errordef: reading active definitions failed")
-		return
-	}
-	unavailable := map[uuid.UUID]bool{}
-	for _, u := range res.Unavailable {
-		unavailable[u.ComponentID] = true
-	}
-	for _, d := range defs {
-		scope := scopes[d.ID]
+	for _, d := range u.defs {
+		scope := u.scopes[d.ID]
+		class := classOf(d.Action)
 		var matched []domain.OpsErrorGroup
-		for _, g := range res.Groups {
-			if g.RepositoryID != d.RepositoryID || !slices.Contains(scope, g.ComponentID) {
+		for i, g := range groups {
+			if !slices.Contains(scope, g.ComponentID) {
 				continue
 			}
-			if best := s.best(active[d.RepositoryID], g); best != nil && best.ID == d.ID {
+			if pick := picks[i].of(class); pick != nil && pick.ID == d.ID {
 				matched = append(matched, g)
 			}
 		}
-		partial := res.Truncated
+		partial := false
 		for _, c := range scope {
-			partial = partial || unavailable[c]
+			partial = partial || partialComp[c]
 		}
 		if d.Action == domain.ErrorActionTask {
 			s.openTasks(ctx, d, matched, budget)
@@ -210,8 +350,13 @@ func (s *Service) sweepWindow(ctx context.Context, window time.Duration, defs []
 }
 
 // judge moves a thresholded definition between quiet and firing. A read
-// that missed some of its components may fire it, never quiet it.
+// that missed some of its components may fire it, never quiet it. A
+// repository-wide definition counts one error-tracker issue once, however
+// many of its components bind the same source to it.
 func (s *Service) judge(ctx context.Context, d domain.ErrorDefinition, matched []domain.OpsErrorGroup, partial bool) {
+	if d.ComponentID == nil {
+		matched = distinctIssues(matched)
+	}
 	t := threshold(d)
 	count := 0
 	for _, g := range matched {
@@ -246,14 +391,75 @@ func (s *Service) judge(ctx context.Context, d domain.ErrorDefinition, matched [
 	}
 }
 
+// distinctIssues keeps one group per issue: an error tracker's issue is its
+// data source and fingerprint, a cloud environment's group is its own.
+func distinctIssues(groups []domain.OpsErrorGroup) []domain.OpsErrorGroup {
+	type issue struct {
+		source      uuid.UUID
+		environment uuid.UUID
+		fingerprint string
+	}
+	at := map[issue]int{}
+	out := make([]domain.OpsErrorGroup, 0, len(groups))
+	for _, g := range groups {
+		k := issue{fingerprint: g.Fingerprint}
+		if g.DataSourceID != nil {
+			k.source = *g.DataSourceID
+		} else {
+			k.environment = g.EnvironmentID
+		}
+		if i, seen := at[k]; seen {
+			if g.Count > out[i].Count {
+				out[i] = g
+			}
+			continue
+		}
+		at[k] = len(out)
+		out = append(out, g)
+	}
+	return out
+}
+
+// resolveOrphans resolves the live incidents of definitions that no longer
+// open one: deleted (by hand, or with their component), dismissed, or moved
+// to an action that opens none.
+func (s *Service) resolveOrphans(ctx context.Context, acting []domain.ErrorDefinition) {
+	closer, ok := s.incidents.(IncidentCloser)
+	if !ok || ctx.Err() != nil {
+		return
+	}
+	opens := make(map[uuid.UUID]bool, len(acting))
+	for _, d := range acting {
+		if d.Action.Thresholded() {
+			opens[d.ID] = true
+		}
+	}
+	live, err := closer.List(ctx, domain.IncidentFilter{
+		Source: domain.IncidentSourceErrorDefinition, Statuses: domain.LiveIncidentStatuses, Limit: orphanSweepLimit,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("errordef: listing error definition incidents failed")
+		return
+	}
+	for _, in := range live {
+		id, ok := domain.ErrorDefinitionOfFingerprint(in.Fingerprint)
+		if !ok || in.Source != domain.IncidentSourceErrorDefinition || opens[id] {
+			continue
+		}
+		if _, err := closer.Resolve(ctx, in.ID, orphanResolveNote); err != nil {
+			log.Warn().Err(err).Str("incident_id", in.ID.String()).Msg("errordef: resolving an orphaned definition's incident failed")
+		}
+	}
+}
+
 func incidentInput(d domain.ErrorDefinition, matched []domain.OpsErrorGroup, count int, t domain.ErrorAlertThreshold) domain.IncidentInput {
 	sort.SliceStable(matched, func(i, j int) bool { return matched[i].Count > matched[j].Count })
 	fingerprints := make([]string, 0, len(matched))
 	var detail []string
 	for i, g := range matched {
 		fingerprints = append(fingerprints, g.Fingerprint)
-		if i < 5 {
-			detail = append(detail, fmt.Sprintf("%d× %s", g.Count, domain.TruncateHead(g.Message, 300)))
+		if i < detailMessages {
+			detail = append(detail, fmt.Sprintf("%d× %s", g.Count, detailLine(g.Message)))
 		}
 	}
 	return domain.IncidentInput{
@@ -276,6 +482,29 @@ func incidentInput(d domain.ErrorDefinition, matched []domain.OpsErrorGroup, cou
 	}
 }
 
+// detailLine is a message as one short line of plain text: production
+// error text lands in the incident others (and agents) read, so it carries
+// no line breaks, control characters or markup fences of its own.
+func detailLine(message string) string {
+	var b strings.Builder
+	space := false
+	for _, r := range strings.TrimSpace(message) {
+		switch {
+		case unicode.IsSpace(r) || unicode.IsControl(r):
+			space = true
+			continue
+		case r == '`':
+			r = '\''
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		b.WriteRune(r)
+	}
+	return domain.TruncateHead(b.String(), detailLineLen)
+}
+
 func (s *Service) openTasks(ctx context.Context, d domain.ErrorDefinition, matched []domain.OpsErrorGroup, budget *int) {
 	if s.tasks == nil {
 		return
@@ -293,7 +522,7 @@ func (s *Service) openTasks(ctx context.Context, d domain.ErrorDefinition, match
 		claimed, err := s.store.ClaimErrorGroupLink(ctx, domain.ErrorGroupLink{
 			DefinitionID: d.ID, Fingerprint: g.Fingerprint, ComponentID: g.ComponentID,
 			EnvironmentID: envID, DataSourceID: g.DataSourceID,
-		})
+		}, s.now().Add(-staleClaim))
 		if err != nil {
 			log.Warn().Err(err).Str("definition_id", d.ID.String()).Msg("errordef: claiming an error group failed")
 			return
@@ -326,7 +555,9 @@ func (s *Service) createTask(ctx context.Context, d domain.ErrorDefinition, g do
 		return domain.BoardTask{}, fmt.Errorf("read component: %w", err)
 	}
 	sample, _ := headLines(g.Sample, taskSampleLines, taskSampleChars)
+	message := domain.TruncateHead(strings.TrimSpace(g.Message), taskMessageLen)
 	description := errorTaskKey.Render(errorTaskInput{
+		Fence:       fenceFor(message, sample),
 		Definition:  d.Name,
 		Category:    string(d.Category),
 		Severity:    string(d.Severity),
@@ -338,7 +569,7 @@ func (s *Service) createTask(ctx context.Context, d domain.ErrorDefinition, g do
 		Count:       g.Count,
 		FirstSeen:   g.FirstSeen.UTC().Format(time.RFC3339),
 		LastSeen:    g.LastSeen.UTC().Format(time.RFC3339),
-		Message:     domain.TruncateHead(strings.TrimSpace(g.Message), taskMessageLen),
+		Message:     message,
 		Sample:      sample,
 		ExternalURL: g.ExternalURL,
 	})
@@ -357,6 +588,24 @@ func (s *Service) createTask(ctx context.Context, d domain.ErrorDefinition, g do
 		ComponentID:     &compID,
 		AssigneeAgentID: s.developer(ctx, comp),
 	})
+}
+
+// fenceFor is a backtick fence longer than any backtick run in texts, so
+// nothing read from production can close the block it is quoted in.
+func fenceFor(texts ...string) string {
+	longest := 0
+	for _, t := range texts {
+		run := 0
+		for _, r := range t {
+			if r == '`' {
+				run++
+				longest = max(longest, run)
+				continue
+			}
+			run = 0
+		}
+	}
+	return strings.Repeat("`", max(minFence, longest+1))
 }
 
 func (s *Service) defectType(ctx context.Context) domain.TaskType {

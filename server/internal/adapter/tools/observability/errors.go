@@ -314,7 +314,7 @@ func (t *proposeErrorDefinitionsTool) Execute(ctx context.Context, arguments str
 // componentID is the definition's component as the request's component_id:
 // "" for repository-wide when neither the definition nor the job names one.
 func (t *proposeErrorDefinitionsTool) componentID(ctx context.Context, sc scope, path string) (string, error) {
-	comp, err := t.kit.component(ctx, sc, path, false)
+	comp, err := t.kit.component(ctx, t.Name(), sc, path, false)
 	if err != nil {
 		return "", err
 	}

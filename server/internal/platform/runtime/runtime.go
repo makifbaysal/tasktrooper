@@ -2299,6 +2299,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				prodOpsSvc.SetRoleResolver(workflowSvc)
 			}
 			e.prodOpsSvc = prodOpsSvc
+			prodOpsSvc.Start(ctx)
 			pipelineRunner.SetIncidentReporter(prodOpsSvc)
 
 			for _, tool := range opstools.NewExecutors(&opstools.ToolKit{

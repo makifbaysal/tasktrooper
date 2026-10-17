@@ -54,6 +54,13 @@ const (
 	// their component or data source.
 	orphanSweepEvery = 5 * time.Minute
 	orphanSweepLimit = 500
+
+	// maxReadErrors: a rule holds its state through this many evaluations in
+	// a row whose read failed; the next one reads as no data, so a source
+	// that stays down does not hold a firing rule firing, or a pending one
+	// pending, forever.
+	maxReadErrors   = 10
+	maxLastErrorLen = 300
 )
 
 // webVitalsQuantile: Core Web Vitals are judged at the 75th percentile, every
@@ -121,8 +128,9 @@ type Service struct {
 	locks    [lockStripes]sync.Mutex
 	cooldown *notify.Cooldown
 
+	scope           func(ctx context.Context) string
 	orphanMu        sync.Mutex
-	lastOrphanSweep time.Time
+	lastOrphanSweep map[string]time.Time
 
 	runMu  sync.Mutex
 	cancel context.CancelFunc
@@ -183,12 +191,27 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 		maxPerSweep: DefaultMaxRulesPerSweep,
 		concurrency: defaultConcurrency,
 		readTimeout: defaultReadTimeout,
-		cooldown:    notify.NewCooldown(notify.DefaultCooldown),
+		cooldown:    notify.NewCooldown(notify.DefaultCooldown).WithFlapLimit(notify.DefaultFlapLimit, notify.DefaultFlapSettle),
+
+		lastOrphanSweep: map[string]time.Time{},
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s, nil
+}
+
+// SetScope keys the evaluator's in-process state (the orphan sweep's pacing,
+// the notification cooldown) by scope(ctx) as well, so a process sweeping
+// several tenants keeps each apart. Without it there is one scope. Call it
+// before Start.
+func (s *Service) SetScope(scope func(ctx context.Context) string) { s.scope = scope }
+
+func (s *Service) scopeOf(ctx context.Context) string {
+	if s.scope == nil {
+		return ""
+	}
+	return s.scope(ctx)
 }
 
 // lock serializes what changes one rule's state: an evaluation's write and
@@ -280,6 +303,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req RuleRequest) (do
 		event = s.reset(ctx, rule)
 		rule.State, rule.StateSince, rule.LastValue, rule.LastEvaluatedAt = domain.AlertStateOK, s.now(), nil, nil
 		rule.AlertStreak = domain.AlertStreak{}
+		rule.AlertReadErrors = domain.AlertReadErrors{}
 	}
 	rule.AlertRuleSpec = spec
 	updated, err := s.rules.UpdateAlertRule(ctx, rule)

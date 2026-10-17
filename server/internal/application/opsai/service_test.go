@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
@@ -132,7 +133,7 @@ func (s *ServiceSuite) TestAFailedOrQuestioningTurnFailsTheJob() {
 }
 
 func (s *ServiceSuite) TestARunningJobIsAnsweredInsteadOfStartingAnother() {
-	running, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobMapSignals, RepositoryID: s.repo.ID, ComponentID: &s.api.ID, Environment: domain.EnvironmentProduction})
+	running, _, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobMapSignals, RepositoryID: s.repo.ID, ComponentID: &s.api.ID, Environment: domain.EnvironmentProduction})
 	s.Require().NoError(err)
 	job, err := s.svc.SuggestSignals(s.ctx, s.api.ID, domain.EnvironmentProduction)
 	s.Require().NoError(err)
@@ -176,13 +177,149 @@ func (s *ServiceSuite) TestJobsNeedAnEnabledReleaseEngineerAndValidInput() {
 }
 
 func (s *ServiceSuite) TestStartFailsJobsAPreviousProcessLeftRunning() {
-	left, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobDefineErrors, RepositoryID: s.repo.ID})
+	left, _, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobDefineErrors, RepositoryID: s.repo.ID, Owner: "an earlier process"})
+	s.Require().NoError(err)
+	own, _, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobErrorCatalog, RepositoryID: s.repo.ID, Owner: s.svc.owner})
 	s.Require().NoError(err)
 	s.svc.Start(s.ctx)
 	got, err := s.svc.Job(s.ctx, left.ID)
 	s.Require().NoError(err)
 	s.Equal(domain.AIJobFailed, got.Status)
 	s.Equal(interruptedReason, got.Error)
+	got, err = s.svc.Job(s.ctx, own.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.AIJobRunning, got.Status, "this process's own job is not interrupted")
+}
+
+func (s *ServiceSuite) TestStartLeavesAnotherProcesssRecentJobsWithAGrace() {
+	recent, _, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobDefineErrors, RepositoryID: s.repo.ID, Owner: "another pod"})
+	s.Require().NoError(err)
+	svc := s.newService(WithInterruptedAfter(time.Hour))
+	svc.Start(s.ctx)
+	got, err := svc.Job(s.ctx, recent.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.AIJobRunning, got.Status)
+}
+
+func (s *ServiceSuite) TestEachJobKindRunsUnderItsOwnNarrowToolCeiling() {
+	_, err := s.svc.SuggestErrors(s.ctx, SuggestErrorsRequest{RepositoryID: s.repo.ID.String()})
+	s.Require().NoError(err)
+	_, err = s.svc.SuggestErrors(s.ctx, SuggestErrorsRequest{RepositoryID: s.repo.ID.String(), Mode: ModeCode})
+	s.Require().NoError(err)
+	_, err = s.svc.SuggestSignals(s.ctx, s.api.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+
+	s.Require().Len(s.sessions.sent, 3)
+	for i, kind := range []domain.AIJobKind{domain.AIJobDefineErrors, domain.AIJobErrorCatalog, domain.AIJobMapSignals} {
+		req := s.sessions.sent[i]
+		s.Equal(JobTools(kind), req.ToolCeiling)
+		s.True(req.NoQuotaPark, "a job's turn is never parked to resume after it failed")
+		for _, forbidden := range []string{"run_terminal", "fetch_url", "merge_task_pull_request", "deploy_release",
+			"rollback_task_release", "save_memory", "create_skill", "update_deploy_target", "write_file"} {
+			s.NotContains(req.ToolCeiling, forbidden, kind)
+		}
+	}
+	s.Contains(s.sessions.sent[0].ToolCeiling, "list_error_groups")
+	s.NotContains(s.sessions.sent[0].ToolCeiling, "propose_signal_binding")
+	s.Contains(s.sessions.sent[2].ToolCeiling, "propose_signal_binding")
+	s.NotContains(s.sessions.sent[2].ToolCeiling, "propose_error_definitions")
+}
+
+func (s *ServiceSuite) TestRecordAfterTheJobEndedIsNoChange() {
+	var sid uuid.UUID
+	s.sessions.turn = func(_ context.Context, id uuid.UUID) (domain.AgentResponse, error) {
+		sid = id
+		return domain.AgentResponse{Message: domain.Message{Content: "done"}}, nil
+	}
+	job, err := s.svc.SuggestErrors(s.ctx, SuggestErrorsRequest{RepositoryID: s.repo.ID.String()})
+	s.Require().NoError(err)
+	s.Require().Equal(domain.AIJobDone, job.Status)
+
+	s.svc.Record(registry.ContextWithSessionID(s.ctx, sid), domain.AIJobItem{Kind: domain.AIJobItemErrorDefinition, ID: uuid.New()})
+	got, err := s.svc.Job(s.ctx, job.ID)
+	s.Require().NoError(err)
+	s.Empty(got.Created, "a person chatting in the job's session afterwards adds nothing to it")
+}
+
+func (s *ServiceSuite) TestRecordKeepsEachItemOnce() {
+	item := domain.AIJobItem{Kind: domain.AIJobItemSignalBinding, ID: uuid.New(), Name: "http.latency"}
+	s.sessions.turn = func(ctx context.Context, sid uuid.UUID) (domain.AgentResponse, error) {
+		toolCtx := registry.ContextWithSessionID(ctx, sid)
+		s.svc.Record(toolCtx, item)
+		s.svc.Record(toolCtx, item)
+		return domain.AgentResponse{Message: domain.Message{Content: "done"}}, nil
+	}
+	job, err := s.svc.SuggestSignals(s.ctx, s.api.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	s.Equal([]domain.AIJobItem{item}, job.Created)
+}
+
+func (s *ServiceSuite) TestAJobPastItsTimeLimitIsStoppedAndFailed() {
+	svc := s.newService(WithSynchronousJobs(), WithJobLimits(50*time.Millisecond, 0))
+	stopped := make(chan struct{})
+	s.sessions.turn = func(context.Context, uuid.UUID) (domain.AgentResponse, error) {
+		for {
+			s.sessions.mu.Lock()
+			n := len(s.sessions.cancelled)
+			s.sessions.mu.Unlock()
+			if n > 0 {
+				close(stopped)
+				return domain.AgentResponse{}, domain.ErrRunCancelled
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	job, err := svc.SuggestErrors(s.ctx, SuggestErrorsRequest{RepositoryID: s.repo.ID.String()})
+	s.Require().NoError(err)
+	<-stopped
+	s.Equal(domain.AIJobFailed, job.Status)
+	s.Equal(errTimedOut.Error(), job.Error)
+}
+
+func (s *ServiceSuite) TestAStaleRunningJobIsFailedSoANewOneStarts() {
+	stuck, _, err := s.jobs.CreateAIJob(s.ctx, domain.AIJob{Kind: domain.AIJobDefineErrors, RepositoryID: s.repo.ID, Environment: domain.EnvironmentProduction, Owner: s.svc.owner})
+	s.Require().NoError(err)
+	s.jobs.mu.Lock()
+	j := s.jobs.jobs[stuck.ID]
+	long := time.Now().Add(-2 * jobTimeout)
+	j.CreatedAt, j.StartedAt = long, &long
+	s.jobs.jobs[stuck.ID] = j
+	s.jobs.mu.Unlock()
+
+	job, err := s.svc.SuggestErrors(s.ctx, SuggestErrorsRequest{RepositoryID: s.repo.ID.String()})
+	s.Require().NoError(err)
+	s.NotEqual(stuck.ID, job.ID)
+	s.Equal(domain.AIJobDone, job.Status)
+	got, err := s.svc.Job(s.ctx, stuck.ID)
+	s.Require().NoError(err)
+	s.Equal(domain.AIJobFailed, got.Status)
+	s.Equal(staleReason, got.Error)
+}
+
+func (s *ServiceSuite) TestAJobThatWaitsPastTheQueueLimitFails() {
+	svc := s.newService(WithJobLimits(0, 50*time.Millisecond))
+	release := make(chan struct{})
+	s.sessions.turn = func(context.Context, uuid.UUID) (domain.AgentResponse, error) {
+		<-release
+		return domain.AgentResponse{Message: domain.Message{Content: "done"}}, nil
+	}
+	for _, kind := range []string{ModeErrors, ModeCode} {
+		_, err := svc.SuggestErrors(s.ctx, SuggestErrorsRequest{RepositoryID: s.repo.ID.String(), Mode: kind})
+		s.Require().NoError(err)
+	}
+	s.Eventually(func() bool {
+		s.sessions.mu.Lock()
+		defer s.sessions.mu.Unlock()
+		return len(s.sessions.sent) == defaultConcurrency
+	}, time.Second, 5*time.Millisecond)
+	queued, err := svc.SuggestSignals(s.ctx, s.api.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	s.Eventually(func() bool {
+		got, err := svc.Job(s.ctx, queued.ID)
+		return err == nil && got.Status == domain.AIJobFailed && got.Error == errQueuedTooLong.Error()
+	}, time.Second, 5*time.Millisecond)
+	close(release)
+	svc.Wait()
 }
 
 func (s *ServiceSuite) TestRecordOutsideAJobIsNoChange() {
@@ -225,6 +362,24 @@ func (s *ServiceSuite) TestEnableOpensABriefedTaskForTheReleaseEngineer() {
 	for _, want := range []string{"traces, metrics", "(gcp)", "chi · Go", "http.throughput", "http.error_ratio", "prometheus", "create_board_task", "otel-instrumentation"} {
 		s.Contains(req.Description, want)
 	}
+}
+
+func (s *ServiceSuite) TestEnableAgainAnswersTheOpenTaskForTheComponentEnvironment() {
+	first, err := s.svc.Enable(s.ctx, s.api.ID, EnableRequest{Goals: []string{"metrics"}, Target: "own_cloud"})
+	s.Require().NoError(err)
+	again, err := s.svc.Enable(s.ctx, s.api.ID, EnableRequest{Goals: []string{"traces"}, Target: "own_cloud"})
+	s.Require().NoError(err)
+	s.Equal(first.ID, again.ID)
+	s.Len(s.tasks.created, 1)
+
+	_, err = s.svc.Enable(s.ctx, s.api.ID, EnableRequest{Environment: "staging", Goals: []string{"traces"}, Target: "own_cloud"})
+	s.Require().NoError(err)
+	s.Len(s.tasks.created, 2, "another environment is another task")
+
+	s.tasks.board[0].Column = domain.TaskColumnDone
+	_, err = s.svc.Enable(s.ctx, s.api.ID, EnableRequest{Goals: []string{"traces"}, Target: "own_cloud"})
+	s.Require().NoError(err)
+	s.Len(s.tasks.created, 3, "a finished one is not reopened")
 }
 
 func (s *ServiceSuite) TestEnableValidatesTheRequest() {

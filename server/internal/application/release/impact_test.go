@@ -326,7 +326,7 @@ func TestSoakPacingIsForgottenWhenAReleaseLeavesVerifyingByAnyPath(t *testing.T)
 	f := newSweepFixture()
 	got := f.soakImpact(t, &fakeImpact{impact: domain.DeployImpact{Signals: []domain.SignalImpact{errorRateImpact(0.4, 0.5)}}}, 15*time.Minute)
 	f.svc.mu.Lock()
-	_, paced := f.svc.lastImpactCheck[got.ID]
+	_, paced := f.svc.lastImpactCheck[pacingKey{release: got.ID}]
 	f.svc.mu.Unlock()
 	require.True(t, paced)
 
@@ -337,6 +337,6 @@ func TestSoakPacingIsForgottenWhenAReleaseLeavesVerifyingByAnyPath(t *testing.T)
 
 	f.svc.mu.Lock()
 	defer f.svc.mu.Unlock()
-	assert.NotContains(t, f.svc.lastImpactCheck, got.ID)
-	assert.NotContains(t, f.svc.lastErrorCheck, got.ID)
+	assert.NotContains(t, f.svc.lastImpactCheck, pacingKey{release: got.ID})
+	assert.NotContains(t, f.svc.lastErrorCheck, pacingKey{release: got.ID})
 }

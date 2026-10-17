@@ -416,3 +416,24 @@ func TestRestrictToolsForStage_UnrestrictedPolicyUntouched(t *testing.T) {
 	got := domain.RestrictToolsForStage(domain.ToolPolicy{}, stage, typeDef)
 	assert.Empty(t, got.AllowTools)
 }
+
+func TestCeilToolPolicyOnlyEverNarrows(t *testing.T) {
+	ceiling := []string{"read_file", "list_error_groups", "propose_error_definitions"}
+
+	got := domain.CeilToolPolicy(domain.ToolPolicy{
+		AllowTools:      []string{"run_terminal", "read_*", "list_error_groups", "fetch_url"},
+		AllowMCPServers: []string{"github"},
+	}, ceiling)
+	assert.Equal(t, []string{"read_file", "list_error_groups"}, got.AllowTools)
+	assert.Equal(t, []string{domain.ReservedMCPServerID}, got.AllowMCPServers, "a ceiled turn reaches no user MCP server")
+
+	assert.Equal(t, ceiling, domain.CeilToolPolicy(domain.ToolPolicy{}, ceiling).AllowTools, "an unrestricted agent gets exactly the ceiling")
+
+	empty := domain.CeilToolPolicy(domain.ToolPolicy{AllowTools: []string{"run_terminal"}}, ceiling)
+	assert.False(t, empty.IsZero(), "an empty intersection must not read as unrestricted")
+	assert.Equal(t, []string{domain.AskUserToolName}, empty.AllowTools)
+	assert.False(t, domain.ToolAllowedByPolicy("run_terminal", empty))
+
+	p := domain.ToolPolicy{AllowTools: []string{"x"}}
+	assert.Equal(t, p, domain.CeilToolPolicy(p, nil), "no ceiling is no change")
+}

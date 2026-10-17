@@ -144,6 +144,9 @@ func (s *ErrorDefinitionStore) CreateErrorDefinition(ctx context.Context, d doma
 		RETURNING `+errorDefinitionCols,
 		d.ID, d.RepositoryID, d.ComponentID, d.Name, match, d.Category, d.Severity, d.Action,
 		threshold, d.Source, d.Status, d.Rationale, evidence))
+	if isUniqueViolation(err) {
+		return domain.ErrorDefinition{}, fmt.Errorf("create error definition: %w", port.ErrErrorDefinitionExists)
+	}
 	if err != nil {
 		return domain.ErrorDefinition{}, fmt.Errorf("create error definition: %w", err)
 	}
@@ -199,12 +202,15 @@ func (s *ErrorDefinitionStore) DeleteErrorDefinition(ctx context.Context, id uui
 	return nil
 }
 
-func (s *ErrorDefinitionStore) ClaimErrorGroupLink(ctx context.Context, l domain.ErrorGroupLink) (bool, error) {
+func (s *ErrorDefinitionStore) ClaimErrorGroupLink(ctx context.Context, l domain.ErrorGroupLink, staleBefore time.Time) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
-		INSERT INTO error_group_links (definition_id, fingerprint, component_id, environment_id, data_source_id)
-		VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (definition_id, fingerprint) DO NOTHING`,
-		l.DefinitionID, l.Fingerprint, l.ComponentID, l.EnvironmentID, l.DataSourceID)
+		INSERT INTO error_group_links (definition_id, fingerprint, component_id, environment_id, data_source_id, claimed_at)
+		VALUES ($1,$2,$3,$4,$5, now())
+		ON CONFLICT (definition_id, fingerprint) DO UPDATE SET
+			component_id = EXCLUDED.component_id, environment_id = EXCLUDED.environment_id,
+			data_source_id = EXCLUDED.data_source_id, claimed_at = now()
+		WHERE error_group_links.task_id IS NULL AND error_group_links.claimed_at < $6`,
+		l.DefinitionID, l.Fingerprint, l.ComponentID, l.EnvironmentID, l.DataSourceID, staleBefore)
 	if err != nil {
 		return false, fmt.Errorf("claim error group link: %w", err)
 	}
@@ -212,7 +218,7 @@ func (s *ErrorDefinitionStore) ClaimErrorGroupLink(ctx context.Context, l domain
 }
 
 func (s *ErrorDefinitionStore) SetErrorGroupLinkTask(ctx context.Context, definitionID uuid.UUID, fingerprint string, taskID uuid.UUID) error {
-	if _, err := s.pool.Exec(ctx, `UPDATE error_group_links SET task_id = $3 WHERE definition_id = $1 AND fingerprint = $2`,
+	if _, err := s.pool.Exec(ctx, `UPDATE error_group_links SET task_id = $3, claimed_at = NULL WHERE definition_id = $1 AND fingerprint = $2`,
 		definitionID, fingerprint, taskID); err != nil {
 		return fmt.Errorf("set error group link task: %w", err)
 	}

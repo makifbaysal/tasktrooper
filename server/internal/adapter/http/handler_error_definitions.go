@@ -72,6 +72,8 @@ func errorDefErr(c *fiber.Ctx, err error) error {
 		return cErr(c, fiber.StatusNotFound, err)
 	case errors.Is(err, errordef.ErrNotSuggested):
 		return cErrCode(c, fiber.StatusConflict, err, "not_suggested")
+	case errors.Is(err, errordef.ErrTooManyDefinitions):
+		return cErrCode(c, fiber.StatusConflict, err, "too_many_definitions")
 	case errors.Is(err, opsai.ErrNoReleaseEngineer):
 		return cErrCode(c, fiber.StatusConflict, err, "no_release_engineer")
 	case errors.Is(err, opsai.ErrUnavailable):

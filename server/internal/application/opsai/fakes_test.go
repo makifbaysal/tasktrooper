@@ -23,12 +23,22 @@ var _ port.AIJobStore = (*memJobs)(nil)
 
 func newMemJobs() *memJobs { return &memJobs{jobs: map[uuid.UUID]domain.AIJob{}} }
 
-func (m *memJobs) CreateAIJob(_ context.Context, j domain.AIJob) (domain.AIJob, error) {
+func sameJobKey(a, b domain.AIJob) bool {
+	sameComp := (a.ComponentID == nil && b.ComponentID == nil) || (a.ComponentID != nil && b.ComponentID != nil && *a.ComponentID == *b.ComponentID)
+	return a.Kind == b.Kind && a.RepositoryID == b.RepositoryID && sameComp && a.Environment == b.Environment
+}
+
+func (m *memJobs) CreateAIJob(_ context.Context, j domain.AIJob) (domain.AIJob, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for _, other := range m.jobs {
+		if other.Status == domain.AIJobRunning && sameJobKey(other, j) {
+			return other, false, nil
+		}
+	}
 	j.ID, j.Status, j.Created, j.CreatedAt = uuid.New(), domain.AIJobRunning, []domain.AIJobItem{}, time.Now()
 	m.jobs[j.ID] = j
-	return j, nil
+	return j, true, nil
 }
 
 func (m *memJobs) GetAIJob(_ context.Context, id uuid.UUID) (domain.AIJob, error) {
@@ -52,18 +62,6 @@ func (m *memJobs) GetAIJobBySession(_ context.Context, sid uuid.UUID) (domain.AI
 	return domain.AIJob{}, port.ErrNotFound
 }
 
-func (m *memJobs) RunningAIJob(_ context.Context, kind domain.AIJobKind, repo uuid.UUID, comp *uuid.UUID, env domain.DeployEnvironment) (domain.AIJob, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, j := range m.jobs {
-		sameComp := (j.ComponentID == nil && comp == nil) || (j.ComponentID != nil && comp != nil && *j.ComponentID == *comp)
-		if j.Status == domain.AIJobRunning && j.Kind == kind && j.RepositoryID == repo && sameComp && j.Environment == env {
-			return j, nil
-		}
-	}
-	return domain.AIJob{}, port.ErrNotFound
-}
-
 func (m *memJobs) SetAIJobSession(_ context.Context, id, sid uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -73,10 +71,31 @@ func (m *memJobs) SetAIJobSession(_ context.Context, id, sid uuid.UUID) error {
 	return nil
 }
 
+func (m *memJobs) StartAIJob(_ context.Context, id uuid.UUID) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok || j.Status != domain.AIJobRunning || j.StartedAt != nil {
+		return false, nil
+	}
+	now := time.Now()
+	j.StartedAt = &now
+	m.jobs[id] = j
+	return true, nil
+}
+
 func (m *memJobs) AppendAIJobItem(_ context.Context, id uuid.UUID, item domain.AIJobItem) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	j := m.jobs[id]
+	if j.Status != domain.AIJobRunning {
+		return nil
+	}
+	for _, have := range j.Created {
+		if have.Kind == item.Kind && have.ID == item.ID {
+			return nil
+		}
+	}
 	j.Created = append(j.Created, item)
 	m.jobs[id] = j
 	return nil
@@ -85,19 +104,37 @@ func (m *memJobs) AppendAIJobItem(_ context.Context, id uuid.UUID, item domain.A
 func (m *memJobs) FinishAIJob(_ context.Context, id uuid.UUID, status domain.AIJobStatus, summary, errMsg string) (domain.AIJob, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	j := m.jobs[id]
+	j, ok := m.jobs[id]
+	if !ok || j.Status != domain.AIJobRunning {
+		return domain.AIJob{}, port.ErrNotFound
+	}
 	now := time.Now()
 	j.Status, j.ResultSummary, j.Error, j.FinishedAt = status, summary, errMsg, &now
 	m.jobs[id] = j
 	return j, nil
 }
 
-func (m *memJobs) FailRunningAIJobs(_ context.Context, reason string) (int64, error) {
+func (m *memJobs) FailStaleAIJobs(_ context.Context, startedBefore, queuedBefore time.Time, reason string) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var n int64
 	for id, j := range m.jobs {
-		if j.Status == domain.AIJobRunning {
+		stale := (j.StartedAt != nil && j.StartedAt.Before(startedBefore)) || (j.StartedAt == nil && j.CreatedAt.Before(queuedBefore))
+		if j.Status == domain.AIJobRunning && stale {
+			j.Status, j.Error = domain.AIJobFailed, reason
+			m.jobs[id] = j
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *memJobs) FailRunningAIJobs(_ context.Context, owner string, before time.Time, reason string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for id, j := range m.jobs {
+		if j.Status == domain.AIJobRunning && j.Owner != owner && !j.CreatedAt.After(before) {
 			j.Status, j.Error = domain.AIJobFailed, reason
 			m.jobs[id] = j
 			n++
@@ -109,22 +146,35 @@ func (m *memJobs) FailRunningAIJobs(_ context.Context, reason string) (int64, er
 // fakeSessions plays the agent's turn: turn runs with the chat's id on the
 // context, the way a tool call made inside that turn sees it.
 type fakeSessions struct {
-	created []domain.CreateSessionRequest
-	sent    []domain.SessionMessageRequest
-	turn    func(ctx context.Context, sessionID uuid.UUID) (domain.AgentResponse, error)
+	mu        sync.Mutex
+	created   []domain.CreateSessionRequest
+	sent      []domain.SessionMessageRequest
+	cancelled []uuid.UUID
+	turn      func(ctx context.Context, sessionID uuid.UUID) (domain.AgentResponse, error)
 }
 
 func (f *fakeSessions) Create(_ context.Context, req domain.CreateSessionRequest) (domain.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.created = append(f.created, req)
 	return domain.Session{ID: uuid.New()}, nil
 }
 
 func (f *fakeSessions) SendMessage(ctx context.Context, sid uuid.UUID, req domain.SessionMessageRequest, _ domain.ToolPolicy) (domain.AgentResponse, error) {
+	f.mu.Lock()
 	f.sent = append(f.sent, req)
+	f.mu.Unlock()
 	if f.turn == nil {
 		return domain.AgentResponse{Message: domain.Message{Content: "done"}}, nil
 	}
 	return f.turn(ctx, sid)
+}
+
+func (f *fakeSessions) CancelSession(_ context.Context, sid uuid.UUID, _ string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelled = append(f.cancelled, sid)
+	return true, nil
 }
 
 type fakeRoles struct {
@@ -211,10 +261,17 @@ func (f *fakeLinks) ListResources(context.Context, []uuid.UUID) ([]domain.System
 type fakeTasks struct {
 	repo    uuid.UUID
 	created []domain.CreateBoardTaskRequest
+	board   []domain.BoardTask
 }
 
 func (f *fakeTasks) CreateTask(_ context.Context, repo uuid.UUID, req domain.CreateBoardTaskRequest) (domain.BoardTask, error) {
 	f.repo = repo
 	f.created = append(f.created, req)
-	return domain.BoardTask{ID: uuid.New(), Key: "TC-7"}, nil
+	task := domain.BoardTask{ID: uuid.New(), Key: "TC-7", Title: req.Title, ComponentID: req.ComponentID, Column: req.Column, CreatedBy: req.CreatedBy}
+	f.board = append(f.board, task)
+	return task, nil
+}
+
+func (f *fakeTasks) ListTasks(context.Context, uuid.UUID) ([]domain.BoardTask, error) {
+	return f.board, nil
 }

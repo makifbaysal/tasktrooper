@@ -80,9 +80,10 @@ func pick(samples []sample, at time.Time, step time.Duration) (cur, prev *sample
 }
 
 // judge: gt and lt compare the value; rising holds while the value is above
-// the threshold and higher than a window earlier; the change ops compare the
-// percent change from a window earlier, which needs a non-zero earlier
-// value; no_data holds while there is no value.
+// the threshold and higher than a window earlier, and with no earlier value
+// is no data, not a fall; the change ops compare the percent change from a
+// window earlier, which needs a non-zero earlier value; no_data holds while
+// there is no value.
 func judge(c domain.AlertCondition, cur, prev *sample) verdict {
 	if c.Op == domain.AlertOpNoData {
 		if cur == nil {
@@ -101,7 +102,10 @@ func judge(c domain.AlertCondition, cur, prev *sample) verdict {
 	case domain.AlertOpBelow:
 		return verdict{value: &v, holds: v < c.Threshold}
 	case domain.AlertOpRising:
-		return verdict{value: &v, holds: prev != nil && v > prev.value && v > c.Threshold}
+		if prev == nil {
+			return verdict{}
+		}
+		return verdict{value: &v, holds: v > prev.value && v > c.Threshold}
 	case domain.AlertOpChangePctAbove, domain.AlertOpChangePctBelow:
 		if prev == nil || prev.value == 0 {
 			return verdict{}
@@ -117,9 +121,12 @@ func judge(c domain.AlertCondition, cur, prev *sample) verdict {
 }
 
 const (
-	// minClearEvaluations: a firing rule resolves only after its condition
-	// read false this many evaluations in a row, and for its own for.
+	// minClearEvaluations and minClearDuration: a firing rule resolves only
+	// after its condition read false this many evaluations in a row, and for
+	// its own for or minClearDuration, whichever is longer — so a rule opening
+	// an incident does not open a new one every few minutes.
 	minClearEvaluations = 2
+	minClearDuration    = 5 * time.Minute
 	// noDataGrace: a firing rule keeps firing through this many evaluations
 	// in a row that read nothing; the next one moves it to no_data. A sparse
 	// source skipping a period is not a recovery.
@@ -175,7 +182,7 @@ func advance(st standing, c domain.AlertCondition, v verdict, now time.Time) sta
 		}
 		st.streak.ClearCount++
 		st.streak.NoDataCount = 0
-		if st.streak.ClearCount >= minClearEvaluations && now.Sub(*st.streak.ClearSince) >= c.For() {
+		if st.streak.ClearCount >= minClearEvaluations && now.Sub(*st.streak.ClearSince) >= max(c.For(), minClearDuration) {
 			return standing{state: domain.AlertStateOK, since: now, streak: st.streak}
 		}
 		return st
