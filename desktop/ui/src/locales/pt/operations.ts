@@ -399,6 +399,7 @@ export const operations = {
       atMost: "≤ {value}",
     },
     rollbackSuggestion: {
+      dismissedAt: "Sugestão de reversão descartada {time}",
       title: "Reversão sugerida · {version}",
       proposedBy: "Proposta por {who}",
       autoOff: "A reversão automática está desligada neste componente, então uma pessoa precisa aprová-la.",
@@ -410,6 +411,7 @@ export const operations = {
       openChange: "Abrir {version}",
       confirmTitle: "Reverter {version}?",
       refusals: {
+        not_configured: "Não dá para reverter aqui: este servidor não tem acesso ao git para reverter os merges da versão, e toda reversão começa por aí.",
         newer_shipped: "Não dá para reverter agora: uma versão mais nova deste componente já foi publicada.",
         newer_open: "Não dá para reverter agora: uma versão mais nova deste componente está em andamento.",
         not_deployed: "Não dá para reverter agora: ela nunca chegou ao ambiente.",
@@ -422,6 +424,8 @@ export const operations = {
     },
     detail: {
       impact: {
+        settling: "Não verificado — ainda estabilizando",
+        uncheckedSettling: "Não verificado porque o sinal ainda estava estabilizando quando a observação terminou: {thresholds}",
         title: "Impacto",
         notDeployed: "Ainda não foi feito o deploy. O impacto é medido a partir do deploy.",
         loadFailed: "Não foi possível ler o impacto do deploy",
@@ -840,7 +844,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "Nada está conectado em {env}",
-      body: "Os erros vêm de onde seus componentes rodam. Conecte um ambiente na aba Deploy e runtime de um repositório.",
+      body: "Os erros vêm de onde seus componentes rodam, ou de um rastreador de erros como o Sentry vinculado nos Sinais de uma entidade. Conecte um ambiente na aba Deploy e runtime de um repositório.",
       action: "Ir para as entidades",
     },
     empty: {
@@ -928,7 +932,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "Nada está conectado em {env}",
-      body: "Os logs vêm de onde seus componentes rodam. Conecte um ambiente na aba Deploy e runtime de um repositório.",
+      body: "Os logs vêm de onde seus componentes rodam, ou de um repositório de logs como o Loki vinculado nos Sinais de uma entidade. Conecte um ambiente na aba Deploy e runtime de um repositório.",
       action: "Ir para as entidades",
     },
     empty: {
@@ -1088,6 +1092,7 @@ export const operations = {
       "O endereço e as credenciais salvas são removidos deste computador, e ela não poderá mais ser verificada nem consultada aqui.",
     deleted: "Fonte de dados excluída",
     form: {
+      destinationHint: "Alterar isto pede as credenciais salvas de novo.",
       addTitle: "Adicionar uma fonte de dados",
       editTitle: "Editar {name}",
       pickKind: "Que tipo de fonte é?",
@@ -1201,6 +1206,7 @@ export const operations = {
       },
     },
     discover: {
+      patternName: "{metric} contém *, que uma consulta lê como padrão. Vincule-a pelo parâmetro queue da receita rabbitmq-direct.",
       title: "Métricas encontradas",
       description:
         "Os nomes de métricas que esta fonte guarda. Uma receita é sugerida quando está presente a métrica que denuncia o exporter dela.",
@@ -2057,6 +2063,7 @@ export const operations = {
     },
   },
   alertRules: {
+    readFailing: "As últimas {count} leituras falharam: {error}",
     customQuery: "Consulta própria",
     stateFilter: "Filtrar por estado",
     states: {
@@ -2231,6 +2238,11 @@ export const operations = {
       peak: "Pico {value}",
     },
     detail: {
+      readFailed: {
+        title: "Não é possível ler o sinal",
+        holding: "Manteve o estado por {count} avaliações; depois de 10, é lida como sem dados.",
+        noData: "Manteve o estado por {count} avaliações, então agora é lida como sem dados.",
+      },
       loading: "Carregando a regra…",
       notFound: "Regra não encontrada",
       notFoundBody: "Ela pode ter sido excluída ou observa uma entidade que esta página não mostra.",

@@ -14,18 +14,19 @@ function signal(partial: Partial<SignalSeries>): SignalSeries {
 }
 
 describe("signalChartSeries", () => {
-  it("draws a latency signal's quantiles in p50, p95, p99 order, each in its own colour", () => {
+  it("draws a latency signal's quantiles in p50, p75, p95, p99 order, in the palette's order", () => {
     const lines = signalChartSeries(
-      signal({ series: [series("p99", [[1, 300]]), series("p50", [[1, 40]]), series("p95", [[1, 120]])] }),
+      signal({ series: [series("p99", [[1, 300]]), series("p50", [[1, 40]]), series("p95", [[1, 120]]), series("p75", [[1, 80]])] }),
       false,
       labels,
     );
     expect(lines.map((l) => [l.label, l.colorIndex, l.dashed ?? false])).toEqual([
       ["p50", 1, false],
-      ["p95", 2, false],
-      ["p99", 3, false],
+      ["p75", 2, false],
+      ["p95", 3, false],
+      ["p99", 4, false],
     ]);
-    expect(new Set(lines.map((l) => l.id)).size).toBe(3);
+    expect(new Set(lines.map((l) => l.id)).size).toBe(4);
   });
 
   it("adds the previous period as dashed lines in the colour of the line each matches, only with compare on", () => {
@@ -37,9 +38,9 @@ describe("signalChartSeries", () => {
     const lines = signalChartSeries(sig, true, labels);
     expect(lines.map((l) => [l.label, l.colorIndex, l.dashed ?? false])).toEqual([
       ["p50", 1, false],
-      ["p95", 2, false],
+      ["p95", 3, false],
       ["p50 · previous period", 1, true],
-      ["p95 · previous period", 2, true],
+      ["p95 · previous period", 3, true],
     ]);
   });
 

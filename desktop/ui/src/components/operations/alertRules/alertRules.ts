@@ -1,6 +1,7 @@
 import {
   ALERT_CHANNEL_KINDS,
   ALERT_CHANNELS_AVAILABLE,
+  ALERT_READ_FAILURES_AS_NO_DATA,
   ALERT_RULE_STATES,
   type AlertBacktestFire,
   type AlertBacktestRequest,
@@ -41,6 +42,14 @@ const QUANTILE_SIGNALS = new Set(["http.latency", "mobile.cold_start", "web.lcp"
 export function alertQuantile(signal: string): string | undefined {
   if (!QUANTILE_SIGNALS.has(signal)) return undefined;
   return signal.startsWith("web.") ? "p75" : "p95";
+}
+
+/** The run of failed reads a rule held its state through, when there is one:
+ * how many, the last failure, and whether it now reads as no data. */
+export function readFailures(rule: Pick<AlertRule, "error_count" | "last_error">): { count: number; error: string; asNoData: boolean } | undefined {
+  const count = rule.error_count ?? 0;
+  if (count <= 0) return undefined;
+  return { count, error: rule.last_error ?? "", asNoData: count > ALERT_READ_FAILURES_AS_NO_DATA };
 }
 
 export type AlertStateFilter = AlertRuleState | "all";
@@ -169,20 +178,19 @@ export const BACKTEST_CHANGE_SERIES = "change_pct";
 export const BACKTEST_QUERY_SERIES = "query";
 
 /** Where a rule's chart reads what the evaluator judges: the series read for
- * a signal at p95 (it answers p50/p95/p99), the query for a custom one, and a
- * server replay for what neither answers — a web vital at p75, a change
+ * a signal (it answers p50/p75/p95/p99, so a web vital's p75 too), the query
+ * for a custom one, and a server replay for what neither answers — a change
  * rule's percent change. */
 export type JudgedSource = "series" | "query" | "replay";
 
 export function judgedSource(rule: Pick<AlertRule, "signal" | "condition">): JudgedSource {
   if (opIsChange(rule.condition.op)) return "replay";
-  if (!rule.signal) return "query";
-  return alertQuantile(rule.signal) === "p75" ? "replay" : "series";
+  return rule.signal ? "series" : "query";
 }
 
 const QUANTILE_HEAD = /^p\d{2}(?:\s|$)/;
 
-/** Of a quantile signal's p50/p95/p99 lines, the one its rule is judged at;
+/** Of a quantile signal's p50/p75/p95/p99 lines, the one its rule is judged at;
  * a read with no quantile lines (a query without `$__quantile`) as it is. */
 export function judgedSeries(signal: string, series: MetricSeries[]): MetricSeries[] {
   const quantile = alertQuantile(signal);

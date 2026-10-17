@@ -404,6 +404,7 @@ export const operations = {
       atMost: "≤ {value}",
     },
     rollbackSuggestion: {
+      dismissedAt: "Rollback suggestion dismissed {time}",
       title: "Rollback suggested · {version}",
       proposedBy: "Proposed by {who}",
       autoOff: "Auto rollback is off for this component, so a person has to approve it.",
@@ -415,6 +416,7 @@ export const operations = {
       openChange: "Open {version}",
       confirmTitle: "Roll back {version}?",
       refusals: {
+        not_configured: "It can't be rolled back here: this server has no git access to revert the release's merges, which every rollback starts with.",
         newer_shipped: "It can't be rolled back now: a newer release of this component has shipped since.",
         newer_open: "It can't be rolled back now: a newer release of this component is under way.",
         not_deployed: "It can't be rolled back now: it never reached the environment.",
@@ -427,6 +429,8 @@ export const operations = {
     },
     detail: {
       impact: {
+        settling: "Not checked — still settling",
+        uncheckedSettling: "Not checked, because the signal was still settling when the soak ended: {thresholds}",
         title: "Impact",
         notDeployed: "Not deployed yet. Impact is measured from the deploy on.",
         loadFailed: "Couldn't read the deploy impact",
@@ -849,7 +853,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "Nothing is connected in {env}",
-      body: "Errors come from where your components run. Connect an environment from a repository's Deploy & Runtime tab.",
+      body: "Errors come from where your components run, or from an error tracker such as Sentry bound on an entity's Signals. Connect an environment from a repository's Deploy & Runtime tab.",
       action: "Go to entities",
     },
     empty: {
@@ -937,7 +941,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "Nothing is connected in {env}",
-      body: "Logs come from where your components run. Connect an environment from a repository's Deploy & Runtime tab.",
+      body: "Logs come from where your components run, or from a logs store such as Loki bound on an entity's Signals. Connect an environment from a repository's Deploy & Runtime tab.",
       action: "Go to entities",
     },
     empty: {
@@ -1100,6 +1104,7 @@ export const operations = {
       "Its address and saved credentials are removed from this computer, and it can no longer be checked or queried here.",
     deleted: "Data source deleted",
     form: {
+      destinationHint: "Changing this asks for the saved credentials again.",
       addTitle: "Add a data source",
       editTitle: "Edit {name}",
       pickKind: "What kind of source is it?",
@@ -1213,6 +1218,7 @@ export const operations = {
       },
     },
     discover: {
+      patternName: "{metric} holds *, which a query reads as a pattern. Bind it through the rabbitmq-direct recipe's queue parameter instead.",
       title: "Discovered metrics",
       description:
         "Metric names this source holds. A recipe is suggested when the metric that gives its exporter away is present.",
@@ -2083,6 +2089,7 @@ export const operations = {
     },
   },
   alertRules: {
+    readFailing: "The last {count} reads failed: {error}",
     customQuery: "Custom query",
     stateFilter: "Filter by state",
     states: {
@@ -2257,6 +2264,11 @@ export const operations = {
       peak: "Peak {value}",
     },
     detail: {
+      readFailed: {
+        title: "The signal can't be read",
+        holding: "It held its state for {count} evaluations; after 10 it reads as no data.",
+        noData: "It held its state for {count} evaluations, so it now reads as no data.",
+      },
       loading: "Loading the rule…",
       notFound: "Rule not found",
       notFoundBody: "It may have been deleted, or it watches an entity this page doesn't show.",

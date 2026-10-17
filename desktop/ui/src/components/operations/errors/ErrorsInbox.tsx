@@ -11,10 +11,12 @@ import { ERROR_DEFINITIONS_PATH, definitionPath, draftFromGroup } from "@/compon
 import { ErrorGroupDetail } from "@/components/operations/errors/ErrorGroupDetail";
 import { ErrorGroupTable } from "@/components/operations/errors/ErrorGroupTable";
 import {
+  boundGroup,
   canCreateTask,
   groupKey,
   groupMatches,
   hasErrorFeed,
+  isBindingRow,
   runtimeGroup,
   typeCountsOf,
   type ErrorFilter,
@@ -94,7 +96,10 @@ export function ErrorsInbox({ entity: scoped, bindingRead = false }: ErrorsInbox
   const envLabel = t(`cloud.environments.${env}`);
   const inScope = scoped ? [scoped] : picked.length > 0 ? entities.filter((x) => picked.includes(x.id)) : entities;
   const connected = inScope.flatMap((x) => x.environments.filter((v) => v.environment === env));
-  const enabled = bindingRead || connected.length > 0;
+  // The console-wide inbox always reads: the server also reads the
+  // components that only a binding (a Sentry project) feeds. One entity's
+  // inbox is read when it runs here or has such a binding.
+  const enabled = !scoped || bindingRead || connected.length > 0;
 
   const showIgnored = params.get("ignored") === "1";
   const { data, error, loading, reload } = useOpsErrors(
@@ -142,7 +147,9 @@ export function ErrorsInbox({ entity: scoped, bindingRead = false }: ErrorsInbox
     if (!canCreateTask(g)) return;
     setCreating(groupKey(g));
     try {
-      const task = await api.createErrorTask(g.environment_id, runtimeGroup(g));
+      const task = isBindingRow(g)
+        ? await api.createBoundErrorTask(g.component_id, boundGroup(g, env))
+        : await api.createErrorTask(g.environment_id, runtimeGroup(g));
       toast.success(e("taskCreated"), {
         action: { label: task.key, onClick: () => navigate(`/board?task=${encodeURIComponent(task.id)}`) },
       });
@@ -228,27 +235,23 @@ export function ErrorsInbox({ entity: scoped, bindingRead = false }: ErrorsInbox
     </div>
   );
 
-  if (!enabled) {
-    return (
-      <div className="space-y-4">
-        {!scoped && picked.length > 0 && filters}
-        <Card>
-          <EmptyState
-            icon={Unplug}
-            title={e("noEnvironments.title", { env: envLabel })}
-            description={e("noEnvironments.body")}
-            action={
-              <Button variant="outline" size="sm" asChild>
-                <Link to={href("/operations")}>{e("noEnvironments.action")}</Link>
-              </Button>
-            }
-          />
-        </Card>
-      </div>
-    );
-  }
-
   const noFeed = !bindingRead && !connected.some(hasErrorFeed);
+  const nothingConnectedCard = (
+    <Card>
+      <EmptyState
+        icon={Unplug}
+        title={e("noEnvironments.title", { env: envLabel })}
+        description={e("noEnvironments.body")}
+        action={
+          <Button variant="outline" size="sm" asChild>
+            <Link to={href("/operations")}>{e("noEnvironments.action")}</Link>
+          </Button>
+        }
+      />
+    </Card>
+  );
+  if (!enabled) return nothingConnectedCard;
+
   let body;
   if (loading) {
     body = (
@@ -264,6 +267,8 @@ export function ErrorsInbox({ entity: scoped, bindingRead = false }: ErrorsInbox
         {error}
       </Notice>
     );
+  } else if (groups.length === 0 && connected.length === 0 && !bindingRead && (data.unavailable ?? []).length === 0 && ignoredCount === 0) {
+    body = nothingConnectedCard;
   } else if (groups.length === 0) {
     body = (
       <Card>

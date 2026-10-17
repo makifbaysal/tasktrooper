@@ -27,11 +27,12 @@ function worker(id: string, name: string): ExplorerRow {
 }
 
 describe("Workers explorer golden columns", () => {
-  it("shows a direct broker's live backlog as a value with no sparkline, and a history source's with one", () => {
+  it("shows a backlog the server flags live as a value with no sparkline, and a history source's with one", () => {
     const golden: OpsGolden = {
       generated_at: "",
       components: [
-        { component_id: "c-live", signals: [{ signal: "queue.backlog", unit: "messages", bound: true, value: 42, previous: null, spark: [[NOW, 42]] }] },
+        { component_id: "c-live", signals: [{ signal: "queue.backlog", unit: "messages", bound: true, live: true, value: 42, previous: null, spark: [[NOW, 42]] }] },
+        { component_id: "c-one", signals: [{ signal: "queue.backlog", unit: "messages", bound: true, value: 9, previous: null, spark: [[NOW, 9]] }] },
         {
           component_id: "c-hist",
           signals: [{ signal: "queue.backlog", unit: "messages", bound: true, value: 7, previous: 5, spark: [[NOW - 60_000, 5], [NOW, 7]] }],
@@ -42,7 +43,7 @@ describe("Workers explorer golden columns", () => {
       <MemoryRouter>
         <I18nProvider>
           <EntityTable
-            rows={[worker("c-live", "mailer"), worker("c-hist", "billing")]}
+            rows={[worker("c-live", "mailer"), worker("c-hist", "billing"), worker("c-one", "invoices")]}
             golden={viewFor("worker").golden}
             goldenValues={indexGolden(golden)}
             goldenRead={{ data: golden, loading: false }}
@@ -57,5 +58,7 @@ describe("Workers explorer golden columns", () => {
     const hist = within(row("billing")).getByText("7 messages").parentElement as HTMLElement;
     expect(hist).not.toHaveAttribute("title");
     expect(hist.querySelector("svg")).not.toBeNull();
+    const one = within(row("invoices")).getByText("9 messages").parentElement as HTMLElement;
+    expect(one).not.toHaveAttribute("title");
   });
 });

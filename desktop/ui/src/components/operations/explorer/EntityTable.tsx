@@ -162,9 +162,9 @@ function GoldenCell({ spec, row, values, read, formatCtx }: GoldenCellProps) {
       return <Blank label={t("operations.explorer.noValue")} />;
   }
   const found = cell.value;
-  const trend = hasTrend(found.spark);
+  const trend = !found.live && hasTrend(found.spark);
   return (
-    <span className="inline-flex items-center justify-end gap-2" title={trend ? undefined : t("operations.explorer.liveValue")}>
+    <span className="inline-flex items-center justify-end gap-2" title={found.live ? t("operations.explorer.liveValue") : undefined}>
       {trend && <Sparkline points={found.spark} width={48} height={16} />}
       <span className="text-foreground">{formatSignalValue(found.value, found.unit, formatCtx)}</span>
     </span>

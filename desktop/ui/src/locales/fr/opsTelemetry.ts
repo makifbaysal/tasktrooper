@@ -3,6 +3,11 @@ import type { TelemetryDict, TelemetryKindsDict } from "@/locales/en/opsTelemetr
 // French strings for the console's telemetry views; mirrors en/opsTelemetry.ts key for key.
 export const telemetry: TelemetryDict = {
   table: {
+    readAt: "Lue {time}",
+    readAtTitle: "Lue le {time}. Le serveur garde une lecture 30 secondes : elle peut donc avoir jusqu'à 30 s de plus que la dernière actualisation de cette page.",
+    window: "Fenêtre : {span}",
+    windowUnknown: "Couvre la fenêtre récente propre à la source",
+    windowDocs: "Fenêtres des tableaux",
     rows: "{count} lignes",
     flag: "Repère",
     sortBy: "Trier par {column}",
@@ -18,9 +23,9 @@ export const telemetry: TelemetryDict = {
     errors: {
       failed: "Impossible de lire ce tableau",
       needsParams: "Il manque un paramètre à la liaison",
-      needsParamsBody: "Le tableau a besoin d'une valeur que sa liaison n'a pas encore. Renseignez-la dans Signaux.",
+      needsParamsBody: "Le tableau a besoin d'une valeur que sa liaison n'a pas encore.",
       notFound: "La source de données n'existe plus",
-      notFoundBody: "La source de données d'où ce tableau était lu n'existe plus. Liez-en une autre dans Signaux.",
+      notFoundBody: "La source de données d'où ce tableau était lu n'existe plus. Liez-en une autre.",
       unsupported: "Cette source ne peut pas lister de lignes",
       unsupportedBody: "Son type peut lire le signal dans le temps, mais pas une ligne par élément. Une recette qui comporte ce tableau le permet.",
       badQuery: "La source a refusé la requête du tableau",
@@ -33,8 +38,8 @@ export const telemetry: TelemetryDict = {
   },
   endpoints: {
     title: "Endpoints",
-    hint: "Tels que la source liée les détient maintenant, lus toutes les minutes",
-    scopeNote: "Les endpoints sont lus tels que la source liée les détient maintenant ; la période ne s'applique donc pas.",
+    hint: "Chaque tableau couvre la fenêtre récente de sa source, lu toutes les minutes",
+    scopeNote: "Chaque tableau d'endpoints couvre la fenêtre récente de sa source, indiquée sur le tableau ; la période ne s'applique donc pas.",
     flags: {
       errors: "Taux d'erreur le plus élevé",
       slowest: "p95 le plus lent",
@@ -47,8 +52,8 @@ export const telemetry: TelemetryDict = {
     },
   },
   pages: {
-    scopeNote: "Les pages vues sont lues telles que la source d'analyse web les rapporte maintenant ; la période ne s'applique donc pas.",
-    hint: "Telles que la source d'analyse web liée les rapporte maintenant",
+    scopeNote: "Chaque tableau web couvre la fenêtre récente de sa source, indiquée sur le tableau ; la période ne s'applique donc pas.",
+    hint: "Chaque tableau couvre la fenêtre récente de sa source d'analyse web",
     tabsLabel: "Tableaux web",
     tabs: {
       pages: "Pages",
@@ -64,7 +69,7 @@ export const telemetry: TelemetryDict = {
     },
   },
   crashes: {
-    scopeNote: "Les plantages sont lus tels que les stores et Sentry les listent maintenant ; la période ne s'applique donc pas.",
+    scopeNote: "Chaque tableau de plantages couvre la fenêtre récente de sa source, indiquée sur le tableau ; la période ne s'applique donc pas.",
     openIssue: "Ouvrir dans sa console",
     issues: {
       title: "Problèmes de plantage et d'ANR",
@@ -235,7 +240,6 @@ export const telemetry: TelemetryDict = {
       poor: "Mauvais",
     },
     quantileP75: "p75",
-    quantileStricter: "{quantile} · Google évalue le p75",
     thresholds: "Bon jusqu'à {good}, mauvais au-delà de {poor}",
     meterLabel: "{band} : bon jusqu'à {good}, mauvais au-delà de {poor}",
     bind: "Lier une source de données",
@@ -286,7 +290,7 @@ export const telemetry: TelemetryDict = {
       sentry: "Sentry",
     },
     fromProvider: "Lu depuis {provider}",
-    noTask: "Une tâche se crée à partir des erreurs d'un environnement cloud. Ouvrez plutôt ce problème dans {provider}.",
+    noTask: "Ce groupe n'indique aucune source de données pour créer une tâche. Ouvrez-le plutôt dans {provider}.",
     openSource: "Source de données {provider}",
     fixSource: "Ouvrir la source de données",
   },
@@ -556,6 +560,14 @@ export const telemetryKinds: TelemetryKindsDict = {
       "Une requête de métrique Datadog, telle qu'un dashboard l'écrit : avg:system.cpu.user{service:web} by {host}. Un tableau lit la dernière valeur de chaque groupe de tags.",
     fields: {
       site: {
+        options: {
+          datadoghq_com: "US1 · datadoghq.com",
+          us3_datadoghq_com: "US3 · us3.datadoghq.com",
+          us5_datadoghq_com: "US5 · us5.datadoghq.com",
+          datadoghq_eu: "EU1 · datadoghq.eu",
+          ap1_datadoghq_com: "AP1 · ap1.datadoghq.com",
+          "ddog-gov_com": "US1-FED · ddog-gov.com",
+        },
         label: "Site",
         help: "Le site de votre URL Datadog : app.datadoghq.com correspond à datadoghq.com, app.datadoghq.eu à datadoghq.eu, us5.datadoghq.com à us5.datadoghq.com.",
       },

@@ -4,9 +4,10 @@ import { histogramStep } from "@/components/operations/charts/histogramData";
 import type { ChartSeries } from "@/components/operations/charts/TimeSeriesChart";
 import { seriesLabel } from "@/components/operations/sources/dataSourceSchema";
 
-export const QUANTILES = ["p50", "p95", "p99"] as const;
+export const QUANTILES = ["p50", "p75", "p95", "p99"] as const;
 
-const QUANTILE_COLOR: Record<string, number> = { p50: 1, p95: 2, p99: 3 };
+// The palette in quantile order, so the lines read from the median up.
+const QUANTILE_COLOR: Record<string, number> = { p50: 1, p75: 2, p95: 3, p99: 4 };
 
 // The quantile a latency chart leads with: its tile, sparkline and table row.
 export const HEADLINE_QUANTILE = "p95";
@@ -52,7 +53,7 @@ export interface SignalChartLabels {
 }
 
 /** One signal's answer as chart lines: one per series (a latency signal's
- * p50/p95/p99 in that order, each in its own colour), and with compare on
+ * p50/p75/p95/p99 in that order, each in its own colour), and with compare on
  * the previous period's lines dashed in the colour of the line they match. */
 export function signalChartSeries(signal: SignalSeries, compare: boolean, labels: SignalChartLabels): ChartSeries[] {
   const current = ordered(signal.series ?? []);

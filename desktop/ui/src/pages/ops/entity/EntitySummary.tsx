@@ -5,7 +5,7 @@ import type { Release, SignalSeries, SignalSeriesError } from "@/api";
 import { hasTrend } from "@/components/operations/charts/chartData";
 import { LiveValueList, liveValueItems } from "@/components/operations/charts/LiveValueList";
 import { signalChartSeries, signalErrorView } from "@/components/operations/charts/signalChart";
-import { isLiveSignal, seriesWindowEnd } from "@/components/operations/queues/queueSignals";
+import { isLiveSignal } from "@/components/operations/queues/queueSignals";
 import { boundSourceKinds, vitalsLagLikely } from "@/components/operations/releases/vitalsWindow";
 import type { DeployMarker } from "@/components/operations/charts/TimeSeriesChart";
 import { ChartSlot, DATA_SOURCES_PATH, type ChartSlotStatus } from "@/components/operations/console/ChartSlot";
@@ -212,8 +212,8 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
         unit={parts.unit || undefined}
         value={<span className="font-mono tabular-nums">{parts.value}</span>}
         delta={signalDelta(spec.id, found.value, found.previous, found.unit, formatCtx)}
-        foot={previous ? s("tileFoot.previousValue", { value: previous }) : hasTrend(found.spark) ? undefined : s("tileFoot.live")}
-        sparkline={hasTrend(found.spark) ? found.spark : undefined}
+        foot={found.live ? s("tileFoot.live") : previous ? s("tileFoot.previousValue", { value: previous }) : undefined}
+        sparkline={!found.live && hasTrend(found.spark) ? found.spark : undefined}
         sparklineColorIndex={1}
       />
     );
@@ -244,7 +244,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
           </Button>
         );
       }
-    } else if (isLiveSignal(sig, seriesWindowEnd(series.data))) status = "live";
+    } else if (isLiveSignal(sig)) status = "live";
     else status = sig?.bound ? "bound" : "unbound";
     const previousError = compare && status === "bound" ? sig?.previous_error : undefined;
     return (

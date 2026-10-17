@@ -14,6 +14,8 @@ import {
   type TableRow,
 } from "@/components/operations/tables/componentTables";
 import { DataTableCard, type RowFlag } from "@/components/operations/tables/DataTableCard";
+import { TableWindowNote } from "@/components/operations/tables/TableWindowNote";
+import { useTableBindings } from "@/components/operations/tables/useTableBindings";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -23,8 +25,8 @@ import { intlLocale } from "@/lib/languages";
 import type { EntitySubPageProps } from "@/pages/ops/entity/types";
 
 /** A backend's Endpoints, New Relic's Transactions: throughput, error rate
- * and p95 per endpoint as the bound source holds them now, busiest first,
- * the most failing and the slowest called out. */
+ * and p95 per endpoint over the bound source's own recent window, busiest
+ * first, the most failing and the slowest called out. */
 export default function EntityEndpoints({ entity, env }: EntitySubPageProps) {
   const { t, lang } = useI18n();
   const p = (key: string, params?: Record<string, string | number>) => t(`operations.telemetry.endpoints.${key}`, params);
@@ -33,6 +35,7 @@ export default function EntityEndpoints({ entity, env }: EntitySubPageProps) {
   const formatCtx = useMemo(() => ({ locale: intlLocale(lang), t }), [lang, t]);
   const read = useComponentEndpoints(entity.id, env);
   const signalsHref = hasTab(entity.role, "signals") ? href(entityPath(entity.id, "signals")) : undefined;
+  const bindings = useTableBindings(entity.id, env, read.data?.tables ?? [], () => void read.reload());
 
   const flagWords: Record<EndpointFlag, RowFlag> = {
     errors: { label: p("flags.errors"), tone: "destructive", icon: <OctagonAlert className="h-3.5 w-3.5" /> },
@@ -82,13 +85,17 @@ export default function EntityEndpoints({ entity, env }: EntitySubPageProps) {
               barColumn={throughput}
               defaultSort={sortBy(throughput)}
               flags={flags}
+              onEditBinding={bindings.edit(table)}
               signalsHref={signalsHref}
+              readAt={read.data?.read_at}
+              meta={<TableWindowNote window={bindings.windowOf(table)} />}
               onRetry={() => void read.reload()}
               retrying={read.fetching}
             />
           );
         }}
       />
+      {bindings.editor}
     </div>
   );
 }

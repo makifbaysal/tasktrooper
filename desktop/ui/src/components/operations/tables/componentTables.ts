@@ -109,3 +109,75 @@ export function safeLink(value: TableRow[string] | undefined): string | undefine
     return undefined;
   }
 }
+
+export type TableWindowUnit = "minutes" | "hours" | "days";
+
+/** The span of time a recipe table covers, before the instant it is read. */
+export interface TableWindow {
+  amount: number;
+  unit: TableWindowUnit;
+}
+
+/** Where the console's docs list each source's table window. */
+export const TABLE_WINDOWS_DOCS_URL = "https://tasktrooper.ai/docs/data-sources#table-windows";
+
+const DAYS = (amount: number): TableWindow => ({ amount, unit: "days" });
+
+// Mirrors the catalog's table recipes and what each kind's Table reads
+// (server .ai/api-spec.md): a web analytics table and Play's issues over the
+// last 7 days, Sentry's over 14, Datadog's query over the 10 minutes before
+// the instant, New Relic's the hour before unless its NRQL says SINCE.
+const RECIPE_TABLE_WINDOWS: Record<string, TableWindow> = {
+  "ga4-web": DAYS(7),
+  "plausible-web": DAYS(7),
+  "posthog-web": DAYS(7),
+  "newrelic-browser": DAYS(7),
+  "play-vitals": DAYS(7),
+  "sentry-mobile": DAYS(14),
+  "datadog-apm": { amount: 10, unit: "minutes" },
+  "newrelic-apm": { amount: 1, unit: "hours" },
+};
+
+const DAYS_PARAM_DEFAULTS: Record<string, number> = { ga4: 7, plausible: 7, posthog: 7, google_play_vitals: 7, sentry: 14 };
+
+function jsonDays(query: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(query);
+    const days = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).days : undefined;
+    const n = typeof days === "string" ? Number(days) : days;
+    return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const NRQL_SINCE = /\bSINCE\s+(\d+)\s+(minute|hour|day|week)s?\s+ago\b/i;
+
+function nrqlWindow(query: string): TableWindow | undefined | null {
+  if (!/\bSINCE\b/i.test(query)) return null;
+  const m = NRQL_SINCE.exec(query);
+  if (!m) return undefined;
+  const amount = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === "week") return DAYS(amount * 7);
+  return { amount, unit: unit === "minute" ? "minutes" : unit === "hour" ? "hours" : "days" };
+}
+
+/** The window a table covers: its recipe's, or for a custom query its
+ * source kind's (the query's own `days`, or NRQL's SINCE, when it sets one);
+ * undefined when it cannot be told — the source's own recent window. */
+export function tableWindow(
+  table: Pick<ComponentTable, "recipe_id">,
+  binding?: { data_source_kind?: string; query?: string } | null,
+): TableWindow | undefined {
+  if (table.recipe_id) return RECIPE_TABLE_WINDOWS[table.recipe_id];
+  const kind = binding?.data_source_kind ?? "";
+  const query = binding?.query ?? "";
+  if (kind === "datadog") return { amount: 10, unit: "minutes" };
+  if (kind === "newrelic") {
+    const since = nrqlWindow(query);
+    return since === null ? { amount: 1, unit: "hours" } : since;
+  }
+  const fallback = DAYS_PARAM_DEFAULTS[kind];
+  return fallback === undefined ? undefined : DAYS(jsonDays(query) ?? fallback);
+}

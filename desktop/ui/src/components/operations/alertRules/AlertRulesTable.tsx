@@ -1,8 +1,9 @@
+import { TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { AlertRule } from "@/api";
 import { AIBadge } from "@/components/operations/ai/AIBadge";
-import { conditionText, formatThreshold } from "@/components/operations/alertRules/alertRules";
+import { conditionText, formatThreshold, readFailures } from "@/components/operations/alertRules/alertRules";
 import { AlertStatePill } from "@/components/operations/alertRules/AlertStatePill";
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { IssueSeverity } from "@/components/operations/issues/IssueSeverity";
@@ -92,6 +93,8 @@ function RuleRow({ rule, entity, unit, href, selected, showEntity, busy, onToggl
   const condition = conditionText(rule, unit, ctx);
   const value = rule.last_value;
   const evaluated = rule.last_evaluated_at;
+  const failing = readFailures(rule);
+  const failingText = failing ? a("readFailing", { count: failing.count, error: failing.error || "—" }) : "";
 
   return (
     <tr
@@ -107,7 +110,15 @@ function RuleRow({ rule, entity, unit, href, selected, showEntity, busy, onToggl
       }}
     >
       <td className={TD}>
-        <AlertStatePill state={rule.state} disabled={!rule.enabled} />
+        <span className="inline-flex items-center gap-1.5">
+          <AlertStatePill state={rule.state} disabled={!rule.enabled} />
+          {failing && (
+            <span title={failingText}>
+              <TriangleAlert className="h-3.5 w-3.5 text-warning" aria-hidden />
+              <span className="sr-only">{failingText}</span>
+            </span>
+          )}
+        </span>
       </td>
       <td className={cn(TD, "max-w-64")}>
         <div className="flex min-w-0 items-center gap-1.5">

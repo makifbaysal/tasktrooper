@@ -182,6 +182,7 @@ export default function EntityQueues({ entity, env }: EntitySubPageProps) {
         onEditBinding={editTable}
         onRetry={() => void queues.reload()}
         retrying={queues.fetching}
+        readAt={queues.data?.read_at}
       />
     );
   }

@@ -84,7 +84,12 @@ describe("WebVitalsStrip", () => {
   it("rates LCP, INP and CLS at p75 against Google's bands, and shows the traffic", async () => {
     getComponentSeries.mockResolvedValue(
       answer([
-        bound("web.lcp", "ms", [{ name: "p50", value: 1200 }, { name: "p95", value: 3100 }, { name: "p99", value: 6000 }]),
+        bound("web.lcp", "ms", [
+          { name: "p50", value: 1200 },
+          { name: "p75", value: 3100 },
+          { name: "p95", value: 5200 },
+          { name: "p99", value: 6000 },
+        ]),
         bound("web.inp", "ms", [{ name: "", value: 150 }]),
         bound("web.cls", "score", [{ name: "p75", value: 0.31 }]),
         bound("web.page_views", "views/s", [{ name: "", value: 4.2 }]),
@@ -96,7 +101,8 @@ describe("WebVitalsStrip", () => {
     const lcp = (await screen.findByText("LCP", { selector: "p" })).closest("div") as HTMLElement;
     await waitFor(() => expect(within(lcp).getByText("3.1")).toBeInTheDocument());
     expect(within(lcp).getByText("Needs improvement")).toBeInTheDocument();
-    expect(within(lcp).getByText("p95 · Google rates p75")).toBeInTheDocument();
+    expect(within(lcp).getByText("p75")).toBeInTheDocument();
+    expect(within(lcp).queryByText("5.2")).toBeNull();
     expect(within(lcp).getByRole("img", { name: "Needs improvement: good up to 2.5 s, poor past 4 s" })).toBeInTheDocument();
 
     const inp = screen.getByText("INP", { selector: "p" }).closest("div") as HTMLElement;

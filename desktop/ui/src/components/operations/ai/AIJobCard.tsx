@@ -55,6 +55,7 @@ export function AIJobCard({ job, refusal, startError, pollError, onDismiss, acti
   if (!job) return null;
 
   const running = isJobRunning(job);
+  const waiting = running && job.started_at === null;
   const kindTitle = j(`kinds.${job.kind}`);
   return (
     <Card className={cn("space-y-3 p-4", className)} aria-live="polite" aria-busy={running || undefined}>
@@ -76,16 +77,22 @@ export function AIJobCard({ job, refusal, startError, pollError, onDismiss, acti
               {j(`statuses.${job.status}`)}
             </Badge>
           </p>
-          {running ? (
+          {waiting ? (
             <p className="text-caption text-muted-foreground">
-              {j("runningFor")} <Elapsed since={Date.parse(job.created_at)} className="tabular-nums" />
+              {j("waitingFor")} <Elapsed since={Date.parse(job.created_at)} className="tabular-nums" />
+              <span aria-hidden> · </span>
+              {j("waitingHint")}
+            </p>
+          ) : running ? (
+            <p className="text-caption text-muted-foreground">
+              {j("runningFor")} <Elapsed since={Date.parse(job.started_at ?? job.created_at)} className="tabular-nums" />
               <span aria-hidden> · </span>
               {j("runningHint")}
             </p>
           ) : job.status === "done" ? (
             <p className="text-caption text-muted-foreground">{j("createdCount", { count: jobItems(job).length })}</p>
           ) : (
-            <p className="text-caption break-words text-destructive">{job.error || j("failedNoReason")}</p>
+            <p className="text-caption break-words whitespace-pre-line text-destructive">{job.error || j("failedNoReason")}</p>
           )}
         </div>
         {!running && (

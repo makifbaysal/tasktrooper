@@ -3,6 +3,11 @@ import type { TelemetryDict, TelemetryKindsDict } from "@/locales/en/opsTelemetr
 // Portuguese strings for the console's telemetry views; mirrors en/opsTelemetry.ts key for key.
 export const telemetry: TelemetryDict = {
   table: {
+    readAt: "Lida {time}",
+    readAtTitle: "Lida em {time}. O servidor guarda uma leitura por 30 segundos, então ela pode ser até 30 s mais antiga que a última atualização desta página.",
+    window: "Janela de {span}",
+    windowUnknown: "Cobre a janela recente da própria fonte",
+    windowDocs: "Janelas das tabelas",
     rows: "{count} linhas",
     flag: "Marcação",
     sortBy: "Ordenar por {column}",
@@ -18,9 +23,9 @@ export const telemetry: TelemetryDict = {
     errors: {
       failed: "Não foi possível ler esta tabela",
       needsParams: "Falta um parâmetro no vínculo",
-      needsParamsBody: "A tabela precisa de um valor que o vínculo ainda não tem. Preencha-o em Sinais.",
+      needsParamsBody: "A tabela precisa de um valor que o vínculo ainda não tem.",
       notFound: "A fonte de dados não existe mais",
-      notFoundBody: "A fonte de dados de onde esta tabela era lida não existe mais. Vincule outra em Sinais.",
+      notFoundBody: "A fonte de dados de onde esta tabela era lida não existe mais. Vincule outra.",
       unsupported: "Esta fonte não lista linhas",
       unsupportedBody: "O tipo dela lê o sinal ao longo do tempo, mas não uma linha por item. Uma receita com esta tabela oferece isso.",
       badQuery: "A fonte recusou a consulta da tabela",
@@ -33,8 +38,8 @@ export const telemetry: TelemetryDict = {
   },
   endpoints: {
     title: "Endpoints",
-    hint: "Como a fonte vinculada os tem agora, lidos a cada minuto",
-    scopeNote: "Os endpoints são lidos como a fonte vinculada os tem agora, então o intervalo de tempo não se aplica.",
+    hint: "Cada tabela cobre a janela recente da sua fonte, lida a cada minuto",
+    scopeNote: "Cada tabela de endpoints cobre a janela recente da sua fonte, indicada na tabela, então o intervalo de tempo não se aplica.",
     flags: {
       errors: "Maior taxa de erros",
       slowest: "p95 mais lento",
@@ -47,8 +52,8 @@ export const telemetry: TelemetryDict = {
     },
   },
   pages: {
-    scopeNote: "As visualizações de página são lidas como a fonte de análise web as informa agora, então o intervalo de tempo não se aplica.",
-    hint: "Como a fonte de análise web vinculada as informa agora",
+    scopeNote: "Cada tabela web cobre a janela recente da sua fonte, indicada na tabela, então o intervalo de tempo não se aplica.",
+    hint: "Cada tabela cobre a janela recente da sua fonte de análise web",
     tabsLabel: "Tabelas web",
     tabs: {
       pages: "Páginas",
@@ -64,7 +69,7 @@ export const telemetry: TelemetryDict = {
     },
   },
   crashes: {
-    scopeNote: "As falhas são lidas como as lojas e o Sentry as listam agora, então o intervalo de tempo não se aplica.",
+    scopeNote: "Cada tabela de falhas cobre a janela recente da sua fonte, indicada na tabela, então o intervalo de tempo não se aplica.",
     openIssue: "Abrir no console de origem",
     issues: {
       title: "Problemas de falha e ANR",
@@ -235,7 +240,6 @@ export const telemetry: TelemetryDict = {
       poor: "Ruim",
     },
     quantileP75: "p75",
-    quantileStricter: "{quantile} · o Google avalia o p75",
     thresholds: "Bom até {good}, ruim acima de {poor}",
     meterLabel: "{band}: bom até {good}, ruim acima de {poor}",
     bind: "Vincular uma fonte de dados",
@@ -286,7 +290,7 @@ export const telemetry: TelemetryDict = {
       sentry: "Sentry",
     },
     fromProvider: "Lido do {provider}",
-    noTask: "Uma tarefa é criada a partir dos erros de um ambiente na nuvem. Abra este grupo de erros no {provider} em vez disso.",
+    noTask: "Este grupo não indica nenhuma fonte de dados para criar uma tarefa. Abra-o em {provider}.",
     openSource: "Fonte de dados {provider}",
     fixSource: "Abrir a fonte de dados",
   },
@@ -556,6 +560,14 @@ export const telemetryKinds: TelemetryKindsDict = {
       "Uma consulta de métricas do Datadog, como um dashboard a escreve: avg:system.cpu.user{service:web} by {host}. Uma tabela lê o valor mais recente de cada grupo de tags.",
     fields: {
       site: {
+        options: {
+          datadoghq_com: "US1 · datadoghq.com",
+          us3_datadoghq_com: "US3 · us3.datadoghq.com",
+          us5_datadoghq_com: "US5 · us5.datadoghq.com",
+          datadoghq_eu: "EU1 · datadoghq.eu",
+          ap1_datadoghq_com: "AP1 · ap1.datadoghq.com",
+          "ddog-gov_com": "US1-FED · ddog-gov.com",
+        },
         label: "Site",
         help: "O site na sua URL do Datadog: app.datadoghq.com é datadoghq.com, app.datadoghq.eu é datadoghq.eu, us5.datadoghq.com é us5.datadoghq.com.",
       },

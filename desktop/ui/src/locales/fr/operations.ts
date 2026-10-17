@@ -399,6 +399,7 @@ export const operations = {
       atMost: "≤ {value}",
     },
     rollbackSuggestion: {
+      dismissedAt: "Suggestion de retour arrière écartée {time}",
       title: "Retour arrière suggéré · {version}",
       proposedBy: "Proposé par {who}",
       autoOff: "Le retour arrière automatique est désactivé pour ce composant : une personne doit l'approuver.",
@@ -410,6 +411,7 @@ export const operations = {
       openChange: "Ouvrir {version}",
       confirmTitle: "Revenir en arrière sur {version} ?",
       refusals: {
+        not_configured: "Retour arrière impossible ici : ce serveur n'a pas d'accès git pour annuler les fusions de la version, et tout retour arrière commence par là.",
         newer_shipped: "Retour arrière impossible pour l'instant : une version plus récente de ce composant a été livrée depuis.",
         newer_open: "Retour arrière impossible pour l'instant : une version plus récente de ce composant est en cours.",
         not_deployed: "Retour arrière impossible pour l'instant : elle n'a jamais atteint l'environnement.",
@@ -422,6 +424,8 @@ export const operations = {
     },
     detail: {
       impact: {
+        settling: "Non vérifié — encore en stabilisation",
+        uncheckedSettling: "Non vérifié, car le signal était encore en stabilisation à la fin de l'observation : {thresholds}",
         title: "Impact",
         notDeployed: "Pas encore déployé. L'impact se mesure à partir du déploiement.",
         loadFailed: "Impossible de lire l'impact du déploiement",
@@ -840,7 +844,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "Rien n'est connecté en {env}",
-      body: "Les erreurs viennent de là où vos composants s'exécutent. Connectez un environnement depuis l'onglet Déploiement et runtime d'un dépôt.",
+      body: "Les erreurs viennent de là où vos composants s'exécutent, ou d'un outil de suivi d'erreurs comme Sentry lié dans les Signaux d'une entité. Connectez un environnement depuis l'onglet Déploiement et runtime d'un dépôt.",
       action: "Aller aux entités",
     },
     empty: {
@@ -928,7 +932,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "Rien n'est connecté en {env}",
-      body: "Les logs viennent de là où vos composants s'exécutent. Connectez un environnement depuis l'onglet Déploiement et runtime d'un dépôt.",
+      body: "Les logs viennent de là où vos composants s'exécutent, ou d'un stockage de logs comme Loki lié dans les Signaux d'une entité. Connectez un environnement depuis l'onglet Déploiement et runtime d'un dépôt.",
       action: "Aller aux entités",
     },
     empty: {
@@ -1088,6 +1092,7 @@ export const operations = {
       "Son adresse et ses identifiants enregistrés sont supprimés de cet ordinateur ; elle ne pourra plus être vérifiée ni interrogée ici.",
     deleted: "Source de données supprimée",
     form: {
+      destinationHint: "Le modifier redemande les identifiants enregistrés.",
       addTitle: "Ajouter une source de données",
       editTitle: "Modifier {name}",
       pickKind: "De quel type de source s'agit-il ?",
@@ -1201,6 +1206,7 @@ export const operations = {
       },
     },
     discover: {
+      patternName: "{metric} contient *, qu'une requête lit comme un motif. Liez-la plutôt avec le paramètre queue de la recette rabbitmq-direct.",
       title: "Métriques découvertes",
       description:
         "Les noms de métriques que contient cette source. Une recette est suggérée quand la métrique qui trahit son exporter est présente.",
@@ -2057,6 +2063,7 @@ export const operations = {
     },
   },
   alertRules: {
+    readFailing: "Les {count} dernières lectures ont échoué : {error}",
     customQuery: "Requête personnalisée",
     stateFilter: "Filtrer par état",
     states: {
@@ -2231,6 +2238,11 @@ export const operations = {
       peak: "Pic {value}",
     },
     detail: {
+      readFailed: {
+        title: "Le signal ne peut pas être lu",
+        holding: "Elle a gardé son état pendant {count} évaluations ; au-delà de 10, elle est lue comme sans données.",
+        noData: "Elle a gardé son état pendant {count} évaluations : elle est désormais lue comme sans données.",
+      },
       loading: "Chargement de la règle…",
       notFound: "Règle introuvable",
       notFoundBody: "Elle a peut-être été supprimée, ou elle surveille une entité que cette page n'affiche pas.",

@@ -1,4 +1,12 @@
-import type { ImpactVerdict, ObservabilitySignal, Release, ReleaseImpact, ReleaseImpactCheckSignal, ReleaseImpactSignal } from "@/api";
+import type {
+  ImpactVerdict,
+  ObservabilitySignal,
+  Release,
+  ReleaseImpact,
+  ReleaseImpactCheck,
+  ReleaseImpactCheckSignal,
+  ReleaseImpactSignal,
+} from "@/api";
 import { HEADLINE_QUANTILE } from "@/components/operations/charts/signalChart";
 import { formatSignalValue, signalLabel, type SignalFormatContext } from "@/components/operations/console/signalFormat";
 
@@ -141,4 +149,25 @@ export const RELEASE_IMPACT_SETTLED_POLL_MS = 10 * 60_000;
  * still settling, or the impact's own answer says `pending` — else rarely. */
 export function impactPollMs(settling: boolean, impactPending: boolean | undefined): number {
   return settling || impactPending === true ? RELEASE_IMPACT_PENDING_POLL_MS : RELEASE_IMPACT_SETTLED_POLL_MS;
+}
+
+/** A soak threshold held to a signal that never settled: not judged, so not passed. */
+export function stillSettling(held: Pick<ReleaseImpactCheckSignal, "settling" | "breached"> | undefined): boolean {
+  return Boolean(held?.settling && !held.breached);
+}
+
+function thresholdOf(held: Pick<ReleaseImpactCheckSignal, "max_delta" | "max_delta_pct">): string | undefined {
+  if (held.max_delta != null) return "max_error_rate_delta";
+  if (held.max_delta_pct != null) return "max_p95_delta_pct";
+  return undefined;
+}
+
+/** The soak's unchecked thresholds by why: still settling when it ended (the
+ * signal it holds them to says so), or not bound or not readable. */
+export function uncheckedThresholds(check: Pick<ReleaseImpactCheck, "unchecked" | "signals"> | undefined): { settling: string[]; unread: string[] } {
+  const settlingKeys = new Set((check?.signals ?? []).filter(stillSettling).map(thresholdOf).filter((k): k is string => Boolean(k)));
+  const settling: string[] = [];
+  const unread: string[] = [];
+  for (const name of check?.unchecked ?? []) (settlingKeys.has(name) ? settling : unread).push(name);
+  return { settling, unread };
 }

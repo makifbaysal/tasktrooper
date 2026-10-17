@@ -87,18 +87,12 @@ describe("binding sources by signal kind", () => {
     expect(bindableSources(all, "trace").map((s) => s.id)).toEqual(["tempo"]);
     expect(bindableSources(all, "log").map((s) => s.id)).toEqual(["loki"]);
     expect(bindableSources(all, "error").map((s) => s.id)).toEqual(["sentry"]);
-    const datadog = dataSource({ id: "dd", kind: "datadog", capabilities: ["metrics", "traces"] });
-    const tempoRecipe = {
-      id: "tempo-service",
-      source_kind: "tempo",
-      applies_to: { technology: "", messaging_system: "", resource_kind: "", resource_params: {} },
-      detect: { metric: "" },
-      params: ["service"],
-      signals: { "traces.spans": "{}" },
-      origin: "catalog" as const,
-    };
-    expect(bindableSources([tempo, datadog], "trace").map((s) => s.id)).toEqual(["tempo", "dd"]);
-    expect(bindableSources([tempo, datadog], "trace", [tempoRecipe]).map((s) => s.id)).toEqual(["tempo"]);
+    const datadog = dataSource({ id: "dd", kind: "datadog", capabilities: ["metrics"] });
+    const newrelic = dataSource({ id: "nr", kind: "newrelic", capabilities: ["metrics", "rum", "crashes"] });
+    const appStore = dataSource({ id: "asc", kind: "app_store_metrics", capabilities: ["metrics", "crashes"] });
+    expect(bindableSources([tempo, datadog, newrelic], "trace").map((s) => s.id)).toEqual(["tempo"]);
+    expect(bindableSources([tempo, datadog, newrelic, appStore], "metric").map((s) => s.id)).toEqual(["dd", "nr", "asc"]);
+    expect(bindableSources([datadog, newrelic, appStore, sentry], "error").map((s) => s.id)).toEqual(["sentry"]);
   });
 
   it("previews metrics only, and knows the non-metric signals before the catalog is read", () => {

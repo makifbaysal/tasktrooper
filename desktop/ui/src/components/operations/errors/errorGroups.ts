@@ -1,4 +1,13 @@
-import { CLOUD_PROVIDERS, ZERO_UUID, type CloudProviderKind, type EnvironmentSummary, type OpsErrorGroup, type RuntimeErrorGroup } from "@/api";
+import {
+  CLOUD_PROVIDERS,
+  ZERO_UUID,
+  type BoundErrorGroup,
+  type CloudProviderKind,
+  type DeployEnvironment,
+  type EnvironmentSummary,
+  type OpsErrorGroup,
+  type RuntimeErrorGroup,
+} from "@/api";
 import { entityTypeOf, type OpsEntityType } from "@/components/operations/console/entityTypes";
 import type { OpsEntity } from "@/components/operations/shell/useOpsEntities";
 
@@ -25,9 +34,11 @@ export function groupKey(g: Pick<OpsErrorGroup, "environment_id" | "fingerprint"
   return `${isBindingRow(g) && g.data_source_id ? g.data_source_id : g.environment_id}.${g.fingerprint}`;
 }
 
-/** Tasks are opened from a cloud environment's errors; a binding group has no environment to open one in. */
-export function canCreateTask(g: Pick<OpsErrorGroup, "environment_id" | "data_source_id">): boolean {
-  return !isBindingRow(g);
+/** A cloud environment's group opens its task through the environment; a
+ * binding group (Sentry) through its component, naming the source. A row
+ * with neither has nowhere to open one. */
+export function canCreateTask(g: Pick<OpsErrorGroup, "environment_id" | "data_source_id" | "component_id">): boolean {
+  return isBindingRow(g) ? Boolean(g.data_source_id && g.component_id) : true;
 }
 
 export function isCloudProvider(provider: string): provider is CloudProviderKind {
@@ -60,6 +71,11 @@ export function runtimeGroup(g: OpsErrorGroup): RuntimeErrorGroup {
     new: g.new,
     external_url: g.external_url,
   };
+}
+
+/** The shape `POST /v1/components/{id}/errors/task` takes for a binding group. */
+export function boundGroup(g: OpsErrorGroup, environment: DeployEnvironment): BoundErrorGroup {
+  return { ...runtimeGroup(g), data_source_id: g.data_source_id ?? "", environment };
 }
 
 export function groupType(g: OpsErrorGroup, entities: Map<string, OpsEntity>): OpsEntityType {

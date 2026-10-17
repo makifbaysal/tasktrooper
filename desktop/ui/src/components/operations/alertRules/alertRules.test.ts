@@ -20,6 +20,7 @@ import {
   judgedThresholds,
   mapServerFields,
   parseThresholdText,
+  readFailures,
   replayDays,
   replayRequest,
   ruleInput,
@@ -238,19 +239,28 @@ describe("the editor's model", () => {
 });
 
 describe("what a rule's chart reads", () => {
-  it("draws what the evaluator judges: p95 from the series read, a p75 or a change from a replay", () => {
+  it("draws what the evaluator judges: p95 or a web vital's p75 from the series read, a change from a replay", () => {
     const cond = (op: AlertRule["condition"]["op"]) => ({ op, threshold: 1, for_seconds: 0, window_seconds: 300 });
     expect(judgedSource({ signal: "http.latency", condition: cond("gt") })).toBe("series");
-    expect(judgedSource({ signal: "web.lcp", condition: cond("gt") })).toBe("replay");
+    expect(judgedSource({ signal: "web.lcp", condition: cond("gt") })).toBe("series");
     expect(judgedSource({ signal: "http.requests", condition: cond("change_pct_gt") })).toBe("replay");
     expect(judgedSource({ signal: "", condition: cond("gt") })).toBe("query");
     expect(judgedSource({ signal: "", condition: cond("change_pct_lt") })).toBe("replay");
 
-    const lines = ["p50", "p95", "p99"].map((name) => ({ name, labels: {}, points: [] }));
+    const lines = ["p50", "p75", "p95", "p99"].map((name) => ({ name, labels: {}, points: [] }));
     expect(judgedSeries("http.latency", lines).map((s) => s.name)).toEqual(["p95"]);
+    expect(judgedSeries("web.lcp", lines).map((s) => s.name)).toEqual(["p75"]);
     expect(judgedSeries("http.requests", lines)).toBe(lines);
     const single = [{ name: "", labels: {}, points: [] }];
     expect(judgedSeries("http.latency", single)).toBe(single);
+  });
+
+  it("tells a run of failed reads apart, and when it reads as no data", () => {
+    expect(readFailures({})).toBeUndefined();
+    expect(readFailures({ error_count: 0, last_error: "" })).toBeUndefined();
+    expect(readFailures({ error_count: 3, last_error: "timeout" })).toEqual({ count: 3, error: "timeout", asNoData: false });
+    expect(readFailures({ error_count: 10 })).toMatchObject({ asNoData: false, error: "" });
+    expect(readFailures({ error_count: 11, last_error: "x" })).toMatchObject({ asNoData: true });
   });
 
   it("draws a change rule's threshold on its change series", () => {

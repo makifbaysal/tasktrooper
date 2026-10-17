@@ -4,6 +4,7 @@ import {
   ERROR_CATEGORIES,
   api,
   dataSourceFieldErrors,
+  isTooManyDefinitionsError,
   type ErrorAction,
   type ErrorCategory,
   type ErrorDefinition,
@@ -118,6 +119,13 @@ export function ErrorDefinitionEditor({
     const text = t(key);
     return text === key ? code : text;
   };
+  // A field the form has no input for (`definitions` when the repository is
+  // full) may still have words of its own.
+  const restText = (field: string, code: string) => {
+    const key = `operations.errorDefinitions.errors.fields.${field}.${code}`;
+    const text = t(key);
+    return text === key ? `${field}: ${codeText(code)}` : text;
+  };
   const errorText = (field: DraftField, code: string) => {
     const key = `operations.errorDefinitions.errors.fields.${field}.${code}`;
     const text = t(key);
@@ -156,13 +164,15 @@ export function ErrorDefinitionEditor({
         setErrors(inline);
         setSaveError(
           rest.length > 0
-            ? rest.map(([k, v]) => `${k}: ${codeText(v)}`).join(" ")
+            ? rest.map(([k, v]) => restText(k, v)).join(" ")
             : draftErrorCount(inline) > 0
               ? e("fixFields")
               : err instanceof Error
                 ? err.message
                 : t("common.actionFailed"),
         );
+      } else if (!saved && isTooManyDefinitionsError(err)) {
+        setSaveError(codeText("too_many_definitions"));
       } else {
         setSaveError(saved ? e("acceptFailed", { message: err instanceof Error ? err.message : "" }) : err instanceof Error ? err.message : t("common.actionFailed"));
       }

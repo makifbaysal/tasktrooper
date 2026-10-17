@@ -3,6 +3,11 @@ import type { TelemetryDict, TelemetryKindsDict } from "@/locales/en/opsTelemetr
 // Spanish strings for the console's telemetry views; mirrors en/opsTelemetry.ts key for key.
 export const telemetry: TelemetryDict = {
   table: {
+    readAt: "Leída {time}",
+    readAtTitle: "Leída el {time}. El servidor guarda una lectura 30 segundos, así que puede ser hasta 30 s más antigua que la última actualización de esta página.",
+    window: "Ventana de {span}",
+    windowUnknown: "Cubre la ventana reciente propia de la fuente",
+    windowDocs: "Ventanas de las tablas",
     rows: "{count} filas",
     flag: "Marca",
     sortBy: "Ordenar por {column}",
@@ -18,9 +23,9 @@ export const telemetry: TelemetryDict = {
     errors: {
       failed: "No se pudo leer esta tabla",
       needsParams: "A la vinculación le falta un parámetro",
-      needsParamsBody: "La tabla necesita un valor que su vinculación aún no tiene. Rellénalo en Señales.",
+      needsParamsBody: "La tabla necesita un valor que su vinculación aún no tiene.",
       notFound: "La fuente de datos ya no existe",
-      notFoundBody: "La fuente de datos de la que se leía esta tabla ya no existe. Vincula otra en Señales.",
+      notFoundBody: "La fuente de datos de la que se leía esta tabla ya no existe. Vincula otra.",
       unsupported: "Esta fuente no puede listar filas",
       unsupportedBody: "Su tipo puede leer la señal a lo largo del tiempo, pero no una fila por elemento. Una receta que incluya esta tabla sí la ofrece.",
       badQuery: "La fuente rechazó la consulta de la tabla",
@@ -33,8 +38,8 @@ export const telemetry: TelemetryDict = {
   },
   endpoints: {
     title: "Endpoints",
-    hint: "Tal como los tiene ahora la fuente vinculada, leídos cada minuto",
-    scopeNote: "Los endpoints se leen tal como los tiene ahora la fuente vinculada, así que el intervalo de tiempo no se aplica.",
+    hint: "Cada tabla cubre la ventana reciente de su fuente, leída cada minuto",
+    scopeNote: "Cada tabla de endpoints cubre la ventana reciente de su fuente, indicada en la tabla, así que el intervalo de tiempo no se aplica.",
     flags: {
       errors: "Mayor tasa de errores",
       slowest: "p95 más lento",
@@ -47,8 +52,8 @@ export const telemetry: TelemetryDict = {
     },
   },
   pages: {
-    scopeNote: "Las páginas vistas se leen tal como las informa ahora la fuente de analítica web, así que el intervalo de tiempo no se aplica.",
-    hint: "Tal como las informa ahora la fuente de analítica web vinculada",
+    scopeNote: "Cada tabla web cubre la ventana reciente de su fuente, indicada en la tabla, así que el intervalo de tiempo no se aplica.",
+    hint: "Cada tabla cubre la ventana reciente de su fuente de analítica web",
     tabsLabel: "Tablas web",
     tabs: {
       pages: "Páginas",
@@ -64,7 +69,7 @@ export const telemetry: TelemetryDict = {
     },
   },
   crashes: {
-    scopeNote: "Los fallos se leen tal como los listan ahora las tiendas y Sentry, así que el intervalo de tiempo no se aplica.",
+    scopeNote: "Cada tabla de fallos cubre la ventana reciente de su fuente, indicada en la tabla, así que el intervalo de tiempo no se aplica.",
     openIssue: "Abrir en su consola",
     issues: {
       title: "Grupos de fallos y ANR",
@@ -235,7 +240,6 @@ export const telemetry: TelemetryDict = {
       poor: "Deficiente",
     },
     quantileP75: "p75",
-    quantileStricter: "{quantile} · Google evalúa el p75",
     thresholds: "Bueno hasta {good}, deficiente a partir de {poor}",
     meterLabel: "{band}: bueno hasta {good}, deficiente a partir de {poor}",
     bind: "Vincular una fuente de datos",
@@ -286,7 +290,7 @@ export const telemetry: TelemetryDict = {
       sentry: "Sentry",
     },
     fromProvider: "Leído de {provider}",
-    noTask: "Las tareas se crean a partir de los errores de un entorno en la nube. Abre este error en {provider} en su lugar.",
+    noTask: "Este grupo no indica ninguna fuente de datos con la que crear una tarea. Ábrelo en {provider}.",
     openSource: "Fuente de datos de {provider}",
     fixSource: "Abrir la fuente de datos",
   },
@@ -556,6 +560,14 @@ export const telemetryKinds: TelemetryKindsDict = {
       "Una consulta de métricas de Datadog, tal como la escribe un dashboard: avg:system.cpu.user{service:web} by {host}. Una tabla lee el último valor de cada grupo de etiquetas.",
     fields: {
       site: {
+        options: {
+          datadoghq_com: "US1 · datadoghq.com",
+          us3_datadoghq_com: "US3 · us3.datadoghq.com",
+          us5_datadoghq_com: "US5 · us5.datadoghq.com",
+          datadoghq_eu: "EU1 · datadoghq.eu",
+          ap1_datadoghq_com: "AP1 · ap1.datadoghq.com",
+          "ddog-gov_com": "US1-FED · ddog-gov.com",
+        },
         label: "Sitio",
         help: "El sitio de tu URL de Datadog: app.datadoghq.com es datadoghq.com, app.datadoghq.eu es datadoghq.eu y us5.datadoghq.com es us5.datadoghq.com.",
       },

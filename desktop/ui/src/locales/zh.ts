@@ -25,6 +25,7 @@ import { toolchain } from "@/locales/zh/toolchain";
 // Simplified Chinese dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const zh: Dict = {
   common: {
+    close: "关闭",
     save: "保存",
     saving: "保存中...",
     cancel: "取消",

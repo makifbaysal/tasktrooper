@@ -26,6 +26,7 @@ import { toolchain } from "@/locales/en/toolchain";
 
 export const en = {
   common: {
+    close: "Close",
     save: "Save",
     saving: "Saving...",
     cancel: "Cancel",

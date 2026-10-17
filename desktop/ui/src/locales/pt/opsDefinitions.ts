@@ -178,6 +178,7 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     acceptFailed: "Salva, mas não foi possível aceitá-la: {message}",
   },
   errors: {
+    too_many_definitions: "Este repositório já tem 200 definições, ativas e sugeridas somadas. Exclua ou descarte algumas antes de adicionar outra.",
     required: "Obrigatório.",
     invalid: "Inválido.",
     invalid_option: "Não é uma das opções.",
@@ -185,6 +186,9 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     not_permitted: "Isto não pode ser alterado.",
     re2_unsupported: "O RE2 não tem lookarounds nem referências anteriores.",
     fields: {
+      definitions: {
+        too_long: "Este repositório já tem 200 definições, ativas e sugeridas somadas.",
+      },
       match: {
         required: "Preencha pelo menos um campo para corresponder.",
       },
@@ -270,6 +274,8 @@ export const errorDefinitions: ErrorDefinitionsDict = {
 };
 
 export const aiJob: AIJobDict = {
+  waitingFor: "Aguardando há",
+  waitingHint: "No máximo dois trabalhos rodam ao mesmo tempo; este começa quando uma vaga abrir.",
   badge: "IA",
   badgeTitle: "Proposto pelo release engineer",
   ruleTitle: "Proposta pelo release engineer e salva desligada; ligue-a quando parecer certa",

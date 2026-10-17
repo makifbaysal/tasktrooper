@@ -178,6 +178,7 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     acceptFailed: "Kaydedildi ama kabul edilemedi: {message}",
   },
   errors: {
+    too_many_definitions: "Bu repoda etkin ve önerilen toplam 200 tanım zaten var. Yenisini eklemeden önce bazılarını silin ya da reddedin.",
     required: "Zorunlu.",
     invalid: "Geçerli değil.",
     invalid_option: "Seçeneklerden biri değil.",
@@ -185,6 +186,9 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     not_permitted: "Bu değiştirilemez.",
     re2_unsupported: "RE2'de ileri/geri bakış ve geri başvuru yoktur.",
     fields: {
+      definitions: {
+        too_long: "Bu repoda etkin ve önerilen toplam 200 tanım zaten var.",
+      },
       match: {
         required: "Eşleşmek için en az bir alanı doldurun.",
       },
@@ -270,6 +274,8 @@ export const errorDefinitions: ErrorDefinitionsDict = {
 };
 
 export const aiJob: AIJobDict = {
+  waitingFor: "Bekleme süresi:",
+  waitingHint: "Aynı anda en fazla iki iş çalışır; bu iş bir yer boşalınca başlar.",
   badge: "YZ",
   badgeTitle: "Sürüm mühendisi önerdi",
   ruleTitle: "Sürüm mühendisi önerdi ve kapalı olarak kaydetti; doğru göründüğünde açın",

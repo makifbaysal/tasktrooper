@@ -399,6 +399,7 @@ export const operations = {
       atMost: "≤ {value}",
     },
     rollbackSuggestion: {
+      dismissedAt: "回滚建议{time}已被忽略",
       title: "建议回滚 · {version}",
       proposedBy: "提议者：{who}",
       autoOff: "该组件关闭了自动回滚，因此需要有人批准。",
@@ -410,6 +411,7 @@ export const operations = {
       openChange: "打开 {version}",
       confirmTitle: "回滚 {version}？",
       refusals: {
+        not_configured: "此处无法回滚：此服务器无法通过 git 撤销该版本的合并，而每次回滚都从这一步开始。",
         newer_shipped: "现在无法回滚：此后该组件已发布了更新的版本。",
         newer_open: "现在无法回滚：该组件有更新的版本正在进行中。",
         not_deployed: "现在无法回滚：它从未到达该环境。",
@@ -422,6 +424,8 @@ export const operations = {
     },
     detail: {
       impact: {
+        settling: "未检查——仍在稳定中",
+        uncheckedSettling: "因观察期结束时信号仍在稳定中而未检查：{thresholds}",
         title: "影响",
         notDeployed: "尚未部署。影响从部署时开始测量。",
         loadFailed: "无法读取部署影响",
@@ -839,7 +843,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "{env} 中没有任何连接",
-      body: "错误来自组件运行的地方。请在仓库的“部署与运行时”标签页中连接一个环境。",
+      body: "错误来自组件运行的地方，或来自在实体“信号”页绑定的错误追踪工具（如 Sentry）。请在仓库的“部署与运行时”标签页中连接一个环境。",
       action: "前往实体",
     },
     empty: {
@@ -927,7 +931,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "{env} 中没有任何连接",
-      body: "日志来自组件运行的地方。请在仓库的“部署与运行时”标签页中连接一个环境。",
+      body: "日志来自组件运行的地方，或来自在实体“信号”页绑定的日志存储（如 Loki）。请在仓库的“部署与运行时”标签页中连接一个环境。",
       action: "前往实体",
     },
     empty: {
@@ -1086,6 +1090,7 @@ export const operations = {
     deleteDescription: "它的地址和已保存的凭据会从这台电脑上移除，之后无法再在这里检查或查询它。",
     deleted: "数据源已删除",
     form: {
+      destinationHint: "更改此项需要重新输入已保存的凭据。",
       addTitle: "添加数据源",
       editTitle: "编辑 {name}",
       pickKind: "这是哪种数据源？",
@@ -1194,6 +1199,7 @@ export const operations = {
       },
     },
     discover: {
+      patternName: "{metric} 含有 *，查询会将其视为通配模式。请改用 rabbitmq-direct 配方的 queue 参数来绑定。",
       title: "发现的指标",
       description: "此数据源中的指标名称。当出现能识别出某个 exporter 的指标时，会推荐对应的配方。",
       search: "筛选指标名称",
@@ -2046,6 +2052,7 @@ export const operations = {
     },
   },
   alertRules: {
+    readFailing: "最近 {count} 次读取失败：{error}",
     customQuery: "自定义查询",
     stateFilter: "按状态筛选",
     states: {
@@ -2220,6 +2227,11 @@ export const operations = {
       peak: "峰值 {value}",
     },
     detail: {
+      readFailed: {
+        title: "无法读取该信号",
+        holding: "已在 {count} 次评估中保持当前状态；超过 10 次后将视为无数据。",
+        noData: "已在 {count} 次评估中保持当前状态，现在视为无数据。",
+      },
       loading: "正在加载规则…",
       notFound: "未找到规则",
       notFoundBody: "它可能已被删除，或监视的是本页未显示的实体。",

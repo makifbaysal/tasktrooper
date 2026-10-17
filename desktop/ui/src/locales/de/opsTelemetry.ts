@@ -3,6 +3,11 @@ import type { TelemetryDict, TelemetryKindsDict } from "@/locales/en/opsTelemetr
 // German strings for the console's telemetry views; mirrors en/opsTelemetry.ts key for key.
 export const telemetry: TelemetryDict = {
   table: {
+    readAt: "Gelesen {time}",
+    readAtTitle: "Gelesen am {time}. Der Server hält einen Lesevorgang 30 Sekunden vor, daher kann er bis zu 30 s älter sein als die letzte Aktualisierung dieser Seite.",
+    window: "Zeitfenster: {span}",
+    windowUnknown: "Umfasst das eigene jüngste Zeitfenster der Quelle",
+    windowDocs: "Tabellen-Zeitfenster",
     rows: "{count} Zeilen",
     flag: "Markierung",
     sortBy: "Nach {column} sortieren",
@@ -18,9 +23,9 @@ export const telemetry: TelemetryDict = {
     errors: {
       failed: "Diese Tabelle konnte nicht gelesen werden",
       needsParams: "Der Verknüpfung fehlt ein Parameter",
-      needsParamsBody: "Die Tabelle braucht einen Wert, den ihre Verknüpfung noch nicht hat. Tragen Sie ihn unter Signale ein.",
+      needsParamsBody: "Die Tabelle braucht einen Wert, den ihre Verknüpfung noch nicht hat.",
       notFound: "Die Datenquelle gibt es nicht mehr",
-      notFoundBody: "Die Datenquelle, aus der diese Tabelle gelesen wurde, existiert nicht mehr. Verknüpfen Sie unter Signale eine andere.",
+      notFoundBody: "Die Datenquelle, aus der diese Tabelle gelesen wurde, existiert nicht mehr. Verknüpfen Sie eine andere.",
       unsupported: "Diese Quelle kann keine Zeilen auflisten",
       unsupportedBody: "Ihre Art kann das Signal im Zeitverlauf lesen, aber nicht eine Zeile pro Eintrag. Ein Rezept mit dieser Tabelle liefert sie.",
       badQuery: "Die Quelle hat die Abfrage der Tabelle abgelehnt",
@@ -33,8 +38,8 @@ export const telemetry: TelemetryDict = {
   },
   endpoints: {
     title: "Endpunkte",
-    hint: "So, wie die verknüpfte Quelle sie gerade hält, jede Minute gelesen",
-    scopeNote: "Endpunkte werden so gelesen, wie die verknüpfte Quelle sie gerade hält; der Zeitraum gilt hier daher nicht.",
+    hint: "Jede Tabelle umfasst das jüngste Zeitfenster ihrer Quelle, jede Minute gelesen",
+    scopeNote: "Jede Endpunkt-Tabelle umfasst das jüngste Zeitfenster ihrer Quelle, das an der Tabelle steht; der Zeitraum gilt hier daher nicht.",
     flags: {
       errors: "Höchste Fehlerrate",
       slowest: "Höchste p95-Latenz",
@@ -47,8 +52,8 @@ export const telemetry: TelemetryDict = {
     },
   },
   pages: {
-    scopeNote: "Seitenaufrufe werden so gelesen, wie die Webanalyse-Quelle sie gerade meldet; der Zeitraum gilt hier daher nicht.",
-    hint: "So, wie die verknüpfte Webanalyse-Quelle sie gerade meldet",
+    scopeNote: "Jede Web-Tabelle umfasst das jüngste Zeitfenster ihrer Quelle, das an der Tabelle steht; der Zeitraum gilt hier daher nicht.",
+    hint: "Jede Tabelle umfasst das jüngste Zeitfenster ihrer Webanalyse-Quelle",
     tabsLabel: "Web-Tabellen",
     tabs: {
       pages: "Seiten",
@@ -64,7 +69,7 @@ export const telemetry: TelemetryDict = {
     },
   },
   crashes: {
-    scopeNote: "Abstürze werden so gelesen, wie die Stores und Sentry sie gerade auflisten; der Zeitraum gilt hier daher nicht.",
+    scopeNote: "Jede Absturz-Tabelle umfasst das jüngste Zeitfenster ihrer Quelle, das an der Tabelle steht; der Zeitraum gilt hier daher nicht.",
     openIssue: "Beim Anbieter öffnen",
     issues: {
       title: "Absturz- und ANR-Gruppen",
@@ -235,7 +240,6 @@ export const telemetry: TelemetryDict = {
       poor: "Schlecht",
     },
     quantileP75: "p75",
-    quantileStricter: "{quantile} · Google bewertet p75",
     thresholds: "Gut bis {good}, schlecht über {poor}",
     meterLabel: "{band}: gut bis {good}, schlecht über {poor}",
     bind: "Datenquelle verknüpfen",
@@ -286,7 +290,7 @@ export const telemetry: TelemetryDict = {
       sentry: "Sentry",
     },
     fromProvider: "Aus {provider} gelesen",
-    noTask: "Eine Aufgabe entsteht aus den Fehlern einer Cloud-Umgebung. Öffnen Sie diese Fehlergruppe stattdessen in {provider}.",
+    noTask: "Diese Gruppe nennt keine Datenquelle, aus der eine Aufgabe entstehen kann. Öffnen Sie sie stattdessen in {provider}.",
     openSource: "{provider}-Datenquelle",
     fixSource: "Datenquelle öffnen",
   },
@@ -556,6 +560,14 @@ export const telemetryKinds: TelemetryKindsDict = {
       "Eine Datadog-Metrikabfrage, wie ein Dashboard sie schreibt: avg:system.cpu.user{service:web} by {host}. Eine Tabelle liest den neuesten Wert jeder Tag-Gruppe.",
     fields: {
       site: {
+        options: {
+          datadoghq_com: "US1 · datadoghq.com",
+          us3_datadoghq_com: "US3 · us3.datadoghq.com",
+          us5_datadoghq_com: "US5 · us5.datadoghq.com",
+          datadoghq_eu: "EU1 · datadoghq.eu",
+          ap1_datadoghq_com: "AP1 · ap1.datadoghq.com",
+          "ddog-gov_com": "US1-FED · ddog-gov.com",
+        },
         label: "Site",
         help: "Die Site in Ihrer Datadog-URL: app.datadoghq.com ist datadoghq.com, app.datadoghq.eu ist datadoghq.eu, us5.datadoghq.com ist us5.datadoghq.com.",
       },

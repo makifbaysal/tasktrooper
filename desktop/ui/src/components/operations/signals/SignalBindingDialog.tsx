@@ -110,7 +110,7 @@ export function SignalBindingDialog({
   const { t, lang } = useI18n();
   const b = (key: string, params?: Record<string, string | number>) => t(`operations.signalBinding.${key}`, params);
   const href = useOpsHref();
-  const metrics = useMemo(() => bindableSources(sources, signalKind, recipes), [sources, signalKind, recipes]);
+  const metrics = useMemo(() => bindableSources(sources, signalKind), [sources, signalKind]);
   const previewable = canPreview(signalKind);
   const [draft, setDraft] = useState<BindingDraft>(() => initialBindingDraft(signal, sources, recipes, prefill, signalKind));
   const [errors, setErrors] = useState<BindingErrors>({});

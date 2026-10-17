@@ -6,6 +6,7 @@ import type { SignalFormatContext } from "@/components/operations/console/signal
 import {
   cellText,
   columnUnit,
+  isKeyColumn,
   isValueColumn,
   queueErrorView,
   rowKey,
@@ -14,6 +15,7 @@ import {
   type TableSort,
 } from "@/components/operations/queues/queueTables";
 import { barShare, columnMax, isCountUnit, type TableRow } from "@/components/operations/tables/componentTables";
+import { TableReadAt } from "@/components/operations/tables/TableReadAt";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -47,8 +49,14 @@ export interface DataTableCardProps {
   hiddenColumns?: string[];
   /** Columns that name a row but read as prose, not code. */
   textColumns?: string[];
-  /** Where the bindings behind a table that cannot be read are fixed. */
+  /** Opens the binding editor on the table's `signal`, for a read error the binding fixes. */
+  onEditBinding?: () => void;
+  /** Where the bindings behind a table that cannot be read are fixed, when there is no editor to open. */
   signalsHref?: string;
+  /** The answer's `read_at`, shown in the header. */
+  readAt?: string;
+  /** A line under the recipe in the header: the span of time the table covers. */
+  meta?: ReactNode;
   onRetry: () => void;
   retrying?: boolean;
 }
@@ -69,7 +77,10 @@ export function DataTableCard({
   renderCell,
   hiddenColumns = NONE,
   textColumns = NONE,
+  onEditBinding,
   signalsHref,
+  readAt,
+  meta,
   onRetry,
   retrying = false,
 }: DataTableCardProps) {
@@ -85,12 +96,12 @@ export function DataTableCard({
   const keys = useMemo(() => {
     const seen = new Map<string, number>();
     return shown.map((row, i) => {
-      const base = rowKey(row, columns, i);
+      const base = rowKey(row, columns, i, table.key_columns);
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
       return n === 0 ? base : `${base}\u0000${n}`;
     });
-  }, [shown, columns]);
+  }, [shown, columns, table.key_columns]);
   const flagged = flags && flags.size > 0;
   const legend = useMemo(() => {
     const seen = new Map<string, RowFlag>();
@@ -108,13 +119,22 @@ export function DataTableCard({
           <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           <span className="truncate">{source}</span>
         </h3>
-        <p className="text-micro text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-micro text-muted-foreground">
           <span className={table.recipe_id ? "font-mono" : undefined}>
             {table.recipe_id ? d("recipe", { recipe: table.recipe_id }) : d("customQuery")}
           </span>
+          {meta && (
+            <>
+              <span aria-hidden>·</span>
+              {meta}
+            </>
+          )}
         </p>
       </div>
-      {!table.error && <span className="text-micro text-muted-foreground tabular-nums">{d("rows", { count: rows.length })}</span>}
+      <div className="flex flex-col items-end gap-0.5">
+        {!table.error && <span className="text-micro text-muted-foreground tabular-nums">{d("rows", { count: rows.length })}</span>}
+        <TableReadAt readAt={readAt} />
+      </div>
     </div>
   );
 
@@ -131,7 +151,11 @@ export function DataTableCard({
           description={description}
           className="py-6"
           action={
-            view.action === "edit" && signalsHref ? (
+            view.action === "edit" && onEditBinding ? (
+              <Button size="sm" onClick={onEditBinding}>
+                {t(`operations.queues.errors.${view.actionKey}`)}
+              </Button>
+            ) : view.action === "edit" && signalsHref ? (
               <Button size="sm" asChild>
                 <Link to={signalsHref}>{d("errors.openSignals")}</Link>
               </Button>
@@ -170,7 +194,7 @@ export function DataTableCard({
                   </th>
                 )}
                 {columns.map((column) => {
-                  const value = isValueColumn(column);
+                  const value = isValueColumn(column) && !isKeyColumn(column, table.key_columns);
                   const unit = isCountUnit(column.unit) ? "" : columnUnit(column, formatCtx);
                   const label = column.label || column.key;
                   return (
@@ -230,10 +254,11 @@ export function DataTableCard({
                     )}
                     {columns.map((column) => {
                       const custom = renderCell?.(column, row);
-                      const value = isValueColumn(column);
+                      const key = isKeyColumn(column, table.key_columns);
+                      const value = isValueColumn(column) && !key;
                       if (custom !== undefined) {
                         return (
-                          <td key={column.key} className={cn(TD, value ? "text-right" : "max-w-[24rem]")}>
+                          <td key={column.key} className={cn(TD, value ? "text-right" : "max-w-[24rem]", key && "font-medium text-foreground")}>
                             {custom}
                           </td>
                         );
@@ -247,6 +272,7 @@ export function DataTableCard({
                           className={cn(
                             TD,
                             value ? "text-right font-mono tabular-nums whitespace-nowrap" : cn("max-w-[24rem] truncate", !prose && "font-mono"),
+                            key && "font-medium text-foreground",
                           )}
                           title={cell?.title ?? (!value && cell ? cell.text : undefined)}
                         >

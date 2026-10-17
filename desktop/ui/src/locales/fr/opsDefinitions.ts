@@ -178,6 +178,7 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     acceptFailed: "Enregistrée, mais impossible de l'accepter : {message}",
   },
   errors: {
+    too_many_definitions: "Ce dépôt contient déjà 200 définitions, actives et suggérées confondues. Supprimez-en ou écartez-en avant d'en ajouter une autre.",
     required: "Obligatoire.",
     invalid: "Non valide.",
     invalid_option: "Ne fait pas partie des options.",
@@ -185,6 +186,9 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     not_permitted: "Ceci ne peut pas être modifié.",
     re2_unsupported: "RE2 n'a ni assertions avant/arrière ni références arrière.",
     fields: {
+      definitions: {
+        too_long: "Ce dépôt contient déjà 200 définitions, actives et suggérées confondues.",
+      },
       match: {
         required: "Remplissez au moins un champ de correspondance.",
       },
@@ -270,6 +274,8 @@ export const errorDefinitions: ErrorDefinitionsDict = {
 };
 
 export const aiJob: AIJobDict = {
+  waitingFor: "En attente depuis",
+  waitingHint: "Deux tâches au plus tournent à la fois ; celle-ci démarre dès qu'une place se libère.",
   badge: "IA",
   badgeTitle: "Proposé par le release engineer",
   ruleTitle: "Proposée par le release engineer et enregistrée désactivée ; activez-la quand elle vous convient",

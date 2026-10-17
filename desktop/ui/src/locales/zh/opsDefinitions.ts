@@ -178,6 +178,7 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     acceptFailed: "已保存，但无法接受：{message}",
   },
   errors: {
+    too_many_definitions: "此仓库已有 200 条定义（启用与建议合计）。请先删除或忽略一些，再添加新的。",
     required: "必填。",
     invalid: "无效。",
     invalid_option: "不是可选项之一。",
@@ -185,6 +186,9 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     not_permitted: "此项无法更改。",
     re2_unsupported: "RE2 不支持环视和反向引用。",
     fields: {
+      definitions: {
+        too_long: "此仓库已有 200 条定义（启用与建议合计）。",
+      },
       match: {
         required: "至少填写一个用于匹配的字段。",
       },
@@ -270,6 +274,8 @@ export const errorDefinitions: ErrorDefinitionsDict = {
 };
 
 export const aiJob: AIJobDict = {
+  waitingFor: "已等待",
+  waitingHint: "最多同时运行两个任务；有空位时此任务即会开始。",
   badge: "AI",
   badgeTitle: "由发布工程师提出",
   ruleTitle: "由发布工程师提出并以关闭状态保存；确认无误后再开启",

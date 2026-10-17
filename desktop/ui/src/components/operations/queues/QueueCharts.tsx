@@ -6,7 +6,7 @@ import { signalChartSeries, signalErrorView } from "@/components/operations/char
 import type { ChartSeries, DeployMarker } from "@/components/operations/charts/TimeSeriesChart";
 import { ChartSlot, DATA_SOURCES_PATH, type ChartSlotStatus } from "@/components/operations/console/ChartSlot";
 import { signalFormatter, signalLabel, type SignalFormatContext } from "@/components/operations/console/signalFormat";
-import { QUEUE_SIGNALS, combinePoints, isLiveSignal, seriesWindowEnd } from "@/components/operations/queues/queueSignals";
+import { QUEUE_SIGNALS, combinePoints, isLiveSignal } from "@/components/operations/queues/queueSignals";
 import type { QueueBindTarget } from "@/components/operations/queues/QueueHealthStrip";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
 import { Button } from "@/components/ui/button";
@@ -104,12 +104,11 @@ export function QueueCharts({ series, compare, formatCtx, deployMarkers, xRange,
   };
 
   const backlog = lines.backlog;
-  const windowEnd = seriesWindowEnd(series.data);
   let backlogState: SlotState;
   if (series.loading) backlogState = {};
   else if (failed) backlogState = { status: "error", error: series.error, retry: onRetry };
   else if (backlog?.error) backlogState = errorState(QUEUE_SIGNALS.backlog, backlog);
-  else if (isLiveSignal(backlog, windowEnd)) backlogState = { status: "live" };
+  else if (isLiveSignal(backlog)) backlogState = { status: "live" };
   else backlogState = { status: backlog?.bound ? "bound" : "unbound", retry: onRetry };
 
   const readableRates = lines.rates.filter((r) => r.sig?.bound && !r.sig.error);
@@ -122,7 +121,7 @@ export function QueueCharts({ series, compare, formatCtx, deployMarkers, xRange,
     const first = lines.rates.find((r) => r.sig?.error);
     ratesState = first?.sig ? errorState(first.id, first.sig) : { status: "unbound" };
   } else {
-    ratesState = { status: readableRates.every((r) => isLiveSignal(r.sig, windowEnd)) ? "live" : "bound", retry: onRetry };
+    ratesState = { status: readableRates.every((r) => isLiveSignal(r.sig)) ? "live" : "bound", retry: onRetry };
     for (const r of lines.rates) {
       if (!r.sig?.bound) ratesNotes.push(q("chart.unboundPart", { signal: r.label }));
       else if (r.sig.error) {

@@ -31,7 +31,8 @@ export function metricsSources(sources: DataSource[]): DataSource[] {
 
 // The capability a source must have to feed a signal of each kind: a log
 // signal is read from a logs store (Loki, Elasticsearch), a trace signal from
-// a traces store (Tempo), an error signal from an issue tracker (Sentry).
+// a traces store (Tempo), an error signal from an issue tracker (Sentry). A
+// kind declares only what it implements, so the capability is the whole test.
 const KIND_CAPABILITY: Record<SignalKind, DataSourceCapability> = {
   metric: "metrics",
   log: "logs",
@@ -39,17 +40,10 @@ const KIND_CAPABILITY: Record<SignalKind, DataSourceCapability> = {
   error: "errors",
 };
 
-const TRACES_SIGNAL = "traces.spans";
-
-/** The sources that can feed a signal of this kind. */
-export function bindableSources(sources: DataSource[], kind: SignalKind = "metric", recipes?: ObservabilityRecipe[]): DataSource[] {
+/** The sources that can feed a signal of this kind, by the capabilities their kind declares. */
+export function bindableSources(sources: DataSource[], kind: SignalKind = "metric"): DataSource[] {
   const want = KIND_CAPABILITY[kind] ?? "metrics";
-  const able = sources.filter((s) => (s.capabilities ?? []).includes(want));
-  // The APM kinds (Datadog, New Relic) list `traces` for the trace metrics
-  // they read, not for traces themselves: only a kind with a traces.spans
-  // recipe (Tempo) answers a trace search.
-  if (kind !== "trace" || !recipes?.length) return able;
-  return able.filter((s) => recipes.some((r) => r.source_kind === s.kind && Object.prototype.hasOwnProperty.call(r.signals ?? {}, TRACES_SIGNAL)));
+  return sources.filter((s) => (s.capabilities ?? []).includes(want));
 }
 
 /** Every source that can feed some signal: the Signals page has something to bind. */
@@ -96,7 +90,7 @@ export function initialBindingDraft(
   prefill?: BindingPrefill | null,
   signalKind: SignalKind = "metric",
 ): BindingDraft {
-  const metrics = bindableSources(sources, signalKind, recipes);
+  const metrics = bindableSources(sources, signalKind);
   const sourceId = prefill?.data_source_id || (metrics.length === 1 ? metrics[0].id : "");
   const kind = metrics.find((s) => s.id === sourceId)?.kind ?? sources.find((s) => s.id === sourceId)?.kind;
   const fitting = compatibleRecipes(recipes, kind, signal);

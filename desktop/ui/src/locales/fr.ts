@@ -25,6 +25,7 @@ import { toolchain } from "@/locales/fr/toolchain";
 // French dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const fr: Dict = {
   common: {
+    close: "Fermer",
     save: "Enregistrer",
     saving: "Enregistrement...",
     cancel: "Annuler",

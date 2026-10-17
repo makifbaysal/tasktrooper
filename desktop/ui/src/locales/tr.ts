@@ -25,6 +25,7 @@ import { toolchain } from "@/locales/tr/toolchain";
 // Turkish dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const tr: Dict = {
   common: {
+    close: "Kapat",
     save: "Kaydet",
     saving: "Kaydediliyor...",
     cancel: "İptal",

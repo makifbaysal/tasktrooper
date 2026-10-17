@@ -22,11 +22,15 @@ vi.mock("uplot", () => ({
   },
 }));
 
-const { createDataSource, queryDataSource } = vi.hoisted(() => ({ createDataSource: vi.fn(), queryDataSource: vi.fn() }));
+const { createDataSource, queryDataSource, updateDataSource } = vi.hoisted(() => ({
+  createDataSource: vi.fn(),
+  queryDataSource: vi.fn(),
+  updateDataSource: vi.fn(),
+}));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, createDataSource, queryDataSource } };
+  return { ...actual, api: { ...actual.api, createDataSource, queryDataSource, updateDataSource } };
 });
 
 import { DataSourceForm } from "@/components/operations/sources/DataSourceForm";
@@ -43,12 +47,12 @@ const kafkaKind: DataSourceKindInfo = {
   description: "A Kafka cluster's consumer groups (server text).",
   capabilities: ["metrics", "queues"],
   fields: [
-    field({ key: "bootstrap_servers", label: "Bootstrap servers", type: "text", required: true, placeholder: "localhost:9092", help: "Server help." }),
+    field({ key: "bootstrap_servers", label: "Bootstrap servers", type: "text", required: true, placeholder: "localhost:9092", help: "Server help.", destination: true }),
     field({ key: "sasl_mechanism", label: "SASL", type: "select", options: ["none", "plain", "scram-sha-256", "scram-sha-512"], placeholder: "none" }),
     field({ key: "username", label: "Username", type: "text", help: "For SASL." }),
     field({ key: "password", label: "Password", type: "secret", secret: true, help: "For SASL." }),
     field({ key: "tls", label: "TLS", type: "select", options: ["off", "on"], placeholder: "off" }),
-    field({ key: "ca_cert", label: "CA certificate", type: "secret", secret: true, show_when: { tls: "on" } }),
+    field({ key: "ca_cert", label: "CA certificate", type: "secret", secret: true, show_when: { tls: "on" }, multiline: true }),
   ],
 };
 
@@ -71,6 +75,7 @@ function choose(label: RegExp, option: RegExp) {
 beforeEach(() => {
   createDataSource.mockReset();
   queryDataSource.mockReset();
+  updateDataSource.mockReset();
 });
 
 describe("broker kinds in the data source form", () => {
@@ -113,6 +118,45 @@ describe("broker kinds in the data source form", () => {
         secrets: { password: "pw", ca_cert: pem },
       }),
     );
+  });
+
+  it("says moving the brokers asks for the saved credentials again, and asks for them when they move", async () => {
+    const saved = dataSource({
+      id: "ds-kafka",
+      kind: "kafka",
+      name: "kafka-prod",
+      config: { bootstrap_servers: "B-1:9092,b-2:9092", sasl_mechanism: "plain", username: "monitor", tls: "off" },
+      secrets_set: ["password"],
+      capabilities: ["metrics", "queues"],
+    });
+    render(
+      <MemoryRouter>
+        <I18nProvider>
+          <DataSourceForm open onOpenChange={() => {}} kinds={[kafkaKind]} source={saved} onSaved={() => {}} />
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+    const bootstrap = screen.getByLabelText(/^Bootstrap servers/);
+    expect(bootstrap).toHaveAccessibleDescription(expect.stringContaining("Changing this asks for the saved credentials again."));
+    expect(screen.queryByText(/Saved credentials are never sent to a new address/)).toBeNull();
+
+    fireEvent.change(bootstrap, { target: { value: "b-3:9092" } });
+    expect(await screen.findByText(/Saved credentials are never sent to a new address/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save and check" }));
+    expect(updateDataSource).not.toHaveBeenCalled();
+
+    fireEvent.change(bootstrap, { target: { value: "b-2:9092, b-1.:9092" } });
+    await waitFor(() => expect(screen.queryByText(/Saved credentials are never sent to a new address/)).toBeNull());
+    updateDataSource.mockResolvedValue(saved);
+    fireEvent.click(screen.getByRole("button", { name: "Save and check" }));
+    await waitFor(() => expect(updateDataSource).toHaveBeenCalled());
+    expect(updateDataSource.mock.calls[0][1]).toMatchObject({ secrets: {} });
+  });
+
+  it("does not offer a RabbitMQ queue named with * as a query of its own", () => {
+    expect(inventoryQuery("rabbitmq", "queue/jobs.*")).toBeNull();
+    expect(inventoryQuery("rabbitmq", "queue/jobs.eu")).toBe('{"queue":"jobs.eu"}');
+    expect(inventoryQuery("kafka", "group/a*b")).toBe('{"group":"a*b"}');
   });
 
   it("labels NATS from the locale files, falling back to the server for what they do not cover", () => {
@@ -182,10 +226,12 @@ describe("broker kind helpers", () => {
     expect(inventoryQuery("aws_cloudwatch", "AWS/SQS/ApproximateNumberOfMessagesVisible")).toBe("AWS/SQS/ApproximateNumberOfMessagesVisible");
   });
 
-  it("takes a certificate secret as multi-line and a broker source as live-only", () => {
+  it("takes a field the schema marks multiline as multi-line, whatever its key, and a broker source as live-only", () => {
     expect(isMultilineField(kafkaKind.fields[5])).toBe(true);
     expect(isMultilineField(kafkaKind.fields[3])).toBe(false);
     expect(isMultilineField(prometheusKind.fields[0])).toBe(false);
+    expect(isMultilineField(field({ key: "ca_cert", label: "CA", type: "secret", secret: true }))).toBe(false);
+    expect(isMultilineField(field({ key: "notes", label: "Notes", type: "text", multiline: true }))).toBe(true);
     expect(readsLiveOnly({ capabilities: ["metrics", "queues"] })).toBe(true);
     expect(readsLiveOnly({ capabilities: ["metrics"] })).toBe(false);
     const t = (key: string) => key;

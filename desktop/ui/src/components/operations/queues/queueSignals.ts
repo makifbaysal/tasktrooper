@@ -1,5 +1,4 @@
-import type { ComponentSeries, ComponentSignals, MetricPoint, MetricSeries, SignalSeries } from "@/api";
-import { isInstantResult } from "@/components/operations/charts/chartData";
+import type { ComponentSignals, MetricPoint, MetricSeries, SignalSeries } from "@/api";
 
 export const QUEUE_SIGNAL_PREFIX = "queue.";
 
@@ -58,17 +57,10 @@ export function lastValue(points: MetricPoint[] | undefined): { value: number; a
   return undefined;
 }
 
-// How far before the window's end a live read may be stamped: a broker kind
-// answers at the window's end, or now when that is up to 5 minutes earlier.
-const LIVE_STALENESS_MS = 5 * 60_000;
-
 /** The signal's source reads only the value as it is now (a direct broker
- * kind): bound, read, and every series a single point — at the window's end
- * when it is given, so one stray sample of a history source is not taken for it. */
-export function isLiveSignal(sig: SignalSeries | undefined, windowEnd?: number): boolean {
-  if (!sig || !sig.bound || sig.error || !isInstantResult(sig.series ?? [])) return false;
-  if (windowEnd === undefined || !Number.isFinite(windowEnd)) return true;
-  return sig.series.every((s) => s.points.every(([x]) => x >= windowEnd - LIVE_STALENESS_MS));
+ * kind), as the server flags it: bound, read, `live`. */
+export function isLiveSignal(sig: SignalSeries | undefined): boolean {
+  return Boolean(sig && sig.bound && !sig.error && sig.live === true);
 }
 
 export interface QueueSignalValue {
@@ -80,11 +72,11 @@ export interface QueueSignalValue {
   live: boolean;
 }
 
-export function queueSignalValue(sig: SignalSeries | undefined, combine: Combine, windowEnd?: number): QueueSignalValue {
+export function queueSignalValue(sig: SignalSeries | undefined, combine: Combine): QueueSignalValue {
   const points = combinePoints(sig?.series, combine);
   const last = lastValue(points);
   const previous = lastValue(combinePoints(sig?.previous, combine));
-  return { value: last?.value, at: last?.at, previous: previous?.value, points, live: isLiveSignal(sig, windowEnd) };
+  return { value: last?.value, at: last?.at, previous: previous?.value, points, live: isLiveSignal(sig) };
 }
 
 export type BacklogTrend = "growing" | "draining" | "steady";
@@ -117,21 +109,17 @@ export function queueSuggestionCount(signals: ComponentSignals | null | undefine
     .reduce((n, s) => n + (s.suggestions ?? []).length, 0);
 }
 
-/** The signal whose binding a queue table was read through: by the
- * binding's id, else the first bound `queue.*` signal on the same source. */
+/** The signal whose binding a queue table was read through: the table's
+ * own `signal`, else (an older answer) the binding's by id, else the first
+ * bound `queue.*` signal on the same source. */
 export function tableSignal(
   signals: ComponentSignals | null | undefined,
-  table: { signal_binding_id: string; data_source_id: string },
+  table: { signal_binding_id: string; data_source_id: string; signal?: string },
 ): string | undefined {
+  if (table.signal) return table.signal;
   const list = (signals?.signals ?? []).filter((s) => s.signal.startsWith(QUEUE_SIGNAL_PREFIX));
   return (
     list.find((s) => s.binding?.id === table.signal_binding_id)?.signal ??
     list.find((s) => s.binding?.data_source_id === table.data_source_id)?.signal
   );
-}
-
-/** The end of the window a series answer covers, for `isLiveSignal`. */
-export function seriesWindowEnd(data: ComponentSeries | null | undefined): number | undefined {
-  const at = data?.to ? Date.parse(data.to) : Number.NaN;
-  return Number.isFinite(at) ? at : undefined;
 }

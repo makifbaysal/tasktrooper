@@ -38,16 +38,17 @@ describe("vitalRead", () => {
       { name: "p75", points: [[1, 2000], [2, 2600]] },
       { name: "p95", points: [[1, 5000]] },
     ]));
-    expect(read).toMatchObject({ quantile: "p75", last: { at: 2, value: 2600 } });
+    expect(read).toMatchObject({ last: { at: 2, value: 2600 } });
   });
 
-  it("takes a source's own percentile from a single series, and falls back to the p95 of a histogram read", () => {
-    expect(vitalRead(sig([{ name: "", points: [[1, 1800]] }]))).toMatchObject({ quantile: undefined, last: { value: 1800 } });
-    expect(vitalRead(sig([{ name: "p50", points: [[1, 1]] }, { name: "p95", points: [[1, 9]] }, { name: "p99", points: [[1, 20]] }]))).toMatchObject({
-      quantile: "p95",
-      last: { value: 9 },
+  it("takes a source's own percentile from a single series, and never stands a p95 in for p75", () => {
+    expect(vitalRead(sig([{ name: "", points: [[1, 1800]] }]))).toMatchObject({ last: { value: 1800 } });
+    expect(vitalRead(sig([{ name: "p50", points: [[1, 1]] }, { name: "p95", points: [[1, 9]] }, { name: "p99", points: [[1, 20]] }]))).toEqual({
+      points: [],
+      last: undefined,
     });
-    expect(vitalRead(undefined)).toEqual({ points: [] });
+    expect(vitalRead(sig([{ name: "p95", points: [[1, 9]] }])).last).toBeUndefined();
+    expect(vitalRead(undefined)).toEqual({ points: [], last: undefined });
   });
 
   it("finds the newest point with a value", () => {

@@ -178,6 +178,7 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     acceptFailed: "Gespeichert, aber nicht angenommen: {message}",
   },
   errors: {
+    too_many_definitions: "Dieses Repository hat bereits 200 Definitionen, aktive und vorgeschlagene zusammen. Löschen oder verwerfen Sie einige, bevor Sie eine weitere hinzufügen.",
     required: "Pflichtfeld.",
     invalid: "Ungültig.",
     invalid_option: "Keine der Optionen.",
@@ -185,6 +186,9 @@ export const errorDefinitions: ErrorDefinitionsDict = {
     not_permitted: "Das lässt sich nicht ändern.",
     re2_unsupported: "RE2 kennt keine Lookarounds und keine Rückverweise.",
     fields: {
+      definitions: {
+        too_long: "Dieses Repository hat bereits 200 Definitionen, aktive und vorgeschlagene zusammen.",
+      },
       match: {
         required: "Füllen Sie mindestens ein Feld aus, auf das geprüft wird.",
       },
@@ -270,6 +274,8 @@ export const errorDefinitions: ErrorDefinitionsDict = {
 };
 
 export const aiJob: AIJobDict = {
+  waitingFor: "Wartet seit",
+  waitingHint: "Höchstens zwei Aufträge laufen gleichzeitig; dieser startet, sobald ein Platz frei wird.",
   badge: "KI",
   badgeTitle: "Vom Release Engineer vorgeschlagen",
   ruleTitle: "Vom Release Engineer vorgeschlagen und ausgeschaltet gespeichert; schalten Sie sie ein, sobald sie passt",

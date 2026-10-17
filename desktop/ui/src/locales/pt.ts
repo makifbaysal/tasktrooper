@@ -25,6 +25,7 @@ import { toolchain } from "@/locales/pt/toolchain";
 // Brazilian Portuguese dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const pt: Dict = {
   common: {
+    close: "Fechar",
     save: "Salvar",
     saving: "Salvando...",
     cancel: "Cancelar",

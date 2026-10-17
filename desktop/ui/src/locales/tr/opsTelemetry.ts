@@ -3,6 +3,11 @@ import type { TelemetryDict, TelemetryKindsDict } from "@/locales/en/opsTelemetr
 // Turkish strings for the console's telemetry views; mirrors en/opsTelemetry.ts key for key.
 export const telemetry: TelemetryDict = {
   table: {
+    readAt: "{time} okundu",
+    readAtTitle: "Okunma zamanı: {time}. Sunucu bir okumayı 30 saniye saklar; bu yüzden sayfanın son yenilenmesinden en fazla 30 sn daha eski olabilir.",
+    window: "Son {span}",
+    windowUnknown: "Kaynağın kendi yakın dönem penceresini kapsar",
+    windowDocs: "Tablo pencereleri",
     rows: "{count} satır",
     flag: "İşaret",
     sortBy: "{column} sütununa göre sırala",
@@ -18,9 +23,9 @@ export const telemetry: TelemetryDict = {
     errors: {
       failed: "Bu tablo okunamadı",
       needsParams: "Bağlamada bir parametre eksik",
-      needsParamsBody: "Tablonun, bağlamasında henüz olmayan bir değere ihtiyacı var. Bu değeri Sinyaller'de doldurun.",
+      needsParamsBody: "Tablonun, bağlamasında henüz olmayan bir değere ihtiyacı var.",
       notFound: "Veri kaynağı artık yok",
-      notFoundBody: "Bu tablonun okunduğu veri kaynağı artık mevcut değil. Sinyaller'de başka bir kaynak bağlayın.",
+      notFoundBody: "Bu tablonun okunduğu veri kaynağı artık mevcut değil. Başka bir kaynak bağlayın.",
       unsupported: "Bu kaynak satırları listeleyemiyor",
       unsupportedBody: "Bu tür kaynak sinyali zaman içinde okuyabilir ama her öğe için ayrı bir satır veremez. Bu tabloyu içeren bir tarif bunu sağlar.",
       badQuery: "Kaynak tablonun sorgusunu reddetti",
@@ -33,8 +38,8 @@ export const telemetry: TelemetryDict = {
   },
   endpoints: {
     title: "Uç noktalar",
-    hint: "Bağlı kaynakta şu an nasılsa öyle; dakikada bir okunur",
-    scopeNote: "Uç noktalar bağlı kaynakta şu an nasılsa öyle okunur; zaman aralığı burada geçerli değil.",
+    hint: "Her tablo kaynağının kendi yakın dönem penceresini kapsar; dakikada bir okunur",
+    scopeNote: "Her uç nokta tablosu, kaynağının tabloda gösterilen kendi yakın dönem penceresini kapsar; zaman aralığı burada geçerli değil.",
     flags: {
       errors: "En yüksek hata oranı",
       slowest: "En yavaş p95",
@@ -47,8 +52,8 @@ export const telemetry: TelemetryDict = {
     },
   },
   pages: {
-    scopeNote: "Sayfa görüntülemeleri web analitiği kaynağının şu an bildirdiği gibi okunur; zaman aralığı burada geçerli değil.",
-    hint: "Bağlı web analitiği kaynağının şu an bildirdiği gibi",
+    scopeNote: "Her web tablosu, kaynağının tabloda gösterilen kendi yakın dönem penceresini kapsar; zaman aralığı burada geçerli değil.",
+    hint: "Her tablo, web analitiği kaynağının kendi yakın dönem penceresini kapsar",
     tabsLabel: "Web tabloları",
     tabs: {
       pages: "Sayfalar",
@@ -64,7 +69,7 @@ export const telemetry: TelemetryDict = {
     },
   },
   crashes: {
-    scopeNote: "Çökmeler, mağazaların ve Sentry'nin şu an listelediği gibi okunur; zaman aralığı burada geçerli değil.",
+    scopeNote: "Her çökme tablosu, kaynağının tabloda gösterilen kendi yakın dönem penceresini kapsar; zaman aralığı burada geçerli değil.",
     openIssue: "Kendi konsolunda aç",
     issues: {
       title: "Çökme ve ANR grupları",
@@ -235,7 +240,6 @@ export const telemetry: TelemetryDict = {
       poor: "Kötü",
     },
     quantileP75: "p75",
-    quantileStricter: "{quantile} · Google p75'e göre değerlendirir",
     thresholds: "{good} değerine kadar iyi, {poor} üstü kötü",
     meterLabel: "{band}: {good} değerine kadar iyi, {poor} üstü kötü",
     bind: "Veri kaynağı bağla",
@@ -286,7 +290,7 @@ export const telemetry: TelemetryDict = {
       sentry: "Sentry",
     },
     fromProvider: "{provider} kaynağından okundu",
-    noTask: "Görev, bir bulut ortamının hatalarından oluşturulur. Bunun yerine bu hata grubunu {provider} içinde açın.",
+    noTask: "Bu grup, görev açılacak bir veri kaynağı belirtmiyor. Bunun yerine {provider} içinde açın.",
     openSource: "{provider} veri kaynağı",
     fixSource: "Veri kaynağını aç",
   },
@@ -556,6 +560,14 @@ export const telemetryKinds: TelemetryKindsDict = {
       "Dashboard'da yazıldığı biçimde bir Datadog metrik sorgusu: avg:system.cpu.user{service:web} by {host}. Tablo, her etiket grubunun son değerini okur.",
     fields: {
       site: {
+        options: {
+          datadoghq_com: "US1 · datadoghq.com",
+          us3_datadoghq_com: "US3 · us3.datadoghq.com",
+          us5_datadoghq_com: "US5 · us5.datadoghq.com",
+          datadoghq_eu: "EU1 · datadoghq.eu",
+          ap1_datadoghq_com: "AP1 · ap1.datadoghq.com",
+          "ddog-gov_com": "US1-FED · ddog-gov.com",
+        },
         label: "Site",
         help: "Datadog URL'nizdeki site: app.datadoghq.com için datadoghq.com, app.datadoghq.eu için datadoghq.eu, us5.datadoghq.com için us5.datadoghq.com.",
       },

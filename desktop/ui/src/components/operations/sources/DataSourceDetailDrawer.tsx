@@ -145,7 +145,18 @@ function DrawerBody({ source, kind, cloudAccounts, verifying, onVerify, onEdit }
           )}
 
           <Separator />
-          <DiscoveredMetrics sourceId={source.id} onPickMetric={metrics ? (name) => setQuery(inventoryQuery(source.kind, name)) : undefined} />
+          <DiscoveredMetrics
+            sourceId={source.id}
+            onPickMetric={
+              metrics
+                ? (name) => {
+                    const picked = inventoryQuery(source.kind, name);
+                    if (picked !== null) setQuery(picked);
+                  }
+                : undefined
+            }
+            canPick={(name) => inventoryQuery(source.kind, name) !== null}
+          />
         </div>
       </ScrollArea>
     </>

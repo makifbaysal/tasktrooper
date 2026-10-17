@@ -25,6 +25,7 @@ import { toolchain } from "@/locales/es/toolchain";
 // Spanish dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const es: Dict = {
   common: {
+    close: "Cerrar",
     save: "Guardar",
     saving: "Guardando...",
     cancel: "Cancelar",

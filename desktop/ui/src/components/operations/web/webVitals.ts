@@ -1,5 +1,4 @@
 import type { MetricPoint, MetricSeries, SignalSeries } from "@/api";
-import { headlineSeries } from "@/components/operations/charts/signalChart";
 
 export const CWV_SIGNALS = ["web.lcp", "web.inp", "web.cls"] as const;
 export const TRAFFIC_SIGNALS = ["web.page_views", "web.sessions", "web.visitors"] as const;
@@ -60,9 +59,6 @@ export function lastValue(points: MetricPoint[] | undefined): LastValue | undefi
 export interface VitalRead {
   points: MetricPoint[];
   last?: LastValue;
-  /** The percentile the value is, when the answer says: `p75` judges as
-   * Google does; `p95` (a histogram read at p50/p95/p99) is stricter. */
-  quantile?: string;
 }
 
 function quantileName(series: MetricSeries): string | undefined {
@@ -70,14 +66,13 @@ function quantileName(series: MetricSeries): string | undefined {
   return /^p\d{2}$/.test(head) ? head : undefined;
 }
 
-/** A Core Web Vital's tile value: the p75 series when the answer has one; a
- * single series of a source that reports its own percentile (the web
- * analytics recipes answer p75); else the headline p95 of a histogram read. */
+/** A Core Web Vital's tile value, at p75 as Google rates it: a histogram
+ * read's `p75` series, or the single series of a source that reports its
+ * own percentile (the web analytics recipes answer p75). A read with
+ * quantiles but no p75 has no value to judge. */
 export function vitalRead(signal: SignalSeries | undefined): VitalRead {
   const series = signal?.series ?? [];
-  if (series.length === 0) return { points: [] };
-  const p75 = series.find((s) => quantileName(s) === "p75");
-  const chosen = p75 ?? (series.length === 1 && !quantileName(series[0]) ? series[0] : headlineSeries(series));
+  const chosen = series.find((s) => quantileName(s) === "p75") ?? (series.length === 1 && !quantileName(series[0]) ? series[0] : undefined);
   const points = chosen?.points ?? [];
-  return { points, last: lastValue(points), quantile: chosen ? quantileName(chosen) : undefined };
+  return { points, last: lastValue(points) };
 }

@@ -289,6 +289,7 @@ describe("EntityQueues", () => {
         signal: "queue.backlog",
         unit: "messages",
         bound: true,
+        live: true,
         series: [{ name: "lag", labels: { group: "billing" }, points: [[to, 42]] }],
         previous: [],
         error: null,

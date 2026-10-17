@@ -399,6 +399,7 @@ export const operations = {
       atMost: "≤ {value}",
     },
     rollbackSuggestion: {
+      dismissedAt: "Rollback-Empfehlung {time} verworfen",
       title: "Rollback empfohlen · {version}",
       proposedBy: "Vorgeschlagen von {who}",
       autoOff: "Automatisches Zurückrollen ist für diese Komponente aus, daher muss eine Person zustimmen.",
@@ -410,6 +411,7 @@ export const operations = {
       openChange: "{version} öffnen",
       confirmTitle: "{version} zurückrollen?",
       refusals: {
+        not_configured: "Ein Rollback ist hier nicht möglich: Dieser Server kann die Merges des Releases nicht per Git zurücknehmen, und damit beginnt jedes Rollback.",
         newer_shipped: "Ein Rollback ist jetzt nicht möglich: Seitdem wurde ein neueres Release dieser Komponente ausgeliefert.",
         newer_open: "Ein Rollback ist jetzt nicht möglich: Ein neueres Release dieser Komponente läuft gerade.",
         not_deployed: "Ein Rollback ist jetzt nicht möglich: Es hat die Umgebung nie erreicht.",
@@ -422,6 +424,8 @@ export const operations = {
     },
     detail: {
       impact: {
+        settling: "Nicht geprüft – noch nicht eingeschwungen",
+        uncheckedSettling: "Nicht geprüft, weil das Signal am Ende der Beobachtung noch nicht eingeschwungen war: {thresholds}",
         title: "Wirkung",
         notDeployed: "Noch nicht deployt. Die Wirkung wird ab dem Deploy gemessen.",
         loadFailed: "Die Wirkung des Deploys konnte nicht gelesen werden",
@@ -840,7 +844,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "In {env} ist nichts verbunden",
-      body: "Fehler kommen von dort, wo Ihre Komponenten laufen. Verbinden Sie eine Umgebung im Tab „Deployment & Laufzeit“ eines Repositorys.",
+      body: "Fehler kommen von dort, wo Ihre Komponenten laufen, oder aus einem Fehler-Tracker wie Sentry, der unter den Signalen einer Entität verknüpft ist. Verbinden Sie eine Umgebung im Tab „Deployment & Laufzeit“ eines Repositorys.",
       action: "Zu den Entitäten",
     },
     empty: {
@@ -928,7 +932,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "In {env} ist nichts verbunden",
-      body: "Logs kommen von dort, wo Ihre Komponenten laufen. Verbinden Sie eine Umgebung im Tab „Deployment & Laufzeit“ eines Repositorys.",
+      body: "Logs kommen von dort, wo Ihre Komponenten laufen, oder aus einem Log-Speicher wie Loki, der unter den Signalen einer Entität verknüpft ist. Verbinden Sie eine Umgebung im Tab „Deployment & Laufzeit“ eines Repositorys.",
       action: "Zu den Entitäten",
     },
     empty: {
@@ -1088,6 +1092,7 @@ export const operations = {
       "Adresse und gespeicherte Zugangsdaten werden von diesem Computer entfernt; die Quelle lässt sich hier danach nicht mehr prüfen oder abfragen.",
     deleted: "Datenquelle gelöscht",
     form: {
+      destinationHint: "Wenn Sie dies ändern, werden die gespeicherten Zugangsdaten erneut abgefragt.",
       addTitle: "Datenquelle hinzufügen",
       editTitle: "{name} bearbeiten",
       pickKind: "Welche Art von Quelle ist es?",
@@ -1201,6 +1206,7 @@ export const operations = {
       },
     },
     discover: {
+      patternName: "{metric} enthält *, das eine Abfrage als Muster liest. Verknüpfen Sie die Queue stattdessen über den Parameter queue des Rezepts rabbitmq-direct.",
       title: "Gefundene Metriken",
       description:
         "Die Metriknamen, die diese Quelle enthält. Ein Rezept wird vorgeschlagen, wenn die Metrik vorhanden ist, an der sein Exporter zu erkennen ist.",
@@ -2057,6 +2063,7 @@ export const operations = {
     },
   },
   alertRules: {
+    readFailing: "Die letzten {count} Lesevorgänge sind fehlgeschlagen: {error}",
     customQuery: "Eigene Abfrage",
     stateFilter: "Nach Zustand filtern",
     states: {
@@ -2231,6 +2238,11 @@ export const operations = {
       peak: "Spitze {value}",
     },
     detail: {
+      readFailed: {
+        title: "Das Signal kann nicht gelesen werden",
+        holding: "Sie hat ihren Zustand {count} Auswertungen lang gehalten; nach 10 gilt sie als ohne Daten.",
+        noData: "Sie hat ihren Zustand {count} Auswertungen lang gehalten und gilt jetzt als ohne Daten.",
+      },
       loading: "Regel wird geladen…",
       notFound: "Regel nicht gefunden",
       notFoundBody: "Sie wurde womöglich gelöscht oder beobachtet eine Entität, die diese Seite nicht zeigt.",

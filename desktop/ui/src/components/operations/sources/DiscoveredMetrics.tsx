@@ -15,11 +15,15 @@ interface DiscoveredMetricsProps {
   sourceId: string;
   /** Present for a source that can run queries: a metric name then fills the query box. */
   onPickMetric?: (metric: string) => void;
+  /** False for a name no query can read as itself (a RabbitMQ queue named with `*`): it is listed, not offered. */
+  canPick?: (metric: string) => boolean;
 }
+
+const ANY_NAME = () => true;
 
 /** What a source holds: its metric names (filtered on the server) and the
  * catalog recipes whose telltale metric is among them. */
-export function DiscoveredMetrics({ sourceId, onPickMetric }: DiscoveredMetricsProps) {
+export function DiscoveredMetrics({ sourceId, onPickMetric, canPick = ANY_NAME }: DiscoveredMetricsProps) {
   const { t } = useI18n();
   const d = (key: string, params?: Record<string, string | number>) => t(`operations.sources.discover.${key}`, params);
   const [search, setSearch] = useState("");
@@ -124,7 +128,7 @@ export function DiscoveredMetrics({ sourceId, onPickMetric }: DiscoveredMetricsP
           <ul className="max-h-64 divide-y divide-border/50 overflow-y-auto rounded-md border border-border" aria-label={d("title")}>
             {metrics.map((m) => (
               <li key={m}>
-                {onPickMetric ? (
+                {onPickMetric && canPick(m) ? (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -135,7 +139,10 @@ export function DiscoveredMetrics({ sourceId, onPickMetric }: DiscoveredMetricsP
                     <span className="truncate">{m}</span>
                   </Button>
                 ) : (
-                  <p className="truncate px-3 py-1.5 font-mono text-caption">{m}</p>
+                  <p className="truncate px-3 py-1.5 font-mono text-caption" title={onPickMetric ? d("patternName", { metric: m }) : undefined}>
+                    {m}
+                    {onPickMetric && <span className="sr-only">{` — ${d("patternName", { metric: m })}`}</span>}
+                  </p>
                 )}
               </li>
             ))}

@@ -13,10 +13,12 @@ import {
   judgedSource,
   judgedThresholds,
   opIsChange,
+  readFailures,
   ruleSignalName,
   ruleTimeline,
 } from "@/components/operations/alertRules/alertRules";
 import { AlertStatePill } from "@/components/operations/alertRules/AlertStatePill";
+import { LiveValueList, liveValueItems } from "@/components/operations/charts/LiveValueList";
 import { signalChartSeries } from "@/components/operations/charts/signalChart";
 import { TimeSeriesChart, type ChartSeries } from "@/components/operations/charts/TimeSeriesChart";
 import { AIBadge } from "@/components/operations/ai/AIBadge";
@@ -24,6 +26,7 @@ import { DetailFacts, DetailPanel, DetailSection, type DetailFact } from "@/comp
 import { entityPath } from "@/components/operations/console/opsEntities";
 import { signalFormatter, signalLabel } from "@/components/operations/console/signalFormat";
 import { IssueSeverity } from "@/components/operations/issues/IssueSeverity";
+import { isLiveSignal } from "@/components/operations/queues/queueSignals";
 import { useOpsContext, useOpsHref } from "@/components/operations/shell/OpsContext";
 import type { OpsEntity } from "@/components/operations/shell/useOpsEntities";
 import { toChartSeries } from "@/components/operations/sources/dataSourceSchema";
@@ -209,6 +212,8 @@ function RuleBody({ rule, entity, unit }: { rule: AlertRule; entity?: OpsEntity;
   const chartError =
     source === "query" ? query.error : source === "replay" ? replay.error : (signalAnswer?.error?.message ?? series.error);
   const chartLoading = source === "query" ? query.loading : source === "replay" ? replay.loading : series.loading;
+  const live = source === "series" && isLiveSignal(signalAnswer);
+  const failing = readFailures(rule);
 
   const when = (iso?: string | null) =>
     iso ? (
@@ -260,12 +265,23 @@ function RuleBody({ rule, entity, unit }: { rule: AlertRule; entity?: OpsEntity;
 
   return (
     <>
+      {failing && (
+        <Notice variant="warning" title={d("readFailed.title")}>
+          <p>{d(failing.asNoData ? "readFailed.noData" : "readFailed.holding", { count: failing.count })}</p>
+          {failing.error && <p className="mt-1 font-mono text-micro break-words">{failing.error}</p>}
+        </Notice>
+      )}
       <DetailSection title={d("facts")}>
         <DetailFacts items={facts} />
       </DetailSection>
 
       <DetailSection title={d("chart")}>
-        {chartError && !lines.length ? (
+        {live ? (
+          <>
+            <LiveValueList items={liveValueItems(lines)} formatValue={format} ariaLabel={d("chartLabel", { signal: signalName })} height={150} />
+            <p className="text-micro text-muted-foreground">{t("operations.queues.chart.liveNote")}</p>
+          </>
+        ) : chartError && !lines.length ? (
           <Notice variant="error" title={d("chartFailed")}>
             <p className="break-words text-caption">{chartError}</p>
           </Notice>

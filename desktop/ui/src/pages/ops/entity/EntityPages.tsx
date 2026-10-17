@@ -8,6 +8,8 @@ import { useOpsHref, useOpsPageScope } from "@/components/operations/shell/OpsCo
 import { ComponentTablesView } from "@/components/operations/tables/ComponentTablesView";
 import { WEB_MEASURES, headlineColumn, sortBy, tablesNamed } from "@/components/operations/tables/componentTables";
 import { DataTableCard } from "@/components/operations/tables/DataTableCard";
+import { TableWindowNote } from "@/components/operations/tables/TableWindowNote";
+import { useTableBindings } from "@/components/operations/tables/useTableBindings";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -40,6 +42,7 @@ export default function EntityPages({ entity, env }: EntitySubPageProps) {
   const formatCtx = useMemo(() => ({ locale: intlLocale(lang), t }), [lang, t]);
   const read = useComponentWeb(entity.id, env, table);
   const signalsHref = hasTab(entity.role, "signals") ? href(entityPath(entity.id, "signals")) : undefined;
+  const bindings = useTableBindings(entity.id, env, read.data?.tables ?? [], () => void read.reload());
 
   const select = (next: string) =>
     setParams(
@@ -104,7 +107,10 @@ export default function EntityPages({ entity, env }: EntitySubPageProps) {
                   barColumn={measure}
                   defaultSort={sortBy(measure)}
                   textColumns={PROSE_COLUMNS}
+                  onEditBinding={bindings.edit(tbl)}
                   signalsHref={signalsHref}
+                  readAt={read.data?.read_at}
+                  meta={<TableWindowNote window={bindings.windowOf(tbl)} />}
                   onRetry={() => void read.reload()}
                   retrying={read.fetching}
                 />
@@ -113,6 +119,7 @@ export default function EntityPages({ entity, env }: EntitySubPageProps) {
           />
         </TabsContent>
       </Tabs>
+      {bindings.editor}
     </div>
   );
 }

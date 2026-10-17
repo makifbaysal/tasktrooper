@@ -6,6 +6,7 @@ import {
   fieldHelp,
   fieldLabel,
   fieldPlaceholder,
+  isDestinationField,
   isMultilineField,
   isSecretField,
   optionLabel,
@@ -41,6 +42,8 @@ interface DataSourceFieldInputProps {
   cloudAccounts?: CloudAccount[];
   /** The store credential vault; a `store_credential` field offers its provider's saved one. Null while unknown. */
   storeCredentials?: StoreCredentialView[] | null;
+  /** The source holds secrets, so a `destination` field says that moving it asks for them again. */
+  secretsStored?: boolean;
 }
 
 export const INTEGRATIONS_PATH = "/settings/integrations";
@@ -66,6 +69,7 @@ export function DataSourceFieldInput({
   disabled = false,
   cloudAccounts = [],
   storeCredentials = null,
+  secretsStored = false,
 }: DataSourceFieldInputProps) {
   const { t } = useI18n();
   const f = (key: string, params?: Record<string, string | number>) => t(`operations.sources.form.${key}`, params);
@@ -79,9 +83,12 @@ export function DataSourceFieldInput({
     help: `${id}-help`,
     error: `${id}-error`,
     stored: `${id}-stored`,
+    destination: `${id}-destination`,
   };
+  const destinationHint = secretsStored && isDestinationField(field);
   const describedBy =
-    [help && ids.help, stored && secret && ids.stored, error && ids.error].filter(Boolean).join(" ") || undefined;
+    [help && ids.help, stored && secret && ids.stored, destinationHint && ids.destination, error && ids.error].filter(Boolean).join(" ") ||
+    undefined;
   const invalid = error ? true : undefined;
 
   let control;
@@ -239,6 +246,11 @@ export function DataSourceFieldInput({
             {removed ? f("secretKeep") : f("secretRemove")}
           </Button>
         </div>
+      )}
+      {destinationHint && (
+        <p id={ids.destination} className="text-caption text-muted-foreground">
+          {f("destinationHint")}
+        </p>
       )}
       {help && (
         <p id={ids.help} className="text-caption text-muted-foreground">

@@ -11,6 +11,8 @@ import {
   impactValue,
   impactWindow,
   sortImpactSignals,
+  stillSettling,
+  uncheckedThresholds,
 } from "@/components/operations/changes/releaseImpact";
 import { signalChartSeries } from "@/components/operations/charts/signalChart";
 import { TimeSeriesChart } from "@/components/operations/charts/TimeSeriesChart";
@@ -104,13 +106,16 @@ function ImpactBody({ release, impact, check, role, entityId }: ImpactBodyProps)
   const golden = useMemo(() => viewFor(role).golden.map((g) => g.id), [role]);
   const signals = useMemo(() => sortImpactSignals(impact.signals ?? [], golden), [impact.signals, golden]);
   const envLabel = t(`cloud.environments.${impact.environment}`);
+  const unchecked = uncheckedThresholds(check);
+  const names = (list: string[]) => list.map((name) => thresholdName(t, name)).join(", ");
 
   return (
     <div className="space-y-3">
       {impact.pending && <Notice variant="info" title={k("pendingTitle")}>{k("pendingBody", { minutes: impact.window_minutes })}</Notice>}
-      {(check?.unchecked ?? []).length > 0 && (
-        <p className="text-caption text-muted-foreground">{k("unchecked", { thresholds: check!.unchecked!.map((name) => thresholdName(t, name)).join(", ") })}</p>
+      {unchecked.settling.length > 0 && (
+        <p className="text-caption text-muted-foreground">{k("uncheckedSettling", { thresholds: names(unchecked.settling) })}</p>
       )}
+      {unchecked.unread.length > 0 && <p className="text-caption text-muted-foreground">{k("unchecked", { thresholds: names(unchecked.unread) })}</p>}
       {signals.length === 0 ? (
         <div className="space-y-2 text-caption text-muted-foreground">
           <p>{k("noSignals", { env: envLabel })}</p>
@@ -172,6 +177,11 @@ function ImpactRow({ signal: s, held, ctx }: { signal: ReleaseImpactSignal; held
             {held?.breached && (
               <Badge variant="outline" className="ml-1.5 border-transparent bg-destructive/15 px-1.5 py-0 text-micro text-destructive">
                 {t("operations.changes.detail.impact.breached")}
+              </Badge>
+            )}
+            {stillSettling(held) && (
+              <Badge variant="outline" className="ml-1.5 border-transparent bg-muted px-1.5 py-0 text-micro text-muted-foreground">
+                {t("operations.changes.detail.impact.settling")}
               </Badge>
             )}
           </span>

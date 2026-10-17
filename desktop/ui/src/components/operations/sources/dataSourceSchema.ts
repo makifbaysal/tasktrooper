@@ -68,14 +68,16 @@ export function isSecretField(field: DataSourceField): boolean {
   return field.secret || field.type === "secret" || field.type === "headers";
 }
 
-// The schema has no multi-line type: a certificate or key is a secret
-// field named for what it holds (Kafka's `ca_cert`, GA4's
-// `service_account_json`), and a PEM or a key file needs its line breaks, so
-// it is typed in a text area rather than a password box.
-const MULTILINE_KEY = /(^|_)(cert|certificate|pem|ca|json)$/;
-
+/** A PEM or a key file needs its line breaks: the schema's `multiline`
+ * field is typed in a text area rather than a one-line box. */
 export function isMultilineField(field: DataSourceField): boolean {
-  return (field.type === "secret" || field.type === "text") && MULTILINE_KEY.test(field.key);
+  return field.multiline === true;
+}
+
+/** A field naming where the kind connects (Kafka's `bootstrap_servers`):
+ * moving it asks for the stored secrets again. */
+export function isDestinationField(field: DataSourceField): boolean {
+  return field.destination === true;
 }
 
 export function fieldShown(field: DataSourceField, values: Record<string, string>): boolean {
@@ -164,16 +166,44 @@ function urlOrigin(raw: string): string | null {
   }
 }
 
+// Mirrors the server's hostSet(): the host:port entries, hosts
+// case-insensitive with a trailing dot ignored, in any order, each once.
+function hostEntry(entry: string): string {
+  const close = entry.startsWith("[") ? entry.indexOf("]") : -1;
+  const colon = entry.indexOf(":");
+  let host = entry;
+  let port = "";
+  if (close > 0) {
+    host = entry.slice(0, close + 1);
+    port = entry.slice(close + 1);
+  } else if (colon > 0 && colon === entry.lastIndexOf(":")) {
+    host = entry.slice(0, colon);
+    port = entry.slice(colon);
+  }
+  return `${host.toLowerCase().replace(/\.$/, "")}${port}`;
+}
+
+function hostSet(raw: string): string {
+  const hosts = raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map(hostEntry);
+  return [...new Set(hosts)].sort().join(",");
+}
+
 /** True when a shown URL field now points at another scheme, host or port
- * than the saved one; a path change is not a move. A value that does not
- * parse yet is not counted: the URL check reports it instead. */
+ * than the saved one (a path change is not a move), or a destination field
+ * lists other hosts. A URL that does not parse yet is not counted: the URL
+ * check reports it instead. */
 export function addressMoved(kind: DataSourceKindInfo, draft: DataSourceDraft, source?: DataSource | null): boolean {
   if (!source) return false;
   return visibleFields(kind, draft).some((field) => {
-    if (field.type !== "url") return false;
     const before = source.config?.[field.key] ?? "";
     const after = (draft.values[field.key] ?? "").trim();
     if (before === "" || before === after) return false;
+    if (isDestinationField(field)) return after !== "" && hostSet(before) !== hostSet(after);
+    if (field.type !== "url") return false;
     const next = urlOrigin(after);
     return next !== null && urlOrigin(before) !== next;
   });
@@ -301,10 +331,17 @@ export function fieldPlaceholder(t: Translate, kind: string, field: DataSourceFi
   return firstTranslated(t, [`${NS}.kinds.${kind}.fields.${field.key}.placeholder`], field.placeholder ?? "");
 }
 
+/** An option as a locale key segment: a lookup splits keys on ".", so
+ * Datadog's `datadoghq.com` is looked up as `datadoghq_com`. */
+export function optionKey(option: string): string {
+  return option.replace(/[.]/g, "_");
+}
+
 export function optionLabel(t: Translate, kind: string, field: DataSourceField, option: string): string {
+  const key = optionKey(option);
   return firstTranslated(
     t,
-    [`${NS}.kinds.${kind}.fields.${field.key}.options.${option}`, `${NS}.fields.${field.key}.options.${option}`],
+    [`${NS}.kinds.${kind}.fields.${field.key}.options.${key}`, `${NS}.fields.${field.key}.options.${key}`],
     option,
   );
 }
@@ -344,14 +381,22 @@ const INVENTORY_QUERIES: Record<string, Record<string, (rest: string) => Record<
   },
 };
 
+// RabbitMQ's query reads `*` in a queue name as a pattern, so a queue whose
+// name holds one cannot be named by a query of its own; only the
+// rabbitmq-direct recipe's escaped `queue` param names it.
+function patternName(kind: string, query: Record<string, string>): boolean {
+  return kind === "rabbitmq" && (query.queue ?? "").includes("*");
+}
+
 /** What picking a discovered name puts in the query box: for a broker kind
  * the JSON query that reads it, else the name itself (a metric name is
- * already a query). */
-export function inventoryQuery(kind: string, name: string): string {
+ * already a query); null for a name no query can read as itself. */
+export function inventoryQuery(kind: string, name: string): string | null {
   const at = name.indexOf("/");
   if (at <= 0) return name;
   const make = INVENTORY_QUERIES[kind]?.[name.slice(0, at)];
   const query = make?.(name.slice(at + 1));
+  if (query && patternName(kind, query)) return null;
   return query ? JSON.stringify(query) : name;
 }
 

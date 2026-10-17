@@ -179,6 +179,7 @@ export const errorDefinitions = {
     acceptFailed: "Saved, but couldn't accept it: {message}",
   },
   errors: {
+    too_many_definitions: "This repository already holds 200 definitions, active and suggested together. Delete or dismiss some before adding another.",
     required: "Required.",
     invalid: "Not valid.",
     invalid_option: "Not one of the options.",
@@ -186,6 +187,9 @@ export const errorDefinitions = {
     not_permitted: "This can't be changed.",
     re2_unsupported: "RE2 has no lookarounds or backreferences.",
     fields: {
+      definitions: {
+        too_long: "This repository already holds 200 definitions, active and suggested together.",
+      },
       match: {
         required: "Fill in at least one field to match on.",
       },
@@ -271,6 +275,8 @@ export const errorDefinitions = {
 };
 
 export const aiJob = {
+  waitingFor: "Waiting for",
+  waitingHint: "At most two jobs run at once; this one starts when a slot frees up.",
   badge: "AI",
   badgeTitle: "Proposed by the release engineer",
   ruleTitle: "Proposed by the release engineer and saved switched off; turn it on once it looks right",

@@ -401,6 +401,7 @@ export const operations: OperationsDict = {
       atMost: "≤ {value}",
     },
     rollbackSuggestion: {
+      dismissedAt: "Geri alma önerisi {time} kapatıldı",
       title: "Geri alma öneriliyor · {version}",
       proposedBy: "Öneren: {who}",
       autoOff: "Bu bileşende otomatik geri alma kapalı, bu yüzden birinin onaylaması gerekiyor.",
@@ -412,6 +413,7 @@ export const operations: OperationsDict = {
       openChange: "{version} sürümünü aç",
       confirmTitle: "{version} geri alınsın mı?",
       refusals: {
+        not_configured: "Burada geri alınamaz: bu sunucunun, her geri almanın ilk adımı olan sürüm birleştirmelerini git'te geri çevirme imkânı yok.",
         newer_shipped: "Şu an geri alınamaz: bu bileşenin daha yeni bir sürümü o zamandan beri yayınlandı.",
         newer_open: "Şu an geri alınamaz: bu bileşenin daha yeni bir sürümü sürüyor.",
         not_deployed: "Şu an geri alınamaz: ortama hiç ulaşmadı.",
@@ -424,6 +426,8 @@ export const operations: OperationsDict = {
     },
     detail: {
       impact: {
+        settling: "Kontrol edilmedi — henüz oturmadı",
+        uncheckedSettling: "Gözlem süresi bittiğinde sinyal henüz oturmadığı için kontrol edilmedi: {thresholds}",
         title: "Etki",
         notDeployed: "Henüz deploy edilmedi. Etki, deploy anından itibaren ölçülür.",
         loadFailed: "Deploy etkisi okunamadı",
@@ -842,7 +846,7 @@ export const operations: OperationsDict = {
     },
     noEnvironments: {
       title: "{env} ortamında bağlı bir şey yok",
-      body: "Hatalar bileşenlerinizin çalıştığı yerden gelir. Bir reponun Deploy ve Çalışma sekmesinden ortam bağlayın.",
+      body: "Hatalar bileşenlerinizin çalıştığı yerden ya da bir varlığın Sinyaller sekmesinde bağlanan Sentry gibi bir hata izleyiciden gelir. Bir reponun Deploy ve Çalışma sekmesinden ortam bağlayın.",
       action: "Bileşenlere git",
     },
     empty: {
@@ -930,7 +934,7 @@ export const operations: OperationsDict = {
     },
     noEnvironments: {
       title: "{env} ortamında bağlı bir şey yok",
-      body: "Loglar bileşenlerinizin çalıştığı yerden gelir. Bir reponun Deploy ve Çalışma sekmesinden ortam bağlayın.",
+      body: "Loglar bileşenlerinizin çalıştığı yerden ya da bir varlığın Sinyaller sekmesinde bağlanan Loki gibi bir log deposundan gelir. Bir reponun Deploy ve Çalışma sekmesinden ortam bağlayın.",
       action: "Bileşenlere git",
     },
     empty: {
@@ -1090,6 +1094,7 @@ export const operations: OperationsDict = {
       "Adresi ve kayıtlı kimlik bilgileri bu bilgisayardan silinir; kaynak artık buradan denetlenemez ve sorgulanamaz.",
     deleted: "Veri kaynağı silindi",
     form: {
+      destinationHint: "Bunu değiştirirseniz kayıtlı kimlik bilgileri yeniden istenir.",
       addTitle: "Veri kaynağı ekle",
       editTitle: "{name} kaynağını düzenle",
       pickKind: "Nasıl bir kaynak?",
@@ -1200,6 +1205,7 @@ export const operations: OperationsDict = {
       },
     },
     discover: {
+      patternName: "{metric} adında * var ve sorgu bunu desen olarak okur. Bunun yerine rabbitmq-direct tarifinin queue parametresiyle bağlayın.",
       title: "Bulunan metrikler",
       description:
         "Bu kaynağın tuttuğu metrik adları. Bir tarif, exporter'ını ele veren metrik kaynakta bulunduğunda önerilir.",
@@ -2057,6 +2063,7 @@ export const operations: OperationsDict = {
     },
   },
   alertRules: {
+    readFailing: "Son {count} okuma başarısız oldu: {error}",
     customQuery: "Özel sorgu",
     stateFilter: "Duruma göre filtrele",
     states: {
@@ -2231,6 +2238,11 @@ export const operations: OperationsDict = {
       peak: "Zirve {value}",
     },
     detail: {
+      readFailed: {
+        title: "Sinyal okunamıyor",
+        holding: "{count} değerlendirme boyunca durumunu korudu; 10'dan sonra veri yok olarak okunur.",
+        noData: "{count} değerlendirme boyunca durumunu korudu; artık veri yok olarak okunuyor.",
+      },
       loading: "Kural yükleniyor…",
       notFound: "Kural bulunamadı",
       notFoundBody: "Silinmiş olabilir ya da bu sayfanın göstermediği bir bileşeni izliyordur.",

@@ -5,6 +5,11 @@
 // into `operations.sources.kinds`. No `as const`, as there.
 export const telemetry = {
   table: {
+    readAt: "Read {time}",
+    readAtTitle: "Read at {time}. The server keeps a read for 30 seconds, so it can be up to 30 s older than this page's last refresh.",
+    window: "Covers the last {span}",
+    windowUnknown: "Covers the source's own recent window",
+    windowDocs: "Table windows",
     rows: "{count} rows",
     flag: "Flag",
     sortBy: "Sort by {column}",
@@ -20,9 +25,9 @@ export const telemetry = {
     errors: {
       failed: "Couldn't read this table",
       needsParams: "The binding is missing a parameter",
-      needsParamsBody: "The table needs a value its binding doesn't have yet. Fill it in on Signals.",
+      needsParamsBody: "The table needs a value its binding doesn't have yet.",
       notFound: "The data source is gone",
-      notFoundBody: "The data source this table was read from no longer exists. Bind another one on Signals.",
+      notFoundBody: "The data source this table was read from no longer exists. Bind another one.",
       unsupported: "This source can't list rows",
       unsupportedBody: "Its kind can read the signal over time, but not one row per item. A recipe with this table gives one.",
       badQuery: "The source refused the table's query",
@@ -35,8 +40,8 @@ export const telemetry = {
   },
   endpoints: {
     title: "Endpoints",
-    hint: "As the bound source holds them now, read every minute",
-    scopeNote: "Endpoints are read as the bound source holds them now, so the time range doesn't apply.",
+    hint: "Each table covers its source's own recent window, read every minute",
+    scopeNote: "Each endpoints table covers its source's own recent window, shown on the table, so the time range doesn't apply.",
     flags: {
       errors: "Highest error rate",
       slowest: "Slowest p95",
@@ -49,8 +54,8 @@ export const telemetry = {
     },
   },
   pages: {
-    scopeNote: "Page views are read as the web analytics source reports them now, so the time range doesn't apply.",
-    hint: "As the bound web analytics source reports them now",
+    scopeNote: "Each web table covers its source's own recent window, shown on the table, so the time range doesn't apply.",
+    hint: "Each table covers its web analytics source's own recent window",
     tabsLabel: "Web tables",
     tabs: {
       pages: "Pages",
@@ -66,7 +71,7 @@ export const telemetry = {
     },
   },
   crashes: {
-    scopeNote: "Crashes are read as the stores and Sentry list them now, so the time range doesn't apply.",
+    scopeNote: "Each crash table covers its source's own recent window, shown on the table, so the time range doesn't apply.",
     openIssue: "Open in its console",
     issues: {
       title: "Crash and ANR issues",
@@ -237,7 +242,6 @@ export const telemetry = {
       poor: "Poor",
     },
     quantileP75: "p75",
-    quantileStricter: "{quantile} · Google rates p75",
     thresholds: "Good up to {good}, poor past {poor}",
     meterLabel: "{band}: good up to {good}, poor past {poor}",
     bind: "Bind a data source",
@@ -288,7 +292,7 @@ export const telemetry = {
       sentry: "Sentry",
     },
     fromProvider: "Read from {provider}",
-    noTask: "A task is made from a cloud environment's errors. Open this issue in {provider} instead.",
+    noTask: "This group names no data source to make a task from. Open it in {provider} instead.",
     openSource: "{provider} data source",
     fixSource: "Open the data source",
   },
@@ -560,6 +564,14 @@ export const telemetryKinds = {
       "A Datadog metric query, as a dashboard writes it: avg:system.cpu.user{service:web} by {host}. A table reads each tag group's latest value.",
     fields: {
       site: {
+        options: {
+          datadoghq_com: "US1 · datadoghq.com",
+          us3_datadoghq_com: "US3 · us3.datadoghq.com",
+          us5_datadoghq_com: "US5 · us5.datadoghq.com",
+          datadoghq_eu: "EU1 · datadoghq.eu",
+          ap1_datadoghq_com: "AP1 · ap1.datadoghq.com",
+          "ddog-gov_com": "US1-FED · ddog-gov.com",
+        },
         label: "Site",
         help: "The site in your Datadog URL: app.datadoghq.com is datadoghq.com, app.datadoghq.eu is datadoghq.eu, us5.datadoghq.com is us5.datadoghq.com.",
       },

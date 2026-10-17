@@ -230,19 +230,61 @@ describe("OpsAlertsPage", () => {
     expect(screen.getByTestId("where")).toHaveTextContent("/operations/entity/c-lib/alerts?rule=Lib%20rule");
   });
 
-  it("charts a web vital at p75 from the server's replay, and keeps the console's window on the issue link", async () => {
+  it("charts a web vital at p75 from the series read, with no replay, and keeps the console's window on the issue link", async () => {
     const at = Date.now() - 30 * 60_000;
-    apiMock.backtestAlertRule.mockResolvedValue({ fires: [], series: [{ name: "web.lcp", points: [[at, 2600]] }], step_seconds: 300 });
+    apiMock.getComponentSeries.mockResolvedValue({
+      from: "",
+      to: "",
+      step_seconds: 60,
+      signals: [
+        {
+          signal: "web.lcp",
+          unit: "ms",
+          bound: true,
+          series: ["p50", "p75", "p95", "p99"].map((name, i) => ({ name, labels: {}, points: [[at, 1000 * (i + 1)]] })),
+          previous: [],
+          error: null,
+        },
+      ],
+    });
     apiMock.listAlertRuleEvents.mockResolvedValue({
       events: [{ at: new Date(at).toISOString(), from_state: "ok", to_state: "firing", value: 2600, incident_id: "inc-7" }],
     });
     renderAt("/operations/alerts?rule=Web%20vitals&range=6h");
     const panel = await screen.findByRole("dialog");
-    await waitFor(() =>
-      expect(apiMock.backtestAlertRule).toHaveBeenCalledWith(expect.objectContaining({ signal: "web.lcp", component_id: "c-web", days: 1, channels: [] })),
-    );
-    expect(apiMock.getComponentSeries).not.toHaveBeenCalledWith("c-web", expect.objectContaining({ signals: ["web.lcp"] }));
+    await waitFor(() => expect(apiMock.getComponentSeries).toHaveBeenCalledWith("c-web", expect.objectContaining({ signals: ["web.lcp"] })));
+    expect(apiMock.backtestAlertRule).not.toHaveBeenCalled();
     expect(await within(panel).findByRole("link", { name: "Open the issue" })).toHaveAttribute("href", "/operations/issues?id=inc-7&range=6h");
+  });
+
+  it("says a rule whose reads fail held its state, in the table and the panel", async () => {
+    apiMock.listAlertRules.mockResolvedValue({
+      rules: [rule("Flaky", { error_count: 4, last_error: "prometheus: connection refused" }), rule("Stale", { error_count: 12, last_error: "" })],
+    });
+    renderAt("/operations/alerts?rule=Flaky");
+    const table = await screen.findByRole("table", { name: "Alert rules", hidden: true });
+    expect(within(table).getByText("The last 4 reads failed: prometheus: connection refused")).toBeInTheDocument();
+    expect(within(table).getByText("The last 12 reads failed: —")).toBeInTheDocument();
+    const panel = await screen.findByRole("dialog");
+    expect(within(panel).getByText("The signal can't be read")).toBeInTheDocument();
+    expect(within(panel).getByText("It held its state for 4 evaluations; after 10 it reads as no data.")).toBeInTheDocument();
+    expect(within(panel).getByText("prometheus: connection refused")).toBeInTheDocument();
+  });
+
+  it("shows a live broker signal's value in the panel, not a one-point chart", async () => {
+    apiMock.listAlertRules.mockResolvedValue({
+      rules: [rule("Backlog", { component_id: "c-api", signal: "queue.backlog", condition: { op: "gt", threshold: 100, for_seconds: 0, window_seconds: 300 } })],
+    });
+    apiMock.getComponentSeries.mockResolvedValue({
+      from: "",
+      to: "",
+      step_seconds: 60,
+      signals: [{ signal: "queue.backlog", unit: "messages", bound: true, live: true, series: [{ name: "lag", labels: {}, points: [[Date.now(), 42]] }], previous: [], error: null }],
+    });
+    renderAt("/operations/alerts?rule=Backlog");
+    const panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText("42 messages")).toBeInTheDocument();
+    expect(within(panel).getByText(/Live value — connect an exporter-backed source for history/)).toBeInTheDocument();
   });
 
   it("shows a channel the rule names that does not deliver yet", async () => {

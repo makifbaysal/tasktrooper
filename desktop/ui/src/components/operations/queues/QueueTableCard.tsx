@@ -7,6 +7,7 @@ import {
   cellText,
   columnUnit,
   defaultSort,
+  isKeyColumn,
   isValueColumn,
   paramChips,
   queueErrorView,
@@ -16,6 +17,7 @@ import {
   worstRows,
   type TableSort,
 } from "@/components/operations/queues/queueTables";
+import { TableReadAt } from "@/components/operations/tables/TableReadAt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -35,6 +37,8 @@ interface QueueTableCardProps {
   onEditBinding: () => void;
   onRetry: () => void;
   retrying?: boolean;
+  /** The answer's `read_at`, shown in the header. */
+  readAt?: string;
 }
 
 const TH = "px-3 py-1.5 text-left text-micro font-medium tracking-wide text-muted-foreground uppercase whitespace-nowrap";
@@ -42,7 +46,7 @@ const TD = "px-3 py-1.5 align-middle whitespace-nowrap";
 
 /** One source's queues as they are now: a dense, sortable table (largest
  * backlog first), its worst rows called out, or why it could not be read. */
-export function QueueTableCard({ table, formatCtx, threshold, onEditBinding, onRetry, retrying = false }: QueueTableCardProps) {
+export function QueueTableCard({ table, formatCtx, threshold, onEditBinding, onRetry, retrying = false, readAt }: QueueTableCardProps) {
   const { t } = useI18n();
   const q = (key: string, params?: Record<string, string | number>) => t(`operations.queues.${key}`, params);
   const columns = table.columns ?? [];
@@ -55,12 +59,12 @@ export function QueueTableCard({ table, formatCtx, threshold, onEditBinding, onR
   const keys = useMemo(() => {
     const seen = new Map<string, number>();
     return shown.map((row, i) => {
-      const base = rowKey(row, columns, i);
+      const base = rowKey(row, columns, i, table.key_columns);
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
       return n === 0 ? base : `${base}\u0000${n}`;
     });
-  }, [shown, columns]);
+  }, [shown, columns, table.key_columns]);
 
   const source = table.data_source_name || q("table.gone");
   const system = table.messaging_system ? systemLabel(t, table.messaging_system) : "";
@@ -87,9 +91,12 @@ export function QueueTableCard({ table, formatCtx, threshold, onEditBinding, onR
           ))}
         </p>
       </div>
-      {!table.error && (
-        <span className="text-micro text-muted-foreground tabular-nums">{q("table.rows", { count: (table.rows ?? []).length })}</span>
-      )}
+      <div className="flex flex-col items-end gap-0.5">
+        {!table.error && (
+          <span className="text-micro text-muted-foreground tabular-nums">{q("table.rows", { count: (table.rows ?? []).length })}</span>
+        )}
+        <TableReadAt readAt={readAt} />
+      </div>
     </div>
   );
 
@@ -143,7 +150,7 @@ export function QueueTableCard({ table, formatCtx, threshold, onEditBinding, onR
                   <span className="sr-only">{q("table.flag")}</span>
                 </th>
                 {columns.map((column) => {
-                  const value = isValueColumn(column);
+                  const value = isValueColumn(column) && !isKeyColumn(column, table.key_columns);
                   const unit = columnUnit(column, formatCtx);
                   const label = column.label || column.key;
                   return (
@@ -203,13 +210,15 @@ export function QueueTableCard({ table, formatCtx, threshold, onEditBinding, onR
                     </td>
                     {columns.map((column) => {
                       const cell = cellText(row[column.key], column, formatCtx);
-                      const value = isValueColumn(column);
+                      const key = isKeyColumn(column, table.key_columns);
+                      const value = isValueColumn(column) && !key;
                       return (
                         <td
                           key={column.key}
                           className={cn(
                             TD,
                             value ? "text-right font-mono tabular-nums" : "max-w-[18rem] truncate font-mono",
+                            key && "font-medium text-foreground",
                             value && column.key === backlog?.key && flagged && (reason === "threshold" ? "font-semibold text-destructive" : "font-semibold"),
                           )}
                           title={cell?.title ?? (!value && cell ? cell.text : undefined)}

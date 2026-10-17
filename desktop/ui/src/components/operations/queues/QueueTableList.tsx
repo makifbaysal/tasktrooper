@@ -13,12 +13,13 @@ interface QueueTableListProps {
   onEditBinding: (table: QueueTable) => void;
   onRetry: () => void;
   retrying: boolean;
+  readAt?: string;
 }
 
 /** Every queue table of the component, its worst rows measured against the
  * backlog alert's threshold when a rule sets one. Mounted only with tables to
  * show, so a component without any reads no rules. */
-export function QueueTableList({ componentId, env, tables, formatCtx, onEditBinding, onRetry, retrying }: QueueTableListProps) {
+export function QueueTableList({ componentId, env, tables, formatCtx, onEditBinding, onRetry, retrying, readAt }: QueueTableListProps) {
   const rules = useAlertRules(componentId);
   const threshold = useMemo(() => backlogThreshold(rules.data, env), [rules.data, env]);
   return (
@@ -32,6 +33,7 @@ export function QueueTableList({ componentId, env, tables, formatCtx, onEditBind
           onEditBinding={() => onEditBinding(table)}
           onRetry={onRetry}
           retrying={retrying}
+          readAt={readAt}
         />
       ))}
     </div>

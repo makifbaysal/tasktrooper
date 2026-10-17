@@ -381,6 +381,7 @@ export function DataSourceForm({
             disabled={saving}
             cloudAccounts={cloudAccounts}
             storeCredentials={storeCredentials}
+            secretsStored={(target?.secrets_set ?? []).length > 0}
           />
         ))}
       </div>

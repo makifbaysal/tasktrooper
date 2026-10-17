@@ -3316,7 +3316,11 @@ export type DataSourceFieldType = "text" | "url" | "secret" | "select" | "header
  * `cloud_account` field holds the id of a connected cloud account of
  * `provider`; a `store_credential` field names the workspace's store
  * credential of `provider` (`google_play`, `asc`), and its value is that
- * provider. `default` is what a shown field takes when none is sent. */
+ * provider. `default` is what a shown field takes when none is sent.
+ * `destination` marks a text field holding the `host[:port]` list a kind
+ * connects to (Kafka's `bootstrap_servers`): moving it asks for the stored
+ * secrets again, like a URL field's origin. `multiline` marks a value that
+ * spans lines (a PEM certificate, a key file), typed in a text area. */
 export interface DataSourceField {
   key: string;
   label: string;
@@ -3329,6 +3333,8 @@ export interface DataSourceField {
   secret: boolean;
   provider?: CloudProviderKind | StoreCredentialProvider;
   default?: string;
+  destination?: boolean;
+  multiline?: boolean;
 }
 
 export interface DataSourceKindInfo {
@@ -3547,12 +3553,15 @@ export interface SignalSeriesError {
 }
 
 /** One signal's window. `previous` is the period before, already shifted onto
- * this window's time axis; `http.latency` answers one series per quantile
- * (`p50`, `p95`, `p99`). */
+ * this window's time axis; a quantile signal read from a histogram answers
+ * one series per quantile (`p50`, `p75`, `p95`, `p99`). `live`: the bound
+ * source reads only the value now (a direct broker kind), so each series is
+ * one point however long the window, and `previous` is empty. */
 export interface SignalSeries {
   signal: string;
   unit: string;
   bound: boolean;
+  live?: boolean;
   series: MetricSeries[];
   previous: MetricSeries[];
   error: SignalSeriesError | null;
@@ -3583,6 +3592,8 @@ export interface GoldenSignalValue {
   /** False when the signal has no confirmed binding; nulls then mean
    * "unbound", not "no data". Absent from a server older than the flag. */
   bound?: boolean;
+  /** The bound source reads only the value now; the spark is one point. */
+  live?: boolean;
   value: number | null;
   previous: number | null;
   spark: MetricPoint[];
@@ -3616,6 +3627,8 @@ export type QueueTableErrorCode = "needs_params" | "bad_query" | "unsupported" |
  * `error` and no rows; the others stand. */
 export interface QueueTable {
   signal_binding_id: string;
+  /** The naming binding's signal: the one whose editor fixes an `error`. */
+  signal?: string;
   data_source_id: string;
   data_source_name: string;
   recipe_id: string;
@@ -3623,14 +3636,18 @@ export interface QueueTable {
   messaging_system: string;
   params: Record<string, string>;
   columns: TableColumn[];
+  /** The columns that name a row (Kafka `topic`, `partition`); absent when unknown. */
+  key_columns?: string[];
   rows: Array<Record<string, string | number | null>>;
   truncated: boolean;
   error: { code: QueueTableErrorCode | string; message: string } | null;
 }
 
+/** `read_at`: when the tables were read; an answer the server kept (30 s) is older than the request. */
 export interface ComponentQueues {
   component_id: string;
   environment: DeployEnvironment;
+  read_at?: string;
   queues: QueueTable[];
 }
 
@@ -3648,12 +3665,16 @@ export const WEB_TABLES: WebTableName[] = ["pages", "referrers", "countries", "d
  * (as QueueTableErrorCode) and no rows; the others stand. */
 export interface ComponentTable {
   signal_binding_id?: string;
+  /** The naming binding's signal: the one whose editor fixes an `error`. */
+  signal?: string;
   data_source_id: string;
   data_source_name: string;
   recipe_id: string;
   table: string;
   params?: Record<string, string>;
   columns: TableColumn[];
+  /** The recipe table's `key_labels`: the columns that name a row. */
+  key_columns?: string[];
   rows: Array<Record<string, string | number | null>>;
   truncated: boolean;
   error: { code: QueueTableErrorCode | string; message: string } | null;
@@ -3662,6 +3683,7 @@ export interface ComponentTable {
 export interface ComponentTables {
   component_id: string;
   environment: DeployEnvironment;
+  read_at?: string;
   tables: ComponentTable[];
 }
 
@@ -3751,6 +3773,9 @@ export type AlertRuleState = "ok" | "pending" | "firing" | "no_data";
 
 export const ALERT_RULE_STATES: AlertRuleState[] = ["firing", "pending", "no_data", "ok"];
 
+/** alerting: past this many failed reads in a row a rule's read counts as no data. */
+export const ALERT_READ_FAILURES_AS_NO_DATA = 10;
+
 /** domain.NotificationChannelKind: only `desktop` delivers in v1; the rest are
  * reserved names the server already accepts. */
 export type AlertChannelKind = "desktop" | "in_app" | "ios_push" | "slack" | "email" | "webhook";
@@ -3794,6 +3819,11 @@ export interface AlertRule {
   state_since: string;
   last_value?: number | null;
   last_evaluated_at?: string | null;
+  /** Evaluations in a row whose read failed for a reason that says nothing
+   * about the value, and the last such failure: the rule holds its state
+   * through them, and past `ALERT_READ_FAILURES_AS_NO_DATA` reads as no data. */
+  error_count?: number;
+  last_error?: string;
   /** `ai`: proposed by the release engineer's signal job, saved disabled. */
   created_by?: "human" | "ai";
   created_at: string;
@@ -3940,6 +3970,8 @@ export interface AIJob {
   error: string;
   created: AIJobItem[] | null;
   created_at: string;
+  /** When it took a slot; null while it waits for one. */
+  started_at?: string | null;
   updated_at: string;
   finished_at: string | null;
 }
@@ -3974,6 +4006,11 @@ export function aiJobRefusal(e: unknown): AIJobRefusal | null {
 /** Accept/dismiss of a definition that is not a suggestion. */
 export function isNotSuggestedError(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409 && e.type === "not_suggested";
+}
+
+/** The repository already holds as many active and suggested definitions as it may (200). */
+export function isTooManyDefinitionsError(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409 && e.type === "too_many_definitions";
 }
 
 export type ObservabilityGoal = "metrics" | "traces" | "logs" | "rum" | "crash" | "queues";
@@ -4282,6 +4319,14 @@ export interface OpsUnavailable {
   data_source_id?: string | null;
   code: OpsUnavailableCode;
   message: string;
+}
+
+/** A group read through a component's binding, for POST
+ * /v1/components/{id}/errors/task: the source it was read from, and the
+ * console's environment (`production` when absent). */
+export interface BoundErrorGroup extends RuntimeErrorGroup {
+  data_source_id: string;
+  environment?: DeployEnvironment;
 }
 
 /** The environment id a binding-read row carries: it belongs to no environment. */
@@ -4627,6 +4672,8 @@ export interface ReleaseImpactCheckSignal {
   max_delta?: number | null;
   max_delta_pct?: number | null;
   breached?: boolean;
+  /** The after-window is still too short or too sparse to hold it to the threshold. */
+  settling?: boolean;
 }
 
 export interface ReleaseImpactCheck {
@@ -4634,7 +4681,9 @@ export interface ReleaseImpactCheck {
   pending: boolean;
   verdict: ImpactVerdict;
   signals: ReleaseImpactCheckSignal[];
-  /** Thresholds whose signal was not bound or not readable. */
+  /** Thresholds (`max_error_rate_delta`, `max_p95_delta_pct`) the soak did
+   * not judge: the signal was not bound or not readable, or still settling
+   * when the soak ended. */
   unchecked?: string[];
 }
 
@@ -4806,6 +4855,15 @@ export interface Release {
   rollback_allowed?: boolean;
   /** Why not, when `rollback_allowed` is false ("" when it is allowed). */
   rollback_refusal?: string;
+  /** A person dismissed the proposal; until another issue is put down to the
+   * release, the release engineer cannot propose it again. */
+  rollback_dismissal?: ReleaseRollbackDismissal | null;
+}
+
+export interface ReleaseRollbackDismissal {
+  dismissed_at: string;
+  /** The issue the dismissed proposal answered. */
+  incident_id?: string | null;
 }
 
 /** domain.RollbackProposal: nothing ran; a person approves (rolls back) or
@@ -4823,7 +4881,15 @@ export interface ReleaseRollbackProposal {
 
 /** domain.RollbackRefusal*: why a rollback would be refused now; an unknown
  * one is shown as sent. */
-export type RollbackRefusal = "newer_shipped" | "newer_open" | "not_deployed" | "too_old" | "no_released" | "unresolved" | "wrong_status";
+export type RollbackRefusal =
+  | "newer_shipped"
+  | "newer_open"
+  | "not_deployed"
+  | "too_old"
+  | "no_released"
+  | "unresolved"
+  | "wrong_status"
+  | "not_configured";
 
 export const ROLLBACK_REFUSALS: RollbackRefusal[] = [
   "newer_shipped",
@@ -4833,6 +4899,7 @@ export const ROLLBACK_REFUSALS: RollbackRefusal[] = [
   "no_released",
   "unresolved",
   "wrong_status",
+  "not_configured",
 ];
 
 /** GET .../cut-preview: what cutting a batch component's draft release right
@@ -6963,6 +7030,12 @@ export const api = {
 
   createErrorTask: (envId: string, group: RuntimeErrorGroup) =>
     request<BoardTask>(`/v1/environments/${envId}/errors/task`, {
+      method: "POST",
+      body: JSON.stringify(group),
+    }),
+
+  createBoundErrorTask: (componentId: string, group: BoundErrorGroup) =>
+    request<BoardTask>(`/v1/components/${encodeURIComponent(componentId)}/errors/task`, {
       method: "POST",
       body: JSON.stringify(group),
     }),

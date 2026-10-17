@@ -136,7 +136,7 @@ export function WebVitalsStrip({ componentId, env, range, formatCtx, onBind, onE
         ? { value: new Intl.NumberFormat(formatCtx.locale, { maximumFractionDigits: 3 }).format(read.last.value), unit: "" }
         : signalValueParts(read.last.value, sig?.unit || "ms", formatCtx);
     const bandWord = v(`bands.${band}`);
-    const quantile = read.quantile && read.quantile !== "p75" ? v("quantileStricter", { quantile: read.quantile }) : v("quantileP75");
+    const quantile = v("quantileP75");
     return (
       <SignalTile
         key={signal}

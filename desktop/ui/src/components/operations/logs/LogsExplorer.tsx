@@ -60,7 +60,10 @@ export function LogsExplorer({ entity: scoped, bindingRead = false }: LogsExplor
   const envLabel = t(`cloud.environments.${env}`);
 
   const inScope = scoped ? [scoped] : picked.length > 0 ? entities.filter((x) => picked.includes(x.id)) : entities;
-  const enabled = bindingRead || inScope.some((x) => x.environments.some((v) => v.environment === env));
+  const connected = inScope.some((x) => x.environments.some((v) => v.environment === env));
+  // The console-wide explorer always reads: the server also reads the
+  // components that only a `logs.lines` binding (a Loki stream) feeds.
+  const enabled = !scoped || bindingRead || connected;
   // A custom range that ended in the past has nothing new to follow.
   const pastRange = range.preset === "custom" && range.to < Date.now() - OPS_AUTO_ADVANCE_MS;
   const tailing = live && !pastRange;
@@ -142,25 +145,21 @@ export function LogsExplorer({ entity: scoped, bindingRead = false }: LogsExplor
     />
   );
 
-  if (!enabled) {
-    return (
-      <div className="space-y-4">
-        {!scoped && picked.length > 0 && bar}
-        <Card>
-          <EmptyState
-            icon={Unplug}
-            title={l("noEnvironments.title", { env: envLabel })}
-            description={l("noEnvironments.body")}
-            action={
-              <Button variant="outline" size="sm" asChild>
-                <Link to={href("/operations")}>{l("noEnvironments.action")}</Link>
-              </Button>
-            }
-          />
-        </Card>
-      </div>
-    );
-  }
+  const nothingConnected = (
+    <Card>
+      <EmptyState
+        icon={Unplug}
+        title={l("noEnvironments.title", { env: envLabel })}
+        description={l("noEnvironments.body")}
+        action={
+          <Button variant="outline" size="sm" asChild>
+            <Link to={href("/operations")}>{l("noEnvironments.action")}</Link>
+          </Button>
+        }
+      />
+    </Card>
+  );
+  if (!enabled) return nothingConnected;
 
   if (logs.status === "tooMany" && logs.tooMany) {
     return (
@@ -194,6 +193,8 @@ export function LogsExplorer({ entity: scoped, bindingRead = false }: LogsExplor
         {logs.error}
       </Notice>
     );
+  } else if (logs.entries.length === 0 && !connected && !bindingRead && !filtered && logs.unavailable.length === 0) {
+    list = nothingConnected;
   } else if (logs.entries.length === 0) {
     list = (
       <Card>

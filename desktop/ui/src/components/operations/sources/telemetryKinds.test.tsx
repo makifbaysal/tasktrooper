@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type DataSourceField, type DataSourceKindInfo, type StoreCredentialView } from "@/api";
 import { DataSourceForm } from "@/components/operations/sources/DataSourceForm";
-import { emptyDraft, queryHint, sourceAddress } from "@/components/operations/sources/dataSourceSchema";
+import { emptyDraft, optionKey, queryHint, sourceAddress } from "@/components/operations/sources/dataSourceSchema";
 import { I18nProvider } from "@/hooks/useI18n";
 import { en } from "@/locales/en";
 import { dataSource } from "@/test/dataSourceFixtures";
@@ -70,7 +70,7 @@ const ga4Kind: DataSourceKindInfo = {
     field({ key: "property_id", label: "Property ID", type: "text", required: true }),
     field({ key: "auth", label: "Sign in with", type: "select", options: ["cloud_account", "service_account"], default: "cloud_account", placeholder: "cloud_account" }),
     field({ key: "cloud_account_id", label: "Google Cloud account", type: "cloud_account", provider: "gcp", required: true, show_when: { auth: "cloud_account" } }),
-    field({ key: "service_account_json", label: "Service account key (JSON)", type: "secret", required: true, secret: true, show_when: { auth: "service_account" } }),
+    field({ key: "service_account_json", label: "Service account key (JSON)", type: "secret", required: true, secret: true, show_when: { auth: "service_account" }, multiline: true }),
   ],
 };
 
@@ -137,12 +137,13 @@ describe("the new kinds' fields", () => {
     expect(screen.getByLabelText("Auth token")).toHaveAttribute("type", "password");
   });
 
-  it("picks Datadog's default site and lists the others", () => {
+  it("picks Datadog's default site and lists the others by their locale labels, though their keys hold dots", () => {
     renderForm(datadogKind);
-    expect(screen.getByLabelText("Site")).toHaveTextContent("datadoghq.com");
+    expect(screen.getByLabelText("Site")).toHaveTextContent("US1 · datadoghq.com");
     expect(screen.getByText(/app.datadoghq.eu is datadoghq.eu/)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Site"));
-    expect(screen.getByRole("option", { name: "datadoghq.eu" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "EU1 · datadoghq.eu" })).toBeInTheDocument();
+    expect(optionKey("ddog-gov.com")).toBe("ddog-gov_com");
   });
 
   it("asks GA4 for a connected account or a key file typed in a text area", () => {

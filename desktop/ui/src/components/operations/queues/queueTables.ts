@@ -158,9 +158,16 @@ export function queueErrorView(code: string | undefined): QueueErrorView {
   return (code && QUEUE_ERRORS[code]) || QUEUE_ERROR_FALLBACK;
 }
 
-/** A stable key for a row: its label columns' values. */
-export function rowKey(row: QueueRow, columns: TableColumn[], index: number): string {
-  const labels = columns.filter((c) => !isValueColumn(c)).map((c) => String(row[c.key] ?? ""));
+/** A column the server names as one that names a row (`key_columns`). */
+export function isKeyColumn(column: TableColumn, keyColumns: readonly string[] | null | undefined): boolean {
+  return (keyColumns ?? []).includes(column.key);
+}
+
+/** A stable key for a row: its key columns' values when the table names
+ * them, else its label columns'. */
+export function rowKey(row: QueueRow, columns: TableColumn[], index: number, keyColumns?: readonly string[] | null): string {
+  const named = columns.filter((c) => isKeyColumn(c, keyColumns));
+  const labels = (named.length > 0 ? named : columns.filter((c) => !isValueColumn(c))).map((c) => String(row[c.key] ?? ""));
   return labels.length > 0 ? labels.join("\u0000") : String(index);
 }
 

@@ -366,6 +366,11 @@ function ReleaseBody({ release: r, owner, onChanged }: { release: Release; owner
   return (
     <>
       <RollbackSuggestionBanner release={r} repositoryName={owner.repositoryName} onDone={onChanged} />
+      {!r.rollback_proposal && r.rollback_dismissal?.dismissed_at && (
+        <p className="text-caption text-muted-foreground" title={formatDate(r.rollback_dismissal.dismissed_at)}>
+          {t("operations.changes.rollbackSuggestion.dismissedAt", { time: formatRelativeTime(r.rollback_dismissal.dismissed_at, lang) })}
+        </p>
+      )}
 
       {r.status === "failed" && r.failure_reason && (
         <Notice variant="error" title={d("failure")}>

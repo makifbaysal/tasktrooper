@@ -217,6 +217,21 @@ describe("OpsLogsPage", () => {
   });
 });
 
+describe("OpsLogsPage with nothing connected", () => {
+  it("still reads, lists what a logs binding feeds, and points to connecting when nothing answers", async () => {
+    getProjectsOverview.mockResolvedValue({ projects: [], unassigned: [] });
+    listOpsLogs.mockResolvedValue({ entries: [entry(t3, "bound only line", { environment_id: "00000000-0000-0000-0000-000000000000", data_source_id: "ds-loki" })], unavailable: [], truncated: false });
+    const first = renderAt("/operations/logs");
+    expect(await messages()).toEqual([expect.stringContaining("bound only line")]);
+    first.unmount();
+
+    listOpsLogs.mockResolvedValue({ entries: [], unavailable: [], truncated: false });
+    renderAt("/operations/logs?env=staging");
+    expect(await screen.findByText("Nothing is connected in Staging")).toBeInTheDocument();
+    expect(listOpsLogs).toHaveBeenCalledWith(expect.objectContaining({ env: "staging" }));
+  });
+});
+
 describe("EntityLogs", () => {
   it("reads only the entity's component, without the entity column", async () => {
     renderAt("/operations/entity/c-api/logs");

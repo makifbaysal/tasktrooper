@@ -3,6 +3,11 @@ import type { TelemetryDict, TelemetryKindsDict } from "@/locales/en/opsTelemetr
 // Chinese strings for the console's telemetry views; mirrors en/opsTelemetry.ts key for key.
 export const telemetry: TelemetryDict = {
   table: {
+    readAt: "{time}读取",
+    readAtTitle: "读取于 {time}。服务器会将一次读取保留 30 秒，因此它可能比本页最近一次刷新早最多 30 秒。",
+    window: "覆盖最近{span}",
+    windowUnknown: "覆盖数据源自身的近期时间窗口",
+    windowDocs: "各表的时间窗口",
     rows: "{count} 行",
     flag: "标记",
     sortBy: "按 {column} 排序",
@@ -18,9 +23,9 @@ export const telemetry: TelemetryDict = {
     errors: {
       failed: "无法读取此表",
       needsParams: "绑定缺少一个参数",
-      needsParamsBody: "此表需要一个其绑定尚未提供的值。请在“信号”页填写。",
+      needsParamsBody: "此表需要一个其绑定尚未提供的值。",
       notFound: "数据源已不存在",
-      notFoundBody: "读取此表所用的数据源已不存在。请在“信号”页绑定其他数据源。",
+      notFoundBody: "读取此表所用的数据源已不存在。请绑定其他数据源。",
       unsupported: "此数据源无法逐行列出",
       unsupportedBody: "此类数据源能读取该信号随时间的变化，但不能按条目逐行列出。带有此表的配方可以提供。",
       badQuery: "数据源拒绝了此表的查询",
@@ -33,8 +38,8 @@ export const telemetry: TelemetryDict = {
   },
   endpoints: {
     title: "端点",
-    hint: "绑定的数据源当前的数据，每分钟读取一次",
-    scopeNote: "端点读取的是绑定数据源当前的数据；时间范围在此不适用。",
+    hint: "每张表覆盖其数据源自身的近期时间窗口，每分钟读取一次",
+    scopeNote: "每张端点表覆盖其数据源自身的近期时间窗口（标注在表上）；时间范围在此不适用。",
     flags: {
       errors: "错误率最高",
       slowest: "p95 最慢",
@@ -47,8 +52,8 @@ export const telemetry: TelemetryDict = {
     },
   },
   pages: {
-    scopeNote: "页面浏览量读取的是网站分析数据源当前报告的数据；时间范围在此不适用。",
-    hint: "绑定的网站分析数据源当前报告的数据",
+    scopeNote: "每张网页表覆盖其数据源自身的近期时间窗口（标注在表上）；时间范围在此不适用。",
+    hint: "每张表覆盖其网站分析数据源自身的近期时间窗口",
     tabsLabel: "Web 数据表",
     tabs: {
       pages: "页面",
@@ -64,7 +69,7 @@ export const telemetry: TelemetryDict = {
     },
   },
   crashes: {
-    scopeNote: "崩溃读取的是商店和 Sentry 当前列出的数据；时间范围在此不适用。",
+    scopeNote: "每张崩溃表覆盖其数据源自身的近期时间窗口（标注在表上）；时间范围在此不适用。",
     openIssue: "在其控制台中打开",
     issues: {
       title: "崩溃和 ANR 问题",
@@ -235,7 +240,6 @@ export const telemetry: TelemetryDict = {
       poor: "较差",
     },
     quantileP75: "p75",
-    quantileStricter: "{quantile} · Google 按 p75 评级",
     thresholds: "{good} 以内为良好，超过 {poor} 为较差",
     meterLabel: "{band}：{good} 以内为良好，超过 {poor} 为较差",
     bind: "绑定数据源",
@@ -286,7 +290,7 @@ export const telemetry: TelemetryDict = {
       sentry: "Sentry",
     },
     fromProvider: "读取自 {provider}",
-    noTask: "任务只能由云环境的错误创建。请改为在 {provider} 中打开此问题。",
+    noTask: "此分组未指明可用于创建任务的数据源。请改在 {provider} 中打开。",
     openSource: "{provider} 数据源",
     fixSource: "打开数据源",
   },
@@ -556,6 +560,14 @@ export const telemetryKinds: TelemetryKindsDict = {
       "Datadog 指标查询，写法与仪表板中相同：avg:system.cpu.user{service:web} by {host}。表格读取每个标签组的最新值。",
     fields: {
       site: {
+        options: {
+          datadoghq_com: "US1 · datadoghq.com",
+          us3_datadoghq_com: "US3 · us3.datadoghq.com",
+          us5_datadoghq_com: "US5 · us5.datadoghq.com",
+          datadoghq_eu: "EU1 · datadoghq.eu",
+          ap1_datadoghq_com: "AP1 · ap1.datadoghq.com",
+          "ddog-gov_com": "US1-FED · ddog-gov.com",
+        },
         label: "站点",
         help: "你的 Datadog URL 对应的站点：app.datadoghq.com 对应 datadoghq.com，app.datadoghq.eu 对应 datadoghq.eu，us5.datadoghq.com 对应 us5.datadoghq.com。",
       },

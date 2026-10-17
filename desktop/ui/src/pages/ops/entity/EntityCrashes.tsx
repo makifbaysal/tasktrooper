@@ -17,6 +17,8 @@ import {
   type TableRow,
 } from "@/components/operations/tables/componentTables";
 import { DataTableCard } from "@/components/operations/tables/DataTableCard";
+import { TableWindowNote } from "@/components/operations/tables/TableWindowNote";
+import { useTableBindings } from "@/components/operations/tables/useTableBindings";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -51,6 +53,7 @@ export default function EntityCrashes({ entity, env }: EntitySubPageProps) {
   const formatCtx = useMemo(() => ({ locale: intlLocale(lang), t }), [lang, t]);
   const read = useComponentCrashes(entity.id, env);
   const signalsHref = hasTab(entity.role, "signals") ? href(entityPath(entity.id, "signals")) : undefined;
+  const bindings = useTableBindings(entity.id, env, read.data?.tables ?? [], () => void read.reload());
 
   const typeWord = (raw: string) => {
     const key = `operations.telemetry.crashes.types.${crashTypeKey(raw)}`;
@@ -107,7 +110,10 @@ export default function EntityCrashes({ entity, env }: EntitySubPageProps) {
         defaultSort={sortBy(measure)}
         renderCell={renderCell}
         hiddenColumns={HIDDEN_COLUMNS}
+        onEditBinding={bindings.edit(table)}
         signalsHref={signalsHref}
+        readAt={read.data?.read_at}
+        meta={<TableWindowNote window={bindings.windowOf(table)} />}
         onRetry={() => void read.reload()}
         retrying={read.fetching}
       />
@@ -141,27 +147,30 @@ export default function EntityCrashes({ entity, env }: EntitySubPageProps) {
   );
 
   return (
-    <ComponentTablesView
-      read={read}
-      empty={empty}
-      pick={(tables) => [...tablesNamed(tables, CRASHES), ...tablesNamed(tables, SIGNATURES)]}
-      renderTable={(table) => {
-        const isSignature = table.table === SIGNATURES;
-        const first = isSignature ? signatures[0] === table : crashes[0] === table;
-        return (
-          <section className="space-y-2" aria-label={p(isSignature ? "signatures.title" : "issues.title")}>
-            {first && (
-              <div className="flex flex-wrap items-baseline justify-between gap-2 pt-1">
-                <h2 className="text-micro font-medium tracking-wide text-muted-foreground uppercase">
-                  {p(isSignature ? "signatures.title" : "issues.title")}
-                </h2>
-                <p className="text-micro text-muted-foreground">{p(isSignature ? "signatures.hint" : "issues.hint")}</p>
-              </div>
-            )}
-            {card(table, isSignature ? SIGNATURE_MEASURES : CRASH_MEASURES)}
-          </section>
-        );
-      }}
-    />
+    <>
+      <ComponentTablesView
+        read={read}
+        empty={empty}
+        pick={(tables) => [...tablesNamed(tables, CRASHES), ...tablesNamed(tables, SIGNATURES)]}
+        renderTable={(table) => {
+          const isSignature = table.table === SIGNATURES;
+          const first = isSignature ? signatures[0] === table : crashes[0] === table;
+          return (
+            <section className="space-y-2" aria-label={p(isSignature ? "signatures.title" : "issues.title")}>
+              {first && (
+                <div className="flex flex-wrap items-baseline justify-between gap-2 pt-1">
+                  <h2 className="text-micro font-medium tracking-wide text-muted-foreground uppercase">
+                    {p(isSignature ? "signatures.title" : "issues.title")}
+                  </h2>
+                  <p className="text-micro text-muted-foreground">{p(isSignature ? "signatures.hint" : "issues.hint")}</p>
+                </div>
+              )}
+              {card(table, isSignature ? SIGNATURE_MEASURES : CRASH_MEASURES)}
+            </section>
+          );
+        }}
+      />
+      {bindings.editor}
+    </>
   );
 }

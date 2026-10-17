@@ -399,6 +399,7 @@ export const operations = {
       atMost: "≤ {value}",
     },
     rollbackSuggestion: {
+      dismissedAt: "Sugerencia de reversión descartada {time}",
       title: "Reversión sugerida · {version}",
       proposedBy: "Propuesta por {who}",
       autoOff: "La reversión automática está desactivada en este componente, así que una persona tiene que aprobarla.",
@@ -410,6 +411,7 @@ export const operations = {
       openChange: "Abrir {version}",
       confirmTitle: "¿Revertir {version}?",
       refusals: {
+        not_configured: "No se puede revertir aquí: este servidor no tiene acceso a git para revertir los merges de la versión, y toda reversión empieza por ahí.",
         newer_shipped: "No se puede revertir ahora: desde entonces se publicó una versión más nueva de este componente.",
         newer_open: "No se puede revertir ahora: hay una versión más nueva de este componente en curso.",
         not_deployed: "No se puede revertir ahora: nunca llegó al entorno.",
@@ -422,6 +424,8 @@ export const operations = {
     },
     detail: {
       impact: {
+        settling: "Sin comprobar: aún se está estabilizando",
+        uncheckedSettling: "Sin comprobar porque la señal aún se estaba estabilizando cuando terminó la observación: {thresholds}",
         title: "Impacto",
         notDeployed: "Aún no se ha desplegado. El impacto se mide desde el despliegue.",
         loadFailed: "No se pudo leer el impacto del despliegue",
@@ -840,7 +844,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "No hay nada conectado en {env}",
-      body: "Los errores vienen de donde se ejecutan tus componentes. Conecta un entorno desde la pestaña Despliegue y ejecución de un repositorio.",
+      body: "Los errores vienen de donde se ejecutan tus componentes, o de un rastreador de errores como Sentry vinculado en las Señales de una entidad. Conecta un entorno desde la pestaña Despliegue y ejecución de un repositorio.",
       action: "Ir a las entidades",
     },
     empty: {
@@ -928,7 +932,7 @@ export const operations = {
     },
     noEnvironments: {
       title: "No hay nada conectado en {env}",
-      body: "Los logs vienen de donde se ejecutan tus componentes. Conecta un entorno desde la pestaña Despliegue y ejecución de un repositorio.",
+      body: "Los logs vienen de donde se ejecutan tus componentes, o de un almacén de logs como Loki vinculado en las Señales de una entidad. Conecta un entorno desde la pestaña Despliegue y ejecución de un repositorio.",
       action: "Ir a las entidades",
     },
     empty: {
@@ -1088,6 +1092,7 @@ export const operations = {
       "Su dirección y sus credenciales guardadas se borran de este ordenador, y ya no se podrá comprobar ni consultar desde aquí.",
     deleted: "Fuente de datos eliminada",
     form: {
+      destinationHint: "Si lo cambias, se vuelven a pedir las credenciales guardadas.",
       addTitle: "Añadir una fuente de datos",
       editTitle: "Editar {name}",
       pickKind: "¿Qué tipo de fuente es?",
@@ -1201,6 +1206,7 @@ export const operations = {
       },
     },
     discover: {
+      patternName: "{metric} contiene *, que una consulta lee como patrón. Vincúlala mejor con el parámetro queue de la receta rabbitmq-direct.",
       title: "Métricas encontradas",
       description:
         "Los nombres de métricas que tiene esta fuente. Se sugiere una receta cuando está presente la métrica que delata a su exporter.",
@@ -2057,6 +2063,7 @@ export const operations = {
     },
   },
   alertRules: {
+    readFailing: "Las últimas {count} lecturas fallaron: {error}",
     customQuery: "Consulta propia",
     stateFilter: "Filtrar por estado",
     states: {
@@ -2231,6 +2238,11 @@ export const operations = {
       peak: "Pico {value}",
     },
     detail: {
+      readFailed: {
+        title: "No se puede leer la señal",
+        holding: "Mantuvo su estado durante {count} evaluaciones; pasadas 10 se lee como sin datos.",
+        noData: "Mantuvo su estado durante {count} evaluaciones, así que ahora se lee como sin datos.",
+      },
       loading: "Cargando la regla…",
       notFound: "No se encontró la regla",
       notFoundBody: "Puede que se haya borrado o que vigile una entidad que esta página no muestra.",

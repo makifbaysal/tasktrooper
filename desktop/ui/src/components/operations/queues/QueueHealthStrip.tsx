@@ -9,7 +9,6 @@ import {
   backlogTrend,
   combineFor,
   queueSignalValue,
-  seriesWindowEnd,
   type QueueSignalValue,
 } from "@/components/operations/queues/queueSignals";
 import { Button } from "@/components/ui/button";
@@ -77,7 +76,7 @@ export function QueueHealthStrip({ series, compare, formatCtx, onBind, onRetry }
 
   const valueOf = (signal: string): { sig?: SignalSeries; read: QueueSignalValue } => {
     const sig = signalOf(signal);
-    return { sig, read: queueSignalValue(sig, combineFor(signal), seriesWindowEnd(series.data)) };
+    return { sig, read: queueSignalValue(sig, combineFor(signal)) };
   };
 
   const tile = (signal: string, label: string, foot?: (read: QueueSignalValue, sig: SignalSeries) => ReactNode) => {
