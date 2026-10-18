@@ -16,16 +16,12 @@ package ghrunner
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -37,8 +33,6 @@ import (
 
 	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
-	"github.com/makifbaysal/tasktrooper/server/internal/platform/childenv"
-	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
 )
 
 type API interface {
@@ -68,17 +62,19 @@ type Config struct {
 	RetryMax time.Duration
 	// StopGrace is how long a stopping runner gets before it is killed.
 	StopGrace time.Duration
+	// Launcher runs the runner processes. Left nil it is this machine, built
+	// from Dir, Environ, HTTPClient, Dist and StopGrace.
+	Launcher Launcher
 }
 
 type Manager struct {
 	cfg       Config
-	dist      Distribution
+	launcher  Launcher
 	supported bool
 	labels    []string
 	host      string
 
-	installMu sync.Mutex
-	configMu  sync.Mutex
+	configMu sync.Mutex
 
 	mu      sync.Mutex
 	enabled bool
@@ -88,36 +84,29 @@ type Manager struct {
 }
 
 func New(cfg Config) *Manager {
-	if cfg.Environ == nil {
-		cfg.Environ = os.Environ
-	}
-	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Minute}
-	}
 	if cfg.RetryMin <= 0 {
 		cfg.RetryMin = 15 * time.Second
 	}
 	if cfg.RetryMax <= 0 {
 		cfg.RetryMax = 5 * time.Minute
 	}
-	if cfg.StopGrace <= 0 {
-		cfg.StopGrace = 10 * time.Second
-	}
 	if cfg.Hostname == "" {
 		cfg.Hostname, _ = os.Hostname()
 	}
+	if cfg.Launcher == nil {
+		cfg.Launcher = NewLocal(LocalConfig{
+			Dir: cfg.Dir, Environ: cfg.Environ, HTTPClient: cfg.HTTPClient, Dist: cfg.Dist, StopGrace: cfg.StopGrace,
+		})
+	}
 	m := &Manager{
-		cfg:    cfg,
-		labels: labelsFor(runtime.GOOS, runtime.GOARCH),
-		host:   runnerHost(cfg.Hostname),
-		slots:  map[string]*slot{},
+		cfg:       cfg,
+		launcher:  cfg.Launcher,
+		labels:    cfg.Launcher.Labels(),
+		host:      runnerHost(cfg.Hostname),
+		slots:     map[string]*slot{},
+		supported: cfg.Launcher.Supported(),
 	}
-	if cfg.Dist != nil {
-		m.dist, m.supported = *cfg.Dist, true
-	} else {
-		m.dist, m.supported = distributionFor(runtime.GOOS, runtime.GOARCH)
-	}
-	if cfg.Dir == "" || cfg.API == nil || cfg.Store == nil {
+	if cfg.API == nil || cfg.Store == nil {
 		m.supported = false
 	}
 	return m
@@ -130,13 +119,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	m.configMu.Lock()
 	defer m.configMu.Unlock()
-	// A server that died hard leaves its runners going in their installs; a
-	// new one started in the same directory would fight them for its files.
-	if n, err := proctree.KillProcessesUnder(filepath.Join(m.cfg.Dir, "repos"), m.cfg.StopGrace); err != nil {
-		log.Warn().Err(err).Msg("github runner: could not look for runners a previous server left running")
-	} else if n > 0 {
-		log.Info().Int("count", n).Msg("github runner: stopped runners a previous server left running")
-	}
+	m.launcher.Reap()
 	saved, err := m.cfg.Store.GitHubRunnerConfig(ctx)
 	if err != nil {
 		log.Warn().Err(err).Msg("github runner: reading its settings failed; it stays off for this launch")
@@ -319,16 +302,10 @@ func (m *Manager) reconcile() {
 		go func(s *slot) {
 			defer wg.Done()
 			s.stop()
-			_ = os.RemoveAll(s.dir)
+			m.launcher.Remove(s.repo)
 		}(s)
 	}
 	wg.Wait()
-}
-
-func (m *Manager) archive(ctx context.Context) (string, error) {
-	m.installMu.Lock()
-	defer m.installMu.Unlock()
-	return fetch(ctx, m.cfg.HTTPClient, m.dist, filepath.Join(m.cfg.Dir, "dist"))
 }
 
 func key(repo string) string { return strings.ToLower(strings.TrimSpace(repo)) }
@@ -397,7 +374,6 @@ type slot struct {
 	repo  string
 	owner string
 	name  string
-	dir   string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -409,14 +385,12 @@ type slot struct {
 
 func (m *Manager) newSlot(repo string) *slot {
 	owner, name, _ := strings.Cut(repo, "/")
-	sum := sha256.Sum256([]byte(key(repo)))
 	ctx, cancel := context.WithCancel(context.Background())
 	return &slot{
 		m:      m,
 		repo:   repo,
 		owner:  owner,
 		name:   name,
-		dir:    filepath.Join(m.cfg.Dir, "repos", hex.EncodeToString(sum[:6])),
 		ctx:    ctx,
 		cancel: cancel,
 		done:   make(chan struct{}),
@@ -478,21 +452,19 @@ func (s *slot) run() {
 // ending that starts the next one at once.
 func (s *slot) once() bool {
 	ctx := s.ctx
-	if _, err := os.Stat(filepath.Join(s.dir, installedMarker)); err != nil {
+	err := s.m.launcher.Prepare(ctx, s.repo, func() {
 		s.update(func(st *domain.GitHubRunnerRepoStatus) { st.State = domain.GitHubRunnerInstalling })
-		archive, err := s.m.archive(ctx)
-		if err != nil {
-			if ctx.Err() == nil {
-				s.fail(domain.GitHubRunnerErrDownload, err.Error())
+	})
+	if err != nil {
+		if ctx.Err() == nil {
+			code, detail := classify(err)
+			if code == domain.GitHubRunnerErrGitHubRefused {
+				code, detail = domain.GitHubRunnerErrDownload, err.Error()
 			}
-			return false
+			s.fail(code, detail)
 		}
-		if err := install(archive, s.m.dist.Zip, s.dir); err != nil {
-			s.fail(domain.GitHubRunnerErrDownload, err.Error())
-			return false
-		}
+		return false
 	}
-	s.reset()
 	s.update(func(st *domain.GitHubRunnerRepoStatus) { st.State = domain.GitHubRunnerStarting })
 
 	name := fmt.Sprintf("tasktrooper-%s-%s", s.m.host, randomSuffix())
@@ -506,8 +478,8 @@ func (s *slot) once() bool {
 	}
 
 	var tookJob atomic.Bool
-	out := &output{onEvent: func(ev event) {
-		switch ev.kind {
+	onEvent := func(ev Event) {
+		switch ev.Kind {
 		case "listening":
 			s.update(func(st *domain.GitHubRunnerRepoStatus) {
 				st.State, st.Job, st.ErrorCode, st.ErrorDetail = domain.GitHubRunnerIdle, "", "", ""
@@ -515,72 +487,52 @@ func (s *slot) once() bool {
 		case "running":
 			tookJob.Store(true)
 			s.update(func(st *domain.GitHubRunnerRepoStatus) {
-				st.State, st.Job, st.ErrorCode, st.ErrorDetail = domain.GitHubRunnerBusy, ev.job, "", ""
+				st.State, st.Job, st.ErrorCode, st.ErrorDetail = domain.GitHubRunnerBusy, ev.Job, "", ""
 			})
 		case "completed":
 			now := time.Now().UTC()
 			s.update(func(st *domain.GitHubRunnerRepoStatus) {
-				st.LastJob, st.LastResult, st.LastFinishedAt = ev.job, ev.result, &now
+				st.LastJob, st.LastResult, st.LastFinishedAt = ev.Job, ev.Result, &now
 			})
 		}
-	}}
+	}
 
-	cmd := s.command()
-	cmd.Dir = s.dir
-	cmd.Env = childenv.For(s.m.cfg.Environ(), []string{"ACTIONS_RUNNER_INPUT_JITCONFIG=" + jit.EncodedConfig})
-	cmd.Stdout, cmd.Stderr = out, out
-	tree, err := proctree.Start(cmd)
+	proc, err := s.m.launcher.Start(ctx, s.repo, jit.EncodedConfig, onEvent)
 	if err != nil {
-		s.fail(domain.GitHubRunnerErrStart, err.Error())
+		code, detail := domain.GitHubRunnerErrStart, err.Error()
+		var coded *domain.GitHubRunnerRepoError
+		if errors.As(err, &coded) {
+			code, detail = coded.Code, coded.Detail
+		}
+		s.fail(code, detail)
 		s.unregister(jit.ID)
 		return false
 	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
-	var exitErr error
+	exited := make(chan ProcessExit, 1)
+	go func() { exited <- proc.Wait() }()
+	var exit ProcessExit
 	select {
-	case exitErr = <-exited:
+	case exit = <-exited:
 	case <-ctx.Done():
-		tree.Terminate(s.m.cfg.StopGrace)
-		exitErr = <-exited
+		proc.Terminate()
+		exit = <-exited
 	}
-	tree.Close()
 
 	if !tookJob.Load() || ctx.Err() != nil {
 		s.unregister(jit.ID)
 	}
-	_ = os.RemoveAll(filepath.Join(s.dir, "_work"))
 	if ctx.Err() != nil {
 		return false
 	}
 	if !tookJob.Load() {
-		detail := out.lastLines()
-		if exitErr != nil {
-			detail = strings.TrimSpace(exitErr.Error() + "\n" + detail)
+		detail := exit.Output
+		if exit.Err != nil {
+			detail = strings.TrimSpace(exit.Err.Error() + "\n" + detail)
 		}
 		s.fail(domain.GitHubRunnerErrExited, detail)
 		return false
 	}
 	return true
-}
-
-func (s *slot) command() *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		comspec := os.Getenv("ComSpec")
-		if comspec == "" {
-			comspec = `C:\Windows\System32\cmd.exe`
-		}
-		return exec.Command(comspec, "/d", "/c", "run.cmd")
-	}
-	return exec.Command(filepath.Join(s.dir, "run.sh"))
-}
-
-// reset clears what the last registration left: its config files, which a
-// new just-in-time config rewrites, and the last job's checkout.
-func (s *slot) reset() {
-	for _, f := range []string{".runner", ".credentials", ".credentials_rsaparams", "_work"} {
-		_ = os.RemoveAll(filepath.Join(s.dir, f))
-	}
 }
 
 // unregister removes a registration that never ran its job, so GitHub does

@@ -203,10 +203,10 @@ func TestRunnerHostIsAShortLabelSafeName(t *testing.T) {
 }
 
 func TestParseLineFollowsTheRunnersOwnWording(t *testing.T) {
-	cases := map[string]event{
-		"2026-10-16 10:00:00Z: Listening for Jobs":                              {kind: "listening"},
-		"2026-10-16 10:00:05Z: Running job: build (macOS)":                      {kind: "running", job: "build (macOS)"},
-		"2026-10-16 10:01:05Z: Job build (macOS) completed with result: Failed": {kind: "completed", job: "build (macOS)", result: "Failed"},
+	cases := map[string]Event{
+		"2026-10-16 10:00:00Z: Listening for Jobs":                              {Kind: "listening"},
+		"2026-10-16 10:00:05Z: Running job: build (macOS)":                      {Kind: "running", Job: "build (macOS)"},
+		"2026-10-16 10:01:05Z: Job build (macOS) completed with result: Failed": {Kind: "completed", Job: "build (macOS)", Result: "Failed"},
 	}
 	for line, want := range cases {
 		got, ok := parseLine(line)

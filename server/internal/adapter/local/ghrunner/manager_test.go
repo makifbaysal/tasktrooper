@@ -192,7 +192,7 @@ func TestARunnerTakesAJobAndRegistersAgainForTheNext(t *testing.T) {
 		t.Fatalf("saved config: %+v", store.cfg)
 	}
 
-	dir := m.slots[key("acme/app")].dir
+	dir := m.launcher.(*Local).dir("acme/app")
 	seen, err := os.ReadFile(filepath.Join(dir, "seen-config"))
 	if err != nil || !strings.HasPrefix(string(seen), "jit-config-tasktrooper-test-mac-") {
 		t.Fatalf("the runner did not get its config through the environment: %q %v", seen, err)
@@ -217,7 +217,7 @@ func TestStoppingAnIdleRunnerRemovesItsRegistrationAndInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "an idle runner", func() bool { return repoStatus(t, m, "acme/app").State == domain.GitHubRunnerIdle })
-	dir := m.slots[key("acme/app")].dir
+	dir := m.launcher.(*Local).dir("acme/app")
 
 	st, err := m.Configure(context.Background(), domain.GitHubRunnerConfig{Enabled: false, Repos: []string{"acme/app"}})
 	if err != nil {

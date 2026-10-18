@@ -61,6 +61,9 @@ type Options struct {
 	// provider error that quotes the key it was sent, or a tool that echoes
 	// one, must not carry it off this machine.
 	Secrets []string
+	// GitHubRunner runs this computer's GitHub Actions runners for a cloud
+	// (ghrunner.*). Nil without a data directory.
+	GitHubRunner GitHubRunnerHost
 }
 
 type route struct {
@@ -74,6 +77,7 @@ type Handler struct {
 	version string
 	redact  func([]byte) []byte
 	routes  map[string]route
+	runners GitHubRunnerHost
 
 	mu      sync.Mutex
 	streams map[string]string
@@ -85,6 +89,7 @@ func NewHandler(svc *executor.Service, opts Options) *Handler {
 		token:   []byte(opts.Token),
 		version: opts.Version,
 		redact:  newRedactor(opts.Secrets...),
+		runners: opts.GitHubRunner,
 		streams: make(map[string]string),
 	}
 	h.routes = map[string]route{
@@ -107,6 +112,11 @@ func NewHandler(svc *executor.Service, opts Options) *Handler {
 		PathMCPOpen:     {http.MethodPost, h.mcpOpen},
 		PathMCPClose:    {http.MethodPost, h.mcpClose},
 		PathMCPCalls:    {http.MethodPost, h.mcpCalls},
+
+		PathGitHubRunnerPrepare: {http.MethodPost, h.ghRunnerPrepare},
+		PathGitHubRunnerStart:   {http.MethodPost, h.ghRunnerStart},
+		PathGitHubRunnerStatus:  {http.MethodPost, h.ghRunnerStatus},
+		PathGitHubRunnerStop:    {http.MethodPost, h.ghRunnerStop},
 	}
 	return h
 }

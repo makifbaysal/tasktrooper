@@ -13,23 +13,24 @@ var (
 	completedLine = regexp.MustCompile(`Job (.+?) completed with result: (\w+)`)
 )
 
-type event struct {
-	kind   string // "listening" | "running" | "completed"
-	job    string
-	result string
+// Event is one line of the runner's output the status follows.
+type Event struct {
+	Kind   string // "listening" | "running" | "completed"
+	Job    string
+	Result string
 }
 
-func parseLine(line string) (event, bool) {
+func parseLine(line string) (Event, bool) {
 	if m := completedLine.FindStringSubmatch(line); m != nil {
-		return event{kind: "completed", job: m[1], result: m[2]}, true
+		return Event{Kind: "completed", Job: m[1], Result: m[2]}, true
 	}
 	if m := runningLine.FindStringSubmatch(line); m != nil {
-		return event{kind: "running", job: m[1]}, true
+		return Event{Kind: "running", Job: m[1]}, true
 	}
 	if listeningLine.MatchString(line) {
-		return event{kind: "listening"}, true
+		return Event{Kind: "listening"}, true
 	}
-	return event{}, false
+	return Event{}, false
 }
 
 const tailLines = 12
@@ -41,7 +42,7 @@ type output struct {
 	mu      sync.Mutex
 	partial []byte
 	tail    []string
-	onEvent func(event)
+	onEvent func(Event)
 }
 
 func (o *output) Write(p []byte) (int, error) {

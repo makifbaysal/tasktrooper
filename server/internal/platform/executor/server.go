@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/executorapi"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/local/ghrunner"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcp"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpsurface"
 	gitadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/git"
@@ -68,6 +70,7 @@ type Server struct {
 	tools      localTools
 	members    *mcp.Members
 	indexStore *indexStoreOpener
+	runners    *ghrunner.Host
 	done       chan struct{}
 }
 
@@ -144,10 +147,20 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 			History:            history,
 		},
 	})
+	// This computer's GitHub Actions runners, driven by the cloud that holds
+	// the GitHub connection. They need somewhere to unpack, so no data_dir
+	// means none.
+	var runners *ghrunner.Host
+	var runnerHost executorapi.GitHubRunnerHost
+	if cfg.DataDir != "" {
+		runners = ghrunner.NewHost(ghrunner.LocalConfig{Dir: filepath.Join(cfg.DataDir, "github-runner")})
+		runnerHost = runners
+	}
 	handler := executorapi.NewHandler(svc, executorapi.Options{
-		Token:   cfg.Token,
-		Version: version(),
-		Secrets: append(append(providerSecrets(cfg.Providers), memberSecrets(cfg.MCPServers)...), cfg.Token),
+		GitHubRunner: runnerHost,
+		Token:        cfg.Token,
+		Version:      version(),
+		Secrets:      append(append(providerSecrets(cfg.Providers), memberSecrets(cfg.MCPServers)...), cfg.Token),
 	})
 
 	listener, err := net.Listen("tcp", cfg.Listen)
@@ -178,6 +191,7 @@ func Start(cfg Config, stdout io.Writer, opts Options) (*Server, error) {
 		tools:      tools,
 		members:    members,
 		indexStore: indexStore,
+		runners:    runners,
 		done:       make(chan struct{}),
 	}
 	go func() {
@@ -202,6 +216,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		_ = s.http.Close()
 	}
 	<-s.done
+	if s.runners != nil {
+		s.runners.Close()
+	}
 	proctree.Default.KillAll(processGrace)
 	s.tools.close()
 	s.members.Close()

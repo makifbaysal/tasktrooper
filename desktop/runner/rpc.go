@@ -51,6 +51,10 @@ import (
 //	POST /index.status        → the local executor's status and body
 //	POST /index.search        → the local executor's status and body
 //	POST /index.cancel        → the local executor's status and body
+//	POST /ghrunner.prepare    → the local executor's status and body
+//	POST /ghrunner.start      → the local executor's status and body
+//	POST /ghrunner.status     → the local executor's status and body
+//	POST /ghrunner.stop       → the local executor's status and body
 //	POST /run.attach          → a durable run's frames after a seq, then live
 //	POST /run.status          → 200 application/json
 //	POST /cancel              → 200 application/json
@@ -357,6 +361,15 @@ func (s *runnerServer) handler() http.Handler {
 			route(http.MethodPost, s.handleIndexSearch)
 		case "/index.cancel":
 			route(http.MethodPost, s.handleIndexCancel)
+		case "/ghrunner.prepare":
+			// This computer's GitHub Actions runners (executor_ghrunner.go).
+			route(http.MethodPost, s.handleGitHubRunnerPrepare)
+		case "/ghrunner.start":
+			route(http.MethodPost, s.handleGitHubRunnerStart)
+		case "/ghrunner.status":
+			route(http.MethodPost, s.handleGitHubRunnerStatus)
+		case "/ghrunner.stop":
+			route(http.MethodPost, s.handleGitHubRunnerStop)
 		case "/run.attach":
 			route(http.MethodPost, s.handleRunAttach)
 		case "/run.status":

@@ -351,6 +351,37 @@ Response: `{"v":1,"embeddings_base_url":"…","embeddings_source":"onnx-int8"}`.
 - A call in flight finishes against the old address; the indexer retries a
   refused connection, which reaches the new one.
 
+### `POST /exec/ghrunner.{prepare,start,status,stop}`
+
+This computer's GitHub Actions runners, for a cloud that holds the GitHub
+connection but must not run a repository's code itself (the company edition).
+The cloud decides what should run and mints each runner's one-job config
+(`generate-jitconfig`); the executor installs the runner, starts it with that
+config, reports how it is doing and stops it. Nothing here calls GitHub. It
+needs `data_dir` (runners unpack under `data_dir/github-runner`); without it
+every call answers 503 `not_ready`. Each call is one document; a runner lives
+under its own life, so a cloud that restarts finds it going.
+
+- `prepare` `{"repo":"owner/name"}` unpacks the pinned runner for the repository in
+  the background and answers at once with the status; its state is `preparing`,
+  then `ready` (or `failed` with `error`).
+- `start` `{"repo","jit_config"}` runs a runner with the base64 config in
+  `ACTIONS_RUNNER_INPUT_JITCONFIG` (never argv, and the child gets the `childenv`
+  allowlist, not this process's environment). 503 `not_ready` before `prepare`
+  finished, 409 `conflict` while one is already going for the repository. The
+  config is never echoed, not even in an error.
+- `status` `{}` answers `{"supported","labels","version","repos":[{"repo","state",
+  "job","last_job","last_result","last_finished_at","took_job","output","error"}]}`.
+  `state` is `preparing`, `ready`, `starting`, `idle` (listening), `busy`,
+  `exited` or `failed`. A runner is one-shot: after it takes a job it removes itself and
+  the state is `exited` with `took_job`; the cloud starts the next with a new config.
+- `stop` `{"repo","remove"?}` ends the runner, a job in progress included, and with
+  `remove` deletes its install.
+
+The runner (`desktop/runner`) forwards the four as `/ghrunner.*` documents. The
+local edition does not use them: `ghrunner.Manager` runs the same `ghrunner.Local`
+launcher in process.
+
 ## The post-run half: verify, git, commit and push
 
 A board run's agent turn is half of it. The other half — build and test the

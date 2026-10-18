@@ -96,6 +96,8 @@ private repositories picked in Settings → Integrations → GitHub. Jobs run co
 repositories as this user, so: the runner gets the `childenv` allowlist environment (never this
 server's own), its just-in-time config goes in `ACTIONS_RUNNER_INPUT_JITCONFIG` (never argv), and a
 repository is accepted only when GitHub says it is private and the connection administers it.
+The process side is a `Launcher` (`ghrunner.Local` runs it here; `ghrunner.Host` is the same thing driven by a
+cloud through the executor's `ghrunner.*` calls, see `.ai/executor.md`).
 Details: [API Specification](.ai/api-spec.md#this-computer-as-a-github-actions-runner).
 
 ## Build
