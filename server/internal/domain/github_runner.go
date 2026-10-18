@@ -42,6 +42,11 @@ const (
 	GitHubRunnerErrStart         = "start_failed"
 	GitHubRunnerErrExited        = "exited"
 	GitHubRunnerErrGitHubRefused = "github_error"
+	// The computer that should run the runner is not connected, or is connected
+	// but cannot run one yet (a cloud driving a member's computer).
+	GitHubRunnerErrComputerAway     = "computer_away"
+	GitHubRunnerErrComputerNotReady = "computer_not_ready"
+	GitHubRunnerErrComputerOutdated = "computer_outdated"
 )
 
 type GitHubRunnerRepoStatus struct {

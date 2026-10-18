@@ -16,7 +16,10 @@ type fakeRunnerHost struct {
 	err               error
 }
 
-func (f *fakeRunnerHost) Prepare(repo string) error { f.prepared = append(f.prepared, repo); return nil }
+func (f *fakeRunnerHost) Prepare(repo string) error {
+	f.prepared = append(f.prepared, repo)
+	return nil
+}
 func (f *fakeRunnerHost) Start(repo, jit string) error {
 	f.started = append(f.started, repo+"="+jit)
 	return f.err

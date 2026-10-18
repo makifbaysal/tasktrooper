@@ -201,7 +201,7 @@ func TestARunnerTakesAJobAndRegistersAgainForTheNext(t *testing.T) {
 	if strings.Contains(string(env), "must-not-leak") {
 		t.Fatal("a server secret reached the runner's environment")
 	}
-	if got := strings.Join(api.labels, ","); got != strings.Join(m.labels, ",") || !strings.Contains(got, "self-hosted") {
+	if got := strings.Join(api.labels, ","); got != strings.Join(m.launcher.Labels(), ",") || !strings.Contains(got, "self-hosted") {
 		t.Fatalf("labels = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "_work", "checkout")); err == nil {

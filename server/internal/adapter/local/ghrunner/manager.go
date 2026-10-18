@@ -22,7 +22,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -71,7 +70,6 @@ type Manager struct {
 	cfg       Config
 	launcher  Launcher
 	supported bool
-	labels    []string
 	host      string
 
 	configMu sync.Mutex
@@ -101,7 +99,6 @@ func New(cfg Config) *Manager {
 	m := &Manager{
 		cfg:       cfg,
 		launcher:  cfg.Launcher,
-		labels:    cfg.Launcher.Labels(),
 		host:      runnerHost(cfg.Hostname),
 		slots:     map[string]*slot{},
 		supported: cfg.Launcher.Supported(),
@@ -134,7 +131,7 @@ func (m *Manager) Start(ctx context.Context) {
 func (m *Manager) Status(ctx context.Context) (domain.GitHubRunnerStatus, error) {
 	out := domain.GitHubRunnerStatus{
 		Supported:  m.supported,
-		Labels:     slices.Clone(m.labels),
+		Labels:     m.launcher.Labels(),
 		Version:    Version,
 		Repos:      []domain.GitHubRunnerRepoStatus{},
 		Candidates: []string{},
@@ -457,18 +454,21 @@ func (s *slot) once() bool {
 	})
 	if err != nil {
 		if ctx.Err() == nil {
-			code, detail := classify(err)
-			if code == domain.GitHubRunnerErrGitHubRefused {
-				code, detail = domain.GitHubRunnerErrDownload, err.Error()
+			// A launcher names its own reasons (the computer is away, its
+			// app is out of date); anything else is a failed download.
+			var coded *domain.GitHubRunnerRepoError
+			if errors.As(err, &coded) {
+				s.fail(coded.Code, coded.Detail)
+			} else {
+				s.fail(domain.GitHubRunnerErrDownload, err.Error())
 			}
-			s.fail(code, detail)
 		}
 		return false
 	}
 	s.update(func(st *domain.GitHubRunnerRepoStatus) { st.State = domain.GitHubRunnerStarting })
 
 	name := fmt.Sprintf("tasktrooper-%s-%s", s.m.host, randomSuffix())
-	jit, err := s.m.cfg.API.GenerateJITConfig(ctx, s.owner, s.name, name, s.m.labels, "_work")
+	jit, err := s.m.cfg.API.GenerateJITConfig(ctx, s.owner, s.name, name, s.m.launcher.Labels(), "_work")
 	if err != nil {
 		if ctx.Err() == nil {
 			code, detail := classify(err)

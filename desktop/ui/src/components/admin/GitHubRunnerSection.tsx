@@ -25,6 +25,9 @@ const KNOWN_ERRORS = new Set([
   "download_failed",
   "start_failed",
   "exited",
+  "computer_away",
+  "computer_not_ready",
+  "computer_outdated",
   "github_error",
 ]);
 
