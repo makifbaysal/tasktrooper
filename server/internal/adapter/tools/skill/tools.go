@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -219,7 +220,11 @@ func (t *createSkillTool) Execute(ctx context.Context, arguments string) domain.
 	if stackErr != nil {
 		return toolError(createSkillToolName, stackErr.Error())
 	}
-	created, err := t.kit.Creator.CreateSkillForAgent(ctx, agentID, domain.CreateSkillRequest{
+	// The agent wrote this skill about itself, so its version history must read as self-evolution, not as a user edit — that is what keeps catalog sync and a reader of the history from mistaking it for the user's own.
+	versionCtx := catalog.WithVersionSource(ctx, catalog.VersionSource{
+		Source: domain.CatalogVersionSourceEvolution, Reason: "create_skill during a run",
+	})
+	created, err := t.kit.Creator.CreateSkillForAgent(versionCtx, agentID, domain.CreateSkillRequest{
 		Name: name, Description: description, Category: strings.TrimSpace(args.Category),
 		Content: content, Enabled: true, TechStackID: stackID,
 	})

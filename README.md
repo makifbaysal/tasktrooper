@@ -106,14 +106,17 @@ Agents rewrite their own playbooks from how their work actually went.
   runs, chat messages, revision comments, scores, KPI results and its current
   skills, rules and memories. It proposes changes to all three. Skill and rule
   changes are applied only for agents with self-evolution turned on.
-- **Golden gate.** With the gate enabled, a golden task suite runs before and
-  after a proposed change, and an independent judge model decides whether to
-  keep it. If the pass rate drops, the whole change set is reverted
-  automatically.
+- **Rehearsal before anything is written.** With the gate enabled, a proposed
+  change is first tried, in memory, on the agent's golden tasks and recent
+  real requests, on its own engine (HTTP model or CLI). Procedure and domain
+  changes are tried apart and together, an independent judge compares the
+  answers blind, and only a variant that does better is written. Each change
+  gets a verdict, and what the rehearsal taught is kept as a lesson the next
+  reflection reads.
 - **Impact tracking.** Each applied change is later classified as effective,
   regressed or neutral by comparing scores before and after it. Regressions are
   put in front of the agent's next reflection, which decides whether to revert.
-- **Budgets and history.** Skills and rules are capped per agent (25 and 15 by
+- **Budgets and history.** Skills and rules are capped per agent (100 and 15 by
   default), so an agent merges and updates instead of piling up. Every write to
   a skill or rule is versioned with its source (you, self-evolution or the
   upstream catalog) and any version can be restored.

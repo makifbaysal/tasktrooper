@@ -10,6 +10,7 @@
         "additionalProperties": false,
         "properties": {
           "action": { "type": "string", "enum": ["create", "update", "delete"] },
+          "dimension": { "type": "string", "enum": ["procedure", "domain"] },
           "skill_id": { "type": "string" },
           "name": { "type": "string" },
           "description": { "type": "string" },
@@ -20,6 +21,7 @@
         },
         "required": [
           "action",
+          "dimension",
           "skill_id",
           "name",
           "description",
@@ -37,13 +39,14 @@
         "additionalProperties": false,
         "properties": {
           "action": { "type": "string", "enum": ["create", "update", "delete"] },
+          "dimension": { "type": "string", "enum": ["procedure", "domain"] },
           "rule_id": { "type": "string" },
           "name": { "type": "string" },
           "content": { "type": "string" },
           "priority": { "type": "integer" },
           "reason": { "type": "string" }
         },
-        "required": ["action", "rule_id", "name", "content", "priority", "reason"]
+        "required": ["action", "dimension", "rule_id", "name", "content", "priority", "reason"]
       }
     },
     "memories": {

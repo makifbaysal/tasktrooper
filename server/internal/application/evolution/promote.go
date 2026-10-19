@@ -258,39 +258,7 @@ func (s *Service) MaybePromoteMemory(ctx context.Context, agentID uuid.UUID, rep
 
 // requireSelfEvolution applies to the save_memory path only; an operator sweep may not inherit it.
 func (s *Service) promotionTargets(ctx context.Context, requireSelfEvolution bool) ([]domain.Agent, error) {
-	members, err := s.board.ListMembers(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing board members: %w", err)
-	}
-	agents := make([]domain.Agent, 0, len(members))
-	for _, m := range members {
-		rec, err := s.catalog.GetAgent(ctx, m.AgentID)
-		if err != nil || !rec.Enabled {
-			continue
-		}
-		if requireSelfEvolution && !rec.SelfEvolutionEnabled {
-			continue
-		}
-		agents = append(agents, rec)
-	}
-	if len(agents) > 0 {
-		return agents, nil
-	}
-	// board_members is an explicit opt-in list nothing populates by default, so an empty table means "nobody narrowed the roster" — reading it literally refused to promote on a workspace full of working agents.
-	all, err := s.catalog.ListAgents(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing agents: %w", err)
-	}
-	for _, rec := range all {
-		if !rec.Enabled {
-			continue
-		}
-		if requireSelfEvolution && !rec.SelfEvolutionEnabled {
-			continue
-		}
-		agents = append(agents, rec)
-	}
-	return agents, nil
+	return s.rosterAgents(ctx, requireSelfEvolution)
 }
 
 func (s *Service) createSkillForAgents(ctx context.Context, targets []domain.Agent, req domain.CreateSkillRequest) []string {

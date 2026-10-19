@@ -1138,7 +1138,7 @@ value, and `guardHostExecuted` refuses **every** request naming a host-executed 
   another provider's endpoint on another provider's key.
 - **Utility** (no tools; a schema extraction, summary, commit message, judge verdict) —
   `errHostExecutedUtility`, naming **which step** could not run (the schema name —
-  `planner_output`, `golden_gate_verdict` — or the call site), **that the agent runs on
+  `planner_output`, `probe_scores` — or the call site), **that the agent runs on
   Claude Code**, the **concrete reason** where there is one, and the **two fixes**: configure
   an HTTP provider for this agent, or turn the step off.
 
@@ -1169,7 +1169,8 @@ On a host **with** a runner, for an agent on `claude_code`:
 | criteria sweep (`board/criteria_sweep.go`) | CLI | router |
 | review verdict sweep + finalize (`board/review_sweep.go`) | CLI | router |
 | orchestrator subtask (`orchestrator/executor.go`) | CLI | router; subtask workspace |
-| agent reflection with `allow_web_research` (`evolution/reflect.go`) | CLI | router; scratch workspace |
+| agent reflection with `allow_web_research` (`evolution/reflect.go`) | CLI | router; a temporary directory holding the evidence files |
+| self-evolution probe: golden suite, rehearsals, judge, lesson (`evolution/probe.go`, `lesson.go`) | CLI | router (`evolution.ask`); scratch workspace, no TaskTrooper tools |
 | chat turn (`session/`) | CLI | `port.ChatExecutor`; resumes the CLI session |
 
 And the steps needing an HTTP provider configured **for this agent** — previously rerouted to
@@ -1181,8 +1182,7 @@ the configured default, now refused, so "if refused" is what the operator sees:
 | replanner (`orchestrator/replanner.go`) | no | repair loop abandoned; plan lands on `PlanStatusIncomplete`, skip logged at ERROR when permanent |
 | verifier (`orchestrator/verifier.go`) | no (by design) | stays "inconclusive" — results already produced are never discarded — logged at ERROR **and** appended: *"⚠️ Verification did not run for this plan: …"*, because it will be skipped every run until a setting changes |
 | synthesize (`orchestrator/service.go`) | no | the raw formatted task results stand; the error is now logged |
-| golden suite (`evolution/golden.go`) | **yes** | abandoned at the first refusal (`goldenRun.Unservable`) rather than grinding to `Evaluated == 0` |
-| golden gate judge (`evolution/golden.go`) | **yes** | the change set **REVERTS**. It used to be *kept* "on non-regression" — two rates of 0/0 satisfy `after >= before` |
+| self-evolution probe on an agent whose CLI has no executor here (`evolution/probe.go`) | **yes** | nothing is measured, so **nothing is written**: the skill/rule changes are recorded `not_adopted` with the engine named. The old golden suite/judge were HTTP-only and, because an unmeasured suite skipped the gate entirely, the changes stayed live ungraded |
 | reflection without web research (`evolution/reflect.go`) | **yes** | propagated as `reflection llm call failed` |
 | memory promotion / save classification (`evolution/promote.go`) | no | saved as a plain memory; the skip is now logged |
 | commit message rewrite (`board/commitmsg.go`) | no | the commit lands with the task's own title and summary, logged with `permanent` |

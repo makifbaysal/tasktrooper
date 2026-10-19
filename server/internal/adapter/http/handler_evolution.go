@@ -231,6 +231,9 @@ func (h *Handler) ReflectNow(c *fiber.Ctx) error {
 		if errors.Is(err, evolution.ErrReflectionInFlight) {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": fiber.Map{"message": err.Error(), "type": "conflict"}})
 		}
+		if errors.Is(err, evolution.ErrEvolutionDisabled) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": fiber.Map{"message": err.Error(), "type": "evolution_disabled"}})
+		}
 		return internalError(c, err)
 	}
 	return c.Status(fiber.StatusAccepted).JSON(reflection)

@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "entry": { "type": "boolean" },
+    "cue": { "type": "string" },
+    "lesson": { "type": "string" },
+    "evidence": { "type": "string" },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"] }
+  },
+  "required": ["entry", "cue", "lesson", "evidence", "confidence"]
+}

@@ -1,7 +1,7 @@
 ---
 key: evolution.reflection_system
-version: 1
-inputs: [AgentName, SelfEvolutionEnabled, MaxSkillChanges, MaxRuleChanges, HasBudget, MaxSkillsPerAgent, MaxRulesPerAgent, GoldenGate, AllowWebResearch, MaxMemoryChanges]
+version: 2
+inputs: [AgentName, SelfEvolutionEnabled, MaxSkillChanges, MaxRuleChanges, HasBudget, MaxSkillsPerAgent, MaxRulesPerAgent, GoldenGate, AllowWebResearch, MaxMemoryChanges, MaxAlwaysOnChars, EvidenceFiles]
 ---
 You are the self-improvement process of the agent "{{.AgentName}}".
 You analyze recent evidence (conversations, task outcomes, revisions, KPI attainment) and decide how the agent should evolve.
@@ -14,11 +14,16 @@ CONSOLIDATION FIRST: prefer updating or merging an existing skill/rule over crea
 {{if .HasBudget -}}
 Standing budget: at most {{.MaxSkillsPerAgent}} skills and {{.MaxRulesPerAgent}} rules in total. At budget, a create is REJECTED — merge into an existing entry or delete one first.
 {{end -}}
+Tag every skill and rule change with its "dimension": "procedure" when it changes how the agent works (tool use, the order of steps, checks, how it finishes), "domain" when it changes what a practitioner knows (requirements, conventions, the shape of the deliverable). Keep each change to one dimension.
+Choose the form as deliberately as the content. Rules are in the context of every run, so every word of a rule competes with the work: keep rules short and universal, and put anything with a recognisable trigger in a skill. A run sees a skill only as its description in an index until it loads it, so every skill's description must say when to load it ("When <situation>, …"). A rule or skill that names another skill (the `name` skill) must name one that exists after your changes.{{if .MaxAlwaysOnChars}} All rules together may hold at most {{.MaxAlwaysOnChars}} characters.{{end}}
 {{if .GoldenGate -}}
-Your changes are graded: the golden suite runs before and after them, and an independent evaluator rolls the whole set back if the agent did not get better. Change what the evidence supports, nothing speculative.
+Nothing you change is written directly. Each dimension's changes, and all of them together, are first rehearsed against the current setup on the agent's golden tasks and recent real requests; an independent evaluator compares the answers without knowing which is which, and only a variant that does better is adopted. A golden task that passed before and fails after vetoes a variant. Change what the evidence supports, nothing speculative.
 {{end -}}
 {{if .AllowWebResearch -}}
 You may use web_search and fetch_url to research fixes and best practices before deciding; distill what you learn into skill content and cite the URLs in source_urls.
+{{end -}}
+{{if .EvidenceFiles -}}
+The full evidence is in your working directory: EVIDENCE.md (the report below, untruncated), skills/ and rules/ (the full current text of each), runs/ (step-by-step records of recent runs, with the request and any feedback). The report below is a summary; open what you need before deciding.
 {{end -}}
 {{else -}}
 Self-evolution is DISABLED for this agent: output ONLY memories and a self-assessment. skills, rules and reverts arrays MUST be empty.
@@ -34,10 +39,10 @@ Write your analysis as markdown prose first — what you looked at, what you con
 {
   "self_assessment": "2-4 sentences: what was, what changed in performance vs baseline, and what you decided and why",
   "skills": [
-    {"action": "create|update|delete", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
   ],
   "rules": [
-    {"action": "create|update|delete", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
   ],
   "memories": [
     {"action": "create|delete", "memory_id": "existing memory id for delete, empty for create", "content": "...", "category": "...", "reason": "why this change"}

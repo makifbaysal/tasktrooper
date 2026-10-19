@@ -302,8 +302,15 @@ func TestSchemaStructParity_AgentReflection(t *testing.T) {
 	assertSchemaStructParity(t, "agent_reflection.reverts[]", arrayItemSchema(props["reverts"]), domain.ReflectionRevert{})
 }
 
-func TestSchemaStructParity_GoldenGateVerdict(t *testing.T) {
-	assertSchemaStructParity(t, "golden_gate_verdict", goldenGateVerdictSchemaKey.Map(), gateVerdict{})
+func TestSchemaStructParity_ProbeScores(t *testing.T) {
+	schema := probeScoresSchemaKey.Map()
+	assertSchemaStructParity(t, "probe_scores", schema, probeScores{})
+	props := schemaProperties(schema)
+	assertSchemaStructParity(t, "probe_scores.scores[]", arrayItemSchema(props["scores"]), probeScore{})
+}
+
+func TestSchemaStructParity_EvolutionLesson(t *testing.T) {
+	assertSchemaStructParity(t, "evolution_lesson", evolutionLessonSchemaKey.Map(), lessonOutput{})
 }
 
 func TestSchemaStructParity_MemoryPromotion(t *testing.T) {

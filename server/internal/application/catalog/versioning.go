@@ -33,6 +33,10 @@ func versionSourceFrom(ctx context.Context) VersionSource {
 	return VersionSource{Source: domain.CatalogVersionSourceUser}
 }
 
+func VersionSourceFrom(ctx context.Context) VersionSource {
+	return versionSourceFrom(ctx)
+}
+
 func (s *Service) SetVersionStore(store port.CatalogVersionStore) {
 	s.versions = store
 }

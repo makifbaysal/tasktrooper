@@ -315,8 +315,8 @@ Periodic reflections, KPI evaluation, impact tracking.
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `false` | Master switch for the evolution ticker |
-| `allow_web_research` | `false` | Reflection runs with `web_search`/`fetch_url` |
+| `enabled` | `false` | Master switch: the ticker, revision-triggered and manual reflections (409 `evolution_disabled`), and the `save_memory` classifier |
+| `allow_web_research` | `false` | Reflection is an agentic run with `web_search`/`fetch_url`, and gets its evidence as files (`EVIDENCE.md`, `skills/`, `rules/`, `runs/`) it can open with `read_file` |
 | `tick_interval` | `10m` | Ticker cadence (impact sweep, KPI sweep, due-reflection check) |
 | `reflect_interval` | `24h` | Minimum gap between periodic reflections per agent |
 | `revision_debounce` | `30m` | Minimum gap between revision-triggered mini-reflections |
@@ -325,12 +325,16 @@ Periodic reflections, KPI evaluation, impact tracking.
 | `max_skill_changes` / `max_rule_changes` | `3` | Per-reflection change caps |
 | `max_skills_per_agent` | `100` | Standing skill budget; at budget a `create` is rejected (merge/update/delete first). Also caps the agent's own `create_skill` |
 | `max_rules_per_agent` | `15` | Standing rule budget; same behaviour |
-| `golden_gate` | `false` (config.yml ships `true`) | Golden suite before AND after applied changes; an independent judge keeps or rolls back the whole set |
+| `golden_gate` | `false` (config.yml ships `true`) | Probe gate: skill/rule changes are rehearsed on the golden suite and recent requests before anything is written, per dimension and together; only a variant that does better (and breaks no golden task) is adopted. Nothing measured → nothing written |
+| `probe_cases` | `2` | Recent real requests (board tasks, then chats) each change set is rehearsed on, besides the golden suite |
+| `probe_max_turns` | `6` | Turn cap for a rehearsal/judge session on a CLI engine |
+| `max_always_on_chars` | `8000` | Cap on the total text of an agent's enabled rules; a change set that grows them past it is refused |
+| `reflection_timeout` | `30m` | One reflection end to end, rehearsals included |
 | `max_memory_changes` | `5` | Per-reflection memory change cap |
 | `memory_max_count` | `200` | Per-agent memory cap; oldest evicted |
 | `evidence_max_chars` | `24000` | Reflection evidence truncation |
-| `model` / `provider_type` | _(empty)_ | Reflection + golden eval override (a cheap model is recommended) |
-| `judge_model` / `judge_provider_type` | _(empty)_ | Independent model that makes the golden-gate decision; the reflection model when empty |
+| `model` / `provider_type` | _(empty)_ | Reflection + rehearsal override |
+| `judge_model` / `judge_provider_type` | _(empty)_ | Independent model that scores the rehearsals blind and distills the lesson; the agent's `model_heavy` when empty |
 
 ## Board quality gates (`board`)
 

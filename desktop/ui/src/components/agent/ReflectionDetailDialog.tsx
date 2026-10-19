@@ -1,5 +1,14 @@
 import { useState } from "react";
-import type { AgentKPI, AgentReflection, EvolutionEvent, ReflectionChange, ReflectionOutcome } from "@/api";
+import type {
+  AgentKPI,
+  AgentReflection,
+  EvolutionEvent,
+  ProbeVerdict,
+  ReflectionChange,
+  ReflectionGate,
+  ReflectionLesson,
+  ReflectionOutcome,
+} from "@/api";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +32,14 @@ const outcomeVariant: Record<ReflectionOutcome, BadgeProps["variant"]> = {
   rejected: "warning",
   skipped: "warning",
   not_applied: "warning",
+  not_adopted: "secondary",
+};
+
+const verdictVariant: Record<ProbeVerdict, BadgeProps["variant"]> = {
+  helped: "success",
+  hurt: "destructive",
+  no_effect: "secondary",
+  confounded: "info",
 };
 
 function changeKindLabel(t: TFunc, change: ReflectionChange): string {
@@ -124,7 +141,17 @@ function ChangeRow({ change, event }: { change: ReflectionChange; event?: Evolut
           <span className="text-sm font-medium">{changeKindLabel(t, change)}</span>
           <span className="ml-2 truncate text-sm text-muted-foreground">{change.name}</span>
         </div>
-        <Badge variant={outcomeVariant[change.outcome]}>{t(`agentArea.perf.detail.outcome.${change.outcome}`)}</Badge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {change.dimension ? (
+            <Badge variant="outline">{t(`agentArea.perf.detail.dimension.${change.dimension}`)}</Badge>
+          ) : null}
+          {change.verdict ? (
+            <Badge variant={verdictVariant[change.verdict]} title={t(`agentArea.perf.detail.verdictTitle.${change.verdict}`)}>
+              {t(`agentArea.perf.detail.verdict.${change.verdict}`)}
+            </Badge>
+          ) : null}
+          <Badge variant={outcomeVariant[change.outcome]}>{t(`agentArea.perf.detail.outcome.${change.outcome}`)}</Badge>
+        </div>
       </div>
       {change.reason ? (
         <p className="text-xs text-muted-foreground">
@@ -173,6 +200,98 @@ function ChangeRow({ change, event }: { change: ReflectionChange; event?: Evolut
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ProbeSection({ gate }: { gate: ReflectionGate }) {
+  const { t } = useI18n();
+  const variants = gate.variants ?? [];
+  const cases = gate.cases ?? [];
+  const headline = gate.unmeasured
+    ? t("agentArea.perf.detail.probe.unmeasured")
+    : gate.adopted
+      ? t("agentArea.perf.detail.probe.adopted", { variant: t(`agentArea.perf.detail.probe.variant.${gate.adopted}`) })
+      : t("agentArea.perf.detail.probe.nothingAdopted");
+  return (
+    <section className="space-y-2">
+      <h4 className="text-sm font-semibold">{t("agentArea.perf.detail.probe.heading")}</h4>
+      <p className="text-sm">{headline}</p>
+      {gate.reason ? (
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{t("agentArea.perf.detail.detailLabel")}</span> {gate.reason}
+        </p>
+      ) : null}
+      {variants.length > 0 ? (
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
+                <th className="p-2 font-medium">{t("agentArea.perf.detail.probe.colVariant")}</th>
+                <th className="p-2 text-right font-medium">{t("agentArea.perf.detail.probe.colChanges")}</th>
+                <th className="p-2 text-right font-medium">{t("agentArea.perf.detail.probe.colBetter")}</th>
+                <th className="p-2 text-right font-medium">{t("agentArea.perf.detail.probe.colWorse")}</th>
+                <th className="p-2 text-right font-medium">{t("agentArea.perf.detail.probe.colEven")}</th>
+                <th className="p-2 text-right font-medium">{t("agentArea.perf.detail.probe.colGolden")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {variants.map((v) => (
+                <tr key={v.label} className="border-b last:border-0">
+                  <td className="p-2">
+                    <span className={v.label === gate.adopted ? "font-medium" : undefined}>
+                      {t(`agentArea.perf.detail.probe.variant.${v.label}`)}
+                    </span>
+                    {v.label === gate.adopted ? (
+                      <Badge variant="success" className="ml-2">
+                        {t("agentArea.perf.detail.probe.adoptedBadge")}
+                      </Badge>
+                    ) : null}
+                  </td>
+                  <td className="p-2 text-right tabular-nums">{v.changes}</td>
+                  <td className="p-2 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{v.wins}</td>
+                  <td className="p-2 text-right tabular-nums text-red-500">{v.losses}</td>
+                  <td className="p-2 text-right tabular-nums text-muted-foreground">{v.ties}</td>
+                  <td className="p-2 text-right tabular-nums">{v.golden_losses}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {cases.length > 0 ? (
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-muted-foreground">
+            {t("agentArea.perf.detail.probe.casesHeading", { count: cases.length })}
+          </div>
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {cases.map((c, i) => (
+              <li key={`${c.kind}-${i}`} className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{t(`agentArea.perf.detail.probe.caseKind.${c.kind}`)}</Badge>
+                <span className="min-w-0 truncate text-foreground">{c.title}</span>
+                {!c.measured ? <span>· {t("agentArea.perf.detail.probe.notMeasured")}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function LessonSection({ lesson }: { lesson: ReflectionLesson }) {
+  const { t } = useI18n();
+  return (
+    <section className="space-y-1">
+      <h4 className="text-sm font-semibold">{t("agentArea.perf.detail.lesson.heading")}</h4>
+      <p className="text-sm">
+        <span className="font-medium">{t("agentArea.perf.detail.lesson.cue")}</span> {lesson.cue}
+      </p>
+      <p className="text-sm">{lesson.lesson}</p>
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{t("agentArea.perf.detail.lesson.evidence")}</span> {lesson.evidence}
+        {lesson.confidence ? <> · {t("agentArea.perf.detail.lesson.confidence", { level: lesson.confidence })}</> : null}
+      </p>
+    </section>
   );
 }
 
@@ -297,11 +416,15 @@ export function ReflectionDetailDialog({ reflection, events, kpis, open, onOpenC
                   )}
                 </section>
 
-                {decision.gate ? (
+                {decision.gate?.probed ? <ProbeSection gate={decision.gate} /> : null}
+
+                {decision.lesson ? <LessonSection lesson={decision.lesson} /> : null}
+
+                {decision.gate && !decision.gate.probed ? (
                   <section className="space-y-1">
                     <h4 className="text-sm font-semibold">{t("agentArea.perf.detail.gateHeading")}</h4>
                     <p className="text-sm text-muted-foreground">
-                      {Math.round(decision.gate.before_rate * 100)}% → {Math.round(decision.gate.after_rate * 100)}% ·{" "}
+                      {Math.round((decision.gate.before_rate ?? 0) * 100)}% → {Math.round((decision.gate.after_rate ?? 0) * 100)}% ·{" "}
                       {decision.gate.keep
                         ? t("agentArea.perf.detail.gateKept")
                         : t("agentArea.perf.detail.gateRolledBack", { count: decision.gate.rolled_back })}

@@ -153,6 +153,18 @@ func applyDefaults(cfg *domain.Config) {
 	if cfg.Evolution.EvidenceMaxChars <= 0 {
 		cfg.Evolution.EvidenceMaxChars = 24000
 	}
+	if cfg.Evolution.ProbeCases <= 0 {
+		cfg.Evolution.ProbeCases = 2
+	}
+	if cfg.Evolution.ProbeMaxTurns <= 0 {
+		cfg.Evolution.ProbeMaxTurns = 6
+	}
+	if cfg.Evolution.MaxAlwaysOnChars <= 0 {
+		cfg.Evolution.MaxAlwaysOnChars = 8000
+	}
+	if cfg.Evolution.ReflectionTimeout <= 0 {
+		cfg.Evolution.ReflectionTimeout = 30 * time.Minute
+	}
 	if cfg.AgentCatalog.CacheDir == "" {
 		cfg.AgentCatalog.CacheDir = "./data/catalog"
 	}

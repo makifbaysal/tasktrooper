@@ -195,14 +195,26 @@ type EvolutionConfig struct {
 	// reflection can only update, merge or delete, never create.
 	MaxSkillsPerAgent int `koanf:"max_skills_per_agent"`
 	MaxRulesPerAgent  int `koanf:"max_rules_per_agent"`
-	// GoldenGate runs the golden suite before AND after changes and reverts
-	// when the after-run is worse.
+	// GoldenGate probes skill/rule changes before writing them: the golden
+	// suite and ProbeCases recent requests run on the current setup and on each
+	// variant of the change set, and only a variant that does better is
+	// adopted. Nothing measured means nothing adopted.
 	GoldenGate        bool   `koanf:"golden_gate"`
 	JudgeModel        string `koanf:"judge_model"`
 	JudgeProviderType string `koanf:"judge_provider_type"`
 	MaxMemoryChanges  int    `koanf:"max_memory_changes"`
 	MemoryMaxCount    int    `koanf:"memory_max_count"`
 	EvidenceMaxChars  int    `koanf:"evidence_max_chars"`
+	// ProbeCases is how many recent real requests (board tasks, then chat
+	// messages) each skill/rule change set is rehearsed on, besides the golden
+	// suite, before anything is written.
+	ProbeCases    int `koanf:"probe_cases"`
+	ProbeMaxTurns int `koanf:"probe_max_turns"`
+	// MaxAlwaysOnChars caps the total text of an agent's enabled rules: rules
+	// are in every run's context, so a change set that grows them past it is
+	// refused and the reflection is told to move the text into a skill.
+	MaxAlwaysOnChars  int           `koanf:"max_always_on_chars"`
+	ReflectionTimeout time.Duration `koanf:"reflection_timeout"`
 }
 
 // AgentCatalogConfig drives the external agents/skills catalog: a git clone

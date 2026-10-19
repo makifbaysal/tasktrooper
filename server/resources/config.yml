@@ -240,12 +240,15 @@ evolution:
   reflect_interval: "24h"
   revision_debounce: "30m"
   impact_window: "168h"
-  golden_gate: true        # degisiklik oncesi/sonrasi golden kosulur, kotulesirse geri alinir
+  golden_gate: true        # skill/kural degisiklikleri yazilmadan once prova edilir; yalnizca daha iyi sonuc veren benimsenir
+  probe_cases: 2           # golden gorevlere ek olarak prova edilen son gercek istek sayisi
+  max_always_on_chars: 8000 # ajanin etkin kurallarinin toplam karakter siniri
+  reflection_timeout: "30m"
   max_skills_per_agent: 100 # ajan basina toplam skill butcesi (dolunca create reddedilir)
   max_rules_per_agent: 15
-  # model: ""          # reflection + golden eval icin model override
+  # model: ""          # reflection + prova icin model override
   # provider_type: ""
-  # judge_model: ""    # golden gate kararini veren ayri model
+  # judge_model: ""    # provalari kor olarak puanlayan ayri model
   # judge_provider_type: ""
   # Bos birakilirsa reflection ve judge, ajanin zor isler icin ayarlanan
   # model_heavy'si ile calisir (model_heavy da bossa ajanin normal modeli).

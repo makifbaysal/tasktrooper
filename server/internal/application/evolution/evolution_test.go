@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -157,14 +158,24 @@ func contains(s, sub string) bool {
 
 // Minimal in-memory store: enough of CreateEvent/GetEvent to exercise applyOutput's outcome bookkeeping, and enough of ListReflections to exercise legacy-decision derivation.
 type fakeEvolutionStore struct {
+	mu          sync.Mutex
 	events      []domain.AgentEvolutionEvent
 	reflections []domain.AgentReflection
+	created     []domain.AgentReflection
+	completed   []domain.AgentReflection
 }
 
-func (f *fakeEvolutionStore) CreateReflection(context.Context, domain.AgentReflection) (domain.AgentReflection, error) {
-	return domain.AgentReflection{}, nil
+func (f *fakeEvolutionStore) CreateReflection(_ context.Context, r domain.AgentReflection) (domain.AgentReflection, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r.ID = uuid.New()
+	f.created = append(f.created, r)
+	return r, nil
 }
-func (f *fakeEvolutionStore) CompleteReflection(context.Context, domain.AgentReflection) error {
+func (f *fakeEvolutionStore) CompleteReflection(_ context.Context, r domain.AgentReflection) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.completed = append(f.completed, r)
 	return nil
 }
 func (f *fakeEvolutionStore) GetReflection(context.Context, uuid.UUID) (domain.AgentReflection, error) {

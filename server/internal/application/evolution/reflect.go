@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/rs/zerolog/log"
 )
@@ -57,13 +59,23 @@ func (s *Service) processReflection(ctx context.Context, reflection domain.Agent
 		return
 	}
 
-	evidence, skills, rules, baseline, err := s.gatherEvidence(ctx, agentRec, reflection)
+	// Only the reflection itself runs in the evidence directory; rehearsals must not, or a CLI could read the feedback the judge grades against.
+	reflectCtx, withFiles, cleanup := s.evidenceWorkspace(ctx)
+	defer cleanup()
+	bundle, err := s.gatherEvidence(ctx, agentRec, reflection, withFiles)
 	if err != nil {
 		s.failReflection(ctx, reflection, "", fmt.Sprintf("evidence gathering failed: %v", err))
 		return
 	}
+	if withFiles {
+		if err := writeEvidenceFiles(registry.WorkspaceDirFromContext(reflectCtx), bundle.Full, bundle.Skills, bundle.Rules, bundle.Runs); err != nil {
+			log.Warn().Err(err).Str("agent", agentRec.Name).Msg("reflection evidence files could not be written; the report alone goes in")
+		}
+	}
+	skills, rules := bundle.Skills, bundle.Rules
 
-	output, rawOutput, analysis, err := s.runLLM(ctx, agentRec, evidence)
+	call := s.newReflectionCall(reflectCtx, agentRec, bundle.Report)
+	output, rawOutput, analysis, err := call.run(reflectCtx)
 	if err != nil {
 		s.failReflection(ctx, reflection, rawOutput, err.Error())
 		return
@@ -74,14 +86,60 @@ func (s *Service) processReflection(ctx context.Context, reflection domain.Agent
 		SkillBudget: s.cfg.MaxSkillsPerAgent, RuleBudget: s.cfg.MaxRulesPerAgent,
 	}
 
-	// It needs a baseline measured against the pre-change catalog, so it runs before anything is applied — but only when the reflection actually proposes catalog changes, otherwise it is a suite run for nothing.
-	gate := s.cfg.GoldenGate && agentRec.SelfEvolutionEnabled && proposesCatalogChange(output)
-	var beforeRun goldenRun
-	if gate {
-		beforeRun = s.runGoldenEval(ctx, agentRec, reflection.ID, goldenPhaseBefore)
+	var outcomes []domain.ReflectionChangeOutcome
+	var plan []plannedChange
+	if agentRec.SelfEvolutionEnabled {
+		var problems map[int]planProblem
+		plan, outcomes, problems = s.planAndValidate(output, skills, rules)
+		if len(problems) > 0 {
+			// One chance to fix it, as with unparseable JSON: the reflection hears exactly what was wrong, and whatever it still gets wrong is dropped rather than retried forever.
+			revised, raw2, analysis2, err := call.revise(reflectCtx, validationFeedback(problems))
+			if err == nil {
+				output, rawOutput, analysis = revised, raw2, analysis2
+				plan, outcomes, problems = s.planAndValidate(output, skills, rules)
+			} else {
+				log.Warn().Err(err).Str("agent", agentRec.Name).Msg("reflection revision after validation failed; dropping the invalid changes")
+			}
+			plan, outcomes = s.dropInvalid(plan, outcomes, problems, skills, rules)
+		}
 	}
 
-	applyLog, events, outcomes := s.applyOutput(ctx, agentRec, reflection, output, skills, rules)
+	adopt := map[int]bool{}
+	for _, c := range plan {
+		adopt[c.Index] = true
+	}
+	var gateResult *domain.ReflectionGateResult
+	var lesson *domain.ReflectionLesson
+	var probe probeOutcome
+	probed := s.cfg.GoldenGate && agentRec.SelfEvolutionEnabled && len(plan) > 0
+	if probed {
+		cases := s.probeCases(ctx, agentRec, reflection)
+		if len(cases) == 0 {
+			probe = probeOutcome{Unmeasured: true, AdoptedSet: map[int]bool{}, Verdicts: map[int]string{}}
+		} else {
+			probe = s.runProbe(ctx, agentRec, reflection, skills, rules, plan, cases)
+		}
+		adopt = probe.AdoptedSet
+		gateResult = probeGateResult(probe, len(cases), plan)
+		lesson = s.distillLesson(ctx, agentRec, plan, probe)
+	}
+
+	// With self-evolution off there is no plan; the untouched output goes through so every proposed skill/rule change is still recorded as skipped.
+	adopted := output
+	if agentRec.SelfEvolutionEnabled {
+		adopted = adoptedOutput(output, plan, adopt)
+	}
+	applyLog, _, applied := s.applyOutput(ctx, agentRec, reflection, adopted, skills, rules)
+	annotateOutcomes(applied, plan, probe.Verdicts)
+	for _, c := range plan {
+		if adopt[c.Index] {
+			continue
+		}
+		o := c.outcome(domain.ReflectionOutcomeNotAdopted, notAdoptedDetail(probe))
+		o.Verdict = probe.Verdicts[c.Index]
+		outcomes = append(outcomes, o)
+	}
+	outcomes = append(applied, outcomes...)
 
 	selfAssessment := strings.TrimSpace(output.SelfAssessment)
 	summary := selfAssessment
@@ -91,27 +149,16 @@ func (s *Service) processReflection(ctx context.Context, reflection domain.Agent
 	if len(applyLog) > 0 {
 		summary = summary + "\n\nApplied changes:\n- " + strings.Join(applyLog, "\n- ")
 	}
-
-	snapshot := s.captureSnapshot(ctx, reflection.AgentID)
-	var gateResult *domain.ReflectionGateResult
-	if len(applyLog) > 0 && agentRec.SelfEvolutionEnabled {
-		afterRun := s.runGoldenEval(ctx, agentRec, reflection.ID, goldenPhaseAfter)
-		if afterRun.ran() {
-			rate := afterRun.Rate
-			snapshot.GoldenPassRate = &rate
-			summary += "\n\n" + goldenSummaryLine(rate, afterRun.Evaluated)
-		}
-		if gate && beforeRun.ran() && afterRun.ran() {
-			beforeRate := beforeRun.Rate
-			snapshot.GoldenPassRateBefore = &beforeRate
-			var line string
-			line, gateResult = s.enforceGoldenGate(ctx, agentRec, reflection, beforeRun, afterRun, applyLog, events, outcomes)
-			summary += line
-		}
+	if gateResult != nil {
+		summary += "\n\n" + probeSummaryLine(*gateResult)
 	}
 	if len(summary) > 4000 {
 		summary = summary[:4000]
 	}
+
+	snapshot := s.captureSnapshot(ctx, reflection.AgentID)
+	snapshot.GoldenPassRateBefore = probe.BaseGolden
+	snapshot.GoldenPassRate = probe.AfterGold
 
 	catalogAfter := domain.ReflectionCatalogCounts{
 		Skills: catalogBefore.Skills, Rules: catalogBefore.Rules,
@@ -132,16 +179,196 @@ func (s *Service) processReflection(ctx context.Context, reflection domain.Agent
 	reflection.Decision = &domain.ReflectionDecision{
 		Analysis:       analysis,
 		SelfAssessment: selfAssessment,
-		Baseline:       baseline,
+		Baseline:       bundle.Baseline,
 		CatalogBefore:  catalogBefore,
 		CatalogAfter:   catalogAfter,
 		Changes:        outcomes,
 		Gate:           gateResult,
+		Lesson:         lesson,
 	}
 	if err := s.store.CompleteReflection(ctx, reflection); err != nil {
 		log.Warn().Err(err).Msg("complete reflection failed")
 	}
 	log.Info().Str("agent", agentRec.Name).Str("trigger", reflection.Trigger).Int("changes", len(applyLog)).Msg("reflection completed")
+}
+
+// An agentic reflection gets a directory of its own holding the evidence as files; a JSON-schema call cannot open files, so it gets none.
+func (s *Service) evidenceWorkspace(ctx context.Context) (context.Context, bool, func()) {
+	if !s.cfg.AllowWebResearch || s.agentLoop == nil {
+		return ctx, false, func() {}
+	}
+	dir, err := os.MkdirTemp("", "tt-reflect-")
+	if err != nil {
+		log.Warn().Err(err).Msg("reflection evidence directory could not be created; the report alone goes in")
+		return ctx, false, func() {}
+	}
+	return registry.ContextWithWorkspaceDir(ctx, dir), true, func() {
+		if err := os.RemoveAll(dir); err != nil {
+			log.Warn().Err(err).Str("dir", dir).Msg("could not remove the reflection evidence directory")
+		}
+	}
+}
+
+func (s *Service) planAndValidate(
+	output domain.ReflectionOutput,
+	skills []domain.Skill,
+	rules []domain.OrchestratorRule,
+) ([]plannedChange, []domain.ReflectionChangeOutcome, map[int]planProblem) {
+	plan, outcomes := s.planCatalogChanges(output, skills, rules)
+	return plan, outcomes, s.validatePlan(skills, rules, plan)
+}
+
+// Dropping one change can break another (a rule that pointed at a skill whose create was invalid), so the rest is checked again until it stands on its own.
+func (s *Service) dropInvalid(
+	plan []plannedChange,
+	outcomes []domain.ReflectionChangeOutcome,
+	problems map[int]planProblem,
+	skills []domain.Skill,
+	rules []domain.OrchestratorRule,
+) ([]plannedChange, []domain.ReflectionChangeOutcome) {
+	for round := 0; len(problems) > 0 && round < 4; round++ {
+		var kept []plannedChange
+		for _, c := range plan {
+			if p, bad := problems[c.Index]; bad {
+				outcomes = append(outcomes, c.outcome(domain.ReflectionOutcomeRejected, renderProblem(p)))
+				continue
+			}
+			kept = append(kept, c)
+		}
+		plan = kept
+		problems = s.validatePlan(skills, rules, plan)
+	}
+	if len(problems) > 0 {
+		for _, c := range plan {
+			outcomes = append(outcomes, c.outcome(domain.ReflectionOutcomeRejected, renderProblem(problems[c.Index])))
+		}
+		return nil, outcomes
+	}
+	return plan, outcomes
+}
+
+// The output with its skill and rule changes narrowed to the adopted part of the plan, already normalized (create-by-existing-name turned into update), so the apply path writes exactly what was rehearsed. Memories and reverts pass through: memories are not what the probe measures, and a revert is a deliberate repair of something already judged.
+func adoptedOutput(output domain.ReflectionOutput, plan []plannedChange, adopt map[int]bool) domain.ReflectionOutput {
+	out := domain.ReflectionOutput{
+		SelfAssessment: output.SelfAssessment, Memories: output.Memories, Reverts: output.Reverts,
+	}
+	for _, c := range plan {
+		if !adopt[c.Index] {
+			continue
+		}
+		switch c.Kind {
+		case "skill":
+			out.Skills = append(out.Skills, c.Skill)
+		case "rule":
+			out.Rules = append(out.Rules, c.Rule)
+		}
+	}
+	return out
+}
+
+func annotateOutcomes(outcomes []domain.ReflectionChangeOutcome, plan []plannedChange, verdicts map[int]string) {
+	byKey := map[string]plannedChange{}
+	for _, c := range plan {
+		byKey[c.Kind+"|"+c.Action+"|"+nameKey(c.Name)] = c
+	}
+	for i := range outcomes {
+		c, ok := byKey[outcomes[i].Kind+"|"+outcomes[i].Action+"|"+nameKey(outcomes[i].Name)]
+		if !ok {
+			continue
+		}
+		outcomes[i].Dimension = c.Dimension
+		outcomes[i].Verdict = verdicts[c.Index]
+	}
+}
+
+func notAdoptedDetail(probe probeOutcome) string {
+	switch {
+	case probe.Unmeasured && probe.Unservable != nil:
+		return "the agent's engine could not run the rehearsal, so nothing showed this change helps"
+	case probe.Unmeasured:
+		return "there was nothing to rehearse it on (no golden tasks, recent tasks or chats), so nothing showed this change helps"
+	case probe.Adopted == "":
+		return "no variant of the change set did better than the current setup"
+	default:
+		return fmt.Sprintf("the %s variant was adopted instead; this change's half did not hold up on its own", probe.Adopted)
+	}
+}
+
+func probeGateResult(probe probeOutcome, cases int, plan []plannedChange) *domain.ReflectionGateResult {
+	notAdopted := 0
+	for _, c := range plan {
+		if !probe.AdoptedSet[c.Index] {
+			notAdopted++
+		}
+	}
+	r := &domain.ReflectionGateResult{
+		Probed: true, Unmeasured: probe.Unmeasured, Adopted: probe.Adopted, Keep: probe.Adopted != "",
+		BeforeRate: probe.BaseGolden, AfterRate: probe.AfterGold,
+		Cases: probe.Cases, Variants: probe.Variants, NotAdopted: notAdopted,
+	}
+	switch {
+	case probe.Unmeasured && probe.Unservable != nil:
+		r.Reason = "the agent's engine could not run the rehearsal: " + probe.Unservable.Error()
+	case probe.Unmeasured && cases == 0:
+		r.Reason = "nothing to rehearse on: no golden tasks and no recent tasks or chats"
+	case probe.Unmeasured:
+		r.Reason = "no rehearsal produced an answer from the current setup to compare against"
+	case probe.Adopted != "":
+		for _, v := range probe.Variants {
+			if v.Label == probe.Adopted {
+				r.Reason = fmt.Sprintf("adopted %s: %d better, %d worse, %d even against the current setup", v.Label, v.Wins, v.Losses, v.Ties)
+			}
+		}
+	default:
+		r.Reason = "no variant did better than the current setup"
+	}
+	return r
+}
+
+type probeSummaryInput struct {
+	Cases              int
+	Unmeasured         bool
+	Adopted            string
+	Wins, Losses, Ties int
+	NotAdopted         int
+}
+
+var probeSummaryKey = prompt.Define("evolution.probe_summary", probeSummaryInput{
+	Cases: 3, Adopted: "procedure", Wins: 2, Ties: 1, NotAdopted: 1,
+})
+
+func probeSummaryLine(g domain.ReflectionGateResult) string {
+	in := probeSummaryInput{Cases: len(g.Cases), Unmeasured: g.Unmeasured, Adopted: g.Adopted, NotAdopted: g.NotAdopted}
+	for _, v := range g.Variants {
+		if v.Label == g.Adopted {
+			in.Wins, in.Losses, in.Ties = v.Wins, v.Losses, v.Ties
+		}
+	}
+	return probeSummaryKey.Render(in)
+}
+
+type validationFeedbackInput struct{ Problems []string }
+
+var (
+	validationProblemKey = prompt.Define("evolution.validation_problem", planProblem{
+		Code: problemMissingSkillRef, Kind: "rule", Action: "create", Name: "migrations-first",
+		Owner: `rule "migrations-first"`, Ref: "db-migrations",
+	})
+	validationFeedbackKey = prompt.Define("evolution.validation_feedback", validationFeedbackInput{
+		Problems: []string{`rule create "migrations-first": rule "migrations-first" names the ` + "`db-migrations`" + ` skill, which does not exist after this change set.`},
+	})
+)
+
+func renderProblem(p planProblem) string {
+	return validationProblemKey.Render(p)
+}
+
+func validationFeedback(problems map[int]planProblem) string {
+	var lines []string
+	for _, p := range sortedProblems(problems) {
+		lines = append(lines, renderProblem(p))
+	}
+	return validationFeedbackKey.Render(validationFeedbackInput{Problems: lines})
 }
 
 // Mirrors gatherEvidence's own listing (every scope, one agent) but with a high limit since this is a count, not evidence to show.
@@ -192,13 +419,19 @@ func (s *Service) captureSnapshot(ctx context.Context, agentID uuid.UUID) *domai
 	return snap
 }
 
-func (s *Service) runLLM(ctx context.Context, agentRec domain.Agent, evidence string) (domain.ReflectionOutput, string, string, error) {
-	system := reflectionSystemPrompt(agentRec, s.cfg)
-	messages := []domain.Message{
-		{Role: domain.RoleSystem, Content: system},
-		{Role: domain.RoleUser, Content: evidence},
-	}
+// One reflection conversation: the first answer, with one retry when it is not JSON, and later revisions on the same history — so feedback on the proposal reaches the model that made it.
+type reflectionCall struct {
+	s        *Service
+	agentRec domain.Agent
+	model    string
+	provider domain.LLMProviderType
+	messages []domain.Message
+	files    bool
+}
 
+func (s *Service) newReflectionCall(ctx context.Context, agentRec domain.Agent, evidence string) *reflectionCall {
+	agentic := s.cfg.AllowWebResearch && s.agentLoop != nil
+	files := agentic && registry.WorkspaceDirFromContext(ctx) != ""
 	// Reflection rewrites the agent's own instructions, the hardest work it owns, so it runs on the agent's ModelHeavy like a "hard" orchestrator subtask; evolution.model/provider_type stay the operator override.
 	model := agentRec.Model
 	if agentRec.ModelHeavy != "" {
@@ -211,44 +444,57 @@ func (s *Service) runLLM(ctx context.Context, agentRec domain.Agent, evidence st
 	if s.cfg.ProviderType != "" {
 		provider = domain.LLMProviderType(s.cfg.ProviderType)
 	}
+	return &reflectionCall{
+		s: s, agentRec: agentRec, model: model, provider: provider, files: files,
+		messages: []domain.Message{
+			{Role: domain.RoleSystem, Content: reflectionSystemPromptFor(agentRec, s.cfg, files)},
+			{Role: domain.RoleUser, Content: evidence},
+		},
+	}
+}
 
-	callOnce := func(msgs []domain.Message) (string, error) {
-		if s.cfg.AllowWebResearch && s.agentLoop != nil {
-			policy := domain.ToolPolicy{AllowTools: []string{"web_search", "fetch_url"}}
-			// s.agentLoop is the router, so an agent on a host-executed provider reflects on its own performance through that host's CLI. WithScratchWorkspace: this is the one agentic path with no repository at all — a background cron, so a fresh empty directory is the honest place to run it.
-			resp, err := s.agentLoop.Run(ctx, msgs, model, provider, policy,
-				agent.WithSessionLimits(agentRec.MaxTurns, agentRec.Effort),
-				agent.WithCLILabel("reflect:"+agentRec.Name, "agent self-reflection"),
-				agent.WithScratchWorkspace())
-			if err != nil {
-				return "", err
-			}
-			return resp.Message.Content, nil
+func (r *reflectionCall) call(ctx context.Context, msgs []domain.Message) (string, error) {
+	s := r.s
+	if s.cfg.AllowWebResearch && s.agentLoop != nil {
+		tools := []string{"web_search", "fetch_url"}
+		if r.files {
+			tools = append(tools, "read_file", "get_repo_tree", "grep_code")
 		}
-		resp, err := s.llm.Chat(ctx, domain.AgentRequest{
-			Messages: msgs, ProviderType: provider, Model: model,
-			ResponseFormat: domain.JSONSchemaResponseFormat(agentReflectionSchemaKey.Name(), agentReflectionSchemaKey.Map()),
-		})
+		// s.agentLoop is the router, so an agent on a host-executed provider reflects on its own performance through that host's CLI. With evidence files the run's workspace is that directory; otherwise WithScratchWorkspace gives a CLI a fresh empty one, since a background reflection has no repository.
+		resp, err := s.agentLoop.Run(ctx, msgs, r.model, r.provider, domain.ToolPolicy{AllowTools: tools},
+			agent.WithSessionLimits(r.agentRec.MaxTurns, r.agentRec.Effort),
+			agent.WithCLILabel("reflect:"+r.agentRec.Name, "agent self-reflection"),
+			agent.WithScratchWorkspace())
 		if err != nil {
 			return "", err
 		}
 		return resp.Message.Content, nil
 	}
+	resp, err := s.llm.Chat(ctx, domain.AgentRequest{
+		Messages: msgs, ProviderType: r.provider, Model: r.model,
+		ResponseFormat: domain.JSONSchemaResponseFormat(agentReflectionSchemaKey.Name(), agentReflectionSchemaKey.Map()),
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Message.Content, nil
+}
 
-	raw, err := callOnce(messages)
+func (r *reflectionCall) ask(ctx context.Context, msgs []domain.Message) (domain.ReflectionOutput, string, string, error) {
+	raw, err := r.call(ctx, msgs)
 	if err != nil {
 		return domain.ReflectionOutput{}, "", "", fmt.Errorf("reflection llm call failed: %w", err)
 	}
 	output, analysis, parseErr := parseReflectionOutput(raw)
 	if parseErr == nil {
+		r.messages = append(msgs, domain.Message{Role: domain.RoleAssistant, Content: raw})
 		return output, raw, analysis, nil
 	}
-
-	retryMsgs := append(messages,
+	retryMsgs := append(append([]domain.Message(nil), msgs...),
 		domain.Message{Role: domain.RoleAssistant, Content: raw},
 		domain.Message{Role: domain.RoleUser, Content: retryNotJSONMessage(parseErr)},
 	)
-	raw2, err := callOnce(retryMsgs)
+	raw2, err := r.call(ctx, retryMsgs)
 	if err != nil {
 		return domain.ReflectionOutput{}, raw, "", fmt.Errorf("reflection retry failed: %w", err)
 	}
@@ -256,7 +502,21 @@ func (s *Service) runLLM(ctx context.Context, agentRec domain.Agent, evidence st
 	if parseErr != nil {
 		return domain.ReflectionOutput{}, raw2, "", fmt.Errorf("reflection output unparseable after retry: %w", parseErr)
 	}
+	r.messages = append(retryMsgs, domain.Message{Role: domain.RoleAssistant, Content: raw2})
 	return output, raw2, analysis, nil
+}
+
+func (r *reflectionCall) run(ctx context.Context) (domain.ReflectionOutput, string, string, error) {
+	return r.ask(ctx, append([]domain.Message(nil), r.messages...))
+}
+
+func (r *reflectionCall) revise(ctx context.Context, feedback string) (domain.ReflectionOutput, string, string, error) {
+	msgs := append(append([]domain.Message(nil), r.messages...), domain.Message{Role: domain.RoleUser, Content: feedback})
+	return r.ask(ctx, msgs)
+}
+
+func (s *Service) runLLM(ctx context.Context, agentRec domain.Agent, evidence string) (domain.ReflectionOutput, string, string, error) {
+	return s.newReflectionCall(ctx, agentRec, evidence).run(ctx)
 }
 
 func (s *Service) applyOutput(

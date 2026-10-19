@@ -37,6 +37,8 @@ type Deps struct {
 	Comments  port.TaskCommentStore
 	Board     port.BoardConfigStore
 	Golden    port.GoldenTaskStore
+	Tasks     port.BoardTaskStore
+	Activity  port.ActivityStore
 	LLM       port.LLMClient
 	AgentLoop agent.Runner
 	Config    domain.EvolutionConfig
@@ -54,6 +56,8 @@ type Service struct {
 	comments  port.TaskCommentStore
 	board     port.BoardConfigStore
 	golden    port.GoldenTaskStore
+	tasks     port.BoardTaskStore
+	activity  port.ActivityStore
 	llm       port.LLMClient
 	agentLoop agent.Runner
 	cfg       domain.EvolutionConfig
@@ -77,6 +81,8 @@ func NewService(deps Deps) *Service {
 		comments:  deps.Comments,
 		board:     deps.Board,
 		golden:    deps.Golden,
+		tasks:     deps.Tasks,
+		activity:  deps.Activity,
 		llm:       deps.LLM,
 		agentLoop: deps.AgentLoop,
 		cfg:       deps.Config,
@@ -126,28 +132,56 @@ func (s *Service) tick(ctx context.Context) {
 		return
 	}
 	s.evaluateImpacts(ctx)
-	members, err := s.board.ListMembers(ctx)
+	agents, err := s.rosterAgents(ctx, false)
 	if err != nil {
-		log.Warn().Err(err).Msg("evolution tick: list board members failed")
+		log.Warn().Err(err).Msg("evolution tick: list roster failed")
 		return
 	}
 	now := time.Now()
-	for _, m := range members {
-		agentRec, err := s.catalog.GetAgent(ctx, m.AgentID)
-		if err != nil || !agentRec.Enabled {
-			continue
-		}
+	for _, agentRec := range agents {
 		if s.kpis != nil {
-			if _, err := s.kpis.EvaluateAgent(ctx, m.AgentID, now); err != nil {
+			if _, err := s.kpis.EvaluateAgent(ctx, agentRec.ID, now); err != nil {
 				log.Warn().Err(err).Str("agent", agentRec.Name).Msg("kpi sweep failed")
 			}
 		}
 		if s.reflectionDue(ctx, agentRec, now) {
-			if _, err := s.StartReflection(ctx, m.AgentID, domain.ReflectionTriggerPeriodic); err != nil {
+			if _, err := s.StartReflection(ctx, agentRec.ID, domain.ReflectionTriggerPeriodic); err != nil {
 				log.Debug().Err(err).Str("agent", agentRec.Name).Msg("periodic reflection not started")
 			}
 		}
 	}
+}
+
+// board_members is an explicit opt-in list nothing populates by default, so an empty result means "nobody narrowed the roster", not "nobody works here" — reading it literally kept periodic reflection and the KPI sweep from ever running on a fresh install.
+func (s *Service) rosterAgents(ctx context.Context, requireSelfEvolution bool) ([]domain.Agent, error) {
+	members, err := s.board.ListMembers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing board members: %w", err)
+	}
+	keep := func(rec domain.Agent) bool {
+		return rec.Enabled && (!requireSelfEvolution || rec.SelfEvolutionEnabled)
+	}
+	agents := make([]domain.Agent, 0, len(members))
+	for _, m := range members {
+		rec, err := s.catalog.GetAgent(ctx, m.AgentID)
+		if err != nil || !keep(rec) {
+			continue
+		}
+		agents = append(agents, rec)
+	}
+	if len(agents) > 0 {
+		return agents, nil
+	}
+	all, err := s.catalog.ListAgents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing agents: %w", err)
+	}
+	for _, rec := range all {
+		if keep(rec) {
+			agents = append(agents, rec)
+		}
+	}
+	return agents, nil
 }
 
 func (s *Service) reflectionDue(ctx context.Context, agentRec domain.Agent, now time.Time) bool {
@@ -205,9 +239,16 @@ func (s *Service) ReflectNow(ctx context.Context, agentID uuid.UUID) (domain.Age
 	return s.StartReflection(ctx, agentID, domain.ReflectionTriggerManual)
 }
 
-var ErrReflectionInFlight = fmt.Errorf("a reflection is already running for this agent")
+var (
+	ErrReflectionInFlight = fmt.Errorf("a reflection is already running for this agent")
+	ErrEvolutionDisabled  = fmt.Errorf("self-evolution is turned off for this installation (evolution.enabled)")
+)
 
+// evolution.enabled is the operator's off switch for the whole feature, so a manual "Analyze now" is refused too — it used to slip past it and still rewrite the agent's skills and rules.
 func (s *Service) StartReflection(ctx context.Context, agentID uuid.UUID, trigger string) (domain.AgentReflection, error) {
+	if !s.cfg.Enabled {
+		return domain.AgentReflection{}, ErrEvolutionDisabled
+	}
 	key := agentID.String()
 	s.mu.Lock()
 	if s.inflight[key] {
@@ -240,7 +281,11 @@ func (s *Service) StartReflection(ctx context.Context, agentID uuid.UUID, trigge
 	go func() {
 		defer s.wg.Done()
 		defer release()
-		procCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+		timeout := s.cfg.ReflectionTimeout
+		if timeout <= 0 {
+			timeout = 30 * time.Minute
+		}
+		procCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 		defer cancel()
 		s.processReflection(procCtx, reflection)
 	}()

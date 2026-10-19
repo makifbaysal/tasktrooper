@@ -40,6 +40,8 @@ type reflectionSystemPromptInput struct {
 	GoldenGate           bool
 	AllowWebResearch     bool
 	MaxMemoryChanges     int
+	MaxAlwaysOnChars     int
+	EvidenceFiles        bool
 }
 
 var reflectionSystemKey = prompt.Define("evolution.reflection_system", reflectionSystemPromptInput{
@@ -47,12 +49,17 @@ var reflectionSystemKey = prompt.Define("evolution.reflection_system", reflectio
 	MaxSkillChanges: 2, MaxRuleChanges: 1, HasBudget: true,
 	MaxSkillsPerAgent: 20, MaxRulesPerAgent: 10,
 	GoldenGate: true, AllowWebResearch: true, MaxMemoryChanges: 5,
+	MaxAlwaysOnChars: 8000, EvidenceFiles: true,
 })
 
 // reflectionSystemPrompt frames the reflection call: what the agent may
 // change and the JSON shape it must answer in; see
 // catalog/system/prompts/evolution/reflection_system.md.
 func reflectionSystemPrompt(agentRec domain.Agent, cfg domain.EvolutionConfig) string {
+	return reflectionSystemPromptFor(agentRec, cfg, false)
+}
+
+func reflectionSystemPromptFor(agentRec domain.Agent, cfg domain.EvolutionConfig, evidenceFiles bool) string {
 	return reflectionSystemKey.Render(reflectionSystemPromptInput{
 		AgentName:            agentRec.Name,
 		SelfEvolutionEnabled: agentRec.SelfEvolutionEnabled,
@@ -64,6 +71,8 @@ func reflectionSystemPrompt(agentRec domain.Agent, cfg domain.EvolutionConfig) s
 		GoldenGate:           cfg.GoldenGate,
 		AllowWebResearch:     cfg.AllowWebResearch,
 		MaxMemoryChanges:     cfg.MaxMemoryChanges,
+		MaxAlwaysOnChars:     cfg.MaxAlwaysOnChars,
+		EvidenceFiles:        evidenceFiles,
 	})
 }
 
@@ -332,12 +341,26 @@ func evidenceLinesBlock(header string, lines []string) string {
 	return b.String()
 }
 
+type evidenceBundle struct {
+	// Report is what the reflection reads in its prompt, cut to evidence_max_chars; Full is the same report uncut, for the evidence files.
+	Report   string
+	Full     string
+	Skills   []domain.Skill
+	Rules    []domain.OrchestratorRule
+	Baseline *domain.PerformanceSnapshot
+	Runs     []runEvidence
+}
+
+// How much of a skill's body the report shows; the whole body is in the evidence files when the reflection can open them.
+const skillExcerptChars = 240
+
 // Only window data, excluding previously reviewed material; the previous reflection's snapshot is the comparison baseline.
 func (s *Service) gatherEvidence(
 	ctx context.Context,
 	agentRec domain.Agent,
 	reflection domain.AgentReflection,
-) (string, []domain.Skill, []domain.OrchestratorRule, *domain.PerformanceSnapshot, error) {
+	withFiles bool,
+) (evidenceBundle, error) {
 	var b strings.Builder
 	from, to := reflection.WindowStart, reflection.WindowEnd
 
@@ -355,6 +378,7 @@ func (s *Service) gatherEvidence(
 			b.WriteString(evidenceBaselineBlock(prev.CompletedAt.Format("2006-01-02"), string(snapJSON), summary))
 		}
 	}
+	b.WriteString(evidenceLessonsSection(s.earlierLessons(ctx, agentRec.ID)))
 
 	score, _ := s.perf.GetScore(ctx, agentRec.ID)
 	b.WriteString(evidenceCurrentPerformance(fmt.Sprintf("%.1f", score.Score), score.RunsPassed, score.RunsRevised))
@@ -436,6 +460,12 @@ func (s *Service) gatherEvidence(
 			b.WriteString(evidenceLinesBlock(prompt.Text(evidenceTaskRunsHeaderKey), lines))
 		}
 	}
+	runLimit := runsInDigest
+	if withFiles {
+		runLimit = runsInFiles
+	}
+	recentRuns := s.recentRunEvidence(ctx, agentRec, reflection, runLimit)
+	b.WriteString(evidenceTrajectoriesSection(recentRuns, withFiles))
 
 	s.appendChatEvidence(ctx, &b, agentRec.ID, reflection)
 
@@ -454,7 +484,11 @@ func (s *Service) gatherEvidence(
 					stack = name
 				}
 			}
-			lines = append(lines, fmt.Sprintf("- %s | %s | %s | %v — %s", sk.ID, sk.Name, stack, sk.Enabled, truncate(sk.Description, 120)))
+			line := fmt.Sprintf("- %s | %s | %s | %v — %s", sk.ID, sk.Name, stack, sk.Enabled, truncate(sk.Description, 120))
+			if excerpt := strings.Join(strings.Fields(sk.Content), " "); excerpt != "" {
+				line += " :: " + truncate(excerpt, skillExcerptChars)
+			}
+			lines = append(lines, line)
 		}
 		header := evidenceSkillsHeaderKey.Render(evidenceCountBudgetInput{Count: len(skills), Budget: s.cfg.MaxSkillsPerAgent})
 		b.WriteString(evidenceLinesBlock(header, lines))
@@ -482,11 +516,14 @@ func (s *Service) gatherEvidence(
 
 	s.appendRegressionReport(ctx, &b, agentRec.ID)
 
-	evidence := b.String()
-	if len(evidence) > s.cfg.EvidenceMaxChars {
+	full := b.String()
+	evidence := full
+	if s.cfg.EvidenceMaxChars > 0 && len(evidence) > s.cfg.EvidenceMaxChars {
 		evidence = evidence[:s.cfg.EvidenceMaxChars] + "\n…(truncated)"
 	}
-	return evidence, skills, rules, baseline, nil
+	return evidenceBundle{
+		Report: evidence, Full: full, Skills: skills, Rules: rules, Baseline: baseline, Runs: recentRuns,
+	}, nil
 }
 
 func (s *Service) appendChatEvidence(ctx context.Context, b *strings.Builder, agentID uuid.UUID, reflection domain.AgentReflection) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -30,10 +31,12 @@ func (f *fakeCatalog) ListSkillsByAgent(ctx context.Context, agentID uuid.UUID) 
 
 type fakeCreator struct {
 	created *domain.CreateSkillRequest
+	source  catalog.VersionSource
 }
 
 func (f *fakeCreator) CreateSkillForAgent(ctx context.Context, agentID uuid.UUID, req domain.CreateSkillRequest) (domain.Skill, error) {
 	f.created = &req
+	f.source = catalog.VersionSourceFrom(ctx)
 	return domain.Skill{
 		ID: uuid.New(), AgentID: agentID, Name: req.Name, Description: req.Description,
 		Category: req.Category, Content: req.Content, Enabled: req.Enabled,
@@ -98,6 +101,8 @@ func TestCreateSkill_CreatesAndRecordsEvent(t *testing.T) {
 	require.NotNil(t, creator.created)
 	assert.Equal(t, "terraform-state-recovery", creator.created.Name)
 	assert.True(t, creator.created.Enabled)
+	assert.Equal(t, domain.CatalogVersionSourceEvolution, creator.source.Source,
+		"a skill the agent wrote for itself must not land in version history as a user edit")
 
 	require.NotNil(t, evo.event)
 	assert.Equal(t, domain.EvolutionChangeSkillCreated, evo.event.ChangeType)

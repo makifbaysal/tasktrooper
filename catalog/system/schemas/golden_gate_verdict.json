@@ -1,9 +1,0 @@
-{
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "keep": { "type": "boolean" },
-    "reason": { "type": "string" }
-  },
-  "required": ["keep", "reason"]
-}

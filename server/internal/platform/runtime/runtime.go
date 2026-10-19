@@ -2761,6 +2761,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			Runs:      taskAgentRunStore,
 			Comments:  commentStore,
 			Golden:    goldenStore,
+			Tasks:     boardTaskStore,
+			Activity:  activityStore,
 			LLM:       llmClient,
 			AgentLoop: e.agentRouter,
 			Config:    cfg.Evolution,

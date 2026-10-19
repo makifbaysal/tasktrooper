@@ -111,8 +111,8 @@ knowing about even if you never open the file:
 | `board.pipeline_gate_interval` | `2m` | How often the pipeline gate sweeper re-asks GitHub about an unfinished pipeline |
 | `board.verification_enabled` | `false` | Post-run build/vet verification with an automatic fix loop (up to `verify_max_fix_attempts`, default `2`) before a broken task is sent back to In Progress |
 | `board.require_criteria_complete` | `false` | Blocks a task from `ready_for_qa`/`done`/`released` while it still has open acceptance criteria |
-| `evolution.enabled` | `false` | Master switch for agent self-evolution (periodic reflection, KPI evaluation) — see [Self-evolution and KPIs](self-evolution.md) |
-| `evolution.golden_gate` | `false` (`true` in the shipped `config.yml`) | Runs the golden test suite before and after a proposed skill/rule change and keeps or rolls back the whole set based on an independent judge |
+| `evolution.enabled` | `false` | Master switch for agent self-evolution (periodic, revision-triggered and manual reflection, KPI evaluation) — see [Self-evolution and KPIs](self-evolution.md) |
+| `evolution.golden_gate` | `false` (`true` in the shipped `config.yml`) | Rehearses a proposed skill/rule change on the golden tasks and `evolution.probe_cases` recent requests before writing it; only a variant that does better is adopted |
 | `rag.enabled` | `false` | File upload and retrieval-augmented context |
 | `rag.top_k` | `5` | Chunks injected into chat context per query |
 | `tools.terminal.enabled` | `false` | Enables `run_terminal` |

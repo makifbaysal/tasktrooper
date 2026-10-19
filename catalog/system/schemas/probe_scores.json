@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string" },
+          "score": { "type": "integer" },
+          "reason": { "type": "string" }
+        },
+        "required": ["label", "score", "reason"]
+      }
+    }
+  },
+  "required": ["scores"]
+}

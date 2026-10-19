@@ -92,7 +92,7 @@ rules) lists that history; `POST .../restore` with a version number brings
 that version back as a **new** version — restoring never rewrites history,
 it just adds to it. This is what makes it safe to let self-evolution touch
 skills and rules at all: if a change turns out to be wrong, or the
-[golden gate](self-evolution.md#golden-gate) didn't already catch it, you can
+[probe gate](self-evolution.md#the-probe-gate) didn't already catch it, you can
 always get back what was there before.
 
 ## Disabled seeded skills

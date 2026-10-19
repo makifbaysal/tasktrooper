@@ -2,7 +2,6 @@ package evolution
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -127,44 +126,6 @@ func TestRuleBudgetRejectsCreateAtCap(t *testing.T) {
 	}
 }
 
-func TestParseGateVerdict(t *testing.T) {
-	v, err := parseGateVerdict(`{"keep":false,"reason":"golden dropped"}`)
-	if err != nil || v.Keep || v.Reason != "golden dropped" {
-		t.Fatalf("clean verdict parse failed: %+v %v", v, err)
-	}
-	v, err = parseGateVerdict("```json\n{\"keep\":true,\"reason\":\"better\"}\n```")
-	if err != nil || !v.Keep {
-		t.Fatalf("fenced verdict parse failed: %+v %v", v, err)
-	}
-	if _, err := parseGateVerdict("no json"); err == nil {
-		t.Fatal("expected error on garbage verdict")
-	}
-}
-
-func TestCatalogChangeEventsSkipsMemoriesAndReverts(t *testing.T) {
-	events := []domain.AgentEvolutionEvent{
-		{ChangeType: domain.EvolutionChangeSkillCreated, TargetKind: domain.EvolutionTargetSkill},
-		{ChangeType: domain.EvolutionChangeMemoryCreated, TargetKind: domain.EvolutionTargetMemory},
-		{ChangeType: domain.EvolutionChangeRevert, TargetKind: domain.EvolutionTargetRule},
-		{ChangeType: domain.EvolutionChangeRuleUpdated, TargetKind: domain.EvolutionTargetRule},
-	}
-	got := catalogChangeEvents(events)
-	if len(got) != 2 {
-		t.Fatalf("expected only the skill and rule changes, got %d", len(got))
-	}
-}
-
-func TestProposesCatalogChange(t *testing.T) {
-	memoryOnly := domain.ReflectionOutput{Memories: []domain.ReflectionMemoryChange{{Action: "create"}}}
-	if proposesCatalogChange(memoryOnly) {
-		t.Error("memory-only output should not arm the gate")
-	}
-	withSkill := domain.ReflectionOutput{Skills: []domain.ReflectionSkillChange{{Action: "create"}}}
-	if !proposesCatalogChange(withSkill) {
-		t.Error("skill change should arm the gate")
-	}
-}
-
 func TestJudgeRoutingPrefersJudgeModel(t *testing.T) {
 	s := &Service{cfg: domain.EvolutionConfig{Model: "cheap", JudgeModel: "strict", JudgeProviderType: "openai"}}
 	model, provider := s.judgeRouting(domain.Agent{Model: "agent-model", ProviderType: "anthropic"})
@@ -183,103 +144,10 @@ func TestReflectionPromptCarriesBudgetAndGate(t *testing.T) {
 	if !strings.Contains(prompt, "at most 25 skills") {
 		t.Error("prompt missing standing budget")
 	}
-	if !strings.Contains(prompt, "rolls the whole set back") {
-		t.Error("prompt missing golden gate warning")
+	if !strings.Contains(prompt, "Nothing you change is written directly") {
+		t.Error("prompt missing the probe gate")
 	}
-}
-
-// Stands in for a judge (or golden suite) running on an engine that cannot serve the call.
-type erroringLLM struct {
-	err   error
-	calls int
-}
-
-func (e *erroringLLM) Chat(_ context.Context, _ domain.AgentRequest) (domain.AgentResponse, error) {
-	e.calls++
-	return domain.AgentResponse{}, e.err
-}
-
-func (e *erroringLLM) ChatStream(_ context.Context, _ domain.AgentRequest, _ func(string)) (domain.AgentResponse, error) {
-	e.calls++
-	return domain.AgentResponse{}, e.err
-}
-func (e *erroringLLM) Models(context.Context) ([]string, error) { return nil, nil }
-func (e *erroringLLM) Embed(context.Context, string, string) ([]float32, error) {
-	return nil, nil
-}
-
-// LOAD-BEARING regression test. The judge fallback is "keep only if the suite ran and did not get worse"; the old silent provider fallback rerouted the judge to a dead default HTTP provider, so after >= before held trivially and an ungraded change set was kept as "non-regression". With no grader, the answer is REVERT.
-func TestGoldenGateRevertsWhenTheJudgeCannotRun(t *testing.T) {
-	refusal := domain.ErrHostExecutedProvider(domain.LLMProviderClaudeCode)
-	llm := &erroringLLM{err: refusal}
-	svc := &Service{llm: llm}
-
-	// Deliberately the shape that used to be "kept on non-regression": the suite ran, and the rate held exactly level.
-	before := goldenRun{Rate: 0.8, Evaluated: 5}
-	after := goldenRun{Rate: 0.8, Evaluated: 5}
-
-	verdict := svc.judgeGoldenGate(context.Background(), domain.Agent{
-		Name: "backend-developer", ProviderType: domain.LLMProviderClaudeCode, Model: "opus",
-	}, before, after, []string{"rewrote the retry skill"})
-
-	if verdict.Keep {
-		t.Fatal("an ungraded change set was kept: the gate reported a pass it never ran")
-	}
-	if !strings.Contains(verdict.Reason, "could not run") {
-		t.Errorf("the reason must say the judge could not run, got %q", verdict.Reason)
-	}
-	if !strings.Contains(verdict.Reason, "Claude Code") {
-		t.Errorf("the reason must name the engine so the operator can fix it, got %q", verdict.Reason)
-	}
-}
-
-// A transient judge failure keeps the old deliberate behaviour: the suite ran and did not regress, and one bad minute from the judge is not a reason to throw away an evidence-supported change set.
-func TestGoldenGateStillKeepsOnNonRegressionForATransientJudgeFailure(t *testing.T) {
-	svc := &Service{llm: &erroringLLM{err: errors.New("connection reset by peer")}}
-
-	verdict := svc.judgeGoldenGate(context.Background(), domain.Agent{Name: "a"},
-		goldenRun{Rate: 0.8, Evaluated: 5}, goldenRun{Rate: 0.9, Evaluated: 5}, []string{"c"})
-
-	if !verdict.Keep {
-		t.Fatalf("a transient judge failure must not revert an improvement: %q", verdict.Reason)
-	}
-	if !strings.Contains(verdict.Reason, "non-regression") {
-		t.Errorf("reason = %q, want the non-regression fallback", verdict.Reason)
-	}
-}
-
-// Same verdict, reached earlier and without spending a judge call: two zero rates satisfy after >= before perfectly, and that is not evidence of anything.
-func TestGoldenGateRevertsWhenTheSuiteCouldNotRunAtAll(t *testing.T) {
-	llm := &erroringLLM{err: errors.New("should not be reached")}
-	svc := &Service{llm: llm}
-	refusal := domain.ErrHostExecutedProvider(domain.LLMProviderClaudeCode)
-
-	verdict := svc.judgeGoldenGate(context.Background(), domain.Agent{Name: "a"},
-		goldenRun{Unservable: refusal}, goldenRun{Unservable: refusal}, []string{"c"})
-
-	if verdict.Keep {
-		t.Fatal("a change set was kept on a suite that never evaluated a single task")
-	}
-	if llm.calls != 0 {
-		t.Errorf("the judge was called %d times for an unmeasured change set; there is nothing to grade", llm.calls)
-	}
-	if !strings.Contains(verdict.Reason, "could not run") {
-		t.Errorf("reason = %q, want it to say the suite could not run", verdict.Reason)
-	}
-}
-
-// A real regression still reverts before anything else is consulted — the deterministic floor the gate has always had must not have moved.
-func TestGoldenGateStillRevertsARealRegressionFirst(t *testing.T) {
-	llm := &erroringLLM{err: errors.New("should not be reached")}
-	svc := &Service{llm: llm}
-
-	verdict := svc.judgeGoldenGate(context.Background(), domain.Agent{Name: "a"},
-		goldenRun{Rate: 0.9, Evaluated: 5}, goldenRun{Rate: 0.5, Evaluated: 5}, []string{"c"})
-
-	if verdict.Keep {
-		t.Fatal("a dropped pass rate must always revert")
-	}
-	if llm.calls != 0 {
-		t.Errorf("the judge was consulted on a regression (%d calls); the floor is deterministic", llm.calls)
+	if !strings.Contains(prompt, `"dimension"`) {
+		t.Error("prompt does not ask for a dimension on each change")
 	}
 }

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   api,
+  isEvolutionDisabledError,
   type Agent,
   type AgentKPI,
   type AgentKPIResult,
@@ -13,6 +14,7 @@ import {
 import { PageContent } from "@/components/layout/PageContent";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { AgentKPISection } from "@/components/agent/AgentKPISection";
+import { GoldenTaskSection } from "@/components/agent/GoldenTaskSection";
 import { ReflectionHistory, reflectionTriggerLabel } from "@/components/agent/ReflectionHistory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -224,7 +226,11 @@ export function AgentPerformancePage() {
       toast.success(t("agentArea.perf.toast.analysisStarted"));
       await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("agentArea.perf.toast.analysisFailed"));
+      if (isEvolutionDisabledError(e)) {
+        toast.error(t("agentArea.perf.toast.evolutionDisabled"));
+      } else {
+        toast.error(e instanceof Error ? e.message : t("agentArea.perf.toast.analysisFailed"));
+      }
     } finally {
       setReflecting(false);
     }
@@ -342,6 +348,8 @@ export function AgentPerformancePage() {
       />
 
       {agentId ? <AgentKPISection agentId={agentId} /> : null}
+
+      {agentId ? <GoldenTaskSection agentId={agentId} /> : null}
 
       {enabledKPIs.length > 0 ? (
         <section className="space-y-2">

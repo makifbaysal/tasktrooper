@@ -33,10 +33,10 @@ Write your analysis as markdown prose first — what you looked at, what you con
 {
   "self_assessment": "2-4 sentences: what was, what changed in performance vs baseline, and what you decided and why",
   "skills": [
-    {"action": "create|update|delete", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
   ],
   "rules": [
-    {"action": "create|update|delete", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
   ],
   "memories": [
     {"action": "create|delete", "memory_id": "existing memory id for delete, empty for create", "content": "...", "category": "...", "reason": "why this change"}
@@ -71,7 +71,9 @@ PRIMARY OBJECTIVE: improve the agent's KPI attainment and performance score. Few
 You MAY change the agent's skills and rules (max 2 skill changes, 1 rule changes). You may also revert a previous evolution change that regressed performance.
 CONSOLIDATION FIRST: prefer updating or merging an existing skill/rule over creating a new one. A second skill that overlaps an existing one makes both weaker — fold the new lesson into the closest existing entry, and delete entries that are stale or now redundant.
 Standing budget: at most 20 skills and 10 rules in total. At budget, a create is REJECTED — merge into an existing entry or delete one first.
-Your changes are graded: the golden suite runs before and after them, and an independent evaluator rolls the whole set back if the agent did not get better. Change what the evidence supports, nothing speculative.
+Tag every skill and rule change with its "dimension": "procedure" when it changes how the agent works (tool use, the order of steps, checks, how it finishes), "domain" when it changes what a practitioner knows (requirements, conventions, the shape of the deliverable). Keep each change to one dimension.
+Choose the form as deliberately as the content. Rules are in the context of every run, so every word of a rule competes with the work: keep rules short and universal, and put anything with a recognisable trigger in a skill. A run sees a skill only as its description in an index until it loads it, so every skill's description must say when to load it ("When <situation>, …"). A rule or skill that names another skill (the ` + "`name`" + ` skill) must name one that exists after your changes.
+Nothing you change is written directly. Each dimension's changes, and all of them together, are first rehearsed against the current setup on the agent's golden tasks and recent real requests; an independent evaluator compares the answers without knowing which is which, and only a variant that does better is adopted. A golden task that passed before and fails after vetoes a variant. Change what the evidence supports, nothing speculative.
 You may use web_search and fetch_url to research fixes and best practices before deciding; distill what you learn into skill content and cite the URLs in source_urls.
 You may save up to 3 memories (short, durable lessons). Memories you save here are GLOBAL — they must hold in every repository, so phrase them that way; repository-specific lessons are saved during the run instead.
 A memory is a fact a FUTURE run will need on work nobody has planned yet. The evidence below is full of run narration — what a task did, which PR failed, which commit fixed it — and none of that is a memory: it already lives on those tasks, and every memory you save is shown to future runs in place of one that would have helped them. A memory that names a task key, a PR number, a commit SHA or a column move is rejected on save; write the lesson underneath it instead, with the card taken out. Saving nothing is the right answer more often than not.
@@ -84,10 +86,10 @@ Write your analysis as markdown prose first — what you looked at, what you con
 {
   "self_assessment": "2-4 sentences: what was, what changed in performance vs baseline, and what you decided and why",
   "skills": [
-    {"action": "create|update|delete", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
   ],
   "rules": [
-    {"action": "create|update|delete", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
   ],
   "memories": [
     {"action": "create|delete", "memory_id": "existing memory id for delete, empty for create", "content": "...", "category": "...", "reason": "why this change"}
@@ -117,6 +119,8 @@ PRIMARY OBJECTIVE: improve the agent's KPI attainment and performance score. Few
 
 You MAY change the agent's skills and rules (max 5 skill changes, 5 rule changes). You may also revert a previous evolution change that regressed performance.
 CONSOLIDATION FIRST: prefer updating or merging an existing skill/rule over creating a new one. A second skill that overlaps an existing one makes both weaker — fold the new lesson into the closest existing entry, and delete entries that are stale or now redundant.
+Tag every skill and rule change with its "dimension": "procedure" when it changes how the agent works (tool use, the order of steps, checks, how it finishes), "domain" when it changes what a practitioner knows (requirements, conventions, the shape of the deliverable). Keep each change to one dimension.
+Choose the form as deliberately as the content. Rules are in the context of every run, so every word of a rule competes with the work: keep rules short and universal, and put anything with a recognisable trigger in a skill. A run sees a skill only as its description in an index until it loads it, so every skill's description must say when to load it ("When <situation>, …"). A rule or skill that names another skill (the ` + "`name`" + ` skill) must name one that exists after your changes.
 You may save up to 10 memories (short, durable lessons). Memories you save here are GLOBAL — they must hold in every repository, so phrase them that way; repository-specific lessons are saved during the run instead.
 A memory is a fact a FUTURE run will need on work nobody has planned yet. The evidence below is full of run narration — what a task did, which PR failed, which commit fixed it — and none of that is a memory: it already lives on those tasks, and every memory you save is shown to future runs in place of one that would have helped them. A memory that names a task key, a PR number, a commit SHA or a column move is rejected on save; write the lesson underneath it instead, with the card taken out. Saving nothing is the right answer more often than not.
 
@@ -128,10 +132,10 @@ Write your analysis as markdown prose first — what you looked at, what you con
 {
   "self_assessment": "2-4 sentences: what was, what changed in performance vs baseline, and what you decided and why",
   "skills": [
-    {"action": "create|update|delete", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "skill_id": "existing skill id for update/delete, empty for create", "name": "...", "description": "...", "category": "...", "content": "...", "source_urls": ["..."], "reason": "why this change"}
   ],
   "rules": [
-    {"action": "create|update|delete", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
+    {"action": "create|update|delete", "dimension": "procedure|domain", "rule_id": "existing rule id for update/delete, empty for create", "name": "...", "content": "...", "priority": 0, "reason": "why this change"}
   ],
   "memories": [
     {"action": "create|delete", "memory_id": "existing memory id for delete, empty for create", "content": "...", "category": "...", "reason": "why this change"}
