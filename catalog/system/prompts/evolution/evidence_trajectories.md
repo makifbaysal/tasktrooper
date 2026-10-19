@@ -4,7 +4,7 @@ version: 1
 inputs: [Runs, Files]
 ---
 ## How recent runs went
-{{if .Files}}The full step-by-step record of each run is in runs/ in your working directory.
+{{if .Files}}When runs/ is in your working directory, it holds the full step-by-step record of each run.
 {{end}}{{range .Runs}}
 ### {{.Title}} ({{.Status}})
 {{if .Errors}}Tool errors:
