@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -306,4 +307,62 @@ func TestRouterDoesNotFakeAStreamForHostExecutedProviders(t *testing.T) {
 	require.True(t, strings.Contains(err.Error(), "local runner host"))
 	calls, _ := ex.snapshot()
 	require.Zero(t, calls)
+}
+
+func TestRouterSeedsTheScratchWorkspaceItCreates(t *testing.T) {
+	var seen map[string]string
+	ex := &seedingExecutor{cliExecutor: cliExecutor{supports: domain.LLMProviderClaudeCode}, read: []string{"EVIDENCE.md", "skills/001-a.md"}, seen: &seen}
+	router, _, _ := newRouter(t, ex)
+
+	_, err := router.Run(context.Background(), nil, "", domain.LLMProviderClaudeCode, domain.ToolPolicy{},
+		agent.WithScratchFiles(map[string]string{"EVIDENCE.md": "# report", "skills/001-a.md": "body"}))
+	require.NoError(t, err)
+
+	require.Equal(t, map[string]string{"EVIDENCE.md": "# report", "skills/001-a.md": "body"}, seen)
+}
+
+// A run with a workspace of its own keeps it untouched: the files belong to the scratch directory only.
+func TestRouterNeverWritesScratchFilesIntoARealWorkspace(t *testing.T) {
+	ex := &cliExecutor{supports: domain.LLMProviderClaudeCode}
+	router, _, _ := newRouter(t, ex)
+	dir := t.TempDir()
+
+	_, err := router.Run(registry.ContextWithWorkspaceDir(context.Background(), dir), nil, "", domain.LLMProviderClaudeCode,
+		domain.ToolPolicy{}, agent.WithScratchFiles(map[string]string{"EVIDENCE.md": "# report"}))
+	require.NoError(t, err)
+
+	entries, _ := os.ReadDir(dir)
+	require.Empty(t, entries)
+}
+
+func TestRouterRefusesScratchFilesOutsideTheScratchDirectory(t *testing.T) {
+	var seen map[string]string
+	ex := &seedingExecutor{cliExecutor: cliExecutor{supports: domain.LLMProviderClaudeCode}, read: []string{"ok.md"}, seen: &seen}
+	router, _, _ := newRouter(t, ex)
+	outside := filepath.Join(os.TempDir(), "tt-scratch-escape-"+t.Name())
+	t.Cleanup(func() { _ = os.Remove(outside) })
+
+	_, err := router.Run(context.Background(), nil, "", domain.LLMProviderClaudeCode, domain.ToolPolicy{},
+		agent.WithScratchFiles(map[string]string{"../" + filepath.Base(outside): "escaped", outside: "escaped"}))
+	require.NoError(t, err, "a bad file name must not fail the run")
+
+	_, statErr := os.Stat(outside)
+	require.True(t, os.IsNotExist(statErr), "a scratch file escaped the scratch directory")
+}
+
+type seedingExecutor struct {
+	cliExecutor
+	read []string
+	seen *map[string]string
+}
+
+func (e *seedingExecutor) Execute(ctx context.Context, req domain.TaskExecution) (domain.AgentResponse, error) {
+	got := map[string]string{}
+	for _, rel := range e.read {
+		if raw, err := os.ReadFile(filepath.Join(req.WorkDir, filepath.FromSlash(rel))); err == nil {
+			got[rel] = string(raw)
+		}
+	}
+	*e.seen = got
+	return e.cliExecutor.Execute(ctx, req)
 }

@@ -23,7 +23,7 @@ Nothing you change is written directly. Each dimension's changes, and all of the
 You may use web_search and fetch_url to research fixes and best practices before deciding; distill what you learn into skill content and cite the URLs in source_urls.
 {{end -}}
 {{if .EvidenceFiles -}}
-The full evidence is in your working directory: EVIDENCE.md (the report below, untruncated), skills/ and rules/ (the full current text of each), runs/ (step-by-step records of recent runs, with the request and any feedback). The report below is a summary; open what you need before deciding.
+Your working directory may also hold the full evidence as files: EVIDENCE.md (the report below, untruncated), skills/ and rules/ (the full current text of each), runs/ (step-by-step records of recent runs, with the request and any feedback). When EVIDENCE.md is there, the report below is a summary: open what you need before deciding.
 {{end -}}
 {{else -}}
 Self-evolution is DISABLED for this agent: output ONLY memories and a self-assessment. skills, rules and reverts arrays MUST be empty.

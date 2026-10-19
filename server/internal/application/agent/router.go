@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -105,6 +106,9 @@ func (r *Router) execute(
 				log.Warn().Err(rmErr).Str("dir", dir).Msg("could not remove the cli session's scratch workspace")
 			}
 		}()
+		if err := writeScratchFiles(dir, cfg.scratchFiles); err != nil {
+			log.Warn().Err(err).Str("dir", dir).Msg("could not seed the cli session's scratch workspace; it starts empty")
+		}
 		workDir = dir
 	}
 
@@ -169,4 +173,22 @@ func resumeTail(messages []domain.Message) string {
 		parts = append(parts, m.Content)
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// The keys are caller data, so a path that would leave the directory is refused rather than cleaned into somewhere else.
+func writeScratchFiles(dir string, files map[string]string) error {
+	for rel, body := range files {
+		clean := filepath.Clean(filepath.FromSlash(rel))
+		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("scratch file %q is outside the scratch directory", rel)
+		}
+		path := filepath.Join(dir, clean)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }

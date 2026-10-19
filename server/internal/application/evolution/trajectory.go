@@ -232,39 +232,34 @@ func fileSlug(s string) string {
 	return slug
 }
 
-// The evidence an agentic reflection can open instead of reading a 24k summary: the report in full, every skill and rule as it stands, and the recent runs step by step.
-func writeEvidenceFiles(dir, report string, skills []domain.Skill, rules []domain.OrchestratorRule, runs []runEvidence) error {
-	write := func(rel, body string) error {
-		path := filepath.Join(dir, rel)
+// The evidence an agentic reflection can open instead of reading a 24k summary: the report in full, every skill and rule as it stands, and the recent runs step by step. Keyed by slash-separated relative path, so it can seed a CLI's scratch directory or a local one alike.
+func evidenceFiles(report string, skills []domain.Skill, rules []domain.OrchestratorRule, runs []runEvidence) map[string]string {
+	files := map[string]string{"EVIDENCE.md": report}
+	for i, sk := range skills {
+		files[fmt.Sprintf("skills/%03d-%s.md", i+1, fileSlug(sk.Name))] = evidenceCatalogFileKey.Render(evidenceCatalogFileInput{
+			Kind: "skill", ID: sk.ID.String(), Name: sk.Name, Description: sk.Description, Enabled: sk.Enabled, Content: sk.Content,
+		})
+	}
+	for i, r := range rules {
+		files[fmt.Sprintf("rules/%03d-%s.md", i+1, fileSlug(r.Name))] = evidenceCatalogFileKey.Render(evidenceCatalogFileInput{
+			Kind: "rule", ID: r.ID.String(), Name: r.Name, Enabled: r.Enabled, Priority: r.Priority, Content: r.Content,
+		})
+	}
+	for i, r := range runs {
+		files[fmt.Sprintf("runs/%02d-%s.md", i+1, fileSlug(r.Title))] = trajectoryFileKey.Render(trajectoryFileInput{
+			Title: r.Title, Status: r.Status, Request: r.Request, Feedback: r.Feedback, Steps: r.Steps,
+		})
+	}
+	return files
+}
+
+func writeEvidenceDir(dir string, files map[string]string) error {
+	for rel, body := range files {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte(body), 0o600)
-	}
-	if err := write("EVIDENCE.md", report); err != nil {
-		return err
-	}
-	for i, sk := range skills {
-		body := evidenceCatalogFileKey.Render(evidenceCatalogFileInput{
-			Kind: "skill", ID: sk.ID.String(), Name: sk.Name, Description: sk.Description, Enabled: sk.Enabled, Content: sk.Content,
-		})
-		if err := write(fmt.Sprintf("skills/%03d-%s.md", i+1, fileSlug(sk.Name)), body); err != nil {
-			return err
-		}
-	}
-	for i, r := range rules {
-		body := evidenceCatalogFileKey.Render(evidenceCatalogFileInput{
-			Kind: "rule", ID: r.ID.String(), Name: r.Name, Enabled: r.Enabled, Priority: r.Priority, Content: r.Content,
-		})
-		if err := write(fmt.Sprintf("rules/%03d-%s.md", i+1, fileSlug(r.Name)), body); err != nil {
-			return err
-		}
-	}
-	for i, r := range runs {
-		body := trajectoryFileKey.Render(trajectoryFileInput{
-			Title: r.Title, Status: r.Status, Request: r.Request, Feedback: r.Feedback, Steps: r.Steps,
-		})
-		if err := write(fmt.Sprintf("runs/%02d-%s.md", i+1, fileSlug(r.Title)), body); err != nil {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			return err
 		}
 	}

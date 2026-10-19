@@ -1111,7 +1111,8 @@ are scoped to, so a CLI session and a loop run work in the same tree. **No works
 refusal, not a guess**: running in the server's own directory would let the session edit the
 tree it is hosted from. The single exception opts in explicitly
 (`agent.WithScratchWorkspace`) and is self-reflection with web research, which touches no
-repository and gets a temporary directory removed afterwards. `agent.WithCLILabel` names the
+repository and gets a temporary directory removed afterwards (`agent.WithScratchFiles` seeds it
+with the reflection's evidence; files only ever land in a directory the router created). `agent.WithCLILabel` names the
 session in logs and at the MCP endpoint ("tt-7 verify-fix"); the loop ignores it.
 
 The board runner keeps its own explicit `switch` and `port.TaskExecutor` field — its
@@ -1169,7 +1170,7 @@ On a host **with** a runner, for an agent on `claude_code`:
 | criteria sweep (`board/criteria_sweep.go`) | CLI | router |
 | review verdict sweep + finalize (`board/review_sweep.go`) | CLI | router |
 | orchestrator subtask (`orchestrator/executor.go`) | CLI | router; subtask workspace |
-| agent reflection with `allow_web_research` (`evolution/reflect.go`) | CLI | router; a temporary directory holding the evidence files |
+| agent reflection with `allow_web_research` (`evolution/reflect.go`) | CLI | router; scratch workspace seeded with the evidence files (`agent.WithScratchFiles`) |
 | self-evolution probe: golden suite, rehearsals, judge, lesson (`evolution/probe.go`, `lesson.go`) | CLI | router (`evolution.ask`); scratch workspace, no TaskTrooper tools |
 | chat turn (`session/`) | CLI | `port.ChatExecutor`; resumes the CLI session |
 

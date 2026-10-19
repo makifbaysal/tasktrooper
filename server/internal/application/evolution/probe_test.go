@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/agent"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -699,27 +701,66 @@ func TestEvidenceCarriesEarlierLessonsAndSkillText(t *testing.T) {
 	}
 }
 
-func TestWriteEvidenceFiles(t *testing.T) {
-	dir := t.TempDir()
+func TestEvidenceFilesLayout(t *testing.T) {
 	skills := []domain.Skill{{ID: uuid.New(), Name: "DB Migrations!", Description: "When the schema changes", Content: "Write the down migration.", Enabled: true}}
 	rules := []domain.OrchestratorRule{{ID: uuid.New(), Name: "tests-first", Content: "Run the tests.", Priority: 2, Enabled: true}}
 	runs := []runEvidence{{Title: "ORD-1 Paginate", Status: "completed", Request: "Task: Paginate", Steps: []trajectoryStep{{Tag: "ACTION", Text: "read_file x"}}}}
 
-	if err := writeEvidenceFiles(dir, "# report", skills, rules, runs); err != nil {
-		t.Fatal(err)
-	}
+	files := evidenceFiles("# report", skills, rules, runs)
 	for rel, want := range map[string]string{
 		"EVIDENCE.md":                 "# report",
 		"skills/001-db-migrations.md": "Write the down migration.",
 		"rules/001-tests-first.md":    "priority: 2",
 		"runs/01-ord-1-paginate.md":   "[ACTION] read_file x",
 	} {
-		raw, err := os.ReadFile(filepath.Join(dir, rel))
-		if err != nil {
-			t.Fatalf("%s: %v", rel, err)
+		if !strings.Contains(files[rel], want) {
+			t.Errorf("%s does not contain %q:\n%s", rel, want, files[rel])
 		}
-		if !strings.Contains(string(raw), want) {
-			t.Errorf("%s does not contain %q:\n%s", rel, want, raw)
-		}
+	}
+}
+
+// The in-process loop reads the evidence with read_file, so it gets a directory on this disk — on its own run context only, removed when the reflection ends.
+type capturingLoop struct {
+	mu       sync.Mutex
+	dirs     []string
+	sawFile  bool
+	tools    []string
+	response string
+}
+
+func (l *capturingLoop) Run(ctx context.Context, _ []domain.Message, _ string, _ domain.LLMProviderType, policy domain.ToolPolicy, _ ...agent.RunOption) (domain.AgentResponse, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dir := registry.WorkspaceDirFromContext(ctx)
+	l.dirs = append(l.dirs, dir)
+	if _, err := os.Stat(filepath.Join(dir, "EVIDENCE.md")); dir != "" && err == nil {
+		l.sawFile = true
+	}
+	l.tools = policy.AllowTools
+	return domain.AgentResponse{Message: domain.Message{Role: domain.RoleAssistant, Content: l.response}}, nil
+}
+func (l *capturingLoop) RunTask(ctx context.Context, m []domain.Message, model string, p domain.LLMProviderType, policy domain.ToolPolicy, opts ...agent.RunOption) (domain.AgentResponse, error) {
+	return l.Run(ctx, m, model, p, policy, opts...)
+}
+func (l *capturingLoop) RunStream(ctx context.Context, m []domain.Message, model string, p domain.LLMProviderType, policy domain.ToolPolicy, _ func(string), opts ...agent.RunOption) (domain.AgentResponse, error) {
+	return l.Run(ctx, m, model, p, policy, opts...)
+}
+
+func TestReflectionOnTheLoopReadsEvidenceFromARunLocalDirectory(t *testing.T) {
+	f := newProbeFixture(t)
+	f.svc.cfg.AllowWebResearch = true
+	loop := &capturingLoop{response: `{"self_assessment":"ok","skills":[],"rules":[],"memories":[],"reverts":[]}`}
+	f.svc.agentLoop = loop
+
+	f.run(t)
+
+	if len(loop.dirs) != 1 || loop.dirs[0] == "" || !loop.sawFile {
+		t.Fatalf("the loop run had no evidence directory: dirs=%v saw=%v", loop.dirs, loop.sawFile)
+	}
+	if !slices.Contains(loop.tools, "read_file") {
+		t.Fatalf("tools = %v, want read_file so the run can open the files", loop.tools)
+	}
+	if _, err := os.Stat(loop.dirs[0]); !os.IsNotExist(err) {
+		t.Fatalf("the evidence directory outlived the reflection: %v", err)
 	}
 }

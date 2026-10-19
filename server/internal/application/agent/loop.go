@@ -90,6 +90,7 @@ type runOptions struct {
 	cliLabel         string
 	cliTitle         string
 	scratchWorkspace bool
+	scratchFiles     map[string]string
 	stableHead       int
 }
 
@@ -107,6 +108,14 @@ func WithCLILabel(label, title string) RunOption {
 
 func WithScratchWorkspace() RunOption {
 	return func(o *runOptions) { o.scratchWorkspace = true }
+}
+
+// WithScratchFiles seeds the scratch directory the router creates for a host-executed run, keyed by slash-separated relative path. They land only in that directory: a run with a workspace of its own, a run on the HTTP loop, or one an edition executes off this disk never sees them, so they can only ever be a convenience copy of something the prompt already carries.
+func WithScratchFiles(files map[string]string) RunOption {
+	return func(o *runOptions) {
+		o.scratchWorkspace = true
+		o.scratchFiles = files
+	}
 }
 
 func WithLightModel(model string) RunOption {

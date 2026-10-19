@@ -59,23 +59,21 @@ func (s *Service) processReflection(ctx context.Context, reflection domain.Agent
 		return
 	}
 
-	// Only the reflection itself runs in the evidence directory; rehearsals must not, or a CLI could read the feedback the judge grades against.
-	reflectCtx, withFiles, cleanup := s.evidenceWorkspace(ctx)
-	defer cleanup()
+	withFiles := s.reflectionIsAgentic()
 	bundle, err := s.gatherEvidence(ctx, agentRec, reflection, withFiles)
 	if err != nil {
 		s.failReflection(ctx, reflection, "", fmt.Sprintf("evidence gathering failed: %v", err))
 		return
 	}
-	if withFiles {
-		if err := writeEvidenceFiles(registry.WorkspaceDirFromContext(reflectCtx), bundle.Full, bundle.Skills, bundle.Rules, bundle.Runs); err != nil {
-			log.Warn().Err(err).Str("agent", agentRec.Name).Msg("reflection evidence files could not be written; the report alone goes in")
-		}
-	}
 	skills, rules := bundle.Skills, bundle.Rules
+	var files map[string]string
+	if withFiles {
+		files = evidenceFiles(bundle.Full, bundle.Skills, bundle.Rules, bundle.Runs)
+	}
 
-	call := s.newReflectionCall(reflectCtx, agentRec, bundle.Report)
-	output, rawOutput, analysis, err := call.run(reflectCtx)
+	call := s.newReflectionCall(agentRec, bundle.Report, files)
+	defer call.close()
+	output, rawOutput, analysis, err := call.run(ctx)
 	if err != nil {
 		s.failReflection(ctx, reflection, rawOutput, err.Error())
 		return
@@ -93,7 +91,7 @@ func (s *Service) processReflection(ctx context.Context, reflection domain.Agent
 		plan, outcomes, problems = s.planAndValidate(output, skills, rules)
 		if len(problems) > 0 {
 			// One chance to fix it, as with unparseable JSON: the reflection hears exactly what was wrong, and whatever it still gets wrong is dropped rather than retried forever.
-			revised, raw2, analysis2, err := call.revise(reflectCtx, validationFeedback(problems))
+			revised, raw2, analysis2, err := call.revise(ctx, validationFeedback(problems))
 			if err == nil {
 				output, rawOutput, analysis = revised, raw2, analysis2
 				plan, outcomes, problems = s.planAndValidate(output, skills, rules)
@@ -192,21 +190,8 @@ func (s *Service) processReflection(ctx context.Context, reflection domain.Agent
 	log.Info().Str("agent", agentRec.Name).Str("trigger", reflection.Trigger).Int("changes", len(applyLog)).Msg("reflection completed")
 }
 
-// An agentic reflection gets a directory of its own holding the evidence as files; a JSON-schema call cannot open files, so it gets none.
-func (s *Service) evidenceWorkspace(ctx context.Context) (context.Context, bool, func()) {
-	if !s.cfg.AllowWebResearch || s.agentLoop == nil {
-		return ctx, false, func() {}
-	}
-	dir, err := os.MkdirTemp("", "tt-reflect-")
-	if err != nil {
-		log.Warn().Err(err).Msg("reflection evidence directory could not be created; the report alone goes in")
-		return ctx, false, func() {}
-	}
-	return registry.ContextWithWorkspaceDir(ctx, dir), true, func() {
-		if err := os.RemoveAll(dir); err != nil {
-			log.Warn().Err(err).Str("dir", dir).Msg("could not remove the reflection evidence directory")
-		}
-	}
+func (s *Service) reflectionIsAgentic() bool {
+	return s.cfg.AllowWebResearch && s.agentLoop != nil
 }
 
 func (s *Service) planAndValidate(
@@ -426,12 +411,11 @@ type reflectionCall struct {
 	model    string
 	provider domain.LLMProviderType
 	messages []domain.Message
-	files    bool
+	files    map[string]string
+	localDir string
 }
 
-func (s *Service) newReflectionCall(ctx context.Context, agentRec domain.Agent, evidence string) *reflectionCall {
-	agentic := s.cfg.AllowWebResearch && s.agentLoop != nil
-	files := agentic && registry.WorkspaceDirFromContext(ctx) != ""
+func (s *Service) newReflectionCall(agentRec domain.Agent, evidence string, files map[string]string) *reflectionCall {
 	// Reflection rewrites the agent's own instructions, the hardest work it owns, so it runs on the agent's ModelHeavy like a "hard" orchestrator subtask; evolution.model/provider_type stay the operator override.
 	model := agentRec.Model
 	if agentRec.ModelHeavy != "" {
@@ -447,24 +431,60 @@ func (s *Service) newReflectionCall(ctx context.Context, agentRec domain.Agent, 
 	return &reflectionCall{
 		s: s, agentRec: agentRec, model: model, provider: provider, files: files,
 		messages: []domain.Message{
-			{Role: domain.RoleSystem, Content: reflectionSystemPromptFor(agentRec, s.cfg, files)},
+			{Role: domain.RoleSystem, Content: reflectionSystemPromptFor(agentRec, s.cfg, len(files) > 0)},
 			{Role: domain.RoleUser, Content: evidence},
 		},
 	}
 }
 
+func (r *reflectionCall) close() {
+	if r.localDir == "" {
+		return
+	}
+	if err := os.RemoveAll(r.localDir); err != nil {
+		log.Warn().Err(err).Str("dir", r.localDir).Msg("could not remove the reflection evidence directory")
+	}
+	r.localDir = ""
+}
+
+// The in-process loop reads the evidence with read_file, which is scoped to the run's workspace, so it gets a directory on this disk; only that run's context ever carries it.
+func (r *reflectionCall) evidenceDir() string {
+	if r.localDir != "" {
+		return r.localDir
+	}
+	dir, err := os.MkdirTemp("", "tt-reflect-")
+	if err != nil {
+		log.Warn().Err(err).Msg("reflection evidence directory could not be created; the report alone goes in")
+		return ""
+	}
+	if err := writeEvidenceDir(dir, r.files); err != nil {
+		log.Warn().Err(err).Msg("reflection evidence files could not be written; the report alone goes in")
+		_ = os.RemoveAll(dir)
+		return ""
+	}
+	r.localDir = dir
+	return dir
+}
+
 func (r *reflectionCall) call(ctx context.Context, msgs []domain.Message) (string, error) {
 	s := r.s
-	if s.cfg.AllowWebResearch && s.agentLoop != nil {
+	if s.reflectionIsAgentic() {
 		tools := []string{"web_search", "fetch_url"}
-		if r.files {
-			tools = append(tools, "read_file", "get_repo_tree", "grep_code")
-		}
-		// s.agentLoop is the router, so an agent on a host-executed provider reflects on its own performance through that host's CLI. With evidence files the run's workspace is that directory; otherwise WithScratchWorkspace gives a CLI a fresh empty one, since a background reflection has no repository.
-		resp, err := s.agentLoop.Run(ctx, msgs, r.model, r.provider, domain.ToolPolicy{AllowTools: tools},
+		// s.agentLoop is the router, so an agent on a host-executed provider reflects through that host's CLI, in a scratch directory the router creates and seeds with the evidence files — wherever the session actually runs. A background reflection has no repository of its own.
+		opts := []agent.RunOption{
 			agent.WithSessionLimits(r.agentRec.MaxTurns, r.agentRec.Effort),
 			agent.WithCLILabel("reflect:"+r.agentRec.Name, "agent self-reflection"),
-			agent.WithScratchWorkspace())
+			agent.WithScratchWorkspace(),
+		}
+		if len(r.files) > 0 {
+			if domain.RequiresHostExecutor(r.provider) {
+				opts = append(opts, agent.WithScratchFiles(r.files))
+			} else if dir := r.evidenceDir(); dir != "" {
+				ctx = registry.ContextWithWorkspaceDir(ctx, dir)
+				tools = append(tools, "read_file", "get_repo_tree", "grep_code")
+			}
+		}
+		resp, err := s.agentLoop.Run(ctx, msgs, r.model, r.provider, domain.ToolPolicy{AllowTools: tools}, opts...)
 		if err != nil {
 			return "", err
 		}
@@ -516,7 +536,9 @@ func (r *reflectionCall) revise(ctx context.Context, feedback string) (domain.Re
 }
 
 func (s *Service) runLLM(ctx context.Context, agentRec domain.Agent, evidence string) (domain.ReflectionOutput, string, string, error) {
-	return s.newReflectionCall(ctx, agentRec, evidence).run(ctx)
+	call := s.newReflectionCall(agentRec, evidence, nil)
+	defer call.close()
+	return call.run(ctx)
 }
 
 func (s *Service) applyOutput(
