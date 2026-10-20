@@ -177,9 +177,19 @@ export function TaskDetailDrawer({
     ? initiativeProjects.find((p) => p.id === task.initiative_project_id)?.name
     : null;
   const { model: repositoryModel } = useRepositoryModel(open && task ? repositoryId : undefined);
+  // A project with no repository of its own parks its tasks in whichever
+  // repository was the create-dialog fallback. That repository's components
+  // belong to another project, so offering them here mislabels the task
+  // (FindMyCar showing tasktrooper's catalog/desktop/runner/ui/server).
+  const repoOwnedByTaskProject = useMemo(() => {
+    const projectId = task?.initiative_project_id;
+    if (!projectId) return true;
+    const projectIds = repositories.find((r) => r.id === repositoryId)?.project_ids;
+    return !projectIds || projectIds.includes(projectId);
+  }, [repositories, repositoryId, task?.initiative_project_id]);
   const componentOptions = useMemo(
     () =>
-      (repositoryModel?.components ?? [])
+      (repoOwnedByTaskProject ? (repositoryModel?.components ?? []) : [])
         .filter((c) => c.status === "active" || c.id === task?.component_id)
         .map((c) => ({ id: c.id, label: componentLabel(c, repositoryName ?? repositoryModel?.repository.name ?? "") })),
     [repositoryModel, repositoryName, task?.component_id],

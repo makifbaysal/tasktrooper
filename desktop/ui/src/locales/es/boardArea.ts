@@ -105,6 +105,7 @@ export const boardArea = {
       createFailed: "No se pudo crear la tarea",
       repository: "Repositorio de código",
       selectRepo: "Seleccionar repositorio",
+      noRepository: "Este proyecto aún no tiene repositorio. Añade uno al proyecto antes de crear tareas.",
       title: "Título",
       titlePlaceholder: "Título de la tarea",
       type: "Tipo",

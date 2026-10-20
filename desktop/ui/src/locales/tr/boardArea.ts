@@ -113,6 +113,7 @@ export const boardArea: BoardAreaDict = {
       createFailed: "Görev oluşturulamadı",
       repository: "Kod deposu",
       selectRepo: "Depo seçin",
+      noRepository: "Bu projenin henüz deposu yok. Görev oluşturmadan önce projeye bir depo ekleyin.",
       title: "Başlık",
       titlePlaceholder: "Görev başlığı",
       type: "Tür",

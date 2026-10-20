@@ -105,6 +105,7 @@ export const boardArea = {
       createFailed: "创建任务失败",
       repository: "代码仓库",
       selectRepo: "选择仓库",
+      noRepository: "该项目还没有仓库。创建任务前请先为项目添加仓库。",
       title: "标题",
       titlePlaceholder: "任务标题",
       type: "类型",

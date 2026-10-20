@@ -235,6 +235,9 @@ export function CreateTaskDialog({
           <DialogTitle>{dialogTitle ?? t("boardArea.components.createTask.defaultTitle")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          {repositories.length === 0 && (
+            <p className="text-caption text-muted-foreground">{t("boardArea.components.createTask.noRepository")}</p>
+          )}
           {repositories.length > 1 && (
             <div className="space-y-2">
               <Label>{t("boardArea.components.createTask.repository")}</Label>

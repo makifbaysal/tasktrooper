@@ -119,6 +119,7 @@ export const boardArea = {
       createFailed: "Failed to create task",
       repository: "Code repository",
       selectRepo: "Select repository",
+      noRepository: "This project has no repository yet. Add one to the project before creating tasks.",
       title: "Title",
       titlePlaceholder: "Task title",
       type: "Type",

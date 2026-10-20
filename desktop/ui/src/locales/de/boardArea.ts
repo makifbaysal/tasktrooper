@@ -105,6 +105,7 @@ export const boardArea = {
       createFailed: "Aufgabe konnte nicht erstellt werden",
       repository: "Code-Repository",
       selectRepo: "Repository auswählen",
+      noRepository: "Dieses Projekt hat noch kein Repository. Füge dem Projekt eines hinzu, bevor du Aufgaben erstellst.",
       title: "Titel",
       titlePlaceholder: "Aufgabentitel",
       type: "Typ",

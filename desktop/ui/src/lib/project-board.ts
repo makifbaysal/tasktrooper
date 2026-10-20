@@ -123,7 +123,7 @@ export function taskCreateDefaults<R extends ScopedRepository>(
   if (!isProjectScope(scope)) return { repositories, repositoryId: fallbackRepositoryId };
   const own = repositories.filter((repo) => repo.project_ids?.includes(scope));
   if (own.length === 0) {
-    return { repositories, repositoryId: fallbackRepositoryId, initiativeProjectId: scope };
+    return { repositories: [], repositoryId: "", initiativeProjectId: scope };
   }
   const rest = repositories.filter((repo) => !repo.project_ids?.includes(scope));
   return { repositories: [...own, ...rest], repositoryId: own[0].id, initiativeProjectId: scope };

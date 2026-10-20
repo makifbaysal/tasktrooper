@@ -105,6 +105,7 @@ export const boardArea = {
       createFailed: "Impossible de créer la tâche",
       repository: "Dépôt de code",
       selectRepo: "Sélectionner un dépôt",
+      noRepository: "Ce projet n'a pas encore de dépôt. Ajoutez-en un au projet avant de créer des tâches.",
       title: "Titre",
       titlePlaceholder: "Titre de la tâche",
       type: "Type",

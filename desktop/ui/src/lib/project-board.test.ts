@@ -351,11 +351,11 @@ describe("taskCreateDefaults", () => {
     expect(defaults.repositories.map((r) => r.id)).toEqual(["repo-c", "repo-d", "repo-a", "repo-b"]);
   });
 
-  it("keeps the page's repository for a project that has none", () => {
+  it("offers no repository for a project that has none", () => {
     const defaults = taskCreateDefaults(repositories, "proj-empty", "repo-a");
     expect(defaults.initiativeProjectId).toBe("proj-empty");
-    expect(defaults.repositoryId).toBe("repo-a");
-    expect(defaults.repositories).toBe(repositories);
+    expect(defaults.repositoryId).toBe("");
+    expect(defaults.repositories).toEqual([]);
   });
 });
 
