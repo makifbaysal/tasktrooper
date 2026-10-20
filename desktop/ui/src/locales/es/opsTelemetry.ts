@@ -552,6 +552,13 @@ export const telemetryKinds: TelemetryKindsDict = {
       },
     },
   },
+  vercel: {
+    label: "Vercel",
+    description: "Visitas de página, visitantes y Core Web Vitals de tus proyectos de Vercel, de Web Analytics y Speed Insights, leídos con una cuenta de Vercel conectada. Nada que instalar.",
+    queryPlaceholder: "p. ej. {\"metric\": \"lcp\", \"project\": \"prj_…\"}",
+    queryHint:
+      "JSON: {\"metric\"?, \"project\"}. project es el id del proyecto de Vercel (prj_…). metric es page_views (el predeterminado), visitors, lcp, inp, cls o fcp; un vital es su p75 salvo que quantile (0.5, 0.75, 0.9, 0.95 o 0.99) indique otro. Web Analytics y Speed Insights deben estar activados en el proyecto.",
+  },
   datadog: {
     label: "Datadog",
     description: "Tasas de peticiones, errores y latencia de APM, y métricas de hosts o contenedores, desde la API de métricas de Datadog.",

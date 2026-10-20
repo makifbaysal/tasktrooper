@@ -33,6 +33,11 @@ var (
 		noBuiltins: webNoBuiltins,
 		parse:      func(q string) error { _, err := domain.ParseWebQuery(domain.DataSourceKindGA4, q); return err },
 	}
+	vercelDialect = brokerDialect{
+		label: "Vercel", nameKeys: []string{"project"}, inventory: eventInventoryPattern,
+		noBuiltins: webNoBuiltins,
+		parse:      func(q string) error { _, err := domain.ParseWebQuery(domain.DataSourceKindVercel, q); return err },
+	}
 	plausibleDialect = brokerDialect{
 		label: "Plausible", nameKeys: []string{"site", "host"}, inventory: eventInventoryPattern,
 		noBuiltins: webNoBuiltins,

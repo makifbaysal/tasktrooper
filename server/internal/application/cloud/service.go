@@ -94,6 +94,9 @@ type Service struct {
 	taskReader    TaskReader
 	prHeads       PullRequestHeads
 
+	observerMu sync.Mutex
+	observer   AccountObserver
+
 	now   Clock
 	bgCtx context.Context
 
@@ -137,6 +140,26 @@ func (s *Service) SetClock(c Clock) { s.now = c }
 func (s *Service) SetRelinker(r Relinker) { s.relinker = r }
 
 func (s *Service) SetDeliveryRefresher(r DeliveryRefresher) { s.delivery = r }
+
+// AccountObserver hears of accounts being connected and removed, for what
+// hangs off them (the data source of each account).
+type AccountObserver interface {
+	CloudAccountConnected(ctx context.Context, acct domain.CloudAccount)
+	// CloudAccountRemoved runs before the account is deleted.
+	CloudAccountRemoved(ctx context.Context, id uuid.UUID)
+}
+
+func (s *Service) SetAccountObserver(o AccountObserver) {
+	s.observerMu.Lock()
+	defer s.observerMu.Unlock()
+	s.observer = o
+}
+
+func (s *Service) accountObserver() AccountObserver {
+	s.observerMu.Lock()
+	defer s.observerMu.Unlock()
+	return s.observer
+}
 
 func (s *Service) refreshDelivery(ctx context.Context, repositoryID uuid.UUID) {
 	if s.delivery == nil {

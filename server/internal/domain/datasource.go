@@ -35,7 +35,7 @@ func BuiltinDataSourceKinds() []DataSourceKind {
 		DataSourceKindLoki, DataSourceKindElasticsearch, DataSourceKindTempo,
 		DataSourceKindGooglePlayVitals, DataSourceKindAppStoreMetrics, DataSourceKindSentry,
 		DataSourceKindPostHog, DataSourceKindGA4, DataSourceKindPlausible,
-		DataSourceKindDatadog, DataSourceKindNewRelic,
+		DataSourceKindDatadog, DataSourceKindNewRelic, DataSourceKindVercel,
 	}
 }
 
@@ -322,4 +322,27 @@ func validHeaderName(s string) bool {
 		}
 	}
 	return true
+}
+
+// CloudSourceLink says that the data source of Kind for a connected cloud
+// account was made on its own. A nil DataSourceID means a person deleted it,
+// and it is not made again.
+type CloudSourceLink struct {
+	CloudAccountID uuid.UUID      `json:"cloud_account_id"`
+	Kind           DataSourceKind `json:"kind"`
+	DataSourceID   *uuid.UUID     `json:"data_source_id"`
+}
+
+// AutoDataSourceKind is the data source kind made for a connected cloud
+// account of provider, empty for a provider none reads.
+func AutoDataSourceKind(provider CloudProviderKind) DataSourceKind {
+	switch provider {
+	case CloudVercel:
+		return DataSourceKindVercel
+	case CloudGCP:
+		return DataSourceKindGCPMonitoring
+	case CloudAWS:
+		return DataSourceKindCloudWatch
+	}
+	return ""
 }

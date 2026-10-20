@@ -3057,6 +3057,12 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	if dataSourceSvc != nil && e.storeOpsSvc != nil {
 		dataSourceSvc.SetStoreCredentials(e.storeOpsSvc)
 	}
+	if dataSourceSvc != nil && e.cloudSvc != nil {
+		// Connecting a cloud account makes its data source; the sync gives the
+		// accounts connected before this build theirs.
+		e.cloudSvc.SetAccountObserver(dataSourceSvc)
+		go dataSourceSvc.SyncCloudAccounts(context.WithoutCancel(ctx))
+	}
 	signalsSvc := newSignalsService(e.pgDB, dataSourceSvc)
 	// The Logs explorer is built with the cloud routes, before the signal
 	// bindings exist: a component's logs binding is handed to it here.

@@ -77,6 +77,22 @@ type CloudAccountReader interface {
 	CloudCredential(ctx context.Context, id uuid.UUID) (domain.CloudCredential, error)
 }
 
+// CloudAccountLister lists the connected cloud accounts, for the data sources
+// made for each one on its own.
+type CloudAccountLister interface {
+	ListCloudAccounts(ctx context.Context) ([]domain.CloudAccount, error)
+}
+
+// CloudSourceLinkStore remembers which data sources were made for a cloud
+// account on its own, and which of them a person has since deleted.
+type CloudSourceLinkStore interface {
+	ListCloudSourceLinks(ctx context.Context) ([]domain.CloudSourceLink, error)
+	// LinkCloudSource records the source made for an account and kind; false
+	// when the pair already has a row (a source or a deletion), which is left
+	// as it was.
+	LinkCloudSource(ctx context.Context, accountID uuid.UUID, kind domain.DataSourceKind, dataSourceID uuid.UUID) (bool, error)
+}
+
 // ObservabilityRecipeStore holds the recipes a person added beside the
 // embedded catalog.
 type ObservabilityRecipeStore interface {

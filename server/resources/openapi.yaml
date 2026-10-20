@@ -1746,7 +1746,7 @@ paths:
       summary: One web table of a frontend's confirmed web bindings
       description: >-
         For each confirmed web.* binding in env whose recipe declares the table (pages,
-        referrers, countries or devices: posthog-web, ga4-web, plausible-web,
+        referrers, countries or devices: posthog-web, ga4-web, plausible-web, vercel-web,
         newrelic-browser's pages), that table, read and shared as for endpoints. A table
         whose value columns share one query keeps the order its source ranked the rows
         in (the most viewed first); the web kinds read the last 7 days unless the

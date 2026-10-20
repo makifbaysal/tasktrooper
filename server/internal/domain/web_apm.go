@@ -20,6 +20,7 @@ const (
 	DataSourceKindPlausible DataSourceKind = "plausible"
 	DataSourceKindDatadog   DataSourceKind = "datadog"
 	DataSourceKindNewRelic  DataSourceKind = "newrelic"
+	DataSourceKindVercel    DataSourceKind = "vercel"
 )
 
 // The per-entity tables a frontend's web view reads (RecipeTablePages one row
@@ -70,8 +71,15 @@ var (
 		},
 		DataSourceKindGA4:       {WebMetricPageViews, WebMetricSessions, WebMetricVisitors, WebMetricEvents},
 		DataSourceKindPlausible: {WebMetricPageViews, WebMetricSessions, WebMetricVisitors},
+		// Vercel's Web Analytics counts page views and visitors (it has no
+		// session); Speed Insights measures the vitals.
+		DataSourceKindVercel: {
+			WebMetricPageViews, WebMetricVisitors, WebMetricLCP, WebMetricINP, WebMetricCLS, WebMetricFCP,
+		},
 	}
 	ga4PropertyPattern = regexp.MustCompile(`^[0-9]{1,20}$`)
+	// vercelProjectPattern is a project id (prj_...) or, in a pinch, a name.
+	vercelProjectPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 )
 
 // IsWebVital reports whether metric is a percentile of a web vital.
@@ -89,7 +97,8 @@ func IsWebVital(metric string) bool { return slices.Contains(webVitals, metric) 
 // judged). A table instead names Table (pages, referrers, countries,
 // devices): its rows over the last Days (default 7), the most viewed first,
 // at most Limit. Host keeps one hostname. Property (GA4) and Site
-// (Plausible) override the source's own property id or site.
+// (Plausible) override the source's own property id or site; Project names
+// the Vercel project (its id, prj_...) a team-wide Vercel source reads.
 type WebQuery struct {
 	Metric   string  `json:"metric,omitempty"`
 	Event    string  `json:"event,omitempty"`
@@ -98,6 +107,7 @@ type WebQuery struct {
 	Host     string  `json:"host,omitempty"`
 	Property string  `json:"property,omitempty"`
 	Site     string  `json:"site,omitempty"`
+	Project  string  `json:"project,omitempty"`
 	Days     int     `json:"days,omitempty"`
 	Limit    int     `json:"limit,omitempty"`
 }
@@ -119,7 +129,7 @@ func ParseWebQuery(kind DataSourceKind, raw string) (WebQuery, error) {
 	if err := decodeBrokerQuery(raw, string(kind), &q); err != nil {
 		return WebQuery{}, err
 	}
-	for _, f := range []struct{ key, v string }{{"event", q.Event}, {"host", q.Host}, {"property", q.Property}, {"site", q.Site}} {
+	for _, f := range []struct{ key, v string }{{"event", q.Event}, {"host", q.Host}, {"property", q.Property}, {"site", q.Site}, {"project", q.Project}} {
 		if err := checkBrokerName(f.key, f.v, false); err != nil {
 			return WebQuery{}, err
 		}
@@ -129,6 +139,10 @@ func ParseWebQuery(kind DataSourceKind, raw string) (WebQuery, error) {
 		return WebQuery{}, fmt.Errorf("property applies to Google Analytics only")
 	case q.Site != "" && kind != DataSourceKindPlausible:
 		return WebQuery{}, fmt.Errorf("site applies to Plausible only")
+	case q.Project != "" && kind != DataSourceKindVercel:
+		return WebQuery{}, fmt.Errorf("project applies to Vercel only")
+	case q.Project != "" && !vercelProjectPattern.MatchString(q.Project):
+		return WebQuery{}, fmt.Errorf("project %q is not a Vercel project id", q.Project)
 	case strings.ContainsFunc(q.Host, unicode.IsSpace):
 		return WebQuery{}, fmt.Errorf("host %q is not a hostname", q.Host)
 	case strings.ContainsFunc(q.Site, unicode.IsSpace):

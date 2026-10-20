@@ -59,7 +59,7 @@ func (s *DataSourceStoreSuite) TearDownSuite() {
 }
 
 func (s *DataSourceStoreSuite) SetupTest() {
-	_, err := s.pool.Exec(s.ctx, `TRUNCATE signal_bindings, alert_events, alert_rules, data_sources, observability_recipes`)
+	_, err := s.pool.Exec(s.ctx, `TRUNCATE signal_bindings, alert_events, alert_rules, cloud_account_data_sources, data_sources, observability_recipes`)
 	s.Require().NoError(err)
 }
 
@@ -238,4 +238,40 @@ func (s *DataSourceStoreSuite) TestTwoWritesInARowAlwaysMoveTheVersion() {
 func (s *DataSourceStoreSuite) TestRecordVerificationOfAnUnknownSourceIsNotFound() {
 	_, err := s.store.RecordVerification(s.ctx, uuid.New(), domain.DataSourceVerification{Status: domain.DataSourceOK}, time.Now())
 	s.ErrorIs(err, port.ErrNotFound)
+}
+
+func (s *DataSourceStoreSuite) TestCloudSourceLinksAreOncePerAccountAndKindAndSurviveADeletionAsADismissal() {
+	var accountID uuid.UUID
+	s.Require().NoError(s.pool.QueryRow(s.ctx,
+		`INSERT INTO cloud_accounts (provider, label, status, secret_enc) VALUES ('vercel', 'acme', 'ok', '\x00') RETURNING id`).Scan(&accountID))
+	s.T().Cleanup(func() { _, _ = s.pool.Exec(s.ctx, `DELETE FROM cloud_accounts WHERE id = $1`, accountID) })
+
+	ds, err := s.store.CreateDataSource(s.ctx, domain.DataSource{
+		Kind: domain.DataSourceKindVercel, Name: "v", Config: map[string]string{"cloud_account_id": accountID.String()},
+	}, nil)
+	s.Require().NoError(err)
+
+	linked, err := s.store.LinkCloudSource(s.ctx, accountID, domain.DataSourceKindVercel, ds.ID)
+	s.Require().NoError(err)
+	s.True(linked)
+	again, err := s.store.LinkCloudSource(s.ctx, accountID, domain.DataSourceKindVercel, ds.ID)
+	s.Require().NoError(err)
+	s.False(again)
+
+	links, err := s.store.ListCloudSourceLinks(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(links, 1)
+	s.Equal(ds.ID, *links[0].DataSourceID)
+
+	s.Require().NoError(s.store.DeleteDataSource(s.ctx, ds.ID))
+	links, err = s.store.ListCloudSourceLinks(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(links, 1)
+	s.Nil(links[0].DataSourceID, "a deleted source leaves its link behind, as the mark that it was dismissed")
+
+	_, err = s.pool.Exec(s.ctx, `DELETE FROM cloud_accounts WHERE id = $1`, accountID)
+	s.Require().NoError(err)
+	links, err = s.store.ListCloudSourceLinks(s.ctx)
+	s.Require().NoError(err)
+	s.Empty(links, "disconnecting the account takes its links with it")
 }

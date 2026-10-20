@@ -130,6 +130,7 @@ const DAYS = (amount: number): TableWindow => ({ amount, unit: "days" });
 const RECIPE_TABLE_WINDOWS: Record<string, TableWindow> = {
   "ga4-web": DAYS(7),
   "plausible-web": DAYS(7),
+  "vercel-web": DAYS(7),
   "posthog-web": DAYS(7),
   "newrelic-browser": DAYS(7),
   "play-vitals": DAYS(7),
@@ -138,7 +139,7 @@ const RECIPE_TABLE_WINDOWS: Record<string, TableWindow> = {
   "newrelic-apm": { amount: 1, unit: "hours" },
 };
 
-const DAYS_PARAM_DEFAULTS: Record<string, number> = { ga4: 7, plausible: 7, posthog: 7, google_play_vitals: 7, sentry: 14 };
+const DAYS_PARAM_DEFAULTS: Record<string, number> = { ga4: 7, plausible: 7, vercel: 7, posthog: 7, google_play_vitals: 7, sentry: 14 };
 
 function jsonDays(query: string): number | undefined {
   try {

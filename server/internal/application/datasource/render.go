@@ -75,6 +75,8 @@ func dialectFor(kind domain.DataSourceKind) dialect {
 		return ga4Dialect
 	case domain.DataSourceKindPlausible:
 		return plausibleDialect
+	case domain.DataSourceKindVercel:
+		return vercelDialect
 	case domain.DataSourceKindDatadog:
 		return datadogDialect{}
 	case domain.DataSourceKindNewRelic:

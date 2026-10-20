@@ -35,6 +35,7 @@ query** has a range of its own. Seventeen kinds exist today:
 | **PostHog** | Page views, sessions, visitors, exceptions and web vitals, and the top pages, referrers, countries and devices | JSON |
 | **Google Analytics 4** | A property's page views, sessions and active users, and its top pages, referrers, countries and devices | JSON |
 | **Plausible** | A site's page views, visits and visitors, and its top pages, sources, countries and devices | JSON |
+| **Vercel** | A Vercel project's page views and visitors (Web Analytics) and Core Web Vitals (Speed Insights), with the project's top pages, sources, countries and devices, read with a connected Vercel account | JSON |
 | **Datadog** | Any Datadog metric: APM trace metrics, host and container metrics | Datadog metric query |
 | **New Relic** | APM transactions, Browser page views and web vitals, Mobile crashes | NRQL |
 
@@ -517,6 +518,27 @@ offered for this even before any data source exists.
   Settings → Integrations, and **Connect** is unavailable.
 - **Not now** hides the card; the next Find suggestions offers it again.
 
+## Connected cloud accounts get their data source on their own
+
+Connecting a Vercel, Google Cloud or AWS account in Settings → Integrations also
+adds its data source (`vercel`, `gcp_monitoring`, `aws_cloudwatch`) to this list,
+verified, with no "add data source" step; accounts connected before this build
+get theirs when the app starts. A source made this way is made once: delete it
+and it does not come back, and disconnecting the account deletes it (with the
+signal bindings and alert rules that read it). A source you add yourself for an
+account is kept as it is. Each reads its account's own credential, so it holds no
+copy of it. Their logs, deployments and errors are read by the cloud connection
+itself (the Logs tab), not through the data source.
+
+The Vercel source reads Web Analytics (`GET /v1/query/web-analytics/visits/aggregate`:
+page views and visitors, and the top pages, sources, countries and devices) and
+Speed Insights (`POST /v2/observability/query`: LCP, INP, CLS and FCP at a
+percentile) per project, so a Vercel project bound on Signals gets the
+`vercel-web` and `vercel-web-vitals` recipes with its own id. Web Analytics and
+Speed Insights must be switched on in Vercel for the project; the Hobby plan
+reads the last 7 days. Query: `{"metric"?, "project", "quantile"?}`, a table
+`{"table", "project", "days"?, "limit"?}`; `host` is not supported.
+
 ## Web analytics: PostHog, Google Analytics 4 and Plausible
 
 These kinds read what a site's own analytics already counts: traffic for the
@@ -576,6 +598,8 @@ is the site.
 | `posthog-web-vitals` | `$web_vitals` | `web.lcp`, `web.inp`, `web.cls`, `web.fcp`, at p75, from posthog-js' web vitals events | — |
 | `ga4-web` | `page_view` | `web.page_views`, `web.sessions`, `web.visitors` | pages, referrers (source / medium, with sessions), countries, devices |
 | `plausible-web` | `pageview` | `web.page_views`, `web.sessions`, `web.visitors` | pages, referrers (visit sources), countries, devices |
+| `vercel-web` | `pageview` | `web.page_views`, `web.visitors` (Web Analytics; Vercel has no session count) | pages, referrers, countries, devices (by device type) |
+| `vercel-web-vitals` | `speed_insights` | `web.lcp`, `web.inp`, `web.cls`, `web.fcp`, at p75, from Speed Insights | — |
 
 The tables cover the last 7 days, the most viewed first. **Find
 suggestions** offers each recipe once the source has seen the event it is

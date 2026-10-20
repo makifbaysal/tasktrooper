@@ -552,6 +552,13 @@ export const telemetryKinds: TelemetryKindsDict = {
       },
     },
   },
+  vercel: {
+    label: "Vercel",
+    description: "您的 Vercel 项目的页面浏览量、访客和 Core Web Vitals，来自 Web Analytics 和 Speed Insights，通过已连接的 Vercel 账户读取。无需安装任何东西。",
+    queryPlaceholder: "例如 {\"metric\": \"lcp\", \"project\": \"prj_…\"}",
+    queryHint:
+      "JSON：{\"metric\"?, \"project\"}。project 是 Vercel 项目的 id（prj_…）。metric 为 page_views（默认）、visitors、lcp、inp、cls 或 fcp；除非 quantile（0.5、0.75、0.9、0.95 或 0.99）另有指定，vital 取其 p75。项目必须已开启 Web Analytics 和 Speed Insights。",
+  },
   datadog: {
     label: "Datadog",
     description: "来自 Datadog 指标 API 的 APM 请求速率、错误和延迟，以及主机或容器指标。",

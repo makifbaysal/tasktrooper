@@ -22,7 +22,7 @@ func embedded(t *testing.T) *datasource.Catalog {
 func TestValidateRecipeAdmitsWebPlaceholdersOnlyInWhatIsRead(t *testing.T) {
 	c := embedded(t)
 	recipe := func(kind domain.DataSourceKind, query string) domain.Recipe {
-		return domain.Recipe{ID: "r", SourceKind: kind, Params: []string{"host", "site", "property", "event"},
+		return domain.Recipe{ID: "r", SourceKind: kind, Params: []string{"host", "site", "property", "event", "project"},
 			Signals: map[string]string{"web.page_views": query}}
 	}
 	for _, ok := range []struct {
@@ -33,6 +33,7 @@ func TestValidateRecipeAdmitsWebPlaceholdersOnlyInWhatIsRead(t *testing.T) {
 		{domain.DataSourceKindPostHog, `{"metric": "events", "event": "$event"}`},
 		{domain.DataSourceKindGA4, `{"property": "$property", "host": "www.$host"}`},
 		{domain.DataSourceKindPlausible, `{"site": "$site", "metric": "visitors"}`},
+		{domain.DataSourceKindVercel, `{"project": "$project", "metric": "lcp"}`},
 	} {
 		assert.NoError(t, c.ValidateRecipe(recipe(ok.kind, ok.query)), ok.query)
 	}

@@ -94,9 +94,12 @@ func (s *Service) backfillAccount(ctx context.Context, providerKind domain.Cloud
 		acct.StatusDetail = "no adapter configured for this provider"
 	}
 
-	if _, err := s.accounts.CreateCloudAccount(ctx, acct, fields); err != nil {
+	created, err := s.accounts.CreateCloudAccount(ctx, acct, fields)
+	if err != nil {
 		log.Warn().Err(err).Str("provider", string(providerKind)).Msg("cloud: backfill: creating account failed")
+		return
 	}
+	s.announceConnected(created)
 }
 
 type componentEnvKey struct {

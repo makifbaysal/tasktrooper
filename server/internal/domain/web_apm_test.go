@@ -38,6 +38,9 @@ func TestParseWebQueryRefusesWhatItsKindCannotRead(t *testing.T) {
 		{"too many days", DataSourceKindPostHog, `{"table": "pages", "days": 91}`, "days must be 1 to 90"},
 		{"a quantile of one", DataSourceKindPostHog, `{"metric": "lcp", "quantile": 1}`, "between 0 and 1"},
 		{"a metric on a table", DataSourceKindGA4, `{"table": "pages", "metric": "sessions"}`, "takes no metric"},
+		{"project off Vercel", DataSourceKindPlausible, `{"project": "prj_1"}`, "Vercel only"},
+		{"a Vercel session", DataSourceKindVercel, `{"metric": "sessions"}`, "not one of"},
+		{"a spaced Vercel project", DataSourceKindVercel, `{"project": "prj 1"}`, "not a Vercel project id"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,4 +56,10 @@ func TestWithDefaultsFillsOnlyWhatIsEmpty(t *testing.T) {
 	got := r.WithDefaults(map[string]string{"prefix": "trace.flask.request", "env": " ", "service": "api"})
 	assert.Equal(t, map[string]string{"prefix": "trace.flask.request", "env": "prod", "service": "api"}, got)
 	assert.Equal(t, map[string]string{}, Recipe{}.WithDefaults(nil))
+}
+
+func TestParseWebQueryReadsAVercelProjectsVitals(t *testing.T) {
+	q, err := ParseWebQuery(DataSourceKindVercel, `{"metric": "lcp", "project": "prj_abc"}`)
+	require.NoError(t, err)
+	assert.Equal(t, WebQuery{Metric: WebMetricLCP, Project: "prj_abc", Quantile: DefaultWebVitalQuantile}, q)
 }

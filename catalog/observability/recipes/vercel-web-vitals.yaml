@@ -1,0 +1,19 @@
+# Core Web Vitals of a Vercel project from Vercel Speed Insights, read with a
+# connected Vercel account (the vercel kind). A bound Vercel project fills the
+# project param with its id. Speed Insights must be switched on for the
+# project. Each vital is the p75 of its interval, the percentile Core Web
+# Vitals are judged at; LCP, INP and FCP are in ms, CLS a score.
+id: vercel-web-vitals
+source_kind: vercel
+applies_to:
+  technology: vercel
+  resource_kind: vercel_project
+  resource_params: {project: id}
+detect:
+  metric: speed_insights
+params: [project]
+signals:
+  web.lcp: '{"metric": "lcp", "quantile": 0.75, "project": "$project"}'
+  web.inp: '{"metric": "inp", "quantile": 0.75, "project": "$project"}'
+  web.cls: '{"metric": "cls", "quantile": 0.75, "project": "$project"}'
+  web.fcp: '{"metric": "fcp", "quantile": 0.75, "project": "$project"}'

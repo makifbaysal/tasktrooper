@@ -64,7 +64,7 @@ func TestEveryEmbeddedRecipeValidatesAndRenders(t *testing.T) {
 		"aws-alb", "aws-ecs", "aws-lambda", "aws-sqs", "aws-msk",
 		"kafka-direct", "rabbitmq-direct", "nats-direct",
 		"play-vitals", "app-store-metrics", "sentry-mobile", "sentry-web", "sentry-backend",
-		"posthog-web", "posthog-web-vitals", "ga4-web", "plausible-web",
+		"posthog-web", "posthog-web-vitals", "ga4-web", "plausible-web", "vercel-web", "vercel-web-vitals",
 		"datadog-apm", "datadog-system", "datadog-container", "newrelic-apm", "newrelic-browser", "newrelic-mobile",
 	})
 }
@@ -95,6 +95,12 @@ func TestCloudResourceRecipesFillEveryParamTheirRefCarries(t *testing.T) {
 		{"aws-lambda", domain.CloudResourceRef{
 			Kind: domain.CloudResourceLambdaFunction, ID: "arn:aws:lambda:eu-central-1:1:function:resize", Name: "resize", Region: "eu-central-1",
 		}, map[string]string{"function": "resize"}},
+		{"vercel-web", domain.CloudResourceRef{
+			Kind: domain.CloudResourceVercelProject, ID: "prj_abc", Name: "site",
+		}, map[string]string{"project": "prj_abc"}},
+		{"vercel-web-vitals", domain.CloudResourceRef{
+			Kind: domain.CloudResourceVercelProject, ID: "prj_abc", Name: "site",
+		}, map[string]string{"project": "prj_abc"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.recipe, func(t *testing.T) {

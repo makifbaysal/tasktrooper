@@ -170,7 +170,7 @@ describe("the new kinds' fields", () => {
       const value = key.split(".").reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], en);
       return typeof value === "string" ? value : key;
     };
-    for (const kind of ["google_play_vitals", "app_store_metrics", "sentry", "loki", "elasticsearch", "tempo", "posthog", "ga4", "plausible", "datadog", "newrelic"]) {
+    for (const kind of ["google_play_vitals", "app_store_metrics", "sentry", "loki", "elasticsearch", "tempo", "posthog", "ga4", "plausible", "vercel", "datadog", "newrelic"]) {
       expect(queryHint(t, kind), kind).not.toBe("");
     }
     expect(queryHint(t, "tempo")).toMatch(/TraceQL/);

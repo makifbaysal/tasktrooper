@@ -297,3 +297,32 @@ func marshalDataSource(ds domain.DataSource) (configJSON, infoJSON []byte, err e
 	}
 	return configJSON, infoJSON, nil
 }
+
+var _ port.CloudSourceLinkStore = (*DataSourceStore)(nil)
+
+func (s *DataSourceStore) ListCloudSourceLinks(ctx context.Context) ([]domain.CloudSourceLink, error) {
+	rows, err := s.pool.Query(ctx, `SELECT cloud_account_id, kind, data_source_id FROM cloud_account_data_sources ORDER BY created_at, cloud_account_id, kind`)
+	if err != nil {
+		return nil, fmt.Errorf("list cloud source links: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.CloudSourceLink{}
+	for rows.Next() {
+		var l domain.CloudSourceLink
+		if err := rows.Scan(&l.CloudAccountID, &l.Kind, &l.DataSourceID); err != nil {
+			return nil, fmt.Errorf("scan cloud source link: %w", err)
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+func (s *DataSourceStore) LinkCloudSource(ctx context.Context, accountID uuid.UUID, kind domain.DataSourceKind, dataSourceID uuid.UUID) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO cloud_account_data_sources (cloud_account_id, kind, data_source_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+		accountID, kind, dataSourceID)
+	if err != nil {
+		return false, fmt.Errorf("link cloud source: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}

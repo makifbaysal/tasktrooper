@@ -53,6 +53,10 @@ type Deps struct {
 	// CloudAccounts is optional; without it a cloud_account field accepts no
 	// value (not_permitted).
 	CloudAccounts port.CloudAccountReader
+	// CloudAccountList and CloudLinks are optional; with both, a connected
+	// cloud account gets its data source on its own (see cloud_sources.go).
+	CloudAccountList port.CloudAccountLister
+	CloudLinks       port.CloudSourceLinkStore
 	// StoreCredentials is optional; without it a store_credential field
 	// accepts no value (not_permitted).
 	StoreCredentials port.StoreCredentialReader
@@ -69,6 +73,8 @@ type Service struct {
 	store       port.DataSourceStore
 	recipeStore port.ObservabilityRecipeStore
 	clouds      port.CloudAccountReader
+	cloudList   port.CloudAccountLister
+	cloudLinks  port.CloudSourceLinkStore
 	storeCreds  port.StoreCredentialReader
 	kinds       map[domain.DataSourceKind]port.DataSourceKindAdapter
 	order       []domain.DataSourceKind
@@ -78,6 +84,9 @@ type Service struct {
 
 	mu        sync.Mutex
 	observers []func(id uuid.UUID)
+	// provisionMu serialises the sources made for cloud accounts, so a sync
+	// and a connect never make the same one twice.
+	provisionMu sync.Mutex
 }
 
 // NewService fails without a URL policy, on a duplicate kind, or on a catalog
@@ -90,6 +99,8 @@ func NewService(d Deps) (*Service, error) {
 		store:       d.Store,
 		recipeStore: d.Recipes,
 		clouds:      d.CloudAccounts,
+		cloudList:   d.CloudAccountList,
+		cloudLinks:  d.CloudLinks,
 		storeCreds:  d.StoreCredentials,
 		kinds:       map[domain.DataSourceKind]port.DataSourceKindAdapter{},
 		now:         func() time.Time { return time.Now().UTC() },

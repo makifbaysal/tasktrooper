@@ -111,7 +111,14 @@ func (s *Service) CreateAccount(ctx context.Context, req domain.SaveCloudAccount
 	}
 
 	go s.rematchAll(context.WithoutCancel(s.bgCtx))
+	s.announceConnected(acct)
 	return acct, nil
+}
+
+func (s *Service) announceConnected(acct domain.CloudAccount) {
+	if o := s.accountObserver(); o != nil {
+		go o.CloudAccountConnected(context.WithoutCancel(s.bgCtx), acct)
+	}
 }
 
 // UpdateAccount re-verifies against the provider when fields are given,
@@ -203,6 +210,9 @@ func (s *Service) VerifyAccount(ctx context.Context, id uuid.UUID) (domain.Cloud
 }
 
 func (s *Service) DeleteAccount(ctx context.Context, id uuid.UUID) error {
+	if o := s.accountObserver(); o != nil {
+		o.CloudAccountRemoved(ctx, id)
+	}
 	if err := s.accounts.DeleteCloudAccount(ctx, id); err != nil {
 		return err
 	}

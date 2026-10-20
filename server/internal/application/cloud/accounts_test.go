@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/cloud"
@@ -202,4 +204,42 @@ func (s *AccountsSuite) TestListAccountsNeverReturnsNil() {
 	accounts, err := s.svc.ListAccounts(s.ctx)
 	s.Require().NoError(err)
 	s.NotNil(accounts)
+}
+
+type recordingObserver struct {
+	connected          chan domain.CloudAccount
+	removed            []uuid.UUID
+	stillThere         func(uuid.UUID) bool
+	removedWhileStored []bool
+}
+
+func (o *recordingObserver) CloudAccountConnected(_ context.Context, acct domain.CloudAccount) {
+	o.connected <- acct
+}
+
+func (o *recordingObserver) CloudAccountRemoved(_ context.Context, id uuid.UUID) {
+	o.removed = append(o.removed, id)
+	o.removedWhileStored = append(o.removedWhileStored, o.stillThere(id))
+}
+
+func (s *AccountsSuite) TestAConnectedAccountIsAnnouncedAndARemovedOneBeforeItGoes() {
+	obs := &recordingObserver{connected: make(chan domain.CloudAccount, 1)}
+	obs.stillThere = func(id uuid.UUID) bool {
+		_, err := s.svc.GetAccount(s.ctx, id)
+		return err == nil
+	}
+	s.svc.SetAccountObserver(obs)
+
+	acct, err := s.svc.CreateAccount(s.ctx, domain.SaveCloudAccountRequest{Provider: domain.CloudVercel, Fields: map[string]string{"token": "t"}})
+	s.Require().NoError(err)
+	select {
+	case got := <-obs.connected:
+		s.Equal(acct.ID, got.ID)
+	case <-time.After(2 * time.Second):
+		s.Fail("the connection was not announced")
+	}
+
+	s.Require().NoError(s.svc.DeleteAccount(s.ctx, acct.ID))
+	s.Equal([]uuid.UUID{acct.ID}, obs.removed)
+	s.Equal([]bool{true}, obs.removedWhileStored, "the observer runs while the account still exists")
 }

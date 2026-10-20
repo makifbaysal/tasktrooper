@@ -20,6 +20,7 @@ import (
 	rabbitmqds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/rabbitmq"
 	sentryds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/sentry"
 	tempods "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/tempo"
+	vercelds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/vercel"
 	pgstore "github.com/makifbaysal/tasktrooper/server/internal/adapter/storage/postgres"
 	datasourceapp "github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain/secrets"
@@ -46,11 +47,13 @@ func newDataSourceService(db *pgstore.DB, cipher *secrets.Cipher, cipherErr erro
 	cloudAccounts.SetCipher(cipher, cipherErr)
 	policy := urlguard.HumanConfigured()
 	svc, err := datasourceapp.NewService(datasourceapp.Deps{
-		Store:         store,
-		Recipes:       store,
-		CloudAccounts: cloudAccounts,
-		Kinds:         dataSourceKinds(),
-		URLPolicy:     &policy,
+		Store:            store,
+		Recipes:          store,
+		CloudAccounts:    cloudAccounts,
+		CloudAccountList: cloudAccounts,
+		CloudLinks:       store,
+		Kinds:            dataSourceKinds(),
+		URLPolicy:        &policy,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("data sources: disabled")
@@ -78,5 +81,6 @@ func dataSourceKinds() []port.DataSourceKindAdapter {
 		plausibleds.New(),
 		datadogds.New(),
 		newrelicds.New(),
+		vercelds.New(),
 	}
 }
