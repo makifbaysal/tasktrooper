@@ -6,6 +6,10 @@ import { cn } from "@/lib/utils";
 
 const REMARK_PLUGINS = [remarkGfm];
 
+// react-markdown prints raw HTML as text, so the server's `<!-- tt:order -->`
+// fences around a generated note would show up as literal characters.
+const HTML_COMMENT = /<!--[\s\S]*?-->\n?/g;
+
 interface MarkdownContentProps {
   content: string;
   className?: string;
@@ -45,13 +49,14 @@ export const MarkdownContent = memo(function MarkdownContent({ content, classNam
     [t],
   );
 
-  if (!content.trim()) {
+  const visible = content.replace(HTML_COMMENT, "");
+  if (!visible.trim()) {
     return <p className="text-sm text-muted-foreground">{t("chatArea.markdown.empty")}</p>;
   }
   return (
     <div className={cn("prose-chat", className)}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
-        {content}
+        {visible}
       </ReactMarkdown>
     </div>
   );
