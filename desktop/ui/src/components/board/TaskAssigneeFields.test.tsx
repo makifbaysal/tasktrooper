@@ -11,7 +11,6 @@ if (!Element.prototype.scrollIntoView) {
 
 const pm = { id: "pm", name: "Product Manager" };
 const dev = { id: "dev", name: "Backend Developer" };
-const qa = { id: "qa", name: "QA Engineer" };
 
 function renderFields(props: Partial<ComponentProps<typeof TaskAssigneeFields>>) {
   return render(
@@ -21,7 +20,7 @@ function renderFields(props: Partial<ComponentProps<typeof TaskAssigneeFields>>)
           <Route element={<Outlet context={{ unassignableAgentIds: [pm.id] }} />}>
             <Route
               path="board"
-              element={<TaskAssigneeFields agents={[pm, dev, qa]} onAgentChange={vi.fn()} {...props} />}
+              element={<TaskAssigneeFields agents={[pm, dev]} onAgentChange={vi.fn()} {...props} />}
             />
           </Route>
         </Routes>
@@ -38,12 +37,6 @@ describe("TaskAssigneeFields", () => {
 
     expect(await screen.findByRole("option", { name: dev.name })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: pm.name })).not.toBeInTheDocument();
-  });
-
-  it("hides the picker when there is only one agent to choose", () => {
-    renderFields({ agents: [pm, dev] });
-
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
   it("still names a product manager a card was assigned to before", () => {

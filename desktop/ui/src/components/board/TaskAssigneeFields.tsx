@@ -20,7 +20,7 @@ interface AgentOption {
 }
 
 interface TaskAssigneeFieldsProps {
-  /** The agents this board may hand the card to. With fewer than two there is nothing to choose, so the picker is hidden. */
+  /** The agents this board may hand the card to. Empty hides the picker. */
   agents: AgentOption[];
   agentValue?: string | null;
   /** "" unassigns. */
@@ -45,8 +45,9 @@ export function TaskAssigneeFields({
   const { t } = useI18n();
   const unassignable = useWorkspaceOutlet()?.unassignableAgentIds;
   const options = unassignable?.length ? agents.filter((a) => !unassignable.includes(a.id)) : agents;
+  if (options.length === 0) return null;
+
   const agentMissing = Boolean(agentValue) && !options.some((a) => a.id === agentValue);
-  if (options.length === 0 || (options.length === 1 && !agentMissing)) return null;
 
   return (
     <div className="space-y-1.5">
