@@ -113,7 +113,7 @@ export const tr: Dict = {
         description: "Seçtiğin repolardaki işler GitHub'ın makineleri yerine bu bilgisayarda koşar ve Actions dakikası harcamaz. Runner, TaskTrooper açıkken çalışır.",
         warning: "Bu repolara push edilen kod bu bilgisayarda senin kullanıcınla çalışır. Yalnız yöneticisi olduğun private repolar eklenebilir.",
         repositories: "Repolar",
-        noCandidates: "Projelerinden hiçbiri henüz GitHub'da değil.",
+        noCandidates: "GitHub'da yönetici olduğun özel (private) bir repository bulunamadı.",
         diskNote: "Her repo kendi runner kurulumunu alır, yaklaşık 450 MB.",
         snippetHint: "Bir workflow job'u, runs-on satırı bu etiketleri yazdığında burada koşar:",
         copySnippet: "runs-on satırını kopyala",

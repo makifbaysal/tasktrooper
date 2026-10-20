@@ -112,7 +112,7 @@ export const fr: Dict = {
         description: "Les jobs des dépôts choisis s'exécutent sur cet ordinateur au lieu des machines de GitHub, sans consommer de minutes Actions. Le runner fonctionne tant que TaskTrooper est ouvert.",
         warning: "Le code poussé dans ces dépôts s'exécute sur cet ordinateur sous votre compte. Seuls les dépôts privés que vous administrez peuvent être ajoutés.",
         repositories: "Dépôts",
-        noCandidates: "Aucun de vos projets n'est encore sur GitHub.",
+        noCandidates: "Aucun dépôt privé que vous administrez n'a été trouvé sur GitHub.",
         diskNote: "Chaque dépôt a sa propre installation du runner, environ 450 Mo.",
         snippetHint: "Un job de workflow s'exécute ici quand son runs-on indique ces labels :",
         copySnippet: "Copier runs-on",

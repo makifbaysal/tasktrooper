@@ -114,7 +114,7 @@ export const en = {
         description: "Jobs in the repositories you pick run on this computer instead of GitHub's machines, without using Actions minutes. The runner works while TaskTrooper is open.",
         warning: "Code pushed to these repositories runs on this computer as you. Only private repositories you administer can be added.",
         repositories: "Repositories",
-        noCandidates: "None of your projects is on GitHub yet.",
+        noCandidates: "No private repository that you administer was found on GitHub.",
         diskNote: "Each repository gets its own runner install, about 450 MB.",
         snippetHint: "A workflow job runs here when its runs-on names these labels:",
         copySnippet: "Copy runs-on",

@@ -130,3 +130,43 @@ func APIMessage(err error) string {
 	}
 	return err.Error()
 }
+
+const (
+	eligibleReposPage  = 100
+	eligibleReposPages = 5
+)
+
+// EligibleRepos lists the private repositories this connection administers,
+// its own, its organizations' and those it collaborates on: the only ones a
+// runner may be added to.
+func (a *RunnersAPI) EligibleRepos(ctx context.Context) ([]string, error) {
+	token, err := a.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for page := 1; page <= eligibleReposPages; page++ {
+		var batch []struct {
+			FullName    string `json:"full_name"`
+			Private     bool   `json:"private"`
+			Archived    bool   `json:"archived"`
+			Disabled    bool   `json:"disabled"`
+			Permissions struct {
+				Admin bool `json:"admin"`
+			} `json:"permissions"`
+		}
+		path := fmt.Sprintf("/user/repos?per_page=%d&page=%d&sort=pushed&visibility=private&affiliation=owner,collaborator,organization_member", eligibleReposPage, page)
+		if err := doJSONAt(ctx, a.baseURL, token, http.MethodGet, path, nil, &batch); err != nil {
+			return out, err
+		}
+		for _, r := range batch {
+			if r.Private && r.Permissions.Admin && !r.Archived && !r.Disabled && r.FullName != "" {
+				out = append(out, r.FullName)
+			}
+		}
+		if len(batch) < eligibleReposPage {
+			break
+		}
+	}
+	return out, nil
+}

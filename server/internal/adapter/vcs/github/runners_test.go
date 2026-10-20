@@ -88,3 +88,27 @@ func TestRunnersAPIWithoutAConnectionSaysSo(t *testing.T) {
 		t.Fatalf("nil api: %v", err)
 	}
 }
+
+func TestEligibleReposKeepsOnlyPrivateAdministeredRepos(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/repos" || r.URL.Query().Get("visibility") != "private" {
+			t.Errorf("unexpected request %s", r.URL)
+		}
+		_, _ = w.Write([]byte(`[
+			{"full_name":"me/mine","private":true,"permissions":{"admin":true}},
+			{"full_name":"acme/api","private":true,"permissions":{"admin":true}},
+			{"full_name":"acme/readonly","private":true,"permissions":{"admin":false}},
+			{"full_name":"me/open","private":false,"permissions":{"admin":true}},
+			{"full_name":"acme/old","private":true,"archived":true,"permissions":{"admin":true}}
+		]`))
+	}))
+	defer srv.Close()
+
+	got, err := runnersAPIAt(srv, "tok").EligibleRepos(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "me/mine" || got[1] != "acme/api" {
+		t.Fatalf("eligible = %v", got)
+	}
+}

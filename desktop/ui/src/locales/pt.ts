@@ -112,7 +112,7 @@ export const pt: Dict = {
         description: "Os jobs dos repositórios que você escolher rodam neste computador em vez das máquinas do GitHub, sem gastar minutos do Actions. O runner funciona enquanto o TaskTrooper estiver aberto.",
         warning: "O código enviado a esses repositórios roda neste computador com o seu usuário. Só é possível adicionar repositórios privados que você administra.",
         repositories: "Repositórios",
-        noCandidates: "Nenhum dos seus projetos está no GitHub ainda.",
+        noCandidates: "Nenhum repositório privado que você administra foi encontrado no GitHub.",
         diskNote: "Cada repositório recebe a sua própria instalação do runner, cerca de 450 MB.",
         snippetHint: "Um job de workflow roda aqui quando o runs-on dele indica estes rótulos:",
         copySnippet: "Copiar runs-on",

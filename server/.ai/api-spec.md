@@ -2214,7 +2214,7 @@ repository's own `local_run` doc (`scripts/dev.sh`).
 `{enabled, repos}` — no credential.
 
 - `GET /v1/settings/github/runner` → `domain.GitHubRunnerStatus` `{supported, enabled, labels,
-  version, repos[], candidates[]}`. Without the manager it answers `supported: false`.
+  version, repos[], candidates[]}`; `candidates` are the private repositories the connection administers (`GET /user/repos?visibility=private`, owned, collaborated and organization ones, admin only, cached for a minute) plus any already saved. Without the manager it answers `supported: false`.
 - `PUT /v1/settings/github/runner {"enabled", "repos": ["owner/name"]}` → the new status. At most
   `domain.GitHubRunnerMaxRepos` (5). A repository not already saved is checked through GitHub
   first (`GET /repos/{o}/{r}`): it must exist, be private, and the connection must have admin on

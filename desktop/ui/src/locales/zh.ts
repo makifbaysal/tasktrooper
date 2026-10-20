@@ -112,7 +112,7 @@ export const zh: Dict = {
         description: "你选择的仓库中的作业会在这台电脑上运行，而不是在 GitHub 的机器上，也不消耗 Actions 分钟数。TaskTrooper 打开时 runner 才会工作。",
         warning: "推送到这些仓库的代码会以你的身份在这台电脑上运行。只能添加你有管理员权限的私有仓库。",
         repositories: "仓库",
-        noCandidates: "你的项目还没有任何一个在 GitHub 上。",
+        noCandidates: "在 GitHub 上没有找到你管理的私有仓库。",
         diskNote: "每个仓库都有自己的 runner 安装，约 450 MB。",
         snippetHint: "当工作流作业的 runs-on 写明这些标签时，它会在这里运行：",
         copySnippet: "复制 runs-on",

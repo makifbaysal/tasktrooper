@@ -3047,7 +3047,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		smokeGenHTTP = e.smokeGenSvc
 	}
 	if e.githubRunner == nil && issueSyncSettingsStore != nil && opts.DataDir != "" {
-		e.githubRunner = newGitHubRunner(opts.DataDir, githubTokens, issueSyncSettingsStore, repositoryStore)
+		e.githubRunner = newGitHubRunner(opts.DataDir, githubTokens, issueSyncSettingsStore)
 		go e.githubRunner.Start(context.Background())
 	}
 	var dataSourceSvc *datasourceapp.Service

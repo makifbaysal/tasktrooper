@@ -36,6 +36,8 @@ import (
 
 type API interface {
 	RepoAccess(ctx context.Context, owner, repo string) (githubapi.RepoAccess, error)
+	// EligibleRepos lists every private repository the connection administers.
+	EligibleRepos(ctx context.Context) ([]string, error)
 	GenerateJITConfig(ctx context.Context, owner, repo, name string, labels []string, workFolder string) (githubapi.JITRunner, error)
 	DeleteRunner(ctx context.Context, owner, repo string, id int64) error
 }
@@ -47,11 +49,9 @@ type Store interface {
 
 type Config struct {
 	// Dir holds the downloaded package and one install per repository.
-	Dir   string
-	API   API
-	Store Store
-	// Candidates lists the GitHub repositories of this install's projects.
-	Candidates func(ctx context.Context) ([]string, error)
+	Dir        string
+	API        API
+	Store      Store
 	Environ    func() []string
 	Hostname   string
 	HTTPClient *http.Client
@@ -79,6 +79,13 @@ type Manager struct {
 	repos   []string
 	slots   map[string]*slot
 	closed  bool
+
+	// Status is polled every few seconds; GitHub is asked for the eligible
+	// list at most once per eligibleTTL.
+	eligibleMu  sync.Mutex
+	eligible    []string
+	eligibleAt  time.Time
+	eligibleTTL time.Duration
 }
 
 func New(cfg Config) *Manager {
@@ -97,11 +104,12 @@ func New(cfg Config) *Manager {
 		})
 	}
 	m := &Manager{
-		cfg:       cfg,
-		launcher:  cfg.Launcher,
-		host:      runnerHost(cfg.Hostname),
-		slots:     map[string]*slot{},
-		supported: cfg.Launcher.Supported(),
+		eligibleTTL: time.Minute,
+		cfg:         cfg,
+		launcher:    cfg.Launcher,
+		host:        runnerHost(cfg.Hostname),
+		slots:       map[string]*slot{},
+		supported:   cfg.Launcher.Supported(),
 	}
 	if cfg.API == nil || cfg.Store == nil {
 		m.supported = false
@@ -161,15 +169,9 @@ func (m *Manager) Status(ctx context.Context) (domain.GitHubRunnerStatus, error)
 			candidates = append(candidates, repo)
 		}
 	}
-	if m.cfg.Candidates != nil {
-		list, err := m.cfg.Candidates(ctx)
-		if err != nil {
-			log.Warn().Err(err).Msg("github runner: listing the projects' repositories failed")
-		}
-		for _, repo := range list {
-			if repoPattern.MatchString(repo) {
-				add(repo)
-			}
+	for _, repo := range m.eligibleRepos(ctx) {
+		if repoPattern.MatchString(repo) {
+			add(repo)
 		}
 	}
 	for _, r := range out.Repos {
@@ -180,6 +182,28 @@ func (m *Manager) Status(ctx context.Context) (domain.GitHubRunnerStatus, error)
 		out.Candidates = candidates
 	}
 	return out, nil
+}
+
+// eligibleRepos is what the connection may add a runner to. A failed lookup
+// keeps the last answer, so a GitHub hiccup does not empty the list.
+func (m *Manager) eligibleRepos(ctx context.Context) []string {
+	m.eligibleMu.Lock()
+	defer m.eligibleMu.Unlock()
+	if m.eligible != nil && time.Since(m.eligibleAt) < m.eligibleTTL {
+		return m.eligible
+	}
+	list, err := m.cfg.API.EligibleRepos(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("github runner: listing the repositories a runner can be added to failed")
+		if len(list) == 0 {
+			return m.eligible
+		}
+	}
+	if list == nil {
+		list = []string{}
+	}
+	m.eligible, m.eligibleAt = list, time.Now()
+	return list
 }
 
 var repoPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$`)

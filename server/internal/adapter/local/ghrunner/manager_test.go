@@ -22,13 +22,15 @@ import (
 )
 
 type fakeAPI struct {
-	mu      sync.Mutex
-	access  map[string]githubapi.RepoAccess
-	jitErr  error
-	issued  []string
-	deleted []int64
-	labels  []string
-	next    int64
+	mu            sync.Mutex
+	eligible      []string
+	eligibleCalls int
+	access        map[string]githubapi.RepoAccess
+	jitErr        error
+	issued        []string
+	deleted       []int64
+	labels        []string
+	next          int64
 }
 
 func (f *fakeAPI) RepoAccess(_ context.Context, owner, repo string) (githubapi.RepoAccess, error) {
@@ -39,6 +41,13 @@ func (f *fakeAPI) RepoAccess(_ context.Context, owner, repo string) (githubapi.R
 		return githubapi.RepoAccess{}, errors.New("no such repo")
 	}
 	return a, nil
+}
+
+func (f *fakeAPI) EligibleRepos(context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.eligibleCalls++
+	return f.eligible, nil
 }
 
 func (f *fakeAPI) GenerateJITConfig(_ context.Context, owner, repo, name string, labels []string, workFolder string) (githubapi.JITRunner, error) {
@@ -137,10 +146,9 @@ func newTestManager(t *testing.T, api *fakeAPI, dist *Distribution) (*Manager, *
 		Environ: func() []string {
 			return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "SERVER_API_KEY=must-not-leak", "MCP_SECRETS_KEY=must-not-leak"}
 		},
-		Candidates: func(context.Context) ([]string, error) { return []string{"acme/app", "acme/site"}, nil },
-		RetryMin:   20 * time.Millisecond,
-		RetryMax:   50 * time.Millisecond,
-		StopGrace:  2 * time.Second,
+		RetryMin:  20 * time.Millisecond,
+		RetryMax:  50 * time.Millisecond,
+		StopGrace: 2 * time.Second,
 	})
 	t.Cleanup(m.Close)
 	return m, store
@@ -280,8 +288,8 @@ func TestAGitHubRefusalShowsOnTheRepositoryAndIsRetried(t *testing.T) {
 	waitFor(t, "a retry once GitHub answers", func() bool { return repoStatus(t, m, "acme/app").State == domain.GitHubRunnerIdle })
 }
 
-func TestStatusOffersTheProjectsRepositoriesAndASavedOne(t *testing.T) {
-	api := &fakeAPI{access: map[string]githubapi.RepoAccess{"acme/api": {Private: true, Admin: true}}}
+func TestStatusOffersTheEligibleRepositoriesAndASavedOne(t *testing.T) {
+	api := &fakeAPI{access: map[string]githubapi.RepoAccess{"acme/api": {Private: true, Admin: true}}, eligible: []string{"acme/app", "acme/site"}}
 	m, _ := newTestManager(t, api, fakeRunner(t, idleScript))
 	if _, err := m.Configure(context.Background(), domain.GitHubRunnerConfig{Enabled: false, Repos: []string{"acme/api"}}); err != nil {
 		t.Fatal(err)
@@ -319,5 +327,18 @@ func TestStartStopsARunnerAPreviousServerLeftGoing(t *testing.T) {
 	case <-exited:
 	case <-time.After(10 * time.Second):
 		t.Fatal("a runner left in an install directory was not stopped")
+	}
+}
+
+func TestStatusAsksGitHubForTheEligibleListOnlyOncePerMinute(t *testing.T) {
+	api := &fakeAPI{eligible: []string{"acme/app"}}
+	m, _ := newTestManager(t, api, fakeRunner(t, idleScript))
+	for i := 0; i < 3; i++ {
+		if _, err := m.Status(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if api.eligibleCalls != 1 {
+		t.Fatalf("eligible lookups = %d, want 1", api.eligibleCalls)
 	}
 }
