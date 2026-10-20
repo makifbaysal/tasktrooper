@@ -1089,9 +1089,14 @@ func (s *Service) StopIndex(ctx context.Context, repositoryID uuid.UUID) (bool, 
 // poll runs the incremental pass.
 func (s *Service) pullAndReindex(ctx context.Context, repositoryID uuid.UUID, rootPath string, onDone func(), force bool) {
 	if s.indexer == nil {
-		if onDone != nil {
-			onDone()
-		}
+		// No index to rebuild, but the clone still has to follow origin.
+		passCtx := context.WithoutCancel(ctx)
+		go func() {
+			s.pullProjectRoot(passCtx, repositoryID, rootPath)
+			if onDone != nil {
+				onDone()
+			}
+		}()
 		return
 	}
 	s.indexMu.Lock()
@@ -1183,11 +1188,33 @@ func (s *Service) freshnessDueLocked(repositoryID uuid.UUID) bool {
 	return !ok || time.Since(last) >= freshnessWait(s.syncFailures[repositoryID])
 }
 
-func (s *Service) ensureIndexFresh(ctx context.Context, repo domain.Repository, idx domain.WorkspaceIndex) {
-	if s.git == nil || s.indexer == nil || !s.git.HasGit(repo.RootPath) {
+// SyncAfterMerge pulls the project root right after a task pull request
+// lands on origin, so the local clone does not wait for the next poll or a
+// webhook that a desktop install never receives. It returns at once.
+func (s *Service) SyncAfterMerge(ctx context.Context, repositoryID uuid.UUID) {
+	if s.git == nil {
 		return
 	}
-	if idx.Status != domain.IndexStatusCompleted || s.indexer.IsProjectIndexActive(repo.ID) {
+	repo, err := s.repos.Get(ctx, repositoryID)
+	if err != nil {
+		log.Warn().Err(err).Str("repository_id", repositoryID.String()).Msg("post-merge sync: repository lookup failed")
+		return
+	}
+	if !s.git.HasGit(repo.RootPath) {
+		return
+	}
+	s.pullAndReindex(ctx, repo.ID, repo.RootPath, nil, false)
+}
+
+// ensureIndexFresh pulls the project root whenever the poll comes due. The
+// pull does not depend on the index: a repository whose index is disabled or
+// not finished still has to follow origin. The rebuild only runs for a
+// completed index that the pull left behind.
+func (s *Service) ensureIndexFresh(ctx context.Context, repo domain.Repository, idx domain.WorkspaceIndex) {
+	if s.git == nil || !s.git.HasGit(repo.RootPath) {
+		return
+	}
+	if s.indexer != nil && s.indexer.IsProjectIndexActive(repo.ID) {
 		return
 	}
 	if !s.claimFreshnessCheck(repo.ID) {
@@ -1202,6 +1229,9 @@ func (s *Service) ensureIndexFresh(ctx context.Context, repo domain.Repository, 
 		s.recordSyncResult(repo.ID, err)
 		if err != nil {
 			log.Warn().Err(err).Str("repository_id", repo.ID.String()).Msg("index freshness: project root could not be pulled")
+			return
+		}
+		if s.indexer == nil || idx.Status != domain.IndexStatusCompleted {
 			return
 		}
 		head := indexer.GitHeadSHA(repo.RootPath)
@@ -1223,7 +1253,7 @@ func (s *Service) ensureIndexFresh(ctx context.Context, repo domain.Repository, 
 }
 
 func (s *Service) SweepIndexFreshness(ctx context.Context) {
-	if s.indexer == nil || s.git == nil {
+	if s.git == nil {
 		return
 	}
 	func() {
@@ -1236,9 +1266,12 @@ func (s *Service) SweepIndexFreshness(ctx context.Context) {
 			if !s.freshnessCheckDue(repo.ID) {
 				continue
 			}
-			idx, err := s.indexer.GetProjectStatus(ctx, repo.ID)
-			if err != nil {
-				continue
+			var idx domain.WorkspaceIndex
+			if s.indexer != nil {
+				var err error
+				if idx, err = s.indexer.GetProjectStatus(ctx, repo.ID); err != nil {
+					continue
+				}
 			}
 			s.ensureIndexFresh(ctx, repo, idx)
 		}

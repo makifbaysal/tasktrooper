@@ -1891,6 +1891,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				Gates:         repositorySvc,
 				WorkspaceRoot: cfg.Storage.Sessions.WorkspaceRoot,
 			})
+			taskPRSvc.SetRootSyncer(repositorySvc)
 			boardKit.PullRequests = taskPRSvc
 			// The same reader the tools use, so a revision run is handed the
 			// reviewer's comments without a tool call for them.

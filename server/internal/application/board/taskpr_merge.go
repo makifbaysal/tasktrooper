@@ -186,6 +186,9 @@ func (s *TaskPRService) MergeTaskPullRequest(ctx context.Context, repositoryID, 
 		Undrafted:             merge.Undrafted,
 		PreexistingChecksNote: preexistingNote,
 	}
+	if s.rootSyncer != nil {
+		s.rootSyncer.SyncAfterMerge(ctx, repositoryID)
+	}
 	recordErr := s.recordMergeCommit(ctx, taskID, merge.MergeCommitSHA, prURL)
 	if s.releases != nil {
 		mergedTask := task

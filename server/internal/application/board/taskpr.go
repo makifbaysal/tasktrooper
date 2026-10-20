@@ -101,8 +101,17 @@ type TaskPRService struct {
 	llm           port.LLMClient
 	gates         TaskPRLifecycleGates
 	releases      ReleaseOpener
+	rootSyncer    RootSyncer
 	workspaceRoot string
 }
+
+// RootSyncer brings the local clone up to date with origin after a merge.
+type RootSyncer interface {
+	SyncAfterMerge(ctx context.Context, repositoryID uuid.UUID)
+}
+
+// SetRootSyncer wires the clone sync that runs after each merged task PR.
+func (s *TaskPRService) SetRootSyncer(r RootSyncer) { s.rootSyncer = r }
 
 // SetReleaseOpener wires the release service after it is built; it depends
 // on the deploy watch, which is constructed later in boot than this service.

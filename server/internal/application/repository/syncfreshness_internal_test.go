@@ -8,6 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 type fakeSyncGit struct {
@@ -118,4 +121,56 @@ func TestFailedPullsBackOffTheFreshnessCheckAndASuccessResetsIt(t *testing.T) {
 	svc.pullProjectRoot(context.Background(), id, "/data/workspaces/repos/app")
 	checkedAgo(freshnessCheckInterval + time.Second)
 	assert.True(t, svc.claimFreshnessCheck(id), "a successful pull goes back to the plain interval")
+}
+
+type syncRepoStore struct {
+	port.RepositoryStore
+	repo domain.Repository
+}
+
+func (f syncRepoStore) Get(context.Context, uuid.UUID) (domain.Repository, error) {
+	return f.repo, nil
+}
+
+type countingSyncGit struct {
+	fakeSyncGit
+	pulled chan string
+}
+
+func (f *countingSyncGit) SyncDefaultBranch(_ context.Context, root string) error {
+	f.pulled <- root
+	return nil
+}
+
+func TestSyncAfterMergePullsRootEvenWithoutIndexer(t *testing.T) {
+	git := &countingSyncGit{pulled: make(chan string, 1)}
+	git.hasGit = true
+	id := uuid.New()
+	svc := newSyncService(&git.fakeSyncGit)
+	svc.git = git
+	svc.repos = syncRepoStore{repo: domain.Repository{ID: id, RootPath: "/data/workspaces/repos/app"}}
+
+	svc.SyncAfterMerge(context.Background(), id)
+
+	select {
+	case root := <-git.pulled:
+		assert.Equal(t, "/data/workspaces/repos/app", root)
+	case <-time.After(2 * time.Second):
+		t.Fatal("merge did not pull the project root")
+	}
+}
+
+func TestFreshnessSweepPullsWithoutIndexer(t *testing.T) {
+	git := &countingSyncGit{pulled: make(chan string, 1)}
+	git.hasGit = true
+	svc := newSyncService(&git.fakeSyncGit)
+	svc.git = git
+
+	svc.ensureIndexFresh(context.Background(), domain.Repository{ID: uuid.New(), RootPath: "/r"}, domain.WorkspaceIndex{})
+
+	select {
+	case <-git.pulled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("poll did not pull a repository with no index")
+	}
 }
