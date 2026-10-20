@@ -286,7 +286,7 @@ func (s *ErrorDefinitionsHandlerSuite) TestEnableAndReadiness() {
 		Signals: []domain.ReadinessSignal{}, Instrumentation: map[string]bool{"otel": false}, Suggestions: []domain.ReadinessSuggestion{{Goal: domain.GoalTraces, Code: "no_tracing_sdk"}}}
 	status, body = s.do("GET", "/v1/components/"+s.comp.ID.String()+"/observability", "")
 	s.Equal(fiber.StatusOK, status)
-	s.ElementsMatch([]string{"component_id", "environment", "role", "provider", "signals", "instrumentation", "suggestions"}, keysOf(body))
+	s.ElementsMatch([]string{"component_id", "environment", "role", "provider", "analytics", "signals", "instrumentation", "suggestions"}, keysOf(body))
 
 	status, _ = s.do("GET", "/v1/components/nope/observability", "")
 	s.Equal(fiber.StatusBadRequest, status)
