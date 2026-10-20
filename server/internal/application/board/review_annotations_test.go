@@ -125,7 +125,7 @@ func TestAnalysisContextRendersAnHTMLReportAsText(t *testing.T) {
 
 func TestAnalysisContextGivesHTMLReportsTheLargerBudget(t *testing.T) {
 	paragraph := "<p>" + strings.Repeat("word ", 200) + "</p>"
-	report := "<html><body>" + strings.Repeat(paragraph, 40) + "</body></html>"
+	report := "<html><body>" + strings.Repeat(paragraph, htmlAnalysisContextLimit/len(paragraph)+40) + "</body></html>"
 	updater := &analysisUpdater{refs: []domain.AnalysisReference{{
 		TaskID: uuid.New(), Key: "A-12",
 		Documents: []domain.TaskDocument{{Title: "analiz: big", Content: report, Format: domain.DocumentFormatHTML}},

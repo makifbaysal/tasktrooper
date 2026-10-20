@@ -2162,7 +2162,7 @@ type analysisReader interface {
 // spec and plan in one document — so it gets the larger budget.
 const (
 	analysisContextLimit     = 12000
-	htmlAnalysisContextLimit = 24000
+	htmlAnalysisContextLimit = domain.MaxHTMLDocumentBytes
 )
 
 func (r *Runner) analysisContext(ctx context.Context, job RunJob) string {

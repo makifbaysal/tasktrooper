@@ -1992,7 +1992,7 @@ The revision run (`board.Runner.reviewAnnotationsMessage`) gets a system message
 document, the quoted passage (one line, ≤ 600 bytes) and the full comment — capped at
 20000 bytes; when capped it says how many were left out and to call
 `list_document_annotations`. `derived_from` context (`Runner.analysisContext`) injects an
-html document as its text rendition (`htmldoc.Text`) with a 24000-byte budget instead of the
+html document as its text rendition (`htmldoc.Text`) with a 1 MiB budget (`domain.MaxHTMLDocumentBytes`) instead of the
 markdown 12000.
 
 ## Deploy metadata, ordering relations, packages
