@@ -1555,6 +1555,7 @@ export const operations = {
       notFoundBody: "Die Datenquelle, mit der dieses Signal verknüpft war, existiert nicht mehr. Verknüpfen Sie eine andere.",
       rebind: "Andere Quelle verknüpfen",
       badQuery: "Die Datenquelle hat die Abfrage abgelehnt",
+      notEnabled: "In Vercel nicht eingeschaltet",
       upstream: "Die Datenquelle hat nicht geantwortet",
       previousFailed: "Vorheriger Zeitraum nicht angezeigt: {reason}",
     },

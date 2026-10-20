@@ -77,6 +77,13 @@ type CloudPreviewer interface {
 	PreviewAccess(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.PreviewAccess, error)
 }
 
+// CloudAnalyticsReader is the optional capability of a provider that must be
+// told to measure a project (Vercel's Web Analytics and Speed Insights): it
+// says whether it does, without reading any of the data.
+type CloudAnalyticsReader interface {
+	Analytics(ctx context.Context, cred domain.CloudCredential, ref domain.CloudResourceRef) (domain.CloudAnalytics, error)
+}
+
 // CloudEnvManager is the optional capability of a provider whose resource
 // keeps its own environment variables (a Vercel project). Values only go in:
 // ListEnvVars answers names and targets, never a value.

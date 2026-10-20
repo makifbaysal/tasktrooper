@@ -275,3 +275,14 @@ func (f *fakeTasks) CreateTask(_ context.Context, repo uuid.UUID, req domain.Cre
 func (f *fakeTasks) ListTasks(context.Context, uuid.UUID) ([]domain.BoardTask, error) {
 	return f.board, nil
 }
+
+type fakeAnalytics struct {
+	state domain.CloudAnalytics
+	ok    bool
+	asked []uuid.UUID
+}
+
+func (f *fakeAnalytics) Analytics(_ context.Context, envID uuid.UUID) (domain.CloudAnalytics, bool) {
+	f.asked = append(f.asked, envID)
+	return f.state, f.ok
+}

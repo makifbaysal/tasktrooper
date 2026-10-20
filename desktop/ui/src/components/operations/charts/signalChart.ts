@@ -113,6 +113,7 @@ const SIGNAL_ERRORS: Record<string, SignalErrorView> = {
   unknown_signal: { key: "unknownSignal", body: true, action: "none" },
   timeout: { key: "timeout", body: true, action: "retry" },
   not_found: { key: "notFound", body: true, action: "edit", actionKey: "rebind" },
+  not_enabled: { key: "notEnabled", body: false, action: "none" },
   bad_query: { key: "badQuery", body: false, action: "retry" },
   upstream: { key: "upstream", body: false, action: "retry" },
 };

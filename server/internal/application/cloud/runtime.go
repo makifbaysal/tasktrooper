@@ -349,3 +349,29 @@ func (s *Service) Deployments(ctx context.Context, envID uuid.UUID, limit int) (
 	}
 	return v.([]domain.CloudDeployment), nil
 }
+
+// Analytics says whether the environment's provider is measuring its
+// project's traffic and page speed; false when the provider has no such
+// switch or could not be asked (which is not an error: the picture still has
+// everything else).
+func (s *Service) Analytics(ctx context.Context, envID uuid.UUID) (domain.CloudAnalytics, bool) {
+	bound, err := s.resolveRuntimeBound(ctx, envID)
+	if err != nil {
+		return domain.CloudAnalytics{}, false
+	}
+	reader, ok := bound.provider.(port.CloudAnalyticsReader)
+	if !ok || bound.env.Resource == nil {
+		return domain.CloudAnalytics{}, false
+	}
+	v, err := s.runtimeCached(runtimeCacheKey{envID, "analytics", ""}, func() (interface{}, error) {
+		return reader.Analytics(ctx, bound.cred, *bound.env.Resource)
+	})
+	if err != nil {
+		if errors.Is(err, port.ErrCloudAuth) {
+			s.markAccountError(ctx, *bound.env.AccountID, err)
+		}
+		log.Warn().Err(err).Str("environment_id", bound.env.ID.String()).Msg("cloud: reading analytics state failed")
+		return domain.CloudAnalytics{}, false
+	}
+	return v.(domain.CloudAnalytics), true
+}

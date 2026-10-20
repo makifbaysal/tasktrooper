@@ -1253,9 +1253,20 @@ a count and a gap for a vital. Tables answer their key columns (`path`; `referre
   to `quantile`, `scope {type: project, ownerId: team id or, for a personal account, `GET /v2/user`'s
   id, projectIds}`, `granularity {hours|days: 1}`; rows `{timestamp, <metric with _>_<aggregation>}`).
   Tables: `GET …/visits/aggregate?by=requestPath|referrerHostname|country|deviceType`, the `Others`
-  group dropped. Verify reads `GET /v2/user`; Discover answers `pageview` and `speed_insights` once
+  group dropped. Web Analytics and Speed Insights are per-project switches (one project each on the
+  free plan): before a read the adapter fetches `GET /v9/projects/<id>` and, when `webAnalytics` (for
+  page views, visitors, tables) or `speedInsights` (for the vitals) has no `enabledAt` later than its
+  `disabledAt`/`canceledAt`, answers `port.ErrSignalNotEnabled` (series error code `not_enabled`,
+  with a hint to turn it on); a project Vercel will not describe is read anyway, and a 400 saying
+  "not enabled" is the same state. Nothing is ever switched on. Verify reads `GET /v2/user`; Discover answers `pageview` and `speed_insights` once
   Verify passes (what a project has switched on is learnt when its signals are read). Capabilities
   `metrics`, `rum`.
+
+**Analytics state** (`port.CloudAnalyticsReader`, Vercel's provider; `cloud.Service.Analytics`): the
+readiness read (`GET …/observability`) carries `analytics {web_analytics, speed_insights}`
+(`enabled|not_enabled|unknown`) for a Vercel environment, from the same project JSON, and the suggestion
+`analytics_not_enabled` (goal `rum`) when either is off; the entity page words it on the gaps card and
+on the tiles of the web signals that have no source.
 
 **Sources made for cloud accounts** (migration 193, `cloud_account_data_sources`; `application/datasource/cloud_sources.go`): a
 connected Vercel, Google Cloud or AWS account gets one `vercel`, `gcp_monitoring` or `aws_cloudwatch`

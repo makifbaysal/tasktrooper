@@ -340,6 +340,8 @@ func readError(err error, timeout time.Duration) *domain.SignalReadError {
 		return &domain.SignalReadError{Code: domain.SignalErrTimeout, Message: fmt.Sprintf("no answer within %s", timeout)}
 	case errors.Is(err, port.ErrDataSourceQuery), errors.Is(err, datasource.ErrInvalidInput):
 		return &domain.SignalReadError{Code: domain.SignalErrBadQuery, Message: msg}
+	case errors.Is(err, port.ErrSignalNotEnabled):
+		return &domain.SignalReadError{Code: domain.SignalErrNotEnabled, Message: msg}
 	case errors.Is(err, datasource.ErrUnsupported):
 		return &domain.SignalReadError{Code: domain.SignalErrUnsupported, Message: msg}
 	case errors.Is(err, datasource.ErrUpstream):

@@ -371,6 +371,7 @@ export const observability: ObservabilityDict = {
     no_rum: "O código não tem monitoramento de usuários reais (web-vitals, Sentry, PostHog ou Datadog).",
     no_crash_sdk: "O código não tem relatório de falhas (Sentry, Crashlytics ou Datadog).",
     queues_unbound: "Os sinais de filas não estão vinculados.",
+    analytics_not_enabled: "O Web Analytics ou o Speed Insights está desativado para este projeto na Vercel, então não há tráfego nem Core Web Vitals para ler. Ative-o na aba Analytics / Speed Insights do projeto; o plano gratuito Hobby permite isso em apenas um projeto.",
     unknown: "Lacuna: {code}",
   },
   goals: {

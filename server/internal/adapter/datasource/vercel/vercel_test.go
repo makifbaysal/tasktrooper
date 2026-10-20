@@ -261,3 +261,104 @@ func TestTheSchemaTakesAVercelAccountOnly(t *testing.T) {
 	assert.Equal(t, domain.FieldCloudAccount, s.Fields[0].Type)
 	assert.Equal(t, domain.CloudVercel, s.Fields[0].Provider)
 }
+
+const (
+	projectOn  = `{"id":"prj_1","webAnalytics":{"id":"w","enabledAt":1783521344822},"speedInsights":{"id":"s","enabledAt":1783549664004}}`
+	projectOff = `{"id":"prj_1","webAnalytics":{"id":"w"},"speedInsights":{"id":"s","hasData":false}}`
+)
+
+func hourFrom() (time.Time, domain.SeriesQuery) {
+	from := time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC)
+	return from, domain.SeriesQuery{From: from, To: from.Add(2 * time.Hour), Step: time.Hour}
+}
+
+func TestAProjectWithWebAnalyticsOffIsNotEnabledNotAFailure(t *testing.T) {
+	f := newFixture(t, map[string]http.HandlerFunc{
+		"/v9/projects/prj_1": reply(200, projectOff),
+		visits:               reply(200, `{"data":[]}`),
+	})
+	_, q := hourFrom()
+	for _, metric := range []string{"page_views", "visitors"} {
+		q.Query = fmt.Sprintf(`{"metric": %q, "project": "prj_1"}`, metric)
+		_, err := f.adapter.Series(context.Background(), f.team(), nil, q)
+		require.ErrorIs(t, err, port.ErrSignalNotEnabled, metric)
+		assert.Contains(t, err.Error(), "Web Analytics is not enabled for this project in Vercel")
+		assert.Contains(t, err.Error(), "Hobby plan")
+	}
+	_, err := f.adapter.Table(context.Background(), f.team(), nil, domain.TableQuery{
+		Query: `{"table": "pages", "project": "prj_1"}`, At: time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC),
+	})
+	require.ErrorIs(t, err, port.ErrSignalNotEnabled)
+	assert.NotEqual(t, visits, f.last().path, "the data endpoint is never asked for a project that is off")
+}
+
+func TestAProjectWithSpeedInsightsOffIsNotEnabledForTheVitalsOnly(t *testing.T) {
+	f := newFixture(t, map[string]http.HandlerFunc{
+		"/v9/projects/prj_1": reply(200, `{"webAnalytics":{"enabledAt":1},"speedInsights":{"id":"s"}}`),
+		visits:               reply(200, `{"data":[{"timestamp":"2026-10-16T10:00:00.000Z","visitors":1,"pageviews":3600}]}`),
+		observe:              reply(200, `{"data":[]}`),
+	})
+	_, q := hourFrom()
+
+	q.Query = `{"metric": "lcp", "project": "prj_1"}`
+	_, err := f.adapter.Series(context.Background(), f.team(), nil, q)
+	require.ErrorIs(t, err, port.ErrSignalNotEnabled)
+	assert.Contains(t, err.Error(), "Speed Insights is not enabled for this project in Vercel")
+
+	q.Query = `{"metric": "page_views", "project": "prj_1"}`
+	res, err := f.adapter.Series(context.Background(), f.team(), nil, q)
+	require.NoError(t, err, "traffic still reads: only the vitals are off")
+	assert.Equal(t, 1.0, *res.Series[0].Points[0].Value)
+}
+
+func TestAProjectWithBothOnIsRead(t *testing.T) {
+	f := newFixture(t, map[string]http.HandlerFunc{
+		"/v9/projects/prj_1": reply(200, projectOn),
+		observe:              reply(200, `{"data":[{"timestamp":"2026-10-16T10:00:00.000Z","vercel_speed_insights_cls_p75":0.05}]}`),
+	})
+	_, q := hourFrom()
+	q.Query = `{"metric": "cls", "project": "prj_1"}`
+	res, err := f.adapter.Series(context.Background(), f.team(), nil, q)
+	require.NoError(t, err)
+	assert.Equal(t, 0.05, *res.Series[0].Points[0].Value)
+}
+
+func TestAProjectVercelWillNotDescribeIsReadAnyway(t *testing.T) {
+	f := newFixture(t, map[string]http.HandlerFunc{
+		"/v9/projects/prj_1": reply(404, `{"error":{"message":"not found"}}`),
+		visits:               reply(200, `{"data":[{"timestamp":"2026-10-16T10:00:00.000Z","visitors":2,"pageviews":7200}]}`),
+	})
+	_, q := hourFrom()
+	q.Query = `{"metric": "page_views", "project": "prj_1"}`
+	res, err := f.adapter.Series(context.Background(), f.team(), nil, q)
+	require.NoError(t, err)
+	assert.Equal(t, 2.0, *res.Series[0].Points[0].Value)
+}
+
+func TestVercelsOwnNotEnabledAnswerIsTheSameState(t *testing.T) {
+	f := newFixture(t, map[string]http.HandlerFunc{
+		visits: reply(400, `{"error":{"message":"Web Analytics is not enabled for this project"}}`),
+	})
+	_, q := hourFrom()
+	q.Query = `{"metric": "visitors", "project": "prj_1"}`
+	_, err := f.adapter.Series(context.Background(), f.team(), nil, q)
+	require.ErrorIs(t, err, port.ErrSignalNotEnabled)
+	assert.NotErrorIs(t, err, port.ErrDataSourceQuery)
+}
+
+func TestVerifyAndDiscoverPassWithNoAnalyticsOnAnywhere(t *testing.T) {
+	f := newFixture(t, map[string]http.HandlerFunc{
+		userPath:             reply(200, `{"user":{"username":"akif"}}`),
+		"/v9/projects/prj_1": reply(200, projectOff),
+	})
+	_, err := f.adapter.Verify(context.Background(), f.team(), nil)
+	require.NoError(t, err)
+	_, err = f.adapter.Discover(context.Background(), f.team(), nil)
+	require.NoError(t, err)
+}
+
+func TestTheSchemaSaysAnalyticsIsPerProjectAndLimitedOnTheFreePlan(t *testing.T) {
+	help := vercel.New().Schema().Fields[0].Help
+	assert.Contains(t, help, "Hobby")
+	assert.Contains(t, help, "one project")
+}

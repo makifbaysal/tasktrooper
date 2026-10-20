@@ -411,6 +411,62 @@ func (s *ServiceSuite) TestEnableWithoutAReleaseEngineerForTheAreaIsRefused() {
 	s.ErrorIs(err, ErrNoReleaseEngineer)
 }
 
+func (s *ServiceSuite) vercelEnv(c domain.Component) domain.ComponentEnvironment {
+	account := uuid.New()
+	return domain.ComponentEnvironment{
+		ID: uuid.New(), RepositoryID: s.repo.ID, ComponentID: c.ID, Environment: domain.EnvironmentProduction,
+		Provider: domain.CloudVercel, AccountID: &account, Status: domain.LinkConfirmed,
+		Resource: &domain.CloudResourceRef{Kind: domain.CloudResourceVercelProject, ID: "prj_1"},
+	}
+}
+
+func (s *ServiceSuite) TestReadinessSaysWhenAVercelProjectIsNotMeasured() {
+	env := s.vercelEnv(s.web)
+	s.envs.envs = []domain.ComponentEnvironment{env}
+	analytics := &fakeAnalytics{ok: true, state: domain.CloudAnalytics{WebAnalytics: domain.AnalyticsNotEnabled, SpeedInsights: domain.AnalyticsEnabled}}
+	deps := Deps{
+		Jobs: s.jobs, Sessions: s.sessions, Roles: s.roles, Agents: s.agents,
+		Components: &fakeComponents{comps: []domain.Component{s.api, s.web}}, Repositories: &fakeRepos{repos: []domain.Repository{s.repo}},
+		Signals: s.signals, Environments: s.envs, Links: s.links, Tasks: s.tasks, Analytics: analytics,
+	}
+	svc, err := NewService(deps, WithSynchronousJobs())
+	s.Require().NoError(err)
+
+	r, err := svc.Readiness(s.ctx, s.web.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	s.Equal(domain.CloudVercel, r.Provider)
+	s.Require().NotNil(r.Analytics)
+	s.Equal(domain.AnalyticsNotEnabled, r.Analytics.WebAnalytics)
+	s.Equal([]uuid.UUID{env.ID}, analytics.asked)
+	s.Contains(r.Suggestions, domain.ReadinessSuggestion{Goal: domain.GoalRUM, Code: "analytics_not_enabled"})
+
+	analytics.state = domain.CloudAnalytics{WebAnalytics: domain.AnalyticsEnabled, SpeedInsights: domain.AnalyticsEnabled}
+	r, err = svc.Readiness(s.ctx, s.web.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	s.NotContains(r.Suggestions, domain.ReadinessSuggestion{Goal: domain.GoalRUM, Code: "analytics_not_enabled"})
+
+	analytics.ok = false
+	r, err = svc.Readiness(s.ctx, s.web.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	s.Nil(r.Analytics, "a provider that cannot be asked says nothing, and nothing is wrong with that")
+}
+
+func (s *ServiceSuite) TestReadinessAsksNoOneAboutAnotherProvider() {
+	env := s.vercelEnv(s.api)
+	env.Provider = domain.CloudGCP
+	s.envs.envs = []domain.ComponentEnvironment{env}
+	analytics := &fakeAnalytics{ok: true}
+	svc, err := NewService(Deps{
+		Jobs: s.jobs, Roles: s.roles, Components: &fakeComponents{comps: []domain.Component{s.api}}, Repositories: &fakeRepos{repos: []domain.Repository{s.repo}},
+		Environments: s.envs, Analytics: analytics,
+	}, WithSynchronousJobs())
+	s.Require().NoError(err)
+	r, err := svc.Readiness(s.ctx, s.api.ID, domain.EnvironmentProduction)
+	s.Require().NoError(err)
+	s.Nil(r.Analytics)
+	s.Empty(analytics.asked)
+}
+
 func (s *ServiceSuite) TestReadinessReportsSignalsInstrumentationAndGaps() {
 	sentry := uuid.New()
 	s.links.links = []domain.ComponentLink{{FromComponentID: s.api.ID, ToResourceID: &sentry, Status: domain.LinkConfirmed}}

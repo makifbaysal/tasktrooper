@@ -1650,7 +1650,7 @@ paths:
                           properties:
                             code:
                               type: string
-                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, not_enabled, error]
                             message:
                               type: string
                         previous_error:
@@ -1660,7 +1660,7 @@ paths:
                           properties:
                             code:
                               type: string
-                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                              enum: [unknown_signal, needs_params, unsupported, bad_query, upstream, timeout, not_found, not_enabled, error]
                             message:
                               type: string
         '400':
@@ -1867,7 +1867,7 @@ paths:
                     properties:
                       code:
                         type: string
-                        enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+                        enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, not_enabled, error]
                       message:
                         type: string
         '400':
@@ -3167,6 +3167,17 @@ components:
         provider:
           type: string
           description: The cloud of the environment's confirmed binding, empty without one.
+        analytics:
+          type: object
+          nullable: true
+          description: Whether a provider that must be told to measure the project (a Vercel project's Web Analytics and Speed Insights) is doing so; null for a provider that does not say.
+          properties:
+            web_analytics:
+              type: string
+              enum: [enabled, not_enabled, unknown]
+            speed_insights:
+              type: string
+              enum: [enabled, not_enabled, unknown]
         signals:
           type: array
           items:
@@ -3194,7 +3205,7 @@ components:
                 enum: [metrics, traces, logs, rum, crash, queues]
               code:
                 type: string
-                enum: [golden_unbound, golden_partly_unbound, no_tracing_sdk, no_log_source, no_rum, no_crash_sdk, queues_unbound]
+                enum: [golden_unbound, golden_partly_unbound, no_tracing_sdk, no_log_source, no_rum, no_crash_sdk, queues_unbound, analytics_not_enabled]
     FlatError:
       type: object
       properties:
@@ -4006,7 +4017,7 @@ components:
           properties:
             code:
               type: string
-              enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+              enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, not_enabled, error]
             message:
               type: string
     ComponentTables:
@@ -4077,6 +4088,6 @@ components:
           properties:
             code:
               type: string
-              enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, error]
+              enum: [needs_params, unsupported, bad_query, upstream, timeout, not_found, not_enabled, error]
             message:
               type: string

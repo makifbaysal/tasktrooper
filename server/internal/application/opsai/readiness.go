@@ -48,7 +48,11 @@ func (s *Service) Readiness(ctx context.Context, componentID uuid.UUID, env doma
 		Instrumentation: s.instrumentation(ctx, comp),
 		Suggestions:     []domain.ReadinessSuggestion{},
 	}
-	out.Provider = s.provider(ctx, comp, env)
+	bound := s.boundEnvironment(ctx, comp, env)
+	if bound != nil {
+		out.Provider = bound.Provider
+		out.Analytics = s.analyticsOf(ctx, *bound)
+	}
 	if s.signals != nil {
 		list, err := s.signals.List(ctx, comp.ID, env)
 		if err != nil {
@@ -121,22 +125,35 @@ func (s *Service) observabilityVendors(ctx context.Context, comp domain.Componen
 	return out
 }
 
-// provider is the cloud the environment's confirmed binding runs on, ""
+// boundEnvironment is the environment's confirmed binding to a cloud, nil
 // without one.
-func (s *Service) provider(ctx context.Context, comp domain.Component, env domain.DeployEnvironment) domain.CloudProviderKind {
+func (s *Service) boundEnvironment(ctx context.Context, comp domain.Component, env domain.DeployEnvironment) *domain.ComponentEnvironment {
 	if s.environments == nil {
-		return ""
+		return nil
 	}
 	envs, err := s.environments.ListEnvironments(ctx, comp.RepositoryID)
 	if err != nil {
-		return ""
+		return nil
 	}
 	for _, e := range envs {
 		if e.ComponentID == comp.ID && e.Environment == env && e.Status == domain.LinkConfirmed && e.Bound() {
-			return e.Provider
+			return &e
 		}
 	}
-	return ""
+	return nil
+}
+
+// analyticsOf is whether the provider measures the project, for a provider
+// that has to be told to (Vercel); nil otherwise.
+func (s *Service) analyticsOf(ctx context.Context, env domain.ComponentEnvironment) *domain.CloudAnalytics {
+	if s.analytics == nil || env.Provider != domain.CloudVercel {
+		return nil
+	}
+	a, ok := s.analytics.Analytics(ctx, env.ID)
+	if !ok {
+		return nil
+	}
+	return &a
 }
 
 func suggestions(r domain.ObservabilityReadiness) []domain.ReadinessSuggestion {
@@ -160,6 +177,9 @@ func suggestions(r domain.ObservabilityReadiness) []domain.ReadinessSuggestion {
 		if strings.HasPrefix(sig.Signal, queuesPrefix) && sig.Status != domain.SignalStateBound {
 			queuesUnbound = true
 		}
+	}
+	if a := r.Analytics; a != nil && (a.WebAnalytics == domain.AnalyticsNotEnabled || a.SpeedInsights == domain.AnalyticsNotEnabled) {
+		add(domain.GoalRUM, "analytics_not_enabled")
 	}
 	switch {
 	case golden > 0 && goldenBound == 0:

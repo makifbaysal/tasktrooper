@@ -87,6 +87,9 @@ func (e *engine) wireObservabilityAI(ctx context.Context, cfg *domain.Config, d 
 	if d.tasks != nil {
 		aiDeps.Tasks = d.tasks
 	}
+	if e.cloudSvc != nil {
+		aiDeps.Analytics = e.cloudSvc
+	}
 	ai, err := opsai.NewService(aiDeps)
 	if err != nil {
 		log.Error().Err(err).Msg("observability AI jobs: disabled")

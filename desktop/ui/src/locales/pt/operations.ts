@@ -1555,6 +1555,7 @@ export const operations = {
       notFoundBody: "A fonte de dados à qual este sinal estava vinculado não existe mais. Vincule outra.",
       rebind: "Vincular outra fonte",
       badQuery: "A fonte de dados recusou a consulta",
+      notEnabled: "Não ativado na Vercel",
       upstream: "A fonte de dados não respondeu",
       previousFailed: "Período anterior não exibido: {reason}",
     },

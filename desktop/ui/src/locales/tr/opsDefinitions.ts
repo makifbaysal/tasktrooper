@@ -371,6 +371,7 @@ export const observability: ObservabilityDict = {
     no_rum: "Kodunda gerçek kullanıcı izleme (web-vitals, Sentry, PostHog ya da Datadog) yok.",
     no_crash_sdk: "Kodunda çökme raporlayıcı (Sentry, Crashlytics ya da Datadog) yok.",
     queues_unbound: "Kuyruk sinyalleri bağlı değil.",
+    analytics_not_enabled: "Bu proje için Vercel'de Web Analytics veya Speed Insights kapalı; okunacak trafik ya da Core Web Vitals yok. Projenin Analytics / Speed Insights sekmesinden açın; ücretsiz Hobby plan bunu yalnızca tek projede açmaya izin verir.",
     unknown: "Eksik: {code}",
   },
   goals: {

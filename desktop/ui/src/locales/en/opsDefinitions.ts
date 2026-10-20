@@ -372,6 +372,7 @@ export const observability = {
     no_rum: "No real-user monitoring (web-vitals, Sentry, PostHog or Datadog) is in its code.",
     no_crash_sdk: "No crash reporter (Sentry, Crashlytics or Datadog) is in its code.",
     queues_unbound: "Its queue signals aren't bound.",
+    analytics_not_enabled: "Web Analytics or Speed Insights is switched off for this project in Vercel, so there is no traffic or Core Web Vitals to read. Turn it on in the project's Analytics / Speed Insights tab; the free Hobby plan allows it on one project only.",
     unknown: "Gap: {code}",
   },
   goals: {

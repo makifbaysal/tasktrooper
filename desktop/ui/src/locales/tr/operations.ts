@@ -1554,6 +1554,7 @@ export const operations: OperationsDict = {
       notFoundBody: "Bu sinyalin bağlı olduğu veri kaynağı artık mevcut değil. Başka bir kaynak bağlayın.",
       rebind: "Başka bir kaynak bağla",
       badQuery: "Veri kaynağı sorguyu reddetti",
+      notEnabled: "Vercel'de açık değil",
       upstream: "Veri kaynağı yanıt vermedi",
       previousFailed: "Önceki dönem gösterilmiyor: {reason}",
     },

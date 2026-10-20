@@ -97,6 +97,12 @@ type Links interface {
 	ListResources(ctx context.Context, ids []uuid.UUID) ([]domain.SystemResource, error)
 }
 
+// Analytics is cloud.Service: whether the environment's provider measures
+// its project's traffic and page speed.
+type Analytics interface {
+	Analytics(ctx context.Context, envID uuid.UUID) (domain.CloudAnalytics, bool)
+}
+
 type TaskBoard interface {
 	CreateTask(ctx context.Context, repositoryID uuid.UUID, req domain.CreateBoardTaskRequest) (domain.BoardTask, error)
 	ListTasks(ctx context.Context, repositoryID uuid.UUID) ([]domain.BoardTask, error)
@@ -114,6 +120,7 @@ type Deps struct {
 	Signals      Signals
 	Environments Environments
 	Links        Links
+	Analytics    Analytics
 	Tasks        TaskBoard
 	// Policy is the server's default tool policy, the base an HTTP chat turn
 	// starts from before the agent's own policy is merged in.
@@ -130,6 +137,7 @@ type Service struct {
 	signals      Signals
 	environments Environments
 	links        Links
+	analytics    Analytics
 	tasks        TaskBoard
 	policy       domain.ToolPolicy
 
@@ -197,6 +205,7 @@ func NewService(d Deps, opts ...Option) (*Service, error) {
 		signals:      d.Signals,
 		environments: d.Environments,
 		links:        d.Links,
+		analytics:    d.Analytics,
 		tasks:        d.Tasks,
 		policy:       d.Policy,
 		now:          func() time.Time { return time.Now().UTC() },

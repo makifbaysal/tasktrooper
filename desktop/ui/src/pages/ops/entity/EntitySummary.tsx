@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { Release, SignalSeries, SignalSeriesError } from "@/api";
 import { hasTrend } from "@/components/operations/charts/chartData";
 import { LiveValueList, liveValueItems } from "@/components/operations/charts/LiveValueList";
+import { analyticsOff } from "@/components/operations/observability/observabilityReadiness";
 import { signalChartSeries, signalErrorView } from "@/components/operations/charts/signalChart";
 import { isLiveSignal } from "@/components/operations/queues/queueSignals";
 import { boundSourceKinds, vitalsLagLikely } from "@/components/operations/releases/vitalsWindow";
@@ -26,6 +27,7 @@ import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
 import { useEntityHealth, useEntityIncidents, useEntityReleases } from "@/hooks/useOpsEntityData";
+import { useObservabilityReadiness } from "@/hooks/useObservabilityReadiness";
 import { useComponentSeries, useComponentSignals, useOpsGolden } from "@/hooks/useOpsSignals";
 import { intlLocale } from "@/lib/languages";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
@@ -60,6 +62,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
   const chartIds = useMemo(() => view.charts.map((c) => c.id), [view]);
   const series = useComponentSeries(entity.id, env, chartIds, range, { compare });
   const golden = useOpsGolden(env, range, [entity.id], view.golden.length > 0);
+  const analytics = useObservabilityReadiness(entity.id, env, entity.role === "frontend").data?.analytics;
   const goldenIndex = useMemo(() => indexGolden(golden.data), [golden.data]);
   // Only an app's vitals can be late (Google Play's): which source each is
   // bound to says whether an empty tile is "not published yet".
@@ -157,9 +160,13 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
           title={t("operations.console.noMetricsSource")}
           value={<span className="font-mono text-muted-foreground">—</span>}
           foot={
-            <Link to={signalsHref ?? href(DATA_SOURCES_PATH)} className="text-info hover:underline">
-              {signalsHref ? s("tileFoot.bind") : t("operations.console.connectSource")}
-            </Link>
+            analyticsOff(analytics, spec.id) ? (
+              <span title={t("operations.observability.codes.analytics_not_enabled")}>{t("operations.chart.errors.notEnabled")}</span>
+            ) : (
+              <Link to={signalsHref ?? href(DATA_SOURCES_PATH)} className="text-info hover:underline">
+                {signalsHref ? s("tileFoot.bind") : t("operations.console.connectSource")}
+              </Link>
+            )
           }
         />
       );
@@ -401,6 +408,7 @@ export default function EntitySummary({ entity, env, environment }: EntitySubPag
               env={env}
               range={range}
               formatCtx={formatCtx}
+              analytics={analytics}
               onBind={(signal, unit) => setBinding({ signal, unit })}
               onEdit={(signal, unit) => setBinding({ signal, unit, current: true })}
               reloadToken={savedCount}

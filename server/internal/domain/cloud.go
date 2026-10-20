@@ -322,3 +322,20 @@ type EnvironmentHealth struct {
 	CheckedAt     time.Time           `json:"checked_at"`
 	Detail        string              `json:"detail,omitempty"`
 }
+
+// AnalyticsState is whether a hosting provider is measuring a project's
+// traffic or page speed: Vercel's Web Analytics and Speed Insights, each of
+// which a project must switch on (the free plan allows one project). Unknown
+// is a provider that did not say.
+type AnalyticsState string
+
+const (
+	AnalyticsEnabled    AnalyticsState = "enabled"
+	AnalyticsNotEnabled AnalyticsState = "not_enabled"
+	AnalyticsUnknown    AnalyticsState = "unknown"
+)
+
+type CloudAnalytics struct {
+	WebAnalytics  AnalyticsState `json:"web_analytics"`
+	SpeedInsights AnalyticsState `json:"speed_insights"`
+}

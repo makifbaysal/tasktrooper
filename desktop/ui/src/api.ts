@@ -4130,7 +4130,17 @@ export type ReadinessCode =
   | "no_log_source"
   | "no_rum"
   | "no_crash_sdk"
-  | "queues_unbound";
+  | "queues_unbound"
+  | "analytics_not_enabled";
+
+/** Whether a hosting provider that must be told to measure a project (Vercel's
+ * Web Analytics and Speed Insights) is doing so. */
+export type AnalyticsState = "enabled" | "not_enabled" | "unknown";
+
+export interface CloudAnalytics {
+  web_analytics: AnalyticsState;
+  speed_insights: AnalyticsState;
+}
 
 export interface ObservabilityReadiness {
   component_id: string;
@@ -4138,6 +4148,9 @@ export interface ObservabilityReadiness {
   role: ComponentRole;
   /** The cloud of the environment's confirmed, bound binding; "" without one. */
   provider: CloudProviderKind | "";
+  /** Set for a Vercel environment, whose Web Analytics and Speed Insights are
+   * switched on per project; null for a provider that does not say. */
+  analytics?: CloudAnalytics | null;
   signals: Array<{ signal: string; status: ComponentSignalStatus; golden: boolean }> | null;
   instrumentation: Partial<Record<ObservabilityInstrumentation, boolean>>;
   suggestions: Array<{ goal: ObservabilityGoal; code: ReadinessCode | string }> | null;

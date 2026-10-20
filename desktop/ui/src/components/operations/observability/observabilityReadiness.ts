@@ -1,6 +1,7 @@
 import {
   OBSERVABILITY_GOALS,
   OBSERVABILITY_INSTRUMENTATION,
+  type CloudAnalytics,
   type CloudProviderKind,
   type ComponentRole,
   type DeployEnvironment,
@@ -20,6 +21,7 @@ const READINESS_CODES: ReadinessCode[] = [
   "no_rum",
   "no_crash_sdk",
   "queues_unbound",
+  "analytics_not_enabled",
 ];
 
 export function isReadinessCode(code: string): code is ReadinessCode {
@@ -127,4 +129,16 @@ export function enableRequest(draft: EnableDraft, environment: DeployEnvironment
   };
   if (draft.target === "otlp_endpoint") body.otlp_endpoint = draft.otlpEndpoint.trim();
   return body;
+}
+
+const SPEED_INSIGHTS_SIGNALS = ["web.lcp", "web.inp", "web.cls", "web.fcp", "web.ttfb"];
+const WEB_ANALYTICS_SIGNALS = ["web.page_views", "web.sessions", "web.visitors"];
+
+/** True when the provider says it is not measuring what this web signal
+ * reads (Vercel's Speed Insights for the vitals, Web Analytics for traffic). */
+export function analyticsOff(analytics: CloudAnalytics | null | undefined, signal: string): boolean {
+  if (!analytics) return false;
+  if (SPEED_INSIGHTS_SIGNALS.includes(signal)) return analytics.speed_insights === "not_enabled";
+  if (WEB_ANALYTICS_SIGNALS.includes(signal)) return analytics.web_analytics === "not_enabled";
+  return false;
 }

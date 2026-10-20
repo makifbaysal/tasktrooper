@@ -603,8 +603,11 @@ func (e *upstreamError) Is(target error) bool { return target == e.class }
 
 func upstream(err error, secrets map[string]string) error {
 	class := ErrUpstream
-	if errors.Is(err, port.ErrDataSourceQuery) {
+	switch {
+	case errors.Is(err, port.ErrDataSourceQuery):
 		class = port.ErrDataSourceQuery
+	case errors.Is(err, port.ErrSignalNotEnabled):
+		class = port.ErrSignalNotEnabled
 	}
 	return &upstreamError{class: class, msg: truncate(redact(err.Error(), secrets), maxStatusDetailLen)}
 }

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import type { DeployEnvironment, SignalSeries } from "@/api";
+import type { CloudAnalytics, DeployEnvironment, SignalSeries } from "@/api";
 import { hasTrend } from "@/components/operations/charts/chartData";
 import { signalErrorView } from "@/components/operations/charts/signalChart";
 import { formatSignalValue, signalLabel, signalValueParts, type SignalFormatContext } from "@/components/operations/console/signalFormat";
+import { analyticsOff } from "@/components/operations/observability/observabilityReadiness";
 import { SignalTile } from "@/components/operations/console/SignalTile";
 import type { OpsTimeRange } from "@/components/operations/shell/OpsContext";
 import {
@@ -36,6 +37,9 @@ interface WebVitalsStripProps {
   formatCtx: SignalFormatContext;
   onBind: (signal: string, unit?: string) => void;
   onEdit: (signal: string, unit?: string) => void;
+  /** Whether Vercel is measuring the project; a signal it is not measuring is
+   * said so instead of asking for a data source. */
+  analytics?: CloudAnalytics | null;
   /** Bumped when a binding was saved elsewhere on the page: read again. */
   reloadToken?: number;
 }
@@ -59,7 +63,7 @@ function BandMeter({ signal, value, label }: { signal: CwvSignal; value: number;
 
 /** A frontend's Core Web Vitals at p75 — LCP, INP and CLS, each against
  * Google's good / needs improvement / poor bands — and its traffic. */
-export function WebVitalsStrip({ componentId, env, range, formatCtx, onBind, onEdit, reloadToken = 0 }: WebVitalsStripProps) {
+export function WebVitalsStrip({ componentId, env, range, formatCtx, onBind, onEdit, analytics, reloadToken = 0 }: WebVitalsStripProps) {
   const { t } = useI18n();
   const v = (key: string, params?: Record<string, string | number>) => t(`operations.telemetry.webVitals.${key}`, params);
   const series = useComponentSeries(componentId, env, SIGNALS, range);
@@ -87,6 +91,8 @@ export function WebVitalsStrip({ componentId, env, range, formatCtx, onBind, onE
           </Button>
         </span>
       );
+    } else if (sig && !sig.bound && analyticsOff(analytics, signal)) {
+      foot = <span title={t("operations.observability.codes.analytics_not_enabled")}>{t("operations.chart.errors.notEnabled")}</span>;
     } else if (sig && !sig.bound) {
       foot = (
         <Button variant="link" size="sm" className="h-auto p-0 text-micro" onClick={() => onBind(signal, sig.unit)}>

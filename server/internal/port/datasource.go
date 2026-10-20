@@ -14,6 +14,11 @@ import (
 // that does not parse), as opposed to the source failing.
 var ErrDataSourceQuery = errors.New("the data source rejected the query")
 
+// ErrSignalNotEnabled marks a read the source answers with "not measured": the
+// project has not switched the feature on at the provider (Vercel Web
+// Analytics, Speed Insights). It is a state to show, not a failure.
+var ErrSignalNotEnabled = errors.New("not enabled for this project")
+
 // ErrStaleDataSource is RecordVerification finding the source written since
 // the snapshot the verify ran against.
 var ErrStaleDataSource = errors.New("the data source changed since it was read")

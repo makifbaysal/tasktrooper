@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ObservabilityReadiness } from "@/api";
 import {
+  analyticsOff,
   defaultTarget,
   detectedInstrumentation,
   enableRequest,
@@ -106,5 +107,30 @@ describe("target and request", () => {
     expect(enableRequest({ goals: ["traces"], target: "otlp_endpoint", otlpEndpoint: " https://otel:4318 " }, "production").otlp_endpoint).toBe(
       "https://otel:4318",
     );
+  });
+});
+
+describe("analyticsOff", () => {
+  const off = { web_analytics: "not_enabled", speed_insights: "enabled" } as const;
+
+  it("names the feature each web signal reads", () => {
+    expect(analyticsOff(off, "web.page_views")).toBe(true);
+    expect(analyticsOff(off, "web.visitors")).toBe(true);
+    expect(analyticsOff(off, "web.lcp")).toBe(false);
+    expect(analyticsOff({ web_analytics: "enabled", speed_insights: "not_enabled" }, "web.cls")).toBe(true);
+  });
+
+  it("says nothing for a provider that does not say, an unknown state or another signal", () => {
+    expect(analyticsOff(null, "web.page_views")).toBe(false);
+    expect(analyticsOff(undefined, "web.lcp")).toBe(false);
+    expect(analyticsOff({ web_analytics: "unknown", speed_insights: "unknown" }, "web.page_views")).toBe(false);
+    expect(analyticsOff(off, "http.requests")).toBe(false);
+  });
+
+  it("words the gap for a project with analytics off", () => {
+    const t = (key: string) => key;
+    expect(readinessGaps({ suggestions: [{ goal: "rum", code: "analytics_not_enabled" }] } as never, t)).toEqual([
+      "operations.observability.codes.analytics_not_enabled",
+    ]);
   });
 });

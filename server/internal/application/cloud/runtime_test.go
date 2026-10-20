@@ -205,3 +205,40 @@ func (s *RuntimeSuite) TestUnboundLogsAndErrorsReturnNotConnected() {
 	_, err = s.svc.Deployments(s.ctx, unbound.ID, 10)
 	s.ErrorIs(err, cloud.ErrNotConnected)
 }
+
+func (s *RuntimeSuite) analyticsService(p port.CloudProvider) *cloud.Service {
+	return cloud.NewService(cloud.Deps{
+		Accounts:     s.accounts,
+		Environments: s.envs,
+		Providers:    []port.CloudProvider{p},
+		Components:   newFakeComponents(),
+		Scans:        newFakeScans(),
+		Repos:        newFakeRepos(domain.Repository{ID: s.repoID, Name: "acme"}),
+	})
+}
+
+func (s *RuntimeSuite) TestAnalyticsSaysWhichFeaturesTheProviderMeasures() {
+	off := domain.CloudAnalytics{WebAnalytics: domain.AnalyticsNotEnabled, SpeedInsights: domain.AnalyticsEnabled}
+	svc := s.analyticsService(&analyticsProvider{fakeProvider: s.provider, state: off})
+
+	got, ok := svc.Analytics(s.ctx, s.env.ID)
+
+	s.True(ok)
+	s.Equal(off, got)
+}
+
+func (s *RuntimeSuite) TestAnalyticsIsAbsentRatherThanAFailureWhenItCannotBeRead() {
+	s.False(s.analyticsStatusOf(s.svc), "a provider without the capability")
+
+	failing := s.analyticsService(&analyticsProvider{fakeProvider: s.provider, err: errors.New("vercel is down")})
+	_, ok := failing.Analytics(s.ctx, s.env.ID)
+	s.False(ok)
+
+	_, ok = failing.Analytics(s.ctx, uuid.New())
+	s.False(ok, "an environment that does not exist")
+}
+
+func (s *RuntimeSuite) analyticsStatusOf(svc *cloud.Service) bool {
+	_, ok := svc.Analytics(s.ctx, s.env.ID)
+	return ok
+}

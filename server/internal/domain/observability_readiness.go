@@ -56,7 +56,8 @@ type ReadinessSignal struct {
 
 // ReadinessSuggestion is a gap, as a code the UI words: golden_unbound,
 // golden_partly_unbound, no_tracing_sdk, no_log_source, no_rum,
-// no_crash_sdk, queues_unbound.
+// no_crash_sdk, queues_unbound, analytics_not_enabled (a Vercel project
+// with Web Analytics or Speed Insights switched off).
 type ReadinessSuggestion struct {
 	Goal ObservabilityGoal `json:"goal"`
 	Code string            `json:"code"`
@@ -64,10 +65,13 @@ type ReadinessSuggestion struct {
 
 // ObservabilityReadiness is GET /v1/components/:id/observability.
 type ObservabilityReadiness struct {
-	ComponentID     uuid.UUID             `json:"component_id"`
-	Environment     DeployEnvironment     `json:"environment"`
-	Role            ComponentRole         `json:"role"`
-	Provider        CloudProviderKind     `json:"provider"`
+	ComponentID uuid.UUID         `json:"component_id"`
+	Environment DeployEnvironment `json:"environment"`
+	Role        ComponentRole     `json:"role"`
+	Provider    CloudProviderKind `json:"provider"`
+	// Analytics is whether a provider that must be told to measure the
+	// project (Vercel) is doing so; nil for one that does not say.
+	Analytics       *CloudAnalytics       `json:"analytics"`
 	Signals         []ReadinessSignal     `json:"signals"`
 	Instrumentation map[string]bool       `json:"instrumentation"`
 	Suggestions     []ReadinessSuggestion `json:"suggestions"`

@@ -539,6 +539,14 @@ Speed Insights must be switched on in Vercel for the project; the Hobby plan
 reads the last 7 days. Query: `{"metric"?, "project", "quantile"?}`, a table
 `{"table", "project", "days"?, "limit"?}`; `host` is not supported.
 
+**On the free (Hobby) plan** Vercel allows Web Analytics, and Speed Insights, on
+one project each, and neither is on by default. A project that has it off is not
+an error: its web signals show "Not switched on in Vercel" (read error code
+`not_enabled`) with the hint to turn it on, the readiness gaps on its page say so
+(`analytics_not_enabled`), the source still verifies, and its logs, deployments
+and errors read as usual. TaskTrooper never switches it on for you: it is a
+limited, and on paid plans a billed, setting.
+
 ## Web analytics: PostHog, Google Analytics 4 and Plausible
 
 These kinds read what a site's own analytics already counts: traffic for the

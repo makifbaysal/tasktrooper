@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SignalSeries } from "@/api";
+import type { CloudAnalytics, SignalSeries } from "@/api";
 import { MobileVitals } from "@/components/operations/releases/MobileVitals";
 import { WebVitalsStrip } from "@/components/operations/web/WebVitalsStrip";
 import { I18nProvider } from "@/hooks/useI18n";
@@ -63,7 +63,7 @@ beforeEach(() => {
 });
 
 describe("WebVitalsStrip", () => {
-  function renderStrip(onBind = vi.fn(), onEdit = vi.fn()) {
+  function renderStrip(onBind = vi.fn(), onEdit = vi.fn(), analytics?: CloudAnalytics) {
     render(
       <MemoryRouter>
         <I18nProvider>
@@ -74,12 +74,25 @@ describe("WebVitalsStrip", () => {
             formatCtx={{ locale: "en", t }}
             onBind={onBind}
             onEdit={onEdit}
+            analytics={analytics}
           />
         </I18nProvider>
       </MemoryRouter>,
     );
     return { onBind, onEdit };
   }
+
+  it("says a Vercel project's analytics are switched off instead of asking for a source", async () => {
+    getComponentSeries.mockResolvedValue(
+      answer([unbound("web.lcp", "ms"), unbound("web.inp", "ms"), unbound("web.cls", "score"), unbound("web.page_views", "views/s"), unbound("web.sessions", "count"), unbound("web.visitors", "count")]),
+    );
+    renderStrip(vi.fn(), vi.fn(), { web_analytics: "not_enabled", speed_insights: "enabled" });
+
+    await waitFor(() => expect(getComponentSeries).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getAllByText("Not switched on in Vercel").length).toBeGreaterThan(0));
+    expect(screen.getAllByRole("button", { name: "Bind a data source" }).length).toBe(3);
+    expect(screen.getAllByText("Not switched on in Vercel")).toHaveLength(3);
+  });
 
   it("rates LCP, INP and CLS at p75 against Google's bands, and shows the traffic", async () => {
     getComponentSeries.mockResolvedValue(

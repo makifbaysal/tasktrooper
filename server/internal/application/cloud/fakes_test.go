@@ -682,3 +682,14 @@ func (f *fakeProvider) getVerifyCalls() int {
 	defer f.mu.Unlock()
 	return f.verifyCalls
 }
+
+// analyticsProvider adds port.CloudAnalyticsReader to fakeProvider.
+type analyticsProvider struct {
+	*fakeProvider
+	state domain.CloudAnalytics
+	err   error
+}
+
+func (p *analyticsProvider) Analytics(context.Context, domain.CloudCredential, domain.CloudResourceRef) (domain.CloudAnalytics, error) {
+	return p.state, p.err
+}

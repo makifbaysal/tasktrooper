@@ -113,7 +113,10 @@ const (
 	SignalErrUpstream    SignalReadErrorCode = "upstream"
 	SignalErrTimeout     SignalReadErrorCode = "timeout"
 	SignalErrNotFound    SignalReadErrorCode = "not_found"
-	SignalErrInternal    SignalReadErrorCode = "error"
+	// SignalErrNotEnabled: the provider is not measuring this (the feature is
+	// off for the project), so there is nothing to read yet.
+	SignalErrNotEnabled SignalReadErrorCode = "not_enabled"
+	SignalErrInternal   SignalReadErrorCode = "error"
 )
 
 type SignalReadError struct {

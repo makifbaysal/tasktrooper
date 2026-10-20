@@ -371,6 +371,7 @@ export const observability: ObservabilityDict = {
     no_rum: "它的代码中没有真实用户监控（web-vitals、Sentry、PostHog 或 Datadog）。",
     no_crash_sdk: "它的代码中没有崩溃上报（Sentry、Crashlytics 或 Datadog）。",
     queues_unbound: "它的队列信号没有绑定。",
+    analytics_not_enabled: "此项目在 Vercel 中关闭了 Web Analytics 或 Speed Insights，因此没有可读取的流量或 Core Web Vitals。请在项目的 Analytics / Speed Insights 选项卡中开启；免费的 Hobby 套餐只允许在一个项目上开启。",
     unknown: "缺口：{code}",
   },
   goals: {

@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
+	cloudvercel "github.com/makifbaysal/tasktrooper/server/internal/adapter/cloud/vercel"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/httpapi"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
@@ -42,6 +43,7 @@ const (
 	visitsPath  = "/v1/query/web-analytics/visits/aggregate"
 	observePath = "/v2/observability/query"
 	userPath    = "/v2/user"
+	projectPath = "/v9/projects/"
 
 	// maxGroupLimit is Web Analytics' largest page of grouped rows.
 	maxGroupLimit = 100
@@ -105,7 +107,7 @@ func (a *Adapter) Schema() domain.DataSourceSchema {
 			{
 				Key: keyAccount, Label: "Vercel account", Type: domain.FieldCloudAccount,
 				Provider: domain.CloudVercel, Required: true,
-				Help: "Web Analytics and Speed Insights must be switched on for a project to have data.",
+				Help: "Web Analytics and Speed Insights are switched on per project in Vercel, and the free Hobby plan allows each on one project only; a project without them shows as not enabled, and its logs and deployments are read as usual.",
 			},
 		},
 	}
@@ -173,11 +175,58 @@ func (a *Adapter) get(ctx context.Context, x *access, op, path string, q url.Val
 	if err != nil {
 		return err
 	}
-	return decode(x.conn, op, resp, out)
+	return decode(x.conn, op, resp, out, false)
 }
 
-func decode(c *httpapi.Conn, op string, resp httpapi.Response, out any) error {
+const (
+	webAnalyticsOff  = "Web Analytics is not enabled for this project in Vercel. Turn it on in the project's Analytics tab (the free Hobby plan allows it on one project only)."
+	speedInsightsOff = "Speed Insights is not enabled for this project in Vercel. Turn it on in the project's Speed Insights tab (the free Hobby plan allows it on one project only)."
+)
+
+// notEnabled is a project Vercel is not measuring: a state to show with its
+// hint, not a failure of the source.
+type notEnabled string
+
+func (e notEnabled) Error() string { return string(e) }
+
+func (notEnabled) Is(target error) bool { return target == port.ErrSignalNotEnabled }
+
+func switchedOffMessage(vital bool) notEnabled {
+	if vital {
+		return speedInsightsOff
+	}
+	return webAnalyticsOff
+}
+
+// checkEnabled refuses a read of a feature the project has switched off. A
+// project Vercel will not describe (no access to it, an unknown id) is read
+// anyway: the read's own answer says what is wrong.
+func (a *Adapter) checkEnabled(ctx context.Context, x *access, project string, vital bool) error {
+	resp, err := x.conn.Do(ctx, httpapi.Request{
+		Method: http.MethodGet, Path: projectPath + url.PathEscape(project), Query: x.teamQuery(nil), Limit: maxBody,
+	})
+	if err != nil || !resp.OK() {
+		return nil
+	}
+	state, err := cloudvercel.ProjectAnalytics(resp.Body)
+	if err != nil {
+		return nil
+	}
+	feature := state.WebAnalytics
+	if vital {
+		feature = state.SpeedInsights
+	}
+	if feature == domain.AnalyticsNotEnabled {
+		return switchedOffMessage(vital)
+	}
+	return nil
+}
+
+func decode(c *httpapi.Conn, op string, resp httpapi.Response, out any, vital bool) error {
 	if !resp.OK() {
+		if resp.Status == http.StatusBadRequest && strings.Contains(strings.ToLower(c.Detail(resp)), "not enabled") {
+			return switchedOffMessage(vital)
+		}
 		return c.Refusal(op, resp, c.Detail(resp), authHint)
 	}
 	if err := json.Unmarshal(resp.Body, out); err != nil {
@@ -290,6 +339,9 @@ func (a *Adapter) Series(ctx context.Context, ds domain.DataSource, _ map[string
 		return domain.SeriesResult{}, err
 	}
 	defer x.conn.Close()
+	if err := a.checkEnabled(ctx, x, q.Project, domain.IsWebVital(q.Metric)); err != nil {
+		return domain.SeriesResult{}, err
+	}
 
 	var values map[int64]float64
 	if domain.IsWebVital(q.Metric) {
@@ -393,7 +445,7 @@ func (a *Adapter) vital(ctx context.Context, x *access, q domain.WebQuery, sq do
 	var out struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := decode(x.conn, "read "+q.Metric, resp, &out); err != nil {
+	if err := decode(x.conn, "read "+q.Metric, resp, &out, true); err != nil {
 		return nil, err
 	}
 	// A row is {"timestamp": …, "<metric with _ for .>_<aggregation>": value}.
@@ -440,6 +492,9 @@ func (a *Adapter) Table(ctx context.Context, ds domain.DataSource, _ map[string]
 		return domain.TableResult{}, err
 	}
 	defer x.conn.Close()
+	if err := a.checkEnabled(ctx, x, q.Project, false); err != nil {
+		return domain.TableResult{}, err
+	}
 	from := tq.At.Add(-time.Duration(q.Days) * 24 * time.Hour)
 	query := x.teamQuery(url.Values{})
 	query.Set("projectId", q.Project)

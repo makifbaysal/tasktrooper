@@ -1544,6 +1544,7 @@ export const operations = {
       notFoundBody: "此信号绑定的数据源已不存在。请绑定其他数据源。",
       rebind: "绑定其他数据源",
       badQuery: "数据源拒绝了查询",
+      notEnabled: "尚未在 Vercel 中开启",
       upstream: "数据源没有响应",
       previousFailed: "未显示上一周期：{reason}",
     },

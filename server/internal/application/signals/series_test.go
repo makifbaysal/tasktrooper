@@ -121,6 +121,25 @@ func (s *SignalsSuite) TestSeriesIsolatesEachSignalsError() {
 	s.Equal(domain.SignalErrUnknown, byID["http.nope"].Error.Code)
 }
 
+func (s *SignalsSuite) TestASourceThatSaysNotEnabledIsAStateNotAFailure() {
+	api := s.component(domain.ComponentRoleBackend, "api")
+	s.stored(api.ID, domain.EnvironmentProduction,
+		s.binding(api, "http.requests", domain.SignalBindingConfirmed, map[string]string{"job": "api"}),
+	)
+	s.querier.On("Series", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(domain.SeriesResult{}, fmt.Errorf("Web Analytics is not enabled for this project in Vercel: %w", port.ErrSignalNotEnabled)).Once()
+
+	got, err := s.svc.Series(s.ctx, api.ID, signals.SeriesQuery{
+		Environment: domain.EnvironmentProduction,
+		Signals:     []string{"http.requests"},
+	})
+	s.Require().NoError(err)
+	s.Require().NotNil(got.Signals[0].Error)
+	s.Equal(domain.SignalErrNotEnabled, got.Signals[0].Error.Code)
+	s.Contains(got.Signals[0].Error.Message, "not enabled for this project")
+	s.True(got.Signals[0].Bound)
+}
+
 func (s *SignalsSuite) TestSeriesReadsAtMostFourQueriesAtOnce() {
 	api := s.component(domain.ComponentRoleBackend, "api")
 	var list []domain.SignalBinding
