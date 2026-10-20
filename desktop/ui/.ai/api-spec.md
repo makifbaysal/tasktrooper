@@ -1443,8 +1443,9 @@ e.g. "Do's and Don'ts"; project bases only). The UI words them
 (`lib/designLint.ts`).
 
 **Design documents.** A design task's documents follow a title convention the
-UI reads (`lib/design-system.ts`): `design: <screen> · <variant>` (HTML, one
-per variant), `handoff: <screen>` (markdown), `design system: <name> v<N>`
+UI reads (`lib/design-system.ts`): `design: <feature>` (HTML, one canvas
+holding every screen and variant; the older `design: <screen> · <variant>`, one
+per variant, still reads), `handoff: <screen>` (markdown), `design system: <name> v<N>`
 (HTML), `design review: <screen>` (HTML). Choosing a variant on the review page
 posts a human task comment through `POST …/tasks/{taskId}/comments` with the
 exact text `Chosen variant: <document title>` — an English marker the designer

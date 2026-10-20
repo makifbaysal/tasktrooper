@@ -108,11 +108,15 @@ If the project has no design system yet, the designer does not invent one on
 the way: it opens a separate design system task and the screen design waits
 for it, then continues with the approved design system.
 
-The designer draws each variant as its own HTML document with every state
-side by side — two variants for a new screen, one for a small change, or
-exactly as many as you ask for — and saves its screenshots on the task. In
-Analiz Review, **Compare variants** shows two of them side by side; **Choose
-this variant** records your choice. Approving the task approves the design.
+The designer draws the whole task on ONE canvas document: every screen is a
+page and every variant a row on it, with every state side by side — two
+variants for a new screen, one for a small change, or exactly as many as you
+ask for — finished to the standard of a professionally designed site or app,
+not a wireframe. It saves its screenshots on the task. In Analiz Review you
+pan and zoom the canvas, select text or a design to comment, and compare
+variants without opening another file. Name the variant you want in a comment
+or answer the designer's variant question; approving the task approves the
+design.
 
 The frontend and mobile tasks are blocked by the design task. They start only
 once the design task is **released** — after the designer has written the

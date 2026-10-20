@@ -13,11 +13,11 @@ Every task blocked by this design task receives its documents in its run context
 
 ## Shape
 
-One markdown document per screen, attached in the `done` run with `add_task_document`, titled `handoff: <screen>` — the same `<screen>` as its `design: <screen> · <letter>` mockups. Under ~10,000 characters: a markdown document reaches a dependent's run cut at 12,000, and the end is what gets cut.
+One markdown document per screen, attached in the `done` run with `add_task_document`, titled `handoff: <screen>` — the same `<screen>` as its page (`<h2>`) on the `design: <feature>` canvas. Under ~10,000 characters: a markdown document reaches a dependent's run cut at 12,000, and the end is what gets cut.
 
 ```markdown
 # handoff: Invoices — list
-Design task D-14 · approved: Variant A — table first, mockup `design: Invoices — list · A` (#variant-a, #states-a) — chosen by the human's "Chosen variant" comment · not chosen, never built: `design: Invoices — list · B` · design system Harbor base v3 + web layer v1
+Design task D-14 · approved: Variant A — table first, canvas `design: Invoices`, page "Invoices — list", row A (#screen-invoices-list-a, #states-invoices-list) — chosen by the human's comment · not chosen, never built: row B (#screen-invoices-list-b) · design system Harbor base v3 + web layer v1
 
 ## Screen map
 375: title row (Invoices · New invoice) → search → status chips (scroll sideways) → invoice rows → "Load more"
@@ -71,7 +71,7 @@ Bulk actions, CSV export, the invoice detail page.
 
 ## Rules
 
-- **Chosen variant only.** Each screen's chosen variant is the latest human comment `Chosen variant: <document title>` naming one of its documents, else the answered variant question, else its recommended answer. The header names its document by exact title and how it was chosen, and lists the other variant documents as not chosen — they reach the developer's run too, and this line is what tells them apart. Beyond that line the others do not appear, not even as "alternative".
+- **Chosen variant only.** Each screen's chosen variant is the latest human comment naming one of its variants on the canvas (or a legacy `Chosen variant: <document title>` marker), else the answered variant question, else its recommended answer. The header names the canvas page and variant row by heading and how it was chosen, and lists the other variant rows as not chosen — they reach the developer's run too, and this line is what tells them apart. Beyond that line the others do not appear, not even as "alternative".
 - **Name, don't measure.** Tokens by role (`muted-foreground`, `space.4`), never a hex or a pixel the design system does not hold.
 - **Every element maps to the inventory** — the existing component, its variant and props — or is marked NEW with its level, props and states. NEW is the exception, and it is the developer's job to add it to `INVENTORY.md`.
 - **Every state the mockup drew**, in words, with its exact copy.
