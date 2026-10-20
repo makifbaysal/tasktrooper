@@ -27,3 +27,12 @@ func assertCheckoutIsRepo(foundRemote, dir, wantRemote string) error {
 			"nothing was changed or deleted — move it aside, or re-import this repository, before it can be used",
 		dir, domain.NormalizeGitRemote(want))
 }
+
+// checkoutIsOtherRepo is a working copy already at dir that belongs to a
+// different remote: the same repository name under another owner.
+func (s *Service) checkoutIsOtherRepo(ctx context.Context, dir, wantRemote string) bool {
+	if s.git == nil || !s.git.HasGit(dir) {
+		return false
+	}
+	return s.assertSameRepo(ctx, dir, wantRemote) != nil
+}

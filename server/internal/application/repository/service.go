@@ -743,13 +743,18 @@ func (s *Service) ImportFromGitHub(ctx context.Context, req domain.ImportGitHubR
 		return domain.Repository{}, fmt.Errorf("git client is not configured")
 	}
 
+	cloneURL := strings.TrimSpace(req.CloneURL)
+	if cloneURL == "" {
+		cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", owner, name)
+	}
 	dest, err := s.workspaceRepoPath(name)
 	if err != nil {
 		return domain.Repository{}, err
 	}
-	cloneURL := strings.TrimSpace(req.CloneURL)
-	if cloneURL == "" {
-		cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", owner, name)
+	if s.checkoutIsOtherRepo(ctx, dest, cloneURL) {
+		if dest, err = s.workspaceRepoPath(name + "-" + owner); err != nil {
+			return domain.Repository{}, err
+		}
 	}
 	if _, err := os.Stat(dest); err == nil {
 		if !s.git.HasGit(dest) {

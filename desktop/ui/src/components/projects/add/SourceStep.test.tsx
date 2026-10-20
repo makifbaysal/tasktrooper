@@ -28,7 +28,7 @@ vi.mock("@/api", async () => {
 });
 
 import { repoNameError, sanitizeRepoName } from "@/components/projects/add/NewRepositoryForm";
-import { SourceStep } from "@/components/projects/add/SourceStep";
+import { githubFullName, SourceStep } from "@/components/projects/add/SourceStep";
 import { I18nProvider } from "@/hooks/useI18n";
 
 const FOLDER_PLACEHOLDER = "/path/to/project";
@@ -254,5 +254,14 @@ describe("repository name rule (mirrors domain.NewRepoDirName)", () => {
     expect(repoNameError("çğü")).toBe("no_letters");
     expect(repoNameError("a".repeat(101))).toBe("too_long");
     expect(repoNameError("My App")).toBeNull();
+  });
+});
+
+describe("githubFullName", () => {
+  it("reads owner/name from https and ssh remotes and tells owners apart", () => {
+    expect(githubFullName("https://github.com/makifbaysal/tasktrooper.git")).toBe("makifbaysal/tasktrooper");
+    expect(githubFullName("git@github.com:Task-Trooper/tasktrooper")).toBe("task-trooper/tasktrooper");
+    expect(githubFullName("https://gitlab.com/a/b.git")).toBe("");
+    expect(githubFullName(undefined)).toBe("");
   });
 });

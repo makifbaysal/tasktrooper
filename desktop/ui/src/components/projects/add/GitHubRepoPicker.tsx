@@ -19,7 +19,7 @@ interface GitHubRepoPickerProps {
   loading: boolean;
   selected: Set<string>;
   onToggle: (name: string) => void;
-  /** Repository names already linked somewhere in this workspace — checked
+  /** Lower-cased owner/name of the repositories already linked in this workspace — checked
    * and disabled rather than hidden, so the user sees why it's unavailable. */
   existingNames: Set<string>;
 }
@@ -78,7 +78,7 @@ export function GitHubRepoPicker({
         ) : (
           <div className="divide-y divide-border/60">
             {visible.map((r) => {
-              const added = existingNames.has(r.name);
+              const added = existingNames.has(r.full_name.toLowerCase());
               return (
                 <label
                   key={r.full_name}

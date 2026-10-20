@@ -105,3 +105,23 @@ func TestRestoreRefusesToAdoptADifferentRepository(t *testing.T) {
 		t.Fatalf("the refusal cloned over the directory: %v", git.clones)
 	}
 }
+
+func TestCheckoutIsOtherRepoOnlyForADifferentRemote(t *testing.T) {
+	dir := t.TempDir()
+	git := &originGit{
+		fakeRestoreGit: fakeRestoreGit{repoPaths: map[string]bool{dir: true}},
+		origins:        map[string]string{dir: "https://github.com/makifbaysal/tasktrooper.git"},
+	}
+	svc := &Service{git: git}
+	ctx := context.Background()
+
+	if !svc.checkoutIsOtherRepo(ctx, dir, "https://github.com/Task-Trooper/tasktrooper.git") {
+		t.Fatal("same name under another owner was taken for the same repository")
+	}
+	if svc.checkoutIsOtherRepo(ctx, dir, "git@github.com:makifbaysal/tasktrooper.git") {
+		t.Fatal("the same repository over ssh was taken for another one")
+	}
+	if svc.checkoutIsOtherRepo(ctx, filepath.Join(dir, "missing"), "https://github.com/a/b.git") {
+		t.Fatal("a path with no checkout was taken for another repository")
+	}
+}

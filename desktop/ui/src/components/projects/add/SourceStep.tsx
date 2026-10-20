@@ -29,6 +29,13 @@ import { exampleFolderPath, isWindowsPlatform } from "@/lib/platform";
 // failed a later step: the name is taken now, so Retry would only collide.
 const PARTIAL_CREATE = /^repository ".*?" was created, but /;
 
+// "owner/name", lower-cased, of a github.com remote (https or ssh); "" for any
+// other remote. Same-named repositories of different owners are different.
+export function githubFullName(remoteUrl: string | undefined): string {
+  const m = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(remoteUrl ?? "");
+  return m ? `${m[1]}/${m[2]}`.toLowerCase() : "";
+}
+
 interface SourceStepProps {
   initialProjectId?: string;
   onScan: (choice: ProjectChoice, selection: SourceSelection) => Promise<void>;
@@ -87,7 +94,7 @@ export function SourceStep({ initialProjectId, onScan, onCreate, onModeChange }:
   useEffect(() => {
     api
       .listRepositories()
-      .then((d) => setExistingRepoNames(new Set((d.repositories ?? []).map((r) => r.name))))
+      .then((d) => setExistingRepoNames(new Set((d.repositories ?? []).map((r) => githubFullName(r.remote_url)).filter((n) => n !== ""))))
       .catch(() => setExistingRepoNames(new Set()));
   }, []);
 
