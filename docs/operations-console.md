@@ -1,6 +1,6 @@
 ---
 title: Operations console
-description: The cross-repository console for what your components do once they run: entities and their health, metric charts, golden metrics and Core Web Vitals from bound signals, endpoint, page and crash tables, traces, the Errors inbox, Logs, Changes with deploy impact and rollback approval, Issues, alert rules, mobile releases and data sources, and how the top bar's environment and time range apply.
+description: "The cross-repository console for what your components do once they run: entities and their health, metric charts, golden metrics and Core Web Vitals from bound signals, endpoint, page and crash tables, traces, the Errors inbox, Logs, Changes with deploy impact and rollback approval, Issues, alert rules, mobile releases and data sources, and how the top bar's environment and time range apply."
 ---
 
 # Operations console
