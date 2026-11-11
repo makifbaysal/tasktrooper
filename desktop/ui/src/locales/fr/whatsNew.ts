@@ -16,7 +16,7 @@ export const whatsNew = {
       telemetry: "Les nouveaux écrans Télémétrie dans Opérations montrent services, endpoints, traces, journaux, erreurs, incidents, moniteurs, déploiements et SLO, et l'ingénieur de release prend en charge les incidents qui en découlent.",
       repoSetup: "Importer un dépôt ouvre désormais la liste « Préparer ce projet » (analyse, outils, index, README et guide pour agents, tests, CI, livraison) avec un bouton par étape et un pour tout lancer dans l'ordre.",
       signOut: "Se déconnecter de votre compte l'efface désormais complètement, si bien que la bannière \"travail sans compte\" ne reste plus affichée.",
-      runTrace: "Chaque exécution d'un agent laisse désormais une vraie trace dans le panneau de la tâche : ce qu'il a lu, modifié et exécuté, vérifié par git, avec la liste de ce qui a changé en dehors des appels d'outils enregistrés.",
+      runTrace: "Chaque exécution d'un agent laisse désormais une vraie trace dans le panneau de la tâche : ce qu'il a lu, modifié et exécuté, vérifié par git. Après un aperçu, un clic annule le travail de l'exécution derrière une branche de sauvegarde.",
     },
   },
 };

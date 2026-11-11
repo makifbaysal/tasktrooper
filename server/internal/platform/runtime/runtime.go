@@ -1360,6 +1360,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	// once all wiring below is complete.
 	var activateBoard []func()
 	var boardRunControl httpadapter.BoardRunControl
+	var runUndoControl httpadapter.RunUndoControl
 	var boardController *boardapp.Controller
 	// Both left nil (503) when there is no board: the stop/re-run routes and
 	// the task-chat route must not dereference a runner that was never built.
@@ -1750,6 +1751,12 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		}
 		if boardController != nil {
 			boardController.SetCommenter(repositorySvc)
+		}
+		if boardRunner != nil && boardTaskStore != nil && runTraceStore != nil && criterionStore != nil && boardEventStore != nil {
+			runUndoControl = boardapp.NewRunUndo(boardapp.RunUndoDeps{
+				Traces: runTraceStore, Runs: taskAgentRunStore, Tasks: boardTaskStore, Events: boardEventStore,
+				Git: gitClient, Criteria: criterionStore, Repos: repositorySvc, Updater: repositorySvc,
+			})
 		}
 		repositorySvc.SetRequireCriteriaComplete(cfg.Board.RequireCriteriaComplete)
 
@@ -3222,6 +3229,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		BoardEvents:       boardEventStore,
 		TaskRuns:          taskAgentRunStore,
 		RunTraces:         runTraceStore,
+		RunUndo:           runUndoControl,
 		RunControl:        boardRunControl,
 		TaskChat:          boardTaskChat,
 		EvolutionSvc:      e.evolutionSvc,

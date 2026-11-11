@@ -16,7 +16,7 @@ export const whatsNew = {
       telemetry: "Operasyonlar'daki yeni Telemetri ekranları servisleri, uç noktaları, izleri, logları, hataları, olayları, monitörleri, dağıtımları ve SLO'ları gösterir; açılan olayları release mühendisi ele alır.",
       repoSetup: "Bir depoyu içe aktarmak artık \"Bu projeyi hazırla\" kontrol listesini açar (tarama, araçlar, indeks, README ve ajan rehberi, testler, CI, teslimat); her adımın bir düğmesi ve hepsini sırayla çalıştıran bir düğme vardır.",
       signOut: "Hesabından çıkış yapmak artık hesabı tamamen temizler; \"hesapsız çalışıyor\" uyarısı ekranda takılı kalmaz.",
-      runTrace: "Her ajan çalıştırması artık görev çekmecesinde gerçek bir iz bırakıyor: ne okudu, neyi değiştirdi, ne çalıştırdı; git ile doğrulanmış, kayıtlı araç çağrıları dışında değişen her şey ayrıca listelenmiş.",
+      runTrace: "Her ajan çalıştırması artık görev çekmecesinde gerçek bir iz bırakıyor: ne okudu, neyi değiştirdi, ne çalıştırdı; git ile doğrulanmış. Önizlemeden sonra tek tıkla, bir yedek dalın arkasında çalıştırmanın işi geri alınabiliyor.",
     },
   },
 };

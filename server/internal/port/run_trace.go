@@ -54,3 +54,76 @@ type RunGitInspector interface {
 	ChangesSince(ctx context.Context, workspacePath, base string) ([]RunGitFile, error)
 	TrackedFileCount(ctx context.Context, workspacePath, rev string) (int, error)
 }
+
+type UndoCommit struct {
+	SHA     string
+	Subject string
+}
+
+// UndoGitState is the checkout as an undo would find it.
+type UndoGitState struct {
+	Branch        string
+	Head          string
+	DefaultBranch string
+	// BaseIsAncestor says the run's base commit is still behind HEAD.
+	BaseIsAncestor bool
+	// Commits are base..HEAD, newest first.
+	Commits []UndoCommit
+	// Uncommitted is the working tree against HEAD, untracked files included.
+	Uncommitted []RunGitFile
+	// Changes is the working tree against base: every path that returns.
+	Changes []RunGitFile
+	// RemoteBranchSHA is where origin/<branch> stood the last time this
+	// checkout looked; empty when the branch was never pushed.
+	RemoteBranchSHA string
+	// Pushed says some commit the run made is on origin/<branch>.
+	Pushed bool
+	// RemoteAhead says origin/<branch> holds commits this checkout does not.
+	RemoteAhead bool
+}
+
+type UndoPlan struct {
+	Branch string
+	Base   string
+	// BackupRef is the branch name the pre-reset state is saved under.
+	BackupRef string
+	// CleanPaths are untracked paths the run's trace says it created; only
+	// these are removed after the reset.
+	CleanPaths []string
+}
+
+type UndoOutcome struct {
+	BackupRef     string
+	BackupSHA     string
+	CleanedPaths  []string
+	LeftUntracked []string
+}
+
+type RevertRequest struct {
+	MergeSHA string
+	Branch   string
+}
+
+type RevertOutcome struct {
+	Branch    string
+	RevertSHA string
+	PRURL     string
+	PRError   string
+}
+
+// RunUndoGit is the git side of undoing a run: always one checkout on this
+// computer, always the task's own branch.
+type RunUndoGit interface {
+	UndoState(ctx context.Context, workspacePath, base, branch string) (UndoGitState, error)
+	// UndoReset saves the whole working tree (committed and not) under
+	// plan.BackupRef, then resets the checked-out task branch to plan.Base. It
+	// refuses the repository's default branch and any other branch than
+	// plan.Branch.
+	UndoReset(ctx context.Context, workspacePath string, plan UndoPlan) (UndoOutcome, error)
+	// ForcePushBranch publishes a reset task branch with a lease on the remote
+	// tip the person saw; it never pushes the default branch.
+	ForcePushBranch(ctx context.Context, workspacePath, branch, expectRemoteSHA string) error
+	// RevertMerge cuts a branch from the default branch, reverts the merged
+	// change on it, pushes it and opens a pull request. History stays as it is.
+	RevertMerge(ctx context.Context, repoRoot string, req RevertRequest) (RevertOutcome, error)
+}

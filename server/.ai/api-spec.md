@@ -215,6 +215,31 @@ another task.
 - `GET …/runs/{runId}/trace/summary` — `{recorded, summary: {run, counts, verification, non_undoable}}`.
 - `GET …/runs/{runId}/trace.json` — the whole trace as a download.
 
+## Undo a run's work
+
+Works from the run trace, on the task's own workspace, through git; nothing changes until `confirm: true`
+(the click is the approval). Not available for a run that ran on another computer (`remote_not_supported`),
+for a run still working, or when the workspace is not on the branch the run worked on.
+
+- `GET …/runs/{runId}/undo/preview` — `{preview}`: `supported` (+ `reason` code), `mode` (`reset` | `revert` |
+  `nothing`), the run's `commits` and `files`, `uncommitted`, `pushed` / `remote_ahead`, `pull_request`,
+  `backup_ref` (`tasktrooper/undo-backup/<run id>`), `non_undoable` (effects no reset takes back: PR comments and
+  merges, deploys, non-GET HTTP, browser/device actions, external MCP calls, board comments, shell commands that
+  push/publish/deploy) and `move_to` (the column the card returns to, only when a person has not moved it since
+  the run began).
+- `POST …/runs/{runId}/undo` `{confirm, force_push?, keep_column?}` — saves the whole working tree (committed,
+  staged, unstaged and untracked) as the branch `backup_ref` (`-2`, `-3` … if it exists), then `git reset --hard`
+  to `base_sha` on the task branch only, then removes the untracked files the trace says the run created. The
+  repository's default branch is never reset. A pushed branch is reset locally and `push_pending` says so;
+  `force_push` pushes it with `--force-with-lease` against the remote tip the preview showed, and is refused
+  (`409`) when the remote holds commits the checkout lacks. Afterwards: criteria verdicts given during the run
+  are reopened, the card returns to `move_to`, a `task.run_undone` event is written and an `undo` entry is
+  appended to the run's trace (the original trace is kept). `400` without `confirm`; `409` with the blocking
+  reason (`merged` → use the revert route).
+- `POST …/runs/{runId}/undo/revert` `{confirm}` — for a task whose pull request is merged: history is not rewritten;
+  a branch `tasktrooper/revert-<task key>-<run>` is cut from the default branch, `git revert` of the merge commit
+  (`-m 1` when it is a merge) is pushed and a pull request opened. Nothing is deployed.
+
 None of them goes through the board dispatcher: cancel would immediately fan fresh agents
 onto the task it just stopped, and re-run would start every agent configured for the
 column rather than the one asked for. Each records its own board event

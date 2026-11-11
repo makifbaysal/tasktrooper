@@ -428,6 +428,49 @@ export interface RunTraceSummary {
   non_undoable: RunTraceEffect[];
 }
 
+export interface RunUndoPreview {
+  run_id: string;
+  supported: boolean;
+  reason?: string;
+  mode: "reset" | "revert" | "nothing";
+  branch?: string;
+  base_sha?: string;
+  head_sha?: string;
+  commits: { sha: string; subject: string }[];
+  files: RunTraceFileChange[];
+  uncommitted: RunTraceFileChange[];
+  pushed: boolean;
+  remote_branch_sha?: string;
+  remote_ahead: boolean;
+  pull_request?: { url: string; number?: number; merged: boolean; merge_sha?: string };
+  backup_ref: string;
+  non_undoable: RunTraceEffect[];
+  move_to?: string;
+  revert_available: boolean;
+}
+
+export interface RunUndoResult {
+  run_id: string;
+  mode: string;
+  backup_ref: string;
+  reset_to?: string;
+  push_pending: boolean;
+  force_pushed: boolean;
+  cleaned_paths: string[];
+  left_untracked: string[];
+  moved_to?: string;
+  stale_criteria: number;
+  non_undoable: RunTraceEffect[];
+}
+
+export interface RunRevertResult {
+  run_id: string;
+  branch: string;
+  pr_url?: string;
+  pr_error?: string;
+  merge_sha: string;
+}
+
 /** One board event in a task's history (created / moved / assigned / commented). */
 export interface TaskEvent {
   id: string;
@@ -7582,6 +7625,21 @@ export const api = {
     request<{ recorded: boolean; summary?: RunTraceSummary }>(
       `/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/trace/summary`,
     ),
+
+  getRunUndoPreview: (repositoryId: string, taskId: string, runId: string) =>
+    request<{ preview: RunUndoPreview }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/undo/preview`),
+
+  undoRun: (repositoryId: string, taskId: string, runId: string, body: { force_push?: boolean; keep_column?: boolean }) =>
+    request<{ result: RunUndoResult }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/undo`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true, ...body }),
+    }),
+
+  revertRun: (repositoryId: string, taskId: string, runId: string) =>
+    request<{ result: RunRevertResult }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/undo/revert`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    }),
 
   listRunTrace: (repositoryId: string, taskId: string, runId: string, after = 0, category?: RunTraceCategory) =>
     request<{ recorded: boolean; events: RunTraceEvent[]; count: number; next_after?: number }>(

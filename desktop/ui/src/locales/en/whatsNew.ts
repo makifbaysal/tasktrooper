@@ -18,7 +18,7 @@ export const whatsNew = {
       telemetry: "New Telemetry screens in Operations show services, endpoints, traces, logs, errors, incidents, monitors, deploys and SLOs, and the release engineer handles the incidents it raises.",
       repoSetup: "Importing a repository now opens a \"Get this project ready\" checklist (scan, tools, index, README and agent guide, tests, CI, delivery) with a button for each step and one to run them all in order.",
       signOut: "Signing out of your account now clears it completely, so the \"working without account\" banner no longer lingers.",
-      runTrace: "Every agent run now leaves a real trace in the task drawer: what it read, changed and ran, checked against git, with a list of anything it changed outside its recorded tool calls.",
+      runTrace: "Every agent run now leaves a real trace in the task drawer: what it read, changed and ran, checked against git. One click, after a preview, undoes the run's work behind a backup branch.",
     },
   },
 };

@@ -83,6 +83,8 @@ export function TaskHistory({ repositoryId, taskId, columns, agentNameMap }: Tas
         return t("boardArea.components.taskHistory.event.assigned");
       case "task.commented":
         return t("boardArea.components.taskHistory.event.commented");
+      case "task.run_undone":
+        return t("runUndo.history.title");
       default:
         return event.event_type;
     }
@@ -111,6 +113,8 @@ export function TaskHistory({ repositoryId, taskId, columns, agentNameMap }: Tas
         if (authorType === "system") return t("boardArea.components.taskHistory.system");
         return t("boardArea.components.taskHistory.human");
       }
+      case "task.run_undone":
+        return t("boardArea.components.taskHistory.human");
       default:
         return "";
     }
@@ -180,6 +184,18 @@ export function TaskHistory({ repositoryId, taskId, columns, agentNameMap }: Tas
             )}
 
             {reason && <p className="mt-1.5 text-xs text-muted-foreground">{reason}</p>}
+
+            {event.event_type === "task.run_undone" && (
+              <p className="mt-1.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                {payloadString(payload, "mode") === "revert"
+                  ? t("runUndo.history.reverted", { branch: payloadString(payload, "revert_branch") })
+                  : t("runUndo.history.reset", {
+                      backup: payloadString(payload, "backup_ref"),
+                      commits: Number(payload?.commits ?? 0),
+                      files: Number(payload?.files ?? 0),
+                    })}
+              </p>
+            )}
 
             {event.event_type === "task.assigned" && (fromAgent || toAgent) && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">

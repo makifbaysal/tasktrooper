@@ -16,7 +16,7 @@ export const whatsNew = {
       telemetry: "As novas telas de Telemetria em Operações mostram serviços, endpoints, traces, logs, erros, incidentes, monitores, deploys e SLOs, e o engenheiro de release cuida dos incidentes gerados.",
       repoSetup: "Importar um repositório agora abre a lista «Deixe este projeto pronto» (escaneamento, ferramentas, índice, README e guia para agentes, testes, CI, entrega) com um botão por passo e outro para executar todos em ordem.",
       signOut: "Sair da sua conta agora a apaga por completo, então o aviso \"trabalhando sem conta\" não fica mais na tela.",
-      runTrace: "Cada execução de um agente agora deixa um rastro real no painel da tarefa: o que leu, alterou e executou, verificado com o git, com a lista do que mudou fora das chamadas de ferramentas registradas.",
+      runTrace: "Cada execução de um agente agora deixa um rastro real no painel da tarefa: o que leu, alterou e executou, verificado com o git. Após uma prévia, um clique desfaz o trabalho da execução atrás de um branch de backup.",
     },
   },
 };

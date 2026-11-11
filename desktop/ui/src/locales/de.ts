@@ -27,6 +27,7 @@ import { telemetryHub } from "@/locales/de/telemetryHub";
 import { setup } from "@/locales/de/setup";
 import { remoteAccess } from "@/locales/de/remoteAccess";
 import { runTrace } from "@/locales/de/runTrace";
+import { runUndo } from "@/locales/de/runUndo";
 import { toolchain } from "@/locales/de/toolchain";
 import { whatsNew } from "@/locales/de/whatsNew";
 
@@ -262,6 +263,7 @@ export const de: Dict = {
   setup,
   remoteAccess,
   runTrace,
+  runUndo,
   toolchain,
   whatsNew,
 };

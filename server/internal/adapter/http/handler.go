@@ -131,6 +131,7 @@ type Handler struct {
 	boardEvents       port.BoardEventStore
 	taskRuns          port.TaskAgentRunStore
 	runTraces         port.RunTraceStore
+	runUndo           RunUndoControl
 	runControl        BoardRunControl
 	taskChat          TaskChatControl
 	evolutionSvc      *evolution.Service
@@ -223,6 +224,7 @@ type Config struct {
 	BoardEvents       port.BoardEventStore
 	TaskRuns          port.TaskAgentRunStore
 	RunTraces         port.RunTraceStore
+	RunUndo           RunUndoControl
 	RunControl        BoardRunControl
 	TaskChat          TaskChatControl
 	EvolutionSvc      *evolution.Service
@@ -302,6 +304,7 @@ func NewHandler(cfg Config) *Handler {
 		boardEvents:       cfg.BoardEvents,
 		taskRuns:          cfg.TaskRuns,
 		runTraces:         cfg.RunTraces,
+		runUndo:           cfg.RunUndo,
 		runControl:        cfg.RunControl,
 		taskChat:          cfg.TaskChat,
 		evolutionSvc:      cfg.EvolutionSvc,

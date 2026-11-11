@@ -29,6 +29,7 @@ import { telemetryHub } from "@/locales/en/telemetryHub";
 import { setup } from "@/locales/en/setup";
 import { remoteAccess } from "@/locales/en/remoteAccess";
 import { runTrace } from "@/locales/en/runTrace";
+import { runUndo } from "@/locales/en/runUndo";
 import { toolchain } from "@/locales/en/toolchain";
 import { whatsNew } from "@/locales/en/whatsNew";
 
@@ -264,6 +265,7 @@ export const en = {
   setup,
   remoteAccess,
   runTrace,
+  runUndo,
   toolchain,
   whatsNew,
 };

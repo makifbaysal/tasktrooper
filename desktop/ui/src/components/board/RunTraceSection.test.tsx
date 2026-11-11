@@ -72,7 +72,7 @@ function summary(over: Partial<RunTraceSummary> = {}): RunTraceSummary {
 function renderTrace() {
   return render(
     <I18nProvider>
-      <RunTraceSection repositoryId="repo" taskId="task" runId="r1" live={false} active prUrl="https://github.com/o/r/pull/3" />
+      <RunTraceSection repositoryId="repo" taskId="task" runId="r1" live={false} active prUrl="https://github.com/o/r/pull/3" runStatus="completed" />
     </I18nProvider>,
   );
 }
@@ -113,6 +113,19 @@ describe("RunTraceSection", () => {
     expect(screen.getByText("FAIL pkg")).toBeInTheDocument();
     expect(screen.getByText("done")).toBeInTheDocument();
     expect(screen.getByText(/lines in between are not stored/)).toBeInTheDocument();
+  });
+
+  it("offers the undo only once the run has stopped", async () => {
+    const { unmount } = renderTrace();
+    expect(await screen.findByRole("button", { name: "Undo this run" })).toBeInTheDocument();
+    unmount();
+    render(
+      <I18nProvider>
+        <RunTraceSection repositoryId="repo" taskId="task" runId="r1" live active runStatus="running" />
+      </I18nProvider>,
+    );
+    await screen.findByText("run_terminal");
+    expect(screen.queryByRole("button", { name: "Undo this run" })).not.toBeInTheDocument();
   });
 
   it("explains a run with no trace", async () => {

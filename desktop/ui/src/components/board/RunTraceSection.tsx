@@ -36,6 +36,7 @@ import {
   type TraceHtmlLabels,
 } from "@/lib/runTrace";
 import { cn } from "@/lib/utils";
+import { RunUndoDialog } from "@/components/board/RunUndoDialog";
 
 const CATEGORY_ICON: Record<RunTraceCategory, LucideIcon> = {
   read: FileText,
@@ -53,12 +54,15 @@ interface RunTraceSectionProps {
   live: boolean;
   active: boolean;
   prUrl?: string | null;
+  runStatus: string;
+  onUndone?: () => void;
 }
 
-export function RunTraceSection({ repositoryId, taskId, runId, live, active, prUrl }: RunTraceSectionProps) {
+export function RunTraceSection({ repositoryId, taskId, runId, live, active, prUrl, runStatus, onUndone }: RunTraceSectionProps) {
   const { t, lang } = useI18n();
   const trace = useRunTrace(repositoryId, taskId, runId, active, live);
   const [filter, setFilter] = useState<RunTraceCategory | "all">("all");
+  const [undoOpen, setUndoOpen] = useState(false);
 
   const shown = useMemo(
     () => (filter === "all" ? trace.events : trace.events.filter((e) => e.category === filter)),
@@ -140,6 +144,7 @@ export function RunTraceSection({ repositoryId, taskId, runId, live, active, prU
   };
 
   const v = summary.verification;
+  const canUndo = !live && (runStatus === "completed" || runStatus === "failed" || runStatus === "cancelled");
 
   return (
     <div className="min-w-0 space-y-3">
@@ -262,7 +267,25 @@ export function RunTraceSection({ repositoryId, taskId, runId, live, active, prU
           <Download />
           {t("runTrace.export.html")}
         </Button>
+        {canUndo && (
+          <Button type="button" variant="outline" size="sm" className="ml-auto gap-1.5" onClick={() => setUndoOpen(true)}>
+            <Undo2 />
+            {t("runUndo.button")}
+          </Button>
+        )}
       </div>
+
+      <RunUndoDialog
+        open={undoOpen}
+        onOpenChange={setUndoOpen}
+        repositoryId={repositoryId}
+        taskId={taskId}
+        runId={runId}
+        onDone={() => {
+          void trace.refresh();
+          onUndone?.();
+        }}
+      />
     </div>
   );
 }

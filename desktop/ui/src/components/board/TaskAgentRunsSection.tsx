@@ -212,6 +212,7 @@ export function TaskAgentRunsSection({
               live={liveRow}
               active={active}
               prUrl={task.pr_url}
+              runStatus={shown.status}
             />
           ) : waiting ? (
             <p className="text-caption text-muted-foreground">{t("activityArea.runs.queued")}</p>
