@@ -78,8 +78,6 @@ type stageNotConfiguredInput struct{ TaskType, Column string }
 
 var stageNotConfiguredKey = prompt.Define("guard.stage_not_configured", stageNotConfiguredInput{TaskType: "backend", Column: "in_progress"})
 
-var pmUATDisabledKey = prompt.Define("guard.pm_uat_disabled", struct{}{})
-
 type workOrderCycleInput struct{ Task, Blocker, Path string }
 
 var workOrderCycleKey = prompt.Define("guard.work_order_cycle", workOrderCycleInput{Task: "T-1", Blocker: "T-2", Path: "T-1 → T-2"})

@@ -38,8 +38,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n } from "@/hooks/useI18n";
 import { useTaskTypes } from "@/hooks/useTaskTypes";
-import { usePMUATEnabled } from "@/hooks/usePMUATEnabled";
-import { TASK_PRIORITY_OPTIONS, taskTypeOptions, visibleColumns } from "@/lib/project-board";
+import { TASK_PRIORITY_OPTIONS, taskTypeOptions } from "@/lib/project-board";
 import { logEvent } from "@/lib/analytics";
 
 interface CriterionDraft {
@@ -119,8 +118,7 @@ export function CreateTaskDialog({
   const [importOpen, setImportOpen] = useState(false);
 
   const memberAgents = agents.filter((a) => memberAgentIds.includes(a.id));
-  const pmUatEnabled = usePMUATEnabled();
-  const columnOptions = visibleColumns(columns, pmUatEnabled).filter((c) => !c.is_backlog || c.slug === defaultColumn);
+  const columnOptions = columns.filter((c) => !c.is_backlog || c.slug === defaultColumn);
 
   useEffect(() => {
     if (!open) return;

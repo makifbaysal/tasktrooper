@@ -8,7 +8,6 @@ import {
   BOARD_TASK_POLL_IDLE_MS,
   beforeDeploySteps,
   boardPollIntervals,
-  visibleColumns,
   deployOrderBlockerLabel,
   filterTasksByScope,
   formatColumnAge,
@@ -411,18 +410,5 @@ describe("formatColumnAge", () => {
 
   it("keeps the same text across a minute tick once past the first hour", () => {
     expect(formatColumnAge(entered, at(180))).toBe(formatColumnAge(entered, at(181)));
-  });
-});
-
-describe("visibleColumns", () => {
-  const cols = [{ slug: "in_qa" }, { slug: "pm_uat" }, { slug: "human_uat" }];
-
-  it("drops pm_uat when the step is off", () => {
-    expect(visibleColumns(cols, false).map((c) => c.slug)).toEqual(["in_qa", "human_uat"]);
-  });
-
-  it("keeps pm_uat when on, or when a task still sits in it", () => {
-    expect(visibleColumns(cols, true)).toHaveLength(3);
-    expect(visibleColumns(cols, false, "pm_uat")).toHaveLength(3);
   });
 });

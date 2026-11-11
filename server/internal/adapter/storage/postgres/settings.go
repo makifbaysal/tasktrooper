@@ -55,7 +55,6 @@ func (s *SettingsStore) Get(ctx context.Context) (domain.AppSettings, error) {
 		WorkspaceRoot:          s.defaultRoot,
 		DefaultLanguage:        s.defaultLang,
 		BoilerplateCatalogRepo: defaultBoilerplateCatalogRepo,
-		PMUATEnabled:           true,
 	}
 	for rows.Next() {
 		var key, value string
@@ -81,8 +80,6 @@ func (s *SettingsStore) Get(ctx context.Context) (domain.AppSettings, error) {
 			out.MaxConcurrentAgents = parseIntSetting(value)
 		case "max_concurrent_tasks":
 			out.MaxConcurrentTasks = parseIntSetting(value)
-		case "pm_uat_enabled":
-			out.PMUATEnabled = value != "false"
 		}
 	}
 	return out, rows.Err()
@@ -141,11 +138,6 @@ func (s *SettingsStore) Update(ctx context.Context, req domain.UpdateSettingsReq
 		`, key, strconv.Itoa(*limit))
 		if err != nil {
 			return domain.AppSettings{}, fmt.Errorf("update %s: %w", key, err)
-		}
-	}
-	if req.PMUATEnabled != nil {
-		if err := s.setPlain(ctx, "pm_uat_enabled", strconv.FormatBool(*req.PMUATEnabled)); err != nil {
-			return domain.AppSettings{}, err
 		}
 	}
 	return s.Get(ctx)

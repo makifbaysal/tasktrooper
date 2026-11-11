@@ -229,12 +229,6 @@ export const zh: Dict = {
       loadFailed: "加载设置失败",
       saveFailed: "保存失败",
     },
-    workflow: {
-      title: "工作流",
-      pmUatLabel: "PM UAT 步骤",
-      pmUatHelp: "开启时，产品经理会在任务交到你手上之前检查每条验收标准。关闭后将跳过此步骤：PM UAT 列和 PM 检查会消失，任务从 QA 直接进入你的审批。正在 PM UAT 等待的任务会转入 Human UAT。",
-      saveFailed: "保存失败",
-    },
   },
   addRepository,
   agentArea,

@@ -31,7 +31,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import { tStatic, useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
-import { usePMUATEnabled } from "@/hooks/usePMUATEnabled";
 import { useProjectScope } from "@/hooks/useProjectScope";
 import { ACTIVITY_POLL, ALL_TASKS_POLL, useSharedPoll } from "@/hooks/useSharedPoll";
 import {
@@ -50,11 +49,9 @@ import {
   formatColumnAge,
   isProjectScope,
   mergeTaskList,
-  NO_COLUMNS,
   projectScopeCounts,
   scopeShowingTask,
   taskCreateDefaults,
-  visibleColumns,
 } from "@/lib/project-board";
 import { BOARD_RELEASE_STATUSES, openReleaseByTask, verifyMinutesLeft } from "@/lib/release-board";
 import { keepMap } from "@/lib/stableState";
@@ -179,9 +176,7 @@ export function BoardPage() {
     setDialogOpen(true);
   };
 
-  const pmUatEnabled = usePMUATEnabled();
-  const allColumns: BoardColumn[] = config?.columns ?? NO_COLUMNS;
-  const columns = useMemo(() => visibleColumns(allColumns, pmUatEnabled), [allColumns, pmUatEnabled]);
+  const columns = config?.columns ?? [];
   const { board } = useMemo(() => boardColumnsSplit(columns), [columns]);
   // Lanes, not columns, are what the board renders: the pairing lives in
   // BOARD_STACKED_LANES (lib/project-board) and everything else keeps a lane of
@@ -474,6 +469,7 @@ export function BoardPage() {
     );
   }
 
+  const allColumns: BoardColumn[] = columns.length ? columns : [];
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">

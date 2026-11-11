@@ -229,12 +229,6 @@ export const es: Dict = {
       loadFailed: "No se pudo cargar la configuración",
       saveFailed: "No se pudo guardar",
     },
-    workflow: {
-      title: "Flujo de trabajo",
-      pmUatLabel: "Paso PM UAT",
-      pmUatHelp: "Si está activado, el product manager revisa cada criterio de aceptación antes de que llegue a ti. Desactívalo para omitir ese paso: la columna PM UAT y las comprobaciones del PM desaparecen y las tareas pasan de QA directamente a tu aprobación. Las tareas que esperan en PM UAT avanzan a Human UAT.",
-      saveFailed: "Error al guardar",
-    },
   },
   addRepository,
   agentArea,

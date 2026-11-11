@@ -25,7 +25,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import { useI18n } from "@/hooks/useI18n";
 import { ALL_TASKS_POLL, useSharedPoll } from "@/hooks/useSharedPoll";
-import { usePMUATEnabled } from "@/hooks/usePMUATEnabled";
 import { useProjectScope } from "@/hooks/useProjectScope";
 import {
   CACHE_AGENTS,
@@ -42,7 +41,6 @@ import {
   taskCreateDefaults,
   taskPriorityLabel,
   taskTypeLabel,
-  visibleColumns,
 } from "@/lib/project-board";
 import { cn, formatRelativeDate } from "@/lib/utils";
 import { logEvent } from "@/lib/analytics";
@@ -85,9 +83,7 @@ export function BacklogPage() {
     setDialogOpen(true);
   };
 
-  const pmUatEnabled = usePMUATEnabled();
-  const configColumns = config?.columns;
-  const columns = useMemo(() => visibleColumns(configColumns ?? [], pmUatEnabled), [configColumns, pmUatEnabled]);
+  const columns = config?.columns ?? [];
   const { backlog, board } = useMemo(() => boardColumnsSplit(columns), [columns]);
   const backlogSlug = backlog?.slug ?? "backlog";
   // Where a dropped card lands. `todo` by name when the board has it (every

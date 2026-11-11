@@ -315,34 +315,3 @@ func TestAssigneeForNewTask_Modes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, &requested, got, "mode default leaves a requested assignee alone")
 }
-
-func TestWorkflowPMUATSwitch(t *testing.T) {
-	ctx := context.Background()
-	wfs := newMemWorkflowStore()
-	wfs.types["task"] = domain.TaskTypeDef{Key: "task", IsDefault: true}
-	wfs.stages["task"] = []domain.WorkflowStage{
-		{Column: domain.TaskColumnInQA, OnPath: true, Position: 6, Behaviours: []domain.BehaviourRef{{Key: domain.BehaviourReviewVerdictSweep, Params: map[string]string{"pass_to": "pm_uat"}}}},
-		{Column: domain.TaskColumnPMUAT, OnPath: true, Position: 8, Behaviours: []domain.BehaviourRef{{Key: domain.BehaviourReviewVerdictSweep, Params: map[string]string{"pass_to": "human_uat"}}}},
-		{Column: domain.TaskColumnHumanUAT, OnPath: true, Position: 9},
-	}
-	svc := workflow.NewService(newMemRoleStore(), wfs)
-	require.NoError(t, svc.Reload(ctx))
-
-	wf, err := svc.Workflow(ctx, "task")
-	require.NoError(t, err)
-	_, hasStage := wf.Stage(domain.TaskColumnPMUAT)
-	require.True(t, hasStage, "on by default")
-
-	svc.SetPMUATEnabled(false)
-	wf, err = svc.Workflow(ctx, "task")
-	require.NoError(t, err)
-	_, hasStage = wf.Stage(domain.TaskColumnPMUAT)
-	require.False(t, hasStage)
-	to, _ := wf.Param(domain.TaskColumnInQA, domain.BehaviourReviewVerdictSweep, "pass_to")
-	require.Equal(t, "human_uat", to)
-
-	stored, err := svc.StoredWorkflow("task")
-	require.NoError(t, err)
-	_, hasStage = stored.Stage(domain.TaskColumnPMUAT)
-	require.True(t, hasStage, "stored workflow is untouched")
-}

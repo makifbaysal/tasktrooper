@@ -45,7 +45,7 @@ func (h *Handler) UpdateSettings(c *fiber.Ctx) error {
 		return badRequest(c, "invalid request body")
 	}
 	if req.WorkspaceRoot == "" && req.DefaultLanguage == "" && req.PipelineContainerRuntime == "" && req.BoilerplateCatalogRepo == "" &&
-		req.MaxConcurrentAgents == nil && req.MaxConcurrentTasks == nil && req.PMUATEnabled == nil {
+		req.MaxConcurrentAgents == nil && req.MaxConcurrentTasks == nil {
 		return badRequest(c, "at least one settings field is required")
 	}
 	out, err := h.settingsSvc.Update(h.enrichContext(c), req)
