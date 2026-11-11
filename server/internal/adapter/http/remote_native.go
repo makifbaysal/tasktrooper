@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -310,8 +311,8 @@ func (t *remoteTurnTracker) get(id uuid.UUID) remoteTurn {
 }
 
 func (h *Handler) remoteTurn(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
+	id, ok := remoteSessionID(c.Path())
+	if !ok {
 		return remoteError(c, fiber.StatusBadRequest, "invalid_request", "invalid session id")
 	}
 	return c.JSON(remoteTurns.get(id))
@@ -321,8 +322,8 @@ func (h *Handler) remoteAsyncMessage(c *fiber.Ctx, dev remoteDevice) error {
 	if h.sessionSvc == nil {
 		return sessionsDisabled(c)
 	}
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
+	id, ok := remoteSessionID(c.Path())
+	if !ok {
 		return remoteError(c, fiber.StatusBadRequest, "invalid_request", "invalid session id")
 	}
 	var req domain.SessionMessageRequest
@@ -352,4 +353,17 @@ func (h *Handler) remoteAsyncMessage(c *fiber.Ctx, dev remoteDevice) error {
 		}
 	}()
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"accepted": true, "session_id": id})
+}
+
+// remoteSessionID reads :id out of /remote/v1/sessions/:id/<leaf>. The remote
+// listener is a bare middleware, not a router, so there are no route params:
+// c.Params("id") is always empty here (the phone saw "invalid session id").
+// matchRemoteRule has already proven the segment is UUID text.
+func remoteSessionID(path string) (uuid.UUID, bool) {
+	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segs) != 5 || segs[0] != "remote" || segs[2] != "sessions" {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(segs[3])
+	return id, err == nil
 }
