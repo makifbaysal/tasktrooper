@@ -7,6 +7,7 @@ import (
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/activity"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/runtrace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -166,6 +167,10 @@ func (t *Trace) OnToolUse(callID, name, arguments string) {
 	if t.sinceOwnTool(name) {
 		return
 	}
+	runtrace.FromContext(t.ctx).Open(runtrace.CallStart{
+		CallID: callID, Tool: t.ledgerTool(name), Native: name, Arguments: arguments,
+		Source: domain.TraceSourceCLI, WorkDir: registry.EffectiveWorkspaceDir(t.ctx),
+	})
 	if rec := activity.FromContext(t.ctx); rec != nil {
 		rec.Step("tool_call_start", t.withParent(map[string]any{
 			"tool": t.ledgerTool(name), "call_id": callID, "arguments": arguments,
@@ -178,6 +183,7 @@ func (t *Trace) OnToolResult(callID, name, content string, isError bool) {
 		return
 	}
 	ledgerName := t.ledgerTool(name)
+	runtrace.FromContext(t.ctx).Close(callID, runtrace.CallResult{Content: content, IsError: isError})
 	if isError {
 		registry.ToolUsageFromContext(t.ctx).RecordError(ledgerName)
 	} else {

@@ -351,6 +351,83 @@ export interface TaskAgentRun {
   updated_at: string;
 }
 
+export type RunTraceCategory = "read" | "change" | "exec" | "external" | "board" | "undo";
+
+/** One tool call of a board run, recorded when the call finished. `detail`
+ * holds the structured summary of its arguments and outcome (paths, line
+ * ranges, hashes, command, exit code, output edges); never file contents. */
+export interface RunTraceEvent {
+  run_id: string;
+  seq: number;
+  at: string;
+  duration_ms: number;
+  tool: string;
+  native_tool?: string;
+  source: string;
+  category: RunTraceCategory;
+  target?: string;
+  status: "ok" | "error" | "unfinished";
+  error?: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface RunTraceFileChange {
+  path: string;
+  status: string;
+  from?: string;
+}
+
+export interface RunTraceVerification {
+  computed_at: string;
+  base_sha: string;
+  head_sha?: string;
+  available: boolean;
+  reason?: "no_checkout" | "no_base" | "git_failed" | string;
+  files: RunTraceFileChange[];
+  unrecorded: string[];
+  recorded_only: string[];
+  tracked_files: number;
+  untouched: number;
+}
+
+export interface RunTraceCounts {
+  read: number;
+  change: number;
+  exec: number;
+  external: number;
+  board: number;
+  undo: number;
+  failed: number;
+  total: number;
+  read_files: number;
+  changed_files: number;
+}
+
+export interface RunTraceEffect {
+  seq: number;
+  tool: string;
+  kind: string;
+  target?: string;
+}
+
+export interface RunTraceSummary {
+  run: {
+    run_id: string;
+    base_sha?: string;
+    head_sha?: string;
+    branch?: string;
+    column_before?: string;
+    remote?: boolean;
+    events: number;
+    dropped: number;
+    started_at: string;
+    finished_at?: string;
+  };
+  counts: RunTraceCounts;
+  verification?: RunTraceVerification;
+  non_undoable: RunTraceEffect[];
+}
+
 /** One board event in a task's history (created / moved / assigned / commented). */
 export interface TaskEvent {
   id: string;
@@ -7500,6 +7577,18 @@ export const api = {
 
   listTaskAgentRuns: (repositoryId: string, taskId: string) =>
     request<{ runs: TaskAgentRun[] }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/runs`),
+
+  getRunTraceSummary: (repositoryId: string, taskId: string, runId: string) =>
+    request<{ recorded: boolean; summary?: RunTraceSummary }>(
+      `/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/trace/summary`,
+    ),
+
+  listRunTrace: (repositoryId: string, taskId: string, runId: string, after = 0, category?: RunTraceCategory) =>
+    request<{ recorded: boolean; events: RunTraceEvent[]; count: number; next_after?: number }>(
+      `/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/trace?limit=500&after=${after}${
+        category ? `&category=${category}` : ""
+      }`,
+    ),
 
   cancelTaskAgentRun: (repositoryId: string, taskId: string, runId: string, reason?: string) =>
     request<{ run: TaskAgentRun }>(

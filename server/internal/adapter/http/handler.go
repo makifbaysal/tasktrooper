@@ -130,6 +130,7 @@ type Handler struct {
 	workflowSvc       *workflow.Service
 	boardEvents       port.BoardEventStore
 	taskRuns          port.TaskAgentRunStore
+	runTraces         port.RunTraceStore
 	runControl        BoardRunControl
 	taskChat          TaskChatControl
 	evolutionSvc      *evolution.Service
@@ -221,6 +222,7 @@ type Config struct {
 	WorkflowSvc       *workflow.Service
 	BoardEvents       port.BoardEventStore
 	TaskRuns          port.TaskAgentRunStore
+	RunTraces         port.RunTraceStore
 	RunControl        BoardRunControl
 	TaskChat          TaskChatControl
 	EvolutionSvc      *evolution.Service
@@ -299,6 +301,7 @@ func NewHandler(cfg Config) *Handler {
 		workflowSvc:       cfg.WorkflowSvc,
 		boardEvents:       cfg.BoardEvents,
 		taskRuns:          cfg.TaskRuns,
+		runTraces:         cfg.RunTraces,
 		runControl:        cfg.RunControl,
 		taskChat:          cfg.TaskChat,
 		evolutionSvc:      cfg.EvolutionSvc,

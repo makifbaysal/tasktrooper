@@ -8,6 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/rs/zerolog/log"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
@@ -283,7 +284,7 @@ func (s *Server) callTool(run Run, params json.RawMessage) (any, *rpcError) {
 		return refusal, nil
 	}
 
-	result := s.registry.ExecuteWithPolicy(ctx, domain.ToolCall{
+	result := s.registry.ExecuteWithPolicy(registry.ContextWithTraceSource(ctx, domain.TraceSourceMCP), domain.ToolCall{
 		ID:       id,
 		Type:     "function",
 		Function: domain.FunctionCall{Name: name, Arguments: args},

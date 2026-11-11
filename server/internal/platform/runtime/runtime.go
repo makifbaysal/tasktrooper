@@ -108,6 +108,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	releaseapp "github.com/makifbaysal/tasktrooper/server/internal/application/release"
+	runtraceapp "github.com/makifbaysal/tasktrooper/server/internal/application/runtrace"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/remoteaccess"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
@@ -953,6 +954,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var commentStore port.TaskCommentStore
 	var boardEventStore port.BoardEventStore
 	var taskAgentRunStore port.TaskAgentRunStore
+	var runTraceStore port.RunTraceStore
 	var taskSpanStore port.TaskColumnSpanStore
 	var perfStore port.AgentPerformanceStore
 	var memoryStore port.AgentMemoryStore
@@ -1021,6 +1023,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			commentStore = pgstore.NewTaskCommentStore(pgDB)
 			boardEventStore = pgstore.NewBoardEventStore(pgDB)
 			taskAgentRunStore = pgstore.NewTaskAgentRunStore(pgDB)
+			runTraceStore = pgstore.NewRunTraceStore(pgDB)
 			taskSpanStore = pgstore.NewTaskColumnSpanStore(pgDB)
 			perfStore = pgstore.NewPerformanceStore(pgDB)
 			memoryStore = pgstore.NewMemoryStore(pgDB)
@@ -1433,6 +1436,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			boardRunner.SetAgentCLIConnections(agentCLISvc)
 		}
 		boardRunner.SetToolchainDetector(localtoolchain.New(cfg.Storage.Sessions.WorkspaceRoot))
+		if runTraceStore != nil {
+			boardRunner.SetRunTraces(runTraceStore)
+		}
 		if workflowSvc != nil {
 			boardRunner.SetWorkflows(workflowSvc)
 			boardRunner.SetRoleResolver(workflowSvc)
@@ -2325,6 +2331,13 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				})
 			}
 
+			if runTraceStore != nil {
+				traceRetention := runtraceapp.NewRetention(runTraceStore, domain.TraceRetentionDays)
+				activateBoard = append(activateBoard, func() {
+					traceRetention.Start(ctx, runtraceapp.RetentionInterval)
+				})
+			}
+
 			incidentStore := pgstore.NewIncidentStore(e.pgDB)
 			// No in_app channel yet: the UI has no feed for notifications
 			// that are not about a board task.
@@ -3208,6 +3221,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		WorkflowSvc:       workflowSvc,
 		BoardEvents:       boardEventStore,
 		TaskRuns:          taskAgentRunStore,
+		RunTraces:         runTraceStore,
 		RunControl:        boardRunControl,
 		TaskChat:          boardTaskChat,
 		EvolutionSvc:      e.evolutionSvc,

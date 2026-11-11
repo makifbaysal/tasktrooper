@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RunTraceSection } from "@/components/board/RunTraceSection";
 import { useI18n } from "@/hooks/useI18n";
 import { useRunActivity } from "@/hooks/useRunActivity";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
@@ -74,6 +76,7 @@ export function TaskAgentRunsSection({
   const { t } = useI18n();
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [tokensOpen, setTokensOpen] = useState(false);
+  const [view, setView] = useState<"activity" | "trace">("activity");
 
   const sorted = useMemo(
     () => [...runs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
@@ -185,11 +188,32 @@ export function TaskAgentRunsSection({
             actions={actions}
           />
 
+          <Tabs value={view} onValueChange={(v) => setView(v === "trace" ? "trace" : "activity")} variant="pill">
+            <TabsList>
+              <TabsTrigger value="activity" className="px-2.5 py-1 text-caption">
+                {t("runTrace.tab.activity")}
+              </TabsTrigger>
+              <TabsTrigger value="trace" className="px-2.5 py-1 text-caption">
+                {t("runTrace.tab.trace")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
           {finished && shown.summary && (
             <p className="line-clamp-4 text-caption text-muted-foreground [overflow-wrap:anywhere]">{shown.summary}</p>
           )}
 
-          {waiting ? (
+          {view === "trace" ? (
+            <RunTraceSection
+              key={shown.id}
+              repositoryId={task.repository_id}
+              taskId={task.id}
+              runId={shown.id}
+              live={liveRow}
+              active={active}
+              prUrl={task.pr_url}
+            />
+          ) : waiting ? (
             <p className="text-caption text-muted-foreground">{t("activityArea.runs.queued")}</p>
           ) : firstLoad ? (
             <Card className="space-y-2.5 p-3" aria-busy="true" aria-label={t("boardArea.components.taskDetail.runLoading")}>

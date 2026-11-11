@@ -28,6 +28,7 @@ import { audienceStudy } from "@/locales/en/audienceStudy";
 import { telemetryHub } from "@/locales/en/telemetryHub";
 import { setup } from "@/locales/en/setup";
 import { remoteAccess } from "@/locales/en/remoteAccess";
+import { runTrace } from "@/locales/en/runTrace";
 import { toolchain } from "@/locales/en/toolchain";
 import { whatsNew } from "@/locales/en/whatsNew";
 
@@ -262,6 +263,7 @@ export const en = {
   telemetryHub,
   setup,
   remoteAccess,
+  runTrace,
   toolchain,
   whatsNew,
 };

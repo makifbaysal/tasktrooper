@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/makifbaysal/tasktrooper/server/internal/application/runtrace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/rs/zerolog/log"
@@ -96,6 +97,18 @@ func (r *toolRegistry) Execute(ctx context.Context, call domain.ToolCall) domain
 }
 
 func (r *toolRegistry) ExecuteWithPolicy(ctx context.Context, call domain.ToolCall, policy domain.ToolPolicy) domain.ToolResult {
+	trace := runtrace.FromContext(ctx).Begin(runtrace.CallStart{
+		Tool:      call.Function.Name,
+		Arguments: call.Function.Arguments,
+		Source:    traceSource(ctx),
+		WorkDir:   EffectiveWorkspaceDir(ctx),
+	})
+	result := r.executeWithPolicy(ctx, call, policy)
+	trace.End(runtrace.CallResult{Content: result.Content, IsError: result.IsError})
+	return result
+}
+
+func (r *toolRegistry) executeWithPolicy(ctx context.Context, call domain.ToolCall, policy domain.ToolPolicy) domain.ToolResult {
 	r.mu.RLock()
 	executor, ok := r.tools[call.Function.Name]
 	allowed := IsToolAllowed(call.Function.Name, policy, r.mcp)

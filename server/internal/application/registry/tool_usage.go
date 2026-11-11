@@ -166,3 +166,19 @@ func ToolUsageFromContext(ctx context.Context) *ToolUsage {
 	}
 	return nil
 }
+
+const traceSourceKey contextKey = "trace_source"
+
+// ContextWithTraceSource says which door a tool call came through (the MCP
+// endpoint an agent CLI calls back on) for the run trace; the in-process loop
+// is the default.
+func ContextWithTraceSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, traceSourceKey, source)
+}
+
+func traceSource(ctx context.Context) string {
+	if s, ok := ctx.Value(traceSourceKey).(string); ok {
+		return s
+	}
+	return ""
+}

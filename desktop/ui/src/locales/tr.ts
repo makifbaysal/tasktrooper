@@ -26,6 +26,7 @@ import { audienceStudy } from "@/locales/tr/audienceStudy";
 import { telemetryHub } from "@/locales/tr/telemetryHub";
 import { setup } from "@/locales/tr/setup";
 import { remoteAccess } from "@/locales/tr/remoteAccess";
+import { runTrace } from "@/locales/tr/runTrace";
 import { toolchain } from "@/locales/tr/toolchain";
 import { whatsNew } from "@/locales/tr/whatsNew";
 
@@ -261,6 +262,7 @@ export const tr: Dict = {
   telemetryHub,
   setup,
   remoteAccess,
+  runTrace,
   toolchain,
   whatsNew,
 };

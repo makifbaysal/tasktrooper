@@ -193,6 +193,28 @@ does not exist or belongs to a different task than the URL names.
   (`pending`) run; `409` when the run already stopped. Event: `task.rerun_requested` with
   `interrupted: true`.
 
+## Run trace (migration 201)
+
+A board run records every tool call when the call finishes — never summarised by a model. Both execution
+styles write it: the in-process agent loop and the MCP endpoint through `registry.ExecuteWithPolicy`, and the
+agent CLIs through `cli/core.Trace` (their native `tool_use` / `tool_result` events). Chat turns record nothing.
+File contents, request bodies and credentials are never stored: a read keeps path and range, a change keeps
+path, hash before/after and size delta, a command keeps the scrubbed command line, cwd, exit code and the first
+and last 20 lines of scrubbed output, an external call keeps method and host. At most 5000 calls per run (the
+rest are counted in `dropped`); traces are swept after 90 days and go with their task.
+
+When the run ends the board asks git (`git diff --name-status base`, untracked files) what actually changed
+since the commit the run started from (`base_sha`) and stores the comparison: files git shows changed that no
+recorded change call accounts for are `unrecorded` ("changed outside recorded tool calls").
+
+All answer `{"recorded": false}` for a run that has no trace (older runs); `404` when the run belongs to
+another task.
+
+- `GET /v1/repositories/{id}/tasks/{taskId}/runs/{runId}/trace?category=&after=&limit=` — `{recorded, events, count, next_after}`;
+  `category` is `read|change|exec|external|board|undo`, `after` the last `seq` read, `limit` ≤ 1000.
+- `GET …/runs/{runId}/trace/summary` — `{recorded, summary: {run, counts, verification, non_undoable}}`.
+- `GET …/runs/{runId}/trace.json` — the whole trace as a download.
+
 None of them goes through the board dispatcher: cancel would immediately fan fresh agents
 onto the task it just stopped, and re-run would start every agent configured for the
 column rather than the one asked for. Each records its own board event

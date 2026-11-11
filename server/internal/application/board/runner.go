@@ -20,6 +20,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/runtrace"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/toolchain"
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
@@ -128,6 +129,8 @@ func (r *Runner) requireConnectedCLI(ctx context.Context, agentRec domain.Agent)
 	return domain.ErrCLIFlavorNotConnected(agentRec.Name, agentRec.ProviderType)
 }
 
+func (r *Runner) SetRunTraces(s port.RunTraceStore) { r.traces = s }
+
 func (r *Runner) SetTaskPRRecorder(rec TaskPRRecorder) { r.prRecorder = rec }
 
 type PullRequestReader interface {
@@ -159,6 +162,7 @@ type Runner struct {
 	catalog           port.CatalogStore
 	activityStore     port.ActivityStore
 	runs              port.TaskAgentRunStore
+	traces            port.RunTraceStore
 	sessions          port.SessionStore
 	projects          RepositoryResolver
 	indexInjector     IndexInjector
@@ -911,6 +915,10 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			}
 		}()
 	}
+
+	traceRec := r.startRunTrace(runCtx, job, workDir, taskWorkspace, taskBranch, dispatchedIn)
+	runCtx = runtrace.WithRecorder(runCtx, traceRec)
+	defer r.finishRunTrace(ctx, traceRec)
 
 	systemPrompt := prompt.BuildSystemPromptFor(agentRec, enabledSkills, techStacks, ruleTexts, r.language(runCtx), skillDelivery)
 	criteriaItems := r.criteriaForRun(runCtx, job, wf)
