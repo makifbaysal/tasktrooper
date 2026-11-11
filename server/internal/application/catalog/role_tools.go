@@ -311,6 +311,7 @@ var roleAudienceResearchTools = []string{
 	"study_status",
 	"study_report",
 	"study_plan",
+	"study_script",
 	"study_start",
 	"study_cancel",
 	"study_follow_up",

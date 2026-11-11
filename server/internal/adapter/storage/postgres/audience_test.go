@@ -102,6 +102,49 @@ func TestAudienceStoreKeepsAudiencesPersonasStudiesAnswersAndThreads(t *testing.
 	_, err = store.GetPersona(ctx, pid)
 	assert.ErrorIs(t, err, domain.ErrPersonaNotFound)
 
+	// a study keeps its kind, inputs and script, and a failed interview can be asked again
+	kinded, err := store.CreateStudy(ctx, domain.Study{
+		AudienceID: a.ID, Title: "Which line", Kind: domain.KindMessageTesting, Currency: "USD", ScriptState: domain.ScriptApproved, ScriptCalls: 1, ScriptVersion: 3, ScriptApprovedVersion: 3, ScriptApprovedBy: "akif",
+		Inputs: domain.StudyInputs{Variants: []string{"Şule'nin çayı", "İstanbul <b>"}, Intent: "buy", Pages: []domain.PageInput{{URL: "https://x.test", Copy: "ı İ ş"}}},
+		Script: &domain.StudyScript{Sections: []domain.ScriptSection{{Title: "Bugün", Questions: []string{"Nasıl yapıyorsun?"}}}},
+	})
+	require.NoError(t, err)
+	kinded, err = store.GetStudy(ctx, kinded.ID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.KindMessageTesting, kinded.Kind)
+	assert.Equal(t, []string{"Şule'nin çayı", "İstanbul <b>"}, kinded.Inputs.Variants)
+	assert.Equal(t, "ı İ ş", kinded.Inputs.Pages[0].Copy)
+	assert.Equal(t, "Nasıl yapıyorsun?", kinded.Script.Sections[0].Questions[0])
+	assert.Equal(t, domain.ScriptApproved, kinded.ScriptState)
+	assert.Equal(t, 1, kinded.ScriptCalls)
+	assert.Equal(t, [2]int{3, 3}, [2]int{kinded.ScriptVersion, kinded.ScriptApprovedVersion})
+	assert.Equal(t, "akif", kinded.ScriptApprovedBy)
+	approvedAt := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	kinded.ScriptApprovedAt = &approvedAt
+	require.NoError(t, store.SaveStudy(ctx, kinded))
+	kinded, err = store.GetStudy(ctx, kinded.ID)
+	require.NoError(t, err)
+	require.NotNil(t, kinded.ScriptApprovedAt)
+	assert.True(t, kinded.ScriptApprovedAt.Equal(approvedAt))
+	plain, err := store.CreateStudy(ctx, domain.Study{AudienceID: a.ID, Title: "plain", Currency: "USD"})
+	require.NoError(t, err)
+	assert.Equal(t, domain.KindUserInterviews, plain.Kind, "no kind is the original study")
+	assert.Equal(t, domain.ScriptNone, plain.ScriptState)
+	assert.Nil(t, plain.Script)
+	kinded.Status = domain.StudyInterviewed
+	require.NoError(t, store.SaveStudy(ctx, kinded))
+	require.NoError(t, store.SaveAnswer(ctx, domain.StudyAnswer{StudyID: kinded.ID, Persona: domain.PersonaSnapshot{Name: "Ayşe Yıldız"}, Status: "failed", Error: "x"}))
+	require.NoError(t, store.SaveAnswer(ctx, domain.StudyAnswer{StudyID: kinded.ID, Persona: domain.PersonaSnapshot{Name: "Şule İpek"}, Status: "ok"}))
+	n, err := store.DeleteFailedAnswers(ctx, kinded.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	left, err := store.ListAnswers(ctx, kinded.ID)
+	require.NoError(t, err)
+	require.Len(t, left, 1)
+	assert.Equal(t, "Şule İpek", left[0].Persona.Name, "names survive the round trip")
+	kinded.ScriptState = domain.ScriptGenerating
+	require.NoError(t, store.SaveStudy(ctx, kinded))
+
 	// a dead process leaves nothing running
 	running, err := store.CreateStudy(ctx, domain.Study{AudienceID: a.ID, Title: "again", Status: domain.StudyRunning, Currency: "USD"})
 	require.NoError(t, err)
@@ -112,6 +155,9 @@ func TestAudienceStoreKeepsAudiencesPersonasStudiesAnswersAndThreads(t *testing.
 	assert.Equal(t, [2]int{1, 1}, [2]int{na, ns})
 	r, _ := store.GetStudy(ctx, running.ID)
 	assert.Equal(t, domain.StudyFailed, r.Status)
+	k, _ := store.GetStudy(ctx, kinded.ID)
+	assert.Equal(t, domain.ScriptFailed, k.ScriptState, "a script being written when the process died is failed")
+	assert.Equal(t, domain.StudyInterviewed, k.Status)
 
 	require.NoError(t, store.DeleteAudience(ctx, a.ID))
 	_, err = store.GetStudy(ctx, st.ID)

@@ -34,6 +34,10 @@ type Service interface {
 	ListStudies(ctx context.Context, audienceID *uuid.UUID) ([]domain.Study, error)
 	Study(ctx context.Context, id uuid.UUID) (audience.StudyDetail, error)
 	PlanStudy(ctx context.Context, audienceID uuid.UUID, in audience.PlanStudyInput) (domain.Study, error)
+	UpdateStudy(ctx context.Context, id uuid.UUID, in audience.PlanStudyInput) (domain.Study, error)
+	GenerateScript(ctx context.Context, id uuid.UUID) (domain.Study, error)
+	ApproveScript(ctx context.Context, id uuid.UUID, version int, by string) (domain.Study, error)
+	GenerateReport(ctx context.Context, id uuid.UUID) (domain.Study, error)
 	StartStudy(ctx context.Context, id uuid.UUID) (domain.Study, error)
 	CancelStudy(ctx context.Context, id uuid.UUID) error
 	FollowUp(ctx context.Context, studyID, personaID uuid.UUID, question string) (domain.ChatMessage, error)
@@ -57,9 +61,12 @@ type approvalInput struct {
 type detailInput struct{ Detail string }
 
 var (
-	noRuntimeKey     = prompt.Define[struct{}]("guard.audience_no_runtime", struct{}{})
-	needsApprovalKey = prompt.Define("guard.audience_needs_approval", approvalInput{Action: "study_start", Calls: 13})
-	callFailedKey    = prompt.Define("guard.audience_call_failed", detailInput{Detail: "the model did not answer in time"})
+	scriptNotApprovedKey = prompt.Define[struct{}]("guard.audience_script_not_approved", struct{}{})
+	scriptChangedKey     = prompt.Define[struct{}]("guard.audience_script_changed", struct{}{})
+	scriptNeedsYesKey    = prompt.Define[struct{}]("guard.audience_script_approval_needs_yes", struct{}{})
+	noRuntimeKey         = prompt.Define[struct{}]("guard.audience_no_runtime", struct{}{})
+	needsApprovalKey     = prompt.Define("guard.audience_needs_approval", approvalInput{Action: "study_start", Calls: 13})
+	callFailedKey        = prompt.Define("guard.audience_call_failed", detailInput{Detail: "the model did not answer in time"})
 )
 
 // tool is one entry of the table below. approvalCalls, when set, answers how
@@ -148,6 +155,10 @@ func failure(err error) string {
 	switch {
 	case errors.Is(err, audience.ErrNoRuntime):
 		return prompt.Text(noRuntimeKey)
+	case errors.Is(err, audience.ErrScriptNotApproved):
+		return prompt.Text(scriptNotApprovedKey)
+	case errors.Is(err, audience.ErrScriptChanged):
+		return prompt.Text(scriptChangedKey)
 	case errors.Is(err, audience.ErrCallFailed):
 		return callFailedKey.Render(detailInput{Detail: strings.TrimPrefix(err.Error(), audience.ErrCallFailed.Error()+": ")})
 	case errors.Is(err, domain.ErrAudienceInvalid):
@@ -200,6 +211,39 @@ func argNumbers(args map[string]any, key string) []float64 {
 		}
 	}
 	return out
+}
+
+func argPages(args map[string]any, key string) []domain.PageInput {
+	list, _ := args[key].([]any)
+	var out []domain.PageInput
+	for _, v := range list {
+		if m, ok := v.(map[string]any); ok {
+			p := domain.PageInput{}
+			p.URL, _ = m["url"].(string)
+			p.Copy, _ = m["copy"].(string)
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func argScript(args map[string]any, key string) (*domain.StudyScript, bool) {
+	list, ok := args[key].([]any)
+	if !ok {
+		return nil, false
+	}
+	sc := &domain.StudyScript{Sections: []domain.ScriptSection{}}
+	for _, v := range list {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		sec := domain.ScriptSection{}
+		sec.Title, _ = m["title"].(string)
+		sec.Questions = argStrings(m, "questions")
+		sc.Sections = append(sc.Sections, sec)
+	}
+	return sc, true
 }
 
 func argSegments(args map[string]any, key string) ([]domain.AudienceSegment, bool) {

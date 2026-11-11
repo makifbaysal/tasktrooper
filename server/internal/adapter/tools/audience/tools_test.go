@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -55,7 +57,7 @@ func TestNewExecutorsNeedsAService(t *testing.T) {
 	assert.Empty(t, NewExecutors(nil))
 	assert.Empty(t, NewExecutors(&ToolKit{}))
 	f := newKit(t, audiencetest.OneAgent())
-	assert.Len(t, NewExecutors(f.kit), 15)
+	assert.Len(t, NewExecutors(f.kit), 16)
 }
 
 func TestThePMCanGoFromABriefToAReportOnlyWithTheUsersYes(t *testing.T) {
@@ -93,6 +95,23 @@ func TestThePMCanGoFromABriefToAReportOnlyWithTheUsersYes(t *testing.T) {
 	assert.Equal(t, float64(4), planned["calls_estimate"])
 	assert.Equal(t, "draft", planned["status"])
 	callsBefore := len(f.model.Calls)
+
+	assert.Equal(t, "awaiting_approval", planned["script_state"], "the questions are the person's own, and still wait for their OK")
+	unapproved := run(t, f.kit, studyStartName, `{"study_id":"`+studyID+`","user_approved":true}`)
+	require.True(t, unapproved.IsError)
+	assert.Contains(t, unapproved.Content, "has not been approved")
+	assert.Contains(t, unapproved.Content, "study_script")
+	assert.Equal(t, callsBefore, len(f.model.Calls), "nobody was asked")
+	noYes := run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`","approve":true,"version":1}`)
+	require.True(t, noYes.IsError, "approving is the user's yes")
+	assert.Contains(t, noYes.Content, "user_approved")
+	stale := run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`","approve":true,"version":5,"user_approved":true}`)
+	require.True(t, stale.IsError)
+	assert.Contains(t, stale.Content, "changed after")
+	shown := decode(t, run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`"}`))
+	assert.Equal(t, float64(1), shown["script_version"])
+	done := decode(t, run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`","approve":true,"version":1,"user_approved":true}`))
+	assert.Equal(t, "approved", done["script_state"])
 
 	refused = run(t, f.kit, studyStartName, `{"study_id":"`+studyID+`"}`)
 	require.True(t, refused.IsError)
@@ -211,4 +230,64 @@ func TestEveryCostlyToolRequiresAndDocumentsItsApproval(t *testing.T) {
 			assert.Nil(t, d.approvalCalls, d.name)
 		}
 	}
+}
+
+func TestThePMPlansAKindEditsItsScriptAndWritesAReportWaitingForTheUsersYes(t *testing.T) {
+	f := newKit(t, audiencetest.OneAgent())
+	created := decode(t, run(t, f.kit, audienceCreateName, `{"name":"Designers","product":"A kanban for AI agents.","persona_count":2}`))
+	audienceID := created["audience"].(map[string]any)["id"].(string)
+	decode(t, run(t, f.kit, audienceBuildName, `{"audience_id":"`+audienceID+`","user_approved":true}`))
+	require.Eventually(t, func() bool {
+		got := decode(t, run(t, f.kit, audienceGetName, `{"audience_id":"`+audienceID+`"}`))
+		return got["audience"].(map[string]any)["status"] == "ready"
+	}, 5*time.Second, 20*time.Millisecond)
+
+	bad := run(t, f.kit, studyPlanName, `{"audience_id":"`+audienceID+`","kind":"message_testing","variants":["only one"]}`)
+	require.True(t, bad.IsError)
+	assert.Contains(t, bad.Content, "message testing needs")
+
+	planned := decode(t, run(t, f.kit, studyPlanName, `{"audience_id":"`+audienceID+`","kind":"message_testing","variants":["Boards for agents","Ship faster"]}`))
+	studyID := planned["id"].(string)
+	assert.Equal(t, "message_testing", planned["kind"])
+	assert.Equal(t, float64(4), planned["calls_estimate"], "two people, the report and the script")
+	require.Eventually(t, func() bool {
+		s := decode(t, run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`"}`))
+		return s["script_state"] == "awaiting_approval"
+	}, 5*time.Second, 20*time.Millisecond)
+
+	edited := decode(t, run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`","sections":[{"title":"Mine","questions":["Why?"]}]}`))
+	assert.Equal(t, "awaiting_approval", edited["script_state"])
+	assert.Equal(t, float64(2), edited["script_version"], "every edit is a new version")
+	assert.Contains(t, run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`"}`).Content, "Why?")
+
+	refused := run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`","regenerate":true}`)
+	require.True(t, refused.IsError)
+	assert.Contains(t, refused.Content, "user_approved")
+	again := decode(t, run(t, f.kit, studyScriptName, `{"study_id":"`+studyID+`","regenerate":true,"user_approved":true}`))
+	assert.Equal(t, float64(2), again["study"].(map[string]any)["script_calls"])
+
+	own := decode(t, run(t, f.kit, studyPlanName, `{"audience_id":"`+audienceID+`","questions":["What do you use?"]}`))
+	ownID := own["id"].(string)
+	decode(t, run(t, f.kit, studyScriptName, `{"study_id":"`+ownID+`","approve":true,"version":1,"user_approved":true}`))
+	decode(t, run(t, f.kit, studyStartName, `{"study_id":"`+ownID+`","user_approved":true}`))
+	require.Eventually(t, func() bool {
+		st := decode(t, run(t, f.kit, studyStatusName, `{"study_id":"`+ownID+`"}`))
+		return st["study"].(map[string]any)["status"] == "done"
+	}, 5*time.Second, 20*time.Millisecond)
+
+	id, err := uuid.Parse(ownID)
+	require.NoError(t, err)
+	st, err := f.store.GetStudy(context.Background(), id)
+	require.NoError(t, err)
+	st.Status, st.Report = domain.StudyInterviewed, nil
+	require.NoError(t, f.store.SaveStudy(context.Background(), st))
+	waiting := run(t, f.kit, studyReportName, `{"study_id":"`+ownID+`"}`)
+	require.True(t, waiting.IsError)
+	assert.Contains(t, waiting.Content, "user_approved")
+	started := decode(t, run(t, f.kit, studyReportName, `{"study_id":"`+ownID+`","user_approved":true}`))
+	assert.Contains(t, started["note"], "being written")
+	require.Eventually(t, func() bool {
+		st := decode(t, run(t, f.kit, studyStatusName, `{"study_id":"`+ownID+`"}`))
+		return st["study"].(map[string]any)["status"] == "done"
+	}, 5*time.Second, 20*time.Millisecond)
 }

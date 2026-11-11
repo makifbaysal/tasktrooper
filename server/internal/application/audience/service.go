@@ -29,6 +29,11 @@ var (
 	ErrNoRuntime = errors.New("audience research needs an agent with a runtime — connect an agent CLI or an API provider and enable an agent")
 	// ErrCallFailed: the model could not be reached or did not answer.
 	ErrCallFailed = errors.New("the model call failed")
+	// ErrScriptNotApproved: the study's current interview script has not been
+	// approved by the person; nothing runs until it is.
+	ErrScriptNotApproved = errors.New("the interview script has not been approved")
+	// ErrScriptChanged: the script changed after the version being approved was shown.
+	ErrScriptChanged = errors.New("the interview script changed since it was shown")
 	// ErrBusy: the audience or study is already being worked on.
 	ErrBusy = errors.New("this is already running")
 )
@@ -82,6 +87,8 @@ type Deps struct {
 	LLM   port.LLMClient
 	Repos RepositoryLister
 	Brief BriefFunc
+	// Pages reads a landing page from its URL; nil means only pasted text.
+	Pages PageReader
 	// Background is the process lifetime: a build or a study outlives the
 	// request that started it, keeps its context values and stops with it.
 	Background  context.Context

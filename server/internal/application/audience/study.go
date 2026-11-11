@@ -2,6 +2,7 @@ package audience
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -70,10 +71,18 @@ type PlanStudyInput struct {
 	Questions   []string
 	PricePoints []float64
 	Currency    string
+	// Kind is a domain.StudyKind; empty is user_interviews.
+	Kind   string
+	Inputs domain.StudyInputs
+	// Script, when given, is the interview script itself and nothing is
+	// written for the study; so are Questions.
+	Script *domain.StudyScript
 }
 
-// PlanStudy writes a study down without running it. Nothing is asked until
-// StartStudy, which is where the calls are spent.
+// PlanStudy writes a study down without running it. The interview script is
+// written by the person's agent in the background (one model call) unless the
+// plan brings its own questions; the people are asked nothing until
+// StartStudy, which is where the rest of the calls are spent.
 func (s *Service) PlanStudy(ctx context.Context, audienceID uuid.UUID, in PlanStudyInput) (domain.Study, error) {
 	a, err := s.d.Store.GetAudience(ctx, audienceID)
 	if err != nil {
@@ -86,16 +95,71 @@ func (s *Service) PlanStudy(ctx context.Context, audienceID uuid.UUID, in PlanSt
 	if len(personas) == 0 {
 		return domain.Study{}, invalid("the audience has no people yet; build it first")
 	}
-	st, err := normalizeStudy(domain.Study{AudienceID: audienceID, Title: in.Title, Goal: in.Goal, Questions: in.Questions, PricePoints: in.PricePoints, Currency: in.Currency})
+	kind, ok := domain.ParseStudyKind(in.Kind)
+	if !ok {
+		return domain.Study{}, invalid("unknown study kind %q; use user_interviews, landing_page_test, message_testing or ab_test", in.Kind)
+	}
+	inputs, err := s.normalizeInputs(ctx, kind, in.Inputs)
 	if err != nil {
 		return domain.Study{}, err
 	}
+	st, err := normalizeStudy(domain.Study{AudienceID: audienceID, Kind: kind, Title: in.Title, Goal: in.Goal, Questions: in.Questions, PricePoints: in.PricePoints, Currency: in.Currency})
+	if err != nil {
+		return domain.Study{}, err
+	}
+	st.Inputs = inputs
 	if st.Title == "" {
-		st.Title = clip(a.Name+": would they buy?", 120)
+		st.Title = clip(a.Name+": "+defaultTitleSuffix(kind), 120)
 	}
 	st.PersonaTotal = len(personas)
-	st.CallsEstimate = StudyCalls(len(personas))
-	return s.d.Store.CreateStudy(ctx, st)
+
+	generate := false
+	switch {
+	case in.Script != nil:
+		sc, err := normalizeScript(in.Script)
+		if err != nil {
+			return domain.Study{}, err
+		}
+		setScript(&st, sc)
+	case len(st.Questions) > 0:
+		setScript(&st, scriptFromQuestions(st.Questions))
+	default:
+		st.ScriptState = domain.ScriptNone
+		if _, err := s.agentFor(ctx); err == nil {
+			st.ScriptState, st.ScriptCalls = domain.ScriptGenerating, 1
+			generate = true
+		}
+	}
+	st.CallsEstimate = StudyCallsFor(kind, len(personas)) + st.ScriptCalls
+	created, err := s.d.Store.CreateStudy(ctx, st)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if generate {
+		if err := s.beginScript(ctx, created, a); err != nil {
+			created.ScriptState, created.ScriptCalls, created.Error = domain.ScriptFailed, 0, clip(err.Error(), 300)
+			created.CallsEstimate = StudyCallsFor(kind, len(personas))
+			if serr := s.d.Store.SaveStudy(ctx, created); serr != nil {
+				return domain.Study{}, serr
+			}
+		}
+	}
+	return s.d.Store.GetStudy(ctx, created.ID)
+}
+
+// defaultTitleSuffix is the part of a study's default title that depends on its
+// kind; it is a name, not a sentence the model reads.
+func defaultTitleSuffix(kind domain.StudyKind) string {
+	switch kind {
+	case domain.KindLandingPageTest:
+		return "landing page test"
+	case domain.KindMessageTesting:
+		return "message test"
+	case domain.KindABTest:
+		return "A/B test"
+	default:
+		return "would they buy?"
+	}
 }
 
 func normalizeStudy(st domain.Study) (domain.Study, error) {
@@ -127,6 +191,9 @@ func normalizeStudy(st domain.Study) (domain.Study, error) {
 		return st, invalid("at most %d price points", maxPricePoints)
 	}
 	sort.Float64s(prices)
+	if st.Kind != "" && st.Kind != domain.KindUserInterviews {
+		prices = nil
+	}
 	st.PricePoints = prices
 	st.Currency = strings.ToUpper(clip(strings.TrimSpace(st.Currency), 3))
 	if st.Currency == "" {
@@ -135,7 +202,8 @@ func normalizeStudy(st domain.Study) (domain.Study, error) {
 	return st, nil
 }
 
-// UpdateStudy edits a study that has not started.
+// UpdateStudy edits a study that has not started. A field left empty (nil)
+// keeps its value; a script or a list of questions replaces the script.
 func (s *Service) UpdateStudy(ctx context.Context, id uuid.UUID, in PlanStudyInput) (domain.Study, error) {
 	st, err := s.d.Store.GetStudy(ctx, id)
 	if err != nil {
@@ -144,11 +212,48 @@ func (s *Service) UpdateStudy(ctx context.Context, id uuid.UUID, in PlanStudyInp
 	if st.Status != domain.StudyDraft {
 		return domain.Study{}, invalid("a study that has started cannot be edited; plan a new one")
 	}
-	next, err := normalizeStudy(domain.Study{Title: firstNonEmpty(in.Title, st.Title), Goal: in.Goal, Questions: in.Questions, PricePoints: in.PricePoints, Currency: firstNonEmpty(in.Currency, st.Currency)})
+	if st.ScriptState == domain.ScriptGenerating {
+		return domain.Study{}, invalid("the script is being written; wait for it")
+	}
+	if in.Kind != "" {
+		kind, ok := domain.ParseStudyKind(in.Kind)
+		if !ok {
+			return domain.Study{}, invalid("unknown study kind %q", in.Kind)
+		}
+		st.Kind = kind
+	}
+	if in.Kind != "" || len(in.Inputs.Pages) > 0 || len(in.Inputs.Variants) > 0 || in.Inputs.Intent != "" {
+		inputs := in.Inputs
+		if in.Kind == "" && inputs.Intent == "" {
+			inputs.Intent = st.Inputs.Intent
+		}
+		if inputs, err = s.normalizeInputs(ctx, st.Kind, inputs); err != nil {
+			return domain.Study{}, err
+		}
+		if st.ScriptState == domain.ScriptApproved && !inputsEqual(st.Inputs, inputs) {
+			setScript(&st, st.Script)
+		}
+		st.Inputs = inputs
+	}
+	next, err := normalizeStudy(domain.Study{Kind: st.Kind, Title: firstNonEmpty(in.Title, st.Title), Goal: firstNonEmpty(in.Goal, st.Goal), Questions: in.Questions,
+		PricePoints: in.PricePoints, Currency: firstNonEmpty(in.Currency, st.Currency)})
 	if err != nil {
 		return domain.Study{}, err
 	}
-	st.Title, st.Goal, st.Questions, st.PricePoints, st.Currency = next.Title, next.Goal, next.Questions, next.PricePoints, next.Currency
+	st.Title, st.Goal, st.Currency = next.Title, next.Goal, next.Currency
+	if in.PricePoints != nil || st.Kind != domain.KindUserInterviews {
+		st.PricePoints = next.PricePoints
+	}
+	switch {
+	case in.Script != nil:
+		sc, err := normalizeScript(in.Script)
+		if err != nil {
+			return domain.Study{}, err
+		}
+		setScript(&st, sc)
+	case in.Questions != nil:
+		setScript(&st, scriptFromQuestions(next.Questions))
+	}
 	if err := s.d.Store.SaveStudy(ctx, st); err != nil {
 		return domain.Study{}, err
 	}
@@ -162,15 +267,122 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
+// GenerateScript has the person's agent write the interview script again (one
+// model call). Only a study that has not started can have it.
+func (s *Service) GenerateScript(ctx context.Context, id uuid.UUID) (domain.Study, error) {
+	st, err := s.d.Store.GetStudy(ctx, id)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if st.Status != domain.StudyDraft {
+		return domain.Study{}, invalid("a study that has started has its script")
+	}
+	if st.ScriptState == domain.ScriptGenerating {
+		return domain.Study{}, ErrBusy
+	}
+	a, err := s.d.Store.GetAudience(ctx, st.AudienceID)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if _, err := s.agentFor(ctx); err != nil {
+		return domain.Study{}, err
+	}
+	st.ScriptState, st.ScriptCalls, st.Error = domain.ScriptGenerating, st.ScriptCalls+1, ""
+	st.ScriptApprovedVersion, st.ScriptApprovedAt, st.ScriptApprovedBy = 0, nil, ""
+	st.CallsEstimate = StudyCallsFor(st.Kind, st.PersonaTotal) + st.ScriptCalls
+	if err := s.d.Store.SaveStudy(ctx, st); err != nil {
+		return domain.Study{}, err
+	}
+	if err := s.beginScript(ctx, st, a); err != nil {
+		st.ScriptState, st.ScriptCalls, st.Error = domain.ScriptFailed, st.ScriptCalls-1, clip(err.Error(), 300)
+		st.CallsEstimate = StudyCallsFor(st.Kind, st.PersonaTotal) + st.ScriptCalls
+		if serr := s.d.Store.SaveStudy(ctx, st); serr != nil {
+			return domain.Study{}, serr
+		}
+	}
+	return s.d.Store.GetStudy(ctx, id)
+}
+
+// setScript replaces the script. Every replacement is a new version that waits
+// for the person's approval; an earlier approval is gone.
+func setScript(st *domain.Study, sc *domain.StudyScript) {
+	st.Script, st.Questions, st.Error = sc, sc.Flat(), ""
+	st.ScriptState = domain.ScriptAwaitingApproval
+	st.ScriptVersion++
+	st.ScriptApprovedVersion, st.ScriptApprovedAt, st.ScriptApprovedBy = 0, nil, ""
+}
+
+func inputsEqual(a, b domain.StudyInputs) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
+// ApproveScript records the person's OK to one version of the script. version
+// is the one they were shown; if the script has changed since, nothing is
+// approved. A study with no script at all can be approved too: it then asks
+// only the kind's built-in questions.
+func (s *Service) ApproveScript(ctx context.Context, id uuid.UUID, version int, by string) (domain.Study, error) {
+	st, err := s.d.Store.GetStudy(ctx, id)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if st.Status != domain.StudyDraft {
+		return domain.Study{}, invalid("a study that has started has its script")
+	}
+	switch st.ScriptState {
+	case domain.ScriptGenerating:
+		return domain.Study{}, invalid("the interview script is still being written")
+	case domain.ScriptFailed:
+		return domain.Study{}, invalid("the interview script could not be written; write it again or add your own questions")
+	case domain.ScriptApproved:
+		if st.ScriptApprovedVersion == st.ScriptVersion && version == st.ScriptVersion {
+			return st, nil
+		}
+	}
+	if version != st.ScriptVersion {
+		return domain.Study{}, ErrScriptChanged
+	}
+	now := s.d.Now()
+	st.ScriptState, st.ScriptApprovedVersion, st.ScriptApprovedAt, st.ScriptApprovedBy = domain.ScriptApproved, st.ScriptVersion, &now, clip(strings.TrimSpace(by), 120)
+	if err := s.d.Store.SaveStudy(ctx, st); err != nil {
+		return domain.Study{}, err
+	}
+	return st, nil
+}
+
+// StartOptions says how a study runs.
+type StartOptions struct {
+	// ManualReport stops after the interviews, with the study interviewed,
+	// until GenerateReport is asked for; otherwise the report follows at once.
+	ManualReport bool
+}
+
 // StartStudy asks every person of the audience, in the background, and then
 // writes the report. It answers at once.
 func (s *Service) StartStudy(ctx context.Context, id uuid.UUID) (domain.Study, error) {
+	return s.StartStudyWith(ctx, id, StartOptions{})
+}
+
+func (s *Service) StartStudyWith(ctx context.Context, id uuid.UUID, opts StartOptions) (domain.Study, error) {
 	st, err := s.d.Store.GetStudy(ctx, id)
 	if err != nil {
 		return domain.Study{}, err
 	}
 	if st.Status != domain.StudyDraft {
 		return domain.Study{}, invalid("this study already ran; plan a new one to ask again")
+	}
+	switch st.ScriptState {
+	case domain.ScriptGenerating:
+		return domain.Study{}, invalid("the interview script is still being written")
+	case domain.ScriptFailed:
+		return domain.Study{}, invalid("the interview script could not be written; write it again or add your own questions")
+	case domain.ScriptApproved:
+		if st.ScriptApprovedVersion != st.ScriptVersion {
+			return domain.Study{}, ErrScriptNotApproved
+		}
+	default:
+		return domain.Study{}, ErrScriptNotApproved
 	}
 	a, err := s.d.Store.GetAudience(ctx, st.AudienceID)
 	if err != nil {
@@ -198,7 +410,7 @@ func (s *Service) StartStudy(ctx context.Context, id uuid.UUID) (domain.Study, e
 	st.ProductSnapshot = productText(a, s.projectContext(ctx, a.RepositoryID))
 	st.Status = domain.StudyRunning
 	st.PersonaTotal, st.PersonaDone, st.PersonaFailed = len(personas), 0, 0
-	st.CallsEstimate = StudyCalls(len(personas))
+	st.CallsEstimate = StudyCallsFor(st.Kind, len(personas)) + st.ScriptCalls
 	st.StartedAt, st.FinishedAt, st.Error = &now, nil, ""
 	if err := s.d.Store.SaveStudy(ctx, st); err != nil {
 		done()
@@ -206,7 +418,121 @@ func (s *Service) StartStudy(ctx context.Context, id uuid.UUID) (domain.Study, e
 	}
 	go func() {
 		defer done()
-		s.runStudy(runCtx, st, a, personas, rt)
+		s.runStudy(runCtx, st, a, personas, rt, opts.ManualReport)
+	}()
+	return st, nil
+}
+
+// GenerateReport writes the report of a study whose interviews are over (one
+// model call). It answers at once; the report follows in the background.
+func (s *Service) GenerateReport(ctx context.Context, id uuid.UUID) (domain.Study, error) {
+	st, err := s.d.Store.GetStudy(ctx, id)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if st.Status != domain.StudyInterviewed {
+		return domain.Study{}, invalid("the report can be generated once the interviews are over")
+	}
+	answers, err := s.d.Store.ListAnswers(ctx, id)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if len(okAnswers(answers)) == 0 {
+		return domain.Study{}, invalid("no interview was completed; retry the failed ones first")
+	}
+	a, err := s.d.Store.GetAudience(ctx, st.AudienceID)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	rt, err := s.agentFor(ctx)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	runCtx, done, err := s.begin(ctx, st.ID)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	st.Status, st.Error = domain.StudySynthesizing, ""
+	if err := s.d.Store.SaveStudy(ctx, st); err != nil {
+		done()
+		return domain.Study{}, err
+	}
+	go func() {
+		defer done()
+		wctx := context.WithoutCancel(runCtx)
+		defer s.recoverStudy(wctx, st)
+		s.writeReport(runCtx, wctx, st, a, rt)
+	}()
+	return st, nil
+}
+
+// RetryFailed asks again the people whose interview failed, in a study that is
+// waiting for its report. It answers at once.
+func (s *Service) RetryFailed(ctx context.Context, id uuid.UUID) (domain.Study, error) {
+	st, err := s.d.Store.GetStudy(ctx, id)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if st.Status != domain.StudyInterviewed {
+		return domain.Study{}, invalid("failed interviews can be retried once the interviews are over")
+	}
+	answers, err := s.d.Store.ListAnswers(ctx, id)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	failed := map[uuid.UUID]bool{}
+	for _, ans := range answers {
+		if ans.Status == "failed" && ans.PersonaID != nil {
+			failed[*ans.PersonaID] = true
+		}
+	}
+	if len(failed) == 0 {
+		return domain.Study{}, invalid("no interview failed")
+	}
+	a, err := s.d.Store.GetAudience(ctx, st.AudienceID)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	all, err := s.d.Store.ListPersonas(ctx, a.ID)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	var again []domain.Persona
+	for _, p := range all {
+		if failed[p.ID] {
+			again = append(again, p)
+		}
+	}
+	if len(again) == 0 {
+		return domain.Study{}, invalid("those people are no longer in the audience")
+	}
+	rt, err := s.agentFor(ctx)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	runCtx, done, err := s.begin(ctx, st.ID)
+	if err != nil {
+		return domain.Study{}, err
+	}
+	if _, err := s.d.Store.DeleteFailedAnswers(ctx, id); err != nil {
+		done()
+		return domain.Study{}, err
+	}
+	st.Status, st.PersonaFailed, st.Error = domain.StudyRunning, 0, ""
+	st.CallsEstimate += len(again)
+	if err := s.d.Store.SaveStudy(ctx, st); err != nil {
+		done()
+		return domain.Study{}, err
+	}
+	go func() {
+		defer done()
+		wctx := context.WithoutCancel(runCtx)
+		defer s.recoverStudy(wctx, st)
+		s.askAll(runCtx, wctx, st, a, again, rt)
+		if runCtx.Err() != nil {
+			return
+		}
+		s.holdForReport(wctx, st.ID)
 	}()
 	return st, nil
 }
@@ -237,15 +563,30 @@ func (s *Service) DeleteStudy(ctx context.Context, id uuid.UUID) error {
 	return s.d.Store.DeleteStudy(ctx, id)
 }
 
-func (s *Service) runStudy(ctx context.Context, st domain.Study, a domain.Audience, personas []domain.Persona, rt domain.Agent) {
-	wctx := context.WithoutCancel(ctx)
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error().Interface("panic", r).Str("study_id", st.ID.String()).Msg("audience: study panicked")
-			s.finishStudy(wctx, st, nil, "The study crashed.")
-		}
-	}()
+func (s *Service) recoverStudy(wctx context.Context, st domain.Study) {
+	if r := recover(); r != nil {
+		log.Error().Interface("panic", r).Str("study_id", st.ID.String()).Msg("audience: study panicked")
+		s.finishStudy(wctx, st, nil, "The study crashed.")
+	}
+}
 
+func (s *Service) runStudy(ctx context.Context, st domain.Study, a domain.Audience, personas []domain.Persona, rt domain.Agent, manualReport bool) {
+	wctx := context.WithoutCancel(ctx)
+	defer s.recoverStudy(wctx, st)
+
+	s.askAll(ctx, wctx, st, a, personas, rt)
+	if ctx.Err() != nil {
+		return // cancelled: CancelStudy wrote the outcome
+	}
+	if manualReport {
+		s.holdForReport(wctx, st.ID)
+		return
+	}
+	s.writeReport(ctx, wctx, st, a, rt)
+}
+
+// askAll interviews these people, a few at a time, and returns when all are done.
+func (s *Service) askAll(ctx, wctx context.Context, st domain.Study, a domain.Audience, personas []domain.Persona, rt domain.Agent) {
 	var wg sync.WaitGroup
 	for _, p := range personas {
 		wg.Add(1)
@@ -255,23 +596,29 @@ func (s *Service) runStudy(ctx context.Context, st domain.Study, a domain.Audien
 		}()
 	}
 	wg.Wait()
-	if ctx.Err() != nil {
-		return // cancelled: CancelStudy wrote the outcome
-	}
+}
 
+// holdForReport moves a study whose interviews are over to interviewed.
+func (s *Service) holdForReport(wctx context.Context, id uuid.UUID) {
+	cur, err := s.d.Store.GetStudy(wctx, id)
+	if err != nil || cur.Status.Terminal() {
+		return
+	}
+	cur.Status = domain.StudyInterviewed
+	if err := s.d.Store.SaveStudy(wctx, cur); err != nil {
+		log.Warn().Err(err).Msg("audience: marking the study interviewed failed")
+	}
+}
+
+// writeReport turns the answers into the report and finishes the study.
+func (s *Service) writeReport(ctx, wctx context.Context, st domain.Study, a domain.Audience, rt domain.Agent) {
 	answers, err := s.d.Store.ListAnswers(wctx, st.ID)
 	if err != nil {
 		s.finishStudy(wctx, st, nil, err.Error())
 		return
 	}
 	sortAnswers(answers)
-	var ok int
-	for _, ans := range answers {
-		if ans.Status == "ok" {
-			ok++
-		}
-	}
-	if ok == 0 {
+	if len(okAnswers(answers)) == 0 {
 		s.finishStudy(wctx, st, nil, "No one answered. Check that the agent can run, then plan the study again.")
 		return
 	}
@@ -283,6 +630,7 @@ func (s *Service) runStudy(ctx context.Context, st domain.Study, a domain.Audien
 	if err := s.d.Store.SaveStudy(wctx, cur); err != nil {
 		log.Warn().Err(err).Msg("audience: marking the study synthesizing failed")
 	}
+	st = cur
 	report := s.synthesize(ctx, st, a, answers, rt)
 	if ctx.Err() != nil {
 		return
@@ -290,42 +638,53 @@ func (s *Service) runStudy(ctx context.Context, st domain.Study, a domain.Audien
 	s.finishStudy(wctx, st, &report, "")
 }
 
-// askPersona asks one person the study's questions and keeps the answer; a
-// person who cannot answer is recorded as failed, never as a "no".
-func (s *Service) askPersona(ctx, wctx context.Context, st domain.Study, a domain.Audience, p domain.Persona, rt domain.Agent) {
-	var parsed domain.StudyAnswers
+// beginScript writes the script in the background.
+func (s *Service) beginScript(ctx context.Context, st domain.Study, a domain.Audience) error {
+	rt, err := s.agentFor(ctx)
+	if err != nil {
+		return err
+	}
+	runCtx, done, err := s.begin(ctx, st.ID)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer done()
+		s.runScript(runCtx, st, a, rt)
+	}()
+	return nil
+}
+
+func (s *Service) runScript(ctx context.Context, st domain.Study, a domain.Audience, rt domain.Agent) {
+	wctx := context.WithoutCancel(ctx)
+	var script *domain.StudyScript
+	system, user := s.scriptPrompt(st, a)
 	err := s.askJSON(ctx, rt, askRequest{
-		Messages: []domain.Message{
-			{Role: domain.RoleSystem, Content: answerSystemKey.Render(answerSystemInput{Sheet: sheetOf(p.Name, p.Segment, p.PersonaProfile), Language: a.Brief.Language})},
-			{Role: domain.RoleUser, Content: answerUserKey.Render(answerUserInput{
-				Product: st.ProductSnapshot, Currency: st.Currency, PricePoints: priceStrings(st.PricePoints), Questions: st.Questions,
-			})},
-		},
-		Label: "audience-study:" + p.Name, Title: "interview " + p.Name, MaxTurns: 4,
+		Messages: []domain.Message{{Role: domain.RoleSystem, Content: system}, {Role: domain.RoleUser, Content: user}},
+		Label:    "audience-study:script", Title: "write interview script", MaxTurns: 4,
 	}, func(raw string) error {
-		got, err := parseAnswers(raw, st.PricePoints)
+		got, err := parseScript(raw)
 		if err != nil {
 			return err
 		}
-		parsed = got
+		script = got
 		return nil
 	})
 	if ctx.Err() != nil {
 		return
 	}
-	pid := p.ID
-	ans := domain.StudyAnswer{StudyID: st.ID, PersonaID: &pid, Persona: snapshotOf(p), Status: "ok", Answers: parsed}
-	failed := 0
-	if err != nil {
-		ans.Status, ans.Error, ans.Answers = "failed", clip(err.Error(), 300), domain.StudyAnswers{}
-		failed = 1
-	}
-	if serr := s.d.Store.SaveAnswer(wctx, ans); serr != nil {
-		log.Error().Err(serr).Str("study_id", st.ID.String()).Msg("audience: saving an answer failed")
+	cur, gerr := s.d.Store.GetStudy(wctx, st.ID)
+	if gerr != nil || cur.Status != domain.StudyDraft || cur.ScriptState != domain.ScriptGenerating {
 		return
 	}
-	if _, _, berr := s.d.Store.BumpStudyProgress(wctx, st.ID, 1-failed, failed); berr != nil {
-		log.Warn().Err(berr).Msg("audience: study progress not recorded")
+	if err != nil {
+		log.Warn().Err(err).Str("study_id", st.ID.String()).Msg("audience: writing the interview script failed")
+		cur.ScriptState, cur.Error = domain.ScriptFailed, clip(err.Error(), 300)
+	} else {
+		setScript(&cur, script)
+	}
+	if serr := s.d.Store.SaveStudy(wctx, cur); serr != nil {
+		log.Error().Err(serr).Str("study_id", st.ID.String()).Msg("audience: saving the interview script failed")
 	}
 }
 
@@ -393,7 +752,7 @@ func parseAnswers(raw string, asked []float64) (domain.StudyAnswers, error) {
 	if out.Verdict == "" {
 		out.Verdict = verdictFromScore(score)
 	}
-	if v, ok := boolOf(m, "would_pay_now", "would_pay", "would_buy"); ok {
+	if v, ok := boolOf(m, "would_pay_now", "would_pay", "would_buy", "would_act_now", "would_act"); ok {
 		out.WouldPayNow = v
 	} else {
 		out.WouldPayNow = out.Verdict == "yes"

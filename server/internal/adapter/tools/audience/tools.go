@@ -2,6 +2,7 @@ package audience
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 
@@ -21,6 +22,7 @@ const (
 	studyStatusName    = "study_status"
 	studyReportName    = "study_report"
 	studyPlanName      = "study_plan"
+	studyScriptName    = "study_script"
 	studyStartName     = "study_start"
 	studyCancelName    = "study_cancel"
 	studyFollowUpName  = "study_follow_up"
@@ -39,6 +41,16 @@ var segmentsSchema = map[string]interface{}{
 	"items": objectSchema(map[string]interface{}{
 		"name": stringSchema(), "description": stringSchema(), "count": intSchema(),
 	}, "name"),
+}
+
+var pagesSchema = map[string]interface{}{
+	"type":  "array",
+	"items": objectSchema(map[string]interface{}{"url": stringSchema(), "copy": stringSchema()}),
+}
+
+var scriptSchema = map[string]interface{}{
+	"type":  "array",
+	"items": objectSchema(map[string]interface{}{"title": stringSchema(), "questions": stringList()}, "questions"),
 }
 
 func briefProps() map[string]interface{} {
@@ -246,7 +258,7 @@ func tools() []*tool {
 				}
 				return map[string]any{"study": viewOf(d.Study), "running": d.Running, "follow_ups": d.FollowUps}, nil
 			}},
-		{name: studyReportName, params: objectSchema(map[string]interface{}{"study_id": stringSchema()}, "study_id"),
+		{name: studyReportName, params: objectSchema(map[string]interface{}{"study_id": stringSchema(), "user_approved": boolSchema()}, "study_id"),
 			run: func(ctx context.Context, k *ToolKit, a map[string]any) (any, error) {
 				id, err := argID(a, "study_id")
 				if err != nil {
@@ -256,6 +268,16 @@ func tools() []*tool {
 				if err != nil {
 					return nil, err
 				}
+				if d.Status == domain.StudyInterviewed {
+					if approved, _ := a["user_approved"].(bool); !approved {
+						return nil, errors.New(needsApprovalKey.Render(approvalInput{Action: "writing this report", Calls: 1}))
+					}
+					st, err := k.Service.GenerateReport(ctx, id)
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"study": viewOf(st), "note": "The report is being written; read it with study_report in a minute."}, nil
+				}
 				if d.Report == nil {
 					return map[string]any{"study": viewOf(d.Study), "report": nil, "note": "There is no report yet."}, nil
 				}
@@ -264,6 +286,7 @@ func tools() []*tool {
 		{name: studyPlanName, params: objectSchema(map[string]interface{}{
 			"audience_id": stringSchema(), "title": stringSchema(), "goal": stringSchema(), "questions": stringList(),
 			"price_points": numberList(), "currency": stringSchema(),
+			"kind": stringSchema(), "intent": stringSchema(), "pages": pagesSchema, "variants": stringList(),
 		}, "audience_id"),
 			run: func(ctx context.Context, k *ToolKit, a map[string]any) (any, error) {
 				id, err := argID(a, "audience_id")
@@ -273,11 +296,55 @@ func tools() []*tool {
 				st, err := k.Service.PlanStudy(ctx, id, audience.PlanStudyInput{
 					Title: argString(a, "title"), Goal: argString(a, "goal"), Questions: argStrings(a, "questions"),
 					PricePoints: argNumbers(a, "price_points"), Currency: argString(a, "currency"),
+					Kind:   argString(a, "kind"),
+					Inputs: domain.StudyInputs{Intent: argString(a, "intent"), Pages: argPages(a, "pages"), Variants: argStrings(a, "variants")},
 				})
 				if err != nil {
 					return nil, err
 				}
 				return viewOf(st), nil
+			}},
+		{name: studyScriptName, params: objectSchema(map[string]interface{}{
+			"study_id": stringSchema(), "sections": scriptSchema, "regenerate": boolSchema(), "approve": boolSchema(), "version": intSchema(), "user_approved": boolSchema(),
+		}, "study_id"),
+			run: func(ctx context.Context, k *ToolKit, a map[string]any) (any, error) {
+				id, err := argID(a, "study_id")
+				if err != nil {
+					return nil, err
+				}
+				if approve, _ := a["approve"].(bool); approve {
+					if approved, _ := a["user_approved"].(bool); !approved {
+						return nil, errors.New(prompt.Text(scriptNeedsYesKey))
+					}
+					version, _ := argInt(a, "version")
+					st, err := k.Service.ApproveScript(ctx, id, version, "agent")
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"script_state": st.ScriptState, "script_version": st.ScriptVersion, "approved_at": st.ScriptApprovedAt, "note": "Approved. study_start can run it now, with the user's yes to the model calls."}, nil
+				}
+				if regenerate, _ := a["regenerate"].(bool); regenerate {
+					if approved, _ := a["user_approved"].(bool); !approved {
+						return nil, errors.New(needsApprovalKey.Render(approvalInput{Action: "writing the script again", Calls: 1}))
+					}
+					st, err := k.Service.GenerateScript(ctx, id)
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"study": viewOf(st), "note": "The script is being written; read it with study_script in a few seconds."}, nil
+				}
+				if sections, ok := argScript(a, "sections"); ok {
+					st, err := k.Service.UpdateStudy(ctx, id, audience.PlanStudyInput{Script: sections})
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"script_state": st.ScriptState, "script_version": st.ScriptVersion, "script": st.Script, "calls_estimate": st.CallsEstimate, "note": "The script changed, so any earlier approval is void: show it and ask the user's OK."}, nil
+				}
+				d, err := k.Service.Study(ctx, id)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"script_state": d.ScriptState, "script_version": d.ScriptVersion, "approved_version": d.ScriptApprovedVersion, "approved_at": d.ScriptApprovedAt, "script": d.Script, "error": d.Error, "calls_estimate": d.CallsEstimate}, nil
 			}},
 		{name: studyStartName,
 			params: objectSchema(map[string]interface{}{"study_id": stringSchema(), "user_approved": boolSchema()}, "study_id", "user_approved"),

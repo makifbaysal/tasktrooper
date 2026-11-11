@@ -7,6 +7,7 @@ import (
 
 	pgstore "github.com/makifbaysal/tasktrooper/server/internal/adapter/storage/postgres"
 	audiencetools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/audience"
+	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/web"
 	audienceapp "github.com/makifbaysal/tasktrooper/server/internal/application/audience"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
@@ -32,6 +33,7 @@ func (e *engine) wireAudience(ctx context.Context, d audienceDeps) *audienceapp.
 		Agents:     d.agents,
 		Runner:     e.agentRouter,
 		LLM:        d.llm,
+		Pages:      web.NewReader(0),
 		Background: ctx,
 	}
 	if d.repositories != nil {

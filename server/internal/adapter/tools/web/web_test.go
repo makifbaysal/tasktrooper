@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/web"
@@ -249,4 +251,32 @@ func reservePort(t *testing.T) string {
 	}
 	_ = l.Close()
 	return port
+}
+
+func TestReaderGivesThePageTextWithoutScriptsOrStylesAndRefusesGuardedDestinations(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/missing" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><head><style>.x{color:red}</style><script>var secret = 1;</script></head><body><!-- note --><h1>Şule'nin Fatura Aracı</h1><p>Send invoices.</p></body></html>`))
+	}))
+	defer srv.Close()
+
+	r := web.NewReader(1048576, web.WithURLPolicy(localPolicy()))
+	text, err := r.Read(context.Background(), srv.URL)
+	require.NoError(t, err)
+	assert.Contains(t, text, "Şule'nin Fatura Aracı")
+	assert.Contains(t, text, "Send invoices.")
+	assert.NotContains(t, text, "secret")
+	assert.NotContains(t, text, "color:red")
+	assert.NotContains(t, text, "note")
+
+	_, err = r.Read(context.Background(), srv.URL+"/missing")
+	assert.Error(t, err, "a 404 is not a page")
+
+	guarded := web.NewReader(1048576)
+	_, err = guarded.Read(context.Background(), srv.URL)
+	assert.EqualError(t, err, "could not fetch that URL", "loopback stays refused by default")
 }

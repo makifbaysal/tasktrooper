@@ -38,6 +38,9 @@ type AudienceStore interface {
 	BumpStudyProgress(ctx context.Context, id uuid.UUID, done, failed int) (doneTotal, failedTotal int, err error)
 	SaveAnswer(ctx context.Context, a domain.StudyAnswer) error
 	ListAnswers(ctx context.Context, studyID uuid.UUID) ([]domain.StudyAnswer, error)
+	// DeleteFailedAnswers removes the interviews that failed so they can be
+	// asked again, and answers how many there were.
+	DeleteFailedAnswers(ctx context.Context, studyID uuid.UUID) (int, error)
 
 	AddMessages(ctx context.Context, msgs []domain.ChatMessage) error
 	// ListMessages answers the persona's whole thread, oldest first.

@@ -1,15 +1,15 @@
 ---
 key: audience.synth_user
-version: 1
-inputs: [Title, Goal, Product, Language, Currency, Stats, Segments, Personas, Questions]
+version: 2
+inputs: [Title, Goal, Kind, Product, Language, Currency, Stats, Segments, Personas, Questions]
 ---
 Study: {{.Title}}
 {{- if .Goal}}
 Goal: {{.Goal}}
 {{- end}}
-Language of the report: {{if .Language}}{{.Language}}{{else}}English{{end}}. Prices are in {{.Currency}}.
+Language of the report: {{if .Language}}{{.Language}}{{else}}English{{end}}. {{if .Currency}}Prices are in {{.Currency}}.{{end}}
 
-The product that was judged:
+{{if eq .Kind "landing_page_test"}}The page that was tested{{else if eq .Kind "message_testing"}}The candidate lines that were tested{{else if eq .Kind "ab_test"}}The two pages that were compared{{else}}The product that was judged{{end}}:
 {{.Product}}
 
 Computed results (do not change them):

@@ -115,7 +115,25 @@ func TestAudienceScreenFlowFromBriefToReportToAConversation(t *testing.T) {
 	require.Equal(t, 200, status, string(body))
 	assert.Equal(t, []string{"Q1", "Q2"}, decode[domain.Study](t, body).Questions)
 
-	status, _ = f.do(t, "POST", "/v1/audience-studies/"+study.ID.String()+"/start", nil)
+	status, body = f.do(t, "POST", "/v1/audience-studies/"+study.ID.String()+"/start", nil)
+	require.Equal(t, 400, status, "starting needs the person's yes: "+string(body))
+	status, body = f.do(t, "POST", "/v1/audience-studies/"+study.ID.String()+"/start", map[string]any{"user_approved": true})
+	require.Equal(t, 409, status, "the script is not approved yet: "+string(body))
+	assert.Contains(t, string(body), "script_not_approved")
+	status, body = f.do(t, "POST", "/v1/audience-studies/"+study.ID.String()+"/script/approve", map[string]any{"version": 99})
+	require.Equal(t, 409, status)
+	assert.Contains(t, string(body), "script_changed")
+	status, body = f.do(t, "GET", "/v1/audience-studies/"+study.ID.String(), nil)
+	require.Equal(t, 200, status)
+	shown := decode[audience.StudyDetail](t, body)
+	assert.Equal(t, domain.ScriptAwaitingApproval, shown.ScriptState)
+	status, body = f.do(t, "POST", "/v1/audience-studies/"+study.ID.String()+"/script/approve", map[string]any{"version": shown.ScriptVersion})
+	require.Equal(t, 200, status, string(body))
+	approved := decode[domain.Study](t, body)
+	assert.Equal(t, domain.ScriptApproved, approved.ScriptState)
+	assert.Equal(t, "local", approved.ScriptApprovedBy)
+	assert.NotNil(t, approved.ScriptApprovedAt)
+	status, _ = f.do(t, "POST", "/v1/audience-studies/"+study.ID.String()+"/start", map[string]any{"user_approved": true})
 	require.Equal(t, 202, status)
 	raw = f.waitFor(t, "/v1/audience-studies/"+study.ID.String(), func(raw []byte) bool {
 		return decode[audience.StudyDetail](t, raw).Status == domain.StudyDone
@@ -184,4 +202,65 @@ func TestAudienceRefusalsKeepTheirStatusAndCode(t *testing.T) {
 	assert.Equal(t, 404, status)
 	status, _ = f.do(t, "POST", "/v1/audiences/"+a.ID.String()+"/studies", map[string]any{})
 	assert.Equal(t, 400, status, "no people yet")
+}
+
+func TestAudienceStudyKindsScriptAndManualReportOverHTTP(t *testing.T) {
+	f := newAudienceFixture(t, audiencetest.OneAgent())
+	_, body := f.do(t, "POST", "/v1/audiences", map[string]any{
+		"name": "Designers", "persona_target": 2, "brief": map[string]any{"product": "A kanban for agents"},
+	})
+	a := decode[domain.Audience](t, body)
+	_, _ = f.do(t, "POST", "/v1/audiences/"+a.ID.String()+"/build", nil)
+	f.waitFor(t, "/v1/audiences/"+a.ID.String(), func(raw []byte) bool {
+		return decode[audience.AudienceDetail](t, raw).Status == domain.AudienceReady
+	})
+
+	status, body := f.do(t, "POST", "/v1/audiences/"+a.ID.String()+"/studies", map[string]any{"kind": "survey"})
+	assert.Equal(t, 400, status, string(body))
+	status, body = f.do(t, "POST", "/v1/audiences/"+a.ID.String()+"/studies", map[string]any{
+		"kind": "message_testing", "inputs": map[string]any{"variants": []string{"Boards for agents", "Ship faster"}},
+	})
+	require.Equal(t, 201, status, string(body))
+	study := decode[domain.Study](t, body)
+	assert.Equal(t, domain.KindMessageTesting, study.Kind)
+	assert.Equal(t, 4, study.CallsEstimate, "two people, the report and the script")
+
+	status, body = f.do(t, "POST", "/v1/audiences/"+a.ID.String()+"/studies", map[string]any{"title": "Plain"})
+	require.Equal(t, 201, status, string(body))
+	run := decode[domain.Study](t, body)
+	assert.Equal(t, domain.KindUserInterviews, run.Kind)
+	f.waitFor(t, "/v1/audience-studies/"+run.ID.String(), func(raw []byte) bool {
+		return decode[audience.StudyDetail](t, raw).ScriptState == domain.ScriptAwaitingApproval
+	})
+
+	status, body = f.do(t, "PATCH", "/v1/audience-studies/"+run.ID.String(), map[string]any{
+		"script": map[string]any{"sections": []map[string]any{{"title": "Mine", "questions": []string{"Why?"}}}},
+	})
+	require.Equal(t, 200, status, string(body))
+	assert.Equal(t, []string{"Why?"}, decode[domain.Study](t, body).Questions)
+
+	status, _ = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/report", map[string]any{"user_approved": true})
+	assert.Equal(t, 400, status, "no report before the interviews")
+	status, _ = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/start", map[string]any{"user_approved": true, "manual_report": true})
+	assert.Equal(t, 409, status, "the edited script waits for its approval")
+	status, body = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/script/approve", nil)
+	assert.Equal(t, 400, status, "the version that was shown is required")
+	status, body = f.do(t, "GET", "/v1/audience-studies/"+run.ID.String(), nil)
+	require.Equal(t, 200, status)
+	status, _ = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/script/approve", map[string]any{"version": decode[audience.StudyDetail](t, body).ScriptVersion})
+	require.Equal(t, 200, status)
+	status, body = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/start", map[string]any{"user_approved": true, "manual_report": true})
+	require.Equal(t, 202, status, string(body))
+	f.waitFor(t, "/v1/audience-studies/"+run.ID.String(), func(raw []byte) bool {
+		return decode[audience.StudyDetail](t, raw).Status == domain.StudyInterviewed
+	})
+	status, _ = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/report", nil)
+	assert.Equal(t, 400, status, "the report needs the yes too")
+	status, _ = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/report", map[string]any{"user_approved": true})
+	require.Equal(t, 202, status)
+	f.waitFor(t, "/v1/audience-studies/"+run.ID.String(), func(raw []byte) bool {
+		return decode[audience.StudyDetail](t, raw).Status == domain.StudyDone
+	})
+	status, _ = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/retry", map[string]any{"user_approved": true})
+	assert.Equal(t, 400, status, "nothing to retry")
 }

@@ -46,6 +46,7 @@ func ScriptedModel(answerFor func(name string) string) *Model {
 	m.On("You are a character in a market-research interview", func(req domain.AgentRequest) (string, error) {
 		return answerFor(nameRe.FindStringSubmatch(req.Messages[0].Content)[1]), nil
 	})
+	m.Say("You design the interview script", `{"sections":[{"title":"Today","questions":["How do you handle this today?","What went wrong last time?"]},{"title":"Decision","questions":["What would make you switch?"]}]}`)
 	m.Say("You are a market-research analyst", `{"summary":"Interest is lukewarm and price-bound.","verdict_rationale":"Mean intent is middling.",
 	  "segment_insights":[{"segment":"Freelancers","insight":"Freelancers balk at the price."}],
 	  "objection_themes":[{"label":"Too expensive","personas":["p1","p2","P3","p99"]}],

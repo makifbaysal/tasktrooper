@@ -3,9 +3,11 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -96,16 +98,31 @@ func (w *webTool) Execute(ctx context.Context, arguments string) domain.ToolResu
 		}
 	}
 
+	status, contentType, content, ok := w.fetch(ctx, a.URL)
+	if !ok {
+		return domain.ToolResult{Name: ToolName, Content: fetchFailed, IsError: true}
+	}
+
+	return domain.ToolResult{
+		Name:    ToolName,
+		Content: fmt.Sprintf("HTTP %d\nContent-Type: %s\n\n%s", status, contentType, content),
+		IsError: false,
+	}
+}
+
+// fetch is the guarded GET behind both the tool and the Reader; ok is false
+// for any failure, and the reason only goes to the log.
+func (w *webTool) fetch(ctx context.Context, rawURL string) (status int, contentType, content string, ok bool) {
 	// The model chose this URL, and the text that made it choose came off the
 	// open internet — so the destination is attacker-controlled and gets the
 	// full guard: scheme allowlist, resolution, address rules, and a dial pinned
 	// to the address that was checked. Without it, "url":"http://127.0.0.1:8080/
 	// metrics" reaches this pod's own listener, where everything outside /v1 and
 	// /admin is served unauthenticated (adapter/http/handler_ui.go).
-	target, err := w.policy.Validate(ctx, a.URL)
+	target, err := w.policy.Validate(ctx, rawURL)
 	if err != nil {
-		log.Debug().Err(err).Str("url", urlguard.LogRaw(a.URL)).Msg("fetch_url destination refused")
-		return domain.ToolResult{Name: ToolName, Content: fetchFailed, IsError: true}
+		log.Debug().Err(err).Str("url", urlguard.LogRaw(rawURL)).Msg("fetch_url destination refused")
+		return 0, "", "", false
 	}
 
 	// Log the destination without its query string: an agent-supplied URL
@@ -116,14 +133,14 @@ func (w *webTool) Execute(ctx context.Context, arguments string) domain.ToolResu
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.URL.String(), nil)
 	if err != nil {
 		log.Debug().Err(err).Str("url", urlguard.LogValue(target.URL)).Msg("fetch_url request build failed")
-		return domain.ToolResult{Name: ToolName, Content: fetchFailed, IsError: true}
+		return 0, "", "", false
 	}
 	req.Header.Set("User-Agent", "local-llm-bridge/1.0")
 
 	resp, err := w.policy.ClientFor(target, fetchTimeout).Do(req)
 	if err != nil {
 		log.Debug().Err(err).Str("url", urlguard.LogValue(target.URL)).Msg("fetch_url failed")
-		return domain.ToolResult{Name: ToolName, Content: fetchFailed, IsError: true}
+		return 0, "", "", false
 	}
 	defer resp.Body.Close()
 
@@ -135,24 +152,42 @@ func (w *webTool) Execute(ctx context.Context, arguments string) domain.ToolResu
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
 	if err != nil {
 		log.Debug().Err(err).Str("url", urlguard.LogValue(target.URL)).Msg("fetch_url body read failed")
-		return domain.ToolResult{Name: ToolName, Content: fetchFailed, IsError: true}
+		return 0, "", "", false
 	}
 
-	content := string(body)
-	contentType := resp.Header.Get("Content-Type")
-
+	content = string(body)
+	contentType = resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/html") {
 		content = extractText(content)
 	}
+	return resp.StatusCode, contentType, content, true
+}
 
-	return domain.ToolResult{
-		Name:    ToolName,
-		Content: fmt.Sprintf("HTTP %d\nContent-Type: %s\n\n%s", resp.StatusCode, contentType, content),
-		IsError: false,
+// Reader reads a page's text through the same guarded fetch the fetch_url
+// tool uses, for code that is not an agent (a study reading a landing page).
+type Reader struct{ w *webTool }
+
+// NewReader takes the same options as New.
+func NewReader(maxBytes int64, opts ...Option) *Reader {
+	t := &webTool{maxBytes: maxBytes, policy: urlguard.Default()}
+	for _, opt := range opts {
+		opt(t)
 	}
+	return &Reader{w: t}
+}
+
+// Read answers the page's text, or an error that says nothing about why
+// (see fetchFailed). A non-2xx status is an error.
+func (r *Reader) Read(ctx context.Context, rawURL string) (string, error) {
+	status, _, content, ok := r.w.fetch(ctx, rawURL)
+	if !ok || status < 200 || status > 299 {
+		return "", errors.New(fetchFailed)
+	}
+	return content, nil
 }
 
 func extractText(html string) string {
+	html = dropBlocks(html)
 	inTag := false
 	var sb strings.Builder
 
@@ -180,3 +215,8 @@ func extractText(html string) string {
 	}
 	return strings.Join(result, "\n")
 }
+
+var blockRe = regexp.MustCompile(`(?is)<(script|style|noscript|svg|template)\b[^>]*>.*?</(script|style|noscript|svg|template)\s*>|<!--.*?-->`)
+
+// dropBlocks removes what a reader never sees: scripts, styles, comments.
+func dropBlocks(html string) string { return blockRe.ReplaceAllString(html, " ") }

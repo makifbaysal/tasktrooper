@@ -15,8 +15,8 @@ import (
 )
 
 type synthUserInput struct {
-	Title, Goal, Product, Language, Currency, Stats string
-	Segments, Personas, Questions                   []string
+	Title, Goal, Kind, Product, Language, Currency, Stats string
+	Segments, Personas, Questions                         []string
 }
 
 type methodologyInput struct {
@@ -27,7 +27,7 @@ type methodologyInput struct {
 var (
 	synthSystemKey = prompt.Define[struct{}]("audience.synth_system", struct{}{})
 	synthUserKey   = prompt.Define("audience.synth_user", synthUserInput{
-		Title: "Would they buy?", Product: "A kanban for AI agents.", Currency: "USD", Stats: "mean intent 5.2",
+		Title: "Would they buy?", Kind: "user_interviews", Product: "A kanban for AI agents.", Currency: "USD", Stats: "mean intent 5.2",
 		Segments: []string{"- Freelancers: 4"}, Personas: []string{"p1 (Ayse): said maybe"}, Questions: []string{"- What would convince you?"},
 	})
 	disclaimerKey  = prompt.Define[struct{}]("audience.disclaimer", struct{}{})
@@ -240,7 +240,7 @@ func computeReport(st domain.Study, all []domain.StudyAnswer) domain.Report {
 	}
 
 	score := round(m.IntentMean*10, 1)
-	return domain.Report{
+	report := domain.Report{
 		GeneratedAt: st.CreatedAt,
 		Verdict:     domain.ReportVerdict{Label: verdictLabel(score), Score: score},
 		Metrics:     m,
@@ -248,6 +248,8 @@ func computeReport(st domain.Study, all []domain.StudyAnswer) domain.Report {
 		Objections:  []domain.Theme{}, Needs: []domain.Theme{}, Alternatives: []domain.Theme{},
 		Quotes: []domain.ReportQuote{}, Recommendations: []domain.Recommendation{},
 	}
+	addKindReport(&report, st, ok)
+	return report
 }
 
 // ---- the narrative
@@ -259,6 +261,9 @@ type synthResult struct {
 	Objections       []rawTheme
 	Needs            []rawTheme
 	Alternatives     []rawTheme
+	Strengths        []rawTheme
+	AReasons         []rawTheme
+	BReasons         []rawTheme
 	Quotes           []rawQuote
 	Recommendations  []domain.Recommendation
 	OpenQuestions    []domain.OpenQuestionDigest
@@ -270,7 +275,7 @@ type rawTheme struct {
 }
 
 type rawQuote struct {
-	Persona, Text, Topic, Sentiment string
+	Persona, Text, Topic, Sentiment, Version string
 }
 
 func parseSynthesis(raw string) (synthResult, error) {
@@ -303,10 +308,13 @@ func parseSynthesis(raw string) (synthResult, error) {
 	out.Objections = themes("objection_themes", "objections")
 	out.Needs = themes("need_themes", "needs")
 	out.Alternatives = themes("alternative_themes", "alternatives")
+	out.Strengths = themes("strength_themes", "strengths")
+	out.AReasons = themes("a_reason_themes")
+	out.BReasons = themes("b_reason_themes")
 	for _, q := range objectsOf(m, "quotes") {
 		if text := clip(strOf(q, "text", "quote"), 400); text != "" {
 			out.Quotes = append(out.Quotes, rawQuote{Persona: strOf(q, "persona", "persona_id"), Text: text, Topic: clip(strOf(q, "topic"), 80),
-				Sentiment: oneOf(strOf(q, "sentiment"), "positive", "negative", "neutral")})
+				Sentiment: oneOf(strOf(q, "sentiment"), "positive", "negative", "neutral"), Version: strings.ToUpper(oneOf(strings.ToLower(strOf(q, "version")), "a", "b"))})
 		}
 	}
 	for _, r := range objectsOf(m, "recommendations") {
@@ -339,9 +347,9 @@ func (s *Service) synthesize(ctx context.Context, st domain.Study, a domain.Audi
 	var result synthResult
 	err := s.askJSON(ctx, rt, askRequest{
 		Messages: []domain.Message{
-			{Role: domain.RoleSystem, Content: prompt.Text(synthSystemKey)},
+			{Role: domain.RoleSystem, Content: synthSystemFor(st.Kind)},
 			{Role: domain.RoleUser, Content: synthUserKey.Render(synthUserInput{
-				Title: st.Title, Goal: st.Goal, Product: st.ProductSnapshot, Language: a.Brief.Language, Currency: st.Currency,
+				Title: st.Title, Goal: st.Goal, Kind: string(st.Kind), Product: subjectText(st), Language: a.Brief.Language, Currency: currencyFor(st),
 				Stats: statsText(report), Segments: segmentLines(report), Personas: personaDigests(ids, ok), Questions: questionLines(st.Questions),
 			})},
 		},
@@ -363,8 +371,12 @@ func (s *Service) synthesize(ctx context.Context, st domain.Study, a domain.Audi
 		report.Needs = frequencyThemes(ok, func(a domain.StudyAnswer) []string { return a.Answers.Missing })
 		report.Alternatives = frequencyThemes(ok, func(a domain.StudyAnswer) []string { return a.Answers.Alternatives })
 		report.Quotes = fallbackQuotes(ok)
-		report.Summary = fmt.Sprintf("The written analysis could not be produced. The numbers below come straight from the %d answers: mean purchase intent %.1f of 10, %d yes, %d maybe, %d no.",
-			report.Metrics.Respondents, report.Metrics.IntentMean, report.Metrics.Yes, report.Metrics.Maybe, report.Metrics.No)
+		if st.Kind == domain.KindUserInterviews || st.Kind == "" {
+			report.Summary = fmt.Sprintf("The written analysis could not be produced. The numbers below come straight from the %d answers: mean purchase intent %.1f of 10, %d yes, %d maybe, %d no.",
+				report.Metrics.Respondents, report.Metrics.IntentMean, report.Metrics.Yes, report.Metrics.Maybe, report.Metrics.No)
+		} else {
+			report.Summary = fmt.Sprintf("The written analysis could not be produced. The numbers below come straight from the %d answers.", report.Metrics.Respondents)
+		}
 	} else {
 		report.Summary = result.Summary
 		report.Verdict.Rationale = result.VerdictRationale
@@ -374,6 +386,11 @@ func (s *Service) synthesize(ctx context.Context, st domain.Study, a domain.Audi
 		report.Objections = themesFrom(result.Objections, byID)
 		report.Needs = themesFrom(result.Needs, byID)
 		report.Alternatives = themesFrom(result.Alternatives, byID)
+		report.Strengths = themesFrom(result.Strengths, byID)
+		if report.AB != nil {
+			report.AB.Sides[0].Reasons = themesFrom(result.AReasons, byID)
+			report.AB.Sides[1].Reasons = themesFrom(result.BReasons, byID)
+		}
 		report.Quotes = quotesFrom(result.Quotes, byID)
 		if len(report.Quotes) == 0 {
 			report.Quotes = fallbackQuotes(ok)
@@ -381,9 +398,16 @@ func (s *Service) synthesize(ctx context.Context, st domain.Study, a domain.Audi
 		report.Recommendations = nonNilRecs(result.Recommendations)
 		report.OpenQuestions = result.OpenQuestions
 	}
-	report.Methodology = methodologyKey.Render(methodologyInput{
-		Personas: len(ok), Segments: len(report.Segments), Calls: StudyCalls(len(all)), Currency: st.Currency, PriceTests: strings.Join(priceStrings(st.PricePoints), ", "),
-	})
+	if report.AB != nil {
+		for _, q := range report.Quotes {
+			for i := range report.AB.Sides {
+				if q.Version == report.AB.Sides[i].Label && len(report.AB.Sides[i].Quotes) < 4 {
+					report.AB.Sides[i].Quotes = append(report.AB.Sides[i].Quotes, q)
+				}
+			}
+		}
+	}
+	report.Methodology = methodologyFor(st, len(ok), len(report.Segments), StudyCallsFor(st.Kind, len(all))+st.ScriptCalls)
 	report.Disclaimer = prompt.Text(disclaimerKey)
 	return report
 }
@@ -402,6 +426,7 @@ func statsText(r domain.Report) string {
 		fmt.Sprintf("Mean purchase intent: %.2f of 10 (index %.0f of 100, verdict %s)", m.IntentMean, r.Verdict.Score, r.Verdict.Label),
 		fmt.Sprintf("Verdicts: %d yes, %d maybe, %d no; would pay for it today: %.0f%%", m.Yes, m.Maybe, m.No, m.WouldPayNowPct),
 	}
+	lines = append(lines, kindStatsLines(r)...)
 	if m.Price.Answered > 0 {
 		lines = append(lines, fmt.Sprintf("Highest price they would pay (%s): median %s, mean %s, range %s to %s; %d would pay nothing",
 			m.Price.Currency, trimFloat(m.Price.Median), trimFloat(m.Price.Mean), trimFloat(m.Price.Min), trimFloat(m.Price.Max), m.Price.NotWilling))
@@ -428,6 +453,38 @@ func questionLines(qs []string) []string {
 	return out
 }
 
+func currencyFor(st domain.Study) string {
+	if st.Kind == "" || st.Kind == domain.KindUserInterviews {
+		return st.Currency
+	}
+	return ""
+}
+
+func kindStatsLines(r domain.Report) []string {
+	var lines []string
+	switch {
+	case r.Landing != nil:
+		lines = append(lines, fmt.Sprintf("Mean clarity of the offer: %.2f of 10", r.Landing.ClarityMean))
+	case r.Messages != nil:
+		for _, v := range r.Messages.Variants {
+			lines = append(lines, fmt.Sprintf("Line %d (rank %d): overall %.2f of 10 (clarity %.1f, relevance %.1f, credibility %.1f, appeal %.1f), picked best by %.0f%%",
+				v.Variant, v.Rank, v.Overall, v.Clarity, v.Relevance, v.Credibility, v.Appeal, v.BestPct))
+		}
+	case r.AB != nil:
+		ab := r.AB
+		a, b := ab.Sides[0], ab.Sides[1]
+		lines = append(lines,
+			fmt.Sprintf("Preferred: version A by %d people (%.0f%%), version B by %d (%.0f%%); result %s, confidence %s; the version shown first was preferred %.0f%% of the time",
+				a.Wins, a.WinPct, b.Wins, b.WinPct, ab.Winner, ab.Confidence, ab.FirstShownWinPct),
+			fmt.Sprintf("Act-now score (0-10), every person scored both: A mean %.2f median %.1f, B mean %.2f median %.1f, B minus A %.2f (%d scored B higher, %d A higher, %d the same; effect size %.2f, %s)",
+				ab.Act.A.Mean, ab.Act.A.Median, ab.Act.B.Mean, ab.Act.B.Median, ab.Act.Diff, ab.Act.BHigher, ab.Act.AHigher, ab.Act.Same, ab.Act.EffectSize, ab.Act.EffectLabel),
+			fmt.Sprintf("Clarity (0-10): A mean %.2f median %.1f, B mean %.2f median %.1f, B minus A %.2f (effect size %.2f, %s)",
+				ab.Clarity.A.Mean, ab.Clarity.A.Median, ab.Clarity.B.Mean, ab.Clarity.B.Median, ab.Clarity.Diff, ab.Clarity.EffectSize, ab.Clarity.EffectLabel),
+			fmt.Sprintf("Would act (verdict yes): A %.0f%%, B %.0f%%", a.ActPct, b.ActPct))
+	}
+	return lines
+}
+
 func personaDigests(ids []string, ok []domain.StudyAnswer) []string {
 	out := make([]string, len(ok))
 	for i, a := range ok {
@@ -441,6 +498,7 @@ func personaDigests(ids []string, ok []domain.StudyAnswer) []string {
 			b.WriteString(" [" + a.Persona.Segment + "]")
 		}
 		fmt.Fprintf(&b, "\nintent %d/10, verdict %s", ans.IntentScore, ans.Verdict)
+		b.WriteString(kindDigest(ans))
 		if ans.MaxPrice != nil {
 			fmt.Fprintf(&b, ", max price %s", trimFloat(*ans.MaxPrice))
 		}
@@ -498,7 +556,7 @@ func quotesFrom(raw []rawQuote, byID map[string]domain.StudyAnswer) []domain.Rep
 			continue
 		}
 		seen[q.Text] = true
-		out = append(out, domain.ReportQuote{Persona: a.Persona.Name, Segment: a.Persona.Segment, Role: a.Persona.Role, Text: q.Text, Topic: q.Topic, Sentiment: q.Sentiment})
+		out = append(out, domain.ReportQuote{Persona: a.Persona.Name, Segment: a.Persona.Segment, Role: a.Persona.Role, Text: q.Text, Topic: q.Topic, Sentiment: q.Sentiment, Version: versionOf(q.Version, a)})
 	}
 	return out
 }
@@ -509,7 +567,15 @@ func saidBy(a domain.StudyAnswer, text string) bool {
 	if want == "" {
 		return false
 	}
-	have := []string{a.Answers.Quote, a.Answers.Reasoning}
+	have := []string{a.Answers.Quote, a.Answers.Reasoning, a.Answers.Stronger}
+	if a.Answers.Landing != nil {
+		have = append(have, a.Answers.Landing.FirstImpression, a.Answers.Landing.Change)
+	}
+	for _, pg := range []*domain.PageAssessment{a.Answers.PageA, a.Answers.PageB} {
+		if pg != nil {
+			have = append(have, pg.FirstImpression, pg.Change)
+		}
+	}
 	for _, qa := range a.Answers.Answers {
 		have = append(have, qa.Answer)
 	}
@@ -532,7 +598,7 @@ func fallbackQuotes(ok []domain.StudyAnswer) []domain.ReportQuote {
 	}
 	sort.SliceStable(withQuote, func(i, j int) bool { return withQuote[i].Answers.IntentScore > withQuote[j].Answers.IntentScore })
 	pick := func(a domain.StudyAnswer, sentiment string) domain.ReportQuote {
-		return domain.ReportQuote{Persona: a.Persona.Name, Segment: a.Persona.Segment, Role: a.Persona.Role, Text: a.Answers.Quote, Sentiment: sentiment}
+		return domain.ReportQuote{Persona: a.Persona.Name, Segment: a.Persona.Segment, Role: a.Persona.Role, Text: a.Answers.Quote, Sentiment: sentiment, Version: versionOf("", a)}
 	}
 	out := []domain.ReportQuote{}
 	n := len(withQuote)
@@ -581,4 +647,66 @@ func frequencyThemes(ok []domain.StudyAnswer, pick func(domain.StudyAnswer) []st
 		themes = themes[:8]
 	}
 	return themes
+}
+
+func kindDigest(ans domain.StudyAnswers) string {
+	var b strings.Builder
+	if l := ans.Landing; l != nil {
+		fmt.Fprintf(&b, "\nfirst impression: %s\nclarity %d/10", l.FirstImpression, l.ClarityScore)
+		if len(l.TrustSignals) > 0 {
+			b.WriteString("\ntrust signals: " + strings.Join(l.TrustSignals, "; "))
+		}
+		if l.Change != "" {
+			b.WriteString("\nwould change: " + l.Change)
+		}
+	}
+	for _, rt := range ans.Ratings {
+		fmt.Fprintf(&b, "\nline %d: clarity %d, relevance %d, credibility %d, appeal %d", rt.Variant, rt.Clarity, rt.Relevance, rt.Credibility, rt.Appeal)
+		if rt.Comment != "" {
+			b.WriteString(" (" + rt.Comment + ")")
+		}
+	}
+	if ans.BestVariant > 0 {
+		fmt.Fprintf(&b, "\nbest line: %d", ans.BestVariant)
+	}
+	if ans.Stronger != "" {
+		b.WriteString("\nstronger line: " + ans.Stronger)
+	}
+	for _, pg := range []struct {
+		label string
+		a     *domain.PageAssessment
+	}{{"A", ans.PageA}, {"B", ans.PageB}} {
+		if pg.a == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "\nversion %s: act %d/10 (%s), clarity %d/10, first impression: %s", pg.label, pg.a.ActScore, pg.a.Verdict, pg.a.ClarityScore, pg.a.FirstImpression)
+		if len(pg.a.Objections) > 0 {
+			b.WriteString("\n  put off by: " + strings.Join(pg.a.Objections, "; "))
+		}
+		if len(pg.a.Missing) > 0 {
+			b.WriteString("\n  missing: " + strings.Join(pg.a.Missing, "; "))
+		}
+		if len(pg.a.TrustSignals) > 0 {
+			b.WriteString("\n  trust signals: " + strings.Join(pg.a.TrustSignals, "; "))
+		}
+		if pg.a.Change != "" {
+			b.WriteString("\n  would change: " + pg.a.Change)
+		}
+	}
+	if ans.Preferred != "" {
+		fmt.Fprintf(&b, "\npreferred version: %s (saw version %s first)", strings.ToUpper(ans.Preferred), strings.ToUpper(ans.ShownFirst))
+	}
+	return b.String()
+}
+
+// versionOf is the A/B version a quote is about: the one the quote names,
+// else the one its speaker preferred; empty outside an A/B test.
+func versionOf(named string, a domain.StudyAnswer) string {
+	if a.Answers.PageA == nil {
+		return ""
+	}
+	if named == "A" || named == "B" {
+		return named
+	}
+	return strings.ToUpper(a.Answers.Preferred)
 }

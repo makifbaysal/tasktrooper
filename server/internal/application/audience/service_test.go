@@ -23,9 +23,14 @@ type fixture struct {
 
 func newFixture(t *testing.T, model *audiencetest.Model) *fixture {
 	t.Helper()
+	return newFixtureWith(t, model, fakePages{})
+}
+
+func newFixtureWith(t *testing.T, model *audiencetest.Model, pages audience.PageReader) *fixture {
+	t.Helper()
 	store := audiencetest.NewStore()
 	svc := audience.NewService(audience.Deps{
-		Store: store, Agents: audiencetest.OneAgent(), LLM: model,
+		Store: store, Agents: audiencetest.OneAgent(), LLM: model, Pages: pages,
 		Brief:       func(context.Context, uuid.UUID) (string, error) { return "# acme\nGo API plus a React app.", nil },
 		Repos:       repos{},
 		Concurrency: 3, CallTimeout: 10 * time.Second,
@@ -61,6 +66,34 @@ func (f *fixture) waitAudience(t *testing.T, id uuid.UUID, want domain.AudienceS
 		return err == nil && a.Status == want
 	}, 5*time.Second, 10*time.Millisecond, "audience never became %s", want)
 	return a
+}
+
+func (f *fixture) plan(t *testing.T, audienceID uuid.UUID, in audience.PlanStudyInput) (domain.Study, error) {
+	t.Helper()
+	st, err := f.svc.PlanStudy(context.Background(), audienceID, in)
+	if err != nil {
+		return st, err
+	}
+	return f.approve(t, st.ID), nil
+}
+
+func (f *fixture) approve(t *testing.T, id uuid.UUID) domain.Study {
+	t.Helper()
+	st := f.waitScript(t, id, domain.ScriptAwaitingApproval)
+	approved, err := f.svc.ApproveScript(context.Background(), id, st.ScriptVersion, "tester")
+	require.NoError(t, err)
+	return approved
+}
+
+func (f *fixture) waitScript(t *testing.T, id uuid.UUID, want domain.ScriptState) domain.Study {
+	t.Helper()
+	var st domain.Study
+	require.Eventually(t, func() bool {
+		var err error
+		st, err = f.store.GetStudy(context.Background(), id)
+		return err == nil && st.ScriptState == want
+	}, 5*time.Second, 10*time.Millisecond, "script never became %s (is %s: %s)", want, st.ScriptState, st.Error)
+	return st
 }
 
 func (f *fixture) waitStudy(t *testing.T, id uuid.UUID, want domain.StudyStatus) domain.Study {
@@ -246,9 +279,9 @@ func TestPlanningAStudyCostsNothingAndSaysWhatItWillCost(t *testing.T) {
 	assert.NotEmpty(t, st.Title)
 	assert.Equal(t, before, len(f.model.Calls), "planning asks nobody")
 
-	_, err = f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{PricePoints: []float64{-1}})
+	_, err = f.plan(t, a.ID, audience.PlanStudyInput{PricePoints: []float64{-1}})
 	assert.ErrorIs(t, err, domain.ErrAudienceInvalid)
-	_, err = f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{Questions: []string{"1", "2", "3", "4", "5", "6"}})
+	_, err = f.plan(t, a.ID, audience.PlanStudyInput{Questions: []string{"1", "2", "3", "4", "5", "6"}})
 	assert.ErrorIs(t, err, domain.ErrAudienceInvalid)
 
 	empty := f.createAudience(t, 4)
@@ -263,6 +296,7 @@ func TestAStudyAsksEveryoneAndWritesAReportWhoseNumbersAreComputedNotInvented(t 
 	planned, err := f.svc.PlanStudy(ctx, a.ID, audience.PlanStudyInput{Title: "Would they pay?", Questions: []string{"What would convince you?"}, PricePoints: []float64{9, 19}, Currency: "USD"})
 	require.NoError(t, err)
 
+	f.approve(t, planned.ID)
 	started, err := f.svc.StartStudy(ctx, planned.ID)
 	require.NoError(t, err)
 	assert.Equal(t, domain.StudyRunning, started.Status)
@@ -347,7 +381,7 @@ func TestInterviewsRunInParallelButNeverMoreThanTheLimit(t *testing.T) {
 	m.Delay = 60 * time.Millisecond
 	f := newFixture(t, m)
 	a := readyAudience(t, f, 8)
-	st, err := f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{})
+	st, err := f.plan(t, a.ID, audience.PlanStudyInput{})
 	require.NoError(t, err)
 	_, err = f.svc.StartStudy(context.Background(), st.ID)
 	require.NoError(t, err)
@@ -363,7 +397,7 @@ func TestAPersonWhoCannotAnswerIsCountedAsFailedNotAsANo(t *testing.T) {
 		return answers[n]
 	}))
 	a := readyAudience(t, f, 4)
-	st, _ := f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{})
+	st, _ := f.plan(t, a.ID, audience.PlanStudyInput{})
 	_, err := f.svc.StartStudy(context.Background(), st.ID)
 	require.NoError(t, err)
 	done := f.waitStudy(t, st.ID, domain.StudyDone)
@@ -377,7 +411,7 @@ func TestAPersonWhoCannotAnswerIsCountedAsFailedNotAsANo(t *testing.T) {
 func TestAStudyNobodyAnsweredFailsInsteadOfReportingNothing(t *testing.T) {
 	f := newFixture(t, audiencetest.ScriptedModel(func(string) string { return "no json here" }))
 	a := readyAudience(t, f, 2)
-	st, _ := f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{})
+	st, _ := f.plan(t, a.ID, audience.PlanStudyInput{})
 	_, err := f.svc.StartStudy(context.Background(), st.ID)
 	require.NoError(t, err)
 	failed := f.waitStudy(t, st.ID, domain.StudyFailed)
@@ -398,7 +432,7 @@ func TestAFailedSynthesisKeepsTheNumbersAndCountsThemesItself(t *testing.T) {
 		return mm
 	}())
 	a := readyAudience(t, f, 4)
-	st, _ := f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{})
+	st, _ := f.plan(t, a.ID, audience.PlanStudyInput{})
 	_, err := f.svc.StartStudy(context.Background(), st.ID)
 	require.NoError(t, err)
 	done := f.waitStudy(t, st.ID, domain.StudyDone)
@@ -419,7 +453,7 @@ func TestCancellingAStudyKeepsWhatWasAnsweredAndWritesNoReport(t *testing.T) {
 	m.Delay = 300 * time.Millisecond
 	f := newFixture(t, m)
 	a := readyAudience(t, f, 8)
-	st, _ := f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{})
+	st, _ := f.plan(t, a.ID, audience.PlanStudyInput{})
 	_, err := f.svc.StartStudy(context.Background(), st.ID)
 	require.NoError(t, err)
 	time.Sleep(50 * time.Millisecond)
@@ -449,7 +483,7 @@ func TestAnInterruptedProcessLeavesNothingStuckRunning(t *testing.T) {
 func finishedStudy(t *testing.T, f *fixture) (domain.Audience, domain.Study) {
 	t.Helper()
 	a := readyAudience(t, f, 4)
-	st, _ := f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{Title: "Would they pay?", PricePoints: []float64{9}})
+	st, _ := f.plan(t, a.ID, audience.PlanStudyInput{Title: "Would they pay?", PricePoints: []float64{9}})
 	_, err := f.svc.StartStudy(context.Background(), st.ID)
 	require.NoError(t, err)
 	return a, f.waitStudy(t, st.ID, domain.StudyDone)
@@ -544,7 +578,7 @@ func TestFollowUpsGoToOnePersonaOrEveryoneAndAreListedUnderTheStudy(t *testing.T
 func TestEveryoneCannotBeAskedBeforeTheStudyIsDone(t *testing.T) {
 	f := newFixture(t, audiencetest.ScriptedModel(nil))
 	a := readyAudience(t, f, 2)
-	st, _ := f.svc.PlanStudy(context.Background(), a.ID, audience.PlanStudyInput{})
+	st, _ := f.plan(t, a.ID, audience.PlanStudyInput{})
 	_, _, err := f.svc.AskEveryone(context.Background(), st.ID, "why?")
 	assert.ErrorIs(t, err, domain.ErrAudienceInvalid)
 	_, err = f.svc.AskResearch(context.Background(), st.ID, "who objected?")

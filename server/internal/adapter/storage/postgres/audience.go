@@ -209,18 +209,35 @@ func (s *AudienceStore) GetPersona(ctx context.Context, id uuid.UUID) (domain.Pe
 // ---- studies
 
 const studyColumns = `id, audience_id, title, goal, questions, price_points, currency, product_snapshot, status,
-	persona_total, persona_done, persona_failed, calls_estimate, error, report, created_at, started_at, finished_at`
+	persona_total, persona_done, persona_failed, calls_estimate, error, report, created_at, started_at, finished_at,
+	kind, inputs, script, script_state, script_calls,
+	script_version, script_approved_version, script_approved_at, script_approved_by`
 
 func scanStudy(row pgx.Row, extra ...any) (domain.Study, error) {
 	var s domain.Study
 	var status string
-	var questions, prices, report []byte
+	var questions, prices, report, inputs, script []byte
+	var kind, scriptState string
 	dest := append([]any{&s.ID, &s.AudienceID, &s.Title, &s.Goal, &questions, &prices, &s.Currency, &s.ProductSnapshot, &status,
-		&s.PersonaTotal, &s.PersonaDone, &s.PersonaFailed, &s.CallsEstimate, &s.Error, &report, &s.CreatedAt, &s.StartedAt, &s.FinishedAt}, extra...)
+		&s.PersonaTotal, &s.PersonaDone, &s.PersonaFailed, &s.CallsEstimate, &s.Error, &report, &s.CreatedAt, &s.StartedAt, &s.FinishedAt,
+		&kind, &inputs, &script, &scriptState, &s.ScriptCalls,
+		&s.ScriptVersion, &s.ScriptApprovedVersion, &s.ScriptApprovedAt, &s.ScriptApprovedBy}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return domain.Study{}, err
 	}
 	s.Status = domain.StudyStatus(status)
+	s.Kind, s.ScriptState = domain.StudyKind(kind), domain.ScriptState(scriptState)
+	if len(inputs) > 0 {
+		if err := json.Unmarshal(inputs, &s.Inputs); err != nil {
+			return domain.Study{}, fmt.Errorf("decode study inputs: %w", err)
+		}
+	}
+	if len(script) > 0 && string(script) != "null" {
+		s.Script = &domain.StudyScript{}
+		if err := json.Unmarshal(script, s.Script); err != nil {
+			return domain.Study{}, fmt.Errorf("decode study script: %w", err)
+		}
+	}
 	s.Questions, s.PricePoints = []string{}, []float64{}
 	if len(questions) > 0 {
 		if err := json.Unmarshal(questions, &s.Questions); err != nil {
@@ -254,15 +271,41 @@ func (s *AudienceStore) CreateStudy(ctx context.Context, st domain.Study) (domai
 	if status == "" {
 		status = domain.StudyDraft
 	}
+	inputs, script, kind, scriptState, err := studyExtras(st)
+	if err != nil {
+		return domain.Study{}, err
+	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO audience_studies (audience_id, title, goal, questions, price_points, currency, product_snapshot, status, persona_total, calls_estimate)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING `+studyColumns, st.AudienceID, st.Title, st.Goal, questions, prices, st.Currency, st.ProductSnapshot, string(status), st.PersonaTotal, st.CallsEstimate)
+		INSERT INTO audience_studies (audience_id, title, goal, questions, price_points, currency, product_snapshot, status, persona_total, calls_estimate,
+		  kind, inputs, script, script_state, script_calls, script_version, script_approved_version, script_approved_at, script_approved_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		RETURNING `+studyColumns, st.AudienceID, st.Title, st.Goal, questions, prices, st.Currency, st.ProductSnapshot, string(status), st.PersonaTotal, st.CallsEstimate,
+		kind, inputs, script, scriptState, st.ScriptCalls, st.ScriptVersion, st.ScriptApprovedVersion, st.ScriptApprovedAt, st.ScriptApprovedBy)
 	out, err := scanStudy(row)
 	if err != nil {
 		return domain.Study{}, fmt.Errorf("create study: %w", err)
 	}
 	return out, nil
+}
+
+// studyExtras encodes what a study carries beyond the original columns.
+func studyExtras(st domain.Study) (inputs, script []byte, kind, scriptState string, err error) {
+	if inputs, err = jsonOf(st.Inputs); err != nil {
+		return
+	}
+	if st.Script != nil {
+		if script, err = jsonOf(st.Script); err != nil {
+			return
+		}
+	}
+	kind, scriptState = string(st.Kind), string(st.ScriptState)
+	if kind == "" {
+		kind = string(domain.KindUserInterviews)
+	}
+	if scriptState == "" {
+		scriptState = string(domain.ScriptNone)
+	}
+	return
 }
 
 func nonNil(v []string) []string {
@@ -330,12 +373,19 @@ func (s *AudienceStore) SaveStudy(ctx context.Context, st domain.Study) error {
 			return err
 		}
 	}
+	inputs, script, kind, scriptState, err := studyExtras(st)
+	if err != nil {
+		return err
+	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE audience_studies SET title = $2, goal = $3, questions = $4, price_points = $5, currency = $6,
 		  product_snapshot = $7, status = $8, persona_total = $9, persona_done = $10, persona_failed = $11,
-		  calls_estimate = $12, error = $13, report = $14, started_at = $15, finished_at = $16
+		  calls_estimate = $12, error = $13, report = $14, started_at = $15, finished_at = $16,
+		  kind = $17, inputs = $18, script = $19, script_state = $20, script_calls = $21,
+		  script_version = $22, script_approved_version = $23, script_approved_at = $24, script_approved_by = $25
 		WHERE id = $1`, st.ID, st.Title, st.Goal, questions, prices, st.Currency, st.ProductSnapshot, string(st.Status),
-		st.PersonaTotal, st.PersonaDone, st.PersonaFailed, st.CallsEstimate, st.Error, report, st.StartedAt, st.FinishedAt)
+		st.PersonaTotal, st.PersonaDone, st.PersonaFailed, st.CallsEstimate, st.Error, report, st.StartedAt, st.FinishedAt,
+		kind, inputs, script, scriptState, st.ScriptCalls, st.ScriptVersion, st.ScriptApprovedVersion, st.ScriptApprovedAt, st.ScriptApprovedBy)
 	if err != nil {
 		return fmt.Errorf("save study: %w", err)
 	}
@@ -389,6 +439,14 @@ func (s *AudienceStore) SaveAnswer(ctx context.Context, a domain.StudyAnswer) er
 		return fmt.Errorf("save answer: %w", err)
 	}
 	return nil
+}
+
+func (s *AudienceStore) DeleteFailedAnswers(ctx context.Context, studyID uuid.UUID) (int, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM audience_study_answers WHERE study_id = $1 AND status = 'failed'`, studyID)
+	if err != nil {
+		return 0, fmt.Errorf("delete failed answers: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 func (s *AudienceStore) ListAnswers(ctx context.Context, studyID uuid.UUID) ([]domain.StudyAnswer, error) {
@@ -479,6 +537,11 @@ func (s *AudienceStore) FailInterrupted(ctx context.Context, reason string) (int
 		WHERE status IN ('running', 'synthesizing')`, reason)
 	if err != nil {
 		return 0, 0, fmt.Errorf("fail interrupted studies: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE audience_studies SET script_state = 'failed', error = $1
+		WHERE script_state = 'generating'`, reason); err != nil {
+		return 0, 0, fmt.Errorf("fail interrupted scripts: %w", err)
 	}
 	return int(a.RowsAffected()), int(st.RowsAffected()), nil
 }

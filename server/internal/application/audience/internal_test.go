@@ -1,6 +1,7 @@
 package audience
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -91,4 +92,104 @@ func TestBriefLimitsAreEnforced(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "p", b.Product)
 	assert.Equal(t, []domain.AudienceSegment{{Name: "X"}}, b.Segments)
+}
+
+func TestRotationGivesEveryLineEveryPositionAndPageOrderAlternates(t *testing.T) {
+	first := map[int]int{}
+	for ordinal := 1; ordinal <= 6; ordinal++ {
+		perm := rotation(3, ordinal)
+		assert.ElementsMatch(t, []int{0, 1, 2}, perm)
+		first[perm[0]]++
+	}
+	assert.Equal(t, map[int]int{0: 2, 1: 2, 2: 2}, first)
+	swapped := 0
+	for ordinal := 1; ordinal <= 8; ordinal++ {
+		if abSwapped(ordinal) {
+			swapped++
+		}
+	}
+	assert.Equal(t, 4, swapped)
+}
+
+func TestMessageRatingsAreStoredAgainstTheLinesOwnNumberNotItsPosition(t *testing.T) {
+	perm := []int{2, 0, 1} // shown: line 3, line 1, line 2
+	raw := `{"ratings":[{"line":1,"clarity":9,"relevance":9,"credibility":9,"appeal":9},{"line":2,"clarity":1,"relevance":1,"credibility":1,"appeal":1},
+	{"line":3,"clarity":5,"relevance":5,"credibility":5,"appeal":15}],"best":1,"stronger_line":"better"}`
+	got, err := parseMessageAnswers(raw, perm)
+	require.NoError(t, err)
+	assert.Equal(t, 3, got.BestVariant, "the first line shown was line 3")
+	assert.Equal(t, 9, got.IntentScore)
+	byVariant := map[int]int{}
+	for _, r := range got.Ratings {
+		byVariant[r.Variant] = r.Appeal
+	}
+	assert.Equal(t, map[int]int{3: 9, 1: 1, 2: 10}, byVariant, "scores are clamped to 10")
+
+	_, err = parseMessageAnswers(`{"ratings":[{"line":1,"clarity":9,"relevance":9,"credibility":9,"appeal":9}]}`, perm)
+	assert.Error(t, err, "every line must be rated")
+	_, err = parseMessageAnswers(`{"ratings":[{"line":1,"clarity":9},{"line":2,"clarity":9},{"line":3,"clarity":9}]}`, perm)
+	assert.Error(t, err, "all four dimensions are needed")
+}
+
+func TestAnABAnswerKeepsEachScorecardWithItsVersionWhenThePagesWereSwapped(t *testing.T) {
+	card := func(act, clarity int, objection string) string {
+		return `{"first_impression":"f","clarity_score":` + itoa(clarity) + `,"intent_score":` + itoa(act) + `,"verdict":"maybe","objections":["` + objection + `"]}`
+	}
+	raw := `{"page_1":` + card(9, 8, "p1") + `,"page_2":` + card(2, 3, "p2") + `,"preferred":1,"preference_reason":"r"}`
+	plain, err := parseABAnswers(raw, false)
+	require.NoError(t, err)
+	assert.Equal(t, "a", plain.Preferred)
+	assert.Equal(t, "a", plain.ShownFirst)
+	assert.Equal(t, 9, plain.PageA.ActScore)
+	assert.Equal(t, 9, plain.IntentScore, "the preferred version's act-now score")
+	swapped, err := parseABAnswers(raw, true)
+	require.NoError(t, err)
+	assert.Equal(t, "b", swapped.Preferred, "version 1 was B")
+	assert.Equal(t, "b", swapped.ShownFirst)
+	assert.Equal(t, 9, swapped.PageB.ActScore)
+	assert.Equal(t, 2, swapped.PageA.ActScore)
+	assert.Equal(t, []string{"p1"}, swapped.PageB.Objections)
+	assert.Equal(t, 9, swapped.IntentScore)
+
+	_, err = parseABAnswers(`{"page_1":`+card(1, 1, "x")+`,"page_2":`+card(1, 1, "y")+`,"preferred":3}`, false)
+	assert.Error(t, err)
+	_, err = parseABAnswers(`{"page_1":`+card(1, 1, "x")+`,"preferred":1}`, false)
+	assert.Error(t, err, "both scorecards are needed")
+	_, err = parseABAnswers(`{"page_1":{"intent_score":1},"page_2":`+card(1, 1, "y")+`,"preferred":1}`, false)
+	assert.Error(t, err, "clarity is part of the scorecard")
+}
+
+func TestPairedMetricComparesTheSamePeopleAcrossTheTwoVersions(t *testing.T) {
+	m := pairedMetric([]float64{8, 6, 4, 7}, []float64{5, 7, 4, 3})
+	assert.Equal(t, 6.25, m.A.Mean)
+	assert.Equal(t, 4.75, m.B.Mean)
+	assert.Equal(t, -1.5, m.Diff)
+	assert.Equal(t, 2, m.AHigher)
+	assert.Equal(t, 1, m.BHigher)
+	assert.Equal(t, 1, m.Same)
+	assert.Equal(t, "medium", m.EffectLabel)
+	assert.Equal(t, "negligible", pairedMetric([]float64{5}, []float64{9}).EffectLabel, "one person has no spread to measure")
+	same := pairedMetric([]float64{5, 5}, []float64{5, 5})
+	assert.Equal(t, 0.0, same.EffectSize)
+}
+
+func itoa(n int) string { return fmt.Sprintf("%d", n) }
+
+func TestABConfidenceNeverCallsASmallGroupClear(t *testing.T) {
+	assert.Equal(t, "clear", abConfidence(18, 2))
+	assert.Equal(t, "lean", abConfidence(4, 0))
+	assert.Equal(t, "lean", abConfidence(5, 3))
+	assert.Equal(t, "toss-up", abConfidence(5, 5))
+	assert.Equal(t, "toss-up", abConfidence(0, 0))
+}
+
+func TestAScriptIsReadFromSectionsOrAFlatListAndBounded(t *testing.T) {
+	sc, err := parseScript("```json\n{\"sections\":[{\"title\":\"A\",\"questions\":[\"q1\",\"q2\"]},{\"title\":\"B\",\"questions\":\"q3\"}]}\n```")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"q1", "q2", "q3"}, sc.Flat())
+	flat, err := parseScript(`{"questions":["a","b"]}`)
+	require.NoError(t, err)
+	assert.Len(t, flat.Sections, 1)
+	_, err = parseScript(`{"sections":[]}`)
+	assert.Error(t, err)
 }

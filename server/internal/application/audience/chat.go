@@ -184,10 +184,22 @@ type FollowUpGroup struct {
 	Replies  []FollowUpReply `json:"replies"`
 }
 
+// PendingPerson is someone a running study has not heard from yet.
+type PendingPerson struct {
+	PersonaID uuid.UUID `json:"persona_id"`
+	Ordinal   int       `json:"ordinal"`
+	Name      string    `json:"name"`
+	Segment   string    `json:"segment,omitempty"`
+	domain.PersonaProfile
+}
+
 type StudyDetail struct {
 	domain.Study
-	Answers   []domain.StudyAnswer `json:"answers"`
-	FollowUps []FollowUpGroup      `json:"follow_ups"`
+	Answers []domain.StudyAnswer `json:"answers"`
+	// Pending lists the people of the audience who have not answered while
+	// the interviews run.
+	Pending   []PendingPerson `json:"pending"`
+	FollowUps []FollowUpGroup `json:"follow_ups"`
 	// Running: a worker is on it now.
 	Running bool `json:"running"`
 }
@@ -226,7 +238,30 @@ func (s *Service) Study(ctx context.Context, id uuid.UUID) (StudyDetail, error) 
 	if a, err := s.d.Store.GetAudience(ctx, st.AudienceID); err == nil {
 		st.AudienceName = a.Name
 	}
-	return StudyDetail{Study: st, Answers: answers, FollowUps: groupFollowUps(msgs, names), Running: s.running(id)}, nil
+	return StudyDetail{Study: st, Answers: answers, Pending: s.pendingPeople(ctx, st, answers), FollowUps: groupFollowUps(msgs, names), Running: s.running(id)}, nil
+}
+
+func (s *Service) pendingPeople(ctx context.Context, st domain.Study, answers []domain.StudyAnswer) []PendingPerson {
+	out := []PendingPerson{}
+	if st.Status != domain.StudyRunning {
+		return out
+	}
+	personas, err := s.d.Store.ListPersonas(ctx, st.AudienceID)
+	if err != nil {
+		return out
+	}
+	done := map[uuid.UUID]bool{}
+	for _, a := range answers {
+		if a.PersonaID != nil {
+			done[*a.PersonaID] = true
+		}
+	}
+	for _, p := range personas {
+		if !done[p.ID] {
+			out = append(out, PendingPerson{PersonaID: p.ID, Ordinal: p.Ordinal, Name: p.Name, Segment: p.Segment, PersonaProfile: p.PersonaProfile})
+		}
+	}
+	return out
 }
 
 func groupFollowUps(msgs []domain.ChatMessage, names map[uuid.UUID]string) []FollowUpGroup {

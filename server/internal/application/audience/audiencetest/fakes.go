@@ -150,6 +150,12 @@ func (s *Store) CreateStudy(_ context.Context, st domain.Study) (domain.Study, e
 	if st.Status == "" {
 		st.Status = domain.StudyDraft
 	}
+	if st.Kind == "" {
+		st.Kind = domain.KindUserInterviews
+	}
+	if st.ScriptState == "" {
+		st.ScriptState = domain.ScriptNone
+	}
 	if st.Questions == nil {
 		st.Questions = []string{}
 	}
@@ -226,6 +232,22 @@ func (s *Store) SaveAnswer(_ context.Context, a domain.StudyAnswer) error {
 	return nil
 }
 
+func (s *Store) DeleteFailedAnswers(_ context.Context, studyID uuid.UUID) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := []domain.StudyAnswer{}
+	n := 0
+	for _, a := range s.answers[studyID] {
+		if a.Status == "failed" {
+			n++
+			continue
+		}
+		kept = append(kept, a)
+	}
+	s.answers[studyID] = kept
+	return n, nil
+}
+
 func (s *Store) ListAnswers(_ context.Context, studyID uuid.UUID) ([]domain.StudyAnswer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -287,6 +309,9 @@ func (s *Store) FailInterrupted(_ context.Context, reason string) (int, int, err
 			x.Status, x.Error = domain.StudyFailed, reason
 			s.studies[id] = x
 			st++
+		} else if x.ScriptState == domain.ScriptGenerating {
+			x.ScriptState, x.Error = domain.ScriptFailed, reason
+			s.studies[id] = x
 		}
 	}
 	return a, st, nil
@@ -317,6 +342,13 @@ func (m *Model) On(marker string, answer func(req domain.AgentRequest) (string, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.handlers = append(m.handlers, handler{contains: marker, answer: answer})
+}
+
+// OnFirst is On, tried before every handler added so far.
+func (m *Model) OnFirst(marker string, answer func(req domain.AgentRequest) (string, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.handlers = append([]handler{{contains: marker, answer: answer}}, m.handlers...)
 }
 
 // Say answers marker with fixed text.

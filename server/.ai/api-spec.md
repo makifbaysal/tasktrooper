@@ -2560,7 +2560,7 @@ one) and is recorded in the usage ledger; nothing goes to a TaskTrooper service.
 
 Audience: `draft` (brief only) -> `building` -> `ready` | `failed`. `PUT`-style edits never touch the people; `build` writes them
 again (`generation` +1) and a failed rebuild keeps the old ones. A study keeps its own copy of each persona that answered
-(`audience_study_answers.persona`), so a rebuild never erases a study. Study: `draft` -> `running` -> `synthesizing` ->
+(`audience_study_answers.persona`), so a rebuild never erases a study. Study: `draft` -> `running` -> (`interviewed`, only when started with `manual_report`) -> `synthesizing` ->
 `done` | `failed` | `cancelled`; it runs once.
 
 | Route | |
@@ -2571,11 +2571,15 @@ again (`generation` +1) and a failed rebuild keeps the old ones. A study keeps i
 | `PATCH /v1/audiences/:id` | `{name?, repository?, brief?, persona_target?}`; 400 while building |
 | `DELETE /v1/audiences/:id` | with its personas, studies, answers and threads; 409 while something runs |
 | `POST /v1/audiences/:id/build` -> 202, `.../build/cancel` -> 204 | writes the people in the background, `ceil(n/8)` calls; cancelling keeps the previous people |
-| `POST /v1/audiences/:id/studies` -> 201 | plan `{title?, goal?, questions[] (<=5), price_points[] (<=6), currency?}`; nothing runs; `calls_estimate` = people + 1 |
+| `POST /v1/audiences/:id/studies` -> 201 | plan `{kind?, title?, goal?, inputs?, questions[] (<=5), script?, price_points[] (<=6), currency?}`; `kind` is `user_interviews` (default), `landing_page_test`, `message_testing` or `ab_test`; `inputs` = `{intent?, pages[{url?, copy?}], variants[]}` (landing: 1 page; ab: 2 pages, a URL is read once with the guarded fetch and its text kept in `copy`; messages: 2-5 variants). Without `questions`/`script` the person's agent writes the interview script in the background (`script_state` generating -> awaiting_approval -> approved, migration 201); `calls_estimate` = people + 1 (+1 per script written) |
 | `GET /v1/audience-studies?audience_id=` | list without reports |
 | `GET /v1/audience-studies/:id` | study + `report` + `answers[]` (per-persona structured answers) + `follow_ups[]` (grouped) + `running` |
-| `PATCH` / `DELETE /v1/audience-studies/:id` | edit a draft / delete |
-| `POST /v1/audience-studies/:id/start` -> 202, `.../cancel` -> 204 | runs it: one interview per persona, 3 at a time process-wide, then one synthesis call |
+| `PATCH` / `DELETE /v1/audience-studies/:id` | edit a draft (`script` or `questions` replace the script; a field left out is kept) / delete |
+| `POST /v1/audience-studies/:id/script` -> 202 | write the script again (1 call); voids any approval |
+| `POST /v1/audience-studies/:id/script/approve` | `{version}` (the `script_version` that was shown): records who and when approved that version (`script_approved_*`, `script_state` `approved`); 409 `script_changed` if the script moved on. Every written, edited, uploaded or rewritten script is a new version in `awaiting_approval` and nothing runs until it is approved |
+| `POST /v1/audience-studies/:id/start` -> 202, `.../cancel` -> 204 | body `{user_approved: true, manual_report?}` (400 without the yes, 409 `script_not_approved` unless the current script version is approved): one interview per persona, 3 at a time process-wide, then one synthesis call; with `manual_report` the study stops at `interviewed` until `.../report` |
+| `POST /v1/audience-studies/:id/report` -> 202 | `{user_approved: true}`: writes the report of an `interviewed` study (1 call; uses the completed interviews) |
+| `POST /v1/audience-studies/:id/retry` -> 202 | `{user_approved: true}`: asks again the people whose interview failed (study `interviewed`) |
 | `POST /v1/audience-studies/:id/ask` | `{question}` -> `{answer}` from the report and answers (1 call) |
 | `POST /v1/audience-studies/:id/ask-everyone` -> 202 | `{question}` -> `{group_id, calls}`; replies appear under `follow_ups` |
 | `POST /v1/audience-studies/:id/personas/:persona/follow-up` | `{question}` -> the persona's reply message |
