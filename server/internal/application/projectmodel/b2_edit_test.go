@@ -465,3 +465,33 @@ func TestB2DeleteLinkOnlyAllowsUserLinks(t *testing.T) {
 	_, err = store.GetLink(ctx, userLink.ID)
 	assert.Error(t, err)
 }
+
+func TestUpdateComponentStackOverrideKeepsDetectedExtrasAndClears(t *testing.T) {
+	svc, store, repos, _, _, _ := newB2Service(t)
+	ctx := context.Background()
+	repo := b2SeedRepo(t, repos, "demo")
+	detected := domain.ComponentStack{Languages: []domain.StackItem{{Name: "TypeScript"}}, PackageManager: "npm", DevPort: 3000}
+	comp := b2SeedComponent(t, store, domain.Component{
+		RepositoryID: repo.ID, Path: ".", Status: domain.ComponentStatusActive,
+		Stack: domain.Fact[domain.ComponentStack]{Detected: &detected},
+	})
+
+	want := domain.ComponentStack{Languages: []domain.StackItem{{Name: " Go "}, {Name: "go"}, {Name: ""}}}
+	got, err := svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{Stack: domain.Patch[domain.ComponentStack]{Set: true, Value: &want}})
+	require.NoError(t, err)
+	eff := got.Stack.Get()
+	require.Len(t, eff.Languages, 1)
+	assert.Equal(t, "Go", eff.Languages[0].Name)
+	assert.Equal(t, "npm", eff.PackageManager)
+	assert.Equal(t, 3000, eff.DevPort)
+
+	stacks, err := svc.ComponentStacks(ctx, repo.ID, nil)
+	require.NoError(t, err)
+	require.Len(t, stacks, 1)
+	assert.Equal(t, "Go", stacks[0].Languages[0].Name)
+
+	got, err = svc.UpdateComponent(ctx, comp.ID, domain.ComponentPatch{Stack: domain.Patch[domain.ComponentStack]{Set: true}})
+	require.NoError(t, err)
+	assert.Nil(t, got.Stack.Override)
+	assert.Equal(t, "TypeScript", got.Stack.Get().Languages[0].Name)
+}

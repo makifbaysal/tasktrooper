@@ -170,6 +170,20 @@ func (s *Service) UpdateComponentWithGateTasks(ctx context.Context, componentID 
 		}
 	}
 
+	if patch.Stack.Set {
+		if patch.Stack.Value != nil {
+			cleaned := cleanStackOverride(*patch.Stack.Value)
+			if comp.Stack.Detected != nil {
+				merged := *comp.Stack.Detected
+				merged.Languages, merged.Frameworks = cleaned.Languages, cleaned.Frameworks
+				cleaned = merged
+			}
+			comp.Stack.Override = &cleaned
+		} else {
+			comp.Stack.Override = nil
+		}
+	}
+
 	if patch.Reviewed != nil && *patch.Reviewed {
 		comp.NeedsReview = false
 	}
@@ -509,4 +523,24 @@ func (s *Service) DeleteLink(ctx context.Context, linkID uuid.UUID) error {
 		return fmt.Errorf("delete link: %w", err)
 	}
 	return nil
+}
+
+// cleanStackOverride keeps the human-meaningful part of a stack override: the
+// trimmed, de-duplicated language and framework names. The rest of the stack
+// (runtime, package manager, ports) stays as detected, merged in by the caller.
+func cleanStackOverride(in domain.ComponentStack) domain.ComponentStack {
+	clean := func(items []domain.StackItem) []domain.StackItem {
+		seen := map[string]bool{}
+		var out []domain.StackItem
+		for _, it := range items {
+			name := strings.TrimSpace(it.Name)
+			if name == "" || seen[strings.ToLower(name)] {
+				continue
+			}
+			seen[strings.ToLower(name)] = true
+			out = append(out, domain.StackItem{Name: name, Version: strings.TrimSpace(it.Version)})
+		}
+		return out
+	}
+	return domain.ComponentStack{Languages: clean(in.Languages), Frameworks: clean(in.Frameworks)}
 }

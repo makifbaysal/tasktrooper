@@ -189,7 +189,7 @@ function ComponentDetail({
         />
       )}
       <IdentityCard component={component} patch={patch} />
-      <StackCard component={component} />
+      <StackCard component={component} patch={patch} />
       <CommandsCard component={component} patch={patch} />
       <GatesCard component={component} patch={patch} />
       <ComponentDocsCard repositoryId={repositoryId} component={component} onReload={onReload} />
@@ -263,9 +263,13 @@ function IdentityCard({ component, patch }: CardProps) {
   );
 }
 
-function StackCard({ component }: { component: Component }) {
+function StackCard({ component, patch }: CardProps) {
   const { t } = useI18n();
   const stack = factValue(component.stack);
+  const [langs, setLangs] = useState((stack?.languages ?? []).map((l) => l.name).join(", "));
+  useEffect(() => {
+    setLangs((factValue(component.stack)?.languages ?? []).map((l) => l.name).join(", "));
+  }, [component.id, component.stack]);
   const rows: { label: string; value: string; evidence?: { path: string; line?: number; note?: string } }[] = [];
   for (const item of stack?.languages ?? []) {
     rows.push({ label: t("repositoryPage.components.languages"), value: item.version ? `${item.name} ${item.version}` : item.name, evidence: item.evidence });
@@ -306,6 +310,22 @@ function StackCard({ component }: { component: Component }) {
           </tbody>
         </table>
       )}
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">{t("repositoryPage.components.stackOverrideLabel")}</Label>
+        <Input
+          value={langs}
+          placeholder={t("repositoryPage.components.stackOverridePlaceholder")}
+          onChange={(e) => setLangs(e.target.value)}
+          onBlur={() => {
+            const names = langs.split(",").map((n) => n.trim()).filter(Boolean);
+            const current = (stack?.languages ?? []).map((l) => l.name).join(", ");
+            if (names.join(", ") === current) return;
+            void patch({ stack: names.length ? { languages: names.map((name) => ({ name })) } : null });
+          }}
+        />
+        <p className="text-xs text-muted-foreground">{t("repositoryPage.components.stackOverrideHint")}</p>
+        <FactValue fact={component.stack} render={() => null} onRevert={isOverridden(component.stack) ? () => patch({ stack: null }) : undefined} />
+      </div>
     </Card>
   );
 }

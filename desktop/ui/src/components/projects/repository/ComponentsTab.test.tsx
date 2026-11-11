@@ -250,3 +250,19 @@ describe("ComponentsTab", () => {
     expect(screen.getByText("No components yet")).toBeInTheDocument();
   });
 });
+
+describe("ComponentsTab stack override", () => {
+  beforeEach(() => {
+    updateComponent.mockReset().mockResolvedValue(component);
+  });
+
+  it("saving the languages field sends a stack override", async () => {
+    renderTab("comp-api");
+    const input = await screen.findByPlaceholderText("e.g. Go, TypeScript");
+    fireEvent.change(input, { target: { value: "Go, Rust" } });
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(updateComponent).toHaveBeenCalledWith("comp-api", { stack: { languages: [{ name: "Go" }, { name: "Rust" }] } }),
+    );
+  });
+});

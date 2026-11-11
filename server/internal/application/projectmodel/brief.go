@@ -623,3 +623,24 @@ func (s *Service) ComponentsForArea(ctx context.Context, repoID uuid.UUID, area 
 	}
 	return out, nil
 }
+
+// ComponentStacks returns the effective stack (override over detected) of the
+// given components, or of every active component when none are named.
+func (s *Service) ComponentStacks(ctx context.Context, repoID uuid.UUID, componentIDs []uuid.UUID) ([]domain.ComponentStack, error) {
+	components, err := s.store.ListComponents(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("component stacks: %w", err)
+	}
+	want := map[uuid.UUID]bool{}
+	for _, id := range componentIDs {
+		want[id] = true
+	}
+	var out []domain.ComponentStack
+	for _, c := range activeComponents(components) {
+		if len(want) > 0 && !want[c.ID] {
+			continue
+		}
+		out = append(out, c.Stack.Get())
+	}
+	return out, nil
+}
