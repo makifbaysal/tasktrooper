@@ -32,7 +32,8 @@
       { "slug": "operations-console", "title": "Operations console" },
       { "slug": "incidents", "title": "Production incidents" },
       { "slug": "data-sources", "title": "Data sources" },
-      { "slug": "mobile-releases", "title": "Mobile devices and store releases" }
+      { "slug": "mobile-releases", "title": "Mobile devices and store releases" },
+      { "slug": "mobile-app-tunnel", "title": "Use the mobile app with a tunnel" }
     ]},
     { "title": "Reference", "pages": [
       { "slug": "tools", "title": "Agent tools" },

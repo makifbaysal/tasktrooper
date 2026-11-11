@@ -38,6 +38,7 @@ The same pages are rendered at [tasktrooper.ai/docs](https://tasktrooper.ai/docs
 - [Production incidents](incidents.md)
 - [Data sources](data-sources.md)
 - [Mobile devices and store releases](mobile-releases.md)
+- [Use the mobile app with a tunnel](mobile-app-tunnel.md)
 
 ## Reference
 
