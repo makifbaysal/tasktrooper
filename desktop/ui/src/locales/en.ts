@@ -21,6 +21,7 @@ import { projectsHub } from "@/locales/en/projectsHub";
 import { release } from "@/locales/en/release";
 import { repositoryPage } from "@/locales/en/repositoryPage";
 import { settingsPages } from "@/locales/en/settingsPages";
+import { telemetryHub } from "@/locales/en/telemetryHub";
 import { setup } from "@/locales/en/setup";
 import { toolchain } from "@/locales/en/toolchain";
 
@@ -254,6 +255,7 @@ export const en = {
   release,
   repositoryPage,
   settingsPages,
+  telemetryHub,
   setup,
   toolchain,
 };

@@ -1546,3 +1546,21 @@ mean-center, then block power iteration with Gram-Schmidt deflation against the
 covariance action `Xᵀ(Xv)` — the d×d covariance matrix is never materialized.
 It is deterministic down to the last bit, including the parallel decomposition,
 so a client may cache a projection and diff it against a later one.
+
+## TaskTrooper Telemetry (Settings → TaskTrooper Telemetry, Operations → Telemetry)
+
+The app server holds the address and API key of a TaskTrooper Telemetry server and relays reads to it; the key never
+reaches this bundle.
+
+- `GET /v1/telemetry/settings` → `{ base_url, configured }` (never the key).
+- `PUT /v1/telemetry/settings` `{ base_url, api_key? }` → the same shape; `api_key` omitted keeps the stored key, `""` clears it.
+- `POST /v1/telemetry/settings/test` → `{ ok, error? }`.
+- `GET /v1/telemetry/status` → `{ configured, reachable }`; the screens' gate (`TelemetryGate`) reads it.
+- `GET /v1/telemetry/proxy/<path>?<query>` → the product's own `GET /api/v1/<path>` as JSON (`api.telemetryGet(path, query)`).
+  Read-only. `409 { code: "telemetry_not_configured" }` when unset (the screen falls back to the connect guidance),
+  `502 { code: "telemetry_unreachable", error }` when the product does not answer.
+
+The paths the screens read (below `/api/v1`): `services`, `services/{name}` (+ `/series`, `/endpoints`, `/dependencies`,
+`/deploys`, `/endpoints/{id}` (+ `/series`, `/rca`)), `environments`, `traces`, `traces/{id}`, `logs`, `logs/series`,
+`errors`, `errors/{fingerprint}`, `incidents`, `incidents/{id}/events`, `monitors`, `deploys`, `kpis`. The product answers only the
+windows `15m 30m 1h 6h 24h 7d`: the console's picks round up (`lib/telemetryHub#telemetryRange`).

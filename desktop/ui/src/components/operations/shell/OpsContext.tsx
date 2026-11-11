@@ -46,7 +46,7 @@ export const OPS_ENVIRONMENTS: DeployEnvironment[] = ["production", "staging", "
 export const DEFAULT_OPS_PRESET: OpsPreset = "1h";
 export const DEFAULT_OPS_ENV: DeployEnvironment = "production";
 
-export const OPS_PARAM_KEYS = ["range", "from", "to", "env", "compare"] as const;
+export const OPS_PARAM_KEYS = ["range", "from", "to", "env", "compare", "tenv"] as const;
 
 // A preset window slides with the clock: `to` moves to now this often even
 // when nobody presses Refresh, the way a "since 30 minutes ago" view should.

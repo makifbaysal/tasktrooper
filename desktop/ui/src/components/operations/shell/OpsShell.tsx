@@ -4,7 +4,7 @@ import { PageSuspense } from "@/components/layout/PageSuspense";
 import { EXPLORER_TYPE_PATHS, entityTypeOf } from "@/components/operations/console/entityTypes";
 import { OpsNav } from "@/components/operations/shell/OpsNav";
 import { OpsProvider, useOpsHref } from "@/components/operations/shell/OpsContext";
-import { OPS_NAV_ITEMS, activeNavId, matchEntityRoute, navGroupOf, opsSubPage } from "@/components/operations/shell/opsNavigation";
+import { OPS_NAV_ITEMS, activeNavId, matchEntityRoute, navGroupLabelKey, navGroupOf, navItemLabelKey, opsSubPage } from "@/components/operations/shell/opsNavigation";
 import { OpsTopBar, type OpsCrumb } from "@/components/operations/shell/OpsTopBar";
 import { useOpsEntity } from "@/components/operations/shell/useOpsEntities";
 import { useI18n } from "@/hooks/useI18n";
@@ -65,8 +65,8 @@ function OpsShellFrame() {
     if (type !== "other") crumbs.push({ label: t(`operations.shell.items.${type}`), to: href(EXPLORER_TYPE_PATHS[type]) });
     crumbs.push({ label: entity?.name ?? t("operations.entity.loadingName") });
   } else {
-    crumbs = [{ label: t(`operations.shell.groups.${navGroupOf(activeId)}`) }];
-    title = t(`operations.shell.items.${activeId}`);
+    crumbs = [{ label: t(navGroupLabelKey(navGroupOf(activeId))) }];
+    title = t(navItemLabelKey(activeId));
     const sub = opsSubPage(pathname);
     const parent = sub && OPS_NAV_ITEMS.find((i) => i.id === sub.parent);
     if (sub && parent) {

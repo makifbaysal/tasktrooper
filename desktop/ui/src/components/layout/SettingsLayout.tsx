@@ -1,4 +1,4 @@
-import { BarChart3, Bot, Boxes, GitBranch, Globe, Kanban, Plug, Server, Users, Wrench, type LucideIcon } from "lucide-react";
+import { Activity, BarChart3, Bot, Boxes, GitBranch, Globe, Kanban, Plug, Server, Users, Wrench, type LucideIcon } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { PageContent } from "@/components/layout/PageContent";
 import { PageSuspense } from "@/components/layout/PageSuspense";
@@ -49,6 +49,7 @@ export function SettingsLayout() {
       label: t("frame.layout.settingsGroups.workspace"),
       items: [
         { to: "/settings/integrations", label: t("frame.layout.settingsTabs.integrations"), icon: Plug },
+        { to: "/settings/telemetry", label: t("telemetryHub.settings.navLabel"), icon: Activity },
         { to: "/settings/usage", label: t("frame.layout.settingsTabs.usage"), icon: BarChart3 },
         ...(ADVANCED_TEAM_CONFIG
           ? [

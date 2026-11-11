@@ -1,6 +1,13 @@
 import {
+  Activity,
   BellRing,
   Bug,
+  Gauge,
+  Network,
+  Rocket,
+  Route as RouteIcon,
+  ShieldAlert,
+  Target,
   Database,
   GitCommitHorizontal,
   Globe,
@@ -29,9 +36,18 @@ export type OpsNavId =
   | "issues"
   | "alerts"
   | "sources"
-  | "alertConnections";
+  | "alertConnections"
+  | "telServices"
+  | "telEndpoints"
+  | "telTraces"
+  | "telLogs"
+  | "telErrors"
+  | "telIncidents"
+  | "telMonitors"
+  | "telDeploys"
+  | "telSlo";
 
-export type OpsNavGroupId = "explore" | "monitor" | "settings";
+export type OpsNavGroupId = "explore" | "monitor" | "telemetry" | "settings";
 
 export interface OpsNavItem {
   id: OpsNavId;
@@ -66,6 +82,20 @@ export const OPS_NAV: OpsNavGroup[] = [
     ],
   },
   {
+    id: "telemetry",
+    items: [
+      { id: "telServices", to: "/operations/telemetry/services", icon: Activity },
+      { id: "telEndpoints", to: "/operations/telemetry/endpoints", icon: Network },
+      { id: "telTraces", to: "/operations/telemetry/traces", icon: RouteIcon },
+      { id: "telLogs", to: "/operations/telemetry/logs", icon: ScrollText },
+      { id: "telErrors", to: "/operations/telemetry/errors", icon: ShieldAlert },
+      { id: "telIncidents", to: "/operations/telemetry/incidents", icon: Siren },
+      { id: "telMonitors", to: "/operations/telemetry/monitors", icon: Gauge },
+      { id: "telDeploys", to: "/operations/telemetry/deploys", icon: Rocket },
+      { id: "telSlo", to: "/operations/telemetry/slo", icon: Target },
+    ],
+  },
+  {
     id: "settings",
     items: [
       { id: "sources", to: "/operations/sources", icon: Database },
@@ -90,6 +120,20 @@ export const OPS_SUB_PAGES: OpsSubPage[] = [
 export function opsSubPage(pathname: string): OpsSubPage | undefined {
   const path = pathname.replace(/\/+$/, "");
   return OPS_SUB_PAGES.find((p) => path === p.path);
+}
+
+const TELEMETRY_NAV_PREFIX = "tel";
+
+/** The telemetry group's labels live in its own dictionary; the console's
+ * older groups keep theirs under `operations.shell`. */
+export function navItemLabelKey(id: OpsNavId): string {
+  return id.startsWith(TELEMETRY_NAV_PREFIX)
+    ? `telemetryHub.nav.items.${id}`
+    : `operations.shell.items.${id}`;
+}
+
+export function navGroupLabelKey(id: OpsNavGroupId): string {
+  return id === "telemetry" ? "telemetryHub.nav.group" : `operations.shell.groups.${id}`;
 }
 
 export function navGroupOf(id: OpsNavId): OpsNavGroupId {

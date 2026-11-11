@@ -513,6 +513,22 @@ own filters (`health`, `type`, `project`, `q`, `group`, a source's `?source=`) s
 `AppTestGroupsSection`, `NewTestGroupDialog`, `StoreTestersDialog`. The console reads `src/api.ts` directly; the
 repository page's `deploy/*` panels stay where they are and are not reused by it.
 
+## TaskTrooper Telemetry — Settings and Operations → Telemetry
+
+The product's screens are read through the app server's proxy (`.ai/api-spec.md` "TaskTrooper Telemetry"); this bundle never sees the key.
+
+| Piece | What it is |
+|---|---|
+| `admin/TelemetryCard`, `pages/TelemetrySettingsPage` (`/settings/telemetry`) | Address field, write-only key field (a typed key is sent once and forgotten; empty = keep; "Remove key" sends `""`), Test connection, status badge (`IntegrationCard`). |
+| `operations/telemetry/TelemetryGate` + `hooks/useTelemetryStatus` | Route element for `/operations/telemetry/*`: reads `/v1/telemetry/status`; not configured → `TelemetryGuide` with a button to `/settings/telemetry`; configured but unreachable → critical empty state with Try again; ready → its `Outlet`. |
+| `hooks/useTelemetryQuery`, `TelemetryQueryView` | One proxied read (30 s poll, console Refresh, last answer kept while loading); the view draws loading / error / empty. A `telemetry_not_configured` answer shows the connect guidance. |
+| `hooks/useTelemetryScope` | The console's window rounded to the product's (`telemetryRange`) plus the product's own environment filter in `?tenv=` (`TelemetryEnvSelect`); hides the top bar's fixed environment picker. |
+| `pages/ops/telemetry/*` | Services, Service, Endpoints, Endpoint (+ `RcaPanel`), Traces, Trace, Logs, Errors, Incidents, Monitors, Deploys, SLOs. |
+| Reused console parts | `TimeSeriesChart` (RED charts, deploy markers), `Sparkline`, `VolumeHistogram`, `LogTable` + `SeverityPill` (logs go through `lib/telemetryHub#toLogEntries`), `TraceWaterfall` / `SpanTable` / `SpanDetail` (a product trace goes through `toConsoleTrace` and `buildWaterfall`), `DetailPanel`, `FacetChips`, `HealthSquare`. |
+
+Read-only by design: acknowledging incidents, editing monitors and SLOs stay in the product. Strings live in `locales/*/telemetryHub.ts`
+(`telemetryHub.*`); the nav labels of the group are `telemetryHub.nav` (`opsNavigation#navItemLabelKey`).
+
 ## Standard building blocks (use these, don't reinvent)
 
 - **Page heading + actions** → `admin/PageHeader` (title, description, `action` slot).

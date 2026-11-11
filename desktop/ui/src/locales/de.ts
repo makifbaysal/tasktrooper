@@ -19,6 +19,7 @@ import { projectsHub } from "@/locales/de/projectsHub";
 import { release } from "@/locales/de/release";
 import { repositoryPage } from "@/locales/de/repositoryPage";
 import { settingsPages } from "@/locales/de/settingsPages";
+import { telemetryHub } from "@/locales/de/telemetryHub";
 import { setup } from "@/locales/de/setup";
 import { toolchain } from "@/locales/de/toolchain";
 
@@ -252,6 +253,7 @@ export const de: Dict = {
   release,
   repositoryPage,
   settingsPages,
+  telemetryHub,
   setup,
   toolchain,
 };

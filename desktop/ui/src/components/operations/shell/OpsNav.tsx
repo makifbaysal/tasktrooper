@@ -2,7 +2,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { SidebarNavLink } from "@/components/layout/SidebarNavLink";
 import { NavStrip } from "@/components/operations/shell/NavStrip";
 import { useOpsHref } from "@/components/operations/shell/OpsContext";
-import { OPS_NAV, type OpsNavId } from "@/components/operations/shell/opsNavigation";
+import { OPS_NAV, navGroupLabelKey, navItemLabelKey, type OpsNavId } from "@/components/operations/shell/opsNavigation";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
@@ -33,7 +33,7 @@ export function OpsNav({ activeId, collapsed, onToggle }: OpsNavProps) {
             <div key={group.id} className={cn(index > 0 && (collapsed ? "mt-2 border-t border-sidebar-border pt-2" : "mt-3"))}>
               {!collapsed && (
                 <p className="px-3 pb-1 text-micro font-medium tracking-wide text-muted-foreground uppercase">
-                  {t(`operations.shell.groups.${group.id}`)}
+                  {t(navGroupLabelKey(group.id))}
                 </p>
               )}
               <ul className="space-y-0.5">
@@ -41,7 +41,7 @@ export function OpsNav({ activeId, collapsed, onToggle }: OpsNavProps) {
                   <li key={item.id}>
                     <SidebarNavLink
                       to={href(item.to)}
-                      label={t(`operations.shell.items.${item.id}`)}
+                      label={t(navItemLabelKey(item.id))}
                       icon={item.icon}
                       collapsed={collapsed}
                       active={item.id === activeId}
@@ -75,7 +75,7 @@ export function OpsNav({ activeId, collapsed, onToggle }: OpsNavProps) {
           group.items.map((item) => ({
             key: item.id,
             to: href(item.to),
-            label: t(`operations.shell.items.${item.id}`),
+            label: t(navItemLabelKey(item.id)),
             icon: item.icon,
             active: item.id === activeId,
           })),

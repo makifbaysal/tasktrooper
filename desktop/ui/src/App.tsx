@@ -44,6 +44,20 @@ const EntityPages = lazy(() => import("@/pages/ops/entity/EntityPages"));
 const EntityCrashes = lazy(() => import("@/pages/ops/entity/EntityCrashes"));
 const EntityTraces = lazy(() => import("@/pages/ops/entity/EntityTraces"));
 const DataSourcesPage = lazy(() => import("@/pages/DataSourcesPage").then((m) => ({ default: m.DataSourcesPage })));
+const TelemetryGate = lazy(() => import("@/components/operations/telemetry/TelemetryGate").then((m) => ({ default: m.TelemetryGate })));
+const TelemetryServicesPage = lazy(() => import("@/pages/ops/telemetry/TelemetryServicesPage"));
+const TelemetryServicePage = lazy(() => import("@/pages/ops/telemetry/TelemetryServicePage"));
+const TelemetryEndpointsPage = lazy(() => import("@/pages/ops/telemetry/TelemetryEndpointsPage"));
+const TelemetryEndpointPage = lazy(() => import("@/pages/ops/telemetry/TelemetryEndpointPage"));
+const TelemetryTracesPage = lazy(() => import("@/pages/ops/telemetry/TelemetryTracesPage"));
+const TelemetryTracePage = lazy(() => import("@/pages/ops/telemetry/TelemetryTracePage"));
+const TelemetryLogsPage = lazy(() => import("@/pages/ops/telemetry/TelemetryLogsPage"));
+const TelemetryErrorsPage = lazy(() => import("@/pages/ops/telemetry/TelemetryErrorsPage"));
+const TelemetryIncidentsPage = lazy(() => import("@/pages/ops/telemetry/TelemetryIncidentsPage"));
+const TelemetryMonitorsPage = lazy(() => import("@/pages/ops/telemetry/TelemetryMonitorsPage"));
+const TelemetryDeploysPage = lazy(() => import("@/pages/ops/telemetry/TelemetryDeploysPage"));
+const TelemetrySloPage = lazy(() => import("@/pages/ops/telemetry/TelemetrySloPage"));
+const TelemetrySettingsPage = lazy(() => import("@/pages/TelemetrySettingsPage").then((m) => ({ default: m.TelemetrySettingsPage })));
 const OpsAlertConnectionsPage = lazy(() => import("@/pages/ops/OpsAlertConnectionsPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage").then((m) => ({ default: m.FilesPage })));
 const RulesPage = lazy(() => import("@/pages/RulesPage").then((m) => ({ default: m.RulesPage })));
@@ -147,6 +161,22 @@ export default function App() {
                   <Route path="alerts" element={<OpsAlertsPage />} />
                   <Route path="sources" element={<DataSourcesPage />} />
                   <Route path="alert-connections" element={<OpsAlertConnectionsPage />} />
+                  <Route path="telemetry" element={<TelemetryGate />}>
+                    <Route index element={<RedirectKeepingSearch to="/operations/telemetry/services" />} />
+                    <Route path="services" element={<TelemetryServicesPage />} />
+                    <Route path="services/:name" element={<TelemetryServicePage />} />
+                    <Route path="endpoints" element={<TelemetryEndpointsPage />} />
+                    <Route path="endpoints/:service/:endpoint" element={<TelemetryEndpointPage />} />
+                    <Route path="traces" element={<TelemetryTracesPage />} />
+                    <Route path="traces/:traceId" element={<TelemetryTracePage />} />
+                    <Route path="logs" element={<TelemetryLogsPage />} />
+                    <Route path="errors" element={<TelemetryErrorsPage />} />
+                    <Route path="incidents" element={<TelemetryIncidentsPage />} />
+                    <Route path="monitors" element={<TelemetryMonitorsPage />} />
+                    <Route path="deploys" element={<TelemetryDeploysPage />} />
+                    <Route path="slo" element={<TelemetrySloPage />} />
+                    <Route path="*" element={<RedirectKeepingSearch to="/operations/telemetry/services" />} />
+                  </Route>
                   <Route path="entity/:componentId" element={<OpsEntityPage />}>
                     <Route index element={<EntityIndexRedirect />} />
                     <Route path="summary" element={<EntitySubRoute tab="summary" page={EntitySummary} />} />
@@ -186,6 +216,7 @@ export default function App() {
                   <Route path="memory" element={<Navigate to="/memory" replace />} />
                   <Route path="mcp" element={<MCPServersPage />} />
                   <Route path="integrations" element={<IntegrationsSettingsPage />} />
+                  <Route path="telemetry" element={<TelemetrySettingsPage />} />
                   <Route path="device" element={<Navigate to="/settings" replace />} />
                   {/* The Local Runner page is gone — everything it offered now lives on
                       the Claude Code card under LLM Connection. This redirect stays

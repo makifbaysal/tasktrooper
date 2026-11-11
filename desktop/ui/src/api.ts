@@ -5401,6 +5401,36 @@ export interface DesignSystemGenerateResult {
   waiting_for_designer?: boolean;
 }
 
+export interface TelemetrySettings {
+  base_url: string;
+  configured: boolean;
+}
+
+export interface TelemetryConnectionTest {
+  ok: boolean;
+  error?: string;
+}
+
+export interface TelemetryStatus {
+  configured: boolean;
+  reachable: boolean;
+}
+
+/** The product's read API is reached only through the app server's proxy, so
+ * the key never leaves it. `path` is the product's own, below /api/v1. */
+export const TELEMETRY_NOT_CONFIGURED = "telemetry_not_configured";
+
+export function telemetryProxyPath(path: string, query?: Record<string, string | number | boolean | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(query ?? {})) {
+    if (v !== undefined && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  const clean = path.replace(/^\/+/, "");
+  return `/v1/telemetry/proxy/${clean}${qs ? `?${qs}` : ""}`;
+}
+
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
 
@@ -5435,6 +5465,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(settings),
     }),
+  telemetrySettings: () => request<TelemetrySettings>("/v1/telemetry/settings"),
+  saveTelemetrySettings: (data: { base_url: string; api_key?: string }) =>
+    request<TelemetrySettings>("/v1/telemetry/settings", { method: "PUT", body: JSON.stringify(data) }),
+  testTelemetry: (data?: { base_url?: string; api_key?: string }) =>
+    request<TelemetryConnectionTest>("/v1/telemetry/settings/test", { method: "POST", ...(data ? { body: JSON.stringify(data) } : {}) }),
+  telemetryStatus: () => request<TelemetryStatus>("/v1/telemetry/status"),
+  telemetryGet: <T>(path: string, query?: Record<string, string | number | boolean | undefined>) =>
+    request<T>(telemetryProxyPath(path, query)),
   usageSummary: (days = 30, tz = "") =>
     request<UsageSummary>(`/v1/usage?days=${days}&tz=${encodeURIComponent(tz)}`),
   billingStatus: () => request<BillingStatus>("/v1/billing"),
