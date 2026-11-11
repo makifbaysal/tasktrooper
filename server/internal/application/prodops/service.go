@@ -70,7 +70,17 @@ type Service struct {
 
 	workflows port.WorkflowReader
 	roles     port.RoleResolver
+	releasers ReleaseRoles
 }
+
+// ReleaseRoles finds the agent holding the release role; workflow.Service is
+// one. Without it a telemetry incident goes to the default assignee.
+type ReleaseRoles interface {
+	RoleByKey(ctx context.Context, key string) (domain.AgentRole, error)
+	AgentForRole(ctx context.Context, roleID uuid.UUID, area string) (*uuid.UUID, error)
+}
+
+func (s *Service) SetReleaseRoles(r ReleaseRoles) { s.releasers = r }
 
 func (s *Service) SetWorkflows(w port.WorkflowReader)  { s.workflows = w }
 func (s *Service) SetRoleResolver(r port.RoleResolver) { s.roles = r }
@@ -381,7 +391,43 @@ func (s *Service) openRemediationTask(ctx context.Context, incident domain.Incid
 	if detail != "" {
 		detail = truncate(detail, 2000)
 	}
-	description := remediationTaskKey.Render(remediationTaskInput{
+	description, assignee := s.remediationBrief(ctx, incident, remedy, policy, detail)
+	task, err := s.tasks.CreateTask(ctx, incident.RepositoryID, domain.CreateBoardTaskRequest{
+		Title:           "Incident: " + truncate(incident.Title, 120),
+		Description:     description,
+		TaskType:        s.defectTaskType(ctx),
+		Priority:        priority,
+		Column:          domain.TaskColumnTodo,
+		CreatedBy:       "system",
+		AssigneeAgentID: assignee,
+	})
+	if err != nil {
+		return incident, err
+	}
+	return s.attachRemediationTask(ctx, incident, task, policy)
+}
+
+// remediationBrief is the task's description and assignee. A telemetry
+// incident goes to the release engineer, who diagnoses it from the telemetry
+// and hands the fix on; every other source goes to the repository's default
+// assignee with the developer's brief.
+func (s *Service) remediationBrief(ctx context.Context, incident domain.Incident, remedy domain.Remedy, policy domain.IncidentPolicy, detail string) (string, *uuid.UUID) {
+	if incident.Source == domain.IncidentSourceTelemetry {
+		if id := s.releaseEngineer(ctx, incident.RepositoryID); id != nil {
+			return telemetryIncidentTaskKey.Render(telemetryIncidentTaskInput{
+				Env:         incident.Env,
+				Severity:    string(incident.Severity),
+				Title:       incident.Title,
+				Detail:      detail,
+				Service:     payloadString(incident.Payload, "service"),
+				Endpoint:    payloadString(incident.Payload, "endpoint"),
+				TelemetryID: payloadString(incident.Payload, "telemetry_incident_id"),
+				IncidentID:  incident.ID.String(),
+				RemedyText:  remedy.Text(),
+			}), id
+		}
+	}
+	return remediationTaskKey.Render(remediationTaskInput{
 		Env:         incident.Env,
 		Severity:    string(incident.Severity),
 		Source:      string(incident.Source),
@@ -393,20 +439,10 @@ func (s *Service) openRemediationTask(ctx context.Context, incident domain.Incid
 		RemedyText:  remedy.Text(),
 		IncidentID:  incident.ID.String(),
 		AutoFix:     policy == domain.IncidentPolicyAutoFix,
-	})
+	}), s.systemTaskAssignee(ctx, incident.RepositoryID)
+}
 
-	task, err := s.tasks.CreateTask(ctx, incident.RepositoryID, domain.CreateBoardTaskRequest{
-		Title:           "Incident: " + truncate(incident.Title, 120),
-		Description:     description,
-		TaskType:        s.defectTaskType(ctx),
-		Priority:        priority,
-		Column:          domain.TaskColumnTodo,
-		CreatedBy:       "system",
-		AssigneeAgentID: s.systemTaskAssignee(ctx, incident.RepositoryID),
-	})
-	if err != nil {
-		return incident, err
-	}
+func (s *Service) attachRemediationTask(ctx context.Context, incident domain.Incident, task domain.BoardTask, policy domain.IncidentPolicy) (domain.Incident, error) {
 	updated, err := s.incidents.AttachTask(ctx, incident.ID, task.ID)
 	if err != nil {
 		return incident, err
@@ -417,6 +453,39 @@ func (s *Service) openRemediationTask(ctx context.Context, incident domain.Incid
 		updated = triaging
 	}
 	return updated, nil
+}
+
+// releaseEngineer is the agent holding the release role for the repository's
+// area, nil when the role, the resolver or an agent is missing.
+func (s *Service) releaseEngineer(ctx context.Context, repositoryID uuid.UUID) *uuid.UUID {
+	if s.releasers == nil || s.repos == nil {
+		return nil
+	}
+	repo, err := s.repos.Get(ctx, repositoryID)
+	if err != nil {
+		return nil
+	}
+	role, err := s.releasers.RoleByKey(ctx, domain.RoleKeyRelease)
+	if err != nil {
+		return nil
+	}
+	area := domain.RepoArea(repo.Kind, repo.SubProjects)
+	for _, a := range append([]string{area}, domain.AreaFallbacks(area)...) {
+		if id, err := s.releasers.AgentForRole(ctx, role.ID, a); err == nil && id != nil {
+			return id
+		}
+	}
+	return nil
+}
+
+func payloadString(payload map[string]any, key string) string {
+	switch v := payload[key].(type) {
+	case string:
+		return v
+	case float64:
+		return strings.TrimSuffix(fmt.Sprintf("%.0f", v), ".0")
+	}
+	return ""
 }
 
 func (s *Service) ProposeRemedy(ctx context.Context, incidentID uuid.UUID, remedy domain.Remedy, author string) (domain.Incident, error) {

@@ -91,6 +91,9 @@ const (
 	IncidentSourceProbe   = "probe"   // our own health probe against a deploy target
 	IncidentSourceDeploy  = "deploy"  // a deploy pipeline that failed
 	IncidentSourceManual  = "manual"  // opened by a human or an agent
+	// IncidentSourceTelemetry is an incident the connected TaskTrooper
+	// Telemetry opened; the release engineer works it.
+	IncidentSourceTelemetry = "telemetry"
 )
 
 // IncidentPolicy is the per-repository answer to "what happens when production

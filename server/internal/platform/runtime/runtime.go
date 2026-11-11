@@ -46,6 +46,7 @@ import (
 	mcpadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/mcp"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpserver"
 	pgstore "github.com/makifbaysal/tasktrooper/server/internal/adapter/storage/postgres"
+	telemetryadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/telemetry"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/board"
 	boilerplatetools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/boilerplate"
 	browsertools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/browser"
@@ -60,6 +61,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/search"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/shell"
 	skilltools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/skill"
+	telemetrytools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/telemetry"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/web"
 	gitadapter "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/git"
 	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
@@ -114,12 +116,14 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/smokegen"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops/pipeline"
+	telemetryapp "github.com/makifbaysal/tasktrooper/server/internal/application/telemetry"
 	usageapp "github.com/makifbaysal/tasktrooper/server/internal/application/usage"
 	workflowapp "github.com/makifbaysal/tasktrooper/server/internal/application/workflow"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain/secrets"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
+	"github.com/makifbaysal/tasktrooper/server/internal/platform/urlguard"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -942,6 +946,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var githubTokens port.GitHubTokenStore
 	var githubAuth *githubauth.Service
 	var issueSyncSettingsStore *pgstore.SettingsStore
+	var telemetrySvc *telemetryapp.Service
 	var llmProviderStore port.LLMProviderStore
 	var llmEndpointStore port.LLMEndpointStore
 
@@ -1015,6 +1020,12 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			pgSettings.SetCipher(e.secretsCipher, e.secretsCipherErr)
 			settingsStore = pgSettings
 			issueSyncSettingsStore = pgSettings
+			// The URL a person typed into Settings: a self-hosted telemetry is
+			// usually on this machine or its network, so private ranges dial.
+			telemetrySvc = telemetryapp.NewService(telemetryapp.Deps{
+				Store:  pgSettings,
+				Client: telemetryadapter.New(urlguard.HumanConfigured()),
+			})
 			// Every GitHub caller reads its token through this, so a GitHub
 			// App connection renews itself without any of them knowing.
 			githubAuth = githubauth.New(pgSettings, pgSettings, githubapi.DeviceClient{}, githubauth.App)
@@ -2306,10 +2317,23 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			if workflowSvc != nil {
 				prodOpsSvc.SetWorkflows(workflowSvc)
 				prodOpsSvc.SetRoleResolver(workflowSvc)
+				prodOpsSvc.SetReleaseRoles(workflowSvc)
 			}
 			e.prodOpsSvc = prodOpsSvc
 			prodOpsSvc.Start(ctx)
 			pipelineRunner.SetIncidentReporter(prodOpsSvc)
+
+			// TaskTrooper Telemetry: its alerts become incidents the release
+			// engineer works, and its data reaches the agents as read tools.
+			if telemetrySvc != nil {
+				for _, tool := range telemetrytools.NewExecutors(&telemetrytools.ToolKit{Reader: telemetrySvc}) {
+					e.reg.Register(tool)
+				}
+				telemetrySync := telemetryapp.NewIncidentSync(telemetrySvc, prodOpsSvc, repositorySvc)
+				activateBoard = append(activateBoard, func() {
+					telemetrySync.Start(ctx, telemetryapp.SyncInterval, nil)
+				})
+			}
 
 			for _, tool := range opstools.NewExecutors(&opstools.ToolKit{
 				Incidents: prodOpsSvc,
@@ -3132,6 +3156,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		RepoDocsSvc:       e.repoDocsSvc,
 		ProdOpsSvc:        e.prodOpsSvc,
 		IssueSyncSvc:      issueSyncSvc,
+		TelemetrySvc:      telemetrySvc,
 		StoreOpsSvc:       e.storeOpsSvc,
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,

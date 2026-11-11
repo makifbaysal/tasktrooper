@@ -291,6 +291,12 @@ func releaseEngineerToolPolicy() domain.ToolPolicy {
 	// get_deploy_logs stays for a CI job's own output; the release tools above cover the release's own checks.
 	tools = append(tools, domain.DeployLogsToolName)
 	tools = append(tools, "list_incidents", "get_incident")
+	// An incident the connected telemetry opened is the release engineer's to
+	// diagnose: it reads the telemetry, hands code causes to a developer with
+	// create_board_task, and tells the user about the rest with
+	// propose_incident_remedy.
+	tools = append(tools, roleTelemetryReadTools...)
+	tools = append(tools, "propose_incident_remedy", "resolve_incident")
 	tools = append(tools, roleObservabilityTools...)
 	// Enabling observability ends in a developer task, never in an edit: the
 	// release engineer opens it and parks its own card on it with blocked_by.
@@ -298,6 +304,19 @@ func releaseEngineerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	return domain.ToolPolicy{AllowTools: tools}
+}
+
+// Read-only access to the TaskTrooper Telemetry the user connected in Settings;
+// each answers with a guidance message when none is connected.
+var roleTelemetryReadTools = []string{
+	"telemetry_get_incident",
+	"telemetry_list_incidents",
+	"telemetry_get_service",
+	"telemetry_search_logs",
+	"telemetry_search_traces",
+	"telemetry_list_errors",
+	"telemetry_list_deploys",
+	"telemetry_api_get",
 }
 
 // The release engineer's observability work: read error groups and data

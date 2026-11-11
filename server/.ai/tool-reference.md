@@ -188,6 +188,23 @@ Granted: `get_design_system` to every agent; `propose_design_system` to `ui-desi
 
 `{attach_to_task: true, title?}` also stores the image as an attachment of the run's task (`port.TaskImageAttacher`, `attachment.Service.AttachToTask`; `adapter/tools/toolattach`), so the human sees it under the task. Without a task in context the flag is ignored and the result says so; a failed save never fails the screenshot.
 
+### `telemetry_*` (TaskTrooper Telemetry, release engineer)
+
+Read-only tools over the connected TaskTrooper Telemetry, through the same allowlisted service the UI proxy uses (`adapter/tools/telemetry`).
+Without a connection each answers with the `guard.telemetry_not_configured` text. Answers over ~48 KB are halved list by list and
+wrapped `{truncated:[{field,total,shown}], hint, data}`.
+
+- **`telemetry_get_incident`** `{incident_id}` — the incident and its timeline (`rootCause` is a hint only).
+- **`telemetry_list_incidents`** `{state?, service?, endpoint? ("METHOD /route"), since? (epoch ms), limit? (20, max 100)}`.
+- **`telemetry_get_service`** `{service, range?, env?, endpoint_id? (slug), baseline? (prev|1d|7d)}` — health, endpoints with ids, deploys, dependencies; with `endpoint_id` also the root-cause comparison.
+- **`telemetry_search_logs`** `{service?, level? (exact), q?, trace_id?, route?, range?, env?, before?, limit? (50, max 200)}`.
+- **`telemetry_search_traces`** `{trace_id? (alone: one trace), service?, endpoint? ("METHOD /route"), errors_only?, min_ms?, sort?, range?, env?, limit? (10, max 100)}`.
+- **`telemetry_list_errors`** `{fingerprint? (alone: one group with its stack), service?, route?, status?, range?, env?, limit? (20, max 100)}`.
+- **`telemetry_list_deploys`** `{service?, range?, env?}`.
+- **`telemetry_api_get`** `{path, query?}` — any other readable route (infra, kpis, monitors, apps, loadtests).
+
+The release engineer holds them with `propose_incident_remedy` and `resolve_incident`; the flow is the `telemetry-incident-response` skill.
+
 ### `get_environment`, `query_runtime_logs`, `list_runtime_errors`, `list_deployments`
 
 The runtime picture of a component's environment (`internal/adapter/tools/runtime`), read through `cloud.Service` — the Phase 2 cloud accounts/environments API that replaced the standalone Vercel/GCloud settings. All four resolve their repository the way the project-model tools do (`repository_id` optional, run context otherwise) and their component the same way: `component` is a component's own path, or `.`/omitted resolves to the repository's only component — with more than one and no path given, the error lists every path to retry with.

@@ -110,6 +110,15 @@ var remediationTaskKey = prompt.Define[remediationTaskInput]("briefs.prodops.rem
 	RemedyText: "No known signature matched.", IncidentID: "00000000-0000-0000-0000-000000000000",
 })
 
+type telemetryIncidentTaskInput struct {
+	Env, Severity, Title, Detail, Service, Endpoint, TelemetryID, IncidentID, RemedyText string
+}
+
+var telemetryIncidentTaskKey = prompt.Define("briefs.prodops.telemetry_incident_task", telemetryIncidentTaskInput{
+	Env: "prod", Severity: "critical", Title: "High error rate", Service: "orders-api", Endpoint: "POST /orders",
+	TelemetryID: "42", IncidentID: "00000000-0000-0000-0000-000000000000", RemedyText: "No known signature matched.",
+})
+
 var incidentRecoveredCommentKey = prompt.Define[struct{}]("briefs.prodops.incident_recovered_comment", struct{}{})
 
 type releaseAttributionNoteInput struct {

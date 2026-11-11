@@ -1,0 +1,349 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_api_get",
+      "description": "Read any other query route of the TaskTrooper Telemetry API when the dedicated telemetry tools do not cover it: hosts, Kubernetes, databases, queues, SLOs (kpis), monitors, web and mobile apps, load tests, profiling. Read-only; it refuses anything that is not a data route. The result is JSON as telemetry returns it.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The path under the telemetry API root, with no leading /api/v1, for example \"infra/hosts\", \"infra/databases/3/queries\", \"kpis\", \"monitors\" or \"apps/storefront/summary\".",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Query parameters as strings, for example {\"range\": \"6h\", \"env\": \"production\"}.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_get_incident",
+      "description": "Read one TaskTrooper Telemetry incident with its timeline: when it started, the monitor or SLO that fired, the value and peak, the service and endpoint, the acknowledgement, and the telemetry's own root-cause hint (`rootCause`). That hint is unstructured and only a lead to verify with the other telemetry tools, never a conclusion. This is the monitoring product's incident, not a TaskTrooper incident (those are `get_incident`).",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "incident_id": {
+            "description": "The telemetry incident id (the \"Telemetry incident id\" in the task, or an id from telemetry_list_incidents). Never invent one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_get_service",
+      "description": "One service's health in a single call: its error rate, latency and throughput, its endpoints ranked with their ids, its recent deploys and its dependencies, plus, when you pass endpoint_id, the root-cause comparison for that endpoint. Start here for any service, then go narrower with traces, logs and errors.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline": {
+            "description": "What to compare the endpoint against for endpoint_id's root-cause analysis. prev (the window before) by default; use 1d or 7d when the problem may be older than the window.",
+            "enum": [
+              "prev",
+              "1d",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "endpoint_id": {
+            "description": "The endpoint id slug from the `endpoints` list of a first call (for example \"post-v1-charges\"), not the route. Only with this set do you get the root-cause comparison (`rca`): which child span or dependency got slower or more error-prone since the baseline.",
+            "type": "string"
+          },
+          "env": {
+            "description": "Deployment environment to read; omit for all.",
+            "type": "string"
+          },
+          "range": {
+            "description": "How far back to look. It must cover the time the problem started or an empty result looks like health.",
+            "enum": [
+              "15m",
+              "30m",
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "service": {
+            "description": "A service name as telemetry reports it (it is in the incident). Never guess one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_list_deploys",
+      "description": "List the deploys telemetry saw (a version first seen in spans, or a marker written by CI or the host), newest first. A deploy shortly before an incident started is a correlation worth checking, not proof; say so when you cite it.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "env": {
+            "description": "Deployment environment to read; omit for all.",
+            "type": "string"
+          },
+          "range": {
+            "description": "How far back to look; widen it beyond the incident start.",
+            "enum": [
+              "15m",
+              "30m",
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "service": {
+            "description": "A service name as telemetry reports it.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_list_errors",
+      "description": "List the error groups telemetry fingerprinted, or read one with its stack. A group whose `firstSeen` sits just after a deploy is a new error from that deploy; one that predates it is background noise to name as such, not to blame on the deploy.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "env": {
+            "description": "Deployment environment to read; omit for all.",
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "Read this one error group with the stack of its latest occurrence (symbolicated where possible). Give it alone with range.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum groups, default 20, at most 100.",
+            "type": "integer"
+          },
+          "range": {
+            "description": "How far back to look; it must cover the incident.",
+            "enum": [
+              "15m",
+              "30m",
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "route": {
+            "description": "A route template such as /orders/:id.",
+            "type": "string"
+          },
+          "service": {
+            "description": "A service name as telemetry reports it.",
+            "type": "string"
+          },
+          "status": {
+            "description": "open, resolved or ignored.",
+            "enum": [
+              "open",
+              "resolved",
+              "ignored"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_list_incidents",
+      "description": "List TaskTrooper Telemetry incidents, newest first. Use it to see whether the service had earlier incidents (a recurring one means the previous fix did not hold) and what else is alerting alongside the one you were handed.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "description": "An endpoint in the form \"METHOD /route\" (for example \"POST /v1/orders\"), or a consumer process name. The route form, not the endpoint id slug: the wrong form returns an empty list, which is not the same as healthy.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum incidents, default 20, at most 100.",
+            "type": "integer"
+          },
+          "service": {
+            "description": "A service name exactly as telemetry_get_service or the incident reports it.",
+            "type": "string"
+          },
+          "since": {
+            "description": "Only incidents that started at or after this time, epoch milliseconds.",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Omit it to see everything (a pending incident, one that crossed its threshold but has not fired yet, is often the live problem). open means not resolved.",
+            "enum": [
+              "open",
+              "pending",
+              "firing",
+              "acknowledged",
+              "resolved"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_search_logs",
+      "description": "Search the production logs TaskTrooper Telemetry collected, newest first. Narrow by service, level and q or trace_id; an unfiltered week of logs is noise. Messages arrive with emails, IPs and keys masked, so a masked value is not a bug.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "before": {
+            "description": "Cursor for older lines, the `nextBefore` of the previous page.",
+            "type": "integer"
+          },
+          "env": {
+            "description": "Deployment environment to read; omit for all.",
+            "type": "string"
+          },
+          "level": {
+            "description": "An exact level, not a minimum. Query error and warn separately; the counts in the result show which levels have lines.",
+            "enum": [
+              "error",
+              "warn",
+              "info",
+              "debug"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum lines, default 50, at most 200.",
+            "type": "integer"
+          },
+          "q": {
+            "description": "Full-text search. Use a term from the exception or span, not a whole sentence.",
+            "type": "string"
+          },
+          "range": {
+            "description": "How far back to look; it must cover the incident.",
+            "enum": [
+              "15m",
+              "30m",
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "route": {
+            "description": "A route template such as /orders/:id. It matches only lines that carry a route, so an empty answer means no routed lines, not no logs.",
+            "type": "string"
+          },
+          "service": {
+            "description": "A service name as telemetry reports it.",
+            "type": "string"
+          },
+          "trace_id": {
+            "description": "A 32-hex trace id. The most precise filter there is; try it first when you have a trace.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_search_traces",
+      "description": "Search traces, or read one. For an error use errors_only, for latency use sort slowest with min_ms, keep the limit at 5 to 10, then open one or two representative traces by trace_id and find the failing or slow span, its dependency and its attributes (status, db statement, peer, exception).",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "description": "An endpoint in the form \"METHOD /route\" (for example \"POST /v1/orders\"), not the endpoint id slug. The wrong form returns an empty list, which is not the same as healthy.",
+            "type": "string"
+          },
+          "env": {
+            "description": "Deployment environment to read; omit for all.",
+            "type": "string"
+          },
+          "errors_only": {
+            "description": "Only traces that failed.",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Maximum traces, default 10, at most 100. Keep it small.",
+            "type": "integer"
+          },
+          "min_ms": {
+            "description": "Only traces at least this slow, in milliseconds.",
+            "type": "integer"
+          },
+          "range": {
+            "description": "How far back to look; it must cover the incident.",
+            "enum": [
+              "15m",
+              "30m",
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "service": {
+            "description": "A service name as telemetry reports it.",
+            "type": "string"
+          },
+          "sort": {
+            "description": "slowest for latency problems, recent otherwise.",
+            "enum": [
+              "recent",
+              "slowest"
+            ],
+            "type": "string"
+          },
+          "trace_id": {
+            "description": "Read this one trace with all its spans (long traces are cut at the first spans). Give it alone; every other argument is then ignored.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  }
+]

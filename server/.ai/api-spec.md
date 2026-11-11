@@ -2333,6 +2333,36 @@ comment per column change of any linked task, and once every linked task is done
 the GitHub issue is closed (`state_reason=completed`) or the Jira issue transitioned to a done
 status, once (`closed_at`).
 
+## TaskTrooper Telemetry (native client)
+
+`internal/application/telemetry` connects this install to a TaskTrooper Telemetry service (its own product, `/api/v1`, bearer
+project key). The URL is stored in the clear and the key encrypted (`app_settings`, keys `telemetry_base_url` /
+`telemetry_api_key`; no migration), per tenant in the company edition. The key is write-only: no route returns it, and the
+browser never talks to the telemetry host.
+
+| Route | |
+|---|---|
+| `GET /v1/telemetry/settings` | `{base_url, configured}`; configured = URL and key both saved |
+| `PUT /v1/telemetry/settings` | `{base_url, api_key?}`; `api_key` omitted keeps the stored key, `""` clears it. 400 for a URL that is not http(s) with a host. Answers like GET |
+| `POST /v1/telemetry/settings/test` | optional `{base_url?, api_key?}` (omitted = the saved ones, so a form can be tried before it is saved). Always 200 `{ok, error?}`: reaches `/healthz`, then `GET /api/v1/environments` with the key |
+| `GET /v1/telemetry/status` | `{configured, reachable}`; an unconfigured install is never probed, a configured one at most every 15 s |
+| `GET /v1/telemetry/proxy/*path` | read-only GET passthrough. `*path` is relative to the upstream `/api/v1/`; the query string is forwarded; the key is injected server-side and any caller `Authorization`/`Cookie` is dropped. Upstream status, content type and body pass through. Other methods: 405 |
+
+Errors on the proxy are `{code, error}`: `409 telemetry_not_configured`; `403 telemetry_path_not_allowed` (first segment outside the
+allowlist in `application/telemetry/allowlist.go`, or a dot / empty / slash / control segment after one percent-decoding);
+`502 telemetry_unauthorized` (upstream 401: the key, never the caller's session); `502 telemetry_unreachable`. Nothing that holds
+credentials (`auth`, `me`, `orgs`, `api-keys`, `integrations`, `notification-channels`, `assistant`, `repos`, `internal`) is
+reachable. Destinations are vetted by `urlguard.HumanConfigured()` (loopback and private ranges dial, cloud metadata never).
+
+**Alerts become incidents.** `telemetry.IncidentSync` polls `GET /api/v1/incidents?state=open` every minute (no inbound webhook is
+needed, so a local install works). Each firing or acknowledged, non-quiet incident not seen before is ingested into prodops
+(`source: telemetry`, fingerprint `telemetry:<server hash>:<id>`, severity at least `high` so a task always opens; payload carries
+`telemetry_incident_id`, `service`, `endpoint`, `root_cause`) in the repository named after the alert's service (repository name,
+checkout folder or a sub-project folder; the first repository otherwise, said so in the detail). Its remediation task is assigned to
+the **release engineer** (`domain.RoleKeyRelease`) with the `briefs.prodops.telemetry_incident_task` brief; without one it falls
+back to the repository's default assignee and the developer brief. A telemetry incident that resolves resolves the TaskTrooper
+incident (asked about by id, so a page-limited list never closes one by mistake); one a person resolved is not reopened.
+
 ## Project model
 
 Components, checks, links, resources and scans — the full route list and

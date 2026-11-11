@@ -60,6 +60,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/signals"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/simrun"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/storeops"
+	telemetryapp "github.com/makifbaysal/tasktrooper/server/internal/application/telemetry"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workflow"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -141,6 +142,7 @@ type Handler struct {
 	repoDocsSvc       *repodocs.Service
 	prodOpsSvc        *prodops.Service
 	issueSyncSvc      *issuesync.Service
+	telemetrySvc      *telemetryapp.Service
 	storeOpsSvc       *storeops.Service
 	deployOpsSvc      *deployops.Service
 	projectModelSvc   *projectmodel.Service
@@ -222,6 +224,7 @@ type Config struct {
 	RepoDocsSvc       *repodocs.Service
 	ProdOpsSvc        *prodops.Service
 	IssueSyncSvc      *issuesync.Service
+	TelemetrySvc      *telemetryapp.Service
 	StoreOpsSvc       *storeops.Service
 	DeployOpsSvc      *deployops.Service
 	ProjectModelSvc   *projectmodel.Service
@@ -296,6 +299,7 @@ func NewHandler(cfg Config) *Handler {
 		repoDocsSvc:       cfg.RepoDocsSvc,
 		prodOpsSvc:        cfg.ProdOpsSvc,
 		issueSyncSvc:      cfg.IssueSyncSvc,
+		telemetrySvc:      cfg.TelemetrySvc,
 		storeOpsSvc:       cfg.StoreOpsSvc,
 		deployOpsSvc:      cfg.DeployOpsSvc,
 		projectModelSvc:   cfg.ProjectModelSvc,
@@ -369,6 +373,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerRepoDocsRoutes(app)
 	h.registerProdOpsRoutes(app)
 	h.registerIssueSyncRoutes(app)
+	h.registerTelemetryRoutes(app)
 	h.registerRepositoryOpsRoutes(app)
 	h.registerStoreOpsRoutes(app)
 	h.registerSimulatorRunRoutes(app)

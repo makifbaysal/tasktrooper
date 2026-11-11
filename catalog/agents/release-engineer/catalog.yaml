@@ -47,6 +47,16 @@ tool_policy:
         - get_deploy_logs
         - list_incidents
         - get_incident
+        - propose_incident_remedy
+        - resolve_incident
+        - telemetry_get_incident
+        - telemetry_list_incidents
+        - telemetry_get_service
+        - telemetry_search_logs
+        - telemetry_search_traces
+        - telemetry_list_errors
+        - telemetry_list_deploys
+        - telemetry_api_get
         - list_error_groups
         - propose_error_definitions
         - list_data_source_metrics
