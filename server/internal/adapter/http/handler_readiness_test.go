@@ -21,7 +21,9 @@ type readinessRepos struct {
 	tasks   map[uuid.UUID]domain.BoardTask
 }
 
-func (r *readinessRepos) Get(context.Context, uuid.UUID) (domain.Repository, error) { return r.repo, nil }
+func (r *readinessRepos) Get(context.Context, uuid.UUID) (domain.Repository, error) {
+	return r.repo, nil
+}
 func (r *readinessRepos) IndexStatus(context.Context, uuid.UUID) (domain.WorkspaceIndex, error) {
 	return domain.WorkspaceIndex{Status: domain.IndexStatusCompleted}, nil
 }
@@ -54,7 +56,9 @@ func (m readinessModel) StartScan(context.Context, uuid.UUID, domain.ScanTrigger
 	return domain.ProjectScan{}, true, nil
 }
 
-type readinessStore struct{ states map[string]domain.ReadinessStepState }
+type readinessStore struct {
+	states map[string]domain.ReadinessStepState
+}
 
 func (s *readinessStore) List(context.Context, uuid.UUID) ([]domain.ReadinessStepState, error) {
 	out := []domain.ReadinessStepState{}
