@@ -265,4 +265,54 @@ describe("ComponentsTab stack override", () => {
       expect(updateComponent).toHaveBeenCalledWith("comp-api", { stack: { languages: [{ name: "Go" }, { name: "Rust" }] } }),
     );
   });
+
+  it("removes a detected command by sending an empty override, and offers it back", async () => {
+    const withInstall: Component = { ...component, commands: [{ purpose: "install", command: { detected: "npm ci" } }] };
+    renderTab("comp-api", { ...model, components: [withInstall] });
+    await screen.findByText("npm ci");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove command" }));
+
+    await waitFor(() => expect(updateComponent).toHaveBeenCalledWith("comp-api", { commands: { install: "" } }));
+  });
+
+  it("shows a removed command as removed with a restore button that clears the override", async () => {
+    const removed: Component = { ...component, commands: [{ purpose: "install", command: { detected: "npm ci", override: "" } }] };
+    renderTab("comp-api", { ...model, components: [removed] });
+    await screen.findByText("Removed");
+    expect(screen.queryByText("npm ci")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+
+    await waitFor(() => expect(updateComponent).toHaveBeenCalledWith("comp-api", { commands: { install: null } }));
+  });
+
+  it("turns the Docker commands on with the has-containers switch", async () => {
+    renderTab("comp-api");
+    await screen.findByText("Containers");
+    expect(screen.queryByText("Image registry")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("switch", { name: "This component runs in containers" }));
+
+    await waitFor(() => expect(updateComponent).toHaveBeenCalledWith("comp-api", { container: { enabled: true } }));
+  });
+
+  it("saves the registry, platforms and tag of a containerised component", async () => {
+    const containerised: Component = { ...component, container: { enabled: true } };
+    renderTab("comp-api", { ...model, components: [containerised] });
+
+    const registry = await screen.findByPlaceholderText("ghcr.io/acme/app");
+    fireEvent.change(registry, { target: { value: "ghcr.io/acme/api" } });
+    fireEvent.blur(registry);
+    await waitFor(() =>
+      expect(updateComponent).toHaveBeenCalledWith("comp-api", { container: { enabled: true, registry: "ghcr.io/acme/api" } }),
+    );
+
+    const platforms = screen.getByPlaceholderText("linux/amd64, linux/arm64");
+    fireEvent.change(platforms, { target: { value: "linux/amd64, linux/arm64" } });
+    fireEvent.blur(platforms);
+    await waitFor(() =>
+      expect(updateComponent).toHaveBeenCalledWith("comp-api", { container: { enabled: true, platforms: ["linux/amd64", "linux/arm64"] } }),
+    );
+  });
 });

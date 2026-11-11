@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "查看 TaskTrooper 最新版本的更新内容。",
     open: "显示新功能",
   },
+  v0_3_15: {
+    title: "代理得到正确的指南，任务得到代理，Docker 有了命令",
+    items: {
+      agentsMd: "项目设置中的代理指南任务现在为所有代理 CLI 写一个统一的 AGENTS.md，不再要求项目已有的 README。",
+      assignTasks: "由扫描或代理创建的任务在创建时就会分配合适的代理，PM 也可以就地设置或更正任务的负责人，而不必重新创建。",
+      dockerCommands: "容器化组件新增 Docker 命令（buildkit、构建镜像、compose 启动、移除和停止）、仓库、平台和标签设置、让代理只在容器内运行的规则，并且每条命令都可以移除。",
+    },
+  },
   v0_3_14: {
     title: "在手机上做受众研究",
     items: {

@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "TaskTrooper'ın son sürümünde nelerin değiştiğini gör.",
     open: "Yenilikleri göster",
   },
+  v0_3_15: {
+    title: "Ajanlar doğru rehberi, görevler bir ajanı, Docker komutları buluyor",
+    items: {
+      agentsMd: "Proje kurulumundaki ajan rehberi görevi artık tüm ajan CLI'ları için tek bir AGENTS.md yazıyor ve projede zaten olan README'yi istemiyor.",
+      assignTasks: "Tarama ya da bir ajan tarafından açılan görevlere oluşturulurken uygun bir ajan atanıyor; PM da bir görevin atananını yeniden oluşturmadan yerinde ayarlayıp düzeltebiliyor.",
+      dockerCommands: "Konteynerli bileşenler Docker komutları (buildkit, imaj oluşturma, compose başlat, kaldır ve durdur), registry, platform ve etiket ayarları, ajanlar için yalnızca konteynerde çalıştırma kuralı kazandı; her komut da kaldırılabiliyor.",
+    },
+  },
   v0_3_14: {
     title: "Audience araştırması artık telefonunda",
     items: {

@@ -23,6 +23,11 @@ export const projectModel = {
     format: "格式化",
     e2e: "E2E",
     migrate: "迁移",
+    buildkit_setup: "准备 buildkit",
+    image_build: "构建镜像",
+    compose_up: "Compose 启动",
+    compose_down: "Compose 移除（清理）",
+    compose_stop: "Compose 停止",
   },
   checkPurposes: {
     lint: "Lint",

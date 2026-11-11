@@ -52,13 +52,13 @@ func nonNilMap[K comparable, V any](m map[K]V) map[K]V {
 
 // --- Component ---
 
-const componentCols = `id, repository_id, path, name, role, stack, commands, mobile, docs, gates, delivery, status, manually_added, needs_review, last_scan_id, created_at, updated_at`
+const componentCols = `id, repository_id, path, name, role, stack, commands, mobile, docs, gates, container, delivery, status, manually_added, needs_review, last_scan_id, created_at, updated_at`
 
 func scanComponent(row pgx.Row) (domain.Component, error) {
 	var c domain.Component
-	var nameJSON, roleJSON, stackJSON, commandsJSON, mobileJSON, docsJSON, gatesJSON, deliveryJSON []byte
+	var nameJSON, roleJSON, stackJSON, commandsJSON, mobileJSON, docsJSON, gatesJSON, containerJSON, deliveryJSON []byte
 	if err := row.Scan(
-		&c.ID, &c.RepositoryID, &c.Path, &nameJSON, &roleJSON, &stackJSON, &commandsJSON, &mobileJSON, &docsJSON, &gatesJSON,
+		&c.ID, &c.RepositoryID, &c.Path, &nameJSON, &roleJSON, &stackJSON, &commandsJSON, &mobileJSON, &docsJSON, &gatesJSON, &containerJSON,
 		&deliveryJSON, &c.Status, &c.ManuallyAdded, &c.NeedsReview, &c.LastScanID, &c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return domain.Component{}, err
@@ -84,6 +84,11 @@ func scanComponent(row pgx.Row) (domain.Component, error) {
 	if err := json.Unmarshal(gatesJSON, &c.Gates); err != nil {
 		return domain.Component{}, fmt.Errorf("unmarshal component gates: %w", err)
 	}
+	if len(containerJSON) > 0 {
+		if err := json.Unmarshal(containerJSON, &c.Container); err != nil {
+			return domain.Component{}, fmt.Errorf("unmarshal component container: %w", err)
+		}
+	}
 	if mobileJSON != nil {
 		var mobile domain.Fact[domain.MobileFacts]
 		if err := json.Unmarshal(mobileJSON, &mobile); err != nil {
@@ -96,8 +101,8 @@ func scanComponent(row pgx.Row) (domain.Component, error) {
 
 const upsertComponentSQL = `
 INSERT INTO project_components
-	(id, repository_id, path, name, role, stack, commands, mobile, docs, gates, delivery, status, manually_added, needs_review, last_scan_id)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+	(id, repository_id, path, name, role, stack, commands, mobile, docs, gates, container, delivery, status, manually_added, needs_review, last_scan_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 ON CONFLICT (id) DO UPDATE SET
 	repository_id = EXCLUDED.repository_id,
 	path = EXCLUDED.path,
@@ -108,6 +113,7 @@ ON CONFLICT (id) DO UPDATE SET
 	mobile = EXCLUDED.mobile,
 	docs = EXCLUDED.docs,
 	gates = EXCLUDED.gates,
+	container = EXCLUDED.container,
 	delivery = EXCLUDED.delivery,
 	status = EXCLUDED.status,
 	manually_added = EXCLUDED.manually_added,
@@ -151,6 +157,10 @@ func upsertComponent(ctx context.Context, q pmExecutor, c domain.Component) (dom
 	if err != nil {
 		return domain.Component{}, fmt.Errorf("marshal component gates: %w", err)
 	}
+	containerJSON, err := json.Marshal(c.Container)
+	if err != nil {
+		return domain.Component{}, fmt.Errorf("marshal component container: %w", err)
+	}
 	deliveryJSON, err := json.Marshal(c.Delivery)
 	if err != nil {
 		return domain.Component{}, fmt.Errorf("marshal component delivery: %w", err)
@@ -163,7 +173,7 @@ func upsertComponent(ctx context.Context, q pmExecutor, c domain.Component) (dom
 		}
 	}
 	row := q.QueryRow(ctx, upsertComponentSQL,
-		c.ID, c.RepositoryID, c.Path, nameJSON, roleJSON, stackJSON, commandsJSON, mobileJSON, docsJSON, gatesJSON,
+		c.ID, c.RepositoryID, c.Path, nameJSON, roleJSON, stackJSON, commandsJSON, mobileJSON, docsJSON, gatesJSON, containerJSON,
 		deliveryJSON, status, c.ManuallyAdded, c.NeedsReview, c.LastScanID)
 	out, err := scanComponent(row)
 	if err != nil {

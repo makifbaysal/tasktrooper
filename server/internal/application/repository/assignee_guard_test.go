@@ -25,13 +25,24 @@ func TestCreateTaskRefusesTheProductManagerAsAssignee(t *testing.T) {
 	assert.Empty(t, f.tasks.tasks, "a refused assignee creates nothing")
 }
 
-func TestCreateTaskLeavesASystemTaskUnassignedWhenItsPurposeResolvesToThePM(t *testing.T) {
+func TestCreateTaskGivesASystemTaskTheSystemAssigneeInsteadOfThePM(t *testing.T) {
 	f := newAssigneeFixture()
 	pm := workflowtest.AgentID("product-manager")
 
 	task := f.create(t, domain.CreateBoardTaskRequest{CreatedBy: "system", AssigneeAgentID: &pm})
 
-	assert.Nil(t, task.AssigneeAgentID)
+	require.NotNil(t, task.AssigneeAgentID)
+	assert.NotEqual(t, pm, *task.AssigneeAgentID)
+}
+
+func TestCreateTaskFindsAnAgentForAnUnassignedTaskAnAgentOpens(t *testing.T) {
+	f := newAssigneeFixture()
+
+	opened := f.create(t, domain.CreateBoardTaskRequest{CreatedBy: "agent"})
+	require.NotNil(t, opened.AssigneeAgentID)
+
+	byHand := f.create(t, domain.CreateBoardTaskRequest{CreatedBy: "user"})
+	assert.Nil(t, byHand.AssigneeAgentID, "a person who leaves it unassigned meant it")
 }
 
 func TestCreateTaskFallsBackToTheRequestedAgentWhenTheTypeRoleIsThePM(t *testing.T) {

@@ -186,10 +186,27 @@ const (
 	CommandFormat    CommandPurpose = "format"
 	CommandE2E       CommandPurpose = "e2e"
 	CommandMigrate   CommandPurpose = "migrate"
+
+	CommandBuildkitSetup CommandPurpose = "buildkit_setup"
+	CommandImageBuild    CommandPurpose = "image_build"
+	CommandComposeUp     CommandPurpose = "compose_up"
+	CommandComposeDown   CommandPurpose = "compose_down"
+	CommandComposeStop   CommandPurpose = "compose_stop"
 )
 
 func AllCommandPurposes() []CommandPurpose {
-	return []CommandPurpose{CommandInstall, CommandDev, CommandBuild, CommandTest, CommandLint, CommandTypecheck, CommandFormat, CommandE2E, CommandMigrate}
+	return []CommandPurpose{CommandInstall, CommandDev, CommandBuild, CommandTest, CommandLint, CommandTypecheck, CommandFormat, CommandE2E, CommandMigrate,
+		CommandBuildkitSetup, CommandImageBuild, CommandComposeUp, CommandComposeDown, CommandComposeStop}
+}
+
+// IsContainerCommand is true for the purposes that only make sense on a
+// containerised component; the UI offers them only when it is one.
+func (p CommandPurpose) IsContainerCommand() bool {
+	switch p {
+	case CommandBuildkitSetup, CommandImageBuild, CommandComposeUp, CommandComposeDown, CommandComposeStop:
+		return true
+	}
+	return false
 }
 
 func ValidCommandPurpose(p CommandPurpose) bool {
@@ -295,6 +312,8 @@ type Component struct {
 	Mobile       *Fact[MobileFacts]   `json:"mobile,omitempty"`
 	Docs         RepositoryDocs       `json:"docs"`
 	Gates        ComponentGates       `json:"gates"`
+	// Container is set by a person only; see ContainerSettings.
+	Container ContainerSettings `json:"container"`
 	// Delivery is how a merge reaches production for this component; see
 	// DeliveryConfirmed for when a detected profile may act without a human.
 	Delivery Fact[ComponentDelivery] `json:"delivery"`

@@ -316,12 +316,34 @@ func guideTaskRequest(f *facts, step domain.ReadinessStep, blockedBy []domain.Ta
 		})
 	}
 	return domain.CreateBoardTaskRequest{
-		Title:       "Add a README and an agent guide",
+		Title:       guideTaskTitle(missing),
 		Description: guideKey.Render(in),
 		Priority:    domain.TaskPriorityMedium,
 		Column:      domain.TaskColumnTodo,
 		CreatedBy:   "system",
 		BlockedBy:   blockedBy,
+	}
+}
+
+// guideTaskTitle names only what is actually missing, so a repository that
+// already has a README is not asked for one.
+func guideTaskTitle(missing []string) string {
+	hasReadme, hasGuide := true, true
+	for _, m := range missing {
+		switch m {
+		case "readme":
+			hasReadme = false
+		case "agent_guide":
+			hasGuide = false
+		}
+	}
+	switch {
+	case !hasReadme && !hasGuide:
+		return "Add a README and an AGENTS.md agent guide"
+	case !hasReadme:
+		return "Add a README"
+	default:
+		return "Add an AGENTS.md agent guide"
 	}
 }
 

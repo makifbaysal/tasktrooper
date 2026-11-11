@@ -26,6 +26,11 @@ export const projectModel: ProjectModelDict = {
     format: "Biçimlendirme",
     e2e: "Uçtan uca",
     migrate: "Migrasyon",
+    buildkit_setup: "Buildkit hazırla",
+    image_build: "İmaj oluştur",
+    compose_up: "Compose başlat",
+    compose_down: "Compose kaldır (temizle)",
+    compose_stop: "Compose durdur",
   },
   checkPurposes: {
     lint: "Lint",

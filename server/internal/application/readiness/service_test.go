@@ -543,16 +543,25 @@ func TestTheBriefsNameWhatIsMissingAndWhatToProve(t *testing.T) {
 		Components: []componentBrief{{Path: ".", Role: "backend", Stack: "Go", Commands: []string{"test: go test ./..."}}}})
 	require.Contains(t, both, "both a README and a guide for coding agents")
 	require.Contains(t, both, "## README.md")
-	require.Contains(t, both, "## CLAUDE.md")
+	require.Contains(t, both, "## AGENTS.md")
+	require.NotContains(t, both, "CLAUDE.md` exist")
 	require.Contains(t, both, "test: go test ./...")
 	require.Contains(t, both, "## Done when")
 
 	only := guideKey.Render(guideInput{Repository: "acme", Missing: []string{"agent_guide"}})
 	require.False(t, strings.Contains(only, "## README.md"))
-	require.Contains(t, only, "## CLAUDE.md")
+	require.Contains(t, only, "## AGENTS.md")
+	require.Contains(t, only, "link to the existing README")
+	require.Contains(t, only, "Nothing other than `AGENTS.md` changed")
 
 	tests := testsKey.Render(testsInput{Repository: "acme", Components: []testGap{{Path: "web", Role: "frontend"}, {Path: "api", Role: "backend", TestCommand: "go test ./..."}}})
 	require.Contains(t, tests, "`web`")
 	require.Contains(t, tests, "No test command is on record")
 	require.Contains(t, tests, "Test command on record: `go test ./...`")
+}
+
+func TestTheGuideTaskIsNamedForWhatIsMissing(t *testing.T) {
+	require.Equal(t, "Add a README and an AGENTS.md agent guide", guideTaskTitle([]string{"readme", "agent_guide"}))
+	require.Equal(t, "Add a README", guideTaskTitle([]string{"readme"}))
+	require.Equal(t, "Add an AGENTS.md agent guide", guideTaskTitle([]string{"agent_guide"}))
 }

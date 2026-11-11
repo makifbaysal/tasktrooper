@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Sieh nach, was sich in der neuesten Version von TaskTrooper geändert hat.",
     open: "Neuigkeiten anzeigen",
   },
+  v0_3_15: {
+    title: "Agenten bekommen den richtigen Leitfaden, Aufgaben einen Agenten, Docker Befehle",
+    items: {
+      agentsMd: "Die Agent-Leitfaden-Aufgabe aus dem Projekt-Setup schreibt jetzt eine einzige AGENTS.md für jede Agent-CLI und verlangt keine README mehr, die das Projekt schon hat.",
+      assignTasks: "Aufgaben, die ein Scan oder ein Agent anlegt, bekommen beim Erstellen einen passenden Agenten, und der PM kann den Bearbeiter einer Aufgabe direkt setzen oder korrigieren, statt sie neu anzulegen.",
+      dockerCommands: "Containerisierte Komponenten erhalten Docker-Befehle (Buildkit, Image-Build, Compose up, down und stop), Registry-, Plattform- und Tag-Einstellungen, eine Nur-in-Containern-Regel für Agenten, und jeder Befehl lässt sich entfernen.",
+    },
+  },
   v0_3_14: {
     title: "Zielgruppenforschung auf dem Handy",
     items: {
