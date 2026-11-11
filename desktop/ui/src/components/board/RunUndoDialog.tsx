@@ -1,6 +1,13 @@
 import { Loader2, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, ApiError, type RunRevertResult, type RunUndoPreview, type RunUndoResult } from "@/api";
+import {
+  api,
+  ApiError,
+  type RunRevertResult,
+  type RunRollbackProposalResult,
+  type RunUndoPreview,
+  type RunUndoResult,
+} from "@/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -26,7 +33,10 @@ interface RunUndoDialogProps {
   onDone: () => void;
 }
 
-type Outcome = { kind: "reset"; result: RunUndoResult } | { kind: "revert"; result: RunRevertResult };
+type Outcome =
+  | { kind: "reset"; result: RunUndoResult }
+  | { kind: "revert"; result: RunRevertResult }
+  | { kind: "proposal"; result: RunRollbackProposalResult };
 
 export function RunUndoDialog({ open, onOpenChange, repositoryId, taskId, runId, onDone }: RunUndoDialogProps) {
   const { t } = useI18n();
@@ -78,6 +88,20 @@ export function RunUndoDialog({ open, onOpenChange, repositoryId, taskId, runId,
     try {
       const res = await api.revertRun(repositoryId, taskId, runId);
       setOutcome({ kind: "revert", result: res.result });
+      onDone();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmProposal = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.proposeRunRollback(repositoryId, taskId, runId, t("runUndo.release.note"));
+      setOutcome({ kind: "proposal", result: res.result });
       onDone();
     } catch (e) {
       fail(e);
@@ -178,6 +202,24 @@ export function RunUndoDialog({ open, onOpenChange, repositoryId, taskId, runId,
                 </>
               )}
 
+              {canRevert && preview.release && (
+                <section className="space-y-1.5 rounded-lg border border-border px-3 py-2">
+                  <p className="font-medium">{t("runUndo.release.title", { version: preview.release.version })}</p>
+                  <p className="text-micro text-muted-foreground">{t("runUndo.release.body")}</p>
+                  {preview.release.proposed ? (
+                    <p className="text-micro">{t("runUndo.release.alreadyProposed")}</p>
+                  ) : preview.release.rollback_allowed ? (
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void confirmProposal()}>
+                      {t("runUndo.release.propose")}
+                    </Button>
+                  ) : (
+                    <p className="text-micro text-muted-foreground">
+                      {t(`runUndo.release.refusal.${preview.release.rollback_refusal || "other"}`)}
+                    </p>
+                  )}
+                </section>
+              )}
+
               {preview.non_undoable.length > 0 && (
                 <section className="space-y-1 rounded-lg border border-border bg-muted/10 px-3 py-2">
                   <p className="font-medium">{t("runUndo.cannotUndo")}</p>
@@ -221,6 +263,13 @@ export function RunUndoDialog({ open, onOpenChange, repositoryId, taskId, runId,
 
 function OutcomeView({ outcome }: { outcome: Outcome }) {
   const { t } = useI18n();
+  if (outcome.kind === "proposal") {
+    return (
+      <Notice variant="info" title={t("runUndo.release.proposedTitle")} role="status">
+        {t("runUndo.release.proposedBody", { version: outcome.result.version })}
+      </Notice>
+    );
+  }
   if (outcome.kind === "revert") {
     const r = outcome.result;
     return (

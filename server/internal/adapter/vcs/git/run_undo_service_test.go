@@ -308,3 +308,62 @@ func TestAMergedPullRequestIsRevertedNotRewritten(t *testing.T) {
 	require.NotEmpty(t, gitRun(t, h.f.origin, "rev-parse", res.Branch))
 	require.Len(t, h.events.created, 1)
 }
+
+type fakeReleases struct {
+	release  domain.Release
+	notFound bool
+	proposed []string
+}
+
+func (f *fakeReleases) ForTask(context.Context, uuid.UUID, uuid.UUID) (domain.Release, error) {
+	if f.notFound {
+		return domain.Release{}, domain.ErrReleaseNotFound
+	}
+	return f.release, nil
+}
+
+func (f *fakeReleases) ProposeRollback(_ context.Context, id uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error) {
+	f.proposed = append(f.proposed, string(actor)+"/"+string(reason)+"/"+note)
+	r := f.release
+	r.ID = id
+	return r, nil
+}
+
+func TestAMergedTasksReleaseOffersAProposalNotARollback(t *testing.T) {
+	h := newUndoHarness(t)
+	h.tasks.task.MergeCommitSHA = "abc1234"
+	releases := &fakeReleases{release: domain.Release{ID: uuid.New(), Version: "v1.4.0", Status: domain.ReleaseReleased, RollbackAllowed: true}}
+	h.svc.SetReleases(releases)
+
+	p, err := h.svc.Preview(context.Background(), h.repoID, h.taskID, h.runID)
+	require.NoError(t, err)
+	require.NotNil(t, p.Release)
+	require.Equal(t, "v1.4.0", p.Release.Version)
+	require.True(t, p.Release.RollbackAllowed)
+
+	_, err = h.svc.ProposeRollback(context.Background(), h.repoID, h.taskID, h.runID, domain.RunUndoRequest{})
+	require.ErrorIs(t, err, domain.ErrUndoConfirmRequired)
+	require.Empty(t, releases.proposed)
+
+	res, err := h.svc.ProposeRollback(context.Background(), h.repoID, h.taskID, h.runID, domain.RunUndoRequest{Confirm: true, Note: "wrong fix"})
+	require.NoError(t, err)
+	require.Equal(t, "v1.4.0", res.Version)
+	require.Equal(t, []string{"human/manual/wrong fix"}, releases.proposed)
+	require.Len(t, h.events.created, 1)
+	undo, _ := h.traces.List(context.Background(), h.runID, port.RunTraceFilter{Category: domain.TraceCategoryUndo})
+	require.Len(t, undo, 1)
+}
+
+func TestARollbackProposalNeedsAMergeAndARelease(t *testing.T) {
+	h := newUndoHarness(t)
+	releases := &fakeReleases{}
+	h.svc.SetReleases(releases)
+	_, err := h.svc.ProposeRollback(context.Background(), h.repoID, h.taskID, h.runID, domain.RunUndoRequest{Confirm: true})
+	require.ErrorIs(t, err, domain.ErrUndoNotMerged)
+
+	h.tasks.task.MergeCommitSHA = "abc1234"
+	releases.notFound = true
+	_, err = h.svc.ProposeRollback(context.Background(), h.repoID, h.taskID, h.runID, domain.RunUndoRequest{Confirm: true})
+	require.ErrorIs(t, err, domain.ErrUndoNoRelease)
+	require.Empty(t, releases.proposed)
+}

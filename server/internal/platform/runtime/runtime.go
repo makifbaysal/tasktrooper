@@ -1361,6 +1361,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var activateBoard []func()
 	var boardRunControl httpadapter.BoardRunControl
 	var runUndoControl httpadapter.RunUndoControl
+	var runUndoSvc *boardapp.RunUndo
 	var boardController *boardapp.Controller
 	// Both left nil (503) when there is no board: the stop/re-run routes and
 	// the task-chat route must not dereference a runner that was never built.
@@ -1753,10 +1754,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			boardController.SetCommenter(repositorySvc)
 		}
 		if boardRunner != nil && boardTaskStore != nil && runTraceStore != nil && criterionStore != nil && boardEventStore != nil {
-			runUndoControl = boardapp.NewRunUndo(boardapp.RunUndoDeps{
+			runUndoSvc = boardapp.NewRunUndo(boardapp.RunUndoDeps{
 				Traces: runTraceStore, Runs: taskAgentRunStore, Tasks: boardTaskStore, Events: boardEventStore,
 				Git: gitClient, Criteria: criterionStore, Repos: repositorySvc, Updater: repositorySvc,
 			})
+			runUndoControl = runUndoSvc
 		}
 		repositorySvc.SetRequireCriteriaComplete(cfg.Board.RequireCriteriaComplete)
 
@@ -3119,6 +3121,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 
 	var releaseHTTP httpadapter.ReleaseService
 	var releaseWaker httpadapter.ReleaseWaker
+	if e.releaseSvc != nil && runUndoSvc != nil {
+		runUndoSvc.SetReleases(e.releaseSvc)
+	}
 	if e.releaseSvc != nil {
 		releaseHTTP = e.releaseSvc
 		releaseWaker = e.releaseSvc

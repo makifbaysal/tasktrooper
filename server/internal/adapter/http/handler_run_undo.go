@@ -16,12 +16,14 @@ type RunUndoControl interface {
 	Preview(ctx context.Context, repositoryID, taskID, runID uuid.UUID) (domain.RunUndoPreview, error)
 	Undo(ctx context.Context, repositoryID, taskID, runID uuid.UUID, req domain.RunUndoRequest) (domain.RunUndoResult, error)
 	Revert(ctx context.Context, repositoryID, taskID, runID uuid.UUID, req domain.RunUndoRequest) (domain.RunRevertResult, error)
+	ProposeRollback(ctx context.Context, repositoryID, taskID, runID uuid.UUID, req domain.RunUndoRequest) (domain.RunRollbackProposalResult, error)
 }
 
 func (h *Handler) registerRunUndoRoutes(app fiber.Router) {
 	app.Get("/v1/repositories/:id/tasks/:taskId/runs/:runId/undo/preview", h.RunUndoPreview)
 	app.Post("/v1/repositories/:id/tasks/:taskId/runs/:runId/undo", h.RunUndo)
 	app.Post("/v1/repositories/:id/tasks/:taskId/runs/:runId/undo/revert", h.RunUndoRevert)
+	app.Post("/v1/repositories/:id/tasks/:taskId/runs/:runId/undo/rollback-proposal", h.RunUndoRollbackProposal)
 }
 
 func undoError(c *fiber.Ctx, err error) error {
@@ -30,7 +32,7 @@ func undoError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, domain.ErrUndoConfirmRequired):
 		return badRequest(c, err.Error())
 	case errors.As(err, &blocked), errors.Is(err, domain.ErrUndoUseRevert), errors.Is(err, domain.ErrUndoNotMerged),
-		errors.Is(err, domain.ErrUndoRemoteAhead):
+		errors.Is(err, domain.ErrUndoRemoteAhead), errors.Is(err, domain.ErrUndoNoRelease), errors.Is(err, domain.ErrReleaseWrongStatus):
 		return c.Status(fiber.StatusConflict).JSON(errorResponse{Error: errorDetail{Message: err.Error(), Type: "conflict"}})
 	case errors.Is(err, domain.ErrTaskAgentRunNotFound):
 		return runControlError(c, err)
@@ -101,6 +103,30 @@ func (h *Handler) RunUndoRevert(c *fiber.Ctx) error {
 		return badRequest(c, "invalid request body")
 	}
 	result, err := h.runUndo.Revert(h.enrichContext(c), repositoryID, taskID, runID, req)
+	if err != nil {
+		return undoError(c, err)
+	}
+	return c.JSON(fiber.Map{"result": result})
+}
+
+// RunUndoRollbackProposal — POST /v1/repositories/:id/tasks/:taskId/runs/:runId/undo/rollback-proposal
+//
+// For a merged task that shipped in a release: writes the release's rollback
+// proposal (what the release engineer writes when auto rollback is off). A
+// person approves it on the release; nothing is reverted or deployed here.
+func (h *Handler) RunUndoRollbackProposal(c *fiber.Ctx) error {
+	if h.runUndo == nil {
+		return boardRunControlDisabled(c)
+	}
+	repositoryID, taskID, runID, err := parseRepositoryTaskRunParams(c)
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	var req domain.RunUndoRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+	result, err := h.runUndo.ProposeRollback(h.enrichContext(c), repositoryID, taskID, runID, req)
 	if err != nil {
 		return undoError(c, err)
 	}

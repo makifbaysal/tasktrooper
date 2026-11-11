@@ -37,6 +37,7 @@ var (
 	ErrUndoNotAvailable    = errors.New("this run cannot be undone")
 	ErrUndoUseRevert       = errors.New("the pull request is merged, so history is not rewritten: open a revert instead")
 	ErrUndoRemoteAhead     = errors.New("the remote branch holds commits this checkout does not, so it is not force-pushed")
+	ErrUndoNoRelease       = errors.New("this task is not part of a release")
 	ErrUndoNotMerged       = errors.New("this task has no merged pull request to revert")
 )
 
@@ -50,6 +51,17 @@ type RunUndoPullRequest struct {
 	Number   int    `json:"number,omitempty"`
 	Merged   bool   `json:"merged"`
 	MergeSHA string `json:"merge_sha,omitempty"`
+}
+
+// RunUndoRelease is the release a merged task shipped in, and whether its
+// rollback may be proposed.
+type RunUndoRelease struct {
+	ID              uuid.UUID     `json:"id"`
+	Version         string        `json:"version"`
+	Status          ReleaseStatus `json:"status"`
+	RollbackAllowed bool          `json:"rollback_allowed"`
+	RollbackRefusal string        `json:"rollback_refusal,omitempty"`
+	Proposed        bool          `json:"proposed"`
 }
 
 // RunUndoPreview is what undoing a run would do, computed without changing
@@ -73,6 +85,7 @@ type RunUndoPreview struct {
 	RemoteBranchSHA string              `json:"remote_branch_sha,omitempty"`
 	RemoteAhead     bool                `json:"remote_ahead"`
 	PullRequest     *RunUndoPullRequest `json:"pull_request,omitempty"`
+	Release         *RunUndoRelease     `json:"release,omitempty"`
 	BackupRef       string              `json:"backup_ref"`
 	NonUndoable     []RunTraceEffect    `json:"non_undoable"`
 	// MoveTo is the column the card returns to; empty when it stays put.
@@ -85,6 +98,8 @@ type RunUndoRequest struct {
 	ForcePush bool `json:"force_push"`
 	// KeepColumn leaves the card where it is.
 	KeepColumn bool `json:"keep_column"`
+	// Note rides on a rollback proposal.
+	Note string `json:"note,omitempty"`
 }
 
 type RunUndoResult struct {
@@ -121,3 +136,9 @@ type UndoBlockedError struct{ Reason string }
 
 func (e *UndoBlockedError) Error() string { return ErrUndoNotAvailable.Error() + " (" + e.Reason + ")" }
 func (e *UndoBlockedError) Unwrap() error { return ErrUndoNotAvailable }
+
+type RunRollbackProposalResult struct {
+	RunID     uuid.UUID `json:"run_id"`
+	ReleaseID uuid.UUID `json:"release_id"`
+	Version   string    `json:"version"`
+}

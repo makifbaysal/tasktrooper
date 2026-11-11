@@ -27,10 +27,22 @@ type RunUndoDeps struct {
 	Updater  TaskUpdater
 }
 
+// RunUndoReleases is the release side of undoing a merged task: which release
+// it shipped in, and writing the rollback proposal a person then approves.
+type RunUndoReleases interface {
+	ForTask(ctx context.Context, repositoryID, taskID uuid.UUID) (domain.Release, error)
+	ProposeRollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error)
+}
+
 // RunUndo takes a run's work back: it previews what a reset of the task branch
 // would do, does it behind a backup, and for a merged pull request opens a
 // revert instead of rewriting history.
-type RunUndo struct{ d RunUndoDeps }
+type RunUndo struct {
+	d        RunUndoDeps
+	releases RunUndoReleases
+}
+
+func (u *RunUndo) SetReleases(r RunUndoReleases) { u.releases = r }
 
 func NewRunUndo(d RunUndoDeps) *RunUndo { return &RunUndo{d: d} }
 
@@ -85,6 +97,7 @@ func (u *RunUndo) Preview(ctx context.Context, repositoryID, taskID, runID uuid.
 	}
 
 	if s.task.MergeCommitSHA != "" {
+		p.Release = u.releaseOf(ctx, repositoryID, taskID)
 		p.Mode = domain.UndoModeRevert
 		p.RevertAvailable = !s.header.Remote
 		return blocked(p, domain.UndoBlockedMerged), nil
@@ -358,6 +371,56 @@ func (u *RunUndo) Revert(ctx context.Context, repositoryID, taskID, runID uuid.U
 		"mode": domain.UndoModeRevert, "revert_branch": out.Branch, "pr_url": out.PRURL, "merge_sha": s.task.MergeCommitSHA,
 	}, out.Branch, map[string]any{
 		"action": "revert", "merge_sha": s.task.MergeCommitSHA, "branch": out.Branch, "pr_url": out.PRURL, "pr_error": out.PRError,
+	}, s.header)
+	return res, nil
+}
+
+func (u *RunUndo) releaseOf(ctx context.Context, repositoryID, taskID uuid.UUID) *domain.RunUndoRelease {
+	if u.releases == nil {
+		return nil
+	}
+	rel, err := u.releases.ForTask(ctx, repositoryID, taskID)
+	if err != nil {
+		return nil
+	}
+	return &domain.RunUndoRelease{
+		ID: rel.ID, Version: rel.Version, Status: rel.Status, RollbackAllowed: rel.RollbackAllowed,
+		RollbackRefusal: rel.RollbackRefusal, Proposed: rel.RollbackProposal != nil,
+	}
+}
+
+// ProposeRollback asks for the rollback of the release the task shipped in,
+// the way the release engineer does when auto rollback is off: it only writes
+// the proposal. A person approves it on the release; nothing is reverted or
+// deployed here.
+func (u *RunUndo) ProposeRollback(ctx context.Context, repositoryID, taskID, runID uuid.UUID, req domain.RunUndoRequest) (domain.RunRollbackProposalResult, error) {
+	var res domain.RunRollbackProposalResult
+	if !req.Confirm {
+		return res, domain.ErrUndoConfirmRequired
+	}
+	s, err := u.load(ctx, repositoryID, taskID, runID)
+	if err != nil && err != domain.ErrRunTraceNotFound {
+		return res, err
+	}
+	if s.task.MergeCommitSHA == "" {
+		return res, domain.ErrUndoNotMerged
+	}
+	if u.releases == nil {
+		return res, domain.ErrUndoNoRelease
+	}
+	rel, err := u.releases.ForTask(ctx, repositoryID, taskID)
+	if err != nil {
+		return res, domain.ErrUndoNoRelease
+	}
+	proposed, err := u.releases.ProposeRollback(ctx, rel.ID, domain.ReleaseActorHuman, domain.RollbackManual, strings.TrimSpace(req.Note))
+	if err != nil {
+		return res, err
+	}
+	res = domain.RunRollbackProposalResult{RunID: runID, ReleaseID: proposed.ID, Version: proposed.Version}
+	u.recordEvent(ctx, repositoryID, taskID, runID, s.run.AgentID, map[string]any{
+		"mode": "rollback_proposal", "release_id": proposed.ID.String(), "release_version": proposed.Version,
+	}, proposed.Version, map[string]any{
+		"action": "rollback_proposal", "release_id": proposed.ID.String(), "version": proposed.Version,
 	}, s.header)
 	return res, nil
 }

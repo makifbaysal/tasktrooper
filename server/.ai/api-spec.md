@@ -240,6 +240,12 @@ for a run still working, or when the workspace is not on the branch the run work
   a branch `tasktrooper/revert-<task key>-<run>` is cut from the default branch, `git revert` of the merge commit
   (`-m 1` when it is a merge) is pushed and a pull request opened. Nothing is deployed.
 
+- `POST …/runs/{runId}/undo/rollback-proposal` `{confirm, note?}` — for a merged task that shipped in a release
+  (`preview.release` carries the release, `rollback_allowed` and the `rollback_refusal` code): writes the
+  release's rollback **proposal** exactly as the release engineer does when auto rollback is off
+  (`release.Service.ProposeRollback`), whatever the release's profile says. It never reverts or deploys; a
+  person approves it on the release. `409` when the task is not merged or is in no release.
+
 None of them goes through the board dispatcher: cancel would immediately fan fresh agents
 onto the task it just stopped, and re-run would start every agent configured for the
 column rather than the one asked for. Each records its own board event

@@ -32,6 +32,11 @@ func (f *fakeRunUndo) Revert(_ context.Context, _, _, runID uuid.UUID, req domai
 	return domain.RunRevertResult{RunID: runID, Branch: "tasktrooper/revert-x"}, f.err
 }
 
+func (f *fakeRunUndo) ProposeRollback(_ context.Context, _, _, runID uuid.UUID, req domain.RunUndoRequest) (domain.RunRollbackProposalResult, error) {
+	f.gotReq = req
+	return domain.RunRollbackProposalResult{RunID: runID, Version: "v1.2.3"}, f.err
+}
+
 func undoApp(f *fakeRunUndo) *fiber.App {
 	h := &Handler{runUndo: f}
 	app := fiber.New()
@@ -72,6 +77,11 @@ func TestRunUndoRoutes(t *testing.T) {
 	code, out = postJSONBody(app, undoPath("/undo/revert"), `{"confirm":true}`)
 	require.Equal(t, 200, code)
 	require.NotNil(t, out["result"])
+
+	code, out = postJSONBody(app, undoPath("/undo/rollback-proposal"), `{"confirm":true,"note":"x"}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, "x", f.gotReq.Note)
+	require.NotNil(t, out["result"])
 }
 
 func TestRunUndoMapsRefusals(t *testing.T) {
@@ -84,6 +94,7 @@ func TestRunUndoMapsRefusals(t *testing.T) {
 		"merged":               {domain.ErrUndoUseRevert, 409},
 		"remote ahead":         {domain.ErrUndoRemoteAhead, 409},
 		"no merged pr":         {domain.ErrUndoNotMerged, 409},
+		"no release":           {domain.ErrUndoNoRelease, 409},
 		"run missing":          {domain.ErrTaskAgentRunNotFound, 404},
 		"anything else breaks": {context.DeadlineExceeded, 500},
 	} {

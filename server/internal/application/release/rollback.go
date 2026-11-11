@@ -181,17 +181,9 @@ func (s *Service) rollback(ctx context.Context, releaseID uuid.UUID, actor domai
 			}
 			return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrRollbackProposalDismissed, rollbackProposalDismissedKey.Render(in))
 		}
-		proposal := &domain.RollbackProposal{ProposedAt: s.now().UTC(), By: actor, Reason: reason, Note: note}
-		if reason == domain.RollbackHealthIncident {
-			proposal.IncidentID = attributed
+		if err := s.recordProposal(ctx, &r, actor, reason, note, attributed); err != nil {
+			return domain.Release{}, err
 		}
-		// Stored before anyone hears of it: the notification's approve action
-		// opens the release, which must already show the proposal.
-		if err := s.store.SetRollbackProposal(ctx, r.ID, proposal); err != nil {
-			return domain.Release{}, fmt.Errorf("recording the rollback proposal: %w", err)
-		}
-		r.RollbackProposal = proposal
-		s.writeRollbackProposal(ctx, r, reason, note)
 		s.notifyRelease(ctx, domain.NotificationRollbackSuggested, r, firstNonEmptyStr(note, string(reason)))
 		return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrRollbackNeedsHuman, prompt.Text(rollbackNeedsHumanKey))
 	}
@@ -727,4 +719,41 @@ func (s *Service) ingestRollbackFailureIncident(ctx context.Context, r domain.Re
 	}); err != nil {
 		log.Warn().Err(err).Str("release_id", r.ID.String()).Msg("release: ingesting a rollback-failure incident failed")
 	}
+}
+
+// recordProposal stores a rollback proposal on the release and tells the
+// newest task about it. Stored before anyone hears of it: the notification's
+// approve action opens the release, which must already show the proposal.
+func (s *Service) recordProposal(ctx context.Context, r *domain.Release, actor domain.ReleaseActor, reason domain.RollbackReason, note string, incident *uuid.UUID) error {
+	proposal := &domain.RollbackProposal{ProposedAt: s.now().UTC(), By: actor, Reason: reason, Note: note}
+	if reason == domain.RollbackHealthIncident {
+		proposal.IncidentID = incident
+	}
+	if err := s.store.SetRollbackProposal(ctx, r.ID, proposal); err != nil {
+		return fmt.Errorf("recording the rollback proposal: %w", err)
+	}
+	r.RollbackProposal = proposal
+	s.writeRollbackProposal(ctx, *r, reason, note)
+	return nil
+}
+
+// ProposeRollback writes the proposal the release engineer writes when a
+// release's auto rollback is off, whatever its profile says: it never reverts
+// anything and never deploys. A person approves it on the release.
+func (s *Service) ProposeRollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error) {
+	r, err := s.store.Get(ctx, releaseID)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	if ok, why := s.rollbackAllowed(ctx, r); !ok {
+		return domain.Release{}, fmt.Errorf("%w: %s", domain.ErrReleaseWrongStatus,
+			rollbackNotAllowedKey.Render(rollbackNotAllowedInput{Why: why}))
+	}
+	if !reason.Valid() {
+		return domain.Release{}, errors.New(rollbackInvalidReasonKey.Render(rollbackInvalidReasonInput{Reason: fmt.Sprintf("%q", reason)}))
+	}
+	if err := s.recordProposal(ctx, &r, actor, reason, note, nil); err != nil {
+		return domain.Release{}, err
+	}
+	return s.Annotate(ctx, r), nil
 }

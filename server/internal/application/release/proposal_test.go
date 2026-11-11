@@ -321,3 +321,30 @@ func TestAStoredProposalStopsReWakingTheReleaseEngineer(t *testing.T) {
 	r.RollbackProposal.ProposedAt = handBack.Add(-time.Minute)
 	assert.True(t, handBackDue(r, now), "a proposal from before the hand-back did not answer it")
 }
+
+func TestAHumansProposalNeverRevertsEvenWhenAutoRollbackIsOn(t *testing.T) {
+	f := newRollbackFixture()
+	r := f.awaiting(t, true)
+
+	proposed, err := f.svc.ProposeRollback(context.Background(), r.ID, domain.ReleaseActorHuman, domain.RollbackManual, "undo from the run")
+	require.NoError(t, err)
+
+	require.NotNil(t, proposed.RollbackProposal)
+	assert.Equal(t, domain.ReleaseActorHuman, proposed.RollbackProposal.By)
+	assert.Equal(t, "undo from the run", proposed.RollbackProposal.Note)
+	got, err := f.store.Get(context.Background(), r.ID)
+	require.NoError(t, err)
+	assert.Equal(t, r.Status, got.Status, "nothing was rolled back or deployed")
+	assert.Nil(t, got.Rollback)
+}
+
+func TestAProposalIsRefusedForAReleaseThatCannotRollBack(t *testing.T) {
+	f := newRollbackFixture()
+	r := f.awaiting(t, false)
+
+	_, err := f.svc.ProposeRollback(context.Background(), r.ID, domain.ReleaseActorHuman, domain.RollbackReason("nonsense"), "")
+	require.Error(t, err)
+
+	_, err = f.svc.ProposeRollback(context.Background(), uuid.New(), domain.ReleaseActorHuman, domain.RollbackManual, "")
+	require.Error(t, err)
+}

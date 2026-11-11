@@ -187,9 +187,11 @@ export function TaskHistory({ repositoryId, taskId, columns, agentNameMap }: Tas
 
             {event.event_type === "task.run_undone" && (
               <p className="mt-1.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                {payloadString(payload, "mode") === "revert"
-                  ? t("runUndo.history.reverted", { branch: payloadString(payload, "revert_branch") })
-                  : t("runUndo.history.reset", {
+                {payloadString(payload, "mode") === "rollback_proposal"
+                  ? t("runUndo.history.proposed", { version: payloadString(payload, "release_version") })
+                  : payloadString(payload, "mode") === "revert"
+                    ? t("runUndo.history.reverted", { branch: payloadString(payload, "revert_branch") })
+                    : t("runUndo.history.reset", {
                       backup: payloadString(payload, "backup_ref"),
                       commits: Number(payload?.commits ?? 0),
                       files: Number(payload?.files ?? 0),

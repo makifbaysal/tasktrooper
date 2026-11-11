@@ -5,15 +5,16 @@ import type { RunUndoPreview } from "@/api";
 import { RunUndoDialog } from "@/components/board/RunUndoDialog";
 import { I18nProvider } from "@/hooks/useI18n";
 
-const { getRunUndoPreview, undoRun, revertRun } = vi.hoisted(() => ({
+const { getRunUndoPreview, undoRun, revertRun, proposeRunRollback } = vi.hoisted(() => ({
   getRunUndoPreview: vi.fn(),
   undoRun: vi.fn(),
   revertRun: vi.fn(),
+  proposeRunRollback: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, getRunUndoPreview, undoRun, revertRun } };
+  return { ...actual, api: { ...actual.api, getRunUndoPreview, undoRun, revertRun, proposeRunRollback } };
 });
 
 function preview(over: Partial<RunUndoPreview> = {}): RunUndoPreview {
@@ -51,6 +52,7 @@ describe("RunUndoDialog", () => {
     undoRun.mockReset().mockResolvedValue({
       result: { run_id: "r1", mode: "reset", backup_ref: "tasktrooper/undo-backup/r1", push_pending: false, force_pushed: false, cleaned_paths: [], left_untracked: ["x.log"], moved_to: "todo", stale_criteria: 2, non_undoable: [] },
     });
+    proposeRunRollback.mockReset().mockResolvedValue({ result: { run_id: "r1", release_id: "rel1", version: "v1.4.0" } });
     revertRun.mockReset().mockResolvedValue({ result: { run_id: "r1", branch: "tasktrooper/revert-tt-7", pr_url: "https://github.com/o/r/pull/9", merge_sha: "abc" } });
   });
   afterEach(() => cleanup());
@@ -116,5 +118,33 @@ describe("RunUndoDialog", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Undo this run" }));
     expect(await screen.findByText(/live_run/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo this run" })).toBeInTheDocument();
+  });
+
+  const mergedPreview = (release: NonNullable<RunUndoPreview["release"]>) =>
+    preview({ supported: false, reason: "merged", mode: "revert", revert_available: true, pull_request: { url: "u", merged: true, merge_sha: "fedcba9876543210" }, release });
+
+  it("offers to propose the release's rollback, and only proposes it", async () => {
+    getRunUndoPreview.mockResolvedValue({ preview: mergedPreview({ id: "rel1", version: "v1.4.0", status: "released", rollback_allowed: true, proposed: false }) });
+    renderDialog();
+    expect(await screen.findByText("Shipped in release v1.4.0")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Propose a rollback of the release" }));
+    await waitFor(() => expect(proposeRunRollback).toHaveBeenCalledWith("repo", "task", "r1", "Proposed while undoing a run."));
+    expect(await screen.findByText("The rollback was proposed")).toBeInTheDocument();
+    expect(screen.getByText(/nothing was deployed/)).toBeInTheDocument();
+    expect(undoRun).not.toHaveBeenCalled();
+  });
+
+  it("says why a release cannot be rolled back instead of offering it", async () => {
+    getRunUndoPreview.mockResolvedValue({ preview: mergedPreview({ id: "rel1", version: "v1.4.0", status: "released", rollback_allowed: false, rollback_refusal: "newer_shipped", proposed: false }) });
+    renderDialog();
+    expect(await screen.findByText(/A newer release has shipped/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Propose a rollback of the release" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer a second proposal", async () => {
+    getRunUndoPreview.mockResolvedValue({ preview: mergedPreview({ id: "rel1", version: "v1.4.0", status: "released", rollback_allowed: true, proposed: true }) });
+    renderDialog();
+    expect(await screen.findByText(/already proposed/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Propose a rollback of the release" })).not.toBeInTheDocument();
   });
 });

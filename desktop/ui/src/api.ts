@@ -443,6 +443,14 @@ export interface RunUndoPreview {
   remote_branch_sha?: string;
   remote_ahead: boolean;
   pull_request?: { url: string; number?: number; merged: boolean; merge_sha?: string };
+  release?: {
+    id: string;
+    version: string;
+    status: string;
+    rollback_allowed: boolean;
+    rollback_refusal?: string;
+    proposed: boolean;
+  };
   backup_ref: string;
   non_undoable: RunTraceEffect[];
   move_to?: string;
@@ -461,6 +469,12 @@ export interface RunUndoResult {
   moved_to?: string;
   stale_criteria: number;
   non_undoable: RunTraceEffect[];
+}
+
+export interface RunRollbackProposalResult {
+  run_id: string;
+  release_id: string;
+  version: string;
 }
 
 export interface RunRevertResult {
@@ -7634,6 +7648,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm: true, ...body }),
     }),
+
+  proposeRunRollback: (repositoryId: string, taskId: string, runId: string, note: string) =>
+    request<{ result: RunRollbackProposalResult }>(
+      `/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/undo/rollback-proposal`,
+      { method: "POST", body: JSON.stringify({ confirm: true, note }) },
+    ),
 
   revertRun: (repositoryId: string, taskId: string, runId: string) =>
     request<{ result: RunRevertResult }>(`/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/undo/revert`, {
