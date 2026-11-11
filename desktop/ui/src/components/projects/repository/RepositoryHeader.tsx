@@ -6,8 +6,9 @@ import { ScanProgressList } from "@/components/projects/model/ScanProgressList";
 import { RepositoryGitNotice } from "@/components/projects/RepositoryGitNotice";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
-import { githubWebUrl } from "@/lib/githubUrl";
+import { githubWebUrl, isNonGithubRemote } from "@/lib/githubUrl";
 import { isScanFinished } from "@/lib/project-model";
 import { formatRelativeDate } from "@/lib/utils";
 
@@ -98,6 +99,12 @@ export function RepositoryHeader({
           )}
         </div>
       </div>
+
+      {isNonGithubRemote(repository.remote_url) && (
+        <Notice variant="info" title={t("repositoryPage.header.notGithubTitle")} role="status">
+          {t("repositoryPage.header.notGithubBody")}
+        </Notice>
+      )}
 
       <RepositoryGitNotice repository={repository} onRestored={onGitRestored} />
 

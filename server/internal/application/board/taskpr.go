@@ -297,6 +297,8 @@ func (s *TaskPRService) CommitTaskChanges(ctx context.Context, repositoryID, tas
 	switch {
 	case !result.Committed:
 		result.Message = "Nothing to commit — the task workspace matches what is already on the branch. The branch and its pull request are up to date."
+	case result.PRURL == "" && errors.Is(prErr, domain.ErrNotGitHubRepo):
+		result.Message = "Committed and pushed. This is not a GitHub repo, so no pull request is opened; the branch is on the remote."
 	case result.PRURL == "":
 		result.Message = "Committed and pushed. No pull request could be opened or found for the branch yet."
 	default:

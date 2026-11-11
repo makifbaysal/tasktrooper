@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"net/url"
 	"strings"
 )
@@ -47,4 +48,22 @@ func NormalizeGitRemote(raw string) string {
 		return ""
 	}
 	return host + "/" + strings.ToLower(path)
+}
+
+// ErrNotGitHubRepo is what every GitHub-only step (pull request, CI checks,
+// runner registration) answers for a repository whose origin is hosted
+// elsewhere. Callers that can carry on with plain git treat it as "skip this
+// step"; none retry it.
+var ErrNotGitHubRepo = errors.New("not a GitHub repo: this repository's origin is not hosted on github.com, so pull requests, CI checks and the GitHub runner are unavailable (plain git steps still work)")
+
+// IsNonGitHubRemote reports whether a remote URL names a host other than
+// github.com. A remote it cannot read (empty, a local path) is not "non-GitHub":
+// only a host that is positively something else turns GitHub features off.
+func IsNonGitHubRemote(raw string) bool {
+	n := NormalizeGitRemote(raw)
+	if n == "" {
+		return false
+	}
+	host, _, _ := strings.Cut(n, "/")
+	return host != "github.com" && host != "www.github.com"
 }

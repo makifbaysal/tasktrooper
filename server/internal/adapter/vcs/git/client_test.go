@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -830,5 +831,16 @@ func TestMergePullRequestRejectsIncompleteCoordinates(t *testing.T) {
 		Owner: "acme", Number: 42, ExpectedHeadSHA: "1111111",
 	}); err == nil {
 		t.Fatal("a merge without a repository must be refused")
+	}
+}
+
+func TestEnsurePullRequestRefusesNonGitHubOriginWithoutCallingGh(t *testing.T) {
+	root, _ := newSyncFixture(t)
+	gitRun(t, root, "remote", "set-url", "origin", "https://gitlab.com/acme/app.git")
+
+	_, err := NewClient().EnsurePullRequest(context.Background(), root)
+
+	if !errors.Is(err, domain.ErrNotGitHubRepo) {
+		t.Fatalf("err = %v, want ErrNotGitHubRepo", err)
 	}
 }

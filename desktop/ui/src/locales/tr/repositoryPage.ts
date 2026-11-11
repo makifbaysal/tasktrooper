@@ -17,6 +17,8 @@ export const repositoryPage: RepositoryPageDict = {
   header: {
     componentCount: "{count} bileşen",
     noRemote: "uzak repo yok",
+    notGithubTitle: "GitHub deposu değil",
+    notGithubBody: "Bu depo için pull request, CI kontrolleri, gh ile inceleme ve GitHub runner kullanılamaz. Düz git adımları çalışmaya devam eder.",
     lastScan: "son tarama {status} · {time} · {trigger}",
     neverScanned: "hiç taranmadı",
     rescan: "Yeniden tara",

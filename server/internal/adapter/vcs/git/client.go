@@ -944,6 +944,9 @@ func shasLabel(shas []string) []string {
 }
 
 func (c *Client) EnsurePullRequest(ctx context.Context, workspacePath string) (string, error) {
+	if domain.IsNonGitHubRemote(c.OriginURL(ctx, workspacePath)) {
+		return "", domain.ErrNotGitHubRepo
+	}
 	if tok := c.token(ctx); tok != "" {
 		return c.ensurePullRequestAPI(ctx, workspacePath, tok)
 	}

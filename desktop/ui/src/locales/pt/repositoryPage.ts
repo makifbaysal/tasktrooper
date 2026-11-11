@@ -14,6 +14,8 @@ export const repositoryPage = {
   header: {
     componentCount: "{count} componentes",
     noRemote: "sem remoto",
+    notGithubTitle: "Não é um repositório do GitHub",
+    notGithubBody: "Pull requests, verificações de CI, revisão via gh e o runner do GitHub não estão disponíveis para este repositório. Os passos simples de git continuam funcionando.",
     lastScan: "última varredura {status} {time} · {trigger}",
     neverScanned: "nenhuma varredura ainda",
     rescan: "Nova varredura",

@@ -14,6 +14,8 @@ export const repositoryPage = {
   header: {
     componentCount: "{count} composant(s)",
     noRemote: "aucun dépôt distant",
+    notGithubTitle: "Pas un dépôt GitHub",
+    notGithubBody: "Les pull requests, les vérifications CI, la revue via gh et le runner GitHub sont indisponibles pour ce dépôt. Les étapes git simples fonctionnent toujours.",
     lastScan: "dernière analyse {status} {time} · {trigger}",
     neverScanned: "jamais analysé",
     rescan: "Relancer l'analyse",

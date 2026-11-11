@@ -287,7 +287,9 @@ func (p *PipelineRunner) resolveGitInfo(ctx context.Context, job pipelineJob) (d
 	// happened; ensuring/pushing a PR here recreated the deleted task branch
 	// and opened a fresh PR against a merge that was already done.
 	if !isProdOrPreProdDeployTrigger(job.Pipeline.Trigger) {
-		if prURL, prErr := p.git.EnsurePullRequest(ctx, dir); prErr != nil {
+		if prURL, prErr := p.git.EnsurePullRequest(ctx, dir); errors.Is(prErr, domain.ErrNotGitHubRepo) {
+			log.Info().Str("task_id", job.Task.ID.String()).Msg("pipeline: origin is not a GitHub repo, skipping the pull request")
+		} else if prErr != nil {
 			if pushErr := p.git.PushBranch(ctx, dir); pushErr != nil {
 				log.Warn().Err(pushErr).Str("task_id", job.Task.ID.String()).Msg("publishing the task branch before the pipeline failed")
 			} else if retryURL, retryErr := p.git.EnsurePullRequest(ctx, dir); retryErr != nil {

@@ -135,3 +135,17 @@ func TestColumnInstructionCodeReviewReadsTheDiffInsteadOfRunningIt(t *testing.T)
 		assert.Contains(t, got, want)
 	}
 }
+
+func TestReviewPRContext_NonGitHubRemoteReviewsTheDiffWithoutRetrying(t *testing.T) {
+	g := &reviewGit{
+		origin: "https://gitlab.com/acme/acme-web.git",
+		prErrs: []error{domain.ErrNotGitHubRepo, domain.ErrNotGitHubRepo},
+	}
+
+	msg, err := (&Runner{git: g}).reviewPRContext(context.Background(), "/ws/task-1", uuid.New())
+
+	require.NoError(t, err)
+	assert.Empty(t, msg)
+	assert.Equal(t, 1, g.prCalls, "a non-GitHub origin is not retried")
+	assert.Zero(t, g.pushCalls)
+}

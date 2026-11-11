@@ -14,6 +14,8 @@ export const repositoryPage = {
   header: {
     componentCount: "{count} 个组件",
     noRemote: "无远程仓库",
+    notGithubTitle: "不是 GitHub 仓库",
+    notGithubBody: "此仓库无法使用拉取请求、CI 检查、通过 gh 的评审和 GitHub runner。普通的 git 步骤仍可使用。",
     lastScan: "上次扫描{status} · {time} · {trigger}",
     neverScanned: "从未扫描",
     rescan: "重新扫描",

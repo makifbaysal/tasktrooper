@@ -36,6 +36,9 @@ func (r *Runner) ensureReviewPR(ctx context.Context, workspace string) (string, 
 	if err == nil {
 		return url, nil
 	}
+	if errors.Is(err, domain.ErrNotGitHubRepo) {
+		return "", err
+	}
 	firstErr := err
 	if pushErr := r.git.PushBranch(ctx, workspace); pushErr != nil {
 		return "", fmt.Errorf("%w: %v (publishing the branch also failed: %v)", ErrReviewPRMissing, firstErr, pushErr)
@@ -49,6 +52,11 @@ func (r *Runner) ensureReviewPR(ctx context.Context, workspace string) (string, 
 
 func (r *Runner) reviewPRContext(ctx context.Context, workspace string, taskID uuid.UUID) (string, error) {
 	url, err := r.ensureReviewPR(ctx, workspace)
+	if errors.Is(err, domain.ErrNotGitHubRepo) {
+		log.Info().Str("workspace", workspace).
+			Msg("code review: origin is not a GitHub repo, reviewing the branch diff without a pull request")
+		return "", nil
+	}
 	if err != nil {
 		if r.git != nil && r.git.OriginURL(ctx, workspace) == "" {
 			log.Warn().Err(err).Str("workspace", workspace).

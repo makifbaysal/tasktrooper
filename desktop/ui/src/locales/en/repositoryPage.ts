@@ -18,6 +18,8 @@ export const repositoryPage = {
   header: {
     componentCount: "{count} components",
     noRemote: "no remote",
+    notGithubTitle: "Not a GitHub repo",
+    notGithubBody: "Pull requests, CI checks, review through gh and the GitHub runner are unavailable for this repository. Plain git steps still work.",
     lastScan: "last scan {status} {time} · {trigger}",
     neverScanned: "never scanned",
     rescan: "Rescan",
