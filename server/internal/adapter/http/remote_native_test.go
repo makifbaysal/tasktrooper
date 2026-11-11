@@ -1,8 +1,10 @@
 package http
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,4 +43,57 @@ func TestRemoteSessionIDOfPath(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = remoteSessionID("/remote/v1/changes")
 	assert.False(t, ok)
+}
+
+// Every request the phone's chat screen makes, in the order it makes them
+// (create, send, then the poll loop), must pass the allowlist and the native
+// routes must answer with the shape the app decodes. A refusal here would show
+// on the phone as a failed send although the computer did the work.
+func TestPhoneChatRequestSequenceIsAnswered(t *testing.T) {
+	rh := newRemoteHarness(t)
+	rh.h.sessionSvc = &session.Service{}
+	token, _ := rh.pair(remoteaccess.RoleOperator, 0)
+	const id = "7c3e2a54-98f1-4a4e-b8d2-0b1f4c6a9d10"
+	const run = "0a1b2c3d-98f1-4a4e-b8d2-0b1f4c6a9d10"
+
+	for _, step := range []struct{ method, path, body string }{
+		{"POST", "/v1/sessions", `{"agent_id":"` + run + `","title":"PM"}`},
+		{"GET", "/v1/sessions/" + id, ""},
+		{"GET", "/v1/sessions/" + id + "/activity?limit=1", ""},
+		{"GET", "/v1/runs/" + run + "/steps", ""},
+		{"GET", "/v1/runs/" + run + "/steps?since=2026-11-10T10%3A00%3A00.123456Z", ""},
+		{"GET", "/remote/v1/sessions/" + id + "/turn", ""},
+		{"POST", "/v1/sessions/" + id + "/cancel", `{}`},
+	} {
+		status, body, _ := rh.do(step.method, step.path, token, step.body)
+		assert.Equal(t, 200, status, "%s %s: %s", step.method, step.path, body)
+	}
+
+	rule, ok := matchRemoteRule("POST", "/remote/v1/sessions/"+id+"/messages")
+	require.True(t, ok)
+	assert.Nil(t, rule.Check([]byte(`{"content":"selam"}`)))
+	assert.Nil(t, rule.Check([]byte(`{"content":"selam","role":"user","stream":false}`)))
+
+	status, body, _ := rh.do("GET", "/remote/v1/sessions/"+id+"/turn", token, "")
+	require.Equal(t, 200, status, body)
+	assert.JSONEq(t, `{"state":"idle","started_at":null,"finished_at":null,"error":null}`, body)
+}
+
+// A turn that starts and ends between two polls reads as idle with a finish
+// time and a null error, never as running forever and never with an error.
+func TestRemoteTurnTrackerSuccessShape(t *testing.T) {
+	tracker := &remoteTurnTracker{turns: map[uuid.UUID]*remoteTurn{}}
+	id := uuid.New()
+	require.True(t, tracker.begin(id))
+	assert.Equal(t, "running", tracker.get(id).State)
+	assert.False(t, tracker.begin(id), "a second turn is refused while one runs")
+	tracker.finish(id, nil)
+	got := tracker.get(id)
+	assert.Equal(t, "idle", got.State)
+	assert.NotNil(t, got.FinishedAt)
+	assert.Nil(t, got.Error)
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"error":null`)
+	assert.True(t, tracker.begin(id), "the next turn can start")
 }

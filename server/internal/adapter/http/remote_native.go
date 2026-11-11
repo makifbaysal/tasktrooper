@@ -343,6 +343,12 @@ func (h *Handler) remoteAsyncMessage(c *fiber.Ctx, dev remoteDevice) error {
 	policy := h.resolvePolicy(c, req.ToolPolicy)
 	ctx := context.WithoutCancel(h.enrichContext(c))
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Interface("panic", r).Str("session_id", id.String()).Msg("remote chat turn panicked")
+				remoteTurns.finish(id, fmt.Errorf("the turn stopped unexpectedly"))
+			}
+		}()
 		_, err := h.sessionSvc.SendMessage(ctx, id, req, policy)
 		if _, queued := domain.QuotaBlockOf(err); queued || errors.Is(err, domain.ErrRunCancelled) {
 			err = nil
