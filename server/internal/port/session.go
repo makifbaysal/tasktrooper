@@ -32,6 +32,8 @@ type SessionStore interface {
 	// What lets "open the chat about this task" be idempotent; ok=false when
 	// no thread exists yet.
 	FindByTask(ctx context.Context, taskID uuid.UUID) (domain.Session, bool, error)
+	// The task's thread held with one specific agent (a reviewer, QA, ...).
+	FindByTaskAndAgent(ctx context.Context, taskID, agentID uuid.UUID) (domain.Session, bool, error)
 	// An UPSERT: a second park on the same session replaces the first, on the
 	// invariant that there is at most one run in flight per session.
 	ParkPendingTurn(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy, resumeAt time.Time) error

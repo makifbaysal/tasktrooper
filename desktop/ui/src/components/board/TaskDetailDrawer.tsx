@@ -84,6 +84,8 @@ import {
   taskTypeOptions,
 } from "@/lib/project-board";
 import { analysisReviewPath } from "@/lib/analysis-review";
+import { taskChatAgents } from "@/lib/taskChatAgents";
+import { Textarea } from "@/components/ui/textarea";
 import { componentLabel } from "@/lib/project-model";
 import { keepEqual } from "@/lib/stableState";
 import { formatDate, formatRelativeDate } from "@/lib/utils";
@@ -146,6 +148,8 @@ export function TaskDetailDrawer({
   const [addingDoc, setAddingDoc] = useState(false);
   const [runActionId, setRunActionId] = useState<string | null>(null);
   const [stopRunId, setStopRunId] = useState<string | null>(null);
+  const [interruptRunId, setInterruptRunId] = useState<string | null>(null);
+  const [interruptText, setInterruptText] = useState("");
   const [openingChat, setOpeningChat] = useState(false);
   // Deploy runbook: three inline-editable fields, same pattern as description
   // and technical description above.
@@ -168,6 +172,10 @@ export function TaskDetailDrawer({
   const agentNameMap = useMemo(
     () => Object.fromEntries(agents.map((agent) => [agent.id, agent.name])),
     [agents],
+  );
+  const chatAgents = useMemo(
+    () => (task ? taskChatAgents(task, runs, reviews, agents) : []),
+    [task, runs, reviews, agents],
   );
   const assigneeName = task?.assignee_agent_id
     ? agents.find((a) => a.id === task.assignee_agent_id)?.name
@@ -522,15 +530,32 @@ export function TaskDetailDrawer({
     }
   };
 
+  const interruptRun = async () => {
+    if (!task || !interruptRunId) return;
+    const runId = interruptRunId;
+    setRunActionId(runId);
+    try {
+      await api.interruptTaskAgentRun(repositoryId, task.id, runId, interruptText.trim());
+      toast.success(t("boardArea.components.taskDetail.runInterrupted"));
+      setInterruptText("");
+      setInterruptRunId(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("boardArea.components.taskDetail.runInterruptFailed"));
+    } finally {
+      await loadDetails();
+      setRunActionId(null);
+    }
+  };
+
   // The thread is opened server-side (it is seeded with the task and its pull
   // request), and it lives under the agent the endpoint hands back — which is
   // not necessarily the assignee, so the id from the response is the only one
   // that can be trusted for the deep link.
-  const discussTask = async () => {
+  const discussTask = async (withAgentId?: string) => {
     if (!task || openingChat) return;
     setOpeningChat(true);
     try {
-      const { session_id, agent_id } = await api.openTaskChat(repositoryId, task.id);
+      const { session_id, agent_id } = await api.openTaskChat(repositoryId, task.id, withAgentId);
       onOpenChange(false);
       navigate(`/agents/${agent_id}/chat/${session_id}`);
     } catch (e) {
@@ -1075,6 +1100,7 @@ export function TaskDetailDrawer({
                   active={open}
                   runActionId={runActionId}
                   onStop={setStopRunId}
+                  onInterrupt={setInterruptRunId}
                   onRerun={(runId) => void rerunRun(runId)}
                 />
 
@@ -1258,7 +1284,7 @@ export function TaskDetailDrawer({
                     </section>
                   )}
 
-                  <CodeReviewApprovals reviews={reviews} inCodeReview={task.column === "code_review"} />
+                  <CodeReviewApprovals reviews={reviews} inCodeReview={task.column === "code_review"} onDiscuss={(id) => void discussTask(id)} />
 
                   {task.pr_url && <TaskPreviewsSection key={task.id} repositoryId={repositoryId} taskId={task.id} />}
 
@@ -1292,7 +1318,7 @@ export function TaskDetailDrawer({
                     size="sm"
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={discussTask}
+                    onClick={() => void discussTask()}
                     disabled={openingChat}
                     title={t("boardArea.components.taskDetail.discussHint")}
                   >
@@ -1305,6 +1331,28 @@ export function TaskDetailDrawer({
                       ? t("boardArea.components.taskDetail.discussOpening")
                       : t("boardArea.components.taskDetail.discuss")}
                   </Button>
+                  {chatAgents.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-1.5" data-testid="task-chat-agents">
+                      <span className="text-caption text-muted-foreground">
+                        {t("boardArea.components.taskDetail.discussWith")}
+                      </span>
+                      {chatAgents.map((a) => (
+                        <Button
+                          key={a.id}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 gap-1 px-2 text-xs"
+                          disabled={openingChat}
+                          title={a.working ? t("boardArea.components.taskDetail.discussWorking") : undefined}
+                          onClick={() => void discussTask(a.id)}
+                        >
+                          {a.working && <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />}
+                          {a.name}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
 
                   <Separator />
 
@@ -1381,6 +1429,28 @@ export function TaskDetailDrawer({
         loading={stopRunId !== null && runActionId === stopRunId}
         onConfirm={stopRun}
       />
+
+      <ConfirmDialog
+        open={interruptRunId !== null}
+        onOpenChange={(o) => {
+          if (!o) setInterruptRunId(null);
+        }}
+        variant="default"
+        title={t("boardArea.components.taskDetail.runInterruptTitle")}
+        description={t("boardArea.components.taskDetail.runInterruptDescription")}
+        confirmLabel={t("boardArea.components.taskDetail.runInterruptConfirm")}
+        confirmDisabled={interruptText.trim() === ""}
+        loading={interruptRunId !== null && runActionId === interruptRunId}
+        onConfirm={interruptRun}
+      >
+        <Textarea
+          value={interruptText}
+          onChange={(e) => setInterruptText(e.target.value)}
+          placeholder={t("boardArea.components.taskDetail.runInterruptPlaceholder")}
+          rows={4}
+          autoFocus
+        />
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={beforeDeployConfirmOpen}

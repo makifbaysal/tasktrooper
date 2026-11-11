@@ -23,9 +23,12 @@ Not every "I could not verify this" exits the same way:
 |---|---|---|
 | Behaviour contradicts a criterion, human comment or the UI floor | dev | reject criterion, need_revision |
 | Boot fails with the repo's own documented command (missing migration, crash on start, undocumented required env var) | dev | need_revision, quote command + log |
-| Your environment: port busy, stale server, Docker absent, npm cache | you | fix it and re-run; never a finding |
+| Your environment: port busy, stale server, Docker absent, npm cache | you | fix it and re-run, at most 2 attempts; never a finding. Still broken after that → the next row |
+| Your environment, and you cannot fix it from inside the run (headless browser or Chrome will not launch, a missing system library, a tool you cannot install) | human | stop after 2 failed attempts at fixing it. Never `need_revision` (the developer cannot fix your machine) and never hand the task back and forth between stages. One `ask_user` (choice mode) that parks the task as blocked with the exact failing command and its error, options such as "I fixed the environment, retry" and "skip browser checks and verify by other means" |
 | No device / no credential / no stage / ambiguous criterion | human | `ask_user` (after one `get_repo_tree` — it is refused until the run has read the repo), 1 call, choice mode with options such as "attach the device and resume", "provide a sandbox key", "accept reading A", "move to need_revision" |
 | Device busy | system | stop; the task resumes by itself |
+
+Count attempts per problem, not per run: the same environment failure showing up again on a later round, or after the task came back to you from another stage, is the same problem and keeps the count. A human's comment that they fixed it resets it.
 
 ## Intermittent failures
 

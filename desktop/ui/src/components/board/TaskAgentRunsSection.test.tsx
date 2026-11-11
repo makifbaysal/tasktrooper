@@ -44,6 +44,7 @@ function renderSection(runs: TaskAgentRun[], extra: Partial<React.ComponentProps
         active
         runActionId={null}
         onStop={() => {}}
+        onInterrupt={() => {}}
         onRerun={() => {}}
         {...extra}
       />
@@ -65,6 +66,19 @@ describe("TaskAgentRunsSection", () => {
     expect(screen.getByText("Other runs (1)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(onStop).toHaveBeenCalledWith("live");
+  });
+
+  it("offers Interrupt on a live run only", () => {
+    const onInterrupt = vi.fn();
+    const { unmount } = renderSection(
+      [run({ id: "live", session_run_id: "sr-live", status: "running" })],
+      { onInterrupt },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Interrupt" }));
+    expect(onInterrupt).toHaveBeenCalledWith("live");
+    unmount();
+    renderSection([run({ id: "done", session_run_id: "sr-done" })]);
+    expect(screen.queryByRole("button", { name: "Interrupt" })).not.toBeInTheDocument();
   });
 
   it("switches to another run when its row is clicked and offers Re-run for a finished one", () => {

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Minus, ShieldCheck, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, MessagesSquare, Minus, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 import type { ReviewerStatus, TaskReviewRound, TaskReviews } from "@/api";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,8 @@ import { formatRelativeTime } from "@/lib/utils";
 interface CodeReviewApprovalsProps {
   reviews: TaskReviews | null;
   inCodeReview: boolean;
+  /** Opens the chat with that reviewing agent; absent hides the button. */
+  onDiscuss?: (agentId: string) => void;
 }
 
 const OUTCOME_VARIANT = {
@@ -25,7 +27,7 @@ const OUTCOME_VARIANT = {
  * subscriber of code_review is a required reviewer, so the open round also
  * lists the ones still to decide — the reason a card is sitting there.
  */
-export function CodeReviewApprovals({ reviews, inCodeReview }: CodeReviewApprovalsProps) {
+export function CodeReviewApprovals({ reviews, inCodeReview, onDiscuss }: CodeReviewApprovalsProps) {
   const { t } = useI18n();
   const [showEarlier, setShowEarlier] = useState(false);
   const rounds = reviews?.rounds ?? [];
@@ -41,7 +43,7 @@ export function CodeReviewApprovals({ reviews, inCodeReview }: CodeReviewApprova
         {t("boardArea.components.taskDetail.codeReview.title")}
       </Label>
       {latest ? (
-        <ReviewRound round={latest} />
+        <ReviewRound round={latest} onDiscuss={onDiscuss} />
       ) : (
         <p className="text-xs text-muted-foreground">{t("boardArea.components.taskDetail.codeReview.waitingForFirst")}</p>
       )}
@@ -58,14 +60,14 @@ export function CodeReviewApprovals({ reviews, inCodeReview }: CodeReviewApprova
             {showEarlier ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             {t("boardArea.components.taskDetail.codeReview.earlierRounds", { count: earlier.length })}
           </Button>
-          {showEarlier && earlier.map((round) => <ReviewRound key={round.round} round={round} compact />)}
+          {showEarlier && earlier.map((round) => <ReviewRound key={round.round} round={round} compact onDiscuss={onDiscuss} />)}
         </div>
       )}
     </section>
   );
 }
 
-function ReviewRound({ round, compact = false }: { round: TaskReviewRound; compact?: boolean }) {
+function ReviewRound({ round, compact = false, onDiscuss }: { round: TaskReviewRound; compact?: boolean; onDiscuss?: (agentId: string) => void }) {
   const { t } = useI18n();
   return (
     <Card className="space-y-1.5 rounded-md p-2 shadow-none">
@@ -82,7 +84,7 @@ function ReviewRound({ round, compact = false }: { round: TaskReviewRound; compa
       ) : (
         <ul className="space-y-1">
           {round.reviewers.map((reviewer) => (
-            <ReviewerRow key={reviewer.agent_id ?? reviewer.agent_name} reviewer={reviewer} compact={compact} />
+            <ReviewerRow key={reviewer.agent_id ?? reviewer.agent_name} reviewer={reviewer} compact={compact} onDiscuss={onDiscuss} />
           ))}
         </ul>
       )}
@@ -90,7 +92,7 @@ function ReviewRound({ round, compact = false }: { round: TaskReviewRound; compa
   );
 }
 
-function ReviewerRow({ reviewer, compact }: { reviewer: ReviewerStatus; compact: boolean }) {
+function ReviewerRow({ reviewer, compact, onDiscuss }: { reviewer: ReviewerStatus; compact: boolean; onDiscuss?: (agentId: string) => void }) {
   const { t, lang } = useI18n();
   const label = t(`boardArea.components.taskDetail.codeReview.verdict.${reviewer.verdict}`);
   return (
@@ -99,6 +101,18 @@ function ReviewerRow({ reviewer, compact }: { reviewer: ReviewerStatus; compact:
         {reviewer.agent_name}
       </span>
       <span className="flex shrink-0 items-center gap-2">
+        {onDiscuss && reviewer.agent_id && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-1.5 text-muted-foreground"
+            onClick={() => onDiscuss(reviewer.agent_id!)}
+          >
+            <MessagesSquare className="h-3 w-3" />
+            {t("boardArea.components.taskDetail.codeReview.discuss")}
+          </Button>
+        )}
         {!compact && reviewer.decided_at && (
           <span className="text-xs text-muted-foreground">{formatRelativeTime(reviewer.decided_at, lang)}</span>
         )}

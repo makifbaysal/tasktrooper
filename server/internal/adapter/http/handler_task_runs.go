@@ -35,6 +35,34 @@ func (h *Handler) CancelTaskAgentRun(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"run": run})
 }
 
+// InterruptTaskAgentRun — POST /v1/repositories/:id/tasks/:taskId/runs/:runId/interrupt
+//
+// Breaks into a live run with guidance: the run stops, the message is recorded
+// on the task and the same agent starts again. The task is NOT blocked.
+func (h *Handler) InterruptTaskAgentRun(c *fiber.Ctx) error {
+	if h.runControl == nil {
+		return boardRunControlDisabled(c)
+	}
+	repositoryID, taskID, runID, err := parseRepositoryTaskRunParams(c)
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	var req struct {
+		Message string `json:"message"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+	run, err := h.runControl.InterruptRun(h.enrichContext(c), repositoryID, taskID, runID, req.Message)
+	if err != nil {
+		if errors.Is(err, domain.ErrInterruptMessageRequired) {
+			return badRequest(c, err.Error())
+		}
+		return runControlError(c, err)
+	}
+	return c.JSON(fiber.Map{"run": run})
+}
+
 // RerunTaskAgentRun — POST /v1/repositories/:id/tasks/:taskId/runs/:runId/rerun
 //
 // Queues a new run of the same agent on the task's current state and returns

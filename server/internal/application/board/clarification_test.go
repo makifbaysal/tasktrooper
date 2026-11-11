@@ -92,6 +92,15 @@ func (f *fakeSessionStore) FindByTask(_ context.Context, taskID uuid.UUID) (doma
 	return sess, ok, nil
 }
 
+func (f *fakeSessionStore) FindByTaskAndAgent(_ context.Context, taskID, agentID uuid.UUID) (domain.Session, bool, error) {
+	for _, sess := range f.existing {
+		if sess.TaskID != nil && *sess.TaskID == taskID && sess.AgentID != nil && *sess.AgentID == agentID {
+			return sess, true, nil
+		}
+	}
+	return domain.Session{}, false, nil
+}
+
 func clarificationJob(sessionID *uuid.UUID) RunJob {
 	return RunJob{
 		Run:  domain.TaskAgentRun{AgentID: uuid.New()},

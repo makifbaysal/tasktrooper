@@ -65,6 +65,7 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Get("/v1/repositories/:id/tasks/:taskId/runs", h.ListTaskAgentRuns)
 	app.Post("/v1/repositories/:id/tasks/:taskId/runs/:runId/cancel", h.CancelTaskAgentRun)
 	app.Post("/v1/repositories/:id/tasks/:taskId/runs/:runId/rerun", h.RerunTaskAgentRun)
+	app.Post("/v1/repositories/:id/tasks/:taskId/runs/:runId/interrupt", h.InterruptTaskAgentRun)
 	app.Post("/v1/repositories/:id/tasks/:taskId/chat", h.OpenTaskChat)
 	app.Get("/v1/repositories/:id/local-preview", h.GetLocalPreview)
 	app.Post("/v1/repositories/:id/tasks/:taskId/local-preview/start", h.StartLocalPreview)

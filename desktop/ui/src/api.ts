@@ -6871,10 +6871,10 @@ export const api = {
    * request opened for it. The agent it answers with is the one that owns the
    * session, so both ids are needed to reach `/agents/:agentId/chat/:sessionId`.
    */
-  openTaskChat: (repositoryId: string, taskId: string) =>
+  openTaskChat: (repositoryId: string, taskId: string, agentId?: string) =>
     request<{ session_id: string; agent_id: string }>(
       `/v1/repositories/${repositoryId}/tasks/${taskId}/chat`,
-      { method: "POST" },
+      { method: "POST", ...(agentId ? { body: JSON.stringify({ agent_id: agentId }) } : {}) },
     ),
 
   /**
@@ -6915,6 +6915,16 @@ export const api = {
     request<{ run: TaskAgentRun }>(
       `/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/rerun`,
       { method: "POST" },
+    ),
+
+  /**
+   * Breaks into a live run with guidance: it stops and the same agent starts
+   * again with the message, without blocking the task. Returns the new run.
+   */
+  interruptTaskAgentRun: (repositoryId: string, taskId: string, runId: string, message: string) =>
+    request<{ run: TaskAgentRun }>(
+      `/v1/repositories/${repositoryId}/tasks/${taskId}/runs/${runId}/interrupt`,
+      { method: "POST", body: JSON.stringify({ message }) },
     ),
 
   listTaskEvents: (repositoryId: string, taskId: string) =>
