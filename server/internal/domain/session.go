@@ -115,3 +115,20 @@ type MessageMention struct {
 	ID   uuid.UUID `json:"id"`
 	Name string    `json:"name"`
 }
+
+const (
+	WakeKindAudienceBuild = "audience_build"
+	WakeKindStudy         = "study"
+)
+
+// SessionWake is a chat agent's promise to come back: the session is rerun
+// once the watched thing (Kind, RefID) has ended, or at ExpiresAt.
+type SessionWake struct {
+	ID        uuid.UUID `json:"id"`
+	SessionID uuid.UUID `json:"session_id"`
+	Kind      string    `json:"kind"`
+	RefID     uuid.UUID `json:"ref_id"`
+	Label     string    `json:"label"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}

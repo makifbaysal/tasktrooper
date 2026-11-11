@@ -105,6 +105,12 @@ export const chatArea = {
       queuedHint: "将在智能体完成当前工作后发送。",
       queuedReturned: "已排队的消息已退回到输入框。",
     },
+    wakes: {
+      waiting: "正在等待后台任务，结束后会再次回复",
+      stop: "停止等待",
+      stopFailed: "无法停止等待",
+      updateTitle: "后台任务已完成",
+    },
     reasoning: {
       title: "推理步骤（{count}）",
     },

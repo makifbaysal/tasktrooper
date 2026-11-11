@@ -52,6 +52,7 @@ type Service struct {
 	attachments    AttachmentLinker
 	taskWorkspaces TaskWorkspaceResolver
 	chatExecutor   port.ChatExecutor
+	wakes          *wakeState
 	runsMu         sync.Mutex
 	runs           map[uuid.UUID]*runHandle
 	sessionRuns    map[uuid.UUID]map[uuid.UUID]struct{}
@@ -286,6 +287,9 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	if _, err := s.CancelSession(ctx, id, "session deleted"); err != nil {
 		log.Warn().Err(err).Str("session_id", id.String()).
 			Msg("stopping the chat's in-flight turn before delete failed")
+	}
+	if _, err := s.StopWaiting(ctx, id, uuid.Nil); err != nil {
+		log.Warn().Err(err).Str("session_id", id.String()).Msg("dropping the chat's background waits before delete failed")
 	}
 	if err := s.store.Delete(ctx, id); err != nil {
 		return err

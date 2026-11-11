@@ -2099,6 +2099,17 @@ export interface SessionAction {
   created_at: string;
 }
 
+/** Background work the chat agent started and will answer again about when it ends. */
+export interface SessionWake {
+  id: string;
+  session_id: string;
+  kind: string;
+  ref_id: string;
+  label: string;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface SessionRun {
   id: string;
   session_id?: string;
@@ -6635,6 +6646,14 @@ export const api = {
 
   sessionActivity: (sessionId: string) =>
     request<{ runs: SessionRun[] }>(`/v1/sessions/${sessionId}/activity`),
+
+  sessionWakes: (sessionId: string) =>
+    request<{ wakes: SessionWake[] }>(`/v1/sessions/${sessionId}/wakes`),
+
+  stopSessionWakes: (sessionId: string, wakeId?: string) =>
+    request<{ stopped: number }>(`/v1/sessions/${sessionId}/wakes${wakeId ? `/${wakeId}` : ""}`, {
+      method: "DELETE",
+    }),
 
   runSteps: (runId: string, since?: string) =>
     request<{ steps: SessionStep[] }>(
