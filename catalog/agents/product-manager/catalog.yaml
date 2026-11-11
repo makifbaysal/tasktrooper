@@ -67,6 +67,21 @@ tool_policy:
         - get_project_brief
         - list_links
         - get_environment
+        - audience_list
+        - audience_get
+        - audience_create
+        - audience_update
+        - audience_build
+        - audience_talk
+        - study_list
+        - study_status
+        - study_report
+        - study_plan
+        - study_start
+        - study_cancel
+        - study_follow_up
+        - study_ask_everyone
+        - study_ask_research
         - save_memory
         - search_memory
         - delete_memory

@@ -1564,3 +1564,15 @@ The paths the screens read (below `/api/v1`): `services`, `services/{name}` (+ `
 `/deploys`, `/endpoints/{id}` (+ `/series`, `/rca`)), `environments`, `traces`, `traces/{id}`, `logs`, `logs/series`,
 `errors`, `errors/{fingerprint}`, `incidents`, `incidents/{id}/events`, `monitors`, `deploys`, `kpis`. The product answers only the
 windows `15m 30m 1h 6h 24h 7d`: the console's picks round up (`lib/telemetryHub#telemetryRange`).
+
+## Audience research (Audience screen)
+
+Synthetic personas written from a project's brief, studies that ask them the same questions, reports, and 1:1 conversations. Every
+model call runs on the user's own agent runtime through the app server; the full route table is in `server/.ai/api-spec.md`
+("Audience research"). The bundle reads: `api.audienceRuntime` (`{ ready, agent?, provider? }`), `api.audiences` /
+`api.audience(id)` (detail with `personas`, `studies`, `build_calls`), `api.audienceStudies` / `api.audienceStudy(id)` (detail with
+`report`, `answers[]`, `follow_ups[]`, `running`), and the actions `createAudience`, `updateAudience`, `buildAudience`,
+`planAudienceStudy`, `startAudienceStudy`, `cancelAudienceStudy`, `askAudienceResearch`, `askAudienceEveryone`,
+`followUpAudiencePersona`, `audienceThread`, `sendAudienceMessage`. Errors with `type: "audience_no_runtime"` show the
+connect-an-agent guidance. A build and a study are asynchronous: the pages poll every 3-4 s while one is `building`, `running` or
+`synthesizing`, and for 3 minutes after a question to everyone.

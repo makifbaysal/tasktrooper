@@ -19,6 +19,7 @@ import { projectsHub } from "@/locales/zh/projectsHub";
 import { release } from "@/locales/zh/release";
 import { repositoryPage } from "@/locales/zh/repositoryPage";
 import { settingsPages } from "@/locales/zh/settingsPages";
+import { audienceHub } from "@/locales/zh/audienceHub";
 import { telemetryHub } from "@/locales/zh/telemetryHub";
 import { setup } from "@/locales/zh/setup";
 import { toolchain } from "@/locales/zh/toolchain";
@@ -253,6 +254,7 @@ export const zh: Dict = {
   release,
   repositoryPage,
   settingsPages,
+  audienceHub,
   telemetryHub,
   setup,
   toolchain,

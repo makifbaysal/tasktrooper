@@ -605,3 +605,16 @@ One feed, two places: the task drawer's runs section and the chat page's right p
 | `hooks/useStickToBottom` | Keeps a scroll container pinned to the bottom only while the reader is within 48px of it; the returned `pin()` re-sticks on purpose (the chat `MessageList` calls it when the reader sends). |
 | `activity/ActivityFeed` | Organism: sub-agent chips, the rail of items, live tail, raw-steps toggle. Lanes are collapsed once completed. |
 | `activity/AgentRunHeader` | Molecule: agent, status badge, ticking elapsed, "now" line, facts; `actions` slot. |
+
+## Audience (`/audience`)
+
+| Piece | What it is |
+|---|---|
+| `pages/audience/AudiencePage` (`/audience`) | Audiences as cards with status and counts, all studies as rows with progress, "New audience"; empty state and `AudienceRuntimeNotice` (no agent runtime -> `/settings/llm`) guide an install with nothing yet. |
+| `pages/audience/AudienceDetailPage` (`/audience/:audienceId`) | Brief, the invented people (`PersonaCard`: profile, quote, Talk), planned and past studies. Build / build again and Run confirm first and name the number of model calls (`build_calls`, `calls_estimate`). |
+| `pages/audience/StudyPage` (`/audience/studies/:studyId`) | Plan (draft), progress (running / synthesizing), the report (`report/ReportView`), per-person answers (`StudyAnswers`), follow-ups (`StudyFollowUps`: ask the findings, ask everyone behind a confirm). |
+| `audience/report/ReportView` + `Charts` | The research report: verdict and purchase-intent index, summary, intent distribution, willingness to pay (histogram, price tests), segments, objection / need / alternative themes, verbatim quotes, recommendations, method and the synthetic-personas disclaimer. Charts are plain divs (no chart library). |
+| `audience/PersonaChatDialog` | The 1:1 thread with one person; with `studyId` a question is a follow-up listed under the study. |
+| `audience/AudienceFormDialog`, `StudyPlanDialog` | The brief (product and its state, segments, pricing, language, number of people) and a study plan (extra questions, prices to test). Saving asks nobody and spends nothing. |
+
+Strings: `locales/*/audienceHub.ts` (`audienceHub.*`). The sidebar link is `audienceHub.nav`.

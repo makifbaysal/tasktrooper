@@ -183,7 +183,7 @@ func developerToolPolicy() domain.ToolPolicy {
 }
 
 func productManagerToolPolicy() domain.ToolPolicy {
-	tools := make([]string, 0, len(roleWebTools)+len(roleCodeTools)+len(roleBrowserTools)+len(roleBoardReadTools)+len(roleBoardCreateTools)+len(roleBoardDeleteTools)+len(roleWorkspaceManageTools)+len(roleMemoryTools)+len(roleSkillTools)+4)
+	tools := make([]string, 0, len(roleWebTools)+len(roleCodeTools)+len(roleBrowserTools)+len(roleBoardReadTools)+len(roleBoardCreateTools)+len(roleBoardDeleteTools)+len(roleWorkspaceManageTools)+len(roleAudienceResearchTools)+len(roleMemoryTools)+len(roleSkillTools)+4)
 	tools = append(tools, roleWebTools...)
 	// pm_uat: backend/API-only acceptance criteria are tested too, headless
 	// against the task's own preview — no "backend exception".
@@ -212,6 +212,10 @@ func productManagerToolPolicy() domain.ToolPolicy {
 	// live-debugging tools (query_runtime_logs, list_runtime_errors,
 	// list_deployments) a PM never needs.
 	tools = append(tools, "get_environment")
+	// Audience research: synthetic personas written from the project's brief,
+	// studies that ask them whether they would pay, reports, 1:1 talks. Every
+	// call that spends model calls needs the user's yes (`user_approved`).
+	tools = append(tools, roleAudienceResearchTools...)
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	return domain.ToolPolicy{AllowTools: tools}
@@ -304,6 +308,26 @@ func releaseEngineerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleMemoryTools...)
 	tools = append(tools, roleSkillTools...)
 	return domain.ToolPolicy{AllowTools: tools}
+}
+
+// The Product Manager's audience research tools (adapter/tools/audience); each
+// answers with guidance when no agent runtime is available to run the models on.
+var roleAudienceResearchTools = []string{
+	"audience_list",
+	"audience_get",
+	"audience_create",
+	"audience_update",
+	"audience_build",
+	"audience_talk",
+	"study_list",
+	"study_status",
+	"study_report",
+	"study_plan",
+	"study_start",
+	"study_cancel",
+	"study_follow_up",
+	"study_ask_everyone",
+	"study_ask_research",
 }
 
 // Read-only access to the TaskTrooper Telemetry the user connected in Settings;

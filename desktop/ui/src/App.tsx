@@ -75,6 +75,9 @@ const UsageSettingsPage = lazy(() => import("@/pages/UsageSettingsPage").then((m
 const CatalogPage = lazy(() => import("@/pages/CatalogPage").then((m) => ({ default: m.CatalogPage })));
 const EnvironmentSettingsPage = lazy(() => import("@/pages/EnvironmentSettingsPage").then((m) => ({ default: m.EnvironmentSettingsPage })));
 const SkillsPage = lazy(() => import("@/pages/SkillsPage").then((m) => ({ default: m.SkillsPage })));
+const AudiencePage = lazy(() => import("@/pages/audience/AudiencePage"));
+const AudienceDetailPage = lazy(() => import("@/pages/audience/AudienceDetailPage"));
+const AudienceStudyPage = lazy(() => import("@/pages/audience/StudyPage"));
 const ProjectsPage = lazy(() => import("@/pages/ProjectsPage").then((m) => ({ default: m.ProjectsPage })));
 const BacklogPage = lazy(() => import("@/pages/BacklogPage").then((m) => ({ default: m.BacklogPage })));
 const ReleasedPage = lazy(() => import("@/pages/ReleasedPage").then((m) => ({ default: m.ReleasedPage })));
@@ -116,6 +119,10 @@ export default function App() {
                     now lives under the project(s) it is linked to. This
                     redirect stays for old bookmarks and links. */}
                 <Route path="repositories" element={<Navigate to="/projects" replace />} />
+                <Route path="audience" element={<AudiencePage />} />
+                {/* Declared before audience/:audienceId so "studies" is never read as an id. */}
+                <Route path="audience/studies/:studyId" element={<AudienceStudyPage />} />
+                <Route path="audience/:audienceId" element={<AudienceDetailPage />} />
                 <Route path="projects" element={<ProjectsPage />} />
                 {/* Declared before projects/:projectId so the static "new"
                     segment is never swallowed by the dynamic one. */}

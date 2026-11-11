@@ -2548,3 +2548,45 @@ monitor to retry. The last two already answered 400 and were the stragglers: rig
 no code. Written by `adapter/http.permanentRefusal` / `typedBadRequest` / `codedBadRequest`,
 the first two reached from `internalError` and `badRequestErr`, so any route that propagates
 the error gets the same answer.
+
+## Audience research (native)
+
+`internal/application/audience` writes **synthetic personas** from a project's brief, asks them the same questions in a **study**,
+turns the answers into a **report**, and lets a person talk to any persona 1:1. Every model call runs on the user's own agent
+runtime (`AgentRunner.Run` through `agent.Router`: a coding-agent CLI on this machine in an empty scratch directory with no
+TaskTrooper tools, or an API provider through the loop; the PM agent's runtime when it has one, else the first enabled agent with
+one) and is recorded in the usage ledger; nothing goes to a TaskTrooper service. Tables (migration 197, `audiences`,
+`audience_personas`, `audience_studies`, `audience_study_answers`, `audience_messages`) are tenant-scoped in the company edition.
+
+Audience: `draft` (brief only) -> `building` -> `ready` | `failed`. `PUT`-style edits never touch the people; `build` writes them
+again (`generation` +1) and a failed rebuild keeps the old ones. A study keeps its own copy of each persona that answered
+(`audience_study_answers.persona`), so a rebuild never erases a study. Study: `draft` -> `running` -> `synthesizing` ->
+`done` | `failed` | `cancelled`; it runs once.
+
+| Route | |
+|---|---|
+| `GET /v1/audience-research/status` | `{ready, agent?, provider?}`: is there an agent runtime to run on |
+| `GET /v1/audiences` / `POST /v1/audiences` | list (`persona_count`, `study_count`) / create `{name, repository?, brief, persona_target?}` (brief = `product`, `segments[{name,description,count}]`, `locations`, `current_solutions`, `pricing`, `topic`, `language`); repository = name or id |
+| `GET /v1/audiences/:id` | audience + `personas` + `studies` (no reports) + `build_calls` |
+| `PATCH /v1/audiences/:id` | `{name?, repository?, brief?, persona_target?}`; 400 while building |
+| `DELETE /v1/audiences/:id` | with its personas, studies, answers and threads; 409 while something runs |
+| `POST /v1/audiences/:id/build` -> 202, `.../build/cancel` -> 204 | writes the people in the background, `ceil(n/8)` calls; cancelling keeps the previous people |
+| `POST /v1/audiences/:id/studies` -> 201 | plan `{title?, goal?, questions[] (<=5), price_points[] (<=6), currency?}`; nothing runs; `calls_estimate` = people + 1 |
+| `GET /v1/audience-studies?audience_id=` | list without reports |
+| `GET /v1/audience-studies/:id` | study + `report` + `answers[]` (per-persona structured answers) + `follow_ups[]` (grouped) + `running` |
+| `PATCH` / `DELETE /v1/audience-studies/:id` | edit a draft / delete |
+| `POST /v1/audience-studies/:id/start` -> 202, `.../cancel` -> 204 | runs it: one interview per persona, 3 at a time process-wide, then one synthesis call |
+| `POST /v1/audience-studies/:id/ask` | `{question}` -> `{answer}` from the report and answers (1 call) |
+| `POST /v1/audience-studies/:id/ask-everyone` -> 202 | `{question}` -> `{group_id, calls}`; replies appear under `follow_ups` |
+| `POST /v1/audience-studies/:id/personas/:persona/follow-up` | `{question}` -> the persona's reply message |
+| `GET`/`POST`/`DELETE /v1/audience-personas/:id/messages` | the 1:1 thread / send `{message}` -> reply / clear |
+
+Errors: `409 audience_no_runtime`, `409 audience_busy`, `502 audience_call_failed`, `400` (message names what to fix), `404`.
+
+**Report** (`study.report`): `summary`, `verdict {label, score, rationale}` (label and score are computed: strong >= 70,
+promising >= 50, weak >= 30, else poor; score = mean intent x 10), `metrics` (intent distribution 0..10, yes/maybe/no, would-pay-now %,
+stated maximum prices with min/p25/median/mean/p75/max, a histogram, `not_willing`, and the buy % at each tested price),
+`segments[]`, `objections[]` / `needs[]` / `alternatives[]` (themes whose counts come from the persona ids the synthesis listed),
+`quotes[]` (kept only when found word for word in that persona's own answers), `recommendations[]`, `open_questions[]`,
+`methodology`, `disclaimer` (synthetic personas, not market data). A failed synthesis sets `synthesis_failed` and the report keeps its
+numbers and frequency-counted themes.

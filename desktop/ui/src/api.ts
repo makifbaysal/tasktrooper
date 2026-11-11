@@ -5431,6 +5431,222 @@ export function telemetryProxyPath(path: string, query?: Record<string, string |
 }
 
 
+// ---- Audience research: synthetic personas, studies and reports ----
+
+export type AudienceStatus = "draft" | "building" | "ready" | "failed";
+
+export interface AudienceSegment {
+  name: string;
+  description?: string;
+  count?: number;
+}
+
+export interface AudienceBrief {
+  product: string;
+  segments?: AudienceSegment[];
+  locations?: string;
+  current_solutions?: string;
+  pricing?: string;
+  topic?: string;
+  language?: string;
+}
+
+export interface Audience {
+  id: string;
+  name: string;
+  repository_id?: string;
+  status: AudienceStatus;
+  brief: AudienceBrief;
+  persona_target: number;
+  generation: number;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+  built_at?: string;
+  persona_count: number;
+  study_count: number;
+}
+
+export interface PersonaProfile {
+  age?: number;
+  role?: string;
+  location?: string;
+  bio?: string;
+  goals?: string[];
+  pains?: string[];
+  current_solution?: string;
+  budget?: string;
+  tech_savviness?: string;
+  personality?: string;
+  quote?: string;
+}
+
+export interface AudiencePersona extends PersonaProfile {
+  id: string;
+  audience_id: string;
+  ordinal: number;
+  generation: number;
+  name: string;
+  segment?: string;
+}
+
+export type AudienceStudyStatus = "draft" | "running" | "synthesizing" | "done" | "failed" | "cancelled";
+
+export interface PriceTest {
+  price: number;
+  buy_pct: number;
+  asked: number;
+}
+
+export interface ReportBucket {
+  from: number;
+  to: number;
+  count: number;
+}
+
+export interface ReportMetrics {
+  respondents: number;
+  failed: number;
+  intent_distribution: number[];
+  intent_mean: number;
+  yes: number;
+  maybe: number;
+  no: number;
+  would_pay_now_pct: number;
+  price: {
+    currency: string;
+    answered: number;
+    not_willing: number;
+    min: number;
+    p25: number;
+    median: number;
+    mean: number;
+    p75: number;
+    max: number;
+    histogram: ReportBucket[];
+    tests?: PriceTest[];
+  };
+}
+
+export interface ReportTheme {
+  label: string;
+  count: number;
+  pct: number;
+  personas?: string[];
+}
+
+export interface AudienceReport {
+  generated_at: string;
+  summary: string;
+  verdict: { label: "strong" | "promising" | "weak" | "poor"; score: number; rationale?: string };
+  metrics: ReportMetrics;
+  segments: { name: string; respondents: number; intent_mean: number; yes_pct: number; median_price: number; insight?: string }[];
+  objections: ReportTheme[];
+  needs: ReportTheme[];
+  alternatives: ReportTheme[];
+  quotes: { persona: string; segment?: string; role?: string; text: string; topic?: string; sentiment?: "positive" | "negative" | "neutral" }[];
+  recommendations: { title: string; detail?: string; priority?: "high" | "medium" | "low" }[];
+  open_questions?: { question: string; digest: string }[];
+  methodology: string;
+  disclaimer: string;
+  synthesis_failed?: boolean;
+}
+
+export interface AudienceStudy {
+  id: string;
+  audience_id: string;
+  audience_name?: string;
+  title: string;
+  goal?: string;
+  questions: string[];
+  price_points: number[];
+  currency: string;
+  status: AudienceStudyStatus;
+  persona_total: number;
+  persona_done: number;
+  persona_failed: number;
+  calls_estimate: number;
+  error?: string;
+  report?: AudienceReport;
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
+}
+
+export interface AudienceDetail extends Audience {
+  personas: AudiencePersona[];
+  studies: AudienceStudy[];
+  build_calls: number;
+}
+
+export interface StudyAnswer {
+  id: string;
+  persona_id?: string;
+  persona: PersonaProfile & { name: string; segment?: string; ordinal?: number };
+  status: "ok" | "failed";
+  answers: {
+    intent_score: number;
+    verdict: "yes" | "maybe" | "no";
+    would_pay_now: boolean;
+    reasoning?: string;
+    max_price?: number;
+    price_reactions?: { price: number; would_buy: boolean; comment?: string }[];
+    missing?: string[];
+    objections?: string[];
+    alternatives?: string[];
+    quote?: string;
+    answers?: { question: string; answer: string }[];
+  };
+  error?: string;
+}
+
+export interface StudyFollowUp {
+  group_id: string;
+  question: string;
+  asked_at: string;
+  asked: number;
+  replies: { persona_id?: string; persona: string; text: string }[];
+}
+
+export interface AudienceStudyDetail extends AudienceStudy {
+  answers: StudyAnswer[];
+  follow_ups: StudyFollowUp[];
+  running: boolean;
+}
+
+export interface AudienceChatMessage {
+  id: string;
+  persona_id: string;
+  study_id?: string;
+  role: "user" | "persona";
+  content: string;
+  created_at: string;
+}
+
+export interface AudienceRuntime {
+  ready: boolean;
+  agent?: string;
+  provider?: string;
+}
+
+export interface AudienceInput {
+  name?: string;
+  repository?: string;
+  brief?: AudienceBrief;
+  persona_target?: number;
+}
+
+export interface StudyPlanInput {
+  title?: string;
+  goal?: string;
+  questions?: string[];
+  price_points?: number[];
+  currency?: string;
+}
+
+export const AUDIENCE_NO_RUNTIME = "audience_no_runtime";
+
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
 
@@ -5470,6 +5686,42 @@ export const api = {
     request<TelemetrySettings>("/v1/telemetry/settings", { method: "PUT", body: JSON.stringify(data) }),
   testTelemetry: (data?: { base_url?: string; api_key?: string }) =>
     request<TelemetryConnectionTest>("/v1/telemetry/settings/test", { method: "POST", ...(data ? { body: JSON.stringify(data) } : {}) }),
+  audienceRuntime: () => request<AudienceRuntime>("/v1/audience-research/status"),
+  audiences: () => request<{ audiences: Audience[] }>("/v1/audiences"),
+  createAudience: (data: AudienceInput) => request<Audience>("/v1/audiences", { method: "POST", body: JSON.stringify(data) }),
+  audience: (id: string) => request<AudienceDetail>(`/v1/audiences/${id}`),
+  updateAudience: (id: string, data: AudienceInput) =>
+    request<Audience>(`/v1/audiences/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteAudience: (id: string) => request<void>(`/v1/audiences/${id}`, { method: "DELETE" }),
+  buildAudience: (id: string) => request<Audience>(`/v1/audiences/${id}/build`, { method: "POST" }),
+  cancelAudienceBuild: (id: string) => request<void>(`/v1/audiences/${id}/build/cancel`, { method: "POST" }),
+  planAudienceStudy: (audienceId: string, data: StudyPlanInput) =>
+    request<AudienceStudy>(`/v1/audiences/${audienceId}/studies`, { method: "POST", body: JSON.stringify(data) }),
+  audienceStudies: (audienceId?: string) =>
+    request<{ studies: AudienceStudy[] }>(`/v1/audience-studies${audienceId ? `?audience_id=${encodeURIComponent(audienceId)}` : ""}`),
+  audienceStudy: (id: string) => request<AudienceStudyDetail>(`/v1/audience-studies/${id}`),
+  updateAudienceStudy: (id: string, data: StudyPlanInput) =>
+    request<AudienceStudy>(`/v1/audience-studies/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteAudienceStudy: (id: string) => request<void>(`/v1/audience-studies/${id}`, { method: "DELETE" }),
+  startAudienceStudy: (id: string) => request<AudienceStudy>(`/v1/audience-studies/${id}/start`, { method: "POST" }),
+  cancelAudienceStudy: (id: string) => request<void>(`/v1/audience-studies/${id}/cancel`, { method: "POST" }),
+  askAudienceResearch: (id: string, question: string) =>
+    request<{ answer: string }>(`/v1/audience-studies/${id}/ask`, { method: "POST", body: JSON.stringify({ question }) }),
+  askAudienceEveryone: (id: string, question: string) =>
+    request<{ group_id: string; calls: number }>(`/v1/audience-studies/${id}/ask-everyone`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+  followUpAudiencePersona: (studyId: string, personaId: string, question: string) =>
+    request<AudienceChatMessage>(`/v1/audience-studies/${studyId}/personas/${personaId}/follow-up`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+  audienceThread: (personaId: string) =>
+    request<{ messages: AudienceChatMessage[] }>(`/v1/audience-personas/${personaId}/messages`),
+  sendAudienceMessage: (personaId: string, message: string) =>
+    request<AudienceChatMessage>(`/v1/audience-personas/${personaId}/messages`, { method: "POST", body: JSON.stringify({ message }) }),
+  clearAudienceThread: (personaId: string) => request<void>(`/v1/audience-personas/${personaId}/messages`, { method: "DELETE" }),
   telemetryStatus: () => request<TelemetryStatus>("/v1/telemetry/status"),
   telemetryGet: <T>(path: string, query?: Record<string, string | number | boolean | undefined>) =>
     request<T>(telemetryProxyPath(path, query)),

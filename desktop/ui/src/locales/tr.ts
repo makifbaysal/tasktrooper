@@ -19,6 +19,7 @@ import { projectsHub } from "@/locales/tr/projectsHub";
 import { release } from "@/locales/tr/release";
 import { repositoryPage } from "@/locales/tr/repositoryPage";
 import { settingsPages } from "@/locales/tr/settingsPages";
+import { audienceHub } from "@/locales/tr/audienceHub";
 import { telemetryHub } from "@/locales/tr/telemetryHub";
 import { setup } from "@/locales/tr/setup";
 import { toolchain } from "@/locales/tr/toolchain";
@@ -254,6 +255,7 @@ export const tr: Dict = {
   release,
   repositoryPage,
   settingsPages,
+  audienceHub,
   telemetryHub,
   setup,
   toolchain,

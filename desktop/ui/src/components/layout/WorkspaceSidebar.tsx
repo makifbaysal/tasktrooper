@@ -188,6 +188,14 @@ export function WorkspaceSidebar({
               onClick={onMobileClose}
             />
             <SidebarNavLink
+              to="/audience"
+              label={t("audienceHub.nav")}
+              icon={Users}
+              end={false}
+              collapsed={collapsed}
+              onClick={onMobileClose}
+            />
+            <SidebarNavLink
               to="/projects"
               label={t("frame.layout.sidebar.projects")}
               icon={Layers}

@@ -3121,6 +3121,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		alerting:     alertingSvc,
 	})
 
+	audienceSvc := e.wireAudience(ctx, audienceDeps{repositories: repositoryStore, agents: catalogStore, llm: llmClient, model: modelSvc})
+
 	handler := httpadapter.NewHandler(httpadapter.Config{
 		AgentLoop:         e.agentLoop,
 		LLMClient:         llmClient,
@@ -3157,6 +3159,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		ProdOpsSvc:        e.prodOpsSvc,
 		IssueSyncSvc:      issueSyncSvc,
 		TelemetrySvc:      telemetrySvc,
+		AudienceSvc:       audienceSvc,
 		StoreOpsSvc:       e.storeOpsSvc,
 		DeployOpsSvc:      e.deployOpsSvc,
 		ProjectModelSvc:   e.projectModelSvc,

@@ -791,3 +791,17 @@ layer an **unindexed-edit overlay** on top: `buildOverlay` shells `git -C <sessi
 and returns the changed files' bytes as `Snippet`, so uncommitted edits show up without a re-index.
 A stale index (migration 116) refuses with `domain.ErrIndexEmbeddingStale` rather than returning
 results a different embedding model produced.
+
+### `audience_*` / `study_*` (audience research, Product Manager)
+
+Native tools over `application/audience` (`adapter/tools/audience`); the PM's `audience-research` skill holds the flow. Without an
+agent runtime each answers with `guard.audience_no_runtime`. **Three tools spend model calls and refuse without
+`user_approved: true`**, answering `guard.audience_needs_approval` with the call count: `audience_build` (`ceil(people/8)`),
+`study_start` (people + 1), `study_ask_everyone` (one per person).
+
+- **`audience_list`**, **`audience_get {audience_id}`** (brief, people with ids, studies, `build_calls`).
+- **`audience_create {name, product, segments?, locations?, current_solutions?, pricing?, topic?, language?, persona_count?, repository?}`**, **`audience_update {audience_id, ...}`**: save a brief; no call runs.
+- **`audience_build {audience_id, user_approved}`**: writes the people in the background.
+- **`audience_talk {persona_id, message}`**: one 1:1 turn (the thread is kept; the person remembers the studies).
+- **`study_plan {audience_id, title?, goal?, questions?, price_points?, currency?}`**, **`study_start {study_id, user_approved}`**, **`study_cancel`**, **`study_list {audience_id?}`**, **`study_status {study_id}`**, **`study_report {study_id}`**.
+- **`study_follow_up {study_id, persona_id, question}`**, **`study_ask_everyone {study_id, question, user_approved}`**, **`study_ask_research {study_id, question}`**.
