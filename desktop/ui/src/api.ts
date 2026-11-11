@@ -3330,6 +3330,8 @@ export interface ComponentPatch {
   docs?: RepositoryDocs | null;
   /** null clears the override and reverts to the detected profile. */
   delivery?: ComponentDelivery | null;
+  /** Languages/frameworks the agents should treat the component as using; null reverts to detected. */
+  stack?: ComponentStack | null;
   status?: ComponentStatus;
   /** true acknowledges a component a later scan added (clears needs_review). */
   reviewed?: boolean;

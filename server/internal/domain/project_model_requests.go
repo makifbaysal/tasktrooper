@@ -52,6 +52,9 @@ type ComponentPatch struct {
 	// Delivery sets the delivery profile's override (validated), or clears it
 	// with null so the detected profile applies again.
 	Delivery Patch[ComponentDelivery] `json:"delivery"`
+	// Stack sets the stack's override (languages and frameworks the agent
+	// should treat the component as using), or clears it with null.
+	Stack Patch[ComponentStack] `json:"stack"`
 	// Reviewed true acknowledges a component a later scan added.
 	Reviewed *bool `json:"reviewed,omitempty"`
 }

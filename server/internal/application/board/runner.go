@@ -58,6 +58,7 @@ type ProjectModel interface {
 	RequiredCommands(ctx context.Context, repositoryID uuid.UUID, componentIDs []uuid.UUID) ([]domain.LocalCommand, error)
 	ComponentsForPaths(ctx context.Context, repositoryID uuid.UUID, paths []string) ([]uuid.UUID, error)
 	ComponentsForArea(ctx context.Context, repositoryID uuid.UUID, area string) ([]uuid.UUID, error)
+	ComponentStacks(ctx context.Context, repositoryID uuid.UUID, componentIDs []uuid.UUID) ([]domain.ComponentStack, error)
 }
 
 type TaskUpdater interface {
@@ -371,6 +372,25 @@ func (r *Runner) detectToolchain(ctx context.Context, job RunJob, workDir string
 	log.Info().Str("task_id", job.Task.ID.String()).Strs("pins", sources).
 		Msg("toolchain: resolved from the repository's own pin files")
 	return tc.Env
+}
+
+// skillsInProjectStack drops the skills of agent stacks the task's component
+// does not use (a Go-only component never receives the Rust or .NET skills).
+// The task's own component decides, else every active component of the
+// repository; an unscanned project or a failed lookup keeps every skill.
+func (r *Runner) skillsInProjectStack(ctx context.Context, job RunJob, skills []domain.Skill, stacks []domain.TechStack) []domain.Skill {
+	if r.projectModel == nil || len(stacks) == 0 {
+		return skills
+	}
+	var ids []uuid.UUID
+	if job.Task.ComponentID != nil {
+		ids = []uuid.UUID{*job.Task.ComponentID}
+	}
+	detected, err := r.projectModel.ComponentStacks(ctx, job.RepositoryID, ids)
+	if err != nil {
+		return skills
+	}
+	return domain.SkillsForStacks(skills, stacks, detected)
 }
 
 func (r *Runner) SetParkJournal(j *ParkJournal) {
@@ -759,6 +779,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	if err != nil {
 		return fail(err)
 	}
+	enabledSkills = r.skillsInProjectStack(ctx, job, enabledSkills, techStacks)
 	rules, err := r.catalog.ListEnabledRulesByAgent(ctx, agentRec.ID)
 	if err != nil {
 		return fail(err)
