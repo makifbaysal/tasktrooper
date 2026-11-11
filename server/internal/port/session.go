@@ -65,3 +65,15 @@ type FileStore interface {
 	SaveChunks(ctx context.Context, fileID uuid.UUID, chunks []domain.FileChunk) error
 	SearchChunks(ctx context.Context, fileIDs []uuid.UUID, queryEmbedding []float32, topK int) ([]domain.FileChunk, error)
 }
+
+// SessionWakeStore holds the chat agents' "wake me when it is done" rows.
+type SessionWakeStore interface {
+	// Add is idempotent per (session, kind, ref): a repeat refreshes the label and expiry.
+	Add(ctx context.Context, w domain.SessionWake) error
+	ListOpen(ctx context.Context) ([]domain.SessionWake, error)
+	ListBySession(ctx context.Context, sessionID uuid.UUID) ([]domain.SessionWake, error)
+	// Delete reports whether this call removed the row: the claim, so two
+	// sweeper ticks or a user's Stop never both act on one wake.
+	Delete(ctx context.Context, id uuid.UUID) (bool, error)
+	DeleteBySession(ctx context.Context, sessionID uuid.UUID) (int, error)
+}

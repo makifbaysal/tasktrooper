@@ -105,6 +105,12 @@ export const chatArea = {
       queuedHint: "Sera envoyé quand l'agent aura terminé son travail en cours.",
       queuedReturned: "Les messages en file d'attente ont été replacés dans la zone de saisie.",
     },
+    wakes: {
+      waiting: "Attend un travail en arrière-plan et répondra de nouveau à sa fin",
+      stop: "Arrêter l'attente",
+      stopFailed: "Impossible d'arrêter l'attente",
+      updateTitle: "Travail en arrière-plan terminé",
+    },
     reasoning: {
       title: "Étapes de raisonnement ({count})",
     },

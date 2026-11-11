@@ -46,7 +46,13 @@ type Service interface {
 	AskResearch(ctx context.Context, studyID uuid.UUID, question string) (string, error)
 }
 
+// Waker brings the calling chat back once background work ended.
+type Waker interface {
+	WakeSessionOn(ctx context.Context, kind string, refID uuid.UUID, label string)
+}
+
 type ToolKit struct {
+	Waker   Waker
 	Service Service
 }
 
@@ -288,4 +294,10 @@ func objectSchema(props map[string]interface{}, required ...string) map[string]i
 		out["required"] = required
 	}
 	return out
+}
+
+func (k *ToolKit) wake(ctx context.Context, kind string, id uuid.UUID, label string) {
+	if k.Waker != nil {
+		k.Waker.WakeSessionOn(ctx, kind, id, label)
+	}
 }

@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChatTaskDrawer } from "@/components/chat/ChatTaskDrawer";
 import { Composer } from "@/components/chat/Composer";
+import { PendingWakesBar } from "@/components/chat/PendingWakesBar";
 import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MessageList } from "@/components/chat/MessageList";
 import { SessionActivityPanel } from "@/components/chat/SessionActivityPanel";
@@ -692,6 +693,7 @@ export function AgentChatPage() {
                 queued={queue}
                 onRemoveQueued={removeQueued}
               />
+              <PendingWakesBar sessionId={activeSessionId} />
               <Composer
                 value={input}
                 onChange={setInput}

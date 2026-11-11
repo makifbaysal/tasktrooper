@@ -138,6 +138,25 @@ ends as `cancelled` (a later terminal write cannot overwrite it), whatever was s
 is persisted as the assistant message, and the SSE stream ends with a normal
 `finish_reason: "stop"` frame plus `[DONE]`.
 
+### Wakes: the agent comes back when background work ends (migration 204)
+
+A chat tool that starts background work (`audience_build`, `study_start`, writing a study report) registers a
+**wake** on the calling session (`session.Service.WakeSessionOn`, keyed by the chat session on the tool call's
+context; a repeat is idempotent). The `WakeSweeper` (5 s) asks each kind's checker whether the work ended;
+when it did — or after `WakeTimeout` (2 h), with a "still not finished" note — it deletes the row (the claim),
+appends a `**Background update:**` user-role message (`guard.session_wake_update`) and reruns the chat turn
+(`resumeParkedTurn`), so the agent reads the result and carries on. A session with a turn in flight is skipped
+until the next pass. Checkers are wired in `platform/runtime/audience.go`; a new kind needs a
+`domain.WakeKind*` constant, a checker and a `WakeSessionOn` call in its tool.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/v1/sessions/{id}/wakes` | `{wakes: [{id, kind, ref_id, label, created_at, expires_at}]}` |
+| DELETE | `/v1/sessions/{id}/wakes` | stop waiting on all; `{stopped: n}` (the work keeps running) |
+| DELETE | `/v1/sessions/{id}/wakes/{wakeId}` | stop waiting on one |
+
+The chat UI shows them above the composer (`PendingWakesBar`) with a "Stop waiting" button.
+
 ## Files and attachments
 
 | Endpoint | Notes |

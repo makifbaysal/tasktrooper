@@ -10,6 +10,8 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/web"
 	audienceapp "github.com/makifbaysal/tasktrooper/server/internal/application/audience"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
+	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
@@ -18,6 +20,7 @@ type audienceDeps struct {
 	agents       port.CatalogStore
 	llm          port.LLMClient
 	model        *projectmodel.Service
+	sessions     *session.Service
 }
 
 // wireAudience builds audience research: synthetic personas, studies and
@@ -48,8 +51,37 @@ func (e *engine) wireAudience(ctx context.Context, d audienceDeps) *audienceapp.
 	svc := audienceapp.NewService(deps)
 	// A process that died took the workers of whatever was running.
 	svc.RecoverInterrupted(ctx)
-	for _, tool := range audiencetools.NewExecutors(&audiencetools.ToolKit{Service: svc}) {
+	kit := &audiencetools.ToolKit{Service: svc}
+	if d.sessions != nil {
+		kit.Waker = d.sessions
+		d.sessions.SetWakes(pgstore.NewSessionWakeStore(e.pgDB), audienceWakeCheckers(svc))
+		session.NewWakeSweeper(d.sessions).Start(ctx, session.WakeSweeperInterval)
+	}
+	for _, tool := range audiencetools.NewExecutors(kit) {
 		e.reg.Register(tool)
 	}
 	return svc
+}
+
+func audienceWakeCheckers(svc *audienceapp.Service) map[string]session.WakeChecker {
+	return map[string]session.WakeChecker{
+		domain.WakeKindAudienceBuild: func(ctx context.Context, id uuid.UUID) (session.WakeState, error) {
+			a, err := svc.Audience(ctx, id)
+			if err != nil {
+				return session.WakeState{}, err
+			}
+			st := session.WakeState{Status: string(a.Status), Detail: a.Error}
+			st.Done = a.Status != domain.AudienceBuilding
+			return st, nil
+		},
+		domain.WakeKindStudy: func(ctx context.Context, id uuid.UUID) (session.WakeState, error) {
+			d, err := svc.Study(ctx, id)
+			if err != nil {
+				return session.WakeState{}, err
+			}
+			st := session.WakeState{Status: string(d.Status), Detail: d.Error}
+			st.Done = d.Status.Terminal() || d.Status == domain.StudyInterviewed
+			return st, nil
+		},
+	}
 }

@@ -110,6 +110,12 @@ export const chatArea: ChatAreaDict = {
       queuedHint: "Ajan mevcut işi bitirince gönderilecek.",
       queuedReturned: "Sıradaki mesajlar yazı alanına geri alındı.",
     },
+    wakes: {
+      waiting: "Arka plandaki işi bekliyor, bitince yeniden yanıt verecek",
+      stop: "Beklemeyi durdur",
+      stopFailed: "Bekleme durdurulamadı",
+      updateTitle: "Arka plandaki iş bitti",
+    },
     reasoning: {
       title: "Düşünme adımları ({count})",
     },

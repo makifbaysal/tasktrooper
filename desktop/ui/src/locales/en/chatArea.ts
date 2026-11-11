@@ -110,6 +110,12 @@ export const chatArea = {
       queuedHint: "Will be sent when the agent finishes its current work.",
       queuedReturned: "Queued messages were returned to the composer.",
     },
+    wakes: {
+      waiting: "Waiting for background work, I will answer again when it ends",
+      stop: "Stop waiting",
+      stopFailed: "Could not stop waiting",
+      updateTitle: "Background work finished",
+    },
     reasoning: {
       title: "Reasoning steps ({count})",
     },

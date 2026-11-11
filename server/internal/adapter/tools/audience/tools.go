@@ -212,6 +212,7 @@ func tools() []*tool {
 				if err != nil {
 					return nil, err
 				}
+				k.wake(ctx, domain.WakeKindAudienceBuild, started.ID, "audience_build \""+started.Name+"\"")
 				return map[string]any{"audience": started, "build_calls": audience.BuildCalls(started.PersonaTarget)}, nil
 			}},
 		{name: audienceTalkName, params: objectSchema(map[string]interface{}{"persona_id": stringSchema(), "message": stringSchema()}, "persona_id", "message"),
@@ -276,6 +277,7 @@ func tools() []*tool {
 					if err != nil {
 						return nil, err
 					}
+					k.wake(ctx, domain.WakeKindStudy, st.ID, "study_report \""+st.Title+"\"")
 					return map[string]any{"study": viewOf(st), "note": "The report is being written; read it with study_report in a minute."}, nil
 				}
 				if d.Report == nil {
@@ -362,6 +364,7 @@ func tools() []*tool {
 				if err != nil {
 					return nil, err
 				}
+				k.wake(ctx, domain.WakeKindStudy, st.ID, "study_start \""+st.Title+"\"")
 				return viewOf(st), nil
 			}},
 		{name: studyCancelName, params: objectSchema(map[string]interface{}{"study_id": stringSchema()}, "study_id"),

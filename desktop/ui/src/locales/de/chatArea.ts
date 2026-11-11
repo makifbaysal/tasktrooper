@@ -105,6 +105,12 @@ export const chatArea = {
       queuedHint: "Wird gesendet, sobald der Agent seine aktuelle Arbeit beendet hat.",
       queuedReturned: "Nachrichten aus der Warteschlange wurden in das Eingabefeld zurückgelegt.",
     },
+    wakes: {
+      waiting: "Wartet auf Hintergrundarbeit und antwortet erneut, sobald sie endet",
+      stop: "Warten beenden",
+      stopFailed: "Warten konnte nicht beendet werden",
+      updateTitle: "Hintergrundarbeit abgeschlossen",
+    },
     reasoning: {
       title: "Denkschritte ({count})",
     },

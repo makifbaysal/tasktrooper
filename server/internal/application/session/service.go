@@ -52,6 +52,7 @@ type Service struct {
 	attachments    AttachmentLinker
 	taskWorkspaces TaskWorkspaceResolver
 	chatExecutor   port.ChatExecutor
+	wakes          *wakeState
 	runsMu         sync.Mutex
 	runs           map[uuid.UUID]*runHandle
 	sessionRuns    map[uuid.UUID]map[uuid.UUID]struct{}

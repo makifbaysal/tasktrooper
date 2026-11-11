@@ -14,7 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import {
+  backgroundUpdateSummary,
   isAssistantErrorMessage,
+  isBackgroundUpdateMessage,
   isQuotaQueuedMessage,
   isRateLimitMessage,
   quotaQueuedMessageBody,
@@ -250,6 +252,15 @@ const MessageRow = memo(function MessageRow({
         </Notice>
       </div>
     );
+  if (message.role === "user" && isBackgroundUpdateMessage(message.content)) {
+    return (
+      <div className="flex justify-center">
+        <Notice className="max-w-[85%]" variant="info" title={t("chatArea.chat.wakes.updateTitle")}>
+          <p className="whitespace-pre-wrap">{backgroundUpdateSummary(message.content)}</p>
+        </Notice>
+      </div>
+    );
+  }
   }
   return (
     <div className="space-y-2">

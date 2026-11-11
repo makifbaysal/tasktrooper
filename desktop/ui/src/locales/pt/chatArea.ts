@@ -105,6 +105,12 @@ export const chatArea = {
       queuedHint: "Será enviada quando o agente terminar o trabalho atual.",
       queuedReturned: "As mensagens na fila voltaram para o campo de mensagem.",
     },
+    wakes: {
+      waiting: "Aguardando trabalho em segundo plano; responderá de novo quando terminar",
+      stop: "Parar de esperar",
+      stopFailed: "Não foi possível parar de esperar",
+      updateTitle: "Trabalho em segundo plano concluído",
+    },
     reasoning: {
       title: "Passos de raciocínio ({count})",
     },

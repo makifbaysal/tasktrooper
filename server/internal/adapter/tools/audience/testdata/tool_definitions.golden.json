@@ -3,7 +3,7 @@
     "type": "function",
     "function": {
       "name": "audience_build",
-      "description": "Write the audience's people from its brief, in the background (it writes them again if they exist). It returns at once and takes a few minutes. This spends model calls on the user's own agent runtime, so show the user the brief and the number of calls and ask first; call it with `user_approved: true` only after they said yes. Then tell them it is building and check audience_get later; never wait in a loop.",
+      "description": "Write the audience's people from its brief, in the background (it writes them again if they exist). It returns at once and takes a few minutes. This spends model calls on the user's own agent runtime, so show the user the brief and the number of calls and ask first; call it with `user_approved: true` only after they said yes. Then tell them in one short sentence that it is building; this chat is woken automatically when the build ends (the user can stop the wait), so end your turn there and read audience_get when the update arrives. Never poll in a loop.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
@@ -519,7 +519,7 @@
     "type": "function",
     "function": {
       "name": "study_start",
-      "description": "Start a planned study whose current interview script the user has approved (study_script with approve: true; otherwise this is refused and tells you how). Start a planned study: every person of the audience is asked the kind's questions and the interview script in parallel (a few at a time), then a report is written. It returns at once. This spends the study's model calls on the user's own agent runtime, so show the user the plan, the script and the number of calls and ask first; call it with `user_approved: true` only after they said yes. Then tell them it started and check study_status later; never wait in a loop.",
+      "description": "Start a planned study whose current interview script the user has approved (study_script with approve: true; otherwise this is refused and tells you how). Start a planned study: every person of the audience is asked the kind's questions and the interview script in parallel (a few at a time), then a report is written. It returns at once. This spends the study's model calls on the user's own agent runtime, so show the user the plan, the script and the number of calls and ask first; call it with `user_approved: true` only after they said yes. Then tell them in one short sentence that it started; this chat is woken automatically when the study ends (the user can stop the wait), so end your turn there and read study_status or study_report when the update arrives. Never poll in a loop.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
