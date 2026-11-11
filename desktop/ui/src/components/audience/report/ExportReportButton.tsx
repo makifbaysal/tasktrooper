@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import type { AudienceReport, StudyKind } from "@/api";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
+import { logEvent } from "@/lib/analytics";
 import { buildStudyReportHtml, downloadHtml, openHtml, reportFilename } from "@/lib/studyReportHtml";
 
 interface ExportReportButtonProps {
@@ -19,6 +20,7 @@ export function ExportReportButton({ report, title, audienceName, kind = report.
     try {
       const html = buildStudyReportHtml({ report, title, audienceName, kind, lang, t });
       action(reportFilename(title, kind), html);
+      logEvent("study_report_export", { kind });
       if (notify) toast.success(t("audienceReportKinds.export.done"));
     } catch {
       toast.error(t("audienceReportKinds.export.failed"));

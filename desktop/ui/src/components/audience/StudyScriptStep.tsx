@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
+import { logEvent } from "@/lib/analytics";
 import { cleanScript, MAX_SCRIPT_QUESTIONS, MAX_SCRIPT_SECTIONS, parseScriptText, scriptQuestionCount } from "@/lib/studyWizard";
 
 const CORE_KEYS: Record<StudyKind, string[]> = {
@@ -83,6 +84,7 @@ export function StudyScriptStep({ study, readOnly = false, onChanged, onError }:
       }
       if (!approved) await api.approveAudienceStudyScript(study.id, version);
       await api.startAudienceStudy(study.id, { manualReport: true });
+      logEvent("study_start", { kind: study.kind });
       onChanged();
     } catch (e) {
       onError(e, t("audienceHub.study.startFailed"));

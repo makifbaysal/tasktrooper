@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/hooks/useI18n";
+import { logEvent } from "@/lib/analytics";
 
 const NO_REPOSITORY = "__none__";
 const MAX_SEGMENTS = 8;
@@ -87,6 +88,7 @@ export function AudienceFormDialog({ open, onOpenChange, audience = null, onSave
       const saved = audience ? await api.updateAudience(audience.id, input) : await api.createAudience(input);
       toast.success(audience ? b("updated") : b("created"));
       onOpenChange(false);
+      if (!audience) logEvent("audience_create", { source: "form" });
       onSaved(saved);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("common.saveFailed"));

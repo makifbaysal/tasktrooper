@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useAskPm } from "@/hooks/useAskPm";
 import { useI18n } from "@/hooks/useI18n";
+import { logEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { contextProblem, contextToInput, emptyContext, type ContextDraft } from "@/lib/studyContext";
 import type { WizardStep } from "@/lib/studyWizard";
@@ -71,8 +72,9 @@ export function NewStudyPage() {
   };
 
   const createAudience = () => {
-    if (pm.canAsk) void pm.ask(t("audienceStudy.start.createMessage"));
-    else setFormOpen(true);
+    if (!pm.canAsk) return setFormOpen(true);
+    logEvent("audience_create", { source: "pm" });
+    void pm.ask(t("audienceStudy.start.createMessage"));
   };
 
   const plan = async () => {

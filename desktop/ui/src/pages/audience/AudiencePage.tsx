@@ -16,6 +16,7 @@ import { useAskPm } from "@/hooks/useAskPm";
 import { useAudienceRuntime } from "@/hooks/useAudienceRuntime";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
+import { logEvent } from "@/lib/analytics";
 import { audienceStatusTone, studyIsActive, studyStatusTone } from "@/lib/audienceHub";
 
 const POLL_MS = 4000;
@@ -171,7 +172,11 @@ export function AudiencePage() {
             icon={Sparkles}
             title={t("audienceStudy.start.createTitle")}
             body={t("audienceStudy.start.createBody")}
-            onClick={() => (pm.canAsk ? void pm.ask(t("audienceStudy.start.createMessage")) : setFormOpen(true))}
+            onClick={() => {
+              if (!pm.canAsk) return setFormOpen(true);
+              logEvent("audience_create", { source: "pm" });
+              void pm.ask(t("audienceStudy.start.createMessage"));
+            }}
           />
           <StartCard icon={FlaskConical} title={t("audienceStudy.start.studyTitle")} body={t("audienceStudy.start.studyBody")} to="/audience/studies/new" />
         </div>
