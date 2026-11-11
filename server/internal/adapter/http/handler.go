@@ -53,6 +53,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prodops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/readiness"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/remoteaccess"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
@@ -142,6 +143,7 @@ type Handler struct {
 	uiFS              fs.FS
 	deploySvc         *deploy.Service
 	repoDocsSvc       *repodocs.Service
+	readinessSvc      *readiness.Service
 	prodOpsSvc        *prodops.Service
 	issueSyncSvc      *issuesync.Service
 	telemetrySvc      *telemetryapp.Service
@@ -232,6 +234,7 @@ type Config struct {
 	UIFS              fs.FS
 	DeploySvc         *deploy.Service
 	RepoDocsSvc       *repodocs.Service
+	ReadinessSvc      *readiness.Service
 	ProdOpsSvc        *prodops.Service
 	IssueSyncSvc      *issuesync.Service
 	TelemetrySvc      *telemetryapp.Service
@@ -309,6 +312,7 @@ func NewHandler(cfg Config) *Handler {
 		uiFS:              cfg.UIFS,
 		deploySvc:         cfg.DeploySvc,
 		repoDocsSvc:       cfg.RepoDocsSvc,
+		readinessSvc:      cfg.ReadinessSvc,
 		prodOpsSvc:        cfg.ProdOpsSvc,
 		issueSyncSvc:      cfg.IssueSyncSvc,
 		telemetrySvc:      cfg.TelemetrySvc,
@@ -386,6 +390,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerInitiativeRoutes(app)
 	h.registerDeployRoutes(app)
 	h.registerRepoDocsRoutes(app)
+	h.registerReadinessRoutes(app)
 	h.registerProdOpsRoutes(app)
 	h.registerIssueSyncRoutes(app)
 	h.registerTelemetryRoutes(app)

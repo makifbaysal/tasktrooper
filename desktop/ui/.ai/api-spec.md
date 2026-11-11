@@ -1576,3 +1576,12 @@ model call runs on the user's own agent runtime through the app server; the full
 `followUpAudiencePersona`, `audienceThread`, `sendAudienceMessage`. Errors with `type: "audience_no_runtime"` show the
 connect-an-agent guidance. A build and a study are asynchronous: the pages poll every 3-4 s while one is `building`, `running` or
 `synthesizing`, and for 3 minutes after a question to everyone.
+
+## Repository setup checklist
+
+`api.getRepositoryReadiness(id)` → the checklist the repository page's "Get this project ready" card shows
+(`components/projects/repository/ReadinessCard`); `api.runReadinessStep(id, step, approve)`,
+`api.runReadinessAll(id, approveTasks)`, `api.setReadinessStepSkipped(id, step, skipped)` and
+`api.setReadinessDismissed(id, dismissed)` act on it. Contract and statuses: `server/.ai/api-spec.md`
+("Repository setup checklist"). The `toolchain` step is `unknown` from the server and resolved in the app
+from the desktop shell's toolchain report (`lib/readiness.ts`).

@@ -18,6 +18,7 @@ import { operations } from "@/locales/en/operations";
 import { projectAdmin } from "@/locales/en/projectAdmin";
 import { projectModel } from "@/locales/en/projectModel";
 import { projectsHub } from "@/locales/en/projectsHub";
+import { readiness } from "@/locales/en/readiness";
 import { release } from "@/locales/en/release";
 import { repositoryPage } from "@/locales/en/repositoryPage";
 import { settingsPages } from "@/locales/en/settingsPages";
@@ -249,6 +250,7 @@ export const en = {
   projectAdmin,
   projectModel,
   projectsHub,
+  readiness,
   release,
   repositoryPage,
   settingsPages,

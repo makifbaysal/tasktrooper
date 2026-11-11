@@ -34,7 +34,7 @@ export function DoneStep({ repos, projectId, projectName, stats }: DoneStepProps
   const names = readyRepos.map((r) => r.label).join(", ");
 
   const openRepository = () => {
-    if (readyRepos.length === 1) navigate(`/repositories/${readyRepos[0].repositoryId}?project=${projectId}`);
+    if (readyRepos.length === 1) navigate(`/repositories/${readyRepos[0].repositoryId}?project=${projectId}&setup=1`);
     else navigate(`/projects/${projectId}`);
   };
 

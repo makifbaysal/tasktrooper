@@ -10,6 +10,7 @@ import { DeployRuntimeTab } from "@/components/projects/repository/deploy/Deploy
 import { FindingsTab } from "@/components/projects/repository/findings/FindingsTab";
 import { LinksTab } from "@/components/projects/repository/LinksTab";
 import { OverviewTab } from "@/components/projects/repository/OverviewTab";
+import { ReadinessCard } from "@/components/projects/repository/ReadinessCard";
 import { RepositoryHeader } from "@/components/projects/repository/RepositoryHeader";
 import { SettingsTab } from "@/components/projects/repository/SettingsTab";
 import { PageContent } from "@/components/layout/PageContent";
@@ -35,6 +36,20 @@ export function RepositoryPage() {
   const { repositoryId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const { model, loading, error, reload } = useRepositoryModel(repositoryId);
+
+  const [arrivedFromImport] = useState(() => searchParams.get("setup") === "1");
+  useEffect(() => {
+    if (!searchParams.has("setup")) return;
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.delete("setup");
+        return params;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const tab = tabFromParam(searchParams.get("tab"));
   const selectedComponentParam = searchParams.get("component");
@@ -165,6 +180,13 @@ export function RepositoryPage() {
         scan={scan}
         onRescan={handleRescan}
         onGitRestored={reload}
+      />
+
+      <ReadinessCard
+        key={model.repository.id}
+        repositoryId={model.repository.id}
+        expandOnArrival={arrivedFromImport}
+        onOpenTab={setTab}
       />
 
       <Tabs value={tab} onValueChange={setTab}>

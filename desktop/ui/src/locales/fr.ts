@@ -16,6 +16,7 @@ import { operations } from "@/locales/fr/operations";
 import { projectAdmin } from "@/locales/fr/projectAdmin";
 import { projectModel } from "@/locales/fr/projectModel";
 import { projectsHub } from "@/locales/fr/projectsHub";
+import { readiness } from "@/locales/fr/readiness";
 import { release } from "@/locales/fr/release";
 import { repositoryPage } from "@/locales/fr/repositoryPage";
 import { settingsPages } from "@/locales/fr/settingsPages";
@@ -247,6 +248,7 @@ export const fr: Dict = {
   projectAdmin,
   projectModel,
   projectsHub,
+  readiness,
   release,
   repositoryPage,
   settingsPages,

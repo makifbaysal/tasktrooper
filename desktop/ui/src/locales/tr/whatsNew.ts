@@ -15,6 +15,7 @@ export const whatsNew = {
       pairPhone: "Telefonu tek adımda eşle: Telefonu eşle, QR kodu ve adresin olduğu bir pencere açar.",
       audience: "Hedef kitle araştırması: PM ajanından sentetik kişiler iste, çalışmalar yürüt ve raporu oku ya da bir kişiyle birebir konuş.",
       telemetry: "Operasyonlar'daki yeni Telemetri ekranları servisleri, uç noktaları, izleri, logları, hataları, olayları, monitörleri, dağıtımları ve SLO'ları gösterir; açılan olayları release mühendisi ele alır.",
+      repoSetup: "Bir depoyu içe aktarmak artık \"Bu projeyi hazırla\" kontrol listesini açar (tarama, araçlar, indeks, README ve ajan rehberi, testler, CI, teslimat); her adımın bir düğmesi ve hepsini sırayla çalıştıran bir düğme vardır.",
       signOut: "Hesabından çıkış yapmak artık hesabı tamamen temizler; \"hesapsız çalışıyor\" uyarısı ekranda takılı kalmaz.",
     },
   },

@@ -42,7 +42,7 @@ describe("DoneStep navigation", () => {
   it("opens the single repository directly, with the project id carried along", () => {
     renderStep([repo()]);
     fireEvent.click(screen.getByRole("button", { name: "Open repository" }));
-    expect(navigate).toHaveBeenCalledWith("/repositories/repo-1?project=proj-1");
+    expect(navigate).toHaveBeenCalledWith("/repositories/repo-1?project=proj-1&setup=1");
   });
 
   it("opens the project instead when several repositories were added", () => {

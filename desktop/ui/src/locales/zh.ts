@@ -16,6 +16,7 @@ import { operations } from "@/locales/zh/operations";
 import { projectAdmin } from "@/locales/zh/projectAdmin";
 import { projectModel } from "@/locales/zh/projectModel";
 import { projectsHub } from "@/locales/zh/projectsHub";
+import { readiness } from "@/locales/zh/readiness";
 import { release } from "@/locales/zh/release";
 import { repositoryPage } from "@/locales/zh/repositoryPage";
 import { settingsPages } from "@/locales/zh/settingsPages";
@@ -247,6 +248,7 @@ export const zh: Dict = {
   projectAdmin,
   projectModel,
   projectsHub,
+  readiness,
   release,
   repositoryPage,
   settingsPages,

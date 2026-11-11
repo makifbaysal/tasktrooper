@@ -16,12 +16,14 @@ const {
   getLatestRepositoryScan,
   getRepositoryDesignSystem,
   setRepositoryDesignBaseProject,
+  getRepositoryReadiness,
 } = vi.hoisted(() => ({
   getRepositoryModel: vi.fn(),
   getInitiativeProject: vi.fn(),
   getLatestRepositoryScan: vi.fn(),
   getRepositoryDesignSystem: vi.fn(),
   setRepositoryDesignBaseProject: vi.fn(),
+  getRepositoryReadiness: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
@@ -35,6 +37,7 @@ vi.mock("@/api", async () => {
       getLatestRepositoryScan,
       getRepositoryDesignSystem,
       setRepositoryDesignBaseProject,
+      getRepositoryReadiness,
     },
   };
 });
@@ -161,10 +164,24 @@ const chosenDesign: RepositoryDesignSystemView = {
   overrides: ["space.row"],
 };
 
-function renderPage(initialTab: string) {
+const readiness = {
+  repository_id: "repo-1",
+  steps: [
+    { id: "scan", status: "done", action: "run", depends_on: [] },
+    { id: "guide", status: "todo", action: "task", depends_on: ["scan"], reason: "missing", facts: { missing: ["readme"] } },
+  ],
+  done: 1,
+  skipped: 0,
+  total: 2,
+  complete: false,
+  dismissed: false,
+  run_all: { tasks: 1, runs: 0, steps: ["guide"] },
+};
+
+function renderPage(initialTab: string, search = "") {
   return render(
     <I18nProvider>
-      <MemoryRouter initialEntries={[`/repositories/repo-1?tab=${initialTab}`]}>
+      <MemoryRouter initialEntries={[`/repositories/repo-1?tab=${initialTab}${search}`]}>
         <Routes>
           <Route path="/repositories/:repositoryId" element={<RepositoryPage />} />
         </Routes>
@@ -180,6 +197,25 @@ describe("RepositoryPage", () => {
     getLatestRepositoryScan.mockReset().mockResolvedValue(noScan);
     getRepositoryDesignSystem.mockReset().mockResolvedValue(ambiguousDesign);
     setRepositoryDesignBaseProject.mockReset().mockResolvedValue(chosenDesign);
+    getRepositoryReadiness.mockReset().mockResolvedValue(readiness);
+    window.localStorage.clear();
+  });
+
+  it("shows the setup checklist above the tabs, open when the page is reached right after an import", async () => {
+    window.localStorage.setItem("tt.readiness.folded.repo-1", "1");
+    renderPage("overview", "&setup=1");
+
+    expect(await screen.findByText("Get this project ready")).toBeInTheDocument();
+    expect(await screen.findByText("Missing: README.")).toBeInTheDocument();
+    expect(getRepositoryReadiness).toHaveBeenCalledWith("repo-1");
+  });
+
+  it("keeps the checklist folded on a later visit when the person folded it", async () => {
+    window.localStorage.setItem("tt.readiness.folded.repo-1", "1");
+    renderPage("overview");
+
+    expect(await screen.findByText("Get this project ready")).toBeInTheDocument();
+    expect(screen.queryByText("Missing: README.")).not.toBeInTheDocument();
   });
 
   it("renders every tab and shows the tab selected by ?tab=", async () => {

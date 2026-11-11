@@ -2621,3 +2621,37 @@ The wire contract for the phone (pairing flow, QR payload, allowlist, error code
 Remote listener (`/remote/v1/*`): `GET info`, `POST pair` (public), `GET|DELETE me`, `GET changes?since=&wait=`,
 `GET pending`, `GET sessions/{id}/turn`, `POST sessions/{id}/messages` (async, 202). Device tokens are
 `ttd_` + 32 random bytes (base64url); only the SHA-256 is stored.
+
+## Repository setup checklist (migration 200)
+
+`internal/application/readiness` builds the "get this project ready" checklist of a repository from
+signals the product already has and starts a step on the person's click. Every status is derived from
+live data when asked (cached for 3 s per repository, cleared by any choice or run); the only stored state
+is `repository_readiness_steps` (migration 200): a skip per step, the board task a step opened, and the
+card's own hide choice under the reserved step id `_card`.
+
+Steps, in the order they are listed and run (a step that does not apply to the repository is left out):
+`scan` (latest scan) -> `toolchain` (the languages the scan found; the app decides whether this
+computer has them, so the server answers `unknown`) -> `index` (code index) -> `guide` (README and an
+agent guide such as `CLAUDE.md`/`AGENTS.md`/`.ai`, read from the working copy's top directory) -> `tests`
+(a component with no test command, or an open `no_automated_tests` finding) -> `ci` (no CI jobs found, only
+with a remote) -> `delivery` (a deployable component whose delivery profile is not confirmed or is `none`) ->
+`observability` (production readiness suggestions of a deployable component; waits for `delivery`) ->
+`findings` (open code-health findings with no task) -> `design` (a frontend with no design system) ->
+`store` (a mobile component with no store app).
+
+Status is `done`, `todo`, `running` (scan or index under way, or the step's task is still open),
+`blocked` (a step it depends on is not done; `reason` is `needs_<step>`), `skipped` or `unknown`. A
+step's action says what "do it" means: `run` (scan, index), `task` (guide, tests, ci: opens a board
+task; briefs `catalog/system/prompts/readiness/{guide,tests}.md`, the CI brief is the existing workflow
+setup brief), `navigate` (needs a decision or credential: delivery, observability, findings, design, store)
+or `desktop` (toolchain, the desktop shell's installer). `reason` is a code and `facts` the numbers the UI
+words per locale; nothing here is prose for a person.
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/repositories/{id}/readiness` | `{repository_id, steps[], done, skipped, total, complete, dismissed, run_all: {tasks, runs, steps[]}}`; each step `{id, status, action, depends_on, reason?, facts?, task?}` |
+| `POST /v1/repositories/{id}/readiness/steps/{stepId}/run` | `{approve}`; 202 `{step, task?, started}`. A `task` step needs `approve: true` (400 otherwise, nothing opened); 409 when the step is done, skipped, blocked, already has an open task, or is one the app does itself; 404 for an unknown or inapplicable step. One click is not chained behind other tasks |
+| `POST /v1/repositories/{id}/readiness/run-all` | `{approve_tasks}`; starts every `todo` run/task step in order. `approve_tasks` must equal `run_all.tasks` (400 when missing, 409 when the checklist changed), so the person approves the number they saw. Each task is created with `blocked_by` the task opened before it (or the one already open), so the board's work-order gate runs them one after another with no orchestrator. 202 `{results[]}` |
+| `PUT /v1/repositories/{id}/readiness/steps/{stepId}` | `{skipped}`; returns the checklist. A step that is actually done stays `done` |
+| `PUT /v1/repositories/{id}/readiness` | `{dismissed}`; hides or shows the card, returns the checklist |

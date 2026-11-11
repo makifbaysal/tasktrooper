@@ -89,7 +89,7 @@ describe("AddRepositoryPage — new repository", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open task" }));
     expect(navigate).toHaveBeenCalledWith("/board?task=task-1");
     fireEvent.click(screen.getByRole("button", { name: "Open repository" }));
-    expect(navigate).toHaveBeenCalledWith("/repositories/repo-new?project=p1");
+    expect(navigate).toHaveBeenCalledWith("/repositories/repo-new?project=p1&setup=1");
   });
 
   it("says so when the server opened no setup task", async () => {

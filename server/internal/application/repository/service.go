@@ -548,6 +548,12 @@ func (s *Service) workflow(ctx context.Context, taskType domain.TaskType) (domai
 // and not done/released it is returned as is (created == false), so repeated
 // clicks on the "no CI workflows" notice cannot pile up duplicates.
 func (s *Service) CreateWorkflowSetupTask(ctx context.Context, repositoryID uuid.UUID) (task domain.BoardTask, created bool, err error) {
+	return s.CreateWorkflowSetupTaskAfter(ctx, repositoryID, nil)
+}
+
+// CreateWorkflowSetupTaskAfter is CreateWorkflowSetupTask for a caller that
+// queues the work behind other tasks: the new task waits for blockedBy.
+func (s *Service) CreateWorkflowSetupTaskAfter(ctx context.Context, repositoryID uuid.UUID, blockedBy []domain.TaskRelationInput) (task domain.BoardTask, created bool, err error) {
 	s.ciSetupMu.Lock()
 	defer s.ciSetupMu.Unlock()
 
@@ -574,6 +580,7 @@ func (s *Service) CreateWorkflowSetupTask(ctx context.Context, repositoryID uuid
 		Column:          domain.TaskColumnTodo,
 		CreatedBy:       "system",
 		AssigneeAgentID: assignee,
+		BlockedBy:       blockedBy,
 	})
 	if err != nil {
 		return domain.BoardTask{}, false, err

@@ -2554,6 +2554,56 @@ export function isOAuthClientRequiredError(e: unknown): boolean {
   return e instanceof ApiError && e.status === 400 && e.type === "oauth_client_required";
 }
 
+export type ReadinessStepId =
+  | "scan"
+  | "toolchain"
+  | "index"
+  | "guide"
+  | "tests"
+  | "ci"
+  | "delivery"
+  | "observability"
+  | "findings"
+  | "design"
+  | "store";
+
+export type ReadinessStatus = "done" | "todo" | "running" | "blocked" | "skipped" | "unknown";
+export type ReadinessAction = "run" | "task" | "navigate" | "desktop";
+
+export interface ReadinessTask {
+  id: string;
+  key: string;
+  title: string;
+  column: string;
+}
+
+export interface ReadinessStep {
+  id: ReadinessStepId;
+  status: ReadinessStatus;
+  action: ReadinessAction;
+  depends_on: string[];
+  reason?: string;
+  facts?: Record<string, unknown>;
+  task?: ReadinessTask;
+}
+
+export interface RepositoryReadiness {
+  repository_id: string;
+  steps: ReadinessStep[];
+  done: number;
+  skipped: number;
+  total: number;
+  complete: boolean;
+  dismissed: boolean;
+  run_all: { tasks: number; runs: number; steps: ReadinessStepId[] };
+}
+
+export interface ReadinessRunResult {
+  step: ReadinessStepId;
+  task?: ReadinessTask;
+  started: boolean;
+}
+
 async function request<T>(path: string, init: RequestInit = {}, deadlineMs?: number): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
@@ -6515,6 +6565,33 @@ export const api = {
 
   getWorkflowSetupTask: (id: string) =>
     request<{ task: BoardTask | null }>(`/v1/repositories/${id}/pipeline/setup-task`),
+
+  getRepositoryReadiness: (repositoryId: string) =>
+    request<RepositoryReadiness>(`/v1/repositories/${repositoryId}/readiness`),
+
+  runReadinessStep: (repositoryId: string, step: ReadinessStepId, approve: boolean) =>
+    request<ReadinessRunResult>(`/v1/repositories/${repositoryId}/readiness/steps/${step}/run`, {
+      method: "POST",
+      body: JSON.stringify({ approve }),
+    }),
+
+  runReadinessAll: (repositoryId: string, approveTasks: number) =>
+    request<{ results: ReadinessRunResult[] }>(`/v1/repositories/${repositoryId}/readiness/run-all`, {
+      method: "POST",
+      body: JSON.stringify({ approve_tasks: approveTasks }),
+    }),
+
+  setReadinessStepSkipped: (repositoryId: string, step: ReadinessStepId, skipped: boolean) =>
+    request<RepositoryReadiness>(`/v1/repositories/${repositoryId}/readiness/steps/${step}`, {
+      method: "PUT",
+      body: JSON.stringify({ skipped }),
+    }),
+
+  setReadinessDismissed: (repositoryId: string, dismissed: boolean) =>
+    request<RepositoryReadiness>(`/v1/repositories/${repositoryId}/readiness`, {
+      method: "PUT",
+      body: JSON.stringify({ dismissed }),
+    }),
 
   saveStoreCredential: (provider: StoreCredentialProvider, data: Record<string, string>) =>
     request<void>(`/v1/store/credentials/${provider}`, {

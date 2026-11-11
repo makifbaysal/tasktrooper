@@ -3144,6 +3144,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		alerting:     alertingSvc,
 	})
 
+	readinessSvc := e.wireReadiness(repositorySvc, workflowSvc, opsAISvc)
+
 	audienceSvc := e.wireAudience(ctx, audienceDeps{repositories: repositoryStore, agents: catalogStore, llm: llmClient, model: modelSvc})
 
 	handler := httpadapter.NewHandler(httpadapter.Config{
@@ -3179,6 +3181,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		NewRepoSvc:        e.newRepoSvc,
 		DeploySvc:         e.deploySvc,
 		RepoDocsSvc:       e.repoDocsSvc,
+		ReadinessSvc:      readinessSvc,
 		ProdOpsSvc:        e.prodOpsSvc,
 		IssueSyncSvc:      issueSyncSvc,
 		TelemetrySvc:      telemetrySvc,

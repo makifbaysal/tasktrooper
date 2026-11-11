@@ -17,6 +17,7 @@ export const whatsNew = {
       pairPhone: "Pair a phone in one step: Pair phone opens a window with the QR code and the address.",
       audience: "Audience research: ask the PM agent for synthetic personas, run studies and read the report, or talk to a persona one to one.",
       telemetry: "New Telemetry screens in Operations show services, endpoints, traces, logs, errors, incidents, monitors, deploys and SLOs, and the release engineer handles the incidents it raises.",
+      repoSetup: "Importing a repository now opens a \"Get this project ready\" checklist (scan, tools, index, README and agent guide, tests, CI, delivery) with a button for each step and one to run them all in order.",
       signOut: "Signing out of your account now clears it completely, so the \"working without account\" banner no longer lingers.",
     },
   },

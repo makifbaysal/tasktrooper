@@ -54,6 +54,7 @@ export interface AnalyticsEvents {
   invite_accept: NoParams;
   computer_pair: { outcome: "ok" | "failed" };
   refine_with_ai: NoParams;
+  readiness_action: { action: "run_step" | "run_all" | "skip" | "unskip" | "hide" | "show"; step?: string };
 }
 
 /** The role key every platform reports for an agent: its catalog slug, or "custom". */

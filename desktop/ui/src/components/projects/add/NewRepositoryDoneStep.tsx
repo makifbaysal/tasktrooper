@@ -46,7 +46,7 @@ export function NewRepositoryDoneStep({ result, projectId, projectName }: NewRep
       )}
 
       <div className="flex justify-center gap-2">
-        <Button onClick={() => navigate(`/repositories/${repository.id}?project=${projectId}`)}>
+        <Button onClick={() => navigate(`/repositories/${repository.id}?project=${projectId}&setup=1`)}>
           {t("addRepository.done.openRepository")}
         </Button>
         <Button variant="outline" onClick={() => navigate(`/projects/${projectId}`)}>
