@@ -281,6 +281,7 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   });
   handle(SHELL_CHANNELS.accountState, () => services.accountState());
   shell(SHELL_CHANNELS.accountUseLocalForNow, () => services.accountUseLocalForNow());
+  shell(SHELL_CHANNELS.accountSignOut, () => services.accountSignOut());
 
   // --- the API-key window ---
   /**

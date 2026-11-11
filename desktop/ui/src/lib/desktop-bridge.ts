@@ -725,6 +725,26 @@ export function desktopAccount(): NonNullable<TaskTrooperDesktopHost["account"]>
   return window.__tasktrooperDesktop?.account ?? null;
 }
 
+const accountChangeListeners = new Set<() => void>();
+
+/**
+ * Says every mounted reader of `account.state()` that it changed. The bridge
+ * has no push for it, so whoever just changed the account (the Settings card's
+ * sign-out, the banner's) tells the others here; a banner that read the state
+ * once at mount would otherwise stay up after the sign-out that ended it.
+ */
+export function announceAccountChange(): void {
+  for (const listener of [...accountChangeListeners]) listener();
+}
+
+/** Subscribes to `announceAccountChange`; returns the unsubscribe. */
+export function onAccountChange(listener: () => void): () => void {
+  accountChangeListeners.add(listener);
+  return () => {
+    accountChangeListeners.delete(listener);
+  };
+}
+
 export function desktopToolchain(): DesktopToolchainHost | null {
   return window.__tasktrooperDesktop?.toolchain ?? null;
 }

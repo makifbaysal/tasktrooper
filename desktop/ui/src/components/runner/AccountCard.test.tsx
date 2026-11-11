@@ -118,6 +118,33 @@ describe("TemporaryLocalBanner", () => {
     await waitFor(() => expect(account.signIn).toHaveBeenCalledTimes(1));
   });
 
+  it("signs out from the banner itself, and is gone once nothing is signed in", async () => {
+    const account = stubShell("local", { temporaryLocal: true });
+    renderBanner();
+    expect(await screen.findByText("Using TaskTrooper without your account for now")).toBeTruthy();
+    account.state.mockResolvedValue({ mode: "local", origin: "https://app.tasktrooper.ai" });
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    await waitFor(() => expect(account.signOut).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText("Using TaskTrooper without your account for now")).toBeNull());
+  });
+
+  it("is gone after the Settings card signs out, without a reload", async () => {
+    const account = stubShell("local", { temporaryLocal: true });
+    render(
+      <I18nProvider>
+        <TemporaryLocalBanner />
+        <AccountCard />
+      </I18nProvider>,
+    );
+    expect(await screen.findByText("Using TaskTrooper without your account for now")).toBeTruthy();
+    account.state.mockResolvedValue({ mode: "local", origin: "https://app.tasktrooper.ai" });
+    // Two sign-out buttons while it shows: the banner's and the card's.
+    const buttons = await screen.findAllByRole("button", { name: /sign out/i });
+    fireEvent.click(buttons[buttons.length - 1]!);
+    await waitFor(() => expect(account.signOut).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText("Using TaskTrooper without your account for now")).toBeNull());
+  });
+
   it("shows nothing otherwise, or outside the shell", async () => {
     const account = stubShell("local");
     const { container } = renderBanner();

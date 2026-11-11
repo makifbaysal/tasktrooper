@@ -45,6 +45,7 @@ const bridge: ShellBridge = {
   onFullScreen: (cb) => subscribe<boolean>(SHELL_EVENTS.fullScreen, cb),
   accountState: () => ipcRenderer.invoke(SHELL_CHANNELS.accountState) as Promise<AccountState>,
   useLocalForNow: () => ipcRenderer.invoke(SHELL_CHANNELS.accountUseLocalForNow) as Promise<AccountState>,
+  signOut: () => ipcRenderer.invoke(SHELL_CHANNELS.accountSignOut) as Promise<AccountState>,
   onAccountState: (cb) => subscribe<AccountState>(SHELL_EVENTS.accountState, cb),
 };
 

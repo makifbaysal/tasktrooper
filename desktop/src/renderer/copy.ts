@@ -15,7 +15,7 @@ export function unreachableCopy(isMac: boolean): string {
  * way on — without signing out.
  */
 export function accountUnreachableCopy(origin: string): string {
-  return `This computer is signed in to ${origin}, and the window shows TaskTrooper from there. Check the internet connection, VPN or proxy and retry — or use TaskTrooper on this computer without the account for now. You stay signed in, tasks assigned to you there wait, and the next launch tries the account again.`;
+  return `This computer is signed in to ${origin}, and the window shows TaskTrooper from there. Check the internet connection, VPN or proxy and retry — or use TaskTrooper on this computer without the account for now. You stay signed in, tasks assigned to you there wait, and the next launch tries the account again. To stop that, sign out: TaskTrooper then starts locally every time.`;
 }
 
 /**

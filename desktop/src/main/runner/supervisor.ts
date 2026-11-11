@@ -184,9 +184,13 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
   /** Stop the runner and forget the pairing. Irreversible without pairing again. */
   unpair(): Promise<SupervisorSnapshot> {
     return this.#serialise(async () => {
-      const result = await this.#stop("stopped");
-      this.#pairing.forget();
-      return result;
+      // The token goes whether or not the child stopped cleanly: a runner that
+      // hung must not keep this computer paired after a sign-out.
+      try {
+        return await this.#stop("stopped");
+      } finally {
+        this.#pairing.forget();
+      }
     });
   }
 

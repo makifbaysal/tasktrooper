@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountState, RunnerPairingBundle, UserSettings } from "../../ipc/types.js";
-import { ModeController, type ModeControllerDeps } from "./mode.js";
+import { ModeController, REVOKE_WAIT_MS, type ModeControllerDeps } from "./mode.js";
 
 const CLOUD = "https://app.tasktrooper.ai";
 
@@ -49,6 +49,9 @@ function harness(initial: Partial<UserSettings> = {}, overrides: Partial<ModeCon
     },
     showAccount: (origin, route) => calls.push(`showAccount ${origin}${route} mode=${store.value.mode}`),
     showLocal: () => calls.push(`showLocal mode=${store.value.mode}`),
+    revokeAccountSession: async (origin) => {
+      calls.push(`revoke ${origin} mode=${store.value.mode}`);
+    },
     clearAccountSession: async (origin) => {
       calls.push(`clear ${origin}`);
     },
@@ -124,13 +127,20 @@ describe("signing in", () => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("signing out", () => {
   it("takes the account's page down first, then stops the runner, persists local, clears the session and starts locally", async () => {
     const { controller, calls, store } = harness({ mode: "account", accountOrigin: CLOUD });
     const state = await controller.signOut();
+    // Local is persisted before anything that can fail; the server is asked
+    // to end the session before the partition that holds its cookie is cleared.
     expect(calls).toEqual([
       "showLocal mode=account",
-      "stopAccount mode=account",
+      `revoke ${CLOUD} mode=local`,
+      "stopAccount mode=local",
       `clear ${CLOUD}`,
       "startLocal mode=local",
     ]);
@@ -160,6 +170,66 @@ describe("signing out", () => {
     expect(state.error).toMatch(/busy/);
   });
 
+  it("persists local before anything that can fail, so a runner that will not stop cannot keep the next launch in the account", async () => {
+    const { controller, store } = harness(
+      { mode: "account", accountOrigin: CLOUD },
+      {
+        stopAccount: async () => {
+          throw new Error("runner hung");
+        },
+      },
+    );
+    const state = await controller.signOut();
+    expect(store.value.mode).toBe("local");
+    expect(state).toMatchObject({ mode: "local", temporaryLocal: false });
+    expect(state.error).toMatch(/runner hung/);
+    // A controller built at the next launch is local, with no account page.
+    expect(harness(store.value).controller.mode).toBe("local");
+  });
+
+  it("still clears the session and starts locally when the runner will not stop", async () => {
+    const { controller, calls } = harness(
+      { mode: "account", accountOrigin: CLOUD },
+      {
+        stopAccount: async () => {
+          throw new Error("runner hung");
+        },
+      },
+    );
+    await controller.signOut();
+    expect(calls).toContain(`clear ${CLOUD}`);
+    expect(calls.at(-1)).toBe("startLocal mode=local");
+  });
+
+  it("ignores a server that refuses or is unreachable: no error, same end state", async () => {
+    const { controller, calls, store } = harness(
+      { mode: "account", accountOrigin: CLOUD },
+      {
+        revokeAccountSession: async () => {
+          throw new Error("getaddrinfo ENOTFOUND app.tasktrooper.ai");
+        },
+      },
+    );
+    const state = await controller.signOut();
+    expect(state.error).toBeUndefined();
+    expect(store.value.mode).toBe("local");
+    expect(calls).toEqual(["showLocal mode=account", "stopAccount mode=local", `clear ${CLOUD}`, "startLocal mode=local"]);
+  });
+
+  it("does not wait on a server that never answers", async () => {
+    vi.useFakeTimers();
+    const { controller, store } = harness(
+      { mode: "account", accountOrigin: CLOUD },
+      { revokeAccountSession: () => new Promise<void>(() => undefined) },
+    );
+    const done = controller.signOut();
+    await vi.advanceTimersByTimeAsync(REVOKE_WAIT_MS);
+    const state = await done;
+    expect(state).toMatchObject({ mode: "local", temporaryLocal: false });
+    expect(state.error).toBeUndefined();
+    expect(store.value.mode).toBe("local");
+  });
+
   it("runs a sign-in and a sign-out one after the other, never interleaved", async () => {
     const { controller, calls } = harness();
     await Promise.all([controller.signIn(), controller.signOut()]);
@@ -167,7 +237,8 @@ describe("signing out", () => {
       "stopLocal mode=local",
       `showAccount ${CLOUD}/login mode=account`,
       "showLocal mode=account",
-      "stopAccount mode=account",
+      `revoke ${CLOUD} mode=local`,
+      "stopAccount mode=local",
       `clear ${CLOUD}`,
       "startLocal mode=local",
     ]);
@@ -257,9 +328,19 @@ describe("running locally for now", () => {
     await controller.useLocalForNow();
     calls.length = 0;
     const state = await controller.signOut();
-    expect(calls).toEqual(["stopAccount mode=account", `clear ${CLOUD}`]);
+    expect(calls).toEqual([`revoke ${CLOUD} mode=local`, "stopAccount mode=local", `clear ${CLOUD}`]);
     expect(store.value.mode).toBe("local");
     expect(state).toMatchObject({ mode: "local", temporaryLocal: false, paired: false });
+  });
+
+  it("after that sign-out the next launch is pure local: no account page, no temporary-local state", async () => {
+    const first = harness(signedIn);
+    await first.controller.useLocalForNow();
+    await first.controller.signOut();
+    const next = harness(first.store.value);
+    expect(next.controller.mode).toBe("local");
+    expect(next.controller.state()).toMatchObject({ mode: "local", temporaryLocal: false });
+    expect(next.calls).toEqual([]);
   });
 
   it("is not remembered: a controller built at the next launch is in the account again", async () => {

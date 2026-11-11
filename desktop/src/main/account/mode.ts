@@ -15,6 +15,9 @@ import { ACCOUNT_HOME_ROUTE, ACCOUNT_LOGIN_ROUTE, normalizeAccountOrigin, origin
  */
 export const ACCOUNT_MODE_RUNS_EMBEDDER = true;
 
+/** How long signing out waits for the account's server to acknowledge the revocation. */
+export const REVOKE_WAIT_MS = 2_000;
+
 /**
  * What the switch drives. Each is a step the transition names, so the order
  * of the transition is this file's and the mechanics of each step are the
@@ -38,6 +41,13 @@ export interface ModeControllerDeps {
   showAccount(origin: string, route: string): void;
   /** Take the account's page down; the local page comes back with the backend. */
   showLocal(): void;
+  /**
+   * Best-effort: ask the account's server to end the session this computer's
+   * partition holds (its logout endpoint). May reject or hang; the caller
+   * bounds the wait and ignores the outcome — an unreachable account must not
+   * make signing out fail or slow.
+   */
+  revokeAccountSession(origin: string): Promise<void>;
   /** Clear the account partition's cookies, storage and cache. */
   clearAccountSession(origin: string): Promise<void>;
   paired(): boolean;
@@ -55,10 +65,12 @@ export interface ModeControllerEvents {
  * origin's own partition. Pairing follows from the page (`checkPairing`).
  *
  * Leaving it: the account's page goes first — nothing on the remote origin
- * holds the bridge while the rest happens — then the runner and the executor
- * stop and the pairing is forgotten, the mode is persisted, the partition is
- * cleared, and the local backend starts; `app://tasktrooper` loads when it
- * answers. Local data is never touched.
+ * holds the bridge while the rest happens — then the mode is persisted as
+ * local (before anything that can fail, so the next launch is local whatever
+ * happens below), the account's server is asked to end the session
+ * (best-effort, bounded), the runner and the executor stop and the pairing is
+ * forgotten, the partition is cleared, and the local backend starts;
+ * `app://tasktrooper` loads when it answers. Local data is never touched.
  *
  * Running locally FOR NOW (`useLocalForNow`) is the third state, for when the
  * account's page cannot be reached: still signed in and paired, the persisted
@@ -196,44 +208,53 @@ export class ModeController extends EventEmitter<ModeControllerEvents> {
 
   signOut(): Promise<AccountState> {
     return this.#serialise(async () => {
-      if (this.#temporaryLocal) return this.#signOutWhileLocal();
-      if (this.mode !== "account") return this.state();
+      const whileLocal = this.#temporaryLocal;
+      if (!whileLocal && this.mode !== "account") return this.state();
       const origin = this.origin;
       this.#begin();
       try {
-        this.#deps.showLocal();
-        await this.#deps.stopAccount();
+        // While local for now the account's page is already gone and the
+        // local backend already up; otherwise the page goes first.
+        if (!whileLocal) this.#deps.showLocal();
+        // Persist first: whatever fails below, the next launch is local and
+        // makes no attempt at the account.
         this.#deps.settings.set({ mode: "local" });
-        await this.#deps.clearAccountSession(origin).catch((err: unknown) => {
-          this.#error = `The account's session could not be cleared: ${describe(err)}`;
-        });
+        this.#temporaryLocal = false;
+        await this.#forgetAccount(origin);
       } finally {
         this.#end();
       }
-      void this.#deps.startLocal();
+      if (!whileLocal) void this.#deps.startLocal();
       return this.state();
     });
   }
 
   /**
-   * Signing out while running locally for now: the account's page is already
-   * gone and the local backend already up, so what is left is the account's
-   * half — forget the pairing, persist local, clear the partition.
+   * The account's half of signing out. Each step is its own: a failure in one
+   * (an unreachable server, a runner that will not stop, a busy partition)
+   * never keeps the next from running and never fails the sign-out.
    */
-  async #signOutWhileLocal(): Promise<AccountState> {
-    const origin = this.origin;
-    this.#begin();
+  async #forgetAccount(origin: string): Promise<void> {
+    await this.#bestEffortRevoke(origin);
+    await this.#deps.stopAccount().catch((err: unknown) => {
+      this.#error = `The runner did not stop cleanly: ${describe(err)}`;
+    });
+    await this.#deps.clearAccountSession(origin).catch((err: unknown) => {
+      this.#error = `The account's session could not be cleared: ${describe(err)}`;
+    });
+  }
+
+  /** Asks the server to end the session, waiting at most `REVOKE_WAIT_MS` and saying nothing of the outcome. */
+  async #bestEffortRevoke(origin: string): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    const bound = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, REVOKE_WAIT_MS);
+    });
     try {
-      await this.#deps.stopAccount();
-      this.#deps.settings.set({ mode: "local" });
-      this.#temporaryLocal = false;
-      await this.#deps.clearAccountSession(origin).catch((err: unknown) => {
-        this.#error = `The account's session could not be cleared: ${describe(err)}`;
-      });
+      await Promise.race([Promise.resolve().then(() => this.#deps.revokeAccountSession(origin)).catch(() => undefined), bound]);
     } finally {
-      this.#end();
+      clearTimeout(timer);
     }
-    return this.state();
   }
 
   /**

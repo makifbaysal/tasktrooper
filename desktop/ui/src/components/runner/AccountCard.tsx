@@ -1,12 +1,13 @@
 import { Loader2, LogIn, LogOut } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { useI18n } from "@/hooks/useI18n";
-import { desktopAccount, type DesktopAccountState } from "@/lib/desktop-bridge";
+import { useDesktopAccountState } from "@/hooks/useDesktopAccountState";
+import { announceAccountChange, desktopAccount } from "@/lib/desktop-bridge";
 
 /**
  * What stands between the button and the switch: nothing when no run is in
@@ -30,14 +31,9 @@ type Confirm = { kind: "runs"; count: number } | { kind: "plain" };
 export function AccountCard() {
   const { t } = useI18n();
   const account = desktopAccount();
-  const [state, setState] = useState<DesktopAccountState | null>(null);
+  const state = useDesktopAccountState();
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!account) return;
-    void account.state().then(setState, () => undefined);
-  }, [account]);
 
   const connect = useCallback(async () => {
     if (!account) return;
@@ -73,11 +69,12 @@ export function AccountCard() {
     setBusy(true);
     try {
       await account.signOut();
-      setState(await account.state());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("settings.account.failed"));
     } finally {
       setBusy(false);
+      // The banner above the page reads the same state and must hear it too.
+      announceAccountChange();
     }
   }, [account, t]);
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpCircle, HardDrive, Loader2, RefreshCw, WifiOff } from "lucide-react";
+import { ArrowUpCircle, HardDrive, Loader2, LogOut, RefreshCw, WifiOff } from "lucide-react";
 import type { AccountState, AppInfo, CloudStatus, SupervisorSnapshot, UpdateStatus } from "@ipc/types.js";
 import { Button } from "@shared/ui/button.js";
 import { api, errorMessage } from "./bridge";
@@ -174,6 +174,19 @@ function Unreachable({
     );
   }, []);
 
+  // The other way on: forget the account, so no launch tries it again.
+  const signOut = useCallback(() => {
+    setLeaving(true);
+    setLeaveError(null);
+    api.signOut().then(
+      () => setLeaving(false),
+      (err: unknown) => {
+        setLeaving(false);
+        setLeaveError(errorMessage(err));
+      },
+    );
+  }, []);
+
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="max-w-md text-center">
@@ -201,6 +214,12 @@ function Unreachable({
             <Button className="no-drag" variant="secondary" onClick={useLocally} disabled={leaving}>
               <HardDrive />
               Use without an account for now
+            </Button>
+          ) : null}
+          {inAccount ? (
+            <Button className="no-drag" variant="ghost" onClick={signOut} disabled={leaving}>
+              <LogOut />
+              Sign out and stay local
             </Button>
           ) : null}
         </div>

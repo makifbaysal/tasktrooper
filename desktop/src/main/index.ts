@@ -37,7 +37,7 @@ import type {
   ToolchainReport,
   UpdateStatus,
 } from "../ipc/types.js";
-import { ACCOUNT_MODE_RUNS_EMBEDDER, ModeController } from "./account/mode.js";
+import { ACCOUNT_MODE_RUNS_EMBEDDER, ModeController, REVOKE_WAIT_MS } from "./account/mode.js";
 import { Analytics, GA_OS_NAMES } from "./analytics/analytics.js";
 import { buildConfig } from "./analytics/config.js";
 import { ACCOUNT_HOME_ROUTE, accountPartition, defaultAccountOrigin } from "./account/origin.js";
@@ -207,6 +207,18 @@ const modeController = new ModeController({
   showLocal: () => {
     servedBase = null;
     shellWindow.retire();
+  },
+  revokeAccountSession: async (origin) => {
+    // The control plane's own logout, with the cookie this partition holds and
+    // the header it demands of a cookie-authenticated write. Any outcome —
+    // refused, unreachable, slow — is the caller's to ignore.
+    const partition = session.fromPartition(accountPartition(origin));
+    await partition.fetch(`${origin}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Requested-With": "tasktrooper" },
+      signal: AbortSignal.timeout(REVOKE_WAIT_MS),
+    });
   },
   clearAccountSession: async (origin) => {
     const partition = session.fromPartition(accountPartition(origin));
