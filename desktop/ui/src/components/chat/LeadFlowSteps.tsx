@@ -4,6 +4,7 @@ import type { Agent } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/hooks/useI18n";
+import { usePMUATEnabled } from "@/hooks/usePMUATEnabled";
 import { cn } from "@/lib/utils";
 
 type StepKey =
@@ -56,42 +57,66 @@ const detailByActor: Record<Actor, string> = {
   team: "text-muted-foreground",
 };
 
-// From sm up the flow snakes: six steps run left to right, a curve on the
-// right edge turns down, and the last five come back right to left. The grid
-// has 30 tracks so both rows span the full width — six steps of five tracks
-// above, five of six below — and their ends line up. Literal class names, so
-// Tailwind sees every one of them.
-const ROW_LENGTH = 6;
-const SNAKE_CELL = [
-  "sm:col-span-5 sm:col-start-1 sm:row-start-1",
-  "sm:col-span-5 sm:col-start-6 sm:row-start-1",
-  "sm:col-span-5 sm:col-start-11 sm:row-start-1",
-  "sm:col-span-5 sm:col-start-[16] sm:row-start-1",
-  "sm:col-span-5 sm:col-start-[21] sm:row-start-1",
-  "sm:col-span-5 sm:col-start-[26] sm:row-start-1",
-  "sm:col-span-6 sm:col-start-[25] sm:row-start-2",
-  "sm:col-span-6 sm:col-start-[19] sm:row-start-2",
-  "sm:col-span-6 sm:col-start-[13] sm:row-start-2",
-  "sm:col-span-6 sm:col-start-7 sm:row-start-2",
-  "sm:col-span-6 sm:col-start-1 sm:row-start-2",
-];
+// From sm up the flow snakes: the first row runs left to right, a curve on the
+// right edge turns down, and the rest come back right to left. The grid has 30
+// tracks so both rows span the full width and their ends line up: with all
+// eleven steps, six of five tracks above and five of six below; without the PM
+// check, five of six tracks on each row. Literal class names, so Tailwind sees
+// every one of them.
+interface SnakeLayout {
+  rowLength: number;
+  cells: string[];
+}
 
-function Connector({ index }: { index: number }) {
-  if (index === STEPS.length - 1) return null;
+const SNAKE_11: SnakeLayout = {
+  rowLength: 6,
+  cells: [
+    "sm:col-span-5 sm:col-start-1 sm:row-start-1",
+    "sm:col-span-5 sm:col-start-6 sm:row-start-1",
+    "sm:col-span-5 sm:col-start-11 sm:row-start-1",
+    "sm:col-span-5 sm:col-start-[16] sm:row-start-1",
+    "sm:col-span-5 sm:col-start-[21] sm:row-start-1",
+    "sm:col-span-5 sm:col-start-[26] sm:row-start-1",
+    "sm:col-span-6 sm:col-start-[25] sm:row-start-2",
+    "sm:col-span-6 sm:col-start-[19] sm:row-start-2",
+    "sm:col-span-6 sm:col-start-[13] sm:row-start-2",
+    "sm:col-span-6 sm:col-start-7 sm:row-start-2",
+    "sm:col-span-6 sm:col-start-1 sm:row-start-2",
+  ],
+};
+
+const SNAKE_10: SnakeLayout = {
+  rowLength: 5,
+  cells: [
+    "sm:col-span-6 sm:col-start-1 sm:row-start-1",
+    "sm:col-span-6 sm:col-start-7 sm:row-start-1",
+    "sm:col-span-6 sm:col-start-[13] sm:row-start-1",
+    "sm:col-span-6 sm:col-start-[19] sm:row-start-1",
+    "sm:col-span-6 sm:col-start-[25] sm:row-start-1",
+    "sm:col-span-6 sm:col-start-[25] sm:row-start-2",
+    "sm:col-span-6 sm:col-start-[19] sm:row-start-2",
+    "sm:col-span-6 sm:col-start-[13] sm:row-start-2",
+    "sm:col-span-6 sm:col-start-7 sm:row-start-2",
+    "sm:col-span-6 sm:col-start-1 sm:row-start-2",
+  ],
+};
+
+function Connector({ index, total, rowLength }: { index: number; total: number; rowLength: number }) {
+  if (index === total - 1) return null;
   return (
     <>
       {/* Below sm the steps stack: a line down to the next tile. */}
       <span aria-hidden className="absolute top-8 -bottom-3 left-4 z-0 w-px bg-border sm:hidden" />
-      {index < ROW_LENGTH - 1 && (
+      {index < rowLength - 1 && (
         <span aria-hidden className="absolute top-4 left-1/2 z-0 hidden h-px w-full bg-border sm:block" />
       )}
-      {index === ROW_LENGTH - 1 && (
+      {index === rowLength - 1 && (
         <span
           aria-hidden
           className="absolute top-4 left-1/2 z-0 hidden h-[calc(100%+1.75rem)] w-[calc(50%+0.5rem)] rounded-r-2xl border border-l-0 border-border sm:block"
         />
       )}
-      {index >= ROW_LENGTH && (
+      {index >= rowLength && (
         <span aria-hidden className="absolute top-4 right-1/2 z-0 hidden h-px w-full bg-border sm:block" />
       )}
     </>
@@ -105,21 +130,24 @@ interface LeadFlowStepsProps {
 export function LeadFlowSteps({ agent }: LeadFlowStepsProps) {
   const { t } = useI18n();
   const base = "agentArea.chat.lead.welcome.flow";
+  const pmUatEnabled = usePMUATEnabled();
+  const steps = pmUatEnabled ? STEPS : STEPS.filter((step) => step.key !== "acceptance");
+  const layout = pmUatEnabled ? SNAKE_11 : SNAKE_10;
 
   return (
     <Card className="flex flex-col gap-4 p-4">
       <h3 className="text-heading font-semibold">{t(`${base}.title`)}</h3>
       <ol className="flex flex-col gap-3 py-1 sm:grid sm:grid-cols-[repeat(30,minmax(0,1fr))] sm:gap-x-0 sm:gap-y-7 sm:pr-3">
-        {STEPS.map(({ key, actor, icon: Icon }, index) => (
+        {steps.map(({ key, actor, icon: Icon }, index) => (
           <li
             key={key}
             data-testid={`flow-step-${key}`}
             className={cn(
               "relative flex items-center gap-3 sm:flex-col sm:items-center sm:gap-2 sm:px-1 sm:text-center",
-              SNAKE_CELL[index],
+              layout.cells[index],
             )}
           >
-            <Connector index={index} />
+            <Connector index={index} total={steps.length} rowLength={layout.rowLength} />
             {key === "lead" ? (
               <AgentAvatar name={agent.name} lead size="md" className="relative z-10 shrink-0 ring-offset-card" />
             ) : (

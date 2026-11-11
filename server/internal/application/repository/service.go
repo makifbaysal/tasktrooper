@@ -2576,6 +2576,11 @@ func (s *Service) validateStageConfigured(ctx context.Context, taskType domain.T
 	if _, ok := wf.Stage(target); ok {
 		return nil
 	}
+	if target == domain.TaskColumnPMUAT {
+		if sw, ok := s.workflows.(interface{ PMUATEnabled() bool }); ok && !sw.PMUATEnabled() {
+			return domain.NewStageNotOnWorkflowError(taskType, target, prompt.Text(pmUATDisabledKey))
+		}
+	}
 	return domain.NewStageNotOnWorkflowError(taskType, target,
 		stageNotConfiguredKey.Render(stageNotConfiguredInput{TaskType: string(taskType), Column: string(target)}))
 }
