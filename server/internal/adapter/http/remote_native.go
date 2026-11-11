@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -40,7 +41,7 @@ type remotePairRequest struct {
 
 func (h *Handler) remotePair(c *fiber.Ctx) error {
 	var req remotePairRequest
-	if err := c.BodyParser(&req); err != nil {
+	if err := json.Unmarshal(c.Body(), &req); err != nil {
 		return remoteError(c, fiber.StatusBadRequest, "invalid_request", "invalid request body")
 	}
 	token, dev, err := h.remoteSvc.Exchange(c.UserContext(), req.Code, req.DeviceName, req.Platform)
@@ -325,7 +326,7 @@ func (h *Handler) remoteAsyncMessage(c *fiber.Ctx, dev remoteDevice) error {
 		return remoteError(c, fiber.StatusBadRequest, "invalid_request", "invalid session id")
 	}
 	var req domain.SessionMessageRequest
-	if err := c.BodyParser(&req); err != nil {
+	if err := json.Unmarshal(c.Body(), &req); err != nil {
 		return remoteError(c, fiber.StatusBadRequest, "invalid_request", fmt.Sprintf("invalid request body: %v", err))
 	}
 	if req.Content == "" {
