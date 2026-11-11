@@ -1022,10 +1022,6 @@ func (c *Client) ensurePullRequestAPI(ctx context.Context, workspacePath, token 
 	}
 	branch := strings.TrimSpace(branchOut)
 
-	if url, err := githubapi.FindOpenPR(ctx, token, owner, repoName, owner, branch); err == nil && url != "" {
-		return url, nil
-	}
-
 	repo, err := githubapi.GetRepo(ctx, token, owner, repoName)
 	if err != nil {
 		return "", fmt.Errorf("github repo get: %w", err)
@@ -1034,7 +1030,7 @@ func (c *Client) ensurePullRequestAPI(ctx context.Context, workspacePath, token 
 	if out, err := c.run(ctx, workspacePath, "git", "log", "-1", "--pretty=%s"); err == nil && strings.TrimSpace(out) != "" {
 		title = strings.TrimSpace(out)
 	}
-	url, err := githubapi.CreatePullRequest(ctx, token, owner, repoName, branch, repo.DefaultBranch, title)
+	url, err := githubapi.EnsureOpenPullRequest(ctx, token, owner, repoName, owner, branch, repo.DefaultBranch, title)
 	if err != nil {
 		return "", fmt.Errorf("github pr create: %w", err)
 	}

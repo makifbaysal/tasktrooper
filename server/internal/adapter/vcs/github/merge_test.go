@@ -228,3 +228,57 @@ func TestDeleteBranchEscapesTheRepositoryCoordinates(t *testing.T) {
 		t.Errorf("path = %q, want the owner escaped", gotPath)
 	}
 }
+
+func prServer(t *testing.T, open []map[string]any, listStatus int, creates *int) {
+	withAPIBase(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if listStatus != 0 {
+				w.WriteHeader(listStatus)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(open)
+		case http.MethodPost:
+			*creates++
+			_ = json.NewEncoder(w).Encode(map[string]any{"html_url": "https://github.com/acme/widget/pull/99"})
+		}
+	})
+}
+
+// A question answered mid-review re-enters the PR step; the branch already has
+// a PR, so it must be reused rather than a second one opened.
+func TestEnsureOpenPullRequestReusesTheOpenPRForTheBranch(t *testing.T) {
+	creates := 0
+	prServer(t, []map[string]any{{"html_url": "https://github.com/acme/widget/pull/42"}}, 0, &creates)
+
+	url, err := EnsureOpenPullRequest(context.Background(), "tok", "acme", "widget", "acme", "feature/t-7", "main", "T-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url != "https://github.com/acme/widget/pull/42" || creates != 0 {
+		t.Errorf("url = %q creates = %d, want the existing PR and no create", url, creates)
+	}
+}
+
+func TestEnsureOpenPullRequestOpensOneWhenNoneExists(t *testing.T) {
+	creates := 0
+	prServer(t, []map[string]any{}, 0, &creates)
+
+	url, err := EnsureOpenPullRequest(context.Background(), "tok", "acme", "widget", "acme", "feature/t-7", "main", "T-7")
+	if err != nil || url != "https://github.com/acme/widget/pull/99" || creates != 1 {
+		t.Errorf("url = %q err = %v creates = %d", url, err, creates)
+	}
+}
+
+// A failed lookup used to read as "no PR yet" and opened a duplicate.
+func TestEnsureOpenPullRequestDoesNotCreateWhenTheLookupFails(t *testing.T) {
+	creates := 0
+	prServer(t, nil, http.StatusBadGateway, &creates)
+
+	if _, err := EnsureOpenPullRequest(context.Background(), "tok", "acme", "widget", "acme", "feature/t-7", "main", "T-7"); err == nil {
+		t.Fatal("want an error when the open-PR lookup fails")
+	}
+	if creates != 0 {
+		t.Errorf("creates = %d, want 0", creates)
+	}
+}

@@ -72,3 +72,28 @@ func TestEnsurePullRequestAsyncRecordsPRWithoutACommentStore(t *testing.T) {
 		t.Fatalf("want the PR recorded on the task even without a comment store, got %+v", tasks.setCalls)
 	}
 }
+
+func TestEnsurePullRequestAsyncSkipsWhileOneIsAlreadyRunningForTheTask(t *testing.T) {
+	task := domain.BoardTask{ID: uuid.New()}
+	git := &ensurePRGit{prURL: "https://github.com/acme/app/pull/7"}
+	tasks := &ensurePRTaskStore{}
+	var queued []func()
+
+	svc := &Service{
+		git:           git,
+		tasks:         tasks,
+		workspaceRoot: t.TempDir(),
+		prAsyncRun:    func(fn func()) { queued = append(queued, fn) },
+	}
+
+	svc.ensurePullRequestAsync(context.Background(), task)
+	svc.ensurePullRequestAsync(context.Background(), task)
+	if len(queued) != 1 {
+		t.Fatalf("a second trigger while the first is pending must not start another PR attempt, got %d", len(queued))
+	}
+	queued[0]()
+	svc.ensurePullRequestAsync(context.Background(), task)
+	if len(queued) != 2 {
+		t.Fatalf("after the first finished a later trigger must run again, got %d", len(queued))
+	}
+}
