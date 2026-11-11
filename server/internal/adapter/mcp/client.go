@@ -149,6 +149,7 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 
 	var transport sdkmcp.Transport
 	var stdioCmd *exec.Cmd
+	var stderr *tailBuffer
 	switch cfg.Transport {
 	case "stdio":
 		if cfg.Command == "" {
@@ -157,6 +158,8 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 		cmd := winshim.Cmd(cfg.Command, cfg.Args...)
 		cmd.Env = stdioServerEnv(cfg.Env)
 		isolateStdio(cmd)
+		stderr = &tailBuffer{limit: stderrTailBytes}
+		cmd.Stderr = stderr
 		stdioCmd = cmd
 		transport = &sdkmcp.CommandTransport{Command: cmd}
 	case "http":
@@ -180,6 +183,7 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 	if err != nil {
 		if stdioCmd != nil {
 			killStdioTree(stdioCmd)
+			err = withChildFailure(err, stdioCmd, stderr)
 		}
 		return nil, nil, fmt.Errorf("connect: %w", err)
 	}
@@ -238,6 +242,53 @@ func connectServer(ctx context.Context, cfg domain.MCPServerConfig, policy urlgu
 	}
 
 	return executors, closeFunc, nil
+}
+
+// stderrTailBytes bounds what is kept of a stdio server's stderr: enough for a
+// stack trace or an npm error, never an unbounded log.
+const stderrTailBytes = 2048
+
+// tailBuffer keeps the last `limit` bytes written to it. A stdio server that
+// dies before it answers says why on stderr, and without this the only thing
+// the person sees is the bare EOF of the closed pipe.
+type tailBuffer struct {
+	mu    sync.Mutex
+	limit int
+	buf   []byte
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.limit {
+		t.buf = append([]byte(nil), t.buf[len(t.buf)-t.limit:]...)
+	}
+	return len(p), nil
+}
+
+func (t *tailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return strings.TrimSpace(strings.ToValidUTF8(string(t.buf), ""))
+}
+
+// withChildFailure adds to a failed handshake what the child itself said: how
+// it ended and the tail of its stderr.
+func withChildFailure(err error, cmd *exec.Cmd, stderr *tailBuffer) error {
+	var parts []string
+	if cmd.ProcessState != nil {
+		parts = append(parts, "the server process "+cmd.ProcessState.String())
+	}
+	if stderr != nil {
+		if text := stderr.String(); text != "" {
+			parts = append(parts, "stderr: "+text)
+		}
+	}
+	if len(parts) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w (%s)", err, strings.Join(parts, "; "))
 }
 
 func stdioServerEnv(overrides map[string]string) []string {
@@ -503,7 +554,7 @@ func (m *Manager) LoadAndRegister(ctx context.Context, configs []domain.MCPServe
 		}
 
 		auth := &httpAuth{tokens: tokens}
-		connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		connectCtx, cancel := context.WithTimeout(ctx, connectTimeout(cfg))
 		executors, closeFunc, err := connectServer(connectCtx, cfg, policy, auth)
 		cancel()
 		if err != nil {
@@ -524,6 +575,15 @@ func (m *Manager) LoadAndRegister(ctx context.Context, configs []domain.MCPServe
 		servers = append(servers, serverHealth{ID: cfg.ID, Connected: true, ToolCount: len(executors), Tools: toolNames})
 		log.Info().Str("server", cfg.ID).Int("tools", len(executors)).Msg("mcp server connected")
 	}
+}
+
+// connectTimeout gives a stdio server longer than an address: `npx` fetches
+// the package on its first run, which can take far more than a handshake.
+func connectTimeout(cfg domain.MCPServerConfig) time.Duration {
+	if cfg.Transport == "stdio" {
+		return 60 * time.Second
+	}
+	return 15 * time.Second
 }
 
 func (m *Manager) Reload(ctx context.Context, configs []domain.MCPServerConfig, registry port.ToolRegistry) {

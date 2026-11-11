@@ -1,7 +1,7 @@
 import { Plus, Server } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, isOAuthClientRequiredError, type Agent, type MCPOAuthStartInput, type MCPServerView } from "@/api";
+import { api, ApiError, isOAuthClientRequiredError, type Agent, type MCPOAuthStartInput, type MCPServerView } from "@/api";
 import { FormDialog } from "@/components/admin/FormDialog";
 import { MCPOAuthClientDialog } from "@/components/admin/MCPOAuthClientDialog";
 import { isFormValid, MCPServerForm } from "@/components/admin/MCPServerForm";
@@ -183,8 +183,14 @@ export function MCPServersPage() {
     }
   };
 
+  // A ref, not `saving`: a second click or Enter lands before the re-render
+  // that disables the button, and the second create would answer "ID in use"
+  // right after the first one succeeded.
+  const saveInFlight = useRef(false);
+
   const handleSave = async () => {
-    if (!form) return;
+    if (!form || saveInFlight.current) return;
+    saveInFlight.current = true;
     setSaving(true);
     try {
       if (editing) {
@@ -198,8 +204,16 @@ export function MCPServersPage() {
       closeForm();
       await refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("common.saveFailed"));
+      // The form refuses an id already in the list, so a conflict here means an
+      // earlier attempt for this very id landed: show it instead of an error.
+      if (!editing && e instanceof ApiError && e.status === 409) {
+        closeForm();
+        await refresh();
+      } else {
+        toast.error(e instanceof Error ? e.message : t("common.saveFailed"));
+      }
     } finally {
+      saveInFlight.current = false;
       setSaving(false);
     }
   };
