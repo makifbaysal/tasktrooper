@@ -225,6 +225,12 @@ export const fr: Dict = {
       loadFailed: "Impossible de charger les paramètres",
       saveFailed: "Échec de l'enregistrement",
     },
+    workflow: {
+      title: "Workflow",
+      pmUatLabel: "Étape PM UAT",
+      pmUatHelp: "Activée, le product manager vérifie chaque critère d'acceptation avant qu'il n'arrive jusqu'à vous. Désactivez-la pour sauter cette étape : la colonne PM UAT et les contrôles du PM disparaissent, et les tâches passent du QA directement à votre validation. Les tâches en attente dans PM UAT avancent vers Human UAT.",
+      saveFailed: "Échec de l'enregistrement",
+    },
   },
   addRepository,
   agentArea,

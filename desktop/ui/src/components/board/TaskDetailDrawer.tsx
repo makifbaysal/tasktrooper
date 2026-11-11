@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/hooks/useI18n";
+import { usePMUATEnabled } from "@/hooks/usePMUATEnabled";
 import { usePolling } from "@/hooks/usePolling";
 import { useRepositoryModel } from "@/hooks/useRepositoryModel";
 import { useTaskTypes } from "@/hooks/useTaskTypes";
@@ -82,6 +83,7 @@ import {
   taskPriorityLabel,
   taskTypeLabel,
   taskTypeOptions,
+  visibleColumns,
 } from "@/lib/project-board";
 import { analysisReviewPath } from "@/lib/analysis-review";
 import { componentLabel } from "@/lib/project-model";
@@ -123,6 +125,7 @@ export function TaskDetailDrawer({
   onUpdated,
 }: TaskDetailDrawerProps) {
   const { t } = useI18n();
+  const pmUatEnabled = usePMUATEnabled();
   const { taskTypes } = useTaskTypes();
   const navigate = useNavigate();
   const [comments, setComments] = useState<TaskComment[]>([]);
@@ -802,7 +805,7 @@ export function TaskDetailDrawer({
                                 )}
                                 <CriterionDevBadge completed={c.completed} t={t} />
                                 <CriterionCheckBadge role="qa" checks={c.checks} t={t} />
-                                <CriterionCheckBadge role="pm" checks={c.checks} t={t} />
+                                {pmUatEnabled && <CriterionCheckBadge role="pm" checks={c.checks} t={t} />}
                               </div>
                             </div>
                             {/* The reason a criterion was dropped belongs next to the
@@ -1119,7 +1122,7 @@ export function TaskDetailDrawer({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {columns.map((col) => (
+                          {visibleColumns(columns, pmUatEnabled, task.column).map((col) => (
                             <SelectItem key={col.slug} value={col.slug}>
                               {col.label}
                             </SelectItem>

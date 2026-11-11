@@ -225,6 +225,12 @@ export const pt: Dict = {
       loadFailed: "Falha ao carregar as configurações",
       saveFailed: "Falha ao salvar",
     },
+    workflow: {
+      title: "Fluxo de trabalho",
+      pmUatLabel: "Etapa PM UAT",
+      pmUatHelp: "Quando ativada, o product manager verifica cada critério de aceitação antes de chegar a você. Desative para pular essa etapa: a coluna PM UAT e as verificações do PM desaparecem e as tarefas vão do QA direto para a sua aprovação. As tarefas que aguardam em PM UAT avançam para Human UAT.",
+      saveFailed: "Falha ao salvar",
+    },
   },
   addRepository,
   agentArea,

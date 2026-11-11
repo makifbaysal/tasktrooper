@@ -1,4 +1,4 @@
-import { Activity, Bell, Globe, Package, Save } from "lucide-react";
+import { Activity, Bell, Globe, Package, Save, Workflow } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/api";
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { tStatic, useI18n } from "@/hooks/useI18n";
+import { setPMUATEnabled, usePMUATEnabled } from "@/hooks/usePMUATEnabled";
 import { desktopRunner, desktopUpdates, type DesktopNotificationPreferences } from "@/lib/desktop-bridge";
 import { LANGUAGE_OPTIONS, normalizeLang, type Lang } from "@/lib/languages";
 import { logEvent } from "@/lib/analytics";
@@ -198,6 +199,41 @@ function ConcurrencyCard() {
           </div>
         </div>
       )}
+    </Card>
+  );
+}
+
+function WorkflowCard() {
+  const { t } = useI18n();
+  const enabled = usePMUATEnabled();
+  const [saving, setSaving] = useState(false);
+
+  const change = async (next: boolean) => {
+    setSaving(true);
+    try {
+      const saved = await api.updateSettings({ pm_uat_enabled: next });
+      setPMUATEnabled(saved.pm_uat_enabled !== false);
+      toast.success(t("common.saved"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("settings.workflow.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="w-full space-y-3 p-6">
+      <Label className="flex items-center gap-2">
+        <Workflow className="h-4 w-4" />
+        {t("settings.workflow.title")}
+      </Label>
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="pm-uat-enabled">{t("settings.workflow.pmUatLabel")}</Label>
+          <p className="text-xs text-muted-foreground">{t("settings.workflow.pmUatHelp")}</p>
+        </div>
+        <Switch id="pm-uat-enabled" checked={enabled} disabled={saving} onCheckedChange={(v) => void change(v)} />
+      </div>
     </Card>
   );
 }
@@ -395,6 +431,7 @@ export function SettingsPage() {
 
       <SettingsSection title={t("settings.sections.agents.title")} description={t("settings.sections.agents.description")}>
         <ConcurrencyCard />
+        <WorkflowCard />
         <BoilerplateCatalogCard />
       </SettingsSection>
 

@@ -155,6 +155,17 @@ export function mergeTaskList(prev: BoardTask[], next: BoardTask[]): BoardTask[]
   return changed ? merged : prev;
 }
 
+/**
+ * The columns a person should see: with the PM UAT step switched off its
+ * column is dropped, except a `keep` column (the one a task already sits in,
+ * so its label still resolves).
+ */
+export const NO_COLUMNS: never[] = [];
+
+export function visibleColumns<C extends { slug: string }>(columns: C[], pmUatEnabled: boolean, keep?: string): C[] {
+  return pmUatEnabled ? columns : columns.filter((c) => c.slug !== "pm_uat" || c.slug === keep);
+}
+
 export const DEFAULT_BOARD_COLUMNS: {
   slug: string;
   label: string;

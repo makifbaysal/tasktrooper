@@ -112,6 +112,9 @@ const (
 	// reason that changed nothing) — the move that approval would have made,
 	// made without re-running the agent.
 	MoveReasonUnchangedDiff = "unchanged_diff"
+	// The PM UAT step was switched off in Settings while the task sat in
+	// pm_uat; it moved on to that stage's exit.
+	MoveReasonPMUATDisabled = "pm_uat_disabled"
 	// The human sent answers to an analiz task's open questions
 	// (/questions/submit); the block clears and the analyst resumes with them.
 	MoveReasonQuestionsAnswered = "questions_answered"

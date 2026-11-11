@@ -226,6 +226,12 @@ export const tr: Dict = {
       loadFailed: "Ayarlar yüklenemedi",
       saveFailed: "Kaydetme başarısız",
     },
+    workflow: {
+      title: "İş akışı",
+      pmUatLabel: "PM UAT adımı",
+      pmUatHelp: "Açıkken ürün yöneticisi, iş sana ulaşmadan önce her kabul kriterini kontrol eder. Kapatırsan bu adım atlanır: PM UAT sütunu ve PM kontrolleri kaybolur, task'lar QA'dan doğrudan senin onayına gider. PM UAT'de bekleyen task'lar Human UAT'ye geçer.",
+      saveFailed: "Kaydetme başarısız",
+    },
   },
   addRepository,
   agentArea,
