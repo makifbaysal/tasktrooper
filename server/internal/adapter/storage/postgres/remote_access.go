@@ -166,8 +166,13 @@ func (s *RemoteAccessStore) Setting(ctx context.Context, key string) (string, bo
 	return v, err == nil, err
 }
 
+// SetSetting avoids ON CONFLICT (key): the company edition re-keys every table
+// by tenant, and a single-column conflict target would stop applying there.
 func (s *RemoteAccessStore) SetSetting(ctx context.Context, key, value string) error {
-	_, err := s.pool.Exec(ctx, `INSERT INTO remote_settings (key, value) VALUES ($1,$2)
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, key, value)
+	tag, err := s.pool.Exec(ctx, `UPDATE remote_settings SET value = $2 WHERE key = $1`, key, value)
+	if err != nil || tag.RowsAffected() > 0 {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `INSERT INTO remote_settings (key, value) VALUES ($1,$2)`, key, value)
 	return err
 }
