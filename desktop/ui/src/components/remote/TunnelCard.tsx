@@ -64,10 +64,15 @@ export function TunnelCard({ host, state, onState, onChanged }: TunnelCardProps)
   const suggestedSubdomain = state.cloudflare.suggestedSubdomain;
   const knownDomains = state.ngrok.domains.join(",");
 
+  // The form follows what is saved, and only that: a login finishing or a
+  // domain arriving must not throw away a choice made but not saved yet.
   useEffect(() => {
     setProvider(config.provider);
     setMode(config.mode);
     setServerName(config.serverName);
+  }, [config.provider, config.mode, config.serverName]);
+
+  useEffect(() => {
     const sub = cloudflareDomain ? subdomainOf(config.hostname, cloudflareDomain) : null;
     setSubdomain(sub ?? (config.hostname === "" ? suggestedSubdomain : ""));
     const pick = initialDomain(config.hostname, knownDomains === "" ? [] : knownDomains.split(","));

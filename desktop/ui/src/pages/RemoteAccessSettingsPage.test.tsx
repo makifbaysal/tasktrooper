@@ -174,6 +174,26 @@ describe("RemoteAccessSettingsPage", () => {
       await waitFor(() => expect(host.cloudflareLoginCancel).toHaveBeenCalledOnce());
     });
 
+    it("keeps the unsaved 'My own domain' choice when the login finishes and the domain arrives", async () => {
+      const quick = { provider: "cloudflare", mode: "quick", hostname: "", autoStart: false, serverName: "" } as const;
+      // Radix Select needs these from a real browser.
+      Element.prototype.scrollIntoView = vi.fn();
+      Element.prototype.hasPointerCapture = vi.fn(() => false);
+      Element.prototype.releasePointerCapture = vi.fn();
+      const { push } = stubShell(state({ config: quick }));
+      renderPage();
+      const trigger = await screen.findByRole("combobox", { name: "Address" });
+      fireEvent.keyDown(trigger, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: "My own domain" }));
+      expect(await screen.findByRole("button", { name: "Log in to Cloudflare" })).toBeTruthy();
+
+      // The browser login ends: main pushes the new state, config still says "quick".
+      push(state({ config: quick, cloudflare: { loggedIn: true, domain: "example.com", phase: "idle", suggestedSubdomain: "tasktrooper-abc123" } }));
+      expect(await screen.findByText("Logged in to Cloudflare")).toBeTruthy();
+      expect(screen.getByRole("combobox", { name: "Address" }).textContent).toContain("My own domain");
+      expect((screen.getByLabelText("Subdomain") as HTMLInputElement).value).toBe("tasktrooper-abc123");
+    });
+
     it("shows a failed login with the reason", async () => {
       stubShell(state({ config: named, cloudflare: { loggedIn: false, phase: "failed", error: "The Cloudflare login did not finish. Try again.", suggestedSubdomain: "tasktrooper-abc123" } }));
       renderPage();
