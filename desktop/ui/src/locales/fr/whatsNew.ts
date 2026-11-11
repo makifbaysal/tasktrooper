@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Découvrez ce qui a changé dans la dernière version de TaskTrooper.",
     open: "Afficher les nouveautés",
   },
+  v0_3_14: {
+    title: "La recherche d'audience sur votre téléphone",
+    items: {
+      phoneAudience: "Gérez vos audiences depuis l'app mobile TaskTrooper : créez-les avec le PM ou un formulaire, construisez-les et parlez en tête à tête avec chaque personne.",
+      phoneStudies: "Lancez des études depuis votre téléphone : choisissez le type, relisez et approuvez le script d'entretien, suivez les entretiens et générez le rapport.",
+      phoneReports: "Lisez les rapports d'étude sur votre téléphone et partagez-les sous la forme d'un seul fichier HTML.",
+    },
+  },
   v0_3_13: {
     title: "Votre téléphone, votre audience et votre télémétrie",
     items: {

@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Sieh nach, was sich in der neuesten Version von TaskTrooper geändert hat.",
     open: "Neuigkeiten anzeigen",
   },
+  v0_3_14: {
+    title: "Zielgruppenforschung auf dem Handy",
+    items: {
+      phoneAudience: "Verwalte Zielgruppen in der TaskTrooper-App: mit dem PM oder per Formular anlegen, aufbauen und mit jeder Person einzeln sprechen.",
+      phoneStudies: "Starte Studien vom Handy aus: Typ wählen, das Interviewskript prüfen und freigeben, die Interviews verfolgen und den Bericht erzeugen.",
+      phoneReports: "Lies Studienberichte auf dem Handy und teile sie als eine einzelne HTML-Datei.",
+    },
+  },
   v0_3_13: {
     title: "Dein Handy, deine Zielgruppe und deine Telemetrie",
     items: {

@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "TaskTrooper'ın son sürümünde nelerin değiştiğini gör.",
     open: "Yenilikleri göster",
   },
+  v0_3_14: {
+    title: "Audience araştırması artık telefonunda",
+    items: {
+      phoneAudience: "TaskTrooper mobil uygulamasından audience'ları yönet: PM ile ya da bir formla oluştur, kur ve içindeki her kişiyle birebir konuş.",
+      phoneStudies: "Çalışmaları telefonundan çalıştır: türü seç, görüşme senaryosunu gözden geçirip onayla, görüşmeleri takip et ve raporu oluştur.",
+      phoneReports: "Çalışma raporlarını telefonunda oku ve tek bir HTML dosyası olarak paylaş.",
+    },
+  },
   v0_3_13: {
     title: "Telefonun, hedef kitlen ve telemetrin",
     items: {

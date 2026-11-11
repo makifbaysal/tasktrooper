@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Veja o que mudou na versão mais recente do TaskTrooper.",
     open: "Mostrar novidades",
   },
+  v0_3_14: {
+    title: "Pesquisa de audiência no seu telefone",
+    items: {
+      phoneAudience: "Gerencie audiências no app móvel do TaskTrooper: crie com o PM ou por um formulário, construa e converse individualmente com qualquer pessoa.",
+      phoneStudies: "Execute estudos pelo telefone: escolha o tipo, revise e aprove o roteiro das entrevistas, acompanhe as entrevistas e gere o relatório.",
+      phoneReports: "Leia os relatórios dos estudos no telefone e compartilhe como um único arquivo HTML.",
+    },
+  },
   v0_3_13: {
     title: "Seu telefone, seu público e sua telemetria",
     items: {

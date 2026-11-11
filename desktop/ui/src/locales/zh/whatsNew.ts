@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "查看 TaskTrooper 最新版本的更新内容。",
     open: "显示新功能",
   },
+  v0_3_14: {
+    title: "在手机上做受众研究",
+    items: {
+      phoneAudience: "在 TaskTrooper 手机应用中管理受众：通过 PM 或表单创建，构建后与其中任何一个人一对一交谈。",
+      phoneStudies: "在手机上运行研究：选择类型，审阅并批准访谈脚本，跟进访谈并生成报告。",
+      phoneReports: "在手机上阅读研究报告，并以单个 HTML 文件分享。",
+    },
+  },
   v0_3_13: {
     title: "你的手机、你的受众和你的遥测",
     items: {

@@ -10,6 +10,14 @@ export const whatsNew = {
     help: "See what changed in the latest version of TaskTrooper.",
     open: "Show what's new",
   },
+  v0_3_14: {
+    title: "Audience research on your phone",
+    items: {
+      phoneAudience: "Manage audiences from the TaskTrooper mobile app: create one with the PM or a form, build it, and talk to any person in it one to one.",
+      phoneStudies: "Run studies from your phone: pick the type, review and approve the interview script, follow the interviews and generate the report.",
+      phoneReports: "Read study reports on your phone and share them as one HTML file.",
+    },
+  },
   v0_3_13: {
     title: "Your phone, your audience and your telemetry",
     items: {
