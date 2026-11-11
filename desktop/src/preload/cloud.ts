@@ -213,6 +213,12 @@ const remoteAccess: DesktopRemoteAccessHost = {
   detect: (provider) => call<RemoteBinaryDetection>(CLOUD_CHANNELS.remoteAccessDetect, { provider }),
   openInstallPage: (provider) => call<void>(CLOUD_CHANNELS.remoteAccessOpenInstallPage, { provider }),
   logs: () => call<string[]>(CLOUD_CHANNELS.remoteAccessLogs),
+  refreshAccount: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessRefreshAccount),
+  cloudflareLogin: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessCloudflareLogin),
+  cloudflareLoginCancel: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessCloudflareLoginCancel),
+  cloudflareLogout: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessCloudflareLogout),
+  ngrokConnect: (request) => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessNgrokConnect, request),
+  ngrokDisconnect: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessNgrokDisconnect),
 };
 
 /**

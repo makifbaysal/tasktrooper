@@ -74,6 +74,8 @@ var (
 type Store interface {
 	CreatePairing(ctx context.Context, p Pairing) error
 	CancelPairing(ctx context.Context, id uuid.UUID) (bool, error)
+	// CancelPendingPairings cancels every live, unused pairing and says how many.
+	CancelPendingPairings(ctx context.Context, now time.Time) (int, error)
 	CountPendingPairings(ctx context.Context, now time.Time) (int, error)
 	// ConsumePairing marks the live pairing with this code hash used and
 	// returns it; ok is false when none is live. Atomic, so one code can never

@@ -1,7 +1,5 @@
 import { useCallback, useState } from "react";
 import { AuditCard } from "@/components/remote/AuditCard";
-import { DevicesCard } from "@/components/remote/DevicesCard";
-import { PairPhoneCard } from "@/components/remote/PairPhoneCard";
 import { TunnelCard } from "@/components/remote/TunnelCard";
 import { Notice } from "@/components/ui/notice";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,8 +7,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { useRemoteAccess } from "@/hooks/useRemoteAccess";
 
 /**
- * Settings → Remote access. The tunnel (Cloudflare or ngrok), pairing a phone,
- * the paired phones and their activity log. Desktop shell, local mode only:
+ * Settings → Remote access. The tunnel (Cloudflare or ngrok, with the account
+ * login that feeds it), pairing the one phone and its activity log. Desktop shell, local mode only:
  * the tunnel is a program this computer runs, so a browser has nothing to show.
  */
 export function RemoteAccessSettingsPage() {
@@ -38,9 +36,7 @@ export function RemoteAccessSettingsPage() {
       </Notice>
       {state ? (
         <>
-          <TunnelCard host={host} state={state} onState={setState} />
-          <PairPhoneCard state={state} onChanged={changed} />
-          <DevicesCard refreshKey={refreshKey} onChanged={changed} />
+          <TunnelCard host={host} state={state} onState={setState} onChanged={changed} />
           <AuditCard refreshKey={refreshKey} />
         </>
       ) : (

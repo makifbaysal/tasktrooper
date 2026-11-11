@@ -611,8 +611,10 @@ export type DesktopRemoteProvider = "cloudflare" | "ngrok";
 export type DesktopRemoteMode = "quick" | "named";
 export type DesktopRemoteTunnelState = "stopped" | "starting" | "connected" | "reconnecting" | "error" | "binary_missing";
 export type DesktopRemoteProblem =
+  | "needs_login"
   | "needs_token"
   | "needs_hostname"
+  | "tunnel_setup_failed"
   | "auth_failed"
   | "server_unavailable"
   | "enable_failed"
@@ -635,12 +637,34 @@ export interface DesktopRemoteBinaryDetection {
   detail?: string;
 }
 
+/** The Cloudflare login on this computer (the certificate `cloudflared tunnel login` keeps). */
+export interface DesktopRemoteCloudflareAccount {
+  loggedIn: boolean;
+  /** The domain of the login; absent when Cloudflare would not say (see `domainError`). */
+  domain?: string;
+  domainError?: string;
+  phase: "idle" | "waiting" | "failed";
+  loginUrl?: string;
+  error?: string;
+  suggestedSubdomain: string;
+}
+
+export interface DesktopRemoteNgrokAccount {
+  verified: boolean;
+  phase: "idle" | "checking";
+  domains: string[];
+  error?: string;
+  apiKeyError?: string;
+}
+
 export interface DesktopRemoteAccessState {
   tunnel: DesktopRemoteTunnelState;
   wanted: boolean;
   config: DesktopRemoteAccessConfig;
   /** Which secrets are stored; the values never cross the bridge. */
-  secrets: { cloudflareToken: boolean; ngrokAuthtoken: boolean };
+  secrets: { ngrokAuthtoken: boolean; ngrokApiKey: boolean };
+  cloudflare: DesktopRemoteCloudflareAccount;
+  ngrok: DesktopRemoteNgrokAccount;
   url?: string;
   remotePort?: number;
   problem?: DesktopRemoteProblem;
@@ -652,15 +676,18 @@ export interface DesktopRemoteAccessState {
   suggestedPort: number;
 }
 
-export interface DesktopRemoteAccessConfigureRequest extends Partial<DesktopRemoteAccessConfig> {
-  cloudflareToken?: string;
-  ngrokAuthtoken?: string;
-  clearSecrets?: ("cloudflareToken" | "ngrokAuthtoken")[];
+export type DesktopRemoteAccessConfigureRequest = Partial<DesktopRemoteAccessConfig>;
+
+/** Neither field: list the account's domains again with the stored API key. */
+export interface DesktopRemoteNgrokConnectRequest {
+  authtoken?: string;
+  apiKey?: string;
 }
 
 /**
  * The tunnel that lets the phone app reach this computer (bridge 8, local mode
- * only). `configure` takes secrets in and answers without them.
+ * only). The ngrok credentials go in through `ngrokConnect` and are never
+ * answered back; Cloudflare is a browser login (`cloudflareLogin`).
  */
 export interface DesktopRemoteAccessHost {
   state(): Promise<DesktopRemoteAccessState>;
@@ -671,6 +698,16 @@ export interface DesktopRemoteAccessHost {
   detect(provider: DesktopRemoteProvider): Promise<DesktopRemoteBinaryDetection>;
   openInstallPage(provider: DesktopRemoteProvider): Promise<void>;
   logs(): Promise<string[]>;
+  /** Re-reads the Cloudflare login from disk and looks up its domain. */
+  refreshAccount(): Promise<DesktopRemoteAccessState>;
+  /** Opens the browser for `cloudflared tunnel login`; the end arrives as a state push. */
+  cloudflareLogin(): Promise<DesktopRemoteAccessState>;
+  cloudflareLoginCancel(): Promise<DesktopRemoteAccessState>;
+  /** Deletes the login. Rejects while the tunnel runs on it. */
+  cloudflareLogout(): Promise<DesktopRemoteAccessState>;
+  /** Proves the authtoken with a test tunnel before storing it; an API key lists the account's domains. */
+  ngrokConnect(request: DesktopRemoteNgrokConnectRequest): Promise<DesktopRemoteAccessState>;
+  ngrokDisconnect(): Promise<DesktopRemoteAccessState>;
 }
 
 /**

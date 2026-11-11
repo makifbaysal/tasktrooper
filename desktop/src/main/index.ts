@@ -74,7 +74,7 @@ import { jobForRemote, reportForRemote } from "./toolchain/remote.js";
 import { createToolchainService } from "./toolchain/service.js";
 import { detectBinary, installPage } from "./tunnel/detect.js";
 import { TunnelManager } from "./tunnel/manager.js";
-import { spawnTunnel } from "./tunnel/process.js";
+import { HttpStatusError, nodeTunnelFiles, spawnTunnel } from "./tunnel/process.js";
 import { createListenerClient } from "./tunnel/server-client.js";
 import { RemoteAccessStore } from "./tunnel/store.js";
 import { AppTray } from "./tray.js";
@@ -190,11 +190,14 @@ const remoteAccess = new TunnelManager({
     const token = secrets?.api_token;
     return base && token ? { base, token } : null;
   },
-  fetchJson: async (url) => {
-    const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  fetchJson: async (url, headers) => {
+    const response = await fetch(url, { ...(headers ? { headers } : {}), signal: AbortSignal.timeout(8_000) });
+    if (!response.ok) throw new HttpStatusError(response.status);
     return response.json();
   },
+  files: nodeTunnelFiles,
+  homeDir: os.homedir(),
+  dataDir: app.getPath("userData"),
   isLocalMode: () => !accountMode(),
 });
 remoteAccess.on("state", (state) => toCloud(CLOUD_EVENTS.remoteAccessState, state));
@@ -822,6 +825,12 @@ const services: IpcServices = {
     await shell.openExternal(installPage(provider));
   },
   remoteAccessLogs: () => remoteAccess.logs(),
+  remoteAccessRefreshAccount: () => remoteAccess.refreshAccount(),
+  remoteAccessCloudflareLogin: () => remoteAccess.cloudflareLogin(),
+  remoteAccessCloudflareLoginCancel: () => remoteAccess.cloudflareLoginCancel(),
+  remoteAccessCloudflareLogout: () => remoteAccess.cloudflareLogout(),
+  remoteAccessNgrokConnect: (request) => remoteAccess.ngrokConnect(request),
+  remoteAccessNgrokDisconnect: () => remoteAccess.ngrokDisconnect(),
 };
 
 /**

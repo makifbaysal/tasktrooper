@@ -8,6 +8,7 @@ import {
   type KeysWindowPrefill,
   type McpServerSetRequest,
   type RemoteAccessConfigureRequest,
+  type RemoteAccessNgrokConnectRequest,
 } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -61,6 +62,7 @@ import {
   validatePreflightRequest,
   validateRestartChild,
   validateRemoteAccessConfigure,
+  validateRemoteAccessNgrokConnect,
   validateRemoteAccessProvider,
   validateReveal,
   validateSignIn,
@@ -203,6 +205,12 @@ export interface IpcServices {
   remoteAccessDetect(provider: RemoteProvider): Promise<RemoteBinaryDetection>;
   remoteAccessOpenInstallPage(provider: RemoteProvider): Promise<void>;
   remoteAccessLogs(): string[];
+  remoteAccessRefreshAccount(): Promise<RemoteAccessState>;
+  remoteAccessCloudflareLogin(): Promise<RemoteAccessState>;
+  remoteAccessCloudflareLoginCancel(): Promise<RemoteAccessState>;
+  remoteAccessCloudflareLogout(): Promise<RemoteAccessState>;
+  remoteAccessNgrokConnect(request: RemoteAccessNgrokConnectRequest): Promise<RemoteAccessState>;
+  remoteAccessNgrokDisconnect(): Promise<RemoteAccessState>;
 }
 
 /** Answers "is this call really from the web app, right now?". */
@@ -506,6 +514,30 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.remoteAccessLogs, () => {
     localOnly();
     return services.remoteAccessLogs();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessRefreshAccount, () => {
+    localOnly();
+    return services.remoteAccessRefreshAccount();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessCloudflareLogin, () => {
+    localOnly();
+    return services.remoteAccessCloudflareLogin();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessCloudflareLoginCancel, () => {
+    localOnly();
+    return services.remoteAccessCloudflareLoginCancel();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessCloudflareLogout, () => {
+    localOnly();
+    return services.remoteAccessCloudflareLogout();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessNgrokConnect, (payload) => {
+    localOnly();
+    return services.remoteAccessNgrokConnect(validateRemoteAccessNgrokConnect(payload));
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessNgrokDisconnect, () => {
+    localOnly();
+    return services.remoteAccessNgrokDisconnect();
   });
 
   cloud(CLOUD_CHANNELS.updateGet, () => services.updateStatus());

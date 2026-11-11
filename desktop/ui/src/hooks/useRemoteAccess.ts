@@ -17,6 +17,11 @@ export function useRemoteAccess(): { host: DesktopRemoteAccessHost | null; state
       (s) => alive && setState(s),
       () => undefined,
     );
+    // The Cloudflare login is a file on disk the page cannot see: ask main to look once.
+    void host.refreshAccount().then(
+      (s) => alive && setState(s),
+      () => undefined,
+    );
     const off = host.subscribe((s) => alive && setState(s));
     return () => {
       alive = false;

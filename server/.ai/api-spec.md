@@ -2612,7 +2612,7 @@ The wire contract for the phone (pairing flow, QR payload, allowlist, error code
 | `POST /v1/remote-access/enable` · `/disable` | `{preferred_port?}`; starts / stops the remote listener, returns the status |
 | `PUT /v1/remote-access/settings` | `{server_name?}` |
 | `POST /v1/remote-access/pairings` | `{role: operator\|viewer, expires_in_days: 0..365, public_url, device_label?}` -> `201 {id, code, code_display, uri, expires_at}`; `409 remote_disabled` while off. The code lives 5 minutes, works once, and is stored hashed |
-| `DELETE /v1/remote-access/pairings/{id}` | cancel |
+| `DELETE /v1/remote-access/pairings/{id}` | cancel. One phone at a time: creating a pairing cancels any pending one, and redeeming a code revokes every device that was paired before (its next request is `401 token_revoked`) |
 | `GET /v1/remote-access/devices` · `PATCH` · `DELETE /{id}` | list (revoked ones kept 30 days), rename / change role, revoke (immediate: every request re-reads the row) |
 | `GET /v1/remote-access/audit?limit=&device_id=` | `{entries}`: non-GET requests, failed auth, pairing, revocation, rate limits; route patterns only, never bodies |
 | `GET /v1/remote-access/live` | `{requests_last_minute, last_request_at}` |

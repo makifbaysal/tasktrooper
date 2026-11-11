@@ -111,3 +111,27 @@ func (s *RemoteAccessStoreSuite) TestServerNameSetting() {
 	s.Require().NoError(s.svc.SetServerName(s.ctx, "Akif's MacBook"))
 	s.Equal("Akif's MacBook", s.svc.ServerName(s.ctx))
 }
+
+func (s *RemoteAccessStoreSuite) TestANewPhoneReplacesThePreviousOne() {
+	first, err := s.svc.CreatePairing(s.ctx, remoteaccess.RoleOperator, 0, "")
+	s.Require().NoError(err)
+	oldToken, _, err := s.svc.Exchange(s.ctx, first.Code, "old phone", "ios")
+	s.Require().NoError(err)
+
+	stale, err := s.svc.CreatePairing(s.ctx, remoteaccess.RoleOperator, 0, "")
+	s.Require().NoError(err)
+	fresh, err := s.svc.CreatePairing(s.ctx, remoteaccess.RoleOperator, 0, "")
+	s.Require().NoError(err)
+	_, _, err = s.svc.Exchange(s.ctx, stale.Code, "late", "ios")
+	s.ErrorIs(err, remoteaccess.ErrInvalidPairing, "a newer code retires the older one")
+
+	newToken, _, err := s.svc.Exchange(s.ctx, fresh.Code, "new phone", "ios")
+	s.Require().NoError(err)
+	_, err = s.svc.Authenticate(s.ctx, oldToken)
+	s.ErrorIs(err, remoteaccess.ErrTokenRevoked)
+	_, err = s.svc.Authenticate(s.ctx, newToken)
+	s.Require().NoError(err)
+	active, _, err := s.svc.Counts(s.ctx)
+	s.Require().NoError(err)
+	s.Equal(1, active)
+}

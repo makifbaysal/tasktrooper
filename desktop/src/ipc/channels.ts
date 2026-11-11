@@ -293,8 +293,8 @@ export const CLOUD_CHANNELS = {
    * Remote access: the tunnel that lets the phone app reach this computer.
    * LOCAL MODE ONLY — the handlers refuse in account mode, where the account's
    * own cloud is the way in. The page names a provider and sends settings; the
-   * binary and its arguments are main's. Secrets (a tunnel token, an authtoken)
-   * go in on `configure` and never come back: every answer carries
+   * binary and its arguments are main's. The ngrok authtoken and API key go in
+   * on `remoteAccessNgrokConnect` and never come back: every answer carries
    * `secrets: {…: boolean}` only.
    */
   remoteAccessState: "cloud:remote-access:state",
@@ -304,6 +304,15 @@ export const CLOUD_CHANNELS = {
   remoteAccessDetect: "cloud:remote-access:detect",
   remoteAccessOpenInstallPage: "cloud:remote-access:open-install-page",
   remoteAccessLogs: "cloud:remote-access:logs",
+  /** Re-read the Cloudflare login (the certificate on disk) and, if it changed, its domain. */
+  remoteAccessRefreshAccount: "cloud:remote-access:refresh-account",
+  /** `cloudflared tunnel login`: opens the browser; the answer is the state, progress arrives as events. */
+  remoteAccessCloudflareLogin: "cloud:remote-access:cloudflare-login",
+  remoteAccessCloudflareLoginCancel: "cloud:remote-access:cloudflare-login-cancel",
+  remoteAccessCloudflareLogout: "cloud:remote-access:cloudflare-logout",
+  /** Saves the ngrok authtoken (and optional API key) once ngrok accepted them. */
+  remoteAccessNgrokConnect: "cloud:remote-access:ngrok-connect",
+  remoteAccessNgrokDisconnect: "cloud:remote-access:ngrok-disconnect",
 } as const;
 
 /** Main → the web app. Push, so the page never polls the supervisor. */
@@ -400,13 +409,20 @@ export interface RemoteAccessProviderRequest {
 }
 
 /**
- * Saving the form. Every field is optional (a patch). A secret is sent only when
- * the person typed one; `clearSecrets` forgets a stored one.
+ * Saving the form. Every field is optional (a patch). Credentials never travel
+ * here: Cloudflare's login is the certificate cloudflared keeps, and the ngrok
+ * authtoken goes through `RemoteAccessNgrokConnectRequest`.
  */
-export interface RemoteAccessConfigureRequest extends Partial<RemoteAccessConfig> {
-  cloudflareToken?: string;
-  ngrokAuthtoken?: string;
-  clearSecrets?: ("cloudflareToken" | "ngrokAuthtoken")[];
+export type RemoteAccessConfigureRequest = Partial<RemoteAccessConfig>;
+
+/**
+ * Connect the ngrok account: the authtoken is proven with a short test tunnel
+ * before it is stored; the API key (optional) is only used to list the
+ * account's domains. Neither: list the domains again with the stored API key.
+ */
+export interface RemoteAccessNgrokConnectRequest {
+  authtoken?: string;
+  apiKey?: string;
 }
 
 /** What `POST /api/runner/pair` returned. */

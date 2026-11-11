@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -25,7 +25,7 @@ describe("RemoteAccessStore", () => {
     const d = dir();
     const store = new RemoteAccessStore(d);
     store.setConfig({ provider: "ngrok", mode: "named", hostname: "Phone.Example.com", autoStart: true });
-    store.setSecrets({ cloudflareToken: TOKEN, ngrokAuthtoken: "2abcDEF1234ghi_5JkLmNoPqRsTuVwXyZ12" });
+    store.setSecrets({ ngrokApiKey: TOKEN, ngrokAuthtoken: "2abcDEF1234ghi_5JkLmNoPqRsTuVwXyZ12" });
 
     const json = readFileSync(path.join(d, "remote-access.json"), "utf8");
     expect(json).not.toContain(TOKEN);
@@ -39,21 +39,21 @@ describe("RemoteAccessStore", () => {
 
     const reopened = new RemoteAccessStore(d);
     expect(reopened.config()).toMatchObject({ provider: "ngrok", hostname: "phone.example.com" });
-    expect(reopened.secrets().cloudflareToken).toBe(TOKEN);
-    expect(secretsView(reopened.secrets())).toEqual({ cloudflareToken: true, ngrokAuthtoken: true });
+    expect(reopened.secrets().ngrokApiKey).toBe(TOKEN);
+    expect(secretsView(reopened.secrets())).toEqual({ ngrokApiKey: true, ngrokAuthtoken: true });
   });
 
   it("never writes a secret into settings.json", () => {
     const d = dir();
-    new RemoteAccessStore(d).setSecrets({ cloudflareToken: TOKEN });
+    new RemoteAccessStore(d).setSecrets({ ngrokApiKey: TOKEN });
     expect(readdirSync(d)).not.toContain("settings.json");
   });
 
   it("forgets a cleared secret and removes the file when none is left", () => {
     const d = dir();
     const store = new RemoteAccessStore(d);
-    store.setSecrets({ cloudflareToken: TOKEN });
-    store.setSecrets({}, ["cloudflareToken"]);
+    store.setSecrets({ ngrokApiKey: TOKEN });
+    store.setSecrets({}, ["ngrokApiKey"]);
     expect(store.secrets()).toEqual({});
     expect(readdirSync(d)).not.toContain("remote-access.bin");
   });
@@ -64,6 +64,46 @@ describe("RemoteAccessStore", () => {
     expect(store.lastPort()).toBe(DEFAULT_REMOTE_PORT);
     store.setLastPort(48001);
     expect(new RemoteAccessStore(d).lastPort()).toBe(48001);
+  });
+
+  it("keeps the Cloudflare tunnel it made, the ngrok account and a stable seed across restarts", () => {
+    const d = dir();
+    const store = new RemoteAccessStore(d);
+    const seed = store.seed();
+    expect(seed).toMatch(/^[a-f0-9]{6}$/);
+    const record = {
+      tunnelId: "0b8a3c1e-5d2f-4c7a-9e11-3f6d8a2b4c90",
+      tunnelName: `tasktrooper-${seed}`,
+      credentialsFile: "/home/u/.cloudflared/0b8a3c1e-5d2f-4c7a-9e11-3f6d8a2b4c90.json",
+      zoneId: "zone-1",
+      routedHostname: "phone.example.com",
+    };
+    store.setCloudflareTunnel(record);
+    store.setNgrokAccount({ verified: true, domains: ["a.ngrok.app"] });
+    store.setConfig({ hostname: "phone.example.com" });
+
+    const reopened = new RemoteAccessStore(d);
+    expect(reopened.seed()).toBe(seed);
+    expect(reopened.cloudflareTunnel()).toEqual(record);
+    expect(reopened.ngrokAccount()).toEqual({ verified: true, domains: ["a.ngrok.app"] });
+    expect(reopened.config().hostname).toBe("phone.example.com");
+
+    reopened.setCloudflareTunnel(undefined);
+    reopened.setNgrokAccount(undefined);
+    expect(new RemoteAccessStore(d).cloudflareTunnel()).toBeUndefined();
+    expect(new RemoteAccessStore(d).ngrokAccount()).toEqual({ verified: false, domains: [] });
+  });
+
+  it("drops a hand-edited tunnel record that is not exactly the shape", () => {
+    const d = dir();
+    writeFileSync(
+      path.join(d, "remote-access.json"),
+      JSON.stringify({ seed: "zz", cloudflareTunnel: { tunnelId: "../../etc/passwd", tunnelName: "x", credentialsFile: "/a", zoneId: "z" }, ngrok: { verified: "yes", domains: ["ok.ngrok.app", "bad domain;", 7] } }),
+    );
+    const store = new RemoteAccessStore(d);
+    expect(store.cloudflareTunnel()).toBeUndefined();
+    expect(store.seed()).toMatch(/^[a-f0-9]{6}$/);
+    expect(store.ngrokAccount()).toEqual({ verified: false, domains: ["ok.ngrok.app"] });
   });
 
   it("treats a hand-edited config as untrusted", () => {

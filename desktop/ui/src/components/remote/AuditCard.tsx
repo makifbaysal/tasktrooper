@@ -35,7 +35,7 @@ export function AuditCard({ refreshKey }: { refreshKey: number }) {
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()}>
           <RefreshCw className="mr-2 h-4 w-4" />
-          {t("remoteAccess.devices.refresh")}
+          {t("remoteAccess.audit.refresh")}
         </Button>
       </div>
       {failed && <p className="text-sm text-destructive">{t("remoteAccess.audit.loadFailed")}</p>}

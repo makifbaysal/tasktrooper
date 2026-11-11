@@ -49,6 +49,7 @@ import type {
   PairRequest,
   PreflightRequest,
   RemoteAccessConfigureRequest,
+  RemoteAccessNgrokConnectRequest,
   RemoteAccessProviderRequest,
   RestartChildRequest,
   RevealRequest,
@@ -726,15 +727,14 @@ export function validateRemoteAccessConfigure(raw: unknown): RemoteAccessConfigu
   }
   if (o.autoStart !== undefined) out.autoStart = asBoolean(o.autoStart, "remoteAccess.autoStart");
   if (o.serverName !== undefined) out.serverName = asClean(o.serverName, "remoteAccess.serverName", { max: 80 }).trim();
-  if (o.cloudflareToken !== undefined) out.cloudflareToken = asSecretToken(o.cloudflareToken, "remoteAccess.cloudflareToken");
-  if (o.ngrokAuthtoken !== undefined) out.ngrokAuthtoken = asSecretToken(o.ngrokAuthtoken, "remoteAccess.ngrokAuthtoken");
-  if (o.clearSecrets !== undefined) {
-    if (!Array.isArray(o.clearSecrets) || o.clearSecrets.length > 2) fail("remoteAccess.clearSecrets: expected a short list");
-    out.clearSecrets = [];
-    for (const name of o.clearSecrets as unknown[]) {
-      if (name !== "cloudflareToken" && name !== "ngrokAuthtoken") fail("remoteAccess.clearSecrets: unknown secret");
-      if (!out.clearSecrets.includes(name)) out.clearSecrets.push(name);
-    }
-  }
+  return out;
+}
+
+/** The ngrok credentials the person typed; each is printable ASCII without spaces. Neither means "refresh the domains". */
+export function validateRemoteAccessNgrokConnect(raw: unknown): RemoteAccessNgrokConnectRequest {
+  const o = asRecord(raw, "remoteAccess.ngrok");
+  const out: RemoteAccessNgrokConnectRequest = {};
+  if (o.authtoken !== undefined) out.authtoken = asSecretToken(o.authtoken, "remoteAccess.ngrok.authtoken");
+  if (o.apiKey !== undefined) out.apiKey = asSecretToken(o.apiKey, "remoteAccess.ngrok.apiKey");
   return out;
 }

@@ -189,3 +189,57 @@ func TestInvalidPairingArguments(t *testing.T) {
 	_, _, err = svc.Exchange(context.Background(), "", "", "")
 	assert.ErrorIs(t, err, remoteaccess.ErrInvalidArgument)
 }
+
+func TestPairingANewPhoneSignsTheOldOneOut(t *testing.T) {
+	svc, store, _ := newService(t)
+	ctx := context.Background()
+
+	first, _ := svc.CreatePairing(ctx, remoteaccess.RoleOperator, 0, "")
+	oldToken, oldDev, err := svc.Exchange(ctx, first.Code, "old phone", "ios")
+	require.NoError(t, err)
+	_, err = svc.Authenticate(ctx, oldToken)
+	require.NoError(t, err)
+
+	second, _ := svc.CreatePairing(ctx, remoteaccess.RoleViewer, 0, "")
+	newToken, newDev, err := svc.Exchange(ctx, second.Code, "new phone", "ios")
+	require.NoError(t, err)
+
+	_, err = svc.Authenticate(ctx, oldToken)
+	assert.ErrorIs(t, err, remoteaccess.ErrTokenRevoked, "the previous phone must be told it was revoked")
+	got, err := svc.Authenticate(ctx, newToken)
+	require.NoError(t, err)
+	assert.Equal(t, newDev.ID, got.ID)
+
+	active, _, err := svc.Counts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, active, "only one phone is connected at a time")
+	require.NotNil(t, store.Devices[oldDev.ID].RevokedAt)
+	assert.Contains(t, store.AuditKinds(), remoteaccess.AuditRevoke)
+}
+
+func TestCreatingACodeRetiresTheOneBeforeItButKeepsTheConnectedPhone(t *testing.T) {
+	svc, _, _ := newService(t)
+	ctx := context.Background()
+
+	first, _ := svc.CreatePairing(ctx, remoteaccess.RoleOperator, 0, "")
+	token, _, err := svc.Exchange(ctx, first.Code, "phone", "ios")
+	require.NoError(t, err)
+
+	older, _ := svc.CreatePairing(ctx, remoteaccess.RoleOperator, 0, "")
+	newer, _ := svc.CreatePairing(ctx, remoteaccess.RoleOperator, 0, "")
+
+	// Making a code does not disconnect the phone that is connected now...
+	_, err = svc.Authenticate(ctx, token)
+	require.NoError(t, err)
+	_, pending, err := svc.Counts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending)
+
+	// ...and only the newest code still works.
+	_, _, err = svc.Exchange(ctx, older.Code, "late", "ios")
+	assert.ErrorIs(t, err, remoteaccess.ErrInvalidPairing)
+	_, _, err = svc.Exchange(ctx, newer.Code, "next", "ios")
+	require.NoError(t, err)
+	_, err = svc.Authenticate(ctx, token)
+	assert.ErrorIs(t, err, remoteaccess.ErrTokenRevoked)
+}

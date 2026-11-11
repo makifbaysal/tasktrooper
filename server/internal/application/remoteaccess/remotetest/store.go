@@ -50,6 +50,19 @@ func (s *Store) CancelPairing(_ context.Context, id uuid.UUID) (bool, error) {
 	return true, nil
 }
 
+func (s *Store) CancelPendingPairings(_ context.Context, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for id, p := range s.Pairings {
+		if !s.used[id] && p.ExpiresAt.After(now) {
+			s.used[id] = true
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *Store) CountPendingPairings(_ context.Context, now time.Time) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

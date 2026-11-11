@@ -45,6 +45,12 @@ func (s *RemoteAccessStore) CancelPairing(ctx context.Context, id uuid.UUID) (bo
 	return tag.RowsAffected() > 0, err
 }
 
+func (s *RemoteAccessStore) CancelPendingPairings(ctx context.Context, now time.Time) (int, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE remote_pairings SET cancelled_at = $1
+		WHERE used_at IS NULL AND cancelled_at IS NULL AND expires_at > $1`, now)
+	return int(tag.RowsAffected()), err
+}
+
 func (s *RemoteAccessStore) CountPendingPairings(ctx context.Context, now time.Time) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM remote_pairings

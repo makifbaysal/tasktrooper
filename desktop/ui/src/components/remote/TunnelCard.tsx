@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CloudflareAccount } from "@/components/remote/CloudflareAccount";
+import { NGROK_OTHER_DOMAIN, NgrokAccount } from "@/components/remote/NgrokAccount";
+import { PairPhone } from "@/components/remote/PairPhone";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Notice } from "@/components/ui/notice";
@@ -18,7 +21,7 @@ import {
   type DesktopRemoteProvider,
   type DesktopRemoteTunnelState,
 } from "@/lib/desktop-bridge";
-import { modeHelpKey, providerLabel } from "@/lib/remoteAccess";
+import { isSubdomain, modeHelpKey, modeLabelKey, pairableUrl, providerLabel, subdomainOf } from "@/lib/remoteAccess";
 
 const STATUS_VARIANT: Record<DesktopRemoteTunnelState, BadgeProps["variant"]> = {
   stopped: "secondary",
@@ -33,67 +36,68 @@ interface TunnelCardProps {
   host: DesktopRemoteAccessHost;
   state: DesktopRemoteAccessState;
   onState: (state: DesktopRemoteAccessState) => void;
+  /** A phone was paired or disconnected. */
+  onChanged: () => void;
 }
 
-export function TunnelCard({ host, state, onState }: TunnelCardProps) {
+/** The domain choice of the saved hostname, in the shape each provider's form needs it. */
+function initialDomain(hostname: string, domains: readonly string[]): string {
+  if (hostname === "") return "";
+  return domains.includes(hostname) ? hostname : NGROK_OTHER_DOMAIN;
+}
+
+export function TunnelCard({ host, state, onState, onChanged }: TunnelCardProps) {
   const { t } = useI18n();
   const { config } = state;
   const [provider, setProvider] = useState<DesktopRemoteProvider>(config.provider);
   const [mode, setMode] = useState<DesktopRemoteMode>(config.mode);
-  const [hostname, setHostname] = useState(config.hostname);
   const [serverName, setServerName] = useState(config.serverName);
-  const [secret, setSecret] = useState("");
+  // The address, in the parts each provider's form edits: a subdomain on the
+  // logged-in Cloudflare domain, a chosen ngrok domain, or a typed hostname.
+  const [subdomain, setSubdomain] = useState("");
+  const [ngrokDomain, setNgrokDomain] = useState("");
+  const [typedHost, setTypedHost] = useState("");
   const [busy, setBusy] = useState<"save" | "toggle" | "detect" | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const cloudflareDomain = state.cloudflare.domain;
+  const suggestedSubdomain = state.cloudflare.suggestedSubdomain;
+  const knownDomains = state.ngrok.domains.join(",");
 
   useEffect(() => {
     setProvider(config.provider);
     setMode(config.mode);
-    setHostname(config.hostname);
     setServerName(config.serverName);
-  }, [config.provider, config.mode, config.hostname, config.serverName]);
+    const sub = cloudflareDomain ? subdomainOf(config.hostname, cloudflareDomain) : null;
+    setSubdomain(sub ?? (config.hostname === "" ? suggestedSubdomain : ""));
+    const pick = initialDomain(config.hostname, knownDomains === "" ? [] : knownDomains.split(","));
+    setNgrokDomain(pick);
+    setTypedHost(config.hostname !== "" && (pick === NGROK_OTHER_DOMAIN || (config.provider === "cloudflare" && sub === null)) ? config.hostname : "");
+  }, [config.provider, config.mode, config.hostname, config.serverName, cloudflareDomain, suggestedSubdomain, knownDomains]);
 
-  const secretKey = provider === "cloudflare" ? "cloudflareToken" : "ngrokAuthtoken";
-  const secretStored = provider === "cloudflare" ? state.secrets.cloudflareToken : state.secrets.ngrokAuthtoken;
-  const needsSecret = provider === "ngrok" || mode === "named";
-  const needsHostname = mode === "named";
+  const named = mode === "named";
+  const cloudflareNamed = provider === "cloudflare" && named;
+  const subdomainValue = subdomain.trim().toLowerCase();
+  // What the form adds up to. "" means the person has not chosen an address (yet).
+  let hostname = "";
+  if (cloudflareNamed) hostname = cloudflareDomain ? (subdomainValue !== "" ? `${subdomainValue}.${cloudflareDomain}` : "") : typedHost.trim().toLowerCase();
+  else if (provider === "ngrok" && named) hostname = ngrokDomain === NGROK_OTHER_DOMAIN ? typedHost.trim().toLowerCase() : ngrokDomain;
+  const invalid = cloudflareNamed && cloudflareDomain !== undefined && subdomainValue !== "" && !isSubdomain(subdomainValue);
   const dirty =
-    provider !== config.provider ||
-    mode !== config.mode ||
-    hostname.trim() !== config.hostname ||
-    serverName.trim() !== config.serverName ||
-    secret !== "";
+    provider !== config.provider || mode !== config.mode || hostname !== config.hostname || serverName.trim() !== config.serverName;
 
   const running = state.wanted;
   const detection = state.detection;
-  const service = `http://127.0.0.1:${state.remotePort ?? state.suggestedPort}`;
 
   const status = useMemo(() => t(`remoteAccess.tunnel.status.${state.tunnel}`), [state.tunnel, t]);
+
+  const settings = () => ({ provider, mode, hostname: named ? hostname : "", serverName: serverName.trim() });
 
   const save = async () => {
     setBusy("save");
     try {
-      const next = await host.configure({
-        provider,
-        mode,
-        hostname: needsHostname ? hostname.trim() : "",
-        serverName: serverName.trim(),
-        ...(secret !== "" ? { [secretKey]: secret.trim() } : {}),
-      });
-      setSecret("");
-      onState(next);
+      onState(await host.configure(settings()));
       toast.success(t("remoteAccess.tunnel.saved"));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("remoteAccess.tunnel.saveFailed"));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const forget = async () => {
-    setBusy("save");
-    try {
-      onState(await host.configure({ clearSecrets: [secretKey] }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("remoteAccess.tunnel.saveFailed"));
     } finally {
@@ -104,6 +108,7 @@ export function TunnelCard({ host, state, onState }: TunnelCardProps) {
   const toggle = async () => {
     setBusy("toggle");
     try {
+      if (!running && dirty) await host.configure(settings());
       onState(running ? await host.stop() : await host.start());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t(running ? "remoteAccess.tunnel.stopFailed" : "remoteAccess.tunnel.startFailed"));
@@ -170,69 +175,40 @@ export function TunnelCard({ host, state, onState }: TunnelCardProps) {
           <Label htmlFor="remote-mode">{t("remoteAccess.tunnel.mode")}</Label>
           <Select value={mode} onValueChange={(v) => setMode(v as DesktopRemoteMode)} disabled={running}>
             <SelectTrigger id="remote-mode">
-              <SelectValue />
+              <SelectValue>{t(modeLabelKey(provider, mode))}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="quick">{t("remoteAccess.tunnel.modes.quick")}</SelectItem>
-              <SelectItem value="named">{t("remoteAccess.tunnel.modes.named")}</SelectItem>
+              <SelectItem value="quick">{t(modeLabelKey(provider, "quick"))}</SelectItem>
+              <SelectItem value="named">{t(modeLabelKey(provider, "named"))}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <p className="text-sm text-muted-foreground sm:col-span-2">{t(modeHelpKey(provider, mode))}</p>
 
-        {needsSecret && (
-          <div className="space-y-1 sm:col-span-2">
-            <Label htmlFor="remote-secret">
-              {t(provider === "cloudflare" ? "remoteAccess.tunnel.cloudflareToken" : "remoteAccess.tunnel.ngrokAuthtoken")}
-            </Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="remote-secret"
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                placeholder={secretStored ? t("remoteAccess.tunnel.secretStored") : ""}
-                disabled={running}
-              />
-              {secretStored && !running && (
-                <Button type="button" variant="outline" size="sm" onClick={() => void forget()} disabled={busy !== null}>
-                  {t("remoteAccess.tunnel.secretClear")}
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t(provider === "cloudflare" ? "remoteAccess.tunnel.cloudflareTokenHelp" : "remoteAccess.tunnel.ngrokAuthtokenHelp")}
-            </p>
-          </div>
+        {cloudflareNamed && (
+          <CloudflareAccount
+            host={host}
+            state={state}
+            onState={onState}
+            subdomain={subdomain}
+            onSubdomain={setSubdomain}
+            typedHost={typedHost}
+            onTypedHost={setTypedHost}
+            hostname={hostname}
+          />
         )}
 
-        {needsHostname && (
-          <div className="space-y-1 sm:col-span-2">
-            <Label htmlFor="remote-hostname">{t("remoteAccess.tunnel.hostname")}</Label>
-            <Input
-              id="remote-hostname"
-              value={hostname}
-              onChange={(e) => setHostname(e.target.value)}
-              placeholder={t(
-                provider === "cloudflare"
-                  ? "remoteAccess.tunnel.hostnamePlaceholderCloudflare"
-                  : "remoteAccess.tunnel.hostnamePlaceholderNgrok",
-              )}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={running}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t(provider === "cloudflare" ? "remoteAccess.tunnel.hostnameHelpCloudflare" : "remoteAccess.tunnel.hostnameHelpNgrok")}
-            </p>
-            {provider === "cloudflare" && (
-              <p className="text-xs text-muted-foreground">
-                {t("remoteAccess.tunnel.cloudflareIngress", { service })}
-              </p>
-            )}
-          </div>
+        {provider === "ngrok" && (
+          <NgrokAccount
+            host={host}
+            state={state}
+            onState={onState}
+            needsDomain={named}
+            domain={ngrokDomain}
+            onDomain={setNgrokDomain}
+            typedHost={typedHost}
+            onTypedHost={setTypedHost}
+          />
         )}
 
         <div className="space-y-1 sm:col-span-2">
@@ -249,7 +225,7 @@ export function TunnelCard({ host, state, onState }: TunnelCardProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" onClick={() => void save()} disabled={!dirty || busy !== null || running}>
+        <Button variant="outline" onClick={() => void save()} disabled={!dirty || invalid || busy !== null || running}>
           <Save className="mr-2 h-4 w-4" />
           {t("remoteAccess.tunnel.save")}
         </Button>
@@ -298,7 +274,7 @@ export function TunnelCard({ host, state, onState }: TunnelCardProps) {
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => void toggle()} disabled={busy !== null} variant={running ? "outline" : "default"}>
+        <Button onClick={() => void toggle()} disabled={busy !== null || (!running && invalid)} variant={running ? "outline" : "default"}>
           {running ? <Square className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
           {running ? t("remoteAccess.tunnel.stop") : t("remoteAccess.tunnel.start")}
         </Button>
@@ -306,6 +282,8 @@ export function TunnelCard({ host, state, onState }: TunnelCardProps) {
           <span className="text-xs text-muted-foreground">{t("remoteAccess.tunnel.restarts", { count: state.restarts })}</span>
         )}
       </div>
+
+      <PairPhone url={pairableUrl(state)} serverName={config.serverName} onChanged={onChanged} />
 
       {state.url && (
         <div className="space-y-1">

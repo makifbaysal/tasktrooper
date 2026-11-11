@@ -134,6 +134,11 @@ func (s *Service) CreatePairing(ctx context.Context, role Role, expiresInDays in
 		return CreatedPairing{}, err
 	}
 	now := s.now()
+	// One phone at a time, so one live code at a time: "New code" retires the
+	// code before it instead of leaving two ways in.
+	if _, err := s.store.CancelPendingPairings(ctx, now); err != nil {
+		return CreatedPairing{}, err
+	}
 	p := Pairing{
 		ID:            uuid.New(),
 		CodeHash:      HashSecret(code),
@@ -147,6 +152,29 @@ func (s *Service) CreatePairing(ctx context.Context, role Role, expiresInDays in
 		return CreatedPairing{}, err
 	}
 	return CreatedPairing{ID: p.ID, Code: code, ExpiresAt: p.ExpiresAt}, nil
+}
+
+// revokeAllDevices ends every live device (the single-phone rule). Each one is
+// audited like a manual revoke, with the route that caused it.
+func (s *Service) revokeAllDevices(ctx context.Context, route string) error {
+	now := s.now()
+	devices, err := s.store.ListDevices(ctx, now)
+	if err != nil {
+		return err
+	}
+	for _, d := range devices {
+		if d.RevokedAt != nil {
+			continue
+		}
+		ok, err := s.store.RevokeDevice(ctx, d.ID, now)
+		if err != nil {
+			return err
+		}
+		if ok {
+			s.Audit(ctx, AuditEntry{Kind: AuditRevoke, DeviceID: &d.ID, DeviceName: d.Name, Method: "POST", Route: route, Status: 200})
+		}
+	}
+	return nil
 }
 
 func (s *Service) CancelPairing(ctx context.Context, id uuid.UUID) error {
@@ -184,6 +212,11 @@ func (s *Service) Exchange(ctx context.Context, code, deviceName, platform strin
 	}
 	token, err := newToken()
 	if err != nil {
+		return "", Device{}, err
+	}
+	// One phone at a time: the phone that paired before is signed out, and its
+	// next request answers 401 token_revoked.
+	if err := s.revokeAllDevices(ctx, "/remote/v1/pair"); err != nil {
 		return "", Device{}, err
 	}
 	d := Device{

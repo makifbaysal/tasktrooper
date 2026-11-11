@@ -55,6 +55,7 @@ import type {
   KeysWindowPrefill,
   McpServerSetRequest,
   RemoteAccessConfigureRequest,
+  RemoteAccessNgrokConnectRequest,
 } from "./channels.js";
 
 /**
@@ -291,6 +292,20 @@ export interface DesktopRemoteAccessHost {
   openInstallPage(provider: RemoteProvider): Promise<void>;
   /** The tunnel process's recent output, secrets redacted. */
   logs(): Promise<string[]>;
+  /** Re-reads the Cloudflare login from disk (cheap) and looks up its domain once. */
+  refreshAccount(): Promise<RemoteAccessState>;
+  /**
+   * `cloudflared tunnel login`: opens the browser, waits for the person to pick
+   * a domain, and keeps the certificate. Answers at once with `cloudflare.phase:
+   * "waiting"`; the end arrives as a state push.
+   */
+  cloudflareLogin(): Promise<RemoteAccessState>;
+  cloudflareLoginCancel(): Promise<RemoteAccessState>;
+  /** Deletes the certificate (and forgets the tunnel this app made). Refused while the tunnel runs. */
+  cloudflareLogout(): Promise<RemoteAccessState>;
+  /** Proves the authtoken with a test tunnel, then stores it; lists domains when an API key is given. */
+  ngrokConnect(request: RemoteAccessNgrokConnectRequest): Promise<RemoteAccessState>;
+  ngrokDisconnect(): Promise<RemoteAccessState>;
 }
 
 /**
@@ -390,6 +405,7 @@ export type {
   McpServersState,
   McpServerSetRequest,
   RemoteAccessConfigureRequest,
+  RemoteAccessNgrokConnectRequest,
   RemoteAccessState,
   RemoteBinaryDetection,
   RemoteProvider,

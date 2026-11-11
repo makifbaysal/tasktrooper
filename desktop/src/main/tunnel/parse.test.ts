@@ -44,9 +44,19 @@ describe("parseCloudflaredLine", () => {
     }
   });
 
-  it("calls a rejected token fatal, with a sentence a person can act on", () => {
-    const event = parseCloudflaredLine("ERR Provided Tunnel token is not valid (Error parsing tunnel ID).");
-    expect(event).toMatchObject({ kind: "fatal", problem: "auth_failed" });
+  it("calls a tunnel Cloudflare no longer accepts fatal, with a sentence a person can act on", () => {
+    for (const line of ["ERR Unauthorized: Invalid tunnel secret", "ERR Tunnel not found", "ERR Provided Tunnel token is not valid (Error parsing tunnel ID)."]) {
+      const event = parseCloudflaredLine(line);
+      expect(event).toMatchObject({ kind: "fatal", problem: "auth_failed" });
+      expect((event as { message: string }).message).toContain("log in again");
+    }
+  });
+
+  it("calls missing tunnel credentials fatal too", () => {
+    expect(parseCloudflaredLine("ERR Tunnel credentials file '/x/y.json' doesn't exist or is not a file")).toMatchObject({
+      kind: "fatal",
+      problem: "tunnel_setup_failed",
+    });
   });
 
   it("keeps an unreachable origin as a non-fatal error that names the local server", () => {
@@ -148,10 +158,16 @@ describe("buildLaunch", () => {
     expect(launch.env).toEqual({});
   });
 
-  it("passes a named tunnel's token through the environment, never argv", () => {
-    const launch = buildLaunch({ ...base, provider: "cloudflare", mode: "named", hostname: "phone.example.com" });
-    expect(launch.args).toEqual(["tunnel", "--no-autoupdate", "run"]);
-    expect(launch.env).toEqual({ TUNNEL_TOKEN: "SECRET-VALUE-123456" });
+  it("runs a named Cloudflare tunnel from the config file this app wrote, with no secret at all", () => {
+    const launch = buildLaunch({
+      ...base,
+      provider: "cloudflare",
+      mode: "named",
+      hostname: "phone.example.com",
+      cloudflare: { configFile: "/data/cloudflared/config.yml", tunnelId: "0b8a3c1e-5d2f-4c7a-9e11-3f6d8a2b4c90" },
+    });
+    expect(launch.args).toEqual(["tunnel", "--no-autoupdate", "--config", "/data/cloudflared/config.yml", "run", "0b8a3c1e-5d2f-4c7a-9e11-3f6d8a2b4c90"]);
+    expect(launch.env).toEqual({});
     expect(launch.args.join(" ")).not.toContain("SECRET");
   });
 

@@ -7903,12 +7903,6 @@ export const api = {
 
   listRemoteDevices: () => request<{ devices: RemoteDevice[] }>("/v1/remote-access/devices"),
 
-  renameRemoteDevice: (id: string, patch: { name?: string; role?: RemoteDeviceRole }) =>
-    request<RemoteDevice>(`/v1/remote-access/devices/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    }),
-
   revokeRemoteDevice: (id: string) =>
     request<void>(`/v1/remote-access/devices/${encodeURIComponent(id)}`, { method: "DELETE" }),
 

@@ -29,8 +29,11 @@ export function parseCloudflaredLine(raw: string): TunnelEvent | null {
   if (/Unregistered tunnel connection|Retrying connection in|Connection terminated|Unable to establish connection|failed to serve tunnel connection/i.test(line)) {
     return { kind: "reconnecting" };
   }
-  if (/Provided Tunnel token is not valid|Unauthorized: Invalid tunnel secret|failed to parse (?:the )?(?:tunnel )?token|tunnel token .*(?:invalid|malformed)|Invalid tunnel secret/i.test(line)) {
-    return { kind: "fatal", problem: "auth_failed", message: "Cloudflare rejected the tunnel token. Copy it again from the tunnel's page in the Cloudflare dashboard." };
+  if (/Unauthorized: Invalid tunnel secret|Invalid tunnel secret|Tunnel not found|tunnel .* not found|Provided Tunnel token is not valid/i.test(line)) {
+    return { kind: "fatal", problem: "auth_failed", message: "Cloudflare does not accept this computer's tunnel any more. Log out of Cloudflare and log in again." };
+  }
+  if (/credentials file .*(?:doesn't|does not) exist|Tunnel credentials file|Cannot determine default (?:origin certificate|configuration)/i.test(line)) {
+    return { kind: "fatal", problem: "tunnel_setup_failed", message: "cloudflared cannot find this computer's tunnel credentials. Log out of Cloudflare and log in again." };
   }
   if (/failed to unmarshal quick Tunnel|Error unmarshaling QuickTunnel/i.test(line)) {
     return { kind: "error", message: "Cloudflare could not create a quick tunnel just now. It retries by itself." };
@@ -151,8 +154,10 @@ export interface LaunchInput {
   mode: RemoteMode;
   port: number;
   hostname: string;
-  /** The cloudflared tunnel token, or the ngrok authtoken. */
+  /** The ngrok authtoken (unused by Cloudflare, whose login is a certificate on disk). */
   secret: string;
+  /** A named Cloudflare tunnel: the config file this app wrote and the tunnel it names. */
+  cloudflare?: { configFile: string; tunnelId: string };
 }
 
 export interface TunnelLaunch {
@@ -164,8 +169,8 @@ export interface TunnelLaunch {
 export function buildLaunch(input: LaunchInput): TunnelLaunch {
   const target = `127.0.0.1:${input.port}`;
   if (input.provider === "cloudflare") {
-    if (input.mode === "named") {
-      return { args: ["tunnel", "--no-autoupdate", "run"], env: { TUNNEL_TOKEN: input.secret } };
+    if (input.mode === "named" && input.cloudflare) {
+      return { args: ["tunnel", "--no-autoupdate", "--config", input.cloudflare.configFile, "run", input.cloudflare.tunnelId], env: {} };
     }
     return { args: ["tunnel", "--no-autoupdate", "--url", `http://${target}`], env: {} };
   }
@@ -176,7 +181,7 @@ export function buildLaunch(input: LaunchInput): TunnelLaunch {
 
 // --- redaction ----------------------------------------------------------------
 
-/** cloudflared tunnel tokens are base64 JSON ("eyJh…"); ngrok authtokens are `<digits>_<alnum>`. */
+/** Base64 JSON tokens ("eyJh…", also what a Cloudflare certificate holds); ngrok authtokens are `<digits>_<alnum>`. */
 const TOKEN_SHAPES = [/eyJ[A-Za-z0-9_-]{20,}={0,2}/g, /\b\d[A-Za-z0-9]{8,}_[A-Za-z0-9]{12,}\b/g];
 
 /** Replaces the stored secrets and anything shaped like a tunnel token. */

@@ -6,9 +6,9 @@ import { RemoteAccessSettingsPage } from "@/pages/RemoteAccessSettingsPage";
 
 const api = vi.hoisted(() => ({
   listRemoteDevices: vi.fn(),
+  remoteAccessStatus: vi.fn(),
   createRemotePairing: vi.fn(),
   cancelRemotePairing: vi.fn(),
-  renameRemoteDevice: vi.fn(),
   revokeRemoteDevice: vi.fn(),
   remoteAccessAudit: vi.fn(),
 }));
@@ -26,7 +26,9 @@ function state(patch: Partial<DesktopRemoteAccessState> = {}): DesktopRemoteAcce
     tunnel: "stopped",
     wanted: false,
     config: { provider: "cloudflare", mode: "quick", hostname: "", autoStart: false, serverName: "" },
-    secrets: { cloudflareToken: false, ngrokAuthtoken: false },
+    secrets: { ngrokAuthtoken: false, ngrokApiKey: false },
+    cloudflare: { loggedIn: false, phase: "idle", suggestedSubdomain: "tasktrooper-abc123" },
+    ngrok: { verified: false, phase: "idle", domains: [] },
     since: 1,
     restarts: 0,
     logTail: [],
@@ -60,6 +62,18 @@ function stubShell(initial: DesktopRemoteAccessState) {
     detect: vi.fn(),
     openInstallPage: vi.fn(() => Promise.resolve()),
     logs: vi.fn(() => Promise.resolve([])),
+    refreshAccount: vi.fn(() => Promise.resolve(current)),
+    cloudflareLogin: vi.fn(() => {
+      current = { ...current, cloudflare: { ...current.cloudflare, phase: "waiting", loginUrl: "https://dash.cloudflare.com/argotunnel?aud=x" } };
+      return Promise.resolve(current);
+    }),
+    cloudflareLoginCancel: vi.fn(() => Promise.resolve(current)),
+    cloudflareLogout: vi.fn(() => {
+      current = { ...current, cloudflare: { ...current.cloudflare, loggedIn: false } };
+      return Promise.resolve(current);
+    }),
+    ngrokConnect: vi.fn(() => Promise.resolve(current)),
+    ngrokDisconnect: vi.fn(() => Promise.resolve(current)),
   };
   window.__tasktrooperDesktop = { remoteAccess: host } as never;
   return {
@@ -81,6 +95,7 @@ function renderPage() {
 
 beforeEach(() => {
   api.listRemoteDevices.mockResolvedValue({ devices: [] });
+  api.remoteAccessStatus.mockResolvedValue({ enabled: true, port: 47820, server_name: "Akif's MacBook", device_count: 0, pending_pairings: 0 });
   api.remoteAccessAudit.mockResolvedValue({ entries: [] });
   api.revokeRemoteDevice.mockResolvedValue(undefined);
   api.cancelRemotePairing.mockResolvedValue(undefined);
@@ -97,14 +112,26 @@ describe("RemoteAccessSettingsPage", () => {
     expect(screen.getByText(/set up in the TaskTrooper desktop app/i)).toBeTruthy();
   });
 
-  it("shows the security note, the tunnel form and a stopped tunnel", async () => {
+  it("shows the security note, the tunnel form and a stopped tunnel with the pair button waiting for it", async () => {
     stubShell(state());
     renderPage();
     expect(await screen.findByText("Cloudflare Tunnel")).toBeTruthy();
     expect(screen.getByText(/Read this before you pair a phone/i)).toBeTruthy();
     expect(screen.getByTestId("tunnel-status").textContent).toBe("Stopped");
     expect(screen.getByText(/cloudflared 2025.10.1 found/i)).toBeTruthy();
-    expect(screen.getByText(/Start the tunnel first/i)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Pair phone" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Start the tunnel to pair a phone.")).toBeTruthy();
+  });
+
+  it("has no always-visible pairing card and no list of paired phones", async () => {
+    stubShell(state({ tunnel: "connected", wanted: true, url: "https://calm-fox-12.trycloudflare.com" }));
+    api.listRemoteDevices.mockResolvedValue({ devices: [{ id: "d1", name: "Akif's iPhone", role: "operator", created_at: new Date().toISOString() }] });
+    renderPage();
+    await screen.findByText("Phone connected: Akif's iPhone");
+    expect(screen.queryByText("Paired phones")).toBeNull();
+    expect(screen.queryByText("Pair a phone")).toBeNull();
+    expect(screen.queryByTestId("pairing-code")).toBeNull();
+    expect(screen.queryAllByTestId("device-row")).toHaveLength(0);
   });
 
   it("starts and stops the tunnel through the bridge", async () => {
@@ -129,92 +156,233 @@ describe("RemoteAccessSettingsPage", () => {
     expect(host.openInstallPage).toHaveBeenCalledWith("cloudflare");
   });
 
-  it("sends a typed token to the bridge once and never shows a stored one", async () => {
-    const { host } = stubShell(state({ config: { provider: "ngrok", mode: "quick", hostname: "", autoStart: false, serverName: "" } }));
-    renderPage();
-    const input = (await screen.findByLabelText("ngrok authtoken")) as HTMLInputElement;
-    expect(input.type).toBe("password");
-    fireEvent.change(input, { target: { value: "2abcDEF1234ghi_5JkLmNoPqRsTuVwXyZ12" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
-    await waitFor(() => expect(host.configure).toHaveBeenCalled());
-    expect(host.configure.mock.calls[0]?.[0]).toMatchObject({ provider: "ngrok", ngrokAuthtoken: "2abcDEF1234ghi_5JkLmNoPqRsTuVwXyZ12" });
-    await waitFor(() => expect((screen.getByLabelText("ngrok authtoken") as HTMLInputElement).value).toBe(""));
+  describe("Cloudflare, own domain", () => {
+    const named = { provider: "cloudflare", mode: "named", hostname: "", autoStart: false, serverName: "" } as const;
+
+    it("asks for a login instead of a token and a hostname, and starts the login through the bridge", async () => {
+      const { host } = stubShell(state({ config: named }));
+      renderPage();
+      expect(await screen.findByRole("button", { name: "Log in to Cloudflare" })).toBeTruthy();
+      expect(screen.queryByLabelText("Tunnel token")).toBeNull();
+      expect(screen.queryByLabelText("Public hostname")).toBeNull();
+      expect(screen.queryByLabelText("Subdomain")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Log in to Cloudflare" }));
+      await waitFor(() => expect(host.cloudflareLogin).toHaveBeenCalledOnce());
+      expect(await screen.findByText("Waiting for the browser…")).toBeTruthy();
+      expect(screen.getByTestId("cloudflare-login-url").getAttribute("href")).toBe("https://dash.cloudflare.com/argotunnel?aud=x");
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(host.cloudflareLoginCancel).toHaveBeenCalledOnce());
+    });
+
+    it("shows a failed login with the reason", async () => {
+      stubShell(state({ config: named, cloudflare: { loggedIn: false, phase: "failed", error: "The Cloudflare login did not finish. Try again.", suggestedSubdomain: "tasktrooper-abc123" } }));
+      renderPage();
+      expect(await screen.findByText("The Cloudflare login did not finish. Try again.")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Log in to Cloudflare" })).toBeTruthy();
+    });
+
+    it("shows the logged-in domain and only asks for a subdomain, prefilled; Start saves the full address first", async () => {
+      const { host } = stubShell(state({ config: named, cloudflare: { loggedIn: true, domain: "example.com", phase: "idle", suggestedSubdomain: "tasktrooper-abc123" } }));
+      renderPage();
+      expect(await screen.findByText("Logged in to Cloudflare")).toBeTruthy();
+      expect(screen.getByText("Domain: example.com")).toBeTruthy();
+      const input = screen.getByLabelText("Subdomain") as HTMLInputElement;
+      expect(input.value).toBe("tasktrooper-abc123");
+      expect(screen.getByText("Phone address: https://tasktrooper-abc123.example.com")).toBeTruthy();
+
+      fireEvent.change(input, { target: { value: "Phone" } });
+      fireEvent.click(screen.getByRole("button", { name: "Start tunnel" }));
+      await waitFor(() => expect(host.start).toHaveBeenCalledOnce());
+      expect(host.configure).toHaveBeenCalledWith({ provider: "cloudflare", mode: "named", hostname: "phone.example.com", serverName: "" });
+      expect(host.configure.mock.invocationCallOrder[0]).toBeLessThan(host.start.mock.invocationCallOrder[0] as number);
+    });
+
+    it("keeps a saved subdomain and refuses one that is not a single label", async () => {
+      const { host } = stubShell(state({ config: { ...named, hostname: "phone.example.com" }, cloudflare: { loggedIn: true, domain: "example.com", phase: "idle", suggestedSubdomain: "tasktrooper-abc123" } }));
+      renderPage();
+      const input = (await screen.findByLabelText("Subdomain")) as HTMLInputElement;
+      expect(input.value).toBe("phone");
+      fireEvent.change(input, { target: { value: "a.b" } });
+      expect(screen.getByText(/one word of letters/i)).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Save settings" }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name: "Start tunnel" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(host.start).not.toHaveBeenCalled();
+    });
+
+    it("asks for the whole address when Cloudflare would not say the domain", async () => {
+      stubShell(state({ config: named, cloudflare: { loggedIn: true, domainError: "Could not read the domain from Cloudflare (HTTP 403).", phase: "idle", suggestedSubdomain: "tasktrooper-abc123" } }));
+      renderPage();
+      expect(await screen.findByLabelText("Full address")).toBeTruthy();
+      expect(screen.getByText(/HTTP 403/)).toBeTruthy();
+      expect(screen.queryByLabelText("Subdomain")).toBeNull();
+    });
+
+    it("logs out after a confirmation, and not while the tunnel runs", async () => {
+      const { host, push } = stubShell(state({ config: named, cloudflare: { loggedIn: true, domain: "example.com", phase: "idle", suggestedSubdomain: "tasktrooper-abc123" } }));
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
+      expect(await screen.findByText("Log out of Cloudflare?")).toBeTruthy();
+      const buttons = screen.getAllByRole("button", { name: "Log out" });
+      fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
+      await waitFor(() => expect(host.cloudflareLogout).toHaveBeenCalledOnce());
+
+      push(state({ config: named, tunnel: "connected", wanted: true, url: "https://x.example.com", cloudflare: { loggedIn: true, domain: "example.com", phase: "idle", suggestedSubdomain: "tasktrooper-abc123" } }));
+      await waitFor(() => expect((screen.getByRole("button", { name: "Log out" }) as HTMLButtonElement).disabled).toBe(true));
+    });
   });
 
-  it("asks for a hostname in own-domain mode and shows the Cloudflare service to point at", async () => {
-    stubShell(state({ config: { provider: "cloudflare", mode: "named", hostname: "", autoStart: false, serverName: "" }, remotePort: 47820 }));
-    renderPage();
-    expect(await screen.findByLabelText("Public hostname")).toBeTruthy();
-    expect(screen.getByText(/http:\/\/127\.0\.0\.1:47820/)).toBeTruthy();
-    expect(screen.getByLabelText("Tunnel token")).toBeTruthy();
+  describe("ngrok", () => {
+    const ngrok = { provider: "ngrok", mode: "quick", hostname: "", autoStart: false, serverName: "" } as const;
+    const AUTHTOKEN = "2abcDEF1234ghi_5JkLmNoPqRsTuVwXyZ12";
+
+    it("takes the authtoken once through the connect button, hides it, and links to where to get it", async () => {
+      const { host } = stubShell(state({ config: ngrok }));
+      renderPage();
+      const input = (await screen.findByLabelText("ngrok authtoken")) as HTMLInputElement;
+      expect(input.type).toBe("password");
+      expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByRole("link", { name: /dashboard\.ngrok\.com/ }).getAttribute("href")).toBe("https://dashboard.ngrok.com/get-started/your-authtoken");
+      fireEvent.change(input, { target: { value: AUTHTOKEN } });
+      fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+      await waitFor(() => expect(host.ngrokConnect).toHaveBeenCalledWith({ authtoken: AUTHTOKEN }));
+      await waitFor(() => expect((screen.getByLabelText("ngrok authtoken") as HTMLInputElement).value).toBe(""));
+      expect(host.configure).not.toHaveBeenCalled();
+    });
+
+    it("shows a spinner while ngrok checks the token, and ngrok's refusal", async () => {
+      stubShell(state({ config: ngrok, ngrok: { verified: false, phase: "checking", domains: [] } }));
+      const { unmount } = renderPage();
+      expect(await screen.findByText("Checking with ngrok…")).toBeTruthy();
+      unmount();
+      stubShell(state({ config: ngrok, ngrok: { verified: false, phase: "idle", domains: [], error: "ngrok does not accept this authtoken. Copy it again from the ngrok dashboard." } }));
+      renderPage();
+      expect(await screen.findByText(/does not accept this authtoken/)).toBeTruthy();
+    });
+
+    it("offers no domain choice for the free address once connected, and can disconnect", async () => {
+      const { host } = stubShell(state({ config: ngrok, secrets: { ngrokAuthtoken: true, ngrokApiKey: false }, ngrok: { verified: true, phase: "idle", domains: [] } }));
+      renderPage();
+      expect(await screen.findByText("ngrok account connected")).toBeTruthy();
+      expect(screen.queryByLabelText("Domain")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+      await waitFor(() => expect(host.ngrokDisconnect).toHaveBeenCalledOnce());
+    });
+
+    it("lists the account's domains with an API key, and keeps the key out of the page afterwards", async () => {
+      const { host } = stubShell(
+        state({
+          config: { ...ngrok, mode: "named", hostname: "mine.ngrok.app" },
+          secrets: { ngrokAuthtoken: true, ngrokApiKey: false },
+          ngrok: { verified: true, phase: "idle", domains: ["mine.ngrok.app", "other.ngrok.app"] },
+        }),
+      );
+      renderPage();
+      expect(await screen.findByText("2 domains found")).toBeTruthy();
+      expect(screen.getByRole("combobox", { name: "Domain" }).textContent).toContain("mine.ngrok.app");
+      const key = screen.getByLabelText("ngrok API key (optional)") as HTMLInputElement;
+      expect(key.type).toBe("password");
+      fireEvent.change(key, { target: { value: "2xYz_apiKey123" } });
+      fireEvent.click(screen.getByRole("button", { name: "List my domains" }));
+      await waitFor(() => expect(host.ngrokConnect).toHaveBeenCalledWith({ apiKey: "2xYz_apiKey123" }));
+      await waitFor(() => expect((screen.getByLabelText("ngrok API key (optional)") as HTMLInputElement).value).toBe(""));
+    });
   });
 
-  it("creates a pairing for the live tunnel address and shows the QR and the typed code", async () => {
-    const shell = stubShell(state({ tunnel: "connected", wanted: true, url: "https://calm-fox-12.trycloudflare.com" }));
-    api.createRemotePairing.mockResolvedValue({
+  describe("pairing", () => {
+    const connected = () => state({ tunnel: "connected", wanted: true, url: "https://calm-fox-12.trycloudflare.com" });
+    const pairing = (ms = 5 * 60_000) => ({
       id: "p1",
       code: "K7QD2M9WXH4T",
       code_display: "K7QD-2M9W-XH4T",
       uri: URI,
-      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+      expires_at: new Date(Date.now() + ms).toISOString(),
     });
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Show pairing code" }));
-    await waitFor(() => expect(api.createRemotePairing).toHaveBeenCalled());
-    expect(api.createRemotePairing.mock.calls[0]?.[0]).toMatchObject({
-      role: "operator",
-      expires_in_days: 30,
-      public_url: "https://calm-fox-12.trycloudflare.com",
-    });
-    expect((await screen.findByTestId("pairing-code")).textContent).toBe("K7QD-2M9W-XH4T");
-    expect(screen.getByRole("img", { name: "Scan with the TaskTrooper app" })).toBeTruthy();
-    expect(screen.getByText(/Waiting for the phone/)).toBeTruthy();
 
-    shell.push(state({ tunnel: "stopped", wanted: false }));
-    await waitFor(() => expect(screen.queryByTestId("pairing-code")).toBeNull());
-  });
+    it("opens a modal with the QR and the same details as text, for the live tunnel address", async () => {
+      const shell = stubShell(connected());
+      api.createRemotePairing.mockResolvedValue(pairing());
+      renderPage();
+      expect((await screen.findByRole("button", { name: "Pair phone" }) as HTMLButtonElement).disabled).toBe(false);
+      expect(api.createRemotePairing).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Pair phone" }));
+      await waitFor(() => expect(api.createRemotePairing).toHaveBeenCalledOnce());
+      expect(api.createRemotePairing.mock.calls[0]?.[0]).toMatchObject({ role: "operator", expires_in_days: 30, public_url: "https://calm-fox-12.trycloudflare.com" });
 
-  it("recognises the phone that paired", async () => {
-    stubShell(state({ tunnel: "connected", wanted: true, url: "https://calm-fox-12.trycloudflare.com" }));
-    api.createRemotePairing.mockResolvedValue({
-      id: "p1",
-      code: "K7QD2M9WXH4T",
-      code_display: "K7QD-2M9W-XH4T",
-      uri: URI,
-      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
-    });
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Show pairing code" }));
-    await screen.findByTestId("pairing-code");
-    api.listRemoteDevices.mockResolvedValue({
-      devices: [{ id: "d1", name: "Akif's iPhone", role: "operator", created_at: new Date().toISOString() }],
-    });
-    expect(await screen.findByText("Akif's iPhone is paired.", {}, { timeout: 4_000 })).toBeTruthy();
-  }, 8_000);
+      expect((await screen.findByTestId("pairing-code")).textContent).toBe("K7QD-2M9W-XH4T");
+      expect(screen.getByTestId("pairing-address").textContent).toBe("https://calm-fox-12.trycloudflare.com");
+      expect(await screen.findByText("Akif's MacBook")).toBeTruthy();
+      expect(screen.getByTestId("pairing-expiry").textContent).toMatch(/Expires in 5 min/);
+      expect(screen.getByRole("img", { name: "Scan with the TaskTrooper app" })).toBeTruthy();
+      expect(screen.getByText(/Waiting for the phone/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Copy: Pairing code" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Copy: Address" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "New code" })).toBeNull();
 
-  it("lists paired phones and revokes one after confirmation", async () => {
-    stubShell(state());
-    api.listRemoteDevices.mockResolvedValue({
-      devices: [
-        {
-          id: "d1",
-          name: "Akif's iPhone",
-          platform: "ios",
-          role: "viewer",
-          created_at: new Date().toISOString(),
-          last_seen_at: new Date(Date.now() - 5 * 60_000).toISOString(),
-          expires_at: null,
-        },
-      ],
+      shell.push(state({ tunnel: "stopped", wanted: false }));
+      await waitFor(() => expect(screen.queryByTestId("pairing-code")).toBeNull());
+      expect(api.cancelRemotePairing).toHaveBeenCalledWith("p1");
     });
-    renderPage();
-    expect(await screen.findByText("Akif's iPhone")).toBeTruthy();
-    expect(screen.getByText("View only")).toBeTruthy();
-    expect(screen.getByText(/Last seen 5 min ago/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-    const dialogButtons = await screen.findAllByRole("button", { name: "Revoke" });
-    fireEvent.click(dialogButtons[dialogButtons.length - 1] as HTMLElement);
-    await waitFor(() => expect(api.revokeRemoteDevice).toHaveBeenCalledWith("d1"));
+
+    it("offers a new code once the code has expired", async () => {
+      stubShell(connected());
+      api.createRemotePairing.mockResolvedValueOnce(pairing(1_200)).mockResolvedValueOnce({ ...pairing(), id: "p2", code_display: "AAAA-BBBB-CCCC" });
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Pair phone" }));
+      expect(await screen.findByText("This code has expired.", {}, { timeout: 4_000 })).toBeTruthy();
+      expect(screen.queryByTestId("pairing-code")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "New code" }));
+      expect((await screen.findByTestId("pairing-code")).textContent).toBe("AAAA-BBBB-CCCC");
+      expect(api.createRemotePairing).toHaveBeenCalledTimes(2);
+    }, 8_000);
+
+    it("cancels an unused code when the modal is closed", async () => {
+      stubShell(connected());
+      api.createRemotePairing.mockResolvedValue(pairing());
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Pair phone" }));
+      await screen.findByTestId("pairing-code");
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      await waitFor(() => expect(api.cancelRemotePairing).toHaveBeenCalledWith("p1"));
+    });
+
+    it("recognises the phone that paired", async () => {
+      stubShell(connected());
+      api.createRemotePairing.mockResolvedValue(pairing());
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Pair phone" }));
+      await screen.findByTestId("pairing-code");
+      api.listRemoteDevices.mockResolvedValue({
+        devices: [{ id: "d1", name: "Akif's iPhone", role: "operator", created_at: new Date().toISOString() }],
+      });
+      expect(await screen.findByText("Akif's iPhone is connected.", {}, { timeout: 4_000 })).toBeTruthy();
+      expect(api.cancelRemotePairing).not.toHaveBeenCalled();
+    }, 8_000);
+
+    it("shows the one connected phone as a status line and disconnects it after a confirmation", async () => {
+      stubShell(connected());
+      api.listRemoteDevices.mockResolvedValue({
+        devices: [
+          { id: "d1", name: "Akif's iPhone", platform: "ios", role: "viewer", created_at: new Date().toISOString(), expires_at: null },
+          { id: "old", name: "Old phone", role: "operator", created_at: new Date().toISOString(), revoked_at: new Date().toISOString() },
+        ],
+      });
+      renderPage();
+      expect(await screen.findByText("Phone connected: Akif's iPhone")).toBeTruthy();
+      expect(screen.queryByText(/Old phone/)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+      expect(await screen.findByText("Disconnect Akif's iPhone?")).toBeTruthy();
+      const buttons = screen.getAllByRole("button", { name: "Disconnect" });
+      fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
+      await waitFor(() => expect(api.revokeRemoteDevice).toHaveBeenCalledWith("d1"));
+      await waitFor(() => expect(screen.queryByText("Phone connected: Akif's iPhone")).toBeNull());
+    });
+
+    it("shows no phone line when none is connected", async () => {
+      stubShell(connected());
+      renderPage();
+      await screen.findByRole("button", { name: "Pair phone" });
+      expect(screen.queryByTestId("phone-connected")).toBeNull();
+    });
   });
 
   it("renders the audit log without request bodies", async () => {

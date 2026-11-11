@@ -687,8 +687,10 @@ export type RemoteTunnelState =
 
 /** Why the tunnel is in `error` when it is something the person fixes in the form. */
 export type RemoteTunnelProblem =
+  | "needs_login"
   | "needs_token"
   | "needs_hostname"
+  | "tunnel_setup_failed"
   | "auth_failed"
   | "server_unavailable"
   | "enable_failed"
@@ -699,8 +701,9 @@ export interface RemoteAccessConfig {
   provider: RemoteProvider;
   mode: RemoteMode;
   /**
-   * named mode: the public hostname (cloudflare: the one routed to the tunnel in the Cloudflare
-   * dashboard; ngrok: the reserved or custom domain). Empty in quick mode.
+   * named mode: the public hostname (cloudflare: `<subdomain>.<the domain of the zone the person
+   * logged in with>`, routed to the tunnel by this app; ngrok: a domain of the person's ngrok
+   * account). Empty in quick mode.
    */
   hostname: string;
   /** Start the tunnel when the app launches. */
@@ -711,8 +714,41 @@ export interface RemoteAccessConfig {
 
 /** Which secrets are stored. Never the values. */
 export interface RemoteSecretsView {
-  cloudflareToken: boolean;
   ngrokAuthtoken: boolean;
+  ngrokApiKey: boolean;
+}
+
+/**
+ * The person's Cloudflare login on this computer: the origin certificate
+ * `cloudflared tunnel login` leaves in `~/.cloudflared/cert.pem`, bound to the
+ * one zone (domain) they picked in the browser.
+ */
+export interface RemoteCloudflareAccount {
+  loggedIn: boolean;
+  /** The domain (zone) of the login, when Cloudflare told us. */
+  domain?: string;
+  /** Why the domain is unknown although the person is logged in (they then type the whole hostname). */
+  domainError?: string;
+  /** waiting: `cloudflared tunnel login` is running and the browser is open. */
+  phase: "idle" | "waiting" | "failed";
+  /** The sign-in link cloudflared printed, shown in case the browser did not open by itself. */
+  loginUrl?: string;
+  /** English, one line, secrets redacted. */
+  error?: string;
+  /** A subdomain that is likely free and recognisably ours: `tasktrooper-<short>`. */
+  suggestedSubdomain: string;
+}
+
+/** The person's ngrok account as far as this app can see it. */
+export interface RemoteNgrokAccount {
+  /** The authtoken was accepted by ngrok when it was saved. */
+  verified: boolean;
+  /** checking: a short-lived test tunnel is running to prove the authtoken. */
+  phase: "idle" | "checking";
+  /** Domains of the account (needs the optional ngrok API key). */
+  domains: string[];
+  error?: string;
+  apiKeyError?: string;
 }
 
 export interface RemoteBinaryDetection {
@@ -732,6 +768,8 @@ export interface RemoteAccessState {
   wanted: boolean;
   config: RemoteAccessConfig;
   secrets: RemoteSecretsView;
+  cloudflare: RemoteCloudflareAccount;
+  ngrok: RemoteNgrokAccount;
   /** The public https base URL once the provider reported one. */
   url?: string;
   /** The loopback port of the server's remote listener the tunnel points at. */
@@ -745,6 +783,6 @@ export interface RemoteAccessState {
   detection?: RemoteBinaryDetection;
   /** The last lines of the tunnel process's output, redacted. */
   logTail: string[];
-  /** The port a named Cloudflare tunnel's public hostname must point at (http://127.0.0.1:<port>). */
+  /** The port the server's remote listener asks for first (it stays the same between launches). */
   suggestedPort: number;
 }
