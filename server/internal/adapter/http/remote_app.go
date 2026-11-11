@@ -41,6 +41,7 @@ var remoteCapabilities = []string{
 	"agent_cli_status", "llm_providers_read",
 	"github_status", "github_import", "github_device_flow",
 	"projects_write", "attachments_read",
+	"audience",
 }
 
 // remoteListener is the listener a tunnel points at. It is a second fiber app

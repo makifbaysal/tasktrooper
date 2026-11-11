@@ -104,6 +104,16 @@ var remoteRules = compileRemoteRules([]remoteRule{
 	R("/v1/settings/github/repos"),
 	R("/v1/settings/github/device/:id").loose(),
 
+	// Audience research (capability "audience"): synthetic personas, studies
+	// and their reports. The long work (writing the people, the interviews,
+	// the report) runs on this computer; a phone starts it and polls.
+	R("/v1/audience-research/status"),
+	R("/v1/audiences"),
+	R("/v1/audiences/:id"),
+	R("/v1/audience-studies"),
+	R("/v1/audience-studies/:id"),
+	R("/v1/audience-personas/:id/messages"),
+
 	// Board work.
 	W("POST", "/v1/repositories/:id/tasks").withCheck(onlyKeys(createTaskKeys)),
 	W("PATCH", "/v1/repositories/:id/tasks/:taskId").withCheck(onlyKeys(moveTaskKeys)),
@@ -129,12 +139,37 @@ var remoteRules = compileRemoteRules([]remoteRule{
 	W("PUT", "/v1/repositories/:id/projects"),
 	W("DELETE", "/v1/repositories/:id"),
 	W("POST", "/v1/settings/github/device"),
+
+	// Audience research. Building and every study step spend model calls on
+	// this computer; the explicit tap on the phone is the approval, so
+	// user_approved stays in the body the server already demands.
+	W("POST", "/v1/audiences").withCheck(onlyKeys(audienceKeys)),
+	W("PATCH", "/v1/audiences/:id").withCheck(onlyKeys(audienceKeys)),
+	W("DELETE", "/v1/audiences/:id"),
+	W("POST", "/v1/audiences/:id/build"),
+	W("POST", "/v1/audiences/:id/build/cancel"),
+	W("POST", "/v1/audiences/:id/studies").withCheck(onlyKeys(studyPlanKeys)),
+	W("PATCH", "/v1/audience-studies/:id").withCheck(onlyKeys(studyPlanKeys)),
+	W("DELETE", "/v1/audience-studies/:id"),
+	W("POST", "/v1/audience-studies/:id/script"),
+	W("POST", "/v1/audience-studies/:id/script/approve").withCheck(onlyKeys(scriptApproveKeys)),
+	W("POST", "/v1/audience-studies/:id/start").withCheck(onlyKeys(studyRunKeys)),
+	W("POST", "/v1/audience-studies/:id/report").withCheck(onlyKeys(studyRunKeys)),
+	W("POST", "/v1/audience-studies/:id/retry").withCheck(onlyKeys(studyRunKeys)),
+	W("POST", "/v1/audience-studies/:id/cancel"),
+	W("POST", "/v1/audience-personas/:id/messages").withCheck(onlyKeys(personaMessageKeys)),
 })
 
 var (
 	createTaskKeys = setOf("title", "task_type", "description", "technical_description", "initiative_project_id",
 		"component_id", "column", "priority", "assignee_agent_id", "acceptance_criteria", "relations", "blocked_by")
 	moveTaskKeys = setOf("column", "position", "assignee_agent_id", "priority", "title", "description")
+
+	audienceKeys       = setOf("name", "repository", "brief", "persona_target")
+	studyPlanKeys      = setOf("title", "goal", "kind", "inputs", "questions", "script", "price_points", "currency")
+	scriptApproveKeys  = setOf("version")
+	studyRunKeys       = setOf("user_approved", "manual_report")
+	personaMessageKeys = setOf("message")
 )
 
 func setOf(keys ...string) map[string]bool {

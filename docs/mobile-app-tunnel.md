@@ -145,16 +145,32 @@ pairing screen again.
 | | View only | Can act |
 |---|---|---|
 | See projects, repositories, board, tasks, comments, history, agents, chats | yes | yes |
+| See audiences, their people, studies and reports | yes | yes |
 | Add comments, move and assign tasks, create tasks | no | yes |
 | Chat with the product manager and other agents, answer their questions | no | yes |
 | Stop, interrupt or re-run an agent run, confirm a before-deploy step | no | yes |
 | Add or remove repositories and projects, connect GitHub | no | yes |
+| Create and build an audience, plan and run a study, approve its script, write the report, talk to one of the people | no | yes |
 
 It cannot change settings, API keys, MCP servers, runners, the tunnel or the
 pairing, cannot read files or run commands, and cannot reach any other
 route of the local API. This is enforced on the computer: the tunnel points at
 a separate port that only answers a short list of routes, and everything else is
 refused before it reaches the application.
+
+### Audience research from the phone
+
+A computer that advertises the `audience` capability lets the phone use the
+Audience pages: create or edit an audience, build it, plan a study (user
+interviews, landing page test, message testing, A/B test), edit and approve its
+script, start the interviews, retry the failed ones, write the report and read
+it, and chat 1:1 with one of the invented people. Everything runs on your
+computer with your own agent; the phone only starts the work and polls for it.
+Building an audience, starting a study, retrying and writing the report spend
+model calls, so the phone asks first and sends `user_approved: true`, exactly as
+the desktop does. Deleting an audience or a study, and cancelling a build or a
+study, are allowed; asking a whole study a follow-up question and clearing a
+conversation are not. A "View only" phone can read all of it and change nothing.
 
 ## Security notes
 
@@ -193,6 +209,10 @@ refused before it reaches the application.
   open it and checks for changes in the background as iOS allows.
 - The computer must be on, awake and online, with TaskTrooper running.
 - Uploading files or images from the phone is not supported yet.
+- A reply from one of an audience's people is written while the request is open,
+  so on a quick tunnel an answer that takes longer than about 100 seconds is cut
+  off on the way back. The reply is still saved on the computer and the app
+  fetches it on its next look.
 
 ## Troubleshooting
 

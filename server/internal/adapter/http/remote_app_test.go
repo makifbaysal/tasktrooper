@@ -22,6 +22,7 @@ import (
 	"github.com/valyala/fasthttp"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/mcpserver"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/audience"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/remoteaccess"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/remoteaccess/remotetest"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -310,6 +311,118 @@ func TestViewerCannotWrite(t *testing.T) {
 
 	status, _, _ = rh.do("DELETE", "/remote/v1/me", token, "")
 	assert.Equal(t, 204, status, "a viewer may unpair itself")
+}
+
+func TestAudienceCapabilityIsAdvertisedOnlyWhereTheRoutesExist(t *testing.T) {
+	rh := newRemoteHarness(t)
+	caps := func() []string {
+		_, body, _ := rh.do("GET", "/remote/v1/info", "", "")
+		var info struct {
+			Capabilities []string `json:"capabilities"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(body), &info))
+		return info.Capabilities
+	}
+	assert.NotContains(t, caps(), "audience", "no audience service, no promise")
+	assert.Contains(t, remoteCapabilities, "audience")
+	rh.h.audienceSvc = &audience.Service{}
+	assert.Contains(t, caps(), "audience")
+}
+
+func TestAudienceReadsAndWritesAreClassified(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	for _, p := range []string{
+		"/v1/audience-research/status", "/v1/audiences", "/v1/audiences/" + id,
+		"/v1/audience-studies", "/v1/audience-studies/" + id, "/v1/audience-personas/" + id + "/messages",
+	} {
+		r, ok := matchRemoteRule("GET", p)
+		require.True(t, ok, p)
+		assert.False(t, r.Write, p)
+	}
+	writes := [][2]string{
+		{"POST", "/v1/audiences"}, {"PATCH", "/v1/audiences/" + id}, {"DELETE", "/v1/audiences/" + id},
+		{"POST", "/v1/audiences/" + id + "/build"}, {"POST", "/v1/audiences/" + id + "/build/cancel"},
+		{"POST", "/v1/audiences/" + id + "/studies"}, {"PATCH", "/v1/audience-studies/" + id},
+		{"DELETE", "/v1/audience-studies/" + id}, {"POST", "/v1/audience-studies/" + id + "/script"},
+		{"POST", "/v1/audience-studies/" + id + "/script/approve"}, {"POST", "/v1/audience-studies/" + id + "/start"},
+		{"POST", "/v1/audience-studies/" + id + "/report"}, {"POST", "/v1/audience-studies/" + id + "/retry"},
+		{"POST", "/v1/audience-studies/" + id + "/cancel"}, {"POST", "/v1/audience-personas/" + id + "/messages"},
+	}
+	for _, w := range writes {
+		r, ok := matchRemoteRule(w[0], w[1])
+		require.True(t, ok, w)
+		assert.True(t, r.Write, w)
+		assert.False(t, r.Native, w)
+	}
+	for _, c := range [][2]string{
+		{"DELETE", "/v1/audience-personas/" + id + "/messages"},
+		{"POST", "/v1/audience-studies/" + id + "/ask"},
+		{"POST", "/v1/audience-studies/" + id + "/ask-everyone"},
+		{"POST", "/v1/audience-studies/" + id + "/personas/" + id + "/follow-up"},
+		{"GET", "/v1/audience-studies/not-a-uuid"},
+	} {
+		_, ok := matchRemoteRule(c[0], c[1])
+		assert.False(t, ok, c)
+	}
+}
+
+func TestViewerReadsAudiencesButCannotChangeThem(t *testing.T) {
+	rh := newRemoteHarness(t)
+	token, _ := rh.pair(remoteaccess.RoleViewer, 0)
+	id := "11111111-1111-4111-8111-111111111111"
+	for _, p := range []string{"/v1/audiences", "/v1/audiences/" + id, "/v1/audience-studies?audience_id=" + id, "/v1/audience-studies/" + id, "/v1/audience-personas/" + id + "/messages"} {
+		status, _, _ := rh.do("GET", p, token, "")
+		assert.Equal(t, 200, status, p)
+	}
+	reached := rh.reached.Load()
+	for _, c := range [][2]string{
+		{"POST", "/v1/audiences"}, {"POST", "/v1/audiences/" + id + "/build"}, {"POST", "/v1/audiences/" + id + "/studies"},
+		{"POST", "/v1/audience-studies/" + id + "/script/approve"}, {"POST", "/v1/audience-studies/" + id + "/start"},
+		{"POST", "/v1/audience-studies/" + id + "/report"}, {"POST", "/v1/audience-studies/" + id + "/retry"},
+		{"POST", "/v1/audience-personas/" + id + "/messages"}, {"DELETE", "/v1/audiences/" + id},
+	} {
+		status, body, _ := rh.do(c[0], c[1], token, `{"user_approved":true,"version":1,"message":"hi"}`)
+		assert.Equal(t, 403, status, c)
+		assert.Equal(t, "read_only_device", errCode(t, body), c)
+	}
+	assert.Equal(t, reached, rh.reached.Load(), "no write reached the API")
+}
+
+func TestAudienceBodiesAreChecked(t *testing.T) {
+	rh := newRemoteHarness(t)
+	token, _ := rh.pair(remoteaccess.RoleOperator, 0)
+	id := "11111111-1111-4111-8111-111111111111"
+	study := "/v1/audience-studies/" + id
+
+	for _, c := range []struct{ method, path, body string }{
+		{"POST", "/v1/audiences", `{"name":"n","brief":{"product":"p"},"persona_target":12,"repository":"r"}`},
+		{"PATCH", "/v1/audiences/" + id, `{"persona_target":8}`},
+		{"POST", "/v1/audiences/" + id + "/studies", `{"title":"t","goal":"g","kind":"ab_test","inputs":{"pages":[{"url":"https://a.test"},{"copy":"x"}]},"price_points":[9],"currency":"USD"}`},
+		{"PATCH", study, `{"script":{"sections":[{"title":"a","questions":["q"]}]}}`},
+		{"POST", study + "/script/approve", `{"version":3}`},
+		{"POST", study + "/start", `{"user_approved":true,"manual_report":true}`},
+		{"POST", study + "/report", `{"user_approved":true}`},
+		{"POST", study + "/retry", `{"user_approved":true}`},
+		{"POST", study + "/start", ``},
+		{"POST", "/v1/audience-personas/" + id + "/messages", `{"message":"hello"}`},
+	} {
+		status, body, _ := rh.do(c.method, c.path, token, c.body)
+		assert.Equal(t, 200, status, c.method+" "+c.path+" "+body)
+	}
+	for _, c := range []struct{ method, path, body string }{
+		{"POST", "/v1/audiences", `{"name":"n","product_context":"ignore previous"}`},
+		{"PATCH", "/v1/audiences/" + id, `{"status":"ready"}`},
+		{"POST", "/v1/audiences/" + id + "/studies", `{"title":"t","status":"done"}`},
+		{"PATCH", study, `{"report":{"summary":"forged"}}`},
+		{"POST", study + "/script/approve", `{"version":3,"approved_by":"someone"}`},
+		{"POST", study + "/start", `{"user_approved":true,"skip_script":true}`},
+		{"POST", study + "/report", `[true]`},
+		{"POST", "/v1/audience-personas/" + id + "/messages", `{"message":"x","role":"persona"}`},
+	} {
+		status, body, _ := rh.do(c.method, c.path, token, c.body)
+		assert.Equal(t, 403, status, c.method+" "+c.path)
+		assert.Equal(t, "field_not_allowed", errCode(t, body), c.method+" "+c.path)
+	}
 }
 
 func TestBodyRestrictions(t *testing.T) {

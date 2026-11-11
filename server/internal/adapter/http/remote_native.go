@@ -26,10 +26,25 @@ func (h *Handler) remoteServerInfo(ctx context.Context) fiber.Map {
 	}
 }
 
+// remoteCapabilityList is remoteCapabilities minus the groups whose routes this
+// build did not register (a listener must not promise a feature it 404s).
+func (h *Handler) remoteCapabilityList() []string {
+	if h.audienceSvc != nil {
+		return remoteCapabilities
+	}
+	out := make([]string, 0, len(remoteCapabilities))
+	for _, c := range remoteCapabilities {
+		if c != "audience" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (h *Handler) remoteInfo(c *fiber.Ctx) error {
 	info := h.remoteServerInfo(c.UserContext())
 	info["api_version"] = remoteAPIVersion
-	info["capabilities"] = remoteCapabilities
+	info["capabilities"] = h.remoteCapabilityList()
 	return c.JSON(info)
 }
 
