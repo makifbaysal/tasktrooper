@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/audience"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/audience/audiencetest"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 type audienceFixture struct {
@@ -27,17 +29,26 @@ type audienceFixture struct {
 	gate *sync.RWMutex
 }
 
+// gatedLLM makes the fixture's gate hold every model call, the people-writing
+// ones included: the scripted answer function only sees interviews.
+type gatedLLM struct {
+	port.LLMClient
+	gate *sync.RWMutex
+}
+
+func (g gatedLLM) Chat(ctx context.Context, req domain.AgentRequest) (domain.AgentResponse, error) {
+	g.gate.RLock()
+	defer g.gate.RUnlock()
+	return g.LLMClient.Chat(ctx, req)
+}
+
 func newAudienceFixture(t *testing.T, agents audiencetest.Agents) *audienceFixture {
 	t.Helper()
 	answers := audiencetest.AnswerJSON(6, "maybe", 12, true)
 	store := audiencetest.NewStore()
 	gate := &sync.RWMutex{}
 	svc := audience.NewService(audience.Deps{
-		Store: store, Agents: agents, LLM: audiencetest.ScriptedModel(func(string) string {
-			gate.RLock()
-			defer gate.RUnlock()
-			return answers
-		}),
+		Store: store, Agents: agents, LLM: gatedLLM{LLMClient: audiencetest.ScriptedModel(func(string) string { return answers }), gate: gate},
 		Concurrency: 3, CallTimeout: 5 * time.Second,
 	})
 	h := &Handler{audienceSvc: svc}
