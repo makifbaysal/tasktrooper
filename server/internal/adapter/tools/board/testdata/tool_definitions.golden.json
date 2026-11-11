@@ -1543,6 +1543,14 @@
             "description": "Post-deploy steps (markdown): cache warms, flag flips, smoke checks. Posted on the task automatically when the production deploy succeeds.",
             "type": "string"
           },
+          "assignee": {
+            "description": "Set or change who handles this task: the agent's name (e.g. \"backend-developer\") or its UUID. Use it to give an unassigned task its agent, or to correct a wrong one — the task goes to the new agent on its next dispatch. \"none\" unassigns. Use list_team to see valid names. Never the product manager: it cannot hold a board task. Omit to leave the assignee alone.",
+            "type": "string"
+          },
+          "assignee_role": {
+            "description": "Assign by ROLE instead of by agent name: the role key (e.g. \"developer\", \"qa\") whose agent for this task's repository area should handle it. Ignored when assignee is also set. Use list_team to see role keys and which areas they cover.",
+            "type": "string"
+          },
           "before_deploy": {
             "description": "Pre-deploy checklist (markdown): what must be true or done before this ships. Posted on the task automatically when the release is dispatched — do not write it as a comment.",
             "type": "string"

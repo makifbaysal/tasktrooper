@@ -248,6 +248,10 @@ func (s *Service) briefComponentBlock(ctx context.Context, repo domain.Repositor
 		fmt.Fprintf(&b, "Commands (run %s):\n%s", where, cmds)
 	}
 
+	if container := briefContainerLines(c.Container); container != "" {
+		b.WriteString("Containers:\n" + container)
+	}
+
 	if runsOn := briefRunsOnLines(environments, c.ID); runsOn != "" {
 		b.WriteString("Runs on:\n" + runsOn)
 	}
@@ -292,6 +296,26 @@ func briefStackLine(stack domain.ComponentStack) string {
 		return ""
 	}
 	return strings.Join(parts, "; ")
+}
+
+func briefContainerLines(c domain.ContainerSettings) string {
+	if !c.Enabled && c.IsZero() {
+		return ""
+	}
+	var b strings.Builder
+	if c.Registry != "" {
+		fmt.Fprintf(&b, "- Image registry: `%s`\n", c.Registry)
+	}
+	if len(c.Platforms) > 0 {
+		fmt.Fprintf(&b, "- Build platforms: %s\n", strings.Join(c.Platforms, ", "))
+	}
+	if c.TagPattern != "" {
+		fmt.Fprintf(&b, "- Image tag pattern: `%s` ({sha} is the short commit SHA)\n", c.TagPattern)
+	}
+	if c.ContainerOnly {
+		b.WriteString("- Run this component's tooling (install, build, test, run) inside its containers, never directly on the host.\n")
+	}
+	return b.String()
 }
 
 func briefCommandLines(c domain.Component) string {

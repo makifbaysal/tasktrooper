@@ -247,7 +247,7 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 		req.InitiativeProjectID = &parsed
 	}
 	if args.Assignee != "" {
-		assigneeID, err := t.resolveAssignee(ctx, args.Assignee)
+		assigneeID, err := t.kit.resolveAssignee(ctx, args.Assignee)
 		if err != nil {
 			return toolError(createBoardTaskToolName, err.Error())
 		}
@@ -256,7 +256,7 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 		}
 		req.AssigneeAgentID = &assigneeID
 	} else if args.AssigneeRole != "" {
-		roleAssignee, err := t.resolveAssigneeRole(ctx, args.AssigneeRole, repositoryID)
+		roleAssignee, err := t.kit.resolveAssigneeRole(ctx, args.AssigneeRole, repositoryID)
 		if err != nil {
 			return toolError(createBoardTaskToolName, err.Error())
 		}
@@ -343,14 +343,14 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 // that agent on creation. Name lookup is case-insensitive and needs the Team
 // lister; if it is unavailable or the name is unknown, it returns an error
 // naming the valid options rather than silently leaving the task unassigned.
-func (t *createTaskTool) resolveAssignee(ctx context.Context, assignee string) (uuid.UUID, error) {
+func (kit *ToolKit) resolveAssignee(ctx context.Context, assignee string) (uuid.UUID, error) {
 	if id, err := uuid.Parse(assignee); err == nil {
 		return id, nil
 	}
-	if t.kit.Team == nil {
+	if kit.Team == nil {
 		return uuid.Nil, fmt.Errorf("assignee %q is not a UUID and the team roster is unavailable to resolve it", assignee)
 	}
-	agents, err := t.kit.Team.ListAgents(ctx)
+	agents, err := kit.Team.ListAgents(ctx)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("resolve assignee: %v", err)
 	}
@@ -377,11 +377,11 @@ type roleByKeyLookup interface {
 // role's agent for repositoryID's area, or nil (leave the caller's assignee —
 // none, here — alone) when roles are unavailable, the role is unknown, or it
 // has nobody assigned for that area.
-func (t *createTaskTool) resolveAssigneeRole(ctx context.Context, roleKey string, repositoryID uuid.UUID) (*uuid.UUID, error) {
-	if t.kit.Roles == nil {
+func (kit *ToolKit) resolveAssigneeRole(ctx context.Context, roleKey string, repositoryID uuid.UUID) (*uuid.UUID, error) {
+	if kit.Roles == nil {
 		return nil, fmt.Errorf("assignee_role %q was given but roles are not available on this deployment", roleKey)
 	}
-	lookup, ok := t.kit.Roles.(roleByKeyLookup)
+	lookup, ok := kit.Roles.(roleByKeyLookup)
 	if !ok {
 		return nil, fmt.Errorf("assignee_role %q was given but role lookup is not available on this deployment", roleKey)
 	}
@@ -389,7 +389,7 @@ func (t *createTaskTool) resolveAssigneeRole(ctx context.Context, roleKey string
 	if err != nil {
 		return nil, fmt.Errorf("unknown assignee_role %q", roleKey)
 	}
-	return t.kit.Roles.AgentForRole(ctx, role.ID, t.kit.repoArea(ctx, repositoryID))
+	return kit.Roles.AgentForRole(ctx, role.ID, kit.repoArea(ctx, repositoryID))
 }
 
 // repoArea resolves a repository's backend/frontend/mobile area for role

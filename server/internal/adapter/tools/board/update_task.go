@@ -46,6 +46,12 @@ type updateTaskArgs struct {
 	// BlockedBy ADDS work-order blockers rather than replacing them, so it is a
 	// plain slice: there is no "clear them all" spelling to reserve nil for.
 	BlockedBy []string `json:"blocked_by"`
+	// Assignee (agent name or UUID) or AssigneeRole (role key, resolved for the
+	// task's repository area) sets or changes who works the task. Assignee
+	// wins when both are given. Empty leaves the assignee alone; "none"
+	// unassigns.
+	Assignee     string `json:"assignee"`
+	AssigneeRole string `json:"assignee_role"`
 }
 
 type updateTaskTool struct {
@@ -114,6 +120,12 @@ func (t *updateTaskTool) Definition() domain.ToolDefinition {
 					"blocked_by": map[string]interface{}{
 						"type":  "array",
 						"items": map[string]interface{}{"type": "string"},
+					},
+					"assignee": map[string]interface{}{
+						"type": "string",
+					},
+					"assignee_role": map[string]interface{}{
+						"type": "string",
 					},
 				},
 				"required": []string{"task_id"},
@@ -194,6 +206,32 @@ func (t *updateTaskTool) Execute(ctx context.Context, arguments string) domain.T
 			return toolError(updateBoardTaskToolName, blockErr.Error())
 		}
 		req.BlockedBy = blockers
+	}
+	if strings.TrimSpace(args.Assignee) != "" {
+		if strings.EqualFold(strings.TrimSpace(args.Assignee), "none") {
+			req.AssigneeAgentID = domain.Nullable[uuid.UUID]{Present: true}
+		} else {
+			assigneeID, aerr := t.kit.resolveAssignee(ctx, strings.TrimSpace(args.Assignee))
+			if aerr != nil {
+				return toolError(updateBoardTaskToolName, aerr.Error())
+			}
+			if refusal := t.kit.disabledAssigneeRefusal(ctx, assigneeID); refusal != "" {
+				return toolError(updateBoardTaskToolName, refusal)
+			}
+			req.AssigneeAgentID = domain.Nullable[uuid.UUID]{Present: true, Value: &assigneeID}
+		}
+	} else if strings.TrimSpace(args.AssigneeRole) != "" {
+		roleAssignee, rerr := t.kit.resolveAssigneeRole(ctx, strings.TrimSpace(args.AssigneeRole), repositoryID)
+		if rerr != nil {
+			return toolError(updateBoardTaskToolName, rerr.Error())
+		}
+		if roleAssignee == nil {
+			return toolError(updateBoardTaskToolName, fmt.Sprintf("no agent holds role %q for this repository", args.AssigneeRole))
+		}
+		if refusal := t.kit.disabledRoleRefusal(ctx, args.AssigneeRole, *roleAssignee); refusal != "" {
+			return toolError(updateBoardTaskToolName, refusal)
+		}
+		req.AssigneeAgentID = domain.Nullable[uuid.UUID]{Present: true, Value: roleAssignee}
 	}
 	req.Actor = domain.TaskActorAgent
 	if actorID, actorErr := resolveAgentID(ctx); actorErr == nil {

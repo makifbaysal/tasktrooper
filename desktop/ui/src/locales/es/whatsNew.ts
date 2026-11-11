@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Mira qué ha cambiado en la última versión de TaskTrooper.",
     open: "Mostrar novedades",
   },
+  v0_3_15: {
+    title: "Los agentes tienen la guía correcta, las tareas un agente y Docker comandos",
+    items: {
+      agentsMd: "La tarea de guía para agentes de la configuración del proyecto ahora escribe un único AGENTS.md para cualquier CLI de agente y ya no pide un README que el proyecto ya tiene.",
+      assignTasks: "Las tareas que abre un análisis o un agente reciben un agente adecuado al crearse, y el PM puede fijar o corregir el responsable de una tarea sin recrearla.",
+      dockerCommands: "Los componentes en contenedores tienen comandos de Docker (buildkit, construir imagen, compose up, down y stop), ajustes de registro, plataformas y etiqueta, una regla para que los agentes trabajen solo dentro de contenedores, y cualquier comando se puede quitar.",
+    },
+  },
   v0_3_14: {
     title: "La investigación de audiencias, en tu teléfono",
     items: {

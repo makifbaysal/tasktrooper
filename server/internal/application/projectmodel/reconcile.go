@@ -370,7 +370,7 @@ func keepUndetectedComponent(c domain.Component) bool {
 			return true
 		}
 	}
-	return !docsIsZero(c.Docs) || !gatesIsZero(c.Gates)
+	return !docsIsZero(c.Docs) || !gatesIsZero(c.Gates) || !c.Container.IsZero()
 }
 
 func docsIsZero(d domain.RepositoryDocs) bool {

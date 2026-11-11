@@ -1545,7 +1545,7 @@ func (s *Service) resolveTaskType(ctx context.Context, requested domain.TaskType
 	return requested, nil
 }
 
-func (s *Service) resolveNewTaskAssignee(ctx context.Context, taskType domain.TaskType, repo domain.Repository, requested *uuid.UUID) (*uuid.UUID, error) {
+func (s *Service) resolveNewTaskAssignee(ctx context.Context, taskType domain.TaskType, repo domain.Repository, req domain.CreateBoardTaskRequest, requested *uuid.UUID) (*uuid.UUID, error) {
 	if s.roles == nil {
 		return requested, nil
 	}
@@ -1563,7 +1563,25 @@ func (s *Service) resolveNewTaskAssignee(ctx context.Context, taskType domain.Ta
 			return requested, nil
 		}
 	}
+	if resolved == nil && req.CreatedBy != "" && req.CreatedBy != "user" {
+		return s.fallbackAssignee(ctx, area)
+	}
 	return resolved, nil
+}
+
+// fallbackAssignee finds who suits a task nobody was named for: the agent
+// holding the system task-assignee role for the repository's area, so a task a
+// scan or an agent opens does not wait in TODO for a person to pick someone.
+// A task a person opens stays unassigned unless they chose otherwise.
+func (s *Service) fallbackAssignee(ctx context.Context, area string) (*uuid.UUID, error) {
+	id, err := s.roles.AgentForPurpose(ctx, domain.PurposeSystemTaskAssignee, area)
+	if err != nil || id == nil {
+		return nil, nil
+	}
+	if pm, err := s.isProductManager(ctx, *id); err != nil || pm {
+		return nil, nil
+	}
+	return id, nil
 }
 
 func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req domain.CreateBoardTaskRequest) (domain.BoardTask, error) {
@@ -1617,7 +1635,7 @@ func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req do
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
-	assignee, err := s.resolveNewTaskAssignee(ctx, taskType, repo, requested)
+	assignee, err := s.resolveNewTaskAssignee(ctx, taskType, repo, req, requested)
 	if err != nil {
 		return domain.BoardTask{}, err
 	}

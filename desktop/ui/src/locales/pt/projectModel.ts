@@ -23,6 +23,11 @@ export const projectModel = {
     format: "Formatação",
     e2e: "E2E",
     migrate: "Migração",
+    buildkit_setup: "Preparar buildkit",
+    image_build: "Construir imagem",
+    compose_up: "Compose up",
+    compose_down: "Compose down (limpar)",
+    compose_stop: "Compose stop",
   },
   checkPurposes: {
     lint: "Lint",

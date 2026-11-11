@@ -3109,7 +3109,12 @@ export type CommandPurpose =
   | "typecheck"
   | "format"
   | "e2e"
-  | "migrate";
+  | "migrate"
+  | "buildkit_setup"
+  | "image_build"
+  | "compose_up"
+  | "compose_down"
+  | "compose_stop";
 
 export const COMMAND_PURPOSES: CommandPurpose[] = [
   "install",
@@ -3121,7 +3126,32 @@ export const COMMAND_PURPOSES: CommandPurpose[] = [
   "format",
   "e2e",
   "migrate",
+  "buildkit_setup",
+  "image_build",
+  "compose_up",
+  "compose_down",
+  "compose_stop",
 ];
+
+/** Purposes that only make sense on a containerised component. */
+export const CONTAINER_COMMAND_PURPOSES: CommandPurpose[] = [
+  "buildkit_setup",
+  "image_build",
+  "compose_up",
+  "compose_down",
+  "compose_stop",
+];
+
+export interface ContainerSettings {
+  /** The "has containers" switch: shows the container commands. */
+  enabled?: boolean;
+  registry?: string;
+  platforms?: string[];
+  /** Image tag; {sha} and {version} are filled in by whoever runs the build. */
+  tag_pattern?: string;
+  /** Agents run the component's tooling inside its containers, not on the host. */
+  container_only?: boolean;
+}
 
 export interface ComponentCommand {
   purpose: CommandPurpose;
@@ -3249,6 +3279,7 @@ export interface Component {
   mobile?: Fact<MobileFacts>;
   docs: RepositoryDocs;
   gates: ComponentGates;
+  container?: ContainerSettings;
   /** How a merge of this component reaches production; unconfirmed (no
    * override and detected confidence below high) means nothing deploys it.
    * Optional here, though the server always sends it, so pre-existing
@@ -3696,6 +3727,7 @@ export interface ComponentPatch {
   commands?: Partial<Record<CommandPurpose, string | null>>;
   gates?: ComponentGates | null;
   docs?: RepositoryDocs | null;
+  container?: ContainerSettings;
   /** null clears the override and reverts to the detected profile. */
   delivery?: ComponentDelivery | null;
   /** Languages/frameworks the agents should treat the component as using; null reverts to detected. */

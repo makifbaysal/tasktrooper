@@ -141,6 +141,13 @@ func (s *Service) UpdateComponentWithGateTasks(ctx context.Context, componentID 
 		next.CoverageCITaskID, next.MutationCITaskID = comp.Gates.CoverageCITaskID, comp.Gates.MutationCITaskID
 		comp.Gates = next
 	}
+	if patch.Container != nil {
+		next, err := patch.Container.Normalized()
+		if err != nil {
+			return domain.Component{}, nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+		}
+		comp.Container = next
+	}
 	if patch.Docs != nil {
 		comp.Docs = *patch.Docs
 	}

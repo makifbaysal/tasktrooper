@@ -10,6 +10,14 @@ export const whatsNew = {
     help: "See what changed in the latest version of TaskTrooper.",
     open: "Show what's new",
   },
+  v0_3_15: {
+    title: "Agents get the right guide, tasks get an agent, Docker gets commands",
+    items: {
+      agentsMd: "The agent-guide task from project setup now writes a single AGENTS.md for every agent CLI and no longer asks for a README the project already has.",
+      assignTasks: "Tasks opened by a scan or an agent are given a suitable agent when they are created, and the PM can set or correct a task's assignee in place instead of recreating it.",
+      dockerCommands: "Containerised components get Docker commands (buildkit, image build, compose up, down and stop), registry, platforms and tag settings, a run-in-containers-only rule for agents, and every command can be removed.",
+    },
+  },
   v0_3_14: {
     title: "Audience research on your phone",
     items: {
