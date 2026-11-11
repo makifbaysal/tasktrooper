@@ -2591,7 +2591,7 @@ stated maximum prices with min/p25/median/mean/p75/max, a histogram, `not_willin
 `methodology`, `disclaimer` (synthetic personas, not market data). A failed synthesis sets `synthesis_failed` and the report keeps its
 numbers and frequency-counted themes.
 
-## Remote access (migration 197)
+## Remote access (migration 198)
 
 A paired phone reaches this server through a tunnel the desktop app runs. The tunnel targets a
 **second listener** (`127.0.0.1:<port>`, started by `POST /v1/remote-access/enable`), never the UI's
