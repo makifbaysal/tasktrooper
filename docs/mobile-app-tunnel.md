@@ -27,6 +27,17 @@ online. When either is not true the app shows the computer as unreachable.
 Settings → Remote access → Tunnel: pick a provider and an address type, then
 press Start tunnel. Nothing is reachable from outside until you do.
 
+Once the tunnel is connected the card shrinks to what you need day to day: the
+status, the public address (with Copy), the phone state and three buttons,
+**Stop tunnel**, **Edit** and, with a phone connected, **Stop pairing**. The
+provider, address, account login, computer name, program check and tunnel output
+are behind **Edit**. While the tunnel runs those settings are locked (Edit says
+so; stop the tunnel to change them), but the start-up switch and the tunnel
+output stay usable; **Done** returns to the short card. A stopped tunnel always
+shows the full form. If the connection drops it stays short and shows the
+reconnecting state; a real problem (a refused login, for instance) brings the
+full form back with the error.
+
 ### Cloudflare Tunnel
 
 | | Free address | My own domain |
@@ -112,8 +123,9 @@ One phone is connected at a time. Pairing a new phone signs the previous one
 out; its next request is answered with `token_revoked` and the app shows its
 pairing screen again.
 
-1. Start the tunnel. The **Pair phone** button next to Start tunnel is only
-   enabled while the tunnel is connected.
+1. Start the tunnel. The short card then shows "Not paired" with a **Pair
+   phone** button (before the tunnel is connected the button is disabled with a
+   hint).
 2. A window opens with a QR code and the same details as text, each with a copy
    button: the computer's name, the tunnel address and a pairing code like
    `K7QD-2M9W-XH4T`, plus how long the code is still valid. The code is valid
@@ -124,9 +136,9 @@ pairing screen again.
    code.
 3. In the iPhone app choose to connect to your own computer and scan the QR
    code. If you cannot scan, type the tunnel address and the code.
-4. The window confirms "<phone> is connected". Next to the buttons the page shows
-   "Phone connected: <name>" with **Disconnect**, which signs the phone out
-   at once. There is no list of phones.
+4. The window confirms "<phone> is connected". The card then says "Paired:
+   <name>" and offers **Stop pairing**, which signs the phone out at once and
+   brings back the Pair phone button. There is no list of phones.
 
 ## What the phone can do
 

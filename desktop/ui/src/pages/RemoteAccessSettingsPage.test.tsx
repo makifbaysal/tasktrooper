@@ -127,7 +127,7 @@ describe("RemoteAccessSettingsPage", () => {
     stubShell(state({ tunnel: "connected", wanted: true, url: "https://calm-fox-12.trycloudflare.com" }));
     api.listRemoteDevices.mockResolvedValue({ devices: [{ id: "d1", name: "Akif's iPhone", role: "operator", created_at: new Date().toISOString() }] });
     renderPage();
-    await screen.findByText("Phone connected: Akif's iPhone");
+    await screen.findByText("Paired: Akif's iPhone");
     expect(screen.queryByText("Paired phones")).toBeNull();
     expect(screen.queryByText("Pair a phone")).toBeNull();
     expect(screen.queryByTestId("pairing-code")).toBeNull();
@@ -154,6 +154,75 @@ describe("RemoteAccessSettingsPage", () => {
     expect(await screen.findByText("brew install cloudflared")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Open download page/i }));
     expect(host.openInstallPage).toHaveBeenCalledWith("cloudflare");
+  });
+
+  describe("a connected tunnel", () => {
+    const connected = () =>
+      state({
+        tunnel: "connected",
+        wanted: true,
+        url: "https://calm-fox-12.trycloudflare.com",
+        config: { provider: "cloudflare", mode: "quick", hostname: "", autoStart: true, serverName: "My Mac" },
+        logTail: ["INF Registered tunnel connection"],
+      });
+
+    it("collapses to the status, the address, the phone line and three actions", async () => {
+      stubShell(connected());
+      renderPage();
+      expect(await screen.findByTestId("tunnel-summary")).toBeTruthy();
+      expect(screen.getByTestId("tunnel-status").textContent).toBe("Connected");
+      expect(screen.getByTestId("tunnel-url").textContent).toBe("https://calm-fox-12.trycloudflare.com");
+      expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+      expect(screen.getByText("Not paired")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Stop tunnel" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+      // Everything about setting it up is out of the way.
+      for (const label of ["Provider", "Address", "Name shown on the phone"]) expect(screen.queryByLabelText(label)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Save settings" })).toBeNull();
+      expect(screen.queryByTestId("tunnel-binary")).toBeNull();
+      expect(screen.queryByTestId("tunnel-logs")).toBeNull();
+      expect(screen.queryByLabelText("Start the tunnel when TaskTrooper launches")).toBeNull();
+    });
+
+    it("stops the tunnel from the summary", async () => {
+      const { host } = stubShell(connected());
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Stop tunnel" }));
+      await waitFor(() => expect(host.stop).toHaveBeenCalledOnce());
+      // A stopped tunnel is the first-setup form again.
+      expect(await screen.findByLabelText("Provider")).toBeTruthy();
+      expect(screen.queryByTestId("tunnel-summary")).toBeNull();
+    });
+
+    it("Edit opens the whole form with the fixed settings locked, the output and the start-up switch usable, and Done closes it", async () => {
+      const { host } = stubShell(connected());
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+      expect(await screen.findByText(/Stop it to change the provider/)).toBeTruthy();
+      expect(screen.getByLabelText("Provider").hasAttribute("disabled") || screen.getByLabelText("Provider").getAttribute("data-disabled") !== null).toBe(true);
+      expect((screen.getByLabelText("Name shown on the phone") as HTMLInputElement).disabled).toBe(true);
+      expect(screen.getByTestId("tunnel-logs").textContent).toContain("Registered tunnel connection");
+      expect(screen.getByTestId("tunnel-binary")).toBeTruthy();
+      fireEvent.click(screen.getByRole("switch", { name: /Start the tunnel when TaskTrooper launches/ }));
+      await waitFor(() => expect(host.configure).toHaveBeenCalledWith({ autoStart: false }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      expect(await screen.findByTestId("tunnel-summary")).toBeTruthy();
+    });
+
+    it("stays compact while the connection drops and comes back, and falls back to the form on a real problem", async () => {
+      const { push } = stubShell(connected());
+      renderPage();
+      await screen.findByTestId("tunnel-summary");
+      push({ ...connected(), tunnel: "reconnecting", restarts: 2, error: "cloudflared exited (code 1). Restarting in 1 s.", problem: "exited" });
+      expect(await screen.findByText("Reconnecting")).toBeTruthy();
+      expect(screen.getByTestId("tunnel-summary")).toBeTruthy();
+      expect(screen.getByText(/cloudflared exited/)).toBeTruthy();
+      push({ ...connected(), tunnel: "error", error: "The tunnel stopped for good.", problem: "auth_failed" });
+      await waitFor(() => expect(screen.queryByTestId("tunnel-summary")).toBeNull());
+      expect(screen.getByText("The tunnel stopped for good.")).toBeTruthy();
+      expect(screen.getByLabelText("Provider")).toBeTruthy();
+    });
   });
 
   describe("Cloudflare, own domain", () => {
@@ -247,6 +316,7 @@ describe("RemoteAccessSettingsPage", () => {
       await waitFor(() => expect(host.cloudflareLogout).toHaveBeenCalledOnce());
 
       push(state({ config: named, tunnel: "connected", wanted: true, url: "https://x.example.com", cloudflare: { loggedIn: true, domain: "example.com", phase: "idle", suggestedSubdomain: "tasktrooper-abc123" } }));
+      fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
       await waitFor(() => expect((screen.getByRole("button", { name: "Log out" }) as HTMLButtonElement).disabled).toBe(true));
     });
   });
@@ -387,21 +457,25 @@ describe("RemoteAccessSettingsPage", () => {
         ],
       });
       renderPage();
-      expect(await screen.findByText("Phone connected: Akif's iPhone")).toBeTruthy();
+      expect(await screen.findByText("Paired: Akif's iPhone")).toBeTruthy();
       expect(screen.queryByText(/Old phone/)).toBeNull();
-      fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+      // A paired phone replaces the Pair phone button with Stop pairing.
+      expect(screen.queryByRole("button", { name: "Pair phone" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Stop pairing" }));
       expect(await screen.findByText("Disconnect Akif's iPhone?")).toBeTruthy();
-      const buttons = screen.getAllByRole("button", { name: "Disconnect" });
+      const buttons = screen.getAllByRole("button", { name: "Stop pairing" });
       fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
       await waitFor(() => expect(api.revokeRemoteDevice).toHaveBeenCalledWith("d1"));
-      await waitFor(() => expect(screen.queryByText("Phone connected: Akif's iPhone")).toBeNull());
+      await waitFor(() => expect(screen.getByText("Not paired")).toBeTruthy());
+      expect(screen.getByRole("button", { name: "Pair phone" })).toBeTruthy();
     });
 
-    it("shows no phone line when none is connected", async () => {
+    it("shows 'Not paired' with the Pair phone button when no phone is connected", async () => {
       stubShell(connected());
       renderPage();
       await screen.findByRole("button", { name: "Pair phone" });
-      expect(screen.queryByTestId("phone-connected")).toBeNull();
+      expect(screen.getByText("Not paired")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Stop pairing" })).toBeNull();
     });
   });
 

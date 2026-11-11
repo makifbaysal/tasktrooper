@@ -1,4 +1,4 @@
-import { Check, Copy, Download, Network, Play, RefreshCw, Save, Square } from "lucide-react";
+import { Check, Copy, Download, Network, Pencil, Play, RefreshCw, Save, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -59,6 +59,8 @@ export function TunnelCard({ host, state, onState, onChanged }: TunnelCardProps)
   const [typedHost, setTypedHost] = useState("");
   const [busy, setBusy] = useState<"save" | "toggle" | "detect" | null>(null);
   const [copied, setCopied] = useState(false);
+  // Once connected the card shrinks to a summary; Edit opens the whole form again.
+  const [editing, setEditing] = useState(false);
 
   const cloudflareDomain = state.cloudflare.domain;
   const suggestedSubdomain = state.cloudflare.suggestedSubdomain;
@@ -93,6 +95,13 @@ export function TunnelCard({ host, state, onState, onChanged }: TunnelCardProps)
 
   const running = state.wanted;
   const detection = state.detection;
+  const online = running && (state.tunnel === "connected" || state.tunnel === "reconnecting") && !!state.url;
+  const compact = online && !editing;
+
+  // A stopped tunnel is the first-setup form again, and the next connection starts compact.
+  useEffect(() => {
+    if (!running) setEditing(false);
+  }, [running]);
 
   const status = useMemo(() => t(`remoteAccess.tunnel.status.${state.tunnel}`), [state.tunnel, t]);
 
@@ -148,6 +157,52 @@ export function TunnelCard({ host, state, onState, onChanged }: TunnelCardProps)
     } else toast.error(t("remoteAccess.tunnel.copyFailed"));
   };
 
+  if (compact) {
+    return (
+      <Card className="w-full space-y-4 p-6" data-testid="tunnel-summary">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-heading font-semibold">
+            <Network className="h-4 w-4" />
+            {t("remoteAccess.tunnel.title")}
+          </h2>
+          <Badge variant={STATUS_VARIANT[state.tunnel]} data-testid="tunnel-status">
+            {status}
+          </Badge>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-2 text-sm" data-testid="tunnel-url">
+            {state.url}
+          </code>
+          <Button variant="outline" size="sm" onClick={() => void copy()}>
+            {copied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
+            {t("remoteAccess.tunnel.copy")}
+          </Button>
+        </div>
+
+        {state.error && (
+          <Notice variant="warning" title={state.problem ? t(`remoteAccess.tunnel.problems.${state.problem}`) : t("remoteAccess.tunnel.status.error")}>
+            {state.error}
+          </Notice>
+        )}
+
+        <PairPhone variant="summary" url={pairableUrl(state)} serverName={config.serverName} onChanged={onChanged} />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => void toggle()} disabled={busy !== null}>
+            <Square className="mr-2 h-4 w-4" />
+            {t("remoteAccess.tunnel.stop")}
+          </Button>
+          <Button variant="outline" onClick={() => setEditing(true)}>
+            <Pencil className="mr-2 h-4 w-4" />
+            {t("remoteAccess.tunnel.edit")}
+          </Button>
+          {state.restarts > 0 && <span className="text-xs text-muted-foreground">{t("remoteAccess.tunnel.restarts", { count: state.restarts })}</span>}
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full space-y-5 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -162,6 +217,10 @@ export function TunnelCard({ host, state, onState, onChanged }: TunnelCardProps)
           {status}
         </Badge>
       </div>
+
+      {running && editing && (
+        <Notice variant="info" title={t("remoteAccess.tunnel.editRunning")} role={null} />
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1">
@@ -283,6 +342,11 @@ export function TunnelCard({ host, state, onState, onChanged }: TunnelCardProps)
           {running ? <Square className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
           {running ? t("remoteAccess.tunnel.stop") : t("remoteAccess.tunnel.start")}
         </Button>
+        {running && editing && online && (
+          <Button variant="default" onClick={() => setEditing(false)}>
+            {t("remoteAccess.tunnel.editDone")}
+          </Button>
+        )}
         {state.restarts > 0 && running && (
           <span className="text-xs text-muted-foreground">{t("remoteAccess.tunnel.restarts", { count: state.restarts })}</span>
         )}

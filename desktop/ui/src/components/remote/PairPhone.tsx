@@ -24,6 +24,12 @@ interface PairPhoneProps {
   serverName: string;
   /** A phone was paired or disconnected: refresh whatever shows the activity. */
   onChanged: () => void;
+  /**
+   * inline: the Pair phone button and, beside it, the connected phone (the full form).
+   * summary: one phone line for the compact running card: "Not paired" with a
+   * Pair phone button, or "Paired: <name>" with Stop pairing.
+   */
+  variant?: "inline" | "summary";
 }
 
 /**
@@ -31,7 +37,7 @@ interface PairPhoneProps {
  * is connected. One phone at a time, so there is no list: pairing a new phone
  * replaces the old one (the server enforces it), and "Disconnect" ends it.
  */
-export function PairPhone({ url, serverName, onChanged }: PairPhoneProps) {
+export function PairPhone({ url, serverName, onChanged, variant = "inline" }: PairPhoneProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [device, setDevice] = useState<RemoteDevice | null>(null);
@@ -69,22 +75,46 @@ export function PairPhone({ url, serverName, onChanged }: PairPhoneProps) {
     }
   };
 
+  const summary = variant === "summary";
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <Button variant="outline" onClick={() => setOpen(true)} disabled={!url} data-testid="pair-phone-button">
-        <Smartphone className="mr-2 h-4 w-4" />
-        {t("remoteAccess.pair.button")}
-      </Button>
-      {!url && <span className="text-xs text-muted-foreground">{t("remoteAccess.pair.needsTunnel")}</span>}
-      {device && (
-        <span className="flex items-center gap-2 text-sm" data-testid="phone-connected">
-          <Smartphone className="h-4 w-4 text-muted-foreground" />
-          {t("remoteAccess.pair.connected", { name: device.name })}
-          <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
-            <Unplug className="mr-2 h-4 w-4" />
-            {t("remoteAccess.pair.disconnect")}
+    <div className={summary ? "flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3" : "flex flex-wrap items-center gap-x-3 gap-y-1"} data-testid={summary ? "phone-summary" : undefined}>
+      {summary ? (
+        <>
+          <span className="flex items-center gap-2 text-sm font-medium" role="status">
+            <Smartphone className="h-4 w-4 text-muted-foreground" />
+            {device ? t("remoteAccess.pair.pairedSummary", { name: device.name }) : t("remoteAccess.pair.notPaired")}
+          </span>
+          {device ? (
+            <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+              <Unplug className="mr-2 h-4 w-4" />
+              {t("remoteAccess.pair.stopPairing")}
+            </Button>
+          ) : (
+            <Button onClick={() => setOpen(true)} disabled={!url} data-testid="pair-phone-button">
+              <Smartphone className="mr-2 h-4 w-4" />
+              {t("remoteAccess.pair.button")}
+            </Button>
+          )}
+        </>
+      ) : (
+        <>
+          <Button variant="outline" onClick={() => setOpen(true)} disabled={!url} data-testid="pair-phone-button">
+            <Smartphone className="mr-2 h-4 w-4" />
+            {t("remoteAccess.pair.button")}
           </Button>
-        </span>
+          {!url && <span className="text-xs text-muted-foreground">{t("remoteAccess.pair.needsTunnel")}</span>}
+          {device && (
+            <span className="flex items-center gap-2 text-sm" data-testid="phone-connected">
+              <Smartphone className="h-4 w-4 text-muted-foreground" />
+              {t("remoteAccess.pair.connected", { name: device.name })}
+              <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+                <Unplug className="mr-2 h-4 w-4" />
+                {t("remoteAccess.pair.disconnect")}
+              </Button>
+            </span>
+          )}
+        </>
       )}
 
       {url && (
@@ -105,7 +135,7 @@ export function PairPhone({ url, serverName, onChanged }: PairPhoneProps) {
         onOpenChange={setConfirming}
         title={t("remoteAccess.pair.disconnectTitle", { name: device?.name ?? "" })}
         description={t("remoteAccess.pair.disconnectBody")}
-        confirmLabel={t("remoteAccess.pair.disconnect")}
+        confirmLabel={summary ? t("remoteAccess.pair.stopPairing") : t("remoteAccess.pair.disconnect")}
         onConfirm={async () => (device ? disconnect(device) : false)}
       />
     </div>
