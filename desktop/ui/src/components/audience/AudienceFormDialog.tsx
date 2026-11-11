@@ -58,7 +58,7 @@ export function AudienceFormDialog({ open, onOpenChange, audience = null, onSave
     setCount(String(audience?.persona_target ?? 12));
     api
       .listRepositories()
-      .then((out) => setRepositories(out.repositories))
+      .then((out) => setRepositories(out.repositories ?? []))
       .catch(() => setRepositories([]));
   }, [open, audience]);
 

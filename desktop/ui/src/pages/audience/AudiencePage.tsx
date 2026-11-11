@@ -102,8 +102,8 @@ export function AudiencePage() {
   const load = useCallback(async () => {
     try {
       const [a, s] = await Promise.all([api.audiences(), api.audienceStudies()]);
-      setAudiences(a.audiences);
-      setStudies(s.studies);
+      setAudiences(a.audiences ?? []);
+      setStudies(s.studies ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("audienceHub.list.loadFailed"));
