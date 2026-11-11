@@ -28,6 +28,7 @@ export const chatArea = {
       textRequired: "Bitte geben Sie Ihre Antwort ein",
       selectOne: "Wählen Sie eine Option",
       selectMany: "Alle zutreffenden auswählen",
+      selectUpTo: "Wählen Sie bis zu {max}",
       other: "Sonstiges",
       skip: "Überspringen",
       answered: "Beantwortet",

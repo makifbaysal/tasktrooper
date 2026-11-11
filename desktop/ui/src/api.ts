@@ -1830,6 +1830,8 @@ export interface ClarificationQuestion {
   id: string;
   prompt: string;
   allow_multiple?: boolean;
+  /** Multi-select only: the most options that may be picked ("up to 3 countries"). */
+  max_selections?: number;
   options: ClarificationOption[];
 }
 

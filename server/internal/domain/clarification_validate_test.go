@@ -71,3 +71,13 @@ func TestValidateClarificationQuestion_AllowMultipleField(t *testing.T) {
 	require.NoError(t, domain.ValidateClarificationQuestion(q))
 	assert.True(t, q.AllowMultiple)
 }
+
+func TestNormalizeClarificationQuestion_MaxSelectionsNeedsMultiSelect(t *testing.T) {
+	opts := []domain.ClarificationOption{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}
+	multi := domain.NormalizeClarificationQuestion(domain.ClarificationQuestion{ID: "q", Prompt: "?", AllowMultiple: true, MaxSelections: 3, Options: opts})
+	assert.Equal(t, 3, multi.MaxSelections)
+	single := domain.NormalizeClarificationQuestion(domain.ClarificationQuestion{ID: "q", Prompt: "?", MaxSelections: 3, Options: opts})
+	assert.Zero(t, single.MaxSelections)
+	negative := domain.NormalizeClarificationQuestion(domain.ClarificationQuestion{ID: "q", Prompt: "?", AllowMultiple: true, MaxSelections: -2, Options: opts})
+	assert.Zero(t, negative.MaxSelections)
+}

@@ -75,6 +75,7 @@ function cardLabels(t: TranslateFn) {
     textRequired: t("chatArea.chat.clarification.textRequired"),
     selectOne: t("chatArea.chat.clarification.selectOne"),
     selectMany: t("chatArea.chat.clarification.selectMany"),
+    selectUpTo: (max: number) => t("chatArea.chat.clarification.selectUpTo", { max }),
   };
 }
 
@@ -128,6 +129,12 @@ export function ClarificationCard({
   const isLast = step === questions.length - 1;
   const mode = current ? resolveQuestionMode(current) : "choice";
   const allowMultiple = current?.allow_multiple === true;
+  const maxSelections =
+    allowMultiple && current?.max_selections && current.max_selections > 0
+      ? current.max_selections
+      : 0;
+  const atMax = maxSelections > 0 && currentAnswer.selectedIds.length >= maxSelections;
+  const multiHint = maxSelections > 0 ? labels.selectUpTo(maxSelections) : labels.selectMany;
   const visibleOptions = current ? displayOptions(current, t) : [];
   const otherSelected = visibleOptions.some(
     (opt) => isOtherOption(opt) && currentAnswer.selectedIds.includes(opt.id),
@@ -169,6 +176,8 @@ export function ClarificationCard({
         let selectedIds: string[];
         if (already) {
           selectedIds = existing.selectedIds.filter((id) => id !== optionId);
+        } else if (maxSelections > 0 && existing.selectedIds.length >= maxSelections) {
+          return prev;
         } else {
           selectedIds = [...existing.selectedIds, optionId];
         }
@@ -235,7 +244,7 @@ export function ClarificationCard({
           <div className="space-y-1">
             <p className="text-sm font-medium">{current.prompt}</p>
             {mode === "choice" && allowMultiple && (
-              <p className="text-xs text-muted-foreground">{labels.selectMany}</p>
+              <p className="text-xs text-muted-foreground">{multiHint}</p>
             )}
           </div>
 
@@ -286,7 +295,7 @@ export function ClarificationCard({
                       type="button"
                       size="sm"
                       variant={selected ? "default" : "outline"}
-                      disabled={disabled}
+                      disabled={disabled || (atMax && !selected)}
                       onClick={() => selectChoice(opt.id)}
                     >
                       {optionDisplayLabel(opt, t)}
@@ -316,10 +325,8 @@ export function ClarificationCard({
                   className="resize-y min-h-[72px]"
                 />
               )}
-              {!stepValid && currentAnswer.selectedIds.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {allowMultiple ? labels.selectMany : labels.selectOne}
-                </p>
+              {!stepValid && currentAnswer.selectedIds.length === 0 && !allowMultiple && (
+                <p className="text-xs text-muted-foreground">{labels.selectOne}</p>
               )}
               {!stepValid && otherSelected && !currentAnswer.otherText.trim() && (
                 <p className="text-xs text-muted-foreground">{labels.otherRequired}</p>

@@ -13,9 +13,14 @@ type ClarificationOption struct {
 }
 
 type ClarificationQuestion struct {
-	ID            string                `json:"id"`
-	Prompt        string                `json:"prompt"`
-	AllowMultiple bool                  `json:"allow_multiple,omitempty"`
+	ID            string `json:"id"`
+	Prompt        string `json:"prompt"`
+	AllowMultiple bool   `json:"allow_multiple,omitempty"`
+	// MaxSelections caps how many options a multi-select answer may pick
+	// ("pick up to 3 countries"). 0 means no cap; it only means something
+	// together with AllowMultiple (NormalizeClarificationQuestion drops it
+	// otherwise). The "other" entry counts as one selection.
+	MaxSelections int                   `json:"max_selections,omitempty"`
 	Options       []ClarificationOption `json:"options"`
 }
 

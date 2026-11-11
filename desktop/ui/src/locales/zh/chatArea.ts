@@ -28,6 +28,7 @@ export const chatArea = {
       textRequired: "请输入你的回答",
       selectOne: "选择一个选项",
       selectMany: "选择所有适用项",
+      selectUpTo: "最多选择 {max} 项",
       other: "其他",
       skip: "跳过",
       answered: "已回答",

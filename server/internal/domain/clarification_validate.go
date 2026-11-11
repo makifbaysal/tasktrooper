@@ -44,6 +44,9 @@ func NormalizeClarificationQuestions(questions []ClarificationQuestion) []Clarif
 }
 
 func NormalizeClarificationQuestion(q ClarificationQuestion) ClarificationQuestion {
+	if q.MaxSelections < 0 || !q.AllowMultiple || IsTextModeQuestion(q) {
+		q.MaxSelections = 0
+	}
 	if IsTextModeQuestion(q) {
 		return q
 	}

@@ -52,10 +52,15 @@ func (t *askUserTool) Definition() domain.ToolDefinition {
 								"allow_multiple": map[string]interface{}{
 									"type": "boolean",
 								},
+								"max_selections": map[string]interface{}{
+									"type":    "integer",
+									"minimum": 1,
+									"maximum": 9,
+								},
 								"options": map[string]interface{}{
 									"type":     "array",
 									"minItems": 2,
-									"maxItems": 6,
+									"maxItems": 9,
 									"items": map[string]interface{}{
 										"type":                 "object",
 										"additionalProperties": false,

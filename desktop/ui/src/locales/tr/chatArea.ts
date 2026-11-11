@@ -31,6 +31,7 @@ export const chatArea: ChatAreaDict = {
       textRequired: "Lütfen cevabınızı yazın",
       selectOne: "Bir seçenek seçin",
       selectMany: "Uygun olanların tümünü seçin",
+      selectUpTo: "En fazla {max} seçin",
       other: "Diğer",
       skip: "Atla",
       answered: "Cevaplandı",

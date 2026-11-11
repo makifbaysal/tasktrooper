@@ -3,8 +3,9 @@ key: tool.ask_user
 version: "1"
 params:
     context: Brief explanation shown above the question form (user-facing language)
-    questions: 'Questions to ask. Each question: id, prompt, allow_multiple (choice mode), options (see ask_user tool description for text vs choice mode).'
+    questions: 'Questions to ask. Each question: id, prompt, allow_multiple and max_selections (choice mode), options (see ask_user tool description for text vs choice mode).'
     questions.items.properties.allow_multiple: 'Choice mode only: true when the user may select multiple options; false for single-select.'
+    questions.items.properties.max_selections: 'Choice mode with allow_multiple true only: the most options the user may pick (the other entry counts as one), e.g. 3 for "pick up to 3 countries". Omit for no cap.'
     questions.items.properties.id: Unique stable id for this question (snake_case)
     questions.items.properties.options: 'Answer choices (min 2). TEXT mode: only free_text and skip. CHOICE mode: concrete options then other as last entry.'
     questions.items.properties.options.items.properties.id: 'Option id: free_text | skip | other | or a concrete snake_case id'
@@ -27,10 +28,13 @@ TEXT mode — open-ended answers (URL, description, free text):
 
 CHOICE mode — pick from alternatives:
 - Use when concrete options exist.
-- options: 1–4 concrete choices, then {"id":"other","label":"..."} as the LAST option (label in user-facing language).
+- options: 1–4 concrete choices (up to 7 when the list itself is the question, e.g. customer segments plus an "all" option), then {"id":"other","label":"..."} as the LAST option (label in user-facing language).
 - allow_multiple: true when the user may select more than one option (e.g. which sections, features, or platforms apply). false when exactly one answer is required.
+- max_selections (with allow_multiple true): caps how many options can be picked; the UI stops accepting more and says so.
 - UI shows toggle buttons; selecting other reveals a text field for a custom answer.
 - Never include free_text in choice mode.
 - other is mandatory on every choice question so the user can always provide a custom answer.
+
+Several questions in one call show as "Question 1 of N" steps in a single form; put questions that do not depend on each other's answers in the same call.
 
 Limits: up to 5 questions per call. context, prompt, and option labels in the user-facing language.

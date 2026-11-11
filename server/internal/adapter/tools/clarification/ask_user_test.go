@@ -97,3 +97,19 @@ func TestAskUserTool_InvalidQuestions(t *testing.T) {
 	result := tool.Execute(t.Context(), raw)
 	assert.True(t, result.IsError)
 }
+
+func TestAskUserTool_KeepsMaxSelectionsOnMultiSelect(t *testing.T) {
+	tool := clarification.NewAskUserTool()
+	raw := `{"context":"x","questions":[{"id":"q1","prompt":"Where?","allow_multiple":true,"max_selections":3,"options":[{"id":"us","label":"US"},{"id":"uk","label":"UK"},{"id":"other","label":"Other"}]}]}`
+	result := tool.Execute(t.Context(), raw)
+	require.False(t, result.IsError)
+	assert.Equal(t, 3, result.Clarification.Questions[0].MaxSelections)
+}
+
+func TestAskUserTool_DropsMaxSelectionsOnSingleSelect(t *testing.T) {
+	tool := clarification.NewAskUserTool()
+	raw := `{"context":"x","questions":[{"id":"q1","prompt":"Where?","max_selections":3,"options":[{"id":"us","label":"US"},{"id":"other","label":"Other"}]}]}`
+	result := tool.Execute(t.Context(), raw)
+	require.False(t, result.IsError)
+	assert.Zero(t, result.Clarification.Questions[0].MaxSelections)
+}

@@ -30,7 +30,7 @@ export const audienceHub = {
     studies: "{count} études",
     emptyTitle: "Pas encore d'audience",
     emptyBody: "Décrivez à qui s'adresse votre produit et TaskTrooper en écrit des personnes réalistes. Demandez-leur si elles paieraient, ce qui manque et ce qu'elles utilisent à la place.",
-    askPm: "Vous pouvez aussi simplement demander au Product Manager : « Les gens paieraient-ils pour ça ? » Il écrit l'audience à partir de votre projet et demande avant de dépenser quoi que ce soit.",
+    askPm: "Vous pouvez aussi simplement demander au Product Manager : « Les gens paieraient-ils pour ça ? » Il lit votre site si vous en partagez un, demande à quelles personnes vous voulez parler et où elles se trouvent, puis écrit l'audience à partir de votre projet et demande avant de dépenser quoi que ce soit.",
     loadFailed: "Impossible de charger les audiences",
   },
   brief: {

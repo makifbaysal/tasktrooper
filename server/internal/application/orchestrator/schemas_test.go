@@ -255,7 +255,7 @@ func TestSchemaStructParity_GoalIntake(t *testing.T) {
 	assertSchemaStructParity(t, "goal_intake", intakeOutputSchemaKey.Map(), intakeWireOutput{})
 	props := schemaProperties(intakeOutputSchemaKey.Map())
 	questionSchema := arrayItemSchema(props["questions"])
-	assertSchemaStructParity(t, "goal_intake.questions[]", questionSchema, domain.ClarificationQuestion{})
+	assertSchemaStructParity(t, "goal_intake.questions[]", questionSchema, domain.ClarificationQuestion{}, "max_selections")
 	qProps := schemaProperties(questionSchema)
 	assertSchemaStructParity(t, "goal_intake.questions[].options[]", arrayItemSchema(qProps["options"]), domain.ClarificationOption{})
 }
@@ -268,7 +268,7 @@ func TestSchemaStructParity_PlannerOutput(t *testing.T) {
 	assertSchemaStructParity(t, "planner_output", plannerOutputSchemaKey.Map(), plannerOutputWire{}, "purpose", "goal")
 	props := schemaProperties(plannerOutputSchemaKey.Map())
 	assertSchemaStructParity(t, "planner_output.tasks[]", arrayItemSchema(props["tasks"]), plannerTaskWire{})
-	assertSchemaStructParity(t, "planner_output.questions[]", arrayItemSchema(props["questions"]), domain.ClarificationQuestion{})
+	assertSchemaStructParity(t, "planner_output.questions[]", arrayItemSchema(props["questions"]), domain.ClarificationQuestion{}, "max_selections")
 }
 
 // replan_output shares plannerTaskWire with planner_output, but its schema

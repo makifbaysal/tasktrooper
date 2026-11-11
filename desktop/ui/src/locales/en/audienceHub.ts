@@ -33,7 +33,7 @@ export const audienceHub = {
     studies: "{count} studies",
     emptyTitle: "No audience yet",
     emptyBody: "Describe who your product is for and TaskTrooper writes a set of realistic people from it. Ask them whether they would pay, what is missing and what they use instead.",
-    askPm: "You can also just ask the Product Manager: \"Would people pay for this?\" It writes the audience from your project and asks before it spends anything.",
+    askPm: "You can also just ask the Product Manager: \"Would people pay for this?\" It reads your site if you share one, asks which people you want to talk to and where they are, then writes the audience from your project and asks before it spends anything.",
     loadFailed: "Could not load the audiences",
   },
   brief: {

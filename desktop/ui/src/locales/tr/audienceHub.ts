@@ -31,7 +31,7 @@ export const audienceHub = {
     studies: "{count} araştırma",
     emptyTitle: "Henüz kitle yok",
     emptyBody: "Ürününüzün kimin için olduğunu anlatın, TaskTrooper bundan gerçekçi kişiler yazsın. Onlara ödeyip ödemeyeceklerini, neyin eksik olduğunu ve onun yerine ne kullandıklarını sorun.",
-    askPm: "Doğrudan Ürün Yöneticisine de sorabilirsiniz: \"İnsanlar bunun için öder mi?\" Kitleyi projenizden yazar ve bir şey harcamadan önce size sorar.",
+    askPm: "Doğrudan Ürün Yöneticisine de sorabilirsiniz: \"İnsanlar bunun için öder mi?\" Bir site paylaşırsanız onu okur, kimlerle ve nerede konuşmak istediğinizi sorar, sonra kitleyi projenizden yazar ve bir şey harcamadan önce size sorar.",
     loadFailed: "Kitleler yüklenemedi",
   },
   brief: {
