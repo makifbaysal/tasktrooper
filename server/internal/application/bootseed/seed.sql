@@ -19,11 +19,10 @@ INSERT INTO board_columns (slug, label, position, is_backlog) VALUES
     ('ready_for_qa',  'Ready for QA',   5, false),
     ('in_qa',         'In QA',          6, false),
     ('need_revision', 'Need Revision',  7, false),
-    ('pm_uat',        'PM UAT',         8, false),
-    ('human_uat',     'Human UAT',      9, false),
-    ('blocked',       'Blocked',       10, false),
-    ('done',          'Done',          11, false),
-    ('released',      'Released',      12, false)
+    ('human_uat',     'Human UAT',      8, false),
+    ('blocked',       'Blocked',        9, false),
+    ('done',          'Done',          10, false),
+    ('released',      'Released',      11, false)
 ON CONFLICT DO NOTHING;
 
 -- The recommended transition rules (domain.DefaultBoardTransitions; the same
@@ -43,14 +42,11 @@ SELECT v.from_slug, v.to_slug FROM (VALUES
     ('code_review', 'need_revision'),
     ('ready_for_qa', 'in_qa'),
     ('ready_for_qa', 'need_revision'),
-    ('in_qa', 'pm_uat'),
     ('in_qa', 'human_uat'),
     ('in_qa', 'need_revision'),
     ('need_revision', 'in_progress'),
     ('need_revision', 'code_review'),
     ('need_revision', 'analiz_review'),
-    ('pm_uat', 'human_uat'),
-    ('pm_uat', 'need_revision'),
     ('human_uat', 'done'),
     ('human_uat', 'need_revision'),
     ('done', 'released'),
@@ -58,7 +54,6 @@ SELECT v.from_slug, v.to_slug FROM (VALUES
     ('released', 'need_revision'),
     ('todo', 'need_revision'),
     ('in_progress', 'todo'),
-    ('ready_for_qa', 'pm_uat'),
     ('ready_for_qa', 'human_uat'),
     ('todo', 'blocked'),
     ('in_progress', 'blocked'),
@@ -67,7 +62,6 @@ SELECT v.from_slug, v.to_slug FROM (VALUES
     ('ready_for_qa', 'blocked'),
     ('in_qa', 'blocked'),
     ('need_revision', 'blocked'),
-    ('pm_uat', 'blocked'),
     ('human_uat', 'blocked'),
     ('done', 'blocked')
 ) AS v(from_slug, to_slug)

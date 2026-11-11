@@ -1,5 +1,5 @@
 ---
-key: board.review_criteria_header_qa_pm
+key: board.review_criteria_header_qa
 version: 1
 ---
 

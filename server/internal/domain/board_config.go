@@ -123,14 +123,11 @@ var requiredTransitions = []BoardTransition{
 	{From: "code_review", To: "need_revision"},
 	{From: "ready_for_qa", To: "in_qa"},
 	{From: "ready_for_qa", To: "need_revision"},
-	{From: "in_qa", To: "pm_uat"},
 	{From: "in_qa", To: "human_uat"},
 	{From: "in_qa", To: "need_revision"},
 	{From: "need_revision", To: "in_progress"},
 	{From: "need_revision", To: "code_review"},
 	{From: "need_revision", To: "analiz_review"},
-	{From: "pm_uat", To: "human_uat"},
-	{From: "pm_uat", To: "need_revision"},
 	{From: "human_uat", To: "done"},
 	{From: "human_uat", To: "need_revision"},
 	{From: "done", To: "released"},
@@ -147,10 +144,9 @@ func DefaultBoardTransitions() []BoardTransition {
 	out = append(out,
 		BoardTransition{From: "todo", To: "need_revision"},
 		BoardTransition{From: "in_progress", To: "todo"},
-		BoardTransition{From: "ready_for_qa", To: "pm_uat"},
 		BoardTransition{From: "ready_for_qa", To: "human_uat"},
 	)
-	for _, from := range []string{"todo", "in_progress", "analiz_review", "code_review", "ready_for_qa", "in_qa", "need_revision", "pm_uat", "human_uat", "done"} {
+	for _, from := range []string{"todo", "in_progress", "analiz_review", "code_review", "ready_for_qa", "in_qa", "need_revision", "human_uat", "done"} {
 		out = append(out, BoardTransition{From: from, To: "blocked"})
 	}
 	return out
@@ -188,7 +184,6 @@ func defaultColumnLabel(col TaskColumn) string {
 		TaskColumnReadyForQA:   "Ready for QA",
 		TaskColumnInQA:         "In QA",
 		TaskColumnNeedRevision: "Need Revision",
-		TaskColumnPMUAT:        "PM UAT",
 		TaskColumnHumanUAT:     "Human UAT",
 		TaskColumnBlocked:      "Blocked",
 		TaskColumnDone:         "Done",

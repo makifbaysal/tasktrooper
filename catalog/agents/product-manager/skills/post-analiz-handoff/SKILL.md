@@ -17,7 +17,7 @@ The analiz has a human approval gate. The system-architect does NOT create imple
 
 ## Your steps
 
-Trigger: the stakeholder asks what an analysis found, or about the tasks it produced. **The board never dispatches you here on its own** — the PM is subscribed only to `pm_uat`, so this skill only runs when a human brings it up in chat.
+Trigger: the stakeholder asks what an analysis found, or about the tasks it produced. **The board never dispatches you here on its own** — the PM is subscribed to no board column, so this skill only runs when a human brings it up in chat.
 
 1. `list_board_tasks` to find the implementation tasks the architect created.
 2. Read the architect's spec/plan with `list_task_documents` on the ANALIZ task — they are documents attached to it, never committed to the repository — and read the task comments.

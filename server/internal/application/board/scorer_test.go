@@ -71,25 +71,24 @@ func (f *fakeEvents) HasEventForTask(_ context.Context, taskID uuid.UUID, eventT
 
 type ScorerSuite struct {
 	suite.Suite
-	dev, qa, pm, architect uuid.UUID
+	dev, qa, architect uuid.UUID
 }
 
 func TestScorerSuite(t *testing.T) { suite.Run(t, new(ScorerSuite)) }
 
 func (s *ScorerSuite) SetupTest() {
-	s.dev, s.qa, s.pm, s.architect = uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	s.dev, s.qa, s.architect = uuid.New(), uuid.New(), uuid.New()
 }
 
 func (s *ScorerSuite) owners() *fakeOwners {
 	return &fakeOwners{owners: map[string]uuid.UUID{
 		"in_progress": s.dev,
 		"in_qa":       s.qa,
-		"pm_uat":      s.pm,
 		"code_review": s.architect,
 	}}
 }
 
-func (s *ScorerSuite) TestHumanUATFailurePenalisesDevQAAndPM() {
+func (s *ScorerSuite) TestHumanUATFailurePenalisesDevAndQA() {
 	perf := &fakePerfStore{}
 	tracker := board.NewScoreTracker(perf)
 	tracker.SetWorkflows(workflowtest.Default().Reader())
@@ -100,7 +99,7 @@ func (s *ScorerSuite) TestHumanUATFailurePenalisesDevQAAndPM() {
 		domain.BoardTask{ID: uuid.New(), AssigneeAgentID: &assignee},
 		domain.TaskColumnHumanUAT, domain.TaskColumnNeedRevision)
 
-	s.Require().Len(perf.applied, 3)
+	s.Require().Len(perf.applied, 2)
 	got := map[uuid.UUID]float64{}
 	for _, a := range perf.applied {
 		s.Equal(domain.ScoreEventHumanUATFailed, a.eventType)
@@ -108,25 +107,7 @@ func (s *ScorerSuite) TestHumanUATFailurePenalisesDevQAAndPM() {
 	}
 	s.Equal(domain.ScoreDeltaHumanUATFailed, got[s.dev])
 	s.Equal(domain.ScoreDeltaHumanUATFailed, got[s.qa])
-	s.Equal(domain.ScoreDeltaHumanUATFailed, got[s.pm])
 	s.NotContains(got, assignee)
-}
-
-func (s *ScorerSuite) TestPMUATFailurePenalisesDevAndQAOnly() {
-	perf := &fakePerfStore{}
-	tracker := board.NewScoreTracker(perf)
-	tracker.SetWorkflows(workflowtest.Default().Reader())
-	tracker.SetSpans(s.owners())
-
-	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
-		domain.TaskColumnPMUAT, domain.TaskColumnNeedRevision)
-
-	s.Require().Len(perf.applied, 2)
-	for _, a := range perf.applied {
-		s.Equal(domain.ScoreEventPMUATFailed, a.eventType)
-		s.Equal(domain.ScoreDeltaPMUATFailed, a.delta)
-		s.Contains([]uuid.UUID{s.dev, s.qa}, a.agentID)
-	}
 }
 
 func (s *ScorerSuite) TestArchitectRejectionPenalisesDevOnly() {
@@ -151,7 +132,6 @@ func (s *ScorerSuite) TestOneAgentHoldingTwoStagesIsChargedOnce() {
 	tracker.SetSpans(&fakeOwners{owners: map[string]uuid.UUID{
 		"in_progress": solo,
 		"in_qa":       solo,
-		"pm_uat":      solo,
 	}})
 
 	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
@@ -170,7 +150,7 @@ func (s *ScorerSuite) TestCompletionCreditsTheAssignee() {
 
 	tracker.OnColumnTransition(context.Background(),
 		domain.BoardTask{ID: uuid.New(), AssigneeAgentID: &assignee},
-		domain.TaskColumnPMUAT, domain.TaskColumnDone)
+		domain.TaskColumnHumanUAT, domain.TaskColumnDone)
 
 	s.Require().Len(perf.applied, 1)
 	s.Equal(assignee, perf.applied[0].agentID)
@@ -252,7 +232,7 @@ func (s *ScorerSuite) TestQAForwardExitConfirmsValidAndInvalidScenarios() {
 	tracker.SetTestCases(tc)
 
 	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
-		domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+		domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
 
 	s.Require().Len(perf.applied, 2)
 	got := map[string]float64{}
@@ -332,7 +312,7 @@ func (s *ScorerSuite) TestQAForwardExitCreditsQATaskTested() {
 	tracker.SetEvents(&fakeEvents{perf: perf})
 	task := domain.BoardTask{ID: uuid.New()}
 
-	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
 
 	var got *recordedDelta
 	for i, a := range perf.applied {
@@ -345,27 +325,6 @@ func (s *ScorerSuite) TestQAForwardExitCreditsQATaskTested() {
 	s.Equal(domain.ScoreDeltaQATaskTested, got.delta)
 }
 
-func (s *ScorerSuite) TestPMUATForwardExitCreditsPMUATCompleted() {
-	perf := &fakePerfStore{}
-	tracker := board.NewScoreTracker(perf)
-	tracker.SetWorkflows(workflowtest.Default().Reader())
-	tracker.SetSpans(s.owners())
-	tracker.SetEvents(&fakeEvents{perf: perf})
-	task := domain.BoardTask{ID: uuid.New()}
-
-	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT)
-
-	var got *recordedDelta
-	for i, a := range perf.applied {
-		if a.eventType == domain.ScoreEventPMUATCompleted {
-			got = &perf.applied[i]
-		}
-	}
-	s.Require().NotNil(got)
-	s.Equal(s.pm, got.agentID)
-	s.Equal(domain.ScoreDeltaPMUATCompleted, got.delta)
-}
-
 func (s *ScorerSuite) TestQATaskTestedIsNotCreditedTwiceAfterReEntry() {
 	perf := &fakePerfStore{}
 	tracker := board.NewScoreTracker(perf)
@@ -374,9 +333,9 @@ func (s *ScorerSuite) TestQATaskTestedIsNotCreditedTwiceAfterReEntry() {
 	tracker.SetEvents(&fakeEvents{perf: perf})
 	task := domain.BoardTask{ID: uuid.New()}
 
-	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnPMUAT)
-	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnPMUAT, domain.TaskColumnNeedRevision)
-	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnHumanUAT, domain.TaskColumnNeedRevision)
+	tracker.OnColumnTransition(context.Background(), task, domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
 
 	count := 0
 	for _, a := range perf.applied {
@@ -402,21 +361,6 @@ func (s *ScorerSuite) TestQABounceToNeedRevisionDoesNotCreditQATaskTested() {
 	}
 }
 
-func (s *ScorerSuite) TestPMUATBounceToNeedRevisionDoesNotCreditPMUATCompleted() {
-	perf := &fakePerfStore{}
-	tracker := board.NewScoreTracker(perf)
-	tracker.SetWorkflows(workflowtest.Default().Reader())
-	tracker.SetSpans(s.owners())
-	tracker.SetEvents(&fakeEvents{perf: perf})
-
-	tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
-		domain.TaskColumnPMUAT, domain.TaskColumnNeedRevision)
-
-	for _, a := range perf.applied {
-		s.NotEqual(domain.ScoreEventPMUATCompleted, a.eventType)
-	}
-}
-
 func (s *ScorerSuite) TestRoleCompletionWithoutEventsIsNoop() {
 	perf := &fakePerfStore{}
 	tracker := board.NewScoreTracker(perf)
@@ -425,7 +369,7 @@ func (s *ScorerSuite) TestRoleCompletionWithoutEventsIsNoop() {
 
 	s.NotPanics(func() {
 		tracker.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
-			domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+			domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
 	})
 
 	for _, a := range perf.applied {

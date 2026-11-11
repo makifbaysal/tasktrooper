@@ -178,13 +178,11 @@ export const agentArea = {
       task_completed: "任务完成",
       task_released: "任务已发布",
       revision_requested: "要求修改",
-      pm_uat_failed: "PM UAT 未通过",
       human_uat_failed: "人工 UAT 未通过",
       qa_bug_found: "QA 发现缺陷",
       qa_valid_scenario_confirmed: "有效场景已确认",
       qa_invalid_scenario_confirmed: "无效场景已确认",
       qa_task_tested: "QA 已完成测试",
-      pm_uat_completed: "PM UAT 已完成",
     },
     changeType: {
       skill_created: "已添加技能",
@@ -383,10 +381,6 @@ export const agentArea = {
             qa: {
               label: "QA",
               detail: "测试",
-            },
-            acceptance: {
-              label: "PM 检查",
-              detail: "UAT",
             },
             approval: {
               label: "验收",

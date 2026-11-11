@@ -2216,7 +2216,7 @@ repository's own `local_run` doc (`scripts/dev.sh`).
     answer.
   - The **review chain gate** is always enforced: moving into `done` (or `released`
     when that skips `done`) 400s unless the column-span history shows every review
-    stage the type's workflow requires — `code_review`, `in_qa`, `pm_uat` for
+    stage the type's workflow requires — `code_review`, `in_qa` for
     `task`/`bug`, `analiz_review` for `analiz` — with none of those stages' latest
     visit rejected; the message names the missing/rejected stage and the move that
     earns it (`done means the task passed its review chain, and this one has not …

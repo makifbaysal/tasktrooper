@@ -152,25 +152,19 @@ func pmRunPolicyIn(t *testing.T, column domain.TaskColumn) domain.ToolPolicy {
 	)
 }
 
-func TestPMUATRunPolicyLosesCodeExplorationTools(t *testing.T) {
-	for _, column := range []domain.TaskColumn{domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT} {
-		t.Run(string(column), func(t *testing.T) {
-			policy := pmRunPolicyIn(t, column)
-			for _, name := range domain.CodeExplorationTools {
-				assert.NotContains(t, policy.AllowTools, name)
-			}
-			assert.Contains(t, policy.AllowTools, "browser_navigate")
-			assert.Contains(t, policy.AllowTools, "review_criterion")
-			// The PM's own way to see the product run with no stage/preview
-			// environment: neither a workspace writer nor code reading, so
-			// strip_writers/no_code_reading must not have taken it.
-			assert.Contains(t, policy.AllowTools, "start_task_preview")
-			assert.Contains(t, policy.AllowTools, "get_task_preview")
-		})
+// The PM no longer verifies the running product: that is QA's round and then
+// the human's, so its policy holds none of the browser/device/verdict tools.
+func TestPMHasNoProductVerificationTools(t *testing.T) {
+	policy := pmRunPolicyIn(t, domain.TaskColumnTodo)
+	for _, name := range []string{
+		"browser_navigate", "mobile_launch_app", "review_criterion",
+		"start_task_preview", "get_task_preview", "http_request",
+	} {
+		assert.NotContains(t, policy.AllowTools, name)
 	}
 }
 
-func TestPMKeepsCodeExplorationToolsOutsideUATColumns(t *testing.T) {
+func TestPMKeepsCodeExplorationTools(t *testing.T) {
 	policy := pmRunPolicyIn(t, domain.TaskColumnTodo)
 	for _, name := range domain.CodeExplorationTools {
 		assert.Contains(t, policy.AllowTools, name)

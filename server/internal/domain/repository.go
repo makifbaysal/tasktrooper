@@ -62,8 +62,8 @@ type Repository struct {
 	// other.
 	SubProjects []RepoSubProject `json:"sub_projects,omitempty"`
 	// RequireHumanReview makes code_review a human approval gate: an approval is
-	// held, a rejection still goes through. Only code_review — pm_uat's forward
-	// move is into human_uat, so holding both would make one person approve the
+	// held, a rejection still goes through. Only code_review — human_uat is
+	// already a human gate, so holding both would make one person approve the
 	// same task twice.
 	RequireHumanReview bool `json:"require_human_review"`
 	// IncidentPolicy decides what a production incident on this repo triggers.

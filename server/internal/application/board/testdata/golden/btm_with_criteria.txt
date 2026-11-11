@@ -1,6 +1,6 @@
 A kanban board event occurred. Evaluate the task and take action using board tools when appropriate.
 
-This task is still in `ready_for_qa`: the automatic move into `in_qa` did not go through. Every acceptance criterion passing moves it to pm_uat; any failure moves it to need_revision.
+This task is still in `ready_for_qa`: the automatic move into `in_qa` did not go through. Every acceptance criterion passing moves it to human_uat; any failure moves it to need_revision.
 
 Every board tool call in this run is about THIS task: pass the task_id or task_key from the snapshot below verbatim. The keys in the tool descriptions ("T-1", "B-1", "A-1") are format examples, never the task you are working on. Tools that take a repository_id (get_deploy_target, update_deploy_target, list_incidents) want the repository_id UUID from the snapshot below — never the repository name. create_board_task is the exception: its `repository` argument takes either the repository's name or that UUID. Tools without a repository field — list_board_tasks among them — are already scoped to this run's repository; passing one an extra field is a schema error. Use the exact tool names available to you (claim_board_task, move_board_task, add_task_comment, etc.) — do not invent tool names. Only claim tasks that are unassigned or already assigned to you.
 
@@ -11,9 +11,9 @@ Task snapshot:
 
 Acceptance criteria — record YOUR verdict on EACH id below with review_criterion. The forward move is refused while any id lacks your verdict on repositories that require criteria. Never move the task to need_revision just to look for these ids: they are here.
  A verdict already on an id survives a revision round — it is not asked again from zero. Where a line below names files changed since that verdict, re-verify and call review_criterion again only if one of those files could plausibly affect that specific criterion; leave the rest as they are. An id with no verdict yet still needs one.
-- [00000000-0000-0000-0000-000000000010] Approved with changed files — implementer: ticked; qa: approved (as of 111111111111, changed since: a.go, b.go); pm: —
-- [00000000-0000-0000-0000-000000000011] Approved with nothing changed since — implementer: ticked; qa: —; pm: approved (as of 555555555555, nothing changed since)
-- [00000000-0000-0000-0000-000000000012] Rejected with a note — implementer: not ticked; qa: rejected (Login button missing); pm: —
-- [00000000-0000-0000-0000-000000000013] Rejected with no note — implementer: not ticked; qa: —; pm: rejected
-- [00000000-0000-0000-0000-000000000014] No verdict at all yet — implementer: not ticked; qa: —; pm: —
-- [00000000-0000-0000-0000-000000000015] Approved with many changed files — implementer: ticked; qa: approved (as of 999999999999, changed since: filea.go, fileb.go, filec.go, filed.go, filee.go, filef.go, fileg.go, fileh.go, filei.go, filej.go, filek.go, filel.go, filem.go, filen.go, fileo.go +5 more); pm: —
+- [00000000-0000-0000-0000-000000000010] Approved with changed files — implementer: ticked; qa: approved (as of 111111111111, changed since: a.go, b.go)
+- [00000000-0000-0000-0000-000000000011] Approved with nothing changed since — implementer: ticked; qa: approved (as of 555555555555, nothing changed since)
+- [00000000-0000-0000-0000-000000000012] Rejected with a note — implementer: not ticked; qa: rejected (Login button missing)
+- [00000000-0000-0000-0000-000000000013] Rejected with no note — implementer: not ticked; qa: rejected
+- [00000000-0000-0000-0000-000000000014] No verdict at all yet — implementer: not ticked; qa: —
+- [00000000-0000-0000-0000-000000000015] Approved with many changed files — implementer: ticked; qa: approved (as of 999999999999, changed since: filea.go, fileb.go, filec.go, filed.go, filee.go, filef.go, fileg.go, fileh.go, filei.go, filej.go, filek.go, filel.go, filem.go, filen.go, fileo.go +5 more)

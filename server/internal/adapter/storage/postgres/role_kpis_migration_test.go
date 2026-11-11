@@ -175,6 +175,11 @@ func (s *RoleKPIsMigrationSuite) TestMigrationReconcilesToCurrentDefaults() {
 		s.Require().NoError(err, "run %d", i)
 	}
 
+	removal, err := migrations.Up.ReadFile("199_remove_pm_uat.up.sql")
+	s.Require().NoError(err)
+	_, err = s.db.Exec(s.ctx, string(removal))
+	s.Require().NoError(err, "142 re-adds the KPI that 199 removes")
+
 	for _, agent := range agents {
 		kpis, err := s.kpis.ListByAgent(s.ctx, agent.ID)
 		s.Require().NoError(err)

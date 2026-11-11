@@ -43,7 +43,6 @@ func TestGoldenColumnInstruction(t *testing.T) {
 	assertGolden(t, "col_code_review", columnInstruction(taskWF, domain.BoardTask{Column: domain.TaskColumnCodeReview, TaskType: "task"}))
 	assertGolden(t, "col_ready_for_qa", columnInstruction(taskWF, domain.BoardTask{Column: domain.TaskColumnReadyForQA, TaskType: "task"}))
 	assertGolden(t, "col_in_qa", columnInstruction(taskWF, domain.BoardTask{Column: domain.TaskColumnInQA, TaskType: "task"}))
-	assertGolden(t, "col_pm_uat", columnInstruction(taskWF, domain.BoardTask{Column: domain.TaskColumnPMUAT, TaskType: "task"}))
 	assertGolden(t, "col_done_task", columnInstruction(taskWF, domain.BoardTask{Column: domain.TaskColumnDone, TaskType: "task"}))
 	assertGolden(t, "col_done_analiz", columnInstruction(analizWF, domain.BoardTask{Column: domain.TaskColumnDone, TaskType: "analiz"}))
 	assertGolden(t, "col_released", columnInstruction(taskWF, domain.BoardTask{Column: domain.TaskColumnReleased, TaskType: "task"}))
@@ -53,7 +52,6 @@ func TestGoldenColumnInstruction(t *testing.T) {
 func TestGoldenReviewCriteriaHeader(t *testing.T) {
 	assertGolden(t, "rch_ready_for_qa", reviewCriteriaHeader(domain.TaskColumnReadyForQA))
 	assertGolden(t, "rch_in_qa", reviewCriteriaHeader(domain.TaskColumnInQA))
-	assertGolden(t, "rch_pm_uat", reviewCriteriaHeader(domain.TaskColumnPMUAT))
 	assertGolden(t, "rch_code_review", reviewCriteriaHeader(domain.TaskColumnCodeReview))
 	assertGolden(t, "rch_default", reviewCriteriaHeader(domain.TaskColumnTodo))
 }
@@ -76,7 +74,7 @@ func goldenReviewCriteriaAndChangedSince() ([]domain.AcceptanceCriterion, map[st
 		{
 			ID: fixedUUID("000000000011"), Text: "Approved with nothing changed since", Completed: true,
 			Checks: []domain.CriterionCheck{
-				{Role: domain.CriterionReviewRolePM, Approved: true, VerifiedSHA: sha2},
+				{Role: domain.CriterionReviewRoleQA, Approved: true, VerifiedSHA: sha2},
 			},
 		},
 		{
@@ -88,7 +86,7 @@ func goldenReviewCriteriaAndChangedSince() ([]domain.AcceptanceCriterion, map[st
 		{
 			ID: fixedUUID("000000000013"), Text: "Rejected with no note",
 			Checks: []domain.CriterionCheck{
-				{Role: domain.CriterionReviewRolePM, Approved: false},
+				{Role: domain.CriterionReviewRoleQA, Approved: false},
 			},
 		},
 		{
@@ -216,8 +214,6 @@ func TestGoldenGuardReasons(t *testing.T) {
 	assertGolden(t, "guard_ungrounded_analysis", ungroundedAnalysisReason)
 	assertGolden(t, "guard_ungrounded_qa", ungroundedQAReason)
 	assertGolden(t, "guard_no_ui_evidence", noUIEvidenceReason)
-	assertGolden(t, "guard_ungrounded_pmuat", ungroundedPMUATReason)
-	assertGolden(t, "guard_pm_uncovered_criterion", pmUncoveredCriterionReason)
 }
 
 func TestGoldenOutOfBudgetComment(t *testing.T) {

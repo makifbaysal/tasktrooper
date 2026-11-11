@@ -12,8 +12,6 @@ func TestRunGateRejectionReasons_AllSatisfyIsRunGateRejection(t *testing.T) {
 		ungroundedAnalysisReason,
 		ungroundedQAReason,
 		noUIEvidenceReason,
-		ungroundedPMUATReason,
-		pmUncoveredCriterionReason,
 	}
 	for _, reason := range reasons {
 		assert.True(t, domain.IsRunGateRejection(reason), reason)

@@ -40,7 +40,7 @@ const (
 func SpanCountsForSpeed(col TaskColumn) bool {
 	switch col {
 	case TaskColumnInProgress, TaskColumnCodeReview, TaskColumnReadyForQA,
-		TaskColumnInQA, TaskColumnPMUAT:
+		TaskColumnInQA:
 		return true
 	default:
 		return false

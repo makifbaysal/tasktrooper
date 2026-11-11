@@ -17,7 +17,7 @@ A `sed -n '<from>,<to>p'` read of fewer than 200 lines gets a line appended to i
 
 ### `read_file`
 
-Reads a workspace file with line numbers. Registered unconditionally (no semantic index required), confined to the workspace root, and part of `CodeExplorationTools` — so every tool-scoped agent has it, including on unindexed repositories. `domain.RestrictCodeToolsForVerification` takes it back out of QA's policy in `in_qa`/`ready_for_qa`, and out of PM's whole `CodeExplorationTools` set in `pm_uat`/`human_uat` — those two roles verify a running product in those columns, never a file body.
+Reads a workspace file with line numbers. Registered unconditionally (no semantic index required), confined to the workspace root, and part of `CodeExplorationTools` — so every tool-scoped agent has it, including on unindexed repositories. `domain.RestrictCodeToolsForVerification` takes it back out of QA's policy in `in_qa`/`ready_for_qa`, and out of the whole `CodeExplorationTools` set in `human_uat`, where nobody reads code.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -380,8 +380,8 @@ branch. This is how a finished task's code actually lands: task PRs are opened
 ready for review (they used to be drafts, which GitHub refuses to merge at all),
 and nothing else in the system merges anything. **Granted to `qa-agent` alone**,
 backfilled to existing installs by migration 104 — the developer must not merge
-its own branch, the architect reviews it, and the PM signs off on the product
-rather than on the git history. QA is dispatched into `done` for exactly this
+its own branch, the architect reviews it, and QA verifies the product
+rather than the git history. QA is dispatched into `done` for exactly this
 (see orchestration-agents.md).
 
 | Parameter | Type | Required | Description |

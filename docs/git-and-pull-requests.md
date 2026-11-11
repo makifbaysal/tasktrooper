@@ -111,7 +111,7 @@ un-drafted. `committed: false` is a normal, non-error result: either the
 branch already matches the workspace, or the task has no working copy on this
 machine yet, and either way retrying would not help.
 
-When a task reaches Code Review — and again at PM UAT or Done, if nothing
+When a task reaches Code Review — and again at Human UAT or Done, if nothing
 opened one earlier — TaskTrooper also opens a PR via `gh pr create --fill`
 (no `--draft`; the direct API path sends `"draft": false`) if the earlier
 commit step has not already opened one, and appends the PR link as a system

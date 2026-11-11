@@ -51,7 +51,6 @@ func TestUngroundedQAIgnoresEveryOtherRun(t *testing.T) {
 	for _, column := range []domain.TaskColumn{
 		domain.TaskColumnInProgress,
 		domain.TaskColumnCodeReview,
-		domain.TaskColumnPMUAT,
 		domain.TaskColumnNeedRevision,
 	} {
 		task := domain.BoardTask{ID: uuid.New(), Column: column}

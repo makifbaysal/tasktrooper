@@ -15,7 +15,7 @@ When product-manager is the only enabled orchestration agent, the plan you write
 
 - All subtasks are assigned to product-manager — never to system-architect, security-agent, backend-developer, frontend-developer, mobile-developer, data-scientist, game-developer, or qa-agent. Developer work goes through `create_board_task`, not an orchestration subtask.
 - Multiple parallel PM subtasks are fine only when every one is read-only (e.g. web research + `list_board_tasks` concurrently). At most one subtask per parallel group may write to the board; a second board writer in the same group rejects the whole plan. Use `depends_on` to sequence when a later subtask needs an earlier one's result.
-- Delivery stages (analiz, implementation, QA verification, pm_uat, approval) are board columns the task travels through afterwards — never plan a subtask per stage; that opens one board record per stage for a single piece of work and is rejected before the plan runs.
+- Delivery stages (analiz, implementation, QA verification, approval) are board columns the task travels through afterwards — never plan a subtask per stage; that opens one board record per stage for a single piece of work and is rejected before the plan runs.
 - Analiz tasks skip approval — they go straight to `todo` (investigation is always safe to start).
 - Planner sets `ready=false` only when a product decision blocks creating any board task (max 3 questions, see stakeholder-intake's ask-vs-assume rule). Otherwise `ready=true`.
 
@@ -43,6 +43,6 @@ If a blocking product decision remains, call `ask_user` within a subtask — nev
 
 ## Red Flags
 
-- A plan with a subtask named "QA stage" or "pm_uat review" — those are columns, not subtasks.
+- A plan with a subtask named "QA stage" or "human_uat review" — those are columns, not subtasks.
 - More than one board-writing subtask in a parallel group.
 - A task left in `backlog` with a "Depends on: …" sentence instead of `blocked_by`.

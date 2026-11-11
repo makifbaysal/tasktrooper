@@ -921,7 +921,7 @@ export type TaskPriority = "low" | "medium" | "high" | "critical";
  */
 export type TaskRelationType = "blocks" | "deploy_depends_on";
 
-export type CriterionReviewRole = "qa" | "pm";
+export type CriterionReviewRole = "qa";
 
 export type ReviewerVerdict = "approve" | "reject" | "pending";
 

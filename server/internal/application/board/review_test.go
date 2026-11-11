@@ -94,7 +94,7 @@ func TestReviewPRContext_NoOriginReviewsTheDiffAlone(t *testing.T) {
 // they are: someone judging work they did not do.
 func TestIsReviewColumn(t *testing.T) {
 	for _, col := range []domain.TaskColumn{
-		domain.TaskColumnCodeReview, domain.TaskColumnAnalizReview, domain.TaskColumnPMUAT,
+		domain.TaskColumnCodeReview, domain.TaskColumnAnalizReview,
 		domain.TaskColumnInQA, domain.TaskColumnHumanUAT,
 	} {
 		assert.True(t, isReviewColumn(taskWF, col), "%s judges someone else's change", col)

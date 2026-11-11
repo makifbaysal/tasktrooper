@@ -292,7 +292,6 @@ export const boardArea: BoardAreaDict = {
       testCaseCategoryAsync: "Asenkron",
       testCaseCategoryOther: "Diğer",
       checkRoleQa: "QA",
-      checkRolePm: "PM",
       checkRoleDev: "Dev",
       checkDevDone: "Geliştirici tamamlandı olarak işaretledi",
       checkDevPending: "Geliştirici tamamlandı olarak işaretlemedi. Code review'a geçiş bu yüzden engelleniyor.",

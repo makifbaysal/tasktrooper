@@ -52,7 +52,7 @@ var memoryDurabilityRules = []memoryDurabilityRule{
 	},
 	{
 		// "moved code_review→ready_for_qa", "bounced in_qa -> need_revision"
-		pattern: regexp.MustCompile(`(?i)\b(?:backlog|todo|in_progress|code_review|ready_for_qa|in_qa|pm_uat|analiz_review|need_revision|blocked|done|released)\b\s*(?:→|->|to)\s*\b(?:backlog|todo|in_progress|code_review|ready_for_qa|in_qa|pm_uat|analiz_review|need_revision|blocked|done|released)\b`),
+		pattern: regexp.MustCompile(`(?i)\b(?:backlog|todo|in_progress|code_review|ready_for_qa|in_qa|analiz_review|need_revision|blocked|done|released)\b\s*(?:→|->|to)\s*\b(?:backlog|todo|in_progress|code_review|ready_for_qa|in_qa|analiz_review|need_revision|blocked|done|released)\b`),
 		code:    "column_move",
 	},
 	{

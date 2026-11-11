@@ -142,28 +142,6 @@ func TestSkipUnchangedDiffGateQA(t *testing.T) {
 	assert.True(t, skipped)
 	require.Len(t, updater.calls, 1)
 	require.NotNil(t, updater.calls[0].Column)
-	assert.Equal(t, domain.TaskColumnPMUAT, *updater.calls[0].Column)
-}
-
-func TestSkipUnchangedDiffGatePM(t *testing.T) {
-	agentID := uuid.New()
-	task := domain.BoardTask{ID: uuid.New(), Column: domain.TaskColumnPMUAT, TaskType: "task"}
-	approvedAt := time.Now().Add(-time.Hour)
-	updater := &skipTestUpdater{
-		fakeTaskUpdater: fakeTaskUpdater{task: task},
-		fresh:           task,
-		criteria: []domain.AcceptanceCriterion{
-			criterionApproval(domain.CriterionReviewRolePM, true, testPatchID, approvedAt),
-		},
-	}
-	r := skipRunner(updater, &skipGit{patchID: testPatchID}, nil)
-	job := runJobFor(task, agentID)
-
-	skipped := r.skipUnchangedDiffGate(context.Background(), job, job.Run, "/w/task-1")
-
-	assert.True(t, skipped)
-	require.Len(t, updater.calls, 1)
-	require.NotNil(t, updater.calls[0].Column)
 	assert.Equal(t, domain.TaskColumnHumanUAT, *updater.calls[0].Column)
 }
 

@@ -8,9 +8,7 @@ import (
 
 const (
 	ScoreDeltaRevisionRequested float64 = -10.0
-	ScoreDeltaPMUATFailed       float64 = -5.0
-	// A defect that reached the human escaped every automated gate, so it
-	// costs more than one the PM caught first.
+	// A defect that reached the human escaped every automated gate.
 	ScoreDeltaHumanUATFailed float64 = -8.0
 	// ScoreDeltaReviewEscape is charged to a reviewer whose approval a human
 	// overturned at the same gate: the review itself, not just the code, failed.
@@ -27,14 +25,12 @@ const (
 	// verdict; kept small so a whole round never outweighs a single event.
 	ScoreDeltaQAValidScenarioConfirmed   float64 = +1.0
 	ScoreDeltaQAInvalidScenarioConfirmed float64 = -1.0
-	// ScoreDeltaQATaskTested/ScoreDeltaPMUATCompleted credit QA/PM with the same
-	// "a unit of work finished" weight as the developer's own completion
-	// credit, not the smaller per-scenario QA deltas above.
-	ScoreDeltaQATaskTested   float64 = +5.0
-	ScoreDeltaPMUATCompleted float64 = +5.0
+	// ScoreDeltaQATaskTested credits QA with the same "a unit of work
+	// finished" weight as the developer's own completion credit, not the
+	// smaller per-scenario QA deltas above.
+	ScoreDeltaQATaskTested float64 = +5.0
 
 	ScoreEventRevisionRequested = "revision_requested"
-	ScoreEventPMUATFailed       = "pm_uat_failed"
 	ScoreEventHumanUATFailed    = "human_uat_failed"
 	ScoreEventTaskCompleted     = "task_completed"
 	ScoreEventTaskReleased      = "task_released"
@@ -45,7 +41,6 @@ const (
 	ScoreEventQAValidScenarioConfirmed   = "qa_valid_scenario_confirmed"
 	ScoreEventQAInvalidScenarioConfirmed = "qa_invalid_scenario_confirmed"
 	ScoreEventQATaskTested               = "qa_task_tested"
-	ScoreEventPMUATCompleted             = "pm_uat_completed"
 )
 
 type AgentPerformanceScore struct {

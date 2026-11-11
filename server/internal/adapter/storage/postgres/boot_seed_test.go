@@ -69,7 +69,7 @@ func (s *BootSeedSuite) TestBoardIsSeededOnce() {
 
 	s.setSeeded(false)
 	s.Require().NoError(bootseed.NewService(seeds).Ensure(s.ctx))
-	s.Equal(13, s.count("board_columns"), "the 13-column default board")
+	s.Equal(12, s.count("board_columns"), "the 13-column default board")
 	s.Equal(3, s.count("board_task_counters"), "one counter per task type")
 	s.Equal(1, s.count("board_settings"))
 	s.Equal(1, s.count("billing_plan"))
@@ -83,14 +83,14 @@ func (s *BootSeedSuite) TestBoardIsSeededOnce() {
 	// subscriptions name them.
 	s.Equal([]string{
 		"backlog", "todo", "in_progress", "analiz_review", "code_review",
-		"ready_for_qa", "in_qa", "need_revision", "pm_uat", "human_uat",
+		"ready_for_qa", "in_qa", "need_revision", "human_uat",
 		"blocked", "done", "released",
 	}, s.slugs())
 	s.Equal(s.defaultTransitions(), s.transitions(), "the recommended transition rules")
 
 	// A restarted process has an empty cache, so only install_state stops it.
 	s.Require().NoError(bootseed.NewService(seeds).Ensure(s.ctx))
-	s.Equal(13, s.count("board_columns"), "a second start duplicated the board")
+	s.Equal(12, s.count("board_columns"), "a second start duplicated the board")
 	s.Equal(1, s.count("board_settings"))
 	var seeded bool
 	s.Require().NoError(s.db.QueryRow(s.ctx, `SELECT board_seeded_at IS NOT NULL FROM install_state`).Scan(&seeded))

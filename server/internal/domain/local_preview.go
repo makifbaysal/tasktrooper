@@ -18,8 +18,7 @@ const (
 
 // LocalPreview is one repository's "run it locally" process — the human_uat
 // reviewer's own manual pass at the task's branch, running on this machine.
-// See application/localpreview and PM's automated pm-uat-review skill (which
-// exercises stage, never local) for the other half of a task's UAT.
+// See application/localpreview.
 type LocalPreview struct {
 	RepositoryID uuid.UUID          `json:"repository_id"`
 	TaskID       uuid.UUID          `json:"task_id"`

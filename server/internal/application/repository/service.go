@@ -331,8 +331,6 @@ func (s *Service) ReviewTaskCriterion(ctx context.Context, criterionID, agentID 
 	switch {
 	case ok && channel == string(domain.CriterionReviewRoleQA):
 		role = domain.CriterionReviewRoleQA
-	case ok && channel == string(domain.CriterionReviewRolePM):
-		role = domain.CriterionReviewRolePM
 	default:
 		return domain.CriterionCheck{}, fmt.Errorf("%s", criterionVerdictWrongColumnKey.Render(criterionVerdictWrongColumnInput{Key: task.Key, Column: string(task.Column)}))
 	}
@@ -449,8 +447,6 @@ func (s *Service) criteriaReviewGate(ctx context.Context, taskID uuid.UUID, task
 	switch {
 	case ok && channel == string(domain.CriterionReviewRoleQA):
 		role = domain.CriterionReviewRoleQA
-	case ok && channel == string(domain.CriterionReviewRolePM):
-		role = domain.CriterionReviewRolePM
 	default:
 		return nil
 	}

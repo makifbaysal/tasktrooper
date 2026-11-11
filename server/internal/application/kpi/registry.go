@@ -47,7 +47,7 @@ var metricRegistry = map[string]MetricDef{
 		},
 		Resolve: countDistinctTaskEvents(
 			domain.ScoreEventTaskCompleted, domain.ScoreEventTaskReleased,
-			domain.ScoreEventQATaskTested, domain.ScoreEventPMUATCompleted,
+			domain.ScoreEventQATaskTested,
 		),
 	},
 	"revisions_received": {
@@ -61,10 +61,10 @@ var metricRegistry = map[string]MetricDef{
 	"uat_failures": {
 		Info: domain.KPIMetricInfo{
 			Key: "uat_failures", Label: "UAT Failures", Unit: "items",
-			Description: "Number of items rejected by PM or human UAT",
+			Description: "Number of items rejected at human UAT",
 			Direction:   domain.KPIDirectionLowerBetter,
 		},
-		Resolve: countScoreEvents(domain.ScoreEventPMUATFailed, domain.ScoreEventHumanUATFailed),
+		Resolve: countScoreEvents(domain.ScoreEventHumanUATFailed),
 	},
 	"failed_runs": {
 		Info: domain.KPIMetricInfo{
@@ -126,15 +126,6 @@ var metricRegistry = map[string]MetricDef{
 		Columns: columnsQA, MinSample: minCleanSample,
 		Resolve: resolveCleanTime(columnsQA, minCleanSample),
 	},
-	"clean_time_pm_uat": {
-		Info: domain.KPIMetricInfo{
-			Key: "clean_time_pm_uat", Label: "Clean Time In PM UAT", Unit: "hours",
-			Description: "Median hours held in pm_uat, counting only tasks completed without a revision",
-			Direction:   domain.KPIDirectionLowerBetter,
-		},
-		Columns: columnsPMUAT, MinSample: minCleanSample,
-		Resolve: resolveCleanTime(columnsPMUAT, minCleanSample),
-	},
 	"tool_error_rate": {
 		Info: domain.KPIMetricInfo{
 			Key: "tool_error_rate", Label: "Tool Error Rate", Unit: "%",
@@ -161,7 +152,7 @@ func ListMetrics() []domain.KPIMetricInfo {
 		"gate_rejected_runs",
 		"bugs_assigned", "first_pass_rate",
 		"clean_time_in_progress", "clean_time_code_review", "clean_time_in_qa",
-		"clean_time_pm_uat", "review_escapes", "tool_error_rate",
+		"review_escapes", "tool_error_rate",
 	} {
 		out = append(out, metricRegistry[key].Info)
 	}
@@ -232,8 +223,7 @@ var (
 	columnsInProgress = []string{"in_progress"}
 	columnsCodeReview = []string{"code_review"}
 
-	columnsQA    = []string{"ready_for_qa", "in_qa"}
-	columnsPMUAT = []string{"pm_uat"}
+	columnsQA = []string{"ready_for_qa", "in_qa"}
 )
 
 const minCleanSample = 3
@@ -358,7 +348,7 @@ func resolveFirstPassRate(ctx context.Context, deps MetricDeps, agentID uuid.UUI
 		switch e.EventType {
 		case domain.ScoreEventTaskCompleted, domain.ScoreEventTaskReleased:
 			completed[key] = true
-		case domain.ScoreEventRevisionRequested, domain.ScoreEventPMUATFailed, domain.ScoreEventHumanUATFailed:
+		case domain.ScoreEventRevisionRequested, domain.ScoreEventHumanUATFailed:
 			revised[key] = true
 		}
 	}

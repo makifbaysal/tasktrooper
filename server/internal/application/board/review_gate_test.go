@@ -69,12 +69,12 @@ func (s *ReviewGateSuite) TestAgentRejectionMovesImmediately() {
 	s.Equal(domain.ReviewVerdictReject, spans.set["code_review"])
 }
 
-func (s *ReviewGateSuite) TestPMApprovalIsNotHeldBecauseHumanUATIsTheHumanGate() {
+func (s *ReviewGateSuite) TestQAApprovalIsNotHeldBecauseHumanUATIsTheHumanGate() {
 	spans := &verdictSpans{}
 	gate := newReviewGate(spans, &escapeRecorder{})
 
 	allow := gate.InterceptAgentMove(context.Background(), domain.BoardTask{ID: uuid.New()},
-		domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT, domain.TaskActorAgent,
+		domain.TaskColumnInQA, domain.TaskColumnHumanUAT, domain.TaskActorAgent,
 		domain.Repository{RequireHumanReview: true})
 
 	s.True(allow)

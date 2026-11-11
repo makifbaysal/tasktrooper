@@ -40,12 +40,12 @@ func TestCatalogRoleToolPolicies(t *testing.T) {
 	dev := expected["backend-developer"]
 	mob := expected["mobile-developer"]
 	assert.NotContains(t, dev.AllowTools, "mobile_tap")
+	assert.NotContains(t, expected["product-manager"].AllowTools, "mobile_tap")
 	assert.Contains(t, mob.AllowTools, "mobile_tap")
 
 	qa := expected["qa-agent"]
 	assert.Contains(t, qa.AllowTools, "mobile_launch_app")
 	assert.Contains(t, qa.AllowTools, "mobile_screenshot")
-	assert.Contains(t, expected["product-manager"].AllowTools, "mobile_screenshot")
 }
 
 func TestToolPolicyEqual(t *testing.T) {

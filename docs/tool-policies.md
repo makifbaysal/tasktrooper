@@ -40,9 +40,9 @@ The three developer roles (`backend-developer`, `frontend-developer`,
 **`product-manager`** gets no shell and no file writers — it works the board,
 not the code. It gets the read-only code tools (to verify a real file or
 endpoint name before writing a technical description, never to change one),
-the browser and mobile tools (for walking a build in PM UAT), board create and
-delete, workspace management (creating/renaming projects), and its own
-criterion verdicts (`review_criterion`).
+board create and delete, and workspace management (creating/renaming
+projects). It records no criterion verdicts and does not drive the browser or
+a device: verifying a build is QA's job.
 
 **`system-architect`** gets the shell, the read-only code tools, board create
 and claim, and read/reply on pull requests — but not the file writers or
@@ -62,7 +62,7 @@ tool (`merge_task_pull_request`), the release tools (`get_release`,
 and browser-read tools, and board read/move tools — but **no file writers and
 no `commit_task_changes`**: it ships and rolls back through the release tools,
 never by editing the branch. The developer must not merge its own branch, the
-reviewer and PM judge the change rather than land it, and QA tests it rather
+reviewer judges the change rather than land it, and QA tests it rather
 than ship it.
 
 ## The QA black-box rule
@@ -110,37 +110,6 @@ three named exceptions exist, none of which substitutes for execution:
    diff implies that QA had not already listed. This only feeds the matrix;
    it never substitutes for executing the case afterward.
 
-## The PM UAT black-box rule
-
-PM's policy carries the full read-only code-reading set
-(`codebase_search`, `grep_code`, `get_repo_tree`, `get_symbol_skeleton`,
-`expand_symbol_context`, `read_file`) for backlog grooming — verifying a real
-file or endpoint name before writing a `technical_description`. But the column
-narrowing strips every one of those names in `pm_uat`/`human_uat`, the only two
-columns PM actually signs a criterion off in. In those columns PM has no way to
-look at the implementation at all; its
-verdict can only come from an executed browser/mobile session against the
-running product, or from a QA case that was itself executed and passed.
-
-Two gates back this up at the run level, mirroring QA's:
-
-- **`isUngroundedPMUAT`** fails a `pm_uat` run outright if it never called any
-  of `domain.PMUATExecutionTools` — the same browser/mobile call names as
-  `QAExecutionTools`, minus `run_terminal` (PM has no shell) and minus
-  `get_deploy_target` (resolving a stage URL is a lookup, not exercising the
-  product). A run that approved every criterion using nothing but board reads
-  is rejected the same way an ungrounded QA round is.
-- **The coverage-gap gate** (`pmApprovedUncoveredCriterion`) closes a narrower
-  hole: QA's `review_criterion(approved=true)` is a claim, not proof, if
-  nothing in QA's own recorded test-case list (`list_test_cases`) actually
-  backs it. For every criterion PM approves in this run, the gate checks
-  whether a `domain.TaskTestCase` with a matching `criterion_id` was recorded
-  `passed`. If every approval this run made is backed by such a case, PM
-  passes. If even one approval was **not** backed by a passed case, PM must
-  also have used `PMUATExecutionTools` this run — approving an uncovered
-  criterion off QA's note and board-read tools alone is ungrounded and fails
-  the run just as `isUngroundedPMUAT` does.
-
 ## How a column narrows a policy
 
 A single function, `RestrictToolsForStage(policy, stage, taskType)`, applies
@@ -162,7 +131,7 @@ having never been committed or reviewed.
 writers and `commit_task_changes` — plus the merge tool and the release tools,
 unless that column keeps them with an `allow` list — from a run in a column
 whose job is to *judge*, not to *change*: Code Review, Analysis Review, Ready
-for QA, In QA, PM UAT, Human UAT. The terminal stays — QA still has to boot and
+for QA, In QA, Human UAT. The terminal stays — QA still has to boot and
 run the product — but a reviewer or QA run that finds a bug cannot go fix it
 itself; the finding has to go back to the developer. The merge and the release
 tools are kept only in `done`/`released`, the two columns the release engineer
@@ -172,13 +141,8 @@ works, where landing the change and watching the deploy is the whole point.
 code-reading tools (`CodeExplorationTools`) on top of what
 `BehaviourStripWriters` already removes, from a run whose job is to exercise
 the running product, not to read the diff and decide it looks right. It applies
-to the two roles that sign a criterion off, each differently:
+to QA, which signs criteria off, and to the human gate:
 
-- **PM** loses every `CodeExplorationTools` name (`codebase_search`,
-  `grep_code`, `get_repo_tree`, `get_symbol_skeleton`, `expand_symbol_context`,
-  `read_file`) in `pm_uat`/`human_uat` — the only two columns PM signs a
-  criterion off in. Outside those columns PM keeps the set for backlog
-  grooming.
 - **QA** loses only `read_file` in `in_qa`/`ready_for_qa`. `get_repo_tree`,
   `grep_code` and `get_task_pull_request` survive there, because QA's three
   named exceptions (see [The QA black-box rule](#the-qa-black-box-rule)
@@ -205,7 +169,6 @@ The columns `BehaviourStripWriters` treats as judging, not changing (and where
 | Analysis Review | Yes | Yes | No |
 | Ready for QA | Yes | Yes | Only `read_file` (QA keeps `get_repo_tree`/`grep_code`/`get_task_pull_request`) |
 | In QA | Yes | Yes | Only `read_file` (QA keeps `get_repo_tree`/`grep_code`/`get_task_pull_request`) |
-| PM UAT | Yes | Yes | Yes — all of `CodeExplorationTools` |
 | Human UAT | Yes | Yes | Yes — all of `CodeExplorationTools` |
 | Done | Yes | No — the merge and the deploy watch/rollback happen here | No |
 | Released | Yes | No — the deploy watch and rollback happen here | No |

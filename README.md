@@ -44,8 +44,8 @@ carries on from where it stopped instead of starting over.
 
 ### Board
 
-- A Kanban board with thirteen columns out of the box, from Backlog to Released,
-  including analysis review, code review, QA, PM UAT and human UAT. The columns,
+- A Kanban board with twelve columns out of the box, from Backlog to Released,
+  including analysis review, code review, QA and human UAT. The columns,
   and which agents pick up work in each, are configurable.
 - Agents take tasks by themselves. A task that lands in a column is dispatched
   to that column's agent automatically and moves on when the agent is done.
@@ -73,7 +73,7 @@ agent is given its own.
 
 | Agent | Works on |
 |---|---|
-| `product-manager` | backlog, requirements, PM UAT |
+| `product-manager` | backlog, requirements |
 | `system-architect` | analysis tasks, task breakdown, code review |
 | `security-agent` | a second, security-only code review of every pull request; its rejection sends the task back |
 | `backend-developer` | APIs, databases and tests (Go, Java/Quarkus, C#/.NET, TypeScript on Node.js, Rust) |

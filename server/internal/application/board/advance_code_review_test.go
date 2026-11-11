@@ -277,7 +277,7 @@ func TestAdvanceToCodeReviewOnlyActsOnImplementationColumns(t *testing.T) {
 	agentID := uuid.New()
 	for _, column := range []domain.TaskColumn{
 		domain.TaskColumnTodo, domain.TaskColumnCodeReview,
-		domain.TaskColumnReadyForQA, domain.TaskColumnInQA, domain.TaskColumnPMUAT,
+		domain.TaskColumnReadyForQA, domain.TaskColumnInQA,
 	} {
 		task := domain.BoardTask{ID: uuid.New(), Column: column}
 		updater := &fakeTaskUpdater{task: task}

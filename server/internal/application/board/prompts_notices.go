@@ -73,7 +73,6 @@ var diffSkipSummaryKey = prompt.Define("notices.diff_skip_summary", diffSkipSumm
 
 var rejectedDraftLabelKey = prompt.Define("notices.rejected_draft_label", struct{}{})
 var rejectedRunReportReplanKey = prompt.Define("notices.rejected_run_report_replan", struct{}{})
-var rejectedRunReportReapproveKey = prompt.Define("notices.rejected_run_report_reapprove", struct{}{})
 
 var pipelineGateNoGreenBuildKey = prompt.Define("notices.pipeline_gate_no_green_build", struct{}{})
 

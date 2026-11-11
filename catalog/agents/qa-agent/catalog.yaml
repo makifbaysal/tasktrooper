@@ -16,6 +16,7 @@ tool_policy:
         - download_file
         - web_search
         - fetch_url
+        - http_request
         - get_repo_tree
         - grep_code
         - read_file

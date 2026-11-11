@@ -11,9 +11,8 @@ in the order a task meets them.
 
 A task carrying acceptance criteria cannot leave a review column until
 **every criterion has a verdict** from the role reviewing that stage — QA
-approving or rejecting each one on the way out of QA, PM approving or
-rejecting each one on the way out of PM UAT. This applies to every forward
-exit from a review column (into PM UAT, Human UAT, Done or Released); moves
+approving or rejecting each one on the way out of QA. This applies to every
+forward exit from a review column (into Human UAT, Done or Released); moves
 backward into Need Revision are never gated on it. A task with no criteria at
 all, or a repository with the criteria requirement turned off, is exempt.
 
@@ -123,7 +122,7 @@ you don't have to go looking for which task is waiting on you.
 
 Moving a task into Done (or into Released when that would skip Done) is
 blocked unless the task actually visited every stage its type requires —
-Code Review, In QA and PM UAT for a `task` or `bug`, Analiz Review for an
+Code Review and In QA for a `task` or `bug`, Analiz Review for an
 `analiz` — with none of those stages' latest visit rejected. See [Board and
 columns](board-and-columns.md#the-review-chain-by-task-type) for exactly
 which stages, by type. Evidence is the task's history, not the column it is

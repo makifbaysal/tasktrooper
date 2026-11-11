@@ -135,7 +135,7 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 	}
 	assert.Equal(t,
 		"Your review is finished but the task is still in `human_uat` — you did not record where it goes, so the board shows it as still under review and nobody picks it up.\n"+
-			"\nFirst, the acceptance criteria you have not ruled on. The forward move is REFUSED while any of these lacks your pm verdict — that refusal is what you hit if you already tried to move the task:\n"+
+			"\nFirst, the acceptance criteria you have not ruled on. The forward move is REFUSED while any of these lacks your qa verdict — that refusal is what you hit if you already tried to move the task:\n"+
 			"- [00000000-0000-0000-0000-000000000001] First criterion\n"+
 			"- [00000000-0000-0000-0000-000000000002] Second criterion\n"+
 			"For EACH id above call review_criterion now, from what you executed in this run: approve it when your own run covered it, reject it with an expected-vs-actual note when it failed or you could not exercise it. Do not approve anything you did not observe.\n"+
@@ -143,7 +143,7 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 			"1. Everything you required is satisfied → call move_board_task to `released`.\n"+
 			"2. Anything you flagged still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
 			"If the move is refused, read the error: it names exactly what is missing, and fixing that and retrying the move is part of this run. Do not re-review, do not start new testing, and do not change your verdict.",
-		reviewVerdictSweepPrompt(domain.TaskColumnHumanUAT, domain.TaskColumnReleased, domain.CriterionReviewRolePM, missing2))
+		reviewVerdictSweepPrompt(domain.TaskColumnHumanUAT, domain.TaskColumnReleased, domain.CriterionReviewRoleQA, missing2))
 }
 
 func TestGolden_VerifyFixPrompt(t *testing.T) {

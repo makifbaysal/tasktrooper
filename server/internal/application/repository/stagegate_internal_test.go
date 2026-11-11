@@ -57,5 +57,5 @@ func TestValidateStageConfiguredAllowsAColumnAnalizStillHas(t *testing.T) {
 func TestValidateStageConfiguredAllowsEveryColumnForAnUncuratedType(t *testing.T) {
 	svc := &Service{workflows: emptyWorkflowReader{}}
 
-	require.NoError(t, svc.validateStageConfigured(context.Background(), "custom_type", domain.TaskColumnPMUAT))
+	require.NoError(t, svc.validateStageConfigured(context.Background(), "custom_type", domain.TaskColumnHumanUAT))
 }

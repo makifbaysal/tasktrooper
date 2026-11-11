@@ -26,7 +26,7 @@ everything below this section is the component layer.
 
 ## Board Columns
 
-Column slugs are global in `board_columns`. Default template: `backlog`, `todo`, `in_progress`, `ready_for_qa`, `in_qa`, `need_revision`, `pm_uat`, `human_uat`, `done`, `released`.
+Column slugs are global in `board_columns`. Default template: `backlog`, `todo`, `in_progress`, `ready_for_qa`, `in_qa`, `need_revision`, `human_uat`, `done`, `released`.
 
 ## API
 

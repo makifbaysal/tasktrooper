@@ -26,7 +26,6 @@ func TestDoneRunNeverCommitsTheWorkspace(t *testing.T) {
 	for _, column := range []domain.TaskColumn{
 		domain.TaskColumnCodeReview,
 		domain.TaskColumnAnalizReview,
-		domain.TaskColumnPMUAT,
 	} {
 		assert.False(t, taskWF.Has(column, domain.BehaviourCommitOnFinish))
 	}

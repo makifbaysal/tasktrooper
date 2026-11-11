@@ -29,7 +29,6 @@ const (
 	BehaviourRequireTestCases         BehaviourKey = "require_test_cases"
 	BehaviourReviewVerdictSweep       BehaviourKey = "review_verdict_sweep"
 	BehaviourRequireExecutionEvidence BehaviourKey = "require_execution_evidence"
-	BehaviourRequireProductCheck      BehaviourKey = "require_product_check"
 	BehaviourReviewChainStage         BehaviourKey = "review_chain_stage"
 	BehaviourStripWriters             BehaviourKey = "strip_writers"
 	BehaviourNoCodeReading            BehaviourKey = "no_code_reading"
@@ -224,10 +223,6 @@ var BehaviourRegistry = map[BehaviourKey]BehaviourSpec{
 	BehaviourRequireExecutionEvidence: {
 		Scope: BehaviourScopeStage, Group: BehaviourGroupExit, Kinds: []StageKind{StageKindQueue, StageKindReview}, Label: "Require execution evidence",
 		Description: "A QA round in this stage is rejected as ungrounded without evidence the product was actually run.",
-	},
-	BehaviourRequireProductCheck: {
-		Scope: BehaviourScopeStage, Group: BehaviourGroupExit, Kinds: []StageKind{StageKindReview, StageKindApproval}, Label: "Require product check",
-		Description: "A UAT round in this stage is rejected without evidence the product was checked.",
 	},
 	BehaviourReviewChainStage: {
 		Scope: BehaviourScopeStage, Group: BehaviourGroupExit, Kinds: []StageKind{StageKindReview, StageKindApproval}, Label: "Review chain stage",

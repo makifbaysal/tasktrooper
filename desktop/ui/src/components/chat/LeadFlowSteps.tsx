@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { CheckCheck, Code2, FileSearch, FlaskConical, Palette, Rocket, ShieldCheck, User, UserCheck } from "lucide-react";
+import { Code2, FileSearch, FlaskConical, Palette, Rocket, ShieldCheck, User, UserCheck } from "lucide-react";
 import type { Agent } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Card } from "@/components/ui/card";
@@ -15,7 +15,6 @@ type StepKey =
   | "build"
   | "review"
   | "qa"
-  | "acceptance"
   | "approval"
   | "deploy";
 /** Who acts at a step: the human (the request and the two approval stages), the lead, or the rest of the team. */
@@ -38,7 +37,6 @@ const STEPS: Step[] = [
   { key: "build", actor: "team", icon: Code2 },
   { key: "review", actor: "team", icon: ShieldCheck },
   { key: "qa", actor: "team", icon: FlaskConical },
-  { key: "acceptance", actor: "lead", icon: CheckCheck },
   { key: "approval", actor: "human", icon: UserCheck },
   { key: "deploy", actor: "team", icon: Rocket },
 ];
@@ -56,19 +54,18 @@ const detailByActor: Record<Actor, string> = {
   team: "text-muted-foreground",
 };
 
-// From sm up the flow snakes: six steps run left to right, a curve on the
+// From sm up the flow snakes: five steps run left to right, a curve on the
 // right edge turns down, and the last five come back right to left. The grid
-// has 30 tracks so both rows span the full width — six steps of five tracks
-// above, five of six below — and their ends line up. Literal class names, so
+// has 30 tracks so both rows span the full width — five steps of six tracks
+// in each — and their ends line up. Literal class names, so
 // Tailwind sees every one of them.
-const ROW_LENGTH = 6;
+const ROW_LENGTH = 5;
 const SNAKE_CELL = [
-  "sm:col-span-5 sm:col-start-1 sm:row-start-1",
-  "sm:col-span-5 sm:col-start-6 sm:row-start-1",
-  "sm:col-span-5 sm:col-start-11 sm:row-start-1",
-  "sm:col-span-5 sm:col-start-[16] sm:row-start-1",
-  "sm:col-span-5 sm:col-start-[21] sm:row-start-1",
-  "sm:col-span-5 sm:col-start-[26] sm:row-start-1",
+  "sm:col-span-6 sm:col-start-1 sm:row-start-1",
+  "sm:col-span-6 sm:col-start-7 sm:row-start-1",
+  "sm:col-span-6 sm:col-start-[13] sm:row-start-1",
+  "sm:col-span-6 sm:col-start-[19] sm:row-start-1",
+  "sm:col-span-6 sm:col-start-[25] sm:row-start-1",
   "sm:col-span-6 sm:col-start-[25] sm:row-start-2",
   "sm:col-span-6 sm:col-start-[19] sm:row-start-2",
   "sm:col-span-6 sm:col-start-[13] sm:row-start-2",

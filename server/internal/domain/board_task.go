@@ -181,7 +181,6 @@ type CriterionReviewRole string
 
 const (
 	CriterionReviewRoleQA CriterionReviewRole = "qa"
-	CriterionReviewRolePM CriterionReviewRole = "pm"
 )
 
 // CriterionCheck is one role's verdict on one acceptance criterion; a rejection

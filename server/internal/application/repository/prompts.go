@@ -28,7 +28,7 @@ type criteriaRejectedInput struct {
 }
 
 var criteriaRejectedKey = prompt.Define("guard.criteria_rejected", criteriaRejectedInput{
-	Target: "pm_uat", Count: 1, Role: "qa", Rejected: []string{"[id] a (note)"},
+	Target: "human_uat", Count: 1, Role: "qa", Rejected: []string{"[id] a (note)"},
 })
 
 type criteriaUncheckedInput struct {
@@ -44,7 +44,7 @@ var criteriaUncheckedKey = prompt.Define("guard.criteria_unchecked", criteriaUnc
 
 type testCasesMissingInput struct{ Target string }
 
-var testCasesMissingKey = prompt.Define("guard.test_cases_missing", testCasesMissingInput{Target: "pm_uat"})
+var testCasesMissingKey = prompt.Define("guard.test_cases_missing", testCasesMissingInput{Target: "human_uat"})
 
 type testCasesPlannedInput struct {
 	Target  string
@@ -53,7 +53,7 @@ type testCasesPlannedInput struct {
 }
 
 var testCasesPlannedKey = prompt.Define("guard.test_cases_planned", testCasesPlannedInput{
-	Target: "pm_uat", Count: 1, Planned: []string{"a case"},
+	Target: "human_uat", Count: 1, Planned: []string{"a case"},
 })
 
 var selfMoveNeedRevisionKey = prompt.Define("guard.self_move_need_revision", struct{}{})
@@ -116,7 +116,7 @@ var reviewChainMissingStagesKey = prompt.Define("guard.review_chain_missing_stag
 type reviewStageSkippedInput struct{ Task, From, Target, TaskType, Skipped, Next string }
 
 var reviewStageSkippedKey = prompt.Define("guard.review_stage_skipped", reviewStageSkippedInput{
-	Task: "T-1", From: "in_qa", Target: "human_uat", TaskType: "task", Skipped: "UAT (pm_uat)", Next: "pm_uat",
+	Task: "T-1", From: "code_review", Target: "human_uat", TaskType: "task", Skipped: "QA (in_qa)", Next: "ready_for_qa",
 })
 
 type workflowSetupTaskBriefInput struct{ Kind string }

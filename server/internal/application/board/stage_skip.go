@@ -26,7 +26,7 @@ type reviewApprovalReader interface {
 }
 
 // skipUnchangedDiffGate is the token-saving short-circuit: a task bouncing
-// back into a gate column (code_review, ready_for_qa/in_qa, pm_uat) with the
+// back into a gate column (code_review, ready_for_qa/in_qa) with the
 // exact diff that gate already approved is moved forward the way that
 // approval would move it, without spending a run re-reviewing/re-testing
 // code nobody changed. It returns true only once it has itself completed the

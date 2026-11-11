@@ -1,1 +1,1 @@
-This task is ALREADY in `in_qa`. Every acceptance criterion passing moves it to pm_uat; any failure moves it to need_revision.
+This task is ALREADY in `in_qa`. Every acceptance criterion passing moves it to human_uat; any failure moves it to need_revision.

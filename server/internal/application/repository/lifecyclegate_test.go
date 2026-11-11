@@ -97,26 +97,26 @@ func TestReviewChainGate(t *testing.T) {
 		{
 			name:     "task with the full chain reaches done",
 			taskType: "task",
-			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
+			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA),
 			target:   domain.TaskColumnDone,
 		},
 		{
 			name:     "bug with the full chain reaches done",
 			taskType: "bug",
-			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
+			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA),
 			target:   domain.TaskColumnDone,
 		},
 		{
 			name:     "human_uat is not required",
 			taskType: "task",
-			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
+			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA),
 			target:   domain.TaskColumnDone,
 		},
 		{
 			name:     "a task that bounced through need_revision and came back still passes",
 			taskType: "task",
 			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnNeedRevision,
-				domain.TaskColumnInQA, domain.TaskColumnPMUAT),
+				domain.TaskColumnInQA),
 			target: domain.TaskColumnDone,
 		},
 		{
@@ -125,12 +125,12 @@ func TestReviewChainGate(t *testing.T) {
 			spans:    visited(domain.TaskColumnTodo, domain.TaskColumnInProgress),
 			target:   domain.TaskColumnDone,
 			wantErr:  domain.ErrReviewChainIncomplete,
-			wantSaid: []string{"code review", "QA", "UAT"},
+			wantSaid: []string{"code review", "QA"},
 		},
 		{
 			name:     "missing code review is named",
 			taskType: "task",
-			spans:    visited(domain.TaskColumnInQA, domain.TaskColumnPMUAT),
+			spans:    visited(domain.TaskColumnInQA),
 			target:   domain.TaskColumnDone,
 			wantErr:  domain.ErrReviewChainIncomplete,
 			wantSaid: []string{"code review", "code_review"},
@@ -138,18 +138,10 @@ func TestReviewChainGate(t *testing.T) {
 		{
 			name:     "missing QA is named, and being queued for it is not passing it",
 			taskType: "task",
-			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA, domain.TaskColumnPMUAT),
+			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA),
 			target:   domain.TaskColumnDone,
 			wantErr:  domain.ErrReviewChainIncomplete,
 			wantSaid: []string{"QA", "in_qa"},
-		},
-		{
-			name:     "missing UAT is named",
-			taskType: "task",
-			spans:    visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA),
-			target:   domain.TaskColumnDone,
-			wantErr:  domain.ErrReviewChainIncomplete,
-			wantSaid: []string{"UAT", "pm_uat"},
 		},
 		{
 			name:     "released is gated too, so done cannot be skipped around",
@@ -171,7 +163,7 @@ func TestReviewChainGate(t *testing.T) {
 		{
 			name:     "a stage whose latest visit was rejected has not been passed",
 			taskType: "task",
-			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT,
+			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA,
 				domain.TaskColumnNeedRevision).withVerdict(domain.TaskColumnCodeReview, domain.ReviewVerdictReject),
 			target:   domain.TaskColumnDone,
 			wantErr:  domain.ErrReviewStageRejected,
@@ -180,9 +172,9 @@ func TestReviewChainGate(t *testing.T) {
 		{
 			name:     "an approved verdict is not a rejection",
 			taskType: "task",
-			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT).
+			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA).
 				withVerdict(domain.TaskColumnCodeReview, domain.ReviewVerdictApprove).
-				withVerdict(domain.TaskColumnPMUAT, domain.ReviewVerdictApprove),
+				withVerdict(domain.TaskColumnInQA, domain.ReviewVerdictApprove),
 			target: domain.TaskColumnDone,
 		},
 		{
@@ -263,25 +255,25 @@ func TestReviewChainGateSkipsStagesTheBoardDoesNotHave(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), Key: "APP-9", TaskType: "task"}
 
 	noQA := &Service{
-		spans:     visited(domain.TaskColumnCodeReview, domain.TaskColumnPMUAT),
-		columns:   boardWith(domain.TaskColumnCodeReview, domain.TaskColumnPMUAT, domain.TaskColumnDone),
+		spans:     visited(domain.TaskColumnCodeReview),
+		columns:   boardWith(domain.TaskColumnCodeReview, domain.TaskColumnHumanUAT, domain.TaskColumnDone),
 		workflows: workflowtest.Default().Reader(),
 	}
-	if err := noQA.reviewChainGate(context.Background(), repo, task, domain.TaskColumnPMUAT, domain.TaskColumnDone); err != nil {
+	if err := noQA.reviewChainGate(context.Background(), repo, task, domain.TaskColumnHumanUAT, domain.TaskColumnDone); err != nil {
 		t.Fatalf("a board without in_qa must not be deadlocked by the QA stage: %v", err)
 	}
 
-	missingUAT := &Service{
-		spans:     visited(domain.TaskColumnCodeReview),
-		columns:   boardWith(domain.TaskColumnCodeReview, domain.TaskColumnPMUAT, domain.TaskColumnDone),
+	missingReview := &Service{
+		spans:     visited(),
+		columns:   boardWith(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnDone),
 		workflows: workflowtest.Default().Reader(),
 	}
-	err := missingUAT.reviewChainGate(context.Background(), repo, task, domain.TaskColumnCodeReview, domain.TaskColumnDone)
+	err := missingReview.reviewChainGate(context.Background(), repo, task, domain.TaskColumnCodeReview, domain.TaskColumnDone)
 	if !errors.Is(err, domain.ErrReviewChainIncomplete) {
 		t.Fatalf("the stages the board DOES have must still be enforced, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "pm_uat") {
-		t.Fatalf("want pm_uat named, got: %v", err)
+	if !strings.Contains(err.Error(), "code_review") {
+		t.Fatalf("want code_review named, got: %v", err)
 	}
 }
 
@@ -318,8 +310,7 @@ func TestUpdateTaskEnforcesReviewChainForEveryActor(t *testing.T) {
 			actor: domain.TaskActorHuman,
 			from:  domain.TaskColumnHumanUAT,
 			to:    domain.TaskColumnDone,
-			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA,
-				domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT),
+			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnHumanUAT),
 		},
 		{
 			// require_release_deploy is gone: released is no longer gated on
@@ -328,8 +319,7 @@ func TestUpdateTaskEnforcesReviewChainForEveryActor(t *testing.T) {
 			actor: domain.TaskActorSystem,
 			from:  domain.TaskColumnDone,
 			to:    domain.TaskColumnReleased,
-			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA,
-				domain.TaskColumnPMUAT, domain.TaskColumnDone),
+			spans: visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnDone),
 		},
 	}
 
@@ -404,10 +394,10 @@ func TestReviewChainGateEnforcedWithNoRepoFlag(t *testing.T) {
 	}
 }
 
-// TestUpdateTaskRefusesAgentSkippingAReviewStage pins the move that left
-// tasks stuck at done: QA judged a task/bug "pure backend" and moved it from
-// in_qa straight to human_uat, so done later refused it for a pm_uat it never
-// had and a human had to send it back to the PM by hand.
+// TestUpdateTaskRefusesAgentSkippingAReviewStage pins the rule that an agent
+// cannot move a task past a stage the review chain requires: the chain is code
+// review then QA, so the queue cannot be skipped around in_qa and a diff cannot
+// reach human_uat without QA having looked at it.
 func TestUpdateTaskRefusesAgentSkippingAReviewStage(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -421,39 +411,21 @@ func TestUpdateTaskRefusesAgentSkippingAReviewStage(t *testing.T) {
 		wantNext string
 	}{
 		{
-			name: "QA cannot move a task from in_qa to human_uat", taskType: "task", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
-			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
-		},
-		{
-			name: "nor a bug", taskType: "bug", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
-			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
-		},
-		{
-			name: "a pm_uat visit from an earlier round does not cover this round", taskType: "task", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
-			spans:   visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
-			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
-		},
-		{
-			name: "QA cannot jump to done either", taskType: "task", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnInQA, to: domain.TaskColumnDone,
-			spans:   visited(domain.TaskColumnCodeReview, domain.TaskColumnInQA, domain.TaskColumnPMUAT),
-			wantErr: domain.ErrReviewStageSkipped, wantNext: "pm_uat",
-		},
-		{
 			name: "QA cannot test from the queue and skip in_qa", taskType: "task", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnReadyForQA, to: domain.TaskColumnPMUAT,
+			from: domain.TaskColumnReadyForQA, to: domain.TaskColumnHumanUAT,
 			wantErr: domain.ErrReviewStageSkipped, wantNext: "in_qa",
 		},
 		{
-			name: "a technical task does go from in_qa to human_uat", taskType: "technical", actor: domain.TaskActorAgent,
+			name: "QA passes a task to human_uat", taskType: "task", actor: domain.TaskActorAgent,
 			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
 		},
 		{
-			name: "QA passes a task to pm_uat", taskType: "task", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnInQA, to: domain.TaskColumnPMUAT,
+			name: "nor does a bug differ", taskType: "bug", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+		},
+		{
+			name: "a technical task goes from in_qa to human_uat too", taskType: "technical", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
 		},
 		{
 			name: "QA rejects to need_revision", taskType: "task", actor: domain.TaskActorAgent,
@@ -464,21 +436,17 @@ func TestUpdateTaskRefusesAgentSkippingAReviewStage(t *testing.T) {
 			from: domain.TaskColumnReadyForQA, to: domain.TaskColumnInQA,
 		},
 		{
-			name: "PM passes a task to human_uat", taskType: "task", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnPMUAT, to: domain.TaskColumnHumanUAT,
-		},
-		{
 			name: "a developer's incident suggestion leaves in_progress for human_uat", taskType: "task", actor: domain.TaskActorAgent,
 			from: domain.TaskColumnInProgress, to: domain.TaskColumnHumanUAT,
 		},
 		{
-			name: "a human may still drag past pm_uat", taskType: "task", actor: domain.TaskActorHuman,
-			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
+			name: "a human may still drag past QA", taskType: "task", actor: domain.TaskActorHuman,
+			from: domain.TaskColumnReadyForQA, to: domain.TaskColumnHumanUAT,
 		},
 		{
-			name: "a board without pm_uat has no UAT stage to skip", taskType: "task", actor: domain.TaskActorAgent,
-			from: domain.TaskColumnInQA, to: domain.TaskColumnHumanUAT,
-			board: boardWith(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA, domain.TaskColumnInQA,
+			name: "a board without in_qa has no QA stage to skip", taskType: "task", actor: domain.TaskActorAgent,
+			from: domain.TaskColumnCodeReview, to: domain.TaskColumnHumanUAT,
+			board: boardWith(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA,
 				domain.TaskColumnHumanUAT, domain.TaskColumnDone),
 		},
 	}

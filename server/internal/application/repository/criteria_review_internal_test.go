@@ -58,25 +58,25 @@ func TestCriteriaReviewGate(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "in_qa to pm_uat with all QA approvals passes",
+			name:    "in_qa to human_uat with all QA approvals passes",
 			items:   []domain.AcceptanceCriterion{criterion("a", approved(domain.CriterionReviewRoleQA)), criterion("b", approved(domain.CriterionReviewRoleQA))},
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 		},
 		{
-			name:    "ready_for_qa to pm_uat without QA verdict blocks",
+			name:    "ready_for_qa to human_uat without QA verdict blocks",
 			items:   []domain.AcceptanceCriterion{criterion("a")},
 			prev:    domain.TaskColumnReadyForQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 			wantErr: "await your qa verdict",
 		},
 		{
-			name:    "QA rejection blocks pm_uat and names the note",
+			name:    "QA rejection blocks human_uat and names the note",
 			items:   []domain.AcceptanceCriterion{criterion("login works", rejected(domain.CriterionReviewRoleQA, "500 on submit"))},
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 			wantErr: "500 on submit",
 		},
@@ -88,22 +88,6 @@ func TestCriteriaReviewGate(t *testing.T) {
 			require: true,
 		},
 		{
-			name:    "pm_uat to human_uat needs PM verdicts, QA approval is not enough",
-			items:   []domain.AcceptanceCriterion{criterion("a", approved(domain.CriterionReviewRoleQA))},
-			prev:    domain.TaskColumnPMUAT,
-			target:  domain.TaskColumnHumanUAT,
-			require: true,
-			wantErr: "await your pm verdict",
-		},
-		{
-			name:    "pm_uat to done with PM approval passes",
-			items:   []domain.AcceptanceCriterion{criterion("a", approved(domain.CriterionReviewRoleQA), approved(domain.CriterionReviewRolePM))},
-			prev:    domain.TaskColumnPMUAT,
-			target:  domain.TaskColumnDone,
-			require: true,
-		},
-		{
-
 			name:    "in_qa to done without QA verdicts blocks",
 			items:   []domain.AcceptanceCriterion{criterion("android link is on the page")},
 			prev:    domain.TaskColumnInQA,
@@ -146,14 +130,14 @@ func TestCriteriaReviewGate(t *testing.T) {
 			name:    "gate is off without require_criteria_complete",
 			items:   []domain.AcceptanceCriterion{criterion("a")},
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: false,
 		},
 		{
 			name:    "no criteria means nothing to gate",
 			items:   nil,
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 		},
 	}
@@ -196,11 +180,6 @@ func TestCriteriaGateAcceptsAReviewerApprovalInPlaceOfTheImplementerTick(t *test
 			name:   "QA approval satisfies the gate without the tick",
 			items:  []domain.AcceptanceCriterion{untickedCriterion("a", approved(domain.CriterionReviewRoleQA))},
 			target: domain.TaskColumnDone,
-		},
-		{
-			name:   "PM approval does too",
-			items:  []domain.AcceptanceCriterion{untickedCriterion("a", approved(domain.CriterionReviewRolePM))},
-			target: domain.TaskColumnReleased,
 		},
 		{
 			name:   "the implementer tick alone still passes",
@@ -318,7 +297,7 @@ func TestCriteriaRefusalsCarryCriterionIDs(t *testing.T) {
 			workflows:       workflowtest.Default().Reader(),
 		}
 
-		err := svc.criteriaReviewGate(context.Background(), taskID, "task", domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+		err := svc.criteriaReviewGate(context.Background(), taskID, "task", domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
 
 		if err == nil {
 			t.Fatal("expected the gate to block")

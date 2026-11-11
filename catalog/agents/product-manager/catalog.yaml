@@ -9,35 +9,12 @@ tool_policy:
     allow_tools:
         - web_search
         - fetch_url
-        - http_request
         - codebase_search
         - grep_code
         - get_repo_tree
         - get_symbol_skeleton
         - expand_symbol_context
         - read_file
-        - browser_navigate
-        - browser_screenshot
-        - browser_click
-        - browser_fill
-        - browser_read_dom
-        - browser_wait_for
-        - browser_set_viewport
-        - mobile_launch_app
-        - mobile_screenshot
-        - mobile_read_ui
-        - mobile_tap
-        - mobile_type_text
-        - mobile_swipe
-        - mobile_wait_for
-        - mobile_press_button
-        - mobile_rotate
-        - mobile_unlock_device
-        - mobile_release_device
-        - get_deploy_target
-        - update_deploy_target
-        - get_task_preview
-        - start_task_preview
         - list_board_tasks
         - list_ready_tasks
         - move_board_task
@@ -63,11 +40,9 @@ tool_policy:
         - update_project
         - set_repository_projects
         - request_design_system
-        - review_criterion
         - get_task_pull_request
         - get_project_brief
         - list_links
-        - get_environment
         - audience_list
         - audience_get
         - audience_create
@@ -92,8 +67,7 @@ tool_policy:
 roles:
     - key: product_manager
       areas: []
-subscriptions:
-    - pm_uat
+subscriptions: []
 tech_stacks: []
 kpis:
     - metric_key: tasks_completed
@@ -102,14 +76,6 @@ kpis:
       period: weekly
       target_full: 5
       target_half: 2
-      weight: 1
-      enabled: true
-    - metric_key: clean_time_pm_uat
-      name: Clean UAT time
-      description: ""
-      period: weekly
-      target_full: 0.25
-      target_half: 1
       weight: 1
       enabled: true
     - metric_key: gate_rejected_runs

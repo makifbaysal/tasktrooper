@@ -457,7 +457,7 @@ and neither is logged; a refusal from the executor is scrubbed of the cloud
 token before it is logged.
 
 **The surface's tool calls are frames of the run.** The cloud never sees what a
-CLI calls on the surface, and its QA and PM-UAT evidence gates need to know
+CLI calls on the surface, and its QA evidence gate needs to know
 whether `browser_*` or `mobile_*` were used. The executor records each call to
 a tool it serves itself (name, error or not, duration; the cloud's own tools
 are the cloud's to count), and `watchCalls` reads that record by cursor

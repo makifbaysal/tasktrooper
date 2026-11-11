@@ -9,7 +9,6 @@ import "strings"
 var RunGateRejectionPrefixes = []string{
 	"Analysis rejected:",
 	"QA round rejected:",
-	"pm_uat rejected:",
 }
 
 // IsRunGateRejection reports whether a failed run's summary names a

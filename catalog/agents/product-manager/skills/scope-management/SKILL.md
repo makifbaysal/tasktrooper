@@ -35,7 +35,7 @@ Use `cancel_criterion` with a reason when a criterion is descoped, superseded by
 
 ## A new idea found during UAT
 
-Something the PM or QA notices in pm_uat/human_uat that nobody asked for is a candidate for a new backlog task (`create_board_task`, priority low, same repository/project) — it is never a gap on the current task and never blocks its approval. Only something that breaks a criterion, a human comment, or the original request is a gap.
+Something the PM or QA notices in QA or human_uat that nobody asked for is a candidate for a new backlog task (`create_board_task`, priority low, same repository/project) — it is never a gap on the current task and never blocks its approval. Only something that breaks a criterion, a human comment, or the original request is a gap.
 
 ## Worked Example
 

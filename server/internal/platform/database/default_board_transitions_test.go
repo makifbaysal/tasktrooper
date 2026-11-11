@@ -178,7 +178,7 @@ func (s *DefaultBoardTransitionsSuite) seedStockColumns(pool *pgxpool.Pool) {
 	s.T().Helper()
 	slugs := []string{
 		"backlog", "todo", "in_progress", "analiz_review", "code_review", "ready_for_qa",
-		"in_qa", "need_revision", "pm_uat", "human_uat", "blocked", "done", "released",
+		"in_qa", "need_revision", "human_uat", "blocked", "done", "released",
 	}
 	for i, slug := range slugs {
 		_, err := pool.Exec(s.ctx, `INSERT INTO board_columns (slug, label, position, is_backlog) VALUES ($1, $1, $2, $3)`,

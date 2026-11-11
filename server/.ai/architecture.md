@@ -400,7 +400,7 @@ Migration 061 tables: `store_credentials`, `mobile_store_apps`, `signing_assets`
 It blocks a move into `done` (and into `released` when it skips `done`, but not the
 ordinary `done → released` promotion) unless the task visited every stage
 `Workflow.ReviewChain()` requires (built from each stage's `review_chain_stage`
-behaviour) — `code_review`/`in_qa`/`pm_uat` for `task`/`bug`, `analiz_review` for
+behaviour) — `code_review`/`in_qa` for `task`/`bug`, `analiz_review` for
 `analiz` — with none of those stages' latest visit rejected. Evidence is the
 `task_column_spans` ledger, not the current column, so rework through `need_revision` is
 not punished; a stage whose column is absent from the board is skipped, since a
@@ -461,7 +461,7 @@ workflows and deploy targets happened to exist, a green deploy job was the whole
 it. A component now STATES how it ships; every merge opens a release that is deployed, soaked
 and judged; and a dedicated **release-engineer** agent (role `release`) owns everything that
 happens in `done` and `released`. QA was unsubscribed from both columns by migration 159; its
-work now ends at its verdict in `in_qa`/`pm_uat`.
+work now ends at its verdict in `in_qa`.
 
 ### Delivery profile
 

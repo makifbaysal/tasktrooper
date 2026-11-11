@@ -31,7 +31,7 @@ agents and [custom agents](custom-agents.md) can be granted any subset.
 | Tool | What it does | Typically held by |
 |---|---|---|
 | `fetch_url` | HTTP GET, HTML responses stripped to visible text | Every role that holds `roleWebTools` — developers, `product-manager`, `system-architect`, `qa-agent` |
-| `http_request` | A full HTTP request (any method, headers, body) against a running build — how PM UAT tests a backend- or API-only acceptance criterion headless | `product-manager` |
+| `http_request` | A full HTTP request (any method, headers, body) against a running build or API, headless | `qa-agent` |
 | `download_file` | Downloads a binary asset (image, font, icon) into the workspace | Rides with the workspace write tools; lost in review/QA verdict columns |
 | `web_search` | Keyless web search (DuckDuckGo, falling back to Bing) | Same roles as `fetch_url` |
 | `search_boilerplate_catalog` | Searches the shared boilerplate repository for a starter stack to copy instead of writing one from scratch | Developer roles |
@@ -77,7 +77,7 @@ has been re-indexed.
 | `list_acceptance_criteria` | Reads a task's acceptance criteria | Every role |
 | `set_criterion_completed` | Marks a criterion done | Developer roles (whichever role implements it) |
 | `cancel_criterion` | Drops a criterion from scope with a reason | Same roles as `set_criterion_completed` |
-| `review_criterion` | Records a reviewer's own verdict on a criterion | `product-manager` (PM UAT), `qa-agent` |
+| `review_criterion` | Records a reviewer's own verdict on a criterion | `qa-agent` |
 | `record_test_cases` | Writes the QA test round for a task | `qa-agent` only |
 | `set_test_case_result` | Updates one test case's result | `qa-agent` only |
 | `list_test_cases` | Reads the recorded test round | Every role |
@@ -105,12 +105,12 @@ tab" otherwise.
 
 | Tool | What it does | Typically held by |
 |---|---|---|
-| `get_environment` | Reads one component's environment(s): provider, resource, URL, health, binding status | `system-architect`, developer roles, `qa-agent`, `product-manager` |
+| `get_environment` | Reads one component's environment(s): provider, resource, URL, health, binding status | `system-architect`, developer roles, `qa-agent` |
 | `query_runtime_logs` | Reads an environment's live application logs (not a CI job's output — that is `get_deploy_logs`), newest first | Developer roles, `qa-agent` |
 | `list_runtime_errors` | Lists an environment's runtime errors, grouped and deduplicated, with a `new` flag for errors that started in the window | `system-architect`, developer roles, `qa-agent` |
 | `list_deployments` | Lists an environment's recent deployments as the provider reports them | Developer roles, `qa-agent` |
-| `get_task_preview` | Finds the task branch's own Vercel preview deployment: status, branch URL, the commit it was built from, and how to get past Deployment Protection | `qa-agent`, `product-manager` |
-| `start_task_preview` | Builds and starts the task's own checkout locally and returns its URL — the fallback when there is no hosted preview to find | `qa-agent`, `product-manager` |
+| `get_task_preview` | Finds the task branch's own Vercel preview deployment: status, branch URL, the commit it was built from, and how to get past Deployment Protection | `qa-agent` |
+| `start_task_preview` | Builds and starts the task's own checkout locally and returns its URL — the fallback when there is no hosted preview to find | `qa-agent` |
 
 ## Pull requests
 
@@ -141,8 +141,8 @@ See [Deploy targets and recipes](deploy.md) → "Releases" for the full flow.
 | `get_deploy_logs` | Reads the log behind a deploy (a release's failed job by default), summarized | `release-engineer` only |
 | `list_deploy_templates` | Lists the deploy recipe catalog | Developer roles (they get the "set up `<env>` deploy" tasks) — not the release engineer or the PM |
 | `load_deploy_template` | Reads one recipe in full | Same as above |
-| `get_deploy_target` | How a repository ships to an environment (the legacy per-env address record, unrelated to a component's delivery profile) | `release-engineer`, `product-manager` |
-| `update_deploy_target` | Records the address an environment actually answers at (`base_url`/`health_url`/`logs_url`/`app_url` only) | `release-engineer`, `product-manager` |
+| `get_deploy_target` | How a repository ships to an environment (the legacy per-env address record, unrelated to a component's delivery profile) | `release-engineer` |
+| `update_deploy_target` | Records the address an environment actually answers at (`base_url`/`health_url`/`logs_url`/`app_url` only) | `release-engineer` |
 | `record_local_deploy` | Records a break-glass deploy run made from a machine directly, in the same deploy-run history as the GitHub Actions runs | Ops-facing agents with board/deploy write access |
 
 `get_deploy_logs` reads a CI/Actions job's output; a bound environment's own live logs and grouped errors come from `query_runtime_logs`/`list_runtime_errors` in [Cloud runtime](#cloud-runtime) instead.
@@ -168,7 +168,7 @@ security](data-and-security.md)).
 
 | Tool | What it does | Typically held by |
 |---|---|---|
-| `browser_navigate` | Opens a URL | Developer roles, `system-architect`, `qa-agent`, `product-manager` |
+| `browser_navigate` | Opens a URL | Developer roles, `system-architect`, `qa-agent` |
 | `browser_screenshot` | Captures the current page; with `attach_to_task` it also saves the image on the task | Same, and `ui-designer` |
 | `browser_click` | Clicks an element | Same |
 | `browser_fill` | Fills a form field | Same |
@@ -185,7 +185,7 @@ run stays on it. Registered at all only when a device is attached; see
 
 | Tool | What it does | Typically held by |
 |---|---|---|
-| `mobile_launch_app` | Installs/launches the app on the claimed device | `qa-agent`, `mobile-developer`, `product-manager` (UAT) |
+| `mobile_launch_app` | Installs/launches the app on the claimed device | `qa-agent`, `mobile-developer` |
 | `mobile_screenshot` | Captures the device screen; with `attach_to_task` it also saves the image on the task | Same |
 | `mobile_read_ui` | Reads the current screen's UI tree | Same |
 | `mobile_tap` | Taps a coordinate or element | Same |

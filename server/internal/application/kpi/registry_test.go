@@ -85,9 +85,9 @@ func TestCleanTimeBelowMinSampleIsInsufficient(t *testing.T) {
 
 func TestCleanTimeWithNoDataIsInsufficientNotZero(t *testing.T) {
 
-	_, err := resolveMetric(t, "clean_time_pm_uat", nil)
+	_, err := resolveMetric(t, "clean_time_in_qa", nil)
 	require.ErrorIs(t, err, kpi.ErrInsufficientData)
-	require.Equal(t, domain.KPIDirectionLowerBetter, mustInfo(t, "clean_time_pm_uat").Direction)
+	require.Equal(t, domain.KPIDirectionLowerBetter, mustInfo(t, "clean_time_in_qa").Direction)
 	require.Equal(t, 1.0, domain.KPIAttainment(domain.KPIDirectionLowerBetter, 0, 6, 16),
 		"a zero measurement scores full marks, which is why it must never be published")
 }
@@ -109,18 +109,6 @@ func TestTasksCompletedCountsQATaskTested(t *testing.T) {
 	agentID := uuid.New()
 	deps := kpi.MetricDeps{Perf: &stubPerf{events: []domain.AgentScoreEvent{
 		{AgentID: agentID, EventType: domain.ScoreEventQATaskTested},
-	}}}
-	value, err := def.Resolve(context.Background(), deps, agentID, time.Now().Add(-24*time.Hour), time.Now())
-	require.NoError(t, err)
-	require.Equal(t, 1.0, value)
-}
-
-func TestTasksCompletedCountsPMUATCompleted(t *testing.T) {
-	def, err := kpi.MetricByKey("tasks_completed")
-	require.NoError(t, err)
-	agentID := uuid.New()
-	deps := kpi.MetricDeps{Perf: &stubPerf{events: []domain.AgentScoreEvent{
-		{AgentID: agentID, EventType: domain.ScoreEventPMUATCompleted},
 	}}}
 	value, err := def.Resolve(context.Background(), deps, agentID, time.Now().Add(-24*time.Hour), time.Now())
 	require.NoError(t, err)
@@ -197,7 +185,6 @@ func TestGateRejectedRuns_CountsOnlyGateRejectionsInWindow(t *testing.T) {
 	deps := kpi.MetricDeps{Runs: &stubRuns{runs: []domain.TaskAgentRun{
 		{AgentID: agentID, Status: domain.TaskAgentRunStatusFailed, Summary: "Analysis rejected: no repo reads", CreatedAt: now},
 		{AgentID: agentID, Status: domain.TaskAgentRunStatusFailed, Summary: "QA round rejected: never ran the product", CreatedAt: now},
-		{AgentID: agentID, Status: domain.TaskAgentRunStatusFailed, Summary: "pm_uat rejected: never checked the product", CreatedAt: now},
 
 		{AgentID: agentID, Status: domain.TaskAgentRunStatusFailed, Summary: "session limit reached", CreatedAt: now},
 
@@ -207,7 +194,7 @@ func TestGateRejectedRuns_CountsOnlyGateRejectionsInWindow(t *testing.T) {
 	}}}
 	value, err := def.Resolve(context.Background(), deps, agentID, now.Add(-24*time.Hour), now.Add(24*time.Hour))
 	require.NoError(t, err)
-	require.Equal(t, 3.0, value)
+	require.Equal(t, 2.0, value)
 }
 
 func TestAllListedMetricsAreResolvable(t *testing.T) {

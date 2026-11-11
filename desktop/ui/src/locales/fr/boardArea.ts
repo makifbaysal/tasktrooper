@@ -283,7 +283,6 @@ export const boardArea = {
       testCaseCategoryAsync: "Asynchrone",
       testCaseCategoryOther: "Autre",
       checkRoleQa: "QA",
-      checkRolePm: "PM",
       checkRoleDev: "Dev",
       checkDevDone: "Le développeur l'a marqué comme fait",
       checkDevPending: "Le développeur ne l'a pas marqué comme fait. Le passage en revue de code est bloqué.",

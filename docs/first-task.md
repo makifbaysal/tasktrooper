@@ -20,13 +20,13 @@ From the board, open **New task**. The dialog asks for:
 | Assignee | The agent responsible. Setting this is what makes the task dispatch automatically |
 | Description | The product-level story, context and out-of-scope notes |
 | Technical description | Affected endpoints/files/schema, approach, constraints |
-| Acceptance criteria | One observable Given/When/Then per item — the checklist QA runs and PM UAT verifies |
+| Acceptance criteria | One observable Given/When/Then per item — the checklist QA runs and verifies |
 | Documents | Free-form attached documents (this is where an `analiz` task's spec and plan live) |
 | Attachments | Images or files |
 | Deploy (collapsed by default) | Deploys after (which tasks must ship first), pre-deploy checklist, post-deploy steps, rollback plan |
 
 Keep description, technical description and acceptance criteria in their own
-fields rather than folding one into another — QA and PM UAT read the
+fields rather than folding one into another — QA reads the
 acceptance criteria specifically, and criteria pasted into the description
 never become a checklist anyone verifies.
 
@@ -75,7 +75,7 @@ For a task with a repository attached, a board run:
 2. Does the work — reads and edits code, runs the repository's own build/test
    commands, fixes what it broke.
 3. Commits and pushes the branch, and opens a pull request (ready for review,
-   not a draft) once the task reaches PM UAT or Done.
+   not a draft) once the task reaches Human UAT or Done.
 4. Ticks off acceptance criteria as it satisfies them.
 5. Moves the card on to the next column when it's done with its part.
 
@@ -91,7 +91,7 @@ A typical `task`/`bug` flows:
 
 ```
 Backlog → Todo → In Progress → Code Review → Ready for QA → In QA
-   → Need Revision (on a reject) → PM UAT → Human UAT (optional) → Done → Released
+   → Need Revision (on a reject) → Human UAT (optional) → Done → Released
 ```
 
 An `analiz` (analysis) task instead goes:
@@ -101,7 +101,7 @@ Backlog → Todo → In Progress → Analiz Review → Done → Released
 ```
 
 — its deliverable is documents, not code, and a human approves the plan in
-Analiz Review rather than a QA/PM chain. See [Board and
+Analiz Review rather than a QA chain. See [Board and
 columns](board-and-columns.md) for the full column list and who owns each
 one, and [Tasks, criteria and documents](tasks.md) for what an `analiz`
 task's approval actually produces.
@@ -110,7 +110,7 @@ task's approval actually produces.
 
 Opening a task's detail view shows, in order:
 
-- **Acceptance criteria**, with a count, and each criterion's QA/PM verdict
+- **Acceptance criteria**, with a count, and each criterion's QA verdict
   once reviewed.
 - **Deploy** — the deploys-after list, pre-deploy checklist, post-deploy
   steps and rollback plan, if any are set.
@@ -129,12 +129,12 @@ Every field from the create dialog stays editable from the task's detail
 view — title, type, priority, description, technical description, and the
 deploy runbook fields. Acceptance criteria can be added, ticked, or cancelled
 with a reason at any point; a cancelled criterion is dropped from scope
-rather than treated as met, so the checklist never ends up asking QA or PM to
+rather than treated as met, so the checklist never ends up asking QA to
 verify work that was deliberately never built.
 
 ## Sending a task back to Need Revision
 
-If QA or PM UAT rejects a criterion, the task moves to **Need Revision**
+If QA rejects a criterion, the task moves to **Need Revision**
 itself as part of recording that verdict — you don't need to do it by hand.
 You can also drag the card there yourself, or use the column selector inside
 the task's detail view, if you've reviewed something outside the normal

@@ -18,14 +18,14 @@ Acceptance criteria are the contract QA tests the product against and the PM ver
 
 ## Where they go
 
-Criteria live in the board task's own `acceptance_criteria` field — an array of strings, one criterion per item, passed to `create_board_task` (or `update_board_task` to replace the whole list). Each item becomes a checkbox the implementer ticks with `set_criterion_completed`, and that QA (in ready_for_qa/in_qa) and you (in pm_uat) then rule on independently with `review_criterion`. The tick is the implementer's claim — QA and PM never call `set_criterion_completed`; your verdict is `review_criterion`.
+Criteria live in the board task's own `acceptance_criteria` field — an array of strings, one criterion per item, passed to `create_board_task` (or `update_board_task` to replace the whole list). Each item becomes a checkbox the implementer ticks with `set_criterion_completed`, and that QA (in ready_for_qa/in_qa) then rules on independently with `review_criterion`. The tick is the implementer's claim — QA never calls `set_criterion_completed`; its verdict is `review_criterion`.
 
 Never write them into `description`. A criteria block pasted as markdown leaves the task's checklist empty: nothing to tick, nothing the move guard can check, and the prose copy goes stale the moment the real criteria are edited.
 
 ## Testability gate
 
 For each criterion, before you save it, write down:
-- **who executes it** — QA in in_qa, and the PM in pm_uat with browser or mobile tools (or `http_request` against the task's own preview when the surface is an API, not a screen);
+- **who executes it** — QA in in_qa, with browser or mobile tools (or `http_request` against the task's own preview when the surface is an API, not a screen);
 - **the action** — a click path, a URL, or a request;
 - **the exact observable** — text, a count, an element state, or a file.
 

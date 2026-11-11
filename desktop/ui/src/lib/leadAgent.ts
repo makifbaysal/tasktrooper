@@ -28,8 +28,8 @@ export function resolveLeadAgent(agents: Agent[], roles: Role[] | null): Agent |
 }
 
 /**
- * Every agent holding the lead's role. The lead works its own column (pm_uat)
- * and the stakeholder's chats, never a board card as its assignee — the server
+ * Every agent holding the lead's role. The lead works the stakeholder's chats
+ * and never a board card as its assignee — the server
  * refuses that, so the pickers leave these agents out.
  */
 export function productManagerIds(agents: Agent[], roles: Role[] | null): string[] {

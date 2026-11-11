@@ -12,7 +12,6 @@ func TestSpanCountsForSpeed(t *testing.T) {
 	require.True(t, domain.SpanCountsForSpeed(domain.TaskColumnCodeReview))
 	require.True(t, domain.SpanCountsForSpeed(domain.TaskColumnReadyForQA))
 	require.True(t, domain.SpanCountsForSpeed(domain.TaskColumnInQA))
-	require.True(t, domain.SpanCountsForSpeed(domain.TaskColumnPMUAT))
 
 	require.False(t, domain.SpanCountsForSpeed(domain.TaskColumnBlocked))
 	require.False(t, domain.SpanCountsForSpeed(domain.TaskColumnHumanUAT))
@@ -24,7 +23,6 @@ func TestSpanCountsForSpeed(t *testing.T) {
 	require.False(t, domain.SpanCountsForSpeed(domain.TaskColumnReleased))
 }
 
-func TestEscapePenaltyIsHeavierThanEarlierGates(t *testing.T) {
-	require.Less(t, domain.ScoreDeltaHumanUATFailed, domain.ScoreDeltaPMUATFailed)
+func TestReviewEscapeIsHeavierThanAHumanRejection(t *testing.T) {
 	require.Less(t, domain.ScoreDeltaReviewEscape, domain.ScoreDeltaHumanUATFailed)
 }

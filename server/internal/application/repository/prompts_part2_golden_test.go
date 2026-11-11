@@ -35,6 +35,6 @@ func TestGolden_RepositoryGuardWordingPart2(t *testing.T) {
 	assert(prompt.Text(relationTargetRequiredKey),
 		"relation requires target_task_id or target_key")
 
-	assert(stageNotConfiguredKey.Render(stageNotConfiguredInput{TaskType: "mobile", Column: "pm_uat"}),
-		"mobile tasks don't use the pm_uat column — this task type's workflow has no stage configured for it")
+	assert(stageNotConfiguredKey.Render(stageNotConfiguredInput{TaskType: "mobile", Column: "analiz_review"}),
+		"mobile tasks don't use the analiz_review column — this task type's workflow has no stage configured for it")
 }

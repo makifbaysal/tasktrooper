@@ -58,8 +58,7 @@ func (st *ScoreTracker) SetWorkflows(w port.WorkflowReader) {
 }
 
 var blameColumns = map[domain.TaskColumn][]string{
-	domain.TaskColumnHumanUAT:   {"in_progress", "in_qa", "pm_uat"},
-	domain.TaskColumnPMUAT:      {"in_progress", "in_qa"},
+	domain.TaskColumnHumanUAT:   {"in_progress", "in_qa"},
 	domain.TaskColumnCodeReview: {"in_progress"},
 	domain.TaskColumnReadyForQA: {"in_progress"},
 	domain.TaskColumnInQA:       {"in_progress"},
@@ -73,7 +72,6 @@ type rejectionRule struct {
 
 var rejectionRules = map[domain.TaskColumn]rejectionRule{
 	domain.TaskColumnHumanUAT:   {domain.ScoreEventHumanUATFailed, domain.ScoreDeltaHumanUATFailed, "Human UAT failed"},
-	domain.TaskColumnPMUAT:      {domain.ScoreEventPMUATFailed, domain.ScoreDeltaPMUATFailed, "PM UAT failed"},
 	domain.TaskColumnCodeReview: {domain.ScoreEventRevisionRequested, domain.ScoreDeltaRevisionRequested, "Code review returned for revision"},
 	domain.TaskColumnReadyForQA: {domain.ScoreEventRevisionRequested, domain.ScoreDeltaRevisionRequested, "QA returned for revision"},
 	domain.TaskColumnInQA:       {domain.ScoreEventRevisionRequested, domain.ScoreDeltaRevisionRequested, "QA returned for revision"},
@@ -113,9 +111,6 @@ func (st *ScoreTracker) OnColumnTransition(ctx context.Context, task domain.Boar
 	if fromQA && st.isForwardExit(ctx, task.TaskType, to) {
 		st.scoreQARound(ctx, task, true)
 		st.creditRoleCompletion(ctx, task, "in_qa", domain.ScoreEventQATaskTested, domain.ScoreDeltaQATaskTested, "QA finished testing")
-	}
-	if from == domain.TaskColumnPMUAT && st.isForwardExit(ctx, task.TaskType, to) {
-		st.creditRoleCompletion(ctx, task, "pm_uat", domain.ScoreEventPMUATCompleted, domain.ScoreDeltaPMUATCompleted, "PM finished UAT review")
 	}
 }
 

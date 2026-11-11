@@ -106,7 +106,6 @@ func TestEnterWorkingColumnOnlyActsOnTheQueues(t *testing.T) {
 		domain.TaskColumnInProgress,
 		domain.TaskColumnCodeReview,
 		domain.TaskColumnInQA,
-		domain.TaskColumnPMUAT,
 		domain.TaskColumnHumanUAT,
 	} {
 		task := domain.BoardTask{ID: uuid.New(), Column: column, AssigneeAgentID: &agentID}

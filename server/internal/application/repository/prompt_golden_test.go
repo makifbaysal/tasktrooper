@@ -29,7 +29,7 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 				"one open criterion",
 				[]domain.AcceptanceCriterion{{ID: id1, Text: "android link is on the page"}},
 				domain.TaskColumnReadyForQA,
-				"cannot move to ready_for_qa: 1 acceptance criteria incomplete: [00000000-0000-0000-0000-000000000001] android link is on the page — if you implemented them, tick each with set_criterion_completed; if one is deliberately not being done, cancel it with cancel_criterion and a reason; if you are reviewing (QA in ready_for_qa/in_qa, PM in pm_uat), record your verdict with review_criterion instead",
+				"cannot move to ready_for_qa: 1 acceptance criteria incomplete: [00000000-0000-0000-0000-000000000001] android link is on the page — if you implemented them, tick each with set_criterion_completed; if one is deliberately not being done, cancel it with cancel_criterion and a reason; if you are reviewing (QA in ready_for_qa/in_qa), record your verdict with review_criterion instead",
 			},
 			{
 				"two open criteria",
@@ -38,13 +38,13 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 					{ID: id2, Text: "b"},
 				},
 				domain.TaskColumnDone,
-				"cannot move to done: 2 acceptance criteria incomplete: [00000000-0000-0000-0000-000000000001] a; [00000000-0000-0000-0000-000000000002] b — if you implemented them, tick each with set_criterion_completed; if one is deliberately not being done, cancel it with cancel_criterion and a reason; if you are reviewing (QA in ready_for_qa/in_qa, PM in pm_uat), record your verdict with review_criterion instead",
+				"cannot move to done: 2 acceptance criteria incomplete: [00000000-0000-0000-0000-000000000001] a; [00000000-0000-0000-0000-000000000002] b — if you implemented them, tick each with set_criterion_completed; if one is deliberately not being done, cancel it with cancel_criterion and a reason; if you are reviewing (QA in ready_for_qa/in_qa), record your verdict with review_criterion instead",
 			},
 			{
 				"different target column",
 				[]domain.AcceptanceCriterion{{ID: id1, Text: "a"}},
 				domain.TaskColumnCodeReview,
-				"cannot move to code_review: 1 acceptance criteria incomplete: [00000000-0000-0000-0000-000000000001] a — if you implemented them, tick each with set_criterion_completed; if one is deliberately not being done, cancel it with cancel_criterion and a reason; if you are reviewing (QA in ready_for_qa/in_qa, PM in pm_uat), record your verdict with review_criterion instead",
+				"cannot move to code_review: 1 acceptance criteria incomplete: [00000000-0000-0000-0000-000000000001] a — if you implemented them, tick each with set_criterion_completed; if one is deliberately not being done, cancel it with cancel_criterion and a reason; if you are reviewing (QA in ready_for_qa/in_qa), record your verdict with review_criterion instead",
 			},
 		}
 		for _, tc := range cases {
@@ -78,18 +78,11 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 				"cannot move to done: 1 acceptance criteria await your qa verdict: [00000000-0000-0000-0000-000000000001] android link is on the page — call review_criterion with each id above, then retry the move",
 			},
 			{
-				"unchecked, pm",
-				[]domain.AcceptanceCriterion{{ID: id1, Text: "a", Completed: true, Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true}}}},
-				domain.TaskColumnPMUAT,
-				domain.TaskColumnHumanUAT,
-				"cannot move to human_uat: 1 acceptance criteria await your pm verdict: [00000000-0000-0000-0000-000000000001] a — call review_criterion with each id above, then retry the move",
-			},
-			{
 				"rejected, qa",
 				[]domain.AcceptanceCriterion{{ID: id1, Text: "login works", Completed: true, Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: false, Note: "500 on submit"}}}},
 				domain.TaskColumnInQA,
-				domain.TaskColumnPMUAT,
-				"cannot move to pm_uat: 1 acceptance criteria are rejected by qa: [00000000-0000-0000-0000-000000000001] login works (500 on submit) — move the task to need_revision instead, or re-verify and approve them (review_criterion)",
+				domain.TaskColumnHumanUAT,
+				"cannot move to human_uat: 1 acceptance criteria are rejected by qa: [00000000-0000-0000-0000-000000000001] login works (500 on submit) — move the task to need_revision instead, or re-verify and approve them (review_criterion)",
 			},
 		}
 		for _, tc := range cases {
@@ -116,12 +109,12 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 			{
 				"no cases at all",
 				nil,
-				"cannot move to pm_uat: this task carries no test cases — record the cases you derived and executed with record_test_cases (title, category, status, expected/actual, evidence), including the ones you considered and rejected as status=invalid with the reason in notes",
+				"cannot move to human_uat: this task carries no test cases — record the cases you derived and executed with record_test_cases (title, category, status, expected/actual, evidence), including the ones you considered and rejected as status=invalid with the reason in notes",
 			},
 			{
 				"one planned case",
 				[]domain.TaskTestCase{{ID: id1, Title: "expired token is rejected", Status: domain.TestCaseStatusPlanned}},
-				"cannot move to pm_uat: 1 test case(s) are still planned and were never executed: expired token is rejected — run each one and record its result (passed/failed), or mark it skipped with what blocked it, or invalid with why it is not a valid case",
+				"cannot move to human_uat: 1 test case(s) are still planned and were never executed: expired token is rejected — run each one and record its result (passed/failed), or mark it skipped with what blocked it, or invalid with why it is not a valid case",
 			},
 			{
 				"two planned cases",
@@ -129,7 +122,7 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 					{ID: id1, Title: "a", Status: domain.TestCaseStatusPlanned},
 					{ID: id2, Title: "b", Status: domain.TestCaseStatusPlanned},
 				},
-				"cannot move to pm_uat: 2 test case(s) are still planned and were never executed: a; b — run each one and record its result (passed/failed), or mark it skipped with what blocked it, or invalid with why it is not a valid case",
+				"cannot move to human_uat: 2 test case(s) are still planned and were never executed: a; b — run each one and record its result (passed/failed), or mark it skipped with what blocked it, or invalid with why it is not a valid case",
 			},
 		}
 		for _, tc := range cases {
@@ -139,7 +132,7 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 					requireCriteria: true,
 					workflows:       workflowtest.Default().Reader(),
 				}
-				err := svc.testCaseGate(context.Background(), uuid.New(), "task", domain.TaskColumnInQA, domain.TaskColumnPMUAT)
+				err := svc.testCaseGate(context.Background(), uuid.New(), "task", domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
 				if err == nil || err.Error() != tc.want {
 					t.Fatalf("got %v, want %q", err, tc.want)
 				}
@@ -226,12 +219,12 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 			{
 				"in_progress",
 				domain.BoardTask{ID: uuid.New(), RepositoryID: uuid.New(), Key: "T-4", Column: domain.TaskColumnInProgress},
-				"criterion verdicts are recorded while the task is under QA (ready_for_qa/in_qa) or PM UAT (pm_uat); task T-4 is in in_progress — do not move the task to reach the criteria: their ids are in your run context and in move refusals; if the task already left your column, stop and report instead of retrying",
+				"criterion verdicts are recorded while the task is under QA (ready_for_qa/in_qa); task T-4 is in in_progress — do not move the task to reach the criteria: their ids are in your run context and in move refusals; if the task already left your column, stop and report instead of retrying",
 			},
 			{
 				"done",
 				domain.BoardTask{ID: uuid.New(), RepositoryID: uuid.New(), Key: "T-9", Column: domain.TaskColumnDone},
-				"criterion verdicts are recorded while the task is under QA (ready_for_qa/in_qa) or PM UAT (pm_uat); task T-9 is in done — do not move the task to reach the criteria: their ids are in your run context and in move refusals; if the task already left your column, stop and report instead of retrying",
+				"criterion verdicts are recorded while the task is under QA (ready_for_qa/in_qa); task T-9 is in done — do not move the task to reach the criteria: their ids are in your run context and in move refusals; if the task already left your column, stop and report instead of retrying",
 			},
 		}
 		for _, tc := range cases {

@@ -370,7 +370,7 @@ func TestVerifiedSHAForMove(t *testing.T) {
 	}{
 		{
 			name:    "entering done stamps the branch head",
-			prev:    domain.TaskColumnPMUAT,
+			prev:    domain.TaskColumnHumanUAT,
 			next:    domain.TaskColumnDone,
 			hasGit:  true,
 			headSHA: verifiedCommit,
@@ -378,7 +378,7 @@ func TestVerifiedSHAForMove(t *testing.T) {
 		},
 		{
 			name:    "entering done re-stamps over an older sign-off",
-			prev:    domain.TaskColumnPMUAT,
+			prev:    domain.TaskColumnHumanUAT,
 			next:    domain.TaskColumnDone,
 			stamped: verifiedCommit,
 			hasGit:  true,
@@ -387,7 +387,7 @@ func TestVerifiedSHAForMove(t *testing.T) {
 		},
 		{
 			name:    "entering done without a workspace leaves no stamp",
-			prev:    domain.TaskColumnPMUAT,
+			prev:    domain.TaskColumnHumanUAT,
 			next:    domain.TaskColumnDone,
 			stamped: verifiedCommit,
 			hasGit:  false,

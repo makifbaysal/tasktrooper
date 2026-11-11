@@ -38,7 +38,7 @@ func TestCreateAgentFromTemplate_QAOwnsItsFourColumns(t *testing.T) {
 		board.subs[agent.ID])
 }
 
-func TestCreateAgentFromTemplate_ArchitectAndPMGetTheirColumn(t *testing.T) {
+func TestCreateAgentFromTemplate_ArchitectGetsItsColumn(t *testing.T) {
 	store := newMemCatalogStore()
 	templates := &memTemplateStore{}
 	board := &memBoardConfigStore{subs: map[uuid.UUID][]string{}}
@@ -55,15 +55,6 @@ func TestCreateAgentFromTemplate_ArchitectAndPMGetTheirColumn(t *testing.T) {
 	architect, err := svc.CreateAgentFromTemplate(ctx, architectTpl.ID, domain.CreateAgentRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{string(domain.TaskColumnCodeReview)}, board.subs[architect.ID])
-
-	pmTpl, err := templates.UpsertByName(ctx, domain.AgentTemplate{
-		Name: "product-manager", Description: "built-in role", BuiltIn: true,
-		Subscriptions: []domain.TaskColumn{domain.TaskColumnPMUAT},
-	})
-	require.NoError(t, err)
-	pm, err := svc.CreateAgentFromTemplate(ctx, pmTpl.ID, domain.CreateAgentRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, []string{string(domain.TaskColumnPMUAT)}, board.subs[pm.ID])
 }
 
 func TestCreateAgentFromTemplate_SecondAgentFindsColumnsAlreadyOccupied(t *testing.T) {

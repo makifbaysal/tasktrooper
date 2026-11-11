@@ -46,7 +46,7 @@ func (s *CompletionSuite) TestCleanWhenNeverRevised() {
 	stamper := board.NewCompletionStamper(rec, &visitedSpans{visited: map[string]bool{}})
 	task := domain.BoardTask{ID: uuid.New()}
 
-	stamper.OnColumnTransition(context.Background(), task, domain.TaskColumnPMUAT, domain.TaskColumnDone)
+	stamper.OnColumnTransition(context.Background(), task, domain.TaskColumnHumanUAT, domain.TaskColumnDone)
 
 	s.Equal(1, rec.calls)
 	s.Equal(task.ID, rec.taskID)
@@ -60,7 +60,7 @@ func (s *CompletionSuite) TestNotCleanAfterRevision() {
 	})
 
 	stamper.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
-		domain.TaskColumnPMUAT, domain.TaskColumnDone)
+		domain.TaskColumnHumanUAT, domain.TaskColumnDone)
 
 	s.Equal(1, rec.calls)
 	s.False(rec.clean)
@@ -71,7 +71,7 @@ func (s *CompletionSuite) TestUnknownHistoryIsNotScoredAsClean() {
 	stamper := board.NewCompletionStamper(rec, &visitedSpans{err: errors.New("pool down")})
 
 	stamper.OnColumnTransition(context.Background(), domain.BoardTask{ID: uuid.New()},
-		domain.TaskColumnPMUAT, domain.TaskColumnReleased)
+		domain.TaskColumnHumanUAT, domain.TaskColumnReleased)
 
 	s.Equal(1, rec.calls)
 	s.False(rec.clean)

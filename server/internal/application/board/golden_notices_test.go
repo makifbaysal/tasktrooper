@@ -143,11 +143,6 @@ func TestGolden_RejectedRunReportReplanNote(t *testing.T) {
 		rejectedRunReportReplanNote("Ran the tests."))
 }
 
-func TestGolden_RejectedRunReportReapproveNote(t *testing.T) {
-	assert.Equal(t, "\n\nWhat the rejected run reported (execute this, do not re-approve it):\n\nApproved.",
-		rejectedRunReportReapproveNote("Approved."))
-}
-
 func TestGolden_PipelineGateNoGreenBuildComment(t *testing.T) {
 	assert.Equal(t,
 		"Code review başlatıldı ama arkasında yeşil bir pipeline YOK — CI unavailable: GitHub Actions billing limit reached.",

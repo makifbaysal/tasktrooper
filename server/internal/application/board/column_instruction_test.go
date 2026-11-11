@@ -13,7 +13,7 @@ func TestColumnInstructionReadyForQAEntersInQAFirst(t *testing.T) {
 	if !strings.Contains(got, "in_qa") {
 		t.Fatalf("ready_for_qa instruction must send the task into in_qa before testing, got: %s", got)
 	}
-	for _, want := range []string{"pm_uat", "need_revision"} {
+	for _, want := range []string{"human_uat", "need_revision"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("ready_for_qa instruction must state the %s exit, got: %s", want, got)
 		}
@@ -26,7 +26,7 @@ func TestColumnInstructionInQADoesNotRePlanTheMove(t *testing.T) {
 	if !strings.Contains(got, "ALREADY in `in_qa`") {
 		t.Fatalf("in_qa instruction must state the task is already there, got: %s", got)
 	}
-	for _, want := range []string{"pm_uat", "need_revision"} {
+	for _, want := range []string{"human_uat", "need_revision"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("in_qa instruction must state the %s exit, got: %s", want, got)
 		}

@@ -283,7 +283,6 @@ export const boardArea = {
       testCaseCategoryAsync: "异步",
       testCaseCategoryOther: "其他",
       checkRoleQa: "QA",
-      checkRolePm: "PM",
       checkRoleDev: "开发",
       checkDevDone: "开发者已将此项标记为完成",
       checkDevPending: "开发者尚未将此项标记为完成，无法移至代码审查。",

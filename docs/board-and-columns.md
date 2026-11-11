@@ -5,7 +5,7 @@ description: The default column layout, which agent works each column, and how a
 
 ## The default columns
 
-A new board comes with thirteen columns, in this order:
+A new board comes with twelve columns, in this order:
 
 | # | Column | Slug | Default owner |
 |---|---|---|---|
@@ -17,11 +17,10 @@ A new board comes with thirteen columns, in this order:
 | 5 | Ready for QA | `ready_for_qa` | `qa-agent` (queue — see below) |
 | 6 | In QA | `in_qa` | `qa-agent` (testing happens here) |
 | 7 | Need Revision | `need_revision` | the task's assignee |
-| 8 | PM UAT | `pm_uat` | `product-manager` |
-| 9 | Human UAT | `human_uat` | none — a human approval gate |
-| 10 | Blocked | `blocked` | none — never dispatches |
-| 11 | Done | `done` | `release-engineer` (merges the PR) |
-| 12 | Released | `released` | `release-engineer` (watches the deploy) |
+| 8 | Human UAT | `human_uat` | none — a human approval gate |
+| 9 | Blocked | `blocked` | none — never dispatches |
+| 10 | Done | `done` | `release-engineer` (merges the PR) |
+| 11 | Released | `released` | `release-engineer` (watches the deploy) |
 
 Backlog is fixed and always first; everything else is yours to reorder,
 rename or remove. `analiz_review` and `human_uat` are deliberately unowned —
@@ -36,7 +35,7 @@ developers, `ui-designer`, `data-scientist` and `game-developer`) are optional.
 
 | Agent | Columns |
 |---|---|
-| `product-manager` | PM UAT |
+| `product-manager` | none — it works from the backlog and chat |
 | `system-architect` | Code Review (and the `analiz` tasks it is assigned, which it works in In Progress) |
 | `security-agent` | Code Review |
 | `backend-developer` / `frontend-developer` / `mobile-developer` | Todo, Need Revision (for their own tasks) |
@@ -59,7 +58,7 @@ presses a run button. The rule, precisely:
   every agent subscribed to X.
 - **`task.commented`** dispatches the assignee, unless the task is in
   `need_revision` (assignee only there too) — or, in a column a human owns
-  the hand-off through (Code Review, In QA, PM UAT, Human UAT), the agent
+  the hand-off through (Code Review, In QA, Human UAT), the agent
   actually holding the task rather than the original assignee.
 - **`task.assigned`** dispatches the new assignee.
 
@@ -79,7 +78,7 @@ can be called Done:
 
 | Task type | Required stages |
 |---|---|
-| `task` / `bug` | Code Review, In QA, PM UAT |
+| `task` / `bug` | Code Review, In QA |
 | `analiz` | Analiz Review only |
 
 Evidence is whether the task's history ever shows it visiting that column —

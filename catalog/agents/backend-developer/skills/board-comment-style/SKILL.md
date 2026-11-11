@@ -19,7 +19,7 @@ and `comment_on_pull_request`, not that message.
 
 **Nothing that went WELL needs a comment.** A passed review, a green build, an
 approved criterion, a merged pull request, a successful deploy, "moving this to
-pm_uat" — the board already shows every one of those, in the column, the
+human_uat" — the board already shows every one of those, in the column, the
 criteria, the PR field, the pipeline panel and the task history. Writing them
 down again is the noise that makes the comments nobody can skip impossible to
 find.

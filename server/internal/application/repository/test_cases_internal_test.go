@@ -63,7 +63,7 @@ func TestTestCaseGate(t *testing.T) {
 		{
 			name:    "no cases at all refuses the hand-off",
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 			wantErr: "carries no test cases",
 		},
@@ -71,7 +71,7 @@ func TestTestCaseGate(t *testing.T) {
 			name:    "a case written down but never executed refuses it too",
 			items:   []domain.TaskTestCase{testCase("expired token is rejected", domain.TestCaseStatusPlanned)},
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 			wantErr: "expired token is rejected",
 		},
@@ -83,14 +83,14 @@ func TestTestCaseGate(t *testing.T) {
 				testCase("on a real device", domain.TestCaseStatusSkipped),
 			},
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 		},
 		{
 			name:    "a failing case does not block: its exit is need_revision, not this move",
 			items:   []domain.TaskTestCase{testCase("happy path", domain.TestCaseStatusFailed)},
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: true,
 		},
 		{
@@ -109,7 +109,7 @@ func TestTestCaseGate(t *testing.T) {
 		{
 			name:    "off without require_criteria_complete",
 			prev:    domain.TaskColumnInQA,
-			target:  domain.TaskColumnPMUAT,
+			target:  domain.TaskColumnHumanUAT,
 			require: false,
 		},
 	}

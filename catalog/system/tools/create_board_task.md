@@ -2,7 +2,7 @@
 key: tool.create_board_task
 version: "1"
 params:
-    acceptance_criteria: Acceptance criteria, one observable Given/When/Then per array item, in order. This is the ONLY place criteria belong — they become the checklist QA executes and pm_uat verifies. Writing them into description instead leaves the task with an empty checklist.
+    acceptance_criteria: Acceptance criteria, one observable Given/When/Then per array item, in order. This is the ONLY place criteria belong — they become the checklist QA executes and verifies. Writing them into description instead leaves the task with an empty checklist.
     after_deploy: 'Post-deploy steps (markdown): cache warms, flag flips, smoke checks. Posted on the task automatically when the production deploy succeeds.'
     allow_duplicate: Set true only when an open task with an almost identical title is genuinely different work. Creation is otherwise refused and the existing task is returned, so parallel agents cannot open the same task twice.
     assignee: 'Who handles this task: the responsible agent''s name (e.g. "system-architect", "backend-developer") or its UUID. Set this so the assignee is dispatched automatically. Use list_team to see valid names. Never the product manager: it cannot hold a board task.'

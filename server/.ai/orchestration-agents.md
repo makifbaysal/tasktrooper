@@ -43,7 +43,7 @@ arrive through the sync.
 Migration 159 moved `done`/`released` from QA to the release engineer: QA's
 `agent_column_subscriptions` for both were deleted and `workflow_stage_participants`
 repointed to role `release`, so QA's own work now ends at its verdict in
-`in_qa`/`pm_uat`/`human_uat`. See "Releases" below.
+`in_qa`/`human_uat`. See "Releases" below.
 
 Each role agent carries 6–17 skills and 3–10 rules. Skill embeddings are
 filled in after sync by the backfill above. Changing the files under
@@ -110,17 +110,9 @@ runner has no simulator.
 
 **The verifier no longer counts a plan as a result.** The section added to `buildVerifierSystemPrompt`: a result written in the future tense is a plan; when the goal is test/verify/review, executed evidence (the command run + observed output, a screenshot) **is the deliverable**, and its absence is a material gap. The board-delegation exemption ("a result that reads like analysis is not a failure / pass an unprovable run, the review chain will judge") does not apply here: for a QA run, **the review chain is that run**.
 
-**The QA verdict gate holds every forward exit** (`criteriaReviewGate`). It used to gate only `ready_for_qa|in_qa → pm_uat` and `pm_uat → human_uat|done|released`; when QA moved a task straight from `in_qa` to `done`, no criterion verdict was required — that was the escape. Now every `isForwardReviewExit` target (pm_uat/human_uat/done/released) requires a full verdict, by the role of the review column the task leaves (QA or PM). `need_revision` and backward moves are ungated. Tasks with no criteria, and `require_criteria_complete=false`, remain no-ops.
+**The QA verdict gate holds every forward exit** (`criteriaReviewGate`). It used to gate only `ready_for_qa|in_qa → human_uat`; when QA moved a task straight from `in_qa` to `done`, no criterion verdict was required — that was the escape. Now every `isForwardReviewExit` target (human_uat/done/released) requires a full verdict from QA, the role of the review column the task leaves. `need_revision` and backward moves are ungated. Tasks with no criteria, and `require_criteria_complete=false`, remain no-ops.
 
 Mobile automation is out of scope for now. Browser QA needs a Chromium binary at `CHROME_BIN`.
-
-### PM UAT grounding + coverage-gap gate
-
-PM had no equivalent of `isUngroundedQA`: a `pm_uat` run could approve every criterion with a tool ledger holding nothing but `list_task_comments`/`read_file`/`list_acceptance_criteria`, no `browser_*`/`mobile_*` call at all, and nothing refused that hand-off.
-
-- **`isUngroundedPMUAT`** (`board/runner.go`) mirrors `isUngroundedQA`: a run in `pm_uat` with no `Clarification` and no successful call from `domain.PMUATExecutionTools` (the same browser/mobile names as `QAExecutionTools`, minus `run_terminal` — PM has no shell — and minus `get_deploy_target`, a lookup rather than an exercise of the product) fails the run (`ErrUngroundedPMUAT`).
-- **`pmApprovedUncoveredCriterion`** closes a narrower hole: QA's `review_criterion(approved=true)` is a claim, not proof, when nothing in QA's own recorded round backs it. For every criterion this run's PM approved, the gate looks for a `domain.TaskTestCase` (read via `port.TaskTestCaseStore.ListByTask` / `list_test_cases`) with a matching `criterion_id` and `Status == passed`. If every approval this run made has one, the gate passes; if even one does not, the run also needs `PMUATExecutionTools` usage — approving an uncovered criterion off QA's note and board reads alone fails the run the same way `isUngroundedPMUAT` does.
-- `pm-uat-review/SKILL.md` step 3 has PM call `list_test_cases` and check, criterion by criterion, for a `passed` case before approving off QA's note; step 5 requires PM's own `browser_*`/`mobile_*` walk-through for anything the case list does not already cover.
 
 ### Code-review hand-off evidence guards (`advanceToCodeReview`)
 
@@ -140,11 +132,11 @@ The same bounce (`Runner.sendBackForRevision`: optional system comment, then a s
 
 ### Column-scoped code-tool restriction for verification (`RestrictCodeToolsForVerification`)
 
-`RestrictToolsForVerdictColumn` only ever stripped writers/commit/merge/rollback; it never touched the read-only code tools, so QA and PM kept full code-reading access throughout `in_qa`/`ready_for_qa`/`pm_uat`/`human_uat` — enforced only by prompt wording (`qa-agent.md`, `product-manager.md`), not by anything the runtime checked.
+`RestrictToolsForVerdictColumn` only ever stripped writers/commit/merge/rollback; it never touched the read-only code tools, so QA kept full code-reading access throughout `in_qa`/`ready_for_qa`/`human_uat` — enforced only by prompt wording (`qa-agent.md`), not by anything the runtime checked.
 
-`domain.RestrictCodeToolsForVerification(p, col)` applies on top of `RestrictToolsForVerdictColumn`, asymmetrically by role:
+`domain.RestrictCodeToolsForVerification(p, col)` applies on top of `RestrictToolsForVerdictColumn`, by column:
 
-- **PM** loses every `CodeExplorationTools` name in `pm_uat`/`human_uat` — the only two columns PM signs a criterion off in. Outside those columns (backlog grooming, writing `technical_description`) PM keeps the set.
+- Everyone loses every `CodeExplorationTools` name in `human_uat`.
 - **QA** loses only `read_file` in `in_qa`/`ready_for_qa`; `get_repo_tree`, `grep_code` and `get_task_pull_request` survive, because QA's three named exceptions above are tree-level and diff-level, never "read this file's full body and decide from it".
 
 Wired at the same call-site pattern as `RestrictToolsForVerdictColumn`. An empty allowlist means unrestricted and stays unrestricted, same convention as the other two restriction functions.
@@ -251,11 +243,11 @@ A task's record, and the agents working on it, multiplied from several places; e
 
 ### Column ownership: hand-off gates and terminal columns
 
-`ready_for_qa` is the **queue** column (entering it triggers the pipeline + stage deploy); `in_qa` is where **testing happens**. Nothing in the flow moved into `in_qa`, so QA tested in `ready_for_qa` and jumped straight to `pm_uat`/`need_revision` — `in_qa` was a dead column and the board never showed "being tested now". Fixed in four layers:
+`ready_for_qa` is the **queue** column (entering it triggers the pipeline + stage deploy); `in_qa` is where **testing happens**. Nothing in the flow moved into `in_qa`, so QA tested in `ready_for_qa` and jumped straight to `human_uat`/`need_revision` — `in_qa` was a dead column and the board never showed "being tested now". Fixed in four layers:
 
 | Layer | Change |
 |---|---|
-| `catalog/agents/qa-agent/prompt.md` | Step 0 of the QA flow: `ready_for_qa` → `in_qa` before testing. Rule `qa-enter-in-qa-before-testing` (priority 100); `qa-pass-to-pm-uat` / `qa-fail-to-need-revision` exit from `in_qa` |
+| `catalog/agents/qa-agent/prompt.md` | Step 0 of the QA flow: `ready_for_qa` → `in_qa` before testing. Rule `qa-enter-in-qa-before-testing` (priority 100); `qa-pass-to-human-uat` / `qa-fail-to-need-revision` exit from `in_qa` |
 | `board/runner.go` `columnInstruction` | Separate cases for `ready_for_qa` and `in_qa`. The general preamble says "moving to a column is not work, do not make it the plan's first item"; the `ready_for_qa` instruction keeps that and positions the move as **the opening act of the first test step** |
 | `catalog/templates.go` (`applySuggestedSubscriptions`) + migrations 070 / 104 | `qa-agent` subscribes to `ready_for_qa`, `in_qa` **and** `done` (`done` = PR merge, not testing), set when the agent is created from a template that suggests them. Only writes subscriptions when the agent has none, so a later admin customization survives; installs from before this existed were backfilled by migration |
 | `board/dispatcher.go` `isHandoffGateColumn` | `in_qa` + `human_uat` added |
@@ -300,7 +292,7 @@ A card comment is written only when **someone has to do something**: a rejection
 | the developer's green-run closing summary (`runner.go`, after the build gate) | run message + diff/PR |
 | `merge_task_pull_request` success comment (`merge_pr.go`) | `board_tasks.merge_commit_sha` (in the PR block in the UI) |
 | "Prod deploy succeeded — task released" (`pipeline.go` `moveTask`) | board history via `MoveReasonDeployReleased` |
-| QA scenario plan, QA/PM "passed" comment, architect approve comment | `review_criterion` notes + the column |
+| QA scenario plan, QA "passed" comment, architect approve comment | `review_criterion` notes + the column |
 
 The rule is written in three places: the `add_task_comment` tool description, `skills/shared/board-comment-style`, and `columnInstruction`'s column sentences. No comment repeats the PR link/number — it lives on the task's field and in the UI's right column.
 
@@ -371,7 +363,7 @@ A run in the review column passes judgment on someone else's diff; it is not the
 | Layer | Change |
 |---|---|
 | `board/runner.go` `columnInstruction` | `code_review` case: **read** the PR diff; do not run the app/build/tests, do not fix it yourself. Three axes: (1) is the requested work done (AC), (2) is the code itself sound, (3) what else in the domain does the change break — for the third, surrounding code the diff touches may be read freely |
-| `board/review.go` `isReviewColumn` | `code_review` / `analiz_review` / `pm_uat` runs skip the build gate (`verifyAndFix`) and commit/push. When a review run entered a fix round, the architect became the implementer and approved its own patch at the same gate; a verify failure pushed the task back to `in_progress` in the reviewer's name |
+| `board/review.go` `isReviewColumn` | `code_review` / `analiz_review` runs skip the build gate (`verifyAndFix`) and commit/push. When a review run entered a fix round, the architect became the implementer and approved its own patch at the same gate; a verify failure pushed the task back to `in_progress` in the reviewer's name |
 | `board/review.go` `reviewDiffMessage` | The review run's diff budget is 24 KB instead of 8 KB. "Read the whole diff" was unfulfillable at an 8 KB cut |
 | `catalog/agents/system-architect/prompt.md` + its `code-review-rubric` skill | Prompt, skill and rule say the same: review is reading; the "Domain impact" heading requires reading callers outside the diff and naming the affected `file:line`. Rule: `code-review-reads-never-runs` |
 
@@ -446,7 +438,6 @@ Time metrics (all lower-better, median hours, weekly by default):
 | `clean_time_in_progress` | `in_progress` | dev 6h / 16h · architect analiz 4h / 12h |
 | `clean_time_code_review` | `code_review` | 1h / 4h |
 | `clean_time_in_qa` | `ready_for_qa` + `in_qa` | 3h / 8h |
-| `clean_time_pm_uat` | `pm_uat` | 2h / 6h |
 | `review_escapes` | — (score events) | 0 / 1, weight 2 |
 | `tool_error_rate` | — (`task_agent_runs.tool_calls/tool_errors`, migration 071) | lower-better, %, min sample 20 calls |
 
@@ -462,15 +453,14 @@ Penalties are charged to **span owners**, not to `task.assignee_agent_id`:
 | Rejection | Charged | Event (delta) |
 |---|---|---|
 | `code_review` / `ready_for_qa` / `in_qa` → `need_revision` | dev | `revision_requested` (−10) |
-| `pm_uat` → `need_revision` | dev + QA | `pm_uat_failed` (−5 each) |
-| `human_uat` → `need_revision` | dev + QA + PM | `human_uat_failed` (−8 each) |
+| `human_uat` → `need_revision` | dev + QA | `human_uat_failed` (−8 each) |
 | Human rejects in `code_review` where the reviewer's verdict was `approve` | architect | `review_escape` (−10) |
 
 The later a defect is caught, the more it costs. An agent that held two of the charged stages is charged once.
 
 ### Review mode: `repositories.require_human_review` (migration 047, semantics changed in 057)
 
-The flag used to mean **human instead of agent**: with it on, the architect and PM were never dispatched into `code_review`/`pm_uat`. It now means **human after agent**:
+The flag used to mean **human instead of agent**: with it on, the architect was never dispatched into `code_review`. It now means **human after agent**:
 
 - The reviewing agent always runs. When it tries to advance the task, `board.ReviewGate` converts the move into a recorded verdict (`review_verdict = approve` on the open span), leaves the task in place, and waits for the human.
 - When the reviewing agent moves the task to `need_revision`, the verdict is `reject` and the move **proceeds** — human approval gates letting work through, not sending it back.
@@ -484,7 +474,7 @@ Moves carry an explicit actor (`UpdateBoardTaskRequest.Actor`, never parsed from
 
 `repositories.require_review_chain`, `require_release_deploy` and `require_pipeline_for_review` are gone — dropped by migration 158 along with the `PUT /v1/repositories/:id/lifecycle-gates` endpoint that armed them. What each used to gate:
 
-- **The review chain** blocks a move into `done` — and into `released` when that would skip `done`, but not the ordinary `done → released` promotion, since `done` already asserted the chain — unless the task has actually visited every stage `Workflow.ReviewChain()` lists for its type (built from each stage's `review_chain_stage` behaviour): `code_review` → `in_qa` → `pm_uat` for `task`/`bug`, `analiz_review` alone for `analiz`. Evidence is whether the task's span history (`task_column_spans`, migration 057) ever contains that column, **not** the current column and **not** a verdict field — so rework through `need_revision` and back is never punished, it just re-earns the stage. Where a verdict *was* recorded (only while `require_human_review` is on), a stage whose most recent visit ended in a recorded `reject` blocks too, even if the column was visited. A stage whose column is missing from this board's `board_columns` is skipped rather than counted as failed — a customized board cannot route a task through a column it does not have. This gate is now **always on**: `internal/domain/lifecycle_gate.go`, `internal/application/repository/lifecyclegate.go` (`reviewChainGate`/`CheckReviewChain`) no longer check a repository flag before enforcing it.
+- **The review chain** blocks a move into `done` — and into `released` when that would skip `done`, but not the ordinary `done → released` promotion, since `done` already asserted the chain — unless the task has actually visited every stage `Workflow.ReviewChain()` lists for its type (built from each stage's `review_chain_stage` behaviour): `code_review` → `in_qa` for `task`/`bug`, `analiz_review` alone for `analiz`. Evidence is whether the task's span history (`task_column_spans`, migration 057) ever contains that column, **not** the current column and **not** a verdict field — so rework through `need_revision` and back is never punished, it just re-earns the stage. Where a verdict *was* recorded (only while `require_human_review` is on), a stage whose most recent visit ended in a recorded `reject` blocks too, even if the column was visited. A stage whose column is missing from this board's `board_columns` is skipped rather than counted as failed — a customized board cannot route a task through a column it does not have. This gate is now **always on**: `internal/domain/lifecycle_gate.go`, `internal/application/repository/lifecyclegate.go` (`reviewChainGate`/`CheckReviewChain`) no longer check a repository flag before enforcing it.
 - **The release-deploy gate is gone, replaced by the release state machine.** A move into `released` is never a bare column-transition check any more; it happens only through `finish_release`'s verdict (or a `none`-mode merge that is the release itself) — see [architecture.md](architecture.md) → "Releases (migrations 159–161)".
 - **The pipeline gate** (code_review waits for the build/test pipeline before the reviewing architect is dispatched) is now unconditional wherever a stage carries `wait_for_ci` — there is no more per-repository off switch. It is still bounded by `board.pipeline_gate_timeout`, so it cannot deadlock a repository whose CI cannot answer; see [architecture.md](architecture.md) → "The code-review gate has a bounded life".
 - **The review chain gate still fails closed** on evidence it cannot read (span store unavailable, or a lookup error) — the same direction every other board gate in this file fails, since a check that passes when its input is missing is not a check. The block error names the missing/rejected stage and the remedy move, the same way `ErrMigrationNotStaged` does for the migration gate.
@@ -548,8 +538,8 @@ The shrunk conversation is returned to the caller (`chatWithRetry` returns the m
 
 - **Verification gate** (`board.verification_enabled`): when a board run ends, `go build ./...` + `go vet` (+ the package.json build script) run in the task workspace; error output is fed back to the agent (`verify_max_fix_attempts` rounds). A persistent failure → the task returns to `in_progress` + a system comment (`internal/application/board/verify.go`).
 - **AC gate** (`board.require_criteria_complete`): a task with criteria cannot move to ready_for_qa/done/released until all criteria are complete. Board tools: `list_acceptance_criteria`, `set_criterion_completed`.
-- **Per-role AC verdicts** (`task_criterion_checks`, migration 073): the implementer's `completed` mark is a claim; QA (`ready_for_qa`/`in_qa`) and PM (`pm_uat`) record their own approve/reject per criterion via `review_criterion` — the role derives from the task's current column, not the agent's say-so, and a reject note is mandatory. `criteriaReviewGate` (same `require_criteria_complete` flag): in_qa→pm_uat needs QA approval on every criterion, pm_uat→human_uat/done needs PM approval; moves to need_revision are never gated. Verdicts reset when the task re-enters `ready_for_qa` (except in_qa→ready_for_qa — same round). The drawer shows the QA/PM badge and reject note per criterion; existing installs get the tool policy backfilled by migration.
-- **Criterion cancellation** (`task_acceptance_criteria.canceled/cancel_reason`, migration 131): the criterion's third state. `cancel_criterion` (reason mandatory) takes the criterion out of scope and writes the reason as a task comment too; gates count a cancelled criterion as "settled" (never "met") and expect no QA/PM verdict. The tool policy is added at boot via `catalog.grantMissingRoleTools` to every role that has `set_criterion_completed` — a migration does not backfill it (see `role_tools.go`).
+- **Per-role AC verdicts** (`task_criterion_checks`, migration 073): the implementer's `completed` mark is a claim; QA (`ready_for_qa`/`in_qa`) records its own approve/reject per criterion via `review_criterion` — the role derives from the task's current column, not the agent's say-so, and a reject note is mandatory. `criteriaReviewGate` (same `require_criteria_complete` flag): in_qa→human_uat/done needs QA approval on every criterion; moves to need_revision are never gated. Verdicts reset when the task re-enters `ready_for_qa` (except in_qa→ready_for_qa — same round). The drawer shows the QA badge and reject note per criterion; existing installs get the tool policy backfilled by migration.
+- **Criterion cancellation** (`task_acceptance_criteria.canceled/cancel_reason`, migration 131): the criterion's third state. `cancel_criterion` (reason mandatory) takes the criterion out of scope and writes the reason as a task comment too; gates count a cancelled criterion as "settled" (never "met") and expect no QA verdict. The tool policy is added at boot via `catalog.grantMissingRoleTools` to every role that has `set_criterion_completed` — a migration does not backfill it (see `role_tools.go`).
 - **Run-end loop** (`board/criteria_sweep.go`): before a run closes, unticked criteria are handed back to the agent in the same conversation, for at most `criteriaSweepRounds` (3) rounds. The answer is one of three: tick, cancel with a reason, or **do the work now** and tick. After round 1 the prompt hardens ("no summary, make the change"). When the round budget runs out the card parks with open criteria and a system comment says why.
 - **Test cases** (`task_test_cases`, migration 130): QA's round lives on the card — a separate area next to the acceptance criteria. Each case: `title`, `category`, `status` (planned/passed/failed/skipped/invalid), `expected`/`actual`, `evidence`, `notes`, optional `criterion_id` (empty = a case derived from the request, not written by a criterion). Tools: `record_test_cases`, `set_test_case_result`, `list_test_cases`. `testCaseGate`: a forward exit from `ready_for_qa`/`in_qa` is refused if there are no cases or any case is still `planned`; `failed` does not block (its exit is need_revision). The drawer shows them under the criteria.
 - **Task branch diff**: every board run with a workspace gets the branch diff (against base, 8K chars) injected into its prompt — revision and QA runs see the changed code directly (`git.TaskDiff`).

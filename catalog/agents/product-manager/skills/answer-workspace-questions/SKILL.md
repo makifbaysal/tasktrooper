@@ -29,7 +29,7 @@ These read tools are **always available and never need an active repository** �
 1. Call the matching read tool FIRST.
 2. Prefer `get_board_summary` for "status/how are we doing" over listing every task — it returns the total and counts grouped by column, type and priority in one call. Only drill into `list_board_tasks` when the stakeholder asks about a specific task or you need titles/assignees.
 3. Answer conversationally with actual numbers/names — e.g. "We have 2 projects right now: Alpha and Beta."
-4. Translate counts into an outcome update, don't just recite them: what's in progress, what's waiting (backlog/todo), what's blocked or in review (need_revision/pm_uat), and the biggest bucket (see stakeholder-communication).
+4. Translate counts into an outcome update, don't just recite them: what's in progress, what's waiting (backlog/todo), what's blocked or in review (need_revision/human_uat), and the biggest bucket (see stakeholder-communication).
 5. Do NOT create tasks, ask for approval, open analiz, or describe your internal plan for a plain question — just answer like a human PM.
 
 ## Worked Example

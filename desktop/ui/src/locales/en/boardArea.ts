@@ -303,7 +303,6 @@ export const boardArea = {
       testCaseCategoryAsync: "Async",
       testCaseCategoryOther: "Other",
       checkRoleQa: "QA",
-      checkRolePm: "PM",
       checkRoleDev: "Dev",
       checkDevDone: "Developer marked this done",
       checkDevPending: "Developer has not marked this done. The move to code review is blocked.",

@@ -106,7 +106,7 @@ When the repo root is a git repository, the runner clones it into `<workspace_ro
 
 `EnsureTaskWorkspace` fetches the project root and then the fresh clone before branching, and cuts the task branch from `origin/<default branch>` — otherwise every task branched off whatever stale state the shared root happened to hold. A fetch failure is not fatal (offline runs still work) but is logged and drops the branch back to the cloned HEAD.
 
-When a task moves to `pm_uat` or `done`, `repository.Service` creates a draft PR via `gh pr create --fill --draft` (idempotent) and appends the PR URL as a system comment.
+When a task moves to `human_uat` or `done`, `repository.Service` creates a draft PR via `gh pr create --fill --draft` (idempotent) and appends the PR URL as a system comment.
 
 ### Clarification notifications
 
@@ -114,7 +114,7 @@ If a board run's response contains a clarification request (`ask_user`), the run
 
 An agent CLI run reaches `ask_user` over MCP only when the runner can wait for the answer (see `domain.ClarificationSink` in `.ai/architecture.md`); its question takes the same path. Every answered question ends up on the task as a `[clarification]` comment: the answer in the parked task's chat resumes the run and records it, an answer in a task-bound chat (Discuss) records it as an informational comment, and an analiz task's open-question answers are summarised on submit and on approval.
 
-The product manager (`product_manager` role) is never a task's assignee: it works `pm_uat` through its column subscription. `repository.Service` refuses it on create, update and claim (`domain.ErrAssigneeNotAssignable`, HTTP code `assignee_not_assignable`), and a system-opened task whose role purpose resolves to it is left unassigned.
+The product manager (`product_manager` role) is never a task's assignee: it works from the backlog and chat, with no column subscription. `repository.Service` refuses it on create, update and claim (`domain.ErrAssigneeNotAssignable`, HTTP code `assignee_not_assignable`), and a system-opened task whose role purpose resolves to it is left unassigned.
 
 ## API
 

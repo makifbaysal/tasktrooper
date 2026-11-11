@@ -363,10 +363,10 @@ func TestRestrictToolsForStage_DoneAllowsMergeAndReleaseControl(t *testing.T) {
 	assert.Contains(t, got.AllowTools, domain.ReleaseRollbackToolName, "done is on the merge -> watch -> rollback sequence")
 }
 
-// pm_uat/human_uat carry no_code_reading: PM's verdict must come from the
-// running product, never from reading the implementation.
-func TestRestrictToolsForStage_NoCodeReadingOnPMUATAndHumanUAT(t *testing.T) {
-	for _, col := range []domain.TaskColumn{domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT} {
+// human_uat carries no_code_reading: the verdict must come from the running
+// product, never from reading the implementation.
+func TestRestrictToolsForStage_NoCodeReadingOnHumanUAT(t *testing.T) {
+	for _, col := range []domain.TaskColumn{domain.TaskColumnHumanUAT} {
 		t.Run(string(col), func(t *testing.T) {
 			stage, typeDef := wfStage(t, "task", col)
 			got := domain.RestrictToolsForStage(fullCodeToolsPolicy(), stage, typeDef)

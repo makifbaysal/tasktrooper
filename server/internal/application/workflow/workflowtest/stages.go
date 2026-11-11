@@ -5,7 +5,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// column is one of the 13 default columns every task type gets a stage row
+// column is one of the 12 default columns every task type gets a stage row
 // for, in migration/fallback-position order.
 type column struct {
 	Slug domain.TaskColumn
@@ -21,7 +21,6 @@ var columns = []column{
 	{domain.TaskColumnReadyForQA, domain.StageKindQueue},
 	{domain.TaskColumnInQA, domain.StageKindReview},
 	{domain.TaskColumnNeedRevision, domain.StageKindRework},
-	{domain.TaskColumnPMUAT, domain.StageKindReview},
 	{domain.TaskColumnHumanUAT, domain.StageKindApproval},
 	{domain.TaskColumnBlocked, domain.StageKindParked},
 	{domain.TaskColumnDone, domain.StageKindTerminal},
@@ -67,14 +66,8 @@ var allTypesBehaviours = map[domain.TaskColumn][]domain.BehaviourRef{
 		ref(domain.BehaviourAutoEnter, "to", "in_progress", "assignee_only", "true"),
 		ref(domain.BehaviourCommitOnFinish),
 	},
-	domain.TaskColumnPMUAT: {
-		ref(domain.BehaviourRouteToSubscribers), ref(domain.BehaviourEnsurePROnEnter), ref(domain.BehaviourForwardExit),
-		ref(domain.BehaviourCriterionVerdict, "channel", "pm"),
-		ref(domain.BehaviourRequireProductCheck), ref(domain.BehaviourStripWriters),
-		ref(domain.BehaviourNoCodeReading),
-	},
 	domain.TaskColumnHumanUAT: {
-		ref(domain.BehaviourRouteToSubscribers), ref(domain.BehaviourForwardExit), ref(domain.BehaviourStripWriters),
+		ref(domain.BehaviourRouteToSubscribers), ref(domain.BehaviourEnsurePROnEnter), ref(domain.BehaviourForwardExit), ref(domain.BehaviourStripWriters),
 		ref(domain.BehaviourNoCodeReading), ref(domain.BehaviourCommitOnFinish),
 	},
 	domain.TaskColumnBlocked: {},
@@ -103,18 +96,14 @@ var codingExtra = map[domain.TaskColumn][]domain.BehaviourRef{
 	domain.TaskColumnReadyForQA: {
 		ref(domain.BehaviourBuildVerify),
 		ref(domain.BehaviourAutoEnter, "to", "in_qa", "assignee_only", "false"),
-		ref(domain.BehaviourRequireExecutionEvidence), ref(domain.BehaviourReviewVerdictSweep, "pass_to", "pm_uat"),
+		ref(domain.BehaviourRequireExecutionEvidence), ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"),
 	},
 	domain.TaskColumnInQA: {
-		ref(domain.BehaviourBuildVerify), ref(domain.BehaviourRequireExecutionEvidence), ref(domain.BehaviourReviewVerdictSweep, "pass_to", "pm_uat"),
+		ref(domain.BehaviourBuildVerify), ref(domain.BehaviourRequireExecutionEvidence), ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"),
 		ref(domain.BehaviourReviewChainStage, "label", "QA", "remedy", "move it to ready_for_qa; QA takes it into in_qa and tests it there"),
 	},
 	domain.TaskColumnNeedRevision: {
 		ref(domain.BehaviourBuildVerify), ref(domain.BehaviourAdvanceOnDiff, "to", "code_review"),
-	},
-	domain.TaskColumnPMUAT: {
-		ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"),
-		ref(domain.BehaviourReviewChainStage, "label", "UAT", "remedy", "move it to pm_uat so every acceptance criterion is verified against QA's evidence"),
 	},
 	domain.TaskColumnHumanUAT: {ref(domain.BehaviourBuildVerify), ref(domain.BehaviourStoreTestBuildOnEnter)},
 	domain.TaskColumnDone: {
@@ -144,9 +133,7 @@ var designExtraBehaviours = map[domain.TaskColumn][]domain.BehaviourRef{
 }
 
 // onPath reports whether col is on the type's happy-path spine.
-// need_revision/blocked are off-path for every type; pm_uat is additionally
-// off-path for technical (migration 140's intent: technical skips pm_uat);
-// analiz's spine is the 6 columns its own workflow actually uses.
+// need_revision/blocked are off-path for every type; analiz's spine is the 6 columns its own workflow actually uses.
 func onPath(taskType domain.TaskType, col domain.TaskColumn) bool {
 	if col == domain.TaskColumnNeedRevision || col == domain.TaskColumnBlocked {
 		return false
@@ -160,32 +147,28 @@ func onPath(taskType domain.TaskType, col domain.TaskColumn) bool {
 			return false
 		}
 	}
-	if taskType == taskTypeTechnical && col == domain.TaskColumnPMUAT {
-		return false
-	}
 	// task/bug/technical spine excludes analiz_review.
 	return col != domain.TaskColumnAnalizReview
 }
 
-// analizRemovedColumns are the 5 columns migration 148 deletes for analiz:
+// analizRemovedColumns are the 4 columns migration 148 deletes (it also deleted a fifth, since removed from the board) for analiz:
 // vestigial copy-paste rows from the coding task-type template that never
 // carried participants, never carried real instructions, and nothing in
 // analiz's own behaviour set (advance_on_document routes only through
 // in_progress/need_revision -> analiz_review) ever reaches. analiz's real
 // spine is backlog/todo/in_progress/analiz_review/need_revision/blocked/
-// done/released — 8 stages, not 13.
+// done/released — 8 stages, not 12.
 var analizRemovedColumns = map[domain.TaskColumn]bool{
 	domain.TaskColumnCodeReview: true,
 	domain.TaskColumnReadyForQA: true,
 	domain.TaskColumnInQA:       true,
-	domain.TaskColumnPMUAT:      true,
 	domain.TaskColumnHumanUAT:   true,
 }
 
 // stagesFor builds the default-column stages for taskType, in column order
 // (which is also fallback position order — see column above; task/bug/
-// technical get all 13, analiz gets 8, see analizRemovedColumns). Position
-// stays the source column's index in the full 13-element list even when a
+// technical get all 12, analiz gets 8, see analizRemovedColumns). Position
+// stays the source column's index in the full 12-element list even when a
 // column is skipped, so it matches what migration 143 + 148 leave in a real
 // database (positions sparse, not renumbered) rather than a dense 0..N-1
 // over the surviving stages only.
@@ -207,11 +190,7 @@ func stagesFor(taskType domain.TaskType) []domain.WorkflowStage {
 		case taskTypeDesign:
 			behaviours = append(behaviours, designExtraBehaviours[c.Slug]...)
 		default: // task, bug, technical
-			extra := codingExtra[c.Slug]
-			if taskType == taskTypeTechnical {
-				extra = technicalOverride(c.Slug, extra)
-			}
-			behaviours = append(behaviours, extra...)
+			behaviours = append(behaviours, codingExtra[c.Slug]...)
 		}
 		stages = append(stages, domain.WorkflowStage{
 			TaskType:     taskType,
@@ -227,39 +206,9 @@ func stagesFor(taskType domain.TaskType) []domain.WorkflowStage {
 	return stages
 }
 
-// technicalOverride applies the two deliberate technical-type differences
-// from §3: ready_for_qa/in_qa sweep to human_uat instead of pm_uat, and
-// pm_uat never carries review_chain_stage (technical's review chain does not
-// require pm_uat).
-func technicalOverride(col domain.TaskColumn, extra []domain.BehaviourRef) []domain.BehaviourRef {
-	switch col {
-	case domain.TaskColumnReadyForQA, domain.TaskColumnInQA:
-		out := make([]domain.BehaviourRef, 0, len(extra))
-		for _, b := range extra {
-			if b.Key == domain.BehaviourReviewVerdictSweep {
-				out = append(out, ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"))
-				continue
-			}
-			out = append(out, b)
-		}
-		return out
-	case domain.TaskColumnPMUAT:
-		out := make([]domain.BehaviourRef, 0, len(extra))
-		for _, b := range extra {
-			if b.Key == domain.BehaviourReviewChainStage {
-				continue
-			}
-			out = append(out, b)
-		}
-		return out
-	default:
-		return extra
-	}
-}
-
 // participantsFor is §3's "Participants (informational in B)" table.
 func participantsFor(taskType domain.TaskType, col domain.TaskColumn) []domain.StageParticipant {
-	developerID, analystID, architectID, qaID, pmID := RoleID("developer"), RoleID("analyst"), RoleID("architect"), RoleID("qa"), RoleID("product_manager")
+	developerID, analystID, architectID, qaID := RoleID("developer"), RoleID("analyst"), RoleID("architect"), RoleID("qa")
 	releaseID := RoleID("release")
 	designerID := RoleID("designer")
 	worker := func(roleID uuid.UUID) domain.StageParticipant {
@@ -293,8 +242,6 @@ func participantsFor(taskType domain.TaskType, col domain.TaskColumn) []domain.S
 		return []domain.StageParticipant{worker(qaID)}
 	case domain.TaskColumnDone, domain.TaskColumnReleased:
 		return []domain.StageParticipant{worker(releaseID)}
-	case domain.TaskColumnPMUAT:
-		return []domain.StageParticipant{approver(pmID)}
 	default:
 		return nil
 	}

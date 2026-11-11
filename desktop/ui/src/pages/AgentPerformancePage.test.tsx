@@ -50,7 +50,7 @@ const perf: AgentPerformance = {
   score: { id: "s1", agent_id: "agent-1", score: 10, runs_total: 2, runs_passed: 2, runs_revised: 0, updated_at: "2026-09-18T10:00:00Z" },
   events: [
     { id: "e1", agent_id: "agent-1", event_type: "qa_task_tested", delta: 5, score_after: 10, created_at: "2026-09-18T10:00:00Z" },
-    { id: "e2", agent_id: "agent-1", event_type: "pm_uat_completed", delta: 5, score_after: 5, created_at: "2026-09-17T10:00:00Z" },
+    { id: "e2", agent_id: "agent-1", event_type: "human_uat_failed", delta: -5, score_after: 5, created_at: "2026-09-17T10:00:00Z" },
   ],
   kpis: [],
   kpi_results: [],
@@ -82,24 +82,24 @@ describe("AgentPerformancePage score event labels", () => {
     localStorage.clear();
   });
 
-  it("labels qa_task_tested and pm_uat_completed events in English", async () => {
+  it("labels qa_task_tested and human_uat_failed events in English", async () => {
     renderPerformancePage();
 
     expect(await screen.findByText("QA finished testing")).toBeInTheDocument();
-    expect(screen.getByText("PM UAT completed")).toBeInTheDocument();
+    expect(screen.getByText("Human UAT failed")).toBeInTheDocument();
     expect(screen.queryByText("qa_task_tested")).not.toBeInTheDocument();
-    expect(screen.queryByText("pm_uat_completed")).not.toBeInTheDocument();
+    expect(screen.queryByText("human_uat_failed")).not.toBeInTheDocument();
   });
 
-  it("labels qa_task_tested and pm_uat_completed events in Turkish", async () => {
+  it("labels qa_task_tested and human_uat_failed events in Turkish", async () => {
     localStorage.setItem("bridge_locale", "tr");
 
     renderPerformancePage();
 
     expect(await screen.findByText("QA testi tamamladı")).toBeInTheDocument();
-    expect(screen.getByText("PM UAT'ı tamamladı")).toBeInTheDocument();
+    expect(screen.getByText("İnsan UAT başarısız")).toBeInTheDocument();
     expect(screen.queryByText("qa_task_tested")).not.toBeInTheDocument();
-    expect(screen.queryByText("pm_uat_completed")).not.toBeInTheDocument();
+    expect(screen.queryByText("human_uat_failed")).not.toBeInTheDocument();
   });
 });
 

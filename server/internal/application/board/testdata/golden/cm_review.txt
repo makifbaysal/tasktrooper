@@ -1,9 +1,9 @@
 
 Acceptance criteria — record YOUR verdict on EACH id below with review_criterion. The forward move is refused while any id lacks your verdict on repositories that require criteria. Never move the task to need_revision just to look for these ids: they are here.
  A verdict already on an id survives a revision round — it is not asked again from zero. Where a line below names files changed since that verdict, re-verify and call review_criterion again only if one of those files could plausibly affect that specific criterion; leave the rest as they are. An id with no verdict yet still needs one.
-- [00000000-0000-0000-0000-000000000010] Approved with changed files — implementer: ticked; qa: approved (as of 111111111111, changed since: a.go, b.go); pm: —
-- [00000000-0000-0000-0000-000000000011] Approved with nothing changed since — implementer: ticked; qa: —; pm: approved (as of 555555555555, nothing changed since)
-- [00000000-0000-0000-0000-000000000012] Rejected with a note — implementer: not ticked; qa: rejected (Login button missing); pm: —
-- [00000000-0000-0000-0000-000000000013] Rejected with no note — implementer: not ticked; qa: —; pm: rejected
-- [00000000-0000-0000-0000-000000000014] No verdict at all yet — implementer: not ticked; qa: —; pm: —
-- [00000000-0000-0000-0000-000000000015] Approved with many changed files — implementer: ticked; qa: approved (as of 999999999999, changed since: filea.go, fileb.go, filec.go, filed.go, filee.go, filef.go, fileg.go, fileh.go, filei.go, filej.go, filek.go, filel.go, filem.go, filen.go, fileo.go +5 more); pm: —
+- [00000000-0000-0000-0000-000000000010] Approved with changed files — implementer: ticked; qa: approved (as of 111111111111, changed since: a.go, b.go)
+- [00000000-0000-0000-0000-000000000011] Approved with nothing changed since — implementer: ticked; qa: approved (as of 555555555555, nothing changed since)
+- [00000000-0000-0000-0000-000000000012] Rejected with a note — implementer: not ticked; qa: rejected (Login button missing)
+- [00000000-0000-0000-0000-000000000013] Rejected with no note — implementer: not ticked; qa: rejected
+- [00000000-0000-0000-0000-000000000014] No verdict at all yet — implementer: not ticked; qa: —
+- [00000000-0000-0000-0000-000000000015] Approved with many changed files — implementer: ticked; qa: approved (as of 999999999999, changed since: filea.go, fileb.go, filec.go, filed.go, filee.go, filef.go, fileg.go, fileh.go, filei.go, filej.go, filek.go, filel.go, filem.go, filen.go, fileo.go +5 more)

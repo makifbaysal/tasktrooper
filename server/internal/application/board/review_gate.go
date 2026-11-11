@@ -54,8 +54,8 @@ func (g *ReviewGate) InterceptAgentMove(ctx context.Context, task domain.BoardTa
 
 // code_review is the one column an agent can approve its way out of that a
 // human has not already seen, so it is the only one held when the repository
-// requires human review. Not a per-stage setting: pm_uat and human_uat are
-// human-facing by definition and holding them made humans approve twice, and
+// requires human review. Not a per-stage setting: human_uat is
+// human-facing by definition and holding it made humans approve twice, and
 // no other column has an agent-issued approval to hold in the first place.
 func holdsForHumanApproval(from domain.TaskColumn) bool {
 	return from == domain.TaskColumnCodeReview

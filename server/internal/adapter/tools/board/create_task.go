@@ -20,7 +20,7 @@ type createTaskArgs struct {
 	TaskType             string `json:"task_type"`
 	Description          string `json:"description"`
 	TechnicalDescription string `json:"technical_description"`
-	// AcceptanceCriteria is the structured checklist QA and pm_uat verify
+	// AcceptanceCriteria is the structured checklist QA verifies
 	// against. It has its own board field, so criteria belong here and not
 	// pasted into description.
 	AcceptanceCriteria []string `json:"acceptance_criteria"`

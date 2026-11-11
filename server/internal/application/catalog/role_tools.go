@@ -183,20 +183,10 @@ func developerToolPolicy() domain.ToolPolicy {
 }
 
 func productManagerToolPolicy() domain.ToolPolicy {
-	tools := make([]string, 0, len(roleWebTools)+len(roleCodeTools)+len(roleBrowserTools)+len(roleBoardReadTools)+len(roleBoardCreateTools)+len(roleBoardDeleteTools)+len(roleWorkspaceManageTools)+len(roleAudienceResearchTools)+len(roleMemoryTools)+len(roleSkillTools)+5)
+	tools := make([]string, 0, len(roleWebTools)+len(roleCodeTools)+len(roleBoardReadTools)+len(roleBoardCreateTools)+len(roleBoardDeleteTools)+len(roleWorkspaceManageTools)+len(roleAudienceResearchTools)+len(roleMemoryTools)+len(roleSkillTools)+5)
 	tools = append(tools, roleWebTools...)
-	// pm_uat: backend/API-only acceptance criteria are tested too, headless
-	// against the task's own preview — no "backend exception".
-	tools = append(tools, "http_request")
 	// Read-only code tools: the PM verifies real file/endpoint names for technical_description — no shell.
 	tools = append(tools, roleCodeTools...)
-	// pm_uat: the PM walks the critical flows itself, in the browser; get_deploy_target resolves a stage base_url when one exists.
-	tools = append(tools, roleBrowserTools...)
-	tools = append(tools, roleMobileTools...)
-	// update_deploy_target only writes base_url/health_url when UAT finds the stage address unrecorded.
-	tools = append(tools, "get_deploy_target", "update_deploy_target")
-	// pm_uat: the PM launches the task's own build and walks it in the browser — no shell, so no other way to see it run.
-	tools = append(tools, "get_task_preview", "start_task_preview")
 	tools = append(tools, roleBoardReadTools...)
 	// A change the stakeholder asks for on a task an agent is working reaches that agent.
 	tools = append(tools, "notify_task_agent")
@@ -205,15 +195,9 @@ func productManagerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleWorkspaceManageTools...)
 	// A project with UI and no design system gets the server-briefed design task, never a hand-written one.
 	tools = append(tools, "request_design_system")
-	// pm_uat: the PM records its own verdict per criterion.
-	tools = append(tools, "review_criterion")
 	// The PM answers "what shipped?" from the PR rather than the implementer's summary.
 	tools = append(tools, rolePRReadTools...)
 	tools = append(tools, "get_project_brief", "list_links")
-	// pm_uat: where a stage/production environment actually runs, without the
-	// live-debugging tools (query_runtime_logs, list_runtime_errors,
-	// list_deployments) a PM never needs.
-	tools = append(tools, "get_environment")
 	// Audience research: synthetic personas written from the project's brief,
 	// studies that ask them whether they would pay, reports, 1:1 talks. Every
 	// call that spends model calls needs the user's yes (`user_approved`).
@@ -258,6 +242,8 @@ func qaToolPolicy() domain.ToolPolicy {
 	tools := make([]string, 0, len(roleShellTools)+len(roleWebTools)+len(roleQALookupTools)+len(roleBrowserTools)+len(roleMobileTools)+len(roleMemoryTools)+len(roleSkillTools)+10)
 	tools = append(tools, roleShellTools...)
 	tools = append(tools, roleWebTools...)
+	// Backend/API-only criteria are tested too, headless against the task's own preview.
+	tools = append(tools, "http_request")
 	tools = append(tools, roleQALookupTools...)
 	tools = append(tools, roleBrowserTools...)
 	tools = append(tools, roleMobileTools...)

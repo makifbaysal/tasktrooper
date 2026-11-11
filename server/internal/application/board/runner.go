@@ -1149,16 +1149,6 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		return err
 	}
 
-	if resp.ResourceBlock == nil && isUngroundedPMUAT(wf, job.Task, resp, toolUsage) {
-		err = r.failRunUngroundedPMUAT(ctx, job, run, resp, ungroundedPMUATReason)
-		return err
-	}
-
-	if resp.Clarification == nil && resp.ResourceBlock == nil && r.pmSkippedCoverageEvidence(ctx, job, wf, run, toolUsage) {
-		err = r.failRunUngroundedPMUAT(ctx, job, run, resp, pmUncoveredCriterionReason)
-		return err
-	}
-
 	criteriaSettled := true
 	if resp.Clarification == nil && resp.ResourceBlock == nil {
 		var quotaBlock *domain.QuotaBlock
@@ -1962,123 +1952,6 @@ func (r *Runner) failRunUngroundedQA(ctx context.Context, job RunJob, run domain
 
 var ErrUngroundedQA = errors.New("QA run executed nothing")
 
-func isUngroundedPMUAT(wf domain.Workflow, task domain.BoardTask, resp domain.AgentResponse, usage *registry.ToolUsage) bool {
-	if resp.Clarification != nil || usage == nil {
-		return false
-	}
-	if !wf.Has(task.Column, domain.BehaviourRequireProductCheck) {
-		return false
-	}
-	return !usage.UsedAny(domain.PMUATExecutionTools...)
-}
-
-func (r *Runner) pmSkippedCoverageEvidence(ctx context.Context, job RunJob, wf domain.Workflow, run domain.TaskAgentRun, usage *registry.ToolUsage) bool {
-	if usage == nil || !wf.Has(job.Task.Column, domain.BehaviourRequireProductCheck) {
-		return false
-	}
-	criteria := r.allCriteria(ctx, job)
-	testCases := r.taskTestCases(ctx, job)
-	return pmApprovedUncoveredCriterion(wf, job.Task, criteria, testCases, usage, run.CreatedAt)
-}
-
-func pmApprovedUncoveredCriterion(
-	wf domain.Workflow,
-	task domain.BoardTask,
-	criteria []domain.AcceptanceCriterion,
-	testCases []domain.TaskTestCase,
-	usage *registry.ToolUsage,
-	runStartedAt time.Time,
-) bool {
-	if usage == nil || !wf.Has(task.Column, domain.BehaviourRequireProductCheck) {
-		return false
-	}
-	passedByCriterion := make(map[uuid.UUID]bool, len(testCases))
-	for _, tc := range testCases {
-		if tc.CriterionID != nil && tc.Status == domain.TestCaseStatusPassed {
-			passedByCriterion[*tc.CriterionID] = true
-		}
-	}
-	uncovered := false
-	for _, c := range criteria {
-		if !pmApprovedThisRun(c, runStartedAt) {
-			continue
-		}
-		if !passedByCriterion[c.ID] {
-			uncovered = true
-			break
-		}
-	}
-	if !uncovered {
-		return false
-	}
-	return !usage.UsedAny(domain.PMUATExecutionTools...)
-}
-
-func pmApprovedThisRun(c domain.AcceptanceCriterion, runStartedAt time.Time) bool {
-	for _, check := range c.Checks {
-		if check.Role == domain.CriterionReviewRolePM && check.Approved && check.CheckedAt.After(runStartedAt) {
-			return true
-		}
-	}
-	return false
-}
-
-type taskTestCaseReader interface {
-	ListTestCases(ctx context.Context, taskID uuid.UUID) ([]domain.TaskTestCase, error)
-}
-
-func (r *Runner) taskTestCases(ctx context.Context, job RunJob) []domain.TaskTestCase {
-	reader, ok := r.taskUpdater.(taskTestCaseReader)
-	if !ok {
-		return nil
-	}
-	items, err := reader.ListTestCases(ctx, job.Task.ID)
-	if err != nil {
-		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("list test cases for coverage-gap gate failed")
-		return nil
-	}
-	return items
-}
-
-// rejectedRunReportReapproveNote appends a rejected pm_uat run's own report
-// to the rejection comment: told to execute it, not to re-approve around it.
-func rejectedRunReportReapproveNote(summary string) string {
-	return "\n\n" + prompt.Text(rejectedRunReportReapproveKey) + "\n\n" + summary
-}
-
-func (r *Runner) failRunUngroundedPMUAT(ctx context.Context, job RunJob, run domain.TaskAgentRun, resp domain.AgentResponse, reason string) error {
-	if r.taskUpdater != nil {
-		content := reason
-		if summary := strings.TrimSpace(resp.Message.Content); summary != "" {
-			content += rejectedRunReportReapproveNote(summary)
-		}
-		if _, err := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
-			AuthorType: "system",
-			Content:    truncateHead(content, 3000),
-		}); err != nil {
-			log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("ungrounded pm_uat comment failed")
-		}
-	}
-
-	log.Warn().Str("task_id", job.Task.ID.String()).Str("run_id", run.ID.String()).
-		Str("column", string(job.Task.Column)).Msg("pm_uat run rejected: approval without execution evidence")
-
-	run.Status = domain.TaskAgentRunStatusFailed
-	run.Summary = truncateHead(reason, 500)
-	pctx, cancel := persistCtx(ctx)
-	defer cancel()
-	if _, updateErr := r.runs.Update(pctx, run); updateErr != nil {
-		if errors.Is(updateErr, domain.ErrTaskAgentRunNotFound) {
-			log.Info().Str("run_id", run.ID.String()).Msg("run row gone, task deleted mid-run")
-			return nil
-		}
-		return updateErr
-	}
-	return ErrUngroundedPMUAT
-}
-
-var ErrUngroundedPMUAT = errors.New("pm_uat run approved without execution evidence")
-
 func (r *Runner) failRunOutOfBudget(
 	ctx context.Context,
 	job RunJob,
@@ -2340,9 +2213,7 @@ func listsEveryCriterion(wf domain.Workflow, task domain.BoardTask) bool {
 func reviewCriteriaHeader(column domain.TaskColumn) string {
 	switch column {
 	case domain.TaskColumnReadyForQA, domain.TaskColumnInQA:
-		return prompt.Text(reviewCriteriaHeaderQAPMKey)
-	case domain.TaskColumnPMUAT:
-		return prompt.Text(reviewCriteriaHeaderPMUATKey)
+		return prompt.Text(reviewCriteriaHeaderQAKey)
 	case domain.TaskColumnCodeReview:
 		return prompt.Text(reviewCriteriaHeaderCodeReviewKey)
 	default:
@@ -2356,7 +2227,6 @@ func criterionStateLine(c domain.AcceptanceCriterion, changedSince map[string][]
 		Text:        c.Text,
 		Implementer: criterionImplementerLabelKey.Render(criterionImplementerInput{Completed: c.Completed}),
 		QA:          criterionVerdictLabel(c, domain.CriterionReviewRoleQA, changedSince),
-		PM:          criterionVerdictLabel(c, domain.CriterionReviewRolePM, changedSince),
 	})
 }
 
@@ -2457,7 +2327,7 @@ func closingStep(wf domain.Workflow, job RunJob) string {
 	}
 	switch wf.KindOf(job.Task.Column) {
 	case domain.StageKindReview:
-		// code_review, in_qa, pm_uat: the run judges or tests, never edits —
+		// code_review, in_qa: the run judges or tests, never edits —
 		// "state what you changed" never applies here.
 		return prompt.Text(closingStepReviewKey)
 	case domain.StageKindTerminal:
@@ -2483,8 +2353,8 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 	if stage, ok := wf.Stage(task.Column); ok && stage.Instructions != "" {
 		return stage.Instructions
 	}
-	// passTo from the workflow, not a literal: pm_uat for everything except technical, which goes straight to human_uat.
-	passTo := "pm_uat"
+	// passTo from the workflow, not a literal; human_uat is the stock hand-off.
+	passTo := "human_uat"
 	if target, ok := wf.Param(task.Column, domain.BehaviourReviewVerdictSweep, "pass_to"); ok && target != "" {
 		passTo = target
 	}
@@ -2522,8 +2392,6 @@ func columnInstruction(wf domain.Workflow, task domain.BoardTask) string {
 		return columnReadyForQAKey.Render(columnPassToInput{PassTo: passTo})
 	case domain.TaskColumnInQA:
 		return columnInQAKey.Render(columnPassToInput{PassTo: passTo})
-	case domain.TaskColumnPMUAT:
-		return prompt.Text(columnPMUATKey)
 	case domain.TaskColumnDone:
 		if analiz {
 			return prompt.Text(columnDoneAnalizKey)

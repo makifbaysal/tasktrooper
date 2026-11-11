@@ -178,13 +178,11 @@ export const agentArea = {
       task_completed: "Tarefa concluída",
       task_released: "Tarefa publicada",
       revision_requested: "Ajustes solicitados",
-      pm_uat_failed: "UAT do PM falhou",
       human_uat_failed: "UAT humano falhou",
       qa_bug_found: "Bug encontrado pelo QA",
       qa_valid_scenario_confirmed: "Cenário válido confirmado",
       qa_invalid_scenario_confirmed: "Cenário inválido confirmado",
       qa_task_tested: "QA concluiu os testes",
-      pm_uat_completed: "UAT do PM concluído",
     },
     changeType: {
       skill_created: "Skill adicionada",
@@ -383,10 +381,6 @@ export const agentArea = {
             qa: {
               label: "QA",
               detail: "Testes",
-            },
-            acceptance: {
-              label: "Revisão do PM",
-              detail: "UAT",
             },
             approval: {
               label: "Aprovação final",

@@ -19,7 +19,7 @@ func TestCriteriaForRunListsEveryCriterionForReviewColumns(t *testing.T) {
 	}
 	for _, col := range []domain.TaskColumn{
 		domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA, domain.TaskColumnInQA,
-		domain.TaskColumnPMUAT, domain.TaskColumnHumanUAT,
+		domain.TaskColumnHumanUAT,
 	} {
 		r := NewRunner(RunnerDeps{})
 		r.SetTaskUpdater(&criteriaUpdater{criteria: ticked})
@@ -43,7 +43,7 @@ func TestCriteriaForRunListsEveryCriterionForReviewColumns(t *testing.T) {
 func TestTriggerMessageTellsReviewersToRecordAVerdictOnEachID(t *testing.T) {
 	criteria := []domain.AcceptanceCriterion{{ID: uuid.New(), Text: "criterion", Completed: true}}
 	for _, col := range []domain.TaskColumn{
-		domain.TaskColumnReadyForQA, domain.TaskColumnInQA, domain.TaskColumnPMUAT,
+		domain.TaskColumnReadyForQA, domain.TaskColumnInQA,
 	} {
 		msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: col}}, taskWF, criteria, nil)
 		for _, want := range []string{
@@ -75,10 +75,10 @@ func TestTriggerMessageShowsWhoHasSaidWhatAboutEachCriterion(t *testing.T) {
 		ID: uuid.New(), Text: "the banner appears", Completed: true,
 		Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: true}},
 	}
-	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnPMUAT}}, taskWF,
+	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnInQA}}, taskWF,
 		[]domain.AcceptanceCriterion{c}, nil)
 
-	want := "- [" + c.ID.String() + "] the banner appears — implementer: ticked; qa: approved; pm: —"
+	want := "- [" + c.ID.String() + "] the banner appears — implementer: ticked; qa: approved"
 	if !strings.Contains(msg, want) {
 		t.Fatalf("criterion state line is missing %q:\n%s", want, msg)
 	}
@@ -89,7 +89,7 @@ func TestTriggerMessageShowsARejectionWithItsNote(t *testing.T) {
 		ID: uuid.New(), Text: "the banner appears", Completed: true,
 		Checks: []domain.CriterionCheck{{Role: domain.CriterionReviewRoleQA, Approved: false, Note: "banner never rendered"}},
 	}
-	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnPMUAT}}, taskWF,
+	msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: domain.TaskColumnInQA}}, taskWF,
 		[]domain.AcceptanceCriterion{c}, nil)
 
 	require.Contains(t, msg, "qa: rejected (banner never rendered)")
@@ -197,7 +197,7 @@ func TestCriterionStateLineNotesFilesChangedSinceAnApprovedVerdict(t *testing.T)
 	require.Contains(t, untouchedLine, "approved (as of "+domain.ShortSHA(sha)+", nothing changed since)")
 
 	plainLine := criterionStateLine(noHistory, changedSince)
-	require.Contains(t, plainLine, "qa: approved;")
+	require.Contains(t, plainLine, "qa: approved")
 	require.NotContains(t, plainLine, "as of", "a verdict with no recorded SHA gets no changed-since note")
 }
 

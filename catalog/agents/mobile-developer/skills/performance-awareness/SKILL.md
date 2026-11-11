@@ -18,24 +18,22 @@ Every agent carries a performance score (0–100, starts at 100). It is not deco
 | Your task reaches **done** or **released** | +5 each | the assignee |
 | Revision requested from **code_review** | −10 | the `in_progress` owner |
 | Revision requested from **ready_for_qa** or **in_qa** | −10 | the `in_progress` owner |
-| **PM UAT** fails | −5 | the `in_progress` and `in_qa` owners |
-| **Human UAT** fails | −8 | the `in_progress`, `in_qa` and `pm_uat` owners |
+| **Human UAT** fails | −8 | the `in_progress` and `in_qa` owners |
 | A human overturns your approval at the same review gate (**review escape**) | −10 | the reviewer who approved it |
 | QA: a bug it caught | +6 | QA, per bug |
 | QA: a scenario it confirmed valid / invalid | +1 / −1 | QA, per scenario |
 | QA: finished testing a task | +5 | QA |
-| PM: completed a UAT | +5 | PM |
 
-The asymmetry is deliberate: one revision (−10) wipes out two clean releases (+10), and Human UAT failing (−8) costs more than PM UAT failing (−5) because it escaped every earlier gate.
+The asymmetry is deliberate: one revision (−10) wipes out two clean releases (+10), and a defect that escapes every earlier gate and fails Human UAT (−8) still costs real points.
 
 ## The gates your work passes
 
 ```
-in_progress → code_review → ready_for_qa → in_qa → pm_uat → human_uat → done → released
-              (architect)                  (QA)    (PM)     (human)
+in_progress → code_review → ready_for_qa → in_qa → human_uat → done → released
+              (architect)                  (QA)    (human)
 ```
 
-A defect caught at code_review costs the developer −10. The SAME defect that slips to in_qa, pm_uat or human_uat still costs the developer and now also charges whoever owned the column it escaped through, plus the time of every role between. Catch your own defects before handoff — that is what the score is measuring.
+A defect caught at code_review costs the developer −10. The SAME defect that slips to in_qa or human_uat still costs the developer and now also charges whoever owned the column it escaped through, plus the time of every role between. Catch your own defects before handoff — that is what the score is measuring.
 
 ## To protect your score
 

@@ -800,7 +800,7 @@ export function TaskDetailDrawer({
                   ) : (
                     <div className="space-y-2">
                       {criteria.map((c) => {
-                        const rejections = (c.checks ?? []).filter((ch) => !ch.approved && ch.note);
+                        const rejections = (c.checks ?? []).filter((ch) => ch.role === "qa" && !ch.approved && ch.note);
                         return (
                           <div key={c.id} className="rounded-md border border-border px-3 py-2">
                             <div className="flex items-start gap-2">
@@ -827,7 +827,6 @@ export function TaskDetailDrawer({
                                 )}
                                 <CriterionDevBadge completed={c.completed} t={t} />
                                 <CriterionCheckBadge role="qa" checks={c.checks} t={t} />
-                                <CriterionCheckBadge role="pm" checks={c.checks} t={t} />
                               </div>
                             </div>
                             {/* The reason a criterion was dropped belongs next to the
@@ -1566,18 +1565,16 @@ function pascal(value: string): string {
     .join("");
 }
 
-function roleLabel(role: CriterionReviewRole, t: TranslateFn): string {
-  return role === "qa"
-    ? t("boardArea.components.taskDetail.checkRoleQa")
-    : t("boardArea.components.taskDetail.checkRolePm");
+function roleLabel(_role: CriterionReviewRole, t: TranslateFn): string {
+  return t("boardArea.components.taskDetail.checkRoleQa");
 }
 
-// The developer's own tick, rendered as a badge in the same row as QA and PM.
+// The developer's own tick, rendered as a badge in the same row as QA.
 // The checkbox alone read as a personal to-do marker, so a criterion could sit
 // unticked with nobody noticing — and an unticked criterion is exactly what
 // makes the board refuse the automatic hand-off to code review. As a badge next
-// to the two review verdicts it reads as what it is: the first of three states
-// the criterion has to pass through.
+// to the QA verdict it reads as what it is: the first of two states the
+// criterion has to pass through.
 function CriterionDevBadge({ completed, t }: { completed: boolean; t: TranslateFn }) {
   const label = t("boardArea.components.taskDetail.checkRoleDev");
   if (completed) {
@@ -1600,7 +1597,7 @@ function CriterionDevBadge({ completed, t }: { completed: boolean; t: TranslateF
   );
 }
 
-// The implementer's checkbox is a claim; the QA and PM verdicts render next to
+// The implementer's checkbox is a claim; the QA verdict renders next to
 // it separately, so the card tells who has actually verified each criterion.
 function CriterionCheckBadge({
   role,

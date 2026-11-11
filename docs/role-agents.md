@@ -67,7 +67,7 @@ agent automatically instead of bouncing back to whoever implemented the task:
 | `system-architect` | Code Review | Reviews the diff once a developer hands a task there |
 | `security-agent` | Code Review | Reviews the same diff for security only |
 | `qa-agent` | Ready for QA | Picks the task up, then moves it into In QA and runs its rounds there |
-| `product-manager` | PM UAT | Reviews the finished task against its acceptance criteria |
+| `product-manager` | none (chat and backlog) | Turns requests into backlog tasks with acceptance criteria and keeps the board in order |
 | `release-engineer` | Done, Released | Merges the pull request, watches the deploy, and rolls back if it fails |
 
 Code Review is the one column where every subscriber is a **required
@@ -144,7 +144,7 @@ they are seeded **disabled**: the content is there, but nothing is injected
 into QA's prompt until you turn them back on from the Skills/Rules tabs. QA's
 active flow today is: move the task into In QA, boot the app or the API in
 the task's own workspace, run real requests or drive the UI with the browser
-tools, capture evidence, then move to PM UAT or back to Need Revision.
+tools, capture evidence, then move to Human UAT or back to Need Revision.
 
 ## Agent templates
 

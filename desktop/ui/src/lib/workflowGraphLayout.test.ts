@@ -10,7 +10,6 @@ const slugs = [
   "ready_for_qa",
   "in_qa",
   "need_revision",
-  "pm_uat",
   "human_uat",
   "blocked",
   "done",
@@ -25,14 +24,13 @@ const chain = [
   ["in_progress", "code_review"],
   ["code_review", "ready_for_qa"],
   ["ready_for_qa", "in_qa"],
-  ["in_qa", "pm_uat"],
-  ["pm_uat", "human_uat"],
+  ["in_qa", "human_uat"],
   ["human_uat", "done"],
   ["analiz_review", "done"],
   ["done", "released"],
 ].map(([from, to]) => ({ from, to }));
 
-const intoHubs = ["todo", "in_progress", "analiz_review", "code_review", "ready_for_qa", "in_qa", "pm_uat", "human_uat", "done"]
+const intoHubs = ["todo", "in_progress", "analiz_review", "code_review", "ready_for_qa", "in_qa", "human_uat", "done"]
   .flatMap((from) => [
     { from, to: "blocked" },
     { from, to: "need_revision" },

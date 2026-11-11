@@ -17,7 +17,7 @@ types:
 | `design` | `D-` | A design: a design system or a screen, designed before it is built |
 | `technical` | `TC-` | A code-health finding — the default type for a task opened from a repository scan |
 
-`task` and `bug` follow the same review chain (Code Review → QA → PM UAT).
+`task` and `bug` follow the same review chain (Code Review → QA → Human UAT).
 An **`analiz`** task is different in kind, not just in name: its deliverable
 is a set of **documents** attached to the task itself — a spec and an
 implementation plan — never a commit to the repository, because an analysis
@@ -48,7 +48,7 @@ is **released**, after its designer has written the hand-off. See
 | `title` | Short summary |
 | `description` | Product-level story: the user story, context, out-of-scope notes (markdown) |
 | `technical_description` | Technical detail: affected endpoints/files/schema, approach, constraints (markdown) |
-| `acceptance_criteria` | The checklist QA executes and PM UAT verifies — see below |
+| `acceptance_criteria` | The checklist QA executes and verifies — see below |
 | `priority` | `low` / `medium` / `high` / `critical` |
 | `assignee` | The agent responsible; setting it is what makes a task in a working column dispatch automatically |
 | `repository` | Which codebase the work touches |
@@ -59,7 +59,7 @@ is **released**, after its designer has written the hand-off. See
 
 Keep description, technical description and acceptance criteria in their own
 fields. They're read for different purposes — a reviewer wants the technical
-detail, QA and PM UAT read only the criteria — and content pasted into the
+detail, QA reads only the criteria — and content pasted into the
 wrong one is content those readers never see.
 
 `before_deploy` also carries a block TaskTrooper generates and keeps in sync
@@ -79,10 +79,10 @@ possible states:
   posted as a comment. A cancelled criterion counts as settled but is never
   treated as met.
 
-Completed is a claim, not a verdict. QA and PM UAT each record their own
+Completed is a claim, not a verdict. QA records its own
 independent **verdict** on every criterion — approve or reject, with a
-mandatory note on a reject — and a criterion isn't truly accepted until every
-role that reviews it has signed off. The role is derived from which column
+mandatory note on a reject — and a criterion isn't truly accepted until QA
+has signed off. The role is derived from which column
 the task is in when the verdict is recorded, never from what the agent calls
 itself. See [Quality gates](quality-gates.md) for exactly when this is
 enforced.

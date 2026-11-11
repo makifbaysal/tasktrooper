@@ -66,7 +66,7 @@ func TestTriggerMessageDoesNotTellReviewersToTickCriteria(t *testing.T) {
 	open := []domain.AcceptanceCriterion{{ID: uuid.New(), Text: "criterion"}}
 	for _, col := range []domain.TaskColumn{
 		domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA,
-		domain.TaskColumnInQA, domain.TaskColumnPMUAT,
+		domain.TaskColumnInQA,
 	} {
 		msg := buildTriggerMessage(RunJob{Task: domain.BoardTask{Title: "t", Column: col}}, taskWF, open, nil)
 		if !strings.Contains(msg, open[0].Text) {

@@ -35,7 +35,7 @@ The report must land in the job's console output (stdout/stderr), because that i
 
 - After the manual pass, this task's scenarios are added to the suite (e2e-automation-project).
 - The suite — including the new tests — is green: run it yourself and/or confirm the pipeline (`get_pipeline_status`) after your changes land.
-- Only then does the task move to `pm_uat`, with the suite result quoted in the evidence comment.
+- Only then does the task move to `human_uat`, with the suite result quoted in the evidence comment.
 
 New scenarios accumulate: every finished task widens the regression net that all future tasks must pass.
 

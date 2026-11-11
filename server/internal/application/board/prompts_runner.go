@@ -15,7 +15,6 @@ var columnInProgressAnalizKey = prompt.Define("board.column_in_progress_analiz",
 var columnNeedRevisionKey = prompt.Define("board.column_need_revision", struct{}{})
 var columnNeedRevisionAnalizKey = prompt.Define("board.column_need_revision_analiz", struct{}{})
 var columnCodeReviewKey = prompt.Define("board.column_code_review", struct{}{})
-var columnPMUATKey = prompt.Define("board.column_pm_uat", struct{}{})
 var columnDoneKey = prompt.Define("board.column_done", struct{}{})
 var columnDoneAnalizKey = prompt.Define("board.column_done_analiz", struct{}{})
 var columnTodoDesignKey = prompt.Define("board.column_todo_design", struct{}{})
@@ -26,8 +25,8 @@ var columnReleasedKey = prompt.Define("board.column_released", struct{}{})
 
 type columnPassToInput struct{ PassTo string }
 
-var columnReadyForQAKey = prompt.Define("board.column_ready_for_qa", columnPassToInput{PassTo: "pm_uat"})
-var columnInQAKey = prompt.Define("board.column_in_qa", columnPassToInput{PassTo: "pm_uat"})
+var columnReadyForQAKey = prompt.Define("board.column_ready_for_qa", columnPassToInput{PassTo: "human_uat"})
+var columnInQAKey = prompt.Define("board.column_in_qa", columnPassToInput{PassTo: "human_uat"})
 
 type columnDefaultInput struct{ Column string }
 
@@ -35,8 +34,7 @@ var columnDefaultKey = prompt.Define("board.column_default", columnDefaultInput{
 
 var columnSpecificNoteKey = prompt.Define("board.column_specific_note", struct{}{})
 
-var reviewCriteriaHeaderQAPMKey = prompt.Define("board.review_criteria_header_qa_pm", struct{}{})
-var reviewCriteriaHeaderPMUATKey = prompt.Define("board.review_criteria_header_pm_uat", struct{}{})
+var reviewCriteriaHeaderQAKey = prompt.Define("board.review_criteria_header_qa", struct{}{})
 var reviewCriteriaHeaderCodeReviewKey = prompt.Define("board.review_criteria_header_code_review", struct{}{})
 var reviewCriteriaHeaderDefaultKey = prompt.Define("board.review_criteria_header_default", struct{}{})
 
@@ -50,10 +48,10 @@ type criterionImplementerInput struct{ Completed bool }
 
 var criterionImplementerLabelKey = prompt.Define("board.criterion_implementer_label", criterionImplementerInput{Completed: true})
 
-type criterionLineInput struct{ ID, Text, Implementer, QA, PM string }
+type criterionLineInput struct{ ID, Text, Implementer, QA string }
 
 var criterionLineKey = prompt.Define("board.criterion_line", criterionLineInput{
-	ID: "id", Text: "text", Implementer: "ticked", QA: "approved", PM: "—",
+	ID: "id", Text: "text", Implementer: "ticked", QA: "approved",
 })
 
 // criterionVerdictInput drives one role's verdict label on one criterion.
@@ -83,7 +81,7 @@ var closingStepBuildVerifyKey = prompt.Define("board.closing_step_build_verify",
 var closingStepDefaultKey = prompt.Define("board.closing_step_default", struct{}{})
 
 // closingStepReviewKey covers every StageKindReview column (code_review,
-// in_qa, pm_uat): the run judges or tests, it never changes the diff, so
+// in_qa): the run judges or tests, it never changes the diff, so
 // closing_step_default's "state what you changed" is always wrong there.
 var closingStepReviewKey = prompt.Define("board.closing_step_review", struct{}{})
 
@@ -133,14 +131,10 @@ var openQuestionsBlockDetailKey = prompt.Define("board.open_questions_block_deta
 var ungroundedAnalysisGuardKey = prompt.Define("guard.ungrounded_analysis", struct{}{})
 var ungroundedQAGuardKey = prompt.Define("guard.ungrounded_qa", struct{}{})
 var noUIEvidenceGuardKey = prompt.Define("guard.no_ui_evidence", struct{}{})
-var ungroundedPMUATGuardKey = prompt.Define("guard.ungrounded_pmuat", struct{}{})
-var pmUncoveredCriterionGuardKey = prompt.Define("guard.pm_uncovered_criterion", struct{}{})
 
 var ungroundedAnalysisReason = prompt.Text(ungroundedAnalysisGuardKey)
 var ungroundedQAReason = prompt.Text(ungroundedQAGuardKey)
 var noUIEvidenceReason = prompt.Text(noUIEvidenceGuardKey)
-var ungroundedPMUATReason = prompt.Text(ungroundedPMUATGuardKey)
-var pmUncoveredCriterionReason = prompt.Text(pmUncoveredCriterionGuardKey)
 
 var outOfBudgetKeptPublishedKey = prompt.Define("guard.out_of_budget_kept_published", struct{}{})
 var outOfBudgetKeptLocalKey = prompt.Define("guard.out_of_budget_kept_local", struct{}{})

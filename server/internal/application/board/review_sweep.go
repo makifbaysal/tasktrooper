@@ -31,8 +31,6 @@ func criterionReviewRole(wf domain.Workflow, column domain.TaskColumn) (domain.C
 	switch channel {
 	case "qa":
 		return domain.CriterionReviewRoleQA, true
-	case "pm":
-		return domain.CriterionReviewRolePM, true
 	default:
 		return "", false
 	}

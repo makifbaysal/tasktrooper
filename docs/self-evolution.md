@@ -166,8 +166,8 @@ Only metrics in a fixed registry can be attached to a KPI (`GET
 /v1/kpi-metrics` lists them): `tasks_completed`, `revisions_received`,
 `uat_failures`, `failed_runs`, `gate_rejected_runs`, `bugs_assigned`,
 `first_pass_rate`, `tool_error_rate`, plus a family of column-time metrics
-(median hours spent in a particular column — In Progress, Code Review, In QA,
-PM UAT — and a review-escape count). `gate_rejected_runs` counts runs the host
+(median hours spent in a particular column — In Progress, Code Review, In QA
+— and a review-escape count). `gate_rejected_runs` counts runs the host
 rejected for skipping required grounding — reading the repo, or running and
 checking the product — and `tool_error_rate` is the share of an agent's tool
 calls that came back as errors.
@@ -176,8 +176,8 @@ The seeded role agents each get a starting set matched to their job: the
 developer roles get tasks completed, revisions received, first-pass rate, UAT
 rejections, bugs assigned, clean cycle time in In Progress, and tool error
 rate; QA gets tasks completed, UAT escapes, clean time in QA, gate-rejected
-runs and tool error rate; the product manager gets tasks completed, clean time
-in PM UAT, gate-rejected runs and tool error rate; the architect gets tasks
+runs and tool error rate; the product manager gets tasks completed,
+gate-rejected runs and tool error rate; the architect gets tasks
 completed, revisions, first-pass rate, review time, analysis time, review
 escapes, gate-rejected runs and tool error rate.
 
