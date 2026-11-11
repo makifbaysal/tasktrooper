@@ -146,6 +146,19 @@ Response JSON: `{status, url?, branch, command, detail?, log_tail?, note}`. `url
 
 Never production — this is the task's own branch, running on this machine.
 
+### `notify_task_agent`
+
+Held by `product-manager`. After the PM has changed a task with `update_board_task` (description, criteria), this makes sure the agent working it hears of the change (`internal/adapter/tools/board/notify_task_agent.go`, backed by `application/board.ChangeRequests`).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | yes | Board task UUID or key |
+| `summary` | string | yes | What changed; at most 4000 characters |
+| `interrupt` | bool | no | Stop the current pass and restart the same agent. Refused without `user_approved` |
+| `user_approved` | bool | no | The stakeholder said yes to the interrupt |
+
+The request is always stored first, as an informational task comment by the PM starting `Change request from PM:` (visible in the task drawer like any comment). Delivery depends on this install's runner: with a run holding the task the outcome is `agent_notified` (the run reads the comment at the end of its turn, in `sweepChangeRequests` before the criteria sweep and the hand-off, as a follow-up in the same CLI session; a CLI run cannot take a message mid-turn) or, with `interrupt`, `interrupted` (`Controller.InterruptRunAs`: the run is cancelled and the same agent starts again, workspace kept); with no run here it is `stored`. Every later run reads the newest five change requests in its opening context (`changeRequestsMessage`), and a revision resume carries them too. Criteria are always read fresh from the database, so a criterion added mid-run reaches the criteria sweep.
+
 ### `record_test_cases` / `set_test_case_result` / `list_test_cases`
 
 The task's test round, stored next to its acceptance criteria (`task_test_cases`, migration 130). QA writes it; every other role reads it.

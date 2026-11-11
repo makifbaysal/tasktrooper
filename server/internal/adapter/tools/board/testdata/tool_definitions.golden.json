@@ -938,6 +938,39 @@
   {
     "type": "function",
     "function": {
+      "name": "notify_task_agent",
+      "description": "Tell the agent working a task about a change the stakeholder just asked for. First make the change on the task itself with update_board_task (description, technical description, acceptance criteria), then call this so the agent that is working it right now hears about it. Use it when the task has a run in progress; it is also safe when none is, because the change is recorded on the task and the next run reads it. Do not create a second task for the same work. The result says what happened — agent notified (it picks the change up when its current pass ends, before it hands the task on), interrupted, or stored for the next run — and you tell the stakeholder that, in plain words. Only an interrupt discards work, so only an interrupt needs the stakeholder's yes.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "interrupt": {
+            "description": "Stop the current pass of the agent and start it again with the change. Needs user_approved. Leave it out unless the stakeholder wants the work stopped now.",
+            "type": "boolean"
+          },
+          "summary": {
+            "description": "What changed, in a few sentences (for example: added criterion that the export includes archived rows; the description now says CSV, not JSON). Not the whole task.",
+            "type": "string"
+          },
+          "task_id": {
+            "description": "Board task UUID or its board key (e.g. \"T-1\").",
+            "type": "string"
+          },
+          "user_approved": {
+            "description": "true only after the stakeholder said yes to interrupting the agent in this conversation.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task_id",
+          "summary"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "record_open_questions",
       "description": "Record open questions on an analiz task for the human to answer on the report page — never type them into the report HTML and never ask them with ask_user on this task type. `questions` ADDS up to 10 new ones; `update` edits a question you already recorded (you cannot change the PROMPT of one the human already answered — withdraw it and add a new one instead); `withdraw` removes questions an answer made moot. Default to non-blocking with your recommended answer; blocking is the exception for something the code and brief genuinely cannot settle. A blocking question still requires exploring first — a question the code already answers is not a question — and the report you attach before ending the run should say as far as you got. Returns the full current list (key, kind, blocking, status, answer).",
       "parameters": {

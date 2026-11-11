@@ -163,7 +163,13 @@ func (c *Controller) RerunRun(ctx context.Context, repositoryID, taskID, runID u
 // comments as requirements), and the same agent starts again on the task as it
 // stands. Unlike CancelRun the task is not blocked and the workspace is kept.
 func (c *Controller) InterruptRun(ctx context.Context, repositoryID, taskID, runID uuid.UUID, message string) (domain.TaskAgentRun, error) {
-	message = strings.TrimSpace(message)
+	return c.InterruptRunAs(ctx, repositoryID, taskID, runID, domain.CreateTaskCommentRequest{Content: message})
+}
+
+// InterruptRunAs is InterruptRun with the guidance recorded under the given
+// author, for callers that speak for someone other than the human at the keyboard.
+func (c *Controller) InterruptRunAs(ctx context.Context, repositoryID, taskID, runID uuid.UUID, req domain.CreateTaskCommentRequest) (domain.TaskAgentRun, error) {
+	message := strings.TrimSpace(req.Content)
 	if message == "" {
 		return domain.TaskAgentRun{}, domain.ErrInterruptMessageRequired
 	}
@@ -186,10 +192,9 @@ func (c *Controller) InterruptRun(ctx context.Context, repositoryID, taskID, run
 	c.runner.Cancel(runID)
 
 	if c.commenter != nil {
-		if _, err := c.commenter.AddComment(ctx, repositoryID, taskID, domain.CreateTaskCommentRequest{
-			Content:       message,
-			Informational: true,
-		}); err != nil {
+		req.Content = message
+		req.Informational = true
+		if _, err := c.commenter.AddComment(ctx, repositoryID, taskID, req); err != nil {
 			log.Error().Err(err).Str("task_id", taskID.String()).Msg("interrupt run: record guidance failed")
 		}
 	}

@@ -183,7 +183,7 @@ func developerToolPolicy() domain.ToolPolicy {
 }
 
 func productManagerToolPolicy() domain.ToolPolicy {
-	tools := make([]string, 0, len(roleWebTools)+len(roleCodeTools)+len(roleBrowserTools)+len(roleBoardReadTools)+len(roleBoardCreateTools)+len(roleBoardDeleteTools)+len(roleWorkspaceManageTools)+len(roleAudienceResearchTools)+len(roleMemoryTools)+len(roleSkillTools)+4)
+	tools := make([]string, 0, len(roleWebTools)+len(roleCodeTools)+len(roleBrowserTools)+len(roleBoardReadTools)+len(roleBoardCreateTools)+len(roleBoardDeleteTools)+len(roleWorkspaceManageTools)+len(roleAudienceResearchTools)+len(roleMemoryTools)+len(roleSkillTools)+5)
 	tools = append(tools, roleWebTools...)
 	// pm_uat: backend/API-only acceptance criteria are tested too, headless
 	// against the task's own preview — no "backend exception".
@@ -198,6 +198,8 @@ func productManagerToolPolicy() domain.ToolPolicy {
 	// pm_uat: the PM launches the task's own build and walks it in the browser — no shell, so no other way to see it run.
 	tools = append(tools, "get_task_preview", "start_task_preview")
 	tools = append(tools, roleBoardReadTools...)
+	// A change the stakeholder asks for on a task an agent is working reaches that agent.
+	tools = append(tools, "notify_task_agent")
 	tools = append(tools, roleBoardCreateTools...)
 	tools = append(tools, roleBoardDeleteTools...)
 	tools = append(tools, roleWorkspaceManageTools...)

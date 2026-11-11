@@ -65,6 +65,7 @@ has been re-indexed.
 | `claim_board_task` | Claims an unassigned task | Every role |
 | `delete_board_task` | Permanently deletes a task and everything on it | `product-manager` only |
 | `add_task_comment` | Comments on a task | Every role |
+| `notify_task_agent` | Delivers a stakeholder's change to the agent working a task: recorded as a task comment, picked up at the end of the live run's turn (or by the next run); `interrupt` stops the pass and restarts the same agent | `product-manager` |
 | `list_task_comments` | Reads a task's comments | Every role |
 | `add_task_document` | Attaches a document (spec, plan) to a task | `product-manager`, `system-architect` (create roles) |
 | `update_task_document` | Edits an attached document | Same as `add_task_document` |

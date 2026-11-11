@@ -133,3 +133,8 @@ var criterionRuleCardWaitingKey = prompt.Define("guard.board_criterion_rule_card
 var criterionRuleNextTasksKey = prompt.Define("guard.board_criterion_rule_next_tasks", struct{}{})
 var criterionRuleToolMechanicsKey = prompt.Define("guard.board_criterion_rule_tool_mechanics", struct{}{})
 var criterionRuleHandoffKey = prompt.Define("guard.board_criterion_rule_handoff", struct{}{})
+
+var changeInterruptNeedsApprovalKey = prompt.Define("guard.board_change_interrupt_needs_approval", struct{}{})
+var changeInterruptedNoteKey = prompt.Define("tool_results.board_change_interrupted", struct{}{})
+var changeNotifiedNoteKey = prompt.Define("tool_results.board_change_notified", struct{}{})
+var changeStoredNoteKey = prompt.Define("tool_results.board_change_stored", struct{}{})

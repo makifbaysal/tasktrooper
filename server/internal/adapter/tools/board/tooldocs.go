@@ -19,6 +19,7 @@ func init() {
 		deleteBoardTaskToolName,
 		claimBoardTaskToolName,
 		addTaskCommentToolName,
+		notifyTaskAgentToolName,
 		listTaskCommentsToolName,
 		addTaskDocumentToolName,
 		updateTaskDocumentToolName,

@@ -81,6 +81,7 @@ var boardActionTools = map[string]BoardActionSpec{
 	"delete_board_task":       {Verb: ActionVerbDeleted, Entity: ActionEntityBoardTask},
 	"claim_board_task":        {Verb: ActionVerbClaimed, Entity: ActionEntityBoardTask},
 	"add_task_comment":        {Verb: ActionVerbCommented, Entity: ActionEntityComment},
+	"notify_task_agent":       {Verb: ActionVerbCommented, Entity: ActionEntityComment},
 	"add_task_document":       {Verb: ActionVerbAttached, Entity: ActionEntityDocument},
 	"update_task_document":    {Verb: ActionVerbUpdated, Entity: ActionEntityDocument},
 	"set_criterion_completed": {Verb: ActionVerbUpdated, Entity: ActionEntityCriterion},

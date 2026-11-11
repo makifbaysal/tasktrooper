@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -154,6 +155,24 @@ type TaskComment struct {
 	ActorUserID *string `json:"actor_user_id,omitempty"`
 }
 
+// ChangeRequestCommentPrefix marks a task comment as a change the stakeholder
+// asked for through the product manager while the task was being worked. The
+// comment is the durable copy of the request: a run that is live reads it at the
+// end of its turn, any later run reads it with its opening context.
+const ChangeRequestCommentPrefix = "Change request from PM:"
+
+// MaxChangeRequestChars bounds one change request; a larger rewrite belongs in
+// the task's own fields, which the request only points at.
+const MaxChangeRequestChars = 4000
+
+func ChangeRequestComment(summary string) string {
+	return ChangeRequestCommentPrefix + " " + strings.TrimSpace(summary)
+}
+
+func IsChangeRequestComment(content string) bool {
+	return strings.HasPrefix(strings.TrimSpace(content), ChangeRequestCommentPrefix)
+}
+
 type CreateTaskCommentRequest struct {
 	Content    string `json:"content"`
 	AuthorType string `json:"author_type,omitempty"`
@@ -237,6 +256,8 @@ var (
 	// A task chat asked for an agent that does not exist or is switched off.
 	ErrChatAgentUnavailable     = errors.New("that agent is not available for a task chat")
 	ErrInterruptMessageRequired = errors.New("interrupt needs a message for the agent")
+	ErrChangeRequestEmpty       = errors.New("the change request is empty: say what changed")
+	ErrChangeRequestTooLong     = errors.New("the change request is too long: summarise it and keep the detail in the task's description or criteria")
 	// A re-run request for a run that is still going.
 	ErrRunNotTerminal = errors.New("agent run has not finished yet")
 	// A re-run request on a blocked task: recovery is moving it to a column,

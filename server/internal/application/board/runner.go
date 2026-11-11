@@ -941,6 +941,8 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		reviewMsg = blocks.review
 	}
 	humanMsg := humanRequirementsMessage(blocks.comments)
+	changeRequestsMsg := changeRequestsMessage(blocks.comments)
+	seenChangeRequests := changeRequestIDs(blocks.comments)
 	clarificationsMsg := prompt.AnsweredClarificationsMessage(blocks.comments)
 	resumeCLISession, resumePrompt := "", ""
 	var prevRuns []domain.TaskAgentRun
@@ -958,7 +960,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		// parked session the one from before the task was sent back.
 		if resumeCLISession != "" && job.isRevision() {
 			resumePrompt = revisionResumePrompt(job.Task, triggerMsg,
-				humanMsg, prMsg, pipelineMsg, revisionMsg, reviewMsg, clarificationsMsg, prevFailuresMsg)
+				humanMsg, changeRequestsMsg, prMsg, pipelineMsg, revisionMsg, reviewMsg, clarificationsMsg, prevFailuresMsg)
 			log.Info().Str("task_id", job.Task.ID.String()).Str("cli_session_id", resumeCLISession).
 				Msg("revision run resumes the agent's previous cli session with the review feedback")
 		}
@@ -987,6 +989,9 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	history = append(history, domain.Message{Role: domain.RoleUser, Content: triggerMsg})
 	if humanMsg != "" {
 		history = append(history, domain.Message{Role: domain.RoleSystem, Content: humanMsg})
+	}
+	if changeRequestsMsg != "" {
+		history = append(history, domain.Message{Role: domain.RoleSystem, Content: changeRequestsMsg})
 	}
 	if analysisMsg != "" {
 		history = append(history, domain.Message{Role: domain.RoleSystem, Content: analysisMsg})
@@ -1157,6 +1162,12 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	criteriaSettled := true
 	if resp.Clarification == nil && resp.ResourceBlock == nil {
 		var quotaBlock *domain.QuotaBlock
+		resp, quotaBlock = r.sweepChangeRequests(runCtx, job, agentRec, history, resp, model, upliftedPolicy, seenChangeRequests)
+		if quotaBlock != nil {
+			stampToolStats(&run, toolUsage)
+			stampTokenUsage(&run, tokenUsage)
+			return r.quotaOrPark(ctx, job, run, agentRec, prevRuns, cliSession, quotaBlock, fail)
+		}
 		resp, criteriaSettled, quotaBlock = r.sweepOpenCriteria(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
 		if quotaBlock == nil {
 			quotaBlock = r.sweepReviewVerdict(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
@@ -2145,7 +2156,7 @@ func revisionCommentsMessage(comments []domain.TaskComment) string {
 	for _, c := range comments {
 		// The human's own comments ride in humanRequirementsMessage, on every
 		// run; an advisory-checks note describes the change but did not send it back.
-		if c.AuthorType != "user" && !prompt.IsClarificationComment(c.Content) && !isAdvisoryChecksComment(c.Content) {
+		if c.AuthorType != "user" && !prompt.IsClarificationComment(c.Content) && !isAdvisoryChecksComment(c.Content) && !domain.IsChangeRequestComment(c.Content) {
 			feedback = append(feedback, c)
 		}
 	}

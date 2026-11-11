@@ -1977,6 +1977,14 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			WorkspaceRoot: cfg.Storage.Sessions.WorkspaceRoot,
 		})
 		boardKit.LocalPreviews = localPreviewSvc
+		if boardController != nil && boardRunner != nil && boardTaskStore != nil {
+			boardKit.ChangeRequests = boardapp.NewChangeRequests(boardapp.ChangeRequestDeps{
+				Tasks:       boardTaskStore,
+				Runner:      boardRunner,
+				Interrupter: boardController,
+				Commenter:   repositorySvc,
+			})
+		}
 		e.localPreview = localPreviewSvc
 
 		if settingsStore != nil && cfg.Tools.BoilerplateCatalog.Enabled {

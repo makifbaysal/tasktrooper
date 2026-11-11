@@ -147,6 +147,9 @@ type ToolKit struct {
 	// EnvRequirements backs declare_env_vars. Built after this registration
 	// (it needs the cloud service), so it is read at call time.
 	EnvRequirements EnvDeclarer
+	// ChangeRequests backs notify_task_agent. Built from the run controller and
+	// runner, so it is read at call time like Releases.
+	ChangeRequests ChangeDeliverer
 }
 
 // SubscriptionLister is the read-only slice of port.BoardConfigStore
@@ -168,6 +171,7 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 		newDeleteTaskTool(kit),
 		newClaimTaskTool(kit),
 		newAddCommentTool(kit),
+		newNotifyTaskAgentTool(kit),
 		newListCommentsTool(kit),
 		newAddDocumentTool(kit),
 		newUpdateDocumentTool(kit),

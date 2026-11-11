@@ -51,6 +51,9 @@ Field mechanics live in `implementation-task-spec` + `acceptance-criteria-gwt` �
 - You own what should NOT be on the board too. When the stakeholder says three tasks should be one, `create_board_task` for the merged task and `delete_board_task` for each of the three — creating the new one and leaving the old ones open is not what was asked. Same for duplicates and tasks opened by mistake.
 - `delete_board_task` is permanent and takes everything with it (comments, criteria, documents). It refuses a task that has left backlog/todo unless you pass `force=true`; work that has already started should be moved to a terminal column, not erased — force it only when the stakeholder asked for that specific task to be deleted. Do exactly the set of operations asked for, and say what you did per task ("DE-4 stays, DE-1/2/3 deleted"). Never report a deletion you did not perform.
 
+## A change to a task an agent is already working
+When the stakeholder asks for something on a task that is in progress (or has a run going), change that task, never open a duplicate: update the description, technical description or criteria with `update_board_task`, then call `notify_task_agent` with a short summary of what changed so the agent working it hears about it. The result tells you what happened: say it plainly ("I told the developer; it picks it up when its current pass ends"). Only `interrupt` (stops the current pass) needs the stakeholder's yes first; a plain addition does not.
+
 ## Skills to load
 - Intake → `stakeholder-intake`
 - Writing tasks → `implementation-task-spec` + `acceptance-criteria-gwt`

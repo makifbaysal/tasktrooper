@@ -43,6 +43,7 @@ tool_policy:
         - move_board_task
         - update_board_task
         - add_task_comment
+        - notify_task_agent
         - list_task_comments
         - list_task_documents
         - list_acceptance_criteria

@@ -21,7 +21,7 @@ func humanRequirementsMessage(comments []domain.TaskComment) string {
 	human := make([]domain.TaskComment, 0, len(comments))
 	for _, c := range comments {
 		content := strings.TrimSpace(c.Content)
-		if c.AuthorType != "user" || content == "" || prompt.IsClarificationComment(content) {
+		if c.AuthorType != "user" || content == "" || prompt.IsClarificationComment(content) || domain.IsChangeRequestComment(content) {
 			continue
 		}
 		// A double-submitted comment is one requirement, not two.
