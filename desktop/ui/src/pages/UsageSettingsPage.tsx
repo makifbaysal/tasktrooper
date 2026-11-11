@@ -319,7 +319,7 @@ export function UsageSettingsPage() {
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-function ModelName({ model, u }: { model: string; u: Translate }) {
+function ModelName({ model, u, fromDefault = false }: { model: string; u: Translate; fromDefault?: boolean }) {
   if (model === UNRECORDED_MODEL) {
     return (
       <span className="inline-flex items-center gap-1 italic text-muted-foreground">
@@ -331,7 +331,12 @@ function ModelName({ model, u }: { model: string; u: Translate }) {
   if (model === DEFAULT_MODEL || model === "") {
     return <span className="italic text-muted-foreground">{u("defaultModel")}</span>;
   }
-  return <span className="truncate font-mono text-caption">{model}</span>;
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5">
+      <span className="truncate font-mono text-caption">{model}</span>
+      {fromDefault && <span className="shrink-0 text-caption text-muted-foreground">{u("defaultModelBadge")}</span>}
+    </span>
+  );
 }
 
 function ModelTable({
@@ -367,9 +372,9 @@ function ModelTable({
             const share = total > 0 ? tokens / total : 0;
             const hit = cacheHitRate(r);
             return (
-              <tr key={`${r.kind}/${r.provider}/${r.model}`} className="border-b border-border/50 last:border-0">
+              <tr key={`${r.kind}/${r.provider}/${r.model}/${r.model_from_default ? "d" : ""}`} className="border-b border-border/50 last:border-0">
                 <td className="max-w-64 py-2.5 pr-3">
-                  <ModelName model={r.model} u={u} />
+                  <ModelName model={r.model} u={u} fromDefault={r.model_from_default === true} />
                 </td>
                 <td className="py-2.5 pr-3 whitespace-nowrap">
                   {providerName(r.provider)}

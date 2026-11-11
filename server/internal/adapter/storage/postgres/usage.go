@@ -21,9 +21,9 @@ func (s *LLMUsageStore) Record(ctx context.Context, rec domain.LLMUsageRecord) e
 		kind = domain.LLMUsageKindAPI
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO llm_usage (kind, provider, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		kind, rec.Provider, rec.Model, rec.PromptTokens, rec.CompletionTokens, rec.CacheReadTokens, rec.CacheWriteTokens)
+		INSERT INTO llm_usage (kind, provider, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, model_from_default)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		kind, rec.Provider, rec.Model, rec.PromptTokens, rec.CompletionTokens, rec.CacheReadTokens, rec.CacheWriteTokens, rec.ModelFromDefault)
 	return err
 }
 
@@ -63,11 +63,11 @@ func (s *LLMUsageStore) Summary(ctx context.Context, since time.Time, loc *time.
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT kind, provider, model, COUNT(*), SUM(prompt_tokens), SUM(completion_tokens),
+		SELECT kind, provider, model, model_from_default, COUNT(*), SUM(prompt_tokens), SUM(completion_tokens),
 		       SUM(cache_read_tokens), SUM(cache_write_tokens)
 		FROM llm_usage
 		WHERE created_at >= $1
-		GROUP BY kind, provider, model
+		GROUP BY kind, provider, model, model_from_default
 		ORDER BY CASE kind WHEN 'cli' THEN 0 WHEN 'api' THEN 1 ELSE 2 END,
 		         SUM(prompt_tokens + completion_tokens) DESC`, since)
 	if err != nil {
@@ -76,7 +76,7 @@ func (s *LLMUsageStore) Summary(ctx context.Context, since time.Time, loc *time.
 	defer rows.Close()
 	for rows.Next() {
 		var m domain.LLMUsageByModel
-		if err := rows.Scan(&m.Kind, &m.Provider, &m.Model, &m.Calls, &m.PromptTokens, &m.CompletionTokens,
+		if err := rows.Scan(&m.Kind, &m.Provider, &m.Model, &m.ModelFromDefault, &m.Calls, &m.PromptTokens, &m.CompletionTokens,
 			&m.CacheReadTokens, &m.CacheWriteTokens); err != nil {
 			return domain.LLMUsageSummary{}, err
 		}

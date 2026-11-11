@@ -4,6 +4,8 @@ import { IntegrationCard } from "@/components/admin/IntegrationCard";
 import { LLMProviderIcon } from "@/components/admin/LLMProviderIcon";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
+import { ProviderModelField } from "./ProviderModelField";
+import { useEffect, useState } from "react";
 import type { DesktopBlocker, DesktopRunnerHost, DesktopRunnerSnapshot } from "@/lib/desktop-bridge";
 import { BlockerNotice } from "./BlockerNotice";
 import type { ConnectStep } from "./claudeCodeConnect";
@@ -52,6 +54,8 @@ export interface LocalCliCardProps {
   snapshot: DesktopRunnerSnapshot | null;
   onConnect: () => void;
   onDisconnect: () => void;
+  /** Persists the default model of this CLI; empty clears it. */
+  onDefaultModelChange?: (model: string) => void;
   className?: string;
   /**
    * The label of the required preflight item currently failing, if any.
@@ -75,11 +79,15 @@ export function LocalCliCard({
   snapshot,
   onConnect,
   onDisconnect,
+  onDefaultModelChange,
   className,
   environmentBlockingLabel,
 }: LocalCliCardProps) {
   const { t } = useI18n();
   const envBlocked = Boolean(environmentBlockingLabel);
+  const savedDefaultModel = flavor !== null ? (cliState?.flavors.find((f) => f.flavor === flavor)?.default_model ?? "") : "";
+  const [defaultModel, setDefaultModel] = useState(savedDefaultModel);
+  useEffect(() => setDefaultModel(savedDefaultModel), [savedDefaultModel]);
 
   // This card's OWN connection, if any — a different flavor being connected
   // has no bearing on this one any more (see migrations/120_agent_cli_multi_connection).
@@ -111,7 +119,8 @@ export function LocalCliCard({
 
   const showStep = busy && step !== null;
   const showEnvBlocked = canConnect && envBlocked && available;
-  const hasBody = showStep || Boolean(shownBlocker) || Boolean(shownError) || showEnvBlocked;
+  const showModel = connected && available && onDefaultModelChange !== undefined;
+  const hasBody = showModel || showStep || Boolean(shownBlocker) || Boolean(shownError) || showEnvBlocked;
 
   return (
     <IntegrationCard
@@ -146,6 +155,15 @@ export function LocalCliCard({
     >
       {hasBody ? (
         <>
+          {showModel && (
+            <ProviderModelField
+              provider={view.definition.type}
+              value={defaultModel}
+              onChange={setDefaultModel}
+              onCommit={(m) => m !== savedDefaultModel && onDefaultModelChange?.(m)}
+              disabled={anyBusy}
+            />
+          )}
           {/* The flow takes tens of seconds and silence reads as a hang. */}
           {showStep && step !== null && (
             <p className="flex items-center gap-2 text-caption text-muted-foreground">

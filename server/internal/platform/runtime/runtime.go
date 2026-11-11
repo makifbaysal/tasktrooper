@@ -1538,6 +1538,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				domain.LLMProviderOpencode:    opencodeExecutor,
 			},
 		}
+		if agentCLISvc != nil {
+			mux.defaultModel = agentCLISvc.DefaultModelFor
+		}
 		// The SAME mux answers chat, not a claude-only variable any more: two
 		// providers (claude_code, opencode) now have a remote executor that
 		// implements port.ChatExecutor too, and a chat turn's provider decides
@@ -3290,6 +3293,22 @@ func (r deployAppResolver) ResolveApp(ctx context.Context, repositoryID uuid.UUI
 
 type muxExecutor struct {
 	executors map[domain.LLMProviderType]port.TaskExecutor
+	// defaultModel is the configured model for a provider whose agent names
+	// none. Nil means the CLI's own default.
+	defaultModel func(ctx context.Context, provider domain.LLMProviderType) string
+}
+
+// withDefaultModel fills an empty model from the provider's configured default
+// and marks the context so the usage rows say the run was on the default.
+func (m *muxExecutor) withDefaultModel(ctx context.Context, provider domain.LLMProviderType, model string) (context.Context, string) {
+	if model != "" {
+		return ctx, model
+	}
+	ctx = usageapp.WithDefaultModel(ctx)
+	if m.defaultModel != nil {
+		return ctx, m.defaultModel(ctx, provider)
+	}
+	return ctx, ""
 }
 
 func (m *muxExecutor) Supports(provider domain.LLMProviderType) bool {
@@ -3305,6 +3324,7 @@ func (m *muxExecutor) Execute(ctx context.Context, req domain.TaskExecution) (do
 	if !ok || ex == nil {
 		return domain.AgentResponse{}, fmt.Errorf("no host executor for provider %q", req.Provider)
 	}
+	ctx, req.Model = m.withDefaultModel(ctx, req.Provider, req.Model)
 	return ex.Execute(ctx, req)
 }
 
@@ -3321,6 +3341,7 @@ func (m *muxExecutor) ExecuteChat(ctx context.Context, req domain.ChatExecution,
 	if !ok {
 		return domain.ChatResult{}, domain.ErrHostExecutedProvider(req.Provider)
 	}
+	ctx, req.Model = m.withDefaultModel(ctx, req.Provider, req.Model)
 	return chatEx.ExecuteChat(ctx, req, out)
 }
 

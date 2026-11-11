@@ -20,6 +20,7 @@ type LLMUsageRecord struct {
 	Kind             LLMUsageKind `json:"kind"`
 	Provider         string       `json:"provider"`
 	Model            string       `json:"model"`
+	ModelFromDefault bool         `json:"model_from_default,omitempty"`
 	PromptTokens     int          `json:"prompt_tokens"`
 	CompletionTokens int          `json:"completion_tokens"`
 	CacheReadTokens  int          `json:"cache_read_tokens"`
@@ -42,6 +43,9 @@ type LLMUsageByModel struct {
 	Kind     string `json:"kind"`
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
+	// ModelFromDefault: the agent named no model, so Model is the provider
+	// default or whatever the CLI reported it ran on.
+	ModelFromDefault bool `json:"model_from_default"`
 	LLMUsageTotals
 }
 

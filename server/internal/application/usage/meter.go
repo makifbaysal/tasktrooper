@@ -46,6 +46,9 @@ func (m *Meter) Record(ctx context.Context, rec domain.LLMUsageRecord) {
 	if rec.Model == "" {
 		rec.Model = "(default)"
 	}
+	if rec.Kind == domain.LLMUsageKindCLI && defaultModelFromContext(ctx) {
+		rec.ModelFromDefault = true
+	}
 	store := m.store
 	go func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
@@ -54,4 +57,17 @@ func (m *Meter) Record(ctx context.Context, rec domain.LLMUsageRecord) {
 			log.Warn().Err(err).Msg("llm usage record failed")
 		}
 	}()
+}
+
+type defaultModelKey struct{}
+
+// WithDefaultModel marks a run whose agent named no model, so the usage rows
+// its CLI session records are badged as running on the default.
+func WithDefaultModel(ctx context.Context) context.Context {
+	return context.WithValue(ctx, defaultModelKey{}, true)
+}
+
+func defaultModelFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(defaultModelKey{}).(bool)
+	return v
 }

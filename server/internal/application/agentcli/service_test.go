@@ -16,7 +16,20 @@ import (
 )
 
 type memStore struct {
-	conns map[domain.AgentCLIFlavor]domain.AgentCLIConnection
+	conns  map[domain.AgentCLIFlavor]domain.AgentCLIConnection
+	models map[domain.AgentCLIFlavor]string
+}
+
+func (s *memStore) DefaultModel(_ context.Context, flavor domain.AgentCLIFlavor) (string, error) {
+	return s.models[flavor], nil
+}
+
+func (s *memStore) SetDefaultModel(_ context.Context, flavor domain.AgentCLIFlavor, model string) error {
+	if s.models == nil {
+		s.models = map[domain.AgentCLIFlavor]string{}
+	}
+	s.models[flavor] = model
+	return nil
 }
 
 func (s *memStore) Get(_ context.Context, flavor domain.AgentCLIFlavor) (domain.AgentCLIConnection, bool, error) {
@@ -254,4 +267,33 @@ func TestConnectRefusesWithoutAWorkspaceRoot(t *testing.T) {
 
 func (c *catalogOf) ListTechStacksByAgent(_ context.Context, _ uuid.UUID) ([]domain.TechStack, error) {
 	return nil, nil
+}
+
+func TestSetDefaultModelIsReportedInStateAndResolvedPerProvider(t *testing.T) {
+	store := &memStore{}
+	catalog, _ := oneAgentCatalog()
+	svc := newService(t, store, catalog, okProbe)
+
+	state, err := svc.SetDefaultModel(context.Background(), domain.AgentCLIFlavorOpencode, "  anthropic/claude-sonnet-5  ")
+	require.NoError(t, err)
+	for _, f := range state.Flavors {
+		want := ""
+		if f.Flavor == domain.AgentCLIFlavorOpencode {
+			want = "anthropic/claude-sonnet-5"
+		}
+		require.Equal(t, want, f.DefaultModel, f.Flavor)
+	}
+	require.Equal(t, "anthropic/claude-sonnet-5", svc.DefaultModelFor(context.Background(), domain.LLMProviderOpencode))
+	require.Empty(t, svc.DefaultModelFor(context.Background(), domain.LLMProviderOpenAI), "an HTTP provider has no CLI default here")
+
+	_, err = svc.SetDefaultModel(context.Background(), domain.AgentCLIFlavorOpencode, "")
+	require.NoError(t, err)
+	require.Empty(t, svc.DefaultModelFor(context.Background(), domain.LLMProviderOpencode))
+}
+
+func TestSetDefaultModelRefusesAnUnknownFlavor(t *testing.T) {
+	catalog, _ := oneAgentCatalog()
+	svc := newService(t, &memStore{}, catalog, okProbe)
+	_, err := svc.SetDefaultModel(context.Background(), domain.AgentCLIFlavor("nope"), "x")
+	require.ErrorContains(t, err, "unknown agent cli flavor")
 }

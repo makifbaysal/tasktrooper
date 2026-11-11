@@ -14,4 +14,8 @@ type AgentCLIStore interface {
 	// Clear MUST check the flavor in the statement, not in the caller, so a
 	// racing reconnect of the same flavor cannot be deleted.
 	Clear(ctx context.Context, flavor domain.AgentCLIFlavor) error
+	// DefaultModel is the model an agent set to "default model" runs on for
+	// this CLI; empty means the CLI picks its own.
+	DefaultModel(ctx context.Context, flavor domain.AgentCLIFlavor) (string, error)
+	SetDefaultModel(ctx context.Context, flavor domain.AgentCLIFlavor, model string) error
 }
