@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,20 +22,28 @@ import (
 type audienceFixture struct {
 	app   *fiber.App
 	store *audiencetest.Store
+	// gate holds every model call while a test has it locked, so a build stays
+	// in flight for as long as the test needs.
+	gate *sync.RWMutex
 }
 
 func newAudienceFixture(t *testing.T, agents audiencetest.Agents) *audienceFixture {
 	t.Helper()
 	answers := audiencetest.AnswerJSON(6, "maybe", 12, true)
 	store := audiencetest.NewStore()
+	gate := &sync.RWMutex{}
 	svc := audience.NewService(audience.Deps{
-		Store: store, Agents: agents, LLM: audiencetest.ScriptedModel(func(string) string { return answers }),
+		Store: store, Agents: agents, LLM: audiencetest.ScriptedModel(func(string) string {
+			gate.RLock()
+			defer gate.RUnlock()
+			return answers
+		}),
 		Concurrency: 3, CallTimeout: 5 * time.Second,
 	})
 	h := &Handler{audienceSvc: svc}
 	app := fiber.New()
 	h.registerAudienceRoutes(app)
-	return &audienceFixture{app: app, store: store}
+	return &audienceFixture{app: app, store: store, gate: gate}
 }
 
 func (f *audienceFixture) do(t *testing.T, method, path string, body any) (int, []byte) {
@@ -92,10 +101,12 @@ func TestAudienceScreenFlowFromBriefToReportToAConversation(t *testing.T) {
 	require.Equal(t, 200, status, string(body))
 	assert.Equal(t, "Now with invoicing", decode[domain.Audience](t, body).Brief.Product)
 
+	f.gate.Lock()
 	status, body = f.do(t, "POST", "/v1/audiences/"+a.ID.String()+"/build", nil)
 	require.Equal(t, 202, status, string(body))
 	status, _ = f.do(t, "POST", "/v1/audiences/"+a.ID.String()+"/build", nil)
 	assert.Equal(t, 409, status, "already building")
+	f.gate.Unlock()
 
 	raw := f.waitFor(t, "/v1/audiences/"+a.ID.String(), func(raw []byte) bool {
 		return decode[audience.AudienceDetail](t, raw).Status == domain.AudienceReady
