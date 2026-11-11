@@ -1165,12 +1165,10 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		pushRefused := false
 		if job.Task.TaskType.PublishesBranch() {
 			commitMsg := r.writeCommitMessage(ctx, commitDetails{
-				TaskKey:   job.Task.Key,
-				Title:     job.Task.Title,
-				Summary:   run.Summary,
-				AgentName: agentRec.Name,
-				Writer:    agentWriterModel(agentRec),
-			})
+				TaskKey: job.Task.Key,
+				Title:   job.Task.Title,
+				Summary: run.Summary,
+			}.withAgent(agentRec))
 			if pushErr := r.git.CommitAndPush(ctx, taskWorkspace, commitMsg); pushErr != nil {
 				log.Warn().Err(pushErr).Str("task_id", job.Task.ID.String()).Msg("task workspace commit/push failed")
 				// The pull request does not carry this change, so handing it to
@@ -2060,13 +2058,11 @@ func (r *Runner) failRunOutOfBudget(
 	published := job.Task.TaskType.PublishesBranch()
 	if workspace != "" && published {
 		commitMsg := r.writeCommitMessage(ctx, commitDetails{
-			TaskKey:   job.Task.Key,
-			Title:     job.Task.Title,
-			Summary:   budgetErr.Partial,
-			AgentName: agentRec.Name,
-			Writer:    agentWriterModel(agentRec),
-			Prefix:    "wip: ",
-		})
+			TaskKey: job.Task.Key,
+			Title:   job.Task.Title,
+			Summary: budgetErr.Partial,
+			Prefix:  "wip: ",
+		}.withAgent(agentRec))
 		if pushErr := r.git.CommitAndPush(ctx, workspace, commitMsg); pushErr != nil {
 			log.Warn().Err(pushErr).Str("task_id", job.Task.ID.String()).Msg("out-of-budget partial commit failed")
 		} else if r.branchIndexer != nil && branch != "" {

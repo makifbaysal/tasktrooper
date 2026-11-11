@@ -84,3 +84,27 @@ describe("AgentSettingsPage enabled switch", () => {
     expect(screen.queryByText("Core agent; it cannot be turned off.")).not.toBeInTheDocument();
   });
 });
+
+describe("AgentSettingsPage commit co-author", () => {
+  it("loads the stored co-author and disables the field when the trailer is off", async () => {
+    getAgent.mockResolvedValue({
+      ...agent("ui-designer", true),
+      commit_coauthor: "Jane Doe <jane@example.com>",
+      commit_coauthor_disabled: true,
+    });
+    await renderSettings();
+    const input = screen.getByPlaceholderText("Jane Doe <jane@example.com>");
+
+    expect(input).toHaveValue("Jane Doe <jane@example.com>");
+    expect(input).toBeDisabled();
+  });
+
+  it("leaves the field editable and empty by default", async () => {
+    getAgent.mockResolvedValue(agent("ui-designer", true));
+    await renderSettings();
+    const input = screen.getByPlaceholderText("Jane Doe <jane@example.com>");
+
+    expect(input).toHaveValue("");
+    expect(input).not.toBeDisabled();
+  });
+});

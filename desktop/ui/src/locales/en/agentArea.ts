@@ -290,6 +290,13 @@ export const agentArea = {
     systemPrompt: "System prompt",
     enabled: "Enabled",
     coreHint: "Core agent; it cannot be turned off.",
+    commitCoauthor: {
+      label: "Commit co-author",
+      help: "Name <email> or a full Co-authored-by line. Leave empty for the default trailers.",
+      placeholder: "Jane Doe <jane@example.com>",
+      disable: "Do not add a co-author",
+      disableHelp: "On: this agent's commits carry no Co-authored-by trailer at all.",
+    },
     catalog: {
       autoPull: {
         label: "Pull definition updates from the catalog",

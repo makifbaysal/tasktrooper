@@ -118,23 +118,23 @@ func TestWriteCommitMessageCapsMaxTokens(t *testing.T) {
 func TestCommitTrailersCombinesTaskAgentAndProduct(t *testing.T) {
 	assert.Equal(t,
 		"\n\nTask: PI-3\nCo-authored-by: Frontend Developer <frontend-developer@agents.tasktrooper.ai>\nCo-authored-by: Task Trooper <agents@tasktrooper.ai>\n",
-		commitTrailers("PI-3", "Frontend Developer"))
+		commitTrailers(commitDetails{TaskKey: "PI-3", AgentName: "Frontend Developer"}))
 }
 
 func TestCommitTrailersCreditsTheProductWithoutATaskOrAgent(t *testing.T) {
 	assert.Equal(t,
 		"\n\nTask: T-1\nCo-authored-by: Task Trooper <agents@tasktrooper.ai>\n",
-		commitTrailers("T-1", ""))
+		commitTrailers(commitDetails{TaskKey: "T-1", AgentName: ""}))
 	assert.Equal(t,
 		"\n\nCo-authored-by: Backend Developer <backend-developer@agents.tasktrooper.ai>\nCo-authored-by: Task Trooper <agents@tasktrooper.ai>\n",
-		commitTrailers("", "Backend Developer"))
+		commitTrailers(commitDetails{TaskKey: "", AgentName: "Backend Developer"}))
 	assert.Equal(t,
 		"\n\nCo-authored-by: Task Trooper <agents@tasktrooper.ai>\n",
-		commitTrailers("", ""))
+		commitTrailers(commitDetails{TaskKey: "", AgentName: ""}))
 }
 
 func TestCommitTrailersUsesCoAuthoredByNotABespokeAgentLine(t *testing.T) {
-	trailer := commitTrailers("", "QA Reviewer")
+	trailer := commitTrailers(commitDetails{TaskKey: "", AgentName: "QA Reviewer"})
 	assert.Contains(t, trailer, "Co-authored-by: QA Reviewer <qa-reviewer@agents.tasktrooper.ai>")
 	assert.Contains(t, trailer, "Co-authored-by: Task Trooper <agents@tasktrooper.ai>")
 	assert.NotContains(t, trailer, "Agent:")
@@ -223,4 +223,21 @@ func captureBoardLogs(t *testing.T) *bytes.Buffer {
 	zlog.Logger = zerolog.New(&buf)
 	t.Cleanup(func() { zlog.Logger = previous })
 	return &buf
+}
+
+func TestCommitTrailersCustomCoauthorReplacesBuiltIns(t *testing.T) {
+	got := commitTrailers(commitDetails{TaskKey: "T-1", AgentName: "Backend Developer", Coauthor: "Jane Doe <jane@example.com>"})
+	assert.Equal(t, "\n\nTask: T-1\nCo-authored-by: Jane Doe <jane@example.com>\n", got)
+}
+
+func TestCommitTrailersDisabledKeepsOnlyTheTask(t *testing.T) {
+	d := commitDetails{TaskKey: "T-1", AgentName: "Backend Developer", Coauthor: "Jane <jane@example.com>", CoauthorDisabled: true}
+	assert.Equal(t, "\n\nTask: T-1\n", commitTrailers(d))
+	assert.Equal(t, "", commitTrailers(commitDetails{CoauthorDisabled: true}))
+}
+
+func TestCommitTrailersIgnoresAnInjectedCoauthor(t *testing.T) {
+	got := commitTrailers(commitDetails{AgentName: "QA", Coauthor: "x <x@y.zz>\nSigned-off-by: evil <e@e.ee>"})
+	assert.NotContains(t, got, "evil")
+	assert.Contains(t, got, "Task Trooper <agents@tasktrooper.ai>")
 }

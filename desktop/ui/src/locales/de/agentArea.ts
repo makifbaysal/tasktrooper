@@ -282,6 +282,13 @@ export const agentArea = {
     systemPrompt: "System-Prompt",
     enabled: "Aktiviert",
     coreHint: "Kernagent; kann nicht deaktiviert werden.",
+    commitCoauthor: {
+      label: "Commit-Co-Autor",
+      help: "Name <E-Mail> oder eine vollständige Co-authored-by-Zeile. Leer lassen für die Standardzeilen.",
+      placeholder: "Erika Muster <erika@example.com>",
+      disable: "Keinen Co-Autor hinzufügen",
+      disableHelp: "Ein: Die Commits dieses Agenten enthalten gar keine Co-authored-by-Zeile.",
+    },
     catalog: {
       autoPull: {
         label: "Definitionsupdates aus dem Katalog übernehmen",

@@ -24,6 +24,18 @@ type commitDetails struct {
 	AgentName string
 	Prefix    string
 	Writer    modelRef
+	// Coauthor ("Name <email>") replaces the built-in Co-authored-by trailers;
+	// CoauthorDisabled drops them. Both come from the agent's settings.
+	Coauthor         string
+	CoauthorDisabled bool
+}
+
+func (d commitDetails) withAgent(a domain.Agent) commitDetails {
+	d.AgentName = a.Name
+	d.Writer = agentWriterModel(a)
+	d.Coauthor = a.CommitCoauthor
+	d.CoauthorDisabled = a.CommitCoauthorDisabled
+	return d
 }
 
 func agentWriterModel(agentRec domain.Agent) modelRef {
@@ -40,7 +52,7 @@ func writeCommitMessage(ctx context.Context, llm port.LLMClient, d commitDetails
 	if d.Prefix != "" && !strings.HasPrefix(strings.ToLower(body), strings.ToLower(d.Prefix)) {
 		body = d.Prefix + body
 	}
-	return body + commitTrailers(d.TaskKey, d.AgentName)
+	return body + commitTrailers(d)
 }
 
 func (r *Runner) writeCommitMessage(ctx context.Context, d commitDetails) string {
@@ -129,15 +141,24 @@ const (
 	commitProductEmail = "agents@tasktrooper.ai"
 )
 
-func commitTrailers(taskKey, agentName string) string {
+func commitTrailers(d commitDetails) string {
 	var lines []string
-	if key := strings.TrimSpace(taskKey); key != "" {
+	if key := strings.TrimSpace(d.TaskKey); key != "" {
 		lines = append(lines, "Task: "+key)
 	}
-	if name := strings.TrimSpace(agentName); name != "" {
-		lines = append(lines, fmt.Sprintf("Co-authored-by: %s <%s@%s>", name, commitCoAuthorSlug(name), commitCoAuthorDomain))
+	switch custom, err := domain.NormalizeCommitCoauthor(d.Coauthor); {
+	case d.CoauthorDisabled:
+	case err == nil && custom != "":
+		lines = append(lines, "Co-authored-by: "+custom)
+	default:
+		if name := strings.TrimSpace(d.AgentName); name != "" {
+			lines = append(lines, fmt.Sprintf("Co-authored-by: %s <%s@%s>", name, commitCoAuthorSlug(name), commitCoAuthorDomain))
+		}
+		lines = append(lines, fmt.Sprintf("Co-authored-by: %s <%s>", commitProductName, commitProductEmail))
 	}
-	lines = append(lines, fmt.Sprintf("Co-authored-by: %s <%s>", commitProductName, commitProductEmail))
+	if len(lines) == 0 {
+		return ""
+	}
 	return "\n\n" + strings.Join(lines, "\n") + "\n"
 }
 

@@ -228,6 +228,8 @@ export function AgentSettingsPage() {
         // from an older server that predates these fields reads as "on".
         auto_pull_agent_updates: agent.auto_pull_agent_updates ?? true,
         keep_skills_updated: agent.keep_skills_updated ?? true,
+        commit_coauthor: agent.commit_coauthor ?? "",
+        commit_coauthor_disabled: agent.commit_coauthor_disabled ?? false,
       });
       setCatalogManaged(Boolean(agent.catalog_slug));
       setCoreAgent(isCoreAgent(agent));
@@ -595,6 +597,27 @@ export function AgentSettingsPage() {
             value={form.system_prompt}
             onChange={(e) => setForm((f) => ({ ...f, system_prompt: e.target.value }))}
           />
+        </div>
+        <div className="space-y-2">
+          <Label>{t("agentArea.settings.commitCoauthor.label")}</Label>
+          <Input
+            value={form.commit_coauthor ?? ""}
+            maxLength={200}
+            disabled={form.commit_coauthor_disabled}
+            placeholder={t("agentArea.settings.commitCoauthor.placeholder")}
+            onChange={(e) => setForm((f) => ({ ...f, commit_coauthor: e.target.value.replace(/[\r\n]/g, " ") }))}
+          />
+          <p className="text-xs text-muted-foreground">{t("agentArea.settings.commitCoauthor.help")}</p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <Label>{t("agentArea.settings.commitCoauthor.disable")}</Label>
+              <p className="text-xs text-muted-foreground">{t("agentArea.settings.commitCoauthor.disableHelp")}</p>
+            </div>
+            <Switch
+              checked={form.commit_coauthor_disabled ?? false}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, commit_coauthor_disabled: v }))}
+            />
+          </div>
         </div>
         <ToolPolicyForm value={policy} onChange={setPolicy} />
         {catalogManaged && (
