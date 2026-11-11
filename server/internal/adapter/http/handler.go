@@ -73,6 +73,7 @@ import (
 type BoardRunControl interface {
 	CancelRun(ctx context.Context, repositoryID, taskID, runID uuid.UUID, reason string) (domain.TaskAgentRun, error)
 	RerunRun(ctx context.Context, repositoryID, taskID, runID uuid.UUID) (domain.TaskAgentRun, error)
+	InterruptRun(ctx context.Context, repositoryID, taskID, runID uuid.UUID, message string) (domain.TaskAgentRun, error)
 }
 
 // TaskChatControl opens (or reuses) the chat thread about one board task and
@@ -80,7 +81,7 @@ type BoardRunControl interface {
 // the same reason as BoardRunControl: it keeps this package clear of the board
 // package and everything the runner drags in.
 type TaskChatControl interface {
-	Open(ctx context.Context, repositoryID, taskID uuid.UUID) (sessionID uuid.UUID, agentID uuid.UUID, err error)
+	Open(ctx context.Context, repositoryID, taskID, wantedAgentID uuid.UUID) (sessionID uuid.UUID, agentID uuid.UUID, err error)
 }
 
 type Handler struct {

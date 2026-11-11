@@ -92,7 +92,7 @@ func TestTaskChatOpenCreatesThenReusesOneThread(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Key: "DE-1", Title: "Add the store link", Column: domain.TaskColumnInProgress}
 	opener, sessions, _ := newTaskChatFixture(task, repositoryID)
 
-	first, _, err := opener.Open(context.Background(), repositoryID, task.ID)
+	first, _, err := opener.Open(context.Background(), repositoryID, task.ID, uuid.Nil)
 	require.NoError(t, err)
 	require.Len(t, sessions.created, 1)
 	assert.Equal(t, sessions.created[0].ID, first)
@@ -102,7 +102,7 @@ func TestTaskChatOpenCreatesThenReusesOneThread(t *testing.T) {
 	require.Len(t, sessions.appended, 1)
 	assert.Contains(t, sessions.appended[0].Content, "DE-1")
 
-	second, _, err := opener.Open(context.Background(), repositoryID, task.ID)
+	second, _, err := opener.Open(context.Background(), repositoryID, task.ID, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
 	assert.Len(t, sessions.created, 1, "the bound thread is reused, not replaced")
@@ -114,7 +114,7 @@ func TestTaskChatOpenRejectsATaskFromAnotherRepository(t *testing.T) {
 	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Key: "DE-1", Title: "Add the store link"}
 	opener, sessions, _ := newTaskChatFixture(task, repositoryID)
 
-	_, _, err := opener.Open(context.Background(), uuid.New(), task.ID)
+	_, _, err := opener.Open(context.Background(), uuid.New(), task.ID, uuid.Nil)
 
 	require.ErrorIs(t, err, domain.ErrBoardTaskNotFound, "the transport turns this into a 404")
 	assert.Empty(t, sessions.created)
@@ -135,7 +135,7 @@ func TestTaskChatOpenAdoptsTheTasksClarificationThread(t *testing.T) {
 		Repos:    taskChatRepos{root: "/repos/widget"},
 	})
 
-	got, _, err := opener.Open(context.Background(), repositoryID, taskID)
+	got, _, err := opener.Open(context.Background(), repositoryID, taskID, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, existing.ID, got)
 	assert.Empty(t, sessions.created, "the question thread becomes the task thread")
@@ -164,11 +164,11 @@ func TestTaskChatOpenPicksTheAssigneeThenTheColumnAgent(t *testing.T) {
 		Repos: taskChatRepos{root: "/repos/widget"},
 	})
 
-	_, gotAssigned, err := opener.Open(context.Background(), repositoryID, assigned.ID)
+	_, gotAssigned, err := opener.Open(context.Background(), repositoryID, assigned.ID, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, assignee.ID, gotAssigned)
 
-	_, gotUnassigned, err := opener.Open(context.Background(), repositoryID, unassigned.ID)
+	_, gotUnassigned, err := opener.Open(context.Background(), repositoryID, unassigned.ID, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, reviewer.ID, gotUnassigned, "an unassigned task talks to the column's agent")
 }
@@ -227,7 +227,40 @@ func TestTaskChatOnAnUnassignedQueueCardTalksToItsAreasDeveloper(t *testing.T) {
 		Repos: taskChatRepos{root: "/repos/web"}, Roles: roles,
 		RepoArea: func(context.Context, uuid.UUID) string { return "data" },
 	})
-	_, got, err := opener.Open(context.Background(), repositoryID, card.ID)
+	_, got, err := opener.Open(context.Background(), repositoryID, card.ID, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, data.ID, got, "the data card's chat goes to the data scientist, not the designer listed before it")
+}
+
+func TestTaskChatOpenWithANamedAgentKeepsOneThreadPerAgent(t *testing.T) {
+	repositoryID := uuid.New()
+	assignee := domain.Agent{ID: uuid.New(), Name: "backend-developer", Model: "m1", Enabled: true}
+	qa := domain.Agent{ID: uuid.New(), Name: "qa-engineer", Model: "m2", Enabled: true}
+	off := domain.Agent{ID: uuid.New(), Name: "retired", Enabled: false}
+	task := domain.BoardTask{ID: uuid.New(), RepositoryID: repositoryID, Key: "DE-1", Title: "Add the store link", AssigneeAgentID: &assignee.ID}
+	sessions := newFakeSessionStore()
+	opener := NewTaskChatOpener(TaskChatOpenerDeps{
+		Tasks:    &taskChatTaskStore{tasks: map[[2]uuid.UUID]domain.BoardTask{{repositoryID, task.ID}: task}},
+		Sessions: sessions,
+		Agents:   &taskChatAgentStore{agents: map[uuid.UUID]domain.Agent{assignee.ID: assignee, qa.ID: qa, off.ID: off}},
+		Repos:    taskChatRepos{root: "/repos/widget"},
+	})
+
+	defaultThread, defaultAgent, err := opener.Open(context.Background(), repositoryID, task.ID, uuid.Nil)
+	require.NoError(t, err)
+	assert.Equal(t, assignee.ID, defaultAgent)
+
+	qaThread, qaAgent, err := opener.Open(context.Background(), repositoryID, task.ID, qa.ID)
+	require.NoError(t, err)
+	assert.Equal(t, qa.ID, qaAgent)
+	assert.NotEqual(t, defaultThread, qaThread, "a reviewer gets its own thread, not the assignee's")
+
+	again, _, err := opener.Open(context.Background(), repositoryID, task.ID, qa.ID)
+	require.NoError(t, err)
+	assert.Equal(t, qaThread, again, "the same agent reopens the same thread")
+
+	_, _, err = opener.Open(context.Background(), repositoryID, task.ID, off.ID)
+	require.ErrorIs(t, err, domain.ErrChatAgentUnavailable)
+	_, _, err = opener.Open(context.Background(), repositoryID, task.ID, uuid.New())
+	require.ErrorIs(t, err, domain.ErrChatAgentUnavailable)
 }

@@ -27,12 +27,27 @@ func (h *Handler) OpenTaskChat(c *fiber.Ctx) error {
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
-	sessionID, agentID, err := h.taskChat.Open(h.enrichContext(c), repositoryID, taskID)
+	var req struct {
+		AgentID string `json:"agent_id"`
+	}
+	_ = c.BodyParser(&req)
+	wanted := uuid.Nil
+	if req.AgentID != "" {
+		parsed, parseErr := uuid.Parse(req.AgentID)
+		if parseErr != nil {
+			return badRequest(c, "invalid agent_id")
+		}
+		wanted = parsed
+	}
+	sessionID, agentID, err := h.taskChat.Open(h.enrichContext(c), repositoryID, taskID, wanted)
 	if err != nil {
 		// A task id the repository does not own comes back as not-found, which is
 		// also the answer for an unknown repository: both mean "no such task
 		// here", and distinguishing them would tell a caller whether a repository
 		// it cannot see exists.
+		if errors.Is(err, domain.ErrChatAgentUnavailable) {
+			return badRequest(c, err.Error())
+		}
 		if errors.Is(err, domain.ErrBoardTaskNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(errorResponse{
 				Error: errorDetail{Message: err.Error(), Type: "not_found"},

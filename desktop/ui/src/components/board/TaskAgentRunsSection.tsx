@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, CircleStop, Loader2, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleStop, Hand, Loader2, RotateCcw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { Agent, BoardTask, TaskAgentRun } from "@/api";
 import { ActivityFeed } from "@/components/activity/ActivityFeed";
@@ -56,6 +56,7 @@ interface TaskAgentRunsSectionProps {
   active: boolean;
   runActionId: string | null;
   onStop: (runId: string) => void;
+  onInterrupt: (runId: string) => void;
   onRerun: (runId: string) => void;
 }
 
@@ -67,6 +68,7 @@ export function TaskAgentRunsSection({
   active,
   runActionId,
   onStop,
+  onInterrupt,
   onRerun,
 }: TaskAgentRunsSectionProps) {
   const { t } = useI18n();
@@ -134,6 +136,12 @@ export function TaskAgentRunsSection({
 
   const actions = shown ? (
     <>
+      {liveRow && (
+        <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={busy} onClick={() => onInterrupt(shown.id)}>
+          <Hand />
+          {t("boardArea.components.taskDetail.runInterrupt")}
+        </Button>
+      )}
       {liveRow && (
         <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={busy} onClick={() => onStop(shown.id)}>
           {busy ? <Loader2 className="animate-spin" /> : <CircleStop />}

@@ -446,3 +446,51 @@ func (f *controlTaskStore) TakeBlockedResourceTask(context.Context, string, uuid
 func (f *controlTaskStore) ReleaseAnalysisQuestionsBlock(context.Context, uuid.UUID) (domain.BoardTask, bool, error) {
 	return domain.BoardTask{}, false, nil
 }
+
+type interruptCommenter struct{ got []domain.CreateTaskCommentRequest }
+
+func (f *interruptCommenter) AddComment(_ context.Context, _, _ uuid.UUID, req domain.CreateTaskCommentRequest) (domain.TaskComment, error) {
+	f.got = append(f.got, req)
+	return domain.TaskComment{}, nil
+}
+
+func (s *ControlSuite) TestInterruptRestartsRunWithGuidanceWithoutBlocking() {
+	runID := uuid.New()
+	agentID := uuid.New()
+	s.runs = newControlRunStore(domain.TaskAgentRun{
+		ID: runID, TaskID: s.taskID, AgentID: agentID,
+		Status: domain.TaskAgentRunStatusRunning,
+	})
+	comments := &interruptCommenter{}
+	ctl := s.controller()
+	ctl.SetCommenter(comments)
+
+	fresh, err := ctl.InterruptRun(context.Background(), s.repoID, s.taskID, runID, "  I fixed the headless browser, retry  ")
+
+	s.Require().NoError(err)
+	s.Equal(agentID, fresh.AgentID, "the same agent picks the task back up")
+	s.Equal(domain.TaskAgentRunStatusPending, fresh.Status)
+	s.Equal([]uuid.UUID{runID}, s.runner.cancelled)
+	s.Empty(s.tasks.blocked, "an interrupt must not park the task")
+	s.Require().Len(comments.got, 1)
+	s.Equal("I fixed the headless browser, retry", comments.got[0].Content)
+	s.True(comments.got[0].Informational, "the restart is enqueued here; the comment must not dispatch a second run")
+	s.Require().Len(s.runner.jobs, 1)
+	s.Equal(fresh.ID, s.runner.jobs[0].Run.ID)
+}
+
+func (s *ControlSuite) TestInterruptNeedsAMessageAndALiveRun() {
+	runID := uuid.New()
+	s.runs = newControlRunStore(domain.TaskAgentRun{
+		ID: runID, TaskID: s.taskID, AgentID: uuid.New(),
+		Status: domain.TaskAgentRunStatusCompleted,
+	})
+
+	_, err := s.controller().InterruptRun(context.Background(), s.repoID, s.taskID, runID, "  ")
+	s.Require().ErrorIs(err, domain.ErrInterruptMessageRequired)
+
+	_, err = s.controller().InterruptRun(context.Background(), s.repoID, s.taskID, runID, "retry")
+	s.Require().ErrorIs(err, domain.ErrRunNotLive)
+	s.Empty(s.runner.jobs)
+	s.Empty(s.runner.cancelled)
+}

@@ -1326,6 +1326,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	// once all wiring below is complete.
 	var activateBoard []func()
 	var boardRunControl httpadapter.BoardRunControl
+	var boardController *boardapp.Controller
 	// Both left nil (503) when there is no board: the stop/re-run routes and
 	// the task-chat route must not dereference a runner that was never built.
 	var boardTaskChat httpadapter.TaskChatControl
@@ -1423,7 +1424,8 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// Entering code_review is where a task's PR is guaranteed to exist, so
 			// it is where the task records which PR it is in.
 			boardRunner.SetTaskPRRecorder(boardTaskStore)
-			boardRunControl = boardapp.NewController(taskAgentRunStore, boardEventStore, boardTaskStore, boardRunner)
+			boardController = boardapp.NewController(taskAgentRunStore, boardEventStore, boardTaskStore, boardRunner)
+			boardRunControl = boardController
 		}
 
 		// WHERE a Claude Code session runs. One decision, two true answers, and
@@ -1708,6 +1710,9 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		if boardRunner != nil {
 			boardRunner.SetRepositories(repositorySvc)
 			boardRunner.SetTaskUpdater(repositorySvc)
+		}
+		if boardController != nil {
+			boardController.SetCommenter(repositorySvc)
 		}
 		repositorySvc.SetRequireCriteriaComplete(cfg.Board.RequireCriteriaComplete)
 

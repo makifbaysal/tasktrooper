@@ -19,6 +19,7 @@ type TaskChatSessions interface {
 	Create(ctx context.Context, title, model, workspaceDir string, projectID, agentID *uuid.UUID, expiresAt *time.Time) (domain.Session, error)
 	BindTask(ctx context.Context, id, taskID uuid.UUID) error
 	FindByTask(ctx context.Context, taskID uuid.UUID) (domain.Session, bool, error)
+	FindByTaskAndAgent(ctx context.Context, taskID, agentID uuid.UUID) (domain.Session, bool, error)
 	AppendMessage(ctx context.Context, sessionID uuid.UUID, role domain.Role, content string, toolCalls []byte, clarification []byte) (domain.SessionMessage, error)
 }
 
@@ -41,7 +42,7 @@ type TaskChatOpenerDeps struct {
 	RepoArea RepoAreaFunc
 }
 
-// One thread per task, forever: a second chat would split a conversation both sides have already settled.
+// One thread per task and agent, forever: a second chat with the same agent would split a conversation both sides have already settled.
 type TaskChatOpener struct {
 	tasks    TaskPRTasks
 	sessions TaskChatSessions
@@ -67,13 +68,18 @@ func NewTaskChatOpener(deps TaskChatOpenerDeps) *TaskChatOpener {
 }
 
 // Reading the task through its repository is the ownership check: another repo's id comes back not-found, no chat opens.
-func (o *TaskChatOpener) Open(ctx context.Context, repositoryID, taskID uuid.UUID) (uuid.UUID, uuid.UUID, error) {
+// A non-nil wantedAgent opens the thread with that specific agent (a reviewer, QA, ...) instead of the task's default one.
+func (o *TaskChatOpener) Open(ctx context.Context, repositoryID, taskID, wantedAgent uuid.UUID) (uuid.UUID, uuid.UUID, error) {
 	if o.sessions == nil || o.tasks == nil {
 		return uuid.Nil, uuid.Nil, fmt.Errorf("task chat is not available on this deployment")
 	}
 	task, err := o.tasks.Get(ctx, repositoryID, taskID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
+	}
+
+	if wantedAgent != uuid.Nil {
+		return o.openWithAgent(ctx, repositoryID, task, wantedAgent)
 	}
 
 	if sess, ok, findErr := o.sessions.FindByTask(ctx, taskID); findErr != nil {
@@ -107,12 +113,38 @@ func (o *TaskChatOpener) Open(ctx context.Context, repositoryID, taskID uuid.UUI
 			rootPath = resolved
 		}
 	}
+	return o.createThread(ctx, repositoryID, task, rootPath, model, agentID)
+}
+
+func (o *TaskChatOpener) openWithAgent(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, agentID uuid.UUID) (uuid.UUID, uuid.UUID, error) {
+	if o.agents == nil {
+		return uuid.Nil, uuid.Nil, domain.ErrChatAgentUnavailable
+	}
+	agentRec, err := o.agents.GetAgent(ctx, agentID)
+	if err != nil || !agentRec.Enabled {
+		return uuid.Nil, uuid.Nil, domain.ErrChatAgentUnavailable
+	}
+	if sess, ok, findErr := o.sessions.FindByTaskAndAgent(ctx, task.ID, agentID); findErr != nil {
+		return uuid.Nil, uuid.Nil, findErr
+	} else if ok {
+		return sess.ID, agentIDOf(sess), nil
+	}
+	rootPath := ""
+	if o.repos != nil {
+		if resolved, rootErr := o.repos.ResolveRootPath(ctx, repositoryID); rootErr == nil {
+			rootPath = resolved
+		}
+	}
+	return o.createThread(ctx, repositoryID, task, rootPath, agentRec.Model, &agentRec.ID)
+}
+
+func (o *TaskChatOpener) createThread(ctx context.Context, repositoryID uuid.UUID, task domain.BoardTask, rootPath, model string, agentID *uuid.UUID) (uuid.UUID, uuid.UUID, error) {
 	title := domain.TruncateHead(strings.TrimSpace(task.Key+" "+task.Title), 120)
 	sess, err := o.sessions.Create(ctx, title, model, rootPath, &repositoryID, agentID, nil)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	if err := o.sessions.BindTask(ctx, sess.ID, taskID); err != nil {
+	if err := o.sessions.BindTask(ctx, sess.ID, task.ID); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
 	o.seedOpeningMessage(ctx, sess.ID, task)

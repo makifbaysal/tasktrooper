@@ -160,6 +160,23 @@ func (s *SessionStore) FindByTask(ctx context.Context, taskID uuid.UUID) (domain
 	return sess, true, nil
 }
 
+// FindByTaskAndAgent returns the chat bound to taskID that is held with agentID,
+// so a task can carry one thread per agent talked to.
+func (s *SessionStore) FindByTaskAndAgent(ctx context.Context, taskID, agentID uuid.UUID) (domain.Session, bool, error) {
+	sess, err := s.scanSession(s.pool.QueryRow(ctx, `
+		SELECT `+sessionColumns+`
+		FROM sessions WHERE task_id = $1 AND agent_id = $2
+		ORDER BY updated_at DESC LIMIT 1
+	`, taskID, agentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Session{}, false, nil
+	}
+	if err != nil {
+		return domain.Session{}, false, fmt.Errorf("find session by task and agent: %w", err)
+	}
+	return sess, true, nil
+}
+
 func (s *SessionStore) UpdateWorkspaceDir(ctx context.Context, id uuid.UUID, workspaceDir string) error {
 	tag, err := s.pool.Exec(ctx, `UPDATE sessions SET workspace_dir = $2, updated_at = now() WHERE id = $1`, id, workspaceDir)
 	if err != nil {

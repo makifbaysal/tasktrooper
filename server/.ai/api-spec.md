@@ -172,7 +172,7 @@ alongside `documents`.
 
 ## Board run control
 
-Both return the run under a `run` key (`{"run": {...domain.TaskAgentRun...}}`), answer
+All return the run under a `run` key (`{"run": {...domain.TaskAgentRun...}}`), answer
 `503 service_unavailable` with no board runner wired, and `404 not_found` when the run
 does not exist or belongs to a different task than the URL names.
 
@@ -186,7 +186,14 @@ does not exist or belongs to a different task than the URL names.
   Returns the new (`pending`) run; `409` while the run is still going or the task is
   blocked — a blocked task is recovered by moving it, not by re-running in place.
 
-Neither goes through the board dispatcher: cancel would immediately fan fresh agents
+- `POST /v1/repositories/{id}/tasks/{taskId}/runs/{runId}/interrupt` — `{message}` (required, `400`
+  when empty). Stops the live run, records the message as a comment on the task (every run reads the
+  human's comments as requirements) and queues a new run of the **same agent** on the task as it
+  stands. Unlike cancel the task is **not** blocked and the workspace is kept. Returns the new
+  (`pending`) run; `409` when the run already stopped. Event: `task.rerun_requested` with
+  `interrupted: true`.
+
+None of them goes through the board dispatcher: cancel would immediately fan fresh agents
 onto the task it just stopped, and re-run would start every agent configured for the
 column rather than the one asked for. Each records its own board event
 (`task.run_cancelled` / `task.rerun_requested`).
@@ -297,7 +304,11 @@ session to send messages to plus the agent answering there:
 {"session_id": "0f9b…", "agent_id": "3c4d…"}
 ```
 
-Idempotent: one thread per task for its whole life, so pressing "discuss" again returns
+An optional body `{"agent_id": "…"}` opens the thread with that specific agent (QA, a
+reviewer, …) instead of the assignee: one thread per task **and agent**, `400` when the
+agent does not exist or is disabled.
+
+Idempotent: one thread per task (and agent) for its whole life, so pressing "discuss" again returns
 the same `session_id`. An existing clarification thread becomes the task thread rather
 than a second one being opened. `agent_id` is `""` when no agent is assigned and nobody
 is subscribed to the column — the chat still works, it just has no persona. `404` for an

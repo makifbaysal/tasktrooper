@@ -230,6 +230,10 @@ var (
 	// A cancel request for a run that already stopped — the caller races the
 	// run, so this is expected.
 	ErrRunNotLive = errors.New("agent run is not pending or running")
+	// An interrupt with no guidance would only restart the run.
+	// A task chat asked for an agent that does not exist or is switched off.
+	ErrChatAgentUnavailable     = errors.New("that agent is not available for a task chat")
+	ErrInterruptMessageRequired = errors.New("interrupt needs a message for the agent")
 	// A re-run request for a run that is still going.
 	ErrRunNotTerminal = errors.New("agent run has not finished yet")
 	// A re-run request on a blocked task: recovery is moving it to a column,
