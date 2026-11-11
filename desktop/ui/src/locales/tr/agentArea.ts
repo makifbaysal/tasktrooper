@@ -290,6 +290,13 @@ export const agentArea: AgentAreaDict = {
     systemPrompt: "Sistem istemi",
     enabled: "Etkin",
     coreHint: "Çekirdek ajan; kapatılamaz.",
+    commitCoauthor: {
+      label: "Commit ortak yazarı",
+      help: "Ad <e-posta> veya tam bir Co-authored-by satırı. Varsayılan satırlar için boş bırakın.",
+      placeholder: "Ayşe Yılmaz <ayse@example.com>",
+      disable: "Ortak yazar ekleme",
+      disableHelp: "Açık: bu ajanın commit'lerinde hiç Co-authored-by satırı olmaz.",
+    },
     catalog: {
       autoPull: {
         label: "Tanım güncellemelerini katalogdan çek",

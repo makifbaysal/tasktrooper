@@ -301,6 +301,10 @@ func (s *Service) CreateAgent(ctx context.Context, req domain.CreateAgentRequest
 	if req.MaxTurns < 0 {
 		return domain.Agent{}, invalidInput("max_turns cannot be negative; use 0 for the executor's default")
 	}
+	coauthor, err := domain.NormalizeCommitCoauthor(req.CommitCoauthor)
+	if err != nil {
+		return domain.Agent{}, invalidInput("%s", err.Error())
+	}
 	if err := s.checkProviderAvailable(req.ProviderType); err != nil {
 		return domain.Agent{}, err
 	}
@@ -313,6 +317,7 @@ func (s *Service) CreateAgent(ctx context.Context, req domain.CreateAgentRequest
 		SelfEvolutionEnabled: req.SelfEvolutionEnabled,
 		AutoPullAgentUpdates: true,
 		KeepSkillsUpdated:    true,
+		CommitCoauthor:       coauthor, CommitCoauthorDisabled: req.CommitCoauthorDisabled,
 	})
 }
 
@@ -336,6 +341,14 @@ func (s *Service) UpdateAgent(ctx context.Context, id uuid.UUID, req domain.Upda
 	}
 	if req.MaxTurns < 0 {
 		return domain.Agent{}, invalidInput("max_turns cannot be negative; use 0 for the executor's default")
+	}
+	var newCoauthor string
+	if req.CommitCoauthor != nil {
+		n, err := domain.NormalizeCommitCoauthor(*req.CommitCoauthor)
+		if err != nil {
+			return domain.Agent{}, invalidInput("%s", err.Error())
+		}
+		newCoauthor = n
 	}
 	if err := s.checkProviderAvailable(req.ProviderType); err != nil {
 		return domain.Agent{}, err
@@ -361,6 +374,13 @@ func (s *Service) UpdateAgent(ctx context.Context, id uuid.UUID, req domain.Upda
 	if req.KeepSkillsUpdated != nil {
 		keepUpdated = *req.KeepSkillsUpdated
 	}
+	coauthor, coauthorOff := existing.CommitCoauthor, existing.CommitCoauthorDisabled
+	if req.CommitCoauthor != nil {
+		coauthor = newCoauthor
+	}
+	if req.CommitCoauthorDisabled != nil {
+		coauthorOff = *req.CommitCoauthorDisabled
+	}
 	return s.store.UpdateAgent(ctx, domain.Agent{
 		ID: id, Name: req.Name, Description: req.Description, SubagentType: req.SubagentType,
 		SystemPrompt: req.SystemPrompt, ProviderType: req.ProviderType, Model: req.Model, ModelHeavy: req.ModelHeavy, MaxTurns: req.MaxTurns, Effort: req.Effort, ToolPolicy: req.ToolPolicy, Enabled: req.Enabled,
@@ -369,6 +389,7 @@ func (s *Service) UpdateAgent(ctx context.Context, id uuid.UUID, req domain.Upda
 		KeepSkillsUpdated:    keepUpdated,
 		CatalogSlug:          existing.CatalogSlug,
 		CatalogEtag:          existing.CatalogEtag,
+		CommitCoauthor:       coauthor, CommitCoauthorDisabled: coauthorOff,
 	})
 }
 

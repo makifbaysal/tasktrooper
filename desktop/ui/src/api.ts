@@ -1899,6 +1899,9 @@ export interface Agent {
   // as "born connected to the catalog" in the settings page.
   auto_pull_agent_updates?: boolean;
   keep_skills_updated?: boolean;
+  // Optional: an older server omits them; empty/false = the built-in trailers.
+  commit_coauthor?: string;
+  commit_coauthor_disabled?: boolean;
   created_at: string;
 }
 

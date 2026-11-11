@@ -308,11 +308,9 @@ func (s *TaskPRService) CommitTaskChanges(ctx context.Context, repositoryID, tas
 func (s *TaskPRService) commitMessage(ctx context.Context, task domain.BoardTask, message string) string {
 	agentRec := s.runningAgent(ctx)
 	return writeCommitMessage(ctx, s.llm, commitDetails{
-		TaskKey:   task.Key,
-		Title:     message,
-		AgentName: agentRec.Name,
-		Writer:    agentWriterModel(agentRec),
-	})
+		TaskKey: task.Key,
+		Title:   message,
+	}.withAgent(agentRec))
 }
 
 func (s *TaskPRService) runningAgent(ctx context.Context) domain.Agent {

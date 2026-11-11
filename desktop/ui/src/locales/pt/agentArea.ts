@@ -282,6 +282,13 @@ export const agentArea = {
     systemPrompt: "Prompt de sistema",
     enabled: "Ativado",
     coreHint: "Agente principal; não pode ser desativado.",
+    commitCoauthor: {
+      label: "Coautor do commit",
+      help: "Nome <e-mail> ou uma linha Co-authored-by completa. Deixe vazio para as linhas padrão.",
+      placeholder: "Ana Silva <ana@example.com>",
+      disable: "Não adicionar coautor",
+      disableHelp: "Ativado: os commits deste agente não levam nenhuma linha Co-authored-by.",
+    },
     catalog: {
       autoPull: {
         label: "Buscar atualizações da definição no catálogo",

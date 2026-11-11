@@ -282,6 +282,13 @@ export const agentArea = {
     systemPrompt: "系统提示词",
     enabled: "已启用",
     coreHint: "核心智能体；无法关闭。",
+    commitCoauthor: {
+      label: "提交共同作者",
+      help: "姓名 <邮箱> 或完整的 Co-authored-by 行。留空则使用默认署名行。",
+      placeholder: "张三 <zhang@example.com>",
+      disable: "不添加共同作者",
+      disableHelp: "开启：此智能体的提交不带任何 Co-authored-by 行。",
+    },
     catalog: {
       autoPull: {
         label: "从目录拉取定义更新",

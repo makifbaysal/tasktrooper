@@ -265,11 +265,11 @@ func (s *CatalogStore) CreateAgent(ctx context.Context, agent domain.Agent) (dom
 	}
 	var out domain.Agent
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO agents (name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, auto_pull_agent_updates, keep_skills_updated)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		RETURNING id, name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, catalog_etag, auto_pull_agent_updates, keep_skills_updated, created_at
-	`, agent.Name, agent.Description, agent.SubagentType, agent.SystemPrompt, agent.ProviderType, agent.Model, agent.ModelHeavy, agent.MaxTurns, agent.Effort, policyJSON, agent.Enabled, agent.SelfEvolutionEnabled, agent.CatalogSlug, agent.AutoPullAgentUpdates, agent.KeepSkillsUpdated).Scan(
-		&out.ID, &out.Name, &out.Description, &out.SubagentType, &out.SystemPrompt, &out.ProviderType, &out.Model, &out.ModelHeavy, &out.MaxTurns, &out.Effort, &policyJSON, &out.Enabled, &out.SelfEvolutionEnabled, &out.CatalogSlug, &out.CatalogEtag, &out.AutoPullAgentUpdates, &out.KeepSkillsUpdated, &out.CreatedAt,
+		INSERT INTO agents (name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, auto_pull_agent_updates, keep_skills_updated, commit_coauthor, commit_coauthor_disabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		RETURNING id, name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, catalog_etag, auto_pull_agent_updates, keep_skills_updated, commit_coauthor, commit_coauthor_disabled, created_at
+	`, agent.Name, agent.Description, agent.SubagentType, agent.SystemPrompt, agent.ProviderType, agent.Model, agent.ModelHeavy, agent.MaxTurns, agent.Effort, policyJSON, agent.Enabled, agent.SelfEvolutionEnabled, agent.CatalogSlug, agent.AutoPullAgentUpdates, agent.KeepSkillsUpdated, agent.CommitCoauthor, agent.CommitCoauthorDisabled).Scan(
+		&out.ID, &out.Name, &out.Description, &out.SubagentType, &out.SystemPrompt, &out.ProviderType, &out.Model, &out.ModelHeavy, &out.MaxTurns, &out.Effort, &policyJSON, &out.Enabled, &out.SelfEvolutionEnabled, &out.CatalogSlug, &out.CatalogEtag, &out.AutoPullAgentUpdates, &out.KeepSkillsUpdated, &out.CommitCoauthor, &out.CommitCoauthorDisabled, &out.CreatedAt,
 	)
 	if err != nil {
 		return domain.Agent{}, fmt.Errorf("create agent: %w", err)
@@ -304,9 +304,9 @@ func (s *CatalogStore) GetAgent(ctx context.Context, id uuid.UUID) (domain.Agent
 	var out domain.Agent
 	var policyJSON []byte
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, catalog_etag, auto_pull_agent_updates, keep_skills_updated, created_at
+		SELECT id, name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, catalog_etag, auto_pull_agent_updates, keep_skills_updated, commit_coauthor, commit_coauthor_disabled, created_at
 		FROM agents WHERE id = $1
-	`, id).Scan(&out.ID, &out.Name, &out.Description, &out.SubagentType, &out.SystemPrompt, &out.ProviderType, &out.Model, &out.ModelHeavy, &out.MaxTurns, &out.Effort, &policyJSON, &out.Enabled, &out.SelfEvolutionEnabled, &out.CatalogSlug, &out.CatalogEtag, &out.AutoPullAgentUpdates, &out.KeepSkillsUpdated, &out.CreatedAt)
+	`, id).Scan(&out.ID, &out.Name, &out.Description, &out.SubagentType, &out.SystemPrompt, &out.ProviderType, &out.Model, &out.ModelHeavy, &out.MaxTurns, &out.Effort, &policyJSON, &out.Enabled, &out.SelfEvolutionEnabled, &out.CatalogSlug, &out.CatalogEtag, &out.AutoPullAgentUpdates, &out.KeepSkillsUpdated, &out.CommitCoauthor, &out.CommitCoauthorDisabled, &out.CreatedAt)
 	if err != nil {
 		return domain.Agent{}, fmt.Errorf("get agent: %w", err)
 	}
@@ -321,7 +321,7 @@ func (s *CatalogStore) GetAgent(ctx context.Context, id uuid.UUID) (domain.Agent
 
 func (s *CatalogStore) ListAgents(ctx context.Context) ([]domain.Agent, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT a.id, a.name, a.description, a.subagent_type, a.system_prompt, a.provider_type, a.model, a.model_heavy, a.max_turns, a.effort, a.tool_policy, a.enabled, a.self_evolution_enabled, a.catalog_slug, a.catalog_etag, a.auto_pull_agent_updates, a.keep_skills_updated, a.created_at,
+		SELECT a.id, a.name, a.description, a.subagent_type, a.system_prompt, a.provider_type, a.model, a.model_heavy, a.max_turns, a.effort, a.tool_policy, a.enabled, a.self_evolution_enabled, a.catalog_slug, a.catalog_etag, a.auto_pull_agent_updates, a.keep_skills_updated, a.commit_coauthor, a.commit_coauthor_disabled, a.created_at,
 		       COALESCE(array_agg(sk.id ORDER BY sk.name) FILTER (WHERE sk.id IS NOT NULL), '{}')
 		FROM agents a
 		LEFT JOIN skills sk ON sk.agent_id = a.id
@@ -336,7 +336,7 @@ func (s *CatalogStore) ListAgents(ctx context.Context) ([]domain.Agent, error) {
 	for rows.Next() {
 		var a domain.Agent
 		var policyJSON []byte
-		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.SubagentType, &a.SystemPrompt, &a.ProviderType, &a.Model, &a.ModelHeavy, &a.MaxTurns, &a.Effort, &policyJSON, &a.Enabled, &a.SelfEvolutionEnabled, &a.CatalogSlug, &a.CatalogEtag, &a.AutoPullAgentUpdates, &a.KeepSkillsUpdated, &a.CreatedAt, &a.SkillIDs); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Description, &a.SubagentType, &a.SystemPrompt, &a.ProviderType, &a.Model, &a.ModelHeavy, &a.MaxTurns, &a.Effort, &policyJSON, &a.Enabled, &a.SelfEvolutionEnabled, &a.CatalogSlug, &a.CatalogEtag, &a.AutoPullAgentUpdates, &a.KeepSkillsUpdated, &a.CommitCoauthor, &a.CommitCoauthorDisabled, &a.CreatedAt, &a.SkillIDs); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(policyJSON, &a.ToolPolicy)
@@ -355,11 +355,11 @@ func (s *CatalogStore) UpdateAgent(ctx context.Context, agent domain.Agent) (dom
 	}
 	var out domain.Agent
 	err = s.pool.QueryRow(ctx, `
-		UPDATE agents SET name=$2, description=$3, subagent_type=$4, system_prompt=$5, provider_type=$6, model=$7, model_heavy=$8, max_turns=$9, effort=$10, tool_policy=$11, enabled=$12, self_evolution_enabled=$13, catalog_slug=$14, catalog_etag=$15, auto_pull_agent_updates=$16, keep_skills_updated=$17
+		UPDATE agents SET name=$2, description=$3, subagent_type=$4, system_prompt=$5, provider_type=$6, model=$7, model_heavy=$8, max_turns=$9, effort=$10, tool_policy=$11, enabled=$12, self_evolution_enabled=$13, catalog_slug=$14, catalog_etag=$15, auto_pull_agent_updates=$16, keep_skills_updated=$17, commit_coauthor=$18, commit_coauthor_disabled=$19
 		WHERE id=$1
-		RETURNING id, name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, catalog_etag, auto_pull_agent_updates, keep_skills_updated, created_at
-	`, agent.ID, agent.Name, agent.Description, agent.SubagentType, agent.SystemPrompt, agent.ProviderType, agent.Model, agent.ModelHeavy, agent.MaxTurns, agent.Effort, policyJSON, agent.Enabled, agent.SelfEvolutionEnabled, agent.CatalogSlug, agent.CatalogEtag, agent.AutoPullAgentUpdates, agent.KeepSkillsUpdated).Scan(
-		&out.ID, &out.Name, &out.Description, &out.SubagentType, &out.SystemPrompt, &out.ProviderType, &out.Model, &out.ModelHeavy, &out.MaxTurns, &out.Effort, &policyJSON, &out.Enabled, &out.SelfEvolutionEnabled, &out.CatalogSlug, &out.CatalogEtag, &out.AutoPullAgentUpdates, &out.KeepSkillsUpdated, &out.CreatedAt,
+		RETURNING id, name, description, subagent_type, system_prompt, provider_type, model, model_heavy, max_turns, effort, tool_policy, enabled, self_evolution_enabled, catalog_slug, catalog_etag, auto_pull_agent_updates, keep_skills_updated, commit_coauthor, commit_coauthor_disabled, created_at
+	`, agent.ID, agent.Name, agent.Description, agent.SubagentType, agent.SystemPrompt, agent.ProviderType, agent.Model, agent.ModelHeavy, agent.MaxTurns, agent.Effort, policyJSON, agent.Enabled, agent.SelfEvolutionEnabled, agent.CatalogSlug, agent.CatalogEtag, agent.AutoPullAgentUpdates, agent.KeepSkillsUpdated, agent.CommitCoauthor, agent.CommitCoauthorDisabled).Scan(
+		&out.ID, &out.Name, &out.Description, &out.SubagentType, &out.SystemPrompt, &out.ProviderType, &out.Model, &out.ModelHeavy, &out.MaxTurns, &out.Effort, &policyJSON, &out.Enabled, &out.SelfEvolutionEnabled, &out.CatalogSlug, &out.CatalogEtag, &out.AutoPullAgentUpdates, &out.KeepSkillsUpdated, &out.CommitCoauthor, &out.CommitCoauthorDisabled, &out.CreatedAt,
 	)
 	if err != nil {
 		return domain.Agent{}, fmt.Errorf("update agent: %w", err)

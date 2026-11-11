@@ -81,8 +81,14 @@ type Agent struct {
 	// without losing the skills the catalog still supplies.
 	AutoPullAgentUpdates bool `json:"auto_pull_agent_updates"`
 	// KeepSkillsUpdated gates LLM-merged skill conflict resolution.
-	KeepSkillsUpdated bool      `json:"keep_skills_updated"`
-	CreatedAt         time.Time `json:"created_at"`
+	KeepSkillsUpdated bool `json:"keep_skills_updated"`
+	// CommitCoauthor replaces the built-in Co-authored-by trailers on this
+	// agent's commits ("Name <email>"); empty = the built-in ones.
+	CommitCoauthor string `json:"commit_coauthor"`
+	// CommitCoauthorDisabled drops every Co-authored-by trailer from this
+	// agent's commits.
+	CommitCoauthorDisabled bool      `json:"commit_coauthor_disabled"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 type OrchestratorRule struct {
@@ -186,6 +192,9 @@ type CreateAgentRequest struct {
 	ToolPolicy           ToolPolicy `json:"tool_policy"`
 	Enabled              bool       `json:"enabled"`
 	SelfEvolutionEnabled bool       `json:"self_evolution_enabled"`
+	CommitCoauthor       string     `json:"commit_coauthor"`
+	// CommitCoauthorDisabled turns every Co-authored-by trailer off.
+	CommitCoauthorDisabled bool `json:"commit_coauthor_disabled"`
 }
 
 type UpdateAgentRequest struct {
@@ -209,6 +218,10 @@ type UpdateAgentRequest struct {
 	// all — the catalog sync owns them.
 	AutoPullAgentUpdates *bool `json:"auto_pull_agent_updates"`
 	KeepSkillsUpdated    *bool `json:"keep_skills_updated"`
+	// Pointers: omitted keeps the stored value, so catalog sync and older
+	// clients never reset a user's co-author choice.
+	CommitCoauthor         *string `json:"commit_coauthor"`
+	CommitCoauthorDisabled *bool   `json:"commit_coauthor_disabled"`
 }
 
 type CreateOrchestratorRuleRequest struct {
