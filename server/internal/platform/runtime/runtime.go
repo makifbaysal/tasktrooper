@@ -2845,6 +2845,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		if workflowSvc != nil {
 			settingsSvc.SetWorkflows(workflowSvc)
 			settingsSvc.SetRoleResolver(workflowSvc)
+			settingsSvc.SetStageSwitch(workflowSvc)
+			if repositorySvc != nil {
+				settingsSvc.SetTaskMover(repositorySvc)
+			}
+			settingsSvc.ApplyStoredPMUAT(ctx)
 		}
 		if catalogSvc != nil {
 			settingsSvc.SetAgentCatalog(catalogSvc)

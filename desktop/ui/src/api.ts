@@ -1493,6 +1493,8 @@ export interface AppSettings {
   /** Concurrency caps for the board runner; 0 (or absent) means unlimited. */
   max_concurrent_agents?: number;
   max_concurrent_tasks?: number;
+  /** false removes the PM UAT step; absent (older server) means on. */
+  pm_uat_enabled?: boolean;
 }
 
 export interface GitHubConnectionStatus {

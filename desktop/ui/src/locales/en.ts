@@ -227,6 +227,12 @@ export const en = {
       loadFailed: "Failed to load settings",
       saveFailed: "Failed to save",
     },
+    workflow: {
+      title: "Workflow",
+      pmUatLabel: "PM UAT step",
+      pmUatHelp: "When on, the product manager checks every acceptance criterion before it reaches you. Turn it off to skip that step: the PM UAT column and PM checks disappear, and tasks go from QA straight to your approval. Tasks waiting in PM UAT move on to Human UAT.",
+      saveFailed: "Failed to save",
+    },
   },
   addRepository,
   agentArea,

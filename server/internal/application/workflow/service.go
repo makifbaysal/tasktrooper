@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -54,6 +55,10 @@ type Service struct {
 
 	mu   sync.RWMutex
 	snap *snapshot
+
+	// pmUATOff: the global "PM UAT step" setting. Zero value = on, so a
+	// Service nobody wired keeps today's behaviour.
+	pmUATOff atomic.Bool
 }
 
 func NewService(roles port.RoleStore, workflows port.WorkflowStore) *Service {
@@ -127,6 +132,29 @@ func (s *Service) getSnapshot() (*snapshot, error) {
 // taskType is unknown to this snapshot — a task whose type was since deleted,
 // or created before its type existed, still has somewhere to route.
 func (s *Service) Workflow(ctx context.Context, taskType domain.TaskType) (domain.Workflow, error) {
+	wf, err := s.storedWorkflow(taskType)
+	if err != nil {
+		return wf, err
+	}
+	if s.pmUATOff.Load() {
+		wf = wf.WithoutStage(domain.TaskColumnPMUAT)
+	}
+	return wf, nil
+}
+
+// SetPMUATEnabled switches the PM UAT stage on or off for every workflow the
+// engine reads. Off drops the stage and re-points whatever handed to it at its
+// exit, so nothing ever enters pm_uat or runs the PM's UAT review.
+func (s *Service) SetPMUATEnabled(enabled bool) { s.pmUATOff.Store(!enabled) }
+
+func (s *Service) PMUATEnabled() bool { return !s.pmUATOff.Load() }
+
+// StoredWorkflow is taskType's workflow as configured, with no setting applied.
+func (s *Service) StoredWorkflow(taskType domain.TaskType) (domain.Workflow, error) {
+	return s.storedWorkflow(taskType)
+}
+
+func (s *Service) storedWorkflow(taskType domain.TaskType) (domain.Workflow, error) {
 	snap, err := s.getSnapshot()
 	if err != nil {
 		return domain.Workflow{}, err

@@ -225,6 +225,12 @@ export const de: Dict = {
       loadFailed: "Einstellungen konnten nicht geladen werden",
       saveFailed: "Speichern fehlgeschlagen",
     },
+    workflow: {
+      title: "Workflow",
+      pmUatLabel: "PM-UAT-Schritt",
+      pmUatHelp: "Wenn aktiviert, prüft der Product Manager jedes Akzeptanzkriterium, bevor die Aufgabe bei dir ankommt. Deaktiviere ihn, um den Schritt zu überspringen: Die Spalte PM UAT und die PM-Prüfungen verschwinden, und Aufgaben gehen von QA direkt zu deiner Freigabe. Aufgaben in PM UAT rücken zu Human UAT vor.",
+      saveFailed: "Speichern fehlgeschlagen",
+    },
   },
   addRepository,
   agentArea,

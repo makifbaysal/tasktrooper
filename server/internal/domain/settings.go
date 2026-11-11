@@ -12,6 +12,8 @@ type AppSettings struct {
 	// MaxConcurrentTasks is how many distinct tasks may hold a live run at once
 	// from this board runner; 0 means unlimited.
 	MaxConcurrentTasks int `json:"max_concurrent_tasks"`
+	// PMUATEnabled: false removes the PM UAT step. Default (never set) is on.
+	PMUATEnabled bool `json:"pm_uat_enabled"`
 }
 
 type UpdateSettingsRequest struct {
@@ -23,4 +25,6 @@ type UpdateSettingsRequest struct {
 	// (0 is a real, wanted value: unlimited).
 	MaxConcurrentAgents *int `json:"max_concurrent_agents"`
 	MaxConcurrentTasks  *int `json:"max_concurrent_tasks"`
+	// An option so an unset key leaves the stored value alone.
+	PMUATEnabled *bool `json:"pm_uat_enabled"`
 }

@@ -262,3 +262,73 @@ func (w Workflow) ReviewStagesBetween(from, to TaskColumn) []ReviewStage {
 	}
 	return out
 }
+
+// StageExit is where a task leaves col on the happy path: the stage's own
+// review_verdict_sweep pass_to, else the next on-path stage.
+func (w Workflow) StageExit(col TaskColumn) (TaskColumn, bool) {
+	if to, ok := w.Param(col, BehaviourReviewVerdictSweep, "pass_to"); ok && to != "" {
+		return TaskColumn(to), true
+	}
+	return w.NextOnPath(col)
+}
+
+// WithoutStage is the workflow with col switched off: its stage is gone and
+// every behaviour param that named it now names its exit, so the previous
+// stage hands straight to the next one. A workflow without that stage (or
+// whose stage has no exit) comes back with the stage dropped and nothing
+// rewritten. ensure_pr_on_enter moves to the exit so the PR still exists
+// when the task reaches it. The receiver is never mutated.
+func (w Workflow) WithoutStage(col TaskColumn) Workflow {
+	stage, found := w.Stage(col)
+	if !found {
+		return w
+	}
+	exit, hasExit := w.StageExit(col)
+	if hasExit && exit == col {
+		hasExit = false
+	}
+	out := Workflow{Type: w.Type, Stages: make([]WorkflowStage, 0, len(w.Stages)-1)}
+	for _, s := range w.Stages {
+		if s.Column == col {
+			continue
+		}
+		if hasExit {
+			s.Behaviours = rewriteBehaviourColumn(s.Behaviours, string(col), string(exit))
+			if s.Column == exit && stage.Has(BehaviourEnsurePROnEnter) && !s.Has(BehaviourEnsurePROnEnter) {
+				s.Behaviours = append(append([]BehaviourRef(nil), s.Behaviours...), BehaviourRef{Key: BehaviourEnsurePROnEnter})
+			}
+		}
+		out.Stages = append(out.Stages, s)
+	}
+	return out
+}
+
+func rewriteBehaviourColumn(refs []BehaviourRef, from, to string) []BehaviourRef {
+	var out []BehaviourRef
+	for i, b := range refs {
+		var params map[string]string
+		for k, v := range b.Params {
+			if v != from {
+				continue
+			}
+			if params == nil {
+				params = make(map[string]string, len(b.Params))
+				for k2, v2 := range b.Params {
+					params[k2] = v2
+				}
+			}
+			params[k] = to
+		}
+		if params == nil {
+			continue
+		}
+		if out == nil {
+			out = append([]BehaviourRef(nil), refs...)
+		}
+		out[i].Params = params
+	}
+	if out == nil {
+		return refs
+	}
+	return out
+}
