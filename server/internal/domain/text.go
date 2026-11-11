@@ -7,7 +7,7 @@ import "unicode/utf8"
 // through a rune: mid-rune UTF-8 makes Postgres reject the write ("invalid byte
 // sequence") and providers reject the message. Every string truncated here is
 // LLM output, a git diff or user text — routinely non-ASCII, and always so in
-// the default language (Turkish).
+// Turkish, Chinese and the like.
 
 // TruncateHead keeps the first maxBytes bytes without splitting a rune.
 func TruncateHead(s string, maxBytes int) string {

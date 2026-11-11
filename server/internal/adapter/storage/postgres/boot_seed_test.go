@@ -76,6 +76,9 @@ func (s *BootSeedSuite) TestBoardIsSeededOnce() {
 	s.Positive(s.count("app_settings"))
 	s.Positive(s.count("llm_provider_configs"))
 	s.Positive(s.count("model_prices"))
+	var lang string
+	s.Require().NoError(s.db.QueryRow(s.ctx, `SELECT value FROM app_settings WHERE key = 'default_language'`).Scan(&lang))
+	s.Equal("en", lang, "a fresh install opens in English")
 	// board_tasks.board_column is validated against these slugs and agent
 	// subscriptions name them.
 	s.Equal([]string{
