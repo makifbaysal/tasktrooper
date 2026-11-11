@@ -113,6 +113,14 @@ placeholder present in one but missing in another fails it.
 
 A release is a tag push, handled by `.github/workflows/release.yml`:
 
+0. **Write the What's new entry first.** The app shows a pop-up with the
+   release notes on the first launch after the version changes. Add that
+   version to `desktop/ui/src/lib/whatsNew/entries.ts` (`items` ids, 3-6 plain
+   user-facing bullets) and its strings under `whatsNew.v<x>_<y>_<z>` in all
+   seven locale files (`desktop/ui/src/locales/<lang>/whatsNew.ts`). A release
+   with nothing a person would notice gets `{ version: "x.y.z", skip: true }`
+   instead. The `release` job runs `desktop/ui/scripts/check-whats-new.mjs` and
+   stops the tag build when neither exists.
 1. **The tag is the version.** Each platform job writes the tag (minus its
    `v`) into `desktop/package.json` before building, so cutting a release is
    only pushing an annotated `vX.Y.Z` tag — no version-bump commit first.

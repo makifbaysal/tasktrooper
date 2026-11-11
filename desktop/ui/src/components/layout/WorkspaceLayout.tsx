@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Agent, type WorkspaceConfig } from "@/api";
 import { PageSuspense } from "@/components/layout/PageSuspense";
+import { WhatsNewOnLaunch } from "@/components/layout/WhatsNewDialog";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { useCachedState, useFirstLoad } from "@/hooks/useCachedState";
 import type { WorkspaceOutletContext } from "@/hooks/useWorkspaceOutlet";
@@ -141,6 +142,7 @@ export function WorkspaceLayout() {
         <PageSuspense>
           <Outlet context={outletContext} />
         </PageSuspense>
+        <WhatsNewOnLaunch />
       </div>
     </WorkspaceShell>
   );

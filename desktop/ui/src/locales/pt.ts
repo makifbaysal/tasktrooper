@@ -24,6 +24,7 @@ import { telemetryHub } from "@/locales/pt/telemetryHub";
 import { setup } from "@/locales/pt/setup";
 import { remoteAccess } from "@/locales/pt/remoteAccess";
 import { toolchain } from "@/locales/pt/toolchain";
+import { whatsNew } from "@/locales/pt/whatsNew";
 
 // Brazilian Portuguese dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const pt: Dict = {
@@ -260,4 +261,5 @@ export const pt: Dict = {
   setup,
   remoteAccess,
   toolchain,
+  whatsNew,
 };

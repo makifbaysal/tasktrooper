@@ -24,6 +24,7 @@ import { telemetryHub } from "@/locales/de/telemetryHub";
 import { setup } from "@/locales/de/setup";
 import { remoteAccess } from "@/locales/de/remoteAccess";
 import { toolchain } from "@/locales/de/toolchain";
+import { whatsNew } from "@/locales/de/whatsNew";
 
 // German dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const de: Dict = {
@@ -260,4 +261,5 @@ export const de: Dict = {
   setup,
   remoteAccess,
   toolchain,
+  whatsNew,
 };

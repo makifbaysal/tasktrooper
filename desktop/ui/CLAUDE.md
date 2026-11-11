@@ -20,6 +20,15 @@ the code does; well-named identifiers already do that.
 
 `src/lib/features.ts` exports `ADVANCED_TEAM_CONFIG` (false): Board/Roles/Workflows settings and hand-made agent creation are hidden and their routes redirect; the code stays.
 
+## What's new (every release)
+
+The app opens a "What's new" pop-up on the first launch after the version
+changes. Before a tag is cut, add that version to `src/lib/whatsNew/entries.ts`
+(3-6 `items` ids) with the strings in all seven `src/locales/<lang>/whatsNew.ts`
+files, or mark the version `{ version, skip: true }` when nothing is worth
+announcing. The release workflow (`scripts/check-whats-new.mjs`) and
+`src/lib/whatsNew/entries.test.ts` fail without one of the two.
+
 ## Frontend UI rule (mandatory)
 
 All UI in `src/` follows **Atomic Design**: atom → molecule → organism →

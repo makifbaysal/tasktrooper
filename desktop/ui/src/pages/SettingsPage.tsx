@@ -5,6 +5,7 @@ import { api } from "@/api";
 import { AccountCard } from "@/components/runner/AccountCard";
 import { AnalyticsCard } from "@/components/runner/AnalyticsCard";
 import { AppUpdatesCard } from "@/components/runner/AppUpdatesCard";
+import { WhatsNewCard } from "@/components/runner/WhatsNewCard";
 import { SettingsSection } from "@/components/layout/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -438,6 +439,7 @@ export function SettingsPage() {
       {inDesktopApp ? (
         <SettingsSection title={t("settings.sections.app.title")} description={t("settings.sections.app.description")}>
           <AppUpdatesCard />
+          <WhatsNewCard />
           <AnalyticsCard />
         </SettingsSection>
       ) : (

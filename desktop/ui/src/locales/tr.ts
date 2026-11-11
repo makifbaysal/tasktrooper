@@ -24,6 +24,7 @@ import { telemetryHub } from "@/locales/tr/telemetryHub";
 import { setup } from "@/locales/tr/setup";
 import { remoteAccess } from "@/locales/tr/remoteAccess";
 import { toolchain } from "@/locales/tr/toolchain";
+import { whatsNew } from "@/locales/tr/whatsNew";
 
 // Turkish dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const tr: Dict = {
@@ -261,4 +262,5 @@ export const tr: Dict = {
   setup,
   remoteAccess,
   toolchain,
+  whatsNew,
 };

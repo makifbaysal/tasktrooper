@@ -38,6 +38,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Every release decides what the "What's new" pop-up says: an entry in
+      # desktop/ui/src/lib/whatsNew/entries.ts, or an explicit `skip`.
+      - name: Check the What's new notes exist for this tag
+        run: node --experimental-strip-types desktop/ui/scripts/check-whats-new.mjs "$GITHUB_REF_NAME"
 
       - name: Create the release
         env:

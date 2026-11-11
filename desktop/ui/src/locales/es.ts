@@ -24,6 +24,7 @@ import { telemetryHub } from "@/locales/es/telemetryHub";
 import { setup } from "@/locales/es/setup";
 import { remoteAccess } from "@/locales/es/remoteAccess";
 import { toolchain } from "@/locales/es/toolchain";
+import { whatsNew } from "@/locales/es/whatsNew";
 
 // Spanish dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const es: Dict = {
@@ -260,4 +261,5 @@ export const es: Dict = {
   setup,
   remoteAccess,
   toolchain,
+  whatsNew,
 };

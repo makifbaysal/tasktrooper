@@ -24,6 +24,7 @@ import { telemetryHub } from "@/locales/zh/telemetryHub";
 import { setup } from "@/locales/zh/setup";
 import { remoteAccess } from "@/locales/zh/remoteAccess";
 import { toolchain } from "@/locales/zh/toolchain";
+import { whatsNew } from "@/locales/zh/whatsNew";
 
 // Simplified Chinese dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const zh: Dict = {
@@ -260,4 +261,5 @@ export const zh: Dict = {
   setup,
   remoteAccess,
   toolchain,
+  whatsNew,
 };

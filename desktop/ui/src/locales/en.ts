@@ -26,6 +26,7 @@ import { telemetryHub } from "@/locales/en/telemetryHub";
 import { setup } from "@/locales/en/setup";
 import { remoteAccess } from "@/locales/en/remoteAccess";
 import { toolchain } from "@/locales/en/toolchain";
+import { whatsNew } from "@/locales/en/whatsNew";
 
 export const en = {
   common: {
@@ -262,6 +263,7 @@ export const en = {
   setup,
   remoteAccess,
   toolchain,
+  whatsNew,
 };
 
 // No `as const`: property strings widen to `string`, so tr.ts (typed `Dict`)

@@ -24,6 +24,7 @@ import { telemetryHub } from "@/locales/fr/telemetryHub";
 import { setup } from "@/locales/fr/setup";
 import { remoteAccess } from "@/locales/fr/remoteAccess";
 import { toolchain } from "@/locales/fr/toolchain";
+import { whatsNew } from "@/locales/fr/whatsNew";
 
 // French dictionary. Typed as Dict — must mirror en.ts keys exactly.
 export const fr: Dict = {
@@ -260,4 +261,5 @@ export const fr: Dict = {
   setup,
   remoteAccess,
   toolchain,
+  whatsNew,
 };
