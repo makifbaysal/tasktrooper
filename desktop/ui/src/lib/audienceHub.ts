@@ -73,7 +73,8 @@ export function formatPct(value: number): string {
 
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "")).toUpperCase();
+  const first = (word?: string) => (word ? (Array.from(word)[0] ?? "") : "");
+  return (first(parts[0]) + (parts.length > 1 ? first(parts[parts.length - 1]) : "")).toLocaleUpperCase();
 }
 
 /** A study is worth a "ready to read" nudge once its report exists. */

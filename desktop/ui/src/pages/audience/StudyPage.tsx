@@ -1,13 +1,18 @@
-import { Loader2, Play, Trash2, XCircle } from "lucide-react";
+import { Loader2, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ApiError, api, type AudienceStudyDetail, type StudyAnswer, AUDIENCE_NO_RUNTIME } from "@/api";
 import { AudienceRuntimeNotice } from "@/components/audience/AudienceRuntimeNotice";
 import { PersonaChatDialog } from "@/components/audience/PersonaChatDialog";
+import { ExportReportButton } from "@/components/audience/report/ExportReportButton";
 import { ReportView } from "@/components/audience/report/ReportView";
 import { StudyAnswers } from "@/components/audience/StudyAnswers";
+import { StudyContextSummary, StudyPeopleSummary } from "@/components/audience/StudyContextSummary";
 import { StudyFollowUps } from "@/components/audience/StudyFollowUps";
+import { StudyInterviewsStep } from "@/components/audience/StudyInterviewsStep";
+import { StudyScriptStep } from "@/components/audience/StudyScriptStep";
+import { StudyWizardShell } from "@/components/audience/StudyWizardShell";
 import { PageBackLink } from "@/components/layout/PageBackLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +24,8 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
-import { formatMoney, studyIsActive, studyStatusTone } from "@/lib/audienceHub";
+import { studyIsActive, studyStatusTone } from "@/lib/audienceHub";
+import { stepOf, type WizardStep } from "@/lib/studyWizard";
 
 const POLL_MS = 3000;
 // After a question to everyone the replies arrive one by one; poll for a while.
@@ -34,7 +40,7 @@ export function StudyPage() {
   const [notFound, setNotFound] = useState(false);
   const [noRuntime, setNoRuntime] = useState(false);
   const [talkTo, setTalkTo] = useState<StudyAnswer | null>(null);
-  const [runOpen, setRunOpen] = useState(false);
+  const [view, setView] = useState<WizardStep | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [watchUntil, setWatchUntil] = useState(0);
@@ -55,24 +61,18 @@ export function StudyPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    setView(null);
+  }, [study?.status]);
+
   const active = study ? studyIsActive(study.status) : false;
   const watching = watchUntil > Date.now();
-  usePolling(load, POLL_MS, active || watching, { leading: false });
+  const writingScript = study?.script_state === "generating";
+  usePolling(load, POLL_MS, active || watching || writingScript, { leading: false });
 
   const fail = (e: unknown, fallback: string) => {
     if (e instanceof ApiError && e.type === AUDIENCE_NO_RUNTIME) setNoRuntime(true);
     toast.error(e instanceof Error ? e.message : fallback);
-  };
-
-  const start = async () => {
-    try {
-      await api.startAudienceStudy(studyId);
-      toast.success(s("started"));
-      await load();
-    } catch (e) {
-      fail(e, s("startFailed"));
-      return false;
-    }
   };
 
   const cancel = async () => {
@@ -116,33 +116,19 @@ export function StudyPage() {
     );
   }
 
-  const answered = study.persona_done + study.persona_failed;
-  const pct = study.persona_total ? (answered / study.persona_total) * 100 : 0;
+  const reached = stepOf(study);
+  const current = view ?? reached;
   const askablePeople = study.answers.filter((a) => a.status === "ok" && a.persona_id).length;
+  const started = study.status !== "draft";
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
-      <PageBackLink to={`/audience/${study.audience_id}`} label={study.audience_name ?? s("back")} />
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-display font-semibold tracking-tight">{study.title}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
-            <Badge variant={studyStatusTone(study.status)}>{t(`audienceHub.studyStatus.${study.status}`)}</Badge>
-            <Link to={`/audience/${study.audience_id}`} className="underline-offset-4 hover:underline">
-              {study.audience_name}
-            </Link>
-            · {new Date(study.created_at).toLocaleString(lang)}
-          </p>
-          {study.goal && <p className="mt-2 text-body text-muted-foreground">{study.goal}</p>}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {study.status === "draft" && (
-            <Button onClick={() => setRunOpen(true)}>
-              <Play />
-              {s("run")}
-            </Button>
-          )}
+    <StudyWizardShell
+      title={study.title}
+      current={current}
+      reached={reached}
+      onSelectStep={(step) => setView(step === reached ? null : step)}
+      actions={
+        <>
           {active && (
             <Button variant="outline" onClick={() => setCancelOpen(true)}>
               {s("cancel")}
@@ -153,48 +139,18 @@ export function StudyPage() {
               <Trash2 />
             </Button>
           )}
-        </div>
-      </div>
+        </>
+      }
+    >
+      <p className="-mt-3 flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
+        <Badge variant={studyStatusTone(study.status)}>{t(`audienceHub.studyStatus.${study.status}`)}</Badge>
+        <Link to={`/audience/${study.audience_id}`} className="underline-offset-4 hover:underline">
+          {study.audience_name}
+        </Link>
+        · {new Date(study.created_at).toLocaleString(lang)}
+      </p>
 
       {noRuntime && <AudienceRuntimeNotice />}
-
-      {study.status === "draft" && (
-        <Card className="space-y-3 p-5">
-          <h2 className="text-title font-semibold tracking-tight">{s("planHeading")}</h2>
-          <p className="text-body text-muted-foreground">{s("planBody", { people: study.persona_total, calls: study.calls_estimate })}</p>
-          {study.price_points.length > 0 && (
-            <p className="text-body">
-              <span className="font-medium">{s("prices")}: </span>
-              {study.price_points.map((p) => formatMoney(p, study.currency, lang)).join(", ")}
-            </p>
-          )}
-          {study.questions.length > 0 && (
-            <div>
-              <p className="font-medium">{s("questions")}</p>
-              <ul className="list-disc pl-5 text-body text-muted-foreground">
-                {study.questions.map((q) => (
-                  <li key={q}>{q}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {active && (
-        <Card className="space-y-3 p-5" role="status">
-          <h2 className="flex items-center gap-2 text-title font-semibold tracking-tight">
-            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            {study.status === "synthesizing" ? s("synthesizing") : s("running")}
-          </h2>
-          <Progress value={study.status === "synthesizing" ? 100 : pct} label={s("progress", { done: answered, total: study.persona_total })} />
-          <p className="text-caption text-muted-foreground">
-            {s("progress", { done: answered, total: study.persona_total })}
-            {study.persona_failed > 0 && ` · ${s("failedCount", { count: study.persona_failed })}`}
-          </p>
-          <p className="text-caption text-muted-foreground">{s("runningHelp")}</p>
-        </Card>
-      )}
 
       {(study.status === "failed" || study.status === "cancelled") && (
         <Notice variant={study.status === "failed" ? "error" : "warning"} title={study.status === "failed" ? s("failedTitle") : s("cancelledTitle")}>
@@ -203,36 +159,60 @@ export function StudyPage() {
         </Notice>
       )}
 
-      {study.report && <ReportView report={study.report} title={study.title} audience={study.audience_name} />}
+      {current === "context" && <StudyContextSummary study={study} />}
+      {current === "personas" && <StudyPeopleSummary study={study} />}
+      {current === "script" && <StudyScriptStep study={study} readOnly={started} onChanged={() => void load()} onError={fail} />}
+      {current === "interviews" && <StudyInterviewsStep study={study} onChanged={() => void load()} onError={fail} />}
 
-      {study.answers.length > 0 && (
-        <section className="space-y-3" aria-labelledby="answers-heading">
-          <div>
-            <h2 id="answers-heading" className="text-title font-semibold tracking-tight">
-              {t("audienceHub.answers.heading")}
-            </h2>
-            <p className="text-caption text-muted-foreground">{t("audienceHub.answers.help")}</p>
-          </div>
-          <StudyAnswers answers={study.answers} currency={study.currency} onTalk={setTalkTo} />
-        </section>
-      )}
-
-      {study.status === "done" && (
-        <section className="space-y-3" aria-labelledby="followups-heading">
-          <h2 id="followups-heading" className="text-title font-semibold tracking-tight">
-            {t("audienceHub.followUps.heading")}
-          </h2>
-          <StudyFollowUps
-            studyId={study.id}
-            followUps={study.follow_ups}
-            people={askablePeople}
-            onAsked={() => {
-              setWatchUntil(Date.now() + FOLLOW_UP_WATCH_MS);
-              void load();
-            }}
-            onNoRuntime={() => setNoRuntime(true)}
-          />
-        </section>
+      {current === "report" && (
+        <>
+          {study.status === "synthesizing" && (
+            <Card className="space-y-3 p-5" role="status">
+              <h2 className="flex items-center gap-2 text-title font-semibold tracking-tight">
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                {s("synthesizing")}
+              </h2>
+              <Progress value={100} label={s("synthesizing")} />
+              <p className="text-caption text-muted-foreground">{s("runningHelp")}</p>
+            </Card>
+          )}
+          {study.report && (
+            <>
+              <div className="flex justify-end">
+                <ExportReportButton report={study.report} title={study.title} audienceName={study.audience_name} kind={study.kind} />
+              </div>
+              <ReportView report={study.report} title={study.title} audience={study.audience_name} />
+            </>
+          )}
+          {study.answers.length > 0 && (
+            <section className="space-y-3" aria-labelledby="answers-heading">
+              <div>
+                <h2 id="answers-heading" className="text-title font-semibold tracking-tight">
+                  {t("audienceHub.answers.heading")}
+                </h2>
+                <p className="text-caption text-muted-foreground">{t("audienceHub.answers.help")}</p>
+              </div>
+              <StudyAnswers answers={study.answers} currency={study.currency} kind={study.kind} variants={study.inputs.variants} onTalk={setTalkTo} />
+            </section>
+          )}
+          {study.status === "done" && (
+            <section className="space-y-3" aria-labelledby="followups-heading">
+              <h2 id="followups-heading" className="text-title font-semibold tracking-tight">
+                {t("audienceHub.followUps.heading")}
+              </h2>
+              <StudyFollowUps
+                studyId={study.id}
+                followUps={study.follow_ups}
+                people={askablePeople}
+                onAsked={() => {
+                  setWatchUntil(Date.now() + FOLLOW_UP_WATCH_MS);
+                  void load();
+                }}
+                onNoRuntime={() => setNoRuntime(true)}
+              />
+            </section>
+          )}
+        </>
       )}
 
       <PersonaChatDialog
@@ -240,14 +220,6 @@ export function StudyPage() {
         studyId={study.id}
         onOpenChange={(o) => !o && setTalkTo(null)}
         onAnswered={() => void load()}
-      />
-      <ConfirmDialog
-        open={runOpen}
-        onOpenChange={setRunOpen}
-        title={s("runTitle")}
-        description={s("runBody", { calls: study.calls_estimate, people: study.persona_total })}
-        confirmLabel={s("run")}
-        onConfirm={start}
       />
       <ConfirmDialog
         open={cancelOpen}
@@ -267,7 +239,7 @@ export function StudyPage() {
         variant="destructive"
         onConfirm={remove}
       />
-    </div>
+    </StudyWizardShell>
   );
 }
 

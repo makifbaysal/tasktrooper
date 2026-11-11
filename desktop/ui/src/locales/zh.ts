@@ -21,6 +21,8 @@ import { release } from "@/locales/zh/release";
 import { repositoryPage } from "@/locales/zh/repositoryPage";
 import { settingsPages } from "@/locales/zh/settingsPages";
 import { audienceHub } from "@/locales/zh/audienceHub";
+import { audienceReportKinds } from "@/locales/zh/audienceReportKinds";
+import { audienceStudy } from "@/locales/zh/audienceStudy";
 import { telemetryHub } from "@/locales/zh/telemetryHub";
 import { setup } from "@/locales/zh/setup";
 import { remoteAccess } from "@/locales/zh/remoteAccess";
@@ -253,6 +255,8 @@ export const zh: Dict = {
   repositoryPage,
   settingsPages,
   audienceHub,
+  audienceReportKinds,
+  audienceStudy,
   telemetryHub,
   setup,
   remoteAccess,

@@ -1,4 +1,4 @@
-import { Loader2, MessagesSquare, Plus, Users } from "lucide-react";
+import { FlaskConical, Loader2, MessagesSquare, Plus, Sparkles, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAskPm } from "@/hooks/useAskPm";
 import { useAudienceRuntime } from "@/hooks/useAudienceRuntime";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
@@ -90,10 +91,31 @@ export function StudyRow({ study }: { study: AudienceStudy }) {
   );
 }
 
+function StartCard({ icon: Icon, title, body, onClick, to }: { icon: typeof Sparkles; title: string; body: string; onClick?: () => void; to?: string }) {
+  const content = (
+    <Card className="flex h-full flex-col gap-2 p-6 transition-colors hover:bg-accent/30">
+      <Icon className="h-6 w-6 text-primary" aria-hidden />
+      <span className="text-title font-semibold tracking-tight">{title}</span>
+      <span className="text-body text-muted-foreground">{body}</span>
+    </Card>
+  );
+  const cls = "block rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  return to ? (
+    <Link to={to} className={cls}>
+      {content}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} className={cls}>
+      {content}
+    </button>
+  );
+}
+
 export function AudiencePage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const runtime = useAudienceRuntime();
+  const pm = useAskPm();
   const [audiences, setAudiences] = useState<Audience[] | null>(null);
   const [studies, setStudies] = useState<AudienceStudy[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -140,6 +162,21 @@ export function AudiencePage() {
 
       {runtime && !runtime.ready && <AudienceRuntimeNotice />}
 
+      <section className="space-y-3" aria-labelledby="start-heading">
+        <h2 id="start-heading" className="text-title font-semibold tracking-tight">
+          {t("audienceStudy.start.title")}
+        </h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <StartCard
+            icon={Sparkles}
+            title={t("audienceStudy.start.createTitle")}
+            body={t("audienceStudy.start.createBody")}
+            onClick={() => (pm.canAsk ? void pm.ask(t("audienceStudy.start.createMessage")) : setFormOpen(true))}
+          />
+          <StartCard icon={FlaskConical} title={t("audienceStudy.start.studyTitle")} body={t("audienceStudy.start.studyBody")} to="/audience/studies/new" />
+        </div>
+      </section>
+
       {audiences === null ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
@@ -148,20 +185,7 @@ export function AudiencePage() {
         </div>
       ) : audiences.length === 0 ? (
         <Card>
-          <EmptyState
-            icon={Users}
-            title={t("audienceHub.list.emptyTitle")}
-            description={t("audienceHub.list.emptyBody")}
-            action={
-              <div className="flex flex-col items-center gap-2">
-                <Button onClick={() => setFormOpen(true)}>
-                  <Plus />
-                  {t("audienceHub.list.newAudience")}
-                </Button>
-                <p className="max-w-sm text-caption text-muted-foreground">{t("audienceHub.list.askPm")}</p>
-              </div>
-            }
-          />
+          <EmptyState icon={Users} title={t("audienceHub.list.emptyTitle")} description={t("audienceHub.list.emptyBody")} />
         </Card>
       ) : (
         <section className="space-y-3" aria-labelledby="audiences-heading">

@@ -21,6 +21,8 @@ import { release } from "@/locales/tr/release";
 import { repositoryPage } from "@/locales/tr/repositoryPage";
 import { settingsPages } from "@/locales/tr/settingsPages";
 import { audienceHub } from "@/locales/tr/audienceHub";
+import { audienceReportKinds } from "@/locales/tr/audienceReportKinds";
+import { audienceStudy } from "@/locales/tr/audienceStudy";
 import { telemetryHub } from "@/locales/tr/telemetryHub";
 import { setup } from "@/locales/tr/setup";
 import { remoteAccess } from "@/locales/tr/remoteAccess";
@@ -254,6 +256,8 @@ export const tr: Dict = {
   repositoryPage,
   settingsPages,
   audienceHub,
+  audienceReportKinds,
+  audienceStudy,
   telemetryHub,
   setup,
   remoteAccess,

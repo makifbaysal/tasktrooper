@@ -5540,7 +5540,105 @@ export interface AudiencePersona extends PersonaProfile {
   segment?: string;
 }
 
-export type AudienceStudyStatus = "draft" | "running" | "synthesizing" | "done" | "failed" | "cancelled";
+export type AudienceStudyStatus = "draft" | "running" | "interviewed" | "synthesizing" | "done" | "failed" | "cancelled";
+
+export type StudyKind = "user_interviews" | "landing_page_test" | "message_testing" | "ab_test";
+
+export const STUDY_KINDS: readonly StudyKind[] = ["user_interviews", "landing_page_test", "message_testing", "ab_test"];
+
+export interface StudyPageInput {
+  url?: string;
+  copy?: string;
+}
+
+export interface StudyInputs {
+  intent?: string;
+  pages?: StudyPageInput[];
+  variants?: string[];
+}
+
+export type ScriptState = "none" | "generating" | "awaiting_approval" | "approved" | "failed";
+
+export interface ScriptSection {
+  title: string;
+  questions: string[];
+}
+
+export interface StudyScript {
+  sections: ScriptSection[];
+}
+
+export interface NamedScore {
+  name: string;
+  value: number;
+}
+
+export interface LandingReport {
+  intent?: string;
+  source?: string;
+  clarity_mean: number;
+  clarity_by_segment?: NamedScore[];
+}
+
+export interface VariantReport {
+  variant: number;
+  text: string;
+  rank: number;
+  clarity: number;
+  relevance: number;
+  credibility: number;
+  appeal: number;
+  overall: number;
+  best_pct: number;
+  by_segment?: NamedScore[];
+}
+
+export interface MessageReport {
+  variants: VariantReport[];
+  winner: number;
+  rewrites?: { persona: string; segment?: string; role?: string; text: string }[];
+}
+
+export interface ArmMetric {
+  mean: number;
+  median: number;
+}
+
+/** One scorecard question across the two versions: every person scored both. diff is B's mean minus A's. */
+export interface ABMetric {
+  a: ArmMetric;
+  b: ArmMetric;
+  diff: number;
+  a_higher: number;
+  b_higher: number;
+  same: number;
+  effect_size: number;
+  effect_label: "negligible" | "small" | "medium" | "large";
+}
+
+export interface ABSide {
+  label: "A" | "B";
+  source?: string;
+  /** People who preferred this version. */
+  wins: number;
+  win_pct: number;
+  /** Mean act-now score of this version over everyone. */
+  mean_score: number;
+  act_pct: number;
+  win_pct_by_segment?: NamedScore[];
+  issues?: ReportTheme[];
+  reasons?: ReportTheme[];
+  quotes?: { persona: string; segment?: string; role?: string; text: string; version?: "A" | "B" }[];
+}
+
+export interface ABReport {
+  sides: [ABSide, ABSide];
+  act: ABMetric;
+  clarity: ABMetric;
+  winner: "A" | "B" | "tie";
+  confidence: "clear" | "lean" | "toss-up";
+  first_shown_win_pct: number;
+}
 
 export interface PriceTest {
   price: number;
@@ -5586,6 +5684,7 @@ export interface ReportTheme {
 }
 
 export interface AudienceReport {
+  kind?: StudyKind;
   generated_at: string;
   summary: string;
   verdict: { label: "strong" | "promising" | "weak" | "poor"; score: number; rationale?: string };
@@ -5594,9 +5693,13 @@ export interface AudienceReport {
   objections: ReportTheme[];
   needs: ReportTheme[];
   alternatives: ReportTheme[];
-  quotes: { persona: string; segment?: string; role?: string; text: string; topic?: string; sentiment?: "positive" | "negative" | "neutral" }[];
+  quotes: { persona: string; segment?: string; role?: string; text: string; topic?: string; sentiment?: "positive" | "negative" | "neutral"; version?: "A" | "B" }[];
   recommendations: { title: string; detail?: string; priority?: "high" | "medium" | "low" }[];
   open_questions?: { question: string; digest: string }[];
+  strengths?: ReportTheme[];
+  landing?: LandingReport;
+  messages?: MessageReport;
+  ab?: ABReport;
   methodology: string;
   disclaimer: string;
   synthesis_failed?: boolean;
@@ -5608,6 +5711,15 @@ export interface AudienceStudy {
   audience_name?: string;
   title: string;
   goal?: string;
+  kind: StudyKind;
+  inputs: StudyInputs;
+  script?: StudyScript;
+  script_state: ScriptState;
+  script_calls: number;
+  script_version: number;
+  script_approved_version: number;
+  script_approved_at?: string;
+  script_approved_by?: string;
   questions: string[];
   price_points: number[];
   currency: string;
@@ -5646,8 +5758,34 @@ export interface StudyAnswer {
     alternatives?: string[];
     quote?: string;
     answers?: { question: string; answer: string }[];
+    landing?: { first_impression?: string; clarity_score: number; trust_signals?: string[]; change?: string };
+    ratings?: { variant: number; clarity: number; relevance: number; credibility: number; appeal: number; comment?: string }[];
+    best_variant?: number;
+    stronger?: string;
+    page_a?: PageAssessment;
+    page_b?: PageAssessment;
+    preferred?: "a" | "b";
+    shown_first?: "a" | "b";
   };
   error?: string;
+}
+
+export interface PendingPerson extends PersonaProfile {
+  persona_id: string;
+  ordinal: number;
+  name: string;
+  segment?: string;
+}
+
+export interface PageAssessment {
+  first_impression?: string;
+  clarity_score: number;
+  act_score: number;
+  verdict: "yes" | "maybe" | "no";
+  objections?: string[];
+  missing?: string[];
+  trust_signals?: string[];
+  change?: string;
 }
 
 export interface StudyFollowUp {
@@ -5660,6 +5798,7 @@ export interface StudyFollowUp {
 
 export interface AudienceStudyDetail extends AudienceStudy {
   answers: StudyAnswer[];
+  pending: PendingPerson[];
   follow_ups: StudyFollowUp[];
   running: boolean;
 }
@@ -5689,7 +5828,10 @@ export interface AudienceInput {
 export interface StudyPlanInput {
   title?: string;
   goal?: string;
+  kind?: StudyKind;
+  inputs?: StudyInputs;
   questions?: string[];
+  script?: StudyScript;
   price_points?: number[];
   currency?: string;
 }
@@ -5810,7 +5952,19 @@ export const api = {
   updateAudienceStudy: (id: string, data: StudyPlanInput) =>
     request<AudienceStudy>(`/v1/audience-studies/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteAudienceStudy: (id: string) => request<void>(`/v1/audience-studies/${id}`, { method: "DELETE" }),
-  startAudienceStudy: (id: string) => request<AudienceStudy>(`/v1/audience-studies/${id}/start`, { method: "POST" }),
+  startAudienceStudy: (id: string, opts: { manualReport?: boolean } = {}) =>
+    request<AudienceStudy>(`/v1/audience-studies/${id}/start`, {
+      method: "POST",
+      body: JSON.stringify({ user_approved: true, manual_report: opts.manualReport ?? false }),
+    }),
+  approveAudienceStudyScript: (id: string, version: number) =>
+    request<AudienceStudy>(`/v1/audience-studies/${id}/script/approve`, { method: "POST", body: JSON.stringify({ version }) }),
+  generateAudienceStudyScript: (id: string) =>
+    request<AudienceStudy>(`/v1/audience-studies/${id}/script`, { method: "POST" }),
+  generateAudienceStudyReport: (id: string) =>
+    request<AudienceStudy>(`/v1/audience-studies/${id}/report`, { method: "POST", body: JSON.stringify({ user_approved: true }) }),
+  retryAudienceStudy: (id: string) =>
+    request<AudienceStudy>(`/v1/audience-studies/${id}/retry`, { method: "POST", body: JSON.stringify({ user_approved: true }) }),
   cancelAudienceStudy: (id: string) => request<void>(`/v1/audience-studies/${id}/cancel`, { method: "POST" }),
   askAudienceResearch: (id: string, question: string) =>
     request<{ answer: string }>(`/v1/audience-studies/${id}/ask`, { method: "POST", body: JSON.stringify({ question }) }),

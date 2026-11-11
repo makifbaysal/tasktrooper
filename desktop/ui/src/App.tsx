@@ -79,6 +79,7 @@ const SkillsPage = lazy(() => import("@/pages/SkillsPage").then((m) => ({ defaul
 const AudiencePage = lazy(() => import("@/pages/audience/AudiencePage"));
 const AudienceDetailPage = lazy(() => import("@/pages/audience/AudienceDetailPage"));
 const AudienceStudyPage = lazy(() => import("@/pages/audience/StudyPage"));
+const AudienceNewStudyPage = lazy(() => import("@/pages/audience/NewStudyPage"));
 const ProjectsPage = lazy(() => import("@/pages/ProjectsPage").then((m) => ({ default: m.ProjectsPage })));
 const BacklogPage = lazy(() => import("@/pages/BacklogPage").then((m) => ({ default: m.BacklogPage })));
 const ReleasedPage = lazy(() => import("@/pages/ReleasedPage").then((m) => ({ default: m.ReleasedPage })));
@@ -122,6 +123,7 @@ export default function App() {
                 <Route path="repositories" element={<Navigate to="/projects" replace />} />
                 <Route path="audience" element={<AudiencePage />} />
                 {/* Declared before audience/:audienceId so "studies" is never read as an id. */}
+                <Route path="audience/studies/new" element={<AudienceNewStudyPage />} />
                 <Route path="audience/studies/:studyId" element={<AudienceStudyPage />} />
                 <Route path="audience/:audienceId" element={<AudienceDetailPage />} />
                 <Route path="projects" element={<ProjectsPage />} />

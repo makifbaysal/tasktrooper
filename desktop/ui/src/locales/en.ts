@@ -23,6 +23,8 @@ import { release } from "@/locales/en/release";
 import { repositoryPage } from "@/locales/en/repositoryPage";
 import { settingsPages } from "@/locales/en/settingsPages";
 import { audienceHub } from "@/locales/en/audienceHub";
+import { audienceReportKinds } from "@/locales/en/audienceReportKinds";
+import { audienceStudy } from "@/locales/en/audienceStudy";
 import { telemetryHub } from "@/locales/en/telemetryHub";
 import { setup } from "@/locales/en/setup";
 import { remoteAccess } from "@/locales/en/remoteAccess";
@@ -255,6 +257,8 @@ export const en = {
   repositoryPage,
   settingsPages,
   audienceHub,
+  audienceReportKinds,
+  audienceStudy,
   telemetryHub,
   setup,
   remoteAccess,

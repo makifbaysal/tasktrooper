@@ -41,6 +41,12 @@ export function study(overrides: Partial<AudienceStudy> = {}): AudienceStudy {
     audience_id: "a1",
     audience_name: "Freelance designers",
     title: "Would they pay?",
+    kind: "user_interviews",
+    inputs: {},
+    script_state: "none",
+    script_calls: 0,
+    script_version: 0,
+    script_approved_version: 0,
     questions: [],
     price_points: [9, 19],
     currency: "USD",
@@ -137,8 +143,113 @@ export function studyDetail(overrides: Partial<AudienceStudyDetail> = {}): Audie
       },
       { id: "x2", persona_id: "p2", persona: { name: "Can Yilmaz", segment: "Agency leads" }, status: "failed", error: "no answer", answers: { intent_score: 0, verdict: "no", would_pay_now: false } },
     ],
+    pending: [],
     follow_ups: [{ group_id: "g1", question: "One thing missing?", asked_at: "2026-11-11T10:30:00Z", asked: 2, replies: [{ persona_id: "p1", persona: "Ayse Demir", text: "Invoicing." }] }],
     running: false,
     ...overrides,
   };
+}
+
+export function landingReport(overrides: Partial<AudienceReport> = {}): AudienceReport {
+  return report({
+    kind: "landing_page_test",
+    summary: "The page works but hides its price.",
+    verdict: { label: "promising", score: 62, rationale: "Clear offer, no price." },
+    objections: [{ label: "No pricing", count: 3, pct: 75, personas: ["Ayse Demir", "Can"] }],
+    needs: [{ label: "A visible price", count: 2, pct: 50 }],
+    alternatives: [],
+    strengths: [{ label: "4,000 freelancers", count: 2, pct: 50 }],
+    landing: {
+      intent: "buy",
+      source: "https://acme.test/",
+      clarity_mean: 7.5,
+      clarity_by_segment: [
+        { name: "Freelancers", value: 8 },
+        { name: "Agency leads", value: 6 },
+      ],
+    },
+    recommendations: [{ title: "Show the price", detail: "Above the fold.", priority: "high" }],
+    methodology: "4 synthetic personas read the page as first-time visitors.",
+    ...overrides,
+  });
+}
+
+export function messagesReport(overrides: Partial<AudienceReport> = {}): AudienceReport {
+  return report({
+    kind: "message_testing",
+    summary: "The plain line wins.",
+    verdict: { label: "strong", score: 90, rationale: "Clarity." },
+    alternatives: [],
+    strengths: [{ label: "Says what it does", count: 3, pct: 75 }],
+    messages: {
+      winner: 2,
+      variants: [
+        { variant: 1, text: "Boards for agents", rank: 2, clarity: 3, relevance: 3, credibility: 3, appeal: 3, overall: 3, best_pct: 0 },
+        {
+          variant: 2,
+          text: "Invoices that chase themselves",
+          rank: 1,
+          clarity: 9,
+          relevance: 9,
+          credibility: 9,
+          appeal: 9,
+          overall: 9,
+          best_pct: 100,
+          by_segment: [
+            { name: "Freelancers", value: 9 },
+            { name: "Agency leads", value: 8.5 },
+          ],
+        },
+      ],
+      rewrites: [{ persona: "Ayse Demir", segment: "Freelancers", text: "Get paid faster" }],
+    },
+    recommendations: [{ title: "Get paid faster", detail: "Shorter.", priority: "high" }],
+    methodology: "4 synthetic personas read the lines in a rotated order.",
+    ...overrides,
+  });
+}
+
+export function abReport(overrides: Partial<AudienceReport> = {}): AudienceReport {
+  return report({
+    kind: "ab_test",
+    summary: "Version A is clearer.",
+    verdict: { label: "promising", score: 80 },
+    alternatives: [],
+    ab: {
+      winner: "A",
+      confidence: "lean",
+      first_shown_win_pct: 80,
+      act: { a: { mean: 7.5, median: 8 }, b: { mean: 4, median: 3.5 }, diff: -3.5, a_higher: 4, b_higher: 0, same: 0, effect_size: 1.4, effect_label: "large" },
+      clarity: { a: { mean: 8, median: 8 }, b: { mean: 5, median: 5 }, diff: -3, a_higher: 3, b_higher: 1, same: 0, effect_size: 0.9, effect_label: "medium" },
+      sides: [
+        {
+          label: "A",
+          source: "https://a.test/",
+          wins: 3,
+          win_pct: 75,
+          mean_score: 7.5,
+          act_pct: 75,
+          win_pct_by_segment: [
+            { name: "Freelancers", value: 100 },
+            { name: "Agency leads", value: 0 },
+          ],
+          issues: [{ label: "vague", count: 2, pct: 50 }],
+          reasons: [{ label: "Clear offer", count: 3, pct: 75 }],
+          quotes: [{ persona: "Ayse Demir", segment: "Freelancers", text: "I got it at once.", version: "A" }],
+        },
+        {
+          label: "B",
+          wins: 1,
+          win_pct: 25,
+          mean_score: 4,
+          act_pct: 25,
+          issues: [{ label: "jargon", count: 3, pct: 75 }],
+          quotes: [{ persona: "Can", text: "Too much jargon.", version: "B" }],
+        },
+      ],
+    },
+    recommendations: [{ title: "Ship version A", priority: "high" }],
+    methodology: "4 synthetic personas saw both versions.",
+    ...overrides,
+  });
 }

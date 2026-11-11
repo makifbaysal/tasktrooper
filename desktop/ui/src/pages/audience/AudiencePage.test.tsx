@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/hooks/useI18n";
 import { audience, audienceDetail, study } from "@/test/audienceFixtures";
@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   planAudienceStudy: vi.fn(),
   startAudienceStudy: vi.fn(),
   listRepositories: vi.fn(),
+  createSession: vi.fn(),
   audienceThread: vi.fn(),
 }));
 
@@ -30,14 +31,27 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 import AudienceDetailPage from "./AudienceDetailPage";
 import AudiencePage from "./AudiencePage";
 
-function renderAt(path: string) {
+function Chat() {
+  const location = useLocation();
+  return (
+    <div data-testid="chat">
+      {location.pathname} {String((location.state as { autoSend?: string } | null)?.autoSend ?? "")}
+    </div>
+  );
+}
+
+function renderAt(path: string, context: { leadAgent: unknown } = { leadAgent: null }) {
   return render(
     <I18nProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/audience" element={<AudiencePage />} />
-          <Route path="/audience/:audienceId" element={<AudienceDetailPage />} />
-          <Route path="/audience/studies/:studyId" element={<div>study page</div>} />
+          <Route element={<Outlet context={context} />}>
+            <Route path="/audience" element={<AudiencePage />} />
+            <Route path="/audience/:audienceId" element={<AudienceDetailPage />} />
+            <Route path="/audience/studies/:studyId" element={<div>study page</div>} />
+            <Route path="/audience/studies/new" element={<div>new study page</div>} />
+            <Route path="/agents/:agentId/chat/:sessionId" element={<Chat />} />
+          </Route>
           <Route path="/settings/llm" element={<div>llm settings</div>} />
         </Routes>
       </MemoryRouter>
@@ -62,12 +76,34 @@ describe("Audience page", () => {
     expect(await screen.findByText("llm settings")).toBeInTheDocument();
   });
 
-  it("explains itself when there is no audience yet and points to the PM", async () => {
+  it("starts with two cards, create your audience and start a study, even before any audience exists", async () => {
     api.audiences.mockResolvedValue({ audiences: [] });
     api.audienceStudies.mockResolvedValue({ studies: [] });
     renderAt("/audience");
     expect(await screen.findByText("No audience yet")).toBeInTheDocument();
-    expect(screen.getByText(/ask the Product Manager/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Where do you want to start?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create your audience/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Start a study/ })).toHaveAttribute("href", "/audience/studies/new");
+  });
+
+  it("opens the form to create an audience when there is no Product Manager to hand it to", async () => {
+    api.audiences.mockResolvedValue({ audiences: [] });
+    api.audienceStudies.mockResolvedValue({ studies: [] });
+    renderAt("/audience");
+    fireEvent.click(await screen.findByRole("button", { name: /Create your audience/ }));
+    expect(await screen.findByLabelText("The product and where it stands today")).toBeInTheDocument();
+  });
+
+  it("hands the guided audience request to the Product Manager and opens the chat with it already sent", async () => {
+    api.audiences.mockResolvedValue({ audiences: [] });
+    api.audienceStudies.mockResolvedValue({ studies: [] });
+    api.createSession.mockResolvedValue({ id: "sess1" });
+    renderAt("/audience", { leadAgent: { id: "pm1", name: "Product Manager", enabled: true } });
+    fireEvent.click(await screen.findByRole("button", { name: /Create your audience/ }));
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ agent_id: "pm1" })));
+    const chat = await screen.findByTestId("chat");
+    expect(chat).toHaveTextContent("/agents/pm1/chat/sess1");
+    expect(chat).toHaveTextContent("which segments and which countries");
   });
 
   it("lists audiences with status and counts, and studies with theirs", async () => {
@@ -151,18 +187,14 @@ describe("Audience detail page", () => {
     expect(screen.getByRole("button", { name: "Edit brief" })).toBeDisabled();
   });
 
-  it("plans a study and runs it only after confirming the cost", async () => {
+  it("sends planning a study to the wizard with this audience chosen, and a planned study back to its script", async () => {
     api.audience.mockResolvedValue(audienceDetail({ studies: [study({ id: "s9", status: "draft", title: "Price test", calls_estimate: 3, persona_total: 2 })] }));
-    api.startAudienceStudy.mockResolvedValue(study({ id: "s9", status: "running" }));
     renderAt("/audience/a1");
     expect(await screen.findByText("Planned: 2 interviews and the report, about 3 model calls.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    expect(await screen.findByText(/about 3 model calls on your own agent/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continue" })).toHaveAttribute("href", "/audience/studies/s9");
     expect(api.startAudienceStudy).not.toHaveBeenCalled();
-    const run = screen.getAllByRole("button", { name: "Run" });
-    fireEvent.click(run[run.length - 1]!);
-    await waitFor(() => expect(api.startAudienceStudy).toHaveBeenCalledWith("s9"));
-    expect(await screen.findByText("study page")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Plan a study" }));
+    expect(await screen.findByText("new study page")).toBeInTheDocument();
   });
 
   it("will not plan a study before there are people", async () => {

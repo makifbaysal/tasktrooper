@@ -1,14 +1,13 @@
 import { Loader2, MessageCircle, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ApiError, api, type AudienceDetail, type AudiencePersona, type AudienceStudy, AUDIENCE_NO_RUNTIME } from "@/api";
+import { ApiError, api, type AudienceDetail, type AudiencePersona, AUDIENCE_NO_RUNTIME } from "@/api";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { AudienceFormDialog } from "@/components/audience/AudienceFormDialog";
 import { AudienceRuntimeNotice } from "@/components/audience/AudienceRuntimeNotice";
 import { PersonaAvatar } from "@/components/audience/PersonaAvatar";
 import { PersonaChatDialog } from "@/components/audience/PersonaChatDialog";
-import { StudyPlanDialog } from "@/components/audience/StudyPlanDialog";
 import { PageBackLink } from "@/components/layout/PageBackLink";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -125,12 +124,9 @@ export function AudienceDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [noRuntime, setNoRuntime] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [planOpen, setPlanOpen] = useState(false);
-  const [editStudy, setEditStudy] = useState<AudienceStudy | null>(null);
   const [buildOpen, setBuildOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [talkTo, setTalkTo] = useState<AudiencePersona | null>(null);
-  const [runTarget, setRunTarget] = useState<AudienceStudy | null>(null);
   const d = (key: string, params?: Record<string, string | number>) => t(`audienceHub.detail.${key}`, params);
 
   const load = useCallback(async () => {
@@ -183,18 +179,6 @@ export function AudienceDetailPage() {
       navigate("/audience");
     } catch (e) {
       fail(e, d("deleteFailed"));
-      return false;
-    }
-  };
-
-  const runStudy = async () => {
-    if (!runTarget) return;
-    try {
-      await api.startAudienceStudy(runTarget.id);
-      toast.success(d("studyStarted"));
-      navigate(`/audience/studies/${runTarget.id}`);
-    } catch (e) {
-      fail(e, d("studyFailed"));
       return false;
     }
   };
@@ -347,13 +331,7 @@ export function AudienceDetailPage() {
           <h2 id="studies-heading" className="text-title font-semibold tracking-tight">
             {d("studiesHeading")}
           </h2>
-          <Button
-            onClick={() => {
-              setEditStudy(null);
-              setPlanOpen(true);
-            }}
-            disabled={!hasPeople || building}
-          >
+          <Button onClick={() => navigate(`/audience/studies/new?audience=${audience.id}`)} disabled={!hasPeople || building}>
             <Plus />
             {d("planStudy")}
           </Button>
@@ -379,19 +357,11 @@ export function AudienceDetailPage() {
                   <p className="truncate font-medium">{s.title}</p>
                   <p className="text-caption text-muted-foreground">{d("planned", { calls: s.calls_estimate, people: s.persona_total })}</p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditStudy(s);
-                    setPlanOpen(true);
-                  }}
-                >
-                  {d("edit")}
-                </Button>
-                <Button size="sm" onClick={() => setRunTarget(s)}>
-                  <Play />
-                  {d("runStudy")}
+                <Button size="sm" asChild>
+                  <Link to={`/audience/studies/${s.id}`}>
+                    <Play />
+                    {t("audienceStudy.continue")}
+                  </Link>
                 </Button>
               </li>
             ))}
@@ -400,14 +370,6 @@ export function AudienceDetailPage() {
       </section>
 
       <AudienceFormDialog open={editOpen} onOpenChange={setEditOpen} audience={audience} onSaved={() => void load()} />
-      <StudyPlanDialog
-        open={planOpen}
-        onOpenChange={setPlanOpen}
-        audienceId={audience.id}
-        personaCount={audience.persona_count}
-        study={editStudy}
-        onSaved={() => void load()}
-      />
       <PersonaChatDialog persona={talkTo} onOpenChange={(o) => !o && setTalkTo(null)} />
       <ConfirmDialog
         open={buildOpen}
@@ -416,14 +378,6 @@ export function AudienceDetailPage() {
         description={d(hasPeople ? "rebuildBody" : "buildBody", { count: audience.persona_target, calls: audience.build_calls })}
         confirmLabel={hasPeople ? d("rebuild") : d("build")}
         onConfirm={build}
-      />
-      <ConfirmDialog
-        open={runTarget !== null}
-        onOpenChange={(o) => !o && setRunTarget(null)}
-        title={d("runTitle")}
-        description={d("runBody", { calls: runTarget?.calls_estimate ?? 0, people: runTarget?.persona_total ?? 0 })}
-        confirmLabel={d("runStudy")}
-        onConfirm={runStudy}
       />
       <ConfirmDialog
         open={deleteOpen}

@@ -133,3 +133,34 @@ export function IndexTrack({ score, tone }: { score: number; tone: "success" | "
     </div>
   );
 }
+
+/** Labelled horizontal bars for scores or shares; `max` is the full width. */
+export function ScoreBars({
+  items,
+  max,
+  format,
+  tone = "primary",
+  label,
+}: {
+  items: { name: string; value: number }[];
+  max: number;
+  format: (value: number) => string;
+  tone?: keyof typeof TONE_BAR;
+  label: string;
+}) {
+  return (
+    <ul className="space-y-2" aria-label={label}>
+      {items.map((item) => (
+        <li key={item.name} className="space-y-1">
+          <div className="flex items-baseline justify-between gap-3 text-caption">
+            <span className="min-w-0 truncate font-medium">{item.name}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">{format(item.value)}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-sunken" role="img" aria-label={`${item.name}: ${format(item.value)}`}>
+            <div className={cn("h-full rounded-full", TONE_BAR[tone])} style={{ width: `${Math.min(100, Math.max(0, (item.value / max) * 100))}%` }} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}

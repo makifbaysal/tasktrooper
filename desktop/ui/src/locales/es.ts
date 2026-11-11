@@ -21,6 +21,8 @@ import { release } from "@/locales/es/release";
 import { repositoryPage } from "@/locales/es/repositoryPage";
 import { settingsPages } from "@/locales/es/settingsPages";
 import { audienceHub } from "@/locales/es/audienceHub";
+import { audienceReportKinds } from "@/locales/es/audienceReportKinds";
+import { audienceStudy } from "@/locales/es/audienceStudy";
 import { telemetryHub } from "@/locales/es/telemetryHub";
 import { setup } from "@/locales/es/setup";
 import { remoteAccess } from "@/locales/es/remoteAccess";
@@ -253,6 +255,8 @@ export const es: Dict = {
   repositoryPage,
   settingsPages,
   audienceHub,
+  audienceReportKinds,
+  audienceStudy,
   telemetryHub,
   setup,
   remoteAccess,

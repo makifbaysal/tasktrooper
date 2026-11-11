@@ -37,5 +37,8 @@ describe("audienceHub helpers", () => {
     expect(initials("Ayse Demir")).toBe("AD");
     expect(initials("Cher")).toBe("C");
     expect(initials("  ")).toBe("");
+    expect(initials("Şule İpek")).toBe("Şİ");
+    expect(Array.from(initials("ışık güneş"))).toHaveLength(2);
+    expect(initials("𝒜da Lovelace")).toBe("𝒜L");
   });
 });

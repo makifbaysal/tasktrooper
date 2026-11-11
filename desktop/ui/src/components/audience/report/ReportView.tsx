@@ -1,5 +1,4 @@
 import { Quote } from "lucide-react";
-import type { ReactNode } from "react";
 import type { AudienceReport } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -9,18 +8,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { formatMoney, formatPct, verdictTone } from "@/lib/audienceHub";
 import { cn } from "@/lib/utils";
 import { IndexTrack, IntentChart, PriceHistogram, PriceTests, ThemeBars } from "./Charts";
-
-function Section({ title, description, children, className }: { title: string; description?: string; children: ReactNode; className?: string }) {
-  return (
-    <Card className={cn("space-y-4 p-5", className)}>
-      <div>
-        <h2 className="text-title font-semibold tracking-tight">{title}</h2>
-        {description && <p className="mt-1 text-caption text-muted-foreground">{description}</p>}
-      </div>
-      {children}
-    </Card>
-  );
-}
+import { ABSections, LandingSections, MessagesSections } from "./KindSections";
+import { Section } from "./Section";
 
 const SENTIMENT_BORDER = {
   positive: "border-l-success",
@@ -40,6 +29,10 @@ const PRIORITY_VARIANT = { high: "destructive", medium: "warning", low: "seconda
 export function ReportView({ report, title, audience }: { report: AudienceReport; title: string; audience?: string }) {
   const { t, lang } = useI18n();
   const r = (key: string, params?: Record<string, string | number>) => t(`audienceHub.report.${key}`, params);
+  const kind = report.kind ?? "user_interviews";
+  const interviews = kind === "user_interviews";
+  const quotesShownPerVersion = Boolean(report.ab?.sides.some((side) => side.quotes && side.quotes.length > 0));
+  const kt = (group: string, params?: Record<string, string | number>) => t(`audienceReportKinds.${group}.${kind}`, params);
   const m = report.metrics;
   const price = m.price;
   const tone = verdictTone(report.verdict.label);
@@ -58,7 +51,7 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
 
       <Card className="space-y-5 p-6">
         <div className="flex flex-col gap-1">
-          <p className="text-caption uppercase tracking-wide text-muted-foreground">{r("eyebrow")}</p>
+          <p className="text-caption uppercase tracking-wide text-muted-foreground">{interviews ? r("eyebrow") : kt("eyebrow")}</p>
           <h2 className="text-display font-semibold tracking-tight">{title}</h2>
           <p className="text-caption text-muted-foreground">
             {audience ? `${audience} · ` : ""}
@@ -68,7 +61,7 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
 
         <div className="grid gap-6 md:grid-cols-[minmax(0,260px)_1fr]">
           <div>
-            <p className="text-caption text-muted-foreground">{r("intentIndex")}</p>
+            <p className="text-caption text-muted-foreground">{interviews ? r("intentIndex") : kt("score")}</p>
             <div className="mt-1 flex items-baseline gap-2">
               <span className="text-[44px] font-semibold leading-none tabular-nums">{Math.round(report.verdict.score)}</span>
               <span className="text-body text-muted-foreground">/ 100</span>
@@ -88,20 +81,38 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile label={r("respondents")} value={m.respondents} foot={m.failed > 0 ? r("couldNotAnswer", { count: m.failed }) : undefined} />
-          <StatTile label={r("meanIntent")} value={`${m.intent_mean.toFixed(1)} / 10`} />
+          <StatTile label={interviews ? r("meanIntent") : kt("meanScore")} value={`${m.intent_mean.toFixed(1)} / 10`} />
           <StatTile
             label={r("yesMaybeNo")}
             value={`${m.yes} · ${m.maybe} · ${m.no}`}
             foot={r("yesMaybeNoFoot", { yes: m.yes, maybe: m.maybe, no: m.no })}
           />
-          <StatTile label={r("wouldPayNow")} value={formatPct(m.would_pay_now_pct)} />
+          {interviews && <StatTile label={r("wouldPayNow")} value={formatPct(m.would_pay_now_pct)} />}
+          {report.landing && (
+            <StatTile label={t("audienceReportKinds.landing.clarityMean")} value={`${report.landing.clarity_mean.toFixed(1)} / 10`} foot={t("audienceReportKinds.landing.clarityFoot")} />
+          )}
+          {report.messages && (
+            <StatTile label={t("audienceReportKinds.messages.winner")} value={t("audienceReportKinds.messages.winnerLine", { n: report.messages.winner })} />
+          )}
+          {report.ab && (
+            <StatTile
+              label={t("audienceReportKinds.ab.tile")}
+              value={report.ab.winner === "tie" ? t("audienceReportKinds.ab.tie") : t("audienceReportKinds.ab.version", { label: report.ab.winner })}
+              foot={t(`audienceReportKinds.ab.confidence.${report.ab.confidence}`)}
+            />
+          )}
         </div>
       </Card>
 
-      <Section title={r("intentTitle")} description={r("intentHelp")}>
-        <IntentChart distribution={m.intent_distribution} label={r("intentTitle")} peopleLabel={people} />
+      <Section title={interviews ? r("intentTitle") : kt("intentTitle")} description={interviews ? r("intentHelp") : kt("intentHelp")}>
+        <IntentChart distribution={m.intent_distribution} label={interviews ? r("intentTitle") : kt("intentTitle")} peopleLabel={people} />
       </Section>
 
+      {report.landing && <LandingSections report={report} landing={report.landing} />}
+      {report.messages && <MessagesSections report={report} messages={report.messages} />}
+      {report.ab && <ABSections report={report} ab={report.ab} />}
+
+      {interviews && (
       <Section title={r("payTitle")} description={r("payHelp", { currency: price.currency })}>
         {price.answered === 0 ? (
           <p className="text-body text-muted-foreground">{price.not_willing > 0 ? r("payNobody") : r("payNoData")}</p>
@@ -131,6 +142,7 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
           </div>
         )}
       </Section>
+      )}
 
       {report.segments.length > 0 && (
         <Section title={r("segmentsTitle")}>
@@ -140,9 +152,9 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
                 <tr className="border-b border-border text-caption text-muted-foreground">
                   <th className="py-2 pr-4 font-medium">{r("segment")}</th>
                   <th className="py-2 pr-4 font-medium">{r("respondents")}</th>
-                  <th className="py-2 pr-4 font-medium">{r("meanIntent")}</th>
+                  <th className="py-2 pr-4 font-medium">{interviews ? r("meanIntent") : kt("meanScore")}</th>
                   <th className="py-2 pr-4 font-medium">{r("yesPct")}</th>
-                  <th className="py-2 font-medium">{r("medianPrice")}</th>
+                  {interviews && <th className="py-2 font-medium">{r("medianPrice")}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -155,7 +167,7 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
                     <td className="py-2 pr-4 tabular-nums">{s.respondents}</td>
                     <td className="py-2 pr-4 tabular-nums">{s.intent_mean.toFixed(1)}</td>
                     <td className="py-2 pr-4 tabular-nums">{formatPct(s.yes_pct)}</td>
-                    <td className="py-2 tabular-nums">{s.median_price > 0 ? money(s.median_price) : "-"}</td>
+                    {interviews && <td className="py-2 tabular-nums">{s.median_price > 0 ? money(s.median_price) : "-"}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -166,12 +178,12 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
 
       <div className="grid gap-5 lg:grid-cols-2">
         {report.objections.length > 0 && (
-          <Section title={r("objectionsTitle")} description={r("objectionsHelp")}>
+          <Section title={interviews ? r("objectionsTitle") : kt("objectionsTitle")} description={interviews ? r("objectionsHelp") : kt("objectionsHelp")}>
             <ThemeBars themes={report.objections} total={m.respondents} peopleLabel={peopleOf} tone="destructive" />
           </Section>
         )}
         {report.needs.length > 0 && (
-          <Section title={r("needsTitle")} description={r("needsHelp")}>
+          <Section title={interviews ? r("needsTitle") : kt("needsTitle")} description={interviews ? r("needsHelp") : kt("needsHelp")}>
             <ThemeBars themes={report.needs} total={m.respondents} peopleLabel={peopleOf} tone="warning" />
           </Section>
         )}
@@ -182,7 +194,7 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
         </Section>
       )}
 
-      {report.quotes.length > 0 && (
+      {report.quotes.length > 0 && !quotesShownPerVersion && (
         <Section title={r("quotesTitle")} description={r("quotesHelp")}>
           <div className="grid gap-3 md:grid-cols-2">
             {report.quotes.map((q, i) => (
@@ -192,6 +204,7 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
                 <figcaption className="mt-2 text-caption text-muted-foreground">
                   <span className="font-medium text-foreground">{q.persona}</span>
                   {[q.role, q.segment].filter(Boolean).length > 0 && ` · ${[q.role, q.segment].filter(Boolean).join(" · ")}`}
+                  {q.version && <Badge variant="outline" className="ml-2">{t("audienceReportKinds.ab.version", { label: q.version })}</Badge>}
                   {q.topic && <Badge variant="outline" className="ml-2">{q.topic}</Badge>}
                 </figcaption>
               </figure>
@@ -201,7 +214,7 @@ export function ReportView({ report, title, audience }: { report: AudienceReport
       )}
 
       {report.recommendations.length > 0 && (
-        <Section title={r("recommendationsTitle")}>
+        <Section title={interviews ? r("recommendationsTitle") : kt("recommendationsTitle")}>
           <ol className="space-y-3">
             {report.recommendations.map((rec, i) => (
               <li key={rec.title} className="flex gap-3">
