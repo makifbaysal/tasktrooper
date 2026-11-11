@@ -267,6 +267,28 @@ func CreatePullRequest(ctx context.Context, token, owner, name, head, base, titl
 	return out.HTMLURL, nil
 }
 
+// EnsureOpenPullRequest returns the open pull request for head, opening one
+// only when none exists. A lookup that fails is an error, not "none": creating
+// on a failed lookup is how a second PR for the same branch got opened. A
+// create that loses a race re-reads, so concurrent callers converge on one PR.
+func EnsureOpenPullRequest(ctx context.Context, token, owner, name, headOwner, head, base, title string) (string, error) {
+	existing, err := FindOpenPR(ctx, token, owner, name, headOwner, head)
+	if err != nil {
+		return "", fmt.Errorf("look up the open pull request for %s: %w", head, err)
+	}
+	if existing != "" {
+		return existing, nil
+	}
+	created, createErr := CreatePullRequest(ctx, token, owner, name, head, base, title)
+	if createErr == nil {
+		return created, nil
+	}
+	if again, err := FindOpenPR(ctx, token, owner, name, headOwner, head); err == nil && again != "" {
+		return again, nil
+	}
+	return "", createErr
+}
+
 func MarkPullRequestReady(ctx context.Context, token, owner, repo string, number int) error {
 	var pr struct {
 		NodeID string `json:"node_id"`

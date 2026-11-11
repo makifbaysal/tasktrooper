@@ -96,6 +96,7 @@ type Service struct {
 	restoreRun func(fn func())
 
 	prAsyncRun func(fn func())
+	prInFlight sync.Map
 
 	syncMu        sync.Mutex
 	syncWarnings  map[uuid.UUID]string
@@ -2114,7 +2115,11 @@ func (s *Service) ensurePullRequestAsync(ctx context.Context, task domain.BoardT
 	if run == nil {
 		run = func(fn func()) { go fn() }
 	}
+	if _, busy := s.prInFlight.LoadOrStore(task.ID, struct{}{}); busy {
+		return
+	}
 	run(func() {
+		defer s.prInFlight.Delete(task.ID)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 		defer cancel()
 		url, err := s.git.EnsurePullRequest(ctx, workspacePath)
