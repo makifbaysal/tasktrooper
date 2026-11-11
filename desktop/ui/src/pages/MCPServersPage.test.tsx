@@ -111,6 +111,21 @@ describe("MCPServersPage", () => {
     expect(api.createMCPServer.mock.calls[0][0]).toMatchObject({ id: "filesystem", access: "all" });
   });
 
+  it("sends one create for a double click and shows the server instead of an ID-in-use error on a conflict", async () => {
+    api.listMCPServers.mockResolvedValue(listing([]));
+    api.createMCPServer.mockRejectedValueOnce(new ApiError("mcp server already exists", 409, "conflict"));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add First Server" }));
+    const add = await screen.findByRole("button", { name: "Add" });
+    fireEvent.click(add);
+    fireEvent.click(add);
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.createMCPServer).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it("connects an HTTP server that needs sign-in in the system browser and waits for it", async () => {
     const openExternal = vi.fn().mockResolvedValue(true);
     window.__tasktrooperDesktop = { runner: { openExternal } as never };
