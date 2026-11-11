@@ -50,7 +50,7 @@ jobs:
   mac:
     needs: release
     if: ${{ !cancelled() && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 90
     # The Release environment holds the signing secrets and only admits v* tags.
     # A hand-started build binds no environment, so it gets no secrets and
