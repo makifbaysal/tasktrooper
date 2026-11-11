@@ -98,3 +98,37 @@ func (s *AgentCLIStore) Clear(ctx context.Context, flavor domain.AgentCLIFlavor)
 	}
 	return nil
 }
+
+func agentCLIDefaultModelKey(flavor domain.AgentCLIFlavor) string {
+	return "agent_cli_default_model:" + string(flavor)
+}
+
+func (s *AgentCLIStore) DefaultModel(ctx context.Context, flavor domain.AgentCLIFlavor) (string, error) {
+	var value string
+	err := s.pool.QueryRow(ctx, `SELECT value FROM app_settings WHERE key = $1`, agentCLIDefaultModelKey(flavor)).Scan(&value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get agent cli default model: %w", err)
+	}
+	return value, nil
+}
+
+func (s *AgentCLIStore) SetDefaultModel(ctx context.Context, flavor domain.AgentCLIFlavor, model string) error {
+	if model == "" {
+		_, err := s.pool.Exec(ctx, `DELETE FROM app_settings WHERE key = $1`, agentCLIDefaultModelKey(flavor))
+		if err != nil {
+			return fmt.Errorf("clear agent cli default model: %w", err)
+		}
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+	`, agentCLIDefaultModelKey(flavor), model)
+	if err != nil {
+		return fmt.Errorf("set agent cli default model: %w", err)
+	}
+	return nil
+}

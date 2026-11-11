@@ -87,6 +87,9 @@ type AgentCLIFlavorView struct {
 	Label        string          `json:"label"`
 	Available    bool            `json:"available"`
 	Connected    bool            `json:"connected"`
+	// DefaultModel is what an agent set to "default model" runs on; empty
+	// means the CLI's own default.
+	DefaultModel string `json:"default_model"`
 }
 
 // AgentCLIState is what every endpoint in this surface answers with, so the

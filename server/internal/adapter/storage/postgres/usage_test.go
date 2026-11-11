@@ -120,3 +120,18 @@ func (s *UsageSummarySuite) TestDailyBucketsInRequestedTimezoneOnlyCoverGenerati
 	s.Equal("2026-09-27", sum.Daily[0].Day)
 	s.Equal(int64(10), sum.Daily[0].PromptTokens)
 }
+
+func (s *UsageSummarySuite) TestDefaultModelRowsAreGroupedApartAndFlagged() {
+	now := time.Now().UTC()
+	for _, fromDefault := range []bool{true, false} {
+		s.Require().NoError(s.store.Record(s.ctx, domain.LLMUsageRecord{
+			Kind: domain.LLMUsageKindCLI, Provider: "opencode", Model: "anthropic/claude-sonnet-5",
+			ModelFromDefault: fromDefault, PromptTokens: 10, CompletionTokens: 5,
+		}))
+	}
+	sum, err := s.store.Summary(s.ctx, now.Add(-time.Hour), time.UTC)
+	s.Require().NoError(err)
+	s.Require().Len(sum.ByModel, 2)
+	flags := []bool{sum.ByModel[0].ModelFromDefault, sum.ByModel[1].ModelFromDefault}
+	s.ElementsMatch([]bool{true, false}, flags)
+}

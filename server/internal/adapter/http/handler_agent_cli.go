@@ -17,6 +17,30 @@ func (h *Handler) registerAgentCLIRoutes(app *fiber.App) {
 	app.Get("/v1/agent-cli", h.GetAgentCLIState)
 	app.Post("/v1/agent-cli/:flavor/connect", h.ConnectAgentCLI)
 	app.Delete("/v1/agent-cli/:flavor", h.DisconnectAgentCLI)
+	app.Put("/v1/agent-cli/:flavor/default-model", h.SetAgentCLIDefaultModel)
+}
+
+func (h *Handler) SetAgentCLIDefaultModel(c *fiber.Ctx) error {
+	if h.agentCLISvc == nil {
+		return agentCLIDisabled(c)
+	}
+	flavor := domain.AgentCLIFlavor(c.Params("flavor"))
+	if !domain.ValidAgentCLIFlavor(flavor) {
+		return codedBadRequest(c, codeUnknownAgentCLIFlavor, "unknown agent cli flavor")
+	}
+	var body struct {
+		Model string `json:"model"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(errorResponse{
+			Error: errorDetail{Message: "invalid request body", Type: "invalid_request"},
+		})
+	}
+	out, err := h.agentCLISvc.SetDefaultModel(h.enrichContext(c), flavor, body.Model)
+	if err != nil {
+		return internalError(c, err)
+	}
+	return c.JSON(out)
 }
 
 func (h *Handler) GetAgentCLIState(c *fiber.Ctx) error {

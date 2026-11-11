@@ -70,3 +70,27 @@ func TestMeter_ZeroTokenCallsNotPersisted(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	require.Empty(t, store.snapshot())
 }
+
+func TestMeter_FlagsCLIRowsOfARunOnTheDefaultModel(t *testing.T) {
+	store := &fakeUsageStore{}
+	m := NewMeter(store)
+
+	m.Record(WithDefaultModel(context.Background()), domain.LLMUsageRecord{
+		Kind: domain.LLMUsageKindCLI, Model: "claude-sonnet-5", PromptTokens: 10, CompletionTokens: 5,
+	})
+	m.Record(WithDefaultModel(context.Background()), domain.LLMUsageRecord{
+		Kind: domain.LLMUsageKindAPI, Model: "gpt-4o", PromptTokens: 10, CompletionTokens: 5,
+	})
+	m.Record(context.Background(), domain.LLMUsageRecord{
+		Kind: domain.LLMUsageKindCLI, Model: "opus", PromptTokens: 10, CompletionTokens: 5,
+	})
+
+	require.Eventually(t, func() bool { return len(store.snapshot()) == 3 }, time.Second, 5*time.Millisecond)
+	byModel := map[string]bool{}
+	for _, r := range store.snapshot() {
+		byModel[r.Model] = r.ModelFromDefault
+	}
+	require.True(t, byModel["claude-sonnet-5"])
+	require.False(t, byModel["gpt-4o"], "only CLI sessions are badged")
+	require.False(t, byModel["opus"])
+}

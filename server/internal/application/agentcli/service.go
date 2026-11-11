@@ -161,7 +161,12 @@ func (s *Service) State(ctx context.Context) (domain.AgentCLIState, error) {
 		if def, defOK := domain.LLMProviderDefinitionFor(provider); defOK && def.Label != "" {
 			label = def.Label
 		}
+		defaultModel, err := s.store.DefaultModel(ctx, flavor)
+		if err != nil {
+			return domain.AgentCLIState{}, err
+		}
 		out.Flavors = append(out.Flavors, domain.AgentCLIFlavorView{
+			DefaultModel: defaultModel,
 			Flavor:       flavor,
 			ProviderType: provider,
 			Label:        label,
@@ -170,6 +175,33 @@ func (s *Service) State(ctx context.Context) (domain.AgentCLIState, error) {
 		})
 	}
 	return out, nil
+}
+
+// SetDefaultModel stores the model an agent set to "default model" runs on for
+// this CLI. Empty clears it.
+func (s *Service) SetDefaultModel(ctx context.Context, flavor domain.AgentCLIFlavor, model string) (domain.AgentCLIState, error) {
+	if !domain.ValidAgentCLIFlavor(flavor) {
+		return domain.AgentCLIState{}, fmt.Errorf("unknown agent cli flavor: %s", flavor)
+	}
+	if err := s.store.SetDefaultModel(ctx, flavor, strings.TrimSpace(model)); err != nil {
+		return domain.AgentCLIState{}, err
+	}
+	return s.State(ctx)
+}
+
+// DefaultModelFor is the model for a provider whose agent names none; empty for
+// a provider that is not a local CLI or has no default set.
+func (s *Service) DefaultModelFor(ctx context.Context, provider domain.LLMProviderType) string {
+	flavor, ok := domain.AgentCLIFlavorFor(provider)
+	if !ok {
+		return ""
+	}
+	model, err := s.store.DefaultModel(ctx, flavor)
+	if err != nil {
+		log.Warn().Err(err).Str("provider", string(provider)).Msg("agent cli: could not read the default model")
+		return ""
+	}
+	return model
 }
 
 func (s *Service) Connected(ctx context.Context, flavor domain.AgentCLIFlavor) (*domain.AgentCLIConnection, error) {

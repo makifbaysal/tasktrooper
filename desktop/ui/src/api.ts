@@ -1657,6 +1657,8 @@ export interface AgentCLIFlavorView {
   label: string;
   available: boolean;
   connected: boolean;
+  /** What an agent set to "default model" runs on; empty = the CLI's own. */
+  default_model: string;
 }
 
 export interface AgentCLIState {
@@ -1747,6 +1749,7 @@ export interface ConnectLLMProviderRequest {
   base_url: string;
   api_key: string;
   timeout_seconds: number;
+  default_model?: string;
 }
 
 export interface SessionMessage {
@@ -2597,7 +2600,13 @@ export interface UsageTotals {
 // a connected provider, "embedding" an indexing/search vector (estimated tokens).
 export type UsageKind = "api" | "cli" | "embedding";
 
-export type UsageByModel = { kind: UsageKind; provider: string; model: string } & UsageTotals;
+export type UsageByModel = {
+  kind: UsageKind;
+  provider: string;
+  model: string;
+  /** The agent named no model: this is the provider default or what the CLI reported. */
+  model_from_default?: boolean;
+} & UsageTotals;
 
 export type UsageByDay = { day: string } & UsageTotals;
 
@@ -5430,6 +5439,12 @@ export const api = {
     request<ModelPrice>("/admin/billing/model-prices", { method: "PUT", body: JSON.stringify(data) }),
   deleteModelPrice: (model: string) =>
     request<void>(`/admin/billing/model-prices/${encodeURIComponent(model)}`, { method: "DELETE" }),
+
+  setAgentCliDefaultModel: (flavor: AgentCLIFlavor, model: string) =>
+    request<AgentCLIState>(`/v1/agent-cli/${flavor}/default-model`, {
+      method: "PUT",
+      body: JSON.stringify({ model }),
+    }),
 
   listModels: (provider?: LLMProviderType) =>
     request<{ object: string; data: LLMModel[] }>(

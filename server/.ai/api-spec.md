@@ -56,6 +56,13 @@ client does not know the vector length until an index reports it. A separate cal
 `GET /v1/llm/providers` because it's a cheap, independent read, not because of any
 network round trip.
 
+### PUT /v1/agent-cli/{flavor}/default-model
+
+Body `{"model": "..."}` (empty clears). Sets the model an agent set to "default model" runs
+on for that CLI; answers the same state as `GET /v1/agent-cli`, whose `flavors[]` entries
+carry `default_model`. The usage dashboard flags such runs with `model_from_default` on
+`by_model` rows. API-key providers keep their default via `default_model` on connect.
+
 ### GET /v1/models
 
 Proxies the active provider's model list. `?provider=<type|endpoint uuid>` lists that

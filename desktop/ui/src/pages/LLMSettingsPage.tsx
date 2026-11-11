@@ -15,6 +15,7 @@ import { SettingsSection } from "@/components/layout/SettingsSection";
 import { LLMEndpointIcon, LLMProviderIcon } from "@/components/admin/LLMProviderIcon";
 import { EnvironmentPreflight, type EnvironmentBlocker } from "@/components/runner/EnvironmentPreflight";
 import { LocalCliCard } from "@/components/runner/LocalCliCard";
+import { ProviderModelField } from "@/components/runner/ProviderModelField";
 import {
   type ConnectStep,
   connectAgentCli,
@@ -139,6 +140,7 @@ export function LLMSettingsPage() {
   const [baseURL, setBaseURL] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState(300);
+  const [defaultModel, setDefaultModel] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [testing, setTesting] = useState(false);
   const [busyType, setBusyType] = useState<LLMProviderType | null>(null);
@@ -244,6 +246,17 @@ export function LLMSettingsPage() {
     }
   };
 
+  const handleCliDefaultModel = async (flavor: AgentCLIFlavor, model: string) => {
+    try {
+      await api.setAgentCliDefaultModel(flavor, model);
+      toast.success(t("settingsPages.llm.defaultModelSaved"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("settingsPages.llm.defaultModelSaveFailed"));
+    } finally {
+      await refreshCliState();
+    }
+  };
+
   const handleCliDisconnect = async (flavor: AgentCLIFlavor) => {
     setCliBusy(flavor);
     setCliError(null);
@@ -265,6 +278,7 @@ export function LLMSettingsPage() {
     setConnectTarget(view);
     setBaseURL(view.config.base_url || view.definition.default_base_url);
     setApiKey("");
+    setDefaultModel(view.config.default_model);
     const timeout =
       view.config.timeout_seconds > 0
         ? view.config.timeout_seconds
@@ -276,6 +290,7 @@ export function LLMSettingsPage() {
     setConnectTarget(null);
     setBaseURL("");
     setApiKey("");
+    setDefaultModel("");
     setTimeoutSeconds(300);
   };
 
@@ -283,6 +298,7 @@ export function LLMSettingsPage() {
     base_url: baseURL.trim(),
     api_key: apiKey.trim(),
     timeout_seconds: timeoutSeconds,
+    ...(defaultModel.trim() ? { default_model: defaultModel.trim() } : {}),
   });
 
   const handleTest = async () => {
@@ -479,6 +495,7 @@ export function LLMSettingsPage() {
                     snapshot={snapshot}
                     onConnect={() => flavor && handleCliConnect(flavor)}
                     onDisconnect={() => flavor && handleCliDisconnect(flavor)}
+                    onDefaultModelChange={(m) => flavor && void handleCliDefaultModel(flavor, m)}
                     {...(envBlocker ? { environmentBlockingLabel: envBlocker.label } : {})}
                   />
                 );
@@ -603,6 +620,13 @@ export function LLMSettingsPage() {
                   />
                 </div>
               )}
+              <ProviderModelField
+                provider={connectTarget.definition.type}
+                value={defaultModel}
+                onChange={setDefaultModel}
+                placeholder={connectTarget.definition.default_model}
+                reloadKey={connectTarget.config.configured ? "configured" : "new"}
+              />
               {connectTarget.definition.requires_api_key && (
                 <div className="space-y-2">
                   <Label htmlFor="llm-api-key">{t("settingsPages.llm.apiKeyFieldLabel")}</Label>
