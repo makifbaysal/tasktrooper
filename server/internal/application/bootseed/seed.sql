@@ -89,7 +89,7 @@ INSERT INTO billing_plan (id) VALUES (1) ON CONFLICT DO NOTHING;
 -- foreign value harmless (see .ai/workspace.md).
 INSERT INTO app_settings (key, value) VALUES
     ('workspace_root',      './data/workspaces'),
-    ('default_language',    'tr'),
+    ('default_language',    'en'),
     ('active_llm_provider', 'local')
 ON CONFLICT DO NOTHING;
 
