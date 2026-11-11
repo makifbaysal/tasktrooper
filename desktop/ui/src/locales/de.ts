@@ -22,6 +22,7 @@ import { settingsPages } from "@/locales/de/settingsPages";
 import { audienceHub } from "@/locales/de/audienceHub";
 import { telemetryHub } from "@/locales/de/telemetryHub";
 import { setup } from "@/locales/de/setup";
+import { remoteAccess } from "@/locales/de/remoteAccess";
 import { toolchain } from "@/locales/de/toolchain";
 
 // German dictionary. Typed as Dict — must mirror en.ts keys exactly.
@@ -257,5 +258,6 @@ export const de: Dict = {
   audienceHub,
   telemetryHub,
   setup,
+  remoteAccess,
   toolchain,
 };

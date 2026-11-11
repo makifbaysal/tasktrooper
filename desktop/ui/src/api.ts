@@ -5647,6 +5647,63 @@ export interface StudyPlanInput {
 export const AUDIENCE_NO_RUNTIME = "audience_no_runtime";
 
 
+// --- remote access (the phone app), contract section 9 ---
+
+export type RemoteDeviceRole = "operator" | "viewer";
+
+export interface RemoteAccessStatus {
+  enabled: boolean;
+  /** The loopback port of the remote listener; 0 when it is off. */
+  port: number;
+  server_name: string;
+  device_count: number;
+  pending_pairings: number;
+}
+
+export interface RemotePairing {
+  id: string;
+  /** The 12-character code without separators. */
+  code: string;
+  /** The same code grouped for a person, `K7QD-2M9W-XH4T`. */
+  code_display: string;
+  /** `tasktrooper://pair?...`: what the QR code carries. */
+  uri: string;
+  expires_at: string;
+}
+
+export interface RemotePairingRequest {
+  role: RemoteDeviceRole;
+  /** 0 = never expires. */
+  expires_in_days: number;
+  public_url: string;
+  device_label?: string;
+}
+
+export interface RemoteDevice {
+  id: string;
+  name: string;
+  platform?: string;
+  role: RemoteDeviceRole;
+  created_at: string;
+  last_seen_at?: string | null;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+}
+
+export type RemoteAuditKind = "request" | "auth_failed" | "pair" | "pair_failed" | "revoke" | "rate_limited";
+
+export interface RemoteAuditEntry {
+  id: string | number;
+  at: string;
+  device_id?: string | null;
+  device_name?: string | null;
+  method?: string;
+  route?: string;
+  status?: number;
+  kind: RemoteAuditKind;
+}
+
+
 export const api = {
   health: () => request<HealthResponse>("/health"),
 
@@ -7835,4 +7892,26 @@ export const api = {
 
   cancelSmokeGeneration: (jobId: string) =>
     request<void>(`/v1/smoke-check-generations/${jobId}`, { method: "DELETE" }),
+
+  remoteAccessStatus: () => request<RemoteAccessStatus>("/v1/remote-access"),
+
+  createRemotePairing: (body: RemotePairingRequest) =>
+    request<RemotePairing>("/v1/remote-access/pairings", { method: "POST", body: JSON.stringify(body) }),
+
+  cancelRemotePairing: (id: string) =>
+    request<void>(`/v1/remote-access/pairings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  listRemoteDevices: () => request<{ devices: RemoteDevice[] }>("/v1/remote-access/devices"),
+
+  renameRemoteDevice: (id: string, patch: { name?: string; role?: RemoteDeviceRole }) =>
+    request<RemoteDevice>(`/v1/remote-access/devices/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  revokeRemoteDevice: (id: string) =>
+    request<void>(`/v1/remote-access/devices/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+  remoteAccessAudit: (limit = 100) =>
+    request<{ entries: RemoteAuditEntry[] }>(`/v1/remote-access/audit?limit=${limit}`),
 };

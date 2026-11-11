@@ -664,3 +664,87 @@ export interface CloudStatus {
   /** Chromium's own description, or one sentence from the supervisor. */
   description?: string;
 }
+
+// --- remote access (the tunnel for the mobile app) ---------------------------
+
+export const REMOTE_PROVIDERS = ["cloudflare", "ngrok"] as const;
+export type RemoteProvider = (typeof REMOTE_PROVIDERS)[number];
+
+/**
+ * quick: the provider assigns the address (a random `trycloudflare.com` name; the
+ * ngrok account's own assigned domain). named: the person's own hostname.
+ */
+export const REMOTE_MODES = ["quick", "named"] as const;
+export type RemoteMode = (typeof REMOTE_MODES)[number];
+
+export type RemoteTunnelState =
+  | "stopped"
+  | "starting"
+  | "connected"
+  | "reconnecting"
+  | "error"
+  | "binary_missing";
+
+/** Why the tunnel is in `error` when it is something the person fixes in the form. */
+export type RemoteTunnelProblem =
+  | "needs_token"
+  | "needs_hostname"
+  | "auth_failed"
+  | "server_unavailable"
+  | "enable_failed"
+  | "exited";
+
+/** The non-secret half of the configuration. The secrets are `RemoteSecretsView`. */
+export interface RemoteAccessConfig {
+  provider: RemoteProvider;
+  mode: RemoteMode;
+  /**
+   * named mode: the public hostname (cloudflare: the one routed to the tunnel in the Cloudflare
+   * dashboard; ngrok: the reserved or custom domain). Empty in quick mode.
+   */
+  hostname: string;
+  /** Start the tunnel when the app launches. */
+  autoStart: boolean;
+  /** The computer's name shown on the phone at pairing. Empty: the server picks one. */
+  serverName: string;
+}
+
+/** Which secrets are stored. Never the values. */
+export interface RemoteSecretsView {
+  cloudflareToken: boolean;
+  ngrokAuthtoken: boolean;
+}
+
+export interface RemoteBinaryDetection {
+  provider: RemoteProvider;
+  installed: boolean;
+  path?: string;
+  version?: string;
+  /** What the person runs to install it on this OS, display only; never executed by this app. */
+  installCommand?: string;
+  /** English one-liner when it is missing or unusable. */
+  detail?: string;
+}
+
+export interface RemoteAccessState {
+  tunnel: RemoteTunnelState;
+  /** The tunnel is wanted: the person pressed Start (or auto-start did) and has not stopped it. */
+  wanted: boolean;
+  config: RemoteAccessConfig;
+  secrets: RemoteSecretsView;
+  /** The public https base URL once the provider reported one. */
+  url?: string;
+  /** The loopback port of the server's remote listener the tunnel points at. */
+  remotePort?: number;
+  problem?: RemoteTunnelProblem;
+  /** English, one line, secrets redacted. */
+  error?: string;
+  /** Epoch ms of the last state change. */
+  since: number;
+  restarts: number;
+  detection?: RemoteBinaryDetection;
+  /** The last lines of the tunnel process's output, redacted. */
+  logTail: string[];
+  /** The port a named Cloudflare tunnel's public hostname must point at (http://127.0.0.1:<port>). */
+  suggestedPort: number;
+}

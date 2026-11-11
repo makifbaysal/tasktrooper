@@ -607,6 +607,72 @@ export interface ToolchainJobState {
   restartRecommended?: boolean;
 }
 
+export type DesktopRemoteProvider = "cloudflare" | "ngrok";
+export type DesktopRemoteMode = "quick" | "named";
+export type DesktopRemoteTunnelState = "stopped" | "starting" | "connected" | "reconnecting" | "error" | "binary_missing";
+export type DesktopRemoteProblem =
+  | "needs_token"
+  | "needs_hostname"
+  | "auth_failed"
+  | "server_unavailable"
+  | "enable_failed"
+  | "exited";
+
+export interface DesktopRemoteAccessConfig {
+  provider: DesktopRemoteProvider;
+  mode: DesktopRemoteMode;
+  hostname: string;
+  autoStart: boolean;
+  serverName: string;
+}
+
+export interface DesktopRemoteBinaryDetection {
+  provider: DesktopRemoteProvider;
+  installed: boolean;
+  path?: string;
+  version?: string;
+  installCommand?: string;
+  detail?: string;
+}
+
+export interface DesktopRemoteAccessState {
+  tunnel: DesktopRemoteTunnelState;
+  wanted: boolean;
+  config: DesktopRemoteAccessConfig;
+  /** Which secrets are stored; the values never cross the bridge. */
+  secrets: { cloudflareToken: boolean; ngrokAuthtoken: boolean };
+  url?: string;
+  remotePort?: number;
+  problem?: DesktopRemoteProblem;
+  error?: string;
+  since: number;
+  restarts: number;
+  detection?: DesktopRemoteBinaryDetection;
+  logTail: string[];
+  suggestedPort: number;
+}
+
+export interface DesktopRemoteAccessConfigureRequest extends Partial<DesktopRemoteAccessConfig> {
+  cloudflareToken?: string;
+  ngrokAuthtoken?: string;
+  clearSecrets?: ("cloudflareToken" | "ngrokAuthtoken")[];
+}
+
+/**
+ * The tunnel that lets the phone app reach this computer (bridge 8, local mode
+ * only). `configure` takes secrets in and answers without them.
+ */
+export interface DesktopRemoteAccessHost {
+  state(): Promise<DesktopRemoteAccessState>;
+  subscribe(cb: (state: DesktopRemoteAccessState) => void): () => void;
+  configure(request: DesktopRemoteAccessConfigureRequest): Promise<DesktopRemoteAccessState>;
+  start(): Promise<DesktopRemoteAccessState>;
+  stop(): Promise<DesktopRemoteAccessState>;
+  detect(provider: DesktopRemoteProvider): Promise<DesktopRemoteBinaryDetection>;
+  openInstallPage(provider: DesktopRemoteProvider): Promise<void>;
+  logs(): Promise<string[]>;
+}
+
 /**
  * Installs the developer tools the team's agents use (bridge 5). One job at a
  * time, run by the shell's main process, so it outlives this page.
@@ -665,6 +731,8 @@ export interface TaskTrooperDesktopHost {
   analytics?: DesktopAnalyticsHost;
   /** Bridge 5. Absent in a browser and in older shells. */
   toolchain?: DesktopToolchainHost;
+  /** Bridge 8. Absent in a browser, in older shells and in account mode. */
+  remoteAccess?: DesktopRemoteAccessHost;
   /**
    * Where this app's API calls go: "http://127.0.0.1:<port>", no path suffix.
    *
@@ -684,6 +752,7 @@ export interface TaskTrooperDesktopHost {
    * 5: `toolchain` — detect and install the developer tools the agents use.
    * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
    * 7: `analytics.track(event)` / `analytics.identify(userId)`.
+   * 8: `remoteAccess` — the tunnel for the phone app (local mode only).
    */
   bridgeVersion?: number;
   /**
@@ -747,4 +816,8 @@ export function onAccountChange(listener: () => void): () => void {
 
 export function desktopToolchain(): DesktopToolchainHost | null {
   return window.__tasktrooperDesktop?.toolchain ?? null;
+}
+
+export function desktopRemoteAccess(): DesktopRemoteAccessHost | null {
+  return window.__tasktrooperDesktop?.remoteAccess ?? null;
 }

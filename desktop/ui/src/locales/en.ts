@@ -24,6 +24,7 @@ import { settingsPages } from "@/locales/en/settingsPages";
 import { audienceHub } from "@/locales/en/audienceHub";
 import { telemetryHub } from "@/locales/en/telemetryHub";
 import { setup } from "@/locales/en/setup";
+import { remoteAccess } from "@/locales/en/remoteAccess";
 import { toolchain } from "@/locales/en/toolchain";
 
 export const en = {
@@ -259,6 +260,7 @@ export const en = {
   audienceHub,
   telemetryHub,
   setup,
+  remoteAccess,
   toolchain,
 };
 

@@ -213,6 +213,44 @@ chip and Settings (`src/main/toolchain/`, bridge `toolchain.*`, both modes).
   app quit." When a job ends, a fresh report and then `runPreflight(true)`
   run so the setup screen, the caches and the runner see the new tools.
 
+## Remote access (the phone app's tunnel)
+
+Local mode only (`src/main/tunnel/`, bridge 8 `remoteAccess.*`, Settings →
+Remote access). A `cloudflared` or `ngrok` process, run by `TunnelManager`,
+points at the server's REMOTE LISTENER, never at the UI port: the server opens
+it on `POST /v1/remote-access/enable` (preferred port `lastPort`, default
+47820, stable so a Cloudflare dashboard route survives launches) and decides
+what may cross it (device tokens, route allowlist, audit — `server/`). The
+manager only runs the tunnel and tells the page its address.
+
+- **Secrets never touch argv or the bridge.** A Cloudflare tunnel token goes in
+  `TUNNEL_TOKEN`, an ngrok authtoken in `NGROK_AUTHTOKEN`, both in the child's
+  environment (`parse.ts#buildLaunch`). They are stored `safeStorage`-encrypted
+  at 0600 in `remote-access.bin`, apart from the readable `remote-access.json`
+  (provider, mode, hostname, auto-start, name, last port). `configure` takes
+  them in; every answer carries `secrets: {…: boolean}` only. Process output is
+  `redact`ed (stored secrets plus token-shaped strings) before it reaches the
+  ring, the state or an error.
+- **Local mode only.** Every `cloud:remote-access:*` handler refuses in account
+  mode after the sender check; entering account mode `shutdown()`s the tunnel,
+  coming back honours auto-start again. Quit stops it before the drain
+  (`QuitSteps.stopRemoteAccess`).
+- **Nothing is downloaded or installed here.** `detect.ts` finds the program
+  (login PATH, Homebrew, `~/.cloudflared`, `~/bin`, Program Files, WinGet links)
+  and `--version`s it; when missing it shows the install line for this OS and
+  opens the provider's download page from main's table. The toolchain installer
+  is deliberately not used: an unsigned third-party tunnel binary is the
+  person's own install to make.
+- **Start opens the listener, Stop closes it.** Nothing listens for the phone
+  while no tunnel is wanted. A server restart re-enables on the same preferred
+  port, and the running tunnel is kept unless the port moved.
+- **A crash restarts on a doubling backoff (1 s to 30 s, reset after 60 s up).**
+  A refusal waiting cannot fix (bad token, ngrok account errors) is fatal: no
+  restart, the problem is shown. ngrok's public URL comes from its JSON log
+  (`started tunnel`), with its local API (the address its log announces,
+  `127.0.0.1:4040` by default) as the fallback. A quick Cloudflare URL changes
+  on every start; a named tunnel's is `https://<hostname>`.
+
 ## Usage statistics
 
 The main process sends GA4 Measurement Protocol events so the owner can count

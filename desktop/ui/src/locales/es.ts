@@ -22,6 +22,7 @@ import { settingsPages } from "@/locales/es/settingsPages";
 import { audienceHub } from "@/locales/es/audienceHub";
 import { telemetryHub } from "@/locales/es/telemetryHub";
 import { setup } from "@/locales/es/setup";
+import { remoteAccess } from "@/locales/es/remoteAccess";
 import { toolchain } from "@/locales/es/toolchain";
 
 // Spanish dictionary. Typed as Dict — must mirror en.ts keys exactly.
@@ -257,5 +258,6 @@ export const es: Dict = {
   audienceHub,
   telemetryHub,
   setup,
+  remoteAccess,
   toolchain,
 };

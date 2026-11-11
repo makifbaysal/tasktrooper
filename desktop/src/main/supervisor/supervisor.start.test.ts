@@ -22,7 +22,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({
-  app: { getAppPath: () => "/app", getPath: () => h.userData, isPackaged: false },
+  app: { getAppPath: () => "/app", getPath: () => h.userData, getVersion: () => "0.0.0-test", isPackaged: false },
 }));
 
 vi.mock("./child.js", async () => {

@@ -22,6 +22,7 @@ import { settingsPages } from "@/locales/fr/settingsPages";
 import { audienceHub } from "@/locales/fr/audienceHub";
 import { telemetryHub } from "@/locales/fr/telemetryHub";
 import { setup } from "@/locales/fr/setup";
+import { remoteAccess } from "@/locales/fr/remoteAccess";
 import { toolchain } from "@/locales/fr/toolchain";
 
 // French dictionary. Typed as Dict — must mirror en.ts keys exactly.
@@ -257,5 +258,6 @@ export const fr: Dict = {
   audienceHub,
   telemetryHub,
   setup,
+  remoteAccess,
   toolchain,
 };

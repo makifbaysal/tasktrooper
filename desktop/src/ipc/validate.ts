@@ -19,8 +19,12 @@ import {
   BUILT_IN_PROVIDER_TYPES,
   CHILD_IDS,
   CUSTOM_PROVIDER_TYPE,
+  REMOTE_MODES,
+  REMOTE_PROVIDERS,
   TOOLCHAIN_IDS,
   type ChildId,
+  type RemoteMode,
+  type RemoteProvider,
   type ToolchainId,
   type ProviderKeyType,
   type NotificationPreferences,
@@ -44,6 +48,8 @@ import type {
   OpenExternalRequest,
   PairRequest,
   PreflightRequest,
+  RemoteAccessConfigureRequest,
+  RemoteAccessProviderRequest,
   RestartChildRequest,
   RevealRequest,
   ToolchainIdRequest,
@@ -664,4 +670,71 @@ function withDisabled(out: McpServerSetRequest, disabled: unknown): McpServerSet
 export function validateMcpServerRemove(raw: unknown): McpServerRemoveRequest {
   const o = asRecord(raw, "keys.mcp-remove");
   return { name: asMcpName(o.name, "keys.mcp-remove.name") };
+}
+
+// --- remote access ------------------------------------------------------------
+
+/** A DNS hostname, lowercase, at least two labels, no scheme/port/path. */
+const HOSTNAME = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+/**
+ * What a person pastes for a domain: `https://x.example.com/`, `X.example.com`.
+ * Reduced to the bare lowercase host; anything that is not one is refused.
+ */
+export function normalizeHostname(raw: string): string | null {
+  let host = raw.trim().toLowerCase();
+  host = host.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  return HOSTNAME.test(host) ? host : null;
+}
+
+function asRemoteProvider(value: unknown, what: string): RemoteProvider {
+  const provider = asString(value, what, { max: 32 });
+  if (!(REMOTE_PROVIDERS as readonly string[]).includes(provider)) fail(`${what}: unknown provider ${provider}`);
+  return provider as RemoteProvider;
+}
+
+/** Tokens are opaque, but they are one line of printable ASCII, which is all argv-free transport needs. */
+function asSecretToken(value: unknown, what: string): string {
+  const s = asClean(value, what, { max: 2048 }).trim();
+  if (s === "") fail(`${what}: must not be empty`);
+  if (!/^[\x21-\x7e]+$/.test(s)) fail(`${what}: expected printable characters without spaces`);
+  return s;
+}
+
+export function validateRemoteAccessProvider(raw: unknown): RemoteAccessProviderRequest {
+  const o = asRecord(raw, "remoteAccess");
+  return { provider: asRemoteProvider(o.provider, "remoteAccess.provider") };
+}
+
+export function validateRemoteAccessConfigure(raw: unknown): RemoteAccessConfigureRequest {
+  const o = asRecord(raw, "remoteAccess");
+  const out: RemoteAccessConfigureRequest = {};
+  if (o.provider !== undefined) out.provider = asRemoteProvider(o.provider, "remoteAccess.provider");
+  if (o.mode !== undefined) {
+    const mode = asString(o.mode, "remoteAccess.mode", { max: 16 });
+    if (!(REMOTE_MODES as readonly string[]).includes(mode)) fail(`remoteAccess.mode: unknown mode ${mode}`);
+    out.mode = mode as RemoteMode;
+  }
+  if (o.hostname !== undefined) {
+    const raw = asClean(o.hostname, "remoteAccess.hostname", { max: 300 });
+    if (raw.trim() === "") out.hostname = "";
+    else {
+      const host = normalizeHostname(raw);
+      if (host === null) fail("remoteAccess.hostname: expected a hostname such as phone.example.com");
+      out.hostname = host;
+    }
+  }
+  if (o.autoStart !== undefined) out.autoStart = asBoolean(o.autoStart, "remoteAccess.autoStart");
+  if (o.serverName !== undefined) out.serverName = asClean(o.serverName, "remoteAccess.serverName", { max: 80 }).trim();
+  if (o.cloudflareToken !== undefined) out.cloudflareToken = asSecretToken(o.cloudflareToken, "remoteAccess.cloudflareToken");
+  if (o.ngrokAuthtoken !== undefined) out.ngrokAuthtoken = asSecretToken(o.ngrokAuthtoken, "remoteAccess.ngrokAuthtoken");
+  if (o.clearSecrets !== undefined) {
+    if (!Array.isArray(o.clearSecrets) || o.clearSecrets.length > 2) fail("remoteAccess.clearSecrets: expected a short list");
+    out.clearSecrets = [];
+    for (const name of o.clearSecrets as unknown[]) {
+      if (name !== "cloudflareToken" && name !== "ngrokAuthtoken") fail("remoteAccess.clearSecrets: unknown secret");
+      if (!out.clearSecrets.includes(name)) out.clearSecrets.push(name);
+    }
+  }
+  return out;
 }

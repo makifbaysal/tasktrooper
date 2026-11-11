@@ -72,6 +72,11 @@ import { Supervisor } from "./supervisor/supervisor.js";
 import { confirmInstall } from "./toolchain/consent.js";
 import { jobForRemote, reportForRemote } from "./toolchain/remote.js";
 import { createToolchainService } from "./toolchain/service.js";
+import { detectBinary, installPage } from "./tunnel/detect.js";
+import { TunnelManager } from "./tunnel/manager.js";
+import { spawnTunnel } from "./tunnel/process.js";
+import { createListenerClient } from "./tunnel/server-client.js";
+import { RemoteAccessStore } from "./tunnel/store.js";
 import { AppTray } from "./tray.js";
 import { openExternally, Shell } from "./window.js";
 
@@ -168,6 +173,31 @@ const toolchain = createToolchainService(
   },
   { fetch: (url, init) => net.fetch(url, init) },
 );
+
+/**
+ * Remote access: the Cloudflare or ngrok tunnel for the phone app, local mode
+ * only. It targets the server's remote listener (never the UI port), and the
+ * server decides what may cross it. Built here like the stores — it starts
+ * nothing until `init()` at launch honours the auto-start switch.
+ */
+const remoteAccess = new TunnelManager({
+  store: new RemoteAccessStore(app.getPath("userData")),
+  detect: (provider) => detectBinary(provider),
+  spawn: spawnTunnel,
+  listener: createListenerClient(),
+  server: () => {
+    const base = supervisor.apiBase;
+    const token = secrets?.api_token;
+    return base && token ? { base, token } : null;
+  },
+  fetchJson: async (url) => {
+    const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  },
+  isLocalMode: () => !accountMode(),
+});
+remoteAccess.on("state", (state) => toCloud(CLOUD_EVENTS.remoteAccessState, state));
 
 /** The account's page is another origin: it is told what is installed, not where under this person's home. */
 function jobForPage(state: ToolchainJobState): ToolchainJobState {
@@ -542,6 +572,7 @@ const quit = quitSequence({
     tray = null;
   },
   stopToolchain: () => toolchain.shutdown(),
+  stopRemoteAccess: () => remoteAccess.shutdown(),
   // Both, whichever mode is current: a session that switched modes can have
   // an embedder from local mode and a runner from account mode, and draining
   // an idle supervisor costs nothing.
@@ -781,6 +812,16 @@ const services: IpcServices = {
     if (url === null) throw new Error("There is no page to open for that tool on this computer.");
     await shell.openExternal(url);
   },
+
+  remoteAccessState: () => remoteAccess.snapshot(),
+  remoteAccessConfigure: (request) => remoteAccess.configure(request),
+  remoteAccessStart: () => remoteAccess.start(),
+  remoteAccessStop: () => remoteAccess.stop(),
+  remoteAccessDetect: (provider) => remoteAccess.detect(provider),
+  remoteAccessOpenInstallPage: async (provider) => {
+    await shell.openExternal(installPage(provider));
+  },
+  remoteAccessLogs: () => remoteAccess.logs(),
 };
 
 /**
@@ -953,6 +994,7 @@ app.whenReady().then(
     // reading a profile) runs beside everything below instead of in front of
     // the first preflight.
     supervisor.warmUp();
+    if (!accountMode()) void remoteAccess.init();
 
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
@@ -1045,7 +1087,13 @@ app.whenReady().then(
       broadcast(SHELL_EVENTS.supervisorState, snapshot);
       toCloud(CLOUD_EVENTS.runnerState, hostSnapshot(snapshot));
     });
+    let lastMode = modeController.mode;
     modeController.on("state", (state: AccountState) => {
+      // Leaving local mode closes the tunnel; coming back honours auto-start again.
+      if (state.mode !== lastMode) {
+        lastMode = state.mode;
+        void (state.mode === "account" ? remoteAccess.shutdown() : remoteAccess.init());
+      }
       broadcast(SHELL_EVENTS.accountState, state);
       tray?.update(activeSnapshot());
     });
@@ -1069,6 +1117,7 @@ app.whenReady().then(
      * life calling a port nothing is listening on.
      */
     supervisor.on("server", (baseUrl) => {
+      if (baseUrl !== null && !accountMode()) void remoteAccess.onServer();
       if (baseUrl === null || accountMode()) return;
       const moved = servedBase !== null && servedBase !== baseUrl;
       servedBase = baseUrl;

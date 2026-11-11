@@ -7,6 +7,7 @@ import {
   type KeySetRequest,
   type KeysWindowPrefill,
   type McpServerSetRequest,
+  type RemoteAccessConfigureRequest,
 } from "../ipc/channels.js";
 import type {
   HostOverrides,
@@ -26,6 +27,9 @@ import type {
   PreflightReport,
   McpServersState,
   ProviderKeysState,
+  RemoteAccessState,
+  RemoteBinaryDetection,
+  RemoteProvider,
   RunnerPairingBundle,
   RunnerPairingSummary,
   SupervisorSnapshot,
@@ -56,6 +60,8 @@ import {
   validatePreferences,
   validatePreflightRequest,
   validateRestartChild,
+  validateRemoteAccessConfigure,
+  validateRemoteAccessProvider,
   validateReveal,
   validateSignIn,
   validateToolchainId,
@@ -188,6 +194,15 @@ export interface IpcServices {
   toolchainDismiss(): ToolchainJobState;
   /** Opens the tool's page from the table in the real browser. */
   toolchainOpenPage(id: ToolchainId): Promise<void>;
+
+  // --- remote access (local mode only) ---
+  remoteAccessState(): RemoteAccessState;
+  remoteAccessConfigure(request: RemoteAccessConfigureRequest): Promise<RemoteAccessState>;
+  remoteAccessStart(): Promise<RemoteAccessState>;
+  remoteAccessStop(): Promise<RemoteAccessState>;
+  remoteAccessDetect(provider: RemoteProvider): Promise<RemoteBinaryDetection>;
+  remoteAccessOpenInstallPage(provider: RemoteProvider): Promise<void>;
+  remoteAccessLogs(): string[];
 }
 
 /** Answers "is this call really from the web app, right now?". */
@@ -454,6 +469,44 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.toolchainCancel, () => services.toolchainCancel());
   cloud(CLOUD_CHANNELS.toolchainDismiss, () => services.toolchainDismiss());
   cloud(CLOUD_CHANNELS.toolchainOpenPage, (payload) => services.toolchainOpenPage(validateToolchainId(payload).id));
+
+  /**
+   * Remote access, local mode only. The account's page is a remote origin, and
+   * a tunnel opens this computer to the internet: it is never that page's to
+   * start, and in account mode the account's cloud is the way in anyway.
+   * Checked after the sender and before the payload, like `accountOnly`.
+   */
+  const localOnly = (): void => {
+    if (services.accountMode() !== "local") throw new Error("Remote access is available while TaskTrooper runs locally.");
+  };
+  cloud(CLOUD_CHANNELS.remoteAccessState, () => {
+    localOnly();
+    return services.remoteAccessState();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessConfigure, (payload) => {
+    localOnly();
+    return services.remoteAccessConfigure(validateRemoteAccessConfigure(payload));
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessStart, () => {
+    localOnly();
+    return services.remoteAccessStart();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessStop, () => {
+    localOnly();
+    return services.remoteAccessStop();
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessDetect, (payload) => {
+    localOnly();
+    return services.remoteAccessDetect(validateRemoteAccessProvider(payload).provider);
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessOpenInstallPage, (payload) => {
+    localOnly();
+    return services.remoteAccessOpenInstallPage(validateRemoteAccessProvider(payload).provider);
+  });
+  cloud(CLOUD_CHANNELS.remoteAccessLogs, () => {
+    localOnly();
+    return services.remoteAccessLogs();
+  });
 
   cloud(CLOUD_CHANNELS.updateGet, () => services.updateStatus());
   cloud(CLOUD_CHANNELS.updateCheck, () => services.checkForUpdate());

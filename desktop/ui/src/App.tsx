@@ -61,6 +61,7 @@ const TelemetrySettingsPage = lazy(() => import("@/pages/TelemetrySettingsPage")
 const OpsAlertConnectionsPage = lazy(() => import("@/pages/ops/OpsAlertConnectionsPage"));
 const FilesPage = lazy(() => import("@/pages/FilesPage").then((m) => ({ default: m.FilesPage })));
 const RulesPage = lazy(() => import("@/pages/RulesPage").then((m) => ({ default: m.RulesPage })));
+const RemoteAccessSettingsPage = lazy(() => import("@/pages/RemoteAccessSettingsPage").then((m) => ({ default: m.RemoteAccessSettingsPage })));
 const IntegrationsSettingsPage = lazy(() => import("@/pages/IntegrationsSettingsPage").then((m) => ({ default: m.IntegrationsSettingsPage })));
 const MCPServersPage = lazy(() => import("@/pages/MCPServersPage").then((m) => ({ default: m.MCPServersPage })));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
@@ -224,6 +225,7 @@ export default function App() {
                   <Route path="mcp" element={<MCPServersPage />} />
                   <Route path="integrations" element={<IntegrationsSettingsPage />} />
                   <Route path="telemetry" element={<TelemetrySettingsPage />} />
+                  <Route path="remote-access" element={<RemoteAccessSettingsPage />} />
                   <Route path="device" element={<Navigate to="/settings" replace />} />
                   {/* The Local Runner page is gone — everything it offered now lives on
                       the Claude Code card under LLM Connection. This redirect stays

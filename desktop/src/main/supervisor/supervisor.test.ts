@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
-  app: { getAppPath: () => "/app", getPath: () => "/userData", isPackaged: false },
+  app: { getAppPath: () => "/app", getPath: () => "/userData", getVersion: () => "0.0.0-test", isPackaged: false },
 }));
 
 const updates: Array<Record<string, unknown>> = [];

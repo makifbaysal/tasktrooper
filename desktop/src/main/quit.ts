@@ -43,6 +43,8 @@ export interface QuitSteps {
    * past the app keeps holding it with nobody to report what it did.
    */
   stopToolchain: () => void;
+  /** Stop the phone-access tunnel (SIGTERM, then SIGKILL) so no tunnel outlives the app. */
+  stopRemoteAccess?: () => Promise<unknown> | void;
   /** The supervisor's drain: SIGTERM to every child, and time to use it. */
   drain: () => Promise<unknown>;
   /**
@@ -86,6 +88,12 @@ export function quitSequence(steps: QuitSteps): QuitSequence {
         steps.stopToolchain();
       } catch {
         // Best-effort, like the drain: it must not keep the app from quitting.
+      }
+
+      try {
+        await steps.stopRemoteAccess?.();
+      } catch {
+        // Same: a tunnel that will not stop is not a reason to stay open.
       }
 
       try {

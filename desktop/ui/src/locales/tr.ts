@@ -22,6 +22,7 @@ import { settingsPages } from "@/locales/tr/settingsPages";
 import { audienceHub } from "@/locales/tr/audienceHub";
 import { telemetryHub } from "@/locales/tr/telemetryHub";
 import { setup } from "@/locales/tr/setup";
+import { remoteAccess } from "@/locales/tr/remoteAccess";
 import { toolchain } from "@/locales/tr/toolchain";
 
 // Turkish dictionary. Typed as Dict — must mirror en.ts keys exactly.
@@ -258,5 +259,6 @@ export const tr: Dict = {
   audienceHub,
   telemetryHub,
   setup,
+  remoteAccess,
   toolchain,
 };

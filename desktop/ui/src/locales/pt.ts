@@ -22,6 +22,7 @@ import { settingsPages } from "@/locales/pt/settingsPages";
 import { audienceHub } from "@/locales/pt/audienceHub";
 import { telemetryHub } from "@/locales/pt/telemetryHub";
 import { setup } from "@/locales/pt/setup";
+import { remoteAccess } from "@/locales/pt/remoteAccess";
 import { toolchain } from "@/locales/pt/toolchain";
 
 // Brazilian Portuguese dictionary. Typed as Dict — must mirror en.ts keys exactly.
@@ -257,5 +258,6 @@ export const pt: Dict = {
   audienceHub,
   telemetryHub,
   setup,
+  remoteAccess,
   toolchain,
 };

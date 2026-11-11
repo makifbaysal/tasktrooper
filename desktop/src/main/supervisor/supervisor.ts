@@ -582,6 +582,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
           postgresCacheDir: postgresCacheDir(),
           apiToken: secrets.api_token,
           mcpSecretsKey: secrets.mcp_secrets_key,
+          appVersion: app.getVersion(),
           ...(embeddingsBaseURL !== null ? { embeddingsBaseURL } : {}),
         }),
         restart: true,

@@ -37,6 +37,8 @@ import type {
   ProviderKeyType,
   RunnerPairingBundle,
   RunnerPairingSummary,
+  RemoteAccessConfig,
+  RemoteProvider,
   SupervisorSnapshot,
   ToolchainId,
   UpdateStatus,
@@ -286,6 +288,22 @@ export const CLOUD_CHANNELS = {
   toolchainCancel: "cloud:toolchain:cancel",
   toolchainDismiss: "cloud:toolchain:dismiss",
   toolchainOpenPage: "cloud:toolchain:open-page",
+
+  /**
+   * Remote access: the tunnel that lets the phone app reach this computer.
+   * LOCAL MODE ONLY — the handlers refuse in account mode, where the account's
+   * own cloud is the way in. The page names a provider and sends settings; the
+   * binary and its arguments are main's. Secrets (a tunnel token, an authtoken)
+   * go in on `configure` and never come back: every answer carries
+   * `secrets: {…: boolean}` only.
+   */
+  remoteAccessState: "cloud:remote-access:state",
+  remoteAccessConfigure: "cloud:remote-access:configure",
+  remoteAccessStart: "cloud:remote-access:start",
+  remoteAccessStop: "cloud:remote-access:stop",
+  remoteAccessDetect: "cloud:remote-access:detect",
+  remoteAccessOpenInstallPage: "cloud:remote-access:open-install-page",
+  remoteAccessLogs: "cloud:remote-access:logs",
 } as const;
 
 /** Main → the web app. Push, so the page never polls the supervisor. */
@@ -294,6 +312,7 @@ export const CLOUD_EVENTS = {
   runnerLogs: "cloud:event:runner-logs",
   updateStatus: "cloud:event:update-status",
   toolchainState: "cloud:toolchain:state-changed",
+  remoteAccessState: "cloud:remote-access:state-changed",
 } as const;
 
 export type ShellChannel = (typeof SHELL_CHANNELS)[keyof typeof SHELL_CHANNELS];
@@ -373,6 +392,21 @@ export interface ToolchainIdRequest {
 /** Same rule as `PreflightRequest`: `force` re-probes, and only a real boolean says so. */
 export interface ToolchainReportRequest {
   force?: boolean;
+}
+
+/** A provider id, validated against `REMOTE_PROVIDERS`. */
+export interface RemoteAccessProviderRequest {
+  provider: RemoteProvider;
+}
+
+/**
+ * Saving the form. Every field is optional (a patch). A secret is sent only when
+ * the person typed one; `clearSecrets` forgets a stored one.
+ */
+export interface RemoteAccessConfigureRequest extends Partial<RemoteAccessConfig> {
+  cloudflareToken?: string;
+  ngrokAuthtoken?: string;
+  clearSecrets?: ("cloudflareToken" | "ngrokAuthtoken")[];
 }
 
 /** What `POST /api/runner/pair` returned. */

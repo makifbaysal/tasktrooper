@@ -7,11 +7,13 @@ import {
   type ChooseDirectoryRequest,
   type KeysWindowPrefill,
   type McpServerSetRequest,
+  type RemoteAccessConfigureRequest,
 } from "../ipc/channels.js";
 import type {
   DesktopAccountHost,
   DesktopAnalyticsHost,
   DesktopHost,
+  DesktopRemoteAccessHost,
   DesktopRunnerHost,
   DesktopToolchainHost,
   DesktopUpdatesHost,
@@ -30,6 +32,8 @@ import type {
   LogLine,
   McpServersState,
   PreflightReport,
+  RemoteAccessState,
+  RemoteBinaryDetection,
   RunnerPairingBundle,
   RunnerPairingSummary,
   ToolchainId,
@@ -200,6 +204,17 @@ const toolchain: DesktopToolchainHost = {
   openPage: (id: ToolchainId) => call<void>(CLOUD_CHANNELS.toolchainOpenPage, { id }),
 };
 
+const remoteAccess: DesktopRemoteAccessHost = {
+  state: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessState),
+  subscribe: (cb) => subscribe<RemoteAccessState>(CLOUD_EVENTS.remoteAccessState, cb),
+  configure: (request: RemoteAccessConfigureRequest) => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessConfigure, request),
+  start: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessStart),
+  stop: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessStop),
+  detect: (provider) => call<RemoteBinaryDetection>(CLOUD_CHANNELS.remoteAccessDetect, { provider }),
+  openInstallPage: (provider) => call<void>(CLOUD_CHANNELS.remoteAccessOpenInstallPage, { provider }),
+  logs: () => call<string[]>(CLOUD_CHANNELS.remoteAccessLogs),
+};
+
 /**
  * The synchronous reads, made once while the preload runs.
  *
@@ -225,7 +240,7 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 7,
+  bridgeVersion: 8,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,
@@ -233,6 +248,7 @@ const host: DesktopHost = {
   updates,
   analytics,
   toolchain,
+  remoteAccess,
 };
 
 contextBridge.exposeInMainWorld(
@@ -244,5 +260,6 @@ contextBridge.exposeInMainWorld(
     updates: Object.freeze(updates),
     analytics: Object.freeze(analytics),
     toolchain: Object.freeze(toolchain),
+    remoteAccess: Object.freeze(remoteAccess),
   }),
 );

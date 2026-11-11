@@ -57,6 +57,21 @@ describe("quitSequence", () => {
     expect(order).not.toContain("install");
   });
 
+  it("stops the phone-access tunnel before the drain, and a tunnel that will not stop does not keep the app open", async () => {
+    const ref: { order: string[] } = { order: [] };
+    const { order, quit } = recorder({
+      stopRemoteAccess: () => {
+        ref.order.push("stop-tunnel");
+        return Promise.reject(new Error("stuck"));
+      },
+    });
+    ref.order = order;
+    await quit.run();
+    expect(order.indexOf("stop-tunnel")).toBeGreaterThan(order.indexOf("stop-toolchain"));
+    expect(order.indexOf("stop-tunnel")).toBeLessThan(order.indexOf("drain:start"));
+    expect(order[order.length - 1]).toBe("exit:0");
+  });
+
   it("drains to completion BEFORE handing off to Squirrel", async () => {
     const { order, quit } = recorder();
     await quit.run({ applyUpdate: true });

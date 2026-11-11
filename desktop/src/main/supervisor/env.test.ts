@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PreflightReport } from "../../ipc/types.js";
 
 vi.mock("electron", () => ({
-  app: { getAppPath: () => "/app", getPath: () => "/userData", isPackaged: false },
+  app: { getAppPath: () => "/app", getPath: () => "/userData", getVersion: () => "0.0.0-test", isPackaged: false },
 }));
 
 // Root-level /catalog does not exist on this machine, but catalogRoot()
@@ -38,6 +38,20 @@ const env = (extra: PreflightReport["items"] = [], embeddingsBaseURL?: string): 
   });
 
 describe("agentServerEnv", () => {
+  it("tells the backend which app version it runs in, and ignores one from the parent shell", () => {
+    vi.stubEnv("TASKTROOPER_APP_VERSION", "9.9.9-from-shell");
+    expect(env().TASKTROOPER_APP_VERSION).toBeUndefined();
+    const withVersion = agentServerEnv({
+      preflight: report(),
+      dataDir: "/d",
+      postgresCacheDir: "/p",
+      apiToken: "t",
+      mcpSecretsKey: "k",
+      appVersion: "0.3.13",
+    });
+    expect(withVersion.TASKTROOPER_APP_VERSION).toBe("0.3.13");
+  });
+
   /**
    * The backend picks its own port and prints it. Anything else would be two
    * settings for one fact, with nothing to notice when they drift apart.

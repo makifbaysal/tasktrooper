@@ -35,6 +35,9 @@ import type {
   McpServersState,
   NotificationPreferences,
   PreflightReport,
+  RemoteAccessState,
+  RemoteBinaryDetection,
+  RemoteProvider,
   RunnerPairingBundle,
   RunnerPairingSummary,
   ToolchainId,
@@ -51,6 +54,7 @@ import type {
   ChooseDirectoryRequest,
   KeysWindowPrefill,
   McpServerSetRequest,
+  RemoteAccessConfigureRequest,
 } from "./channels.js";
 
 /**
@@ -266,6 +270,30 @@ export interface DesktopToolchainHost {
 }
 
 /**
+ * Remote access (local mode only): the Cloudflare or ngrok tunnel that makes the
+ * phone app able to reach this computer.
+ *
+ * `configure` takes the form, secrets included, and answers the state WITHOUT
+ * them (`secrets.<name>: boolean`). `start` enables the server's remote listener
+ * and runs the tunnel; `stop` stops both. The page then calls the server's own
+ * `/v1/remote-access/*` API (pairing codes, devices, audit) with `apiBase` and
+ * `apiToken`, using `state().url` as the public address.
+ */
+export interface DesktopRemoteAccessHost {
+  state(): Promise<RemoteAccessState>;
+  subscribe(cb: (state: RemoteAccessState) => void): () => void;
+  configure(request: RemoteAccessConfigureRequest): Promise<RemoteAccessState>;
+  start(): Promise<RemoteAccessState>;
+  stop(): Promise<RemoteAccessState>;
+  /** Is the provider's program on this computer? `force` is implied: each call probes. */
+  detect(provider: RemoteProvider): Promise<RemoteBinaryDetection>;
+  /** Opens the provider's download page (from main's table) in the real browser. */
+  openInstallPage(provider: RemoteProvider): Promise<void>;
+  /** The tunnel process's recent output, secrets redacted. */
+  logs(): Promise<string[]>;
+}
+
+/**
  * Local or account, switched at runtime.
  *
  * `signIn` stops the local backend and loads the account's sign-in page in
@@ -342,8 +370,9 @@ export interface DesktopHost {
    * 5: `toolchain` — detecting and installing the developer tools agents use.
    * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
    * 7: `analytics.track(event)` / `analytics.identify(userId)`.
+   * 8: `remoteAccess` — the tunnel for the phone app (local mode only).
    */
-  bridgeVersion: 7;
+  bridgeVersion: 8;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;
@@ -351,6 +380,7 @@ export interface DesktopHost {
   updates: DesktopUpdatesHost;
   analytics: DesktopAnalyticsHost;
   toolchain: DesktopToolchainHost;
+  remoteAccess: DesktopRemoteAccessHost;
 }
 
 export type {
@@ -359,6 +389,10 @@ export type {
   ChooseDirectoryRequest,
   McpServersState,
   McpServerSetRequest,
+  RemoteAccessConfigureRequest,
+  RemoteAccessState,
+  RemoteBinaryDetection,
+  RemoteProvider,
   RunnerPairingBundle,
   RunnerPairingSummary,
   ToolchainId,

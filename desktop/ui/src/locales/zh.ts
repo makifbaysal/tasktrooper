@@ -22,6 +22,7 @@ import { settingsPages } from "@/locales/zh/settingsPages";
 import { audienceHub } from "@/locales/zh/audienceHub";
 import { telemetryHub } from "@/locales/zh/telemetryHub";
 import { setup } from "@/locales/zh/setup";
+import { remoteAccess } from "@/locales/zh/remoteAccess";
 import { toolchain } from "@/locales/zh/toolchain";
 
 // Simplified Chinese dictionary. Typed as Dict — must mirror en.ts keys exactly.
@@ -257,5 +258,6 @@ export const zh: Dict = {
   audienceHub,
   telemetryHub,
   setup,
+  remoteAccess,
   toolchain,
 };

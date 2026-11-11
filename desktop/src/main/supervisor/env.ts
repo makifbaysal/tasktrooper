@@ -107,6 +107,7 @@ export const SERVER_CONTRACT_KEYS = [
   "APPIUM_BIN",
   "ALLOWED_ROOTS",
   "AGENT_CATALOG_REPO",
+  "TASKTROOPER_APP_VERSION",
 ] as const;
 
 export interface AgentServerEnvInputs {
@@ -123,6 +124,8 @@ export interface AgentServerEnvInputs {
   embeddingsBaseURL?: string;
   /** What the toolchain installed outside every PATH; see `childEnv`. */
   toolchainRuntime?: ToolchainRuntime;
+  /** The app's version, reported to the phone app by `/remote/v1/info`. */
+  appVersion?: string;
 }
 
 /**
@@ -164,6 +167,7 @@ export function agentServerEnv(inputs: AgentServerEnvInputs): NodeJS.ProcessEnv 
     EMBEDDED_POSTGRES_CACHE_DIR: toEnvPath(inputs.postgresCacheDir)!,
     SERVER_API_KEY: inputs.apiToken,
     MCP_SECRETS_KEY: inputs.mcpSecretsKey,
+    ...(inputs.appVersion ? { TASKTROOPER_APP_VERSION: inputs.appVersion } : {}),
     ALLOWED_ROOTS: process.env.TASKTROOPER_ALLOWED_ROOTS ?? "*",
     ...(claude?.status === "ok" && claude.path ? { CLAUDE_CODE_BIN: toEnvPath(claude.path) } : {}),
     ...(cursorAgent?.status === "ok" && cursorAgent.path ? { CURSOR_AGENT_BIN: toEnvPath(cursorAgent.path) } : {}),
