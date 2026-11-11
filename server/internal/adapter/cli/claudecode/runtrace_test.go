@@ -24,6 +24,7 @@ func (s *runTraceSink) Begin(context.Context, domain.RunTrace) error { return ni
 func (s *runTraceSink) Header(context.Context, uuid.UUID) (domain.RunTrace, error) {
 	return domain.RunTrace{}, nil
 }
+func (s *runTraceSink) ListByTask(context.Context, uuid.UUID) ([]domain.RunTrace, error) { return nil, nil }
 func (s *runTraceSink) NextSeq(context.Context, uuid.UUID) (int, error) { return 1, nil }
 func (s *runTraceSink) Append(_ context.Context, evs []domain.RunTraceEvent) error {
 	s.mu.Lock()

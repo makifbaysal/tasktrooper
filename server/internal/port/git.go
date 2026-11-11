@@ -51,3 +51,11 @@ type GitClient interface {
 	ChangedFilesSince(ctx context.Context, workspacePath, sha string) ([]string, error)
 	TaskGitInfo(ctx context.Context, workspacePath string) (domain.TaskGitInfo, error)
 }
+
+// GitFileStat is one changed file of a task's diff as `git diff --numstat`
+// counts it; Binary files have no line counts.
+type GitFileStat struct {
+	Path           string
+	Added, Deleted int
+	Binary         bool
+}

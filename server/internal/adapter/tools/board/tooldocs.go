@@ -28,6 +28,7 @@ func init() {
 		resolveDocumentAnnotationsToolName,
 		recordOpenQuestionsToolName,
 		listOpenQuestionsToolName,
+		recordReviewFindingsToolName,
 		listCriteriaToolName,
 		setCriterionToolName,
 		cancelCriterionToolName,

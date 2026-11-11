@@ -4,6 +4,7 @@ package runtracetest
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -43,6 +44,18 @@ func (m *MemStore) Header(_ context.Context, id uuid.UUID) (domain.RunTrace, err
 	}
 	h.Verification = m.Finished
 	return h, nil
+}
+func (m *MemStore) ListByTask(_ context.Context, taskID uuid.UUID) ([]domain.RunTrace, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []domain.RunTrace{}
+	for _, h := range m.Headers {
+		if h.TaskID == taskID {
+			out = append(out, h)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	return out, nil
 }
 func (m *MemStore) NextSeq(_ context.Context, id uuid.UUID) (int, error) {
 	m.mu.Lock()

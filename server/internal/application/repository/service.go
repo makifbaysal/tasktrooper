@@ -19,6 +19,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/indexer"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/reviewhistory"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/workspace"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain/taskkey"
@@ -63,6 +64,7 @@ type Service struct {
 	documents        port.TaskDocumentStore
 	annotations      port.TaskDocumentAnnotationStore
 	questions        port.TaskQuestionStore
+	reviewHistory    *reviewhistory.Service
 	comments         port.TaskCommentStore
 	attachments      port.AttachmentStore
 	columns          ColumnValidator
@@ -340,7 +342,12 @@ func (s *Service) ReviewTaskCriterion(ctx context.Context, criterionID, agentID 
 	}
 	check.VerifiedSHA = s.currentTaskSHA(ctx, task.ID)
 	check.VerifiedPatchID = s.currentTaskPatchID(ctx, task.ID)
-	return s.criteria.UpsertCheck(ctx, check)
+	saved, err := s.criteria.UpsertCheck(ctx, check)
+	if err != nil {
+		return saved, err
+	}
+	s.reviewHistory.RecordCriterionCheck(ctx, task, criterion, saved)
+	return saved, nil
 }
 
 func (s *Service) currentTaskSHA(ctx context.Context, taskID uuid.UUID) string {

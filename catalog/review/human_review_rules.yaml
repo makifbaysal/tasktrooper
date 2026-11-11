@@ -1,0 +1,180 @@
+# What the server flags for a person on its own, without asking a model.
+# Read by server/internal/application/reviewhistory on every review-history
+# request: add a rule here and it applies to every task from the next read.
+# Globs match the repository-relative path, lower-cased: "*" stays inside one
+# path segment, "**" crosses segments.
+
+# Changes under these paths are the kind a person should see before they ship.
+sensitive_paths:
+  - id: auth
+    globs:
+      - "**/auth/**"
+      - "**/authn/**"
+      - "**/authz/**"
+      - "**/oauth/**"
+      - "**/session/**"
+      - "**/*auth*.go"
+      - "**/*auth*.ts"
+      - "**/*auth*.tsx"
+      - "**/*auth*.py"
+      - "**/*auth*.swift"
+      - "**/*auth*.kt"
+      - "**/*permission*"
+      - "**/*rbac*"
+  - id: security
+    globs:
+      - "**/security/**"
+      - "**/crypto/**"
+      - "**/*crypto*"
+      - "**/*secret*"
+      - "**/*credential*"
+      - "**/*token*"
+      - "**/*.pem"
+      - "**/*.key"
+      - "**/.env"
+      - "**/.env.*"
+      - "**/*.keystore"
+      - "**/*.p12"
+  - id: payments
+    globs:
+      - "**/payment*/**"
+      - "**/billing/**"
+      - "**/checkout/**"
+      - "**/*payment*"
+      - "**/*stripe*"
+      - "**/*invoice*"
+  - id: migrations
+    globs:
+      - "**/migrations/**"
+      - "**/migrate/**"
+      - "**/*.sql"
+      - "**/schema.prisma"
+      - "**/alembic/**"
+  - id: ci
+    globs:
+      - ".github/**"
+      - ".gitlab-ci.yml"
+      - ".circleci/**"
+      - "**/jenkinsfile"
+      - "**/azure-pipelines.yml"
+  - id: deploy
+    globs:
+      - "**/dockerfile"
+      - "**/dockerfile.*"
+      - "**/docker-compose*.yml"
+      - "**/docker-compose*.yaml"
+      - "**/deploy/**"
+      - "**/deployment/**"
+      - "**/k8s/**"
+      - "**/kubernetes/**"
+      - "**/helm/**"
+      - "**/charts/**"
+      - "**/fastlane/**"
+  - id: infra
+    globs:
+      - "**/terraform/**"
+      - "**/*.tf"
+      - "**/pulumi/**"
+      - "**/infra/**"
+      - "**/infrastructure/**"
+      - "**/cloudformation/**"
+
+# A change this wide is hard to hold in one head.
+large_diff:
+  max_files: 40
+
+# "Tests missing for changed code": source files changed, no test file changed.
+tests:
+  source_extensions: [".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".kt", ".swift", ".rs", ".cs", ".rb", ".php", ".dart"]
+  test_globs:
+    - "**/*_test.go"
+    - "**/*.test.*"
+    - "**/*.spec.*"
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/__tests__/**"
+    - "**/*tests.swift"
+    - "**/*test.swift"
+    - "**/*test.kt"
+    - "**/test_*.py"
+    - "**/*_test.py"
+    - "**/*_spec.rb"
+  # A change that touches only these needs no test.
+  exempt_globs:
+    - "**/*.md"
+    - "**/docs/**"
+    - "**/locales/**"
+    - "**/testdata/**"
+    - "**/*.json"
+    - "**/*.yml"
+    - "**/*.yaml"
+
+# What a reviewer's coverage is measured against, and what it is not asked to read.
+coverage:
+  # Changed files nobody is expected to read line by line. They are listed as
+  # not reviewed by name instead of counting against a reviewer.
+  skipped_globs:
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/generated/**"
+    - "**/*.pb.go"
+    - "**/*.pb.swift"
+    - "**/*.min.js"
+    - "**/*.min.css"
+    - "**/*.map"
+    - "**/*.snap"
+    - "**/*.lock"
+    - "**/package-lock.json"
+    - "**/pnpm-lock.yaml"
+    - "**/yarn.lock"
+    - "**/go.sum"
+    - "**/*.xcstrings"
+    - "**/*.pbxproj"
+  # A changed file this long that a reviewer did not open is reported as too
+  # large to have been read.
+  large_file_lines: 1500
+  # The skill a reviewer loads says what it looked for: first match wins.
+  aspect_skills:
+    - match: security
+      aspect: security
+    - match: crypto
+      aspect: security
+    - match: secrets
+      aspect: security
+    - match: supply-chain
+      aspect: security
+    - match: performance
+      aspect: performance
+    - match: migration
+      aspect: migrations
+    - match: contract
+      aspect: api_compatibility
+    - match: api-
+      aspect: api_compatibility
+    - match: test
+      aspect: tests
+    - match: style
+      aspect: style
+    - match: accessibility
+      aspect: accessibility
+    - match: design
+      aspect: design
+    - match: rubric
+      aspect: correctness
+    - match: root-cause
+      aspect: correctness
+  # A reviewer whose name contains one of these judges only its own aspect;
+  # these files are outside it and are reported as not reviewed by it.
+  reviewer_roles:
+    - match: [security]
+      aspect: security
+      out_of_role_globs:
+        - "**/*.css"
+        - "**/*.scss"
+        - "**/*.svg"
+        - "**/*.png"
+        - "**/*.md"
+        - "**/locales/**"
+        - "**/*.stories.*"

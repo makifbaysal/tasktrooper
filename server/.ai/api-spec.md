@@ -266,6 +266,28 @@ held. A park to `blocked` does not split a round.
   `outcome` is `open` / `approved` / `rejected` / `closed`; `verdict` is `approve` /
   `reject`, or `pending` for a required reviewer of the open round that has not decided.
   `404 not_found` for an unknown task.
+- `GET /v1/repositories/{id}/tasks/{taskId}/review-history` → the task's review
+  loop read from the board's own records (migration 202; nothing is
+  summarised by a model): `summary` (rounds, findings raised/fixed/open,
+  bounces, loop-guard stops, QA failures, open flags), `rounds[]` (one per visit
+  to `code_review` or `in_qa`: `outcome`, `reviewers[]` with verdict and run,
+  `from_sha`/`head_sha`, the finding ids it `raised`/`fixed`/`still_open`/
+  `reopened`, the column `moves[]` it caused with `bounce`/`loop_guard`,
+  the developer `fix_runs[]` that answered it with the run's base/head SHA and
+  files changed, and `coverage`: per reviewer the aspects, files/lines covered
+  against the real diff (`git diff --numstat`, the runs' recorded reads, the diff
+  the reviewer was handed), what it could not review and the changed files no
+  reviewer covered), `findings[]` (identity across rounds is the reviewer's
+  `key`, else a hash of file, category and normalised message; `status` is
+  open/fixed/withdrawn/reopened with a `trail`), and `flags[]` ("Needs your
+  review": `source` agent or automatic, `code`, reason/question/file:line,
+  `reviewed_by`/`reviewed_at`). Automatic flags come from
+  `catalog/review/human_review_rules.yaml` (sensitive paths, large diff, tests
+  missing, loop guard, QA approval with no evidence, files outside the recorded
+  tool calls, files nobody reviewed).
+- `POST /v1/repositories/{id}/tasks/{taskId}/review-flags/{flagId}/reviewed` →
+  marks one flag looked at (idempotent, first reviewer keeps the credit);
+  informational, it never moves or blocks the task.
 
 ## Roles, task types and workflows (migration 143)
 

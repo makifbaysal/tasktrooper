@@ -23,6 +23,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/google/uuid"
+	catalogdata "github.com/makifbaysal/tasktrooper/catalog"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/catalogrepo"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/antigravity"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/cli/claudecode"
@@ -108,10 +109,11 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	releaseapp "github.com/makifbaysal/tasktrooper/server/internal/application/release"
-	runtraceapp "github.com/makifbaysal/tasktrooper/server/internal/application/runtrace"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/remoteaccess"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/reviewhistory"
+	runtraceapp "github.com/makifbaysal/tasktrooper/server/internal/application/runtrace"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/settings"
 	simrunapp "github.com/makifbaysal/tasktrooper/server/internal/application/simrun"
@@ -946,6 +948,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var documentStore port.TaskDocumentStore
 	var annotationStore port.TaskDocumentAnnotationStore
 	var questionStore port.TaskQuestionStore
+	var reviewFindingStore port.ReviewFindingStore
 	var initiativeStore port.InitiativeProjectStore
 	var boardConfigStore port.BoardConfigStore
 	var roleStore port.RoleStore
@@ -1015,6 +1018,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			documentStore = pgstore.NewTaskDocumentStore(pgDB)
 			annotationStore = pgstore.NewTaskDocumentAnnotationStore(pgDB)
 			questionStore = pgstore.NewTaskQuestionStore(pgDB)
+			reviewFindingStore = pgstore.NewReviewFindingStore(pgDB)
 			initiativeStore = pgstore.NewInitiativeProjectStore(pgDB)
 			boardConfigStore = pgstore.NewBoardConfigStore(pgDB)
 			roleStore = pgstore.NewRoleStore(pgDB)
@@ -1730,8 +1734,20 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				if workflowSvc != nil {
 					quorumWorkflows = workflowSvc
 				}
-				reviewQuorum = boardapp.NewReviewQuorum(pgstore.NewTaskReviewStore(e.pgDB), quorumWorkflows)
+				taskReviewStore := pgstore.NewTaskReviewStore(e.pgDB)
+				reviewQuorum = boardapp.NewReviewQuorum(taskReviewStore, quorumWorkflows)
 				repositorySvc.SetReviewQuorum(reviewQuorum)
+				if reviewFindingStore != nil {
+					if reviewRules, rulesErr := reviewhistory.LoadRules(catalogdata.ReviewFS()); rulesErr != nil {
+						log.Error().Err(rulesErr).Msg("review history: the rules failed to load; the review history stays off")
+					} else {
+						repositorySvc.SetReviewHistory(&reviewhistory.Service{
+							Tasks: boardTaskStore, Reviews: taskReviewStore, Events: boardEventStore, Runs: taskAgentRunStore,
+							Traces: runTraceStore, Criteria: criterionStore, TestCases: testCaseStore, Findings: reviewFindingStore,
+							Rules: reviewRules, AgentNames: agentNamesFrom(catalogStore),
+						})
+					}
+				}
 				if boardRunner != nil {
 					boardRunner.SetReviewQuorum(reviewQuorum)
 				}
@@ -3454,4 +3470,23 @@ func githubAppOrNil(s *githubauth.Service) httpadapter.GitHubAppService {
 		return nil
 	}
 	return s
+}
+
+// agentNamesFrom maps every agent id to its name for one review-history read;
+// the roster is small and a read is rare.
+func agentNamesFrom(store port.CatalogStore) func(ctx context.Context) map[uuid.UUID]string {
+	if store == nil {
+		return nil
+	}
+	return func(ctx context.Context) map[uuid.UUID]string {
+		agents, err := store.ListAgents(ctx)
+		if err != nil {
+			return nil
+		}
+		names := make(map[uuid.UUID]string, len(agents))
+		for _, a := range agents {
+			names[a.ID] = a.Name
+		}
+		return names
+	}
 }

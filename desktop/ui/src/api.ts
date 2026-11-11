@@ -1084,6 +1084,179 @@ export interface TaskReviews {
   rounds: TaskReviewRound[];
 }
 
+export type ReviewFindingState = "open" | "fixed" | "withdrawn" | "reopened";
+
+export interface ReviewHistorySummary {
+  rounds: number;
+  findings_raised: number;
+  fixed: number;
+  open: number;
+  withdrawn: number;
+  reopened: number;
+  bounces: number;
+  loop_guard_stops: number;
+  qa_failures: number;
+  open_flags: number;
+}
+
+export interface ReviewHistoryReviewer {
+  agent_id?: string;
+  agent_name?: string;
+  human?: boolean;
+  verdict: ReviewerVerdict;
+  decided_at?: string;
+  run_id?: string;
+}
+
+export interface ReviewHistoryMove {
+  at: string;
+  from: string;
+  to: string;
+  actor: string;
+  agent_id?: string;
+  agent_name?: string;
+  system_reason?: string;
+  bounce?: boolean;
+  loop_guard?: boolean;
+}
+
+export interface ReviewHistoryRun {
+  run_id: string;
+  agent_id: string;
+  agent_name?: string;
+  status: string;
+  started_at: string;
+  finished_at?: string;
+  summary?: string;
+  base_sha?: string;
+  head_sha?: string;
+  files_changed?: number;
+  has_trace: boolean;
+}
+
+export interface ReviewNotReviewed {
+  scope: string;
+  reason: string;
+  kind: "declared" | "check" | "role" | "skipped" | "large" | "truncated";
+  source: "declared" | "auto";
+  count?: number;
+  files?: string[];
+  file_url?: string;
+}
+
+export interface ReviewerCoverage {
+  agent_id?: string;
+  agent_name: string;
+  run_id?: string;
+  basis: string[];
+  aspects: string[];
+  files_total: number;
+  files_reviewed: number;
+  files_opened: number;
+  lines_total: number;
+  lines_reviewed: number;
+  diff_known: boolean;
+  criteria_total?: number;
+  criteria_checked?: number;
+  unread_files: string[];
+  unread_count: number;
+  not_reviewed: ReviewNotReviewed[];
+}
+
+export interface UncoveredFile {
+  path: string;
+  lines?: number;
+  file_url?: string;
+}
+
+export interface RoundCoverage {
+  changed_files: number;
+  changed_lines: number;
+  diff_truncated?: boolean;
+  reviewers: ReviewerCoverage[];
+  nobody_reviewed: UncoveredFile[];
+}
+
+export type ReviewRoundResult = "open" | "approved" | "changes_requested" | "failed" | "passed" | "closed";
+
+export interface ReviewHistoryRound {
+  seq: number;
+  number: number;
+  gate: string;
+  entered_at: string;
+  left_at?: string;
+  outcome: ReviewRoundResult;
+  reviewers: ReviewHistoryReviewer[];
+  from_sha?: string;
+  head_sha?: string;
+  raised: string[];
+  fixed: string[];
+  still_open: string[];
+  reopened: string[];
+  moves: ReviewHistoryMove[];
+  fix_runs: ReviewHistoryRun[];
+  loop_guard?: boolean;
+  coverage?: RoundCoverage;
+}
+
+export interface ReviewHistoryFinding {
+  id: string;
+  gate: string;
+  agent_id?: string;
+  agent_name?: string;
+  file?: string;
+  line?: number;
+  file_url?: string;
+  severity?: string;
+  category?: string;
+  message: string;
+  confidence?: string;
+  criterion_id?: string;
+  criterion_text?: string;
+  status: ReviewFindingState;
+  raised_round: number;
+  fixed_round?: number;
+  trail: { round: number; state: string; at: string }[];
+}
+
+export type ReviewFlagCode =
+  | "agent_uncertain"
+  | "sensitive_path"
+  | "large_diff"
+  | "unrecorded_changes"
+  | "loop_guard"
+  | "tests_missing"
+  | "qa_no_evidence"
+  | "coverage_gap";
+
+export interface ReviewFlag {
+  id: string;
+  source: "agent" | "automatic";
+  code: ReviewFlagCode;
+  reason?: string;
+  question?: string;
+  file?: string;
+  line?: number;
+  file_url?: string;
+  files?: string[];
+  count?: number;
+  gate?: string;
+  agent_id?: string;
+  agent_name?: string;
+  raised_at: string;
+  round?: number;
+  reviewed_by?: string;
+  reviewed_at?: string;
+}
+
+export interface ReviewHistory {
+  task_id: string;
+  summary: ReviewHistorySummary;
+  rounds: ReviewHistoryRound[];
+  findings: ReviewHistoryFinding[];
+  flags: ReviewFlag[];
+}
+
 // One reviewer role's own verdict on a criterion. `completed` on the
 // criterion is the implementer's claim; QA and PM each verify independently.
 export interface CriterionCheck {
@@ -7699,6 +7872,12 @@ export const api = {
 
   listTaskReviews: (repositoryId: string, taskId: string) =>
     request<TaskReviews>(`/v1/repositories/${repositoryId}/tasks/${taskId}/reviews`),
+  getReviewHistory: (repositoryId: string, taskId: string) =>
+    request<ReviewHistory>(`/v1/repositories/${repositoryId}/tasks/${taskId}/review-history`),
+  markReviewFlagReviewed: (repositoryId: string, taskId: string, flagId: string) =>
+    request<ReviewFlag>(`/v1/repositories/${repositoryId}/tasks/${taskId}/review-flags/${encodeURIComponent(flagId)}/reviewed`, {
+      method: "POST",
+    }),
 
   listTaskPipelines: (repositoryId: string, taskId: string) =>
     request<{ pipelines: TaskPipeline[] }>(

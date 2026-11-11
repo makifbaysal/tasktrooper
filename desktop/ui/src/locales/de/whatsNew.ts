@@ -14,9 +14,9 @@ export const whatsNew = {
       tunnel: "Melde dich unter Einstellungen → Fernzugriff bei Cloudflare oder ngrok an und erreiche diesen Computer mit der TaskTrooper-Mobil-App über einen Tunnel, den du selbst kontrollierst. Koppel ein Handy in einem Schritt: Handy koppeln öffnet ein Fenster mit QR-Code und Adresse.",
       audience: "Zielgruppenforschung: Lass den PM-Agenten synthetische Personas erstellen oder führe selbst eine Studie durch - Interviews, Landingpage-Test, Botschaftstest oder A/B-Test - lies den Bericht und exportiere ihn als eine HTML-Datei.",
       telemetry: "Die neuen Telemetrie-Ansichten unter Betrieb zeigen Services, Endpunkte, Traces, Logs, Fehler, Vorfälle, Monitore, Deployments und SLOs, und der Release-Engineer kümmert sich um die entstehenden Vorfälle.",
-      repoSetup: "Beim Import eines Repositorys öffnet sich jetzt die Checkliste „Projekt startklar machen“ (Scan, Werkzeuge, Index, README und Agenten-Leitfaden, Tests, CI, Auslieferung) mit einer Schaltfläche pro Schritt und einer, die alle der Reihe nach ausführt.",
-      signOut: "Das Abmelden von deinem Konto entfernt es jetzt vollständig, sodass der Hinweis \"Arbeit ohne Konto\" nicht mehr stehen bleibt.",
+      repoSetup: "Beim Import eines Repositorys öffnet sich jetzt die Checkliste „Projekt startklar machen“ (Scan, Werkzeuge, Index, README und Agenten-Leitfaden, Tests, CI, Auslieferung) mit einer Schaltfläche pro Schritt und einer, die alle der Reihe nach ausführt. Das Abmelden von deinem Konto entfernt es jetzt vollständig, sodass der Hinweis \"Arbeit ohne Konto\" nicht mehr stehen bleibt.",
       runTrace: "Jeder Agentenlauf hinterlässt jetzt einen echten Trace in der Aufgabenleiste: was er gelesen, geändert und ausgeführt hat, mit Git abgeglichen. Nach einer Vorschau macht ein Klick die Arbeit des Laufs hinter einem Backup-Branch rückgängig.",
+      reviewHistory: "Jede Aufgabe trägt jetzt ihren Review-Verlauf: jede Review- und QA-Runde mit Reviewer, Befunden und deren Verbleib, den Rückläufern zwischen Spalten und was jeder Reviewer abgedeckt hat und was nicht. Eine Karte \"Braucht deine Prüfung\" listet, was Reviewer und Server von einer Person angesehen haben wollen.",
     },
   },
 };

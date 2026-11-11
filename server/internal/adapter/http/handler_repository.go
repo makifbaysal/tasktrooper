@@ -56,6 +56,7 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Delete("/v1/repositories/:id/tasks/:taskId/documents/:docId", h.DeleteTaskDocument)
 	h.registerAnnotationRoutes(app)
 	h.registerQuestionRoutes(app)
+	h.registerReviewHistoryRoutes(app)
 	app.Get("/v1/repositories/:id/tasks/:taskId/acceptance-criteria", h.ListAcceptanceCriteria)
 	app.Put("/v1/repositories/:id/tasks/:taskId/acceptance-criteria", h.ReplaceAcceptanceCriteria)
 	app.Patch("/v1/repositories/:id/tasks/:taskId/acceptance-criteria/:criterionId", h.UpdateAcceptanceCriterion)

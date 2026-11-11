@@ -25,7 +25,7 @@ export type WhatsNewRecord = WhatsNewEntry | WhatsNewSkip;
 export const WHATS_NEW: readonly WhatsNewRecord[] = [
   {
     version: "0.3.13",
-    items: ["tunnel", "audience", "telemetry", "repoSetup", "signOut", "runTrace"],
+    items: ["tunnel", "audience", "telemetry", "repoSetup", "runTrace", "reviewHistory"],
   },
 ];
 

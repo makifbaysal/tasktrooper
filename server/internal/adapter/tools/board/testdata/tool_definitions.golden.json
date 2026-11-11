@@ -1062,6 +1062,153 @@
   {
     "type": "function",
     "function": {
+      "name": "record_review_findings",
+      "description": "Record what your review found, in a form the task's review history and the person deciding can read. Call it once per review run, BEFORE the verdict move. `findings` are the problems you are rejecting or noting (up to 40); the same problem keeps the same `key` in every round. `needs_human_review` is for places you could not settle yourself — genuine uncertainty or high stakes (auth, payments, data migration, destructive operations, security, public API changes, anything you could not run) — at most 5 flags in the whole report, each with a concrete question for the person; flagging everything flags nothing. `not_reviewed` is mandatory honesty: every file, directory or aspect you did not verify, and why; never claim coverage you did not have. `reviewed_aspects` names what you did cover. This tool records; the verdict is still the move. Returns how many items were recorded.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "findings": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "description": "What kind of problem: e.g. correctness, security, performance, tests, api, migration, style.",
+                  "type": "string"
+                },
+                "confidence": {
+                  "description": "How sure you are. Say \"low\" when you are not.",
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ],
+                  "type": "string"
+                },
+                "file": {
+                  "description": "Repository-relative path the finding is about.",
+                  "type": "string"
+                },
+                "human_review_reason": {
+                  "description": "Only when a person should look at THIS finding because you are genuinely unsure or the area is high-stakes: one sentence on why.",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "A short stable name for this problem, e.g. \"ARCH-2\" or \"SEC-1\". Use the SAME key for the same problem in a later round so the history can tell \"still open\" from \"fixed\".",
+                  "type": "string"
+                },
+                "line": {
+                  "description": "Line number in that file, when there is one.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "message": {
+                  "description": "The finding itself, one or two sentences.",
+                  "type": "string"
+                },
+                "question": {
+                  "description": "The concrete question for the person, when you set human_review_reason.",
+                  "type": "string"
+                },
+                "severity": {
+                  "description": "How bad it is.",
+                  "enum": [
+                    "critical",
+                    "high",
+                    "medium",
+                    "low",
+                    "info"
+                  ],
+                  "type": "string"
+                },
+                "status": {
+                  "description": "\"withdrawn\" takes back a finding from an earlier round that you now judge to be wrong (use its key). Omit otherwise.",
+                  "enum": [
+                    "open",
+                    "withdrawn"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "type": "object"
+            },
+            "maxItems": 40,
+            "type": "array"
+          },
+          "needs_human_review": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "Repository-relative path the person should look at.",
+                  "type": "string"
+                },
+                "line": {
+                  "description": "Line number, when there is one.",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "question": {
+                  "description": "The concrete question for the person.",
+                  "type": "string"
+                },
+                "reason": {
+                  "description": "One sentence on why a person should look: \"touches payment logic I could not run\", \"business rule not in the criteria\", \"security-sensitive change\", \"could not verify at runtime\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "type": "object"
+            },
+            "maxItems": 5,
+            "type": "array"
+          },
+          "not_reviewed": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "reason": {
+                  "description": "One sentence on why you could not.",
+                  "type": "string"
+                },
+                "scope": {
+                  "description": "A file, a directory or an aspect you could not verify.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "scope",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "reviewed_aspects": {
+            "items": {
+              "description": "An aspect you did cover, e.g. \"correctness\", \"security\", \"tests\", \"performance\", \"api_compatibility\", \"migrations\".",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
+          "task_id": {
+            "description": "Board task UUID or its board key. Optional in a task run — omit it there and the task in context is used.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "record_test_cases",
       "description": "Write the task's test cases onto the card — the whole matrix, not only the acceptance criteria. Derive the cases from what was ASKED FOR and what the request IMPLIES: happy path, boundaries, invalid input, auth, empty state, async/worker side effects, visual states, and regression of adjacent behaviour. Record them BEFORE executing (status=planned), then call this again (or set_test_case_result) with each verdict. Cases are matched by title, so re-sending a title updates that case. Record the cases you considered and rejected too, as status=invalid with the reason in notes — a case that was thought about and dismissed is part of the evidence, not noise.",
       "parameters": {

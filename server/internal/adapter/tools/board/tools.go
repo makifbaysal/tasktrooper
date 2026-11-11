@@ -180,6 +180,7 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 		newResolveAnnotationsTool(kit),
 		newRecordQuestionsTool(kit),
 		newListOpenQuestionsTool(kit),
+		newRecordReviewFindingsTool(kit),
 		newListCriteriaTool(kit),
 		newSetCriterionTool(kit),
 		newCancelCriterionTool(kit),

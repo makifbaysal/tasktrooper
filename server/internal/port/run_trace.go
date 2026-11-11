@@ -23,6 +23,9 @@ type RunTraceStore interface {
 	// has one (a run that resumes after a quota park keeps its first base).
 	Begin(ctx context.Context, trace domain.RunTrace) error
 	Header(ctx context.Context, runID uuid.UUID) (domain.RunTrace, error)
+	// ListByTask is every run header of the task, oldest first, with the
+	// verification but no event counts.
+	ListByTask(ctx context.Context, taskID uuid.UUID) ([]domain.RunTrace, error)
 	// NextSeq is the sequence number the next event of the run takes.
 	NextSeq(ctx context.Context, runID uuid.UUID) (int, error)
 	Append(ctx context.Context, events []domain.RunTraceEvent) error

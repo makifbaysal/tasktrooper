@@ -222,6 +222,9 @@ func architectToolPolicy() domain.ToolPolicy {
 	// ask_user or prose in the risks section.
 	tools = append(tools, "record_open_questions", "list_open_questions")
 	tools = append(tools, "get_pipeline_status")
+	// What the review found, where a person should look and what it could not
+	// verify, for the task's review history.
+	tools = append(tools, "record_review_findings")
 	// The architect reads the PR it is judging and answers threads; no commit_task_changes.
 	tools = append(tools, rolePRReadTools...)
 	tools = append(tools, rolePRReplyTools...)
@@ -249,7 +252,7 @@ func qaToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleMobileTools...)
 	tools = append(tools, roleProjectModelReadTools...)
 	tools = append(tools, roleRuntimeReadTools...)
-	tools = append(tools, "list_board_tasks", "list_ready_tasks", "move_board_task", "add_task_comment", "list_task_comments", "list_task_documents", "list_acceptance_criteria", "review_criterion", "list_repositories")
+	tools = append(tools, "list_board_tasks", "list_ready_tasks", "move_board_task", "add_task_comment", "list_task_comments", "list_task_documents", "list_acceptance_criteria", "review_criterion", "list_repositories", "record_review_findings")
 	// QA is the only role that WRITES test cases.
 	tools = append(tools, "list_test_cases", "record_test_cases", "set_test_case_result")
 	// Green CI and stage base_url for the suite; prod requests banned — the rule layer says so separately.

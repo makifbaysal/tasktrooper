@@ -88,6 +88,22 @@ func (s *RunTraceStoreSuite) event(run domain.TaskAgentRun, seq int, category, s
 		Tool: "t", Source: domain.TraceSourceLoop, Category: category, Status: status, Detail: json.RawMessage(detail)}
 }
 
+func (s *RunTraceStoreSuite) TestListByTaskIsThisTasksRunsOldestFirstWithTheirVerification() {
+	task, first := s.newRun()
+	_, other := s.newRun()
+	t0 := time.Now().Add(-time.Hour)
+	s.Require().NoError(s.store.Begin(s.ctx, domain.RunTrace{RunID: first.ID, TaskID: task.ID, AgentID: first.AgentID, BaseSHA: "a1", StartedAt: t0}))
+	s.Require().NoError(s.store.Begin(s.ctx, domain.RunTrace{RunID: other.ID, TaskID: other.TaskID, AgentID: other.AgentID, StartedAt: t0}))
+	s.Require().NoError(s.store.Finish(s.ctx, first.ID, "b2", 0, &domain.RunTraceVerification{Available: true, Files: []domain.TraceFileChange{{Path: "x.go", Status: "M"}}}))
+
+	got, err := s.store.ListByTask(s.ctx, task.ID)
+	s.Require().NoError(err)
+	s.Require().Len(got, 1)
+	s.Equal("b2", got[0].HeadSHA)
+	s.Require().NotNil(got[0].Verification)
+	s.Equal("x.go", got[0].Verification.Files[0].Path)
+}
+
 func (s *RunTraceStoreSuite) TestAppendListCountsAndEffects() {
 	task, run := s.newRun()
 	s.Require().NoError(s.store.Begin(s.ctx, domain.RunTrace{RunID: run.ID, TaskID: task.ID, AgentID: run.AgentID, BaseSHA: "abc", StartedAt: time.Now()}))

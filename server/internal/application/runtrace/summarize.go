@@ -48,7 +48,7 @@ var (
 	boardMutations = set("create_board_task", "update_board_task", "move_board_task", "delete_board_task",
 		"claim_board_task", "set_criterion_completed", "cancel_criterion", "review_criterion",
 		"record_test_cases", "set_test_case_result", "add_task_document", "update_task_document",
-		"attach_task_file", "record_open_questions", "declare_env_vars", "resolve_document_annotations",
+		"attach_task_file", "record_open_questions", "record_review_findings", "declare_env_vars", "resolve_document_annotations",
 		"commit_task_changes")
 	boardNotes = set("add_task_comment", "notify_task_agent")
 	prEffects  = map[string]string{
@@ -219,6 +219,12 @@ func summarizeCall(category, tool, native, arguments, root string) summary {
 			s.detail["query"] = q
 			if g := a.str("glob"); g != "" {
 				s.detail["glob"] = g
+			}
+		}
+		if tool == "load_skill" {
+			if skill := a.str("skill"); skill != "" {
+				s.target = skill
+				s.detail["skill"] = skill
 			}
 		}
 		if n := a.num("offset"); n > 0 {

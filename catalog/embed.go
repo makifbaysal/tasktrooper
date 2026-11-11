@@ -1,7 +1,7 @@
 // Package catalog embeds the LLM-facing prose the server renders from:
 // prompts, guard wording, tool descriptions, and the partials they share —
-// and, under observability/, the signal and recipe catalog data sources are
-// read through.
+// the review/ rules the server flags a task for a person by, and, under
+// observability/, the signal and recipe catalog data sources are read through.
 // The bundled agent definitions (catalog/agents/**, read by the server's
 // catalogrepo adapter and synced into Postgres) are a separate concern and
 // are not embedded here — that sync runs async after boot and prompts must
@@ -36,6 +36,19 @@ func ObservabilityFS() fs.FS {
 	sub, err := fs.Sub(Observability, "observability")
 	if err != nil {
 		panic("catalog: observability subtree missing from embed: " + err.Error())
+	}
+	return sub
+}
+
+//go:embed all:review
+var Review embed.FS
+
+// ReviewFS roots the embedded filesystem at review/: human_review_rules.yaml,
+// the path patterns and thresholds the server flags a task for a person by.
+func ReviewFS() fs.FS {
+	sub, err := fs.Sub(Review, "review")
+	if err != nil {
+		panic("catalog: review subtree missing from embed: " + err.Error())
 	}
 	return sub
 }

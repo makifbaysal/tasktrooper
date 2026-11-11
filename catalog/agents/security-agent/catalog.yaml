@@ -28,6 +28,7 @@ tool_policy:
         - get_board_summary
         - list_team
         - get_pipeline_status
+        - record_review_findings
         - get_task_pull_request
         - comment_on_pull_request
         - save_memory

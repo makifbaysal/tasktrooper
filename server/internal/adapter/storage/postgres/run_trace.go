@@ -53,6 +53,34 @@ func (s *RunTraceStore) Header(ctx context.Context, runID uuid.UUID) (domain.Run
 	return t, nil
 }
 
+func (s *RunTraceStore) ListByTask(ctx context.Context, taskID uuid.UUID) ([]domain.RunTrace, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT run_id, task_id, agent_id, base_sha, head_sha, branch, column_before, remote, dropped, verification,
+		       started_at, finished_at
+		FROM run_traces WHERE task_id = $1 ORDER BY started_at`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.RunTrace{}
+	for rows.Next() {
+		var t domain.RunTrace
+		var verification []byte
+		if err := rows.Scan(&t.RunID, &t.TaskID, &t.AgentID, &t.BaseSHA, &t.HeadSHA, &t.Branch, &t.ColumnBefore,
+			&t.Remote, &t.Dropped, &verification, &t.StartedAt, &t.FinishedAt); err != nil {
+			return nil, err
+		}
+		if len(verification) > 0 {
+			var v domain.RunTraceVerification
+			if json.Unmarshal(verification, &v) == nil {
+				t.Verification = &v
+			}
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 func (s *RunTraceStore) NextSeq(ctx context.Context, runID uuid.UUID) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `SELECT COALESCE(max(seq), 0) + 1 FROM run_trace_events WHERE run_id = $1`, runID).Scan(&n)

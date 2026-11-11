@@ -32,6 +32,8 @@ import { HumanUatDecision } from "@/components/board/HumanUatDecision";
 import { TaskAgentRunsSection } from "@/components/board/TaskAgentRunsSection";
 import { AnalizReviewDecision } from "@/components/board/AnalizReviewDecision";
 import { CodeReviewApprovals } from "@/components/board/CodeReviewApprovals";
+import { ReviewFlagsPanel, ReviewHistorySection } from "@/components/board/review/ReviewSection";
+import { useReviewHistory } from "@/hooks/useReviewHistory";
 import { BlockedQuestionsBanner } from "@/components/board/analysis/BlockedQuestionsBanner";
 import { PipelineSection } from "@/components/board/PipelineSection";
 import { TaskPreviewsSection } from "@/components/board/TaskPreviewsSection";
@@ -135,6 +137,7 @@ export function TaskDetailDrawer({
   const [testCases, setTestCases] = useState<TaskTestCase[]>([]);
   const [release, setRelease] = useState<Release | null>(null);
   const [reviews, setReviews] = useState<TaskReviews | null>(null);
+  const [focusRun, setFocusRun] = useState<{ id: string; nonce: number } | null>(null);
   const [releaseDrawerOpen, setReleaseDrawerOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -230,6 +233,7 @@ export function TaskDetailDrawer({
   const taskID = task?.id ?? null;
   const taskIDRef = useRef(taskID);
   taskIDRef.current = taskID;
+  const { history: reviewHistory, reload: reloadReviewHistory } = useReviewHistory(repositoryId, taskID, open, task?.column);
 
   // Each slice keeps its previous value when the answer did not change, so an
   // idle tick re-renders nothing.
@@ -617,6 +621,15 @@ export function TaskDetailDrawer({
                     it cannot be missed the way the old low-contrast inline
                     buttons were. */}
                 <HumanUatDecision task={task} repositoryId={repositoryId} onUpdated={onUpdated} />
+                {task.column === "human_uat" && (
+                  <ReviewFlagsPanel
+                    repositoryId={repositoryId}
+                    taskId={task.id}
+                    history={reviewHistory}
+                    reload={reloadReviewHistory}
+                    prominent
+                  />
+                )}
                 <AnalizReviewDecision
                   task={task}
                   repositoryId={repositoryId}
@@ -1101,6 +1114,7 @@ export function TaskDetailDrawer({
                   onStop={setStopRunId}
                   onInterrupt={setInterruptRunId}
                   onRerun={(runId) => void rerunRun(runId)}
+                  focusRun={focusRun}
                 />
 
                 <Separator />
@@ -1284,6 +1298,15 @@ export function TaskDetailDrawer({
                   )}
 
                   <CodeReviewApprovals reviews={reviews} inCodeReview={task.column === "code_review"} onDiscuss={(id) => void discussTask(id)} />
+
+                  <ReviewHistorySection
+                    repositoryId={repositoryId}
+                    taskId={task.id}
+                    history={reviewHistory}
+                    reload={reloadReviewHistory}
+                    showFlags={task.column !== "human_uat"}
+                    onOpenRun={(id) => setFocusRun((prev) => ({ id, nonce: (prev?.nonce ?? 0) + 1 }))}
+                  />
 
                   {task.pr_url && <TaskPreviewsSection key={task.id} repositoryId={repositoryId} taskId={task.id} />}
 

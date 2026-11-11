@@ -47,6 +47,7 @@ tool_policy:
         - record_open_questions
         - list_open_questions
         - get_pipeline_status
+        - record_review_findings
         - get_task_pull_request
         - comment_on_pull_request
         - save_memory

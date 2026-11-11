@@ -75,6 +75,7 @@ var remoteRules = compileRemoteRules([]remoteRule{
 	R("/v1/repositories/:id/tasks/:taskId/runs"),
 	R("/v1/repositories/:id/tasks/:taskId/questions"),
 	R("/v1/repositories/:id/tasks/:taskId/reviews"),
+	R("/v1/repositories/:id/tasks/:taskId/review-history"),
 	R("/v1/repositories/:id/tasks/:taskId/documents"),
 	R("/v1/repositories/:id/tasks/:taskId/acceptance-criteria"),
 	R("/v1/repositories/:id/tasks/:taskId/test-cases"),

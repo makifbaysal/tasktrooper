@@ -54,6 +54,7 @@ export interface AnalyticsEvents {
   invite_accept: NoParams;
   computer_pair: { outcome: "ok" | "failed" };
   refine_with_ai: NoParams;
+  review_flag_reviewed: { source: "agent" | "automatic"; code: string };
   readiness_action: { action: "run_step" | "run_all" | "skip" | "unskip" | "hide" | "show"; step?: string };
 }
 

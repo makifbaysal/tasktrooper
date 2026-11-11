@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, CircleStop, Hand, Loader2, RotateCcw } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, BoardTask, TaskAgentRun } from "@/api";
 import { ActivityFeed } from "@/components/activity/ActivityFeed";
 import { AgentRunHeader } from "@/components/activity/AgentRunHeader";
@@ -60,6 +60,8 @@ interface TaskAgentRunsSectionProps {
   onStop: (runId: string) => void;
   onInterrupt: (runId: string) => void;
   onRerun: (runId: string) => void;
+  /** Shows this run's trace; a new `nonce` asks again for the same run. */
+  focusRun?: { id: string; nonce: number } | null;
 }
 
 export function TaskAgentRunsSection({
@@ -72,11 +74,19 @@ export function TaskAgentRunsSection({
   onStop,
   onInterrupt,
   onRerun,
+  focusRun,
 }: TaskAgentRunsSectionProps) {
   const { t } = useI18n();
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [tokensOpen, setTokensOpen] = useState(false);
   const [view, setView] = useState<"activity" | "trace">("activity");
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!focusRun) return;
+    setPickedId(focusRun.id);
+    setView("trace");
+    sectionRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [focusRun]);
 
   const sorted = useMemo(
     () => [...runs].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
@@ -166,7 +176,7 @@ export function TaskAgentRunsSection({
   const TokensChevron = tokensOpen ? ChevronDown : ChevronRight;
 
   return (
-    <section className="min-w-0 space-y-3">
+    <section ref={sectionRef} className="min-w-0 space-y-3">
       <Label className="text-muted-foreground">
         {t("boardArea.components.taskDetail.agentRuns", { count: runs.length })}
       </Label>

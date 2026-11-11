@@ -14,9 +14,9 @@ export const whatsNew = {
       tunnel: "Inicia sesión en Cloudflare o ngrok desde Ajustes → Acceso remoto y llega a este ordenador desde la app móvil de TaskTrooper mediante un túnel que controlas tú. Vincula un teléfono en un paso: Vincular teléfono abre una ventana con el código QR y la dirección.",
       audience: "Investigación de audiencia: pide al agente PM personas sintéticas o ejecuta tú mismo un estudio - entrevistas, prueba de landing page, prueba de mensajes o prueba A/B - lee el informe y expórtalo como un solo archivo HTML.",
       telemetry: "Las nuevas pantallas de Telemetría en Operaciones muestran servicios, endpoints, trazas, registros, errores, incidentes, monitores, despliegues y SLO, y el ingeniero de versiones atiende los incidentes que se generan.",
-      repoSetup: "Importar un repositorio ahora abre la lista «Deja este proyecto listo» (escaneo, herramientas, índice, README y guía para agentes, pruebas, CI, entrega) con un botón por paso y otro para ejecutarlos todos en orden.",
-      signOut: "Cerrar sesión de tu cuenta ahora la borra por completo, así que el aviso de \"trabajando sin cuenta\" ya no se queda en pantalla.",
+      repoSetup: "Importar un repositorio ahora abre la lista «Deja este proyecto listo» (escaneo, herramientas, índice, README y guía para agentes, pruebas, CI, entrega) con un botón por paso y otro para ejecutarlos todos en orden. Cerrar sesión de tu cuenta ahora la borra por completo, así que el aviso de \"trabajando sin cuenta\" ya no se queda en pantalla.",
       runTrace: "Cada ejecución de un agente deja ahora una traza real en el panel de la tarea: qué leyó, cambió y ejecutó, verificado con git. Tras una vista previa, un clic deshace el trabajo de la ejecución con una rama de respaldo.",
+      reviewHistory: "Cada tarea ahora lleva su historial de revisión: cada ronda de revisión y de QA con quién revisó, qué encontró y qué pasó con ello, las devoluciones entre columnas y qué cubrió y qué no cubrió cada revisor. Una tarjeta \"Necesita tu revisión\" lista lo que los revisores y el servidor quieren que mire una persona.",
     },
   },
 };

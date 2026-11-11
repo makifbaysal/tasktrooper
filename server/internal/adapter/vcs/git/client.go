@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	githubapi "github.com/makifbaysal/tasktrooper/server/internal/adapter/vcs/github"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 	"github.com/makifbaysal/tasktrooper/server/internal/platform/proctree"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 	"github.com/rs/zerolog/log"
 )
 
@@ -653,6 +655,43 @@ func (c *Client) TaskDiff(ctx context.Context, workspacePath string) (string, er
 		combined += "\n\n" + p
 	}
 	return strings.TrimSpace(combined), nil
+}
+
+// TaskNumstat is the per-file line counts of the diff TaskDiff reports.
+func (c *Client) TaskNumstat(ctx context.Context, workspacePath string) ([]port.GitFileStat, error) {
+	if !c.HasGit(workspacePath) {
+		return nil, nil
+	}
+	base := ""
+	for _, ref := range []string{"origin/HEAD", "origin/main", "origin/master"} {
+		if out, err := c.run(ctx, workspacePath, "git", "merge-base", "HEAD", ref); err == nil {
+			base = strings.TrimSpace(out)
+			break
+		}
+	}
+	if base == "" {
+		return nil, nil
+	}
+	out, err := c.run(ctx, workspacePath, "git", "-c", "core.quotepath=off", "diff", "--numstat", "--no-renames", base)
+	if err != nil {
+		return nil, fmt.Errorf("git diff --numstat: %w", err)
+	}
+	var stats []port.GitFileStat
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		st := port.GitFileStat{Path: parts[2]}
+		if parts[0] == "-" || parts[1] == "-" {
+			st.Binary = true
+		} else {
+			st.Added, _ = strconv.Atoi(parts[0])
+			st.Deleted, _ = strconv.Atoi(parts[1])
+		}
+		stats = append(stats, st)
+	}
+	return stats, nil
 }
 
 // TaskPatchID is `git patch-id --stable` of the task's diff against its
