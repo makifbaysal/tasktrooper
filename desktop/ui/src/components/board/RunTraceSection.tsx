@@ -88,7 +88,7 @@ export function RunTraceSection({ repositoryId, taskId, runId, live, active, prU
     title: t("runTrace.export.htmlTitle"),
     generated: t("runTrace.export.generated", { date: new Date().toISOString() }),
     counts: headline(summary, t),
-    untouched: summary.verification?.available
+    untouched: summary.verification?.available && summary.verification.tracked_files > 0
       ? t("runTrace.untouched", { count: summary.verification.untouched })
       : "",
     verifiedFiles: t("runTrace.files.title"),
@@ -156,7 +156,9 @@ export function RunTraceSection({ repositoryId, taskId, runId, live, active, prU
         {summary.run.base_sha && (
           <p className="text-micro text-muted-foreground">{t("runTrace.startedFrom", { sha: shortSha(summary.run.base_sha) })}</p>
         )}
-        {v?.available && <p className="text-micro text-muted-foreground">{t("runTrace.untouched", { count: v.untouched })}</p>}
+        {v?.available && v.tracked_files > 0 && (
+          <p className="text-micro text-muted-foreground">{t("runTrace.untouched", { count: v.untouched })}</p>
+        )}
       </div>
 
       {v && !v.available && (

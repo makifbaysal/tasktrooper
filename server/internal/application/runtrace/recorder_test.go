@@ -227,3 +227,40 @@ func TestScrubKeepsOrdinaryText(t *testing.T) {
 	require.NotContains(t, runtrace.Scrub("-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----"), "MIIabc")
 	require.NotContains(t, runtrace.Scrub("npm config set //registry/:_authToken=npm_abcdefghijklmnopqrstuvwxyz0123456789"), "npm_abcdef")
 }
+
+type ctxKey string
+
+type ctxStore struct {
+	*runtracetest.MemStore
+	seen []any
+}
+
+func (c *ctxStore) Append(ctx context.Context, evs []domain.RunTraceEvent) error {
+	c.seen = append(c.seen, ctx.Value(ctxKey("tenant")))
+	return c.MemStore.Append(ctx, evs)
+}
+
+func TestEventsAreWrittenUnderTheRunsOwnContext(t *testing.T) {
+	store := &ctxStore{MemStore: runtracetest.NewMemStore()}
+	ctx := context.WithValue(context.Background(), ctxKey("tenant"), "t-1")
+	rec := runtrace.Start(ctx, store, runtrace.Meta{RunID: uuid.New(), TaskID: uuid.New(), AgentID: uuid.New(), WorkDir: t.TempDir()})
+	rec.Begin(runtrace.CallStart{Tool: "read_file", Arguments: `{"path":"a"}`}).End(runtrace.CallResult{})
+	rec.Open(runtrace.CallStart{CallID: "z", Tool: "run_terminal", Arguments: `{"command":"ls"}`})
+	rec.Close("z", runtrace.CallResult{})
+	require.Equal(t, []any{"t-1", "t-1"}, store.seen)
+}
+
+func TestRemoteRunsNeverTouchThisFilesystem(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.txt"), []byte("here"), 0o644))
+	store := runtracetest.NewMemStore()
+	rec := runtrace.Start(context.Background(), store, runtrace.Meta{
+		RunID: uuid.New(), TaskID: uuid.New(), AgentID: uuid.New(), WorkDir: dir, Remote: true, DisplayRoot: "/Users/m/work/repo",
+	})
+	rec.Begin(runtrace.CallStart{Tool: "edit_file", WorkDir: dir, Arguments: `{"path":"/Users/m/work/repo/src/a.go"}`}).End(runtrace.CallResult{})
+	rec.Begin(runtrace.CallStart{Tool: "edit_file", WorkDir: dir, Arguments: `{"path":"f.txt"}`}).End(runtrace.CallResult{})
+	first, second := store.BySeq(1), store.BySeq(2)
+	require.Equal(t, "src/a.go", first.Target)
+	require.NotContains(t, string(second.Detail), "hash_before")
+	require.NotContains(t, string(second.Detail), "hash_after")
+}

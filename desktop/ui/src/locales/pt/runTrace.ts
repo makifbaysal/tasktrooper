@@ -27,7 +27,7 @@ export const runTrace = {
     title: "Arquivos alterados, verificados pelo git",
     none: "O git não mostra arquivos alterados.",
     diff: "Abrir o diff",
-    status: { A: "adicionado", M: "modificado", D: "excluído", R: "renomeado", C: "copiado", T: "tipo alterado", "?": "não rastreado" },
+    status: { X: "alterado", A: "adicionado", M: "modificado", D: "excluído", R: "renomeado", C: "copiado", T: "tipo alterado", "?": "não rastreado" },
   },
   nonUndoable: {
     title: "Não desfeito por um reset do git",

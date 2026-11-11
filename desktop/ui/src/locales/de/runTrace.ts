@@ -27,7 +27,7 @@ export const runTrace = {
     title: "Geänderte Dateien, von Git bestätigt",
     none: "Git zeigt keine geänderten Dateien.",
     diff: "Diff öffnen",
-    status: { A: "hinzugefügt", M: "geändert", D: "gelöscht", R: "umbenannt", C: "kopiert", T: "Typ geändert", "?": "nicht versioniert" },
+    status: { X: "geändert", A: "hinzugefügt", M: "geändert", D: "gelöscht", R: "umbenannt", C: "kopiert", T: "Typ geändert", "?": "nicht versioniert" },
   },
   nonUndoable: {
     title: "Durch einen Git-Reset nicht rückgängig",

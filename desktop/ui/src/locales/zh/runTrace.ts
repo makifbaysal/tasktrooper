@@ -27,7 +27,7 @@ export const runTrace = {
     title: "已修改的文件（由 git 验证）",
     none: "git 显示没有文件被修改。",
     diff: "打开差异",
-    status: { A: "新增", M: "修改", D: "删除", R: "重命名", C: "复制", T: "类型变更", "?": "未跟踪" },
+    status: { X: "已改动", A: "新增", M: "修改", D: "删除", R: "重命名", C: "复制", T: "类型变更", "?": "未跟踪" },
   },
   nonUndoable: {
     title: "git 重置无法撤销的内容",

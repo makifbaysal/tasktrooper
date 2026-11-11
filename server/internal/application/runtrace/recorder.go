@@ -36,7 +36,11 @@ type Meta struct {
 	Branch        string
 	ColumnBefore  string
 	Remote        bool
-	Cap           int
+	// DisplayRoot is the checkout's absolute path on the computer that holds
+	// it, used only to shorten the paths a remote run's tools name; this
+	// process never opens a path of a remote run.
+	DisplayRoot string
+	Cap         int
 }
 
 // Recorder writes a run's tool calls into the trace store. Every method is
@@ -45,6 +49,7 @@ type Meta struct {
 type Recorder struct {
 	store port.RunTraceStore
 	meta  Meta
+	ctx   context.Context
 	now   func() time.Time
 
 	mu       sync.Mutex
@@ -75,7 +80,7 @@ func Start(ctx context.Context, store port.RunTraceStore, meta Meta) *Recorder {
 	if meta.Cap <= 0 {
 		meta.Cap = domain.MaxTraceEventsPerRun
 	}
-	r := &Recorder{store: store, meta: meta, now: time.Now, open: map[string]*Call{}}
+	r := &Recorder{store: store, meta: meta, ctx: ctx, now: time.Now, open: map[string]*Call{}}
 	pctx, cancel := persistCtx(ctx)
 	defer cancel()
 	if err := store.Begin(pctx, domain.RunTrace{
@@ -157,6 +162,10 @@ func (r *Recorder) Begin(start CallStart) *Call {
 	if root == "" {
 		root = r.meta.WorkDir
 	}
+	stateRoot, relRoot := root, root
+	if r.meta.Remote {
+		stateRoot, relRoot = "", r.meta.DisplayRoot
+	}
 	if start.Source == "" {
 		start.Source = domain.TraceSourceLoop
 	}
@@ -166,8 +175,8 @@ func (r *Recorder) Begin(start CallStart) *Call {
 		name = start.Native
 	}
 	c := &Call{
-		r: r, start: start, category: category, began: r.now(), root: root,
-		sum: summarizeCall(category, name, start.Native, start.Arguments, root),
+		r: r, start: start, category: category, began: r.now(), root: stateRoot,
+		sum: summarizeCall(category, name, start.Native, start.Arguments, relRoot),
 	}
 	r.mu.Lock()
 	r.seq++
@@ -182,7 +191,7 @@ func (r *Recorder) Begin(start CallStart) *Call {
 	if !c.drop && category == domain.TraceCategoryChange {
 		c.before = map[string]fileState{}
 		for _, p := range c.sum.paths {
-			c.before[p] = stateOf(root, p)
+			c.before[p] = stateOf(stateRoot, p)
 		}
 	}
 	return c
@@ -236,7 +245,7 @@ func (c *Call) End(res CallResult) {
 		status = domain.TraceStatusError
 		errText = Scrub(domain.TruncateHead(firstLine(res.Content, 400), 400))
 	}
-	c.finish(context.Background(), res.Content, status, errText)
+	c.finish(c.r.ctx, res.Content, status, errText)
 }
 
 func (c *Call) finish(ctx context.Context, content, status, errText string) {

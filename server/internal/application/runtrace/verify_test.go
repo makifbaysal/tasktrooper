@@ -53,7 +53,9 @@ func (f fakeGit) HeadSHA(context.Context, string) (string, error) { return "head
 func (f fakeGit) ChangesSince(context.Context, string, string) ([]port.RunGitFile, error) {
 	return f.files, f.err
 }
-func (f fakeGit) TrackedFileCount(context.Context, string, string) (int, error) { return f.tracked, nil }
+func (f fakeGit) TrackedFileCount(context.Context, string, string) (int, error) {
+	return f.tracked, nil
+}
 
 func TestFinalizeStampsTheComparison(t *testing.T) {
 	store := runtracetest.NewMemStore()

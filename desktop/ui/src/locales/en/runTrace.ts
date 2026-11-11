@@ -29,7 +29,7 @@ export const runTrace = {
     title: "Changed files, verified by git",
     none: "Git shows no changed files.",
     diff: "Open the diff",
-    status: { A: "added", M: "modified", D: "deleted", R: "renamed", C: "copied", T: "type changed", "?": "untracked" },
+    status: { X: "changed", A: "added", M: "modified", D: "deleted", R: "renamed", C: "copied", T: "type changed", "?": "untracked" },
   },
   nonUndoable: {
     title: "Not undone by a git reset",

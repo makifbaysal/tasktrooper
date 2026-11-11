@@ -27,7 +27,7 @@ export const runTrace = {
     title: "Değişen dosyalar (git ile doğrulandı)",
     none: "Git değişen dosya göstermiyor.",
     diff: "Farkı aç",
-    status: { A: "eklendi", M: "değişti", D: "silindi", R: "yeniden adlandırıldı", C: "kopyalandı", T: "tür değişti", "?": "takipsiz" },
+    status: { X: "değişti", A: "eklendi", M: "değişti", D: "silindi", R: "yeniden adlandırıldı", C: "kopyalandı", T: "tür değişti", "?": "takipsiz" },
   },
   nonUndoable: {
     title: "Git geri alımıyla geri gelmeyenler",
