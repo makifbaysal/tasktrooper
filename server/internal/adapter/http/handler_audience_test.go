@@ -275,3 +275,23 @@ func TestAudienceStudyKindsScriptAndManualReportOverHTTP(t *testing.T) {
 	status, _ = f.do(t, "POST", "/v1/audience-studies/"+run.ID.String()+"/retry", map[string]any{"user_approved": true})
 	assert.Equal(t, 400, status, "nothing to retry")
 }
+
+func TestAudienceRuntimeFollowsThePersonsProviderAndModelPick(t *testing.T) {
+	f := newAudienceFixture(t, audiencetest.OneAgent())
+
+	status, body := f.do(t, "PUT", "/v1/audience-research/runtime", map[string]any{"provider": "openai", "model": "gpt-5"})
+	require.Equal(t, 200, status, string(body))
+	rt := decode[audience.Runtime](t, body)
+	assert.True(t, rt.Chosen)
+	assert.Equal(t, "openai", rt.Provider)
+	assert.Equal(t, "gpt-5", rt.Model)
+
+	_, body = f.do(t, "GET", "/v1/audience-research/status", nil)
+	assert.Equal(t, "gpt-5", decode[audience.Runtime](t, body).Model, "the pick outlives the request")
+
+	status, body = f.do(t, "PUT", "/v1/audience-research/runtime", map[string]any{"provider": "", "model": "ignored"})
+	require.Equal(t, 200, status)
+	rt = decode[audience.Runtime](t, body)
+	assert.False(t, rt.Chosen, "an empty provider goes back to the agent's own runtime")
+	assert.Equal(t, "test-model", rt.Model)
+}

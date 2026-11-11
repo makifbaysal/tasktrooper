@@ -2640,7 +2640,8 @@ again (`generation` +1) and a failed rebuild keeps the old ones. A study keeps i
 
 | Route | |
 |---|---|
-| `GET /v1/audience-research/status` | `{ready, agent?, provider?}`: is there an agent runtime to run on |
+| `GET /v1/audience-research/status` | `{ready, agent?, provider?, model?, chosen?}`: is there an agent runtime to run on, and is it the person's own pick |
+| `PUT /v1/audience-research/runtime` | `{provider, model}`: the provider and model the calls run on (kept in `app_settings`); an empty provider goes back to the product manager's own runtime. Answers the status |
 | `GET /v1/audiences` / `POST /v1/audiences` | list (`persona_count`, `study_count`) / create `{name, repository?, brief, persona_target?}` (brief = `product`, `segments[{name,description,count}]`, `locations`, `current_solutions`, `pricing`, `topic`, `language`); repository = name or id |
 | `GET /v1/audiences/:id` | audience + `personas` + `studies` (no reports) + `build_calls` |
 | `PATCH /v1/audiences/:id` | `{name?, repository?, brief?, persona_target?}`; 400 while building |

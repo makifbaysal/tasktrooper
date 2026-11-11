@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAskPm } from "@/hooks/useAskPm";
 import { useAudienceRuntime } from "@/hooks/useAudienceRuntime";
+import { AudienceRuntimePicker } from "@/components/audience/AudienceRuntimePicker";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
 import { logEvent } from "@/lib/analytics";
@@ -115,7 +116,7 @@ function StartCard({ icon: Icon, title, body, onClick, to }: { icon: typeof Spar
 export function AudiencePage() {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const runtime = useAudienceRuntime();
+  const [runtime, setRuntime] = useAudienceRuntime();
   const pm = useAskPm();
   const [audiences, setAudiences] = useState<Audience[] | null>(null);
   const [studies, setStudies] = useState<AudienceStudy[]>([]);
@@ -162,6 +163,7 @@ export function AudiencePage() {
       />
 
       {runtime && !runtime.ready && <AudienceRuntimeNotice />}
+      {runtime?.ready && <AudienceRuntimePicker runtime={runtime} onChange={setRuntime} />}
 
       <section className="space-y-3" aria-labelledby="start-heading">
         <h2 id="start-heading" className="text-title font-semibold tracking-tight">

@@ -555,3 +555,11 @@ type OpenQuestionDigest struct {
 	Question string `json:"question"`
 	Digest   string `json:"digest"`
 }
+
+// AudienceRuntimeChoice is the provider and model the person picked for
+// audience research. A zero Provider means "no choice": the calls run on the
+// product manager (or the first agent with a runtime).
+type AudienceRuntimeChoice struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
