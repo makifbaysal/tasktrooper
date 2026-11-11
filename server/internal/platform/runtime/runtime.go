@@ -108,6 +108,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
 	releaseapp "github.com/makifbaysal/tasktrooper/server/internal/application/release"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/remoteaccess"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
@@ -357,11 +358,27 @@ type engine struct {
 	// from a request goroutine, must not re-derive.
 	secretsCipher    *secrets.Cipher
 	secretsCipherErr error
+	// httpHandler is kept so Shutdown can stop the remote listener the tunnel
+	// points at before the main one drains.
+	httpHandler *httpadapter.Handler
 }
 
 // initSecretsCipher derives the at-rest encryption key while the environment
 // still holds it. The error is kept: a missing key degrades only the
 // credential-vault paths, it is not a boot failure.
+// remoteAccessService is the phone-pairing service, or nil on a build with no
+// database (it keeps its devices and audit trail there).
+func (e *engine) remoteAccessService() *remoteaccess.Service {
+	if e.pgDB == nil {
+		return nil
+	}
+	version := os.Getenv("TASKTROOPER_APP_VERSION")
+	if version == "" {
+		version = "dev"
+	}
+	return remoteaccess.New(pgstore.NewRemoteAccessStore(e.pgDB), version)
+}
+
 func (e *engine) initSecretsCipher() {
 	e.secretsCipher, e.secretsCipherErr = secrets.NewCipherFromEnv()
 }
@@ -623,6 +640,9 @@ const httpDrainTimeout = 15 * time.Second
 // runner's queue outright.
 func (s *Server) Shutdown(ctx context.Context) error {
 	var err error
+	if s.engine.httpHandler != nil {
+		s.engine.httpHandler.DisableRemote()
+	}
 	// 1. Drain HTTP first: in-flight requests still have their context and
 	//    the DB, and an open SSE stream would hold the whole budget.
 	if s.app != nil {
@@ -3195,9 +3215,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		UIFS:              opts.UIFS,
 		// MCPToolServer is nil unless the Claude Code executor registered, in which
 		// case no /mcp route is mounted at all.
-		MCPToolServer: e.mcpServer,
-		BootSeed:      e.bootSeed,
+		MCPToolServer:   e.mcpServer,
+		BootSeed:        e.bootSeed,
+		RemoteAccessSvc: e.remoteAccessService(),
 	})
+	e.httpHandler = handler
 	if scoreTracker != nil {
 		scoreTracker.OnScoreUpdated = handler.RecordAgentScore
 	}

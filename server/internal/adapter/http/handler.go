@@ -54,6 +54,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/projectmodel"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/rag"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/registry"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/remoteaccess"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repodocs"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/repository"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/session"
@@ -173,6 +174,13 @@ type Handler struct {
 	mcpToolServer *mcpserver.Server
 
 	boardList boardListCache
+
+	// remoteSvc is nil unless the phone-pairing feature is wired; the
+	// /v1/remote-access routes are then not mounted and the remote listener
+	// cannot be started. remote is the dedicated listener the tunnel targets.
+	remoteSvc *remoteaccess.Service
+	remote    *remoteListener
+	mainApp   *fiber.App
 }
 
 type Config struct {
@@ -247,6 +255,7 @@ type Config struct {
 	DesignSystemSvc   *designsystem.Service
 	MCPToolServer     *mcpserver.Server
 	BootSeed          BootSeed
+	RemoteAccessSvc   *remoteaccess.Service
 }
 
 func NewHandler(cfg Config) *Handler {
@@ -323,6 +332,7 @@ func NewHandler(cfg Config) *Handler {
 		designSystemSvc:   cfg.DesignSystemSvc,
 		mcpToolServer:     cfg.MCPToolServer,
 		bootSeed:          cfg.BootSeed,
+		remoteSvc:         cfg.RemoteAccessSvc,
 	}
 }
 
@@ -330,6 +340,7 @@ func NewHandler(cfg Config) *Handler {
 // configuration (CORS_ORIGINS) and belongs with the process that read it, so
 // platform/runtime installs it before this runs.
 func (h *Handler) RegisterRoutes(app *fiber.App) {
+	h.mainApp = app
 	app.Use(h.requestIDMiddleware)
 	app.Use(h.authMiddleware)
 	app.Use(h.bootSeedMiddleware)
@@ -390,6 +401,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerSettingsRoutes(app)
 	h.registerCatalogRoutes(app)
 	h.registerMobileDeviceRoutes(app)
+	h.registerRemoteAccessRoutes(app)
 	h.registerLLMProviderRoutes(app)
 	h.registerAgentCLIRoutes(app)
 	h.registerLLMEndpointRoutes(app)
@@ -456,6 +468,13 @@ func (h *Handler) requestIDMiddleware(c *fiber.Ctx) error {
 }
 
 func (h *Handler) authMiddleware(c *fiber.Ctx) error {
+	// Set only by the remote listener after it authenticated a paired phone and
+	// matched the route against its allowlist (remote_app.go). A user value can
+	// only be written by code in this process, never by a request.
+	if dev, ok := c.Locals(remoteDeviceLocal).(remoteDevice); ok {
+		c.Locals("client_name", "remote:"+dev.Name)
+		return c.Next()
+	}
 	if h.isPublicPath(c.Path()) {
 		return c.Next()
 	}

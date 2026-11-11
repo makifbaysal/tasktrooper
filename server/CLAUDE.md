@@ -61,6 +61,7 @@ implementing it.
 | The listener binds `127.0.0.1` only | `platform/runtime/runtime.go` |
 | Exactly one stdout line: `LISTENING http://127.0.0.1:<port>`; logs go to stderr | `platform/runtime/runtime.go` (`ConfigureLogger`) |
 | Empty `DATABASE_URL` ⇒ embedded Postgres 17 | `platform/embeddedpg` |
+| A phone gets in only through the remote listener (a second `127.0.0.1` port the desktop's tunnel targets): device-token auth, deny-by-default route allowlist, local key never accepted there | `adapter/http/remote_*.go`, `application/remoteaccess` |
 
 Migration 133 dropped the multi-tenant schema (row-level security, every
 `tenant_id`, `tenants`). It cannot be undone, so the embedded cluster is copied

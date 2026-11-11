@@ -2590,3 +2590,34 @@ stated maximum prices with min/p25/median/mean/p75/max, a histogram, `not_willin
 `quotes[]` (kept only when found word for word in that persona's own answers), `recommendations[]`, `open_questions[]`,
 `methodology`, `disclaimer` (synthetic personas, not market data). A failed synthesis sets `synthesis_failed` and the report keeps its
 numbers and frequency-counted themes.
+
+## Remote access (migration 197)
+
+A paired phone reaches this server through a tunnel the desktop app runs. The tunnel targets a
+**second listener** (`127.0.0.1:<port>`, started by `POST /v1/remote-access/enable`), never the UI's
+port. That listener (`adapter/http/remote_app.go`) authenticates a device token, matches the request
+against the allowlist in `remote_allowlist.go` (exact method + canonical path, UUID path params; a body
+check on a few write routes), rate-limits, audits writes, and hands the request to this server's own
+router with the local auth already satisfied. Everything else is `403 route_not_allowed`.
+`TestRemoteAllowlistDeniesEveryOtherRegisteredRoute` scans the source for every registered route, so a
+new route is unreachable remotely until it is added to the allowlist on purpose.
+
+The wire contract for the phone (pairing flow, QR payload, allowlist, error codes, polling) is
+`docs/mobile-app-tunnel.md` for users; developers: the allowlist table in `remote_allowlist.go` and the
+`/remote/v1/*` handlers in `remote_native.go` are the source of truth.
+
+| Endpoint (loopback API, `SERVER_API_KEY`) | Notes |
+|---|---|
+| `GET /v1/remote-access` | `{enabled, port, server_name, device_count, pending_pairings}` |
+| `POST /v1/remote-access/enable` · `/disable` | `{preferred_port?}`; starts / stops the remote listener, returns the status |
+| `PUT /v1/remote-access/settings` | `{server_name?}` |
+| `POST /v1/remote-access/pairings` | `{role: operator\|viewer, expires_in_days: 0..365, public_url, device_label?}` -> `201 {id, code, code_display, uri, expires_at}`; `409 remote_disabled` while off. The code lives 5 minutes, works once, and is stored hashed |
+| `DELETE /v1/remote-access/pairings/{id}` | cancel |
+| `GET /v1/remote-access/devices` · `PATCH` · `DELETE /{id}` | list (revoked ones kept 30 days), rename / change role, revoke (immediate: every request re-reads the row) |
+| `GET /v1/remote-access/audit?limit=&device_id=` | `{entries}`: non-GET requests, failed auth, pairing, revocation, rate limits; route patterns only, never bodies |
+| `GET /v1/remote-access/live` | `{requests_last_minute, last_request_at}` |
+| `GET /v1/repositories/{id}/tasks/{taskId}` | one task with criteria, test cases and relations (404 `not_found`) |
+
+Remote listener (`/remote/v1/*`): `GET info`, `POST pair` (public), `GET|DELETE me`, `GET changes?since=&wait=`,
+`GET pending`, `GET sessions/{id}/turn`, `POST sessions/{id}/messages` (async, 202). Device tokens are
+`ttd_` + 32 random bytes (base64url); only the SHA-256 is stored.

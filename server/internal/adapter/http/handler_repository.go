@@ -43,6 +43,7 @@ func (h *Handler) registerRepositoryRoutes(app fiber.Router) {
 	app.Post(githubWebhookPath, h.GitHubWebhook)
 	app.Post("/v1/repositories/:id/index/search", h.SearchRepositoryIndex)
 	app.Get("/v1/repositories/:id/tasks", h.ListRepositoryTasks)
+	app.Get("/v1/repositories/:id/tasks/:taskId", h.GetRepositoryTask)
 	app.Post("/v1/repositories/:id/tasks", h.CreateRepositoryTask)
 	app.Patch("/v1/repositories/:id/tasks/:taskId", h.UpdateRepositoryTask)
 	app.Delete("/v1/repositories/:id/tasks/:taskId", h.DeleteRepositoryTask)
@@ -414,6 +415,26 @@ func (h *Handler) ListRepositoryTasks(c *fiber.Ctx) error {
 		return internalError(c, err)
 	}
 	return c.JSON(fiber.Map{"tasks": tasks, "count": len(tasks)})
+}
+
+// GetRepositoryTask — GET /v1/repositories/:id/tasks/:taskId. One card with its
+// acceptance criteria, test cases and relations, for clients that hold a task
+// id (a phone opening a notification) and would otherwise list the board.
+func (h *Handler) GetRepositoryTask(c *fiber.Ctx) error {
+	repositoryID, taskID, err := parseRepositoryTaskParams(c)
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	task, err := h.repositorySvc.GetTask(h.enrichContext(c), repositoryID, taskID)
+	if err != nil {
+		if errors.Is(err, domain.ErrBoardTaskNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(errorResponse{
+				Error: errorDetail{Message: err.Error(), Type: "not_found"},
+			})
+		}
+		return internalError(c, err)
+	}
+	return c.JSON(task)
 }
 
 func (h *Handler) CreateRepositoryTask(c *fiber.Ctx) error {
