@@ -18,9 +18,13 @@ const wakeColumns = `id, session_id, kind, ref_id, label, created_at, expires_at
 
 func (s *SessionWakeStore) Add(ctx context.Context, w domain.SessionWake) error {
 	_, err := s.pool.Exec(ctx, `
+		WITH refreshed AS (
+			UPDATE session_wakes SET label = $4, expires_at = $5
+			WHERE session_id = $1 AND kind = $2 AND ref_id = $3
+			RETURNING 1
+		)
 		INSERT INTO session_wakes (session_id, kind, ref_id, label, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (session_id, kind, ref_id) DO UPDATE SET label = EXCLUDED.label, expires_at = EXCLUDED.expires_at
+		SELECT $1, $2, $3, $4, $5 WHERE NOT EXISTS (SELECT 1 FROM refreshed)
 	`, w.SessionID, w.Kind, w.RefID, w.Label, w.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("add session wake: %w", err)
