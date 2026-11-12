@@ -1,4 +1,4 @@
-import type { AudienceReport, AudienceStatus, AudienceStudyStatus } from "@/api";
+import type { AudienceReport, AudienceStatus, AudienceStudyStatus, ThemeChangeStatus } from "@/api";
 
 export type Tone = "success" | "warning" | "destructive" | "info" | "secondary";
 
@@ -90,4 +90,23 @@ export function parsePrices(text: string): number[] {
     if (part.trim() !== "" && Number.isFinite(n) && n >= 0) seen.add(Math.round(n * 100) / 100);
   }
   return [...seen].sort((a, b) => a - b);
+}
+
+/** Whether a rise in this compared number is good news (a fall in "no" answers is). */
+export function metricImprovesWhenUp(key: string): boolean {
+  return key !== "no_pct";
+}
+
+/** "+1.5", "-3", "0": the change of a compared number, signed. */
+export function signedDelta(delta: number): string {
+  if (delta === 0) return "0";
+  const text = Number.isInteger(delta) ? String(delta) : delta.toFixed(1);
+  return delta > 0 ? `+${text}` : text;
+}
+
+/** Which way a theme's share moved reads as good, bad or neutral for the product. */
+export function themeChangeTone(status: ThemeChangeStatus, worry: boolean): Tone {
+  if (status === "same") return "secondary";
+  const goodOnes: ThemeChangeStatus[] = worry ? ["resolved", "down"] : ["new", "up"];
+  return goodOnes.includes(status) ? "success" : "warning";
 }

@@ -317,6 +317,8 @@ var roleAudienceResearchTools = []string{
 	"study_script",
 	"study_start",
 	"study_cancel",
+	"study_rerun",
+	"study_compare",
 	"study_follow_up",
 	"study_ask_everyone",
 	"study_ask_research",

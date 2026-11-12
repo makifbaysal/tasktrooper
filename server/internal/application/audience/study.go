@@ -77,6 +77,9 @@ type PlanStudyInput struct {
 	// Script, when given, is the interview script itself and nothing is
 	// written for the study; so are Questions.
 	Script *domain.StudyScript
+	// ParentStudyID and Changes make the study a re-run of an earlier one.
+	ParentStudyID *uuid.UUID
+	Changes       string
 }
 
 // PlanStudy writes a study down without running it. The interview script is
@@ -108,6 +111,7 @@ func (s *Service) PlanStudy(ctx context.Context, audienceID uuid.UUID, in PlanSt
 		return domain.Study{}, err
 	}
 	st.Inputs = inputs
+	st.ParentStudyID, st.Changes = in.ParentStudyID, strings.TrimSpace(in.Changes)
 	if st.Title == "" {
 		st.Title = clip(a.Name+": "+defaultTitleSuffix(kind), 120)
 	}
@@ -407,7 +411,7 @@ func (s *Service) StartStudyWith(ctx context.Context, id uuid.UUID, opts StartOp
 		return domain.Study{}, err
 	}
 	now := s.d.Now()
-	st.ProductSnapshot = productText(a, s.projectContext(ctx, a.RepositoryID))
+	st.ProductSnapshot = withChanges(productText(a, s.projectContext(ctx, a.RepositoryID)), st.Changes)
 	st.Status = domain.StudyRunning
 	st.PersonaTotal, st.PersonaDone, st.PersonaFailed = len(personas), 0, 0
 	st.CallsEstimate = StudyCallsFor(st.Kind, len(personas)) + st.ScriptCalls

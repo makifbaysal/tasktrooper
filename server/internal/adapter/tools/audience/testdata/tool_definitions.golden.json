@@ -312,6 +312,30 @@
   {
     "type": "function",
     "function": {
+      "name": "study_compare",
+      "description": "Compare two finished studies of one audience and one kind: the verdict score, the answer mix (yes, maybe, no, would pay now, median price), the segments, which objections, needs and alternatives went away, are new or changed their share, and, for user interviews, how each person who answered both changed their own score. It asks no model and costs nothing. Present it faithfully: lead with the verdict score before and after, say how many people answered both and how many scored higher, lower or the same, name the objections that went away and the new ones, quote a person who changed their mind. The differences are from synthetic people asked twice, not a measurement of real customers; say so, and do not claim the change caused the difference beyond what the note of changes says.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "study_id": {
+            "description": "The newer study (the re-run), finished.",
+            "type": "string"
+          },
+          "with_study_id": {
+            "description": "The earlier study to compare with. Leave out for the study this one re-ran.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "study_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "study_follow_up",
       "description": "Ask one person of a finished study another question. They answer in character and remember what they said in the study. One model call; the answer is kept under the study. Take the person's id from audience_get.",
       "parameters": {
@@ -448,6 +472,30 @@
           "user_approved": {
             "description": "true only after the user said yes to writing the report. Needed only when the status is interviewed.",
             "type": "boolean"
+          }
+        },
+        "required": [
+          "study_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "study_rerun",
+      "description": "Plan the same study again after the product changed, so the new report can be compared with the old one: same audience and people, same kind, goal, prices and interview script, plus the note of what changed. Only a study with a finished report can be run again. This only plans it (nothing is spent): the script waits for the person's OK again, then study_script with approve and study_start with `user_approved: true` run it like any study, after they said yes and you stated the number of model calls. When the new study is done, call study_compare to show what moved. Rebuild nothing in between: the same people must answer both, so do not run audience_build on the audience first.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "description": "What changed in the product since that study, in a few plain sentences (what the person did in answer to its findings). It is shown to the people as \"what changed\".",
+            "type": "string"
+          },
+          "study_id": {
+            "description": "The id of a finished study to run again.",
+            "type": "string"
           }
         },
         "required": [

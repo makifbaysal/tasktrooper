@@ -44,6 +44,8 @@ type Service interface {
 	FollowUpCalls(ctx context.Context, studyID uuid.UUID) (int, error)
 	AskEveryone(ctx context.Context, studyID uuid.UUID, question string) (uuid.UUID, int, error)
 	AskResearch(ctx context.Context, studyID uuid.UUID, question string) (string, error)
+	Rerun(ctx context.Context, studyID uuid.UUID, changes string) (domain.Study, error)
+	CompareStudies(ctx context.Context, beforeID, afterID uuid.UUID) (audience.StudyComparison, error)
 }
 
 // Waker brings the calling chat back once background work ended.
