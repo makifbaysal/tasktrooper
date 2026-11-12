@@ -6082,7 +6082,76 @@ export interface AudienceStudy {
   report?: AudienceReport;
   created_at: string;
   started_at?: string;
+  /** The study this one re-ran after the product changed, and the note of what changed. */
+  parent_study_id?: string;
+  changes?: string;
   finished_at?: string;
+}
+
+export interface StudyMetricChange {
+  key: string;
+  before: number;
+  after: number;
+  delta: number;
+}
+
+export interface StudySegmentChange {
+  name: string;
+  before_intent: number;
+  after_intent: number;
+  before_yes_pct: number;
+  after_yes_pct: number;
+}
+
+export type ThemeChangeStatus = "resolved" | "new" | "up" | "down" | "same";
+
+export interface StudyThemeChange {
+  label: string;
+  before_count: number;
+  after_count: number;
+  before_pct: number;
+  after_pct: number;
+  status: ThemeChangeStatus;
+}
+
+export interface StudyPersonChange {
+  persona_id: string;
+  name: string;
+  segment?: string;
+  before_intent: number;
+  after_intent: number;
+  before_verdict: string;
+  after_verdict: string;
+  before_quote?: string;
+  after_quote?: string;
+}
+
+export interface StudyRef {
+  id: string;
+  title: string;
+  finished_at?: string;
+  respondents: number;
+}
+
+/** What changed between two finished studies of one audience; computed, no model asked. */
+export interface StudyComparison {
+  before: StudyRef;
+  after: StudyRef;
+  kind: StudyKind;
+  changes?: string;
+  paired: number;
+  improved: number;
+  worse: number;
+  same: number;
+  verdict: StudyMetricChange;
+  verdict_labels: [string, string];
+  metrics: StudyMetricChange[];
+  segments: StudySegmentChange[];
+  objections: StudyThemeChange[];
+  needs: StudyThemeChange[];
+  alternatives: StudyThemeChange[];
+  strengths: StudyThemeChange[];
+  people: StudyPersonChange[];
 }
 
 export interface AudienceDetail extends Audience {
@@ -6307,6 +6376,10 @@ export const api = {
   audienceStudies: (audienceId?: string) =>
     request<{ studies: AudienceStudy[] }>(`/v1/audience-studies${audienceId ? `?audience_id=${encodeURIComponent(audienceId)}` : ""}`),
   audienceStudy: (id: string) => request<AudienceStudyDetail>(`/v1/audience-studies/${id}`),
+  rerunAudienceStudy: (id: string, changes: string) =>
+    request<AudienceStudy>(`/v1/audience-studies/${id}/rerun`, { method: "POST", body: JSON.stringify({ changes }) }),
+  compareAudienceStudy: (id: string, withId?: string) =>
+    request<StudyComparison>(`/v1/audience-studies/${id}/compare${withId ? `?with=${encodeURIComponent(withId)}` : ""}`),
   updateAudienceStudy: (id: string, data: StudyPlanInput) =>
     request<AudienceStudy>(`/v1/audience-studies/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteAudienceStudy: (id: string) => request<void>(`/v1/audience-studies/${id}`, { method: "DELETE" }),

@@ -57,7 +57,7 @@ func TestNewExecutorsNeedsAService(t *testing.T) {
 	assert.Empty(t, NewExecutors(nil))
 	assert.Empty(t, NewExecutors(&ToolKit{}))
 	f := newKit(t, audiencetest.OneAgent())
-	assert.Len(t, NewExecutors(f.kit), 16)
+	assert.Len(t, NewExecutors(f.kit), 18)
 }
 
 func TestThePMCanGoFromABriefToAReportOnlyWithTheUsersYes(t *testing.T) {

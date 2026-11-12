@@ -211,7 +211,8 @@ func (s *AudienceStore) GetPersona(ctx context.Context, id uuid.UUID) (domain.Pe
 const studyColumns = `id, audience_id, title, goal, questions, price_points, currency, product_snapshot, status,
 	persona_total, persona_done, persona_failed, calls_estimate, error, report, created_at, started_at, finished_at,
 	kind, inputs, script, script_state, script_calls,
-	script_version, script_approved_version, script_approved_at, script_approved_by`
+	script_version, script_approved_version, script_approved_at, script_approved_by,
+	parent_study_id, changes`
 
 func scanStudy(row pgx.Row, extra ...any) (domain.Study, error) {
 	var s domain.Study
@@ -221,7 +222,8 @@ func scanStudy(row pgx.Row, extra ...any) (domain.Study, error) {
 	dest := append([]any{&s.ID, &s.AudienceID, &s.Title, &s.Goal, &questions, &prices, &s.Currency, &s.ProductSnapshot, &status,
 		&s.PersonaTotal, &s.PersonaDone, &s.PersonaFailed, &s.CallsEstimate, &s.Error, &report, &s.CreatedAt, &s.StartedAt, &s.FinishedAt,
 		&kind, &inputs, &script, &scriptState, &s.ScriptCalls,
-		&s.ScriptVersion, &s.ScriptApprovedVersion, &s.ScriptApprovedAt, &s.ScriptApprovedBy}, extra...)
+		&s.ScriptVersion, &s.ScriptApprovedVersion, &s.ScriptApprovedAt, &s.ScriptApprovedBy,
+		&s.ParentStudyID, &s.Changes}, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return domain.Study{}, err
 	}
@@ -277,10 +279,10 @@ func (s *AudienceStore) CreateStudy(ctx context.Context, st domain.Study) (domai
 	}
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO audience_studies (audience_id, title, goal, questions, price_points, currency, product_snapshot, status, persona_total, calls_estimate,
-		  kind, inputs, script, script_state, script_calls, script_version, script_approved_version, script_approved_at, script_approved_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		  kind, inputs, script, script_state, script_calls, script_version, script_approved_version, script_approved_at, script_approved_by, parent_study_id, changes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		RETURNING `+studyColumns, st.AudienceID, st.Title, st.Goal, questions, prices, st.Currency, st.ProductSnapshot, string(status), st.PersonaTotal, st.CallsEstimate,
-		kind, inputs, script, scriptState, st.ScriptCalls, st.ScriptVersion, st.ScriptApprovedVersion, st.ScriptApprovedAt, st.ScriptApprovedBy)
+		kind, inputs, script, scriptState, st.ScriptCalls, st.ScriptVersion, st.ScriptApprovedVersion, st.ScriptApprovedAt, st.ScriptApprovedBy, st.ParentStudyID, st.Changes)
 	out, err := scanStudy(row)
 	if err != nil {
 		return domain.Study{}, fmt.Errorf("create study: %w", err)

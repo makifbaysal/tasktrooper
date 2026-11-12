@@ -220,6 +220,10 @@ type Study struct {
 	ScriptApprovedVersion int        `json:"script_approved_version"`
 	ScriptApprovedAt      *time.Time `json:"script_approved_at,omitempty"`
 	ScriptApprovedBy      string     `json:"script_approved_by,omitempty"`
+	// ParentStudyID is the study this one runs again after the product changed;
+	// Changes is the person's note of what changed, added to the product text.
+	ParentStudyID *uuid.UUID `json:"parent_study_id,omitempty"`
+	Changes       string     `json:"changes,omitempty"`
 	// Questions are extra open questions asked on top of the built-in
 	// purchase-intent core.
 	Questions       []string    `json:"questions"`

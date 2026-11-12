@@ -44,6 +44,8 @@ func (h *Handler) registerAudienceRoutes(app fiber.Router) {
 	app.Post("/v1/audience-studies/:id/start", h.StartAudienceStudy)
 	app.Post("/v1/audience-studies/:id/report", h.GenerateAudienceStudyReport)
 	app.Post("/v1/audience-studies/:id/retry", h.RetryAudienceStudy)
+	app.Post("/v1/audience-studies/:id/rerun", h.RerunAudienceStudy)
+	app.Get("/v1/audience-studies/:id/compare", h.CompareAudienceStudy)
 	app.Post("/v1/audience-studies/:id/cancel", h.CancelAudienceStudy)
 	app.Post("/v1/audience-studies/:id/ask", h.AskAudienceResearch)
 	app.Post("/v1/audience-studies/:id/ask-everyone", h.AskAudienceEveryone)
@@ -516,6 +518,62 @@ func (h *Handler) SetAudienceRuntime(c *fiber.Ctx) error {
 		return badRequest(c, "invalid request body")
 	}
 	out, err := h.audienceSvc.SetRuntimeChoice(h.enrichContext(c), req.Provider, req.Model)
+	if err != nil {
+		return audienceFailure(c, err)
+	}
+	return c.JSON(out)
+}
+
+// RerunAudienceStudy — POST /v1/audience-studies/:id/rerun {changes?}
+//
+// Plans a new study that asks the same people the same questions after the
+// product changed (the finished study's kind, goal, prices and script; the
+// script waits for approval again). Spends nothing until it is started.
+func (h *Handler) RerunAudienceStudy(c *fiber.Ctx) error {
+	id, err := audienceID(c, "id")
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Changes string `json:"changes"`
+	}
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&req); err != nil {
+			return badRequest(c, "invalid request body")
+		}
+	}
+	out, err := h.audienceSvc.Rerun(h.enrichContext(c), id, req.Changes)
+	if err != nil {
+		return audienceFailure(c, err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(out)
+}
+
+// CompareAudienceStudy — GET /v1/audience-studies/:id/compare?with=<study id>
+//
+// What changed between an earlier study (`with`, default: the study this one
+// re-ran) and this one, from the two reports. No model is asked.
+func (h *Handler) CompareAudienceStudy(c *fiber.Ctx) error {
+	id, err := audienceID(c, "id")
+	if err != nil {
+		return err
+	}
+	var beforeID uuid.UUID
+	if raw := c.Query("with"); raw != "" {
+		if beforeID, err = uuid.Parse(raw); err != nil {
+			return badRequest(c, "invalid id")
+		}
+	} else {
+		st, err := h.audienceSvc.Study(h.enrichContext(c), id)
+		if err != nil {
+			return audienceFailure(c, err)
+		}
+		if st.ParentStudyID == nil {
+			return badRequest(c, "this study did not re-run another one; pass ?with=<study id>")
+		}
+		beforeID = *st.ParentStudyID
+	}
+	out, err := h.audienceSvc.CompareStudies(h.enrichContext(c), beforeID, id)
 	if err != nil {
 		return audienceFailure(c, err)
 	}

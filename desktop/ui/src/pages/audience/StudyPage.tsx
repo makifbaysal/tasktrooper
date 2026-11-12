@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { ApiError, api, type AudienceStudyDetail, type StudyAnswer, AUDIENCE_NO_RUNTIME } from "@/api";
 import { AudienceRuntimeNotice } from "@/components/audience/AudienceRuntimeNotice";
 import { PersonaChatDialog } from "@/components/audience/PersonaChatDialog";
+import { RerunStudyDialog } from "@/components/audience/RerunStudyDialog";
+import { StudyComparisonView } from "@/components/audience/StudyComparisonView";
 import { ExportReportButton } from "@/components/audience/report/ExportReportButton";
 import { ReportView } from "@/components/audience/report/ReportView";
 import { StudyAnswers } from "@/components/audience/StudyAnswers";
@@ -43,6 +45,7 @@ export function StudyPage() {
   const [view, setView] = useState<WizardStep | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [rerunOpen, setRerunOpen] = useState(false);
   const [watchUntil, setWatchUntil] = useState(0);
 
   const load = useCallback(async () => {
@@ -129,6 +132,11 @@ export function StudyPage() {
       onSelectStep={(step) => setView(step === reached ? null : step)}
       actions={
         <>
+          {study.status === "done" && (
+            <Button variant="outline" onClick={() => setRerunOpen(true)}>
+              {t("audienceHub.rerun.button")}
+            </Button>
+          )}
           {active && (
             <Button variant="outline" onClick={() => setCancelOpen(true)}>
               {s("cancel")}
@@ -176,6 +184,7 @@ export function StudyPage() {
               <p className="text-caption text-muted-foreground">{s("runningHelp")}</p>
             </Card>
           )}
+          {study.status === "done" && study.parent_study_id && <StudyComparisonView studyId={study.id} />}
           {study.report && (
             <>
               <div className="flex justify-end">
@@ -215,6 +224,15 @@ export function StudyPage() {
         </>
       )}
 
+      <RerunStudyDialog
+        studyId={study.id}
+        open={rerunOpen}
+        onOpenChange={setRerunOpen}
+        onPlanned={(planned) => {
+          toast.success(t("audienceHub.rerun.planned"));
+          navigate(`/audience/studies/${planned.id}`);
+        }}
+      />
       <PersonaChatDialog
         persona={talkTo?.persona_id ? { id: talkTo.persona_id, name: talkTo.persona.name, role: talkTo.persona.role, segment: talkTo.persona.segment } : null}
         studyId={study.id}

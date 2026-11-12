@@ -25,6 +25,8 @@ const (
 	studyScriptName    = "study_script"
 	studyStartName     = "study_start"
 	studyCancelName    = "study_cancel"
+	studyRerunName     = "study_rerun"
+	studyCompareName   = "study_compare"
 	studyFollowUpName  = "study_follow_up"
 	studyAskAllName    = "study_ask_everyone"
 	studyAskName       = "study_ask_research"
@@ -366,6 +368,41 @@ func tools() []*tool {
 				}
 				k.wake(ctx, domain.WakeKindStudy, st.ID, "study_start \""+st.Title+"\"")
 				return viewOf(st), nil
+			}},
+		{name: studyRerunName, params: objectSchema(map[string]interface{}{"study_id": stringSchema(), "changes": stringSchema()}, "study_id"),
+			run: func(ctx context.Context, k *ToolKit, a map[string]any) (any, error) {
+				id, err := argID(a, "study_id")
+				if err != nil {
+					return nil, err
+				}
+				st, err := k.Service.Rerun(ctx, id, argString(a, "changes"))
+				if err != nil {
+					return nil, err
+				}
+				return viewOf(st), nil
+			}},
+		{name: studyCompareName, params: objectSchema(map[string]interface{}{"study_id": stringSchema(), "with_study_id": stringSchema()}, "study_id"),
+			run: func(ctx context.Context, k *ToolKit, a map[string]any) (any, error) {
+				id, err := argID(a, "study_id")
+				if err != nil {
+					return nil, err
+				}
+				var before uuid.UUID
+				if argString(a, "with_study_id") != "" {
+					if before, err = argID(a, "with_study_id"); err != nil {
+						return nil, err
+					}
+				} else {
+					d, err := k.Service.Study(ctx, id)
+					if err != nil {
+						return nil, err
+					}
+					if d.ParentStudyID == nil {
+						return nil, errors.New("this study did not re-run another one; pass with_study_id, the earlier study to compare with")
+					}
+					before = *d.ParentStudyID
+				}
+				return k.Service.CompareStudies(ctx, before, id)
 			}},
 		{name: studyCancelName, params: objectSchema(map[string]interface{}{"study_id": stringSchema()}, "study_id"),
 			run: func(ctx context.Context, k *ToolKit, a map[string]any) (any, error) {
