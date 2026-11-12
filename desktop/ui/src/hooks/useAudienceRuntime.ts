@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type AudienceRuntime } from "@/api";
 
 /** Whether there is an agent runtime to run audience research on; null until known. */
-export function useAudienceRuntime(): AudienceRuntime | null {
+export function useAudienceRuntime(): [AudienceRuntime | null, (r: AudienceRuntime) => void] {
   const [runtime, setRuntime] = useState<AudienceRuntime | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -19,5 +19,5 @@ export function useAudienceRuntime(): AudienceRuntime | null {
       cancelled = true;
     };
   }, []);
-  return runtime;
+  return [runtime, setRuntime];
 }

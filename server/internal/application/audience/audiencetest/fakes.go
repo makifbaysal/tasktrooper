@@ -24,6 +24,7 @@ type Store struct {
 	answers   map[uuid.UUID][]domain.StudyAnswer
 	messages  []domain.ChatMessage
 	clock     time.Time
+	choice    domain.AudienceRuntimeChoice
 }
 
 var _ port.AudienceStore = (*Store)(nil)
@@ -421,4 +422,17 @@ func (a Agents) ListAgents(context.Context) ([]domain.Agent, error) { return a.L
 // provider.
 func OneAgent() Agents {
 	return Agents{List: []domain.Agent{{ID: uuid.New(), Name: "Product Manager", CatalogSlug: "product-manager", Enabled: true, ProviderType: domain.LLMProviderOpenAI, Model: "test-model"}}}
+}
+
+func (s *Store) RuntimeChoice(context.Context) (domain.AudienceRuntimeChoice, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.choice, nil
+}
+
+func (s *Store) SaveRuntimeChoice(_ context.Context, c domain.AudienceRuntimeChoice) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.choice = c
+	return nil
 }

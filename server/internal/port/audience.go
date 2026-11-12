@@ -34,6 +34,9 @@ type AudienceStore interface {
 	// SaveStudy writes the mutable columns, the report included.
 	SaveStudy(ctx context.Context, s domain.Study) error
 	DeleteStudy(ctx context.Context, id uuid.UUID) error
+	// RuntimeChoice is the person's pick of provider and model for the calls.
+	RuntimeChoice(ctx context.Context) (domain.AudienceRuntimeChoice, error)
+	SaveRuntimeChoice(ctx context.Context, c domain.AudienceRuntimeChoice) error
 	// BumpStudyProgress adds to the counters atomically and answers the totals.
 	BumpStudyProgress(ctx context.Context, id uuid.UUID, done, failed int) (doneTotal, failedTotal int, err error)
 	SaveAnswer(ctx context.Context, a domain.StudyAnswer) error

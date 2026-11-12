@@ -6166,6 +6166,9 @@ export interface AudienceRuntime {
   ready: boolean;
   agent?: string;
   provider?: string;
+  model?: string;
+  /** The person picked the provider and model themselves. */
+  chosen?: boolean;
 }
 
 export interface AudienceInput {
@@ -6286,6 +6289,11 @@ export const api = {
   testTelemetry: (data?: { base_url?: string; api_key?: string }) =>
     request<TelemetryConnectionTest>("/v1/telemetry/settings/test", { method: "POST", ...(data ? { body: JSON.stringify(data) } : {}) }),
   audienceRuntime: () => request<AudienceRuntime>("/v1/audience-research/status"),
+  setAudienceRuntime: (provider: string, model: string) =>
+    request<AudienceRuntime>("/v1/audience-research/runtime", {
+      method: "PUT",
+      body: JSON.stringify({ provider, model }),
+    }),
   audiences: () => request<{ audiences: Audience[] }>("/v1/audiences"),
   createAudience: (data: AudienceInput) => request<Audience>("/v1/audiences", { method: "POST", body: JSON.stringify(data) }),
   audience: (id: string) => request<AudienceDetail>(`/v1/audiences/${id}`),

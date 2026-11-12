@@ -140,12 +140,18 @@ func (s *Service) RecoverInterrupted(ctx context.Context) {
 
 // ---- runtime
 
-// Runtime is the agent the calls run on and whether one exists.
+// Runtime is the agent the calls run on and whether one exists. Chosen says
+// the person picked the provider and model themselves.
 type Runtime struct {
 	Ready    bool   `json:"ready"`
 	Agent    string `json:"agent,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Chosen   bool   `json:"chosen,omitempty"`
 }
+
+// ChosenAgentName names the stand-in agent the person's own pick runs as.
+const ChosenAgentName = "Audience research"
 
 func (s *Service) agentFor(ctx context.Context) (domain.Agent, error) {
 	agents, err := s.d.Agents.ListAgents(ctx)
@@ -159,16 +165,47 @@ func (s *Service) agentFor(ctx context.Context) (domain.Agent, error) {
 			continue
 		}
 		if a.CatalogSlug == PreferredAgentSlug {
-			return a, nil
+			first = &agents[i]
+			break
 		}
 		if first == nil {
 			first = &agents[i]
 		}
 	}
-	if first != nil {
+	if first == nil {
+		return domain.Agent{}, ErrNoRuntime
+	}
+	choice, err := s.d.Store.RuntimeChoice(ctx)
+	if err != nil {
+		return domain.Agent{}, err
+	}
+	if choice.Provider == "" {
 		return *first, nil
 	}
-	return domain.Agent{}, ErrNoRuntime
+	// The pick keeps the agent's own limits (turns, effort); only where the
+	// calls run changes. A pod with no agents has already answered
+	// ErrNoRuntime above, so a pick never makes it run anything.
+	picked := *first
+	picked.Name = ChosenAgentName
+	picked.ProviderType = domain.LLMProviderType(choice.Provider)
+	picked.Model = choice.Model
+	return picked, nil
+}
+
+// SetRuntimeChoice saves the provider and model audience research runs on;
+// an empty provider goes back to the product manager's own.
+func (s *Service) SetRuntimeChoice(ctx context.Context, provider, model string) (Runtime, error) {
+	provider, model = strings.TrimSpace(provider), strings.TrimSpace(model)
+	if len(provider) > 200 || len(model) > 200 {
+		return Runtime{}, invalid("the provider or model name is too long")
+	}
+	if provider == "" {
+		model = ""
+	}
+	if err := s.d.Store.SaveRuntimeChoice(ctx, domain.AudienceRuntimeChoice{Provider: provider, Model: model}); err != nil {
+		return Runtime{}, err
+	}
+	return s.Runtime(ctx)
 }
 
 func (s *Service) Runtime(ctx context.Context) (Runtime, error) {
@@ -179,7 +216,7 @@ func (s *Service) Runtime(ctx context.Context) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	return Runtime{Ready: true, Agent: a.Name, Provider: string(a.ProviderType)}, nil
+	return Runtime{Ready: true, Agent: a.Name, Provider: string(a.ProviderType), Model: a.Model, Chosen: a.Name == ChosenAgentName}, nil
 }
 
 // ---- runs

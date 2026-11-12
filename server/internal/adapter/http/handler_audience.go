@@ -24,6 +24,7 @@ func (h *Handler) registerAudienceRoutes(app fiber.Router) {
 		return
 	}
 	app.Get("/v1/audience-research/status", h.GetAudienceRuntime)
+	app.Put("/v1/audience-research/runtime", h.SetAudienceRuntime)
 
 	app.Get("/v1/audiences", h.ListAudiences)
 	app.Post("/v1/audiences", h.CreateAudience)
@@ -500,4 +501,23 @@ func (h *Handler) ClearAudienceThread(c *fiber.Ctx) error {
 		return audienceFailure(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// SetAudienceRuntime — PUT /v1/audience-research/runtime
+//
+// Picks the provider and model audience research runs on; an empty provider
+// goes back to the product manager's own runtime. Answers the resulting status.
+func (h *Handler) SetAudienceRuntime(c *fiber.Ctx) error {
+	var req struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+	out, err := h.audienceSvc.SetRuntimeChoice(h.enrichContext(c), req.Provider, req.Model)
+	if err != nil {
+		return audienceFailure(c, err)
+	}
+	return c.JSON(out)
 }

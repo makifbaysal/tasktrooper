@@ -545,3 +545,42 @@ func (s *AudienceStore) FailInterrupted(ctx context.Context, reason string) (int
 	}
 	return int(a.RowsAffected()), int(st.RowsAffected()), nil
 }
+
+const (
+	audienceRuntimeProviderKey = "audience_runtime_provider"
+	audienceRuntimeModelKey    = "audience_runtime_model"
+)
+
+func (s *AudienceStore) RuntimeChoice(ctx context.Context) (domain.AudienceRuntimeChoice, error) {
+	rows, err := s.pool.Query(ctx, `SELECT key, value FROM app_settings WHERE key IN ($1, $2)`, audienceRuntimeProviderKey, audienceRuntimeModelKey)
+	if err != nil {
+		return domain.AudienceRuntimeChoice{}, fmt.Errorf("read audience runtime: %w", err)
+	}
+	defer rows.Close()
+	var c domain.AudienceRuntimeChoice
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return domain.AudienceRuntimeChoice{}, fmt.Errorf("read audience runtime: %w", err)
+		}
+		switch key {
+		case audienceRuntimeProviderKey:
+			c.Provider = value
+		case audienceRuntimeModelKey:
+			c.Model = value
+		}
+	}
+	return c, rows.Err()
+}
+
+func (s *AudienceStore) SaveRuntimeChoice(ctx context.Context, c domain.AudienceRuntimeChoice) error {
+	for key, value := range map[string]string{audienceRuntimeProviderKey: c.Provider, audienceRuntimeModelKey: c.Model} {
+		if _, err := s.pool.Exec(ctx, `
+			INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+		`, key, value); err != nil {
+			return fmt.Errorf("save audience runtime: %w", err)
+		}
+	}
+	return nil
+}
