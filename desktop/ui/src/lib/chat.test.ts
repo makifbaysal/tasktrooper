@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { SessionMessage } from "@/api";
-import { keepMessages, mergeServerMessages, sessionRunKey } from "@/lib/chat";
+import {
+  backgroundUpdateSummary,
+  isBackgroundUpdateMessage,
+  keepMessages,
+  mergeServerMessages,
+  sessionRunKey,
+} from "@/lib/chat";
 
 const msg = (id: string, content: string, role: SessionMessage["role"] = "assistant"): SessionMessage => ({
   id,
@@ -66,5 +72,16 @@ describe("sessionRunKey", () => {
     const done = { ...run, status: "completed", completed_at: "2026-09-17T10:05:00Z" };
     expect(sessionRunKey(run)).toBe(sessionRunKey({ ...run }));
     expect(sessionRunKey(run)).not.toBe(sessionRunKey(done));
+  });
+});
+
+describe("background update messages", () => {
+  const content =
+    '**Background update:**\n\n- audience_build "Acme": ready\n\nThis message was sent by the system, not typed by the user: continue.';
+
+  it("recognises the server's follow-up and shows only the finished work", () => {
+    expect(isBackgroundUpdateMessage(content)).toBe(true);
+    expect(isBackgroundUpdateMessage("hello")).toBe(false);
+    expect(backgroundUpdateSummary(content)).toBe('- audience_build "Acme": ready');
   });
 });

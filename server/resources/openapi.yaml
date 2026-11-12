@@ -84,6 +84,22 @@ paths:
           schema:
             type: string
 
+  /v1/sessions/{id}/wakes:
+    get:
+      summary: What the agent in this chat is still waiting on
+      description: >-
+        Background work the agent started (an audience build, a study) and
+        promised to follow up on; each entry reruns the chat when it ends.
+      security:
+        - bearerAuth: []
+    delete:
+      summary: Stop waiting (all waits of the chat; /wakes/{wakeId} for one)
+      description: >-
+        Returns {"stopped": n}. The work itself keeps running; the agent just
+        does not answer again when it ends.
+      security:
+        - bearerAuth: []
+
   /v1/repositories/{id}/tasks/{taskId}/chat:
     post:
       summary: Open the chat thread about one board task

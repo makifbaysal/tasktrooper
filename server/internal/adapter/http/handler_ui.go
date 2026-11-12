@@ -23,6 +23,9 @@ import (
 func (h *Handler) registerUIRoutes(app *fiber.App) {
 	app.Get("/v1/sessions", h.ListSessions)
 	app.Get("/v1/sessions/:id/activity", h.SessionActivity)
+	app.Get("/v1/sessions/:id/wakes", h.SessionWakes)
+	app.Delete("/v1/sessions/:id/wakes", h.StopSessionWakes)
+	app.Delete("/v1/sessions/:id/wakes/:wakeId", h.StopSessionWakes)
 	app.Get("/v1/runs/:id/steps", h.RunSteps)
 	app.Get("/v1/activity/active", h.ActiveRuns)
 	app.Get("/v1/jobs", h.ListJobs)
@@ -364,4 +367,48 @@ func (h *Handler) DeleteAPIKey(c *fiber.Ctx) error {
 		})
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// SessionWakes — GET /v1/sessions/:id/wakes: what the agent in this chat is
+// still waiting on (it will answer again when each one ends).
+func (h *Handler) SessionWakes(c *fiber.Ctx) error {
+	if h.sessionSvc == nil {
+		return sessionsDisabled(c)
+	}
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "invalid session id")
+	}
+	wakes, err := h.sessionSvc.ListWakes(h.enrichContext(c), id)
+	if err != nil {
+		return internalError(c, err)
+	}
+	if wakes == nil {
+		wakes = []domain.SessionWake{}
+	}
+	return c.JSON(fiber.Map{"wakes": wakes})
+}
+
+// StopSessionWakes — DELETE /v1/sessions/:id/wakes[/:wakeId]: stop waiting, so
+// the agent is not rerun for the work it was watching. `stopped` is how many
+// waits were dropped; 0 is an ordinary answer (it ended a moment before).
+func (h *Handler) StopSessionWakes(c *fiber.Ctx) error {
+	if h.sessionSvc == nil {
+		return sessionsDisabled(c)
+	}
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "invalid session id")
+	}
+	wakeID := uuid.Nil
+	if raw := c.Params("wakeId"); raw != "" {
+		if wakeID, err = uuid.Parse(raw); err != nil {
+			return badRequest(c, "invalid wake id")
+		}
+	}
+	n, err := h.sessionSvc.StopWaiting(h.enrichContext(c), id, wakeID)
+	if err != nil {
+		return internalError(c, err)
+	}
+	return c.JSON(fiber.Map{"stopped": n})
 }
