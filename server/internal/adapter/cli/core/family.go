@@ -122,10 +122,13 @@ func (f *Family) Execute(ctx context.Context, req domain.TaskExecution, now func
 	}
 	defer launch.cleanup()
 
+	images := StageImages(req.History)
+	defer images.Cleanup()
+
 	inv := Invocation{
 		Trace:   NewTrace(ctx, req.TaskKey, f.spec.TraceStep, f.spec.SinceOwnTool, f.spec.LedgerTool),
 		WorkDir: req.WorkDir,
-		Prompt:  FlattenHistory(req.History),
+		Prompt:  FlattenHistory(images.History),
 		Model:   req.Model,
 		Label:   req.TaskKey,
 	}
@@ -152,10 +155,13 @@ func (f *Family) ExecuteChat(ctx context.Context, req domain.ChatExecution, out 
 	}
 	defer launch.cleanup()
 
+	images := StageImages(req.History)
+	defer images.Cleanup()
+
 	inv := Invocation{
 		Trace:   NewTrace(ctx, req.SessionID, f.spec.TraceStep, f.spec.SinceOwnTool, f.spec.LedgerTool),
 		WorkDir: req.WorkDir,
-		Prompt:  FlattenHistory(req.History),
+		Prompt:  FlattenHistory(images.History),
 		Model:   req.Model,
 		Label:   req.SessionID,
 		Stream:  out,
