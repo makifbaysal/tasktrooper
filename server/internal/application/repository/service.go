@@ -35,6 +35,13 @@ type RevisionNotifier interface {
 	NotifyRevision(ctx context.Context, task domain.BoardTask)
 }
 
+// LocalPreviewStopper is localpreview.Service's seam here: a task's column
+// change is the one place that must stop a repository's running preview,
+// however the task got there (human drag, agent move, pipeline release).
+type LocalPreviewStopper interface {
+	Stop(repositoryID uuid.UUID)
+}
+
 // ModelRefresher is the project-model service's compat seam for what used to
 // be a profile refresh: opening, syncing or pushing to a repository now
 // starts a scan instead.
@@ -75,6 +82,7 @@ type Service struct {
 	reviewQuorum     *board.ReviewQuorum
 	workOrderSweeper *board.WorkOrderSweeper
 	evolution        RevisionNotifier
+	localPreview     LocalPreviewStopper
 	pipelines        *board.PipelineRunner
 	pipelineStore    port.TaskPipelineStore
 	spans            StageEvidence
@@ -182,6 +190,10 @@ func (s *Service) SetCompletionStamper(cs *board.CompletionStamper) {
 
 func (s *Service) SetReviewGate(g *board.ReviewGate) {
 	s.reviewGate = g
+}
+
+func (s *Service) SetLocalPreview(lp LocalPreviewStopper) {
+	s.localPreview = lp
 }
 
 func (s *Service) SetReviewQuorum(q *board.ReviewQuorum) {
@@ -1959,6 +1971,13 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 			}
 		}
 		_ = s.emit(ctx, repo, updated, domain.BoardEventTaskMoved, movePayload)
+
+		if s.localPreview != nil {
+			// Stop can block up to stopGrace waiting for the process group to
+			// exit; UpdateTask is the hot path for every column move (HTTP,
+			// the board runner, pipeline automation), so it must not wait on it.
+			go s.localPreview.Stop(repositoryID)
+		}
 
 		if s.workOrderSweeper != nil &&
 			(*req.Column == domain.TaskColumnDone || *req.Column == domain.TaskColumnReleased) {
