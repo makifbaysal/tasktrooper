@@ -39,6 +39,7 @@ var loopGuardReasons = map[string]bool{
 	domain.MoveReasonReviewLoopParked:   true,
 	domain.MoveReasonPipelineLoopParked: true,
 	domain.MoveReasonCriteriaLoopParked: true,
+	domain.MoveReasonQAUnchangedRejectParked: true,
 }
 
 // The review gates whose visits are rounds. A reviewer's report names its own

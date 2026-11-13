@@ -121,6 +121,10 @@ func (r *Runner) finalizeReviewVerdict(
 		return false, nil
 	}
 
+	if verdictBlocked(resp.Message.Content) {
+		return r.parkReviewBlocked(ctx, job, history), nil
+	}
+
 	target, ok := verdictColumn(resp.Message.Content, exit)
 	if !ok {
 		log.Info().Str("task_id", job.Task.ID.String()).Msg("review verdict finalize: no verdict in the answer, leaving the column alone")
@@ -185,8 +189,56 @@ func reviewVerdictAskPrompt(exit domain.TaskColumn) string {
 	return reviewVerdictAskKey.Render(reviewVerdictAskData{Exit: string(exit)})
 }
 
+func verdictWord(answer string) string {
+	return strings.ToUpper(strings.Trim(strings.TrimSpace(answer), "`*_.!\"' \n\t"))
+}
+
+// verdictBlocked is the third answer: the reviewer could not verify because
+// of something outside the code. REVISE would send the developer a task with
+// nothing to fix, and it would come straight back unchanged.
+func verdictBlocked(answer string) bool {
+	return verdictWord(answer) == "BLOCKED"
+}
+
+// parkReviewBlocked parks a task whose reviewer answered BLOCKED on a human
+// decision, with the reviewer's own report as the reason. It returns false —
+// the stuck-column comment follows — when there is no blocker to park with.
+func (r *Runner) parkReviewBlocked(ctx context.Context, job RunJob, history []domain.Message) bool {
+	if r.blocker == nil {
+		return false
+	}
+	column := string(job.Task.Column)
+	previous, err := r.blocker.BlockOnResource(ctx, job.RepositoryID, job.Task.ID, domain.ResourceHumanDecision,
+		reviewBlockedDetailKey.Render(reviewBlockedDetailInput{Column: column}))
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).
+			Msg("review verdict finalize: parking a BLOCKED verdict failed")
+		return false
+	}
+	r.parks.Record(ctx, job.RepositoryID, job.Task, previous,
+		domain.ResourceHumanDecision, domain.MoveReasonReviewBlockedParked)
+	r.commentSystem(ctx, job, reviewBlockedCommentKey.Render(reviewBlockedCommentInput{
+		Column: column,
+		Review: truncateHead(lastAssistantText(history), 2500),
+	}))
+	log.Info().Str("task_id", job.Task.ID.String()).Str("column", column).
+		Msg("review verdict finalize: reviewer was blocked outside the code, task parked for a person")
+	return true
+}
+
+func lastAssistantText(history []domain.Message) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == domain.RoleAssistant {
+			if text := strings.TrimSpace(history[i].Content); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
 func verdictColumn(answer string, exit domain.TaskColumn) (domain.TaskColumn, bool) {
-	word := strings.ToUpper(strings.Trim(strings.TrimSpace(answer), "`*_.!\"' \n\t"))
+	word := verdictWord(answer)
 	switch {
 	case word == "APPROVE":
 		return exit, true

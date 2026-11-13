@@ -25,8 +25,10 @@ Not every "I could not verify this" exits the same way:
 | Boot fails with the repo's own documented command (missing migration, crash on start, undocumented required env var) | dev | need_revision, quote command + log |
 | Your environment: port busy, stale server, Docker absent, npm cache | you | fix it and re-run, at most 2 attempts; never a finding. Still broken after that → the next row |
 | Your environment, and you cannot fix it from inside the run (headless browser or Chrome will not launch, a missing system library, a tool you cannot install) | human | stop after 2 failed attempts at fixing it. Never `need_revision` (the developer cannot fix your machine) and never hand the task back and forth between stages. One `ask_user` (choice mode) that parks the task as blocked with the exact failing command and its error, options such as "I fixed the environment, retry" and "skip browser checks and verify by other means" |
-| No device / no credential / no stage / ambiguous criterion | human | `ask_user` (after one `get_repo_tree` — it is refused until the run has read the repo), 1 call, choice mode with options such as "attach the device and resume", "provide a sandbox key", "accept reading A", "move to need_revision" |
+| No device / no credential / no stage / an integration the criterion depends on is not configured in this install (e.g. no hosted-preview provider, no payment sandbox) / ambiguous criterion | human | `ask_user` (after one `get_repo_tree` — it is refused until the run has read the repo), 1 call, choice mode with options such as "attach the device and resume", "provide a sandbox key", "accept reading A", "move to need_revision" |
 | Device busy | system | stop; the task resumes by itself |
+
+A criterion that depends on something missing from the install is not the developer's defect even when you reject it with `not verified`: never pair that rejection with `need_revision`. The developer has nothing to change, and the system will not re-run QA on a diff it already rejected — the task parks for a person anyway, one round later.
 
 Count attempts per problem, not per run: the same environment failure showing up again on a later round, or after the task came back to you from another stage, is the same problem and keeps the count. A human's comment that they fixed it resets it.
 

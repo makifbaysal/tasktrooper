@@ -91,19 +91,19 @@ func TestGolden_CriteriaSweepPrompt(t *testing.T) {
 func TestGolden_ReviewVerdictAskPrompt(t *testing.T) {
 	assert.Equal(t,
 		"Answer with ONE word and nothing else — no explanation, no tool call.\n"+
-			"Based on the review you just completed: `APPROVE` if everything you required is satisfied and the work should move on to `ready_for_qa`, `REVISE` if anything you flagged still needs work.\n"+
+			"Based on the review you just completed: `APPROVE` if everything you required is satisfied and the work should move on to `ready_for_qa`, `REVISE` if anything you flagged still needs work in the code, `BLOCKED` if you could not verify something because of what is outside the code — your environment, a missing integration, credential, device or stage — so the developer has nothing to fix and a person has to unblock it.\n"+
 			"This answer is recorded as your verdict and the board move is made from it, so it must match the review you wrote above.",
 		reviewVerdictAskPrompt(domain.TaskColumnReadyForQA))
 
 	assert.Equal(t,
 		"Answer with ONE word and nothing else — no explanation, no tool call.\n"+
-			"Based on the review you just completed: `APPROVE` if everything you required is satisfied and the work should move on to `done`, `REVISE` if anything you flagged still needs work.\n"+
+			"Based on the review you just completed: `APPROVE` if everything you required is satisfied and the work should move on to `done`, `REVISE` if anything you flagged still needs work in the code, `BLOCKED` if you could not verify something because of what is outside the code — your environment, a missing integration, credential, device or stage — so the developer has nothing to fix and a person has to unblock it.\n"+
 			"This answer is recorded as your verdict and the board move is made from it, so it must match the review you wrote above.",
 		reviewVerdictAskPrompt(domain.TaskColumnDone))
 
 	assert.Equal(t,
 		"Answer with ONE word and nothing else — no explanation, no tool call.\n"+
-			"Based on the review you just completed: `APPROVE` if everything you required is satisfied and the work should move on to `human_uat`, `REVISE` if anything you flagged still needs work.\n"+
+			"Based on the review you just completed: `APPROVE` if everything you required is satisfied and the work should move on to `human_uat`, `REVISE` if anything you flagged still needs work in the code, `BLOCKED` if you could not verify something because of what is outside the code — your environment, a missing integration, credential, device or stage — so the developer has nothing to fix and a person has to unblock it.\n"+
 			"This answer is recorded as your verdict and the board move is made from it, so it must match the review you wrote above.",
 		reviewVerdictAskPrompt(domain.TaskColumnHumanUAT))
 }
@@ -113,7 +113,8 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 		"Your review is finished but the task is still in `code_review` — you did not record where it goes, so the board shows it as still under review and nobody picks it up.\n"+
 			"\nThen leave the column, based on the verdict you just gave:\n"+
 			"1. Everything you required is satisfied → call move_board_task to `ready_for_qa`.\n"+
-			"2. Anything you flagged still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
+			"2. Something in the code still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
+			"3. You could not verify something because of what is outside the code (your environment, a missing integration, credential, device or stage) and nothing in the code is wrong → do NOT move to `need_revision`: the developer cannot fix it and the task would come straight back to you unchanged. Call ask_user once, in choice mode, naming exactly what is missing and what would unblock it (for example \"I provided it, retry\", \"accept code review + unit tests for this criterion\", \"move to need_revision\").\n"+
 			"If the move is refused, read the error: it names exactly what is missing, and fixing that and retrying the move is part of this run. Do not re-review, do not start new testing, and do not change your verdict.",
 		reviewVerdictSweepPrompt(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA, "", nil))
 
@@ -122,10 +123,11 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 		"Your review is finished but the task is still in `in_qa` — you did not record where it goes, so the board shows it as still under review and nobody picks it up.\n"+
 			"\nFirst, the acceptance criteria you have not ruled on. The forward move is REFUSED while any of these lacks your qa verdict — that refusal is what you hit if you already tried to move the task:\n"+
 			"- [00000000-0000-0000-0000-000000000001] Export includes archived rows\n"+
-			"For EACH id above call review_criterion now, from what you executed in this run: approve it when your own run covered it, reject it with an expected-vs-actual note when it failed or you could not exercise it. Do not approve anything you did not observe.\n"+
+			"For EACH id above call review_criterion now, from what you executed in this run: approve it when your own run covered it, reject it with an expected-vs-actual note when it failed, and reject it with a `not verified: <what was missing>` note when you could not exercise it. Do not approve anything you did not observe. A criterion you could not exercise because of something outside the code is not the developer's defect — that is step 3 below, not need_revision.\n"+
 			"\nThen leave the column, based on the verdict you just gave:\n"+
 			"1. Everything you required is satisfied → call move_board_task to `done`.\n"+
-			"2. Anything you flagged still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
+			"2. Something in the code still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
+			"3. You could not verify something because of what is outside the code (your environment, a missing integration, credential, device or stage) and nothing in the code is wrong → do NOT move to `need_revision`: the developer cannot fix it and the task would come straight back to you unchanged. Call ask_user once, in choice mode, naming exactly what is missing and what would unblock it (for example \"I provided it, retry\", \"accept code review + unit tests for this criterion\", \"move to need_revision\").\n"+
 			"If the move is refused, read the error: it names exactly what is missing, and fixing that and retrying the move is part of this run. Do not re-review, do not start new testing, and do not change your verdict.",
 		reviewVerdictSweepPrompt(domain.TaskColumnInQA, domain.TaskColumnDone, domain.CriterionReviewRoleQA, missing))
 
@@ -138,10 +140,11 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 			"\nFirst, the acceptance criteria you have not ruled on. The forward move is REFUSED while any of these lacks your qa verdict — that refusal is what you hit if you already tried to move the task:\n"+
 			"- [00000000-0000-0000-0000-000000000001] First criterion\n"+
 			"- [00000000-0000-0000-0000-000000000002] Second criterion\n"+
-			"For EACH id above call review_criterion now, from what you executed in this run: approve it when your own run covered it, reject it with an expected-vs-actual note when it failed or you could not exercise it. Do not approve anything you did not observe.\n"+
+			"For EACH id above call review_criterion now, from what you executed in this run: approve it when your own run covered it, reject it with an expected-vs-actual note when it failed, and reject it with a `not verified: <what was missing>` note when you could not exercise it. Do not approve anything you did not observe. A criterion you could not exercise because of something outside the code is not the developer's defect — that is step 3 below, not need_revision.\n"+
 			"\nThen leave the column, based on the verdict you just gave:\n"+
 			"1. Everything you required is satisfied → call move_board_task to `released`.\n"+
-			"2. Anything you flagged still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
+			"2. Something in the code still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
+			"3. You could not verify something because of what is outside the code (your environment, a missing integration, credential, device or stage) and nothing in the code is wrong → do NOT move to `need_revision`: the developer cannot fix it and the task would come straight back to you unchanged. Call ask_user once, in choice mode, naming exactly what is missing and what would unblock it (for example \"I provided it, retry\", \"accept code review + unit tests for this criterion\", \"move to need_revision\").\n"+
 			"If the move is refused, read the error: it names exactly what is missing, and fixing that and retrying the move is part of this run. Do not re-review, do not start new testing, and do not change your verdict.",
 		reviewVerdictSweepPrompt(domain.TaskColumnHumanUAT, domain.TaskColumnReleased, domain.CriterionReviewRoleQA, missing2))
 }

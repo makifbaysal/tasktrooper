@@ -171,3 +171,52 @@ func TestHTTPProviderStillRunsOnTheLoop(t *testing.T) {
 	require.Zero(t, ex.callCount(), "an HTTP agent's run must not be handed to the CLI")
 	require.Len(t, llm.requests, criteriaSweepRounds)
 }
+
+// T-114: QA could not exercise a criterion because the install had no Vercel
+// preview. APPROVE/REVISE was the only choice, so REVISE sent the developer a
+// task with nothing to fix and it bounced back unchanged. BLOCKED parks it for
+// a person instead, with the reviewer's report as the reason.
+func TestReviewVerdictBlockedParksForAPersonInsteadOfRevising(t *testing.T) {
+	ex := &fakeExecutor{
+		supports: domain.LLMProviderClaudeCode,
+		resp:     domain.AgentResponse{Message: domain.Message{Content: "**BLOCKED**"}},
+	}
+	router, _ := hostRouter(ex)
+	updater := &fakeTaskUpdater{}
+	blocker := &blockRecorder{previous: domain.TaskColumnInQA}
+	r := NewRunner(RunnerDeps{AgentLoop: router})
+	r.SetWorkflows(workflowtest.Default().Reader())
+	r.SetTaskUpdater(updater)
+	r.blocker = blocker
+
+	ctx := registry.ContextWithWorkspaceDir(context.Background(), t.TempDir())
+	job := RunJob{
+		Task:         domain.BoardTask{ID: uuid.New(), Key: "T-114", Column: domain.TaskColumnInQA},
+		Run:          domain.TaskAgentRun{ID: uuid.New(), AgentID: uuid.New()},
+		RepositoryID: uuid.New(),
+	}
+
+	moved, _ := r.finalizeReviewVerdict(ctx, job, claudeCodeAgent(),
+		[]domain.Message{
+			{Role: domain.RoleUser, Content: "test the task"},
+			{Role: domain.RoleAssistant, Content: "No Vercel preview is configured in this install; criteria 1-2 not exercised."},
+		},
+		1, "opus", domain.ToolPolicy{}, domain.TaskColumnHumanUAT)
+
+	require.True(t, moved)
+	require.Empty(t, updater.calls, "BLOCKED must not become a need_revision move")
+	resource, detail := blocker.parked()
+	require.Equal(t, domain.ResourceHumanDecision, resource)
+	require.Contains(t, detail, "in_qa")
+	require.Len(t, updater.comments, 1)
+	require.Contains(t, updater.comments[0].Content, "No Vercel preview is configured")
+}
+
+func TestVerdictWords(t *testing.T) {
+	for answer, blocked := range map[string]bool{"BLOCKED": true, "`blocked`.": true, "REVISE": false, "APPROVE": false} {
+		require.Equal(t, blocked, verdictBlocked(answer), answer)
+	}
+	col, ok := verdictColumn("BLOCKED", domain.TaskColumnHumanUAT)
+	require.False(t, ok, "BLOCKED is never read as a move")
+	require.Empty(t, col)
+}

@@ -103,6 +103,13 @@ const (
 	// no human in between; its own reason because no need_revision entries are
 	// involved — just a run-status streak.
 	MoveReasonCriteriaLoopParked = "criteria_loop_parked"
+	// The task came back to the QA gate with the exact diff QA had already
+	// rejected and no person in between; QA was not run again on it.
+	MoveReasonQAUnchangedRejectParked = "qa_unchanged_reject_parked"
+	// A reviewer answered BLOCKED: it could not verify because of something
+	// outside the code, so the card parked for a person instead of going to
+	// a developer who has nothing to fix.
+	MoveReasonReviewBlockedParked = "review_blocked_parked"
 	// The assignee's Mac is not connected; the one park a person can clear by
 	// opening a laptop.
 	MoveReasonRunnerOffline = "runner_offline"
