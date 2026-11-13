@@ -218,6 +218,7 @@ export const boardArea = {
         before_deploy: "等待你处理：执行这些步骤后进行确认，随后会立即合并。",
         delivery_profile: "等待你处理：请在“部署”标签页确认 {detail} 的交付配置，随后会立即合并。",
         deploy_env: "等待你处理：生产环境需要这些环境变量。变量值会直接发送给提供商；设置完成后即会合并。",
+        deploy_env_credential: "等待你处理：云服务商拒绝了已连接账户的令牌，TaskTrooper 无法检查环境变量。请在下方更新令牌；变量确认后合并会继续。",
       },
       mergeHoldOpenDeploy: "打开“部署”标签页",
       humanUatHeading: "需要你做出决定",

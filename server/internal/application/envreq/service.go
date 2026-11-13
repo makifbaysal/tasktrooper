@@ -325,6 +325,7 @@ func (s *Service) status(ctx context.Context, repositoryID uuid.UUID, t target, 
 	if t.env.Resource != nil {
 		st.ResourceName = t.env.Resource.Name
 	}
+	st.AccountID = t.env.AccountID
 	views, err := s.views(ctx, repositoryID, t, taskID)
 	if err != nil {
 		return st, err
@@ -332,6 +333,9 @@ func (s *Service) status(ctx context.Context, repositoryID uuid.UUID, t target, 
 	vars, err := s.cloud.EnvVars(ctx, t.env.ID)
 	if err != nil {
 		st.Error = err.Error()
+		if errors.Is(err, port.ErrCloudAuth) {
+			st.ErrorCode = domain.EnvErrorCloudAuth
+		}
 	}
 	fill(views, present(vars), t.caps)
 	st.Vars = views

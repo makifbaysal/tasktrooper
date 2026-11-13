@@ -9,15 +9,16 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
-const { listEnvRequirements, applyEnvRequirements, redeployForEnvRequirements } = vi.hoisted(() => ({
+const { listEnvRequirements, applyEnvRequirements, redeployForEnvRequirements, listCloudAccounts } = vi.hoisted(() => ({
   listEnvRequirements: vi.fn(),
   applyEnvRequirements: vi.fn(),
   redeployForEnvRequirements: vi.fn(),
+  listCloudAccounts: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, listEnvRequirements, applyEnvRequirements, redeployForEnvRequirements } };
+  return { ...actual, api: { ...actual.api, listEnvRequirements, applyEnvRequirements, redeployForEnvRequirements, listCloudAccounts } };
 });
 
 function v(name: string, overrides: Partial<EnvVarView> = {}): EnvVarView {
@@ -50,6 +51,27 @@ describe("EnvVarsCard", () => {
     listEnvRequirements.mockReset();
     applyEnvRequirements.mockReset();
     redeployForEnvRequirements.mockReset();
+  });
+
+  it("says the provider rejected the token instead of listing variables as missing", async () => {
+    listEnvRequirements.mockResolvedValue({
+      targets: [
+        target([v("GITHUB_TOKEN", { kind: "human_secret" })], {
+          error: "the provider rejected the credential: Not authorized",
+          error_code: "cloud_auth",
+          account_id: "acct-1",
+        }),
+      ],
+    });
+    listCloudAccounts.mockResolvedValue({ accounts: [{ id: "acct-1", provider: "vercel", label: "Vercel" }] });
+    const onCredentialRejected = vi.fn();
+    renderCard({ pendingOnly: true, onCredentialRejected });
+
+    expect(await screen.findByText(/rejected the token/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /update token/i })).toBeInTheDocument();
+    expect(screen.queryByText("GITHUB_TOKEN")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /save and fill/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(onCredentialRejected).toHaveBeenLastCalledWith(true));
   });
 
   it("sends an entered secret to the server and clears it from the field", async () => {

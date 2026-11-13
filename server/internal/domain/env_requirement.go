@@ -186,6 +186,10 @@ type EnvVarView struct {
 // ComponentEnvStatus is one component's deploy-target variables against what
 // it requires. Error is set when the provider could not be read; Vars then
 // still lists the requirements, with Production/Preview unknown (false).
+// EnvErrorCloudAuth is ComponentEnvStatus.ErrorCode when the provider
+// rejected the connected account's credential.
+const EnvErrorCloudAuth = "cloud_auth"
+
 type ComponentEnvStatus struct {
 	ComponentID   uuid.UUID         `json:"component_id"`
 	ComponentName string            `json:"component_name"`
@@ -195,6 +199,12 @@ type ComponentEnvStatus struct {
 	Capabilities  EnvCapabilities   `json:"capabilities"`
 	Vars          []EnvVarView      `json:"vars"`
 	Error         string            `json:"error,omitempty"`
+	// ErrorCode classifies Error so the UI can act on it: "cloud_auth" when
+	// the provider refused the connected account's credential (expired,
+	// revoked or out-of-scope token), meaning the fix is the account, not
+	// any variable.
+	ErrorCode string     `json:"error_code,omitempty"`
+	AccountID *uuid.UUID `json:"account_id,omitempty"`
 }
 
 // Missing are the names still waiting on a human (to enter or to classify).

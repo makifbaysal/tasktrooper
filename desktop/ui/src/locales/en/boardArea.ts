@@ -238,6 +238,7 @@ export const boardArea = {
         before_deploy: "Waiting for you: perform these steps, then confirm them. The merge goes ahead right after.",
         delivery_profile: "Waiting for you: confirm {detail}'s delivery profile on the Deploy tab. The merge goes ahead right after.",
         deploy_env: "Waiting for you: production needs these environment variables. The values go straight to the provider; the merge goes ahead once they are set.",
+        deploy_env_credential: "Waiting for you: the provider refused the connected account's token, so TaskTrooper cannot check the environment variables. Update the token below; the merge goes ahead once the variables are confirmed.",
       },
       mergeHoldOpenDeploy: "Open the Deploy tab",
       humanUatHeading: "Your decision is needed",
