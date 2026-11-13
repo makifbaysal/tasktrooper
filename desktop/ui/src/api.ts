@@ -4732,6 +4732,10 @@ export interface ComponentEnvStatus {
   vars: EnvVarView[];
   /** The provider could not be read; vars still lists the requirements. */
   error?: string;
+  /** "cloud_auth": the provider refused the connected account's credential — fix the account, not the variables. */
+  error_code?: "cloud_auth";
+  /** The cloud account this target reads through, for reconnecting it. */
+  account_id?: string;
 }
 
 /** One variable a human sets: kind classifies it; value is the literal, the secret, or the password to hash. */

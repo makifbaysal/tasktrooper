@@ -129,6 +129,7 @@ export function TaskDetailDrawer({
   const { t } = useI18n();
   const { taskTypes } = useTaskTypes();
   const navigate = useNavigate();
+  const [envCredentialRejected, setEnvCredentialRejected] = useState(false);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [runs, setRuns] = useState<TaskAgentRun[]>([]);
   const [documents, setDocuments] = useState<TaskDocument[]>([]);
@@ -687,9 +688,11 @@ export function TaskDetailDrawer({
                           />
                         )}
                         <p className="text-xs text-amber-700 dark:text-amber-400">
-                          {t(`boardArea.components.taskDetail.mergeHold.${task.blocked_resource}`, {
-                            detail: task.blocked_question ?? "",
-                          })}
+                          {task.blocked_resource === "deploy_env" && envCredentialRejected
+                            ? t("boardArea.components.taskDetail.mergeHold.deploy_env_credential")
+                            : t(`boardArea.components.taskDetail.mergeHold.${task.blocked_resource}`, {
+                                detail: task.blocked_question ?? "",
+                              })}
                         </p>
                         {task.blocked_resource === "before_deploy" && (
                           <Button size="sm" variant="outline" onClick={() => setBeforeDeployConfirmOpen(true)}>
@@ -704,7 +707,12 @@ export function TaskDetailDrawer({
                           </Button>
                         )}
                         {task.blocked_resource === "deploy_env" && (
-                          <EnvVarsCard repositoryId={repositoryId} pendingOnly onSettled={onUpdated} />
+                          <EnvVarsCard
+                            repositoryId={repositoryId}
+                            pendingOnly
+                            onSettled={onUpdated}
+                            onCredentialRejected={setEnvCredentialRejected}
+                          />
                         )}
                       </>
                     ) : task.blocked_resource === "analysis_questions" ? (

@@ -218,6 +218,7 @@ export const boardArea = {
         before_deploy: "Aguardando você: execute estes passos e depois confirme-os. O merge acontece logo em seguida.",
         delivery_profile: "Aguardando você: confirme o perfil de entrega de {detail} na aba Deploy. O merge acontece logo em seguida.",
         deploy_env: "Aguardando você: a produção precisa destas variáveis de ambiente. Os valores vão direto para o provedor; o merge acontece assim que forem definidos.",
+        deploy_env_credential: "Aguardando você: o provedor recusou o token da conta conectada, então o TaskTrooper não consegue verificar as variáveis de ambiente. Atualize o token abaixo; o merge continua quando as variáveis forem confirmadas.",
       },
       mergeHoldOpenDeploy: "Abrir a aba Deploy",
       humanUatHeading: "Sua decisão é necessária",

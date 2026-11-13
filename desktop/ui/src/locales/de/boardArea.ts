@@ -218,6 +218,7 @@ export const boardArea = {
         before_deploy: "Wartet auf Sie: Führen Sie diese Schritte aus und bestätigen Sie sie dann. Der Merge folgt direkt danach.",
         delivery_profile: "Wartet auf Sie: Bestätigen Sie das Auslieferungsprofil von {detail} im Tab „Deployment & Laufzeit“. Der Merge folgt direkt danach.",
         deploy_env: "Wartet auf Sie: Die Produktion benötigt diese Umgebungsvariablen. Die Werte gehen direkt an den Anbieter; der Merge erfolgt, sobald sie gesetzt sind.",
+        deploy_env_credential: "Wartet auf dich: Der Anbieter hat das Token des verbundenen Kontos abgelehnt, daher kann TaskTrooper die Umgebungsvariablen nicht prüfen. Aktualisiere das Token unten; der Merge läuft weiter, sobald die Variablen bestätigt sind.",
       },
       mergeHoldOpenDeploy: "Tab „Deployment & Laufzeit“ öffnen",
       humanUatHeading: "Ihre Entscheidung ist gefragt",

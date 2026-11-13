@@ -3,11 +3,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   api,
+  type CloudAccount,
   type ComponentEnvStatus,
   type EnvInput,
   type EnvVarKind,
   type EnvVarView,
 } from "@/api";
+import { CloudAccountDialog } from "@/components/admin/CloudAccountDialog";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,8 @@ interface EnvVarsCardProps {
   pendingOnly?: boolean;
   /** Called once a target has nothing left for a person to do. */
   onSettled?: () => void;
+  /** Told whether a shown target's provider refused the account's credential. */
+  onCredentialRejected?: (rejected: boolean) => void;
   /** Drawn inside a dialog: no card chrome, the actions pinned to the bottom. */
   embedded?: boolean;
   className?: string;
@@ -60,13 +64,25 @@ function pending(v: EnvVarView): boolean {
   return v.action === "human" || v.action === "classify";
 }
 
+function credentialRejected(target: ComponentEnvStatus): boolean {
+  return target.error_code === "cloud_auth";
+}
+
 /**
  * The production target's environment variables against what the component
  * requires: TaskTrooper fills value and generated ones itself, a person enters
  * the rest here. A typed secret leaves this component on submit and is
  * cleared from state right after — it is never read back from the server.
  */
-export function EnvVarsCard({ repositoryId, componentId, pendingOnly = false, onSettled, embedded = false, className }: EnvVarsCardProps) {
+export function EnvVarsCard({
+  repositoryId,
+  componentId,
+  pendingOnly = false,
+  onSettled,
+  onCredentialRejected,
+  embedded = false,
+  className,
+}: EnvVarsCardProps) {
   const { t } = useI18n();
   const [targets, setTargets] = useState<ComponentEnvStatus[] | null>(null);
 
@@ -94,6 +110,11 @@ export function EnvVarsCard({ repositoryId, componentId, pendingOnly = false, on
       ),
     [targets, componentId, pendingOnly],
   );
+
+  const rejected = shown.some(credentialRejected);
+  useEffect(() => {
+    onCredentialRejected?.(rejected);
+  }, [rejected, onCredentialRejected]);
 
   if (targets === null) {
     if (pendingOnly) return null;
@@ -142,7 +163,32 @@ function TargetCard({ repositoryId, target, pendingOnly, embedded, onChanged }: 
   const [saving, setSaving] = useState(false);
   const [redeploying, setRedeploying] = useState(false);
   const [wroteSinceDeploy, setWroteSinceDeploy] = useState(false);
+  const [account, setAccount] = useState<CloudAccount | null>(null);
+  const [reconnectOpen, setReconnectOpen] = useState(false);
   const provider = t(`cloud.providers.${target.provider}`);
+  // A refused credential says nothing about the variables: until the account
+  // is fixed, what the provider has is unknown, so nothing is listed or saved.
+  const authFailed = credentialRejected(target);
+  const accountId = authFailed ? target.account_id : undefined;
+
+  useEffect(() => {
+    if (!accountId) {
+      setAccount(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listCloudAccounts()
+      .then((res) => {
+        if (!cancelled) setAccount(res.accounts.find((a) => a.id === accountId) ?? null);
+      })
+      .catch(() => {
+        // Not allowed to manage accounts: the notice still says what to fix.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
   const previews = target.capabilities.targets.includes("preview");
   // Waiting on a person first: the rows the dialog was opened for.
   const rows = (pendingOnly ? target.vars.filter(pending) : target.vars)
@@ -230,13 +276,25 @@ function TargetCard({ repositoryId, target, pendingOnly, embedded, onChanged }: 
 
   const body = (
     <>
-      {target.error && (
-        <Notice variant="error" title={t("cloud.envVars.providerError", { provider })}>
-          {target.error}
+      {authFailed ? (
+        <Notice variant="error" title={t("cloud.envVars.credentialRejectedTitle", { provider })}>
+          <p>{t("cloud.envVars.credentialRejectedBody", { provider })}</p>
+          {target.error && <p className="mt-1 font-mono text-caption opacity-80">{target.error}</p>}
+          {account && (
+            <Button size="sm" className="mt-2" onClick={() => setReconnectOpen(true)}>
+              {t("cloud.envVars.updateCredential")}
+            </Button>
+          )}
         </Notice>
+      ) : (
+        target.error && (
+          <Notice variant="error" title={t("cloud.envVars.providerError", { provider })}>
+            {target.error}
+          </Notice>
+        )
       )}
       {target.capabilities.overwritten_on_deploy && <Notice variant="warning" title={t("cloud.envVars.overwrittenOnDeploy")} />}
-      {rows.length === 0 ? (
+      {authFailed ? null : rows.length === 0 ? (
         <p className="text-caption text-muted-foreground">{t("cloud.envVars.none")}</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
@@ -252,7 +310,7 @@ function TargetCard({ repositoryId, target, pendingOnly, embedded, onChanged }: 
           ))}
         </div>
       )}
-      {!pendingOnly && (
+      {!pendingOnly && !authFailed && (
         <div className="space-y-2">
           {added.map((a, i) => (
             <AddedVarRow
@@ -278,23 +336,38 @@ function TargetCard({ repositoryId, target, pendingOnly, embedded, onChanged }: 
           <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", saving && "animate-spin")} />
           {t("cloud.envVars.recheck")}
         </Button>
-        {!target.capabilities.writes_roll_out && (
+        {!target.capabilities.writes_roll_out && !authFailed && (
           <Button size="sm" variant={wroteSinceDeploy ? "secondary" : "ghost"} disabled={redeploying} onClick={() => void redeploy()}>
             <Rocket className="mr-1.5 h-3.5 w-3.5" />
             {t("cloud.envVars.redeploy")}
           </Button>
         )}
-        <Button
-          size="sm"
-          className="ml-auto"
-          disabled={saving || pendingInputs.length === 0}
-          onClick={() => void submit(pendingInputs)}
-        >
-          {saving ? t("cloud.envVars.applying") : t("cloud.envVars.apply")}
-        </Button>
+        {!authFailed && (
+          <Button
+            size="sm"
+            className="ml-auto"
+            disabled={saving || pendingInputs.length === 0}
+            onClick={() => void submit(pendingInputs)}
+          >
+            {saving ? t("cloud.envVars.applying") : t("cloud.envVars.apply")}
+          </Button>
+        )}
       </div>
       {wroteSinceDeploy && <p className="text-caption text-muted-foreground">{t("cloud.envVars.redeployHint")}</p>}
     </div>
+  );
+
+  const reconnect = account && (
+    <CloudAccountDialog
+      open={reconnectOpen}
+      onOpenChange={setReconnectOpen}
+      provider={account.provider}
+      account={account}
+      onSaved={() => {
+        setReconnectOpen(false);
+        void submit([]);
+      }}
+    />
   );
 
   if (embedded) {
@@ -305,6 +378,7 @@ function TargetCard({ repositoryId, target, pendingOnly, embedded, onChanged }: 
           {body}
         </div>
         <div className="border-t border-border px-6 py-4">{actions}</div>
+        {reconnect}
       </>
     );
   }
@@ -316,6 +390,7 @@ function TargetCard({ repositoryId, target, pendingOnly, embedded, onChanged }: 
         {body}
         {actions}
       </CardContent>
+      {reconnect}
     </Card>
   );
 }

@@ -3,6 +3,7 @@ package envreq
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
+	"github.com/makifbaysal/tasktrooper/server/internal/port"
 )
 
 type fakeStore struct{ rows []domain.EnvRequirement }
@@ -210,6 +212,30 @@ func TestEnsureCannotSayWhenTheProviderIsUnreadable(t *testing.T) {
 	_, err := f.svc.Ensure(context.Background(), f.repo, f.comp.ID, nil)
 
 	assert.ErrorIs(t, err, domain.ErrDeployEnvUnchecked)
+}
+
+func TestStatusSaysTheCredentialWasRejectedNotThatVariablesAreMissing(t *testing.T) {
+	f := newFixture()
+	f.cloud.readErr = fmt.Errorf("%w: Not authorized", port.ErrCloudAuth)
+
+	sts, err := f.svc.Status(context.Background(), f.repo)
+
+	require.NoError(t, err)
+	require.Len(t, sts, 1)
+	assert.Equal(t, domain.EnvErrorCloudAuth, sts[0].ErrorCode)
+	assert.Equal(t, f.env.AccountID, sts[0].AccountID, "the UI reconnects this account")
+}
+
+func TestStatusLeavesAnOrdinaryProviderFailureUncoded(t *testing.T) {
+	f := newFixture()
+	f.cloud.readErr = errors.New("vercel down")
+
+	sts, err := f.svc.Status(context.Background(), f.repo)
+
+	require.NoError(t, err)
+	require.Len(t, sts, 1)
+	assert.Equal(t, "vercel down", sts[0].Error)
+	assert.Empty(t, sts[0].ErrorCode)
 }
 
 func TestApplyWritesHumanSecretsStraightToTheProviderAndResumes(t *testing.T) {

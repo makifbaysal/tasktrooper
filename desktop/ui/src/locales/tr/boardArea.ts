@@ -227,6 +227,7 @@ export const boardArea: BoardAreaDict = {
         before_deploy: "Seni bekliyor: bu adımları uygula, sonra onayla. Merge hemen ardından devam eder.",
         delivery_profile: "Seni bekliyor: {detail} için deploy profilini Deploy sekmesinden onayla. Merge hemen ardından devam eder.",
         deploy_env: "Seni bekliyor: production'ın bu env değişkenlerine ihtiyacı var. Değerler doğrudan sağlayıcıya gider; hepsi girilince merge devam eder.",
+        deploy_env_credential: "Seni bekliyor: sağlayıcı bağlı hesabın token'ını reddetti, bu yüzden TaskTrooper env değişkenlerini kontrol edemiyor. Aşağıdan token'ı güncelle; değişkenler doğrulanınca merge devam eder.",
       },
       mergeHoldOpenDeploy: "Deploy sekmesini aç",
       humanUatHeading: "Kararınız bekleniyor",

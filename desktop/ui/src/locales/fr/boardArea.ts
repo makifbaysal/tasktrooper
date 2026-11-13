@@ -218,6 +218,7 @@ export const boardArea = {
         before_deploy: "En attente de vous : effectuez ces étapes, puis confirmez-les. La fusion suit immédiatement.",
         delivery_profile: "En attente de vous : confirmez le profil de livraison de {detail} dans l'onglet Déploiement. La fusion suit immédiatement.",
         deploy_env: "En attente de vous : la production a besoin de ces variables d'environnement. Les valeurs vont directement au fournisseur ; la fusion se fait dès qu'elles sont définies.",
+        deploy_env_credential: "En attente de toi : le fournisseur a refusé le jeton du compte connecté, TaskTrooper ne peut donc pas vérifier les variables d'environnement. Mets à jour le jeton ci-dessous ; le merge reprend dès que les variables sont confirmées.",
       },
       mergeHoldOpenDeploy: "Ouvrir l'onglet Déploiement",
       humanUatHeading: "Votre décision est requise",
