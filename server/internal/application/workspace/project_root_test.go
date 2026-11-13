@@ -34,6 +34,20 @@ func TestValidateProjectRoot_EmptyAllowlistRefusesArbitraryPaths(t *testing.T) {
 	require.NotContains(t, err.Error(), outside)
 }
 
+// Someone stuck on the refusal needs to know where a project CAN go — the
+// managed workspace root is always accepted and is the install's own known
+// value, not information about the caller's own path, so the error can name
+// it even though it can't echo the caller's path back (see the test above).
+func TestValidateProjectRoot_RefusalNamesTheWorkspaceRoot(t *testing.T) {
+	wsRoot := filepath.Join(t.TempDir(), "workspaces")
+	require.NoError(t, os.MkdirAll(wsRoot, 0o755))
+	outside := t.TempDir()
+
+	_, err := workspace.ValidateProjectRoot(outside, wsRoot, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), mustAbs(wsRoot))
+}
+
 // allowed_roots only ever WIDENS the set, for the install that keeps its
 // checkouts outside the managed workspace.
 func TestValidateProjectRoot_AllowedRootWidens(t *testing.T) {

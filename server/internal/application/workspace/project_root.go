@@ -59,10 +59,13 @@ func ValidateProjectRoot(path, workspaceRoot string, allowedRoots []string) (str
 			return abs, nil
 		}
 	}
-	// The path is not echoed back: "not allowed" versus "does not exist" would
-	// tell a caller which directories exist, and they already know what they
-	// asked for.
-	return "", fmt.Errorf("project root is outside this workspace's allowed roots")
+	// The CALLER'S path is not echoed back: "not allowed" versus "does not
+	// exist" would tell a caller which directories exist, and they already
+	// know what they asked for. The managed workspace root is not secret —
+	// it is always in the allowlist and is this install's own configured
+	// value, not information about the caller's path — so naming it here is
+	// what tells someone stuck on this error where a project can actually go.
+	return "", fmt.Errorf("project root is outside this workspace's allowed roots (this install always accepts one under %s; add others via allowed_roots)", root)
 }
 
 func EffectiveProjectRoot(sessionWorkspace, projectRoot string) string {

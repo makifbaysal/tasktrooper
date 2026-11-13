@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
+import { useTaskPreviews } from "@/hooks/useTaskPreviews";
 import { desktopRunner } from "@/lib/desktop-bridge";
 
 const FAILED_TAIL_LINES = 12;
@@ -60,6 +61,16 @@ export function LocalPreviewPanel({ task, repositoryId, actions }: LocalPreviewP
   const live = isThisTask && !settled;
   const failed = isThisTask && preview.status === "failed";
   const otherTaskLive = preview !== null && !isThisTask && !settled;
+
+  // A hosted preview the PR already produced is a better way to look at the
+  // task than waiting on a local dev server, so it leads when one is ready;
+  // "Run locally" stays available but moves to a secondary spot and is never
+  // triggered on its own.
+  const { previews: hostedPreviews } = useTaskPreviews(repositoryId, task.id, !!task.pr_url);
+  const hasReadyHostedPreview = (hostedPreviews ?? []).some(
+    (p) => p.status === "ready" && (p.branch_url || p.url),
+  );
+  const hostedPreviewLeads = !live && hasReadyHostedPreview;
 
   const openPreview = useCallback(
     (url: string) => {
@@ -158,7 +169,8 @@ export function LocalPreviewPanel({ task, repositoryId, actions }: LocalPreviewP
           </>
         ) : (
           <>
-            <Button size="sm" variant="outline" onClick={() => void start()} disabled={busy}>
+            {hostedPreviewLeads && actions}
+            <Button size="sm" variant={hostedPreviewLeads ? "ghost" : "outline"} onClick={() => void start()} disabled={busy}>
               {busy ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : (
@@ -172,7 +184,7 @@ export function LocalPreviewPanel({ task, repositoryId, actions }: LocalPreviewP
             )}
           </>
         )}
-        {actions}
+        {!hostedPreviewLeads && actions}
       </div>
       {failed && (
         <div className="space-y-1">
