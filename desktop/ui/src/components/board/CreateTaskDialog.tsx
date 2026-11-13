@@ -228,8 +228,16 @@ export function CreateTaskDialog({
     }
   };
 
+  // Radix's aria-hide/inert bookkeeping is per-overlay: two modal Dialog.Roots
+  // open at once (this one and ImportIssueDialog below) fight over it and can
+  // leave both inert, swallowing pointer input meant for the inner form (see
+  // HumanUatDecision's decline panel for the same issue). Hiding this dialog
+  // while the import one is open keeps only one modal mounted at a time; its
+  // own `open` prop stays true so the effect below does not wipe the draft.
+  const dialogVisible = open && !importOpen;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={dialogVisible} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{dialogTitle ?? t("boardArea.components.createTask.defaultTitle")}</DialogTitle>
