@@ -24,6 +24,11 @@ var ErrTaskOutsideRepository = errors.New("board task belongs to a different rep
 // column subscriptions, so a task assigned to it waits for nobody.
 var ErrAssigneeNotAssignable = errors.New("the product manager cannot be assigned a board task")
 
+// ErrAssigneeRequired refuses a new task nobody would pick up: an agent asked
+// for an assignee (RequireAssignee) and neither its argument nor the task
+// type's role resolved one.
+var ErrAssigneeRequired = errors.New("the new task has no assignee")
+
 type TaskType string
 
 const (
@@ -389,6 +394,10 @@ type CreateBoardTaskRequest struct {
 	BeforeDeploy *string `json:"before_deploy,omitempty"`
 	AfterDeploy  *string `json:"after_deploy,omitempty"`
 	RollbackPlan *string `json:"rollback_plan,omitempty"`
+	// RequireAssignee makes CreateTask refuse with ErrAssigneeRequired rather
+	// than store a task with no assignee. Agents set it; a person may still
+	// leave a task for triage.
+	RequireAssignee bool `json:"-"`
 }
 
 type UpdateBoardTaskRequest struct {

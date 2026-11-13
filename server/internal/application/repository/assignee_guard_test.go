@@ -111,3 +111,23 @@ func TestOtherAgentsStayAssignable(t *testing.T) {
 	require.NotNil(t, task.AssigneeAgentID)
 	assert.Equal(t, agent, *task.AssigneeAgentID)
 }
+
+func TestCreateTaskRefusesARequiredAssigneeNobodyResolved(t *testing.T) {
+	f := newAssigneeFixture()
+	f.svc.roles = nil
+
+	_, err := f.svc.CreateTask(context.Background(), f.repoID, domain.CreateBoardTaskRequest{
+		Title: "stop the preview", CreatedBy: "agent", RequireAssignee: true,
+	})
+
+	require.ErrorIs(t, err, domain.ErrAssigneeRequired)
+	assert.Empty(t, f.tasks.tasks, "a refused task creates nothing")
+}
+
+func TestCreateTaskAcceptsARequiredAssigneeTheTypeRoleResolved(t *testing.T) {
+	f := newAssigneeFixture()
+
+	task := f.create(t, domain.CreateBoardTaskRequest{CreatedBy: "agent", RequireAssignee: true})
+
+	require.NotNil(t, task.AssigneeAgentID)
+}

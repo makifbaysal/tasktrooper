@@ -37,12 +37,14 @@ A rollback is a fix for code that just shipped: if the deploy right before the s
 
 ## 3a. Our code: open the developer's task
 
-`create_board_task` for the component's developer (backend, frontend, mobile, data or game by the component's area), in the repository of the affected code (`list_repositories` if it is not the card's own). The description carries the whole case so the developer needs none of the telemetry tools:
+`create_board_task` with `task_type: "bug"` and `assignee` set to the component's developer (backend, frontend, mobile, data or game by the component's area, resolved with `list_team`), in the repository of the affected code (`list_repositories` if it is not the card's own). The description carries the whole case so the developer needs none of the telemetry tools:
 
 - what broke, when, how bad (error rate, latency, affected endpoint), in two sentences;
 - the evidence: trace ids, the failing span, log lines with timestamps, the error fingerprint and stack, the deploy and the task that shipped it;
 - the fix you expect and the test that proves it (the failing request, the missing guard);
 - the telemetry incident id, so the card links back.
+
+The expected fix also goes in `acceptance_criteria`, one Given/When/Then each ("Given the failing request, When it is sent again, Then it returns 200"). A bug with no criteria, an empty description or no assignee is refused; fix what the refusal names and call again.
 
 Park your own card on it (`update_board_task` with `blocked_by`) when the repository's workflow supports it, and add one `add_task_comment` on your card naming the task you opened. Then `propose_incident_remedy` with kind `code_fix`, the summary and the evidence, so the TaskTrooper incident shows the diagnosis and who has it.
 

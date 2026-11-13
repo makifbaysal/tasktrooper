@@ -39,7 +39,7 @@ func TestCreateTask_AssigneeGuard(t *testing.T) {
 	t.Run("disabled agent by name is refused and named", func(t *testing.T) {
 		kit, tasks := assigneeKit([]domain.Agent{enabled, disabled}, nil)
 		res := newCreateTaskTool(kit).Execute(context.Background(), mustJSON(t, map[string]any{
-			"title": "Churn model", "assignee": "data-scientist", "allow_duplicate": true,
+			"title": "Churn model", "assignee": "data-scientist", "allow_duplicate": true, "description": "Why it matters.", "task_type": "technical",
 		}))
 		if !res.IsError || !strings.Contains(res.Content, "data-scientist") || !strings.Contains(res.Content, "Edit team") {
 			t.Fatalf("want refusal naming data-scientist, got error=%v %q", res.IsError, res.Content)
@@ -52,7 +52,7 @@ func TestCreateTask_AssigneeGuard(t *testing.T) {
 	t.Run("disabled agent by UUID is refused", func(t *testing.T) {
 		kit, _ := assigneeKit([]domain.Agent{enabled, disabled}, nil)
 		res := newCreateTaskTool(kit).Execute(context.Background(), mustJSON(t, map[string]any{
-			"title": "Churn model", "assignee": disabled.ID.String(), "allow_duplicate": true,
+			"title": "Churn model", "assignee": disabled.ID.String(), "allow_duplicate": true, "description": "Why it matters.", "task_type": "technical",
 		}))
 		if !res.IsError || !strings.Contains(res.Content, "data-scientist") {
 			t.Fatalf("want refusal, got %q", res.Content)
@@ -62,7 +62,7 @@ func TestCreateTask_AssigneeGuard(t *testing.T) {
 	t.Run("enabled agent is assigned", func(t *testing.T) {
 		kit, tasks := assigneeKit([]domain.Agent{enabled, disabled}, nil)
 		res := newCreateTaskTool(kit).Execute(context.Background(), mustJSON(t, map[string]any{
-			"title": "API", "assignee": "backend-developer", "allow_duplicate": true,
+			"title": "API", "assignee": "backend-developer", "allow_duplicate": true, "description": "Why it matters.", "task_type": "technical",
 		}))
 		if res.IsError {
 			t.Fatalf("unexpected error: %s", res.Content)
@@ -79,7 +79,7 @@ func TestCreateTask_AssigneeGuard(t *testing.T) {
 		}}
 		kit, tasks := assigneeKit([]domain.Agent{enabled, disabled, second}, roleFake{role: role, resolved: &disabled.ID})
 		res := newCreateTaskTool(kit).Execute(context.Background(), mustJSON(t, map[string]any{
-			"title": "Churn model", "assignee_role": "data", "allow_duplicate": true,
+			"title": "Churn model", "assignee_role": "data", "allow_duplicate": true, "description": "Why it matters.", "task_type": "technical",
 		}))
 		if !res.IsError || !strings.Contains(res.Content, "data-scientist") || !strings.Contains(res.Content, "ml-engineer") {
 			t.Fatalf("want refusal listing both holders, got %q", res.Content)
@@ -93,7 +93,7 @@ func TestCreateTask_AssigneeGuard(t *testing.T) {
 		role := domain.AgentRole{ID: uuid.New(), Key: "developer", Assignments: []domain.RoleAssignment{{AgentID: enabled.ID}}}
 		kit, tasks := assigneeKit([]domain.Agent{enabled, disabled}, roleFake{role: role, resolved: &enabled.ID})
 		res := newCreateTaskTool(kit).Execute(context.Background(), mustJSON(t, map[string]any{
-			"title": "API", "assignee_role": "developer", "allow_duplicate": true,
+			"title": "API", "assignee_role": "developer", "allow_duplicate": true, "description": "Why it matters.", "task_type": "technical",
 		}))
 		if res.IsError {
 			t.Fatalf("unexpected error: %s", res.Content)

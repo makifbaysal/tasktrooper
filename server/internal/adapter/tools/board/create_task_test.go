@@ -86,6 +86,8 @@ func TestCreateTaskTool_DiscoveredFrom(t *testing.T) {
 			args := map[string]any{
 				"title":           "Investigate flaky test",
 				"allow_duplicate": true,
+				"description":     "Why it matters.",
+				"task_type":       "technical",
 			}
 			if len(tc.derivedFrom) > 0 {
 				args["derived_from"] = tc.derivedFrom
