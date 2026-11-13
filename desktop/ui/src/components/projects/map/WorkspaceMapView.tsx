@@ -46,7 +46,7 @@ export function WorkspaceMapView({ map, className }: WorkspaceMapViewProps) {
 
   if (map.projects.length === 0) {
     return (
-      <EmptyState
+      <EmptyState mascot="point"
         icon={Network}
         title={t("projectsHub.empty.title")}
         description={t("projectsHub.empty.description")}

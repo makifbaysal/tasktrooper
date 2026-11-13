@@ -142,7 +142,7 @@ export default function EntityQueues({ entity, env }: EntitySubPageProps) {
   } else if (queues.error && !queues.data) {
     tablesBody = (
       <Card>
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={Inbox}
           variant="critical"
           title={q("loadFailed")}

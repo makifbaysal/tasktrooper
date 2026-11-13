@@ -62,7 +62,7 @@ export function ProjectPage() {
 
   if (!project) {
     return (
-      <EmptyState
+      <EmptyState mascot="search"
         icon={FolderKanban}
         title={t("projectsHub.project.notFound.title")}
         description={t("projectsHub.project.notFound.description")}

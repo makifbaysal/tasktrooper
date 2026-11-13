@@ -87,7 +87,7 @@ export function VolumeHistogram({
   } else if (!filled) {
     body = (
       <div style={{ height }} className="flex items-center justify-center rounded-lg border border-dashed border-border">
-        <EmptyState icon={ChartColumn} title={emptyLabel ?? t("operations.chart.noData")} className="py-0" />
+        <EmptyState mascot={false} icon={ChartColumn} title={emptyLabel ?? t("operations.chart.noData")} className="py-0" />
       </div>
     );
   } else if (view === "table") {

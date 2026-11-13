@@ -144,7 +144,7 @@ export function DataTableCard({
     return (
       <Card className="min-w-0">
         {header}
-        <EmptyState
+        <EmptyState mascot={false}
           icon={CloudOff}
           variant={view.action === "none" ? "default" : "critical"}
           title={d(`errors.${view.key}`)}

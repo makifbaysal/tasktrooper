@@ -14,7 +14,7 @@ export function EntityNotReporting({ entity, env, description }: { entity: OpsEn
   const { t } = useI18n();
   return (
     <Card>
-      <EmptyState
+      <EmptyState mascot="offline"
         icon={Unplug}
         title={t("operations.entity.summary.notReporting.title", { env: t(`cloud.environments.${env}`) })}
         description={description}

@@ -76,7 +76,7 @@ export function ErrorsPanel({ envId, className }: ErrorsPanelProps) {
       {loading ? (
         <Skeleton className="h-40 w-full" />
       ) : !errors || errors.length === 0 ? (
-        <EmptyState icon={ShieldAlert} title={t("repositoryPage.deploy.runtime.errors.empty")} />
+        <EmptyState mascot="celebrate" icon={ShieldAlert} title={t("repositoryPage.deploy.runtime.errors.empty")} />
       ) : (
         <div className="divide-y divide-border rounded-lg border border-border">
           {errors.map((group) => {

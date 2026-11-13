@@ -720,7 +720,7 @@ export function EmbeddingMapPanel({ search = null, onClearSearch }: EmbeddingMap
   if (sourcesError) {
     return (
       <Card className="p-6">
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={ChartScatter}
           title={t("content.embeddingMap.sourcesFailed")}
           description={sourcesError}
@@ -856,7 +856,7 @@ export function EmbeddingMapPanel({ search = null, onClearSearch }: EmbeddingMap
       )}
 
       {dataError && !busy && (
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={ChartScatter}
           title={t("content.embeddingMap.loadFailed")}
           description={dataError}
@@ -878,7 +878,7 @@ export function EmbeddingMapPanel({ search = null, onClearSearch }: EmbeddingMap
       )}
 
       {!dataError && !busy && projectionError && points.length > 0 && (
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={ChartScatter}
           title={t("content.embeddingMap.projectionFailed")}
           description={projectionError}

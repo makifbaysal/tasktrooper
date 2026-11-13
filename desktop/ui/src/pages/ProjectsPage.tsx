@@ -202,7 +202,7 @@ export function ProjectsPage() {
         </div>
       ) : noProjectsAtAll ? (
         <Card className="border-dashed">
-          <EmptyState
+          <EmptyState mascot="point"
             icon={FolderKanban}
             title={t("projectsHub.empty.title")}
             description={t("projectsHub.empty.description")}

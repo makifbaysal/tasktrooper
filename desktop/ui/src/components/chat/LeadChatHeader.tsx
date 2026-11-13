@@ -18,7 +18,7 @@ export function LeadChatHeader({ agent, team, actions }: LeadChatHeaderProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <AgentAvatar name={agent.name} lead size="lg" />
+      <AgentAvatar name={agent.name} slug={agent.catalog_slug} lead size="lg" />
       <div className="min-w-0 flex-1">
         <h1 className="text-title font-semibold">{agent.name}</h1>
         <p className="text-caption text-muted-foreground">{t("agentArea.chat.lead.description")}</p>
@@ -30,6 +30,7 @@ export function LeadChatHeader({ agent, team, actions }: LeadChatHeaderProps) {
               <AgentAvatar
                 key={member.id}
                 name={member.name}
+                slug={member.catalog_slug}
                 size="sm"
                 className={index === 0 ? "ring-2 ring-background" : "-ml-1.5 ring-2 ring-background"}
               />

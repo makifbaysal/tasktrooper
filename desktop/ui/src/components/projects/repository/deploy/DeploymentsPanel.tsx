@@ -50,7 +50,7 @@ export function DeploymentsPanel({ envId, className }: DeploymentsPanelProps) {
   if (loading) return <Skeleton className={className ?? "h-40 w-full"} />;
 
   if (!deployments || deployments.length === 0) {
-    return <EmptyState icon={Rocket} title={t("repositoryPage.deploy.runtime.deployments.empty")} className={className} />;
+    return <EmptyState mascot="ship" icon={Rocket} title={t("repositoryPage.deploy.runtime.deployments.empty")} className={className} />;
   }
 
   return (

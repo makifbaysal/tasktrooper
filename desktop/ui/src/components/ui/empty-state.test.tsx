@@ -3,22 +3,33 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { EmptyState } from "@/components/ui/empty-state";
 
-describe("EmptyState variant", () => {
-  it("defaults to the muted circle treatment when no variant is given", () => {
+const mascot = () => document.querySelector("[data-mascot]")?.getAttribute("data-mascot");
+
+describe("EmptyState", () => {
+  it("shows the sleepy mascot by default", () => {
     render(<EmptyState icon={Search} title="Nothing here" />);
-    const iconWrapper = document.querySelector("svg")!.parentElement!;
-    expect(iconWrapper.className).toContain("bg-muted");
+    expect(mascot()).toBe("sleepy");
+    expect(document.querySelector("svg")).toBeNull();
   });
 
-  it("renders the critical variant with a destructive-tinted icon wrapper", () => {
+  it("shows the oops mascot for the critical variant", () => {
     render(<EmptyState icon={Search} title="Something broke" variant="critical" />);
-    const iconWrapper = document.querySelector("svg")!.parentElement!;
-    expect(iconWrapper.className).toContain("bg-destructive/10");
+    expect(mascot()).toBe("oops");
   });
 
-  it("renders the search variant with an info-tinted icon wrapper", () => {
+  it("shows the search mascot for the search variant", () => {
     render(<EmptyState icon={Search} title="No results" variant="search" />);
-    const iconWrapper = document.querySelector("svg")!.parentElement!;
-    expect(iconWrapper.className).toContain("bg-info/10");
+    expect(mascot()).toBe("search");
+  });
+
+  it("uses the pose it is given over the variant's", () => {
+    render(<EmptyState icon={Search} title="Shipped" variant="critical" mascot="celebrate" />);
+    expect(mascot()).toBe("celebrate");
+  });
+
+  it("keeps the tinted icon when the mascot is turned off", () => {
+    render(<EmptyState icon={Search} title="Something broke" variant="critical" mascot={false} />);
+    expect(mascot()).toBeUndefined();
+    expect(document.querySelector("svg")!.parentElement!.className).toContain("bg-destructive/10");
   });
 });

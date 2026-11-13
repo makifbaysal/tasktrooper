@@ -80,7 +80,7 @@ export function SetupPage() {
 
   if (mode === null) {
     return (
-      <SetupShell title={t("setup.firstRun.title")} description={t("setup.firstRun.description")}>
+      <SetupShell title={t("setup.firstRun.title")} mascot="wave" description={t("setup.firstRun.description")}>
         <FirstRunChoice onChosen={setMode} />
       </SetupShell>
     );
@@ -88,7 +88,7 @@ export function SetupPage() {
 
   if (!teamDone) {
     return (
-      <SetupShell title={t("setup.team.title")} description={t("setup.team.description")}>
+      <SetupShell title={t("setup.team.title")} mascot="hero" description={t("setup.team.description")}>
         <TeamTemplateStep onDone={() => setTeamDone(true)} />
       </SetupShell>
     );
@@ -96,7 +96,7 @@ export function SetupPage() {
 
   if (!toolchainDone) {
     return (
-      <SetupShell title={t("setup.toolchain.title")} description={t("setup.toolchain.description")}>
+      <SetupShell title={t("setup.toolchain.title")} mascot="working" description={t("setup.toolchain.description")}>
         <Suspense fallback={<Skeleton className="h-40 rounded-xl" />}>
           <ToolchainStep onDone={() => setToolchainDone(true)} />
         </Suspense>
@@ -106,7 +106,7 @@ export function SetupPage() {
 
   if (!integrationsDone) {
     return (
-      <SetupShell title={t("setup.integrations.title")} description={t("setup.integrations.description")}>
+      <SetupShell title={t("setup.integrations.title")} mascot="point" description={t("setup.integrations.description")}>
         <Suspense fallback={<Skeleton className="h-40 rounded-xl" />}>
           <IntegrationsStep onDone={() => setIntegrationsDone(true)} />
         </Suspense>
@@ -117,7 +117,7 @@ export function SetupPage() {
   const index = SETUP_STEP_IDS.indexOf(shown);
 
   return (
-    <SetupShell title={t("setup.title")} description={t("setup.description")}>
+    <SetupShell title={t("setup.title")} mascot="clipboard" description={t("setup.description")}>
       <SetupStepList steps={steps} selected={shown} onSelect={setSelected} />
 
       <Separator />

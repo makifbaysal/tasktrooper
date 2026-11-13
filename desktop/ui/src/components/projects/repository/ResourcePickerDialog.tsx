@@ -164,7 +164,7 @@ export function ResourcePickerDialog({
           <Skeleton className="h-14 w-full" />
         </div>
       ) : !loadError && filtered.length === 0 ? (
-        <EmptyState icon={Search} variant="search" title={t("repositoryPage.resourcePicker.empty")} />
+        <EmptyState mascot="search" icon={Search} variant="search" title={t("repositoryPage.resourcePicker.empty")} />
       ) : !loadError ? (
         <div role="radiogroup" aria-label={title} className="max-h-80 space-y-4 overflow-y-auto">
           <ResourceSection heading={t("repositoryPage.resourcePicker.inThisRepository")} items={sections.repo} selectedId={selectedId} onSelect={setSelectedId} />

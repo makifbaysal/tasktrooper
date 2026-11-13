@@ -187,9 +187,9 @@ export function FindingsTab({ model, repositoryId, selectedComponentId, onSelect
           <EmptyState icon={ScanSearch} title={t("findings.empty.noScanTitle")} description={t("findings.empty.noScanDescription")} />
         ) : visible.length === 0 ? (
           inScope.length === 0 || (status === "open" && category === "all") ? (
-            <EmptyState icon={ShieldCheck} title={t("findings.empty.cleanTitle")} description={t("findings.empty.cleanDescription")} />
+            <EmptyState mascot="celebrate" icon={ShieldCheck} title={t("findings.empty.cleanTitle")} description={t("findings.empty.cleanDescription")} />
           ) : (
-            <EmptyState icon={ScanSearch} variant="search" title={t("findings.empty.filtered")} />
+            <EmptyState mascot="search" icon={ScanSearch} variant="search" title={t("findings.empty.filtered")} />
           )
         ) : (
           groups.map(([key, items]) => (

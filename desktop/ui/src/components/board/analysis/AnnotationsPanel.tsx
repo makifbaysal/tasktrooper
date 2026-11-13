@@ -158,7 +158,7 @@ export function AnnotationsPanel({
           <p className="text-caption text-muted-foreground">{pausedLabel ?? t("analysisReview.panel.commentingPaused")}</p>
         )}
         {annotations.length === 0 && !pending ? (
-          <EmptyState
+          <EmptyState mascot="thinking"
             icon={TextSelect}
             title={t("analysisReview.panel.empty")}
             description={t("analysisReview.panel.emptyBody")}

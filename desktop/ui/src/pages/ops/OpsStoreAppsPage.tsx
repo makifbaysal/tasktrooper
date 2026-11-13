@@ -35,7 +35,7 @@ export default function OpsStoreAppsPage() {
     }
     return (
       <Card>
-        <EmptyState
+        <EmptyState mascot="search"
           icon={SearchX}
           title={r("notFound.title")}
           description={r("notFound.description")}

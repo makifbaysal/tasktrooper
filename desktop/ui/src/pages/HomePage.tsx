@@ -55,7 +55,7 @@ export function HomePage() {
   if (ctx?.teamPreparing) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <EmptyState
+        <EmptyState mascot="working"
           icon={Users}
           title={t("frame.layout.home.preparing.title")}
           description={t("frame.layout.home.preparing.description")}

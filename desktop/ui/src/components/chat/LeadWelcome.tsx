@@ -60,7 +60,7 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
       {/* min-h-full + justify-center: centred when it fits, scrolls only when the window is too short. */}
       <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-center gap-6 px-6 py-8">
         <div className="flex flex-col items-center gap-2 text-center">
-          <AgentAvatar name={agent.name} lead size="lg" />
+          <AgentAvatar name={agent.name} slug={agent.catalog_slug} lead size="lg" />
           <p className="text-heading font-semibold">{agent.name}</p>
           <p className="max-w-xl text-caption text-muted-foreground">{t("agentArea.chat.lead.description")}</p>
           <h2 className="mt-1 text-display font-semibold tracking-tight">

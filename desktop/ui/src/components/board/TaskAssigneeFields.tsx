@@ -1,4 +1,5 @@
 import { Bot } from "lucide-react";
+import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -17,6 +18,7 @@ const NONE = "none";
 interface AgentOption {
   id: string;
   name: string;
+  catalog_slug?: string;
 }
 
 interface TaskAssigneeFieldsProps {
@@ -72,7 +74,10 @@ export function TaskAssigneeFields({
           )}
           {options.map((agent) => (
             <SelectItem key={agent.id} value={agent.id}>
-              {agent.name}
+              <span className="flex items-center gap-2">
+                <AgentAvatar name={agent.name} slug={agent.catalog_slug} size="xs" />
+                {agent.name}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>

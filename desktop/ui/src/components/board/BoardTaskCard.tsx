@@ -1,4 +1,6 @@
 import { Bot, Clock, GitMerge, GripVertical, HelpCircle, PackageCheck, Trash2, User } from "lucide-react";
+import { AgentAvatar } from "@/components/agent/AgentAvatar";
+import { agentMascotSlug } from "@/lib/agentMascot";
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import type { BoardTask, Release } from "@/api";
@@ -273,7 +275,7 @@ export const BoardTaskCard = memo(function BoardTaskCard({
               )}
               {assignee && (
                 <Badge variant="outline" className="gap-1 text-micro">
-                  <Bot className="h-3 w-3" />
+                  {agentMascotSlug(null, assignee) ? <AgentAvatar name={assignee} size="xs" className="h-4 w-4" /> : <Bot className="h-3 w-3" />}
                   <span className="max-w-[6rem] truncate">{assignee}</span>
                 </Badge>
               )}

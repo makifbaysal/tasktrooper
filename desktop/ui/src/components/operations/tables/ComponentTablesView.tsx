@@ -36,7 +36,7 @@ export function ComponentTablesView({ read, pick, empty, renderTable }: Componen
   if (read.error && !read.data) {
     return (
       <Card>
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={Inbox}
           variant="critical"
           title={d("loadFailed")}

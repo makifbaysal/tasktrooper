@@ -32,7 +32,7 @@ export default function OpsEntityPage() {
     if (!loaded && error && !loading) {
       return (
         <Card>
-          <EmptyState
+          <EmptyState mascot="oops"
             icon={CloudOff}
             variant="critical"
             title={t("operations.entity.loadFailed.title")}
@@ -59,7 +59,7 @@ export default function OpsEntityPage() {
     }
     return (
       <Card>
-        <EmptyState
+        <EmptyState mascot="search"
           icon={SearchX}
           title={t("operations.entity.notFound.title")}
           description={t("operations.entity.notFound.description")}
