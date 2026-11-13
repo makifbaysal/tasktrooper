@@ -125,7 +125,7 @@ export default function EntityTraces({ entity, env }: EntitySubPageProps) {
   } else if (read.error && !data) {
     body = (
       <Card>
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={Route}
           variant="critical"
           title={p("loadFailed")}
@@ -162,7 +162,7 @@ export default function EntityTraces({ entity, env }: EntitySubPageProps) {
     const view = signalErrorView(data.error.code);
     body = (
       <Card>
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={Route}
           variant={view.action === "none" ? "default" : "critical"}
           title={t(`operations.chart.errors.${view.key}`)}

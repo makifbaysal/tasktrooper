@@ -60,6 +60,7 @@ export function LeadQuickAsk({ agent }: LeadQuickAskProps) {
     <form onSubmit={submit} className="relative hidden w-full max-w-md md:block">
       <AgentAvatar
         name={agent.name}
+        slug={agent.catalog_slug}
         lead
         size="xs"
         className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"

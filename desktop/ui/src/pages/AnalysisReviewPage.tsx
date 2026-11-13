@@ -362,7 +362,7 @@ export function AnalysisReviewPage() {
     return (
       <div className="p-page">
         <PageBackLink to={boardPath} label={t("analysisReview.page.back")} />
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={SearchX}
           variant={loadError ? "critical" : "default"}
           title={loadError ? t("analysisReview.page.loadFailed") : t("analysisReview.page.taskNotFound")}
@@ -558,7 +558,7 @@ export function AnalysisReviewPage() {
               />
             </>
           ) : (
-            <EmptyState
+            <EmptyState mascot="thinking"
               className="flex-1"
               icon={FileText}
               title={t(design ? "analysisReview.design.noDocuments" : "analysisReview.page.noDocuments")}

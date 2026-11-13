@@ -200,7 +200,7 @@ export default function EntitySignals({ entity, env }: EntitySubPageProps) {
   } else if (signals.error && !signals.data) {
     body = (
       <Card>
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={Gauge}
           variant="critical"
           title={p("loadFailed")}

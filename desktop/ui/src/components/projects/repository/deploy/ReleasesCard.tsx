@@ -82,7 +82,7 @@ export function ReleasesCard({ repositoryId, repositoryName, component, classNam
             <Skeleton className="h-24 w-full" />
           </div>
         ) : empty ? (
-          <EmptyState icon={PackageCheck} title={t("release.releases.empty")} description={t("release.releases.emptyDesc")} />
+          <EmptyState mascot="ship" icon={PackageCheck} title={t("release.releases.empty")} description={t("release.releases.emptyDesc")} />
         ) : (
           <div className="divide-y divide-border">
             {pinned.map((p) => (

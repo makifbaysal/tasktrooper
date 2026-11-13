@@ -210,7 +210,7 @@ export function WorkspaceSidebar({
                 <SidebarNavLink
                   to={`/agents/${leadAgent.id}/chat`}
                   label={leadAgent.name}
-                  leading={<AgentAvatar name={leadAgent.name} lead size="sm" />}
+                  leading={<AgentAvatar name={leadAgent.name} slug={leadAgent.catalog_slug} lead size="sm" />}
                   end={false}
                   collapsed={collapsed}
                   onClick={onMobileClose}
@@ -229,7 +229,7 @@ export function WorkspaceSidebar({
                         key={agent.id}
                         to={`/agents/${agent.id}/chat`}
                         label={agent.name}
-                        leading={<AgentAvatar name={agent.name} size="xs" />}
+                        leading={<AgentAvatar name={agent.name} slug={agent.catalog_slug} size="xs" />}
                         end={false}
                         collapsed={collapsed}
                         onClick={onMobileClose}
@@ -259,7 +259,7 @@ export function WorkspaceSidebar({
               </>
             )}
             {!loading && !collapsed && agents.length === 0 && (
-              <EmptyState
+              <EmptyState mascot={false}
                 icon={Users}
                 title={t("chatArea.workspace.noAgents.title")}
                 description={t(ADVANCED_TEAM_CONFIG ? "chatArea.workspace.noAgents.description" : "chatArea.workspace.noAgents.descriptionCatalogOnly")}

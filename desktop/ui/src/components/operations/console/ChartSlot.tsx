@@ -82,7 +82,7 @@ export function ChartSlot({
   if (status === "error" && !loading) {
     body = (
       <div style={{ height }} className="flex items-center justify-center rounded-lg border border-dashed border-border">
-        <EmptyState
+        <EmptyState mascot={false}
           icon={CloudOff}
           variant="critical"
           title={errorTitle ?? t("operations.chart.loadFailed")}

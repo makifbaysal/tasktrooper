@@ -1,4 +1,5 @@
 import { type LucideIcon } from "lucide-react";
+import { Mascot, type MascotPose } from "@/components/ui/mascot";
 import { cn } from "@/lib/utils";
 
 export type EmptyStateVariant = "default" | "critical" | "search";
@@ -13,6 +14,9 @@ interface EmptyStateProps {
    * destructive for a failure state, "search" toward info for an empty
    * search/filter result. */
   variant?: EmptyStateVariant;
+  /** The mascot pose shown instead of the icon. Defaults by variant; `false`
+   * keeps the icon, for a dense spot that already shows the mascot nearby. */
+  mascot?: MascotPose | false;
 }
 
 const iconWrapperVariants: Record<EmptyStateVariant, string> = {
@@ -27,12 +31,23 @@ const iconVariants: Record<EmptyStateVariant, string> = {
   search: "text-info",
 };
 
-export function EmptyState({ icon: Icon, title, description, action, className, variant = "default" }: EmptyStateProps) {
+const defaultPose: Record<EmptyStateVariant, MascotPose> = {
+  default: "sleepy",
+  critical: "oops",
+  search: "search",
+};
+
+export function EmptyState({ icon: Icon, title, description, action, className, variant = "default", mascot }: EmptyStateProps) {
+  const pose = mascot === undefined ? defaultPose[variant] : mascot;
   return (
     <div className={cn("flex flex-col items-center justify-center gap-3 py-12 px-4 text-center", className)}>
-      <div className={cn("flex h-12 w-12 items-center justify-center rounded-full", iconWrapperVariants[variant])}>
-        <Icon className={cn("h-6 w-6", iconVariants[variant])} />
-      </div>
+      {pose ? (
+        <Mascot pose={pose} size="md" />
+      ) : (
+        <div className={cn("flex h-12 w-12 items-center justify-center rounded-full", iconWrapperVariants[variant])}>
+          <Icon className={cn("h-6 w-6", iconVariants[variant])} />
+        </div>
+      )}
       <div className="space-y-1">
         <h3 className="font-medium">{title}</h3>
         {description && <p className="text-caption text-muted-foreground max-w-sm">{description}</p>}

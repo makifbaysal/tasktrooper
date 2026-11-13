@@ -1,15 +1,17 @@
 import type { ReactNode } from "react";
 import { Logo } from "@/assets/logo";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Mascot, type MascotPose } from "@/components/ui/mascot";
 
 interface SetupShellProps {
   title: string;
   description?: string;
   children: ReactNode;
+  mascot?: MascotPose;
 }
 
 /** The full-page frame the guided first-run sequence renders inside. */
-export function SetupShell({ title, description, children }: SetupShellProps) {
+export function SetupShell({ title, description, children, mascot }: SetupShellProps) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-3xl space-y-6">
@@ -21,7 +23,8 @@ export function SetupShell({ title, description, children }: SetupShellProps) {
         </div>
 
         <Card>
-          <CardHeader className="text-center">
+          <CardHeader className="items-center text-center">
+            {mascot && <Mascot pose={mascot} size="lg" className="mx-auto" />}
             <CardTitle className="text-title">{title}</CardTitle>
             {description && <CardDescription>{description}</CardDescription>}
           </CardHeader>

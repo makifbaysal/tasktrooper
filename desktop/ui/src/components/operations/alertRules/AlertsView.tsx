@@ -180,7 +180,7 @@ export function AlertsView({ entity, showEntity = true, toolbarStart }: AlertsVi
   } else if (rules.error && !rules.data) {
     body = (
       <Card>
-        <EmptyState
+        <EmptyState mascot="oops"
           icon={BellRing}
           variant="critical"
           title={a("loadFailed")}

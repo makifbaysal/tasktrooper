@@ -100,7 +100,7 @@ function ChannelCard({ channel, release, actions }: ChannelCardProps) {
             )}
           </div>
         ) : (
-          <EmptyState
+          <EmptyState mascot={false}
             icon={Package}
             title={t("projectAdmin.mobileStore.channelEmpty")}
             className="gap-2 px-0 py-4"

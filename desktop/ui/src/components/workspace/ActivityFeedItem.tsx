@@ -1,4 +1,6 @@
 import { Activity, ArrowRight, Bot, Radio } from "lucide-react";
+import { AgentAvatar } from "@/components/agent/AgentAvatar";
+import { agentMascotSlug } from "@/lib/agentMascot";
 import type { ActivityItem, BoardColumn } from "@/api";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/hooks/useI18n";
@@ -161,7 +163,13 @@ export function ActivityFeedItem({
             isRun ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
           )}
         >
-          {isRun ? <Bot className="h-3.5 w-3.5" /> : <Activity className="h-3.5 w-3.5" />}
+          {isRun && agentMascotSlug(null, agentName) ? (
+            <AgentAvatar name={agentName!} size="md" className="h-7 w-7" />
+          ) : isRun ? (
+            <Bot className="h-3.5 w-3.5" />
+          ) : (
+            <Activity className="h-3.5 w-3.5" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">

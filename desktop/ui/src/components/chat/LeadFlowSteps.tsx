@@ -118,7 +118,7 @@ export function LeadFlowSteps({ agent }: LeadFlowStepsProps) {
           >
             <Connector index={index} />
             {key === "lead" ? (
-              <AgentAvatar name={agent.name} lead size="md" className="relative z-10 shrink-0 ring-offset-card" />
+              <AgentAvatar name={agent.name} slug={agent.catalog_slug} lead size="md" className="relative z-10 shrink-0 ring-offset-card" />
             ) : (
               <span
                 className={cn(

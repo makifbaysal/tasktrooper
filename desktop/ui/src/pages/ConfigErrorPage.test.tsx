@@ -3,10 +3,9 @@ import { describe, expect, it } from "vitest";
 import { ConfigErrorPage } from "@/pages/ConfigErrorPage";
 
 describe("ConfigErrorPage", () => {
-  it("renders the critical empty-state variant, distinct from the default treatment", () => {
+  it("renders the critical empty state with the oops mascot", () => {
     render(<ConfigErrorPage missing={["VITE_API_KEY"]} />);
-    const iconWrapper = document.querySelector("svg")!.parentElement!;
-    expect(iconWrapper.className).toContain("bg-destructive/10");
+    expect(document.querySelector("[data-mascot]")?.getAttribute("data-mascot")).toBe("oops");
     expect(screen.getByText("VITE_API_KEY")).toBeTruthy();
   });
 });

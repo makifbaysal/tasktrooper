@@ -51,7 +51,7 @@ export function ProjectDesignSystemTab({ projectId }: ProjectDesignSystemTabProp
   if (!view) {
     return (
       <Card className="p-0">
-        <EmptyState icon={AlertTriangle} variant="critical" title={t("designSystem.loadFailed")} description={error ?? undefined} />
+        <EmptyState mascot="oops" icon={AlertTriangle} variant="critical" title={t("designSystem.loadFailed")} description={error ?? undefined} />
       </Card>
     );
   }
