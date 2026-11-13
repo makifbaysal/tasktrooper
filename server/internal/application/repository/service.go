@@ -1970,7 +1970,10 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		_ = s.emit(ctx, repo, updated, domain.BoardEventTaskMoved, movePayload)
 
 		if s.localPreview != nil {
-			s.localPreview.Stop(repositoryID)
+			// Stop can block up to stopGrace waiting for the process group to
+			// exit; UpdateTask is the hot path for every column move (HTTP,
+			// the board runner, pipeline automation), so it must not wait on it.
+			go s.localPreview.Stop(repositoryID)
 		}
 
 		if s.workOrderSweeper != nil &&
