@@ -183,6 +183,9 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 	if args.Title == "" {
 		return toolError(createBoardTaskToolName, "title is required")
 	}
+	if strings.TrimSpace(args.Description) == "" {
+		return toolError(createBoardTaskToolName, taskDescriptionRequiredKey.Render(struct{}{}))
+	}
 	var explicitRepository *uuid.UUID
 	if ref := args.repositoryRef(); strings.TrimSpace(ref) != "" {
 		parsed, err := t.kit.resolveRepositoryRef(ctx, ref)
@@ -213,12 +216,17 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 		}
 	}
 	criteria, droppedCriteria := criteriaInputs(args.AcceptanceCriteria)
+	if len(criteria) == 0 && criteriaRequired(args.TaskType) {
+		return toolError(createBoardTaskToolName, taskCriteriaRequiredKey.Render(taskCriteriaRequiredInput{Dropped: len(droppedCriteria)}))
+	}
 	req := domain.CreateBoardTaskRequest{
 		Title:                args.Title,
+		Description:          args.Description,
 		TechnicalDescription: args.TechnicalDescription,
 		AcceptanceCriteria:   criteria,
 		Column:               col,
 		CreatedBy:            "agent",
+		RequireAssignee:      true,
 	}
 	if args.TaskType != "" {
 		taskType := domain.TaskType(args.TaskType)
@@ -323,6 +331,9 @@ func (t *createTaskTool) Execute(ctx context.Context, arguments string) domain.T
 	if errors.Is(err, domain.ErrAssigneeNotAssignable) {
 		return toolError(createBoardTaskToolName, assigneeNotAssignableKey.Render(struct{}{}))
 	}
+	if errors.Is(err, domain.ErrAssigneeRequired) {
+		return toolError(createBoardTaskToolName, taskAssigneeRequiredKey.Render(struct{}{}))
+	}
 	if err != nil {
 		return toolError(createBoardTaskToolName, err.Error())
 	}
@@ -411,4 +422,14 @@ func (kit *ToolKit) repoArea(ctx context.Context, repositoryID uuid.UUID) string
 		}
 	}
 	return ""
+}
+
+// criteriaRequired is true for the types QA verifies against a checklist. An
+// omitted type is held to it too: it usually resolves to "task".
+func criteriaRequired(taskType string) bool {
+	switch domain.TaskType(strings.TrimSpace(taskType)) {
+	case "", domain.TaskTypeTask, domain.TaskTypeBug:
+		return true
+	}
+	return false
 }

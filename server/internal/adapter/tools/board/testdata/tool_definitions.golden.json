@@ -270,12 +270,12 @@
     "type": "function",
     "function": {
       "name": "create_board_task",
-      "description": "Create a new task on the board. Always set repository (which codebase the work touches) and project (which initiative it belongs to) when you can tell — call list_repositories / list_projects to find them rather than asking the user. Leaving repository unset falls back to the active repository context, or to the default repository, which may well be the wrong one. When you are splitting work that has an order, put it in the ARGUMENTS and not only in prose — blocked_by (nobody starts this task until those are done) and deploy_depends_on (this task ships AFTER those) are both enforced, a sentence in the description is not. When you open this task out of an analysis, set derived_from to that analiz task: the agent that picks this up is then handed that analysis's documents to work from. Inside a task run, the task you create here is linked back to the task you are working on as discovered_from automatically — there is no argument for it, and you do not need to (or need to try to) set it yourself. Anything that has to happen around the deploy belongs in before_deploy / after_deploy / rollback_plan, not in a comment: those fields are posted automatically when the release is dispatched and when it lands.",
+      "description": "Create a new task on the board. A task is created whole or not at all: an empty description, a task or bug with no acceptance criteria, or a task nobody is assigned to is refused with what is missing, so fill those and call again. Always set repository (which codebase the work touches) and project (which initiative it belongs to) when you can tell — call list_repositories / list_projects to find them rather than asking the user. Leaving repository unset falls back to the active repository context, or to the default repository, which may well be the wrong one. When you are splitting work that has an order, put it in the ARGUMENTS and not only in prose — blocked_by (nobody starts this task until those are done) and deploy_depends_on (this task ships AFTER those) are both enforced, a sentence in the description is not. When you open this task out of an analysis, set derived_from to that analiz task: the agent that picks this up is then handed that analysis's documents to work from. Inside a task run, the task you create here is linked back to the task you are working on as discovered_from automatically — there is no argument for it, and you do not need to (or need to try to) set it yourself. Anything that has to happen around the deploy belongs in before_deploy / after_deploy / rollback_plan, not in a comment: those fields are posted automatically when the release is dispatched and when it lands.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
           "acceptance_criteria": {
-            "description": "Acceptance criteria, one observable Given/When/Then per array item, in order. This is the ONLY place criteria belong — they become the checklist QA executes and verifies. Writing them into description instead leaves the task with an empty checklist.",
+            "description": "REQUIRED for task and bug (and when task_type is omitted). Acceptance criteria, one observable Given/When/Then per array item, in order. This is the ONLY place criteria belong — they become the checklist QA executes and verifies. Writing them into description instead leaves the task with an empty checklist.",
             "items": {
               "type": "string"
             },
@@ -290,7 +290,7 @@
             "type": "boolean"
           },
           "assignee": {
-            "description": "Who handles this task: the responsible agent's name (e.g. \"system-architect\", \"backend-developer\") or its UUID. Set this so the assignee is dispatched automatically. Use list_team to see valid names. Never the product manager: it cannot hold a board task.",
+            "description": "REQUIRED (or assignee_role, or a task type whose role assigns it). Who handles this task: the responsible agent's name (e.g. \"system-architect\", \"backend-developer\") or its UUID. Set this so the assignee is dispatched automatically. Use list_team to see valid names. Never the product manager: it cannot hold a board task.",
             "type": "string"
           },
           "assignee_role": {
@@ -331,7 +331,7 @@
             "type": "array"
           },
           "description": {
-            "description": "Product-level description (markdown): the user story, context and out-of-scope notes. Do NOT paste acceptance criteria or technical detail here — they have their own fields (acceptance_criteria, technical_description) and repeating them makes the task drift out of sync.",
+            "description": "REQUIRED, never empty. Product-level description (markdown): the user story, context and out-of-scope notes. Do NOT paste acceptance criteria or technical detail here — they have their own fields (acceptance_criteria, technical_description) and repeating them makes the task drift out of sync.",
             "type": "string"
           },
           "initiative_project_id": {

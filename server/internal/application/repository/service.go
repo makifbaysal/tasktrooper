@@ -1627,15 +1627,18 @@ func (s *Service) CreateTask(ctx context.Context, repositoryID uuid.UUID, req do
 			position = t.Position + 1
 		}
 	}
-	taskNumber, err := s.tasks.NextTaskNumber(ctx, taskType)
-	if err != nil {
-		return domain.BoardTask{}, err
-	}
 	requested, err := s.requestedAssignee(ctx, req)
 	if err != nil {
 		return domain.BoardTask{}, err
 	}
 	assignee, err := s.resolveNewTaskAssignee(ctx, taskType, repo, req, requested)
+	if err != nil {
+		return domain.BoardTask{}, err
+	}
+	if assignee == nil && req.RequireAssignee {
+		return domain.BoardTask{}, domain.ErrAssigneeRequired
+	}
+	taskNumber, err := s.tasks.NextTaskNumber(ctx, taskType)
 	if err != nil {
 		return domain.BoardTask{}, err
 	}

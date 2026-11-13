@@ -13,6 +13,12 @@ type refInput struct{ Ref string }
 var claimAlreadyAssignedKey = prompt.Define("guard.board_claim_already_assigned", refInput{Ref: "T-1"})
 var claimTaskNotFoundKey = prompt.Define("guard.board_claim_task_not_found", refInput{Ref: "T-1"})
 var assigneeNotAssignableKey = prompt.Define("guard.board_assignee_not_assignable", struct{}{})
+var taskDescriptionRequiredKey = prompt.Define("guard.board_task_description_required", struct{}{})
+var taskAssigneeRequiredKey = prompt.Define("guard.board_task_assignee_required", struct{}{})
+
+type taskCriteriaRequiredInput struct{ Dropped int }
+
+var taskCriteriaRequiredKey = prompt.Define("guard.board_task_criteria_required", taskCriteriaRequiredInput{Dropped: 1})
 
 type assigneeDisabledInput struct {
 	Agents []string
