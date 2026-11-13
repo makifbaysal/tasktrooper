@@ -1,18 +1,20 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BoardTask, LocalPreview } from "@/api";
+import type { BoardTask, LocalPreview, TaskPreview } from "@/api";
 import { LocalPreviewPanel } from "@/components/board/LocalPreviewPanel";
 import { I18nProvider } from "@/hooks/useI18n";
 
-const { getLocalPreview, startLocalPreview } = vi.hoisted(() => ({
+const { getLocalPreview, startLocalPreview, getTaskPreviews } = vi.hoisted(() => ({
   getLocalPreview: vi.fn(),
   startLocalPreview: vi.fn(),
+  getTaskPreviews: vi.fn(),
 }));
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, getLocalPreview, startLocalPreview } };
+  return { ...actual, api: { ...actual.api, getLocalPreview, startLocalPreview, getTaskPreviews } };
 });
 
 const task = { id: "task-1" } as unknown as BoardTask;
@@ -29,10 +31,29 @@ function makePreview(overrides: Partial<LocalPreview> = {}): LocalPreview {
   };
 }
 
-function renderPanel() {
+function makeHostedPreview(overrides: Partial<TaskPreview> = {}): TaskPreview {
+  return {
+    component_id: "comp-1",
+    component_name: "web-app",
+    environment_id: "env-prev",
+    provider: "vercel",
+    status: "ready",
+    url: "https://web-app-abc123-acme.vercel.app",
+    branch_url: "https://web-app-git-feat-x-acme.vercel.app",
+    pr_number: 7,
+    commit_sha: "abcdef1234567",
+    created_at: "2024-01-01T00:00:00Z",
+    inspect_url: "https://vercel.com/acme/web-app/dpl_1",
+    protected: false,
+    bypass_configured: false,
+    ...overrides,
+  };
+}
+
+function renderPanel(overrides: Partial<BoardTask> = {}, actions?: ReactNode) {
   return render(
     <I18nProvider>
-      <LocalPreviewPanel task={task} repositoryId="repo-1" />
+      <LocalPreviewPanel task={{ ...task, ...overrides }} repositoryId="repo-1" actions={actions} />
     </I18nProvider>,
   );
 }
@@ -41,6 +62,7 @@ describe("LocalPreviewPanel", () => {
   beforeEach(() => {
     getLocalPreview.mockReset();
     startLocalPreview.mockReset();
+    getTaskPreviews.mockReset().mockResolvedValue({ previews: [] });
   });
 
   afterEach(() => {
@@ -84,5 +106,41 @@ describe("LocalPreviewPanel", () => {
 
     expect(await screen.findByRole("link", { name: /localhost:3000/ })).toBeInTheDocument();
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it("leads with the PR's ready hosted preview and never starts a local run on its own", async () => {
+    getLocalPreview.mockResolvedValue({ active: false });
+    getTaskPreviews.mockResolvedValue({ previews: [makeHostedPreview()] });
+    const hostedLink = <a href={makeHostedPreview().branch_url}>Open preview</a>;
+    renderPanel({ pr_url: "https://github.com/acme/web/pull/7" }, hostedLink);
+
+    const hostedEl = await screen.findByRole("link", { name: "Open preview" });
+    const runLocallyEl = screen.getByRole("button", { name: /Run locally/ });
+    const order = Array.from(document.body.querySelectorAll("a, button"));
+    expect(order.indexOf(hostedEl)).toBeLessThan(order.indexOf(runLocallyEl));
+    expect(startLocalPreview).not.toHaveBeenCalled();
+  });
+
+  it("still starts a local run normally when triggered manually despite a ready hosted preview", async () => {
+    getLocalPreview.mockResolvedValueOnce({ active: false });
+    getTaskPreviews.mockResolvedValue({ previews: [makeHostedPreview()] });
+    startLocalPreview.mockResolvedValue(makePreview({ status: "running", url: "http://localhost:3000" }));
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    renderPanel({ pr_url: "https://github.com/acme/web/pull/7" }, <a href="https://x">Open preview</a>);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Run locally/ }));
+
+    await waitFor(() => expect(startLocalPreview).toHaveBeenCalledWith("repo-1", "task-1"));
+    await waitFor(() => expect(open).toHaveBeenCalledWith("http://localhost:3000", "_blank", "noopener,noreferrer"));
+  });
+
+  it("keeps Run locally first when the PR has no ready hosted preview", async () => {
+    getLocalPreview.mockResolvedValue({ active: false });
+    getTaskPreviews.mockResolvedValue({ previews: [makeHostedPreview({ status: "building", url: "", branch_url: "" })] });
+    renderPanel({ pr_url: "https://github.com/acme/web/pull/7" });
+
+    const runLocallyEl = await screen.findByRole("button", { name: /Run locally/ });
+    expect(runLocallyEl).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open preview" })).not.toBeInTheDocument();
   });
 });
