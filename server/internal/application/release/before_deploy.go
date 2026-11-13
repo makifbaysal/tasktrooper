@@ -14,9 +14,10 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
 )
 
-// MergeGate refuses a task's merge for any of three reasons, checked in
+// MergeGate refuses a task's merge for any of four reasons, checked in
 // order: the component's delivery profile is not confirmed (its own workflow
-// may still deploy this merge unwatched, so refusing beats guessing); it
+// may still deploy this merge unwatched, so refusing beats guessing); an
+// earlier release of the component is still in flight (release_queue.go); it
 // declares a deploy_depends_on task that has not reached released yet; or, on
 // an on_merge component, it still has pending before-deploy steps — the
 // merge itself is what would deploy them, and a human has to perform those
@@ -48,6 +49,9 @@ func (s *Service) mergeGate(ctx context.Context, repositoryID uuid.UUID, task do
 		return domain.ResourceBlock{Resource: domain.ResourceDeliveryProfile, Detail: name},
 			fmt.Errorf("%w: %s", domain.ErrDeliveryUnconfirmed,
 				deliveryUnconfirmedKey.Render(releaseNameInput{Name: name}))
+	}
+	if hold, err := s.releaseInFlightGate(ctx, repositoryID, component, profile, name, task); err != nil {
+		return hold, err
 	}
 	if profile.Mode != domain.DeliveryOnMerge {
 		return domain.ResourceBlock{}, nil

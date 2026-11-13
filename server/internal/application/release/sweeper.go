@@ -89,6 +89,7 @@ func (s *Service) SweepOnce(ctx context.Context) {
 	notes := s.watchNoteCount()
 	watched, listed := s.sweepWatchedReleases(ctx)
 	s.sweepReleaseWatchdog(ctx)
+	s.wakeReleaseQueue(ctx)
 	if listed {
 		s.settleCadence(notes, watched)
 	}

@@ -353,6 +353,10 @@ var (
 	// task that has not reached production; shipping it first would break the
 	// order the dependency exists for.
 	ErrDeployDependencyPending = errors.New("a deploy dependency has not been released yet")
+	// ErrReleaseInFlight: the component already has a release on its way to
+	// production; the next merge waits until it is released or rolled back,
+	// so a problem is always traced to one change.
+	ErrReleaseInFlight = errors.New("another release of this component is still in flight")
 )
 
 // Release tools, named in domain because the stage policy decides things

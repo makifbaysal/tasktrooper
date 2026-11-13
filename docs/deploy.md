@@ -192,7 +192,7 @@ applies from the next release on.
 1. **The release engineer merges the pull request** (`done` wakes it, the
    same wake QA used to hold) — squash-merge, delete the branch — once the
    checks are green and the review chain is complete. This opens (`on_merge`
-   / `dispatch`) or joins (`batch`) a **release** for the component. Three
+   / `dispatch`) or joins (`batch`) a **release** for the component. Four
    things can still hold the merge itself back, each posting one comment on
    the task explaining why and waking the release engineer automatically the
    moment it clears — nobody has to remember to retry it: the component's
@@ -200,7 +200,14 @@ applies from the next release on.
    deploys it); on an `on_merge` component, the task declares a task that
    must ship first (`deploy_depends_on`) and that task is not live yet; or,
    also on `on_merge`, the task carries `before_deploy` steps a human has not
-   confirmed (see **Before you ship**, below).
+   confirmed (see **Before you ship**, below); or, on `on_merge` and
+   `dispatch` components, an earlier release of the same component is still
+   deploying, soaking or waiting for its verdict. Such a component ships **one
+   release at a time**: the next task waits unmerged
+   until that release is released or rolled back, then merges by itself.
+   Several waiting tasks merge oldest first, each after the previous one's
+   verdict, so when something breaks in production it is clear which change
+   did it.
    A task with no component set gets one from what its pull request changed:
    the one component that owns the changed files, or, when no component owns
    any of them (documentation, top-level tooling, or a repository with no

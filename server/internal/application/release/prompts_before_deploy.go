@@ -22,3 +22,8 @@ var beforeDeployPendingIntroKey = prompt.Define("guard.release_before_deploy_pen
 type releaseMessageInput struct{ Message string }
 
 var beforeDeployPendingDeployCommentKey = prompt.Define("notices.release_before_deploy_pending_deploy_comment", releaseMessageInput{Message: "x"})
+
+type releaseInFlightInput struct{ Name, Release, Status string }
+
+var releaseInFlightKey = prompt.Define("guard.release_in_flight", releaseInFlightInput{Name: "api", Release: "T-1 (abc1234)", Status: "verifying"})
+var releaseInFlightCommentKey = prompt.Define("notices.release_in_flight_comment", releaseInFlightInput{Name: "api", Release: "T-1 (abc1234)", Status: "verifying"})

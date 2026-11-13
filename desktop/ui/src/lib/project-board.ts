@@ -323,7 +323,13 @@ function blockerKeys(body: string): string[] {
  * is refusing a done task's merge. Unlike every other park, two of them wait on
  * the human reading the card, not on a sweeper.
  */
-export const MERGE_HOLD_RESOURCES = ["deploy_order", "before_deploy", "delivery_profile", "deploy_env"] as const;
+export const MERGE_HOLD_RESOURCES = [
+  "deploy_order",
+  "before_deploy",
+  "delivery_profile",
+  "deploy_env",
+  "release_in_flight",
+] as const;
 
 export type MergeHoldResource = (typeof MERGE_HOLD_RESOURCES)[number];
 

@@ -42,9 +42,13 @@ const (
 	// ResourceDeployEnv: the deploy target lacks environment variables a
 	// human has to enter, or they could not be read.
 	ResourceDeployEnv = "deploy_env"
+	// ResourceReleaseInFlight: another release of the same component is still
+	// deploying, soaking or waiting for its verdict. Released (oldest hold
+	// first) once that release is released or rolled back.
+	ResourceReleaseInFlight = "release_in_flight"
 )
 
-var MergeHoldResources = []string{ResourceDeployOrder, ResourceBeforeDeploy, ResourceDeliveryProfile, ResourceDeployEnv}
+var MergeHoldResources = []string{ResourceDeployOrder, ResourceBeforeDeploy, ResourceDeliveryProfile, ResourceDeployEnv, ResourceReleaseInFlight}
 
 func IsMergeHold(resource string) bool {
 	for _, r := range MergeHoldResources {
