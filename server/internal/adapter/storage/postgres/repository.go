@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1671,13 +1672,11 @@ func (s *BoardTaskStore) ListBlockedByResource(ctx context.Context, resource str
 	// The rows still read 'blocked'; callers dispatch off Column to pick the
 	// agents for the stage, exactly as TakeBlockedByResource restores it. A
 	// work_order park never wrote 'blocked' in the first place — restoring it
-	// here would report an in_progress task as todo, and a merge hold leaves
-	// its task in done — only a row that really reads 'blocked' is restored.
-	if resource != domain.ResourceWorkOrder {
+	// here would report an in_progress task as todo. Neither does a merge
+	// hold: its task stays in done.
+	if resource != domain.ResourceWorkOrder && !slices.Contains(domain.MergeHoldResources, resource) {
 		for i := range tasks {
-			if tasks[i].Column == domain.TaskColumnBlocked {
-				tasks[i].Column = restoreBlockedOriginColumn(tasks[i])
-			}
+			tasks[i].Column = restoreBlockedOriginColumn(tasks[i])
 		}
 	}
 	return tasks, nil
