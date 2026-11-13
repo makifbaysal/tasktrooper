@@ -3,7 +3,6 @@ package database_test
 import (
 	"context"
 	"net/url"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,20 +25,14 @@ func TestIssueSyncMigrationConvergesAnEarlierIssueLinksTable(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	dir := t.TempDir()
-	pg, err := database.StartEmbedded(ctx, database.EmbeddedConfig{
-		DataDir: filepath.Join(dir, "postgres"),
-		// Its own runtime path: test binaries extracting into the shared cache
-		// race each other.
-		RuntimePath: filepath.Join(dir, "runtime"),
-	})
-	require.NoError(t, err)
-	defer func() { _ = pg.Stop() }()
+	pg := sharedPostgres(t)
 	boot, err := pgxpool.New(ctx, pg.DSN())
 	require.NoError(t, err)
 	defer boot.Close()
-	// StartEmbedded already migrated its own database all the way; this test
+	// The shared cluster's own database is migrated all the way; this test
 	// needs one stopped at 182.
+	_, err = boot.Exec(ctx, `DROP DATABASE IF EXISTS issue_sync_migration WITH (FORCE)`)
+	require.NoError(t, err)
 	_, err = boot.Exec(ctx, `CREATE DATABASE issue_sync_migration`)
 	require.NoError(t, err)
 	u, err := url.Parse(pg.DSN())

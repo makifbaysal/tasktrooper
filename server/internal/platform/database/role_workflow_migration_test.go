@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"sort"
 	"sync/atomic"
 	"testing"
@@ -43,12 +42,7 @@ func TestRoleWorkflowMigrationSuite(t *testing.T) {
 
 func (s *RoleWorkflowMigrationSuite) SetupSuite() {
 	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
-	tmp := s.T().TempDir()
-	pg, err := database.StartEmbedded(s.ctx, database.EmbeddedConfig{
-		DataDir:     filepath.Join(tmp, "postgres"),
-		RuntimePath: filepath.Join(tmp, "runtime"),
-	})
-	s.Require().NoError(err)
+	pg := sharedPostgres(s.T())
 	s.pg = pg
 	boot, err := pgxpool.New(s.ctx, pg.DSN())
 	s.Require().NoError(err)
@@ -58,9 +52,6 @@ func (s *RoleWorkflowMigrationSuite) SetupSuite() {
 func (s *RoleWorkflowMigrationSuite) TearDownSuite() {
 	if s.boot != nil {
 		s.boot.Close()
-	}
-	if s.pg != nil {
-		_ = s.pg.Stop()
 	}
 	if s.cancel != nil {
 		s.cancel()
