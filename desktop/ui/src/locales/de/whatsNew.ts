@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Sieh nach, was sich in der neuesten Version von TaskTrooper geändert hat.",
     open: "Neuigkeiten anzeigen",
   },
+  v0_3_17: {
+    title: "Gehostete Vorschauen zuerst, Screenshots, die Agenten sehen, kein QA-Pingpong mehr",
+    items: {
+      hostedPreview: "Hat der Pull Request einer Aufgabe eine fertige gehostete Vorschau (Vercel), öffnet das Vorschau-Panel zuerst diese, statt einen lokalen Lauf zu starten.",
+      chatImages: "Screenshots, die du im Agenten-Chat anhängst, erreichen jetzt Agenten auf Claude Code, opencode, Cursor und Antigravity, sodass sie lesen können, was darauf zu sehen ist.",
+      qaBlocked: "Kann QA etwas nicht prüfen, weil der Umgebung etwas fehlt (eine Integration, ein Zugang oder ein Gerät), wartet die Aufgabe auf dich, statt zwischen QA und Entwickler hin- und herzuspringen; QA testet unveränderten, bereits abgelehnten Code nicht erneut.",
+    },
+  },
   v0_3_16: {
     title: "Zielgruppentests vor der Arbeit, vergleichende Wiederholungen, vollständige Aufgaben",
     items: {

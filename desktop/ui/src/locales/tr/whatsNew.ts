@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "TaskTrooper'ın son sürümünde nelerin değiştiğini gör.",
     open: "Yenilikleri göster",
   },
+  v0_3_17: {
+    title: "Önce hosted preview, ajanların görebildiği ekran görüntüleri, QA ping-pong'u yok",
+    items: {
+      hostedPreview: "Bir görevin pull request'inde hazır bir hosted preview (Vercel) varsa preview paneli lokal çalıştırma başlatmak yerine önce onu açıyor.",
+      chatImages: "Ajan sohbetine eklediğin ekran görüntüleri artık Claude Code, opencode, Cursor ve Antigravity üzerinde çalışan ajanlara ulaşıyor; içindekini okuyabiliyorlar.",
+      qaBlocked: "QA bir şeyi ortamda eksik olduğu için (entegrasyon, credential ya da cihaz) doğrulayamazsa görev QA ile geliştirici arasında gidip gelmek yerine seni bekliyor; QA değişmeden geri gelen, zaten reddettiği kodu tekrar test etmiyor.",
+    },
+  },
   v0_3_16: {
     title: "İşten önce audience testi, karşılaştıran tekrar çalıştırmalar, eksiksiz görevler",
     items: {

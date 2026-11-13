@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "查看 TaskTrooper 最新版本的更新内容。",
     open: "显示新功能",
   },
+  v0_3_17: {
+    title: "优先托管预览、代理能看到截图、不再在 QA 间来回",
+    items: {
+      hostedPreview: "当任务的拉取请求已有就绪的托管预览（Vercel）时，预览面板会先打开它，而不是启动本地运行。",
+      chatImages: "你在代理聊天中附加的截图现在会传给运行在 Claude Code、opencode、Cursor 和 Antigravity 上的代理，它们能读取截图内容。",
+      qaBlocked: "当 QA 因环境缺少某样东西（集成、凭据或设备）而无法验证时，任务会等待你处理，而不是在 QA 和开发者之间来回；QA 不再重新测试它已拒绝且未改动的代码。",
+    },
+  },
   v0_3_16: {
     title: "开工前先做受众测试、可对比的重跑、完整的任务",
     items: {

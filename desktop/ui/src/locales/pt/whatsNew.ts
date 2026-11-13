@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Veja o que mudou na versão mais recente do TaskTrooper.",
     open: "Mostrar novidades",
   },
+  v0_3_17: {
+    title: "Prévias hospedadas primeiro, capturas que os agentes veem, sem pingue-pongue de QA",
+    items: {
+      hostedPreview: "Quando o pull request de uma tarefa tem uma prévia hospedada pronta (Vercel), o painel de prévia a abre primeiro em vez de iniciar uma execução local.",
+      chatImages: "As capturas de tela anexadas num chat com agente agora chegam aos agentes que usam Claude Code, opencode, Cursor e Antigravity, que conseguem ler o que mostram.",
+      qaBlocked: "Quando o QA não consegue verificar algo porque falta no ambiente (uma integração, credencial ou dispositivo), a tarefa espera por você em vez de ir e voltar entre QA e desenvolvedor; o QA não testa de novo código já rejeitado e inalterado.",
+    },
+  },
   v0_3_16: {
     title: "Testes com audiência antes do trabalho, novas execuções que comparam, tarefas completas",
     items: {

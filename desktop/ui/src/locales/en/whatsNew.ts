@@ -10,6 +10,14 @@ export const whatsNew = {
     help: "See what changed in the latest version of TaskTrooper.",
     open: "Show what's new",
   },
+  v0_3_17: {
+    title: "Hosted previews first, screenshots agents can see, no more QA ping-pong",
+    items: {
+      hostedPreview: "When a task's pull request has a ready hosted preview (Vercel), the preview panel opens it first instead of starting a local run.",
+      chatImages: "Screenshots you attach in an agent chat now reach agents running on Claude Code, opencode, Cursor and Antigravity, so they can read what's on them.",
+      qaBlocked: "When QA can't verify something because the environment lacks it (an integration, credential or device), the task waits for you instead of bouncing between QA and the developer; QA no longer re-tests code it already rejected unchanged.",
+    },
+  },
   v0_3_16: {
     title: "Audience tests before the work, re-runs that compare, complete tasks",
     items: {

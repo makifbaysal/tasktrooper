@@ -8,6 +8,14 @@ export const whatsNew = {
     help: "Découvrez ce qui a changé dans la dernière version de TaskTrooper.",
     open: "Afficher les nouveautés",
   },
+  v0_3_17: {
+    title: "Aperçus hébergés d'abord, captures que les agents voient, fini le ping-pong QA",
+    items: {
+      hostedPreview: "Quand la pull request d'une tâche a un aperçu hébergé prêt (Vercel), le panneau d'aperçu l'ouvre d'abord au lieu de lancer une exécution locale.",
+      chatImages: "Les captures d'écran jointes dans un chat d'agent atteignent désormais les agents sous Claude Code, opencode, Cursor et Antigravity, qui peuvent lire leur contenu.",
+      qaBlocked: "Quand la QA ne peut pas vérifier quelque chose faute de ressource dans l'environnement (intégration, identifiant ou appareil), la tâche vous attend au lieu de faire des allers-retours entre la QA et le développeur ; la QA ne reteste plus un code déjà rejeté et inchangé.",
+    },
+  },
   v0_3_16: {
     title: "Tests d'audience avant le travail, relances comparées, tâches complètes",
     items: {
