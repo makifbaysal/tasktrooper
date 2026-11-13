@@ -2008,6 +2008,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			WorkspaceRoot: cfg.Storage.Sessions.WorkspaceRoot,
 		})
 		boardKit.LocalPreviews = localPreviewSvc
+		repositorySvc.SetLocalPreview(localPreviewSvc)
 		if boardController != nil && boardRunner != nil && boardTaskStore != nil {
 			boardKit.ChangeRequests = boardapp.NewChangeRequests(boardapp.ChangeRequestDeps{
 				Tasks:       boardTaskStore,
