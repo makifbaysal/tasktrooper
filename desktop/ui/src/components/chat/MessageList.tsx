@@ -19,6 +19,7 @@ import {
   isBackgroundUpdateMessage,
   isQuotaQueuedMessage,
   isRateLimitMessage,
+  LIVE_REASONING_KEY,
   quotaQueuedMessageBody,
   rateLimitMessageBody,
 } from "@/lib/chat";
@@ -34,15 +35,25 @@ const NO_STRINGS: string[] = [];
 const NO_ACTIONS: SessionAction[] = [];
 const NO_QUEUED: QueuedMessage[] = [];
 const NO_REASONING: Record<string, string[]> = {};
+const NO_OPEN: Record<string, boolean> = {};
 
 interface MessageListProps {
   messages: SessionMessage[];
   isAwaitingResponse?: boolean;
+  /**
+   * The stretch the running turn is writing now. Shown as the newest thinking
+   * step, never as the reply: until the turn ends or a tool call follows it,
+   * nothing says whether it is reasoning or the answer, and the answer arrives
+   * as the finished message anyway.
+   */
   streamingContent?: string | null;
-  /** Reasoning the running turn has already closed, shown above the live bubble. */
+  /** Reasoning the running turn has already closed. */
   streamingReasoning?: string[];
   /** Reasoning kept per finished assistant message, folded shut by default. */
   reasoningByMessageId?: Record<string, string[]>;
+  /** Which reasoning blocks are open, by message id or LIVE_REASONING_KEY. */
+  reasoningOpen?: Record<string, boolean>;
+  onReasoningOpenChange?: (key: string, open: boolean) => void;
   /** Board records the agents touched in this session, rendered inline. */
   actions?: SessionAction[];
   onOpenTask?: (action: SessionAction) => void;
@@ -62,6 +73,8 @@ export const MessageList = memo(function MessageList({
   streamingContent = null,
   streamingReasoning = NO_STRINGS,
   reasoningByMessageId = NO_REASONING,
+  reasoningOpen = NO_OPEN,
+  onReasoningOpenChange,
   actions = NO_ACTIONS,
   onOpenTask,
   onSubmitClarification,
@@ -72,6 +85,10 @@ export const MessageList = memo(function MessageList({
   const { t } = useI18n();
   const [showAll, setShowAll] = useState(false);
   const showStreamingBubble = isAwaitingResponse || streamingContent !== null;
+  const liveSegments = useMemo(
+    () => (streamingContent?.trim() ? [...streamingReasoning, streamingContent] : streamingReasoning),
+    [streamingReasoning, streamingContent],
+  );
 
   const { byMessageId, trailing } = useMemo(
     () => groupActionsByMessage(messages, actions),
@@ -112,6 +129,8 @@ export const MessageList = memo(function MessageList({
           key={message.id}
           message={message}
           reasoning={reasoningByMessageId[message.id] ?? NO_STRINGS}
+          reasoningOpen={reasoningOpen[message.id] ?? false}
+          onReasoningOpenChange={onReasoningOpenChange}
           actions={byMessageId.get(message.id) ?? NO_ACTIONS}
           clarificationAnswer={answers.get(message.id) ?? null}
           onOpenTask={onOpenTask}
@@ -130,16 +149,19 @@ export const MessageList = memo(function MessageList({
         </div>
       )}
 
-      {showStreamingBubble && streamingReasoning.length > 0 && (
-        // Open while the turn runs: this is the only sign of life a long
-        // tool-calling run has, and folding it shut would leave the user
-        // watching a typing dot for minutes.
+      {showStreamingBubble && liveSegments.length > 0 && (
         <div className="flex justify-start">
-          <ReasoningBlock className="w-full max-w-[85%]" segments={streamingReasoning} defaultOpen />
+          <ReasoningBlock
+            className="w-full max-w-[85%]"
+            segments={liveSegments}
+            live
+            open={onReasoningOpenChange ? (reasoningOpen[LIVE_REASONING_KEY] ?? false) : undefined}
+            onOpenChange={onReasoningOpenChange && ((open) => onReasoningOpenChange(LIVE_REASONING_KEY, open))}
+          />
         </div>
       )}
 
-      {showStreamingBubble && <StreamingReply content={streamingContent} />}
+      {showStreamingBubble && <StreamingReply />}
 
       {queued.map((item, index) => (
         <div key={item.id} className="space-y-1">
@@ -184,6 +206,8 @@ export const MessageList = memo(function MessageList({
 interface MessageRowProps {
   message: SessionMessage;
   reasoning: string[];
+  reasoningOpen: boolean;
+  onReasoningOpenChange?: (key: string, open: boolean) => void;
   actions: SessionAction[];
   /** The user's reply to this message's clarification; null while it is open. */
   clarificationAnswer: string | null;
@@ -195,6 +219,8 @@ interface MessageRowProps {
 const MessageRow = memo(function MessageRow({
   message,
   reasoning,
+  reasoningOpen,
+  onReasoningOpenChange,
   actions,
   clarificationAnswer,
   onOpenTask,
@@ -268,7 +294,12 @@ const MessageRow = memo(function MessageRow({
         // Above the reply and outside its bubble: it came first in time,
         // and it is not the answer.
         <div className="flex justify-start">
-          <ReasoningBlock className="w-full max-w-[85%]" segments={reasoning} />
+          <ReasoningBlock
+            className="w-full max-w-[85%]"
+            segments={reasoning}
+            open={onReasoningOpenChange ? reasoningOpen : undefined}
+            onOpenChange={onReasoningOpenChange && ((open) => onReasoningOpenChange(message.id, open))}
+          />
         </div>
       )}
       <div className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}>
@@ -330,7 +361,7 @@ const MessageRow = memo(function MessageRow({
 
 // Not useDeferredValue: AgentChatPage already batches chunks per frame, and a
 // deferred copy lagged the stream and outlived it under the finished message.
-const StreamingReply = memo(function StreamingReply({ content }: { content: string | null }) {
+const StreamingReply = memo(function StreamingReply() {
   const { t } = useI18n();
   return (
     <div className="flex justify-start">
@@ -338,7 +369,7 @@ const StreamingReply = memo(function StreamingReply({ content }: { content: stri
         <div className="mb-1 flex items-center gap-2">
           <span className="text-caption font-medium opacity-80">{t("chatArea.chat.message.assistant")}</span>
         </div>
-        {content ? <MarkdownContent content={content} /> : <TypingIndicator />}
+        <TypingIndicator />
       </div>
     </div>
   );

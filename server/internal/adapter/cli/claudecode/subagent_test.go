@@ -71,6 +71,26 @@ func TestSubAgentStepsCarryParentCallID(t *testing.T) {
 	assert.NotContains(t, iters[3], "parent_call_id")
 }
 
+func TestInitGuardKeepsSubAgentTextOutOfTheChatStream(t *testing.T) {
+	var streamed []string
+	breaks := 0
+	trace := core.NewTrace(context.Background(), "task-1", "claude_code_session", recordedElsewhere, ledgerToolName)
+	guard := &initGuard{
+		sink: newStreamingSink(trace, port.ChatStream{
+			OnText:         func(text string) { streamed = append(streamed, text) },
+			OnSegmentBreak: func() { breaks++ },
+		}),
+		label:  "tt-1",
+		cancel: func() {},
+	}
+
+	_, err := parseStream(strings.NewReader(subagentStream), guard)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"Delegating the survey.", "All done."}, streamed)
+	assert.Equal(t, 1, breaks)
+}
+
 func TestAgentToolAlsoMapsToSubagent(t *testing.T) {
 	assert.Equal(t, "subagent", ledgerToolName("Agent"))
 	assert.Equal(t, "subagent", ledgerToolName("Task"))

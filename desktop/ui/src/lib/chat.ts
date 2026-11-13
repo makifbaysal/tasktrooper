@@ -101,3 +101,9 @@ export function backgroundUpdateSummary(content: string): string {
   const end = body.indexOf("\n\nThis message was sent by the system");
   return (end === -1 ? body : body.slice(0, end)).trim();
 }
+
+/**
+ * Key the running turn's reasoning block files its open state under, until the
+ * turn lands and the state moves to the message it produced.
+ */
+export const LIVE_REASONING_KEY = "live";
