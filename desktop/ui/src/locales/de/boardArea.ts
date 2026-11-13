@@ -191,6 +191,8 @@ export const boardArea = {
         device_free: "Gemeinsame Ressource frei. Aufgabe fortgesetzt.",
         pipeline_loop_parked: "Geparkt: CI blieb für denselben Commit rot, kein neuer Commit kam hinzu",
         review_loop_parked: "Geparkt: wiederholt ohne menschliches Zutun zur Überarbeitung zurückgeschickt",
+        qa_unchanged_reject_parked: "Geparkt: QA hat genau diesen Code bereits abgelehnt, seitdem keine Änderung",
+        review_blocked_parked: "Geparkt: der Prüfer konnte es in seiner Umgebung nicht verifizieren",
         push_workflow_scope: "Geparkt: GitHub hat den Push abgelehnt — dem Token fehlt die Berechtigung workflow",
       },
     },

@@ -211,6 +211,8 @@ export const boardArea = {
         // human_decision parks: no sweeper writes a resume half for these.
         pipeline_loop_parked: "Parked: CI stayed red for the same commit, no new commit arrived",
         review_loop_parked: "Parked: sent back to revision repeatedly without human input",
+        qa_unchanged_reject_parked: "Parked: QA already rejected this exact code, nothing changed since",
+        review_blocked_parked: "Parked: the reviewer could not verify it in its environment",
         push_workflow_scope: "Parked: GitHub refused the push — the token lacks the workflow scope",
       },
     },

@@ -108,3 +108,22 @@ var pipelineBounceNoteLabelKey = prompt.Define("notices.pipeline_bounce_note_lab
 type advisoryChecksCommentInput struct{ Marker, Report string }
 
 var advisoryChecksCommentKey = prompt.Define("notices.advisory_checks_comment", advisoryChecksCommentInput{Marker: "[advisory checks]", Report: "[coverage] overall 81.0%"})
+
+type qaUnchangedRejectCommentInput struct {
+	Column, ShortID string
+	Rejections      []string
+}
+
+var qaUnchangedRejectCommentKey = prompt.Define("notices.qa_unchanged_reject_comment", qaUnchangedRejectCommentInput{Column: "in_qa", ShortID: "x", Rejections: []string{"x"}})
+
+type qaUnchangedRejectDetailInput struct{ ShortID string }
+
+var qaUnchangedRejectDetailKey = prompt.Define("notices.qa_unchanged_reject_detail", qaUnchangedRejectDetailInput{ShortID: "x"})
+
+type reviewBlockedCommentInput struct{ Column, Review string }
+
+var reviewBlockedCommentKey = prompt.Define("notices.review_blocked_comment", reviewBlockedCommentInput{Column: "in_qa", Review: "x"})
+
+type reviewBlockedDetailInput struct{ Column string }
+
+var reviewBlockedDetailKey = prompt.Define("notices.review_blocked_detail", reviewBlockedDetailInput{Column: "in_qa"})

@@ -191,6 +191,8 @@ export const boardArea = {
         device_free: "Ressource partagée libérée. Tâche reprise.",
         pipeline_loop_parked: "En attente : la CI est restée rouge sur le même commit, aucun nouveau commit n'est arrivé",
         review_loop_parked: "En attente : renvoyée en révision à plusieurs reprises sans intervention humaine",
+        qa_unchanged_reject_parked: "En attente : la QA a déjà rejeté exactement ce code, rien n'a changé depuis",
+        review_blocked_parked: "En attente : le relecteur n'a pas pu le vérifier dans son environnement",
         push_workflow_scope: "En attente : GitHub a refusé le push — le jeton n'a pas le scope workflow",
       },
     },

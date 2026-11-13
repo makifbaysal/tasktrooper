@@ -191,6 +191,8 @@ export const boardArea = {
         device_free: "共享资源已释放，任务已恢复。",
         pipeline_loop_parked: "已搁置：同一提交的 CI 持续失败，且没有新提交",
         review_loop_parked: "已搁置：在没有人工介入的情况下被反复退回修改",
+        qa_unchanged_reject_parked: "已搁置：QA 已拒绝过完全相同的代码，此后没有任何改动",
+        review_blocked_parked: "已搁置：审查者无法在其环境中验证",
         push_workflow_scope: "已搁置：GitHub 拒绝了推送 — 令牌缺少 workflow 权限范围",
       },
     },

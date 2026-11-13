@@ -831,6 +831,9 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	if r.skipUnchangedDiffGate(ctx, job, run, taskWorkspace) {
 		return nil
 	}
+	if r.parkUnchangedRejectedDiff(ctx, job, run, taskWorkspace) {
+		return nil
+	}
 
 	skillDelivery := prompt.SkillsInPrompt
 	if flavor, isCLI := cliFlavor(agentRec.ProviderType); isCLI {

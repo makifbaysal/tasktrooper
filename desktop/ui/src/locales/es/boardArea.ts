@@ -191,6 +191,8 @@ export const boardArea = {
         device_free: "Recurso compartido liberado. Tarea reanudada.",
         pipeline_loop_parked: "En espera: la CI siguió en rojo para el mismo commit y no llegó ningún commit nuevo",
         review_loop_parked: "En espera: devuelta a corrección repetidamente sin intervención humana",
+        qa_unchanged_reject_parked: "En espera: QA ya rechazó exactamente este código y nada ha cambiado desde entonces",
+        review_blocked_parked: "En espera: el revisor no pudo verificarlo en su entorno",
         push_workflow_scope: "En espera: GitHub rechazó el push — al token le falta el permiso workflow",
       },
     },
